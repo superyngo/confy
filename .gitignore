@@ -1,0 +1,11 @@
+# Rust
+/target
+**/*.rs.bk
+Cargo.lock
+
+# Planning scratch (agd dispatch output)
+/docs/tmp/
+
+# OS / editor
+.DS_Store
+*.swp
