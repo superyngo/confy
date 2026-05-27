@@ -140,15 +140,15 @@ save    : Document.serialize() -> write to disk (round-trip preserved)
 | Key | confy behavior |
 |-----|----------------|
 | `j`/`k`, `↑`/`↓`, PgUp/PgDn, Home/End | Move on visible-rows |
-| `Enter`/`Space` | Branch node: expand/collapse; Leaf node: open read-only **Detail** view (path / type / value / attached comments) |
+| `Enter`/`Space` | Branch node: expand/collapse; Leaf node: open read-only **Detail** view (path / type / value / trailing comment if any) |
 | `0` / `9` | Collapse / expand all Branch nodes |
 | `s` | Toggle select Node |
 | `Shift+↑`/`↓` | Range select (over the flat visible sequence) |
 | `e` | Edit: hand the Node's raw TOML fragment to `$EDITOR`, re-parse on return, validate, apply (see §8) |
-| `n` | New: empty `$EDITOR` buffer; write arbitrary TOML; insert into cursor's parent scope as a sibling after the cursor; validate before insert — on parse/type error, show error and do **not** save |
+| `n` | New: empty `$EDITOR` buffer; write arbitrary TOML; insert at the **insertion target** (§6.1); validate before insert — on parse/type error, show error and do **not** save |
 | `d` | Delete Node (a Branch node deletes its whole subtree) |
-| `x` / `c` / `v` | Cut / copy / paste; unit = Node (a Branch node carries its subtree); paste lands in cursor's parent scope as a sibling |
-| `m` | Move: reorder among siblings / reparent; applies the key-collision rule |
+| `x` / `c` / `v` | Cut / copy / paste; unit = Node (a Branch node carries its subtree); paste lands at the **insertion target** (§6.1) |
+| `m` | Move: reorder among siblings / reparent; drop point is the **insertion target** (§6.1); applies the key-collision rule |
 | key collision (paste/move into a table already holding that key) | Prompt: **overwrite / rename / cancel** |
 | `r` | Toggle remark: comment ⇄ uncomment the whole Node, wenv-style (see §7) |
 | `z` / `y` | Undo / redo (multi-step, full-document snapshots) |
@@ -160,6 +160,39 @@ save    : Document.serialize() -> write to disk (round-trip preserved)
 CLI surface for the MVP is just `confy <file>`. A non-`.toml` path produces a clear
 "format not yet supported" error. `--format` may override extension-based detection.
 
+### 6.1 Insertion target (shared by `n` / `v` / `m`)
+
+`n`, `v`, and `m` all resolve their destination through one rule, based on the cursor Node's
+kind and expanded state:
+
+| Cursor is on | Inserts as |
+|--------------|------------|
+| **Leaf node** | a **sibling immediately after** the cursor, in the cursor's Parent |
+| **Branch node, expanded** | the **first Child** of that Branch (goes inside it) |
+| **Branch node, collapsed** | a **sibling immediately after** it (treated as a unit) |
+| **Root** | same as an expanded Branch — the first top-level Child |
+
+Rationale: *expanded = "I'm looking inside, put it in"; collapsed = "treat it as one unit, put
+it after."* This also resolves the **empty-table** case: to add the first key into an empty
+`[server]`, expand it, place the cursor on it (expanded, no children), and insert — the new
+Node becomes its first Child. For `m`, reparenting is just moving the cursor to the target
+Branch (expanded) before dropping.
+
+### 6.2 Multi-select & clipboard normalization
+
+`s` and `Shift+↑/↓` select a **contiguous run on the flat visible sequence**, which may span
+different depths and Parents (matching wenv's flat-range model). Before any operation acts on a
+selection it is **normalized**:
+
+- If both an ancestor and one of its descendants are selected, the **descendant is dropped** —
+  it already travels with the ancestor's subtree.
+
+On `v` (paste) or `m` (move), the normalized Nodes — each carrying its subtree — are inserted
+**sequentially at the insertion target (§6.1), becoming siblings of the target's Parent**. The
+original cross-Parent grouping is **not** preserved; a heterogeneous selection is flattened
+into the destination. The key-collision rule (overwrite / rename / cancel) is applied per Node.
+This makes "gather scattered settings into one table" an intentional, user-controlled outcome.
+
 ## 7. Remark (`r`) — Comment-as-Node Model
 
 confy adopts wenv's model (adapted to a tree): **a standalone comment line is a first-class
@@ -167,6 +200,11 @@ Leaf node** (`NodeKind::Comment`). This removes any need for a sentinel marker o
 "disabled-node" registry — a disabled setting is simply *a comment that happens to be valid
 TOML*, and it round-trips across sessions naturally because it is stored as an ordinary
 comment.
+
+**Standalone vs trailing comments:** only a comment that occupies its own line becomes a
+Comment node. A **trailing comment** (`port = 8080  # http`) is decor belonging to its Node —
+it is not a separate node, travels with the Node on edit/remark/move, and appears in that
+Node's Detail view. `r` therefore never targets a trailing comment directly.
 
 `r` behavior:
 

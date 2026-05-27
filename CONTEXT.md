@@ -40,11 +40,18 @@ Standard tree relationships between **Nodes**. Siblings share a Parent and a key
 A **Leaf node** holding a typed TOML value — string, integer, float, bool, or datetime.
 
 **Comment**:
-A standalone comment line surfaced as a first-class **Leaf node**. A "disabled" setting is just
-a Comment whose text happens to be valid TOML; toggling it (see _Remark_) re-parses it back into
-a live Node.
+A **standalone** comment line (occupies its own line) surfaced as a first-class **Leaf node**.
+Navigable, selectable, remarkable, and movable like any Node. A "disabled" setting is just a
+Comment whose text happens to be valid TOML; toggling it (see _Remark_) re-parses it back into a
+live Node.
 _Avoid_: Disabled entry, ghost node — these were earlier names for the same idea; the canonical
 concept is "a Comment that is valid TOML".
+
+**Trailing comment**:
+An end-of-line comment that shares a line with a value (`port = 8080  # http`). It is **not** a
+Node — it is decoration belonging to that Node, travels with it on edit/remark/move, and is shown
+in the Node's Detail view. Only standalone comments become **Comment** Nodes.
+_Avoid_: Inline comment node (it is never a node), suffix comment.
 
 ### Operations & projection
 
