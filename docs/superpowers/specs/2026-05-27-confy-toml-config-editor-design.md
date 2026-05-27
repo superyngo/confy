@@ -56,6 +56,9 @@ format-agnostic and shared.
 trait ConfigDocument {
     fn load(path: &Path) -> Result<Self> where Self: Sized;
     fn project(&self) -> NodeTree;
+    /// Apply a mutation. Implementations MUST return `Err` for mutations the format
+    /// does not support (e.g. `Remark` on JSON, which has no comments) rather than
+    /// panicking or silently no-op'ing; callers surface the error to the user.
     fn apply(&mut self, op: Mutation) -> Result<()>;
     fn serialize(&self) -> String;
     fn is_dirty(&self) -> bool;
@@ -123,6 +126,12 @@ struct Node {
   `NodeKind` has a dedicated `Root` variant — the Root is not a Table or Scalar.)
 - **Arrays** are Branch nodes with index-labelled children; **array-of-tables** is a Branch
   node with repeated table children; **inline tables** are Branch nodes.
+- **Inline tables** (`server = { host = "x", port = 8080 }`) are Branch nodes that **expand
+  in-tree for viewing** (children are navigable rows), but structural mutation (`n`/`v`/`m`)
+  **into** an inline table is not supported in the MVP — `toml_edit`'s inline-table mutation
+  API differs from regular tables. To change an inline table's contents, `e`-edit the whole
+  `{ ... }` fragment (or its parent). The inline table can still be copied / remarked / moved
+  as a whole Node.
 - **Dotted keys** (`a.b.c = 1` written as a single line) project as a **single Leaf node**
   whose key is the literal dotted text `a.b.c`. They are **not** logically merged into a
   same-named header table elsewhere. This keeps round-trip trivial (the dotted line is
@@ -160,7 +169,7 @@ save    : Document.serialize() -> write to disk (round-trip preserved)
 | `n` | New: empty `$EDITOR` buffer; write arbitrary TOML; insert at the **insertion target** (§6.1); validate before insert — on parse/type error, show error and do **not** save |
 | `d` | Delete Node (a Branch node deletes its whole subtree) |
 | `x` / `c` / `v` | Cut / copy / paste; unit = Node (a Branch node carries its subtree); paste lands at the **insertion target** (§6.1) |
-| `m` | Move: reorder among siblings / reparent; drop point is the **insertion target** (§6.1); applies the key-collision rule |
+| `m` | Move (two-step, mirrors wenv): first press marks the cursor Node (or current selection) as the move source and enters **move-pending** mode; the user navigates to a destination; the second `m` drops at the **insertion target** (§6.1) and applies the key-collision rule. `Esc` aborts a pending move with no change |
 | key collision (paste/move into a table already holding that key) | Prompt: **overwrite / rename / cancel** |
 | `r` | Toggle remark: comment ⇄ uncomment the whole Node, wenv-style (see §7) |
 | `z` / `y` | Undo / redo (multi-step, full-document snapshots). One snapshot per **user action** — `z` reverses the whole action atomically regardless of how many Nodes it touched (a multi-Node paste, including its collision resolutions, is one step). Only document-mutating actions push the undo stack; navigation, expand/collapse, selection, and filter are UI state and are **not** undoable |
@@ -221,9 +230,13 @@ Node's Detail view. `r` therefore never targets a trailing comment directly.
 `r` behavior:
 
 - **Live Node → comment:** prefix each line of the Node's text with `# `; the Node becomes a
-  `NodeKind::Comment` Leaf node.
-- **Comment → live Node:** strip the leading `# `, parse the remainder as a TOML fragment.
-  - If it parses as valid TOML → replace the Comment node with the resulting live Node(s).
+  single `NodeKind::Comment` Leaf node. For a **Branch node**, the Comment string contains the
+  entire commented-out subtree (the header line and all descendant lines). The Comment's `key`
+  field is its first non-`#` line, truncated for display.
+- **Comment → live Node:** strip the leading `# ` from every line, parse the remainder as a
+  TOML fragment.
+  - If it parses as valid TOML → replace the Comment node with the resulting live Node(s) at
+    the same position (a commented Branch may re-expand into multiple Nodes).
   - If it does **not** parse (e.g. `# just prose`) → show "not valid TOML, kept as comment"
     and leave it commented.
 
@@ -237,7 +250,30 @@ strings on the prefix/suffix of items), not as iterable nodes. The projector mus
 leading-comment lines from each item's `decor().prefix()` and emit them as sibling `Comment`
 entries; mutations must write comment entries back into the appropriate decor. This
 "decor ⇄ comment-node" mapping is the principal implementation risk of the chosen approach.
-It is bounded but must be covered thoroughly by tests (§10).
+§7.1 makes it an explicit, testable checklist rather than an open-ended risk.
+
+### 7.1 Comment ⇄ Decor mapping rules
+
+Every standalone Comment node maps to exactly one `toml_edit` storage location. The projector
+reads these to emit Comment nodes; mutations write back to them. Each row has a §10 fixture.
+
+| File position of the comment | `toml_edit` storage | Comment node placement |
+|------------------------------|---------------------|------------------------|
+| Before an item | that item's `decor().prefix()` | sibling immediately before the item |
+| Between two items | the **following** item's `decor().prefix()` | sibling between them |
+| After the last key, before a later table header | the following Table's `decor().prefix()` | sibling at the end of the current scope |
+| End of document, no following item | `DocumentMut::trailing()` | last sibling at top level |
+| Very start of document | first item's `decor().prefix()` (or `DocumentMut`'s leading decor if no items) | first top-level sibling |
+
+Edge cases the implementer must handle (each gets a fixture):
+
+- **Remark of the only item in a table:** removing the sole key destroys the only prefix
+  carrier, so the resulting comment text is written to the table header's decor (or, for a
+  top-level-only file, to `DocumentMut::trailing()`).
+- **Comment-only file** (no key/value pairs): all comments live in leading decor / `trailing()`
+  and must round-trip byte-identically (§2).
+- When a prefix decor holds **multiple** standalone comment lines, each becomes its own Comment
+  node, preserving order and any blank lines between them as decor.
 
 ## 8. Editing & Write-Back Validation (`e` and `n`)
 
@@ -270,8 +306,9 @@ is no separate type picker.
   - Projection: Document → NodeTree for tables, nested tables, arrays, array-of-tables,
     inline tables, scalars of each type, and standalone comments.
   - Fragment parse/validate for `e`/`n`, including rejection paths.
-  - Remark toggle round-trip, including the non-TOML-comment rejection path and the
-    decor ⇄ comment-node mapping.
+  - Remark toggle round-trip, including the non-TOML-comment rejection path, Branch-node
+    remark (whole subtree), and **one fixture per §7.1 mapping row** plus the three edge cases
+    (only-item-in-table, comment-only file, multi-comment prefix).
   - Key-collision resolution (overwrite / rename / cancel).
 - **TUI logic tests** (mirroring wenv's `tui_logic_tests`): effect of each operation on the
   tree and selection.
