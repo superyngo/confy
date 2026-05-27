@@ -26,7 +26,7 @@ impl ConfigDocument for TomlDocument {
     }
 
     fn project(&self) -> NodeTree {
-        NodeTree { root: Node::branch(self.filename.clone(), NodeKind::Root) }
+        crate::model::project::project(&self.doc, &self.filename)
     }
 
     fn serialize(&self) -> String {
