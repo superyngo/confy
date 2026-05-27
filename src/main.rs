@@ -1,3 +1,5 @@
-fn main() {
-    println!("confy — TUI config editor (skeleton)");
+use anyhow::Result;
+
+fn main() -> Result<()> {
+    confy::cli::run()
 }

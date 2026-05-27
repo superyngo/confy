@@ -7,10 +7,21 @@ description = "A TUI editor for structured config files (TOML first; YAML/JSON p
 license = "MIT"
 repository = "https://github.com/superyngo/confy"
 
-# NOTE: dependency set is provisional — finalized during planning.
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
+thiserror = "1"
+toml_edit = "0.22"
+ratatui = "0.28"
+crossterm = "0.28"
+fuzzy-matcher = "0.3"
+tempfile = "3"
+dirs = "5"
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"
 
 [profile.release]
 opt-level = 'z'
