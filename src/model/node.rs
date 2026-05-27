@@ -37,10 +37,22 @@ pub struct Node {
 
 impl Node {
     pub fn branch(key: impl Into<String>, kind: NodeKind) -> Self {
+        debug_assert!(
+            matches!(
+                kind,
+                NodeKind::Root | NodeKind::Table | NodeKind::ArrayOfTables
+                    | NodeKind::Array | NodeKind::InlineTable
+            ),
+            "Node::branch called with a leaf kind"
+        );
         Node { key: key.into(), path: Vec::new(), kind, children: Vec::new() }
     }
 
     pub fn leaf(key: impl Into<String>, kind: NodeKind) -> Self {
+        debug_assert!(
+            matches!(kind, NodeKind::Scalar(_) | NodeKind::Comment(_)),
+            "Node::leaf called with a branch kind"
+        );
         Node { key: key.into(), path: Vec::new(), kind, children: Vec::new() }
     }
 
