@@ -123,9 +123,21 @@ struct Node {
   `NodeKind` has a dedicated `Root` variant — the Root is not a Table or Scalar.)
 - **Arrays** are Branch nodes with index-labelled children; **array-of-tables** is a Branch
   node with repeated table children; **inline tables** are Branch nodes.
+- **Dotted keys** (`a.b.c = 1` written as a single line) project as a **single Leaf node**
+  whose key is the literal dotted text `a.b.c`. They are **not** logically merged into a
+  same-named header table elsewhere. This keeps round-trip trivial (the dotted line is
+  preserved verbatim) and sidesteps TOML's table-redefinition rules. Header tables (`[a.b]`,
+  `[[a.b]]`) and inline tables still expand into nested Branch nodes, so multi-level toggle
+  holds for the common forms. (Logical expansion of dotted keys is a possible future
+  enhancement — see §11.)
 - **Rendering:** the tree is flattened into an ordered list of *visible rows* honoring each
   Branch node's expanded/collapsed state. Navigation and selection operate on this flat
   sequence (same flattening model as wenv).
+- **Array elements** display with index labels (`[0]`, `[1]`, …) since they have no key.
+- **Blank lines** are whitespace decor preserved by `toml_edit`; they are **not** Nodes (they
+  are not navigable and never merge into a Node — unlike wenv; see §11).
+- **Detail view is Leaf-only.** `Enter`/`Space` on a Branch node only expands/collapses it;
+  Branch nodes have no Detail view.
 
 ## 5. Data Flow
 
@@ -151,8 +163,8 @@ save    : Document.serialize() -> write to disk (round-trip preserved)
 | `m` | Move: reorder among siblings / reparent; drop point is the **insertion target** (§6.1); applies the key-collision rule |
 | key collision (paste/move into a table already holding that key) | Prompt: **overwrite / rename / cancel** |
 | `r` | Toggle remark: comment ⇄ uncomment the whole Node, wenv-style (see §7) |
-| `z` / `y` | Undo / redo (multi-step, full-document snapshots) |
-| `/` | Fuzzy filter over dotted key-paths; matching Nodes and their ancestors stay visible |
+| `z` / `y` | Undo / redo (multi-step, full-document snapshots). One snapshot per **user action** — `z` reverses the whole action atomically regardless of how many Nodes it touched (a multi-Node paste, including its collision resolutions, is one step). Only document-mutating actions push the undo stack; navigation, expand/collapse, selection, and filter are UI state and are **not** undoable |
+| `/` | Fuzzy filter; per-Node haystack = dotted key-path **plus** the Node's own visible text (Leaf: scalar value as text; Comment: comment text; Branch: key-path only). Matching Nodes and their ancestors stay visible |
 | `w` / `Ctrl+s` | Save all changes (only writes when dirty) |
 | `q` | Quit (confirm if dirty) |
 | `?` | Show help |
@@ -275,3 +287,6 @@ is no separate type picker.
 - **wenv's "entries combine" merging** — wenv merges a preceding comment / blank line into the
   following structured entry as one entry. Deliberately excluded from this MVP; recorded here
   to evaluate adopting an equivalent later for confy.
+- **Logical expansion of dotted keys** — projecting `a.b.c = 1` into nested Branch nodes
+  (rather than one literal `a.b.c` Leaf) so the tree is structurally uniform. Excluded from MVP
+  for round-trip safety (§4).
