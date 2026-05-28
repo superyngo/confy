@@ -2,6 +2,7 @@ pub mod app;
 pub mod editor;
 pub mod insertion;
 pub mod keys;
+pub mod search;
 pub mod selection;
 pub mod state;
 pub mod ui;
@@ -85,6 +86,35 @@ fn run_event_loop(
                 }
                 continue;
             }
+            // Filter mode: capture chars for the filter string, Esc clears.
+            if matches!(app.mode, crate::tui::state::Mode::Filter) {
+                match key.code {
+                    crossterm::event::KeyCode::Char(c) => app.filter_char(c),
+                    crossterm::event::KeyCode::Backspace => app.filter_backspace(),
+                    crossterm::event::KeyCode::Esc => app.escape(),
+                    _ => {}
+                }
+                continue;
+            }
+            // Detail view: Esc or Enter/Space dismisses.
+            if matches!(app.mode, crate::tui::state::Mode::Detail) {
+                match key.code {
+                    crossterm::event::KeyCode::Esc
+                    | crossterm::event::KeyCode::Enter
+                    | crossterm::event::KeyCode::Char(' ') => app.escape(),
+                    _ => {}
+                }
+                continue;
+            }
+            // Help overlay: Esc or ? dismisses.
+            if matches!(app.mode, crate::tui::state::Mode::Help) {
+                match key.code {
+                    crossterm::event::KeyCode::Esc
+                    | crossterm::event::KeyCode::Char('?') => app.escape(),
+                    _ => {}
+                }
+                continue;
+            }
             match keys::map_key(key) {
                 keys::KeyAction::CursorDown => app.cursor_down(),
                 keys::KeyAction::CursorUp => app.cursor_up(),
@@ -93,8 +123,15 @@ fn run_event_loop(
                 keys::KeyAction::Home => app.cursor_home(),
                 keys::KeyAction::End => app.cursor_end(),
                 keys::KeyAction::ToggleExpand => {
-                    app.toggle_expand();
-                    app.rebuild_rows();
+                    // Enter/Space: branch toggles expand, leaf opens detail.
+                    if let Some(r) = app.rows.get(app.cursor) {
+                        if r.is_branch {
+                            app.toggle_expand();
+                            app.rebuild_rows();
+                        } else {
+                            app.open_detail();
+                        }
+                    }
                 }
                 keys::KeyAction::CollapseAll => {
                     app.collapse_all();
@@ -143,6 +180,8 @@ fn run_event_loop(
                 keys::KeyAction::Undo => app.undo(),
                 keys::KeyAction::Redo => app.redo(),
                 keys::KeyAction::Escape => app.escape(),
+                keys::KeyAction::Filter => app.enter_filter(),
+                keys::KeyAction::Help => app.enter_help(),
                 keys::KeyAction::Noop => {}
             }
         }

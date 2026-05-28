@@ -25,6 +25,8 @@ pub enum KeyAction {
     Redo,
     Escape,
     Quit,
+    Filter,
+    Help,
     Noop,
 }
 
@@ -54,6 +56,24 @@ pub fn map_key(key: KeyEvent) -> KeyAction {
         (KeyCode::Char('y'), _) => KeyAction::Redo,
         (KeyCode::Esc, _) => KeyAction::Escape,
         (KeyCode::Char('q'), _) => KeyAction::Quit,
+        (KeyCode::Char('/'), _) => KeyAction::Filter,
+        (KeyCode::Char('?'), _) => KeyAction::Help,
         _ => KeyAction::Noop,
     }
+}
+
+/// Keybinding help text, displayed in the `?` overlay.
+pub fn help_text() -> &'static str {
+    "\
+ j/k/Arrows  Move cursor       PgUp/PgDn  Page up/down
+ Home/End     First/last row    0/9         Collapse/expand all
+ Enter/Space  Expand branch or open leaf detail
+ s            Toggle select     Shift+Up/Dn Range select
+ e            Edit in $EDITOR  n           New node
+ d            Delete            x/c/v       Cut/copy/paste
+ m            Move (2-press)    r           Remark toggle
+ z/y          Undo/redo         /           Fuzzy filter
+ w/Ctrl+s     Save              q           Quit
+ ?            This help
+ "
 }

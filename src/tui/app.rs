@@ -1,5 +1,6 @@
 use crate::model::document::{ConfigDocument, Mutation, OnCollision, Target};
-use crate::model::node::{NodeTree, Path};
+use crate::model::node::{NodeTree, Path, Seg};
+use crate::tui::search::{fuzzy_match, haystack};
 use crate::tui::selection::Selection;
 use crate::tui::state::{Clipboard, History, Mode, PromptKind};
 use std::collections::HashSet;
@@ -19,6 +20,12 @@ pub struct App {
     pub clipboard: Option<Clipboard>,
     /// Saved sources + target for a move that entered MoveCollision prompt.
     pub pending_move: Option<(Vec<Path>, Target)>,
+    /// Filter state: current filter string. When non-empty, rows are filtered.
+    pub filter: String,
+    /// Set of node paths that match the current filter (including ancestors kept for context).
+    pub filtered_paths: Option<HashSet<Path>>,
+    /// Read-only detail text for the current detail popup.
+    pub detail_text: Option<String>,
 }
 
 #[derive(Clone)]
@@ -52,6 +59,9 @@ impl App {
             mode: Mode::Normal,
             clipboard: None,
             pending_move: None,
+            filter: String::new(),
+            filtered_paths: None,
+            detail_text: None,
         };
         app.rebuild_rows();
         app
@@ -71,11 +81,14 @@ impl App {
             mode: Mode::Normal,
             clipboard: None,
             pending_move: None,
+            filter: String::new(),
+            filtered_paths: None,
+            detail_text: None,
         }
     }
     pub fn rebuild_rows(&mut self) {
         let expanded = &self.expanded;
-        self.rows = self
+        let rows = self
             .tree
             .flatten(&|p| expanded.contains(p))
             .into_iter()
@@ -85,7 +98,15 @@ impl App {
                 depth: r.depth,
                 is_branch: r.node.is_branch(),
             })
-            .collect();
+            .collect::<Vec<_>>();
+        // Apply filter if active: keep rows whose path is in filtered_paths.
+        self.rows = if let Some(ref fp) = self.filtered_paths {
+            rows.into_iter()
+                .filter(|r| fp.contains(&r.path))
+                .collect()
+        } else {
+            rows
+        };
         if self.cursor >= self.rows.len() {
             self.cursor = self.rows.len().saturating_sub(1);
         }
@@ -146,6 +167,114 @@ impl App {
     }
     pub fn is_expanded(&self, path: &Path) -> bool {
         self.expanded.contains(path)
+    }
+
+    // ---- Filter (/) ----
+
+    /// `/` — enter filter mode.
+    pub fn enter_filter(&mut self) {
+        self.filter.clear();
+        self.filtered_paths = None;
+        self.mode = Mode::Filter;
+    }
+
+    /// Feed a character into the active filter.
+    pub fn filter_char(&mut self, c: char) {
+        self.filter.push(c);
+        self.recompute_filter();
+        self.rebuild_rows();
+    }
+
+    /// Backspace in filter mode.
+    pub fn filter_backspace(&mut self) {
+        self.filter.pop();
+        self.recompute_filter();
+        self.rebuild_rows();
+    }
+
+    /// Compute which paths match the current filter string. A node is visible
+    /// if it matches OR is an ancestor of a match (keep context).
+    fn recompute_filter(&mut self) {
+        if self.filter.is_empty() {
+            self.filtered_paths = None;
+            return;
+        }
+        let mut matching: HashSet<Path> = HashSet::new();
+        let mut ancestors: HashSet<Path> = HashSet::new();
+        fn walk(n: &crate::model::node::Node, ancestor_paths: &mut Vec<Path>, matching: &mut HashSet<Path>, ancestors: &mut HashSet<Path>, needle: &str) {
+            let path_keys: Vec<&str> = n.path.iter().filter_map(|s| match s {
+                Seg::Key(k) => Some(k.as_str()),
+                _ => None,
+            }).collect();
+            let leaf_value = if n.is_leaf() { Some(n.key.as_str()) } else { None };
+            let comment = match &n.kind {
+                crate::model::node::NodeKind::Comment(c) => Some(c.as_str()),
+                _ => None,
+            };
+            let h = haystack(&path_keys, leaf_value, comment);
+            if fuzzy_match(&h, needle) {
+                matching.insert(n.path.clone());
+                for anc in ancestor_paths.iter() {
+                    ancestors.insert(anc.clone());
+                }
+            }
+            ancestor_paths.push(n.path.clone());
+            for c in &n.children {
+                walk(c, ancestor_paths, matching, ancestors, needle);
+            }
+            ancestor_paths.pop();
+        }
+        walk(&self.tree.root, &mut Vec::new(), &mut matching, &mut ancestors, &self.filter);
+        matching.extend(ancestors);
+        self.filtered_paths = Some(matching);
+    }
+
+    /// Esc from filter mode clears and restores full view.
+    pub fn exit_filter(&mut self) {
+        self.filter.clear();
+        self.filtered_paths = None;
+        self.mode = Mode::Normal;
+        self.rebuild_rows();
+    }
+
+    // ---- Detail view (Leaf Enter/Space) ----
+
+    /// Enter/Space on a Leaf opens a read-only detail popup.
+    pub fn open_detail(&mut self) {
+        let row = match self.rows.get(self.cursor) {
+            Some(r) => r.clone(),
+            None => return,
+        };
+        if row.is_branch {
+            // Branch Enter toggles expand (existing behavior, handled separately).
+            return;
+        }
+        let path_keys: Vec<String> = row.path.iter().filter_map(|s| match s {
+            Seg::Key(k) => Some(k.clone()),
+            _ => None,
+        }).collect();
+        let dotted = path_keys.join(".");
+        let detail = format!("Path: {dotted}\nKey:  {}", row.key);
+        self.detail_text = Some(detail);
+        self.mode = Mode::Detail;
+    }
+
+    /// Esc from detail view.
+    pub fn exit_detail(&mut self) {
+        self.detail_text = None;
+        self.mode = Mode::Normal;
+    }
+
+    // ---- Help (?) ----
+
+    /// `?` — show help overlay.
+    pub fn enter_help(&mut self) {
+        self.mode = Mode::Help;
+    }
+
+    /// Esc from help overlay.
+    pub fn exit_help(&mut self) {
+        self.mode = Mode::Normal;
     }
 
     /// Toggle selection at the current cursor row (bound to `s`).
@@ -494,11 +623,9 @@ impl App {
                     }
                 }
             }
-            Mode::Prompt(_) => {}
+            Mode::Prompt(_) | Mode::Filter | Mode::Detail | Mode::Help => {}
         }
     }
-
-    /// `Esc` — cancel move-pending or dismiss prompt.
     pub fn escape(&mut self) {
         match &self.mode {
             Mode::MovePending { .. } => {
@@ -511,6 +638,9 @@ impl App {
                 self.pending_move = None;
                 self.status = None;
             }
+            Mode::Filter => self.exit_filter(),
+            Mode::Detail => self.exit_detail(),
+            Mode::Help => self.exit_help(),
             Mode::Normal => {}
         }
     }

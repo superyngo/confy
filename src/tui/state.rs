@@ -4,6 +4,9 @@ pub enum Mode {
     Normal,
     MovePending { sources: Vec<Path> },
     Prompt(PromptKind),
+    Filter,
+    Detail,
+    Help,
 }
 
 pub enum PromptKind {
