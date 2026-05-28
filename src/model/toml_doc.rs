@@ -112,4 +112,24 @@ mod tests {
         assert_eq!(doc.serialize().trim(), "");
         assert!(doc.is_dirty());
     }
+
+    #[test]
+    fn delete_dotted_key_navigates_implicit_tables() {
+        // The projector emits multi-segment paths for dotted keys; the resolver
+        // must walk the implicit tables (get_mut + as_table_mut) to reach the leaf.
+        use crate::model::document::Mutation;
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("a.b.c = 1\na.b.d = 2\n");
+        doc.apply(Mutation::Delete {
+            path: vec![
+                Seg::Key("a".into()),
+                Seg::Key("b".into()),
+                Seg::Key("c".into()),
+            ],
+        })
+        .unwrap();
+        assert!(!doc.serialize().contains("a.b.c"));
+        // sibling dotted key under the same implicit table survives
+        assert!(doc.serialize().contains("a.b.d = 2"));
+    }
 }
