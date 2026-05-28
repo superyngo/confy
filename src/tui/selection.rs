@@ -21,6 +21,12 @@ pub struct Selection {
     pub anchor: Option<usize>,
 }
 
+impl Default for Selection {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Selection {
     pub fn new() -> Self {
         Selection {

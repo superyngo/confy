@@ -108,10 +108,8 @@ impl App {
     }
     pub fn toggle_expand(&mut self) {
         if let Some(r) = self.rows.get(self.cursor) {
-            if r.is_branch {
-                if !self.expanded.remove(&r.path) {
-                    self.expanded.insert(r.path.clone());
-                }
+            if r.is_branch && !self.expanded.remove(&r.path) {
+                self.expanded.insert(r.path.clone());
             }
         }
     }
@@ -309,7 +307,7 @@ impl App {
         }
         let mut paths = paths;
         // Reverse path order (longer first) so deletions don't invalidate later paths.
-        paths.sort_by(|a, b| b.len().cmp(&a.len()));
+        paths.sort_by_key(|b| std::cmp::Reverse(b.len()));
         let doc = match self.doc.as_mut() {
             Some(d) => d,
             None => return,
@@ -435,7 +433,7 @@ impl App {
         // If cut, delete source nodes after successful paste.
         if is_cut {
             let mut sorted_sources = sources;
-            sorted_sources.sort_by(|a, b| b.len().cmp(&a.len()));
+            sorted_sources.sort_by_key(|b| std::cmp::Reverse(b.len()));
             for src in &sorted_sources {
                 if let Err(e) = doc.apply(Mutation::Delete { path: src.clone() }) {
                     self.status = Some(format!("cut-delete error: {e}"));
@@ -588,7 +586,8 @@ impl App {
                 let oc = match c {
                     'o' => OnCollision::Overwrite,
                     'r' => OnCollision::Rename,
-                    'c' | _ => OnCollision::Cancel,
+                    // 'c' or any other key cancels.
+                    _ => OnCollision::Cancel,
                 };
                 if !matches!(c, 'o' | 'r') {
                     // Cancel
@@ -625,15 +624,15 @@ impl App {
                     self.mode = Mode::Normal;
                     self.clipboard = None;
                     self.status = None;
-                    return PromptOutcome::Quit;
+                    PromptOutcome::Quit
                 }
                 'n' => {
                     self.mode = Mode::Normal;
                     self.clipboard = None;
                     self.status = None;
-                    return PromptOutcome::Consumed;
+                    PromptOutcome::Consumed
                 }
-                _ => return PromptOutcome::Consumed,
+                _ => PromptOutcome::Consumed,
             },
             Mode::Prompt(PromptKind::MoveCollision { .. }) => {
                 let on_collision = match c {
