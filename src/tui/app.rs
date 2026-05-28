@@ -98,4 +98,20 @@ mod tests {
         app.rebuild_rows();
         assert_eq!(app.visible_keys(), vec!["f.toml", "a", "b"]);
     }
+
+    #[test]
+    fn expand_all_reveals_all_descendants() {
+        // `9` expands every branch at all depths; `0` collapses back.
+        let mut app = sample();
+        app.expand_all();
+        app.rebuild_rows();
+        assert_eq!(app.visible_keys(), vec!["f.toml", "a", "x", "b"]);
+        // round-trip symmetry: collapse_all then expand_all returns to full view
+        app.collapse_all();
+        app.rebuild_rows();
+        assert_eq!(app.visible_keys(), vec!["f.toml", "a", "b"]);
+        app.expand_all();
+        app.rebuild_rows();
+        assert_eq!(app.visible_keys(), vec!["f.toml", "a", "x", "b"]);
+    }
 }

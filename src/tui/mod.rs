@@ -8,14 +8,23 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use std::path::PathBuf;
+use std::path::Path;
 
-pub fn run(path: &PathBuf) -> Result<()> {
+pub fn run(path: &Path) -> Result<()> {
     use crate::model::document::ConfigDocument;
     let doc = crate::model::toml_doc::TomlDocument::load(path)?;
     let tree = doc.project();
     let mut app = app::App::from_tree(tree);
     app.rebuild_rows();
+
+    // Restore the terminal even if the event loop panics, so a crash never
+    // leaves the user's shell stuck in raw mode / the alternate screen.
+    let prev_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let _ = disable_raw_mode();
+        let _ = execute!(std::io::stdout(), LeaveAlternateScreen);
+        prev_hook(info);
+    }));
 
     enable_raw_mode()?;
     let mut stdout = std::io::stdout();
@@ -25,9 +34,10 @@ pub fn run(path: &PathBuf) -> Result<()> {
 
     let result = run_event_loop(&mut terminal, &mut app);
 
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-    terminal.show_cursor()?;
+    // Best-effort teardown: never let a cleanup error mask the event-loop result.
+    let _ = disable_raw_mode();
+    let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
+    let _ = terminal.show_cursor();
 
     result
 }
