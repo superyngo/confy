@@ -46,8 +46,9 @@ for unmodified subtrees).
 | `y` | Redo |
 | `/` | Filter (fuzzy search) |
 | `?` | Help |
+| `Esc` | Cancel prompt / clear filter / close overlay |
 | `w` / `Ctrl+s` | Save |
-| `q` | Quit |
+| `q` | Quit (confirms if there are unsaved changes) |
 
 ## License
 
