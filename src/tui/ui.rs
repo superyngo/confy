@@ -22,7 +22,13 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
         .map(|(i, row)| {
             let indent = "  ".repeat(row.depth);
             let marker = if row.is_branch {
-                if app.is_expanded(&row.path) { "▾ " } else { "▸ " }
+                // The Root (depth 0) is always shown expanded by flatten, so its
+                // marker must reflect that rather than the (always-absent) set.
+                if row.depth == 0 || app.is_expanded(&row.path) {
+                    "▾ "
+                } else {
+                    "▸ "
+                }
             } else {
                 "  "
             };
