@@ -86,10 +86,27 @@ impl TomlDocument {
     }
 
     /// Replace the item at `path` with the fragment content, preserving key position.
+    ///
+    /// Replace is the write-back path for `e` (the user edits the node's own
+    /// fragment), so the fragment must keep the same key. A renamed key would, via
+    /// `Overwrite`, leave the original key in place and add the new one alongside —
+    /// silent double entry. We therefore require every fragment key to match the
+    /// path's final segment and reject a rename with `Fragment`. (Position-preserving
+    /// rename is out of scope for the MVP.)
     fn replace(&mut self, path: &[Seg], toml: &str) -> Result<(), MutateError> {
-        let parent = path.split_at(path.len().saturating_sub(1)).0.to_vec();
+        let (parent, last) = path.split_at(path.len().saturating_sub(1));
+        let expected_key = match last.first() {
+            Some(Seg::Key(k)) => k.as_str(),
+            _ => return Err(MutateError::Unsupported),
+        };
+        let frag = crate::model::fragment::parse_fragment(toml)?;
+        if frag.iter().any(|(k, _)| k != expected_key) {
+            return Err(MutateError::Fragment(format!(
+                "Replace cannot rename key '{expected_key}'; fragment must keep the same key"
+            )));
+        }
         self.insert_fragment(
-            &Target { parent, index: 0 },
+            &Target { parent: parent.to_vec(), index: 0 },
             toml,
             crate::model::document::OnCollision::Overwrite,
         )
@@ -526,6 +543,23 @@ mod tests {
         })
         .unwrap();
         assert!(doc.serialize().contains("port = 9090"));
+    }
+
+    #[test]
+    fn replace_rejects_key_rename() {
+        // Replace is the write-back for `e`; a renamed key would leave the old key
+        // alongside the new one (silent double entry). Reject it, leave doc untouched.
+        use crate::model::document::{Mutation, MutateError};
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("port = 8080\n");
+        let err = doc.apply(Mutation::Replace {
+            path: vec![Seg::Key("port".into())],
+            toml: "Port = 9090\n".into(),
+        });
+        assert!(matches!(err, Err(MutateError::Fragment(_))));
+        // document unchanged: original key/value intact, no stray "Port"
+        assert!(doc.serialize().contains("port = 8080"));
+        assert!(!doc.serialize().contains("Port = 9090"));
     }
 
     #[test]
