@@ -1345,15 +1345,27 @@ mod tests {
         let mut app = App::new(doc);
         // Mutate to make dirty
         app.apply_replace(vec![Seg::Key("port".into())], "port = 9090\n".into());
-        assert!(app.doc.as_ref().unwrap().is_dirty(), "should be dirty after mutation");
+        assert!(
+            app.doc.as_ref().unwrap().is_dirty(),
+            "should be dirty after mutation"
+        );
         // Save
         app.save();
         // File on disk should have new content
         let on_disk = std::fs::read_to_string(&path).unwrap();
-        assert!(on_disk.contains("9090"), "saved file must contain new value: {on_disk:?}");
+        assert!(
+            on_disk.contains("9090"),
+            "saved file must contain new value: {on_disk:?}"
+        );
         // After save, is_dirty() must be false
-        assert!(!app.doc.as_ref().unwrap().is_dirty(), "must not be dirty after save");
-        assert!(app.status.as_deref() == Some("Saved"), "status must be 'Saved'");
+        assert!(
+            !app.doc.as_ref().unwrap().is_dirty(),
+            "must not be dirty after save"
+        );
+        assert!(
+            app.status.as_deref() == Some("Saved"),
+            "status must be 'Saved'"
+        );
     }
 
     #[test]
@@ -1372,10 +1384,16 @@ mod tests {
     #[test]
     fn quit_when_clean_signals_quit() {
         let mut app = app_with("a = 1\n");
-        assert!(!app.doc.as_ref().unwrap().is_dirty(), "fresh doc must be clean");
+        assert!(
+            !app.doc.as_ref().unwrap().is_dirty(),
+            "fresh doc must be clean"
+        );
         let should_quit = app.quit_requested();
         assert!(should_quit, "must return true (quit) when clean");
-        assert!(matches!(app.mode, Mode::Normal), "mode unchanged when clean");
+        assert!(
+            matches!(app.mode, Mode::Normal),
+            "mode unchanged when clean"
+        );
     }
 
     #[test]
