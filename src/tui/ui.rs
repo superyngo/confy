@@ -1,4 +1,5 @@
 use crate::tui::app::App;
+use crate::tui::state::{Mode, PromptKind};
 use ratatui::prelude::*;
 use ratatui::widgets::*;
 
@@ -13,6 +14,7 @@ pub fn draw(f: &mut Frame, app: &App) {
 
     draw_tree(f, chunks[0], app);
     draw_status(f, chunks[1], app);
+    draw_prompt_overlay(f, app);
 }
 
 fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
@@ -52,8 +54,35 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
 fn draw_status(f: &mut Frame, area: Rect, app: &App) {
     let total = app.rows.len();
     let pos = if app.rows.is_empty() { 0 } else { app.cursor + 1 };
-    let status = format!(" {pos}/{total} | q:quit ?:help 0/9:collapse/expand");
+    let mut status = format!(" {pos}/{total} | q:quit ?:help d:x:c:v:m:r:z/y");
+    if let Some(ref msg) = app.status {
+        status = format!(" {msg}");
+    }
     let paragraph = Paragraph::new(status)
         .style(Style::default().bg(Color::DarkGray).fg(Color::White));
     f.render_widget(paragraph, area);
+}
+
+fn draw_prompt_overlay(f: &mut Frame, app: &App) {
+    let text = match &app.mode {
+        Mode::Normal | Mode::MovePending { .. } => return,
+        Mode::Prompt(PromptKind::Collision { key }) => {
+            format!(" Key '{}' already exists.  o:overwrite  r:rename  c:cancel", key)
+        }
+        Mode::Prompt(PromptKind::ConfirmQuit) => {
+            " Unsaved changes.  y:quit without saving  n:cancel".into()
+        }
+    };
+    let area = centered_rect(60, 3, f.area());
+    f.render_widget(Clear, area);
+    let paragraph = Paragraph::new(text)
+        .style(Style::default().bg(Color::Red).fg(Color::White).add_modifier(Modifier::BOLD));
+    f.render_widget(paragraph, area);
+}
+
+fn centered_rect(percent_x: u16, height: u16, r: Rect) -> Rect {
+    let popup_width = r.width * percent_x / 100;
+    let x = (r.width.saturating_sub(popup_width)) / 2;
+    let y = r.height / 2;
+    Rect::new(x, y, popup_width.min(r.width), height.min(r.height))
 }

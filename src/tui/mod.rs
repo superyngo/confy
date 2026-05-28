@@ -86,7 +86,13 @@ fn run_event_loop(
                     app.expand_all();
                     app.rebuild_rows();
                 }
-                keys::KeyAction::Quit => should_quit = true,
+                keys::KeyAction::Quit => {
+                    if app.confirm_quit() {
+                        // Already in ConfirmQuit prompt — y/n handled via char
+                    } else if app.quit_requested() {
+                        should_quit = true;
+                    }
+                }
                 keys::KeyAction::ToggleSelect => app.toggle_select(),
                 keys::KeyAction::ExtendSelectUp => {
                     app.extend_select_up();
@@ -95,8 +101,6 @@ fn run_event_loop(
                     app.extend_select_down();
                 }
                 keys::KeyAction::EditNode => {
-                    // Must leave raw mode / alternate screen before launching editor,
-                    // then restore after it returns.
                     let _ = disable_raw_mode();
                     let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
                     app.edit_node();
@@ -112,7 +116,23 @@ fn run_event_loop(
                     let _ = enable_raw_mode();
                     terminal.clear()?;
                 }
-                keys::KeyAction::Noop => {}
+                keys::KeyAction::Delete => app.delete_selected(),
+                keys::KeyAction::Copy => app.copy_selected(),
+                keys::KeyAction::Cut => app.cut_selected(),
+                keys::KeyAction::Paste => app.paste(),
+                keys::KeyAction::Move => app.move_pressed(),
+                keys::KeyAction::Remark => app.remark(),
+                keys::KeyAction::Undo => app.undo(),
+                keys::KeyAction::Redo => app.redo(),
+                keys::KeyAction::Escape => app.escape(),
+                keys::KeyAction::Noop => {
+                    // In prompt mode, forward char keys to the handler
+                    if let crossterm::event::Event::Key(ref k) = event::read()? {
+                        if let crossterm::event::KeyCode::Char(c) = k.code {
+                            app.handle_prompt_key(c);
+                        }
+                    }
+                }
             }
         }
     }

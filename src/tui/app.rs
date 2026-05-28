@@ -1,7 +1,7 @@
-use crate::model::document::ConfigDocument;
+use crate::model::document::{ConfigDocument, Mutation, OnCollision, Target};
 use crate::model::node::{NodeTree, Path};
 use crate::tui::selection::Selection;
-use crate::tui::state::History;
+use crate::tui::state::{Clipboard, History, Mode, PromptKind};
 use std::collections::HashSet;
 
 pub struct App {
@@ -15,6 +15,8 @@ pub struct App {
     pub history: Option<History>,
     /// Status message shown in the bottom bar (errors, info).
     pub status: Option<String>,
+    pub mode: Mode,
+    pub clipboard: Option<Clipboard>,
 }
 
 #[derive(Clone)]
@@ -40,6 +42,8 @@ impl App {
             doc: Some(doc),
             history: Some(history),
             status: None,
+            mode: Mode::Normal,
+            clipboard: None,
         };
         app.rebuild_rows();
         app
@@ -56,6 +60,8 @@ impl App {
             doc: None,
             history: None,
             status: None,
+            mode: Mode::Normal,
+            clipboard: None,
         }
     }
     pub fn rebuild_rows(&mut self) {
@@ -222,6 +228,278 @@ impl App {
         }
         self.rebuild_rows();
         self.status = None;
+    }
+
+    // ---- §6 operations: d/x/c/v/m/r/z/y ----
+
+    /// `d` — delete selected or cursor node(s).
+    pub fn delete_selected(&mut self) {
+        let paths = self.selected_paths();
+        if paths.is_empty() { return; }
+        let mut paths = paths;
+        // Reverse path order (longer first) so deletions don't invalidate later paths.
+        paths.sort_by(|a, b| b.len().cmp(&a.len()));
+        let doc = match self.doc.as_mut() { Some(d) => d, None => return };
+        for p in &paths {
+            if let Err(e) = doc.apply(Mutation::Delete { path: p.clone() }) {
+                self.status = Some(format!("delete error: {e}"));
+                return;
+            }
+        }
+        self.on_mutation_success();
+    }
+
+    /// `c` — copy selected nodes' fragments into clipboard.
+    pub fn copy_selected(&mut self) {
+        let paths = self.selected_paths();
+        if paths.is_empty() { return; }
+        let doc = match self.doc.as_ref() { Some(d) => d, None => return };
+        let mut fragments = Vec::new();
+        for p in &paths {
+            fragments.push(serialize_node_fragment(doc, p));
+        }
+        self.clipboard = Some(Clipboard { fragments, cut: false, sources: Vec::new() });
+        self.status = Some(format!("copied {} node(s)", self.clipboard.as_ref().unwrap().fragments.len()));
+    }
+
+    /// `x` — cut: copy fragments + remember sources. Deletion deferred to paste (wenv-style).
+    pub fn cut_selected(&mut self) {
+        let paths = self.selected_paths();
+        if paths.is_empty() { return; }
+        let doc = match self.doc.as_ref() { Some(d) => d, None => return };
+        let mut fragments = Vec::new();
+        for p in &paths {
+            fragments.push(serialize_node_fragment(doc, p));
+        }
+        self.clipboard = Some(Clipboard { fragments, cut: true, sources: paths });
+        self.status = Some(format!("cut {} node(s)", self.clipboard.as_ref().unwrap().fragments.len()));
+    }
+
+    /// `v` — paste clipboard fragments at insertion target.
+    /// On Collision: enters Mode::Prompt(Collision{key}).
+    /// If clipboard was cut, deletes sources after successful paste.
+    pub fn paste(&mut self) {
+        let (fragments, is_cut, sources) = match self.clipboard.take() {
+            Some(cb) => (cb.fragments, cb.cut, cb.sources),
+            None => { self.status = Some("clipboard empty".into()); return; }
+        };
+        let cursor_row = match self.rows.get(self.cursor) {
+            Some(r) => r.clone(),
+            None => return,
+        };
+        let expanded = self.expanded.contains(&cursor_row.path);
+        let sibling_index = sibling_index_of(&cursor_row, &self.rows);
+        let target = crate::tui::insertion::resolve_target(&cursor_row, expanded, sibling_index);
+        self.do_paste(fragments, is_cut, sources, target, OnCollision::Cancel);
+    }
+
+    /// Core paste logic, split out so it can be re-issued after a collision prompt.
+    pub(crate) fn do_paste(
+        &mut self,
+        fragments: Vec<String>,
+        is_cut: bool,
+        sources: Vec<Path>,
+        target: Target,
+        on_collision: OnCollision,
+    ) {
+        let doc = match self.doc.as_mut() { Some(d) => d, None => return };
+        for frag in &fragments {
+            match doc.apply(Mutation::Insert {
+                target: target.clone(),
+                toml: frag.clone(),
+                on_collision,
+            }) {
+                Ok(()) => {}
+                Err(crate::model::document::MutateError::Collision(key)) => {
+                    // Put clipboard back so user can retry after resolving prompt.
+                    self.clipboard = Some(Clipboard { fragments, cut: is_cut, sources });
+                    self.status = Some(format!("collision on key '{key}' — o/r/c"));
+                    self.mode = Mode::Prompt(PromptKind::Collision { key });
+                    return;
+                }
+                Err(e) => {
+                    self.status = Some(format!("paste error: {e}"));
+                    return;
+                }
+            }
+        }
+        // If cut, delete source nodes after successful paste.
+        if is_cut {
+            let mut sorted_sources = sources;
+            sorted_sources.sort_by(|a, b| b.len().cmp(&a.len()));
+            for src in &sorted_sources {
+                if let Err(e) = doc.apply(Mutation::Delete { path: src.clone() }) {
+                    self.status = Some(format!("cut-delete error: {e}"));
+                    return;
+                }
+            }
+        }
+        self.on_mutation_success();
+    }
+
+    /// `m` — move: first press enters MovePending, second press executes.
+    pub fn move_pressed(&mut self) {
+        match &self.mode {
+            Mode::Normal => {
+                let sources = self.selected_paths();
+                if sources.is_empty() { return; }
+                self.mode = Mode::MovePending { sources };
+                self.status = Some("move-pending: navigate then press m to drop, Esc to cancel".into());
+            }
+            Mode::MovePending { .. } => {
+                let sources = match std::mem::replace(&mut self.mode, Mode::Normal) {
+                    Mode::MovePending { sources } => sources,
+                    _ => unreachable!(),
+                };
+                let cursor_row = match self.rows.get(self.cursor) {
+                    Some(r) => r.clone(),
+                    None => return,
+                };
+                let expanded = self.expanded.contains(&cursor_row.path);
+                let sibling_index = sibling_index_of(&cursor_row, &self.rows);
+                let target = crate::tui::insertion::resolve_target(&cursor_row, expanded, sibling_index);
+                let doc = match self.doc.as_mut() { Some(d) => d, None => return };
+                match doc.apply(Mutation::Move {
+                    sources,
+                    target,
+                    on_collision: OnCollision::Cancel,
+                }) {
+                    Ok(()) => {
+                        self.on_mutation_success();
+                    }
+                    Err(crate::model::document::MutateError::Collision(key)) => {
+                        self.status = Some(format!("move collision: {key}"));
+                    }
+                    Err(e) => {
+                        self.status = Some(format!("move error: {e}"));
+                    }
+                }
+            }
+            Mode::Prompt(_) => {}
+        }
+    }
+
+    /// `Esc` — cancel move-pending or dismiss prompt.
+    pub fn escape(&mut self) {
+        match &self.mode {
+            Mode::MovePending { .. } => {
+                self.mode = Mode::Normal;
+                self.status = Some("move cancelled".into());
+            }
+            Mode::Prompt(_) => {
+                self.mode = Mode::Normal;
+                self.clipboard = None;
+                self.status = None;
+            }
+            Mode::Normal => {}
+        }
+    }
+
+    /// `r` — toggle remark on cursor node.
+    pub fn remark(&mut self) {
+        let path = match self.rows.get(self.cursor) {
+            Some(r) => r.path.clone(),
+            None => return,
+        };
+        let doc = match self.doc.as_mut() { Some(d) => d, None => return };
+        match doc.apply(Mutation::Remark { path }) {
+            Ok(()) => self.on_mutation_success(),
+            Err(crate::model::document::MutateError::Fragment(_)) => {
+                self.status = Some("not valid TOML, kept as comment".into());
+            }
+            Err(e) => self.status = Some(format!("remark error: {e}")),
+        }
+    }
+
+    /// `z` — undo.
+    pub fn undo(&mut self) {
+        let snapshot = match self.history.as_mut().and_then(|h| h.undo()) {
+            Some(s) => s,
+            None => { self.status = Some("nothing to undo".into()); return; }
+        };
+        let doc = match self.doc.as_mut() { Some(d) => d, None => return };
+        match doc.replace_from_str(&snapshot) {
+            Ok(()) => {
+                self.tree = doc.project();
+                self.rebuild_rows();
+                self.status = None;
+            }
+            Err(e) => self.status = Some(format!("undo restore error: {e}")),
+        }
+    }
+
+    /// `y` — redo.
+    pub fn redo(&mut self) {
+        let snapshot = match self.history.as_mut().and_then(|h| h.redo()) {
+            Some(s) => s,
+            None => { self.status = Some("nothing to redo".into()); return; }
+        };
+        let doc = match self.doc.as_mut() { Some(d) => d, None => return };
+        match doc.replace_from_str(&snapshot) {
+            Ok(()) => {
+                self.tree = doc.project();
+                self.rebuild_rows();
+                self.status = None;
+            }
+            Err(e) => self.status = Some(format!("redo restore error: {e}")),
+        }
+    }
+
+    /// Handle a key press while in a prompt mode. Returns true if consumed.
+    pub fn handle_prompt_key(&mut self, c: char) -> bool {
+        match &self.mode {
+            Mode::Prompt(PromptKind::Collision { key: _ }) => {
+                let oc = match c {
+                    'o' => OnCollision::Overwrite,
+                    'r' => OnCollision::Rename,
+                    'c' | _ => OnCollision::Cancel,
+                };
+                if !matches!(c, 'o' | 'r') {
+                    // Cancel
+                    self.mode = Mode::Normal;
+                    self.clipboard = None;
+                    self.status = None;
+                    return true;
+                }
+                let cb = self.clipboard.take();
+                let (fragments, is_cut, sources) = match cb {
+                    Some(cb) => (cb.fragments, cb.cut, cb.sources),
+                    None => { self.mode = Mode::Normal; return true; }
+                };
+                let cursor_row = match self.rows.get(self.cursor) {
+                    Some(r) => r.clone(),
+                    None => { self.mode = Mode::Normal; return true; }
+                };
+                let expanded = self.expanded.contains(&cursor_row.path);
+                let sibling_index = sibling_index_of(&cursor_row, &self.rows);
+                let target = crate::tui::insertion::resolve_target(&cursor_row, expanded, sibling_index);
+                self.mode = Mode::Normal;
+                self.do_paste(fragments, is_cut, sources, target, oc);
+                true
+            }
+            Mode::Prompt(PromptKind::ConfirmQuit) => {
+                // Handled by caller via should_quit flag; just consume.
+                c == 'y' || c == 'n'
+            }
+            _ => false,
+        }
+    }
+
+    /// Check if mode is ConfirmQuit and user confirmed.
+    pub fn confirm_quit(&self) -> bool {
+        matches!(&self.mode, Mode::Prompt(PromptKind::ConfirmQuit))
+    }
+
+    /// Enter quit-confirm prompt if dirty.
+    pub fn quit_requested(&mut self) -> bool {
+        let dirty = self.doc.as_ref().map(|d| d.is_dirty()).unwrap_or(false);
+        if dirty {
+            self.mode = Mode::Prompt(PromptKind::ConfirmQuit);
+            self.status = Some("unsaved changes — quit? y/n".into());
+            false
+        } else {
+            true
+        }
     }
 }
 
@@ -404,5 +682,88 @@ mod tests {
         assert!(app.visible_keys().contains(&"host".to_string()));
         let restored = app.history.as_mut().unwrap().undo().unwrap();
         assert!(!restored.contains("host"));
+    }
+
+    #[test]
+    fn cut_then_paste_moves_node() {
+        let mut app = app_with("a = 1\n[dest]\n");
+        // cursor on `a` (row 1, after root)
+        app.cursor = 1;
+        // cut
+        app.cut_selected();
+        assert!(app.clipboard.is_some());
+        assert!(app.clipboard.as_ref().unwrap().cut);
+        let s_before_paste = app.doc.as_ref().unwrap().serialize();
+        assert!(s_before_paste.contains("a = 1"), "cut defers deletion until paste");
+
+        // navigate into [dest] — expand root + dest, cursor on dest
+        app.expand_all();
+        app.rebuild_rows();
+        let dest_idx = app.rows.iter().position(|r| r.key == "dest").unwrap();
+        app.cursor = dest_idx;
+
+        // paste
+        app.paste();
+        let s = app.doc.as_ref().unwrap().serialize();
+        assert!(s.contains("[dest]"), "dest table still present");
+        assert!(s.contains("a = 1"), "a should be under dest");
+        assert_eq!(s.matches("a = 1").count(), 1, "a only under dest, not at top level");
+    }
+
+    #[test]
+    fn delete_selected_removes_node() {
+        let mut app = app_with("a = 1\nb = 2\n");
+        app.cursor = 1; // on `a`
+        app.delete_selected();
+        let s = app.doc.as_ref().unwrap().serialize();
+        assert!(!s.contains("a = 1"));
+        assert!(s.contains("b = 2"));
+    }
+
+    #[test]
+    fn undo_restores_after_delete() {
+        let mut app = app_with("a = 1\n");
+        app.cursor = 1;
+        app.delete_selected();
+        assert!(!app.doc.as_ref().unwrap().serialize().contains("a = 1"));
+        app.undo();
+        assert!(app.doc.as_ref().unwrap().serialize().contains("a = 1"), "undo restores deleted node");
+    }
+
+    #[test]
+    fn redo_reapplies_after_undo() {
+        let mut app = app_with("a = 1\n");
+        app.cursor = 1;
+        app.delete_selected();
+        app.undo();
+        assert!(app.doc.as_ref().unwrap().serialize().contains("a = 1"));
+        app.redo();
+        assert!(!app.doc.as_ref().unwrap().serialize().contains("a = 1"), "redo re-applies deletion");
+    }
+
+    #[test]
+    fn remark_toggles_comment() {
+        let mut app = app_with("port = 8080\n");
+        app.cursor = 1; // on port
+        app.remark();
+        let s = app.doc.as_ref().unwrap().serialize();
+        assert!(s.contains("# port = 8080"), "remark should comment out: {s:?}");
+    }
+
+    #[test]
+    fn move_pressed_two_step() {
+        let mut app = app_with("a = 1\n[dest]\n");
+        app.cursor = 1; // on `a`
+        app.move_pressed(); // first m: enters MovePending
+        assert!(matches!(&app.mode, crate::tui::state::Mode::MovePending { .. }));
+        // navigate to dest
+        app.expand_all();
+        app.rebuild_rows();
+        let dest_idx = app.rows.iter().position(|r| r.key == "dest").unwrap();
+        app.cursor = dest_idx;
+        app.move_pressed(); // second m: executes move
+        assert!(matches!(app.mode, crate::tui::state::Mode::Normal));
+        let s = app.doc.as_ref().unwrap().serialize();
+        assert_eq!(s.matches("a = 1").count(), 1, "a moved under dest");
     }
 }

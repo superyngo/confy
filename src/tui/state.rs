@@ -1,3 +1,26 @@
+use crate::model::node::Path;
+
+pub enum Mode {
+    Normal,
+    MovePending { sources: Vec<Path> },
+    Prompt(PromptKind),
+}
+
+pub enum PromptKind {
+    Collision { key: String },
+    ConfirmQuit,
+}
+
+/// Clipboard holding serialized TOML fragments for copy/cut/paste (§6 x/c/v).
+/// Cut defers deletion until paste succeeds (wenv-style), so the document is
+/// only mutated on `v`, not on `x`.
+pub struct Clipboard {
+    pub fragments: Vec<String>,
+    pub cut: bool,
+    /// Source paths for cut — deleted after successful paste.
+    pub sources: Vec<Path>,
+}
+
 /// Multi-step undo/redo over full serialized-document snapshots.
 /// One snapshot per user action (§6 z/y). UI-state changes never push.
 pub struct History {
