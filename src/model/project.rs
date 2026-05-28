@@ -21,13 +21,13 @@ fn scalar_type(v: &Value) -> ScalarType {
 fn project_table(table: &Table, base: &[Seg]) -> Vec<Node> {
     let mut out = Vec::new();
     for (key, item) in table.iter() {
+        let mut path = base.to_vec();
+        path.push(Seg::Key(key.to_string()));
         match item {
             Item::Table(t) if t.is_implicit() => {
-                flatten_dotted(t, key, base, &mut out);
+                flatten_dotted(t, key, &path, &mut out);
             }
             _ => {
-                let mut path = base.to_vec();
-                path.push(Seg::Key(key.to_string()));
                 out.push(project_item(key, item, path));
             }
         }
@@ -36,17 +36,19 @@ fn project_table(table: &Table, base: &[Seg]) -> Vec<Node> {
 }
 
 /// Re-join implicit tables created by toml_edit for dotted keys (e.g. `a.b.c = 1`)
-/// back into single leaf nodes per §4.
-fn flatten_dotted(table: &Table, prefix: &str, base: &[Seg], out: &mut Vec<Node>) {
+/// into a single leaf node per §4. The node's *display key* is the dotted join,
+/// but its *path* keeps one Seg::Key per segment so the node stays navigable for
+/// mutation (the path resolver walks the real `doc["a"]["b"]["c"]` structure).
+fn flatten_dotted(table: &Table, prefix: &str, seg_path: &[Seg], out: &mut Vec<Node>) {
     for (key, item) in table.iter() {
         let dotted_key = format!("{prefix}.{key}");
+        let mut path = seg_path.to_vec();
+        path.push(Seg::Key(key.to_string()));
         match item {
             Item::Table(t) if t.is_implicit() => {
-                flatten_dotted(t, &dotted_key, base, out);
+                flatten_dotted(t, &dotted_key, &path, out);
             }
             _ => {
-                let mut path = base.to_vec();
-                path.push(Seg::Key(dotted_key.clone()));
                 out.push(project_item(&dotted_key, item, path));
             }
         }
@@ -187,5 +189,15 @@ mod tests {
         assert_eq!(root.children.len(), 1);
         assert_eq!(root.children[0].key, "a.b.c");
         assert_eq!(root.children[0].kind, NodeKind::Scalar(ScalarType::Integer));
+        // Display key is the dotted join, but the path keeps real segments so the
+        // node stays navigable for mutation (doc["a"]["b"]["c"]).
+        assert_eq!(
+            root.children[0].path,
+            vec![
+                Seg::Key("a".into()),
+                Seg::Key("b".into()),
+                Seg::Key("c".into())
+            ]
+        );
     }
 }
