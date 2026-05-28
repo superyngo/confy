@@ -149,20 +149,42 @@ impl TomlDocument {
                 .ok()
                 .and_then(|t| t.iter().next().map(|(k, _)| k.to_string()));
             if let Some(fk) = first_key {
-                let table = self.parent_table_mut(parent)?;
-                let existing = table
-                    .key(&fk)
-                    .and_then(|k| k.leaf_decor().prefix().and_then(|r| r.as_str()))
-                    .unwrap_or("")
-                    .to_string();
-                let table = self.parent_table_mut(parent)?;
-                if let Some(mut km) = table.key_mut(&fk) {
-                    km.leaf_decor_mut()
-                        .set_prefix(format!("{commented}\n{existing}"));
+                // Check if the first remaining item is a Table — comments before
+                // [table] headers live in Table::decor(), not in key.leaf_decor().
+                let is_table = self.parent_table_mut(parent)
+                    .ok()
+                    .and_then(|t| t.get(&fk))
+                    .map(|item| matches!(item, Item::Table(_)))
+                    .unwrap_or(false);
+                if is_table {
+                    let existing = {
+                        let table = self.parent_table_mut(parent)?;
+                        match table.get_mut(&fk) {
+                            Some(Item::Table(t)) =>
+                                t.decor().prefix().and_then(|r| r.as_str()).unwrap_or("").to_string(),
+                            _ => String::new(),
+                        }
+                    };
+                    let new_prefix = format!("{commented}\n{existing}");
+                    let table = self.parent_table_mut(parent)?;
+                    if let Some(Item::Table(t)) = table.get_mut(&fk) {
+                        t.decor_mut().set_prefix(new_prefix);
+                    }
+                } else {
+                    let table = self.parent_table_mut(parent)?;
+                    let existing = table
+                        .key(&fk)
+                        .and_then(|k| k.leaf_decor().prefix().and_then(|r| r.as_str()))
+                        .unwrap_or("")
+                        .to_string();
+                    let table = self.parent_table_mut(parent)?;
+                    if let Some(mut km) = table.key_mut(&fk) {
+                        km.leaf_decor_mut()
+                            .set_prefix(format!("{commented}\n{existing}"));
+                    }
                 }
             } else {
                 // Table is now empty (nested) — use the table header's decor.
-                // Walk the path on concrete Table types only (no TableLike).
                 self.write_comment_to_table_decor(parent, &format!("{}\n", commented));
             }
         }
@@ -231,59 +253,75 @@ impl TomlDocument {
         table.decor_mut().set_prefix(comment);
     }
 
-    /// Remove a comment line from the decor slot where the projector would have read it.
+    /// Remove a comment block from the decor slot where the projector would have read it.
     fn remove_comment_from_decor(&mut self, parent: &[Seg], comment_text: &str) {
+        let remove_block = |s: &str| -> String {
+            s.replace(&format!("{comment_text}\n"), "")
+             .replace(comment_text, "")
+        };
         if parent.is_empty() {
-            // Read first key name from the immutable view
             let first_key = self.doc.as_table().iter().next().map(|(k, _)| k.to_string());
             if let Some(fk) = first_key {
-                let existing = self
-                    .doc
-                    .as_table()
-                    .key(&fk)
-                    .and_then(|k| k.leaf_decor().prefix().and_then(|r| r.as_str()))
-                    .unwrap_or("")
-                    .to_string();
-                let new_prefix = existing
-                    .lines()
-                    .filter(|l| l.trim() != comment_text)
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                if let Some(mut km) = self.doc.as_table_mut().key_mut(&fk) {
-                    km.leaf_decor_mut().set_prefix(new_prefix);
-                }
-            } else {
-                // No keys — comment was in document trailing
-                let trailing = self.doc.trailing().as_str().unwrap_or("");
-                let new_trailing = trailing
-                    .lines()
-                    .filter(|l| l.trim() != comment_text)
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                self.doc.set_trailing(new_trailing);
-            }
-        } else {
-            let first_key = self
-                .parent_table_mut(parent)
-                .ok()
-                .and_then(|t| t.iter().next().map(|(k, _)| k.to_string()));
-            if let Some(fk) = first_key {
-                let existing = {
-                    let table = self.parent_table_mut(parent).unwrap();
-                    table
+                // Comments before [table] headers live in Table::decor(), not leaf_decor.
+                if let Some(Item::Table(t)) = self.doc.as_table().get(&fk) {
+                    let existing = t.decor().prefix().and_then(|r| r.as_str()).unwrap_or("").to_string();
+                    let new_prefix = remove_block(&existing);
+                    if let Some(Item::Table(t)) = self.doc.as_table_mut().get_mut(&fk) {
+                        t.decor_mut().set_prefix(new_prefix);
+                    }
+                } else {
+                    let existing = self.doc.as_table()
                         .key(&fk)
                         .and_then(|k| k.leaf_decor().prefix().and_then(|r| r.as_str()))
                         .unwrap_or("")
-                        .to_string()
-                };
-                let new_prefix = existing
-                    .lines()
-                    .filter(|l| l.trim() != comment_text)
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                let table = self.parent_table_mut(parent).unwrap();
-                if let Some(mut km) = table.key_mut(&fk) {
-                    km.leaf_decor_mut().set_prefix(new_prefix);
+                        .to_string();
+                    let new_prefix = remove_block(&existing);
+                    if let Some(mut km) = self.doc.as_table_mut().key_mut(&fk) {
+                        km.leaf_decor_mut().set_prefix(new_prefix);
+                    }
+                }
+            } else {
+                let trailing = self.doc.trailing().as_str().unwrap_or("");
+                let new_trailing = remove_block(trailing);
+                self.doc.set_trailing(new_trailing);
+            }
+        } else {
+            let first_key = self.parent_table_mut(parent)
+                .ok()
+                .and_then(|t| t.iter().next().map(|(k, _)| k.to_string()));
+            if let Some(fk) = first_key {
+                let is_table = self.parent_table_mut(parent)
+                    .ok()
+                    .and_then(|t| t.get(&fk))
+                    .map(|item| matches!(item, Item::Table(_)))
+                    .unwrap_or(false);
+                if is_table {
+                    let existing = {
+                        let table = self.parent_table_mut(parent).unwrap();
+                        match table.get_mut(&fk) {
+                            Some(Item::Table(t)) =>
+                                t.decor().prefix().and_then(|r| r.as_str()).unwrap_or("").to_string(),
+                            _ => String::new(),
+                        }
+                    };
+                    let new_prefix = remove_block(&existing);
+                    let table = self.parent_table_mut(parent).unwrap();
+                    if let Some(Item::Table(t)) = table.get_mut(&fk) {
+                        t.decor_mut().set_prefix(new_prefix);
+                    }
+                } else {
+                    let existing = {
+                        let table = self.parent_table_mut(parent).unwrap();
+                        table.key(&fk)
+                            .and_then(|k| k.leaf_decor().prefix().and_then(|r| r.as_str()))
+                            .unwrap_or("")
+                            .to_string()
+                    };
+                    let new_prefix = remove_block(&existing);
+                    let table = self.parent_table_mut(parent).unwrap();
+                    if let Some(mut km) = table.key_mut(&fk) {
+                        km.leaf_decor_mut().set_prefix(new_prefix);
+                    }
                 }
             }
         }
@@ -576,5 +614,48 @@ mod tests {
         let s2 = doc.serialize();
         assert!(s2.contains("port = 8080"), "uncommented: {s2:?}");
         assert!(s2.contains("host = \"x\""), "sibling still present: {s2:?}");
+    }
+
+    #[test]
+    fn remark_roundtrip_nested_table_subtree() {
+        // comment_out a [table] entry produces multi-line commented output;
+        // uncomment must strip the entire block, not leave ghost comments.
+        use crate::model::document::Mutation;
+        use crate::model::node::{NodeKind, Seg};
+        let mut doc = doc_from_str("[server]\nport = 8080\nhost = \"x\"\n[db]\nname = \"test\"\n");
+        // comment out the entire [server] table
+        doc.apply(Mutation::Remark {
+            path: vec![Seg::Key("server".into())],
+        })
+        .unwrap();
+        let s = doc.serialize();
+        assert!(s.contains("# [server]"), "table header commented: {s:?}");
+        assert!(s.contains("[db]"), "other table preserved: {s:?}");
+
+        // find the comment node at top level
+        let projected = doc.project();
+        let comment_node = projected.root.children.iter()
+            .find(|n| matches!(&n.kind, NodeKind::Comment(_))).unwrap();
+        doc.apply(Mutation::Remark { path: comment_node.path.clone() }).unwrap();
+        let s2 = doc.serialize();
+        assert!(s2.contains("[server]"), "server table restored: {s2:?}");
+        assert!(s2.contains("port = 8080"), "server children restored: {s2:?}");
+        assert!(s2.contains("[db]"), "db table still present: {s2:?}");
+    }
+
+    #[test]
+    fn remark_roundtrip_top_level_sole_key() {
+        use crate::model::document::Mutation;
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("port = 8080\n");
+        doc.apply(Mutation::Remark {
+            path: vec![Seg::Key("port".into())],
+        })
+        .unwrap();
+        assert!(doc.serialize().contains("# port = 8080"), "commented: {:?}", doc.serialize());
+        // uncomment via the comment's synthetic path
+        let cpath = doc.project().root.children[0].path.clone();
+        doc.apply(Mutation::Remark { path: cpath }).unwrap();
+        assert!(doc.serialize().contains("port = 8080"), "uncommented: {:?}", doc.serialize());
     }
 }
