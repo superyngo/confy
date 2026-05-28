@@ -17,7 +17,9 @@ pub fn edit_text(initial: &str) -> Result<String> {
 }
 
 fn default_editor() -> String {
-    if cfg!(windows) { "notepad".into() } else { "nano".into() }
+    // `vi` is POSIX-mandated, so it is present on minimal/headless Unix systems
+    // where `nano` may be absent — exactly the environments confy may run in.
+    if cfg!(windows) { "notepad".into() } else { "vi".into() }
 }
 
 #[cfg(test)]

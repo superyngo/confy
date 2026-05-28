@@ -153,27 +153,27 @@ impl App {
             Ok(t) => t,
             Err(e) => { self.status = Some(format!("editor error: {e}")); return; }
         };
+        self.apply_replace(path, edited);
+    }
+
+    /// Apply edited text as a Replace at `path` (the post-editor half of `e`,
+    /// split out so it is unit-testable without spawning $EDITOR). On error the
+    /// status line is set and the document is left unchanged.
+    pub(crate) fn apply_replace(&mut self, path: Path, edited: String) {
+        let doc = match self.doc.as_mut() { Some(d) => d, None => return };
         match doc.apply(crate::model::document::Mutation::Replace { path, toml: edited }) {
-            Ok(()) => {
-                let snapshot = doc.serialize();
-                if let Some(h) = self.history.as_mut() { h.push(snapshot); }
-                self.tree = doc.project();
-                self.rebuild_rows();
-                self.status = None;
-            }
+            Ok(()) => self.on_mutation_success(),
             Err(crate::model::document::MutateError::Fragment(msg)) => {
                 self.status = Some(format!("invalid TOML: {msg}"));
             }
-            Err(e) => {
-                self.status = Some(format!("error: {e}"));
-            }
+            Err(e) => self.status = Some(format!("error: {e}")),
         }
     }
 
     /// `n` — open $EDITOR with empty buffer, resolve insertion target, apply Insert.
     /// On Collision: set status (Task 17 will wire the prompt).
     pub fn new_node(&mut self) {
-        let doc = match self.doc.as_mut() { Some(d) => d, None => return };
+        if self.doc.is_none() { return; }
         let edited = match crate::tui::editor::edit_text("") {
             Ok(t) => t,
             Err(e) => { self.status = Some(format!("editor error: {e}")); return; }
@@ -187,25 +187,38 @@ impl App {
             }
             None => crate::model::document::Target { parent: vec![], index: 0 },
         };
+        self.apply_insert(target, edited);
+    }
+
+    /// Apply edited text as an Insert at `target` (the post-editor half of `n`,
+    /// split out so it is unit-testable without spawning $EDITOR). On collision or
+    /// error the status line is set and the document is left unchanged.
+    pub(crate) fn apply_insert(&mut self, target: crate::model::document::Target, edited: String) {
+        let doc = match self.doc.as_mut() { Some(d) => d, None => return };
         match doc.apply(crate::model::document::Mutation::Insert {
             target,
             toml: edited,
             on_collision: crate::model::document::OnCollision::Cancel,
         }) {
-            Ok(()) => {
-                let snapshot = doc.serialize();
-                if let Some(h) = self.history.as_mut() { h.push(snapshot); }
-                self.tree = doc.project();
-                self.rebuild_rows();
-                self.status = None;
-            }
+            Ok(()) => self.on_mutation_success(),
             Err(crate::model::document::MutateError::Collision(key)) => {
                 self.status = Some(format!("key collision: {key} (rename/overwrite not yet prompted)"));
             }
-            Err(e) => {
-                self.status = Some(format!("error: {e}"));
-            }
+            Err(e) => self.status = Some(format!("error: {e}")),
         }
+    }
+
+    /// Shared post-mutation bookkeeping: snapshot for undo, re-project, rebuild
+    /// rows, clear the status line.
+    fn on_mutation_success(&mut self) {
+        if let Some(doc) = self.doc.as_ref() {
+            let snapshot = doc.serialize();
+            let tree = doc.project();
+            if let Some(h) = self.history.as_mut() { h.push(snapshot); }
+            self.tree = tree;
+        }
+        self.rebuild_rows();
+        self.status = None;
     }
 }
 
@@ -317,5 +330,63 @@ mod tests {
         app.expand_all();
         app.rebuild_rows();
         assert_eq!(app.visible_keys(), vec!["f.toml", "a", "x", "b"]);
+    }
+
+    // --- e/n apply-path tests (post-editor logic, no $EDITOR spawned) ---
+
+    fn app_with(src: &str) -> App {
+        use crate::model::document::ConfigDocument;
+        use std::io::Write;
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        f.write_all(src.as_bytes()).unwrap();
+        let doc = crate::model::toml_doc::TomlDocument::load(f.path()).unwrap();
+        App::new(doc)
+    }
+
+    #[test]
+    fn apply_replace_invalid_toml_sets_status_and_leaves_doc() {
+        let mut app = app_with("port = 8080\n");
+        let before = app.doc.as_ref().unwrap().serialize();
+        app.apply_replace(vec![Seg::Key("port".into())], "port = = nope".into());
+        assert!(app.status.is_some(), "invalid TOML must surface in status");
+        assert_eq!(app.doc.as_ref().unwrap().serialize(), before, "doc unchanged");
+    }
+
+    #[test]
+    fn apply_replace_valid_pushes_history_and_rebuilds() {
+        let mut app = app_with("port = 8080\n");
+        app.apply_replace(vec![Seg::Key("port".into())], "port = 9090\n".into());
+        assert!(app.status.is_none());
+        assert!(app.doc.as_ref().unwrap().serialize().contains("9090"));
+        // history advanced: undo restores the pre-edit snapshot
+        let restored = app.history.as_mut().unwrap().undo().unwrap();
+        assert!(restored.contains("8080"));
+    }
+
+    #[test]
+    fn apply_insert_collision_sets_status_and_leaves_doc() {
+        let mut app = app_with("port = 8080\n");
+        let before = app.doc.as_ref().unwrap().serialize();
+        app.apply_insert(
+            crate::model::document::Target { parent: vec![], index: 1 },
+            "port = 1\n".into(),
+        );
+        assert!(app.status.is_some(), "collision must surface in status");
+        assert_eq!(app.doc.as_ref().unwrap().serialize(), before, "doc unchanged");
+    }
+
+    #[test]
+    fn apply_insert_valid_pushes_history_and_rebuilds() {
+        let mut app = app_with("port = 8080\n");
+        app.apply_insert(
+            crate::model::document::Target { parent: vec![], index: 1 },
+            "host = \"x\"\n".into(),
+        );
+        assert!(app.status.is_none());
+        assert!(app.doc.as_ref().unwrap().serialize().contains("host = \"x\""));
+        // reproject + rebuild surfaced the new key as a visible row
+        assert!(app.visible_keys().contains(&"host".to_string()));
+        let restored = app.history.as_mut().unwrap().undo().unwrap();
+        assert!(!restored.contains("host"));
     }
 }
