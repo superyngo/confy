@@ -5,8 +5,12 @@ pub fn normalize(mut paths: Vec<Path>) -> Vec<Path> {
     paths.sort_by_key(|p| p.len());
     let mut kept: Vec<Path> = Vec::new();
     for p in paths {
-        let is_descendant = kept.iter().any(|anc| p.len() > anc.len() && p.starts_with(anc));
-        if !is_descendant { kept.push(p); }
+        let is_descendant = kept
+            .iter()
+            .any(|anc| p.len() > anc.len() && p.starts_with(anc));
+        if !is_descendant {
+            kept.push(p);
+        }
     }
     kept
 }
@@ -19,13 +23,18 @@ pub struct Selection {
 
 impl Selection {
     pub fn new() -> Self {
-        Selection { indices: std::collections::HashSet::new(), anchor: None }
+        Selection {
+            indices: std::collections::HashSet::new(),
+            anchor: None,
+        }
     }
 
     /// Toggle selection at the given row index and set/clear anchor.
     pub fn toggle(&mut self, idx: usize) {
         if self.indices.remove(&idx) {
-            if self.anchor == Some(idx) { self.anchor = None; }
+            if self.anchor == Some(idx) {
+                self.anchor = None;
+            }
         } else {
             self.indices.insert(idx);
             self.anchor = Some(idx);
@@ -38,11 +47,21 @@ impl Selection {
     pub fn extend_to(&mut self, to: usize) {
         let anchor = match self.anchor {
             Some(a) => a,
-            None => { self.anchor = Some(to); self.indices.insert(to); return; }
+            None => {
+                self.anchor = Some(to);
+                self.indices.insert(to);
+                return;
+            }
         };
         self.indices.clear();
-        let (lo, hi) = if anchor <= to { (anchor, to) } else { (to, anchor) };
-        for i in lo..=hi { self.indices.insert(i); }
+        let (lo, hi) = if anchor <= to {
+            (anchor, to)
+        } else {
+            (to, anchor)
+        };
+        for i in lo..=hi {
+            self.indices.insert(i);
+        }
     }
 
     pub fn clear(&mut self) {

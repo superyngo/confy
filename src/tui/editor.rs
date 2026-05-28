@@ -10,7 +10,9 @@ pub fn edit_text(initial: &str) -> Result<String> {
     let editor = std::env::var("EDITOR")
         .or_else(|_| std::env::var("VISUAL"))
         .unwrap_or_else(|_| default_editor());
-    let status = Command::new(&editor).arg(&path).status()
+    let status = Command::new(&editor)
+        .arg(&path)
+        .status()
         .with_context(|| format!("launching editor: {editor}"))?;
     anyhow::ensure!(status.success(), "editor exited non-zero");
     Ok(std::fs::read_to_string(&path)?)
@@ -19,7 +21,11 @@ pub fn edit_text(initial: &str) -> Result<String> {
 fn default_editor() -> String {
     // `vi` is POSIX-mandated, so it is present on minimal/headless Unix systems
     // where `nano` may be absent — exactly the environments confy may run in.
-    if cfg!(windows) { "notepad".into() } else { "vi".into() }
+    if cfg!(windows) {
+        "notepad".into()
+    } else {
+        "vi".into()
+    }
 }
 
 #[cfg(test)]
@@ -33,7 +39,8 @@ mod tests {
         std::fs::write(script.path(), "#!/bin/sh\necho 'port = 9090' > \"$1\"\n").unwrap();
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(script.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+            std::fs::set_permissions(script.path(), std::fs::Permissions::from_mode(0o755))
+                .unwrap();
             std::env::set_var("EDITOR", script.path());
             let out = edit_text("port = 8080\n").unwrap();
             assert_eq!(out.trim(), "port = 9090");

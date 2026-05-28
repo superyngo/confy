@@ -75,36 +75,58 @@ impl App {
     }
     pub fn rebuild_rows(&mut self) {
         let expanded = &self.expanded;
-        self.rows = self.tree
+        self.rows = self
+            .tree
             .flatten(&|p| expanded.contains(p))
             .into_iter()
             .map(|r| RowSnapshot {
-                key: r.node.key.clone(), path: r.node.path.clone(),
-                depth: r.depth, is_branch: r.node.is_branch(),
+                key: r.node.key.clone(),
+                path: r.node.path.clone(),
+                depth: r.depth,
+                is_branch: r.node.is_branch(),
             })
             .collect();
-        if self.cursor >= self.rows.len() { self.cursor = self.rows.len().saturating_sub(1); }
+        if self.cursor >= self.rows.len() {
+            self.cursor = self.rows.len().saturating_sub(1);
+        }
         // Selection is keyed by row index; any structural change (expand/collapse
         // or a mutation) invalidates those indices, so clear it rather than let it
         // silently point at the wrong rows. Operations read selected_paths() before
         // rebuilding, so the selection is still live when an op consumes it.
         self.selection.clear();
     }
-    pub fn visible_keys(&self) -> Vec<String> { self.rows.iter().map(|r| r.key.clone()).collect() }
-    pub fn cursor_down(&mut self) { if self.cursor + 1 < self.rows.len() { self.cursor += 1; } }
-    pub fn cursor_up(&mut self) { self.cursor = self.cursor.saturating_sub(1); }
+    pub fn visible_keys(&self) -> Vec<String> {
+        self.rows.iter().map(|r| r.key.clone()).collect()
+    }
+    pub fn cursor_down(&mut self) {
+        if self.cursor + 1 < self.rows.len() {
+            self.cursor += 1;
+        }
+    }
+    pub fn cursor_up(&mut self) {
+        self.cursor = self.cursor.saturating_sub(1);
+    }
     pub fn toggle_expand(&mut self) {
         if let Some(r) = self.rows.get(self.cursor) {
             if r.is_branch {
-                if !self.expanded.remove(&r.path) { self.expanded.insert(r.path.clone()); }
+                if !self.expanded.remove(&r.path) {
+                    self.expanded.insert(r.path.clone());
+                }
             }
         }
     }
-    pub fn collapse_all(&mut self) { self.expanded.clear(); }
+    pub fn collapse_all(&mut self) {
+        self.expanded.clear();
+    }
     pub fn expand_all(&mut self) {
         let mut all = HashSet::new();
         fn walk(n: &crate::model::node::Node, all: &mut HashSet<Path>) {
-            if n.is_branch() { all.insert(n.path.clone()); for c in &n.children { walk(c, all); } }
+            if n.is_branch() {
+                all.insert(n.path.clone());
+                for c in &n.children {
+                    walk(c, all);
+                }
+            }
         }
         walk(&self.tree.root, &mut all);
         self.expanded = all;
@@ -118,9 +140,15 @@ impl App {
         let max = self.rows.len().saturating_sub(1);
         self.cursor = (self.cursor + step).min(max);
     }
-    pub fn cursor_home(&mut self) { self.cursor = 0; }
-    pub fn cursor_end(&mut self) { self.cursor = self.rows.len().saturating_sub(1); }
-    pub fn is_expanded(&self, path: &Path) -> bool { self.expanded.contains(path) }
+    pub fn cursor_home(&mut self) {
+        self.cursor = 0;
+    }
+    pub fn cursor_end(&mut self) {
+        self.cursor = self.rows.len().saturating_sub(1);
+    }
+    pub fn is_expanded(&self, path: &Path) -> bool {
+        self.expanded.contains(path)
+    }
 
     /// Toggle selection at the current cursor row (bound to `s`).
     pub fn toggle_select(&mut self) {
@@ -146,11 +174,16 @@ impl App {
     /// Return normalized selected paths (§6.2). Falls back to cursor path if nothing selected.
     pub fn selected_paths(&self) -> Vec<Path> {
         if self.selection.indices.is_empty() {
-            return self.rows.get(self.cursor)
+            return self
+                .rows
+                .get(self.cursor)
                 .map(|r| vec![r.path.clone()])
                 .unwrap_or_default();
         }
-        let paths: Vec<Path> = self.selection.indices.iter()
+        let paths: Vec<Path> = self
+            .selection
+            .indices
+            .iter()
             .filter_map(|&i| self.rows.get(i).map(|r| r.path.clone()))
             .collect();
         crate::tui::selection::normalize(paths)
@@ -159,14 +192,23 @@ impl App {
     /// `e` — edit the cursor node's fragment in $EDITOR and apply Replace.
     /// On MutateError::Fragment: show error in status line, leave doc unchanged.
     pub fn edit_node(&mut self) {
-        let doc = match self.doc.as_mut() { Some(d) => d, None => return };
-        let cursor_row = match self.rows.get(self.cursor) { Some(r) => r.clone(), None => return };
+        let doc = match self.doc.as_mut() {
+            Some(d) => d,
+            None => return,
+        };
+        let cursor_row = match self.rows.get(self.cursor) {
+            Some(r) => r.clone(),
+            None => return,
+        };
         let path = cursor_row.path.clone();
         // Serialize just the cursor node's own fragment.
         let fragment = serialize_node_fragment(doc, &path);
         let edited = match crate::tui::editor::edit_text(&fragment) {
             Ok(t) => t,
-            Err(e) => { self.status = Some(format!("editor error: {e}")); return; }
+            Err(e) => {
+                self.status = Some(format!("editor error: {e}"));
+                return;
+            }
         };
         self.apply_replace(path, edited);
     }
@@ -175,7 +217,10 @@ impl App {
     /// split out so it is unit-testable without spawning $EDITOR). On error the
     /// status line is set and the document is left unchanged.
     pub(crate) fn apply_replace(&mut self, path: Path, edited: String) {
-        let doc = match self.doc.as_mut() { Some(d) => d, None => return };
+        let doc = match self.doc.as_mut() {
+            Some(d) => d,
+            None => return,
+        };
         match doc.apply(crate::model::document::Mutation::Replace { path, toml: edited }) {
             Ok(()) => self.on_mutation_success(),
             Err(crate::model::document::MutateError::Fragment(msg)) => {
@@ -188,10 +233,15 @@ impl App {
     /// `n` — open $EDITOR with empty buffer, resolve insertion target, apply Insert.
     /// On Collision: set status (Task 17 will wire the prompt).
     pub fn new_node(&mut self) {
-        if self.doc.is_none() { return; }
+        if self.doc.is_none() {
+            return;
+        }
         let edited = match crate::tui::editor::edit_text("") {
             Ok(t) => t,
-            Err(e) => { self.status = Some(format!("editor error: {e}")); return; }
+            Err(e) => {
+                self.status = Some(format!("editor error: {e}"));
+                return;
+            }
         };
         let cursor_row = self.rows.get(self.cursor).cloned();
         let target = match &cursor_row {
@@ -200,7 +250,10 @@ impl App {
                 let sibling_index = sibling_index_of(r, &self.rows);
                 crate::tui::insertion::resolve_target(r, expanded, sibling_index)
             }
-            None => crate::model::document::Target { parent: vec![], index: 0 },
+            None => crate::model::document::Target {
+                parent: vec![],
+                index: 0,
+            },
         };
         self.apply_insert(target, edited);
     }
@@ -209,7 +262,10 @@ impl App {
     /// split out so it is unit-testable without spawning $EDITOR). On collision or
     /// error the status line is set and the document is left unchanged.
     pub(crate) fn apply_insert(&mut self, target: crate::model::document::Target, edited: String) {
-        let doc = match self.doc.as_mut() { Some(d) => d, None => return };
+        let doc = match self.doc.as_mut() {
+            Some(d) => d,
+            None => return,
+        };
         match doc.apply(crate::model::document::Mutation::Insert {
             target,
             toml: edited,
@@ -217,7 +273,9 @@ impl App {
         }) {
             Ok(()) => self.on_mutation_success(),
             Err(crate::model::document::MutateError::Collision(key)) => {
-                self.status = Some(format!("key collision: {key} (rename/overwrite not yet prompted)"));
+                self.status = Some(format!(
+                    "key collision: {key} (rename/overwrite not yet prompted)"
+                ));
             }
             Err(crate::model::document::MutateError::Fragment(msg)) => {
                 self.status = Some(format!("invalid TOML: {msg}"));
@@ -232,7 +290,9 @@ impl App {
         if let Some(doc) = self.doc.as_ref() {
             let snapshot = doc.serialize();
             let tree = doc.project();
-            if let Some(h) = self.history.as_mut() { h.push(snapshot); }
+            if let Some(h) = self.history.as_mut() {
+                h.push(snapshot);
+            }
             self.tree = tree;
         }
         self.rebuild_rows();
@@ -244,11 +304,16 @@ impl App {
     /// `d` — delete selected or cursor node(s).
     pub fn delete_selected(&mut self) {
         let paths = self.selected_paths();
-        if paths.is_empty() { return; }
+        if paths.is_empty() {
+            return;
+        }
         let mut paths = paths;
         // Reverse path order (longer first) so deletions don't invalidate later paths.
         paths.sort_by(|a, b| b.len().cmp(&a.len()));
-        let doc = match self.doc.as_mut() { Some(d) => d, None => return };
+        let doc = match self.doc.as_mut() {
+            Some(d) => d,
+            None => return,
+        };
         for p in &paths {
             if let Err(e) = doc.apply(Mutation::Delete { path: p.clone() }) {
                 self.status = Some(format!("delete error: {e}"));
@@ -261,27 +326,51 @@ impl App {
     /// `c` — copy selected nodes' fragments into clipboard.
     pub fn copy_selected(&mut self) {
         let paths = self.selected_paths();
-        if paths.is_empty() { return; }
-        let doc = match self.doc.as_ref() { Some(d) => d, None => return };
+        if paths.is_empty() {
+            return;
+        }
+        let doc = match self.doc.as_ref() {
+            Some(d) => d,
+            None => return,
+        };
         let mut fragments = Vec::new();
         for p in &paths {
             fragments.push(serialize_node_fragment(doc, p));
         }
-        self.clipboard = Some(Clipboard { fragments, cut: false, sources: Vec::new() });
-        self.status = Some(format!("copied {} node(s)", self.clipboard.as_ref().unwrap().fragments.len()));
+        self.clipboard = Some(Clipboard {
+            fragments,
+            cut: false,
+            sources: Vec::new(),
+        });
+        self.status = Some(format!(
+            "copied {} node(s)",
+            self.clipboard.as_ref().unwrap().fragments.len()
+        ));
     }
 
     /// `x` — cut: copy fragments + remember sources. Deletion deferred to paste (wenv-style).
     pub fn cut_selected(&mut self) {
         let paths = self.selected_paths();
-        if paths.is_empty() { return; }
-        let doc = match self.doc.as_ref() { Some(d) => d, None => return };
+        if paths.is_empty() {
+            return;
+        }
+        let doc = match self.doc.as_ref() {
+            Some(d) => d,
+            None => return,
+        };
         let mut fragments = Vec::new();
         for p in &paths {
             fragments.push(serialize_node_fragment(doc, p));
         }
-        self.clipboard = Some(Clipboard { fragments, cut: true, sources: paths });
-        self.status = Some(format!("cut {} node(s)", self.clipboard.as_ref().unwrap().fragments.len()));
+        self.clipboard = Some(Clipboard {
+            fragments,
+            cut: true,
+            sources: paths,
+        });
+        self.status = Some(format!(
+            "cut {} node(s)",
+            self.clipboard.as_ref().unwrap().fragments.len()
+        ));
     }
 
     /// `v` — paste clipboard fragments at insertion target.
@@ -290,7 +379,10 @@ impl App {
     pub fn paste(&mut self) {
         let (fragments, is_cut, sources) = match self.clipboard.take() {
             Some(cb) => (cb.fragments, cb.cut, cb.sources),
-            None => { self.status = Some("clipboard empty".into()); return; }
+            None => {
+                self.status = Some("clipboard empty".into());
+                return;
+            }
         };
         let cursor_row = match self.rows.get(self.cursor) {
             Some(r) => r.clone(),
@@ -311,7 +403,10 @@ impl App {
         target: Target,
         on_collision: OnCollision,
     ) {
-        let doc = match self.doc.as_mut() { Some(d) => d, None => return };
+        let doc = match self.doc.as_mut() {
+            Some(d) => d,
+            None => return,
+        };
         for (i, frag) in fragments.iter().enumerate() {
             match doc.apply(Mutation::Insert {
                 target: target.clone(),
@@ -322,7 +417,11 @@ impl App {
                 Err(crate::model::document::MutateError::Collision(key)) => {
                     // Put only the remaining unprocessed fragments back so retry
                     // with Rename doesn't re-insert already-inserted fragments.
-                    self.clipboard = Some(Clipboard { fragments: fragments[i..].to_vec(), cut: is_cut, sources });
+                    self.clipboard = Some(Clipboard {
+                        fragments: fragments[i..].to_vec(),
+                        cut: is_cut,
+                        sources,
+                    });
                     self.status = Some(format!("collision on key '{key}' — o/r/c"));
                     self.mode = Mode::Prompt(PromptKind::Collision { key });
                     return;
@@ -352,9 +451,12 @@ impl App {
         match &self.mode {
             Mode::Normal => {
                 let sources = self.selected_paths();
-                if sources.is_empty() { return; }
+                if sources.is_empty() {
+                    return;
+                }
                 self.mode = Mode::MovePending { sources };
-                self.status = Some("move-pending: navigate then press m to drop, Esc to cancel".into());
+                self.status =
+                    Some("move-pending: navigate then press m to drop, Esc to cancel".into());
             }
             Mode::MovePending { .. } => {
                 let sources = match std::mem::replace(&mut self.mode, Mode::Normal) {
@@ -367,8 +469,12 @@ impl App {
                 };
                 let expanded = self.expanded.contains(&cursor_row.path);
                 let sibling_index = sibling_index_of(&cursor_row, &self.rows);
-                let target = crate::tui::insertion::resolve_target(&cursor_row, expanded, sibling_index);
-                let doc = match self.doc.as_mut() { Some(d) => d, None => return };
+                let target =
+                    crate::tui::insertion::resolve_target(&cursor_row, expanded, sibling_index);
+                let doc = match self.doc.as_mut() {
+                    Some(d) => d,
+                    None => return,
+                };
                 match doc.apply(Mutation::Move {
                     sources: sources.clone(),
                     target: target.clone(),
@@ -380,7 +486,9 @@ impl App {
                     Err(crate::model::document::MutateError::Collision(key)) => {
                         // Enter a prompt so user can choose o/r/c; preserve sources+target.
                         self.pending_move = Some((sources, target));
-                        self.status = Some(format!("move collision on '{key}' — o:overwrite  r:rename  c:cancel"));
+                        self.status = Some(format!(
+                            "move collision on '{key}' — o:overwrite  r:rename  c:cancel"
+                        ));
                         self.mode = Mode::Prompt(PromptKind::MoveCollision { key });
                     }
                     Err(e) => {
@@ -414,7 +522,10 @@ impl App {
             Some(r) => r.path.clone(),
             None => return,
         };
-        let doc = match self.doc.as_mut() { Some(d) => d, None => return };
+        let doc = match self.doc.as_mut() {
+            Some(d) => d,
+            None => return,
+        };
         match doc.apply(Mutation::Remark { path }) {
             Ok(()) => self.on_mutation_success(),
             Err(crate::model::document::MutateError::Fragment(_)) => {
@@ -428,9 +539,15 @@ impl App {
     pub fn undo(&mut self) {
         let snapshot = match self.history.as_mut().and_then(|h| h.undo()) {
             Some(s) => s,
-            None => { self.status = Some("nothing to undo".into()); return; }
+            None => {
+                self.status = Some("nothing to undo".into());
+                return;
+            }
         };
-        let doc = match self.doc.as_mut() { Some(d) => d, None => return };
+        let doc = match self.doc.as_mut() {
+            Some(d) => d,
+            None => return,
+        };
         match doc.replace_from_str(&snapshot) {
             Ok(()) => {
                 self.tree = doc.project();
@@ -445,9 +562,15 @@ impl App {
     pub fn redo(&mut self) {
         let snapshot = match self.history.as_mut().and_then(|h| h.redo()) {
             Some(s) => s,
-            None => { self.status = Some("nothing to redo".into()); return; }
+            None => {
+                self.status = Some("nothing to redo".into());
+                return;
+            }
         };
-        let doc = match self.doc.as_mut() { Some(d) => d, None => return };
+        let doc = match self.doc.as_mut() {
+            Some(d) => d,
+            None => return,
+        };
         match doc.replace_from_str(&snapshot) {
             Ok(()) => {
                 self.tree = doc.project();
@@ -477,36 +600,41 @@ impl App {
                 let cb = self.clipboard.take();
                 let (fragments, is_cut, sources) = match cb {
                     Some(cb) => (cb.fragments, cb.cut, cb.sources),
-                    None => { self.mode = Mode::Normal; return PromptOutcome::Consumed; }
+                    None => {
+                        self.mode = Mode::Normal;
+                        return PromptOutcome::Consumed;
+                    }
                 };
                 let cursor_row = match self.rows.get(self.cursor) {
                     Some(r) => r.clone(),
-                    None => { self.mode = Mode::Normal; return PromptOutcome::Consumed; }
+                    None => {
+                        self.mode = Mode::Normal;
+                        return PromptOutcome::Consumed;
+                    }
                 };
                 let expanded = self.expanded.contains(&cursor_row.path);
                 let sibling_index = sibling_index_of(&cursor_row, &self.rows);
-                let target = crate::tui::insertion::resolve_target(&cursor_row, expanded, sibling_index);
+                let target =
+                    crate::tui::insertion::resolve_target(&cursor_row, expanded, sibling_index);
                 self.mode = Mode::Normal;
                 self.do_paste(fragments, is_cut, sources, target, oc);
                 PromptOutcome::Consumed
             }
-            Mode::Prompt(PromptKind::ConfirmQuit) => {
-                match c {
-                    'y' => {
-                        self.mode = Mode::Normal;
-                        self.clipboard = None;
-                        self.status = None;
-                        return PromptOutcome::Quit;
-                    }
-                    'n' => {
-                        self.mode = Mode::Normal;
-                        self.clipboard = None;
-                        self.status = None;
-                        return PromptOutcome::Consumed;
-                    }
-                    _ => return PromptOutcome::Consumed,
+            Mode::Prompt(PromptKind::ConfirmQuit) => match c {
+                'y' => {
+                    self.mode = Mode::Normal;
+                    self.clipboard = None;
+                    self.status = None;
+                    return PromptOutcome::Quit;
                 }
-            }
+                'n' => {
+                    self.mode = Mode::Normal;
+                    self.clipboard = None;
+                    self.status = None;
+                    return PromptOutcome::Consumed;
+                }
+                _ => return PromptOutcome::Consumed,
+            },
             Mode::Prompt(PromptKind::MoveCollision { .. }) => {
                 let on_collision = match c {
                     'o' => OnCollision::Overwrite,
@@ -520,11 +648,21 @@ impl App {
                 };
                 let (sources, target) = match self.pending_move.take() {
                     Some(pm) => pm,
-                    None => { self.mode = Mode::Normal; return PromptOutcome::Consumed; }
+                    None => {
+                        self.mode = Mode::Normal;
+                        return PromptOutcome::Consumed;
+                    }
                 };
                 self.mode = Mode::Normal;
-                let doc = match self.doc.as_mut() { Some(d) => d, None => return PromptOutcome::Consumed };
-                match doc.apply(Mutation::Move { sources, target, on_collision }) {
+                let doc = match self.doc.as_mut() {
+                    Some(d) => d,
+                    None => return PromptOutcome::Consumed,
+                };
+                match doc.apply(Mutation::Move {
+                    sources,
+                    target,
+                    on_collision,
+                }) {
                     Ok(()) => self.on_mutation_success(),
                     Err(crate::model::document::MutateError::Collision(key)) => {
                         self.status = Some(format!("move collision: {key}"));
@@ -556,10 +694,15 @@ impl App {
 }
 
 /// Serialize a single node at `path` as a TOML fragment string.
-fn serialize_node_fragment(doc: &crate::model::toml_doc::TomlDocument, path: &[crate::model::node::Seg]) -> String {
+fn serialize_node_fragment(
+    doc: &crate::model::toml_doc::TomlDocument,
+    path: &[crate::model::node::Seg],
+) -> String {
     use crate::model::node::Seg;
     use toml_edit::{DocumentMut, Item};
-    if path.is_empty() { return doc.serialize(); }
+    if path.is_empty() {
+        return doc.serialize();
+    }
     let (parent_segs, last) = path.split_at(path.len().saturating_sub(1));
     let key = match last.first() {
         Some(Seg::Key(k)) => k.as_str(),
@@ -595,8 +738,11 @@ fn sibling_index_of(row: &RowSnapshot, rows: &[RowSnapshot]) -> usize {
     // Count siblings (same depth) before this row within the same parent
     let mut count = 0usize;
     for r in rows[..row_pos].iter().rev() {
-        if r.depth == row.depth { count += 1; }
-        else if r.depth <= parent_depth { break; }
+        if r.depth == row.depth {
+            count += 1;
+        } else if r.depth <= parent_depth {
+            break;
+        }
     }
     count
 }
@@ -646,7 +792,10 @@ mod tests {
         assert!(!app.selection.indices.is_empty());
         app.toggle_expand();
         app.rebuild_rows(); // structure changed
-        assert!(app.selection.indices.is_empty(), "selection must clear on rebuild");
+        assert!(
+            app.selection.indices.is_empty(),
+            "selection must clear on rebuild"
+        );
     }
 
     #[test]
@@ -682,7 +831,11 @@ mod tests {
         let before = app.doc.as_ref().unwrap().serialize();
         app.apply_replace(vec![Seg::Key("port".into())], "port = = nope".into());
         assert!(app.status.is_some(), "invalid TOML must surface in status");
-        assert_eq!(app.doc.as_ref().unwrap().serialize(), before, "doc unchanged");
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            before,
+            "doc unchanged"
+        );
     }
 
     #[test]
@@ -701,11 +854,18 @@ mod tests {
         let mut app = app_with("port = 8080\n");
         let before = app.doc.as_ref().unwrap().serialize();
         app.apply_insert(
-            crate::model::document::Target { parent: vec![], index: 1 },
+            crate::model::document::Target {
+                parent: vec![],
+                index: 1,
+            },
             "port = 1\n".into(),
         );
         assert!(app.status.is_some(), "collision must surface in status");
-        assert_eq!(app.doc.as_ref().unwrap().serialize(), before, "doc unchanged");
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            before,
+            "doc unchanged"
+        );
     }
 
     #[test]
@@ -714,22 +874,37 @@ mod tests {
         let mut app = app_with("port = 8080\n");
         let before = app.doc.as_ref().unwrap().serialize();
         app.apply_insert(
-            crate::model::document::Target { parent: vec![], index: 1 },
+            crate::model::document::Target {
+                parent: vec![],
+                index: 1,
+            },
             "= = nope".into(),
         );
         assert!(app.status.is_some(), "invalid TOML must surface in status");
-        assert_eq!(app.doc.as_ref().unwrap().serialize(), before, "doc unchanged");
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            before,
+            "doc unchanged"
+        );
     }
 
     #[test]
     fn apply_insert_valid_pushes_history_and_rebuilds() {
         let mut app = app_with("port = 8080\n");
         app.apply_insert(
-            crate::model::document::Target { parent: vec![], index: 1 },
+            crate::model::document::Target {
+                parent: vec![],
+                index: 1,
+            },
             "host = \"x\"\n".into(),
         );
         assert!(app.status.is_none());
-        assert!(app.doc.as_ref().unwrap().serialize().contains("host = \"x\""));
+        assert!(app
+            .doc
+            .as_ref()
+            .unwrap()
+            .serialize()
+            .contains("host = \"x\""));
         // reproject + rebuild surfaced the new key as a visible row
         assert!(app.visible_keys().contains(&"host".to_string()));
         let restored = app.history.as_mut().unwrap().undo().unwrap();
@@ -746,7 +921,10 @@ mod tests {
         assert!(app.clipboard.is_some());
         assert!(app.clipboard.as_ref().unwrap().cut);
         let s_before_paste = app.doc.as_ref().unwrap().serialize();
-        assert!(s_before_paste.contains("a = 1"), "cut defers deletion until paste");
+        assert!(
+            s_before_paste.contains("a = 1"),
+            "cut defers deletion until paste"
+        );
 
         // navigate into [dest] — expand root + dest, cursor on dest
         app.expand_all();
@@ -759,7 +937,11 @@ mod tests {
         let s = app.doc.as_ref().unwrap().serialize();
         assert!(s.contains("[dest]"), "dest table still present");
         assert!(s.contains("a = 1"), "a should be under dest");
-        assert_eq!(s.matches("a = 1").count(), 1, "a only under dest, not at top level");
+        assert_eq!(
+            s.matches("a = 1").count(),
+            1,
+            "a only under dest, not at top level"
+        );
     }
 
     #[test]
@@ -779,7 +961,10 @@ mod tests {
         app.delete_selected();
         assert!(!app.doc.as_ref().unwrap().serialize().contains("a = 1"));
         app.undo();
-        assert!(app.doc.as_ref().unwrap().serialize().contains("a = 1"), "undo restores deleted node");
+        assert!(
+            app.doc.as_ref().unwrap().serialize().contains("a = 1"),
+            "undo restores deleted node"
+        );
     }
 
     #[test]
@@ -790,7 +975,10 @@ mod tests {
         app.undo();
         assert!(app.doc.as_ref().unwrap().serialize().contains("a = 1"));
         app.redo();
-        assert!(!app.doc.as_ref().unwrap().serialize().contains("a = 1"), "redo re-applies deletion");
+        assert!(
+            !app.doc.as_ref().unwrap().serialize().contains("a = 1"),
+            "redo re-applies deletion"
+        );
     }
 
     #[test]
@@ -799,7 +987,10 @@ mod tests {
         app.cursor = 1; // on port
         app.remark();
         let s = app.doc.as_ref().unwrap().serialize();
-        assert!(s.contains("# port = 8080"), "remark should comment out: {s:?}");
+        assert!(
+            s.contains("# port = 8080"),
+            "remark should comment out: {s:?}"
+        );
     }
 
     // --- Tests for TDD: issues from review ---
@@ -811,7 +1002,10 @@ mod tests {
         let mut app = app_with("b = 99\n");
         app.rebuild_rows();
         app.cursor = 0; // root
-        let target = crate::model::document::Target { parent: vec![], index: 0 };
+        let target = crate::model::document::Target {
+            parent: vec![],
+            index: 0,
+        };
         app.do_paste(
             vec!["a = 1\n".into(), "b = 2\n".into()],
             false,
@@ -819,9 +1013,17 @@ mod tests {
             target,
             OnCollision::Cancel,
         );
-        assert!(matches!(app.mode, Mode::Prompt(PromptKind::Collision { .. })));
+        assert!(matches!(
+            app.mode,
+            Mode::Prompt(PromptKind::Collision { .. })
+        ));
         let cb = app.clipboard.as_ref().expect("clipboard must be set");
-        assert_eq!(cb.fragments.len(), 1, "only remaining (b) fragment should be stored, got: {:?}", cb.fragments);
+        assert_eq!(
+            cb.fragments.len(),
+            1,
+            "only remaining (b) fragment should be stored, got: {:?}",
+            cb.fragments
+        );
         assert_eq!(cb.fragments[0], "b = 2\n");
     }
 
@@ -832,7 +1034,11 @@ mod tests {
         let mut app = app_with("a = 1\n[dest]\na = 999\n");
         app.expand_all();
         app.rebuild_rows();
-        let a_idx = app.rows.iter().position(|r| r.key == "a" && r.path.len() == 1).unwrap();
+        let a_idx = app
+            .rows
+            .iter()
+            .position(|r| r.key == "a" && r.path.len() == 1)
+            .unwrap();
         app.cursor = a_idx;
         app.move_pressed(); // first press: MovePending
         assert!(matches!(&app.mode, Mode::MovePending { .. }));
@@ -851,17 +1057,31 @@ mod tests {
         let mut app = app_with("a = 1\n[dest]\na = 999\n");
         app.expand_all();
         app.rebuild_rows();
-        let a_idx = app.rows.iter().position(|r| r.key == "a" && r.path.len() == 1).unwrap();
+        let a_idx = app
+            .rows
+            .iter()
+            .position(|r| r.key == "a" && r.path.len() == 1)
+            .unwrap();
         app.cursor = a_idx;
         app.move_pressed();
         let dest_idx = app.rows.iter().position(|r| r.key == "dest").unwrap();
         app.cursor = dest_idx;
         app.move_pressed(); // collision
-        assert!(matches!(&app.mode, Mode::Prompt(PromptKind::MoveCollision { .. })));
+        assert!(matches!(
+            &app.mode,
+            Mode::Prompt(PromptKind::MoveCollision { .. })
+        ));
         app.handle_prompt_key('o');
-        assert!(matches!(app.mode, Mode::Normal), "mode should be Normal after resolving");
+        assert!(
+            matches!(app.mode, Mode::Normal),
+            "mode should be Normal after resolving"
+        );
         let s = app.doc.as_ref().unwrap().serialize();
-        assert_eq!(s.matches("a = ").count(), 1, "only one 'a' should exist after overwrite move: {s}");
+        assert_eq!(
+            s.matches("a = ").count(),
+            1,
+            "only one 'a' should exist after overwrite move: {s}"
+        );
     }
 
     #[test]
@@ -887,7 +1107,10 @@ mod tests {
         let mut app = app_with("a = 1\n[dest]\n");
         app.cursor = 1; // on `a`
         app.move_pressed(); // first m: enters MovePending
-        assert!(matches!(&app.mode, crate::tui::state::Mode::MovePending { .. }));
+        assert!(matches!(
+            &app.mode,
+            crate::tui::state::Mode::MovePending { .. }
+        ));
         // navigate to dest
         app.expand_all();
         app.rebuild_rows();

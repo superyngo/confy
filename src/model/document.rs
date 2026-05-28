@@ -25,11 +25,26 @@ pub enum OnCollision {
 
 #[derive(Clone, Debug)]
 pub enum Mutation {
-    Delete { path: Path },
-    Insert { target: Target, toml: String, on_collision: OnCollision },
-    Replace { path: Path, toml: String },
-    Remark { path: Path },
-    Move { sources: Vec<Path>, target: Target, on_collision: OnCollision },
+    Delete {
+        path: Path,
+    },
+    Insert {
+        target: Target,
+        toml: String,
+        on_collision: OnCollision,
+    },
+    Replace {
+        path: Path,
+        toml: String,
+    },
+    Remark {
+        path: Path,
+    },
+    Move {
+        sources: Vec<Path>,
+        target: Target,
+        on_collision: OnCollision,
+    },
 }
 
 #[derive(Debug, thiserror::Error)]

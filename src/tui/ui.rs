@@ -18,7 +18,8 @@ pub fn draw(f: &mut Frame, app: &App) {
 }
 
 fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
-    let items: Vec<ListItem> = app.rows
+    let items: Vec<ListItem> = app
+        .rows
         .iter()
         .enumerate()
         .map(|(i, row)| {
@@ -34,10 +35,17 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
             } else {
                 "  "
             };
-            let sel_marker = if app.selection.indices.contains(&i) { "●" } else { " " };
+            let sel_marker = if app.selection.indices.contains(&i) {
+                "●"
+            } else {
+                " "
+            };
             let text = format!("{sel_marker}{indent}{marker}{}", row.key);
             let style = if i == app.cursor {
-                Style::default().bg(Color::Blue).fg(Color::White).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .bg(Color::Blue)
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
             };
@@ -53,13 +61,17 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
 
 fn draw_status(f: &mut Frame, area: Rect, app: &App) {
     let total = app.rows.len();
-    let pos = if app.rows.is_empty() { 0 } else { app.cursor + 1 };
+    let pos = if app.rows.is_empty() {
+        0
+    } else {
+        app.cursor + 1
+    };
     let mut status = format!(" {pos}/{total} | q:quit ?:help d:x:c:v:m:r:z/y");
     if let Some(ref msg) = app.status {
         status = format!(" {msg}");
     }
-    let paragraph = Paragraph::new(status)
-        .style(Style::default().bg(Color::DarkGray).fg(Color::White));
+    let paragraph =
+        Paragraph::new(status).style(Style::default().bg(Color::DarkGray).fg(Color::White));
     f.render_widget(paragraph, area);
 }
 
@@ -67,10 +79,16 @@ fn draw_prompt_overlay(f: &mut Frame, app: &App) {
     let text = match &app.mode {
         Mode::Normal | Mode::MovePending { .. } => return,
         Mode::Prompt(PromptKind::Collision { key }) => {
-            format!(" Key '{}' already exists.  o:overwrite  r:rename  c:cancel", key)
+            format!(
+                " Key '{}' already exists.  o:overwrite  r:rename  c:cancel",
+                key
+            )
         }
         Mode::Prompt(PromptKind::MoveCollision { key }) => {
-            format!(" Move collision on '{}' — o:overwrite  r:rename  c:cancel", key)
+            format!(
+                " Move collision on '{}' — o:overwrite  r:rename  c:cancel",
+                key
+            )
         }
         Mode::Prompt(PromptKind::ConfirmQuit) => {
             " Unsaved changes.  y:quit without saving  n:cancel".into()
@@ -78,8 +96,12 @@ fn draw_prompt_overlay(f: &mut Frame, app: &App) {
     };
     let area = centered_rect(60, 3, f.area());
     f.render_widget(Clear, area);
-    let paragraph = Paragraph::new(text)
-        .style(Style::default().bg(Color::Red).fg(Color::White).add_modifier(Modifier::BOLD));
+    let paragraph = Paragraph::new(text).style(
+        Style::default()
+            .bg(Color::Red)
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD),
+    );
     f.render_widget(paragraph, area);
 }
 

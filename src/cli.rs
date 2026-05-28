@@ -19,7 +19,10 @@ pub enum Format {
 pub fn detect_format(path: &Path) -> Result<Format> {
     match path.extension().and_then(|e| e.to_str()) {
         Some("toml") => Ok(Format::Toml),
-        other => bail!("format not yet supported: {:?} (MVP supports .toml only)", other),
+        other => bail!(
+            "format not yet supported: {:?} (MVP supports .toml only)",
+            other
+        ),
     }
 }
 

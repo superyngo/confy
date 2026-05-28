@@ -40,12 +40,20 @@ impl Node {
         debug_assert!(
             matches!(
                 kind,
-                NodeKind::Root | NodeKind::Table | NodeKind::ArrayOfTables
-                    | NodeKind::Array | NodeKind::InlineTable
+                NodeKind::Root
+                    | NodeKind::Table
+                    | NodeKind::ArrayOfTables
+                    | NodeKind::Array
+                    | NodeKind::InlineTable
             ),
             "Node::branch called with a leaf kind"
         );
-        Node { key: key.into(), path: Vec::new(), kind, children: Vec::new() }
+        Node {
+            key: key.into(),
+            path: Vec::new(),
+            kind,
+            children: Vec::new(),
+        }
     }
 
     pub fn leaf(key: impl Into<String>, kind: NodeKind) -> Self {
@@ -53,14 +61,22 @@ impl Node {
             matches!(kind, NodeKind::Scalar(_) | NodeKind::Comment(_)),
             "Node::leaf called with a branch kind"
         );
-        Node { key: key.into(), path: Vec::new(), kind, children: Vec::new() }
+        Node {
+            key: key.into(),
+            path: Vec::new(),
+            kind,
+            children: Vec::new(),
+        }
     }
 
     pub fn is_branch(&self) -> bool {
         matches!(
             self.kind,
-            NodeKind::Root | NodeKind::Table | NodeKind::ArrayOfTables
-                | NodeKind::Array | NodeKind::InlineTable
+            NodeKind::Root
+                | NodeKind::Table
+                | NodeKind::ArrayOfTables
+                | NodeKind::Array
+                | NodeKind::InlineTable
         )
     }
 
@@ -87,8 +103,13 @@ impl NodeTree {
     /// treated as expanded.
     pub fn flatten<'a>(&'a self, is_expanded: &dyn Fn(&Path) -> bool) -> Vec<VisibleRow<'a>> {
         let mut rows = Vec::new();
-        fn walk<'a>(n: &'a Node, depth: usize, is_root: bool,
-                    is_expanded: &dyn Fn(&Path) -> bool, rows: &mut Vec<VisibleRow<'a>>) {
+        fn walk<'a>(
+            n: &'a Node,
+            depth: usize,
+            is_root: bool,
+            is_expanded: &dyn Fn(&Path) -> bool,
+            rows: &mut Vec<VisibleRow<'a>>,
+        ) {
             rows.push(VisibleRow { node: n, depth });
             let expand = is_root || (n.is_branch() && is_expanded(&n.path));
             if expand {
@@ -136,8 +157,13 @@ mod tests {
 
         // collapsed: only root + server visible (root always shown, expanded)
         let collapsed = tree.flatten(&|_p| false);
-        assert_eq!(collapsed.iter().map(|r| r.node.key.clone()).collect::<Vec<_>>(),
-            vec!["f.toml".to_string(), "server".to_string()]);
+        assert_eq!(
+            collapsed
+                .iter()
+                .map(|r| r.node.key.clone())
+                .collect::<Vec<_>>(),
+            vec!["f.toml".to_string(), "server".to_string()]
+        );
 
         // expand server -> port appears, depth 2
         let expanded = tree.flatten(&|p| p == &vec![Seg::Key("server".into())]);

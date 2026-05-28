@@ -239,7 +239,10 @@ mod tests {
     #[test]
     fn comment_between_items() {
         let t = tree("a = 1\n# mid\nb = 2\n");
-        assert_eq!(keys_of(&t), vec!["a".to_string(), "# mid".to_string(), "b".to_string()]);
+        assert_eq!(
+            keys_of(&t),
+            vec!["a".to_string(), "# mid".to_string(), "b".to_string()]
+        );
     }
 
     #[test]
@@ -259,21 +262,33 @@ mod tests {
     fn multiple_comments_in_one_prefix() {
         // edge case: each standalone comment line becomes its own Comment node
         let t = tree("# one\n# two\na = 1\n");
-        assert_eq!(keys_of(&t), vec!["# one".to_string(), "# two".to_string(), "a".to_string()]);
+        assert_eq!(
+            keys_of(&t),
+            vec!["# one".to_string(), "# two".to_string(), "a".to_string()]
+        );
     }
 
     #[test]
     fn comment_only_file() {
         let t = tree("# just\n# comments\n");
-        assert_eq!(keys_of(&t), vec!["# just".to_string(), "# comments".to_string()]);
+        assert_eq!(
+            keys_of(&t),
+            vec!["# just".to_string(), "# comments".to_string()]
+        );
     }
 
     #[test]
     fn comment_inside_table_before_key() {
         let t = tree("[server]\n# explain\nport = 8080\n");
         let server = &t.root.children[0];
-        assert_eq!(server.children.iter().map(|n| n.key.clone()).collect::<Vec<_>>(),
-            vec!["# explain".to_string(), "port".to_string()]);
+        assert_eq!(
+            server
+                .children
+                .iter()
+                .map(|n| n.key.clone())
+                .collect::<Vec<_>>(),
+            vec!["# explain".to_string(), "port".to_string()]
+        );
     }
 
     #[test]
@@ -281,7 +296,10 @@ mod tests {
         // §7.1 row 1, Table case: comment in `Table::decor().prefix()`, not in
         // the key's leaf_decor. Must surface as a sibling Comment before [server].
         let t = tree("# about\n[server]\nport = 8080\n");
-        assert_eq!(keys_of(&t), vec!["# about".to_string(), "server".to_string()]);
+        assert_eq!(
+            keys_of(&t),
+            vec!["# about".to_string(), "server".to_string()]
+        );
         assert_eq!(t.root.children[0].kind, NodeKind::Comment("# about".into()));
     }
 
@@ -316,7 +334,10 @@ mod tests {
         let s = &t.root.children[0];
         assert_eq!(s.kind, NodeKind::ArrayOfTables);
         let child_keys: Vec<String> = s.children.iter().map(|n| n.key.clone()).collect();
-        assert_eq!(child_keys, vec!["[0]".to_string(), "# mid".to_string(), "[1]".to_string()]);
+        assert_eq!(
+            child_keys,
+            vec!["[0]".to_string(), "# mid".to_string(), "[1]".to_string()]
+        );
     }
 
     #[test]
@@ -338,7 +359,10 @@ mod tests {
         let server = &root.children[1];
         assert_eq!(server.kind, NodeKind::Table);
         assert_eq!(server.children[0].key, "port");
-        assert_eq!(server.children[0].kind, NodeKind::Scalar(ScalarType::Integer));
+        assert_eq!(
+            server.children[0].kind,
+            NodeKind::Scalar(ScalarType::Integer)
+        );
         assert_eq!(
             server.children[0].path,
             vec![Seg::Key("server".into()), Seg::Key("port".into())]
@@ -390,4 +414,3 @@ mod tests {
         );
     }
 }
-

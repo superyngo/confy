@@ -32,20 +32,27 @@ pub struct History {
 
 impl History {
     pub fn new(initial: String) -> Self {
-        History { past: Vec::new(), current: initial, future: Vec::new() }
+        History {
+            past: Vec::new(),
+            current: initial,
+            future: Vec::new(),
+        }
     }
     pub fn push(&mut self, snapshot: String) {
-        self.past.push(std::mem::replace(&mut self.current, snapshot));
+        self.past
+            .push(std::mem::replace(&mut self.current, snapshot));
         self.future.clear();
     }
     pub fn undo(&mut self) -> Option<String> {
         let prev = self.past.pop()?;
-        self.future.push(std::mem::replace(&mut self.current, prev.clone()));
+        self.future
+            .push(std::mem::replace(&mut self.current, prev.clone()));
         Some(prev)
     }
     pub fn redo(&mut self) -> Option<String> {
         let next = self.future.pop()?;
-        self.past.push(std::mem::replace(&mut self.current, next.clone()));
+        self.past
+            .push(std::mem::replace(&mut self.current, next.clone()));
         Some(next)
     }
 }

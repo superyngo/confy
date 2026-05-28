@@ -1,12 +1,19 @@
-use crate::model::document::{ConfigDocument, Mutation, MutateError, Target};
+use crate::model::document::{ConfigDocument, MutateError, Mutation, Target};
 use crate::model::node::{NodeTree, Seg};
 use anyhow::Context;
 use std::path::{Path, PathBuf};
 use toml_edit::{DocumentMut, Item, TableLike};
 
-fn find_node_by_path<'a>(node: &'a crate::model::node::Node, path: &[Seg]) -> Option<&'a crate::model::node::Node> {
-    if node.path == path { return Some(node); }
-    node.children.iter().find_map(|c| find_node_by_path(c, path))
+fn find_node_by_path<'a>(
+    node: &'a crate::model::node::Node,
+    path: &[Seg],
+) -> Option<&'a crate::model::node::Node> {
+    if node.path == path {
+        return Some(node);
+    }
+    node.children
+        .iter()
+        .find_map(|c| find_node_by_path(c, path))
 }
 
 pub struct TomlDocument {
@@ -23,7 +30,10 @@ impl TomlDocument {
         let last = last.first().ok_or(MutateError::NotFound)?;
         let table = self.parent_table_mut(parent)?;
         match last {
-            Seg::Key(k) => { table.remove(k).ok_or(MutateError::NotFound)?; Ok(()) }
+            Seg::Key(k) => {
+                table.remove(k).ok_or(MutateError::NotFound)?;
+                Ok(())
+            }
             Seg::Index(_) => Err(MutateError::Unsupported),
         }
     }
@@ -106,7 +116,10 @@ impl TomlDocument {
             )));
         }
         self.insert_fragment(
-            &Target { parent: parent.to_vec(), index: 0 },
+            &Target {
+                parent: parent.to_vec(),
+                index: 0,
+            },
             toml,
             crate::model::document::OnCollision::Overwrite,
         )
@@ -237,7 +250,8 @@ impl TomlDocument {
             if let Some(fk) = first_key {
                 // Check if the first remaining item is a Table — comments before
                 // [table] headers live in Table::decor(), not in key.leaf_decor().
-                let is_table = self.parent_table_mut(parent)
+                let is_table = self
+                    .parent_table_mut(parent)
                     .ok()
                     .and_then(|t| t.get(&fk))
                     .map(|item| matches!(item, Item::Table(_)))
@@ -246,8 +260,12 @@ impl TomlDocument {
                     let existing = {
                         let table = self.parent_table_mut(parent)?;
                         match table.get_mut(&fk) {
-                            Some(Item::Table(t)) =>
-                                t.decor().prefix().and_then(|r| r.as_str()).unwrap_or("").to_string(),
+                            Some(Item::Table(t)) => t
+                                .decor()
+                                .prefix()
+                                .and_then(|r| r.as_str())
+                                .unwrap_or("")
+                                .to_string(),
                             _ => String::new(),
                         }
                     };
@@ -300,7 +318,10 @@ impl TomlDocument {
         // Strip leading "# " from each line
         let stripped = comment_text
             .lines()
-            .map(|l| l.strip_prefix("# ").unwrap_or(l.strip_prefix('#').unwrap_or(l)))
+            .map(|l| {
+                l.strip_prefix("# ")
+                    .unwrap_or(l.strip_prefix('#').unwrap_or(l))
+            })
             .collect::<Vec<_>>()
             .join("\n");
         let fragment = format!("{stripped}\n");
@@ -343,20 +364,32 @@ impl TomlDocument {
     fn remove_comment_from_decor(&mut self, parent: &[Seg], comment_text: &str) {
         let remove_block = |s: &str| -> String {
             s.replace(&format!("{comment_text}\n"), "")
-             .replace(comment_text, "")
+                .replace(comment_text, "")
         };
         if parent.is_empty() {
-            let first_key = self.doc.as_table().iter().next().map(|(k, _)| k.to_string());
+            let first_key = self
+                .doc
+                .as_table()
+                .iter()
+                .next()
+                .map(|(k, _)| k.to_string());
             if let Some(fk) = first_key {
                 // Comments before [table] headers live in Table::decor(), not leaf_decor.
                 if let Some(Item::Table(t)) = self.doc.as_table().get(&fk) {
-                    let existing = t.decor().prefix().and_then(|r| r.as_str()).unwrap_or("").to_string();
+                    let existing = t
+                        .decor()
+                        .prefix()
+                        .and_then(|r| r.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     let new_prefix = remove_block(&existing);
                     if let Some(Item::Table(t)) = self.doc.as_table_mut().get_mut(&fk) {
                         t.decor_mut().set_prefix(new_prefix);
                     }
                 } else {
-                    let existing = self.doc.as_table()
+                    let existing = self
+                        .doc
+                        .as_table()
                         .key(&fk)
                         .and_then(|k| k.leaf_decor().prefix().and_then(|r| r.as_str()))
                         .unwrap_or("")
@@ -372,11 +405,13 @@ impl TomlDocument {
                 self.doc.set_trailing(new_trailing);
             }
         } else {
-            let first_key = self.parent_table_mut(parent)
+            let first_key = self
+                .parent_table_mut(parent)
                 .ok()
                 .and_then(|t| t.iter().next().map(|(k, _)| k.to_string()));
             if let Some(fk) = first_key {
-                let is_table = self.parent_table_mut(parent)
+                let is_table = self
+                    .parent_table_mut(parent)
                     .ok()
                     .and_then(|t| t.get(&fk))
                     .map(|item| matches!(item, Item::Table(_)))
@@ -385,8 +420,12 @@ impl TomlDocument {
                     let existing = {
                         let table = self.parent_table_mut(parent).unwrap();
                         match table.get_mut(&fk) {
-                            Some(Item::Table(t)) =>
-                                t.decor().prefix().and_then(|r| r.as_str()).unwrap_or("").to_string(),
+                            Some(Item::Table(t)) => t
+                                .decor()
+                                .prefix()
+                                .and_then(|r| r.as_str())
+                                .unwrap_or("")
+                                .to_string(),
                             _ => String::new(),
                         }
                     };
@@ -398,7 +437,8 @@ impl TomlDocument {
                 } else {
                     let existing = {
                         let table = self.parent_table_mut(parent).unwrap();
-                        table.key(&fk)
+                        table
+                            .key(&fk)
                             .and_then(|k| k.leaf_decor().prefix().and_then(|r| r.as_str()))
                             .unwrap_or("")
                             .to_string()
@@ -416,8 +456,8 @@ impl TomlDocument {
 
 impl ConfigDocument for TomlDocument {
     fn load(path: &Path) -> anyhow::Result<Self> {
-        let original = std::fs::read_to_string(path)
-            .with_context(|| format!("reading {}", path.display()))?;
+        let original =
+            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
         let doc = original
             .parse::<DocumentMut>()
             .with_context(|| format!("parsing {} as TOML", path.display()))?;
@@ -425,7 +465,12 @@ impl ConfigDocument for TomlDocument {
             .file_name()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| path.display().to_string());
-        Ok(TomlDocument { doc, path: path.to_path_buf(), original, filename })
+        Ok(TomlDocument {
+            doc,
+            path: path.to_path_buf(),
+            original,
+            filename,
+        })
     }
 
     fn project(&self) -> NodeTree {
@@ -450,9 +495,11 @@ impl ConfigDocument for TomlDocument {
             } => self.insert_fragment(&target, &toml, on_collision),
             Mutation::Replace { path, toml } => self.replace(&path, &toml),
             Mutation::Remark { path } => self.remark(&path),
-            Mutation::Move { sources, target, on_collision } => {
-                self.r#move(&sources, &target, on_collision)
-            }
+            Mutation::Move {
+                sources,
+                target,
+                on_collision,
+            } => self.r#move(&sources, &target, on_collision),
         }
     }
 }
@@ -472,7 +519,11 @@ mod tests {
     fn roundtrip_byte_identical_with_comments_and_blanks() {
         let src = "# header comment\n\n[server]\nhost = \"0.0.0.0\"  # bind\nport = 8080\n";
         let doc = doc_from_str(src);
-        assert_eq!(doc.serialize(), src, "untouched file must serialize byte-identically");
+        assert_eq!(
+            doc.serialize(),
+            src,
+            "untouched file must serialize byte-identically"
+        );
         assert!(!doc.is_dirty());
     }
 
@@ -488,10 +539,16 @@ mod tests {
         use crate::model::document::Mutation;
         use crate::model::node::Seg;
         let mut doc = doc_from_str("a = 1\n[server]\nport = 8080\nhost = \"x\"\n");
-        doc.apply(Mutation::Delete { path: vec![Seg::Key("a".into())] }).unwrap();
+        doc.apply(Mutation::Delete {
+            path: vec![Seg::Key("a".into())],
+        })
+        .unwrap();
         assert!(!doc.serialize().contains("a = 1"));
         // delete a whole table (branch) removes its subtree
-        doc.apply(Mutation::Delete { path: vec![Seg::Key("server".into())] }).unwrap();
+        doc.apply(Mutation::Delete {
+            path: vec![Seg::Key("server".into())],
+        })
+        .unwrap();
         assert_eq!(doc.serialize().trim(), "");
         assert!(doc.is_dirty());
     }
@@ -522,7 +579,10 @@ mod tests {
         use crate::model::node::Seg;
 
         let mut doc = doc_from_str("[server]\nport = 8080\n");
-        let target = Target { parent: vec![Seg::Key("server".into())], index: 1 };
+        let target = Target {
+            parent: vec![Seg::Key("server".into())],
+            index: 1,
+        };
 
         // Insert new key — no collision
         doc.apply(Mutation::Insert {
@@ -574,7 +634,10 @@ mod tests {
         use crate::model::node::Seg;
         let mut doc = doc_from_str("[server]\nport = 8080\n");
         let err = doc.apply(Mutation::Insert {
-            target: Target { parent: vec![Seg::Key("server".into())], index: 1 },
+            target: Target {
+                parent: vec![Seg::Key("server".into())],
+                index: 1,
+            },
             // `host` is new, `port` collides — Cancel must reject the whole fragment.
             toml: "host = \"x\"\nport = 1\n".into(),
             on_collision: OnCollision::Cancel,
@@ -620,7 +683,7 @@ mod tests {
     fn replace_rejects_key_rename() {
         // Replace is the write-back for `e`; a renamed key would leave the old key
         // alongside the new one (silent double entry). Reject it, leave doc untouched.
-        use crate::model::document::{Mutation, MutateError};
+        use crate::model::document::{MutateError, Mutation};
         use crate::model::node::Seg;
         let mut doc = doc_from_str("port = 8080\n");
         let err = doc.apply(Mutation::Replace {
@@ -644,18 +707,34 @@ mod tests {
         })
         .unwrap();
         let s = doc.serialize();
-        assert!(s.contains("# port = "), "commented output should contain '# port =': {:?}", s);
-        assert!(s.contains("8080"), "commented output should contain '8080': {:?}", s);
+        assert!(
+            s.contains("# port = "),
+            "commented output should contain '# port =': {:?}",
+            s
+        );
+        assert!(
+            s.contains("8080"),
+            "commented output should contain '8080': {:?}",
+            s
+        );
         // comment -> live: address the comment via its synthetic path
         let cpath = doc.project().root.children[0].path.clone();
         doc.apply(Mutation::Remark { path: cpath }).unwrap();
-        assert!(doc.serialize().contains("port"), "uncommented output should contain 'port': {:?}", doc.serialize());
-        assert!(doc.serialize().contains("8080"), "uncommented output should contain '8080': {:?}", doc.serialize());
+        assert!(
+            doc.serialize().contains("port"),
+            "uncommented output should contain 'port': {:?}",
+            doc.serialize()
+        );
+        assert!(
+            doc.serialize().contains("8080"),
+            "uncommented output should contain '8080': {:?}",
+            doc.serialize()
+        );
     }
 
     #[test]
     fn remark_rejects_non_toml_comment() {
-        use crate::model::document::{Mutation, MutateError};
+        use crate::model::document::{MutateError, Mutation};
         let mut doc = doc_from_str("# just prose\n");
         let cpath = doc.project().root.children[0].path.clone();
         let err = doc.apply(Mutation::Remark { path: cpath });
@@ -675,7 +754,11 @@ mod tests {
         })
         .unwrap();
         let keys: Vec<&str> = doc.doc.as_table().iter().map(|(k, _)| k).collect();
-        assert_eq!(keys, vec!["a", "b", "c"], "Replace must preserve key position");
+        assert_eq!(
+            keys,
+            vec!["a", "b", "c"],
+            "Replace must preserve key position"
+        );
         assert!(doc.serialize().contains("b = 99"));
     }
 
@@ -690,8 +773,14 @@ mod tests {
         .unwrap();
         let s = doc.serialize();
         // Must NOT contain double-space between = and value
-        assert!(!s.contains("=  "), "commented output must be canonical (no double-space): {s:?}");
-        assert!(s.contains("# port = 8080"), "expected '# port = 8080', got: {s:?}");
+        assert!(
+            !s.contains("=  "),
+            "commented output must be canonical (no double-space): {s:?}"
+        );
+        assert!(
+            s.contains("# port = 8080"),
+            "expected '# port = 8080', got: {s:?}"
+        );
     }
 
     #[test]
@@ -710,12 +799,22 @@ mod tests {
 
         // find the comment node inside server's children
         let projected = doc.project();
-        let server = projected.root.children.iter()
-            .find(|n| n.key == "server").unwrap();
-        let comment_node = server.children.iter()
-            .find(|n| matches!(&n.kind, NodeKind::Comment(_))).unwrap();
+        let server = projected
+            .root
+            .children
+            .iter()
+            .find(|n| n.key == "server")
+            .unwrap();
+        let comment_node = server
+            .children
+            .iter()
+            .find(|n| matches!(&n.kind, NodeKind::Comment(_)))
+            .unwrap();
         // uncomment via the comment's synthetic path
-        doc.apply(Mutation::Remark { path: comment_node.path.clone() }).unwrap();
+        doc.apply(Mutation::Remark {
+            path: comment_node.path.clone(),
+        })
+        .unwrap();
         let s2 = doc.serialize();
         assert!(s2.contains("port = 8080"), "uncommented: {s2:?}");
         assert!(s2.contains("host = \"x\""), "sibling still present: {s2:?}");
@@ -739,12 +838,22 @@ mod tests {
 
         // find the comment node at top level
         let projected = doc.project();
-        let comment_node = projected.root.children.iter()
-            .find(|n| matches!(&n.kind, NodeKind::Comment(_))).unwrap();
-        doc.apply(Mutation::Remark { path: comment_node.path.clone() }).unwrap();
+        let comment_node = projected
+            .root
+            .children
+            .iter()
+            .find(|n| matches!(&n.kind, NodeKind::Comment(_)))
+            .unwrap();
+        doc.apply(Mutation::Remark {
+            path: comment_node.path.clone(),
+        })
+        .unwrap();
         let s2 = doc.serialize();
         assert!(s2.contains("[server]"), "server table restored: {s2:?}");
-        assert!(s2.contains("port = 8080"), "server children restored: {s2:?}");
+        assert!(
+            s2.contains("port = 8080"),
+            "server children restored: {s2:?}"
+        );
         assert!(s2.contains("[db]"), "db table still present: {s2:?}");
     }
 
@@ -755,9 +864,13 @@ mod tests {
         let mut doc = doc_from_str("a = 1\n[dest]\n");
         doc.apply(Mutation::Move {
             sources: vec![vec![Seg::Key("a".into())]],
-            target: Target { parent: vec![Seg::Key("dest".into())], index: 0 },
+            target: Target {
+                parent: vec![Seg::Key("dest".into())],
+                index: 0,
+            },
             on_collision: OnCollision::Cancel,
-        }).unwrap();
+        })
+        .unwrap();
         let s = doc.serialize();
         assert!(s.contains("[dest]"));
         assert!(s.contains("a = 1"));
@@ -772,7 +885,10 @@ mod tests {
         let mut doc = doc_from_str("a = 1\nb = 2\n[dest]\n");
         doc.apply(Mutation::Move {
             sources: vec![vec![Seg::Key("a".into())], vec![Seg::Key("b".into())]],
-            target: Target { parent: vec![Seg::Key("dest".into())], index: 0 },
+            target: Target {
+                parent: vec![Seg::Key("dest".into())],
+                index: 0,
+            },
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -781,7 +897,13 @@ mod tests {
         assert_eq!(s.matches("a = 1").count(), 1);
         assert_eq!(s.matches("b = 2").count(), 1);
         let tree = doc.project();
-        let dest = &tree.root.children.iter().find(|n| n.key == "dest").unwrap().children;
+        let dest = &tree
+            .root
+            .children
+            .iter()
+            .find(|n| n.key == "dest")
+            .unwrap()
+            .children;
         let keys: Vec<String> = dest.iter().map(|n| n.key.clone()).collect();
         assert!(keys.contains(&"a".to_string()) && keys.contains(&"b".to_string()));
     }
@@ -790,13 +912,16 @@ mod tests {
     fn move_multi_source_cancel_is_atomic() {
         // Second source `b` collides at the destination under Cancel. The whole
         // move must roll back: NOTHING deleted, NOTHING inserted (no data loss).
-        use crate::model::document::{Mutation, MutateError, OnCollision, Target};
+        use crate::model::document::{MutateError, Mutation, OnCollision, Target};
         use crate::model::node::Seg;
         let mut doc = doc_from_str("a = 1\nb = 2\n[dest]\nb = 99\n");
         let before = doc.serialize();
         let err = doc.apply(Mutation::Move {
             sources: vec![vec![Seg::Key("a".into())], vec![Seg::Key("b".into())]],
-            target: Target { parent: vec![Seg::Key("dest".into())], index: 0 },
+            target: Target {
+                parent: vec![Seg::Key("dest".into())],
+                index: 0,
+            },
             on_collision: OnCollision::Cancel,
         });
         assert!(matches!(err, Err(MutateError::Collision(_))));
@@ -813,10 +938,18 @@ mod tests {
             path: vec![Seg::Key("port".into())],
         })
         .unwrap();
-        assert!(doc.serialize().contains("# port = 8080"), "commented: {:?}", doc.serialize());
+        assert!(
+            doc.serialize().contains("# port = 8080"),
+            "commented: {:?}",
+            doc.serialize()
+        );
         // uncomment via the comment's synthetic path
         let cpath = doc.project().root.children[0].path.clone();
         doc.apply(Mutation::Remark { path: cpath }).unwrap();
-        assert!(doc.serialize().contains("port = 8080"), "uncommented: {:?}", doc.serialize());
+        assert!(
+            doc.serialize().contains("port = 8080"),
+            "uncommented: {:?}",
+            doc.serialize()
+        );
     }
 }

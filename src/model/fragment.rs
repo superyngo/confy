@@ -4,7 +4,9 @@ use toml_edit::{DocumentMut, Table};
 /// Parse a user-edited TOML fragment into a detached table whose entries can be
 /// merged into the document. The fragment is parsed as a standalone TOML doc.
 pub fn parse_fragment(src: &str) -> Result<Table, MutateError> {
-    let doc = src.parse::<DocumentMut>().map_err(|e| MutateError::Fragment(e.to_string()))?;
+    let doc = src
+        .parse::<DocumentMut>()
+        .map_err(|e| MutateError::Fragment(e.to_string()))?;
     Ok(doc.as_table().clone())
 }
 

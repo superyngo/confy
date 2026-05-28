@@ -11,11 +11,17 @@ use crate::tui::app::RowSnapshot;
 pub fn resolve_target(cursor: &RowSnapshot, expanded: bool, sibling_index: usize) -> Target {
     let is_root = cursor.path.is_empty();
     if is_root || (cursor.is_branch && expanded) {
-        Target { parent: cursor.path.clone(), index: 0 }
+        Target {
+            parent: cursor.path.clone(),
+            index: 0,
+        }
     } else {
         let mut parent = cursor.path.clone();
         parent.pop();
-        Target { parent, index: sibling_index + 1 }
+        Target {
+            parent,
+            index: sibling_index + 1,
+        }
     }
 }
 
@@ -29,7 +35,12 @@ mod tests {
     }
 
     fn row(key: &str, p: Path, is_branch: bool, depth: usize) -> RowSnapshot {
-        RowSnapshot { key: key.to_string(), path: p, depth, is_branch }
+        RowSnapshot {
+            key: key.to_string(),
+            path: p,
+            depth,
+            is_branch,
+        }
     }
 
     #[test]

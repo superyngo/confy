@@ -66,19 +66,23 @@ fn run_event_loop(
     while !should_quit {
         terminal.draw(|f| ui::draw(f, app))?;
         if let Event::Key(key) = event::read()? {
-            if key.kind != KeyEventKind::Press { continue; }
+            if key.kind != KeyEventKind::Press {
+                continue;
+            }
             // If in a prompt, character keys should be forwarded to the prompt handler
-                if matches!(app.mode, crate::tui::state::Mode::Prompt(_)) {
-                    if let crossterm::event::KeyCode::Char(c) = key.code {
-                        match app.handle_prompt_key(c) {
-                            crate::tui::app::PromptOutcome::Quit => { should_quit = true; }
-                            crate::tui::app::PromptOutcome::Consumed => {}
+            if matches!(app.mode, crate::tui::state::Mode::Prompt(_)) {
+                if let crossterm::event::KeyCode::Char(c) = key.code {
+                    match app.handle_prompt_key(c) {
+                        crate::tui::app::PromptOutcome::Quit => {
+                            should_quit = true;
                         }
-                        continue;
+                        crate::tui::app::PromptOutcome::Consumed => {}
                     }
-                    // fallthrough for non-char keys (e.g. Esc)
+                    continue;
                 }
-                match keys::map_key(key) {
+                // fallthrough for non-char keys (e.g. Esc)
+            }
+            match keys::map_key(key) {
                 keys::KeyAction::CursorDown => app.cursor_down(),
                 keys::KeyAction::CursorUp => app.cursor_up(),
                 keys::KeyAction::PageUp => app.page_up(terminal.size()?.height as usize / 2),
