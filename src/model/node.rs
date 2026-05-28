@@ -75,6 +75,33 @@ pub struct NodeTree {
     pub root: Node,
 }
 
+#[derive(Clone, Debug)]
+pub struct VisibleRow<'a> {
+    pub node: &'a Node,
+    pub depth: usize,
+}
+
+impl NodeTree {
+    /// Flatten honoring expanded state. `is_expanded(path)` decides whether a
+    /// Branch node's children are shown. The Root is always shown and always
+    /// treated as expanded.
+    pub fn flatten<'a>(&'a self, is_expanded: &dyn Fn(&Path) -> bool) -> Vec<VisibleRow<'a>> {
+        let mut rows = Vec::new();
+        fn walk<'a>(n: &'a Node, depth: usize, is_root: bool,
+                    is_expanded: &dyn Fn(&Path) -> bool, rows: &mut Vec<VisibleRow<'a>>) {
+            rows.push(VisibleRow { node: n, depth });
+            let expand = is_root || (n.is_branch() && is_expanded(&n.path));
+            if expand {
+                for c in &n.children {
+                    walk(c, depth + 1, false, is_expanded, rows);
+                }
+            }
+        }
+        walk(&self.root, 0, true, is_expanded, &mut rows);
+        rows
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -93,5 +120,29 @@ mod tests {
     fn comment_is_leaf() {
         let c = Node::leaf("# note", NodeKind::Comment("# note".into()));
         assert!(c.is_leaf());
+    }
+
+    #[test]
+    fn flatten_respects_expanded_set() {
+        // root > server(branch) > port(leaf)
+        let mut port = Node::leaf("port", NodeKind::Scalar(ScalarType::Integer));
+        port.path = vec![Seg::Key("server".into()), Seg::Key("port".into())];
+        let mut server = Node::branch("server", NodeKind::Table);
+        server.path = vec![Seg::Key("server".into())];
+        server.children = vec![port];
+        let mut root = Node::branch("f.toml", NodeKind::Root);
+        root.children = vec![server];
+        let tree = NodeTree { root };
+
+        // collapsed: only root + server visible (root always shown, expanded)
+        let collapsed = tree.flatten(&|_p| false);
+        assert_eq!(collapsed.iter().map(|r| r.node.key.clone()).collect::<Vec<_>>(),
+            vec!["f.toml".to_string(), "server".to_string()]);
+
+        // expand server -> port appears, depth 2
+        let expanded = tree.flatten(&|p| p == &vec![Seg::Key("server".into())]);
+        assert_eq!(expanded.len(), 3);
+        assert_eq!(expanded[2].node.key, "port");
+        assert_eq!(expanded[2].depth, 2);
     }
 }
