@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+MVP: single-file TOML editor with CST-projection architecture, tree navigation/selection/editing,
+byte-identical round-trip preservation, Remark toggle, undo/redo, fuzzy filter, and `$EDITOR`
+integration.
+
 ### Added
 - 2026-05-27: Project scaffold (git init, Cargo skeleton, README, CHANGELOG, .gitignore).
 - 2026-05-27: MVP design spec (`docs/superpowers/specs/`), `CONTEXT.md` glossary (Node/Root/Branch/Leaf), and implementation plan (`docs/superpowers/plans/`) — single-file TOML editor, CST-projection architecture, reviewed via grill + external spec-review (0 blockers).
@@ -14,3 +18,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 2026-05-28: Review fixes for Replace + Remark (3 blockers + 1 major): preserve key position in Replace, canonical TOML serialization in comment_out via single-key DocumentMut, recursive tree search for nested comment nodes in uncomment, block-replace for multi-line comment removal, correct Table decor slot for [table] siblings.
 - 2026-05-28: TUI skeleton — App state (cursor, expanded set, row snapshot), headless navigation tests, ratatui/crossterm render loop with tree indentation + expand/collapse markers, key mapping (j/k/arrow/PgUp/PgDn/Home/End/Enter/Space/0/9/q), crossterm raw-mode + alternate-screen setup/teardown (§6).
 - 2026-05-28: Scalar value in filter haystack + type/value/comment in detail popup — Node.value stores scalar text during projection; RowSnapshot gains value/scalar_type/trailing_comment; open_detail formats per §6; rebuild_rows at enter_filter; debug_assert replaces dead branch guard.
+- 2026-05-28: Docs — README with real usage, keybinding table, and scope; CLAUDE.md with build/test commands, architecture summary, and module map.
