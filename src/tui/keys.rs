@@ -13,6 +13,8 @@ pub enum KeyAction {
     ToggleSelect,
     ExtendSelectUp,
     ExtendSelectDown,
+    EditNode,
+    NewNode,
     Quit,
     Noop,
 }
@@ -31,6 +33,8 @@ pub fn map_key(key: KeyEvent) -> KeyAction {
         (KeyCode::Char('0'), _) => KeyAction::CollapseAll,
         (KeyCode::Char('9'), _) => KeyAction::ExpandAll,
         (KeyCode::Char('s'), _) => KeyAction::ToggleSelect,
+        (KeyCode::Char('e'), _) => KeyAction::EditNode,
+        (KeyCode::Char('n'), _) => KeyAction::NewNode,
         (KeyCode::Char('q'), _) => KeyAction::Quit,
         _ => KeyAction::Noop,
     }

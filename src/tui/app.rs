@@ -1,5 +1,7 @@
+use crate::model::document::ConfigDocument;
 use crate::model::node::{NodeTree, Path};
 use crate::tui::selection::Selection;
+use crate::tui::state::History;
 use std::collections::HashSet;
 
 pub struct App {
@@ -8,6 +10,11 @@ pub struct App {
     pub cursor: usize,
     pub rows: Vec<RowSnapshot>,
     pub selection: Selection,
+    /// Present when the app was constructed with a real document (interactive mode).
+    pub doc: Option<crate::model::toml_doc::TomlDocument>,
+    pub history: Option<History>,
+    /// Status message shown in the bottom bar (errors, info).
+    pub status: Option<String>,
 }
 
 #[derive(Clone)]
@@ -19,8 +26,37 @@ pub struct RowSnapshot {
 }
 
 impl App {
+    /// Construct an App backed by a real TomlDocument (interactive mode).
+    pub fn new(doc: crate::model::toml_doc::TomlDocument) -> Self {
+        let tree = doc.project();
+        let initial_snapshot = doc.serialize();
+        let history = History::new(initial_snapshot);
+        let mut app = App {
+            tree,
+            expanded: HashSet::new(),
+            cursor: 0,
+            rows: Vec::new(),
+            selection: Selection::new(),
+            doc: Some(doc),
+            history: Some(history),
+            status: None,
+        };
+        app.rebuild_rows();
+        app
+    }
+
+    /// Construct a headless App from a pre-built NodeTree (used in unit tests).
     pub fn from_tree(tree: NodeTree) -> Self {
-        App { tree, expanded: HashSet::new(), cursor: 0, rows: Vec::new(), selection: Selection::new() }
+        App {
+            tree,
+            expanded: HashSet::new(),
+            cursor: 0,
+            rows: Vec::new(),
+            selection: Selection::new(),
+            doc: None,
+            history: None,
+            status: None,
+        }
     }
     pub fn rebuild_rows(&mut self) {
         let expanded = &self.expanded;
@@ -104,6 +140,128 @@ impl App {
             .collect();
         crate::tui::selection::normalize(paths)
     }
+
+    /// `e` — edit the cursor node's fragment in $EDITOR and apply Replace.
+    /// On MutateError::Fragment: show error in status line, leave doc unchanged.
+    pub fn edit_node(&mut self) {
+        let doc = match self.doc.as_mut() { Some(d) => d, None => return };
+        let cursor_row = match self.rows.get(self.cursor) { Some(r) => r.clone(), None => return };
+        let path = cursor_row.path.clone();
+        // Serialize just the cursor node's own fragment.
+        let fragment = serialize_node_fragment(doc, &path);
+        let edited = match crate::tui::editor::edit_text(&fragment) {
+            Ok(t) => t,
+            Err(e) => { self.status = Some(format!("editor error: {e}")); return; }
+        };
+        match doc.apply(crate::model::document::Mutation::Replace { path, toml: edited }) {
+            Ok(()) => {
+                let snapshot = doc.serialize();
+                if let Some(h) = self.history.as_mut() { h.push(snapshot); }
+                self.tree = doc.project();
+                self.rebuild_rows();
+                self.status = None;
+            }
+            Err(crate::model::document::MutateError::Fragment(msg)) => {
+                self.status = Some(format!("invalid TOML: {msg}"));
+            }
+            Err(e) => {
+                self.status = Some(format!("error: {e}"));
+            }
+        }
+    }
+
+    /// `n` — open $EDITOR with empty buffer, resolve insertion target, apply Insert.
+    /// On Collision: set status (Task 17 will wire the prompt).
+    pub fn new_node(&mut self) {
+        let doc = match self.doc.as_mut() { Some(d) => d, None => return };
+        let edited = match crate::tui::editor::edit_text("") {
+            Ok(t) => t,
+            Err(e) => { self.status = Some(format!("editor error: {e}")); return; }
+        };
+        let cursor_row = self.rows.get(self.cursor).cloned();
+        let (target, sibling_index) = match &cursor_row {
+            Some(r) => {
+                let expanded = self.expanded.contains(&r.path);
+                let sibling_index = sibling_index_of(r, &self.rows);
+                (crate::tui::insertion::resolve_target(r, expanded, sibling_index), sibling_index)
+            }
+            None => {
+                (crate::model::document::Target { parent: vec![], index: 0 }, 0)
+            }
+        };
+        let _ = sibling_index;
+        match doc.apply(crate::model::document::Mutation::Insert {
+            target,
+            toml: edited,
+            on_collision: crate::model::document::OnCollision::Cancel,
+        }) {
+            Ok(()) => {
+                let snapshot = doc.serialize();
+                if let Some(h) = self.history.as_mut() { h.push(snapshot); }
+                self.tree = doc.project();
+                self.rebuild_rows();
+                self.status = None;
+            }
+            Err(crate::model::document::MutateError::Collision(key)) => {
+                self.status = Some(format!("key collision: {key} (rename/overwrite not yet prompted)"));
+            }
+            Err(e) => {
+                self.status = Some(format!("error: {e}"));
+            }
+        }
+    }
+}
+
+/// Serialize a single node at `path` as a TOML fragment string.
+fn serialize_node_fragment(doc: &crate::model::toml_doc::TomlDocument, path: &[crate::model::node::Seg]) -> String {
+    use crate::model::node::Seg;
+    use toml_edit::{DocumentMut, Item};
+    if path.is_empty() { return doc.serialize(); }
+    let (parent_segs, last) = path.split_at(path.len().saturating_sub(1));
+    let key = match last.first() {
+        Some(Seg::Key(k)) => k.as_str(),
+        _ => return String::new(),
+    };
+    // Walk to the parent table
+    let mut tbl: &dyn toml_edit::TableLike = doc.doc.as_table();
+    for seg in parent_segs {
+        match seg {
+            Seg::Key(k) => {
+                tbl = match tbl.get(k).and_then(Item::as_table_like) {
+                    Some(t) => t,
+                    None => return String::new(),
+                };
+            }
+            _ => return String::new(),
+        }
+    }
+    let item = match tbl.get(key) {
+        Some(i) => i.clone(),
+        None => return String::new(),
+    };
+    let mut tmp = DocumentMut::new();
+    tmp.as_table_mut().insert(key, item);
+    tmp.to_string()
+}
+
+/// Compute the 0-based index of `row` within its parent's visible children.
+fn sibling_index_of(row: &RowSnapshot, rows: &[RowSnapshot]) -> usize {
+    let parent_depth = if row.depth > 0 { row.depth - 1 } else { 0 };
+    let row_pos = rows.iter().position(|r| std::ptr::eq(r as *const _, row as *const _));
+    let row_pos = match row_pos {
+        Some(p) => p,
+        None => {
+            // Fall back: find by path equality
+            rows.iter().position(|r| r.path == row.path).unwrap_or(0)
+        }
+    };
+    // Count siblings (same depth) before this row within the same parent
+    let mut count = 0usize;
+    for r in rows[..row_pos].iter().rev() {
+        if r.depth == row.depth { count += 1; }
+        else if r.depth <= parent_depth { break; }
+    }
+    count
 }
 
 #[cfg(test)]

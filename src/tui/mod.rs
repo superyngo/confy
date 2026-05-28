@@ -1,4 +1,5 @@
 pub mod app;
+pub mod editor;
 pub mod insertion;
 pub mod keys;
 pub mod selection;
@@ -15,9 +16,7 @@ use std::path::Path;
 pub fn run(path: &Path) -> Result<()> {
     use crate::model::document::ConfigDocument;
     let doc = crate::model::toml_doc::TomlDocument::load(path)?;
-    let tree = doc.project();
-    let mut app = app::App::from_tree(tree);
-    app.rebuild_rows();
+    let mut app = app::App::new(doc);
 
     // Restore the terminal even if the event loop panics, so a crash never
     // leaves the user's shell stuck in raw mode / the alternate screen.
@@ -94,6 +93,24 @@ fn run_event_loop(
                 }
                 keys::KeyAction::ExtendSelectDown => {
                     app.extend_select_down();
+                }
+                keys::KeyAction::EditNode => {
+                    // Must leave raw mode / alternate screen before launching editor,
+                    // then restore after it returns.
+                    let _ = disable_raw_mode();
+                    let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
+                    app.edit_node();
+                    let _ = execute!(terminal.backend_mut(), EnterAlternateScreen);
+                    let _ = enable_raw_mode();
+                    terminal.clear()?;
+                }
+                keys::KeyAction::NewNode => {
+                    let _ = disable_raw_mode();
+                    let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
+                    app.new_node();
+                    let _ = execute!(terminal.backend_mut(), EnterAlternateScreen);
+                    let _ = enable_raw_mode();
+                    terminal.clear()?;
                 }
                 keys::KeyAction::Noop => {}
             }
