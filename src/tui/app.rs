@@ -33,6 +33,11 @@ impl App {
             })
             .collect();
         if self.cursor >= self.rows.len() { self.cursor = self.rows.len().saturating_sub(1); }
+        // Selection is keyed by row index; any structural change (expand/collapse
+        // or a mutation) invalidates those indices, so clear it rather than let it
+        // silently point at the wrong rows. Operations read selected_paths() before
+        // rebuilding, so the selection is still live when an op consumes it.
+        self.selection.clear();
     }
     pub fn visible_keys(&self) -> Vec<String> { self.rows.iter().map(|r| r.key.clone()).collect() }
     pub fn cursor_down(&mut self) { if self.cursor + 1 < self.rows.len() { self.cursor += 1; } }
@@ -133,6 +138,20 @@ mod tests {
         app.collapse_all();
         app.rebuild_rows();
         assert_eq!(app.visible_keys(), vec!["f.toml", "a", "b"]);
+    }
+
+    #[test]
+    fn rebuild_clears_stale_selection() {
+        // Selecting rows then changing structure (expand) must not leave stale
+        // row-index selections pointing at the wrong rows.
+        let mut app = sample();
+        app.rebuild_rows();
+        app.cursor_down(); // on `a`
+        app.toggle_select(); // select `a`
+        assert!(!app.selection.indices.is_empty());
+        app.toggle_expand();
+        app.rebuild_rows(); // structure changed
+        assert!(app.selection.indices.is_empty(), "selection must clear on rebuild");
     }
 
     #[test]
