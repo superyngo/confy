@@ -1326,8 +1326,7 @@ mod tests {
             "detail should contain value, got: {detail}"
         );
         assert!(
-            detail.contains("server")
-                || detail.lines().next().is_some_and(|l| l.contains("port")),
+            detail.contains("server") || detail.lines().next().is_some_and(|l| l.contains("port")),
             "detail should contain dotted path, got: {detail}"
         );
     }
