@@ -178,6 +178,7 @@ fn run_event_loop(
                 keys::KeyAction::Paste => app.paste(),
                 keys::KeyAction::Move => app.move_pressed(),
                 keys::KeyAction::Remark => app.remark(),
+                keys::KeyAction::Save => app.save(),
                 keys::KeyAction::Undo => app.undo(),
                 keys::KeyAction::Redo => app.redo(),
                 keys::KeyAction::Escape => app.escape(),

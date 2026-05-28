@@ -184,6 +184,16 @@ impl TomlDocument {
         Ok(())
     }
 
+    /// Write the current serialized content to `self.path`.
+    pub fn save(&self) -> std::io::Result<()> {
+        std::fs::write(&self.path, self.serialize())
+    }
+
+    /// Reset the dirty baseline so `is_dirty()` returns false.
+    pub fn mark_saved(&mut self) {
+        self.original = self.serialize();
+    }
+
     /// Re-parse the document from a serialized snapshot string (for undo/redo
     /// restore). Propagates a parse error rather than silently no-op'ing, so a
     /// caller is never told a restore succeeded when the document is unchanged.

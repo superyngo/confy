@@ -703,6 +703,27 @@ impl App {
         }
     }
 
+    /// `w`/`Ctrl+s` — save current document to its path.
+    pub fn save(&mut self) {
+        let doc = match self.doc.as_mut() {
+            Some(d) => d,
+            None => return,
+        };
+        if !doc.is_dirty() {
+            self.status = Some("no changes to save".into());
+            return;
+        }
+        match doc.save() {
+            Ok(()) => {
+                doc.mark_saved();
+                self.status = Some("Saved".into());
+            }
+            Err(e) => {
+                self.status = Some(format!("save error: {e}"));
+            }
+        }
+    }
+
     /// `z` — undo.
     pub fn undo(&mut self) {
         let snapshot = match self.history.as_mut().and_then(|h| h.undo()) {
@@ -1310,6 +1331,52 @@ mod tests {
     }
 
     // --- Blocker 2: detail must show type and value ---
+
+    // --- Task 19: save + dirty-aware quit ---
+
+    #[test]
+    fn save_writes_to_file_and_resets_dirty() {
+        use std::io::Write;
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        f.write_all(b"port = 8080\n").unwrap();
+        let path = f.path().to_path_buf();
+        // Keep the NamedTempFile alive so the path isn't deleted
+        let doc = crate::model::toml_doc::TomlDocument::load(&path).unwrap();
+        let mut app = App::new(doc);
+        // Mutate to make dirty
+        app.apply_replace(vec![Seg::Key("port".into())], "port = 9090\n".into());
+        assert!(app.doc.as_ref().unwrap().is_dirty(), "should be dirty after mutation");
+        // Save
+        app.save();
+        // File on disk should have new content
+        let on_disk = std::fs::read_to_string(&path).unwrap();
+        assert!(on_disk.contains("9090"), "saved file must contain new value: {on_disk:?}");
+        // After save, is_dirty() must be false
+        assert!(!app.doc.as_ref().unwrap().is_dirty(), "must not be dirty after save");
+        assert!(app.status.as_deref() == Some("Saved"), "status must be 'Saved'");
+    }
+
+    #[test]
+    fn quit_when_dirty_enters_confirm_quit() {
+        let mut app = app_with("a = 1\n");
+        app.apply_replace(vec![Seg::Key("a".into())], "a = 2\n".into());
+        assert!(app.doc.as_ref().unwrap().is_dirty());
+        let should_quit = app.quit_requested();
+        assert!(!should_quit, "should NOT quit immediately when dirty");
+        assert!(
+            matches!(app.mode, Mode::Prompt(PromptKind::ConfirmQuit)),
+            "must enter ConfirmQuit prompt"
+        );
+    }
+
+    #[test]
+    fn quit_when_clean_signals_quit() {
+        let mut app = app_with("a = 1\n");
+        assert!(!app.doc.as_ref().unwrap().is_dirty(), "fresh doc must be clean");
+        let should_quit = app.quit_requested();
+        assert!(should_quit, "must return true (quit) when clean");
+        assert!(matches!(app.mode, Mode::Normal), "mode unchanged when clean");
+    }
 
     #[test]
     fn detail_view_shows_type_and_value() {
