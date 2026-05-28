@@ -27,10 +27,24 @@ pub fn run(path: &Path) -> Result<()> {
     }));
 
     enable_raw_mode()?;
-    let mut stdout = std::io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
-    let backend = ratatui::backend::CrosstermBackend::new(stdout);
-    let mut terminal = ratatui::Terminal::new(backend)?;
+    // If entering the alternate screen or building the terminal fails AFTER raw
+    // mode is on, disable raw mode before returning so the shell isn't left stuck
+    // (the panic hook only covers panics, not `?`-propagated errors).
+    let mut terminal = {
+        let setup = (|| -> Result<_> {
+            let mut stdout = std::io::stdout();
+            execute!(stdout, EnterAlternateScreen)?;
+            let backend = ratatui::backend::CrosstermBackend::new(stdout);
+            Ok(ratatui::Terminal::new(backend)?)
+        })();
+        match setup {
+            Ok(t) => t,
+            Err(e) => {
+                let _ = disable_raw_mode();
+                return Err(e);
+            }
+        }
+    };
 
     let result = run_event_loop(&mut terminal, &mut app);
 
