@@ -23,6 +23,37 @@ impl TomlDocument {
         }
     }
 
+    fn insert_fragment(
+        &mut self,
+        target: &crate::model::document::Target,
+        toml: &str,
+        oc: crate::model::document::OnCollision,
+    ) -> Result<(), MutateError> {
+        use crate::model::document::OnCollision::*;
+        let frag = crate::model::fragment::parse_fragment(toml)?;
+        let dest = self.parent_table_mut(&target.parent)?;
+        for (k, item) in frag.iter() {
+            let mut key = k.to_string();
+            if dest.contains_key(&key) {
+                match oc {
+                    Cancel => return Err(MutateError::Collision(key)),
+                    Overwrite => {
+                        dest.remove(&key);
+                    }
+                    Rename => {
+                        let mut n = 2;
+                        while dest.contains_key(&format!("{key}_{n}")) {
+                            n += 1;
+                        }
+                        key = format!("{key}_{n}");
+                    }
+                }
+            }
+            dest.insert(&key, item.clone());
+        }
+        Ok(())
+    }
+
     /// Walk to the mutable table that directly contains the final segment.
     /// Returns `&mut dyn TableLike` so paths can traverse both regular `[table]`
     /// nodes and inline tables (`pt = { x = 1 }`) — the projector emits paths
@@ -73,6 +104,11 @@ impl ConfigDocument for TomlDocument {
     fn apply(&mut self, m: Mutation) -> Result<(), MutateError> {
         match m {
             Mutation::Delete { path } => self.remove_at(&path),
+            Mutation::Insert {
+                target,
+                toml,
+                on_collision,
+            } => self.insert_fragment(&target, &toml, on_collision),
             _ => Err(MutateError::Unsupported),
         }
     }
@@ -135,6 +171,53 @@ mod tests {
         assert!(!doc.serialize().contains("a.b.c"));
         // sibling dotted key under the same implicit table survives
         assert!(doc.serialize().contains("a.b.d = 2"));
+    }
+
+    #[test]
+    fn insert_into_table_and_collision() {
+        use crate::model::document::{Mutation, OnCollision, Target};
+        use crate::model::node::Seg;
+
+        let mut doc = doc_from_str("[server]\nport = 8080\n");
+        let target = Target { parent: vec![Seg::Key("server".into())], index: 1 };
+
+        // Insert new key — no collision
+        doc.apply(Mutation::Insert {
+            target: target.clone(),
+            toml: "host = \"x\"\n".into(),
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert!(doc.serialize().contains("host = \"x\""));
+
+        // Collision with Cancel → error
+        let err = doc.apply(Mutation::Insert {
+            target: target.clone(),
+            toml: "port = 1\n".into(),
+            on_collision: OnCollision::Cancel,
+        });
+        assert!(matches!(
+            err,
+            Err(crate::model::document::MutateError::Collision(_))
+        ));
+
+        // Overwrite replaces
+        doc.apply(Mutation::Insert {
+            target: target.clone(),
+            toml: "port = 1\n".into(),
+            on_collision: OnCollision::Overwrite,
+        })
+        .unwrap();
+        assert!(doc.serialize().contains("port = 1"));
+
+        // Rename appends _2
+        doc.apply(Mutation::Insert {
+            target,
+            toml: "port = 2\n".into(),
+            on_collision: OnCollision::Rename,
+        })
+        .unwrap();
+        assert!(doc.serialize().contains("port_2 = 2"));
     }
 
     #[test]
