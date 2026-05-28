@@ -112,8 +112,10 @@ impl TomlDocument {
         // Serialize the item to text before removing it
         let rendered = {
             let table = self.parent_table_mut(parent)?;
-            let item = table.get(&key_name).ok_or(MutateError::NotFound)?;
-            format!("{} = {}", key_name, item)
+            let item = table.get(&key_name).ok_or(MutateError::NotFound)?.clone();
+            let mut tmp = DocumentMut::new();
+            tmp.as_table_mut().insert(&key_name, item);
+            tmp.to_string().trim_end_matches('\n').to_string()
         };
         let commented = rendered
             .lines()
@@ -531,5 +533,20 @@ mod tests {
         let keys: Vec<&str> = doc.doc.as_table().iter().map(|(k, _)| k).collect();
         assert_eq!(keys, vec!["a", "b", "c"], "Replace must preserve key position");
         assert!(doc.serialize().contains("b = 99"));
+    }
+
+    #[test]
+    fn comment_out_produces_canonical_toml_no_double_space() {
+        use crate::model::document::Mutation;
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("port = 8080\n");
+        doc.apply(Mutation::Remark {
+            path: vec![Seg::Key("port".into())],
+        })
+        .unwrap();
+        let s = doc.serialize();
+        // Must NOT contain double-space between = and value
+        assert!(!s.contains("=  "), "commented output must be canonical (no double-space): {s:?}");
+        assert!(s.contains("# port = 8080"), "expected '# port = 8080', got: {s:?}");
     }
 }
