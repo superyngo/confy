@@ -1,0 +1,9 @@
+# confy sample
+title = "demo"
+
+[server]
+host = "0.0.0.0"  # bind address
+port = 9090
+
+[[plugin]]
+name = "a"
