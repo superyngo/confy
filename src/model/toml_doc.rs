@@ -1,4 +1,4 @@
-use crate::model::document::{ConfigDocument, Mutation, MutateError};
+use crate::model::document::{ConfigDocument, Mutation, MutateError, Target};
 use crate::model::node::{NodeTree, Seg};
 use anyhow::Context;
 use std::path::{Path, PathBuf};
@@ -80,6 +80,213 @@ impl TomlDocument {
         }
         Ok(tbl)
     }
+
+    /// Replace = delete at `path`, then insert the fragment at the same parent.
+    fn replace(&mut self, path: &[Seg], toml: &str) -> Result<(), MutateError> {
+        let parent = path.split_at(path.len().saturating_sub(1)).0.to_vec();
+        self.remove_at(path)?;
+        self.insert_fragment(
+            &Target { parent, index: 0 },
+            toml,
+            crate::model::document::OnCollision::Overwrite,
+        )
+    }
+
+    fn remark(&mut self, path: &[Seg]) -> Result<(), MutateError> {
+        let is_comment = matches!(path.last(), Some(Seg::Key(k)) if k.starts_with("#comment:"));
+        if is_comment {
+            self.uncomment(path)
+        } else {
+            self.comment_out(path)
+        }
+    }
+
+    /// Comment-out a live key: serialize the item, prefix each line with `# `,
+    /// delete the live key, write the commented text into the parent table's decor
+    /// at the same position.
+    fn comment_out(&mut self, path: &[Seg]) -> Result<(), MutateError> {
+        let (parent, last) = path.split_at(path.len().saturating_sub(1));
+        let last = last.first().ok_or(MutateError::NotFound)?;
+        let key_name = match last {
+            Seg::Key(k) => k.to_string(),
+            Seg::Index(_) => return Err(MutateError::Unsupported),
+        };
+        // Serialize the item to text before removing it
+        let rendered = {
+            let table = self.parent_table_mut(parent)?;
+            let item = table.get(&key_name).ok_or(MutateError::NotFound)?;
+            format!("{} = {}", key_name, item)
+        };
+        let commented = rendered
+            .lines()
+            .map(|l| format!("# {l}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        // Delete the live key
+        {
+            let table = self.parent_table_mut(parent)?;
+            table.remove(&key_name).ok_or(MutateError::NotFound)?;
+        }
+        // Write the commented text into the appropriate decor slot.
+        if parent.is_empty() && self.doc.as_table().is_empty() {
+            // Only item at top level — write to document trailing
+            let trailing = self.doc.trailing().as_str().unwrap_or("");
+            let new_trailing = if trailing.is_empty() {
+                format!("{commented}\n")
+            } else {
+                format!("{commented}\n{trailing}")
+            };
+            self.doc.set_trailing(new_trailing);
+        } else {
+            // Collect first remaining key name before mutable borrow
+            let first_key = self
+                .parent_table_mut(parent)
+                .ok()
+                .and_then(|t| t.iter().next().map(|(k, _)| k.to_string()));
+            if let Some(fk) = first_key {
+                let table = self.parent_table_mut(parent)?;
+                let existing = table
+                    .key(&fk)
+                    .and_then(|k| k.leaf_decor().prefix().and_then(|r| r.as_str()))
+                    .unwrap_or("")
+                    .to_string();
+                let table = self.parent_table_mut(parent)?;
+                if let Some(mut km) = table.key_mut(&fk) {
+                    km.leaf_decor_mut()
+                        .set_prefix(format!("{commented}\n{existing}"));
+                }
+            } else {
+                // Table is now empty (nested) — use the table header's decor.
+                // Walk the path on concrete Table types only (no TableLike).
+                self.write_comment_to_table_decor(parent, &format!("{}\n", commented));
+            }
+        }
+        Ok(())
+    }
+
+    /// Uncomment: take the comment text from the projector's synthetic path,
+    /// strip `# ` from each line, parse as TOML fragment, and insert at that
+    /// position. On parse failure return Fragment and leave the document untouched.
+    fn uncomment(&mut self, path: &[Seg]) -> Result<(), MutateError> {
+        let (parent, last) = path.split_at(path.len().saturating_sub(1));
+        let last_seg = last.first().ok_or(MutateError::NotFound)?;
+        let marker = match last_seg {
+            Seg::Key(k) if k.starts_with("#comment:") => k.as_str(),
+            _ => return Err(MutateError::NotFound),
+        };
+        // Read the comment text from the projection
+        let comment_text = {
+            let projected = self.project();
+            projected
+                .root
+                .children
+                .iter()
+                .find(|n| n.path.last() == Some(&Seg::Key(marker.to_string())))
+                .and_then(|n| match &n.kind {
+                    crate::model::node::NodeKind::Comment(t) => Some(t.clone()),
+                    _ => None,
+                })
+                .ok_or(MutateError::NotFound)?
+        };
+        // Strip leading "# " from each line
+        let stripped = comment_text
+            .lines()
+            .map(|l| l.strip_prefix("# ").unwrap_or(l.strip_prefix('#').unwrap_or(l)))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let fragment = format!("{stripped}\n");
+        // Validate: parse the fragment. On failure, document is untouched.
+        crate::model::fragment::parse_fragment(&fragment)?;
+        // Remove the comment text from decor BEFORE inserting the live items,
+        // so that the "is table empty?" check in remove_comment_from_decor
+        // correctly identifies whether the comment lives in trailing or leaf_decor.
+        self.remove_comment_from_decor(parent, &comment_text);
+        // Parse succeeded — insert the live items
+        self.insert_fragment(
+            &Target {
+                parent: parent.to_vec(),
+                index: 0,
+            },
+            &fragment,
+            crate::model::document::OnCollision::Overwrite,
+        )?;
+        Ok(())
+    }
+
+    /// Walk to a concrete `&mut toml_edit::Table` and set its header decor prefix.
+    fn write_comment_to_table_decor(&mut self, parent: &[Seg], comment: &str) {
+        let mut table = self.doc.as_table_mut();
+        for seg in parent {
+            match seg {
+                Seg::Key(k) => {
+                    table = match table.get_mut(k).and_then(Item::as_table_mut) {
+                        Some(t) => t,
+                        None => return,
+                    };
+                }
+                Seg::Index(_) => return,
+            }
+        }
+        table.decor_mut().set_prefix(comment);
+    }
+
+    /// Remove a comment line from the decor slot where the projector would have read it.
+    fn remove_comment_from_decor(&mut self, parent: &[Seg], comment_text: &str) {
+        if parent.is_empty() {
+            // Read first key name from the immutable view
+            let first_key = self.doc.as_table().iter().next().map(|(k, _)| k.to_string());
+            if let Some(fk) = first_key {
+                let existing = self
+                    .doc
+                    .as_table()
+                    .key(&fk)
+                    .and_then(|k| k.leaf_decor().prefix().and_then(|r| r.as_str()))
+                    .unwrap_or("")
+                    .to_string();
+                let new_prefix = existing
+                    .lines()
+                    .filter(|l| l.trim() != comment_text)
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if let Some(mut km) = self.doc.as_table_mut().key_mut(&fk) {
+                    km.leaf_decor_mut().set_prefix(new_prefix);
+                }
+            } else {
+                // No keys — comment was in document trailing
+                let trailing = self.doc.trailing().as_str().unwrap_or("");
+                let new_trailing = trailing
+                    .lines()
+                    .filter(|l| l.trim() != comment_text)
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                self.doc.set_trailing(new_trailing);
+            }
+        } else {
+            let first_key = self
+                .parent_table_mut(parent)
+                .ok()
+                .and_then(|t| t.iter().next().map(|(k, _)| k.to_string()));
+            if let Some(fk) = first_key {
+                let existing = {
+                    let table = self.parent_table_mut(parent).unwrap();
+                    table
+                        .key(&fk)
+                        .and_then(|k| k.leaf_decor().prefix().and_then(|r| r.as_str()))
+                        .unwrap_or("")
+                        .to_string()
+                };
+                let new_prefix = existing
+                    .lines()
+                    .filter(|l| l.trim() != comment_text)
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let table = self.parent_table_mut(parent).unwrap();
+                if let Some(mut km) = table.key_mut(&fk) {
+                    km.leaf_decor_mut().set_prefix(new_prefix);
+                }
+            }
+        }
+    }
 }
 
 impl ConfigDocument for TomlDocument {
@@ -116,6 +323,8 @@ impl ConfigDocument for TomlDocument {
                 toml,
                 on_collision,
             } => self.insert_fragment(&target, &toml, on_collision),
+            Mutation::Replace { path, toml } => self.replace(&path, &toml),
+            Mutation::Remark { path } => self.remark(&path),
             _ => Err(MutateError::Unsupported),
         }
     }
@@ -265,5 +474,49 @@ mod tests {
         .unwrap();
         assert!(!doc.serialize().contains("x = 1"));
         assert!(doc.serialize().contains("y = 2"));
+    }
+
+    #[test]
+    fn replace_node_fragment() {
+        use crate::model::document::Mutation;
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("port = 8080\n");
+        doc.apply(Mutation::Replace {
+            path: vec![Seg::Key("port".into())],
+            toml: "port = 9090\n".into(),
+        })
+        .unwrap();
+        assert!(doc.serialize().contains("port = 9090"));
+    }
+
+    #[test]
+    fn remark_toggles_leaf() {
+        use crate::model::document::Mutation;
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("port = 8080\n");
+        // live -> comment
+        doc.apply(Mutation::Remark {
+            path: vec![Seg::Key("port".into())],
+        })
+        .unwrap();
+        let s = doc.serialize();
+        assert!(s.contains("# port = "), "commented output should contain '# port =': {:?}", s);
+        assert!(s.contains("8080"), "commented output should contain '8080': {:?}", s);
+        // comment -> live: address the comment via its synthetic path
+        let cpath = doc.project().root.children[0].path.clone();
+        doc.apply(Mutation::Remark { path: cpath }).unwrap();
+        assert!(doc.serialize().contains("port"), "uncommented output should contain 'port': {:?}", doc.serialize());
+        assert!(doc.serialize().contains("8080"), "uncommented output should contain '8080': {:?}", doc.serialize());
+    }
+
+    #[test]
+    fn remark_rejects_non_toml_comment() {
+        use crate::model::document::{Mutation, MutateError};
+        let mut doc = doc_from_str("# just prose\n");
+        let cpath = doc.project().root.children[0].path.clone();
+        let err = doc.apply(Mutation::Remark { path: cpath });
+        assert!(matches!(err, Err(MutateError::Fragment(_))));
+        // document unchanged
+        assert_eq!(doc.serialize(), "# just prose\n");
     }
 }
