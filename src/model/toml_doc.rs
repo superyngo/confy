@@ -1,14 +1,43 @@
-use crate::model::document::ConfigDocument;
-use crate::model::node::NodeTree;
+use crate::model::document::{ConfigDocument, Mutation, MutateError};
+use crate::model::node::{NodeTree, Seg};
 use anyhow::Context;
 use std::path::{Path, PathBuf};
-use toml_edit::DocumentMut;
+use toml_edit::{DocumentMut, Item};
 
 pub struct TomlDocument {
     pub(crate) doc: DocumentMut,
     pub(crate) path: PathBuf,
     pub(crate) original: String,
     pub(crate) filename: String,
+}
+
+impl TomlDocument {
+    /// Remove the item addressed by `path`.
+    fn remove_at(&mut self, path: &[Seg]) -> Result<(), MutateError> {
+        let (parent, last) = path.split_at(path.len().saturating_sub(1));
+        let last = last.first().ok_or(MutateError::NotFound)?;
+        let table = self.parent_table_mut(parent)?;
+        match last {
+            Seg::Key(k) => { table.remove(k).ok_or(MutateError::NotFound)?; Ok(()) }
+            Seg::Index(_) => Err(MutateError::Unsupported),
+        }
+    }
+
+    /// Walk to the mutable table that directly contains the final segment.
+    fn parent_table_mut(&mut self, parent: &[Seg]) -> Result<&mut toml_edit::Table, MutateError> {
+        let mut tbl = self.doc.as_table_mut();
+        for seg in parent {
+            match seg {
+                Seg::Key(k) => {
+                    tbl = tbl.get_mut(k)
+                        .and_then(Item::as_table_mut)
+                        .ok_or(MutateError::NotFound)?;
+                }
+                Seg::Index(_) => return Err(MutateError::Unsupported),
+            }
+        }
+        Ok(tbl)
+    }
 }
 
 impl ConfigDocument for TomlDocument {
@@ -36,6 +65,13 @@ impl ConfigDocument for TomlDocument {
     fn is_dirty(&self) -> bool {
         self.serialize() != self.original
     }
+
+    fn apply(&mut self, m: Mutation) -> Result<(), MutateError> {
+        match m {
+            Mutation::Delete { path } => self.remove_at(&path),
+            _ => Err(MutateError::Unsupported),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -62,5 +98,18 @@ mod tests {
         let mut f = tempfile::NamedTempFile::new().unwrap();
         f.write_all(b"this is = = not toml").unwrap();
         assert!(TomlDocument::load(f.path()).is_err());
+    }
+
+    #[test]
+    fn delete_leaf_and_branch() {
+        use crate::model::document::Mutation;
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("a = 1\n[server]\nport = 8080\nhost = \"x\"\n");
+        doc.apply(Mutation::Delete { path: vec![Seg::Key("a".into())] }).unwrap();
+        assert!(!doc.serialize().contains("a = 1"));
+        // delete a whole table (branch) removes its subtree
+        doc.apply(Mutation::Delete { path: vec![Seg::Key("server".into())] }).unwrap();
+        assert_eq!(doc.serialize().trim(), "");
+        assert!(doc.is_dirty());
     }
 }
