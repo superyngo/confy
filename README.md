@@ -27,11 +27,13 @@ for unmodified subtrees).
 |-----|--------|
 | `j` / `↓` | Move cursor down |
 | `k` / `↑` | Move cursor up |
-| `←` / `→` | Collapse / expand branch |
-| `Enter` / `Space` | Expand or open detail for node |
+| `PgUp` / `PgDn` | Page up / down |
+| `Home` / `End` | First / last row |
+| `Enter` / `Space` | Expand/collapse branch, or open leaf detail |
 | `0` | Collapse all |
 | `9` | Expand all |
-| `s` + `Shift+↑/↓` | Extend selection up/down |
+| `s` | Toggle selection on the cursor row |
+| `Shift+↑` / `Shift+↓` | Extend range selection |
 | `n` | New node |
 | `e` | Edit node value (opens `$EDITOR`) |
 | `d` | Delete selected node(s) |

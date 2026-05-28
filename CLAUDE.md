@@ -40,8 +40,8 @@ src/
     project.rs     DocumentMut → NodeTree projection (§7.1 comment mapping)
     fragment.rs    parse/validate a TOML fragment string
   tui/
-    mod.rs         re-exports; run() entry point
-    app.rs         App state + event loop + key dispatch
+    mod.rs         re-exports; run() entry point + event loop (run_event_loop)
+    app.rs         App state + operation handlers (the event loop dispatches keys to these)
     state.rs       Mode, Clipboard, undo/redo stacks
     keys.rs        KeyAction mapping + help text
     insertion.rs   §6.1 insertion-target resolution from cursor
