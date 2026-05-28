@@ -55,7 +55,6 @@ impl TomlDocument {
         }
         // Apply only after the whole fragment passed the collision check.
         for (key, item) in insertions {
-            dest.remove(&key); // no-op unless Overwrite replacing an existing key
             dest.insert(&key, item);
         }
         Ok(())
@@ -81,10 +80,9 @@ impl TomlDocument {
         Ok(tbl)
     }
 
-    /// Replace = delete at `path`, then insert the fragment at the same parent.
+    /// Replace the item at `path` with the fragment content, preserving key position.
     fn replace(&mut self, path: &[Seg], toml: &str) -> Result<(), MutateError> {
         let parent = path.split_at(path.len().saturating_sub(1)).0.to_vec();
-        self.remove_at(path)?;
         self.insert_fragment(
             &Target { parent, index: 0 },
             toml,
@@ -518,5 +516,20 @@ mod tests {
         assert!(matches!(err, Err(MutateError::Fragment(_))));
         // document unchanged
         assert_eq!(doc.serialize(), "# just prose\n");
+    }
+
+    #[test]
+    fn replace_preserves_key_order() {
+        use crate::model::document::Mutation;
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("a = 1\nb = 2\nc = 3\n");
+        doc.apply(Mutation::Replace {
+            path: vec![Seg::Key("b".into())],
+            toml: "b = 99\n".into(),
+        })
+        .unwrap();
+        let keys: Vec<&str> = doc.doc.as_table().iter().map(|(k, _)| k).collect();
+        assert_eq!(keys, vec!["a", "b", "c"], "Replace must preserve key position");
+        assert!(doc.serialize().contains("b = 99"));
     }
 }
