@@ -112,7 +112,31 @@ impl TomlDocument {
         )
     }
 
+    /// Move `sources` under `target`. Atomic on any error: a snapshot is taken
+    /// up front and restored if any step fails, so a partial move (e.g. a Cancel
+    /// collision after some sources were already deleted) never corrupts or loses
+    /// data. The snapshot round-trips byte-identically (see Task 3 round-trip).
     fn r#move(
+        &mut self,
+        sources: &[crate::model::node::Path],
+        target: &Target,
+        oc: crate::model::document::OnCollision,
+    ) -> Result<(), MutateError> {
+        let snapshot = self.doc.to_string();
+        match self.move_inner(sources, target, oc) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                // Restore the pre-move state. The snapshot came from to_string(),
+                // so it always re-parses; the expect guards against a logic bug.
+                self.doc = snapshot
+                    .parse::<DocumentMut>()
+                    .expect("move snapshot must re-parse");
+                Err(e)
+            }
+        }
+    }
+
+    fn move_inner(
         &mut self,
         sources: &[crate::model::node::Path],
         target: &Target,
@@ -147,11 +171,14 @@ impl TomlDocument {
         Ok(())
     }
 
-    /// Re-parse the document from a serialized snapshot string (for undo/redo restore).
-    pub fn replace_from_str(&mut self, s: &str) {
-        if let Ok(doc) = s.parse::<DocumentMut>() {
-            self.doc = doc;
-        }
+    /// Re-parse the document from a serialized snapshot string (for undo/redo
+    /// restore). Propagates a parse error rather than silently no-op'ing, so a
+    /// caller is never told a restore succeeded when the document is unchanged.
+    pub fn replace_from_str(&mut self, s: &str) -> Result<(), MutateError> {
+        self.doc = s
+            .parse::<DocumentMut>()
+            .map_err(|e| MutateError::Fragment(e.to_string()))?;
+        Ok(())
     }
 
     fn remark(&mut self, path: &[Seg]) -> Result<(), MutateError> {
@@ -736,6 +763,45 @@ mod tests {
         assert!(s.contains("a = 1"));
         // `a` no longer at top level (only under dest)
         assert_eq!(s.matches("a = 1").count(), 1);
+    }
+
+    #[test]
+    fn move_multi_source_success() {
+        use crate::model::document::{Mutation, OnCollision, Target};
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("a = 1\nb = 2\n[dest]\n");
+        doc.apply(Mutation::Move {
+            sources: vec![vec![Seg::Key("a".into())], vec![Seg::Key("b".into())]],
+            target: Target { parent: vec![Seg::Key("dest".into())], index: 0 },
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        let s = doc.serialize();
+        // both landed under [dest], neither remains at top level
+        assert_eq!(s.matches("a = 1").count(), 1);
+        assert_eq!(s.matches("b = 2").count(), 1);
+        let tree = doc.project();
+        let dest = &tree.root.children.iter().find(|n| n.key == "dest").unwrap().children;
+        let keys: Vec<String> = dest.iter().map(|n| n.key.clone()).collect();
+        assert!(keys.contains(&"a".to_string()) && keys.contains(&"b".to_string()));
+    }
+
+    #[test]
+    fn move_multi_source_cancel_is_atomic() {
+        // Second source `b` collides at the destination under Cancel. The whole
+        // move must roll back: NOTHING deleted, NOTHING inserted (no data loss).
+        use crate::model::document::{Mutation, MutateError, OnCollision, Target};
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("a = 1\nb = 2\n[dest]\nb = 99\n");
+        let before = doc.serialize();
+        let err = doc.apply(Mutation::Move {
+            sources: vec![vec![Seg::Key("a".into())], vec![Seg::Key("b".into())]],
+            target: Target { parent: vec![Seg::Key("dest".into())], index: 0 },
+            on_collision: OnCollision::Cancel,
+        });
+        assert!(matches!(err, Err(MutateError::Collision(_))));
+        // Atomic rollback: document byte-identical to the pre-move state.
+        assert_eq!(doc.serialize(), before);
     }
 
     #[test]
