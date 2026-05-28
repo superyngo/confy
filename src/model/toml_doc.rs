@@ -2,7 +2,7 @@ use crate::model::document::{ConfigDocument, Mutation, MutateError};
 use crate::model::node::{NodeTree, Seg};
 use anyhow::Context;
 use std::path::{Path, PathBuf};
-use toml_edit::{DocumentMut, Item};
+use toml_edit::{DocumentMut, Item, TableLike};
 
 pub struct TomlDocument {
     pub(crate) doc: DocumentMut,
@@ -24,13 +24,17 @@ impl TomlDocument {
     }
 
     /// Walk to the mutable table that directly contains the final segment.
-    fn parent_table_mut(&mut self, parent: &[Seg]) -> Result<&mut toml_edit::Table, MutateError> {
-        let mut tbl = self.doc.as_table_mut();
+    /// Returns `&mut dyn TableLike` so paths can traverse both regular `[table]`
+    /// nodes and inline tables (`pt = { x = 1 }`) — the projector emits paths
+    /// through both, and `Item::as_table_mut` alone would not match inline tables.
+    fn parent_table_mut(&mut self, parent: &[Seg]) -> Result<&mut dyn TableLike, MutateError> {
+        let mut tbl: &mut dyn TableLike = self.doc.as_table_mut();
         for seg in parent {
             match seg {
                 Seg::Key(k) => {
-                    tbl = tbl.get_mut(k)
-                        .and_then(Item::as_table_mut)
+                    tbl = tbl
+                        .get_mut(k)
+                        .and_then(Item::as_table_like_mut)
                         .ok_or(MutateError::NotFound)?;
                 }
                 Seg::Index(_) => return Err(MutateError::Unsupported),
@@ -131,5 +135,20 @@ mod tests {
         assert!(!doc.serialize().contains("a.b.c"));
         // sibling dotted key under the same implicit table survives
         assert!(doc.serialize().contains("a.b.d = 2"));
+    }
+
+    #[test]
+    fn delete_key_inside_inline_table() {
+        // The projector emits paths through inline tables (pt = { x = 1 } ->
+        // [Key("pt"), Key("x")]); the resolver must traverse them via TableLike.
+        use crate::model::document::Mutation;
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("pt = { x = 1, y = 2 }\n");
+        doc.apply(Mutation::Delete {
+            path: vec![Seg::Key("pt".into()), Seg::Key("x".into())],
+        })
+        .unwrap();
+        assert!(!doc.serialize().contains("x = 1"));
+        assert!(doc.serialize().contains("y = 2"));
     }
 }
