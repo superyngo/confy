@@ -1,4 +1,5 @@
 pub mod app;
+pub mod insertion;
 pub mod keys;
 pub mod selection;
 pub mod state;
