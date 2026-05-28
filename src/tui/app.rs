@@ -179,17 +179,14 @@ impl App {
             Err(e) => { self.status = Some(format!("editor error: {e}")); return; }
         };
         let cursor_row = self.rows.get(self.cursor).cloned();
-        let (target, sibling_index) = match &cursor_row {
+        let target = match &cursor_row {
             Some(r) => {
                 let expanded = self.expanded.contains(&r.path);
                 let sibling_index = sibling_index_of(r, &self.rows);
-                (crate::tui::insertion::resolve_target(r, expanded, sibling_index), sibling_index)
+                crate::tui::insertion::resolve_target(r, expanded, sibling_index)
             }
-            None => {
-                (crate::model::document::Target { parent: vec![], index: 0 }, 0)
-            }
+            None => crate::model::document::Target { parent: vec![], index: 0 },
         };
-        let _ = sibling_index;
         match doc.apply(crate::model::document::Mutation::Insert {
             target,
             toml: edited,
@@ -246,15 +243,9 @@ fn serialize_node_fragment(doc: &crate::model::toml_doc::TomlDocument, path: &[c
 
 /// Compute the 0-based index of `row` within its parent's visible children.
 fn sibling_index_of(row: &RowSnapshot, rows: &[RowSnapshot]) -> usize {
-    let parent_depth = if row.depth > 0 { row.depth - 1 } else { 0 };
-    let row_pos = rows.iter().position(|r| std::ptr::eq(r as *const _, row as *const _));
-    let row_pos = match row_pos {
-        Some(p) => p,
-        None => {
-            // Fall back: find by path equality
-            rows.iter().position(|r| r.path == row.path).unwrap_or(0)
-        }
-    };
+    let parent_depth = row.depth.saturating_sub(1);
+    // Locate the cursor row in the flattened list by path (paths are unique).
+    let row_pos = rows.iter().position(|r| r.path == row.path).unwrap_or(0);
     // Count siblings (same depth) before this row within the same parent
     let mut count = 0usize;
     for r in rows[..row_pos].iter().rev() {
