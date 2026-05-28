@@ -95,9 +95,6 @@ fn project_table(table: &Table, base: &[Seg]) -> Vec<Node> {
                 out.push(project_item(key, item, path));
             }
         }
-        // No trailing ordinal bump — the inner comment-emission loops already
-        // increment ordinal once per Comment node emitted (the only consumer of
-        // the ordinal counter), keeping synthetic comment paths contiguous.
     }
     out
 }
@@ -108,6 +105,16 @@ fn project_table(table: &Table, base: &[Seg]) -> Vec<Node> {
 /// mutation (the path resolver walks the real `doc["a"]["b"]["c"]` structure).
 fn flatten_dotted(table: &Table, prefix: &str, seg_path: &[Seg], out: &mut Vec<Node>) {
     for (key, item) in table.iter() {
+        // Standalone comments before a dotted-key leaf live on the INNER key's
+        // leaf_decor inside the implicit table (toml_edit 0.22 — review-probed).
+        if let Some(k) = table.key(key) {
+            if let Some(prefix_s) = k.leaf_decor().prefix().and_then(|r| r.as_str()) {
+                let base_ord = out.len();
+                for (j, c) in comments_in(prefix_s).into_iter().enumerate() {
+                    out.push(comment_node(&c, seg_path, base_ord + j));
+                }
+            }
+        }
         let dotted_key = format!("{prefix}.{key}");
         let mut path = seg_path.to_vec();
         path.push(Seg::Key(key.to_string()));
@@ -290,6 +297,17 @@ mod tests {
     }
 
     #[test]
+    fn comment_before_dotted_key() {
+        // §7.1 row 1, dotted-key case: toml_edit stores the comment on the
+        // INNER key's leaf_decor inside the implicit table (not on the outer
+        // key, and not on the implicit table's decor). flatten_dotted must
+        // surface it as a sibling Comment before the dotted leaf.
+        let t = tree("# lead\na.b = 1\n");
+        assert_eq!(keys_of(&t), vec!["# lead".to_string(), "a.b".to_string()]);
+        assert_eq!(t.root.children[0].kind, NodeKind::Comment("# lead".into()));
+    }
+
+    #[test]
     fn comment_between_aot_entries() {
         // §7.1 row 3 (AoT case): comment between successive [[s]] entries lives
         // on aot[1].decor().prefix(). Must surface as a Comment child of the AoT
@@ -372,3 +390,4 @@ mod tests {
         );
     }
 }
+
