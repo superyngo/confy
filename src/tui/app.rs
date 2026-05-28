@@ -34,6 +34,9 @@ pub struct RowSnapshot {
     pub path: Path,
     pub depth: usize,
     pub is_branch: bool,
+    pub value: Option<String>,
+    pub scalar_type: Option<String>,
+    pub trailing_comment: Option<String>,
 }
 
 pub enum PromptOutcome {
@@ -92,18 +95,27 @@ impl App {
             .tree
             .flatten(&|p| expanded.contains(p))
             .into_iter()
-            .map(|r| RowSnapshot {
-                key: r.node.key.clone(),
-                path: r.node.path.clone(),
-                depth: r.depth,
-                is_branch: r.node.is_branch(),
+            .map(|r| {
+                let scalar_type = match &r.node.kind {
+                    crate::model::node::NodeKind::Scalar(st) => {
+                        Some(format!("{st:?}").to_lowercase())
+                    }
+                    _ => None,
+                };
+                RowSnapshot {
+                    key: r.node.key.clone(),
+                    path: r.node.path.clone(),
+                    depth: r.depth,
+                    is_branch: r.node.is_branch(),
+                    value: r.node.value.clone(),
+                    scalar_type,
+                    trailing_comment: r.node.trailing_comment.clone(),
+                }
             })
             .collect::<Vec<_>>();
         // Apply filter if active: keep rows whose path is in filtered_paths.
         self.rows = if let Some(ref fp) = self.filtered_paths {
-            rows.into_iter()
-                .filter(|r| fp.contains(&r.path))
-                .collect()
+            rows.into_iter().filter(|r| fp.contains(&r.path)).collect()
         } else {
             rows
         };
@@ -176,6 +188,7 @@ impl App {
         self.filter.clear();
         self.filtered_paths = None;
         self.mode = Mode::Filter;
+        self.rebuild_rows();
     }
 
     /// Feed a character into the active filter.
@@ -201,12 +214,26 @@ impl App {
         }
         let mut matching: HashSet<Path> = HashSet::new();
         let mut ancestors: HashSet<Path> = HashSet::new();
-        fn walk(n: &crate::model::node::Node, ancestor_paths: &mut Vec<Path>, matching: &mut HashSet<Path>, ancestors: &mut HashSet<Path>, needle: &str) {
-            let path_keys: Vec<&str> = n.path.iter().filter_map(|s| match s {
-                Seg::Key(k) => Some(k.as_str()),
-                _ => None,
-            }).collect();
-            let leaf_value = if n.is_leaf() { Some(n.key.as_str()) } else { None };
+        fn walk(
+            n: &crate::model::node::Node,
+            ancestor_paths: &mut Vec<Path>,
+            matching: &mut HashSet<Path>,
+            ancestors: &mut HashSet<Path>,
+            needle: &str,
+        ) {
+            let path_keys: Vec<&str> = n
+                .path
+                .iter()
+                .filter_map(|s| match s {
+                    Seg::Key(k) => Some(k.as_str()),
+                    _ => None,
+                })
+                .collect();
+            let leaf_value = if n.is_leaf() {
+                n.value.as_deref()
+            } else {
+                None
+            };
             let comment = match &n.kind {
                 crate::model::node::NodeKind::Comment(c) => Some(c.as_str()),
                 _ => None,
@@ -224,7 +251,13 @@ impl App {
             }
             ancestor_paths.pop();
         }
-        walk(&self.tree.root, &mut Vec::new(), &mut matching, &mut ancestors, &self.filter);
+        walk(
+            &self.tree.root,
+            &mut Vec::new(),
+            &mut matching,
+            &mut ancestors,
+            &self.filter,
+        );
         matching.extend(ancestors);
         self.filtered_paths = Some(matching);
     }
@@ -245,16 +278,22 @@ impl App {
             Some(r) => r.clone(),
             None => return,
         };
-        if row.is_branch {
-            // Branch Enter toggles expand (existing behavior, handled separately).
-            return;
-        }
-        let path_keys: Vec<String> = row.path.iter().filter_map(|s| match s {
-            Seg::Key(k) => Some(k.clone()),
-            _ => None,
-        }).collect();
+        debug_assert!(!row.is_branch, "open_detail called on a branch row");
+        let path_keys: Vec<String> = row
+            .path
+            .iter()
+            .filter_map(|s| match s {
+                Seg::Key(k) => Some(k.clone()),
+                _ => None,
+            })
+            .collect();
         let dotted = path_keys.join(".");
-        let detail = format!("Path: {dotted}\nKey:  {}", row.key);
+        let type_str = row.scalar_type.as_deref().unwrap_or("unknown");
+        let val_str = row.value.as_deref().unwrap_or("");
+        let mut detail = format!("Path:    {dotted}\nType:    {type_str}\nValue:   {val_str}");
+        if let Some(tc) = &row.trailing_comment {
+            detail.push_str(&format!("\nComment: {tc}"));
+        }
         self.detail_text = Some(detail);
         self.mode = Mode::Detail;
     }
@@ -1250,5 +1289,46 @@ mod tests {
         assert!(matches!(app.mode, crate::tui::state::Mode::Normal));
         let s = app.doc.as_ref().unwrap().serialize();
         assert_eq!(s.matches("a = 1").count(), 1, "a moved under dest");
+    }
+
+    // --- Blocker 1: filter must match by scalar VALUE ---
+
+    #[test]
+    fn filter_matches_by_scalar_value() {
+        let mut app = app_with("port = 8080\nhost = \"localhost\"\n");
+        app.expand_all();
+        app.rebuild_rows();
+        app.enter_filter();
+        for c in "8080".chars() {
+            app.filter_char(c);
+        }
+        let keys = app.visible_keys();
+        assert!(
+            keys.iter().any(|k| k == "port"),
+            "port (value=8080) should be visible after filtering for '8080', got: {keys:?}"
+        );
+    }
+
+    // --- Blocker 2: detail must show type and value ---
+
+    #[test]
+    fn detail_view_shows_type_and_value() {
+        let mut app = app_with("port = 8080\n");
+        app.cursor = 1; // on port (row 0 is root)
+        app.open_detail();
+        let detail = app.detail_text.as_ref().expect("detail should be set");
+        assert!(
+            detail.contains("integer"),
+            "detail should contain ScalarType, got: {detail}"
+        );
+        assert!(
+            detail.contains("8080"),
+            "detail should contain value, got: {detail}"
+        );
+        assert!(
+            detail.contains("server")
+                || detail.lines().next().is_some_and(|l| l.contains("port")),
+            "detail should contain dotted path, got: {detail}"
+        );
     }
 }

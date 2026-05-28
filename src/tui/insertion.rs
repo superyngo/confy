@@ -40,6 +40,9 @@ mod tests {
             path: p,
             depth,
             is_branch,
+            value: None,
+            scalar_type: None,
+            trailing_comment: None,
         }
     }
 

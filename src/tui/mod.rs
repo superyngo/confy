@@ -109,8 +109,9 @@ fn run_event_loop(
             // Help overlay: Esc or ? dismisses.
             if matches!(app.mode, crate::tui::state::Mode::Help) {
                 match key.code {
-                    crossterm::event::KeyCode::Esc
-                    | crossterm::event::KeyCode::Char('?') => app.escape(),
+                    crossterm::event::KeyCode::Esc | crossterm::event::KeyCode::Char('?') => {
+                        app.escape()
+                    }
                     _ => {}
                 }
                 continue;

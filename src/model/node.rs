@@ -33,6 +33,8 @@ pub struct Node {
     pub path: Path,
     pub kind: NodeKind,
     pub children: Vec<Node>,
+    pub value: Option<String>,
+    pub trailing_comment: Option<String>,
 }
 
 impl Node {
@@ -53,6 +55,8 @@ impl Node {
             path: Vec::new(),
             kind,
             children: Vec::new(),
+            value: None,
+            trailing_comment: None,
         }
     }
 
@@ -66,6 +70,8 @@ impl Node {
             path: Vec::new(),
             kind,
             children: Vec::new(),
+            value: None,
+            trailing_comment: None,
         }
     }
 

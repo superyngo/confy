@@ -20,7 +20,17 @@ fn comment_node(text: &str, parent: &[Seg], ordinal: usize) -> Node {
         path,
         kind: NodeKind::Comment(text.to_string()),
         children: Vec::new(),
+        value: None,
+        trailing_comment: None,
     }
+}
+
+fn trailing_comment_from(table: &Table, key: &str) -> Option<String> {
+    table
+        .key(key)
+        .and_then(|k| k.leaf_decor().suffix().and_then(|r| r.as_str()))
+        .map(|s| s.trim().to_string())
+        .filter(|s| s.starts_with('#'))
 }
 
 pub fn project(doc: &DocumentMut, filename: &str) -> NodeTree {
@@ -92,7 +102,12 @@ fn project_table(table: &Table, base: &[Seg]) -> Vec<Node> {
                 flatten_dotted(t, key, &path, &mut out);
             }
             _ => {
-                out.push(project_item(key, item, path));
+                out.push(project_item(
+                    key,
+                    item,
+                    path,
+                    trailing_comment_from(table, key),
+                ));
             }
         }
     }
@@ -123,19 +138,26 @@ fn flatten_dotted(table: &Table, prefix: &str, seg_path: &[Seg], out: &mut Vec<N
                 flatten_dotted(t, &dotted_key, &path, out);
             }
             _ => {
-                out.push(project_item(&dotted_key, item, path));
+                out.push(project_item(
+                    &dotted_key,
+                    item,
+                    path,
+                    trailing_comment_from(table, key),
+                ));
             }
         }
     }
 }
 
-fn project_item(key: &str, item: &Item, path: Vec<Seg>) -> Node {
+fn project_item(key: &str, item: &Item, path: Vec<Seg>, trailing_comment: Option<String>) -> Node {
     match item {
         Item::Value(Value::Array(arr)) => project_array(key, arr, path),
         Item::Value(Value::InlineTable(it)) => project_inline(key, it, path),
         Item::Value(v) => {
             let mut n = Node::leaf(key.to_string(), NodeKind::Scalar(scalar_type(v)));
             n.path = path;
+            n.value = Some(v.to_string());
+            n.trailing_comment = trailing_comment;
             n
         }
         Item::Table(t) => {
@@ -208,6 +230,7 @@ fn project_value(key: &str, v: &Value, path: Vec<Seg>) -> Node {
         other => {
             let mut n = Node::leaf(key.to_string(), NodeKind::Scalar(scalar_type(other)));
             n.path = path;
+            n.value = Some(other.to_string());
             n
         }
     }
