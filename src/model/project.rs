@@ -1,9 +1,38 @@
 use crate::model::node::{Node, NodeKind, NodeTree, ScalarType, Seg};
 use toml_edit::{Array, ArrayOfTables, DocumentMut, InlineTable, Item, Table, Value};
 
+/// Pull standalone comment lines out of a decor prefix/trailing string.
+/// Blank lines are dropped; only `#`-prefixed lines become Comment nodes.
+fn comments_in(decor_text: &str) -> Vec<String> {
+    decor_text
+        .lines()
+        .map(str::trim)
+        .filter(|l| l.starts_with('#'))
+        .map(|l| l.to_string())
+        .collect()
+}
+
+fn comment_node(text: &str, parent: &[Seg], ordinal: usize) -> Node {
+    let mut path = parent.to_vec();
+    path.push(Seg::Key(format!("#comment:{ordinal}")));
+    Node {
+        key: text.to_string(),
+        path,
+        kind: NodeKind::Comment(text.to_string()),
+        children: Vec::new(),
+    }
+}
+
 pub fn project(doc: &DocumentMut, filename: &str) -> NodeTree {
     let mut root = Node::branch(filename.to_string(), NodeKind::Root);
     root.children = project_table(doc.as_table(), &[]);
+    // Handle document-level trailing comments (comment-only files and end-of-doc comments)
+    if let Some(trailing) = doc.trailing().as_str() {
+        let base_ordinal = root.children.len();
+        for (i, c) in comments_in(trailing).into_iter().enumerate() {
+            root.children.push(comment_node(&c, &[], base_ordinal + i));
+        }
+    }
     NodeTree { root }
 }
 
@@ -20,7 +49,17 @@ fn scalar_type(v: &Value) -> ScalarType {
 
 fn project_table(table: &Table, base: &[Seg]) -> Vec<Node> {
     let mut out = Vec::new();
+    let mut ordinal = 0usize;
     for (key, item) in table.iter() {
+        // Extract standalone comments from this key's leaf_decor prefix
+        if let Some(k) = table.key(key) {
+            if let Some(prefix) = k.leaf_decor().prefix().and_then(|r| r.as_str()) {
+                for c in comments_in(prefix) {
+                    out.push(comment_node(&c, base, ordinal));
+                    ordinal += 1;
+                }
+            }
+        }
         let mut path = base.to_vec();
         path.push(Seg::Key(key.to_string()));
         match item {
@@ -31,6 +70,7 @@ fn project_table(table: &Table, base: &[Seg]) -> Vec<Node> {
                 out.push(project_item(key, item, path));
             }
         }
+        ordinal += 1;
     }
     out
 }
@@ -136,6 +176,58 @@ mod tests {
     fn tree(src: &str) -> crate::model::node::NodeTree {
         let doc = src.parse::<DocumentMut>().unwrap();
         project(&doc, "f.toml")
+    }
+
+    fn keys_of(t: &crate::model::node::NodeTree) -> Vec<String> {
+        t.root.children.iter().map(|n| n.key.clone()).collect()
+    }
+
+    #[test]
+    fn comment_before_item() {
+        // row 1: comment before an item -> sibling immediately before it
+        let t = tree("# lead\nport = 8080\n");
+        assert_eq!(keys_of(&t), vec!["# lead".to_string(), "port".to_string()]);
+        assert_eq!(t.root.children[0].kind, NodeKind::Comment("# lead".into()));
+    }
+
+    #[test]
+    fn comment_between_items() {
+        let t = tree("a = 1\n# mid\nb = 2\n");
+        assert_eq!(keys_of(&t), vec!["a".to_string(), "# mid".to_string(), "b".to_string()]);
+    }
+
+    #[test]
+    fn comment_at_end_of_document() {
+        // row 4: trailing comment with no following item -> last top-level sibling
+        let t = tree("a = 1\n# tail\n");
+        assert_eq!(keys_of(&t), vec!["a".to_string(), "# tail".to_string()]);
+    }
+
+    #[test]
+    fn comment_at_start_of_document() {
+        let t = tree("# top\na = 1\n");
+        assert_eq!(keys_of(&t), vec!["# top".to_string(), "a".to_string()]);
+    }
+
+    #[test]
+    fn multiple_comments_in_one_prefix() {
+        // edge case: each standalone comment line becomes its own Comment node
+        let t = tree("# one\n# two\na = 1\n");
+        assert_eq!(keys_of(&t), vec!["# one".to_string(), "# two".to_string(), "a".to_string()]);
+    }
+
+    #[test]
+    fn comment_only_file() {
+        let t = tree("# just\n# comments\n");
+        assert_eq!(keys_of(&t), vec!["# just".to_string(), "# comments".to_string()]);
+    }
+
+    #[test]
+    fn comment_inside_table_before_key() {
+        let t = tree("[server]\n# explain\nport = 8080\n");
+        let server = &t.root.children[0];
+        assert_eq!(server.children.iter().map(|n| n.key.clone()).collect::<Vec<_>>(),
+            vec!["# explain".to_string(), "port".to_string()]);
     }
 
     #[test]
