@@ -32,14 +32,16 @@ impl TomlDocument {
         use crate::model::document::OnCollision::*;
         let frag = crate::model::fragment::parse_fragment(toml)?;
         let dest = self.parent_table_mut(&target.parent)?;
+        // Pre-pass: resolve every final key and detect a Cancel collision BEFORE
+        // mutating, so a multi-entry fragment that collides part-way leaves the
+        // document untouched (Cancel must be all-or-nothing).
+        let mut insertions: Vec<(String, Item)> = Vec::new();
         for (k, item) in frag.iter() {
             let mut key = k.to_string();
             if dest.contains_key(&key) {
                 match oc {
                     Cancel => return Err(MutateError::Collision(key)),
-                    Overwrite => {
-                        dest.remove(&key);
-                    }
+                    Overwrite => {} // keep key; the apply pass removes the old value
                     Rename => {
                         let mut n = 2;
                         while dest.contains_key(&format!("{key}_{n}")) {
@@ -49,7 +51,12 @@ impl TomlDocument {
                     }
                 }
             }
-            dest.insert(&key, item.clone());
+            insertions.push((key, item.clone()));
+        }
+        // Apply only after the whole fragment passed the collision check.
+        for (key, item) in insertions {
+            dest.remove(&key); // no-op unless Overwrite replacing an existing key
+            dest.insert(&key, item);
         }
         Ok(())
     }
@@ -200,6 +207,9 @@ mod tests {
             err,
             Err(crate::model::document::MutateError::Collision(_))
         ));
+        // Cancel must leave the document unchanged: port keeps its original value.
+        assert!(doc.serialize().contains("port = 8080"));
+        assert!(!doc.serialize().contains("port = 1"));
 
         // Overwrite replaces
         doc.apply(Mutation::Insert {
@@ -218,6 +228,28 @@ mod tests {
         })
         .unwrap();
         assert!(doc.serialize().contains("port_2 = 2"));
+    }
+
+    #[test]
+    fn insert_cancel_is_atomic_for_multi_entry_fragment() {
+        // A multi-entry fragment whose later key collides under Cancel must NOT
+        // insert the earlier keys — Cancel is all-or-nothing.
+        use crate::model::document::{Mutation, OnCollision, Target};
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("[server]\nport = 8080\n");
+        let err = doc.apply(Mutation::Insert {
+            target: Target { parent: vec![Seg::Key("server".into())], index: 1 },
+            // `host` is new, `port` collides — Cancel must reject the whole fragment.
+            toml: "host = \"x\"\nport = 1\n".into(),
+            on_collision: OnCollision::Cancel,
+        });
+        assert!(matches!(
+            err,
+            Err(crate::model::document::MutateError::Collision(_))
+        ));
+        // The non-colliding earlier key must NOT have been inserted.
+        assert!(!doc.serialize().contains("host = \"x\""));
+        assert!(doc.serialize().contains("port = 8080"));
     }
 
     #[test]
