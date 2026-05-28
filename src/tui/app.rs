@@ -204,6 +204,9 @@ impl App {
             Err(crate::model::document::MutateError::Collision(key)) => {
                 self.status = Some(format!("key collision: {key} (rename/overwrite not yet prompted)"));
             }
+            Err(crate::model::document::MutateError::Fragment(msg)) => {
+                self.status = Some(format!("invalid TOML: {msg}"));
+            }
             Err(e) => self.status = Some(format!("error: {e}")),
         }
     }
@@ -372,6 +375,19 @@ mod tests {
             "port = 1\n".into(),
         );
         assert!(app.status.is_some(), "collision must surface in status");
+        assert_eq!(app.doc.as_ref().unwrap().serialize(), before, "doc unchanged");
+    }
+
+    #[test]
+    fn apply_insert_invalid_toml_sets_status_and_leaves_doc() {
+        // §10 rejection path for `n`: invalid fragment -> Fragment -> status, no change.
+        let mut app = app_with("port = 8080\n");
+        let before = app.doc.as_ref().unwrap().serialize();
+        app.apply_insert(
+            crate::model::document::Target { parent: vec![], index: 1 },
+            "= = nope".into(),
+        );
+        assert!(app.status.is_some(), "invalid TOML must surface in status");
         assert_eq!(app.doc.as_ref().unwrap().serialize(), before, "doc unchanged");
     }
 
