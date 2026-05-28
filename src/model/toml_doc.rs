@@ -120,7 +120,7 @@ mod tests {
     #[test]
     fn delete_dotted_key_navigates_implicit_tables() {
         // The projector emits multi-segment paths for dotted keys; the resolver
-        // must walk the implicit tables (get_mut + as_table_mut) to reach the leaf.
+        // must walk the implicit tables (get_mut + as_table_like_mut) to reach the leaf.
         use crate::model::document::Mutation;
         use crate::model::node::Seg;
         let mut doc = doc_from_str("a.b.c = 1\na.b.d = 2\n");
