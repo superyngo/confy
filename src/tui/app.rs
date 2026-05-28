@@ -1,4 +1,5 @@
 use crate::model::node::{NodeTree, Path};
+use crate::tui::selection::Selection;
 use std::collections::HashSet;
 
 pub struct App {
@@ -6,6 +7,7 @@ pub struct App {
     pub expanded: HashSet<Path>,
     pub cursor: usize,
     pub rows: Vec<RowSnapshot>,
+    pub selection: Selection,
 }
 
 #[derive(Clone)]
@@ -18,7 +20,7 @@ pub struct RowSnapshot {
 
 impl App {
     pub fn from_tree(tree: NodeTree) -> Self {
-        App { tree, expanded: HashSet::new(), cursor: 0, rows: Vec::new() }
+        App { tree, expanded: HashSet::new(), cursor: 0, rows: Vec::new(), selection: Selection::new() }
     }
     pub fn rebuild_rows(&mut self) {
         let expanded = &self.expanded;
@@ -63,6 +65,40 @@ impl App {
     pub fn cursor_home(&mut self) { self.cursor = 0; }
     pub fn cursor_end(&mut self) { self.cursor = self.rows.len().saturating_sub(1); }
     pub fn is_expanded(&self, path: &Path) -> bool { self.expanded.contains(path) }
+
+    /// Toggle selection at the current cursor row (bound to `s`).
+    pub fn toggle_select(&mut self) {
+        self.selection.toggle(self.cursor);
+    }
+
+    /// Extend range selection upward (Shift+Up).
+    pub fn extend_select_up(&mut self) {
+        if self.cursor > 0 {
+            self.cursor -= 1;
+            self.selection.extend_to(self.cursor);
+        }
+    }
+
+    /// Extend range selection downward (Shift+Down).
+    pub fn extend_select_down(&mut self) {
+        if self.cursor + 1 < self.rows.len() {
+            self.cursor += 1;
+            self.selection.extend_to(self.cursor);
+        }
+    }
+
+    /// Return normalized selected paths (§6.2). Falls back to cursor path if nothing selected.
+    pub fn selected_paths(&self) -> Vec<Path> {
+        if self.selection.indices.is_empty() {
+            return self.rows.get(self.cursor)
+                .map(|r| vec![r.path.clone()])
+                .unwrap_or_default();
+        }
+        let paths: Vec<Path> = self.selection.indices.iter()
+            .filter_map(|&i| self.rows.get(i).map(|r| r.path.clone()))
+            .collect();
+        crate::tui::selection::normalize(paths)
+    }
 }
 
 #[cfg(test)]

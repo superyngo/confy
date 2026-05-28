@@ -32,7 +32,8 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
             } else {
                 "  "
             };
-            let text = format!("{indent}{marker}{}", row.key);
+            let sel_marker = if app.selection.indices.contains(&i) { "●" } else { " " };
+            let text = format!("{sel_marker}{indent}{marker}{}", row.key);
             let style = if i == app.cursor {
                 Style::default().bg(Color::Blue).fg(Color::White).add_modifier(Modifier::BOLD)
             } else {

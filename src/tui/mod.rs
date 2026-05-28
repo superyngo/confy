@@ -1,5 +1,6 @@
 pub mod app;
 pub mod keys;
+pub mod selection;
 pub mod state;
 pub mod ui;
 
@@ -86,6 +87,13 @@ fn run_event_loop(
                     app.rebuild_rows();
                 }
                 keys::KeyAction::Quit => should_quit = true,
+                keys::KeyAction::ToggleSelect => app.toggle_select(),
+                keys::KeyAction::ExtendSelectUp => {
+                    app.extend_select_up();
+                }
+                keys::KeyAction::ExtendSelectDown => {
+                    app.extend_select_down();
+                }
                 keys::KeyAction::Noop => {}
             }
         }
