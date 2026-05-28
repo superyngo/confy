@@ -10,3 +10,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - 2026-05-27: Project scaffold (git init, Cargo skeleton, README, CHANGELOG, .gitignore).
 - 2026-05-27: MVP design spec (`docs/superpowers/specs/`), `CONTEXT.md` glossary (Node/Root/Branch/Leaf), and implementation plan (`docs/superpowers/plans/`) — single-file TOML editor, CST-projection architecture, reviewed via grill + external spec-review (0 blockers).
+- 2026-05-28: Replace (e) and Remark (r) mutations — comment-out/uncomment toggle for live keys, Replace = delete + insert fragment, non-TOML comment rejection (§7, §8).
