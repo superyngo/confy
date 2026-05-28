@@ -9,6 +9,7 @@ pub enum Mode {
 pub enum PromptKind {
     Collision { key: String },
     ConfirmQuit,
+    MoveCollision { key: String },
 }
 
 /// Clipboard holding serialized TOML fragments for copy/cut/paste (§6 x/c/v).

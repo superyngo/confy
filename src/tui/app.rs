@@ -17,6 +17,8 @@ pub struct App {
     pub status: Option<String>,
     pub mode: Mode,
     pub clipboard: Option<Clipboard>,
+    /// Saved sources + target for a move that entered MoveCollision prompt.
+    pub pending_move: Option<(Vec<Path>, Target)>,
 }
 
 #[derive(Clone)]
@@ -25,6 +27,11 @@ pub struct RowSnapshot {
     pub path: Path,
     pub depth: usize,
     pub is_branch: bool,
+}
+
+pub enum PromptOutcome {
+    Consumed,
+    Quit,
 }
 
 impl App {
@@ -44,6 +51,7 @@ impl App {
             status: None,
             mode: Mode::Normal,
             clipboard: None,
+            pending_move: None,
         };
         app.rebuild_rows();
         app
@@ -62,6 +70,7 @@ impl App {
             status: None,
             mode: Mode::Normal,
             clipboard: None,
+            pending_move: None,
         }
     }
     pub fn rebuild_rows(&mut self) {
@@ -303,7 +312,7 @@ impl App {
         on_collision: OnCollision,
     ) {
         let doc = match self.doc.as_mut() { Some(d) => d, None => return };
-        for frag in &fragments {
+        for (i, frag) in fragments.iter().enumerate() {
             match doc.apply(Mutation::Insert {
                 target: target.clone(),
                 toml: frag.clone(),
@@ -311,8 +320,9 @@ impl App {
             }) {
                 Ok(()) => {}
                 Err(crate::model::document::MutateError::Collision(key)) => {
-                    // Put clipboard back so user can retry after resolving prompt.
-                    self.clipboard = Some(Clipboard { fragments, cut: is_cut, sources });
+                    // Put only the remaining unprocessed fragments back so retry
+                    // with Rename doesn't re-insert already-inserted fragments.
+                    self.clipboard = Some(Clipboard { fragments: fragments[i..].to_vec(), cut: is_cut, sources });
                     self.status = Some(format!("collision on key '{key}' — o/r/c"));
                     self.mode = Mode::Prompt(PromptKind::Collision { key });
                     return;
@@ -360,15 +370,18 @@ impl App {
                 let target = crate::tui::insertion::resolve_target(&cursor_row, expanded, sibling_index);
                 let doc = match self.doc.as_mut() { Some(d) => d, None => return };
                 match doc.apply(Mutation::Move {
-                    sources,
-                    target,
+                    sources: sources.clone(),
+                    target: target.clone(),
                     on_collision: OnCollision::Cancel,
                 }) {
                     Ok(()) => {
                         self.on_mutation_success();
                     }
                     Err(crate::model::document::MutateError::Collision(key)) => {
-                        self.status = Some(format!("move collision: {key}"));
+                        // Enter a prompt so user can choose o/r/c; preserve sources+target.
+                        self.pending_move = Some((sources, target));
+                        self.status = Some(format!("move collision on '{key}' — o:overwrite  r:rename  c:cancel"));
+                        self.mode = Mode::Prompt(PromptKind::MoveCollision { key });
                     }
                     Err(e) => {
                         self.status = Some(format!("move error: {e}"));
@@ -446,7 +459,7 @@ impl App {
     }
 
     /// Handle a key press while in a prompt mode. Returns true if consumed.
-    pub fn handle_prompt_key(&mut self, c: char) -> bool {
+    pub fn handle_prompt_key(&mut self, c: char) -> PromptOutcome {
         match &self.mode {
             Mode::Prompt(PromptKind::Collision { key: _ }) => {
                 let oc = match c {
@@ -459,29 +472,68 @@ impl App {
                     self.mode = Mode::Normal;
                     self.clipboard = None;
                     self.status = None;
-                    return true;
+                    return PromptOutcome::Consumed;
                 }
                 let cb = self.clipboard.take();
                 let (fragments, is_cut, sources) = match cb {
                     Some(cb) => (cb.fragments, cb.cut, cb.sources),
-                    None => { self.mode = Mode::Normal; return true; }
+                    None => { self.mode = Mode::Normal; return PromptOutcome::Consumed; }
                 };
                 let cursor_row = match self.rows.get(self.cursor) {
                     Some(r) => r.clone(),
-                    None => { self.mode = Mode::Normal; return true; }
+                    None => { self.mode = Mode::Normal; return PromptOutcome::Consumed; }
                 };
                 let expanded = self.expanded.contains(&cursor_row.path);
                 let sibling_index = sibling_index_of(&cursor_row, &self.rows);
                 let target = crate::tui::insertion::resolve_target(&cursor_row, expanded, sibling_index);
                 self.mode = Mode::Normal;
                 self.do_paste(fragments, is_cut, sources, target, oc);
-                true
+                PromptOutcome::Consumed
             }
             Mode::Prompt(PromptKind::ConfirmQuit) => {
-                // Handled by caller via should_quit flag; just consume.
-                c == 'y' || c == 'n'
+                match c {
+                    'y' => {
+                        self.mode = Mode::Normal;
+                        self.clipboard = None;
+                        self.status = None;
+                        return PromptOutcome::Quit;
+                    }
+                    'n' => {
+                        self.mode = Mode::Normal;
+                        self.clipboard = None;
+                        self.status = None;
+                        return PromptOutcome::Consumed;
+                    }
+                    _ => return PromptOutcome::Consumed,
+                }
             }
-            _ => false,
+            Mode::Prompt(PromptKind::MoveCollision { .. }) => {
+                let on_collision = match c {
+                    'o' => OnCollision::Overwrite,
+                    'r' => OnCollision::Rename,
+                    _ => {
+                        self.mode = Mode::Normal;
+                        self.pending_move = None;
+                        self.status = None;
+                        return PromptOutcome::Consumed;
+                    }
+                };
+                let (sources, target) = match self.pending_move.take() {
+                    Some(pm) => pm,
+                    None => { self.mode = Mode::Normal; return PromptOutcome::Consumed; }
+                };
+                self.mode = Mode::Normal;
+                let doc = match self.doc.as_mut() { Some(d) => d, None => return PromptOutcome::Consumed };
+                match doc.apply(Mutation::Move { sources, target, on_collision }) {
+                    Ok(()) => self.on_mutation_success(),
+                    Err(crate::model::document::MutateError::Collision(key)) => {
+                        self.status = Some(format!("move collision: {key}"));
+                    }
+                    Err(e) => self.status = Some(format!("move error: {e}")),
+                }
+                PromptOutcome::Consumed
+            }
+            _ => PromptOutcome::Consumed,
         }
     }
 
@@ -748,6 +800,86 @@ mod tests {
         app.remark();
         let s = app.doc.as_ref().unwrap().serialize();
         assert!(s.contains("# port = 8080"), "remark should comment out: {s:?}");
+    }
+
+    // --- Tests for TDD: issues from review ---
+
+    #[test]
+    fn multi_fragment_paste_collision_stores_only_remaining_fragments() {
+        // When pasting [frag_a, frag_b] and frag_b collides, clipboard should only
+        // hold [frag_b] (the remaining unprocessed fragment), not [frag_a, frag_b].
+        let mut app = app_with("b = 99\n");
+        app.rebuild_rows();
+        app.cursor = 0; // root
+        let target = crate::model::document::Target { parent: vec![], index: 0 };
+        app.do_paste(
+            vec!["a = 1\n".into(), "b = 2\n".into()],
+            false,
+            vec![],
+            target,
+            OnCollision::Cancel,
+        );
+        assert!(matches!(app.mode, Mode::Prompt(PromptKind::Collision { .. })));
+        let cb = app.clipboard.as_ref().expect("clipboard must be set");
+        assert_eq!(cb.fragments.len(), 1, "only remaining (b) fragment should be stored, got: {:?}", cb.fragments);
+        assert_eq!(cb.fragments[0], "b = 2\n");
+    }
+
+    #[test]
+    fn move_collision_enters_prompt_with_sources_preserved() {
+        // When the second move-press hits a collision, app must enter MoveCollision
+        // prompt so the user can resolve with o/r/c.
+        let mut app = app_with("a = 1\n[dest]\na = 999\n");
+        app.expand_all();
+        app.rebuild_rows();
+        let a_idx = app.rows.iter().position(|r| r.key == "a" && r.path.len() == 1).unwrap();
+        app.cursor = a_idx;
+        app.move_pressed(); // first press: MovePending
+        assert!(matches!(&app.mode, Mode::MovePending { .. }));
+        let dest_idx = app.rows.iter().position(|r| r.key == "dest").unwrap();
+        app.cursor = dest_idx;
+        app.move_pressed(); // second press: collision
+        assert!(
+            matches!(&app.mode, Mode::Prompt(PromptKind::MoveCollision { .. })),
+            "expected MoveCollision prompt, got mode is something else"
+        );
+    }
+
+    #[test]
+    fn move_collision_resolve_overwrite() {
+        // After a MoveCollision prompt, pressing 'o' should complete the move.
+        let mut app = app_with("a = 1\n[dest]\na = 999\n");
+        app.expand_all();
+        app.rebuild_rows();
+        let a_idx = app.rows.iter().position(|r| r.key == "a" && r.path.len() == 1).unwrap();
+        app.cursor = a_idx;
+        app.move_pressed();
+        let dest_idx = app.rows.iter().position(|r| r.key == "dest").unwrap();
+        app.cursor = dest_idx;
+        app.move_pressed(); // collision
+        assert!(matches!(&app.mode, Mode::Prompt(PromptKind::MoveCollision { .. })));
+        app.handle_prompt_key('o');
+        assert!(matches!(app.mode, Mode::Normal), "mode should be Normal after resolving");
+        let s = app.doc.as_ref().unwrap().serialize();
+        assert_eq!(s.matches("a = ").count(), 1, "only one 'a' should exist after overwrite move: {s}");
+    }
+
+    #[test]
+    fn confirm_quit_y_returns_quit() {
+        let mut app = app_with("a = 1\n");
+        app.mode = Mode::Prompt(PromptKind::ConfirmQuit);
+        let outcome = app.handle_prompt_key('y');
+        assert!(matches!(outcome, PromptOutcome::Quit));
+        assert!(matches!(app.mode, Mode::Normal));
+    }
+
+    #[test]
+    fn confirm_quit_n_returns_consumed() {
+        let mut app = app_with("a = 1\n");
+        app.mode = Mode::Prompt(PromptKind::ConfirmQuit);
+        let outcome = app.handle_prompt_key('n');
+        assert!(matches!(outcome, PromptOutcome::Consumed));
+        assert!(matches!(app.mode, Mode::Normal));
     }
 
     #[test]

@@ -69,6 +69,9 @@ fn draw_prompt_overlay(f: &mut Frame, app: &App) {
         Mode::Prompt(PromptKind::Collision { key }) => {
             format!(" Key '{}' already exists.  o:overwrite  r:rename  c:cancel", key)
         }
+        Mode::Prompt(PromptKind::MoveCollision { key }) => {
+            format!(" Move collision on '{}' — o:overwrite  r:rename  c:cancel", key)
+        }
         Mode::Prompt(PromptKind::ConfirmQuit) => {
             " Unsaved changes.  y:quit without saving  n:cancel".into()
         }

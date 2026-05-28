@@ -67,7 +67,18 @@ fn run_event_loop(
         terminal.draw(|f| ui::draw(f, app))?;
         if let Event::Key(key) = event::read()? {
             if key.kind != KeyEventKind::Press { continue; }
-            match keys::map_key(key) {
+            // If in a prompt, character keys should be forwarded to the prompt handler
+                if matches!(app.mode, crate::tui::state::Mode::Prompt(_)) {
+                    if let crossterm::event::KeyCode::Char(c) = key.code {
+                        match app.handle_prompt_key(c) {
+                            crate::tui::app::PromptOutcome::Quit => { should_quit = true; }
+                            crate::tui::app::PromptOutcome::Consumed => {}
+                        }
+                        continue;
+                    }
+                    // fallthrough for non-char keys (e.g. Esc)
+                }
+                match keys::map_key(key) {
                 keys::KeyAction::CursorDown => app.cursor_down(),
                 keys::KeyAction::CursorUp => app.cursor_up(),
                 keys::KeyAction::PageUp => app.page_up(terminal.size()?.height as usize / 2),
@@ -125,14 +136,7 @@ fn run_event_loop(
                 keys::KeyAction::Undo => app.undo(),
                 keys::KeyAction::Redo => app.redo(),
                 keys::KeyAction::Escape => app.escape(),
-                keys::KeyAction::Noop => {
-                    // In prompt mode, forward char keys to the handler
-                    if let crossterm::event::Event::Key(ref k) = event::read()? {
-                        if let crossterm::event::KeyCode::Char(c) = k.code {
-                            app.handle_prompt_key(c);
-                        }
-                    }
-                }
+                keys::KeyAction::Noop => {}
             }
         }
     }
