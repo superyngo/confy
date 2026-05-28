@@ -4,6 +4,11 @@ use anyhow::Context;
 use std::path::{Path, PathBuf};
 use toml_edit::{DocumentMut, Item, TableLike};
 
+fn find_node_by_path<'a>(node: &'a crate::model::node::Node, path: &[Seg]) -> Option<&'a crate::model::node::Node> {
+    if node.path == path { return Some(node); }
+    node.children.iter().find_map(|c| find_node_by_path(c, path))
+}
+
 pub struct TomlDocument {
     pub(crate) doc: DocumentMut,
     pub(crate) path: PathBuf,
@@ -170,18 +175,14 @@ impl TomlDocument {
     fn uncomment(&mut self, path: &[Seg]) -> Result<(), MutateError> {
         let (parent, last) = path.split_at(path.len().saturating_sub(1));
         let last_seg = last.first().ok_or(MutateError::NotFound)?;
-        let marker = match last_seg {
-            Seg::Key(k) if k.starts_with("#comment:") => k.as_str(),
+        match last_seg {
+            Seg::Key(k) if k.starts_with("#comment:") => {}
             _ => return Err(MutateError::NotFound),
-        };
-        // Read the comment text from the projection
+        }
+        // Read the comment text from the projection (recursive descent to handle nested tables)
         let comment_text = {
             let projected = self.project();
-            projected
-                .root
-                .children
-                .iter()
-                .find(|n| n.path.last() == Some(&Seg::Key(marker.to_string())))
+            find_node_by_path(&projected.root, path)
                 .and_then(|n| match &n.kind {
                     crate::model::node::NodeKind::Comment(t) => Some(t.clone()),
                     _ => None,
@@ -548,5 +549,32 @@ mod tests {
         // Must NOT contain double-space between = and value
         assert!(!s.contains("=  "), "commented output must be canonical (no double-space): {s:?}");
         assert!(s.contains("# port = 8080"), "expected '# port = 8080', got: {s:?}");
+    }
+
+    #[test]
+    fn remark_roundtrip_nested_key_with_sibling() {
+        use crate::model::document::Mutation;
+        use crate::model::node::{NodeKind, Seg};
+        let mut doc = doc_from_str("[server]\nport = 8080\nhost = \"x\"\n");
+        // comment out nested key
+        doc.apply(Mutation::Remark {
+            path: vec![Seg::Key("server".into()), Seg::Key("port".into())],
+        })
+        .unwrap();
+        let s = doc.serialize();
+        assert!(s.contains("# port = 8080"), "commented: {s:?}");
+        assert!(s.contains("host = \"x\""), "sibling preserved: {s:?}");
+
+        // find the comment node inside server's children
+        let projected = doc.project();
+        let server = projected.root.children.iter()
+            .find(|n| n.key == "server").unwrap();
+        let comment_node = server.children.iter()
+            .find(|n| matches!(&n.kind, NodeKind::Comment(_))).unwrap();
+        // uncomment via the comment's synthetic path
+        doc.apply(Mutation::Remark { path: comment_node.path.clone() }).unwrap();
+        let s2 = doc.serialize();
+        assert!(s2.contains("port = 8080"), "uncommented: {s2:?}");
+        assert!(s2.contains("host = \"x\""), "sibling still present: {s2:?}");
     }
 }
