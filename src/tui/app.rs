@@ -508,6 +508,7 @@ impl App {
             Mode::Prompt(_) => {
                 self.mode = Mode::Normal;
                 self.clipboard = None;
+                self.pending_move = None;
                 self.status = None;
             }
             Mode::Normal => {}

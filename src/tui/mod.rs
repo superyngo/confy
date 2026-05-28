@@ -69,18 +69,21 @@ fn run_event_loop(
             if key.kind != KeyEventKind::Press {
                 continue;
             }
-            // If in a prompt, character keys should be forwarded to the prompt handler
+            // While a prompt is open, it captures ALL input: char keys go to the
+            // prompt handler, Esc dismisses, and every other key is swallowed so
+            // navigation can't move the cursor mid-prompt (which would split a
+            // multi-fragment paste across two targets). MovePending is deliberately
+            // NOT locked — the user navigates to choose the move target there.
             if matches!(app.mode, crate::tui::state::Mode::Prompt(_)) {
-                if let crossterm::event::KeyCode::Char(c) = key.code {
-                    match app.handle_prompt_key(c) {
-                        crate::tui::app::PromptOutcome::Quit => {
-                            should_quit = true;
-                        }
+                match key.code {
+                    crossterm::event::KeyCode::Char(c) => match app.handle_prompt_key(c) {
+                        crate::tui::app::PromptOutcome::Quit => should_quit = true,
                         crate::tui::app::PromptOutcome::Consumed => {}
-                    }
-                    continue;
+                    },
+                    crossterm::event::KeyCode::Esc => app.escape(),
+                    _ => {}
                 }
-                // fallthrough for non-char keys (e.g. Esc)
+                continue;
             }
             match keys::map_key(key) {
                 keys::KeyAction::CursorDown => app.cursor_down(),
