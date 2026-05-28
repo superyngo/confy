@@ -39,4 +39,16 @@ mod tests {
         assert_eq!(h.undo(), None);
         assert_eq!(h.redo(), Some("v1".to_string()));
     }
+
+    #[test]
+    fn push_clears_redo_future() {
+        // After undoing, a new action (push) must discard the redo stack:
+        // you cannot redo into a branch that no longer exists.
+        let mut h = History::new("v0".to_string());
+        h.push("v1".to_string());
+        assert_eq!(h.undo(), Some("v0".to_string())); // future now holds v1
+        h.push("v2".to_string()); // new action from v0 -> v2; v1 future discarded
+        assert_eq!(h.redo(), None, "redo stack must be cleared by push");
+        assert_eq!(h.undo(), Some("v0".to_string())); // v2 -> v0
+    }
 }
