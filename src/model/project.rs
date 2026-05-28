@@ -51,7 +51,8 @@ fn project_table(table: &Table, base: &[Seg]) -> Vec<Node> {
     let mut out = Vec::new();
     let mut ordinal = 0usize;
     for (key, item) in table.iter() {
-        // Extract standalone comments from this key's leaf_decor prefix
+        // Standalone comments before a leaf/inline key live in the key's
+        // leaf_decor prefix.
         if let Some(k) = table.key(key) {
             if let Some(prefix) = k.leaf_decor().prefix().and_then(|r| r.as_str()) {
                 for c in comments_in(prefix) {
@@ -59,6 +60,30 @@ fn project_table(table: &Table, base: &[Seg]) -> Vec<Node> {
                     ordinal += 1;
                 }
             }
+        }
+        // Standalone comments before a `[table]` or `[[array_of_tables]]` header
+        // live in the inner table's own decor prefix — leaf_decor is empty there.
+        // (Verified against toml_edit 0.22 via §7.1 review-probe.)
+        match item {
+            Item::Table(t) => {
+                if let Some(prefix) = t.decor().prefix().and_then(|r| r.as_str()) {
+                    for c in comments_in(prefix) {
+                        out.push(comment_node(&c, base, ordinal));
+                        ordinal += 1;
+                    }
+                }
+            }
+            Item::ArrayOfTables(aot) => {
+                if let Some(first) = aot.iter().next() {
+                    if let Some(prefix) = first.decor().prefix().and_then(|r| r.as_str()) {
+                        for c in comments_in(prefix) {
+                            out.push(comment_node(&c, base, ordinal));
+                            ordinal += 1;
+                        }
+                    }
+                }
+            }
+            _ => {}
         }
         let mut path = base.to_vec();
         path.push(Seg::Key(key.to_string()));
@@ -228,6 +253,34 @@ mod tests {
         let server = &t.root.children[0];
         assert_eq!(server.children.iter().map(|n| n.key.clone()).collect::<Vec<_>>(),
             vec!["# explain".to_string(), "port".to_string()]);
+    }
+
+    #[test]
+    fn comment_before_table_header() {
+        // §7.1 row 1, Table case: comment in `Table::decor().prefix()`, not in
+        // the key's leaf_decor. Must surface as a sibling Comment before [server].
+        let t = tree("# about\n[server]\nport = 8080\n");
+        assert_eq!(keys_of(&t), vec!["# about".to_string(), "server".to_string()]);
+        assert_eq!(t.root.children[0].kind, NodeKind::Comment("# about".into()));
+    }
+
+    #[test]
+    fn comment_between_tables() {
+        // §7.1 row 3: comment after last key of one table, before the next
+        // table header. toml_edit stores it on the following table's decor.
+        let t = tree("[s]\np = 1\n# mid\n[d]\nn = \"t\"\n");
+        assert_eq!(
+            keys_of(&t),
+            vec!["s".to_string(), "# mid".to_string(), "d".to_string()]
+        );
+    }
+
+    #[test]
+    fn trailing_eol_comment_is_not_a_node() {
+        // §7: end-of-line comments (`port = 8080  # http`) are decoration on
+        // their owning node, NOT standalone Comment nodes.
+        let t = tree("port = 8080  # http\n");
+        assert_eq!(keys_of(&t), vec!["port".to_string()]);
     }
 
     #[test]
