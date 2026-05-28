@@ -95,7 +95,9 @@ fn project_table(table: &Table, base: &[Seg]) -> Vec<Node> {
                 out.push(project_item(key, item, path));
             }
         }
-        ordinal += 1;
+        // No trailing ordinal bump — the inner comment-emission loops already
+        // increment ordinal once per Comment node emitted (the only consumer of
+        // the ordinal counter), keeping synthetic comment paths contiguous.
     }
     out
 }
@@ -170,6 +172,18 @@ fn project_aot(key: &str, aot: &ArrayOfTables, path: Vec<Seg>) -> Node {
     let mut n = Node::branch(key.to_string(), NodeKind::ArrayOfTables);
     n.path = path.clone();
     for (i, t) in aot.iter().enumerate() {
+        // For i >= 1, comments between successive [[key]] entries live in this
+        // entry's decor().prefix(). (Entry 0's prefix is captured at the parent
+        // level by project_table — it sits as a sibling BEFORE the AoT branch
+        // per §7.1 row 1, not as a child of it.)
+        if i > 0 {
+            if let Some(prefix) = t.decor().prefix().and_then(|r| r.as_str()) {
+                let base_ord = n.children.len();
+                for (j, c) in comments_in(prefix).into_iter().enumerate() {
+                    n.children.push(comment_node(&c, &path, base_ord + j));
+                }
+            }
+        }
         let mut p = path.clone();
         p.push(Seg::Index(i));
         let mut child = Node::branch(format!("[{i}]"), NodeKind::Table);
@@ -273,6 +287,18 @@ mod tests {
             keys_of(&t),
             vec!["s".to_string(), "# mid".to_string(), "d".to_string()]
         );
+    }
+
+    #[test]
+    fn comment_between_aot_entries() {
+        // §7.1 row 3 (AoT case): comment between successive [[s]] entries lives
+        // on aot[1].decor().prefix(). Must surface as a Comment child of the AoT
+        // branch, between [0] and [1].
+        let t = tree("[[s]]\na = 1\n# mid\n[[s]]\nb = 2\n");
+        let s = &t.root.children[0];
+        assert_eq!(s.kind, NodeKind::ArrayOfTables);
+        let child_keys: Vec<String> = s.children.iter().map(|n| n.key.clone()).collect();
+        assert_eq!(child_keys, vec!["[0]".to_string(), "# mid".to_string(), "[1]".to_string()]);
     }
 
     #[test]
