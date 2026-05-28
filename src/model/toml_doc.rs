@@ -112,6 +112,48 @@ impl TomlDocument {
         )
     }
 
+    fn r#move(
+        &mut self,
+        sources: &[crate::model::node::Path],
+        target: &Target,
+        oc: crate::model::document::OnCollision,
+    ) -> Result<(), MutateError> {
+        // 1. Capture each source's item as a TOML fragment string.
+        let mut fragments: Vec<String> = Vec::new();
+        for src_path in sources {
+            let (parent, last) = src_path.split_at(src_path.len().saturating_sub(1));
+            let last = last.first().ok_or(MutateError::NotFound)?;
+            let key_name = match last {
+                Seg::Key(k) => k.as_str(),
+                Seg::Index(_) => return Err(MutateError::Unsupported),
+            };
+            let table = self.parent_table_mut(parent)?;
+            let item = table.get(key_name).ok_or(MutateError::NotFound)?.clone();
+            let mut tmp = DocumentMut::new();
+            tmp.as_table_mut().insert(key_name, item);
+            fragments.push(tmp.to_string());
+        }
+
+        // 2. Delete sources in reverse path order to keep paths valid.
+        for src_path in sources.iter().rev() {
+            self.remove_at(src_path)?;
+        }
+
+        // 3. Insert collected fragments at the target.
+        for frag in fragments {
+            self.insert_fragment(target, &frag, oc)?;
+        }
+
+        Ok(())
+    }
+
+    /// Re-parse the document from a serialized snapshot string (for undo/redo restore).
+    pub fn replace_from_str(&mut self, s: &str) {
+        if let Ok(doc) = s.parse::<DocumentMut>() {
+            self.doc = doc;
+        }
+    }
+
     fn remark(&mut self, path: &[Seg]) -> Result<(), MutateError> {
         let is_comment = matches!(path.last(), Some(Seg::Key(k)) if k.starts_with("#comment:"));
         if is_comment {
@@ -381,7 +423,9 @@ impl ConfigDocument for TomlDocument {
             } => self.insert_fragment(&target, &toml, on_collision),
             Mutation::Replace { path, toml } => self.replace(&path, &toml),
             Mutation::Remark { path } => self.remark(&path),
-            _ => Err(MutateError::Unsupported),
+            Mutation::Move { sources, target, on_collision } => {
+                self.r#move(&sources, &target, on_collision)
+            }
         }
     }
 }
@@ -675,6 +719,23 @@ mod tests {
         assert!(s2.contains("[server]"), "server table restored: {s2:?}");
         assert!(s2.contains("port = 8080"), "server children restored: {s2:?}");
         assert!(s2.contains("[db]"), "db table still present: {s2:?}");
+    }
+
+    #[test]
+    fn move_reparents_node() {
+        use crate::model::document::{Mutation, OnCollision, Target};
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("a = 1\n[dest]\n");
+        doc.apply(Mutation::Move {
+            sources: vec![vec![Seg::Key("a".into())]],
+            target: Target { parent: vec![Seg::Key("dest".into())], index: 0 },
+            on_collision: OnCollision::Cancel,
+        }).unwrap();
+        let s = doc.serialize();
+        assert!(s.contains("[dest]"));
+        assert!(s.contains("a = 1"));
+        // `a` no longer at top level (only under dest)
+        assert_eq!(s.matches("a = 1").count(), 1);
     }
 
     #[test]
