@@ -65,6 +65,12 @@ fn run_event_loop(
     use crossterm::event::{self, Event, KeyEventKind};
     let mut should_quit = false;
     while !should_quit {
+        // Keep the inline editor's horizontal viewport in sync with the cursor at
+        // the current terminal width before drawing.
+        if matches!(app.mode, crate::tui::state::Mode::Edit(_)) {
+            let w = ui::value_col_width(terminal.size()?.width);
+            app.edit_clamp_scroll(w);
+        }
         terminal.draw(|f| ui::draw(f, app))?;
         if let Event::Key(key) = event::read()? {
             if key.kind != KeyEventKind::Press {
@@ -96,12 +102,49 @@ fn run_event_loop(
                 }
                 continue;
             }
-            // Detail view: Esc or Enter/Space dismisses.
+            // Detail view: scroll with ↑/↓/j/k, PgUp/PgDn, Home/End; Esc/Enter/
+            // Space/i dismiss. Height adapts to content; long values scroll within.
             if matches!(app.mode, crate::tui::state::Mode::Detail) {
+                use crossterm::event::KeyCode;
+                // Compute the popup's inner viewport + content height to clamp scrolling.
+                let size = terminal.size()?;
+                let text = app.detail_text.clone().unwrap_or_default();
+                let rect = ui::detail_popup_rect(
+                    ratatui::layout::Rect::new(0, 0, size.width, size.height),
+                    &text,
+                );
+                let inner_h = rect.height.saturating_sub(2);
+                let inner_w = rect.width.saturating_sub(2);
+                let content_lines = ui::wrapped_line_count(&text, inner_w);
+                let max_scroll = (content_lines as u16).saturating_sub(inner_h);
+                let page = inner_h.max(1) as i32;
                 match key.code {
-                    crossterm::event::KeyCode::Esc
-                    | crossterm::event::KeyCode::Enter
-                    | crossterm::event::KeyCode::Char(' ') => app.escape(),
+                    KeyCode::Down | KeyCode::Char('j') => app.detail_scroll_by(1, max_scroll),
+                    KeyCode::Up | KeyCode::Char('k') => app.detail_scroll_by(-1, max_scroll),
+                    KeyCode::PageDown => app.detail_scroll_by(page, max_scroll),
+                    KeyCode::PageUp => app.detail_scroll_by(-page, max_scroll),
+                    KeyCode::Home => app.detail_set_scroll(0),
+                    KeyCode::End => app.detail_set_scroll(max_scroll),
+                    KeyCode::Esc | KeyCode::Enter | KeyCode::Char('i') | KeyCode::Char(' ') => {
+                        app.escape()
+                    }
+                    _ => {}
+                }
+                continue;
+            }
+            // Inline editor: type into the buffer; Enter commits, Esc cancels.
+            // Left/Right move the in-buffer cursor (not the value-nudge bindings).
+            if matches!(app.mode, crate::tui::state::Mode::Edit(_)) {
+                use crossterm::event::KeyCode;
+                match key.code {
+                    KeyCode::Char(c) => app.edit_input_char(c),
+                    KeyCode::Backspace => app.edit_backspace(),
+                    KeyCode::Left => app.edit_cursor_left(),
+                    KeyCode::Right => app.edit_cursor_right(),
+                    KeyCode::Home => app.edit_cursor_home(),
+                    KeyCode::End => app.edit_cursor_end(),
+                    KeyCode::Enter => app.edit_commit(),
+                    KeyCode::Esc => app.edit_cancel(),
                     _ => {}
                 }
                 continue;
@@ -156,7 +199,20 @@ fn run_event_loop(
                 keys::KeyAction::ExtendSelectDown => {
                     app.extend_select_down();
                 }
+                keys::KeyAction::Info => app.toggle_detail(),
                 keys::KeyAction::EditNode => {
+                    if app.edit_target_kind() == crate::tui::app::EditKind::Inline {
+                        app.begin_inline_edit();
+                    } else {
+                        let _ = disable_raw_mode();
+                        let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
+                        app.edit_node();
+                        let _ = execute!(terminal.backend_mut(), EnterAlternateScreen);
+                        let _ = enable_raw_mode();
+                        terminal.clear()?;
+                    }
+                }
+                keys::KeyAction::EditExternal => {
                     let _ = disable_raw_mode();
                     let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
                     app.edit_node();
@@ -164,14 +220,9 @@ fn run_event_loop(
                     let _ = enable_raw_mode();
                     terminal.clear()?;
                 }
-                keys::KeyAction::NewNode => {
-                    let _ = disable_raw_mode();
-                    let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
-                    app.new_node();
-                    let _ = execute!(terminal.backend_mut(), EnterAlternateScreen);
-                    let _ = enable_raw_mode();
-                    terminal.clear()?;
-                }
+                keys::KeyAction::AddNode => app.add_node(),
+                keys::KeyAction::IncValue => app.nudge(1),
+                keys::KeyAction::DecValue => app.nudge(-1),
                 keys::KeyAction::Delete => app.delete_selected(),
                 keys::KeyAction::Copy => app.copy_selected(),
                 keys::KeyAction::Cut => app.cut_selected(),

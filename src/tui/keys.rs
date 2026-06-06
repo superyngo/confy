@@ -13,8 +13,12 @@ pub enum KeyAction {
     ToggleSelect,
     ExtendSelectUp,
     ExtendSelectDown,
+    Info,
     EditNode,
-    NewNode,
+    EditExternal,
+    IncValue,
+    DecValue,
+    AddNode,
     Delete,
     Copy,
     Cut,
@@ -41,13 +45,17 @@ pub fn map_key(key: KeyEvent) -> KeyAction {
         (KeyCode::PageDown, _) => KeyAction::PageDown,
         (KeyCode::Home, _) => KeyAction::Home,
         (KeyCode::End, _) => KeyAction::End,
+        (KeyCode::Left, _) => KeyAction::DecValue,
+        (KeyCode::Right, _) => KeyAction::IncValue,
         (KeyCode::Enter, _) | (KeyCode::Char(' '), _) => KeyAction::ToggleExpand,
         (KeyCode::Char('0'), _) => KeyAction::CollapseAll,
         (KeyCode::Char('9'), _) => KeyAction::ExpandAll,
         (KeyCode::Char('s'), m) if m.contains(KeyModifiers::CONTROL) => KeyAction::Save,
         (KeyCode::Char('s'), _) => KeyAction::ToggleSelect,
+        (KeyCode::Char('i'), _) => KeyAction::Info,
+        (KeyCode::Char('E'), _) => KeyAction::EditExternal,
         (KeyCode::Char('e'), _) => KeyAction::EditNode,
-        (KeyCode::Char('n'), _) => KeyAction::NewNode,
+        (KeyCode::Char('a'), _) => KeyAction::AddNode,
         (KeyCode::Char('d'), _) => KeyAction::Delete,
         (KeyCode::Char('c'), _) => KeyAction::Copy,
         (KeyCode::Char('x'), _) => KeyAction::Cut,
@@ -72,7 +80,9 @@ pub fn help_text() -> &'static str {
  Home/End     First/last row    0/9         Collapse/expand all
  Enter/Space  Expand branch or open leaf detail
  s            Toggle select     Shift+Up/Dn Range select
- e            Edit in $EDITOR  n           New node
+ i            Detail/info popup (any node)
+ e            Edit (inline/$EDITOR)  E       Force $EDITOR
+ ←/→          Toggle bool / ±1 number    a   Add node
  d            Delete            x/c/v       Cut/copy/paste
  m            Move (2-press)    r           Remark toggle
  z/y          Undo/redo         /           Fuzzy filter
