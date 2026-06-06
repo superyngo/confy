@@ -333,21 +333,24 @@ impl App {
             path_keys.join(".")
         };
         let mut detail = if row.is_branch {
-            // Branch nodes: kind + how many children they hold. (Root's
-            // type_label is empty, so label it explicitly.)
-            let kind = if row.path.is_empty() {
-                "root"
-            } else {
-                row.type_label.as_str()
-            };
-            let children = node_at(&self.tree.root, &row.path)
-                .map(|n| n.children.len())
-                .unwrap_or(0);
-            format!("Path:     {dotted}\nType:     {kind}\nChildren: {children}")
+            // Branch nodes carry their writing style in the kind: a table can be
+            // a standard `[table]` or an `{ inline }` table, an array a standard
+            // `[...]` or an `[[array-of-tables]]`. Surface both axes — the coarse
+            // Type and the concrete Format — plus the child count.
+            let node = node_at(&self.tree.root, &row.path);
+            let (type_str, fmt_str) = node
+                .map(|n| branch_type_format(&n.kind))
+                .unwrap_or(("unknown", "-"));
+            let children = node.map(|n| n.children.len()).unwrap_or(0);
+            format!(
+                "Path:     {dotted}\nType:     {type_str}\nFormat:   {fmt_str}\nChildren: {children}"
+            )
         } else {
             let type_str = row.scalar_type.as_deref().unwrap_or("unknown");
             let val_str = row.value.as_deref().unwrap_or("");
-            let fmt_str = format!("{:?}", row.format).to_lowercase();
+            // Compact format label, matching the TYPE/FORMAT column; single-style
+            // scalars (bool/float/datetime) read as "plain".
+            let fmt_str = crate::tui::ui::format_label(row.format).unwrap_or("plain");
             format!("Path:     {dotted}\nType:     {type_str}\nFormat:   {fmt_str}\nValue:    {val_str}")
         };
         if let Some(tc) = &row.trailing_comment {
@@ -1228,6 +1231,20 @@ fn serialize_node_fragment(
     tmp.to_string()
 }
 
+/// Coarse `(type, format)` labels for a branch node: the Type is the conceptual
+/// kind and the Format the concrete TOML writing style. Tables split into
+/// standard/inline; arrays into standard/array-of-tables.
+fn branch_type_format(kind: &NodeKind) -> (&'static str, &'static str) {
+    match kind {
+        NodeKind::Root => ("root", "-"),
+        NodeKind::Table => ("table", "table"),
+        NodeKind::InlineTable => ("table", "inline"),
+        NodeKind::Array => ("array", "array"),
+        NodeKind::ArrayOfTables => ("array", "array-of-tables"),
+        NodeKind::Scalar(_) | NodeKind::Comment(_) => ("unknown", "-"),
+    }
+}
+
 /// Find a node in the projected tree by its exact path (Root has empty path).
 fn node_at<'a>(root: &'a Node, path: &[Seg]) -> Option<&'a Node> {
     if root.path == path {
@@ -2040,7 +2057,14 @@ mod tests {
         app.toggle_detail();
         assert!(matches!(app.mode, Mode::Detail));
         let d = app.detail_text.clone().unwrap();
-        assert!(d.contains("table"), "branch detail shows kind: {d}");
+        assert!(
+            d.contains("Type:") && d.contains("table"),
+            "shows kind: {d}"
+        );
+        assert!(
+            d.contains("Format:") && d.contains("table"),
+            "branch detail shows a format line: {d}"
+        );
         assert!(
             d.contains("Children:") && d.contains('2'),
             "branch detail shows child count: {d}"
@@ -2049,6 +2073,28 @@ mod tests {
         app.toggle_detail();
         assert!(matches!(app.mode, Mode::Normal));
         assert!(app.detail_text.is_none());
+    }
+
+    #[test]
+    fn detail_distinguishes_inline_table_format() {
+        // `{ }` inline table reads as Type table / Format inline; a standard
+        // `[table]` reads as Type table / Format table.
+        let mut app = app_with("pt = { x = 1 }\n[srv]\nport = 8080\n");
+        app.expand_all();
+        app.rebuild_rows();
+        app.cursor = app.rows.iter().position(|r| r.key == "pt").unwrap();
+        app.open_detail();
+        let d = app.detail_text.clone().unwrap();
+        assert!(d.contains("Format:") && d.contains("inline"), "inline: {d}");
+
+        app.exit_detail();
+        app.cursor = app.rows.iter().position(|r| r.key == "srv").unwrap();
+        app.open_detail();
+        let d = app.detail_text.clone().unwrap();
+        assert!(
+            d.contains("Format:") && d.contains("table"),
+            "standard: {d}"
+        );
     }
 
     #[test]

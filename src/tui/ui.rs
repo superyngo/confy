@@ -12,7 +12,7 @@ const TYPE_WIDTH: u16 = 15;
 
 /// Compact format suffix for the TYPE/FORMAT column. `None` for the single-style
 /// `Plain` (bool, float, datetimes, and all branches) so they show type only.
-fn format_label(fmt: Format) -> Option<&'static str> {
+pub(crate) fn format_label(fmt: Format) -> Option<&'static str> {
     match fmt {
         Format::Plain => None,
         Format::BasicString => Some("basic"),
