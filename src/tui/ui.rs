@@ -26,11 +26,21 @@ pub(crate) fn format_label(fmt: Format) -> Option<&'static str> {
     }
 }
 
-/// Combined `type/format` label (just `type` when the format is `Plain`).
+/// Combined `type/format` label for the TYPE/FORMAT column. Scalars append their
+/// compact format (omitted for `Plain`). Branches stay one word, except an inline
+/// table — which is a `table` written `{ inline }` — reads as `table/inline` so
+/// the writing style is visible (a standard `[table]` stays plain `table`).
 fn type_format_label(row: &RowSnapshot) -> String {
-    match format_label(row.format) {
-        Some(fmt) => format!("{}/{}", row.type_label, fmt),
-        None => row.type_label.clone(),
+    if row.is_branch {
+        match row.type_label.as_str() {
+            "inline" => "table/inline".to_string(),
+            other => other.to_string(),
+        }
+    } else {
+        match format_label(row.format) {
+            Some(fmt) => format!("{}/{}", row.type_label, fmt),
+            None => row.type_label.clone(),
+        }
     }
 }
 
@@ -528,6 +538,20 @@ mod tests {
         assert!(joined.contains("string/lit"), "rows: {joined:?}");
         // header reflects both axes
         assert!(lines[1].contains("TYPE/FORMAT"), "header: {:?}", lines[1]);
+    }
+
+    #[test]
+    fn inline_table_column_shows_two_segment_label() {
+        // An inline table reads as `table/inline`; a standard table stays `table`.
+        let lines = render("pt = { x = 1 }\n[srv]\nport = 8080\n", 60, 8);
+        let joined = lines.join("\n");
+        assert!(joined.contains("table/inline"), "rows: {joined:?}");
+        assert!(
+            joined
+                .lines()
+                .any(|l| l.contains("srv") && l.contains("table")),
+            "standard table stays plain `table`: {joined:?}"
+        );
     }
 
     #[test]
