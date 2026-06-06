@@ -106,6 +106,21 @@ fn run_event_loop(
                 }
                 continue;
             }
+            // Inline editor: type into the buffer; Enter commits, Esc cancels.
+            // Left/Right move the in-buffer cursor (not the value-nudge bindings).
+            if matches!(app.mode, crate::tui::state::Mode::Edit(_)) {
+                use crossterm::event::KeyCode;
+                match key.code {
+                    KeyCode::Char(c) => app.edit_input_char(c),
+                    KeyCode::Backspace => app.edit_backspace(),
+                    KeyCode::Left => app.edit_cursor_left(),
+                    KeyCode::Right => app.edit_cursor_right(),
+                    KeyCode::Enter => app.edit_commit(),
+                    KeyCode::Esc => app.edit_cancel(),
+                    _ => {}
+                }
+                continue;
+            }
             // Help overlay: Esc or ? dismisses.
             if matches!(app.mode, crate::tui::state::Mode::Help) {
                 match key.code {
@@ -157,6 +172,18 @@ fn run_event_loop(
                     app.extend_select_down();
                 }
                 keys::KeyAction::EditNode => {
+                    if app.edit_target_kind() == crate::tui::app::EditKind::Inline {
+                        app.begin_inline_edit();
+                    } else {
+                        let _ = disable_raw_mode();
+                        let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
+                        app.edit_node();
+                        let _ = execute!(terminal.backend_mut(), EnterAlternateScreen);
+                        let _ = enable_raw_mode();
+                        terminal.clear()?;
+                    }
+                }
+                keys::KeyAction::EditExternal => {
                     let _ = disable_raw_mode();
                     let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
                     app.edit_node();
@@ -164,14 +191,9 @@ fn run_event_loop(
                     let _ = enable_raw_mode();
                     terminal.clear()?;
                 }
-                keys::KeyAction::NewNode => {
-                    let _ = disable_raw_mode();
-                    let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
-                    app.new_node();
-                    let _ = execute!(terminal.backend_mut(), EnterAlternateScreen);
-                    let _ = enable_raw_mode();
-                    terminal.clear()?;
-                }
+                keys::KeyAction::AddNode => app.add_node(),
+                keys::KeyAction::IncValue => app.nudge(1),
+                keys::KeyAction::DecValue => app.nudge(-1),
                 keys::KeyAction::Delete => app.delete_selected(),
                 keys::KeyAction::Copy => app.copy_selected(),
                 keys::KeyAction::Cut => app.cut_selected(),

@@ -1,9 +1,17 @@
 use crate::model::document::{ConfigDocument, Mutation, OnCollision, Target};
-use crate::model::node::{NodeTree, Path, Seg};
+use crate::model::node::{Format, Node, NodeKind, NodeTree, Path, ScalarType, Seg};
 use crate::tui::search::{fuzzy_match, haystack};
 use crate::tui::selection::Selection;
-use crate::tui::state::{Clipboard, History, Mode, PromptKind};
+use crate::tui::state::{Clipboard, EditState, History, Mode, PromptKind};
 use std::collections::HashSet;
+
+/// How `e` should edit the cursor node: in-place (scalar directly under a
+/// Table/Root) or by spawning $EDITOR (everything nested or non-scalar).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EditKind {
+    Inline,
+    External,
+}
 
 pub struct App {
     pub tree: NodeTree,
@@ -26,6 +34,8 @@ pub struct App {
     pub filtered_paths: Option<HashSet<Path>>,
     /// Read-only detail text for the current detail popup.
     pub detail_text: Option<String>,
+    /// Saved inline-edit + validated fragment awaiting a TypeChange confirmation.
+    pub pending_edit: Option<(EditState, String)>,
 }
 
 #[derive(Clone)]
@@ -38,6 +48,8 @@ pub struct RowSnapshot {
     pub scalar_type: Option<String>,
     /// Display label for the TYPE column (scalar type, branch kind, or "comment").
     pub type_label: String,
+    /// Writing style of a scalar leaf (`Plain` for branches/comments).
+    pub format: Format,
     pub trailing_comment: Option<String>,
 }
 
@@ -67,6 +79,7 @@ impl App {
             filter: String::new(),
             filtered_paths: None,
             detail_text: None,
+            pending_edit: None,
         };
         app.rebuild_rows();
         app
@@ -89,6 +102,7 @@ impl App {
             filter: String::new(),
             filtered_paths: None,
             detail_text: None,
+            pending_edit: None,
         }
     }
     pub fn rebuild_rows(&mut self) {
@@ -120,6 +134,7 @@ impl App {
                     value: r.node.value.clone(),
                     scalar_type,
                     type_label,
+                    format: r.node.format,
                     trailing_comment: r.node.trailing_comment.clone(),
                 }
             })
@@ -301,7 +316,10 @@ impl App {
         let dotted = path_keys.join(".");
         let type_str = row.scalar_type.as_deref().unwrap_or("unknown");
         let val_str = row.value.as_deref().unwrap_or("");
-        let mut detail = format!("Path:    {dotted}\nType:    {type_str}\nValue:   {val_str}");
+        let fmt_str = format!("{:?}", row.format).to_lowercase();
+        let mut detail = format!(
+            "Path:    {dotted}\nType:    {type_str}\nFormat:  {fmt_str}\nValue:   {val_str}"
+        );
         if let Some(tc) = &row.trailing_comment {
             detail.push_str(&format!("\nComment: {tc}"));
         }
@@ -407,19 +425,188 @@ impl App {
         }
     }
 
-    /// `n` — open $EDITOR with empty buffer, resolve insertion target, apply Insert.
-    /// On Collision: set status (Task 17 will wire the prompt).
-    pub fn new_node(&mut self) {
-        if self.doc.is_none() {
-            return;
+    /// Decide how `e` should edit the cursor node. Inline editing applies only to
+    /// a Scalar leaf reachable by an all-`Key` path whose immediate parent is a
+    /// Table or the Root — i.e. NOT inside an array, inline table, or AoT entry
+    /// (those are "nested" and `Replace` cannot address an `Index` segment).
+    pub fn edit_target_kind(&self) -> EditKind {
+        let path = match self.rows.get(self.cursor) {
+            Some(r) => &r.path,
+            None => return EditKind::External,
+        };
+        if path.is_empty() {
+            return EditKind::External; // Root
         }
-        let edited = match crate::tui::editor::edit_text("") {
-            Ok(t) => t,
-            Err(e) => {
-                self.status = Some(format!("editor error: {e}"));
+        if path.iter().any(|s| matches!(s, Seg::Index(_))) {
+            return EditKind::External;
+        }
+        let node = match node_at(&self.tree.root, path) {
+            Some(n) => n,
+            None => return EditKind::External,
+        };
+        if !matches!(node.kind, NodeKind::Scalar(_)) {
+            return EditKind::External;
+        }
+        // Parent must be a Table or the Root (not an inline table).
+        let parent_ok = if path.len() == 1 {
+            true
+        } else {
+            node_at(&self.tree.root, &path[..path.len() - 1])
+                .map(|p| matches!(p.kind, NodeKind::Table | NodeKind::Root))
+                .unwrap_or(false)
+        };
+        if parent_ok {
+            EditKind::Inline
+        } else {
+            EditKind::External
+        }
+    }
+
+    /// Enter the inline editor for the cursor scalar, pre-filled with its value
+    /// repr (quotes/base prefix included, so the user edits the literal form).
+    pub fn begin_inline_edit(&mut self) {
+        let row = match self.rows.get(self.cursor) {
+            Some(r) => r,
+            None => return,
+        };
+        let key = match row.path.last() {
+            Some(Seg::Key(k)) => k.clone(),
+            _ => return,
+        };
+        // `value` is `Value::to_string()`, which carries the decor whitespace
+        // around the `=` (e.g. " 8080"); trim it so the edited literal doesn't
+        // accumulate a leading space on write-back.
+        let buffer = row.value.clone().unwrap_or_default().trim().to_string();
+        let cursor = buffer.chars().count();
+        self.mode = Mode::Edit(EditState {
+            path: row.path.clone(),
+            key,
+            buffer,
+            cursor,
+        });
+        self.status = None;
+    }
+
+    pub fn edit_input_char(&mut self, c: char) {
+        if let Mode::Edit(ref mut e) = self.mode {
+            let byte = char_byte_idx(&e.buffer, e.cursor);
+            e.buffer.insert(byte, c);
+            e.cursor += 1;
+        }
+    }
+
+    pub fn edit_backspace(&mut self) {
+        if let Mode::Edit(ref mut e) = self.mode {
+            if e.cursor > 0 {
+                let prev = char_byte_idx(&e.buffer, e.cursor - 1);
+                e.buffer.remove(prev);
+                e.cursor -= 1;
+            }
+        }
+    }
+
+    pub fn edit_cursor_left(&mut self) {
+        if let Mode::Edit(ref mut e) = self.mode {
+            e.cursor = e.cursor.saturating_sub(1);
+        }
+    }
+
+    pub fn edit_cursor_right(&mut self) {
+        if let Mode::Edit(ref mut e) = self.mode {
+            let len = e.buffer.chars().count();
+            if e.cursor < len {
+                e.cursor += 1;
+            }
+        }
+    }
+
+    pub fn edit_cancel(&mut self) {
+        self.mode = Mode::Normal;
+        self.pending_edit = None;
+        self.status = None;
+    }
+
+    /// Commit the inline edit. Reconstruct `key = <buffer>`, validate it parses
+    /// (type check, not enforced), and either apply `Replace` directly or — if
+    /// the scalar's displayed type would change — stash it and enter a TypeChange
+    /// confirm prompt. On parse failure: set status, stay in the editor.
+    pub fn edit_commit(&mut self) {
+        let e = match std::mem::replace(&mut self.mode, Mode::Normal) {
+            Mode::Edit(e) => e,
+            other => {
+                self.mode = other;
                 return;
             }
         };
+        let fragment = format!("{} = {}\n", e.key, e.buffer);
+        let table = match crate::model::fragment::parse_fragment(&fragment) {
+            Ok(t) => t,
+            Err(err) => {
+                self.status = Some(format!("invalid TOML: {err}"));
+                self.mode = Mode::Edit(e); // stay in the editor so the user can fix it
+                return;
+            }
+        };
+        let new_label = table
+            .get(&e.key)
+            .map(fragment_value_label)
+            .unwrap_or_default();
+        let old_label = self
+            .rows
+            .get(self.cursor)
+            .map(|r| r.type_label.clone())
+            .unwrap_or_default();
+        if new_label != old_label {
+            self.status = Some(format!("type {old_label} → {new_label}? y/n"));
+            self.pending_edit = Some((e, fragment));
+            self.mode = Mode::Prompt(PromptKind::TypeChange {
+                from: old_label,
+                to: new_label,
+            });
+            return;
+        }
+        self.apply_replace(e.path, fragment);
+    }
+
+    /// `←`/`→` in Normal mode: toggle a bool or step an integer/float by ±1 at
+    /// its least-significant digit, preserving the written format. No-op for
+    /// strings, datetimes, and anything not an inline-editable scalar.
+    pub fn nudge(&mut self, delta: i64) {
+        let path = match self.rows.get(self.cursor) {
+            Some(r) => r.path.clone(),
+            None => return,
+        };
+        if path.iter().any(|s| matches!(s, Seg::Index(_))) {
+            return;
+        }
+        let key = match path.last() {
+            Some(Seg::Key(k)) => k.clone(),
+            _ => return,
+        };
+        let node = match node_at(&self.tree.root, &path) {
+            Some(n) => n,
+            None => return,
+        };
+        let st = match node.kind {
+            NodeKind::Scalar(st) => st,
+            _ => return,
+        };
+        let repr = match &node.value {
+            Some(v) => v.clone(),
+            None => return,
+        };
+        if let Some(new_repr) = nudge_scalar(st, node.format, &repr, delta) {
+            self.apply_replace(path, format!("{key} = {new_repr}\n"));
+        }
+    }
+
+    /// `a` — insert a new empty-string node (`new_field = ""`) below the cursor
+    /// and immediately open the inline editor on it. (TOML has no null, so the
+    /// neutral placeholder is an empty string; rename the key later via `E`.)
+    pub fn add_node(&mut self) {
+        if self.doc.is_none() {
+            return;
+        }
         let cursor_row = self.rows.get(self.cursor).cloned();
         let target = match &cursor_row {
             Some(r) => {
@@ -427,12 +614,31 @@ impl App {
                 let sibling_index = sibling_index_of(r, &self.rows);
                 crate::tui::insertion::resolve_target(r, expanded, sibling_index)
             }
-            None => crate::model::document::Target {
+            None => Target {
                 parent: vec![],
                 index: 0,
             },
         };
-        self.apply_insert(target, edited);
+        // Choose a key unique within the destination so the insert never collides.
+        let existing: Vec<String> = node_at(&self.tree.root, &target.parent)
+            .map(|p| p.children.iter().map(|c| c.key.clone()).collect())
+            .unwrap_or_default();
+        let key = unique_key("new_field", &existing);
+        // Ensure the destination branch is expanded so the new node is visible.
+        if !target.parent.is_empty() {
+            self.expanded.insert(target.parent.clone());
+        }
+        self.apply_insert(target.clone(), format!("{key} = \"\"\n"));
+        if self.status.is_some() {
+            return; // insert failed; status already set
+        }
+        // Locate the freshly inserted row, move the cursor to it, and edit inline.
+        let mut new_path = target.parent.clone();
+        new_path.push(Seg::Key(key));
+        if let Some(idx) = self.rows.iter().position(|r| r.path == new_path) {
+            self.cursor = idx;
+            self.begin_inline_edit();
+        }
     }
 
     /// Apply edited text as an Insert at `target` (the post-editor half of `n`,
@@ -673,7 +879,7 @@ impl App {
                     }
                 }
             }
-            Mode::Prompt(_) | Mode::Filter | Mode::Detail | Mode::Help => {}
+            Mode::Prompt(_) | Mode::Filter | Mode::Detail | Mode::Help | Mode::Edit(_) => {}
         }
     }
     pub fn escape(&mut self) {
@@ -686,11 +892,13 @@ impl App {
                 self.mode = Mode::Normal;
                 self.clipboard = None;
                 self.pending_move = None;
+                self.pending_edit = None;
                 self.status = None;
             }
             Mode::Filter => self.exit_filter(),
             Mode::Detail => self.exit_detail(),
             Mode::Help => self.exit_help(),
+            Mode::Edit(_) => self.edit_cancel(),
             Mode::Normal => {}
         }
     }
@@ -784,6 +992,27 @@ impl App {
     /// Handle a key press while in a prompt mode. Returns true if consumed.
     pub fn handle_prompt_key(&mut self, c: char) -> PromptOutcome {
         match &self.mode {
+            Mode::Prompt(PromptKind::TypeChange { .. }) => {
+                match c {
+                    'y' => {
+                        if let Some((e, fragment)) = self.pending_edit.take() {
+                            self.mode = Mode::Normal;
+                            self.apply_replace(e.path, fragment);
+                        } else {
+                            self.mode = Mode::Normal;
+                        }
+                    }
+                    // Any other key returns to the inline editor to revise.
+                    _ => {
+                        if let Some((e, _)) = self.pending_edit.take() {
+                            self.mode = Mode::Edit(e);
+                        } else {
+                            self.mode = Mode::Normal;
+                        }
+                    }
+                }
+                PromptOutcome::Consumed
+            }
             Mode::Prompt(PromptKind::Collision { key: _ }) => {
                 let oc = match c {
                     'o' => OnCollision::Overwrite,
@@ -929,6 +1158,110 @@ fn serialize_node_fragment(
     let mut tmp = DocumentMut::new();
     tmp.as_table_mut().insert(key, item);
     tmp.to_string()
+}
+
+/// Find a node in the projected tree by its exact path (Root has empty path).
+fn node_at<'a>(root: &'a Node, path: &[Seg]) -> Option<&'a Node> {
+    if root.path == path {
+        return Some(root);
+    }
+    root.children.iter().find_map(|c| node_at(c, path))
+}
+
+/// Byte offset of the `n`-th char in `s` (==`s.len()` when `n` is the char count).
+fn char_byte_idx(s: &str, n: usize) -> usize {
+    s.char_indices().nth(n).map(|(i, _)| i).unwrap_or(s.len())
+}
+
+/// First non-colliding key formed from `base` (`base`, `base_2`, `base_3`, …),
+/// mirroring the `OnCollision::Rename` scheme in `toml_doc`.
+fn unique_key(base: &str, existing: &[String]) -> String {
+    if !existing.iter().any(|k| k == base) {
+        return base.to_string();
+    }
+    let mut n = 2;
+    loop {
+        let cand = format!("{base}_{n}");
+        if !existing.iter().any(|k| k == &cand) {
+            return cand;
+        }
+        n += 1;
+    }
+}
+
+/// Display type label for a freshly parsed fragment value, matching the labels
+/// `rebuild_rows` assigns so an inline edit can detect a type change by string
+/// comparison.
+fn fragment_value_label(item: &toml_edit::Item) -> String {
+    use toml_edit::{Item, Value};
+    match item {
+        Item::Value(Value::Array(_)) => "array".into(),
+        Item::Value(Value::InlineTable(_)) => "inline".into(),
+        Item::Value(v) => format!("{:?}", crate::model::project::scalar_type(v)).to_lowercase(),
+        Item::Table(_) => "table".into(),
+        Item::ArrayOfTables(_) => "array-of-tables".into(),
+        Item::None => "none".into(),
+    }
+}
+
+/// Step a scalar's repr by `delta` (±1) preserving its written format. Bools
+/// toggle (delta ignored); integers step at the unit place in their own base;
+/// floats step at their least-significant displayed decimal. Returns `None` for
+/// strings, datetimes, and reprs that don't fit the simple stepping model.
+fn nudge_scalar(st: ScalarType, fmt: Format, repr: &str, delta: i64) -> Option<String> {
+    let s = repr.trim();
+    match st {
+        ScalarType::Bool => match s {
+            "true" => Some("false".into()),
+            "false" => Some("true".into()),
+            _ => None,
+        },
+        ScalarType::Integer => {
+            let clean = s.replace('_', "");
+            match fmt {
+                Format::Hex => {
+                    let upper = clean[2..].chars().any(|c| c.is_ascii_uppercase());
+                    let n = i64::from_str_radix(&clean[2..], 16).ok()? + delta;
+                    Some(if upper {
+                        format!("0x{n:X}")
+                    } else {
+                        format!("0x{n:x}")
+                    })
+                }
+                Format::Octal => {
+                    let n = i64::from_str_radix(&clean[2..], 8).ok()? + delta;
+                    Some(format!("0o{n:o}"))
+                }
+                Format::Binary => {
+                    let n = i64::from_str_radix(&clean[2..], 2).ok()? + delta;
+                    Some(format!("0b{n:b}"))
+                }
+                _ => {
+                    let n = clean.parse::<i64>().ok()? + delta;
+                    Some(n.to_string())
+                }
+            }
+        }
+        ScalarType::Float => {
+            let clean = s.replace('_', "");
+            // Only handle plain decimal floats (no exponent / inf / nan).
+            if clean
+                .bytes()
+                .any(|b| matches!(b, b'e' | b'E') || b.is_ascii_alphabetic())
+            {
+                return None;
+            }
+            let places = clean
+                .split_once('.')
+                .map(|(_, frac)| frac.len())
+                .unwrap_or(0);
+            let val = clean.parse::<f64>().ok()?;
+            let step = 10f64.powi(-(places as i32));
+            let next = val + delta as f64 * step;
+            Some(format!("{next:.*}", places))
+        }
+        _ => None,
+    }
 }
 
 /// Compute the 0-based index of `row` within its parent's visible children.
@@ -1404,6 +1737,175 @@ mod tests {
         assert!(
             matches!(app.mode, Mode::Normal),
             "mode unchanged when clean"
+        );
+    }
+
+    // --- inline editor / format refactor ---
+
+    fn idx_of(app: &App, key: &str) -> usize {
+        app.rows.iter().position(|r| r.key == key).unwrap()
+    }
+
+    #[test]
+    fn edit_target_kind_classifies_inline_vs_external() {
+        let mut app =
+            app_with("port = 8080\n[server]\nhost = \"h\"\narr = [1, 2]\npt = { y = 3 }\n");
+        app.expand_all();
+        app.rebuild_rows();
+        // scalar directly under Root → inline
+        app.cursor = idx_of(&app, "port");
+        assert_eq!(app.edit_target_kind(), EditKind::Inline);
+        // scalar directly under a [table] → inline
+        app.cursor = idx_of(&app, "host");
+        assert_eq!(app.edit_target_kind(), EditKind::Inline);
+        // table / array branches → external
+        app.cursor = idx_of(&app, "server");
+        assert_eq!(app.edit_target_kind(), EditKind::External);
+        app.cursor = idx_of(&app, "arr");
+        assert_eq!(app.edit_target_kind(), EditKind::External);
+        // element inside an array (Index path) → external
+        app.cursor = idx_of(&app, "[0]");
+        assert_eq!(app.edit_target_kind(), EditKind::External);
+        // member of an inline table → external
+        app.cursor = idx_of(&app, "y");
+        assert_eq!(app.edit_target_kind(), EditKind::External);
+    }
+
+    #[test]
+    fn nudge_scalar_steps_each_type_preserving_format() {
+        assert_eq!(
+            nudge_scalar(ScalarType::Integer, Format::Decimal, "41", 1).as_deref(),
+            Some("42")
+        );
+        assert_eq!(
+            nudge_scalar(ScalarType::Integer, Format::Hex, "0xFF", 1).as_deref(),
+            Some("0x100")
+        );
+        assert_eq!(
+            nudge_scalar(ScalarType::Integer, Format::Hex, "0x0a", 1).as_deref(),
+            Some("0xb"),
+            "lowercase hex preserved"
+        );
+        assert_eq!(
+            nudge_scalar(ScalarType::Float, Format::Plain, "1.50", 1).as_deref(),
+            Some("1.51"),
+            "float steps at its displayed precision"
+        );
+        assert_eq!(
+            nudge_scalar(ScalarType::Float, Format::Plain, "1.50", -1).as_deref(),
+            Some("1.49")
+        );
+        assert_eq!(
+            nudge_scalar(ScalarType::Bool, Format::Plain, "true", 1).as_deref(),
+            Some("false")
+        );
+        // strings / datetimes are not nudgeable
+        assert_eq!(
+            nudge_scalar(ScalarType::String, Format::BasicString, "\"hi\"", 1),
+            None
+        );
+    }
+
+    #[test]
+    fn nudge_writes_back_through_replace() {
+        let mut app = app_with("port = 8080\n");
+        app.cursor = 1; // on port
+        app.nudge(1);
+        assert!(app
+            .doc
+            .as_ref()
+            .unwrap()
+            .serialize()
+            .contains("port = 8081"));
+    }
+
+    #[test]
+    fn inline_commit_same_type_applies_replace() {
+        let mut app = app_with("port = 8080\n");
+        app.cursor = 1;
+        app.begin_inline_edit();
+        for _ in 0..4 {
+            app.edit_backspace();
+        }
+        for c in "9090".chars() {
+            app.edit_input_char(c);
+        }
+        app.edit_commit();
+        assert!(matches!(app.mode, Mode::Normal));
+        assert!(app
+            .doc
+            .as_ref()
+            .unwrap()
+            .serialize()
+            .contains("port = 9090"));
+    }
+
+    #[test]
+    fn inline_commit_type_change_enters_prompt_then_confirms() {
+        let mut app = app_with("port = 8080\n");
+        app.cursor = 1;
+        app.begin_inline_edit();
+        for _ in 0..4 {
+            app.edit_backspace();
+        }
+        for c in "\"hi\"".chars() {
+            app.edit_input_char(c);
+        }
+        app.edit_commit();
+        assert!(
+            matches!(app.mode, Mode::Prompt(PromptKind::TypeChange { .. })),
+            "changing integer→string must confirm"
+        );
+        assert!(app.pending_edit.is_some());
+        app.handle_prompt_key('y');
+        assert!(matches!(app.mode, Mode::Normal));
+        assert!(app
+            .doc
+            .as_ref()
+            .unwrap()
+            .serialize()
+            .contains("port = \"hi\""));
+    }
+
+    #[test]
+    fn inline_commit_invalid_toml_keeps_editor_open() {
+        let mut app = app_with("port = 8080\n");
+        let before = app.doc.as_ref().unwrap().serialize();
+        app.cursor = 1;
+        app.begin_inline_edit();
+        for _ in 0..4 {
+            app.edit_backspace();
+        }
+        for c in "= nope".chars() {
+            app.edit_input_char(c);
+        }
+        app.edit_commit();
+        assert!(matches!(app.mode, Mode::Edit(_)), "stay in editor to fix");
+        assert!(app.status.is_some());
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            before,
+            "doc unchanged"
+        );
+    }
+
+    #[test]
+    fn add_node_inserts_empty_string_and_enters_edit() {
+        let mut app = app_with("a = 1\n");
+        app.cursor = 1; // on a
+        app.add_node();
+        assert!(
+            matches!(app.mode, Mode::Edit(_)),
+            "add should open the inline editor"
+        );
+        assert!(
+            app.doc
+                .as_ref()
+                .unwrap()
+                .serialize()
+                .contains("new_field = \"\""),
+            "placeholder inserted: {}",
+            app.doc.as_ref().unwrap().serialize()
         );
     }
 

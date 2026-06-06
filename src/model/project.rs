@@ -1,4 +1,4 @@
-use crate::model::node::{Node, NodeKind, NodeTree, ScalarType, Seg};
+use crate::model::node::{Format, Node, NodeKind, NodeTree, ScalarType, Seg};
 use toml_edit::{Array, ArrayOfTables, DocumentMut, InlineTable, Item, Table, Value};
 
 /// Pull standalone comment lines out of a decor prefix/trailing string.
@@ -21,6 +21,7 @@ fn comment_node(text: &str, parent: &[Seg], ordinal: usize) -> Node {
         kind: NodeKind::Comment(text.to_string()),
         children: Vec::new(),
         value: None,
+        format: Format::Plain,
         trailing_comment: None,
     }
 }
@@ -46,14 +47,60 @@ pub fn project(doc: &DocumentMut, filename: &str) -> NodeTree {
     NodeTree { root }
 }
 
-fn scalar_type(v: &Value) -> ScalarType {
+pub(crate) fn scalar_type(v: &Value) -> ScalarType {
     match v {
         Value::String(_) => ScalarType::String,
         Value::Integer(_) => ScalarType::Integer,
         Value::Float(_) => ScalarType::Float,
         Value::Boolean(_) => ScalarType::Bool,
-        Value::Datetime(_) => ScalarType::Datetime,
+        Value::Datetime(d) => {
+            // A TOML datetime is one of four types depending on which components
+            // are present (toml_datetime::Datetime { date, time, offset }).
+            let dt = d.value();
+            match (dt.date.is_some(), dt.time.is_some(), dt.offset.is_some()) {
+                (_, _, true) => ScalarType::OffsetDatetime,
+                (true, true, false) => ScalarType::LocalDatetime,
+                (true, false, false) => ScalarType::LocalDate,
+                (false, true, false) => ScalarType::LocalTime,
+                // date+time absent is not representable; default keeps us total.
+                _ => ScalarType::LocalDatetime,
+            }
+        }
         Value::Array(_) | Value::InlineTable(_) => unreachable!("handled by item dispatch"),
+    }
+}
+
+/// Derive the writing style (§format) of a scalar from its rendered repr. The
+/// repr is `Value::to_string()` (already stored in `Node.value`) — for strings
+/// it carries the surrounding quotes, for integers the base prefix.
+fn detect_format(st: ScalarType, repr: &str) -> Format {
+    let s = repr.trim();
+    match st {
+        ScalarType::String => {
+            if s.starts_with("\"\"\"") {
+                Format::MultilineBasic
+            } else if s.starts_with("'''") {
+                Format::MultilineLiteral
+            } else if s.starts_with('\'') {
+                Format::Literal
+            } else {
+                Format::BasicString
+            }
+        }
+        ScalarType::Integer => {
+            // A leading sign is only valid on decimal integers, so prefix-match
+            // after an optional sign isn't needed: 0x/0o/0b never carry a sign.
+            if s.starts_with("0x") {
+                Format::Hex
+            } else if s.starts_with("0o") {
+                Format::Octal
+            } else if s.starts_with("0b") {
+                Format::Binary
+            } else {
+                Format::Decimal
+            }
+        }
+        _ => Format::Plain,
     }
 }
 
@@ -154,9 +201,12 @@ fn project_item(key: &str, item: &Item, path: Vec<Seg>, trailing_comment: Option
         Item::Value(Value::Array(arr)) => project_array(key, arr, path),
         Item::Value(Value::InlineTable(it)) => project_inline(key, it, path),
         Item::Value(v) => {
-            let mut n = Node::leaf(key.to_string(), NodeKind::Scalar(scalar_type(v)));
+            let st = scalar_type(v);
+            let repr = v.to_string();
+            let mut n = Node::leaf(key.to_string(), NodeKind::Scalar(st));
             n.path = path;
-            n.value = Some(v.to_string());
+            n.format = detect_format(st, &repr);
+            n.value = Some(repr);
             n.trailing_comment = trailing_comment;
             n
         }
@@ -228,9 +278,12 @@ fn project_value(key: &str, v: &Value, path: Vec<Seg>) -> Node {
         Value::Array(a) => project_array(key, a, path),
         Value::InlineTable(it) => project_inline(key, it, path),
         other => {
-            let mut n = Node::leaf(key.to_string(), NodeKind::Scalar(scalar_type(other)));
+            let st = scalar_type(other);
+            let repr = other.to_string();
+            let mut n = Node::leaf(key.to_string(), NodeKind::Scalar(st));
             n.path = path;
-            n.value = Some(other.to_string());
+            n.format = detect_format(st, &repr);
+            n.value = Some(repr);
             n
         }
     }
@@ -416,6 +469,60 @@ mod tests {
             item.children[0].path,
             vec![Seg::Key("item".into()), Seg::Index(0)]
         );
+    }
+
+    fn leaf_named<'a>(t: &'a crate::model::node::NodeTree, key: &str) -> &'a Node {
+        t.root.children.iter().find(|n| n.key == key).unwrap()
+    }
+
+    #[test]
+    fn integer_formats_detected() {
+        let t = tree("dec = 255\nhx = 0xFF\noc = 0o377\nbn = 0b1111_1111\n");
+        assert_eq!(leaf_named(&t, "dec").format, Format::Decimal);
+        assert_eq!(leaf_named(&t, "hx").format, Format::Hex);
+        assert_eq!(leaf_named(&t, "oc").format, Format::Octal);
+        assert_eq!(leaf_named(&t, "bn").format, Format::Binary);
+        // all classify as Integer regardless of base
+        for k in ["dec", "hx", "oc", "bn"] {
+            assert_eq!(
+                leaf_named(&t, k).kind,
+                NodeKind::Scalar(ScalarType::Integer)
+            );
+        }
+    }
+
+    #[test]
+    fn string_formats_detected() {
+        let t = tree("b = \"hi\"\nl = 'hi'\nmb = \"\"\"hi\"\"\"\nml = '''hi'''\n");
+        assert_eq!(leaf_named(&t, "b").format, Format::BasicString);
+        assert_eq!(leaf_named(&t, "l").format, Format::Literal);
+        assert_eq!(leaf_named(&t, "mb").format, Format::MultilineBasic);
+        assert_eq!(leaf_named(&t, "ml").format, Format::MultilineLiteral);
+    }
+
+    #[test]
+    fn datetime_subtypes_split_into_four() {
+        let t = tree(
+            "odt = 2021-01-01T00:00:00Z\nldt = 2021-01-01T00:00:00\nld = 2021-01-01\nlt = 12:34:56\n",
+        );
+        assert_eq!(
+            leaf_named(&t, "odt").kind,
+            NodeKind::Scalar(ScalarType::OffsetDatetime)
+        );
+        assert_eq!(
+            leaf_named(&t, "ldt").kind,
+            NodeKind::Scalar(ScalarType::LocalDatetime)
+        );
+        assert_eq!(
+            leaf_named(&t, "ld").kind,
+            NodeKind::Scalar(ScalarType::LocalDate)
+        );
+        assert_eq!(
+            leaf_named(&t, "lt").kind,
+            NodeKind::Scalar(ScalarType::LocalTime)
+        );
+        // datetimes carry the single Plain writing style
+        assert_eq!(leaf_named(&t, "odt").format, Format::Plain);
     }
 
     #[test]

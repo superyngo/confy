@@ -7,12 +7,31 @@ pub enum Mode {
     Filter,
     Detail,
     Help,
+    Edit(EditState),
 }
 
 pub enum PromptKind {
-    Collision { key: String },
+    Collision {
+        key: String,
+    },
     ConfirmQuit,
-    MoveCollision { key: String },
+    MoveCollision {
+        key: String,
+    },
+    /// Inline-edit commit changed the scalar's type; confirm before writing.
+    TypeChange {
+        from: String,
+        to: String,
+    },
+}
+
+/// In-flight inline editor state (§inline edit). `buffer` holds the value text
+/// being edited (without the `key = ` prefix); `cursor` is a char index into it.
+pub struct EditState {
+    pub path: Path,
+    pub key: String,
+    pub buffer: String,
+    pub cursor: usize,
 }
 
 /// Clipboard holding serialized TOML fragments for copy/cut/paste (§6 x/c/v).

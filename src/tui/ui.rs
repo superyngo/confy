@@ -90,7 +90,18 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                 " "
             };
             let name = format!("{sel_marker}{indent}{marker}{}", row.key);
-            let value = row.value.clone().unwrap_or_default();
+            // While inline-editing the cursor row, render the live buffer with a
+            // caret instead of the stored value.
+            let value = match &app.mode {
+                Mode::Edit(e) if i == app.cursor => {
+                    let chars: Vec<char> = e.buffer.chars().collect();
+                    let cur = e.cursor.min(chars.len());
+                    let head: String = chars[..cur].iter().collect();
+                    let tail: String = chars[cur..].iter().collect();
+                    format!("{head}▏{tail}")
+                }
+                _ => row.value.clone().unwrap_or_default(),
+            };
             let style = if i == app.cursor {
                 Style::default()
                     .bg(Color::Blue)
@@ -131,6 +142,14 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
         f.render_widget(paragraph, area);
         return;
     }
+    // In the inline editor, show edit-mode hints.
+    if matches!(app.mode, Mode::Edit(_)) {
+        let text = " editing — Enter:save  Esc:cancel  ←/→:move";
+        let paragraph =
+            Paragraph::new(text).style(Style::default().bg(Color::DarkGray).fg(Color::Yellow));
+        f.render_widget(paragraph, area);
+        return;
+    }
     let total = app.rows.len();
     let pos = if app.rows.is_empty() {
         0
@@ -162,6 +181,9 @@ fn draw_prompt_overlay(f: &mut Frame, app: &App) {
         }
         Mode::Prompt(PromptKind::ConfirmQuit) => {
             " Unsaved changes.  y:quit without saving  n:cancel".into()
+        }
+        Mode::Prompt(PromptKind::TypeChange { from, to }) => {
+            format!(" Type will change {from} → {to}.  y:confirm  n:edit")
         }
         _ => return,
     };
@@ -247,6 +269,37 @@ mod tests {
                     .to_string()
             })
             .collect()
+    }
+
+    #[test]
+    fn inline_editor_renders_buffer_in_value_column() {
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        f.write_all(b"port = 8080\n").unwrap();
+        let doc = crate::model::toml_doc::TomlDocument::load(f.path()).unwrap();
+        let mut app = App::new(doc);
+        app.cursor = 1; // on port
+        app.begin_inline_edit();
+        for _ in 0..4 {
+            app.edit_backspace();
+        }
+        for c in "9090".chars() {
+            app.edit_input_char(c);
+        }
+        let mut terminal = Terminal::new(TestBackend::new(60, 8)).unwrap();
+        terminal.draw(|fr| draw(fr, &app)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let joined: String = (0..8)
+            .map(|y| (0..60).map(|x| buf[(x, y)].symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            joined.contains("9090"),
+            "edit buffer not rendered: {joined:?}"
+        );
+        assert!(
+            joined.contains("editing"),
+            "edit-mode hint missing: {joined:?}"
+        );
     }
 
     #[test]

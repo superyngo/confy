@@ -37,7 +37,14 @@ Standard tree relationships between **Nodes**. Siblings share a Parent and a key
 ### Node kinds
 
 **Scalar**:
-A **Leaf node** holding a typed TOML value — string, integer, float, bool, or datetime.
+A **Leaf node** holding a typed TOML value — string, integer, float, bool, or one of the four
+datetime types (offset-datetime, local-datetime, local-date, local-time).
+
+**Format**:
+The *writing style* of a Scalar, orthogonal to its type — e.g. an integer written as `0xFF` (hex)
+vs `255` (decimal), or a string written `"…"` (basic) vs `'…'` (literal) vs `"""…"""` (multiline).
+Derived (read-only) during projection from the rendered repr; round-trips byte-identically. The
+eventual format-toggle operation is the write-side counterpart.
 
 **Comment**:
 A **standalone** comment line (occupies its own line) surfaced as a first-class **Leaf node**.

@@ -34,8 +34,10 @@ for unmodified subtrees).
 | `9` | Expand all |
 | `s` | Toggle selection on the cursor row |
 | `Shift+↑` / `Shift+↓` | Extend range selection |
-| `n` | New node |
-| `e` | Edit node value (opens `$EDITOR`) |
+| `←` / `→` | Toggle a bool, or step a number by ±1 (preserves base/precision) |
+| `a` | Add node (inserts `new_field = ""` below the cursor, opens the inline editor) |
+| `e` | Edit value — inline for a plain scalar, `$EDITOR` for nested array/table |
+| `E` | Edit any node in `$EDITOR` (force external) |
 | `d` | Delete selected node(s) |
 | `c` | Copy selected node(s) |
 | `x` | Cut selected node(s) |

@@ -13,7 +13,29 @@ pub enum ScalarType {
     Integer,
     Float,
     Bool,
-    Datetime,
+    OffsetDatetime,
+    LocalDatetime,
+    LocalDate,
+    LocalTime,
+}
+
+/// Writing style of a scalar — orthogonal to its `ScalarType`. Derived from the
+/// rendered repr during projection (read-only); the eventual format-toggle
+/// feature (§future) is the write-side counterpart. Non-scalars are `Plain`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Format {
+    /// Single writing style (bool, datetimes, plain float, and all non-scalars).
+    Plain,
+    // String
+    BasicString,
+    MultilineBasic,
+    Literal,
+    MultilineLiteral,
+    // Integer
+    Decimal,
+    Hex,
+    Octal,
+    Binary,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -34,6 +56,8 @@ pub struct Node {
     pub kind: NodeKind,
     pub children: Vec<Node>,
     pub value: Option<String>,
+    /// Writing style of a scalar leaf; `Plain` for branches and comments.
+    pub format: Format,
     pub trailing_comment: Option<String>,
 }
 
@@ -56,6 +80,7 @@ impl Node {
             kind,
             children: Vec::new(),
             value: None,
+            format: Format::Plain,
             trailing_comment: None,
         }
     }
@@ -71,6 +96,7 @@ impl Node {
             kind,
             children: Vec::new(),
             value: None,
+            format: Format::Plain,
             trailing_comment: None,
         }
     }
