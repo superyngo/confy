@@ -7,24 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-MVP: single-file TOML editor with CST-projection architecture, tree navigation/selection/editing,
-byte-identical round-trip preservation, Remark toggle, undo/redo, fuzzy filter, and `$EDITOR`
-integration.
+## [v0.2.0] - 2026-06-06
+
+Single-file TOML editor with a CST-projection architecture: tree navigation/selection/editing,
+byte-identical round-trip preservation, undo/redo, fuzzy filter, an inline value editor, a
+read-only scalar/branch Format axis, and a scrollable detail popup.
 
 ### Added
-- 2026-05-27: Project scaffold (git init, Cargo skeleton, README, CHANGELOG, .gitignore).
-- 2026-05-27: MVP design spec (`docs/superpowers/specs/`), `CONTEXT.md` glossary (Node/Root/Branch/Leaf), and implementation plan (`docs/superpowers/plans/`) — single-file TOML editor, CST-projection architecture, reviewed via grill + external spec-review (0 blockers).
-- 2026-05-28: Replace (e) and Remark (r) mutations — comment-out/uncomment toggle for live keys, Replace = delete + insert fragment, non-TOML comment rejection (§7, §8).
-- 2026-05-28: Review fixes for Replace + Remark (3 blockers + 1 major): preserve key position in Replace, canonical TOML serialization in comment_out via single-key DocumentMut, recursive tree search for nested comment nodes in uncomment, block-replace for multi-line comment removal, correct Table decor slot for [table] siblings.
-- 2026-05-28: TUI skeleton — App state (cursor, expanded set, row snapshot), headless navigation tests, ratatui/crossterm render loop with tree indentation + expand/collapse markers, key mapping (j/k/arrow/PgUp/PgDn/Home/End/Enter/Space/0/9/q), crossterm raw-mode + alternate-screen setup/teardown (§6).
-- 2026-05-28: Scalar value in filter haystack + type/value/comment in detail popup — Node.value stores scalar text during projection; RowSnapshot gains value/scalar_type/trailing_comment; open_detail formats per §6; rebuild_rows at enter_filter; debug_assert replaces dead branch guard.
-- 2026-05-28: Docs — README with real usage, keybinding table, and scope; CLAUDE.md with build/test commands, architecture summary, and module map.
-- 2026-06-03: wenv-style header + columnar tree — title bar (`confy — <file> ──── v<version>`), a `NAME / TYPE / VALUE` column header, and the tree list switched from `List` to a ratatui `Table` so TYPE (kind/scalar-type label) and VALUE align in fixed columns; `RowSnapshot` gains `type_label`; headless `TestBackend` render tests for the title bar and columns.
-- 2026-06-06: Inline editor + scalar Format + value nudge — `Node` gains a read-only `Format` (writing style: hex/oct/bin integers, basic/literal/multiline strings) derived during projection; `ScalarType::Datetime` split into the four TOML datetime types (offset/local-datetime/local-date/local-time). New `Mode::Edit` inline editor: `e` edits a plain scalar in-place (type-check with a confirm-on-change prompt, not enforced) and falls back to `$EDITOR` for nested arrays/tables; `E` forces `$EDITOR` on any node; `←`/`→` toggle a bool or step an integer/float by ±1 preserving its base/precision. `n` (New node, `$EDITOR`) replaced by `a` (Add node) which inserts `new_field = ""` below the cursor and opens the inline editor. Clear-to-null and `Del`-clear deliberately omitted (TOML has no null). Unit tests for format/datetime detection, edit-target classification, `nudge_scalar`, inline commit (same-type / type-change / invalid), `add_node`, and inline-editor rendering.
-- 2026-06-06: Inline editor + TYPE/FORMAT column polish — the inline-editor cursor is now shown by reverse-highlighting the character at the cursor (a trailing space at end-of-buffer) instead of inserting a caret glyph, so characters never shift; the editor supports `Home`/`End`; the `TYPE` tree column became `TYPE/FORMAT`, showing a compact `type/format` label (e.g. `integer/hex`, `string/ml-basic`) with format omitted for single-style scalars/branches (column width stays 15, the minimum that fits both `array-of-tables` and `string/ml-basic`).
-- 2026-06-06: Inline-edit error feedback — when an inline commit fails the semantic re-parse (cannot be saved), the error is now shown in the status line (red) instead of being hidden behind the static edit-mode hint; the message clears as soon as the user resumes typing.
-- 2026-06-06: Inline-edit overflow handling — the VALUE cell now scrolls horizontally to follow the cursor when the edited value is wider than the column (the cursor stays visible mid-string), and the edit-mode status line shows a compact `⟨start–end/len⟩` hint of the visible char range vs. total whenever the value overflows.
-- 2026-06-06: Inline-edit viewport / scrollable detail popup — the inline editor's horizontal viewport is now persistent state (`EditState.scroll`) clamped minimally per keystroke, so after walking to the right edge, moving left steps the cursor back through the window before the text scrolls (previously the cursor stuck to the right edge). The Detail popup is now a fixed-size pane that shows the full (wrapped) value and scrolls with `↑`/`↓`/`j`/`k`, `PgUp`/`PgDn`, and `Home`/`End`.
-- 2026-06-06: Detail popup adapts + works on any node — the Detail popup height now flexes to fit its (wrapped) content within `[5, 80% of screen]` (small popups stay small, large values scroll inside the cap). New `i` key toggles the detail/info popup for any node, including branches; branch detail shows the node kind and child count (leaf detail is unchanged: type/format/value).
-- 2026-06-06: Detail shows Format on every node — every Detail popup now has a `Format` line. Branch detail presents two axes: a coarse `Type` (table/array/root) and the concrete `Format` writing style, so a `{ }` inline table reads as Type table / Format inline and a `[[…]]` array-of-tables as Type array / Format array-of-tables. Leaf Format now uses the same compact labels as the TYPE/FORMAT column (single-style scalars read "plain"). Space also closes the detail popup (toggle).
-- 2026-06-06: TYPE/FORMAT column shows inline tables two-segment — an inline table now reads as `table/inline` in the tree column (consistent with its detail), while a standard `[table]` stays the plain `table`.
+- Core MVP — single-file TOML editor on a CST projection (`toml_edit::DocumentMut` as the source of truth), tree navigation/selection, Insert/Delete/Replace/Move/Remark mutations, undo/redo, fuzzy filter, `$EDITOR` integration, byte-identical round-trip. (2026-05-27 … 05-28)
+- wenv-style title bar + columnar tree — `confy — <file> ──── v<version>` header and a `NAME / TYPE / VALUE` ratatui `Table` so type and value align in fixed columns. (2026-06-03)
+- Scalar `Format` attribute — read-only writing style derived during projection (integers: dec/hex/oct/bin; strings: basic/literal/multiline). `ScalarType::Datetime` split into the four TOML datetime types (offset/local-datetime/local-date/local-time).
+- Inline editor (`Mode::Edit`) — `e` edits a plain scalar in place with a not-enforced type check (confirm-on-change prompt) and falls back to `$EDITOR` for nested arrays/tables; `E` forces `$EDITOR` on any node. Cursor shown by reverse-highlight (no glyph drift), `Home`/`End` support, horizontal scroll on overflow with a `⟨start–end/len⟩` hint, and semantic-error feedback in the status line.
+- `←`/`→` value nudge — toggle a bool or step an integer/float by ±1, preserving base and decimal precision.
+- `a` Add node — inserts `new_field = ""` below the cursor and opens the inline editor. (Clear-to-null / `Del`-clear intentionally omitted — TOML has no null.)
+- `i` detail/info popup on any node — content-adaptive height (`[5, 80% of screen]`), scrollable (`↑`/`↓`/`j`/`k`, `PgUp`/`PgDn`, `Home`/`End`), shows the full wrapped value and a `Format` line for every node (branch detail splits Type vs. writing style, e.g. inline table → Type table / Format inline).
+
+### Changed
+- `n` (New node via `$EDITOR`) replaced by `a` (Add node, inline).
+- `TYPE` tree column became `TYPE/FORMAT`; inline tables read `table/inline`, standard tables stay `table`.
+- Inline-editor horizontal viewport is persistent state, clamped minimally per keystroke.
+
+### Fixed
+- Inline-commit semantic-check errors are shown in the status line instead of being hidden behind the edit-mode hint.
+- Inline-edit viewport no longer pins the cursor to the right edge when moving left after reaching the end.
+- Replace/Remark review fixes — preserve key position, canonical serialization (no double-space), nested/AoT comment round-trip.
