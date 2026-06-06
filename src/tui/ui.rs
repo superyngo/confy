@@ -4,24 +4,70 @@ use crate::tui::state::{Mode, PromptKind};
 use ratatui::prelude::*;
 use ratatui::widgets::*;
 
+/// Fixed width of the TYPE column (matches the longest label "array-of-tables").
+const TYPE_WIDTH: u16 = 15;
+
 pub fn draw(f: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Min(1),    // tree area
+            Constraint::Length(1), // title bar
+            Constraint::Length(1), // column header
+            Constraint::Min(1),    // tree table
             Constraint::Length(1), // status bar
         ])
         .split(f.area());
 
-    draw_tree(f, chunks[0], app);
-    draw_status(f, chunks[1], app);
+    draw_title(f, chunks[0], app);
+    draw_column_header(f, chunks[1]);
+    draw_tree(f, chunks[2], app);
+    draw_status(f, chunks[3], app);
     draw_prompt_overlay(f, app);
     draw_detail_overlay(f, app);
     draw_help_overlay(f, app);
 }
 
+fn draw_title(f: &mut Frame, area: Rect, app: &App) {
+    let filename = app.rows.first().map(|r| r.key.as_str()).unwrap_or("");
+    let version = format!("v{}", env!("CARGO_PKG_VERSION"));
+    let left = format!("confy — {filename} ");
+    let width = area.width as usize;
+    // Fill between the left label and the right-aligned version with `─`.
+    let used = left.chars().count() + version.chars().count() + 1;
+    let fill = "─".repeat(width.saturating_sub(used));
+    let line = Line::from(vec![
+        Span::styled(left, Style::default().add_modifier(Modifier::BOLD)),
+        Span::styled(fill, Style::default().fg(Color::DarkGray)),
+        Span::raw(" "),
+        Span::styled(version, Style::default().fg(Color::DarkGray)),
+    ]);
+    f.render_widget(Paragraph::new(line), area);
+}
+
+fn draw_column_header(f: &mut Frame, area: Rect) {
+    let header_style = Style::default()
+        .fg(Color::Cyan)
+        .add_modifier(Modifier::BOLD);
+    let row = Row::new([
+        Cell::from("  NAME"),
+        Cell::from("TYPE"),
+        Cell::from("VALUE"),
+    ])
+    .style(header_style);
+    let table = Table::new(
+        std::iter::once(row),
+        [
+            Constraint::Min(10),
+            Constraint::Length(TYPE_WIDTH),
+            Constraint::Min(10),
+        ],
+    )
+    .column_spacing(1);
+    f.render_widget(table, area);
+}
+
 fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
-    let items: Vec<ListItem> = app
+    let rows: Vec<Row> = app
         .rows
         .iter()
         .enumerate()
@@ -43,7 +89,8 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
             } else {
                 " "
             };
-            let text = format!("{sel_marker}{indent}{marker}{}", row.key);
+            let name = format!("{sel_marker}{indent}{marker}{}", row.key);
+            let value = row.value.clone().unwrap_or_default();
             let style = if i == app.cursor {
                 Style::default()
                     .bg(Color::Blue)
@@ -52,14 +99,27 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
             } else {
                 Style::default()
             };
-            ListItem::new(text).style(style)
+            Row::new([
+                Cell::from(name),
+                Cell::from(row.type_label.clone()),
+                Cell::from(value),
+            ])
+            .style(style)
         })
         .collect();
 
-    let list = List::new(items);
-    let mut state = ListState::default();
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Min(10),
+            Constraint::Length(TYPE_WIDTH),
+            Constraint::Min(10),
+        ],
+    )
+    .column_spacing(1);
+    let mut state = TableState::default();
     state.select(Some(app.cursor));
-    f.render_stateful_widget(list, area, &mut state);
+    f.render_stateful_widget(table, area, &mut state);
 }
 
 fn draw_status(f: &mut Frame, area: Rect, app: &App) {
@@ -158,4 +218,60 @@ fn centered_rect(percent_x: u16, height: u16, r: Rect) -> Rect {
     let x = (r.width.saturating_sub(popup_width)) / 2;
     let y = r.height / 2;
     Rect::new(x, y, popup_width.min(r.width), height.min(r.height))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::document::ConfigDocument;
+    use crate::tui::app::App;
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+    use std::io::Write;
+
+    /// Render a real document to a TestBackend and return the buffer as text lines.
+    fn render(src: &str, w: u16, h: u16) -> Vec<String> {
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        f.write_all(src.as_bytes()).unwrap();
+        let doc = crate::model::toml_doc::TomlDocument::load(f.path()).unwrap();
+        let app = App::new(doc);
+        let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
+        terminal.draw(|fr| draw(fr, &app)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        (0..h)
+            .map(|y| {
+                (0..w)
+                    .map(|x| buf[(x, y)].symbol())
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn title_bar_shows_filename_and_version() {
+        let lines = render("port = 8080\n", 60, 8);
+        let title = &lines[0];
+        assert!(title.starts_with("confy — "), "title was: {title:?}");
+        assert!(
+            title.contains(&format!("v{}", env!("CARGO_PKG_VERSION"))),
+            "title missing version: {title:?}"
+        );
+    }
+
+    #[test]
+    fn column_header_and_type_value_columns_render() {
+        let lines = render("port = 8080\n", 60, 8);
+        // row 1 is the column header
+        let header = &lines[1];
+        assert!(header.contains("NAME"), "header: {header:?}");
+        assert!(header.contains("TYPE"), "header: {header:?}");
+        assert!(header.contains("VALUE"), "header: {header:?}");
+        // a data row carries the type label and value
+        let joined = lines.join("\n");
+        assert!(joined.contains("port"), "rows: {joined:?}");
+        assert!(joined.contains("integer"), "type col missing: {joined:?}");
+        assert!(joined.contains("8080"), "value col missing: {joined:?}");
+    }
 }

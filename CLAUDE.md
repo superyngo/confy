@@ -48,7 +48,7 @@ src/
     selection.rs   multi-select + range select + §6.2 normalization
     search.rs      fuzzy filter state + haystack builder
     editor.rs      $EDITOR integration
-    ui.rs          ratatui rendering (tree rows, detail popup, help, prompts)
+    ui.rs          ratatui rendering: title bar + NAME/TYPE/VALUE column header + tree Table, detail popup, help, prompts
 tests/
   roundtrip.rs     integration: open/edit/save, diff fixture
   fixtures/        sample .toml files

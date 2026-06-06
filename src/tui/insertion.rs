@@ -42,6 +42,7 @@ mod tests {
             is_branch,
             value: None,
             scalar_type: None,
+            type_label: String::new(),
             trailing_comment: None,
         }
     }

@@ -36,6 +36,8 @@ pub struct RowSnapshot {
     pub is_branch: bool,
     pub value: Option<String>,
     pub scalar_type: Option<String>,
+    /// Display label for the TYPE column (scalar type, branch kind, or "comment").
+    pub type_label: String,
     pub trailing_comment: Option<String>,
 }
 
@@ -96,11 +98,19 @@ impl App {
             .flatten(&|p| expanded.contains(p))
             .into_iter()
             .map(|r| {
+                use crate::model::node::NodeKind;
                 let scalar_type = match &r.node.kind {
-                    crate::model::node::NodeKind::Scalar(st) => {
-                        Some(format!("{st:?}").to_lowercase())
-                    }
+                    NodeKind::Scalar(st) => Some(format!("{st:?}").to_lowercase()),
                     _ => None,
+                };
+                let type_label = match &r.node.kind {
+                    NodeKind::Root => String::new(),
+                    NodeKind::Table => "table".into(),
+                    NodeKind::ArrayOfTables => "array-of-tables".into(),
+                    NodeKind::Array => "array".into(),
+                    NodeKind::InlineTable => "inline".into(),
+                    NodeKind::Scalar(st) => format!("{st:?}").to_lowercase(),
+                    NodeKind::Comment(_) => "comment".into(),
                 };
                 RowSnapshot {
                     key: r.node.key.clone(),
@@ -109,6 +119,7 @@ impl App {
                     is_branch: r.node.is_branch(),
                     value: r.node.value.clone(),
                     scalar_type,
+                    type_label,
                     trailing_comment: r.node.trailing_comment.clone(),
                 }
             })
