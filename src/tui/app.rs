@@ -520,6 +520,18 @@ impl App {
         }
     }
 
+    pub fn edit_cursor_home(&mut self) {
+        if let Mode::Edit(ref mut e) = self.mode {
+            e.cursor = 0;
+        }
+    }
+
+    pub fn edit_cursor_end(&mut self) {
+        if let Mode::Edit(ref mut e) = self.mode {
+            e.cursor = e.buffer.chars().count();
+        }
+    }
+
     pub fn edit_cancel(&mut self) {
         self.mode = Mode::Normal;
         self.pending_edit = None;
@@ -1887,6 +1899,26 @@ mod tests {
             before,
             "doc unchanged"
         );
+    }
+
+    #[test]
+    fn inline_editor_home_end_move_cursor() {
+        let mut app = app_with("port = 8080\n");
+        app.cursor = 1;
+        app.begin_inline_edit();
+        // buffer is "8080", cursor starts at end (4)
+        app.edit_cursor_home();
+        if let Mode::Edit(ref e) = app.mode {
+            assert_eq!(e.cursor, 0);
+        } else {
+            panic!("not in edit mode");
+        }
+        app.edit_cursor_end();
+        if let Mode::Edit(ref e) = app.mode {
+            assert_eq!(e.cursor, e.buffer.chars().count());
+        } else {
+            panic!("not in edit mode");
+        }
     }
 
     #[test]

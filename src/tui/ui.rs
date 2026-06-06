@@ -1,11 +1,60 @@
-use crate::tui::app::App;
+use crate::model::node::Format;
+use crate::tui::app::{App, RowSnapshot};
 use crate::tui::keys;
-use crate::tui::state::{Mode, PromptKind};
+use crate::tui::state::{EditState, Mode, PromptKind};
 use ratatui::prelude::*;
 use ratatui::widgets::*;
 
-/// Fixed width of the TYPE column (matches the longest label "array-of-tables").
+/// Fixed width of the TYPE/FORMAT column. The widest labels are "array-of-tables"
+/// and "string/ml-basic", both 15 columns — so 15 is the minimum that avoids
+/// truncation and cannot be compressed further without abbreviating those.
 const TYPE_WIDTH: u16 = 15;
+
+/// Compact format suffix for the TYPE/FORMAT column. `None` for the single-style
+/// `Plain` (bool, float, datetimes, and all branches) so they show type only.
+fn format_label(fmt: Format) -> Option<&'static str> {
+    match fmt {
+        Format::Plain => None,
+        Format::BasicString => Some("basic"),
+        Format::MultilineBasic => Some("ml-basic"),
+        Format::Literal => Some("lit"),
+        Format::MultilineLiteral => Some("ml-lit"),
+        Format::Decimal => Some("dec"),
+        Format::Hex => Some("hex"),
+        Format::Octal => Some("oct"),
+        Format::Binary => Some("bin"),
+    }
+}
+
+/// Combined `type/format` label (just `type` when the format is `Plain`).
+fn type_format_label(row: &RowSnapshot) -> String {
+    match format_label(row.format) {
+        Some(fmt) => format!("{}/{}", row.type_label, fmt),
+        None => row.type_label.clone(),
+    }
+}
+
+/// Build the VALUE cell for the inline editor: the buffer rendered with the
+/// character at the cursor reverse-highlighted (a trailing space when the cursor
+/// is past the end). No glyph is inserted, so characters never shift.
+fn edit_value_cell(e: &EditState) -> Cell<'static> {
+    let chars: Vec<char> = e.buffer.chars().collect();
+    let cur = e.cursor.min(chars.len());
+    let rev = Style::default().add_modifier(Modifier::REVERSED);
+    let mut spans: Vec<Span> = Vec::with_capacity(chars.len() + 1);
+    for (j, ch) in chars.iter().enumerate() {
+        let s = ch.to_string();
+        if j == cur {
+            spans.push(Span::styled(s, rev));
+        } else {
+            spans.push(Span::raw(s));
+        }
+    }
+    if cur == chars.len() {
+        spans.push(Span::styled(" ", rev));
+    }
+    Cell::from(Line::from(spans))
+}
 
 pub fn draw(f: &mut Frame, app: &App) {
     let chunks = Layout::default()
@@ -50,7 +99,7 @@ fn draw_column_header(f: &mut Frame, area: Rect) {
         .add_modifier(Modifier::BOLD);
     let row = Row::new([
         Cell::from("  NAME"),
-        Cell::from("TYPE"),
+        Cell::from("TYPE/FORMAT"),
         Cell::from("VALUE"),
     ])
     .style(header_style);
@@ -90,17 +139,13 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                 " "
             };
             let name = format!("{sel_marker}{indent}{marker}{}", row.key);
-            // While inline-editing the cursor row, render the live buffer with a
-            // caret instead of the stored value.
-            let value = match &app.mode {
-                Mode::Edit(e) if i == app.cursor => {
-                    let chars: Vec<char> = e.buffer.chars().collect();
-                    let cur = e.cursor.min(chars.len());
-                    let head: String = chars[..cur].iter().collect();
-                    let tail: String = chars[cur..].iter().collect();
-                    format!("{head}▏{tail}")
-                }
-                _ => row.value.clone().unwrap_or_default(),
+            // While inline-editing the cursor row, render the live buffer with the
+            // character under the cursor reverse-highlighted. This keeps the cursor
+            // visible mid-string without inserting a caret glyph that would shift
+            // the surrounding characters.
+            let value_cell = match &app.mode {
+                Mode::Edit(e) if i == app.cursor => edit_value_cell(e),
+                _ => Cell::from(row.value.clone().unwrap_or_default()),
             };
             let style = if i == app.cursor {
                 Style::default()
@@ -112,8 +157,8 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
             };
             Row::new([
                 Cell::from(name),
-                Cell::from(row.type_label.clone()),
-                Cell::from(value),
+                Cell::from(type_format_label(row)),
+                value_cell,
             ])
             .style(style)
         })
@@ -144,7 +189,7 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
     }
     // In the inline editor, show edit-mode hints.
     if matches!(app.mode, Mode::Edit(_)) {
-        let text = " editing — Enter:save  Esc:cancel  ←/→:move";
+        let text = " editing — Enter:save  Esc:cancel  ←/→/Home/End:move";
         let paragraph =
             Paragraph::new(text).style(Style::default().bg(Color::DarkGray).fg(Color::Yellow));
         f.render_widget(paragraph, area);
@@ -300,6 +345,23 @@ mod tests {
             joined.contains("editing"),
             "edit-mode hint missing: {joined:?}"
         );
+        // The cursor is shown by reverse-highlighting a char, not by inserting a
+        // caret glyph — so no caret character and no character drift.
+        assert!(
+            !joined.contains('▏'),
+            "caret glyph must not be inserted into the buffer: {joined:?}"
+        );
+    }
+
+    #[test]
+    fn type_format_column_shows_combined_label() {
+        // Integer renders as "integer/dec"; a literal string as "string/lit".
+        let lines = render("port = 8080\nname = 'x'\n", 60, 8);
+        let joined = lines.join("\n");
+        assert!(joined.contains("integer/dec"), "rows: {joined:?}");
+        assert!(joined.contains("string/lit"), "rows: {joined:?}");
+        // header reflects both axes
+        assert!(lines[1].contains("TYPE/FORMAT"), "header: {:?}", lines[1]);
     }
 
     #[test]
