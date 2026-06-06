@@ -102,8 +102,8 @@ fn run_event_loop(
                 }
                 continue;
             }
-            // Detail view: scroll with ↑/↓/j/k, PgUp/PgDn, Home/End; Esc/Enter
-            // dismiss. The popup is fixed-size, so long values scroll within it.
+            // Detail view: scroll with ↑/↓/j/k, PgUp/PgDn, Home/End; Esc/Enter/
+            // Space/i dismiss. Height adapts to content; long values scroll within.
             if matches!(app.mode, crate::tui::state::Mode::Detail) {
                 use crossterm::event::KeyCode;
                 // Compute the popup's inner viewport + content height to clamp scrolling.
@@ -125,7 +125,9 @@ fn run_event_loop(
                     KeyCode::PageUp => app.detail_scroll_by(-page, max_scroll),
                     KeyCode::Home => app.detail_set_scroll(0),
                     KeyCode::End => app.detail_set_scroll(max_scroll),
-                    KeyCode::Esc | KeyCode::Enter | KeyCode::Char('i') => app.escape(),
+                    KeyCode::Esc | KeyCode::Enter | KeyCode::Char('i') | KeyCode::Char(' ') => {
+                        app.escape()
+                    }
                     _ => {}
                 }
                 continue;
