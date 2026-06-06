@@ -65,6 +65,12 @@ fn run_event_loop(
     use crossterm::event::{self, Event, KeyEventKind};
     let mut should_quit = false;
     while !should_quit {
+        // Keep the inline editor's horizontal viewport in sync with the cursor at
+        // the current terminal width before drawing.
+        if matches!(app.mode, crate::tui::state::Mode::Edit(_)) {
+            let w = ui::value_col_width(terminal.size()?.width);
+            app.edit_clamp_scroll(w);
+        }
         terminal.draw(|f| ui::draw(f, app))?;
         if let Event::Key(key) = event::read()? {
             if key.kind != KeyEventKind::Press {
@@ -96,12 +102,35 @@ fn run_event_loop(
                 }
                 continue;
             }
-            // Detail view: Esc or Enter/Space dismisses.
+            // Detail view: scroll with ↑/↓/j/k, PgUp/PgDn, Home/End; Esc/Enter
+            // dismiss. The popup is fixed-size, so long values scroll within it.
             if matches!(app.mode, crate::tui::state::Mode::Detail) {
+                use crossterm::event::KeyCode;
+                // Compute the popup's inner viewport + content height to clamp scrolling.
+                let size = terminal.size()?;
+                let rect = ui::detail_popup_rect(ratatui::layout::Rect::new(
+                    0,
+                    0,
+                    size.width,
+                    size.height,
+                ));
+                let inner_h = rect.height.saturating_sub(2);
+                let inner_w = rect.width.saturating_sub(2);
+                let content_lines = app
+                    .detail_text
+                    .as_deref()
+                    .map(|t| ui::wrapped_line_count(t, inner_w))
+                    .unwrap_or(0);
+                let max_scroll = (content_lines as u16).saturating_sub(inner_h);
+                let page = inner_h.max(1) as i32;
                 match key.code {
-                    crossterm::event::KeyCode::Esc
-                    | crossterm::event::KeyCode::Enter
-                    | crossterm::event::KeyCode::Char(' ') => app.escape(),
+                    KeyCode::Down | KeyCode::Char('j') => app.detail_scroll_by(1, max_scroll),
+                    KeyCode::Up | KeyCode::Char('k') => app.detail_scroll_by(-1, max_scroll),
+                    KeyCode::PageDown => app.detail_scroll_by(page, max_scroll),
+                    KeyCode::PageUp => app.detail_scroll_by(-page, max_scroll),
+                    KeyCode::Home => app.detail_set_scroll(0),
+                    KeyCode::End => app.detail_set_scroll(max_scroll),
+                    KeyCode::Esc | KeyCode::Enter => app.escape(),
                     _ => {}
                 }
                 continue;

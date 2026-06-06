@@ -27,11 +27,15 @@ pub enum PromptKind {
 
 /// In-flight inline editor state (§inline edit). `buffer` holds the value text
 /// being edited (without the `key = ` prefix); `cursor` is a char index into it.
+/// `scroll` is the horizontal viewport offset (first visible char) — persistent
+/// state, distinct from `cursor`, so moving left after reaching the right edge
+/// walks the cursor back through the window before the text scrolls.
 pub struct EditState {
     pub path: Path,
     pub key: String,
     pub buffer: String,
     pub cursor: usize,
+    pub scroll: usize,
 }
 
 /// Clipboard holding serialized TOML fragments for copy/cut/paste (§6 x/c/v).

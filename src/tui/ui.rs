@@ -37,33 +37,22 @@ fn type_format_label(row: &RowSnapshot) -> String {
 /// Approximate width (columns) of the VALUE column for a given total terminal
 /// width. The tree Table uses `[Min(10), Length(TYPE_WIDTH), Min(10)]` with
 /// `column_spacing(1)` (two gaps), so NAME and VALUE split the leftover equally.
-fn value_col_width(total: u16) -> usize {
+pub(crate) fn value_col_width(total: u16) -> usize {
     ((total.saturating_sub(2 + TYPE_WIDTH) / 2) as usize).max(1)
 }
 
-/// The window `[start, end)` of buffer chars visible in a `width`-wide cell,
-/// scrolled so the cursor (or its trailing slot at `len`) stays visible.
-fn edit_window(len: usize, cursor: usize, width: usize) -> (usize, usize) {
-    let w = width.max(1);
-    let cur = cursor.min(len);
-    let vlen = len + 1; // include the trailing cursor slot
-    let mut start = if cur >= w { cur - w + 1 } else { 0 };
-    let max_start = vlen.saturating_sub(w);
-    if start > max_start {
-        start = max_start;
-    }
-    (start, (start + w).min(len))
-}
-
-/// Build the VALUE cell for the inline editor: the visible window of the buffer
-/// (horizontally scrolled to follow the cursor) with the character at the cursor
-/// reverse-highlighted (a trailing space when the cursor is past the end). No
-/// glyph is inserted, so characters never shift.
+/// Build the VALUE cell for the inline editor: the buffer window starting at the
+/// editor's persistent `scroll` offset (the event loop keeps the cursor inside
+/// it), with the character at the cursor reverse-highlighted (a trailing space
+/// when the cursor is past the end). No glyph is inserted, so characters never
+/// shift.
 fn edit_value_cell(e: &EditState, width: usize) -> Cell<'static> {
     let chars: Vec<char> = e.buffer.chars().collect();
     let len = chars.len();
     let cur = e.cursor.min(len);
-    let (start, end) = edit_window(len, cur, width);
+    let w = width.max(1);
+    let start = e.scroll.min(len);
+    let end = (start + w).min(len);
     let rev = Style::default().add_modifier(Modifier::REVERSED);
     let mut spans: Vec<Span> = Vec::with_capacity(end - start + 1);
     for (j, ch) in chars[start..end].iter().enumerate() {
@@ -74,20 +63,21 @@ fn edit_value_cell(e: &EditState, width: usize) -> Cell<'static> {
             spans.push(Span::raw(s));
         }
     }
-    if cur == len && cur >= start && cur < start + width.max(1) {
+    if cur == len && cur >= start && cur < start + w {
         spans.push(Span::styled(" ", rev));
     }
     Cell::from(Line::from(spans))
 }
 
 /// Compact "position / proportion" hint for an overflowing inline edit:
-/// `⟨start–end/len⟩` (1-based visible char range over total). `None` when the
-/// whole buffer fits, so the hint only appears on overflow.
-fn edit_overflow_hint(len: usize, cursor: usize, width: usize) -> Option<String> {
+/// `⟨start–end/len⟩` (1-based visible char range over total) for the window at
+/// `scroll`. `None` when the whole buffer fits, so it only appears on overflow.
+fn edit_overflow_hint(scroll: usize, len: usize, width: usize) -> Option<String> {
     if len < width {
         return None;
     }
-    let (start, end) = edit_window(len, cursor, width);
+    let start = scroll.min(len);
+    let end = (start + width.max(1)).min(len);
     Some(format!("⟨{}–{}/{}⟩", start + 1, end, len))
 }
 
@@ -237,7 +227,7 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
                 // When the value overflows the VALUE column, append a compact
                 // hint of which char range is visible out of the total.
                 let len = e.buffer.chars().count();
-                let hint = edit_overflow_hint(len, e.cursor, value_col_width(area.width))
+                let hint = edit_overflow_hint(e.scroll, len, value_col_width(area.width))
                     .map(|h| format!("  {h}"))
                     .unwrap_or_default();
                 (
@@ -297,6 +287,33 @@ fn draw_prompt_overlay(f: &mut Frame, app: &App) {
     f.render_widget(paragraph, area);
 }
 
+/// Fixed-size, centered rect for the Detail popup. Fixed (not content-sized) so
+/// long values scroll within it. Shared with the event loop's scroll clamping.
+pub(crate) fn detail_popup_rect(r: Rect) -> Rect {
+    let w = (r.width * 70 / 100).clamp(20.min(r.width), r.width);
+    let h = (r.height * 60 / 100).clamp(3.min(r.height), r.height);
+    let x = (r.width.saturating_sub(w)) / 2;
+    let y = (r.height.saturating_sub(h)) / 2;
+    Rect::new(x, y, w, h)
+}
+
+/// Number of display rows `text` occupies when char-wrapped to `width`. Used to
+/// clamp the detail popup's scroll. Approximates ratatui's word wrap closely
+/// enough for clamping (each logical line takes ⌈chars/width⌉ rows, min 1).
+pub(crate) fn wrapped_line_count(text: &str, width: u16) -> usize {
+    let w = (width.max(1)) as usize;
+    text.lines()
+        .map(|l| {
+            let n = l.chars().count();
+            if n == 0 {
+                1
+            } else {
+                n.div_ceil(w)
+            }
+        })
+        .sum()
+}
+
 fn draw_detail_overlay(f: &mut Frame, app: &App) {
     if !matches!(app.mode, Mode::Detail) {
         return;
@@ -305,15 +322,16 @@ fn draw_detail_overlay(f: &mut Frame, app: &App) {
         Some(t) => t.clone(),
         None => return,
     };
-    let lines: Vec<&str> = detail_text.lines().collect();
-    let height = (lines.len() as u16 + 2).min(f.area().height);
-    let area = centered_rect(60, height, f.area());
+    let area = detail_popup_rect(f.area());
     f.render_widget(Clear, area);
     let block = Block::default()
-        .title(" Detail (Esc to close) ")
+        .title(" Detail (↑/↓ PgUp/PgDn Home/End · Esc) ")
         .borders(Borders::ALL)
         .style(Style::default().bg(Color::Black).fg(Color::White));
-    let paragraph = Paragraph::new(detail_text).block(block);
+    let paragraph = Paragraph::new(detail_text)
+        .block(block)
+        .wrap(Wrap { trim: false })
+        .scroll((app.detail_scroll, 0));
     f.render_widget(paragraph, area);
 }
 
@@ -436,16 +454,50 @@ mod tests {
     }
 
     #[test]
-    fn edit_window_follows_cursor_and_hint_only_on_overflow() {
-        // fits entirely → window is the whole buffer, no hint
-        assert_eq!(edit_window(4, 4, 10), (0, 4));
-        assert_eq!(edit_overflow_hint(4, 4, 10), None);
-        // cursor near the start of a long buffer → window pinned to 0
-        assert_eq!(edit_window(20, 3, 10), (0, 10));
-        // cursor at the end of a long buffer → window scrolled to keep it visible
-        assert_eq!(edit_window(20, 20, 10), (11, 20));
+    fn wrapped_line_count_counts_char_wrapped_rows() {
+        assert_eq!(wrapped_line_count("abc", 10), 1);
+        assert_eq!(wrapped_line_count("abcdefghij", 5), 2);
+        assert_eq!(wrapped_line_count("a\nbb\n", 5), 2);
+        // a long single line wraps into several rows
+        assert_eq!(wrapped_line_count(&"x".repeat(25), 10), 3);
+    }
+
+    #[test]
+    fn detail_popup_scrolls_long_value() {
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        let long = "x".repeat(400);
+        f.write_all(format!("blob = \"{long}\"\n").as_bytes())
+            .unwrap();
+        let doc = crate::model::toml_doc::TomlDocument::load(f.path()).unwrap();
+        let mut app = App::new(doc);
+        app.cursor = 1; // on blob
+        app.open_detail();
+        let render_detail = |app: &App| -> String {
+            let mut t = Terminal::new(TestBackend::new(60, 20)).unwrap();
+            t.draw(|fr| draw(fr, app)).unwrap();
+            let buf = t.backend().buffer().clone();
+            (0..20)
+                .map(|y| (0..60).map(|x| buf[(x, y)].symbol()).collect::<String>())
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        // At the top, the Path line is visible.
+        assert!(render_detail(&app).contains("Path:"), "top shows Path line");
+        // After scrolling down, the Path line scrolls out of the popup.
+        app.detail_set_scroll(6);
+        assert!(
+            !render_detail(&app).contains("Path:"),
+            "Path line should scroll away"
+        );
+    }
+
+    #[test]
+    fn overflow_hint_only_appears_when_value_exceeds_width() {
+        // fits entirely → no hint
+        assert_eq!(edit_overflow_hint(0, 4, 10), None);
+        // overflow: window at scroll=11 shows chars 12–20 of 20
         assert_eq!(
-            edit_overflow_hint(20, 20, 10).as_deref(),
+            edit_overflow_hint(11, 20, 10).as_deref(),
             Some("⟨12–20/20⟩")
         );
     }

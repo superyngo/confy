@@ -29,7 +29,7 @@ for unmodified subtrees).
 | `k` / `↑` | Move cursor up |
 | `PgUp` / `PgDn` | Page up / down |
 | `Home` / `End` | First / last row |
-| `Enter` / `Space` | Expand/collapse branch, or open leaf detail |
+| `Enter` / `Space` | Expand/collapse branch, or open leaf detail (scroll with ↑/↓/PgUp/PgDn/Home/End) |
 | `0` | Collapse all |
 | `9` | Expand all |
 | `s` | Toggle selection on the cursor row |

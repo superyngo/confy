@@ -36,6 +36,8 @@ pub struct App {
     pub detail_text: Option<String>,
     /// Saved inline-edit + validated fragment awaiting a TypeChange confirmation.
     pub pending_edit: Option<(EditState, String)>,
+    /// Vertical scroll offset (in display rows) of the detail popup.
+    pub detail_scroll: u16,
 }
 
 #[derive(Clone)]
@@ -80,6 +82,7 @@ impl App {
             filtered_paths: None,
             detail_text: None,
             pending_edit: None,
+            detail_scroll: 0,
         };
         app.rebuild_rows();
         app
@@ -103,6 +106,7 @@ impl App {
             filtered_paths: None,
             detail_text: None,
             pending_edit: None,
+            detail_scroll: 0,
         }
     }
     pub fn rebuild_rows(&mut self) {
@@ -324,7 +328,19 @@ impl App {
             detail.push_str(&format!("\nComment: {tc}"));
         }
         self.detail_text = Some(detail);
+        self.detail_scroll = 0;
         self.mode = Mode::Detail;
+    }
+
+    /// Scroll the detail popup by `delta` rows, clamped to `[0, max]`.
+    pub fn detail_scroll_by(&mut self, delta: i32, max: u16) {
+        let v = (self.detail_scroll as i32 + delta).clamp(0, max as i32);
+        self.detail_scroll = v as u16;
+    }
+
+    /// Jump the detail popup to an absolute scroll offset (Home/End).
+    pub fn detail_set_scroll(&mut self, v: u16) {
+        self.detail_scroll = v;
     }
 
     /// Esc from detail view.
@@ -483,8 +499,19 @@ impl App {
             key,
             buffer,
             cursor,
+            scroll: 0,
         });
         self.status = None;
+    }
+
+    /// Adjust the inline editor's horizontal viewport so the cursor stays visible
+    /// in a `width`-wide cell, scrolling by the minimum needed. Called from the
+    /// event loop (which knows the terminal width) before each draw.
+    pub fn edit_clamp_scroll(&mut self, width: usize) {
+        if let Mode::Edit(ref mut e) = self.mode {
+            let len = e.buffer.chars().count();
+            e.scroll = clamp_scroll(e.scroll, e.cursor.min(len), len, width);
+        }
     }
 
     pub fn edit_input_char(&mut self, c: char) {
@@ -1186,6 +1213,24 @@ fn node_at<'a>(root: &'a Node, path: &[Seg]) -> Option<&'a Node> {
 /// Byte offset of the `n`-th char in `s` (==`s.len()` when `n` is the char count).
 fn char_byte_idx(s: &str, n: usize) -> usize {
     s.char_indices().nth(n).map(|(i, _)| i).unwrap_or(s.len())
+}
+
+/// Minimally adjust a horizontal scroll offset so `cursor` stays within the
+/// `width`-wide window `[scroll, scroll+width)`. The offset only moves when the
+/// cursor would leave the window, so walking left after hitting the right edge
+/// steps the cursor back through the window before the text scrolls.
+fn clamp_scroll(scroll: usize, cursor: usize, len: usize, width: usize) -> usize {
+    let w = width.max(1);
+    let cur = cursor.min(len);
+    let mut s = scroll;
+    if cur < s {
+        s = cur;
+    } else if cur >= s + w {
+        s = cur + 1 - w;
+    }
+    // Don't leave a blank gap past the end (e.g. after the buffer shrank). The
+    // virtual length includes the trailing cursor slot.
+    s.min((len + 1).saturating_sub(w))
 }
 
 /// First non-colliding key formed from `base` (`base`, `base_2`, `base_3`, …),
@@ -1905,6 +1950,22 @@ mod tests {
     }
 
     #[test]
+    fn clamp_scroll_separates_viewport_from_cursor() {
+        // width 10, buffer length 20.
+        // Walk to the right edge: scroll pins the cursor at the right of the window.
+        assert_eq!(clamp_scroll(0, 20, 20, 10), 11);
+        // Moving left from there stays within the window — text does NOT scroll
+        // (this is the bug fix: cursor walks back through the viewport first).
+        assert_eq!(clamp_scroll(11, 19, 20, 10), 11);
+        assert_eq!(clamp_scroll(11, 12, 20, 10), 11);
+        // Only once the cursor reaches the left edge does the text scroll left.
+        assert_eq!(clamp_scroll(11, 11, 20, 10), 11);
+        assert_eq!(clamp_scroll(11, 10, 20, 10), 10);
+        // Cursor near the start keeps the window pinned at 0.
+        assert_eq!(clamp_scroll(0, 3, 20, 10), 0);
+    }
+
+    #[test]
     fn inline_editor_home_end_move_cursor() {
         let mut app = app_with("port = 8080\n");
         app.cursor = 1;
@@ -1942,6 +2003,22 @@ mod tests {
             "placeholder inserted: {}",
             app.doc.as_ref().unwrap().serialize()
         );
+    }
+
+    #[test]
+    fn detail_scroll_clamps_to_range() {
+        let mut app = app_with("port = 8080\n");
+        app.cursor = 1;
+        app.open_detail();
+        assert_eq!(app.detail_scroll, 0, "opens at top");
+        app.detail_scroll_by(-1, 5);
+        assert_eq!(app.detail_scroll, 0, "cannot scroll above the top");
+        app.detail_scroll_by(3, 5);
+        assert_eq!(app.detail_scroll, 3);
+        app.detail_scroll_by(10, 5);
+        assert_eq!(app.detail_scroll, 5, "clamped to max");
+        app.detail_set_scroll(0);
+        assert_eq!(app.detail_scroll, 0);
     }
 
     #[test]
