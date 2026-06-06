@@ -23,6 +23,9 @@ jobs:
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             kind: linux-musl
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            kind: linux-arm
           - target: aarch64-apple-darwin
             os: macos-latest
             kind: macos
@@ -39,6 +42,10 @@ jobs:
             os: windows-latest
             kind: windows
             arch: i686
+          - target: aarch64-pc-windows-msvc
+            os: windows-latest
+            kind: windows
+            arch: arm64
     steps:
       - uses: actions/checkout@v5
 
@@ -51,10 +58,19 @@ jobs:
         if: matrix.kind == 'linux-musl'
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
+      # aarch64 Linux cross-compiles with the GNU cross toolchain + linker.
+      - name: Install aarch64 cross linker
+        if: matrix.kind == 'linux-arm'
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+
       # Linux & macOS use the aggressive release profile from Cargo.toml
-      # (opt-level "z", fat LTO, strip = true).
+      # (opt-level "z", fat LTO, strip = true; rustc's `-C strip` works for the
+      # cross target too, so no separate cross-strip is needed). The aarch64
+      # linker env is ignored by the other (native) targets.
       - name: Build (Linux/macOS)
         if: matrix.kind != 'windows'
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         run: cargo build --release --target ${{ matrix.target }}
 
       # Windows overrides the profile via env to avoid antivirus false positives
