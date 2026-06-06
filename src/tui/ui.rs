@@ -34,26 +34,61 @@ fn type_format_label(row: &RowSnapshot) -> String {
     }
 }
 
-/// Build the VALUE cell for the inline editor: the buffer rendered with the
-/// character at the cursor reverse-highlighted (a trailing space when the cursor
-/// is past the end). No glyph is inserted, so characters never shift.
-fn edit_value_cell(e: &EditState) -> Cell<'static> {
+/// Approximate width (columns) of the VALUE column for a given total terminal
+/// width. The tree Table uses `[Min(10), Length(TYPE_WIDTH), Min(10)]` with
+/// `column_spacing(1)` (two gaps), so NAME and VALUE split the leftover equally.
+fn value_col_width(total: u16) -> usize {
+    ((total.saturating_sub(2 + TYPE_WIDTH) / 2) as usize).max(1)
+}
+
+/// The window `[start, end)` of buffer chars visible in a `width`-wide cell,
+/// scrolled so the cursor (or its trailing slot at `len`) stays visible.
+fn edit_window(len: usize, cursor: usize, width: usize) -> (usize, usize) {
+    let w = width.max(1);
+    let cur = cursor.min(len);
+    let vlen = len + 1; // include the trailing cursor slot
+    let mut start = if cur >= w { cur - w + 1 } else { 0 };
+    let max_start = vlen.saturating_sub(w);
+    if start > max_start {
+        start = max_start;
+    }
+    (start, (start + w).min(len))
+}
+
+/// Build the VALUE cell for the inline editor: the visible window of the buffer
+/// (horizontally scrolled to follow the cursor) with the character at the cursor
+/// reverse-highlighted (a trailing space when the cursor is past the end). No
+/// glyph is inserted, so characters never shift.
+fn edit_value_cell(e: &EditState, width: usize) -> Cell<'static> {
     let chars: Vec<char> = e.buffer.chars().collect();
-    let cur = e.cursor.min(chars.len());
+    let len = chars.len();
+    let cur = e.cursor.min(len);
+    let (start, end) = edit_window(len, cur, width);
     let rev = Style::default().add_modifier(Modifier::REVERSED);
-    let mut spans: Vec<Span> = Vec::with_capacity(chars.len() + 1);
-    for (j, ch) in chars.iter().enumerate() {
+    let mut spans: Vec<Span> = Vec::with_capacity(end - start + 1);
+    for (j, ch) in chars[start..end].iter().enumerate() {
         let s = ch.to_string();
-        if j == cur {
+        if start + j == cur {
             spans.push(Span::styled(s, rev));
         } else {
             spans.push(Span::raw(s));
         }
     }
-    if cur == chars.len() {
+    if cur == len && cur >= start && cur < start + width.max(1) {
         spans.push(Span::styled(" ", rev));
     }
     Cell::from(Line::from(spans))
+}
+
+/// Compact "position / proportion" hint for an overflowing inline edit:
+/// `⟨start–end/len⟩` (1-based visible char range over total). `None` when the
+/// whole buffer fits, so the hint only appears on overflow.
+fn edit_overflow_hint(len: usize, cursor: usize, width: usize) -> Option<String> {
+    if len < width {
+        return None;
+    }
+    let (start, end) = edit_window(len, cursor, width);
+    Some(format!("⟨{}–{}/{}⟩", start + 1, end, len))
 }
 
 pub fn draw(f: &mut Frame, app: &App) {
@@ -144,7 +179,7 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
             // visible mid-string without inserting a caret glyph that would shift
             // the surrounding characters.
             let value_cell = match &app.mode {
-                Mode::Edit(e) if i == app.cursor => edit_value_cell(e),
+                Mode::Edit(e) if i == app.cursor => edit_value_cell(e, value_col_width(area.width)),
                 _ => Cell::from(row.value.clone().unwrap_or_default()),
             };
             let style = if i == app.cursor {
@@ -189,7 +224,7 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
     }
     // In the inline editor, show a commit error if there is one (e.g. the value
     // failed the semantic re-parse and could not be saved), otherwise the hints.
-    if matches!(app.mode, Mode::Edit(_)) {
+    if let Mode::Edit(e) = &app.mode {
         let (text, style) = match &app.status {
             Some(msg) => (
                 format!(" {msg}  (Esc:cancel)"),
@@ -198,10 +233,18 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
                     .fg(Color::White)
                     .add_modifier(Modifier::BOLD),
             ),
-            None => (
-                " editing — Enter:save  Esc:cancel  ←/→/Home/End:move".to_string(),
-                Style::default().bg(Color::DarkGray).fg(Color::Yellow),
-            ),
+            None => {
+                // When the value overflows the VALUE column, append a compact
+                // hint of which char range is visible out of the total.
+                let len = e.buffer.chars().count();
+                let hint = edit_overflow_hint(len, e.cursor, value_col_width(area.width))
+                    .map(|h| format!("  {h}"))
+                    .unwrap_or_default();
+                (
+                    format!(" editing — Enter:save  Esc:cancel  ←/→/Home/End:move{hint}"),
+                    Style::default().bg(Color::DarkGray).fg(Color::Yellow),
+                )
+            }
         };
         f.render_widget(Paragraph::new(text).style(style), area);
         return;
@@ -389,6 +432,21 @@ mod tests {
         assert!(
             joined.contains("invalid TOML"),
             "commit error must be visible in the status line: {joined:?}"
+        );
+    }
+
+    #[test]
+    fn edit_window_follows_cursor_and_hint_only_on_overflow() {
+        // fits entirely → window is the whole buffer, no hint
+        assert_eq!(edit_window(4, 4, 10), (0, 4));
+        assert_eq!(edit_overflow_hint(4, 4, 10), None);
+        // cursor near the start of a long buffer → window pinned to 0
+        assert_eq!(edit_window(20, 3, 10), (0, 10));
+        // cursor at the end of a long buffer → window scrolled to keep it visible
+        assert_eq!(edit_window(20, 20, 10), (11, 20));
+        assert_eq!(
+            edit_overflow_hint(20, 20, 10).as_deref(),
+            Some("⟨12–20/20⟩")
         );
     }
 
