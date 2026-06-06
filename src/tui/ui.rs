@@ -187,12 +187,23 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
         f.render_widget(paragraph, area);
         return;
     }
-    // In the inline editor, show edit-mode hints.
+    // In the inline editor, show a commit error if there is one (e.g. the value
+    // failed the semantic re-parse and could not be saved), otherwise the hints.
     if matches!(app.mode, Mode::Edit(_)) {
-        let text = " editing — Enter:save  Esc:cancel  ←/→/Home/End:move";
-        let paragraph =
-            Paragraph::new(text).style(Style::default().bg(Color::DarkGray).fg(Color::Yellow));
-        f.render_widget(paragraph, area);
+        let (text, style) = match &app.status {
+            Some(msg) => (
+                format!(" {msg}  (Esc:cancel)"),
+                Style::default()
+                    .bg(Color::Red)
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            None => (
+                " editing — Enter:save  Esc:cancel  ←/→/Home/End:move".to_string(),
+                Style::default().bg(Color::DarkGray).fg(Color::Yellow),
+            ),
+        };
+        f.render_widget(Paragraph::new(text).style(style), area);
         return;
     }
     let total = app.rows.len();
@@ -350,6 +361,34 @@ mod tests {
         assert!(
             !joined.contains('▏'),
             "caret glyph must not be inserted into the buffer: {joined:?}"
+        );
+    }
+
+    #[test]
+    fn inline_commit_error_is_shown_in_status() {
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        f.write_all(b"port = 8080\n").unwrap();
+        let doc = crate::model::toml_doc::TomlDocument::load(f.path()).unwrap();
+        let mut app = App::new(doc);
+        app.cursor = 1;
+        app.begin_inline_edit();
+        for _ in 0..4 {
+            app.edit_backspace();
+        }
+        for c in "= nope".chars() {
+            app.edit_input_char(c);
+        }
+        app.edit_commit(); // invalid: stays in Edit mode with an error status
+        let mut terminal = Terminal::new(TestBackend::new(80, 8)).unwrap();
+        terminal.draw(|fr| draw(fr, &app)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let joined: String = (0..8)
+            .map(|y| (0..80).map(|x| buf[(x, y)].symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            joined.contains("invalid TOML"),
+            "commit error must be visible in the status line: {joined:?}"
         );
     }
 

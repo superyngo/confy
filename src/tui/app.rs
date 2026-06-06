@@ -492,6 +492,8 @@ impl App {
             let byte = char_byte_idx(&e.buffer, e.cursor);
             e.buffer.insert(byte, c);
             e.cursor += 1;
+            // Clear any prior commit error now the user is revising the value.
+            self.status = None;
         }
     }
 
@@ -501,6 +503,7 @@ impl App {
                 let prev = char_byte_idx(&e.buffer, e.cursor - 1);
                 e.buffer.remove(prev);
                 e.cursor -= 1;
+                self.status = None;
             }
         }
     }
