@@ -117,7 +117,7 @@ jobs:
       - name: Annotated tag message → release preamble
         run: git tag -l --format='%(contents)' "${GITHUB_REF_NAME}" > TAG_BODY.md
 
-      - uses: softprops/action-gh-release@v1
+      - uses: softprops/action-gh-release@v2
         with:
           body_path: TAG_BODY.md
           generate_release_notes: true
