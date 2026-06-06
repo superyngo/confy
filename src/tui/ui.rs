@@ -287,11 +287,16 @@ fn draw_prompt_overlay(f: &mut Frame, app: &App) {
     f.render_widget(paragraph, area);
 }
 
-/// Fixed-size, centered rect for the Detail popup. Fixed (not content-sized) so
-/// long values scroll within it. Shared with the event loop's scroll clamping.
-pub(crate) fn detail_popup_rect(r: Rect) -> Rect {
+/// Centered rect for the Detail popup. Width is a fixed 70%; height flexes to fit
+/// the (wrapped) content within `[5, 80% of screen]`, so small popups stay small
+/// and large values scroll inside the capped pane. Shared with the event loop's
+/// scroll clamping so both agree on geometry.
+pub(crate) fn detail_popup_rect(r: Rect, text: &str) -> Rect {
     let w = (r.width * 70 / 100).clamp(20.min(r.width), r.width);
-    let h = (r.height * 60 / 100).clamp(3.min(r.height), r.height);
+    let content = wrapped_line_count(text, w.saturating_sub(2)) as u16;
+    let min_h = 5.min(r.height);
+    let max_h = (r.height * 80 / 100).max(min_h);
+    let h = (content + 2).clamp(min_h, max_h).min(r.height);
     let x = (r.width.saturating_sub(w)) / 2;
     let y = (r.height.saturating_sub(h)) / 2;
     Rect::new(x, y, w, h)
@@ -322,7 +327,7 @@ fn draw_detail_overlay(f: &mut Frame, app: &App) {
         Some(t) => t.clone(),
         None => return,
     };
-    let area = detail_popup_rect(f.area());
+    let area = detail_popup_rect(f.area(), &detail_text);
     f.render_widget(Clear, area);
     let block = Block::default()
         .title(" Detail (↑/↓ PgUp/PgDn Home/End · Esc) ")
@@ -451,6 +456,18 @@ mod tests {
             joined.contains("invalid TOML"),
             "commit error must be visible in the status line: {joined:?}"
         );
+    }
+
+    #[test]
+    fn detail_popup_height_adapts_within_range() {
+        let screen = Rect::new(0, 0, 80, 40);
+        // Short content clamps up to the minimum height (5).
+        let short = detail_popup_rect(screen, "a\nb");
+        assert_eq!(short.width, 56, "width is a fixed 70%");
+        assert_eq!(short.height, 5, "short content uses the minimum height");
+        // Tall content clamps down to the maximum (80% of 40 = 32).
+        let tall = detail_popup_rect(screen, &"x\n".repeat(100));
+        assert_eq!(tall.height, 32, "tall content caps at 80% of the screen");
     }
 
     #[test]

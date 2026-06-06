@@ -300,15 +300,25 @@ impl App {
         self.rebuild_rows();
     }
 
-    // ---- Detail view (Leaf Enter/Space) ----
+    // ---- Detail view (Leaf Enter/Space, `i` for any node) ----
 
-    /// Enter/Space on a Leaf opens a read-only detail popup.
+    /// `i` — toggle the detail popup for the cursor node (any node, including
+    /// branches). Closes the popup if it is already open.
+    pub fn toggle_detail(&mut self) {
+        if matches!(self.mode, Mode::Detail) {
+            self.exit_detail();
+        } else {
+            self.open_detail();
+        }
+    }
+
+    /// Open the read-only detail popup for the cursor node. Leaves show
+    /// type/format/value; branches show their kind and child count.
     pub fn open_detail(&mut self) {
         let row = match self.rows.get(self.cursor) {
             Some(r) => r.clone(),
             None => return,
         };
-        debug_assert!(!row.is_branch, "open_detail called on a branch row");
         let path_keys: Vec<String> = row
             .path
             .iter()
@@ -317,15 +327,31 @@ impl App {
                 _ => None,
             })
             .collect();
-        let dotted = path_keys.join(".");
-        let type_str = row.scalar_type.as_deref().unwrap_or("unknown");
-        let val_str = row.value.as_deref().unwrap_or("");
-        let fmt_str = format!("{:?}", row.format).to_lowercase();
-        let mut detail = format!(
-            "Path:    {dotted}\nType:    {type_str}\nFormat:  {fmt_str}\nValue:   {val_str}"
-        );
+        let dotted = if path_keys.is_empty() {
+            "(root)".to_string()
+        } else {
+            path_keys.join(".")
+        };
+        let mut detail = if row.is_branch {
+            // Branch nodes: kind + how many children they hold. (Root's
+            // type_label is empty, so label it explicitly.)
+            let kind = if row.path.is_empty() {
+                "root"
+            } else {
+                row.type_label.as_str()
+            };
+            let children = node_at(&self.tree.root, &row.path)
+                .map(|n| n.children.len())
+                .unwrap_or(0);
+            format!("Path:     {dotted}\nType:     {kind}\nChildren: {children}")
+        } else {
+            let type_str = row.scalar_type.as_deref().unwrap_or("unknown");
+            let val_str = row.value.as_deref().unwrap_or("");
+            let fmt_str = format!("{:?}", row.format).to_lowercase();
+            format!("Path:     {dotted}\nType:     {type_str}\nFormat:   {fmt_str}\nValue:    {val_str}")
+        };
         if let Some(tc) = &row.trailing_comment {
-            detail.push_str(&format!("\nComment: {tc}"));
+            detail.push_str(&format!("\nComment:  {tc}"));
         }
         self.detail_text = Some(detail);
         self.detail_scroll = 0;
@@ -2003,6 +2029,26 @@ mod tests {
             "placeholder inserted: {}",
             app.doc.as_ref().unwrap().serialize()
         );
+    }
+
+    #[test]
+    fn toggle_detail_on_branch_shows_kind_and_child_count() {
+        let mut app = app_with("[server]\nhost = \"h\"\nport = 8080\n");
+        app.expand_all();
+        app.rebuild_rows();
+        app.cursor = app.rows.iter().position(|r| r.key == "server").unwrap();
+        app.toggle_detail();
+        assert!(matches!(app.mode, Mode::Detail));
+        let d = app.detail_text.clone().unwrap();
+        assert!(d.contains("table"), "branch detail shows kind: {d}");
+        assert!(
+            d.contains("Children:") && d.contains('2'),
+            "branch detail shows child count: {d}"
+        );
+        // toggling again closes it
+        app.toggle_detail();
+        assert!(matches!(app.mode, Mode::Normal));
+        assert!(app.detail_text.is_none());
     }
 
     #[test]

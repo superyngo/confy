@@ -108,19 +108,14 @@ fn run_event_loop(
                 use crossterm::event::KeyCode;
                 // Compute the popup's inner viewport + content height to clamp scrolling.
                 let size = terminal.size()?;
-                let rect = ui::detail_popup_rect(ratatui::layout::Rect::new(
-                    0,
-                    0,
-                    size.width,
-                    size.height,
-                ));
+                let text = app.detail_text.clone().unwrap_or_default();
+                let rect = ui::detail_popup_rect(
+                    ratatui::layout::Rect::new(0, 0, size.width, size.height),
+                    &text,
+                );
                 let inner_h = rect.height.saturating_sub(2);
                 let inner_w = rect.width.saturating_sub(2);
-                let content_lines = app
-                    .detail_text
-                    .as_deref()
-                    .map(|t| ui::wrapped_line_count(t, inner_w))
-                    .unwrap_or(0);
+                let content_lines = ui::wrapped_line_count(&text, inner_w);
                 let max_scroll = (content_lines as u16).saturating_sub(inner_h);
                 let page = inner_h.max(1) as i32;
                 match key.code {
@@ -130,7 +125,7 @@ fn run_event_loop(
                     KeyCode::PageUp => app.detail_scroll_by(-page, max_scroll),
                     KeyCode::Home => app.detail_set_scroll(0),
                     KeyCode::End => app.detail_set_scroll(max_scroll),
-                    KeyCode::Esc | KeyCode::Enter => app.escape(),
+                    KeyCode::Esc | KeyCode::Enter | KeyCode::Char('i') => app.escape(),
                     _ => {}
                 }
                 continue;
@@ -202,6 +197,7 @@ fn run_event_loop(
                 keys::KeyAction::ExtendSelectDown => {
                     app.extend_select_down();
                 }
+                keys::KeyAction::Info => app.toggle_detail(),
                 keys::KeyAction::EditNode => {
                     if app.edit_target_kind() == crate::tui::app::EditKind::Inline {
                         app.begin_inline_edit();
