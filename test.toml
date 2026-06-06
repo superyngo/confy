@@ -1,0 +1,80 @@
+# test.toml — every ScalarType in every Format, plus all container kinds.
+# Mirrors src/model/node.rs (ScalarType, Format) and project.rs::detect_format.
+
+# ── String (ScalarType::String) ──────────────────────────────────────────────
+basic_string         = "basic \"quoted\", tab\tand unicode é"
+multiline_basic      = """
+multiline basic line 1
+line 2 with "quotes" and trailing backslash \
+joined onto line 3
+"""
+literal_string       = 'C:\Users\no\escapes\here'
+multiline_literal    = '''
+multiline literal line 1
+line 2 — backslashes \n stay literal
+'''
+empty_string         = ""
+
+# ── Integer (ScalarType::Integer) ────────────────────────────────────────────
+decimal              = 42
+decimal_negative     = -17
+decimal_underscored  = 1_000_000
+hex                  = 0xDEAD_BEEF
+octal                = 0o755
+binary               = 0b1010_0001
+
+# ── Float (ScalarType::Float, Format::Plain) ─────────────────────────────────
+float_plain          = 3.1415
+float_negative       = -0.5
+float_exponent       = 5e22
+float_frac_exp       = 6.626e-34
+float_underscored    = 9_224_617.445_991
+float_inf            = inf
+float_neg_inf        = -inf
+float_nan            = nan
+
+# ── Bool (ScalarType::Bool, Format::Plain) ───────────────────────────────────
+bool_true            = true
+bool_false           = false
+
+# ── Date/Time (Format::Plain) ────────────────────────────────────────────────
+offset_datetime      = 1979-05-27T07:32:00Z
+offset_datetime_tz   = 1979-05-27T00:32:00-07:00
+local_datetime       = 1979-05-27T07:32:00
+local_date           = 1979-05-27
+local_time           = 07:32:00.999999
+
+# ── Array (NodeKind::Array) ──────────────────────────────────────────────────
+array_int            = [1, 2, 3]
+array_string         = ["a", "b", "c"]
+array_mixed_format   = [0x1, 0o2, 0b11, 4]
+array_nested         = [[1, 2], [3, 4]]
+array_empty          = []
+array_multiline = [
+  "first",
+  "second",
+  "third",
+]
+
+# ── Inline table (NodeKind::InlineTable) ─────────────────────────────────────
+inline_table         = { x = 1, y = 2, label = "origin" }
+
+# ── Table (NodeKind::Table) ──────────────────────────────────────────────────
+[server]
+host                 = "localhost"
+port                 = 8080
+enabled              = true
+
+[server.tls]
+cert                 = 'C:\certs\server.pem'
+ciphers              = ["TLS_AES_256", "TLS_CHACHA20"]
+
+# ── Array of tables (NodeKind::ArrayOfTables) ────────────────────────────────
+[[product]]
+name                 = "Hammer"
+sku                  = 738_594_937
+
+[[product]]
+name                 = "Nail"
+sku                  = 0x0284_FE_AB
+color                = "gray"

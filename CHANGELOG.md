@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Editing — `e` on a multiline string now opens `$EDITOR` instead of the single-line inline editor, matching the existing behavior for nested arrays/tables. Single-line scalars still edit inline. (2026-06-06)
+- Editing — `e` on a scalar **element of an array** now edits it inline (was: opened an empty `$EDITOR` and failed to save). Write-back goes through `Replace` on the trailing `Index` path via `Array::replace`, preserving the other elements and their formats. Non-scalar array elements still open `$EDITOR`. (2026-06-06)
+- Editing — `←/→` value-nudge now also works on a scalar array element (toggle bool / step int/float in place). (2026-06-06)
+- Editing — the value-nudge now re-applies underscore digit grouping when the original value had it (decimal every 3, hex/oct/bin every 4, float fractional every 3), so `1_000_000` stays grouped after a step. (2026-06-06)
+
+### Added
+- Editing — `a` on an array now inserts a new element (seeded `""`) and opens it for inline editing, instead of failing with a key-collision/`NotFound`. (2026-06-06)
+- Editing — `Tab` in the inline editor toggles between the Value (default) and Name fields; committing a changed Name renames the key via a new position/decor-preserving `Mutation::Rename`. `Tab` is disabled for array elements (no key), and the NAME field gets the same horizontal-overflow scrolling as VALUE. (2026-06-06)
+- Editing — scalar elements of nested arrays (array-of-arrays, `Key Index Index…`) now edit inline and nudge in place, addressed via `array_at_mut`. (2026-06-06)
+
+### Fixed
+- TUI — the main tree viewport now persists its scroll offset across frames, so the cursor moves within the visible window instead of staying pinned to the bottom edge and scrolling on every key. (2026-06-06)
+- Editing — replacing a value no longer drops a standalone `#` comment sitting above its key; `Replace`/`Insert` overwrite now updates the value in place (preserving key decor) instead of re-inserting the key. (2026-06-06)
+- Editing — `e` on a node nested inside an array/AoT (or on an element of a multiline array) no longer opens an empty editor; it edits the nearest addressable container, and multiline-array string elements edit inline with their indentation preserved. (2026-06-06)
+
 ### Added
 - CI — `.github/workflows/release.yml`: on a `v*.*.*` tag, cross-compiles `confy` for Linux x86_64 (gnu + musl), macOS (arm64 + Intel), and Windows x86_64 + i686 (MSVC), packages tar.gz (Unix) / `.exe` (Windows), emits `SHA256SUMS`, and publishes a GitHub Release (annotated-tag message + auto-generated notes).
 

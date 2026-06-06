@@ -57,11 +57,25 @@ pub(crate) fn value_col_width(total: u16) -> usize {
 /// when the cursor is past the end). No glyph is inserted, so characters never
 /// shift.
 fn edit_value_cell(e: &EditState, width: usize) -> Cell<'static> {
-    let chars: Vec<char> = e.buffer.chars().collect();
+    Cell::from(Line::from(edit_field_spans(
+        &e.buffer, e.cursor, e.scroll, width,
+    )))
+}
+
+/// Reverse-highlighted window of `buffer` starting at `scroll`, `width` columns
+/// wide, with the char at `cursor` highlighted (trailing space when past the end).
+/// Shared by the VALUE and (editable) NAME cells.
+fn edit_field_spans(
+    buffer: &str,
+    cursor: usize,
+    scroll: usize,
+    width: usize,
+) -> Vec<Span<'static>> {
+    let chars: Vec<char> = buffer.chars().collect();
     let len = chars.len();
-    let cur = e.cursor.min(len);
+    let cur = cursor.min(len);
     let w = width.max(1);
-    let start = e.scroll.min(len);
+    let start = scroll.min(len);
     let end = (start + w).min(len);
     let rev = Style::default().add_modifier(Modifier::REVERSED);
     let mut spans: Vec<Span> = Vec::with_capacity(end - start + 1);
@@ -76,7 +90,7 @@ fn edit_value_cell(e: &EditState, width: usize) -> Cell<'static> {
     if cur == len && cur >= start && cur < start + w {
         spans.push(Span::styled(" ", rev));
     }
-    Cell::from(Line::from(spans))
+    spans
 }
 
 /// Compact "position / proportion" hint for an overflowing inline edit:
@@ -173,14 +187,34 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
             } else {
                 " "
             };
-            let name = format!("{sel_marker}{indent}{marker}{}", row.key);
-            // While inline-editing the cursor row, render the live buffer with the
-            // character under the cursor reverse-highlighted. This keeps the cursor
-            // visible mid-string without inserting a caret glyph that would shift
-            // the surrounding characters.
-            let value_cell = match &app.mode {
-                Mode::Edit(e) if i == app.cursor => edit_value_cell(e, value_col_width(area.width)),
-                _ => Cell::from(row.value.clone().unwrap_or_default()),
+            let prefix = format!("{sel_marker}{indent}{marker}");
+            let name = format!("{prefix}{}", row.key);
+            // While inline-editing the cursor row, render the live buffer of the
+            // focused field (Value or Name) with the char under the cursor
+            // reverse-highlighted — no caret glyph, so characters never shift. The
+            // NAME field scrolls the same way as VALUE, after the fixed tree prefix.
+            let editing = matches!(&app.mode, Mode::Edit(e) if i == app.cursor);
+            let (name_cell, value_cell) = match &app.mode {
+                Mode::Edit(e) if editing => match e.field {
+                    crate::tui::state::EditField::Value => (
+                        Cell::from(name),
+                        edit_value_cell(e, value_col_width(area.width)),
+                    ),
+                    crate::tui::state::EditField::Name => {
+                        let avail =
+                            value_col_width(area.width).saturating_sub(prefix.chars().count());
+                        let mut spans = vec![Span::raw(prefix)];
+                        spans.extend(edit_field_spans(&e.buffer, e.cursor, e.scroll, avail));
+                        (
+                            Cell::from(Line::from(spans)),
+                            Cell::from(row.value.clone().unwrap_or_default()),
+                        )
+                    }
+                },
+                _ => (
+                    Cell::from(name),
+                    Cell::from(row.value.clone().unwrap_or_default()),
+                ),
             };
             let style = if i == app.cursor {
                 Style::default()
@@ -190,12 +224,7 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
             } else {
                 Style::default()
             };
-            Row::new([
-                Cell::from(name),
-                Cell::from(type_format_label(row)),
-                value_cell,
-            ])
-            .style(style)
+            Row::new([name_cell, Cell::from(type_format_label(row)), value_cell]).style(style)
         })
         .collect();
 
@@ -208,9 +237,15 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
         ],
     )
     .column_spacing(1);
-    let mut state = TableState::default();
-    state.select(Some(app.cursor));
+    // Seed the table's scroll offset from the persisted value so ratatui only
+    // scrolls when the cursor would leave the viewport (a fresh default state
+    // would re-derive the offset each frame and pin the cursor to an edge), then
+    // store the post-render offset back for the next frame.
+    let mut state = TableState::default()
+        .with_offset(app.table_offset.get())
+        .with_selected(Some(app.cursor));
     f.render_stateful_widget(table, area, &mut state);
+    app.table_offset.set(state.offset());
 }
 
 fn draw_status(f: &mut Frame, area: Rect, app: &App) {
@@ -240,8 +275,17 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
                 let hint = edit_overflow_hint(e.scroll, len, value_col_width(area.width))
                     .map(|h| format!("  {h}"))
                     .unwrap_or_default();
+                // The field label / Tab hint only applies when there is a name to
+                // switch to (array elements have no key).
+                let field = match e.field {
+                    crate::tui::state::EditField::Value => "value",
+                    crate::tui::state::EditField::Name => "name",
+                };
+                let tab = if e.is_element { "" } else { "  Tab:name/value" };
                 (
-                    format!(" editing — Enter:save  Esc:cancel  ←/→/Home/End:move{hint}"),
+                    format!(
+                        " editing {field} — Enter:save  Esc:cancel  ←/→/Home/End:move{tab}{hint}"
+                    ),
                     Style::default().bg(Color::DarkGray).fg(Color::Yellow),
                 )
             }

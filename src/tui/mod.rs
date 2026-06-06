@@ -143,6 +143,7 @@ fn run_event_loop(
                     KeyCode::Right => app.edit_cursor_right(),
                     KeyCode::Home => app.edit_cursor_home(),
                     KeyCode::End => app.edit_cursor_end(),
+                    KeyCode::Tab | KeyCode::BackTab => app.edit_toggle_field(),
                     KeyCode::Enter => app.edit_commit(),
                     KeyCode::Esc => app.edit_cancel(),
                     _ => {}

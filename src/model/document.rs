@@ -37,6 +37,11 @@ pub enum Mutation {
         path: Path,
         toml: String,
     },
+    /// Rename the key at `path` to `new_key`, preserving its position and decor.
+    Rename {
+        path: Path,
+        new_key: String,
+    },
     Remark {
         path: Path,
     },

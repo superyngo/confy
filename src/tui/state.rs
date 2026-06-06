@@ -25,17 +25,32 @@ pub enum PromptKind {
     },
 }
 
-/// In-flight inline editor state (§inline edit). `buffer` holds the value text
-/// being edited (without the `key = ` prefix); `cursor` is a char index into it.
-/// `scroll` is the horizontal viewport offset (first visible char) — persistent
-/// state, distinct from `cursor`, so moving left after reaching the right edge
+/// Which column the inline editor is currently editing. `Tab` toggles between
+/// them (disabled for array elements, which have no name).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EditField {
+    Value,
+    Name,
+}
+
+/// In-flight inline editor state (§inline edit). The editor edits one field at a
+/// time: `buffer`/`cursor`/`scroll` are the *active* field's working set, while
+/// `other_*` hold the inactive field saved across a `Tab` swap. `key` is the
+/// node's original key (for rename detection). `scroll` is the horizontal viewport
+/// offset (first visible char), persistent so moving left after the right edge
 /// walks the cursor back through the window before the text scrolls.
 pub struct EditState {
     pub path: Path,
     pub key: String,
+    pub field: EditField,
+    /// Array element: no name field, so `Tab` is a no-op.
+    pub is_element: bool,
     pub buffer: String,
     pub cursor: usize,
     pub scroll: usize,
+    pub other_buffer: String,
+    pub other_cursor: usize,
+    pub other_scroll: usize,
 }
 
 /// Clipboard holding serialized TOML fragments for copy/cut/paste (§6 x/c/v).

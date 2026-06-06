@@ -5,8 +5,9 @@ use crate::tui::selection::Selection;
 use crate::tui::state::{Clipboard, EditState, History, Mode, PromptKind};
 use std::collections::HashSet;
 
-/// How `e` should edit the cursor node: in-place (scalar directly under a
-/// Table/Root) or by spawning $EDITOR (everything nested or non-scalar).
+/// How `e` should edit the cursor node: in-place (single-line scalar directly
+/// under a Table/Root) or by spawning $EDITOR (everything nested, non-scalar,
+/// or a multiline string).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EditKind {
     Inline,
@@ -38,6 +39,11 @@ pub struct App {
     pub pending_edit: Option<(EditState, String)>,
     /// Vertical scroll offset (in display rows) of the detail popup.
     pub detail_scroll: u16,
+    /// Persisted vertical scroll offset (top visible row) of the main tree table.
+    /// Kept across frames so the viewport only scrolls when the cursor would
+    /// leave it, instead of ratatui re-deriving it (and pinning the cursor to an
+    /// edge) every draw. `Cell` so the immutable-`&App` render path can update it.
+    pub table_offset: std::cell::Cell<usize>,
 }
 
 #[derive(Clone)]
@@ -83,6 +89,7 @@ impl App {
             detail_text: None,
             pending_edit: None,
             detail_scroll: 0,
+            table_offset: std::cell::Cell::new(0),
         };
         app.rebuild_rows();
         app
@@ -107,6 +114,7 @@ impl App {
             detail_text: None,
             pending_edit: None,
             detail_scroll: 0,
+            table_offset: std::cell::Cell::new(0),
         }
     }
     pub fn rebuild_rows(&mut self) {
@@ -440,8 +448,19 @@ impl App {
             Some(r) => r.clone(),
             None => return,
         };
-        let path = cursor_row.path.clone();
-        // Serialize just the cursor node's own fragment.
+        // `Replace` can only address an all-`Key` path, so for any node inside an
+        // array/AoT (path with an `Index`) edit the nearest addressable container:
+        // truncate at the first `Index`, yielding the enclosing top-level array/AoT
+        // key. (A direct scalar element is handled inline and never reaches here.)
+        let first_index = cursor_row
+            .path
+            .iter()
+            .position(|s| matches!(s, Seg::Index(_)));
+        let path = match first_index {
+            Some(i) => cursor_row.path[..i].to_vec(),
+            None => cursor_row.path.clone(),
+        };
+        // Serialize just the (container) node's own fragment.
         let fragment = serialize_node_fragment(doc, &path);
         let edited = match crate::tui::editor::edit_text(&fragment) {
             Ok(t) => t,
@@ -474,6 +493,8 @@ impl App {
     /// a Scalar leaf reachable by an all-`Key` path whose immediate parent is a
     /// Table or the Root — i.e. NOT inside an array, inline table, or AoT entry
     /// (those are "nested" and `Replace` cannot address an `Index` segment).
+    /// Multiline strings are also routed to $EDITOR: their repr carries real
+    /// newlines the single-line inline editor cannot represent.
     pub fn edit_target_kind(&self) -> EditKind {
         let path = match self.rows.get(self.cursor) {
             Some(r) => &r.path,
@@ -482,9 +503,6 @@ impl App {
         if path.is_empty() {
             return EditKind::External; // Root
         }
-        if path.iter().any(|s| matches!(s, Seg::Index(_))) {
-            return EditKind::External;
-        }
         let node = match node_at(&self.tree.root, path) {
             Some(n) => n,
             None => return EditKind::External,
@@ -492,18 +510,57 @@ impl App {
         if !matches!(node.kind, NodeKind::Scalar(_)) {
             return EditKind::External;
         }
-        // Parent must be a Table or the Root (not an inline table).
-        let parent_ok = if path.len() == 1 {
-            true
-        } else {
-            node_at(&self.tree.root, &path[..path.len() - 1])
-                .map(|p| matches!(p.kind, NodeKind::Table | NodeKind::Root))
-                .unwrap_or(false)
-        };
-        if parent_ok {
-            EditKind::Inline
-        } else {
-            EditKind::External
+        // Multiline strings carry real newlines the single-line inline editor
+        // cannot represent — route them to $EDITOR. Keyed on Format (not on a raw
+        // `\n` scan): an element of a *multiline array* carries indentation-newline
+        // decor in its repr yet is itself an ordinary single-line string.
+        if matches!(
+            node.format,
+            Format::MultilineBasic | Format::MultilineLiteral
+        ) {
+            return EditKind::External;
+        }
+        let parent_path = &path[..path.len() - 1];
+        let parent = node_at(&self.tree.root, parent_path);
+        match path.last() {
+            // Scalar element of an array: inline when the path is `Key+ Index*`
+            // (a run of keys then array-index descents, no `Key` after the first
+            // `Index`) so the Replace write-back can address it — covers top-level
+            // and array-of-arrays nesting. Arrays inside AoT/inline-table entries
+            // (a `Key` after an `Index`) stay External (edit the whole container).
+            Some(Seg::Index(_)) => {
+                let first_index = path
+                    .iter()
+                    .position(|s| matches!(s, Seg::Index(_)))
+                    .unwrap_or(0);
+                let tail_all_index = path[first_index..]
+                    .iter()
+                    .all(|s| matches!(s, Seg::Index(_)));
+                let parent_is_array = parent
+                    .map(|p| matches!(p.kind, NodeKind::Array))
+                    .unwrap_or(false);
+                if tail_all_index && parent_is_array {
+                    EditKind::Inline
+                } else {
+                    EditKind::External
+                }
+            }
+            // Scalar under a key: inline only when no `Index` sits above it (else it
+            // lives inside an AoT entry that Replace cannot address) and the parent
+            // is a Table or the Root (not an inline table).
+            Some(Seg::Key(_)) => {
+                let no_index_above = !parent_path.iter().any(|s| matches!(s, Seg::Index(_)));
+                let parent_ok = path.len() == 1
+                    || parent
+                        .map(|p| matches!(p.kind, NodeKind::Table | NodeKind::Root))
+                        .unwrap_or(false);
+                if no_index_above && parent_ok {
+                    EditKind::Inline
+                } else {
+                    EditKind::External
+                }
+            }
+            None => EditKind::External,
         }
     }
 
@@ -514,23 +571,52 @@ impl App {
             Some(r) => r,
             None => return,
         };
-        let key = match row.path.last() {
-            Some(Seg::Key(k)) => k.clone(),
-            _ => return,
+        let (key, is_element) = match row.path.last() {
+            Some(Seg::Key(k)) => (k.clone(), false),
+            // Array element: no key. `edit_commit` builds a bare-value fragment.
+            Some(Seg::Index(_)) => (String::new(), true),
+            None => return,
         };
         // `value` is `Value::to_string()`, which carries the decor whitespace
         // around the `=` (e.g. " 8080"); trim it so the edited literal doesn't
         // accumulate a leading space on write-back.
         let buffer = row.value.clone().unwrap_or_default().trim().to_string();
         let cursor = buffer.chars().count();
+        // The Value field is active first; the Name field (the key) is the saved
+        // inactive set, ready for a `Tab` swap.
+        let name_cursor = key.chars().count();
         self.mode = Mode::Edit(EditState {
             path: row.path.clone(),
-            key,
+            key: key.clone(),
+            field: crate::tui::state::EditField::Value,
+            is_element,
             buffer,
             cursor,
             scroll: 0,
+            other_buffer: key,
+            other_cursor: name_cursor,
+            other_scroll: 0,
         });
         self.status = None;
+    }
+
+    /// `Tab` in the inline editor: swap focus between the Value and Name fields,
+    /// stashing the active working set and loading the other. No-op for array
+    /// elements (no name).
+    pub fn edit_toggle_field(&mut self) {
+        if let Mode::Edit(ref mut e) = self.mode {
+            if e.is_element {
+                return;
+            }
+            std::mem::swap(&mut e.buffer, &mut e.other_buffer);
+            std::mem::swap(&mut e.cursor, &mut e.other_cursor);
+            std::mem::swap(&mut e.scroll, &mut e.other_scroll);
+            e.field = match e.field {
+                crate::tui::state::EditField::Value => crate::tui::state::EditField::Name,
+                crate::tui::state::EditField::Name => crate::tui::state::EditField::Value,
+            };
+            self.status = None;
+        }
     }
 
     /// Adjust the inline editor's horizontal viewport so the cursor stays visible
@@ -597,19 +683,69 @@ impl App {
         self.status = None;
     }
 
-    /// Commit the inline edit. Reconstruct `key = <buffer>`, validate it parses
-    /// (type check, not enforced), and either apply `Replace` directly or — if
-    /// the scalar's displayed type would change — stash it and enter a TypeChange
-    /// confirm prompt. On parse failure: set status, stay in the editor.
+    /// Commit the inline edit. First apply a key rename if the Name field changed
+    /// (its own undo step, position/decor-preserving), then reconstruct
+    /// `key = <value>`, validate it parses, and either apply `Replace` directly or
+    /// — if the scalar's displayed type would change — stash it and enter a
+    /// TypeChange confirm prompt. On any failure: set status, stay in the editor.
     pub fn edit_commit(&mut self) {
-        let e = match std::mem::replace(&mut self.mode, Mode::Normal) {
+        let mut e = match std::mem::replace(&mut self.mode, Mode::Normal) {
             Mode::Edit(e) => e,
             other => {
                 self.mode = other;
                 return;
             }
         };
-        let fragment = format!("{} = {}\n", e.key, e.buffer);
+        use crate::tui::state::EditField;
+        // The active working set is the focused field; `other_*` holds the rest.
+        let (name_str, value_str) = match e.field {
+            EditField::Value => (e.other_buffer.clone(), e.buffer.clone()),
+            EditField::Name => (e.buffer.clone(), e.other_buffer.clone()),
+        };
+        // Array elements have no key; validate/label the bare value under a
+        // placeholder key. The model's Replace ignores the key for an Index path.
+        let is_element = matches!(e.path.last(), Some(Seg::Index(_)));
+        let mut frag_key = if is_element {
+            "__elem__".to_string()
+        } else {
+            e.key.clone()
+        };
+        // 1. Key rename (Name field changed). Applied as its own mutation so it is
+        //    independently undoable; on collision/invalid key, stay in the editor.
+        if !is_element {
+            let new_name = name_str.trim().to_string();
+            if new_name != e.key {
+                if new_name.is_empty() {
+                    self.status = Some("key cannot be empty".into());
+                    self.mode = Mode::Edit(e);
+                    return;
+                }
+                let res = match self.doc.as_mut() {
+                    Some(doc) => doc.apply(crate::model::document::Mutation::Rename {
+                        path: e.path.clone(),
+                        new_key: new_name.clone(),
+                    }),
+                    None => Ok(()),
+                };
+                match res {
+                    Ok(()) => {
+                        self.on_mutation_success();
+                        if let Some(last) = e.path.last_mut() {
+                            *last = Seg::Key(new_name.clone());
+                        }
+                        e.key = new_name.clone();
+                        frag_key = new_name;
+                    }
+                    Err(err) => {
+                        self.status = Some(format!("rename failed: {err}"));
+                        self.mode = Mode::Edit(e);
+                        return;
+                    }
+                }
+            }
+        }
+        // 2. Value replace.
+        let fragment = format!("{} = {}\n", frag_key, value_str);
         let table = match crate::model::fragment::parse_fragment(&fragment) {
             Ok(t) => t,
             Err(err) => {
@@ -619,7 +755,7 @@ impl App {
             }
         };
         let new_label = table
-            .get(&e.key)
+            .get(&frag_key)
             .map(fragment_value_label)
             .unwrap_or_default();
         let old_label = self
@@ -647,11 +783,21 @@ impl App {
             Some(r) => r.path.clone(),
             None => return,
         };
-        if path.iter().any(|s| matches!(s, Seg::Index(_))) {
-            return;
-        }
-        let key = match path.last() {
+        // A scalar reached by a key, or a scalar element of an array whose path is
+        // `Key+ Index*` (addressable by Replace, incl. nested arrays).
+        let frag_key = match path.last() {
             Some(Seg::Key(k)) => k.clone(),
+            Some(Seg::Index(_)) => {
+                let fi = path
+                    .iter()
+                    .position(|s| matches!(s, Seg::Index(_)))
+                    .unwrap_or(0);
+                if path[fi..].iter().all(|s| matches!(s, Seg::Index(_))) {
+                    "__elem__".to_string()
+                } else {
+                    return;
+                }
+            }
             _ => return,
         };
         let node = match node_at(&self.tree.root, &path) {
@@ -667,7 +813,7 @@ impl App {
             None => return,
         };
         if let Some(new_repr) = nudge_scalar(st, node.format, &repr, delta) {
-            self.apply_replace(path, format!("{key} = {new_repr}\n"));
+            self.apply_replace(path, format!("{frag_key} = {new_repr}\n"));
         }
     }
 
@@ -699,13 +845,24 @@ impl App {
         if !target.parent.is_empty() {
             self.expanded.insert(target.parent.clone());
         }
+        // An array parent takes a bare value element at `target.index`; a table
+        // parent takes the seeded `key = ""`. The fragment string is the same
+        // (`insert_fragment` ignores the key for an array), but the new node's path
+        // ends in an `Index` rather than a `Key`.
+        let parent_is_array = node_at(&self.tree.root, &target.parent)
+            .map(|n| matches!(n.kind, NodeKind::Array))
+            .unwrap_or(false);
         self.apply_insert(target.clone(), format!("{key} = \"\"\n"));
         if self.status.is_some() {
             return; // insert failed; status already set
         }
         // Locate the freshly inserted row, move the cursor to it, and edit inline.
         let mut new_path = target.parent.clone();
-        new_path.push(Seg::Key(key));
+        if parent_is_array {
+            new_path.push(Seg::Index(target.index));
+        } else {
+            new_path.push(Seg::Key(key));
+        }
         if let Some(idx) = self.rows.iter().position(|r| r.path == new_path) {
             self.cursor = idx;
             self.begin_inline_edit();
@@ -1307,6 +1464,57 @@ fn fragment_value_label(item: &toml_edit::Item) -> String {
     }
 }
 
+/// Insert `_` every `n` digits counting from the right (e.g. `1000000` → `1_000_000`).
+fn group_right(digits: &str, n: usize) -> String {
+    let len = digits.chars().count();
+    let mut out = String::with_capacity(len + len / n);
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (len - i).is_multiple_of(n) {
+            out.push('_');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// Insert `_` every `n` digits counting from the left (for fractional digits,
+/// e.g. `445991` → `445_991`).
+fn group_left(digits: &str, n: usize) -> String {
+    let mut out = String::with_capacity(digits.len() + digits.len() / n);
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && i.is_multiple_of(n) {
+            out.push('_');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// Re-apply underscore digit grouping to a freshly stepped integer repr: decimal
+/// every 3, hex/oct/bin every 4 (after the base prefix).
+fn regroup_int(repr: &str, fmt: Format) -> String {
+    match fmt {
+        Format::Hex | Format::Octal | Format::Binary => {
+            let (prefix, digits) = repr.split_at(2); // "0x"/"0o"/"0b"
+            format!("{prefix}{}", group_right(digits, 4))
+        }
+        _ => {
+            let (sign, digits) = repr.strip_prefix('-').map_or(("", repr), |d| ("-", d));
+            format!("{sign}{}", group_right(digits, 3))
+        }
+    }
+}
+
+/// Re-apply underscore grouping to a stepped decimal-float repr: integer part
+/// every 3 from the right, fractional part every 3 from the left.
+fn regroup_float(repr: &str) -> String {
+    let (sign, body) = repr.strip_prefix('-').map_or(("", repr), |d| ("-", d));
+    match body.split_once('.') {
+        Some((int, frac)) => format!("{sign}{}.{}", group_right(int, 3), group_left(frac, 3)),
+        None => format!("{sign}{}", group_right(body, 3)),
+    }
+}
+
 /// Step a scalar's repr by `delta` (±1) preserving its written format. Bools
 /// toggle (delta ignored); integers step at the unit place in their own base;
 /// floats step at their least-significant displayed decimal. Returns `None` for
@@ -1320,32 +1528,35 @@ fn nudge_scalar(st: ScalarType, fmt: Format, repr: &str, delta: i64) -> Option<S
             _ => None,
         },
         ScalarType::Integer => {
+            let had_us = s.contains('_');
             let clean = s.replace('_', "");
-            match fmt {
+            let out = match fmt {
                 Format::Hex => {
                     let upper = clean[2..].chars().any(|c| c.is_ascii_uppercase());
                     let n = i64::from_str_radix(&clean[2..], 16).ok()? + delta;
-                    Some(if upper {
+                    if upper {
                         format!("0x{n:X}")
                     } else {
                         format!("0x{n:x}")
-                    })
+                    }
                 }
                 Format::Octal => {
                     let n = i64::from_str_radix(&clean[2..], 8).ok()? + delta;
-                    Some(format!("0o{n:o}"))
+                    format!("0o{n:o}")
                 }
                 Format::Binary => {
                     let n = i64::from_str_radix(&clean[2..], 2).ok()? + delta;
-                    Some(format!("0b{n:b}"))
+                    format!("0b{n:b}")
                 }
                 _ => {
                     let n = clean.parse::<i64>().ok()? + delta;
-                    Some(n.to_string())
+                    n.to_string()
                 }
-            }
+            };
+            Some(if had_us { regroup_int(&out, fmt) } else { out })
         }
         ScalarType::Float => {
+            let had_us = s.contains('_');
             let clean = s.replace('_', "");
             // Only handle plain decimal floats (no exponent / inf / nan).
             if clean
@@ -1361,7 +1572,8 @@ fn nudge_scalar(st: ScalarType, fmt: Format, repr: &str, delta: i64) -> Option<S
             let val = clean.parse::<f64>().ok()?;
             let step = 10f64.powi(-(places as i32));
             let next = val + delta as f64 * step;
-            Some(format!("{next:.*}", places))
+            let out = format!("{next:.*}", places);
+            Some(if had_us { regroup_float(&out) } else { out })
         }
         _ => None,
     }
@@ -1866,12 +2078,53 @@ mod tests {
         assert_eq!(app.edit_target_kind(), EditKind::External);
         app.cursor = idx_of(&app, "arr");
         assert_eq!(app.edit_target_kind(), EditKind::External);
-        // element inside an array (Index path) → external
+        // scalar element directly in a top-level array → inline
         app.cursor = idx_of(&app, "[0]");
-        assert_eq!(app.edit_target_kind(), EditKind::External);
+        assert_eq!(app.edit_target_kind(), EditKind::Inline);
         // member of an inline table → external
         app.cursor = idx_of(&app, "y");
         assert_eq!(app.edit_target_kind(), EditKind::External);
+    }
+
+    #[test]
+    fn edit_target_kind_routes_multiline_string_external() {
+        let mut app = app_with("ml = \"\"\"\nline1\nline2\n\"\"\"\nsingle = \"x\"\n");
+        app.expand_all();
+        app.rebuild_rows();
+        // multiline string scalar → external (inline editor is single-line)
+        app.cursor = idx_of(&app, "ml");
+        assert_eq!(app.edit_target_kind(), EditKind::External);
+        // single-line string scalar → inline (control)
+        app.cursor = idx_of(&app, "single");
+        assert_eq!(app.edit_target_kind(), EditKind::Inline);
+    }
+
+    #[test]
+    fn edit_target_kind_multiline_array_element_is_inline() {
+        // A string element of a *multiline array* carries newline indentation in
+        // its repr but is itself an ordinary single-line string — must edit inline
+        // (regression: a raw `\n` scan wrongly routed it to $EDITOR).
+        let mut app = app_with("arr = [\n  \"first\",\n  \"second\",\n]\n");
+        app.expand_all();
+        app.rebuild_rows();
+        app.cursor = idx_of(&app, "[0]");
+        assert_eq!(app.edit_target_kind(), EditKind::Inline);
+    }
+
+    #[test]
+    fn edit_target_kind_nested_array_scalar_is_inline() {
+        // A scalar in an array-of-arrays (`Key Index Index`) edits inline.
+        let mut app = app_with("nested = [[1, 2], [3, 4]]\n");
+        app.expand_all();
+        app.rebuild_rows();
+        // the inner `[0]` rows repeat; pick a scalar leaf (value "3")
+        let pos = app
+            .rows
+            .iter()
+            .position(|r| r.value.as_deref() == Some("3"))
+            .unwrap();
+        app.cursor = pos;
+        assert_eq!(app.edit_target_kind(), EditKind::Inline);
     }
 
     #[test]
@@ -1910,6 +2163,30 @@ mod tests {
     }
 
     #[test]
+    fn nudge_reapplies_underscore_grouping() {
+        // decimal regroups every 3 from the right
+        assert_eq!(
+            nudge_scalar(ScalarType::Integer, Format::Decimal, "1_000_000", 1).as_deref(),
+            Some("1_000_001")
+        );
+        // hex regroups every 4 (after the 0x prefix)
+        assert_eq!(
+            nudge_scalar(ScalarType::Integer, Format::Hex, "0xDEAD_BEEF", 1).as_deref(),
+            Some("0xDEAD_BEF0")
+        );
+        // float: int part every 3 from right, frac part every 3 from left
+        assert_eq!(
+            nudge_scalar(ScalarType::Float, Format::Plain, "9_224_617.445_991", 1).as_deref(),
+            Some("9_224_617.445_992")
+        );
+        // no underscore in, no underscore out
+        assert_eq!(
+            nudge_scalar(ScalarType::Integer, Format::Decimal, "999", 1).as_deref(),
+            Some("1000")
+        );
+    }
+
+    #[test]
     fn nudge_writes_back_through_replace() {
         let mut app = app_with("port = 8080\n");
         app.cursor = 1; // on port
@@ -1941,6 +2218,40 @@ mod tests {
             .unwrap()
             .serialize()
             .contains("port = 9090"));
+    }
+
+    #[test]
+    fn inline_tab_edits_name_and_renames_key_on_commit() {
+        use crate::tui::state::EditField;
+        let mut app = app_with("port = 8080\n");
+        app.cursor = 1;
+        app.begin_inline_edit();
+        // Tab switches to the Name field (active buffer becomes the key "port").
+        app.edit_toggle_field();
+        assert!(matches!(&app.mode, Mode::Edit(e) if e.field == EditField::Name));
+        for _ in 0..4 {
+            app.edit_backspace(); // clear "port"
+        }
+        for c in "addr".chars() {
+            app.edit_input_char(c);
+        }
+        app.edit_commit();
+        assert!(matches!(app.mode, Mode::Normal));
+        // key renamed, value preserved, no stray old key
+        let s = app.doc.as_ref().unwrap().serialize();
+        assert_eq!(s, "addr = 8080\n");
+    }
+
+    #[test]
+    fn inline_tab_is_noop_for_array_element() {
+        use crate::tui::state::EditField;
+        let mut app = app_with("arr = [1, 2]\n");
+        app.expand_all();
+        app.rebuild_rows();
+        app.cursor = idx_of(&app, "[0]");
+        app.begin_inline_edit();
+        app.edit_toggle_field(); // array element has no name → stays on Value
+        assert!(matches!(&app.mode, Mode::Edit(e) if e.field == EditField::Value));
     }
 
     #[test]

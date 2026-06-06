@@ -2,7 +2,7 @@ use crate::model::document::{ConfigDocument, MutateError, Mutation, Target};
 use crate::model::node::{NodeTree, Seg};
 use anyhow::Context;
 use std::path::{Path, PathBuf};
-use toml_edit::{DocumentMut, Item, TableLike};
+use toml_edit::{Array, DocumentMut, Item, TableLike};
 
 fn find_node_by_path<'a>(
     node: &'a crate::model::node::Node,
@@ -46,6 +46,25 @@ impl TomlDocument {
     ) -> Result<(), MutateError> {
         use crate::model::document::OnCollision::*;
         let frag = crate::model::fragment::parse_fragment(toml)?;
+        // When the target parent is an array, append the fragment's values as bare
+        // elements (arrays hold values, not key/value pairs). Collision options do
+        // not apply — array positions never collide.
+        if self.array_at_mut(&target.parent).is_some() {
+            let values: Vec<toml_edit::Value> = frag
+                .iter()
+                .map(|(_, item)| {
+                    item.as_value().cloned().ok_or_else(|| {
+                        MutateError::Fragment("array elements must be scalar values".into())
+                    })
+                })
+                .collect::<Result<_, _>>()?;
+            let arr = self.array_at_mut(&target.parent).expect("array present");
+            let idx = target.index.min(arr.len());
+            for (offset, v) in values.into_iter().enumerate() {
+                arr.insert(idx + offset, v);
+            }
+            return Ok(());
+        }
         let dest = self.parent_table_mut(&target.parent)?;
         // Pre-pass: resolve every final key and detect a Cancel collision BEFORE
         // mutating, so a multi-entry fragment that collides part-way leaves the
@@ -68,11 +87,43 @@ impl TomlDocument {
             }
             insertions.push((key, item.clone()));
         }
-        // Apply only after the whole fragment passed the collision check.
+        // Apply only after the whole fragment passed the collision check. For an
+        // existing key (Overwrite), replace only the value via `get_mut` so the
+        // key's decor — which holds any standalone comment above it — survives;
+        // `Table::insert` would drop that decor and the comment with it.
         for (key, item) in insertions {
-            dest.insert(&key, item);
+            match dest.get_mut(&key) {
+                Some(slot) => *slot = item,
+                None => {
+                    dest.insert(&key, item);
+                }
+            }
         }
         Ok(())
+    }
+
+    /// Resolve a `Key+ Index*` path (a run of table keys, then the array key, then
+    /// zero or more array-index descents for nested arrays) to the mutable `Array`
+    /// it names, or `None` if it does not name an array. Used both to append bare
+    /// elements and to address an element for replacement, including in `[[…]]`-free
+    /// nested arrays (`[[1,2],[3,4]]`).
+    fn array_at_mut(&mut self, path: &[Seg]) -> Option<&mut Array> {
+        // The array key is the last `Key`; everything after it descends arrays.
+        let key_pos = path.iter().rposition(|s| matches!(s, Seg::Key(_)))?;
+        let key = match &path[key_pos] {
+            Seg::Key(k) => k.as_str(),
+            _ => return None,
+        };
+        let tbl = self.parent_table_mut(&path[..key_pos]).ok()?;
+        let mut arr = tbl.get_mut(key).and_then(Item::as_array_mut)?;
+        for seg in &path[key_pos + 1..] {
+            let i = match seg {
+                Seg::Index(i) => *i,
+                Seg::Key(_) => return None,
+            };
+            arr = arr.get_mut(i).and_then(|v| v.as_array_mut())?;
+        }
+        Some(arr)
     }
 
     /// Walk to the mutable table that directly contains the final segment.
@@ -107,7 +158,9 @@ impl TomlDocument {
         let (parent, last) = path.split_at(path.len().saturating_sub(1));
         let expected_key = match last.first() {
             Some(Seg::Key(k)) => k.as_str(),
-            _ => return Err(MutateError::Unsupported),
+            // Array scalar element: `parent` is the all-`Key` path to the array.
+            Some(Seg::Index(idx)) => return self.replace_array_element(parent, *idx, toml),
+            None => return Err(MutateError::Unsupported),
         };
         let frag = crate::model::fragment::parse_fragment(toml)?;
         if frag.iter().any(|(k, _)| k != expected_key) {
@@ -123,6 +176,92 @@ impl TomlDocument {
             toml,
             crate::model::document::OnCollision::Overwrite,
         )
+    }
+
+    /// Replace a single scalar element at `idx` inside the array addressed by the
+    /// `Key+ Index*` path `array_path` (supports nested arrays). `toml` is the
+    /// validated `<key> = <value>` fragment from the inline editor; the key is a
+    /// placeholder and is ignored — only the value is written, preserving every
+    /// other element and its format.
+    fn replace_array_element(
+        &mut self,
+        array_path: &[Seg],
+        idx: usize,
+        toml: &str,
+    ) -> Result<(), MutateError> {
+        let frag = crate::model::fragment::parse_fragment(toml)?;
+        let mut value = frag
+            .iter()
+            .next()
+            .and_then(|(_, item)| item.as_value())
+            .ok_or_else(|| MutateError::Fragment("expected a scalar value".into()))?
+            .clone();
+        let arr = self.array_at_mut(array_path).ok_or(MutateError::NotFound)?;
+        if idx >= arr.len() {
+            return Err(MutateError::NotFound);
+        }
+        // Carry over the old element's surrounding whitespace (prefix/suffix) so a
+        // multiline array keeps its per-element indentation/newlines after the edit.
+        if let Some(old) = arr.get(idx) {
+            let decor = old.decor().clone();
+            *value.decor_mut() = decor;
+        }
+        arr.replace(idx, value);
+        Ok(())
+    }
+
+    /// Walk to the concrete `&mut Table` that directly contains the final segment,
+    /// following only `Key` segments through standard `[table]`s (not inline
+    /// tables). Used by `rename`, which needs `Table`-only APIs (`remove_entry`,
+    /// `insert_formatted`) that the `TableLike` trait does not expose.
+    fn concrete_table_mut(&mut self, parent: &[Seg]) -> Option<&mut toml_edit::Table> {
+        let mut tbl = self.doc.as_table_mut();
+        for seg in parent {
+            match seg {
+                Seg::Key(k) => tbl = tbl.get_mut(k).and_then(Item::as_table_mut)?,
+                Seg::Index(_) => return None,
+            }
+        }
+        Some(tbl)
+    }
+
+    /// Rename the key at `path` to `new_key`, preserving its position, decor (incl.
+    /// any standalone comment above it), and every other entry byte-for-byte. The
+    /// whole table is re-inserted in order: unchanged keys keep their exact `Key`
+    /// object, and the target gets a fresh `Key` carrying the old leaf decor.
+    fn rename(&mut self, path: &[Seg], new_key: &str) -> Result<(), MutateError> {
+        let (parent, last) = path.split_at(path.len().saturating_sub(1));
+        let old = match last.first() {
+            Some(Seg::Key(k)) => k.clone(),
+            _ => return Err(MutateError::Unsupported),
+        };
+        if new_key == old {
+            return Ok(());
+        }
+        let new_base: toml_edit::Key = new_key
+            .parse()
+            .map_err(|e: toml_edit::TomlError| MutateError::Fragment(e.to_string()))?;
+        let tbl = self
+            .concrete_table_mut(parent)
+            .ok_or(MutateError::NotFound)?;
+        if !tbl.contains_key(&old) {
+            return Err(MutateError::NotFound);
+        }
+        if tbl.contains_key(new_key) {
+            return Err(MutateError::Collision(new_key.to_string()));
+        }
+        let order: Vec<String> = tbl.iter().map(|(k, _)| k.to_string()).collect();
+        for k in order {
+            let (key_obj, item) = tbl.remove_entry(&k).expect("key listed from iter");
+            if k == old {
+                let mut nk = new_base.clone();
+                *nk.leaf_decor_mut() = key_obj.leaf_decor().clone();
+                tbl.insert_formatted(&nk, item);
+            } else {
+                tbl.insert_formatted(&key_obj, item);
+            }
+        }
+        Ok(())
     }
 
     /// Move `sources` under `target`. Atomic on any error: a snapshot is taken
@@ -504,6 +643,7 @@ impl ConfigDocument for TomlDocument {
                 on_collision,
             } => self.insert_fragment(&target, &toml, on_collision),
             Mutation::Replace { path, toml } => self.replace(&path, &toml),
+            Mutation::Rename { path, new_key } => self.rename(&path, &new_key),
             Mutation::Remark { path } => self.remark(&path),
             Mutation::Move {
                 sources,
@@ -687,6 +827,140 @@ mod tests {
         })
         .unwrap();
         assert!(doc.serialize().contains("port = 9090"));
+    }
+
+    #[test]
+    fn replace_array_element_preserves_others_and_format() {
+        // `e` inline write-back for a scalar array element: only the addressed
+        // element changes; the others keep their value and written format.
+        use crate::model::document::Mutation;
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("arr = [0x1, 0o2, 3] # tail\n");
+        doc.apply(Mutation::Replace {
+            path: vec![Seg::Key("arr".into()), Seg::Index(1)],
+            toml: "__elem__ = 99\n".into(),
+        })
+        .unwrap();
+        assert_eq!(doc.serialize(), "arr = [0x1, 99, 3] # tail\n");
+    }
+
+    #[test]
+    fn replace_array_element_preserves_multiline_decor() {
+        // Editing one element of a multiline array keeps the per-element newline
+        // indentation (carried over from the old element's decor).
+        use crate::model::document::Mutation;
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("ml = [\n  \"first\",\n  \"second\",\n]\n");
+        doc.apply(Mutation::Replace {
+            path: vec![Seg::Key("ml".into()), Seg::Index(0)],
+            toml: "__elem__ = \"FIRST\"\n".into(),
+        })
+        .unwrap();
+        assert_eq!(doc.serialize(), "ml = [\n  \"FIRST\",\n  \"second\",\n]\n");
+    }
+
+    #[test]
+    fn replace_nested_array_element() {
+        // A scalar in an array-of-arrays is addressable by a `Key Index Index` path.
+        use crate::model::document::Mutation;
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("nested = [[1, 2], [3, 4]]\n");
+        doc.apply(Mutation::Replace {
+            path: vec![Seg::Key("nested".into()), Seg::Index(1), Seg::Index(0)],
+            toml: "_ = 99\n".into(),
+        })
+        .unwrap();
+        assert_eq!(doc.serialize(), "nested = [[1, 2], [99, 4]]\n");
+    }
+
+    #[test]
+    fn insert_appends_array_element() {
+        // `a` on an array inserts a bare value element (not a key/value pair).
+        use crate::model::document::{Mutation, OnCollision, Target};
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("arr = [1, 2]\nempty = []\n");
+        doc.apply(Mutation::Insert {
+            target: Target {
+                parent: vec![Seg::Key("arr".into())],
+                index: 1,
+            },
+            toml: "_ = 9\n".into(),
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        doc.apply(Mutation::Insert {
+            target: Target {
+                parent: vec![Seg::Key("empty".into())],
+                index: 0,
+            },
+            toml: "_ = \"x\"\n".into(),
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(doc.serialize(), "arr = [1, 9, 2]\nempty = [\"x\"]\n");
+    }
+
+    #[test]
+    fn rename_preserves_order_comment_and_other_keys() {
+        use crate::model::document::Mutation;
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("# lead\na = 1 # ta\nb = 2\nc = 3\n");
+        doc.apply(Mutation::Rename {
+            path: vec![Seg::Key("b".into())],
+            new_key: "beta".into(),
+        })
+        .unwrap();
+        // order preserved, b->beta, every other line byte-identical (incl. comments)
+        assert_eq!(doc.serialize(), "# lead\na = 1 # ta\nbeta = 2\nc = 3\n");
+    }
+
+    #[test]
+    fn rename_preserves_comment_above_renamed_key() {
+        use crate::model::document::Mutation;
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("# hint\nold = 5\n");
+        doc.apply(Mutation::Rename {
+            path: vec![Seg::Key("old".into())],
+            new_key: "fresh".into(),
+        })
+        .unwrap();
+        assert_eq!(doc.serialize(), "# hint\nfresh = 5\n");
+    }
+
+    #[test]
+    fn rename_rejects_collision_and_invalid_key() {
+        use crate::model::document::{MutateError, Mutation};
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("a = 1\nb = 2\n");
+        let collide = doc.apply(Mutation::Rename {
+            path: vec![Seg::Key("a".into())],
+            new_key: "b".into(),
+        });
+        assert!(matches!(collide, Err(MutateError::Collision(_))));
+        let invalid = doc.apply(Mutation::Rename {
+            path: vec![Seg::Key("a".into())],
+            new_key: "bad key".into(),
+        });
+        assert!(matches!(invalid, Err(MutateError::Fragment(_))));
+        // document untouched after both rejections
+        assert_eq!(doc.serialize(), "a = 1\nb = 2\n");
+    }
+
+    #[test]
+    fn replace_keeps_standalone_comment_above_key() {
+        // Editing the value below a standalone comment must not drop the comment
+        // (regression: `Table::insert` over an existing key wiped its decor).
+        use crate::model::document::Mutation;
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("# leading\nport = 8080\n");
+        doc.apply(Mutation::Replace {
+            path: vec![Seg::Key("port".into())],
+            toml: "port = 9090\n".into(),
+        })
+        .unwrap();
+        let s = doc.serialize();
+        assert!(s.contains("# leading"), "comment dropped: {s:?}");
+        assert!(s.contains("port = 9090"), "value not updated: {s:?}");
     }
 
     #[test]

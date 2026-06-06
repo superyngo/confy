@@ -21,16 +21,27 @@ cargo run -- <file.toml>      # run against a TOML file
 MVP ships only the TOML backend (`TomlDocument`). The trait exposes `load`, `serialize`, and
 `apply(Mutation)`.
 
-**`Mutation` enum** is the closed set of document operations (Insert, Delete, Replace, Move,
-Remark). `apply` dispatches each variant to the corresponding `toml_edit` manipulation and
-rebuilds the Node tree projection afterward.
+**`Mutation` enum** is the closed set of document operations (Insert, Delete, Replace, Rename,
+Move, Remark). `apply` dispatches each variant to the corresponding `toml_edit` manipulation and
+rebuilds the Node tree projection afterward. `Rename` is position- and decor-preserving (re-inserts
+the table in order, swapping only the target key) — there is no separate user-facing rename action;
+it is driven from the inline editor (see below).
 
-**Editing.** `e` edits a plain scalar (direct child of a Table/Root) in an in-TUI **inline
-editor** (`Mode::Edit`); nested arrays/tables and `E` always open `$EDITOR`. Inline commit and
-the `←/→` value-nudge both write back through `Mutation::Replace`. A scalar's **Format** (writing
-style: hex/oct/bin, basic/literal/multiline string, …) is derived read-only during projection and
-is orthogonal to its `ScalarType`. TOML has no null, so there is no clear-value operation; `a`
-seeds a new node with the empty string `""`.
+**Editing.** `e` edits a single-line scalar in an in-TUI **inline editor** (`Mode::Edit`) — a direct
+child of a Table/Root, or a scalar **element of an array** addressed by a `Key+ Index*` path
+(including array-of-arrays nesting; written back via `Replace` on the trailing `Index`, routed by
+`replace_array_element` → `Array::replace`, with `array_at_mut` descending nested arrays). The inline
+editor edits one field at a time: **`Tab` toggles between Value (default) and Name**; committing a
+changed Name applies a `Mutation::Rename` first, then the value `Replace` (Tab is disabled for array
+elements, which have no key). Both columns share one horizontal-scroll/overflow treatment
+(`edit_field_spans`). A node nested inside an AoT, multiline strings, and `E` open `$EDITOR` —
+`edit_node` truncates the path at the first `Index` so the edit targets the nearest addressable
+container. Inline commit and the `←/→` value-nudge write back through `Mutation::Replace` (the nudge
+re-applies underscore digit grouping when the original had it). A scalar's **Format** (writing style:
+hex/oct/bin, basic/literal/multiline string, …) is derived read-only during projection and is
+orthogonal to its `ScalarType`. TOML has no null, so there is no clear-value operation; `a` seeds a
+new node with the empty string `""` — a key/value under a Table/Root, or a bare element when the
+target is an array (`insert_fragment` → `array_at_mut`).
 
 ## Module map
 
