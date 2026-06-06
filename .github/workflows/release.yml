@@ -1,0 +1,129 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            kind: linux
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            kind: linux-musl
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            kind: macos
+          # macOS Intel runner. Swap to `macos-13` if `macos-15-intel` is
+          # unavailable to your account.
+          - target: x86_64-apple-darwin
+            os: macos-15-intel
+            kind: macos
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            kind: windows
+            arch: x86_64
+          - target: i686-pc-windows-msvc
+            os: windows-latest
+            kind: windows
+            arch: i686
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # x86_64 musl builds natively on the GNU runner with musl-tools (no `cross`).
+      - name: Install musl tools
+        if: matrix.kind == 'linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      # Linux & macOS use the aggressive release profile from Cargo.toml
+      # (opt-level "z", fat LTO, strip = true).
+      - name: Build (Linux/macOS)
+        if: matrix.kind != 'windows'
+        run: cargo build --release --target ${{ matrix.target }}
+
+      # Windows overrides the profile via env to avoid antivirus false positives
+      # (no strip, thin LTO, unwind panics, static CRT).
+      - name: Build (Windows)
+        if: matrix.kind == 'windows'
+        shell: bash
+        env:
+          CARGO_PROFILE_RELEASE_OPT_LEVEL: "3"
+          CARGO_PROFILE_RELEASE_LTO: "thin"
+          CARGO_PROFILE_RELEASE_STRIP: "false"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+          CARGO_PROFILE_RELEASE_PANIC: "unwind"
+          RUSTFLAGS: "-C target-feature=+crt-static"
+        run: cargo build --release --target ${{ matrix.target }}
+
+      # Linux/macOS: tar.gz with the bare `confy` binary at the root.
+      - name: Package (Linux/macOS)
+        if: matrix.kind != 'windows'
+        shell: bash
+        run: |
+          bin="target/${{ matrix.target }}/release/confy"
+          tar -C "$(dirname "$bin")" -czf "confy-${{ matrix.target }}.tar.gz" confy
+
+      # Windows: ship the bare .exe (no archive).
+      - name: Package (Windows)
+        if: matrix.kind == 'windows'
+        shell: bash
+        run: cp "target/${{ matrix.target }}/release/confy.exe" "confy-windows-${{ matrix.arch }}.exe"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: |
+            confy-*.tar.gz
+            confy-windows-*.exe
+          if-no-files-found: ignore
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 0 so the annotated tag message is available for the preamble.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate SHA256SUMS
+        working-directory: artifacts
+        run: |
+          sha256sum confy-* > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Annotated tag message → release preamble
+        run: git tag -l --format='%(contents)' "${GITHUB_REF_NAME}" > TAG_BODY.md
+
+      - uses: softprops/action-gh-release@v1
+        with:
+          body_path: TAG_BODY.md
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          files: |
+            artifacts/confy-*.tar.gz
+            artifacts/confy-windows-*.exe
+            artifacts/SHA256SUMS
