@@ -40,7 +40,7 @@ jobs:
             kind: windows
             arch: i686
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -85,7 +85,7 @@ jobs:
         shell: bash
         run: cp "target/${{ matrix.target }}/release/confy.exe" "confy-windows-${{ matrix.arch }}.exe"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.target }}
           path: |
@@ -99,11 +99,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # fetch-depth: 0 so the annotated tag message is available for the preamble.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           path: artifacts
           merge-multiple: true
