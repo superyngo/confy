@@ -102,10 +102,14 @@ or **Esc** clears the filter back to `Mode::Normal`. `App.last_filter` remembers
 query so `/` (`enter_filter`) prefills it and re-applies the live filter. `FilterResults` reuses the
 Normal key dispatch (no early-return block); its only differences are mode-aware `escape`
 (`exit_filter_results`, keeps `last_filter`) and `/` (`enter_filter`, to refine). Esc fully unfilters
-(`filtered_paths = None`) — `last_filter` is pure memory, never a persisted filter. While a filter is
-active the matched chars are highlighted in the NAME/VALUE cells (`search::fuzzy_indices` →
-`ui::highlight_spans`, run per-field against each cell's own text; gated on a non-empty query, not the
-mode, so the highlight survives an inline edit / detail popup). Transient overlays (detail popup,
+(`filtered_paths = None`) — `last_filter` is pure memory, never a persisted filter. The fuzzy query
+matches a node's **key/path** plus a **Comment node's own text** (`recompute_filter` builds the haystack
+from `path_keys`, excluding synthetic `#comment:N` keys, and appends the comment text for a Comment
+node); a scalar's **value is never matched** — this keeps a loose query from fuzzily hitting unrelated
+values while leaving comments searchable as standalone nodes. While a filter is active the matched chars are
+highlighted in the **NAME cell** (`search::fuzzy_indices` → `ui::highlight_spans`; gated on a non-empty
+query, not the mode, so the highlight survives an inline edit / detail popup; a Comment node's NAME
+shows its text, so its match highlights there too). Transient overlays (detail popup,
 inline editor) close back into the filtered selection via `App::resting_mode` (`FilterResults` when
 `filtered_paths.is_some()`, else `Normal`) — `exit_detail`/`edit_cancel`/`edit_commit` use it.
 

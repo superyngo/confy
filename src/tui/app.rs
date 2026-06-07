@@ -351,24 +351,25 @@ impl App {
             ancestors: &mut HashSet<Path>,
             needle: &str,
         ) {
+            // Match on the node's key/path (skipping the synthetic `#comment:N`
+            // keys), plus — for a Comment node — its own text, so a comment is
+            // searchable as a standalone node. A scalar's *value* is still never
+            // matched, and matching the comment's single text (not the old
+            // value+comment duplicate in the haystack) keeps a loose query like
+            // `array` from fuzzily dragging in unrelated section comments.
             let path_keys: Vec<&str> = n
                 .path
                 .iter()
                 .filter_map(|s| match s {
-                    Seg::Key(k) => Some(k.as_str()),
+                    Seg::Key(k) if !k.starts_with("#comment:") => Some(k.as_str()),
                     _ => None,
                 })
                 .collect();
-            let leaf_value = if n.is_leaf() {
-                n.value.as_deref()
-            } else {
-                None
-            };
-            let comment = match &n.kind {
+            let comment_text = match &n.kind {
                 crate::model::node::NodeKind::Comment(c) => Some(c.as_str()),
                 _ => None,
             };
-            let h = haystack(&path_keys, leaf_value, comment);
+            let h = haystack(&path_keys, None, comment_text);
             if fuzzy_match(&h, needle) {
                 matching.insert(n.path.clone());
                 for anc in ancestor_paths.iter() {
@@ -2517,18 +2518,50 @@ mod tests {
     // --- Blocker 1: filter must match by scalar VALUE ---
 
     #[test]
-    fn filter_matches_by_scalar_value() {
+    fn filter_matches_key_not_value() {
         let mut app = app_with("port = 8080\nhost = \"localhost\"\n");
         app.expand_all();
         app.rebuild_rows();
+        // A scalar's value (`8080`) is never searched.
         app.enter_filter();
         for c in "8080".chars() {
             app.filter_char(c);
         }
         let keys = app.visible_keys();
         assert!(
+            !keys.iter().any(|k| k == "port"),
+            "value 8080 must not match the key `port`, got: {keys:?}"
+        );
+        // The key itself still matches; non-matching siblings are hidden.
+        app.exit_filter();
+        app.enter_filter();
+        for c in "port".chars() {
+            app.filter_char(c);
+        }
+        let keys = app.visible_keys();
+        assert!(
             keys.iter().any(|k| k == "port"),
-            "port (value=8080) should be visible after filtering for '8080', got: {keys:?}"
+            "key match works: {keys:?}"
+        );
+        assert!(
+            !keys.iter().any(|k| k == "host"),
+            "host filtered out: {keys:?}"
+        );
+    }
+
+    #[test]
+    fn filter_matches_comment_by_its_text() {
+        // A comment node is searchable by its own text (standalone node).
+        let mut app = app_with("# database tuning\nport = 8080\n");
+        app.rebuild_rows();
+        app.enter_filter();
+        for c in "database".chars() {
+            app.filter_char(c);
+        }
+        assert!(
+            app.visible_keys().iter().any(|k| k.contains("database")),
+            "comment matched by its text, got: {:?}",
+            app.visible_keys()
         );
     }
 

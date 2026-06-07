@@ -269,20 +269,18 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                 },
                 _ => {
                     // When a filter is active, highlight the fuzzy-matched chars in
-                    // the NAME and VALUE cells (per-field, after the tree prefix).
-                    // Gated on the query, not the mode, so the highlight survives an
-                    // inline edit or detail popup opened from the filtered list.
+                    // the NAME cell only (after the tree prefix) — the filter matches
+                    // key/path, not value, so VALUE is never highlighted. Gated on the
+                    // query, not the mode, so the highlight survives an inline edit or
+                    // detail popup opened from the filtered list.
                     let needle = app.filter.as_str();
-                    let val_disp = cell_preview(row.value.as_deref().unwrap_or(""));
+                    let val_cell = Cell::from(cell_preview(row.value.as_deref().unwrap_or("")));
                     if needle.is_empty() {
-                        (Cell::from(name), Cell::from(val_disp))
+                        (Cell::from(name), val_cell)
                     } else {
                         let mut name_spans = vec![Span::raw(prefix.clone())];
                         name_spans.extend(highlight_spans(&cell_preview(&row.key), needle));
-                        (
-                            Cell::from(Line::from(name_spans)),
-                            Cell::from(Line::from(highlight_spans(&val_disp, needle))),
-                        )
+                        (Cell::from(Line::from(name_spans)), val_cell)
                     }
                 }
             };
