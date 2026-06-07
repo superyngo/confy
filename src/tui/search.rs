@@ -23,6 +23,17 @@ pub fn fuzzy_match(haystack: &str, needle: &str) -> bool {
         .is_some()
 }
 
+/// Char indices in `haystack` that the fuzzy `needle` matched (for highlighting),
+/// or `None` when there is no match / the needle is empty.
+pub fn fuzzy_indices(haystack: &str, needle: &str) -> Option<Vec<usize>> {
+    if needle.is_empty() {
+        return None;
+    }
+    SkimMatcherV2::default()
+        .fuzzy_indices(haystack, needle)
+        .map(|(_, idx)| idx)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -38,5 +49,12 @@ mod tests {
     fn matches_filter() {
         assert!(fuzzy_match("server.port 8080", "srvport"));
         assert!(!fuzzy_match("server.host", "zzz"));
+    }
+
+    #[test]
+    fn fuzzy_indices_returns_matched_positions() {
+        assert_eq!(fuzzy_indices("axbycz", "abc"), Some(vec![0, 2, 4]));
+        assert_eq!(fuzzy_indices("server", "zzz"), None);
+        assert_eq!(fuzzy_indices("server", ""), None);
     }
 }

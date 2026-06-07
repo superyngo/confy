@@ -101,7 +101,13 @@ uniformly; the App seeds `[]` into `expanded` so it starts open, and `collapse_a
 or **Esc** clears the filter back to `Mode::Normal`. `App.last_filter` remembers the last committed
 query so `/` (`enter_filter`) prefills it and re-applies the live filter. `FilterResults` reuses the
 Normal key dispatch (no early-return block); its only differences are mode-aware `escape`
-(`exit_filter_results`, keeps `last_filter`) and `/` (`enter_filter`, to refine).
+(`exit_filter_results`, keeps `last_filter`) and `/` (`enter_filter`, to refine). Esc fully unfilters
+(`filtered_paths = None`) — `last_filter` is pure memory, never a persisted filter. While a filter is
+active the matched chars are highlighted in the NAME/VALUE cells (`search::fuzzy_indices` →
+`ui::highlight_spans`, run per-field against each cell's own text; gated on a non-empty query, not the
+mode, so the highlight survives an inline edit / detail popup). Transient overlays (detail popup,
+inline editor) close back into the filtered selection via `App::resting_mode` (`FilterResults` when
+`filtered_paths.is_some()`, else `Normal`) — `exit_detail`/`edit_cancel`/`edit_commit` use it.
 
 **Multi-select.** `Selection` holds `committed` (finalized rows + `s` toggles) and an in-progress
 `round` (`anchor..=cursor`); the live set is their union. A Shift+Arrow run extends `round`; the next

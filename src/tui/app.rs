@@ -242,6 +242,18 @@ impl App {
         self.expanded.contains(path)
     }
 
+    /// The mode to rest in after a transient overlay/editor (detail popup, inline
+    /// editor) closes: stay in the filtered-result selection when a filter is
+    /// active, so the highlight, `[filter: …]` status, and Esc-clears-filter
+    /// behavior persist; otherwise plain Normal.
+    fn resting_mode(&self) -> Mode {
+        if self.filtered_paths.is_some() {
+            Mode::FilterResults
+        } else {
+            Mode::Normal
+        }
+    }
+
     // ---- Filter (/) ----
 
     /// `/` — enter the filter input, restoring the last committed query (if any)
@@ -467,7 +479,7 @@ impl App {
     /// Esc from detail view.
     pub fn exit_detail(&mut self) {
         self.detail_text = None;
-        self.mode = Mode::Normal;
+        self.mode = self.resting_mode();
     }
 
     // ---- Help (?) ----
@@ -882,7 +894,7 @@ impl App {
     }
 
     pub fn edit_cancel(&mut self) {
-        self.mode = Mode::Normal;
+        self.mode = self.resting_mode();
         self.pending_edit = None;
         self.status = None;
     }
@@ -893,7 +905,11 @@ impl App {
     /// — if the scalar's displayed type would change — stash it and enter a
     /// TypeChange confirm prompt. On any failure: set status, stay in the editor.
     pub fn edit_commit(&mut self) {
-        let mut e = match std::mem::replace(&mut self.mode, Mode::Normal) {
+        // Default to the resting mode (FilterResults when filtered, else Normal) so
+        // a successful commit stays in the filtered-result selection; error paths
+        // below override back to Edit.
+        let rest = self.resting_mode();
+        let mut e = match std::mem::replace(&mut self.mode, rest) {
             Mode::Edit(e) => e,
             other => {
                 self.mode = other;
@@ -2546,6 +2562,35 @@ mod tests {
         assert_eq!(app.filter, "port");
         assert_eq!(app.filter_cursor, 4);
         assert!(app.filtered_paths.is_some());
+    }
+
+    #[test]
+    fn detail_and_edit_return_to_filter_results_when_filtered() {
+        let mut app = app_with("port = 8080\nhost = \"localhost\"\n");
+        app.rebuild_rows();
+        app.enter_filter();
+        for c in "port".chars() {
+            app.filter_char(c);
+        }
+        app.commit_filter();
+        assert!(matches!(app.mode, Mode::FilterResults));
+        // Detail popup: open then close returns to the filtered selection.
+        app.open_detail();
+        assert!(matches!(app.mode, Mode::Detail));
+        app.exit_detail();
+        assert!(matches!(app.mode, Mode::FilterResults));
+        assert!(app.filtered_paths.is_some());
+        assert_eq!(
+            app.filter, "port",
+            "filter (and its highlight) survives detail"
+        );
+        // Inline edit: cancel returns to the filtered selection too.
+        app.cursor = app.rows.iter().position(|r| r.key == "port").unwrap();
+        app.begin_inline_edit();
+        assert!(matches!(app.mode, Mode::Edit(_)));
+        app.edit_cancel();
+        assert!(matches!(app.mode, Mode::FilterResults));
+        assert_eq!(app.filter, "port");
     }
 
     #[test]

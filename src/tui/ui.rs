@@ -120,6 +120,45 @@ fn edit_overflow_hint(scroll: usize, len: usize, width: usize) -> Option<String>
     Some(format!("⟨{}–{}/{}⟩", start + 1, end, len))
 }
 
+/// Build display spans for `text`, reverse-highlighting the characters that the
+/// fuzzy `needle` matched (per-field: run against the cell's own text so the match
+/// aligns with what's shown). No match → a single plain span. Consecutive
+/// same-style chars are coalesced into one span.
+fn highlight_spans(text: &str, needle: &str) -> Vec<Span<'static>> {
+    let hl = Style::default()
+        .fg(Color::Yellow)
+        .add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
+    let matched: std::collections::HashSet<usize> =
+        match crate::tui::search::fuzzy_indices(text, needle) {
+            Some(idx) if !idx.is_empty() => idx.into_iter().collect(),
+            _ => return vec![Span::raw(text.to_string())],
+        };
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut buf = String::new();
+    let mut buf_hl = false;
+    for (i, ch) in text.chars().enumerate() {
+        let is_hl = matched.contains(&i);
+        if is_hl != buf_hl && !buf.is_empty() {
+            let s = std::mem::take(&mut buf);
+            spans.push(if buf_hl {
+                Span::styled(s, hl)
+            } else {
+                Span::raw(s)
+            });
+        }
+        buf_hl = is_hl;
+        buf.push(ch);
+    }
+    if !buf.is_empty() {
+        spans.push(if buf_hl {
+            Span::styled(buf, hl)
+        } else {
+            Span::raw(buf)
+        });
+    }
+    spans
+}
+
 pub fn draw(f: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -228,10 +267,24 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                         )
                     }
                 },
-                _ => (
-                    Cell::from(name),
-                    Cell::from(cell_preview(row.value.as_deref().unwrap_or(""))),
-                ),
+                _ => {
+                    // When a filter is active, highlight the fuzzy-matched chars in
+                    // the NAME and VALUE cells (per-field, after the tree prefix).
+                    // Gated on the query, not the mode, so the highlight survives an
+                    // inline edit or detail popup opened from the filtered list.
+                    let needle = app.filter.as_str();
+                    let val_disp = cell_preview(row.value.as_deref().unwrap_or(""));
+                    if needle.is_empty() {
+                        (Cell::from(name), Cell::from(val_disp))
+                    } else {
+                        let mut name_spans = vec![Span::raw(prefix.clone())];
+                        name_spans.extend(highlight_spans(&cell_preview(&row.key), needle));
+                        (
+                            Cell::from(Line::from(name_spans)),
+                            Cell::from(Line::from(highlight_spans(&val_disp, needle))),
+                        )
+                    }
+                }
             };
             let style = if i == app.cursor {
                 Style::default()
@@ -471,6 +524,26 @@ mod tests {
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
     use std::io::Write;
+
+    #[test]
+    fn highlight_spans_marks_matched_chars() {
+        let spans = highlight_spans("server", "svr");
+        let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(text, "server", "all chars preserved in order");
+        assert!(
+            spans
+                .iter()
+                .any(|s| s.style.add_modifier.contains(Modifier::UNDERLINED)),
+            "matched chars should be highlighted"
+        );
+    }
+
+    #[test]
+    fn highlight_spans_no_match_is_single_plain_span() {
+        let spans = highlight_spans("server", "zzz");
+        assert_eq!(spans.len(), 1);
+        assert!(!spans[0].style.add_modifier.contains(Modifier::UNDERLINED));
+    }
 
     /// Render a real document to a TestBackend and return the buffer as text lines.
     fn render(src: &str, w: u16, h: u16) -> Vec<String> {
