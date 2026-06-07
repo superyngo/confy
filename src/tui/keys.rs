@@ -86,6 +86,7 @@ pub fn help_text() -> &'static str {
  d            Delete            x/c/v       Cut/copy/paste
  m            Move (2-press)    r           Remark toggle
  z/y          Undo/redo         /           Fuzzy filter
+ /…Enter      Lock in filtered list   Esc   Clear filter / selection
  w/Ctrl+s     Save              q           Quit
  ?            This help
  "

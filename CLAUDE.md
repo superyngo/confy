@@ -25,7 +25,14 @@ MVP ships only the TOML backend (`TomlDocument`). The trait exposes `load`, `ser
 Move, Remark, EditComment). `apply` dispatches each variant to the corresponding `toml_edit` manipulation and
 rebuilds the Node tree projection afterward. `Rename` is position- and decor-preserving (re-inserts
 the table in order, swapping only the target key) — there is no separate user-facing rename action;
-it is driven from the inline editor (see below).
+it is driven from the inline editor (see below). `Replace` with an **empty path** targets the whole
+document (external `E` on the root/file node): it reparses the edited text as a full `DocumentMut`,
+rejecting invalid TOML as `Fragment` (doc untouched) rather than the old `Unsupported`.
+
+**Projection of dotted tables.** Both dotted *keys* (`a.b.c = 1`) and dotted *headers* (`[x.a]` with
+no `[x]`) produce an implicit parent in `toml_edit`, but only dotted keys are also `is_dotted()`.
+`project_table`/`flatten_dotted` flatten on `is_implicit() && is_dotted()` — so `a.b.c` collapses to
+one node, while a header-implied parent (`is_dotted() == false`) projects as a real nested branch.
 
 **Editing.** `e` edits a single-line scalar in an in-TUI **inline editor** (`Mode::Edit`) — a direct
 child of a Table/Root, a scalar **member of an inline table** (`pt = { x = 1 }`), a scalar **member of
@@ -52,7 +59,11 @@ are kept and addressed directly — so `E` on an AoT **entry** (`product[0]`) se
 For a **structured** node (table/inline table/array/AoT) the
 editor fragment carries the node's adjacent leading comment(s) (`serialize_node_fragment_opts` copies
 the key's `leaf_decor` prefix; tables already carry theirs in the item decor), and `replace` syncs that
-key decor back from the edited fragment so comment edits round-trip — scalars never carry comments. Inline commit and the `←/→` value-nudge write back through `Mutation::Replace` (the nudge
+key decor back from the edited fragment so comment edits round-trip — scalars never carry comments. The
+fragment's **leading blank separator** is trimmed from the editor view (`split_leading_blank_lines`, so
+`E` opens at the comment/header, not an empty line) but **re-attached on write-back** — `replace`
+(table item decor / array key leaf_decor) and `replace_aot_entry` (entry decor) prepend the original
+node's leading blanks to the trimmed fragment decor, so file spacing round-trips byte-identically. Inline commit and the `←/→` value-nudge write back through `Mutation::Replace` (the nudge
 re-applies underscore digit grouping when the original had it). A scalar's **Format** (writing style:
 hex/oct/bin, basic/literal/multiline string, …) is derived read-only during projection and is
 orthogonal to its `ScalarType`. TOML has no null, so there is no clear-value operation; `a` seeds a
@@ -79,6 +90,24 @@ decor, every `[[aot]]` entry prefix (`transform_aot_entry_prefixes`) — plus th
 root, stopping at the first slot the text-matching transform changes. This reaches a comment before **any**
 item (not just the first), an AoT parent's between-entry comments, and comments inside an AoT entry alike.
 (A comment text that is a substring of an earlier-swept comment is the one edge the sweep can mis-target.)
+
+**Navigation.** Expand/collapse state is an `App.expanded: HashSet<Path>` of open branch paths. The
+**root/file node has the empty path** and is collapsible like any branch — `flatten` treats it
+uniformly; the App seeds `[]` into `expanded` so it starts open, and `collapse_all` (`0`) re-inserts
+`[]` so it keeps the file node open (only an explicit toggle on the root row hides everything).
+
+**Filter.** `/` is a three-state flow: `Mode::Filter` (the inline `/` input field) → **Enter** →
+`Mode::FilterResults` (browse/select/edit the locked-in filtered list, status shows `[filter: …]`),
+or **Esc** clears the filter back to `Mode::Normal`. `App.last_filter` remembers the last committed
+query so `/` (`enter_filter`) prefills it and re-applies the live filter. `FilterResults` reuses the
+Normal key dispatch (no early-return block); its only differences are mode-aware `escape`
+(`exit_filter_results`, keeps `last_filter`) and `/` (`enter_filter`, to refine).
+
+**Multi-select.** `Selection` holds `committed` (finalized rows + `s` toggles) and an in-progress
+`round` (`anchor..=cursor`); the live set is their union. A Shift+Arrow run extends `round`; the next
+Shift+Arrow after any non-shift key (tracked by `App.last_action_was_shift_select`, reset in the event
+loop) starts a fresh round, folding the old one into `committed` — so runs union (separate or
+overlapping) rather than re-extending the first anchor. `Esc` in `Mode::Normal` clears the selection.
 
 ## Module map
 

@@ -4,6 +4,35 @@ use anyhow::Context;
 use std::path::{Path, PathBuf};
 use toml_edit::{Array, DocumentMut, Item, TableLike};
 
+/// Split a decor string into (leading blank lines, rest). The first element is the
+/// maximal run of whitespace-only lines (the `\n` separators) at the start; the
+/// second begins at the first line carrying non-whitespace content (e.g. a
+/// comment, or the value/header itself). Used to keep a structured node's leading
+/// blank separator(s) out of the `$EDITOR` view while re-attaching them on
+/// write-back, so file spacing round-trips unchanged.
+pub(crate) fn split_leading_blank_lines(s: &str) -> (&str, &str) {
+    let mut idx = 0;
+    loop {
+        let rest = &s[idx..];
+        match rest.find('\n') {
+            Some(rel) => {
+                if s[idx..idx + rel].trim().is_empty() {
+                    idx += rel + 1;
+                } else {
+                    break;
+                }
+            }
+            None => {
+                if rest.trim().is_empty() {
+                    idx = s.len();
+                }
+                break;
+            }
+        }
+    }
+    s.split_at(idx)
+}
+
 fn find_node_by_path<'a>(
     node: &'a crate::model::node::Node,
     path: &[Seg],
@@ -317,6 +346,16 @@ impl TomlDocument {
     /// path's final segment and reject a rename with `Fragment`. (Position-preserving
     /// rename is out of scope for the MVP.)
     fn replace(&mut self, path: &[Seg], toml: &str) -> Result<(), MutateError> {
+        // An empty path targets the whole document (external `E` on the root/file
+        // node): reparse the edited text as a full document, validating it so a
+        // bad edit leaves the doc untouched and surfaces as `Fragment`.
+        if path.is_empty() {
+            let parsed = toml
+                .parse::<DocumentMut>()
+                .map_err(|e| MutateError::Fragment(e.to_string()))?;
+            self.doc = parsed;
+            return Ok(());
+        }
         let (parent, last) = path.split_at(path.len().saturating_sub(1));
         let expected_key = match last.first() {
             Some(Seg::Key(k)) => k.as_str(),
@@ -337,13 +376,14 @@ impl TomlDocument {
                 "Replace cannot rename key '{expected_key}'; fragment must keep the same key"
             )));
         }
-        // A structured node (array/inline table) keeps its leading standalone
-        // comment in the key's `leaf_decor`, which the value-only Overwrite below
-        // leaves untouched. Capture the edited fragment's key decor so it can be
-        // synced afterwards — letting comment edits round-trip. Scalars are skipped
-        // (their fragment carries no comment, so an inline/nudge edit never wipes a
-        // comment above the key); tables carry their comment in the item decor,
-        // which Overwrite already replaces, so the sync is a harmless no-op there.
+        // A structured node keeps its leading standalone comment in the key's
+        // `leaf_decor` (array/inline table) or the item decor (`[table]`), which the
+        // value-only Overwrite below would leave stale or replace with the edited
+        // (blank-trimmed) fragment's decor. Capture the edited fragment's key decor
+        // and the *original* node's leading blank separator(s) so both can be synced
+        // back afterwards — letting comment edits round-trip while preserving the
+        // blank lines the `$EDITOR` view intentionally hid. Scalars are skipped
+        // (their fragment carries no comment).
         let dest_structured = matches!(
             frag.get(expected_key),
             Some(Item::Table(_))
@@ -356,6 +396,29 @@ impl TomlDocument {
             .and_then(|k| k.leaf_decor().prefix().and_then(|r| r.as_str()))
             .unwrap_or("")
             .to_string();
+        // Leading blank separator(s) of the node as it exists now, taken before the
+        // Overwrite, to re-attach to the trimmed fragment decor on write-back.
+        let orig_lead = if dest_structured {
+            let mut pfx = String::new();
+            if let Ok(tbl) = self.parent_table_mut(parent) {
+                pfx = match tbl.get(expected_key) {
+                    Some(Item::Table(t)) => t
+                        .decor()
+                        .prefix()
+                        .and_then(|r| r.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    _ => tbl
+                        .key(expected_key)
+                        .and_then(|k| k.leaf_decor().prefix().and_then(|r| r.as_str()))
+                        .unwrap_or("")
+                        .to_string(),
+                };
+            }
+            split_leading_blank_lines(&pfx).0.to_string()
+        } else {
+            String::new()
+        };
         self.insert_fragment(
             &Target {
                 parent: parent.to_vec(),
@@ -366,8 +429,24 @@ impl TomlDocument {
         )?;
         if dest_structured {
             if let Ok(tbl) = self.parent_table_mut(parent) {
-                if let Some(mut km) = tbl.key_mut(expected_key) {
-                    km.leaf_decor_mut().set_prefix(frag_key_prefix);
+                match tbl.get_mut(expected_key) {
+                    // `[table]`: its leading comment/blank lives in the item decor.
+                    Some(Item::Table(t)) => {
+                        let cur = t
+                            .decor()
+                            .prefix()
+                            .and_then(|r| r.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        t.decor_mut().set_prefix(format!("{orig_lead}{cur}"));
+                    }
+                    // array / inline table: comment lives in the key's leaf_decor.
+                    _ => {
+                        if let Some(mut km) = tbl.key_mut(expected_key) {
+                            km.leaf_decor_mut()
+                                .set_prefix(format!("{orig_lead}{frag_key_prefix}"));
+                        }
+                    }
                 }
             }
         }
@@ -433,12 +512,30 @@ impl TomlDocument {
                 )))
             }
         };
+        let mut new_entry = new_entry;
         let tbl = self.parent_table_mut(head)?;
         let aot = match tbl.get_mut(&aot_key) {
             Some(Item::ArrayOfTables(a)) => a,
             _ => return Err(MutateError::NotFound),
         };
         let slot = aot.get_mut(idx).ok_or(MutateError::NotFound)?;
+        // Re-attach the original entry's leading blank separator(s), which the
+        // `$EDITOR` view trimmed, so spacing between entries round-trips unchanged.
+        let orig_lead = slot
+            .decor()
+            .prefix()
+            .and_then(|r| r.as_str())
+            .map(|p| split_leading_blank_lines(p).0.to_string())
+            .unwrap_or_default();
+        let cur = new_entry
+            .decor()
+            .prefix()
+            .and_then(|r| r.as_str())
+            .unwrap_or("")
+            .to_string();
+        new_entry
+            .decor_mut()
+            .set_prefix(format!("{orig_lead}{cur}"));
         *slot = new_entry;
         Ok(())
     }
@@ -1001,6 +1098,63 @@ mod tests {
             "untouched file must serialize byte-identically"
         );
         assert!(!doc.is_dirty());
+    }
+
+    #[test]
+    fn replace_empty_path_reparses_whole_document() {
+        let mut doc = doc_from_str("a = 1\nb = 2\n");
+        doc.apply(Mutation::Replace {
+            path: vec![],
+            toml: "a = 10\nc = 3\n".to_string(),
+        })
+        .unwrap();
+        assert_eq!(doc.serialize(), "a = 10\nc = 3\n");
+    }
+
+    #[test]
+    fn replace_empty_path_rejects_invalid_and_leaves_doc_intact() {
+        let mut doc = doc_from_str("a = 1\n");
+        let err = doc
+            .apply(Mutation::Replace {
+                path: vec![],
+                toml: "a = = bad".to_string(),
+            })
+            .unwrap_err();
+        assert!(matches!(err, MutateError::Fragment(_)));
+        assert_eq!(doc.serialize(), "a = 1\n", "doc must be untouched on error");
+    }
+
+    #[test]
+    fn split_leading_blank_lines_splits_blanks() {
+        assert_eq!(split_leading_blank_lines("\n# c\n"), ("\n", "# c\n"));
+        assert_eq!(split_leading_blank_lines("# c\n"), ("", "# c\n"));
+        assert_eq!(split_leading_blank_lines("\n\n"), ("\n\n", ""));
+        assert_eq!(split_leading_blank_lines(""), ("", ""));
+        assert_eq!(split_leading_blank_lines("  \n[t]"), ("  \n", "[t]"));
+    }
+
+    #[test]
+    fn replace_table_preserves_leading_blank_separator() {
+        // The $EDITOR view trims the blank above `[t]`; saving the (unchanged)
+        // trimmed fragment must re-attach it so spacing round-trips.
+        let mut doc = doc_from_str("a = 1\n\n# c\n[t]\nx = 1\n");
+        doc.apply(Mutation::Replace {
+            path: vec![Seg::Key("t".into())],
+            toml: "# c\n[t]\nx = 1\n".to_string(),
+        })
+        .unwrap();
+        assert_eq!(doc.serialize(), "a = 1\n\n# c\n[t]\nx = 1\n");
+    }
+
+    #[test]
+    fn replace_array_preserves_leading_blank_separator() {
+        let mut doc = doc_from_str("a = 1\n\n# c\narr = [1, 2]\n");
+        doc.apply(Mutation::Replace {
+            path: vec![Seg::Key("arr".into())],
+            toml: "# c\narr = [1, 2]\n".to_string(),
+        })
+        .unwrap();
+        assert_eq!(doc.serialize(), "a = 1\n\n# c\narr = [1, 2]\n");
     }
 
     #[test]

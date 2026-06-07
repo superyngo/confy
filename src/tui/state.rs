@@ -2,9 +2,16 @@ use crate::model::node::Path;
 
 pub enum Mode {
     Normal,
-    MovePending { sources: Vec<Path> },
+    MovePending {
+        sources: Vec<Path>,
+    },
     Prompt(PromptKind),
+    /// Typing a filter query (the inline `/` input field is shown).
     Filter,
+    /// Browsing/selecting within the locked-in filtered result list. Behaves like
+    /// `Normal` for navigation and edits, but the filter stays applied; `/` reopens
+    /// the input (prefilled) to refine, and Esc clears the filter.
+    FilterResults,
     Detail,
     Help,
     Edit(EditState),

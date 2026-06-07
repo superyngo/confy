@@ -187,9 +187,9 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
         .map(|(i, row)| {
             let indent = "  ".repeat(row.depth);
             let marker = if row.is_branch {
-                // The Root (depth 0) is always shown expanded by flatten, so its
-                // marker must reflect that rather than the (always-absent) set.
-                if row.depth == 0 || app.is_expanded(&row.path) {
+                // Every branch — including the root/file node (empty path) — shows
+                // its real expanded state; the root is seeded open at startup.
+                if app.is_expanded(&row.path) {
                     "▾ "
                 } else {
                     "▸ "
@@ -197,7 +197,7 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
             } else {
                 "  "
             };
-            let sel_marker = if app.selection.indices.contains(&i) {
+            let sel_marker = if app.selection.contains(i) {
                 "●"
             } else {
                 " "
@@ -329,6 +329,21 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
     } else {
         app.cursor + 1
     };
+    // In the filtered-result selection mode, surface that the list is still
+    // filtered (and how to clear/refine it) rather than the generic hints.
+    if matches!(app.mode, Mode::FilterResults) {
+        let status = match &app.status {
+            Some(msg) => format!(" [filter: {}] {msg}", app.last_filter),
+            None => format!(
+                " [filter: {}] {pos}/{total} | esc:clear  /:refine",
+                app.last_filter
+            ),
+        };
+        let paragraph =
+            Paragraph::new(status).style(Style::default().bg(Color::DarkGray).fg(Color::Yellow));
+        f.render_widget(paragraph, area);
+        return;
+    }
     let mut status = format!(" {pos}/{total} | q:quit ?:help d:x:c:v:m:r:z/y");
     if let Some(ref msg) = app.status {
         status = format!(" {msg}");

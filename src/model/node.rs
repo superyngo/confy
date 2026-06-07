@@ -131,26 +131,25 @@ pub struct VisibleRow<'a> {
 
 impl NodeTree {
     /// Flatten honoring expanded state. `is_expanded(path)` decides whether a
-    /// Branch node's children are shown. The Root is always shown and always
-    /// treated as expanded.
+    /// Branch node's children are shown. The Root (empty path) is treated like
+    /// any other branch, so it is collapsible too — the App seeds the empty path
+    /// into the expanded set so the file node starts open.
     pub fn flatten<'a>(&'a self, is_expanded: &dyn Fn(&Path) -> bool) -> Vec<VisibleRow<'a>> {
         let mut rows = Vec::new();
         fn walk<'a>(
             n: &'a Node,
             depth: usize,
-            is_root: bool,
             is_expanded: &dyn Fn(&Path) -> bool,
             rows: &mut Vec<VisibleRow<'a>>,
         ) {
             rows.push(VisibleRow { node: n, depth });
-            let expand = is_root || (n.is_branch() && is_expanded(&n.path));
-            if expand {
+            if n.is_branch() && is_expanded(&n.path) {
                 for c in &n.children {
-                    walk(c, depth + 1, false, is_expanded, rows);
+                    walk(c, depth + 1, is_expanded, rows);
                 }
             }
         }
-        walk(&self.root, 0, true, is_expanded, &mut rows);
+        walk(&self.root, 0, is_expanded, &mut rows);
         rows
     }
 }
@@ -187,8 +186,18 @@ mod tests {
         root.children = vec![server];
         let tree = NodeTree { root };
 
-        // collapsed: only root + server visible (root always shown, expanded)
-        let collapsed = tree.flatten(&|_p| false);
+        // root collapsed (empty path not expanded): only the root row shows.
+        let root_collapsed = tree.flatten(&|_p| false);
+        assert_eq!(
+            root_collapsed
+                .iter()
+                .map(|r| r.node.key.clone())
+                .collect::<Vec<_>>(),
+            vec!["f.toml".to_string()]
+        );
+
+        // root expanded, server collapsed: root + server visible.
+        let collapsed = tree.flatten(&|p| p.is_empty());
         assert_eq!(
             collapsed
                 .iter()
@@ -197,8 +206,8 @@ mod tests {
             vec!["f.toml".to_string(), "server".to_string()]
         );
 
-        // expand server -> port appears, depth 2
-        let expanded = tree.flatten(&|p| p == &vec![Seg::Key("server".into())]);
+        // root + server expanded -> port appears, depth 2
+        let expanded = tree.flatten(&|p| p.is_empty() || p == &vec![Seg::Key("server".into())]);
         assert_eq!(expanded.len(), 3);
         assert_eq!(expanded[2].node.key, "port");
         assert_eq!(expanded[2].depth, 2);

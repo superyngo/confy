@@ -92,8 +92,9 @@ fn run_event_loop(
                 }
                 continue;
             }
-            // Filter mode: an inline text field — type to filter, edit at the
-            // caret (Backspace/Del), move it (Left/Right/Home/End), Esc clears.
+            // Filter input: an inline text field — type to filter, edit at the
+            // caret (Backspace/Del), move it (Left/Right/Home/End). Enter locks in
+            // the filtered set (filtered-result selection); Esc clears the filter.
             if matches!(app.mode, crate::tui::state::Mode::Filter) {
                 use crossterm::event::KeyCode;
                 match key.code {
@@ -104,6 +105,7 @@ fn run_event_loop(
                     KeyCode::Right => app.filter_cursor_right(),
                     KeyCode::Home => app.filter_cursor_home(),
                     KeyCode::End => app.filter_cursor_end(),
+                    KeyCode::Enter => app.commit_filter(),
                     KeyCode::Esc => app.escape(),
                     _ => {}
                 }
@@ -168,7 +170,16 @@ fn run_event_loop(
                 }
                 continue;
             }
-            match keys::map_key(key) {
+            let action = keys::map_key(key);
+            // Any non-shift-extend action ends the current shift multi-select
+            // round, so the next Shift+Arrow begins a fresh one (unioned on top).
+            if !matches!(
+                action,
+                keys::KeyAction::ExtendSelectUp | keys::KeyAction::ExtendSelectDown
+            ) {
+                app.last_action_was_shift_select = false;
+            }
+            match action {
                 keys::KeyAction::CursorDown => app.cursor_down(),
                 keys::KeyAction::CursorUp => app.cursor_up(),
                 keys::KeyAction::PageUp => app.page_up(terminal.size()?.height as usize / 2),

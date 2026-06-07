@@ -20,6 +20,10 @@ pub struct App {
     pub cursor: usize,
     pub rows: Vec<RowSnapshot>,
     pub selection: Selection,
+    /// True while the previous key was a shift+arrow (so the next shift+arrow
+    /// continues the same multi-select round). Any non-shift action resets it,
+    /// which makes the next shift+arrow start a fresh round.
+    pub last_action_was_shift_select: bool,
     /// Present when the app was constructed with a real document (interactive mode).
     pub doc: Option<crate::model::toml_doc::TomlDocument>,
     pub history: Option<History>,
@@ -33,6 +37,9 @@ pub struct App {
     pub filter: String,
     /// Caret position (char index) within `filter` while in Filter mode.
     pub filter_cursor: usize,
+    /// Last committed filter query, remembered across filter sessions so `/`
+    /// restores the previous search instead of starting blank.
+    pub last_filter: String,
     /// Set of node paths that match the current filter (including ancestors kept for context).
     pub filtered_paths: Option<HashSet<Path>>,
     /// Read-only detail text for the current detail popup.
@@ -80,6 +87,7 @@ impl App {
             cursor: 0,
             rows: Vec::new(),
             selection: Selection::new(),
+            last_action_was_shift_select: false,
             doc: Some(doc),
             history: Some(history),
             status: None,
@@ -88,24 +96,30 @@ impl App {
             pending_move: None,
             filter: String::new(),
             filter_cursor: 0,
+            last_filter: String::new(),
             filtered_paths: None,
             detail_text: None,
             pending_edit: None,
             detail_scroll: 0,
             table_offset: std::cell::Cell::new(0),
         };
+        // Seed the root (empty path) as expanded so the file node starts open.
+        app.expanded.insert(Vec::new());
         app.rebuild_rows();
         app
     }
 
     /// Construct a headless App from a pre-built NodeTree (used in unit tests).
     pub fn from_tree(tree: NodeTree) -> Self {
+        // Seed the root (empty path) as expanded so the file node starts open.
+        let expanded = HashSet::from([Vec::new()]);
         App {
             tree,
-            expanded: HashSet::new(),
+            expanded,
             cursor: 0,
             rows: Vec::new(),
             selection: Selection::new(),
+            last_action_was_shift_select: false,
             doc: None,
             history: None,
             status: None,
@@ -114,6 +128,7 @@ impl App {
             pending_move: None,
             filter: String::new(),
             filter_cursor: 0,
+            last_filter: String::new(),
             filtered_paths: None,
             detail_text: None,
             pending_edit: None,
@@ -189,7 +204,11 @@ impl App {
         }
     }
     pub fn collapse_all(&mut self) {
+        // Collapse every nested branch but keep the file/root node open — `0`
+        // shouldn't hide the whole document behind the filename. (An explicit
+        // toggle on the root row still collapses it.)
         self.expanded.clear();
+        self.expanded.insert(Vec::new());
     }
     pub fn expand_all(&mut self) {
         let mut all = HashSet::new();
@@ -225,12 +244,35 @@ impl App {
 
     // ---- Filter (/) ----
 
-    /// `/` — enter filter mode.
+    /// `/` — enter the filter input, restoring the last committed query (if any)
+    /// with the caret at the end and the live filtered view already applied.
     pub fn enter_filter(&mut self) {
+        self.filter = self.last_filter.clone();
+        self.filter_cursor = self.filter.chars().count();
+        self.mode = Mode::Filter;
+        self.recompute_filter();
+        self.rebuild_rows();
+    }
+
+    /// Enter in the filter input: lock in the filtered set and switch to the
+    /// filtered-result selection mode. An empty query just unfilters.
+    pub fn commit_filter(&mut self) {
+        if self.filter.is_empty() {
+            self.exit_filter();
+            return;
+        }
+        self.last_filter = self.filter.clone();
+        self.mode = Mode::FilterResults;
+        self.rebuild_rows();
+    }
+
+    /// Esc in the filtered-result selection mode: drop the active filter back to
+    /// the full list (Normal), but keep `last_filter` so `/` can restore it.
+    pub fn exit_filter_results(&mut self) {
         self.filter.clear();
         self.filter_cursor = 0;
         self.filtered_paths = None;
-        self.mode = Mode::Filter;
+        self.mode = Mode::Normal;
         self.rebuild_rows();
     }
 
@@ -445,25 +487,34 @@ impl App {
         self.selection.toggle(self.cursor);
     }
 
-    /// Extend range selection upward (Shift+Up).
+    /// Extend range selection upward (Shift+Up). A fresh shift run (the previous
+    /// key wasn't a shift+arrow) starts a new round anchored at the cursor.
     pub fn extend_select_up(&mut self) {
+        if !self.last_action_was_shift_select {
+            self.selection.begin_round(self.cursor);
+        }
         if self.cursor > 0 {
             self.cursor -= 1;
-            self.selection.extend_to(self.cursor);
+            self.selection.extend_round_to(self.cursor);
         }
+        self.last_action_was_shift_select = true;
     }
 
     /// Extend range selection downward (Shift+Down).
     pub fn extend_select_down(&mut self) {
+        if !self.last_action_was_shift_select {
+            self.selection.begin_round(self.cursor);
+        }
         if self.cursor + 1 < self.rows.len() {
             self.cursor += 1;
-            self.selection.extend_to(self.cursor);
+            self.selection.extend_round_to(self.cursor);
         }
+        self.last_action_was_shift_select = true;
     }
 
     /// Return normalized selected paths (§6.2). Falls back to cursor path if nothing selected.
     pub fn selected_paths(&self) -> Vec<Path> {
-        if self.selection.indices.is_empty() {
+        if self.selection.is_empty() {
             return self
                 .rows
                 .get(self.cursor)
@@ -472,9 +523,8 @@ impl App {
         }
         let paths: Vec<Path> = self
             .selection
-            .indices
             .iter()
-            .filter_map(|&i| self.rows.get(i).map(|r| r.path.clone()))
+            .filter_map(|i| self.rows.get(i).map(|r| r.path.clone()))
             .collect();
         crate::tui::selection::normalize(paths)
     }
@@ -1286,7 +1336,12 @@ impl App {
                     }
                 }
             }
-            Mode::Prompt(_) | Mode::Filter | Mode::Detail | Mode::Help | Mode::Edit(_) => {}
+            Mode::Prompt(_)
+            | Mode::Filter
+            | Mode::FilterResults
+            | Mode::Detail
+            | Mode::Help
+            | Mode::Edit(_) => {}
         }
     }
     pub fn escape(&mut self) {
@@ -1303,10 +1358,18 @@ impl App {
                 self.status = None;
             }
             Mode::Filter => self.exit_filter(),
+            Mode::FilterResults => self.exit_filter_results(),
             Mode::Detail => self.exit_detail(),
             Mode::Help => self.exit_help(),
             Mode::Edit(_) => self.edit_cancel(),
-            Mode::Normal => {}
+            // Esc in normal mode clears any active multi-selection.
+            Mode::Normal => {
+                if !self.selection.is_empty() {
+                    self.selection.clear();
+                    self.last_action_was_shift_select = false;
+                    self.status = Some("selection cleared".into());
+                }
+            }
         }
     }
 
@@ -1549,7 +1612,8 @@ fn serialize_node_fragment_opts(
     carry_key_comment: bool,
 ) -> String {
     use crate::model::node::Seg;
-    use toml_edit::{ArrayOfTables, DocumentMut, Item};
+    use crate::model::toml_doc::split_leading_blank_lines;
+    use toml_edit::{ArrayOfTables, DocumentMut, Item, Value};
     if path.is_empty() {
         return doc.serialize();
     }
@@ -1578,7 +1642,10 @@ fn serialize_node_fragment_opts(
         let mut aot = ArrayOfTables::new();
         aot.push(entry);
         tmp.as_table_mut().insert(aot_key, Item::ArrayOfTables(aot));
-        return tmp.to_string();
+        // Open at the entry's first content line, not its leading blank separator
+        // (re-attached on write-back by `replace_aot_entry`).
+        let s = tmp.to_string();
+        return split_leading_blank_lines(&s).1.to_string();
     }
     let key = match last.first() {
         Some(Seg::Key(k)) => k.as_str(),
@@ -1601,6 +1668,14 @@ fn serialize_node_fragment_opts(
     } else {
         None
     };
+    // Open the editor at the node's first content line (comment or header/value),
+    // not its leading blank separator. The blanks are re-attached on write-back
+    // (`replace`) so file spacing round-trips. Only the cases whose write-back
+    // re-attaches are trimmed: `[table]`, array, and inline table.
+    let trim = matches!(
+        item,
+        Item::Table(_) | Item::Value(Value::Array(_)) | Item::Value(Value::InlineTable(_))
+    );
     let mut tmp = DocumentMut::new();
     tmp.as_table_mut().insert(key, item);
     if let Some(prefix) = key_comment {
@@ -1608,7 +1683,12 @@ fn serialize_node_fragment_opts(
             km.leaf_decor_mut().set_prefix(prefix);
         }
     }
-    tmp.to_string()
+    let s = tmp.to_string();
+    if trim {
+        split_leading_blank_lines(&s).1.to_string()
+    } else {
+        s
+    }
 }
 
 /// Coarse `(type, format)` labels for a branch node: the Type is the conceptual
@@ -1887,6 +1967,21 @@ mod tests {
     }
 
     #[test]
+    fn root_node_can_collapse_and_expand() {
+        let mut app = sample();
+        app.rebuild_rows();
+        assert_eq!(app.visible_keys(), vec!["f.toml", "a", "b"]);
+        // cursor is on the root row; toggling collapses the whole file node.
+        app.toggle_expand();
+        app.rebuild_rows();
+        assert_eq!(app.visible_keys(), vec!["f.toml"]);
+        // toggling again re-opens it.
+        app.toggle_expand();
+        app.rebuild_rows();
+        assert_eq!(app.visible_keys(), vec!["f.toml", "a", "b"]);
+    }
+
+    #[test]
     fn rebuild_clears_stale_selection() {
         // Selecting rows then changing structure (expand) must not leave stale
         // row-index selections pointing at the wrong rows.
@@ -1894,13 +1989,10 @@ mod tests {
         app.rebuild_rows();
         app.cursor_down(); // on `a`
         app.toggle_select(); // select `a`
-        assert!(!app.selection.indices.is_empty());
+        assert!(!app.selection.is_empty());
         app.toggle_expand();
         app.rebuild_rows(); // structure changed
-        assert!(
-            app.selection.indices.is_empty(),
-            "selection must clear on rebuild"
-        );
+        assert!(app.selection.is_empty(), "selection must clear on rebuild");
     }
 
     #[test]
@@ -1917,6 +2009,45 @@ mod tests {
         app.expand_all();
         app.rebuild_rows();
         assert_eq!(app.visible_keys(), vec!["f.toml", "a", "x", "b"]);
+    }
+
+    #[test]
+    fn shift_rounds_union_across_a_plain_move_and_esc_clears() {
+        use std::collections::HashSet;
+        let mut app = app_with("a = 1\nb = 2\nc = 3\nd = 4\ne = 5\n");
+        app.rebuild_rows();
+        // rows: f.toml(0) a(1) b(2) c(3) d(4) e(5)
+        app.cursor = 1;
+        app.extend_select_down(); // round 1 -> {1,2}
+                                  // a non-shift key (handled in the event loop) resets the flag:
+        app.last_action_was_shift_select = false;
+        app.cursor = 4;
+        app.extend_select_down(); // round 2 from a fresh anchor -> {4,5}
+        let sel: HashSet<usize> = app.selection.iter().collect();
+        assert_eq!(
+            sel,
+            HashSet::from([1, 2, 4, 5]),
+            "second round must union, not extend from round 1's anchor"
+        );
+        app.escape(); // Esc in normal mode clears the selection
+        assert!(app.selection.is_empty());
+    }
+
+    #[test]
+    fn external_edit_fragment_trims_leading_blank() {
+        // `[t]` sits below a blank separator + comment. The $EDITOR fragment must
+        // open at the comment, not an empty line (the blank round-trips on save).
+        let app = app_with("a = 1\n\n# c\n[t]\nx = 1\n");
+        let doc = app.doc.as_ref().unwrap();
+        let frag = serialize_node_fragment_opts(doc, &[Seg::Key("t".into())], true);
+        assert!(
+            !frag.starts_with('\n'),
+            "fragment must not open with a blank line: {frag:?}"
+        );
+        assert!(
+            frag.starts_with("# c"),
+            "should start at the comment: {frag:?}"
+        );
     }
 
     // --- e/n apply-path tests (post-editor logic, no $EDITOR spawned) ---
@@ -2383,6 +2514,38 @@ mod tests {
             keys.iter().any(|k| k == "port"),
             "port (value=8080) should be visible after filtering for '8080', got: {keys:?}"
         );
+    }
+
+    #[test]
+    fn filter_commit_then_esc_remembers_keyword() {
+        let mut app = app_with("port = 8080\nhost = \"localhost\"\n");
+        app.rebuild_rows();
+        // type a query and lock it in
+        app.enter_filter();
+        for c in "port".chars() {
+            app.filter_char(c);
+        }
+        app.commit_filter();
+        assert!(matches!(app.mode, Mode::FilterResults));
+        assert!(
+            app.filtered_paths.is_some(),
+            "filter stays applied after commit"
+        );
+        let keys = app.visible_keys();
+        assert!(keys.iter().any(|k| k == "port"));
+        assert!(!keys.iter().any(|k| k == "host"), "host filtered out");
+        // Esc unfilters back to the full list but remembers the keyword.
+        app.escape();
+        assert!(matches!(app.mode, Mode::Normal));
+        assert!(app.filtered_paths.is_none());
+        assert_eq!(app.last_filter, "port");
+        let keys = app.visible_keys();
+        assert!(keys.iter().any(|k| k == "host"), "full list restored");
+        // Re-entering the filter restores the remembered query + live results.
+        app.enter_filter();
+        assert_eq!(app.filter, "port");
+        assert_eq!(app.filter_cursor, 4);
+        assert!(app.filtered_paths.is_some());
     }
 
     #[test]

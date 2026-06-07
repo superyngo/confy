@@ -56,6 +56,16 @@ array_multiline = [
   "third",
 ]
 
+# ── Array of tables (NodeKind::ArrayOfTables) ────────────────────────────────
+[[product]]
+name                 = "Hammer"
+sku                  = 738_594_939
+
+[[product]]
+name                 = "Nail"
+sku                  = 0x0284_FE_AB
+color                = "gray"
+
 # ── Inline table (NodeKind::InlineTable) ─────────────────────────────────────
 inline_table         = { x = 1, y = 2, label = "origin" }
 
@@ -69,12 +79,23 @@ enabled              = true
 cert                 = 'C:\certs\server.pem'
 ciphers              = ["TLS_AES_256", "TLS_CHACHA20"]
 
-# ── Array of tables (NodeKind::ArrayOfTables) ────────────────────────────────
-[[product]]
-name                 = "Hammer"
-sku                  = 738_594_937
+[product_table]
 
-[[product]]
+[product_table.a]
+name                 = "Hammer"
+sku                  = 738_594_939
+
+[product_table.b]
 name                 = "Nail"
 sku                  = 0x0284_FE_AB
 color                = "gray"
+
+[product_table2.a]
+name                 = "Hammer"
+sku                  = 738_594_939
+
+[product_table2.b]
+name                 = "Nail"
+sku                  = 0x0284_FE_AB
+color                = "gray"
+

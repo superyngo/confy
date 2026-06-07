@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Filter — `/` is now a three-state flow. Typing in the input filters live; **Enter** locks in the filtered set and enters a filtered-result selection mode (navigate/select/edit on the filtered nodes while the status bar shows `[filter: …]`); **Esc** clears the filter back to the full list; **`/`** reopens the input (prefilled) to refine. The last committed query is remembered, so `/` restores the previous search and its live results. (2026-06-07)
+- TUI — the root/file node (`▾ test.toml`) is now collapsible like any branch (Enter/Space toggles `▾`/`▸`); it starts expanded. `0` (collapse all) keeps the file node open; an explicit toggle on its row hides the whole document. (2026-06-07)
+
+### Changed
+- Multi-select — each Shift+Arrow run now starts a fresh range anchored at the cursor and **unions** onto previous selections (separate runs stay separate, overlapping runs merge), instead of every new run extending from the first run's anchor. `Esc` in normal mode now clears the active selection. (2026-06-07)
+
+### Fixed
+- Parsing — dotted table **headers** without an explicit parent (`[product_table2.a]` / `[product_table2.b]` with no `[product_table2]`) now nest under an implicit `product_table2` branch, matching `[product_table]`. Projection only flattens implicit tables created by dotted *keys* (`a.b.c = 1`, which toml_edit marks `is_dotted()`); a dotted header is implicit but not dotted, so it projects as a real branch. (2026-06-07)
+- Editing — `E` (external `$EDITOR`) on the root/file node no longer fails on save with `operation not supported by this format`. A `Replace` with an empty path now reparses the edited text as the whole document (invalid TOML is rejected and leaves the document untouched). (2026-06-07)
+- Editing — opening `$EDITOR` on a structured node (`[table]`, array, inline table, array-of-tables entry) no longer starts with an empty first line: the node's leading blank separator is trimmed from the editor view. The blank line is re-attached on save (`split_leading_blank_lines` in `toml_doc.rs`), so file spacing round-trips unchanged; leading comments are still shown and editable. (2026-06-07)
+
 ## [v0.3.0] - 2026-06-07
 
 ### Changed

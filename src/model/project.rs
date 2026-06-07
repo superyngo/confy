@@ -156,7 +156,11 @@ fn project_table(table: &Table, base: &[Seg]) -> Vec<Node> {
         let mut path = base.to_vec();
         path.push(Seg::Key(key.to_string()));
         match item {
-            Item::Table(t) if t.is_implicit() => {
+            // Only flatten implicit tables created by dotted *keys* (`a.b.c = 1`,
+            // which toml_edit marks `is_dotted()`). A dotted table *header*
+            // (`[x.a]` with no `[x]`) also yields an implicit `x`, but it is
+            // NOT dotted — project it as a real branch so its children nest.
+            Item::Table(t) if t.is_implicit() && t.is_dotted() => {
                 flatten_dotted(t, key, &path, &mut out);
             }
             _ => {
@@ -192,7 +196,7 @@ fn flatten_dotted(table: &Table, prefix: &str, seg_path: &[Seg], out: &mut Vec<N
         let mut path = seg_path.to_vec();
         path.push(Seg::Key(key.to_string()));
         match item {
-            Item::Table(t) if t.is_implicit() => {
+            Item::Table(t) if t.is_implicit() && t.is_dotted() => {
                 flatten_dotted(t, &dotted_key, &path, out);
             }
             _ => {
@@ -567,6 +571,26 @@ mod tests {
                 Seg::Key("b".into()),
                 Seg::Key("c".into())
             ]
+        );
+    }
+
+    #[test]
+    fn dotted_table_header_nests_under_implicit_parent() {
+        // `[x.a]` / `[x.b]` with no explicit `[x]`: toml_edit creates an
+        // implicit (non-dotted) `x`. It must project as one `x` branch with
+        // children `a` and `b`, not two flat `x.a` / `x.b` siblings.
+        let t = tree("[x.a]\nname = \"A\"\n\n[x.b]\nname = \"B\"\n");
+        let root = &t.root;
+        assert_eq!(root.children.len(), 1);
+        let x = &root.children[0];
+        assert_eq!(x.key, "x");
+        assert_eq!(x.kind, NodeKind::Table);
+        assert_eq!(x.path, vec![Seg::Key("x".into())]);
+        let child_keys: Vec<&str> = x.children.iter().map(|c| c.key.as_str()).collect();
+        assert_eq!(child_keys, vec!["a", "b"]);
+        assert_eq!(
+            x.children[0].path,
+            vec![Seg::Key("x".into()), Seg::Key("a".into())]
         );
     }
 }
