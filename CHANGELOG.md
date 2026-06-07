@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Editing — scalar elements of nested arrays (array-of-arrays, `Key Index Index…`) now edit inline and nudge in place, addressed via `array_at_mut`. (2026-06-06)
 
 ### Fixed
+- Comments — editing or deleting a comment **between array-of-tables entries** (`[[product]]` … `# test` … `[[product]]`) now works. Such a comment lives in the next entry's decor prefix and projects as a child of the AoT; the shared decor locator (`transform_comment_in_decor`) gained an AoT branch (`transform_aot_entry_prefixes`) that sweeps the entry prefixes, so inline/`$EDITOR` edits round-trip and `Delete` strips it instead of silently no-op'ing. (2026-06-07)
 - Editing — deleting a standalone comment node no longer fails with `delete error: path not found`; `Delete` now strips the comment from its decor slot (like `uncomment`) instead of trying to remove a non-existent `#comment:N` table key. (2026-06-07)
 - TUI — multi-line cell values (merged comments, multiline strings, and elements of a multiline-formatted array) now render a single-line preview (first line + ` …`) in the VALUE column. Previously a multiline-array element showed nothing because its repr carries leading newline+indent decor; the full text remains available in the detail popup. (2026-06-07)
 - TUI — the main tree viewport now persists its scroll offset across frames, so the cursor moves within the visible window instead of staying pinned to the bottom edge and scrolling on every key. (2026-06-06)

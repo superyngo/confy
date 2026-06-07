@@ -71,6 +71,31 @@ fn rename_in_inline_table(
     Ok(())
 }
 
+/// Apply `transform` to every entry's leading decor prefix in an array-of-tables.
+/// A comment between successive `[[key]]` entries lives in the following entry's
+/// `decor().prefix()`; the projector surfaces it as a child of the AoT, so an edit
+/// or delete must rewrite whichever entry prefix holds it. Sweeping all entries is
+/// safe — the text-matching transform is a no-op on the slots that don't hold it.
+fn transform_aot_entry_prefixes(
+    aot: &mut toml_edit::ArrayOfTables,
+    transform: &dyn Fn(&str) -> String,
+) {
+    for i in 0..aot.len() {
+        if let Some(entry) = aot.get_mut(i) {
+            let existing = entry
+                .decor()
+                .prefix()
+                .and_then(|r| r.as_str())
+                .unwrap_or("")
+                .to_string();
+            let new_prefix = transform(&existing);
+            if new_prefix != existing {
+                entry.decor_mut().set_prefix(new_prefix);
+            }
+        }
+    }
+}
+
 pub struct TomlDocument {
     pub(crate) doc: DocumentMut,
     pub(crate) path: PathBuf,
@@ -785,6 +810,14 @@ impl TomlDocument {
                 .next()
                 .map(|(k, _)| k.to_string());
             if let Some(fk) = first_key {
+                // A leading comment before the first `[[aot]]` header lives in the
+                // first entry's decor prefix (not leaf_decor / Table::decor).
+                if matches!(self.doc.as_table().get(&fk), Some(Item::ArrayOfTables(_))) {
+                    if let Some(Item::ArrayOfTables(aot)) = self.doc.as_table_mut().get_mut(&fk) {
+                        transform_aot_entry_prefixes(aot, remove_block);
+                    }
+                    return;
+                }
                 // Comments before [table] headers live in Table::decor(), not leaf_decor.
                 if let Some(Item::Table(t)) = self.doc.as_table().get(&fk) {
                     let existing = t
@@ -816,6 +849,27 @@ impl TomlDocument {
                 self.doc.set_trailing(new_trailing);
             }
         } else {
+            // When `parent` names an array-of-tables, the projector attributes the
+            // between-entry comments to the AoT itself — they live in its entries'
+            // decor prefixes, not in any contained table. Handle that before the
+            // `parent_table_mut` walk (which can't descend into an AoT key).
+            let (head, last) = parent.split_at(parent.len().saturating_sub(1));
+            if let Some(Seg::Key(aot_key)) = last.first() {
+                let is_aot = matches!(
+                    self.parent_table_mut(head)
+                        .ok()
+                        .and_then(|t| t.get(aot_key)),
+                    Some(Item::ArrayOfTables(_))
+                );
+                if is_aot {
+                    if let Ok(t) = self.parent_table_mut(head) {
+                        if let Some(Item::ArrayOfTables(aot)) = t.get_mut(aot_key) {
+                            transform_aot_entry_prefixes(aot, remove_block);
+                        }
+                    }
+                    return;
+                }
+            }
             let first_key = self
                 .parent_table_mut(parent)
                 .ok()
@@ -1274,6 +1328,40 @@ mod tests {
         let path = first_comment_path(&doc.project().root).expect("nested comment");
         doc.apply(Mutation::Delete { path }).unwrap();
         assert_eq!(doc.serialize(), "[server]\nhost = \"x\"\n");
+    }
+
+    #[test]
+    fn edit_comment_between_aot_entries() {
+        // A comment between successive `[[product]]` entries lives in the next
+        // entry's decor prefix and projects as an AoT child; EditComment must
+        // rewrite it there (regression: silently no-op'd, "cannot save").
+        use crate::model::document::Mutation;
+        let mut doc =
+            doc_from_str("[[product]]\nname = \"Hammer\"\n# test\n[[product]]\nname = \"Nail\"\n");
+        let path = first_comment_path(&doc.project().root).expect("aot comment");
+        doc.apply(Mutation::EditComment {
+            path,
+            text: "# changed".into(),
+        })
+        .unwrap();
+        assert_eq!(
+            doc.serialize(),
+            "[[product]]\nname = \"Hammer\"\n# changed\n[[product]]\nname = \"Nail\"\n"
+        );
+    }
+
+    #[test]
+    fn delete_comment_between_aot_entries() {
+        // Deleting that same AoT-attributed comment strips it from the entry prefix.
+        use crate::model::document::Mutation;
+        let mut doc =
+            doc_from_str("[[product]]\nname = \"Hammer\"\n# test\n[[product]]\nname = \"Nail\"\n");
+        let path = first_comment_path(&doc.project().root).expect("aot comment");
+        doc.apply(Mutation::Delete { path }).unwrap();
+        assert_eq!(
+            doc.serialize(),
+            "[[product]]\nname = \"Hammer\"\n[[product]]\nname = \"Nail\"\n"
+        );
     }
 
     #[test]

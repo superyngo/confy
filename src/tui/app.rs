@@ -1983,6 +1983,33 @@ mod tests {
     }
 
     #[test]
+    fn comment_between_aot_entries_edits_inline() {
+        // The between-entries comment is an all-`Key` path (no Index), so it edits
+        // inline and commits via EditComment into the AoT entry's decor prefix.
+        let mut app =
+            app_with("[[product]]\nname = \"Hammer\"\n# test\n[[product]]\nname = \"Nail\"\n");
+        app.expand_all();
+        app.rebuild_rows();
+        let pos = app.rows.iter().position(|r| r.key == "# test").unwrap();
+        app.cursor = pos;
+        assert_eq!(app.edit_target_kind(), EditKind::Inline);
+        app.begin_inline_edit();
+        if let Mode::Edit(ref mut e) = app.mode {
+            assert!(e.is_comment);
+            e.buffer = "# changed".into();
+        } else {
+            panic!("expected inline edit mode");
+        }
+        app.edit_commit();
+        assert!(matches!(app.mode, Mode::Normal));
+        let s = app.doc.as_ref().unwrap().serialize();
+        assert!(
+            s.contains("# changed") && !s.contains("# test"),
+            "serialize: {s:?}"
+        );
+    }
+
+    #[test]
     fn multiline_comment_routes_external() {
         let mut app = app_with("# a\n# b\nx = 1\n");
         app.expand_all();

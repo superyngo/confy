@@ -72,6 +72,12 @@ edit writes back in place via `Mutation::EditComment` (`edit_comment` → `trans
 locate-the-decor-slot helper shared with `uncomment`). Deleting a comment node (`d`) routes through
 the same decor path: `remove_at` detects the synthetic `#comment:N` key and calls
 `remove_comment_from_decor` rather than `Table::remove` (which would fail with `NotFound`).
+A comment **between `[[aot]]` entries** lives in the next entry's `decor().prefix()` and projects as a
+child of the AoT (path `[…aot, #comment:N]`, all-`Key` so it edits inline); `transform_comment_in_decor`
+detects an AoT parent (or AoT first-key) and rewrites via `transform_aot_entry_prefixes`, which sweeps
+every entry prefix (the text-matching transform is a no-op on the slots that don't hold it), so both edit
+and delete reach the right slot. (A comment after the *last* entry, in `doc.trailing()`, is still
+unhandled by the shared locator.)
 
 ## Module map
 
