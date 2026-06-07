@@ -206,13 +206,25 @@ impl TomlDocument {
     /// through both, and `Item::as_table_mut` alone would not match inline tables.
     fn parent_table_mut(&mut self, parent: &[Seg]) -> Result<&mut dyn TableLike, MutateError> {
         let mut tbl: &mut dyn TableLike = self.doc.as_table_mut();
-        for seg in parent {
-            match seg {
+        let mut i = 0;
+        while i < parent.len() {
+            match &parent[i] {
                 Seg::Key(k) => {
-                    tbl = tbl
-                        .get_mut(k)
-                        .and_then(Item::as_table_like_mut)
-                        .ok_or(MutateError::NotFound)?;
+                    let item = tbl.get_mut(k).ok_or(MutateError::NotFound)?;
+                    // `[[aot]]` entry: a Key naming an array-of-tables followed by an
+                    // Index selecting the entry table (which is `TableLike`). The AoT
+                    // itself is not table-like, so this descent must be explicit.
+                    if let Item::ArrayOfTables(aot) = item {
+                        let idx = match parent.get(i + 1) {
+                            Some(Seg::Index(n)) => *n,
+                            _ => return Err(MutateError::Unsupported),
+                        };
+                        tbl = aot.get_mut(idx).ok_or(MutateError::NotFound)?;
+                        i += 2;
+                        continue;
+                    }
+                    tbl = item.as_table_like_mut().ok_or(MutateError::NotFound)?;
+                    i += 1;
                 }
                 Seg::Index(_) => return Err(MutateError::Unsupported),
             }
@@ -317,9 +329,24 @@ impl TomlDocument {
     /// `insert_formatted`) that the `TableLike` trait does not expose.
     fn concrete_table_mut(&mut self, parent: &[Seg]) -> Option<&mut toml_edit::Table> {
         let mut tbl = self.doc.as_table_mut();
-        for seg in parent {
-            match seg {
-                Seg::Key(k) => tbl = tbl.get_mut(k).and_then(Item::as_table_mut)?,
+        let mut i = 0;
+        while i < parent.len() {
+            match &parent[i] {
+                Seg::Key(k) => {
+                    let item = tbl.get_mut(k)?;
+                    // `[[aot]]` entry: Key naming the AoT, then an Index into it.
+                    if let Item::ArrayOfTables(aot) = item {
+                        let idx = match parent.get(i + 1) {
+                            Some(Seg::Index(n)) => *n,
+                            _ => return None,
+                        };
+                        tbl = aot.get_mut(idx)?;
+                        i += 2;
+                        continue;
+                    }
+                    tbl = item.as_table_mut()?;
+                    i += 1;
+                }
                 Seg::Index(_) => return None,
             }
         }
@@ -1218,6 +1245,53 @@ mod tests {
         })
         .unwrap();
         assert_eq!(doc.serialize(), "pt = { x2 = 1, y = 2 }\n");
+    }
+
+    #[test]
+    fn replace_scalar_inside_aot_entry() {
+        // A scalar member of an array-of-tables entry (`product[0].sku`) is
+        // addressable via the `Key→Index` AoT descent: Replace rewrites just that
+        // value, leaving every other entry and member untouched.
+        use crate::model::document::Mutation;
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str(
+            "[[product]]\nname = \"Hammer\"\nsku = 738\n\n[[product]]\nname = \"Nail\"\nsku = 284\n",
+        );
+        doc.apply(Mutation::Replace {
+            path: vec![
+                Seg::Key("product".into()),
+                Seg::Index(0),
+                Seg::Key("sku".into()),
+            ],
+            toml: "sku = 999\n".into(),
+        })
+        .unwrap();
+        assert_eq!(
+            doc.serialize(),
+            "[[product]]\nname = \"Hammer\"\nsku = 999\n\n[[product]]\nname = \"Nail\"\nsku = 284\n"
+        );
+    }
+
+    #[test]
+    fn rename_key_inside_aot_entry() {
+        // `Tab`-rename on an AoT-entry scalar renames the key in place, preserving
+        // order, the other members, and the sibling entries.
+        use crate::model::document::Mutation;
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("[[product]]\nname = \"Hammer\"\nsku = 738\n");
+        doc.apply(Mutation::Rename {
+            path: vec![
+                Seg::Key("product".into()),
+                Seg::Index(0),
+                Seg::Key("sku".into()),
+            ],
+            new_key: "id".into(),
+        })
+        .unwrap();
+        assert_eq!(
+            doc.serialize(),
+            "[[product]]\nname = \"Hammer\"\nid = 738\n"
+        );
     }
 
     #[test]

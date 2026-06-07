@@ -28,10 +28,14 @@ the table in order, swapping only the target key) — there is no separate user-
 it is driven from the inline editor (see below).
 
 **Editing.** `e` edits a single-line scalar in an in-TUI **inline editor** (`Mode::Edit`) — a direct
-child of a Table/Root, a scalar **member of an inline table** (`pt = { x = 1 }`), or a scalar
+child of a Table/Root, a scalar **member of an inline table** (`pt = { x = 1 }`), a scalar **member of
+an array-of-tables entry** (`product[0].sku` — its path carries an `Index`, but the AoT entry is itself
+a table, reached by the `Key→Index` AoT descent in `parent_table_mut`/`concrete_table_mut`), or a scalar
 **element of an array** addressed by a `Key+ Index*` path (including array-of-arrays nesting; written
 back via `Replace` on the trailing `Index`, routed by `replace_array_element` → `Array::replace`, with
-`array_at_mut` descending nested arrays). The inline editor edits one field at a time: **`Tab` toggles
+`array_at_mut` descending nested arrays). The keyed-scalar inline rule keys on the **absence of an
+`Array` ancestor** (an AoT ancestor is addressable; an array element such as `x = [{ a = 1 }]` is not, so
+it stays `$EDITOR`). The inline editor edits one field at a time: **`Tab` toggles
 between Value (default) and Name**; committing a changed Name applies a `Mutation::Rename` first, then
 the value `Replace` (Tab is disabled for array elements, which have no key). `Rename` dispatches on the
 parent container — `rename_in_table` for a standard `[table]`, `rename_in_inline_table` (via

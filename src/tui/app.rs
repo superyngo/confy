@@ -650,12 +650,18 @@ impl App {
                     EditKind::External
                 }
             }
-            // Scalar under a key: inline only when no `Index` sits above it (else it
-            // lives inside an AoT entry that Replace cannot address) and the parent
-            // is a Table, the Root, or an inline table — all addressable by an
-            // all-`Key` `Replace`/`Rename`.
+            // Scalar under a key: inline when the parent is a Table, the Root, or an
+            // inline table AND no `Array` sits anywhere above it. An `Array` ancestor
+            // means the scalar lives in an array element (e.g. `x = [{ a = 1 }]`)
+            // that `Replace` cannot address; an array-of-tables ancestor is fine —
+            // its entries ARE tables, reachable via the `Key→Index` AoT descent in
+            // `parent_table_mut`/`concrete_table_mut`.
             Some(Seg::Key(_)) => {
-                let no_index_above = !parent_path.iter().any(|s| matches!(s, Seg::Index(_)));
+                let no_array_ancestor = (1..path.len()).all(|i| {
+                    node_at(&self.tree.root, &path[..i])
+                        .map(|n| !matches!(n.kind, NodeKind::Array))
+                        .unwrap_or(false)
+                });
                 let parent_ok = path.len() == 1
                     || parent
                         .map(|p| {
@@ -665,7 +671,7 @@ impl App {
                             )
                         })
                         .unwrap_or(false);
-                if no_index_above && parent_ok {
+                if no_array_ancestor && parent_ok {
                     EditKind::Inline
                 } else {
                     EditKind::External
@@ -2444,6 +2450,30 @@ mod tests {
             .unwrap();
         app.cursor = pos;
         assert_eq!(app.edit_target_kind(), EditKind::Inline);
+    }
+
+    #[test]
+    fn edit_target_kind_aot_entry_scalar_is_inline() {
+        // A scalar member of an array-of-tables entry (`product[0].sku`) edits
+        // inline — its only `Index` ancestor is the AoT (not an `Array`).
+        let mut app = app_with("[[product]]\nname = \"Hammer\"\nsku = 738\n");
+        app.expand_all();
+        app.rebuild_rows();
+        let pos = app.rows.iter().position(|r| r.key == "sku").unwrap();
+        app.cursor = pos;
+        assert_eq!(app.edit_target_kind(), EditKind::Inline);
+    }
+
+    #[test]
+    fn edit_target_kind_array_of_inline_tables_scalar_is_external() {
+        // A scalar inside an inline table that is itself an array element has an
+        // `Array` ancestor, which `Replace` cannot address — stay External.
+        let mut app = app_with("items = [{ a = 1 }]\n");
+        app.expand_all();
+        app.rebuild_rows();
+        let pos = app.rows.iter().position(|r| r.key == "a").unwrap();
+        app.cursor = pos;
+        assert_eq!(app.edit_target_kind(), EditKind::External);
     }
 
     #[test]
