@@ -244,8 +244,15 @@ impl TomlDocument {
         let (parent, last) = path.split_at(path.len().saturating_sub(1));
         let expected_key = match last.first() {
             Some(Seg::Key(k)) => k.as_str(),
-            // Array scalar element: `parent` is the all-`Key` path to the array.
-            Some(Seg::Index(idx)) => return self.replace_array_element(parent, *idx, toml),
+            // A trailing `Index` is either a scalar element of a standard array
+            // (`parent` names an array) or an array-of-tables entry (`parent` names
+            // an AoT) — they round-trip through different write-backs.
+            Some(Seg::Index(idx)) => {
+                if self.array_at_mut(parent).is_some() {
+                    return self.replace_array_element(parent, *idx, toml);
+                }
+                return self.replace_aot_entry(parent, *idx, toml);
+            }
             None => return Err(MutateError::Unsupported),
         };
         let frag = crate::model::fragment::parse_fragment(toml)?;
@@ -320,6 +327,43 @@ impl TomlDocument {
             *value.decor_mut() = decor;
         }
         arr.replace(idx, value);
+        Ok(())
+    }
+
+    /// Replace a single array-of-tables entry (`product[0]`) with the edited
+    /// `[[<key>]]` fragment. `aot_path` ends in the AoT key. The fragment must be
+    /// exactly one `[[<key>]]` table; its decor (the entry's leading comment/blank
+    /// lines) is taken as-is so an `$EDITOR` round-trip preserves spacing, and the
+    /// sibling entries are untouched.
+    fn replace_aot_entry(
+        &mut self,
+        aot_path: &[Seg],
+        idx: usize,
+        toml: &str,
+    ) -> Result<(), MutateError> {
+        let (head, key_seg) = aot_path.split_at(aot_path.len().saturating_sub(1));
+        let aot_key = match key_seg.first() {
+            Some(Seg::Key(k)) => k.clone(),
+            _ => return Err(MutateError::Unsupported),
+        };
+        let parsed: DocumentMut = toml
+            .parse()
+            .map_err(|e: toml_edit::TomlError| MutateError::Fragment(e.to_string()))?;
+        let new_entry = match parsed.as_table().get(&aot_key) {
+            Some(Item::ArrayOfTables(a)) if a.len() == 1 => a.get(0).expect("len == 1").clone(),
+            _ => {
+                return Err(MutateError::Fragment(format!(
+                    "fragment must be a single [[{aot_key}]] table"
+                )))
+            }
+        };
+        let tbl = self.parent_table_mut(head)?;
+        let aot = match tbl.get_mut(&aot_key) {
+            Some(Item::ArrayOfTables(a)) => a,
+            _ => return Err(MutateError::NotFound),
+        };
+        let slot = aot.get_mut(idx).ok_or(MutateError::NotFound)?;
+        *slot = new_entry;
         Ok(())
     }
 
@@ -1270,6 +1314,44 @@ mod tests {
             doc.serialize(),
             "[[product]]\nname = \"Hammer\"\nsku = 999\n\n[[product]]\nname = \"Nail\"\nsku = 284\n"
         );
+    }
+
+    #[test]
+    fn replace_aot_entry_rewrites_one_entry() {
+        // Editing a single `[[product]]` entry rewrites only that entry; the other
+        // entry and the between-entries comment are untouched.
+        use crate::model::document::Mutation;
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str(
+            "[[product]]\nname = \"Hammer\"\nsku = 738\n\n# mid\n[[product]]\nname = \"Nail\"\nsku = 284\n",
+        );
+        doc.apply(Mutation::Replace {
+            path: vec![Seg::Key("product".into()), Seg::Index(0)],
+            toml: "[[product]]\nname = \"Mallet\"\nsku = 738\n".into(),
+        })
+        .unwrap();
+        assert_eq!(
+            doc.serialize(),
+            "[[product]]\nname = \"Mallet\"\nsku = 738\n\n# mid\n[[product]]\nname = \"Nail\"\nsku = 284\n"
+        );
+    }
+
+    #[test]
+    fn replace_aot_entry_rejects_wrong_key() {
+        // A fragment that renames the header (`[[other]]`) is rejected; the doc is
+        // left untouched.
+        use crate::model::document::Mutation;
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("[[product]]\nname = \"Hammer\"\n");
+        let before = doc.serialize();
+        let err = doc
+            .apply(Mutation::Replace {
+                path: vec![Seg::Key("product".into()), Seg::Index(0)],
+                toml: "[[other]]\nname = \"Hammer\"\n".into(),
+            })
+            .unwrap_err();
+        assert!(matches!(err, MutateError::Fragment(_)));
+        assert_eq!(doc.serialize(), before);
     }
 
     #[test]

@@ -510,15 +510,23 @@ impl App {
             Some(d) => d,
             None => return,
         };
-        // `Replace` can only address an all-`Key` path, so for any node inside an
-        // array/AoT (path with an `Index`) edit the nearest addressable container:
-        // truncate at the first `Index`, yielding the enclosing top-level array/AoT
-        // key. (A direct scalar element is handled inline and never reaches here.)
-        let first_index = cursor_row
-            .path
-            .iter()
-            .position(|s| matches!(s, Seg::Index(_)));
-        let path = match first_index {
+        // `Replace` addresses an all-`Key` path, an array-of-tables entry, and any
+        // key nested inside one (via the `Key→Index` AoT descent), but NOT a element
+        // of a standard array. So truncate the path only at the first `Index` whose
+        // container is a real `Array` (editing the whole array there); AoT-entry
+        // indices and the keys below them are kept and addressed directly.
+        let truncate_at = cursor_row.path.iter().enumerate().find_map(|(i, s)| {
+            if matches!(s, Seg::Index(_)) {
+                let container_is_array = node_at(&self.tree.root, &cursor_row.path[..i])
+                    .map(|n| matches!(n.kind, NodeKind::Array))
+                    .unwrap_or(false);
+                if container_is_array {
+                    return Some(i);
+                }
+            }
+            None
+        });
+        let path = match truncate_at {
             Some(i) => cursor_row.path[..i].to_vec(),
             None => cursor_row.path.clone(),
         };
@@ -1532,28 +1540,46 @@ fn serialize_node_fragment_opts(
     carry_key_comment: bool,
 ) -> String {
     use crate::model::node::Seg;
-    use toml_edit::{DocumentMut, Item};
+    use toml_edit::{ArrayOfTables, DocumentMut, Item};
     if path.is_empty() {
         return doc.serialize();
     }
     let (parent_segs, last) = path.split_at(path.len().saturating_sub(1));
+    // Array-of-tables entry (`product[0]`): emit a single-entry `[[key]]` block,
+    // carrying the entry's own decor (its leading comment/blank lines) so an
+    // `$EDITOR` round-trip preserves them.
+    if let Some(Seg::Index(idx)) = last.first() {
+        let (head, key_seg) = parent_segs.split_at(parent_segs.len().saturating_sub(1));
+        let aot_key = match key_seg.first() {
+            Some(Seg::Key(k)) => k.as_str(),
+            _ => return String::new(),
+        };
+        let tbl = match walk_tablelike(doc.doc.as_table(), head) {
+            Some(t) => t,
+            None => return String::new(),
+        };
+        let entry = match tbl.get(aot_key) {
+            Some(Item::ArrayOfTables(a)) => match a.get(*idx) {
+                Some(t) => t.clone(),
+                None => return String::new(),
+            },
+            _ => return String::new(),
+        };
+        let mut tmp = DocumentMut::new();
+        let mut aot = ArrayOfTables::new();
+        aot.push(entry);
+        tmp.as_table_mut().insert(aot_key, Item::ArrayOfTables(aot));
+        return tmp.to_string();
+    }
     let key = match last.first() {
         Some(Seg::Key(k)) => k.as_str(),
         _ => return String::new(),
     };
-    // Walk to the parent table
-    let mut tbl: &dyn toml_edit::TableLike = doc.doc.as_table();
-    for seg in parent_segs {
-        match seg {
-            Seg::Key(k) => {
-                tbl = match tbl.get(k).and_then(Item::as_table_like) {
-                    Some(t) => t,
-                    None => return String::new(),
-                };
-            }
-            _ => return String::new(),
-        }
-    }
+    // Walk to the parent table (AoT-aware: a `Key→Index` pair descends an AoT entry).
+    let tbl = match walk_tablelike(doc.doc.as_table(), parent_segs) {
+        Some(t) => t,
+        None => return String::new(),
+    };
     let item = match tbl.get(key) {
         Some(i) => i.clone(),
         None => return String::new(),
@@ -1588,6 +1614,39 @@ fn branch_type_format(kind: &NodeKind) -> (&'static str, &'static str) {
         NodeKind::ArrayOfTables => ("array", "array-of-tables"),
         NodeKind::Scalar(_) | NodeKind::Comment(_) => ("unknown", "-"),
     }
+}
+
+/// Walk a `&dyn TableLike` along `segs`, descending standard tables/inline tables
+/// by `Key` and array-of-tables entries by a `Key→Index` pair (the AoT itself is
+/// not table-like). Returns the table the path names, or `None` if it does not
+/// resolve to one. The immutable mirror of `TomlDocument::parent_table_mut`.
+fn walk_tablelike<'a>(
+    root: &'a dyn toml_edit::TableLike,
+    segs: &[Seg],
+) -> Option<&'a dyn toml_edit::TableLike> {
+    use toml_edit::Item;
+    let mut tbl = root;
+    let mut i = 0;
+    while i < segs.len() {
+        match &segs[i] {
+            Seg::Key(k) => {
+                let item = tbl.get(k)?;
+                if let Item::ArrayOfTables(aot) = item {
+                    let idx = match segs.get(i + 1) {
+                        Some(Seg::Index(n)) => *n,
+                        _ => return None,
+                    };
+                    tbl = aot.get(idx)?;
+                    i += 2;
+                    continue;
+                }
+                tbl = item.as_table_like()?;
+                i += 1;
+            }
+            Seg::Index(_) => return None,
+        }
+    }
+    Some(tbl)
 }
 
 /// Find a node in the projected tree by its exact path (Root has empty path).
@@ -2450,6 +2509,33 @@ mod tests {
             .unwrap();
         app.cursor = pos;
         assert_eq!(app.edit_target_kind(), EditKind::Inline);
+    }
+
+    #[test]
+    fn serialize_aot_entry_emits_single_block() {
+        // `E` on an AoT entry serializes just that `[[product]]` block (not the
+        // whole array-of-tables) for external editing.
+        let app = app_with("[[product]]\nname = \"Hammer\"\n[[product]]\nname = \"Nail\"\n");
+        let doc = app.doc.as_ref().unwrap();
+        let frag = serialize_node_fragment(doc, &[Seg::Key("product".into()), Seg::Index(1)]);
+        assert_eq!(frag, "[[product]]\nname = \"Nail\"\n");
+    }
+
+    #[test]
+    fn apply_replace_on_aot_entry_updates_one_entry() {
+        // The post-editor half of `E` on an AoT entry: Replace at the `[…,Index]`
+        // path rewrites only that entry.
+        let mut app = app_with("[[product]]\nname = \"Hammer\"\n[[product]]\nname = \"Nail\"\n");
+        app.apply_replace(
+            vec![Seg::Key("product".into()), Seg::Index(0)],
+            "[[product]]\nname = \"Mallet\"\n".into(),
+        );
+        assert!(app.status.is_none(), "unexpected status: {:?}", app.status);
+        let s = app.doc.as_ref().unwrap().serialize();
+        assert_eq!(
+            s,
+            "[[product]]\nname = \"Mallet\"\n[[product]]\nname = \"Nail\"\n"
+        );
     }
 
     #[test]

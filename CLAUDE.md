@@ -42,9 +42,14 @@ parent container — `rename_in_table` for a standard `[table]`, `rename_in_inli
 `inline_table_mut`) for an inline table — both order- and decor-preserving. Both columns share one
 horizontal-scroll/overflow treatment (`edit_field_spans`, also reused to render the `/` filter input as
 an inline field with a caret). The editor and the filter input are both caret-based text fields:
-`←/→/Home/End` move the caret, `Backspace`/`Del` erase before/at it. A node nested inside an AoT, multiline
-strings, and `E` open `$EDITOR` — `edit_node` truncates the path at the first `Index` so the edit
-targets the nearest addressable container. For a **structured** node (table/inline table/array/AoT) the
+`←/→/Home/End` move the caret, `Backspace`/`Del` erase before/at it. Multiline strings, structured
+nodes, and `E` open `$EDITOR`. `edit_node` truncates the path only at the first `Index` whose container
+is a real `Array` (editing the whole array there); array-of-tables-entry indices and the keys below them
+are kept and addressed directly — so `E` on an AoT **entry** (`product[0]`) serializes just that single
+`[[product]]` block (`serialize_node_fragment_opts` emits a one-entry `ArrayOfTables`; the immutable
+`walk_tablelike` mirrors `parent_table_mut`'s AoT descent) and writes back through `replace`'s
+`replace_aot_entry` branch (rewrites only that entry, sibling entries and between-entry comments intact).
+For a **structured** node (table/inline table/array/AoT) the
 editor fragment carries the node's adjacent leading comment(s) (`serialize_node_fragment_opts` copies
 the key's `leaf_decor` prefix; tables already carry theirs in the item decor), and `replace` syncs that
 key decor back from the edited fragment so comment edits round-trip — scalars never carry comments. Inline commit and the `←/→` value-nudge write back through `Mutation::Replace` (the nudge

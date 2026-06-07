@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Editing — `E` on an **array-of-tables entry** (`product[0]`) now opens `$EDITOR` with just that single `[[product]]` block (was: the whole array-of-tables). Write-back goes through a new AoT-entry `Replace` branch (`replace_aot_entry`) that rewrites only that entry, preserving the others and the between-entries comments; `edit_node` now truncates the path only at a real `Array` index, keeping AoT-entry indices addressable. (2026-06-07)
 - Editing — `e` on a **scalar member of an array-of-tables entry** (`product[0].sku`) now edits inline (and `←/→` nudges, `Tab`→Name renames) instead of opening `$EDITOR` on the whole AoT. `parent_table_mut`/`concrete_table_mut` now descend a `Key→Index` AoT entry; the inline rule keys on the absence of an `Array` ancestor, so array-of-inline-table members (`x = [{ a = 1 }]`) still open `$EDITOR`. (2026-06-07)
 - Editing — `e` on a **single-line comment** now edits inline (the raw `#`-prefixed text as the sole field, no `Tab`/name, committed via `Mutation::EditComment`) instead of opening `$EDITOR`. Merged multi-line comments and comments nested in an array-of-tables still open `$EDITOR`. (2026-06-07)
 - Editing — `e` on a scalar **member of an inline table** (`pt = { x = 1 }`) now edits inline instead of opening `$EDITOR`; `Tab`→Name renames the key in place (`Mutation::Rename` now handles inline-table keys, preserving order and the other members). (2026-06-07)
