@@ -483,8 +483,22 @@ impl App {
             Some(i) => cursor_row.path[..i].to_vec(),
             None => cursor_row.path.clone(),
         };
-        // Serialize just the (container) node's own fragment.
-        let fragment = serialize_node_fragment(doc, &path);
+        // Serialize just the (container) node's own fragment. For a *structured*
+        // node (table/inline table/array/AoT) carry its adjacent leading comment(s)
+        // into the editor so they can be edited alongside the node; scalars
+        // (multiline strings, `E`-forced leaves) never carry comments.
+        let structured = node_at(&self.tree.root, &path)
+            .map(|n| {
+                matches!(
+                    n.kind,
+                    NodeKind::Table
+                        | NodeKind::InlineTable
+                        | NodeKind::Array
+                        | NodeKind::ArrayOfTables
+                )
+            })
+            .unwrap_or(false);
+        let fragment = serialize_node_fragment_opts(doc, &path, structured);
         let edited = match crate::tui::editor::edit_text(&fragment) {
             Ok(t) => t,
             Err(e) => {
@@ -587,12 +601,18 @@ impl App {
             }
             // Scalar under a key: inline only when no `Index` sits above it (else it
             // lives inside an AoT entry that Replace cannot address) and the parent
-            // is a Table or the Root (not an inline table).
+            // is a Table, the Root, or an inline table — all addressable by an
+            // all-`Key` `Replace`/`Rename`.
             Some(Seg::Key(_)) => {
                 let no_index_above = !parent_path.iter().any(|s| matches!(s, Seg::Index(_)));
                 let parent_ok = path.len() == 1
                     || parent
-                        .map(|p| matches!(p.kind, NodeKind::Table | NodeKind::Root))
+                        .map(|p| {
+                            matches!(
+                                p.kind,
+                                NodeKind::Table | NodeKind::Root | NodeKind::InlineTable
+                            )
+                        })
                         .unwrap_or(false);
                 if no_index_above && parent_ok {
                     EditKind::Inline
@@ -1396,6 +1416,19 @@ fn serialize_node_fragment(
     doc: &crate::model::toml_doc::TomlDocument,
     path: &[crate::model::node::Seg],
 ) -> String {
+    serialize_node_fragment_opts(doc, path, false)
+}
+
+/// As [`serialize_node_fragment`], but when `carry_key_comment` is set, copy the
+/// source key's `leaf_decor` prefix onto the emitted key. For an array/inline
+/// table the leading standalone comment lives in that decor (not the value item),
+/// so this is how it is carried into `$EDITOR`; tables carry theirs in the item
+/// decor already, so the copy is an empty no-op for them.
+fn serialize_node_fragment_opts(
+    doc: &crate::model::toml_doc::TomlDocument,
+    path: &[crate::model::node::Seg],
+    carry_key_comment: bool,
+) -> String {
     use crate::model::node::Seg;
     use toml_edit::{DocumentMut, Item};
     if path.is_empty() {
@@ -1423,8 +1456,21 @@ fn serialize_node_fragment(
         Some(i) => i.clone(),
         None => return String::new(),
     };
+    let key_comment = if carry_key_comment {
+        tbl.key(key)
+            .and_then(|k| k.leaf_decor().prefix().and_then(|r| r.as_str()))
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+    } else {
+        None
+    };
     let mut tmp = DocumentMut::new();
     tmp.as_table_mut().insert(key, item);
+    if let Some(prefix) = key_comment {
+        if let Some(mut km) = tmp.as_table_mut().key_mut(key) {
+            km.leaf_decor_mut().set_prefix(prefix);
+        }
+    }
     tmp.to_string()
 }
 
@@ -2150,9 +2196,10 @@ mod tests {
         // scalar element directly in a top-level array → inline
         app.cursor = idx_of(&app, "[0]");
         assert_eq!(app.edit_target_kind(), EditKind::Inline);
-        // member of an inline table → external
+        // scalar member of an inline table → inline (value Replace + key Rename
+        // both address it via an all-`Key` path)
         app.cursor = idx_of(&app, "y");
-        assert_eq!(app.edit_target_kind(), EditKind::External);
+        assert_eq!(app.edit_target_kind(), EditKind::Inline);
     }
 
     #[test]

@@ -16,6 +16,61 @@ fn find_node_by_path<'a>(
         .find_map(|c| find_node_by_path(c, path))
 }
 
+/// Order-preserving, decor-preserving key rename inside a standard `[table]`:
+/// re-insert every entry in its original order, swapping only the target key (a
+/// fresh `Key` carrying the old leaf decor — the comments/blanks above it).
+fn rename_in_table(
+    tbl: &mut toml_edit::Table,
+    old: &str,
+    new_base: &toml_edit::Key,
+) -> Result<(), MutateError> {
+    if !tbl.contains_key(old) {
+        return Err(MutateError::NotFound);
+    }
+    if tbl.contains_key(new_base.get()) {
+        return Err(MutateError::Collision(new_base.get().to_string()));
+    }
+    let order: Vec<String> = tbl.iter().map(|(k, _)| k.to_string()).collect();
+    for k in order {
+        let (key_obj, item) = tbl.remove_entry(&k).expect("key listed from iter");
+        if k == old {
+            let mut nk = new_base.clone();
+            *nk.leaf_decor_mut() = key_obj.leaf_decor().clone();
+            tbl.insert_formatted(&nk, item);
+        } else {
+            tbl.insert_formatted(&key_obj, item);
+        }
+    }
+    Ok(())
+}
+
+/// Inline-table counterpart of [`rename_in_table`], using `InlineTable`'s
+/// value-typed `remove_entry`/`insert_formatted`.
+fn rename_in_inline_table(
+    it: &mut toml_edit::InlineTable,
+    old: &str,
+    new_base: &toml_edit::Key,
+) -> Result<(), MutateError> {
+    if !it.contains_key(old) {
+        return Err(MutateError::NotFound);
+    }
+    if it.contains_key(new_base.get()) {
+        return Err(MutateError::Collision(new_base.get().to_string()));
+    }
+    let order: Vec<String> = it.iter().map(|(k, _)| k.to_string()).collect();
+    for k in order {
+        let (key_obj, value) = it.remove_entry(&k).expect("key listed from iter");
+        if k == old {
+            let mut nk = new_base.clone();
+            *nk.leaf_decor_mut() = key_obj.leaf_decor().clone();
+            it.insert_formatted(&nk, value);
+        } else {
+            it.insert_formatted(&key_obj, value);
+        }
+    }
+    Ok(())
+}
+
 pub struct TomlDocument {
     pub(crate) doc: DocumentMut,
     pub(crate) path: PathBuf,
@@ -28,6 +83,25 @@ impl TomlDocument {
     fn remove_at(&mut self, path: &[Seg]) -> Result<(), MutateError> {
         let (parent, last) = path.split_at(path.len().saturating_sub(1));
         let last = last.first().ok_or(MutateError::NotFound)?;
+        // A comment node has no real key in the table; its synthetic `#comment:N`
+        // key only exists in the projection. Delete it by stripping its block from
+        // the decor slot the projector read it from (same locate-and-rewrite path
+        // `uncomment` uses), not via `Table::remove`.
+        if let Seg::Key(k) = last {
+            if k.starts_with("#comment:") {
+                let comment_text = {
+                    let projected = self.project();
+                    find_node_by_path(&projected.root, path)
+                        .and_then(|n| match &n.kind {
+                            crate::model::node::NodeKind::Comment(t) => Some(t.clone()),
+                            _ => None,
+                        })
+                        .ok_or(MutateError::NotFound)?
+                };
+                self.remove_comment_from_decor(parent, &comment_text);
+                return Ok(());
+            }
+        }
         let table = self.parent_table_mut(parent)?;
         match last {
             Seg::Key(k) => {
@@ -168,6 +242,25 @@ impl TomlDocument {
                 "Replace cannot rename key '{expected_key}'; fragment must keep the same key"
             )));
         }
+        // A structured node (array/inline table) keeps its leading standalone
+        // comment in the key's `leaf_decor`, which the value-only Overwrite below
+        // leaves untouched. Capture the edited fragment's key decor so it can be
+        // synced afterwards — letting comment edits round-trip. Scalars are skipped
+        // (their fragment carries no comment, so an inline/nudge edit never wipes a
+        // comment above the key); tables carry their comment in the item decor,
+        // which Overwrite already replaces, so the sync is a harmless no-op there.
+        let dest_structured = matches!(
+            frag.get(expected_key),
+            Some(Item::Table(_))
+                | Some(Item::ArrayOfTables(_))
+                | Some(Item::Value(toml_edit::Value::Array(_)))
+                | Some(Item::Value(toml_edit::Value::InlineTable(_)))
+        );
+        let frag_key_prefix = frag
+            .key(expected_key)
+            .and_then(|k| k.leaf_decor().prefix().and_then(|r| r.as_str()))
+            .unwrap_or("")
+            .to_string();
         self.insert_fragment(
             &Target {
                 parent: parent.to_vec(),
@@ -175,7 +268,15 @@ impl TomlDocument {
             },
             toml,
             crate::model::document::OnCollision::Overwrite,
-        )
+        )?;
+        if dest_structured {
+            if let Ok(tbl) = self.parent_table_mut(parent) {
+                if let Some(mut km) = tbl.key_mut(expected_key) {
+                    km.leaf_decor_mut().set_prefix(frag_key_prefix);
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Replace a single scalar element at `idx` inside the array addressed by the
@@ -241,27 +342,31 @@ impl TomlDocument {
         let new_base: toml_edit::Key = new_key
             .parse()
             .map_err(|e: toml_edit::TomlError| MutateError::Fragment(e.to_string()))?;
-        let tbl = self
-            .concrete_table_mut(parent)
-            .ok_or(MutateError::NotFound)?;
-        if !tbl.contains_key(&old) {
-            return Err(MutateError::NotFound);
+        // Standard `[table]` parent: re-insert in order with `Table` APIs.
+        if let Some(tbl) = self.concrete_table_mut(parent) {
+            return rename_in_table(tbl, &old, &new_base);
         }
-        if tbl.contains_key(new_key) {
-            return Err(MutateError::Collision(new_key.to_string()));
+        // Inline-table parent (`pt = { x = 1 }`): same order-preserving re-insert
+        // with `InlineTable`'s value-typed APIs, so an inline scalar's key renames
+        // from the inline editor too.
+        if let Some(it) = self.inline_table_mut(parent) {
+            return rename_in_inline_table(it, &old, &new_base);
         }
-        let order: Vec<String> = tbl.iter().map(|(k, _)| k.to_string()).collect();
-        for k in order {
-            let (key_obj, item) = tbl.remove_entry(&k).expect("key listed from iter");
-            if k == old {
-                let mut nk = new_base.clone();
-                *nk.leaf_decor_mut() = key_obj.leaf_decor().clone();
-                tbl.insert_formatted(&nk, item);
-            } else {
-                tbl.insert_formatted(&key_obj, item);
-            }
-        }
-        Ok(())
+        Err(MutateError::NotFound)
+    }
+
+    /// Walk to the concrete `&mut InlineTable` named by the final `Key` of `parent`
+    /// (`pt = { x = 1 }`). Returns `None` if the path does not name an inline table.
+    fn inline_table_mut(&mut self, parent: &[Seg]) -> Option<&mut toml_edit::InlineTable> {
+        let (head, last) = parent.split_at(parent.len().saturating_sub(1));
+        let key = match last.first() {
+            Some(Seg::Key(k)) => k.as_str(),
+            _ => return None,
+        };
+        let tbl = self.parent_table_mut(head).ok()?;
+        tbl.get_mut(key)
+            .and_then(Item::as_value_mut)
+            .and_then(|v| v.as_inline_table_mut())
     }
 
     /// Move `sources` under `target`. Atomic on any error: a snapshot is taken
@@ -1067,6 +1172,67 @@ mod tests {
         assert!(matches!(invalid, Err(MutateError::Fragment(_))));
         // document untouched after both rejections
         assert_eq!(doc.serialize(), "a = 1\nb = 2\n");
+    }
+
+    fn first_comment_path(node: &crate::model::node::Node) -> Option<crate::model::node::Path> {
+        if matches!(node.kind, crate::model::node::NodeKind::Comment(_)) {
+            return Some(node.path.clone());
+        }
+        node.children.iter().find_map(first_comment_path)
+    }
+
+    #[test]
+    fn delete_standalone_comment_node() {
+        // A comment node's synthetic `#comment:N` key is not a real table entry;
+        // Delete must strip it from the decor rather than fail with NotFound.
+        use crate::model::document::Mutation;
+        // Leading comment before a top-level key.
+        let mut doc = doc_from_str("# top\nport = 8080\n");
+        let path = first_comment_path(&doc.project().root).expect("top comment");
+        doc.apply(Mutation::Delete { path }).unwrap();
+        assert_eq!(doc.serialize(), "port = 8080\n");
+
+        // Comment before a `[table]` header.
+        let mut doc = doc_from_str("# about\n[server]\nhost = \"x\"\n");
+        let path = first_comment_path(&doc.project().root).expect("table comment");
+        doc.apply(Mutation::Delete { path }).unwrap();
+        assert_eq!(doc.serialize(), "[server]\nhost = \"x\"\n");
+
+        // Comment inside a table, before a leaf.
+        let mut doc = doc_from_str("[server]\n# mid\nhost = \"x\"\n");
+        let path = first_comment_path(&doc.project().root).expect("nested comment");
+        doc.apply(Mutation::Delete { path }).unwrap();
+        assert_eq!(doc.serialize(), "[server]\nhost = \"x\"\n");
+    }
+
+    #[test]
+    fn rename_key_inside_inline_table() {
+        // `Tab`-rename from the inline editor on an inline-table scalar: the key is
+        // renamed in place, preserving order and the other entries.
+        use crate::model::document::Mutation;
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("pt = { x = 1, y = 2 }\n");
+        doc.apply(Mutation::Rename {
+            path: vec![Seg::Key("pt".into()), Seg::Key("x".into())],
+            new_key: "x2".into(),
+        })
+        .unwrap();
+        assert_eq!(doc.serialize(), "pt = { x2 = 1, y = 2 }\n");
+    }
+
+    #[test]
+    fn replace_array_roundtrips_edited_leading_comment() {
+        // External edit of a structured node (array) carries its leading comment in
+        // the key's leaf_decor; an edit to that comment must round-trip on write-back.
+        use crate::model::document::Mutation;
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("# old\nnums = [1, 2]\n");
+        doc.apply(Mutation::Replace {
+            path: vec![Seg::Key("nums".into())],
+            toml: "# new\nnums = [1, 2, 3]\n".into(),
+        })
+        .unwrap();
+        assert_eq!(doc.serialize(), "# new\nnums = [1, 2, 3]\n");
     }
 
     #[test]

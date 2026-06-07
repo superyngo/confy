@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Editing — `e` on a scalar **member of an inline table** (`pt = { x = 1 }`) now edits inline instead of opening `$EDITOR`; `Tab`→Name renames the key in place (`Mutation::Rename` now handles inline-table keys, preserving order and the other members). (2026-06-07)
+- Editing — opening `$EDITOR` on a **structured** node (table/inline table/array/array-of-tables) now carries its adjacent leading comment(s) into the editor, and edits to that comment round-trip on save. Previously only `[table]` headers carried their comment; arrays did not. Scalars (including multiline strings) never carry comments. (2026-06-07)
 - Editing — `e` on a multiline string now opens `$EDITOR` instead of the single-line inline editor, matching the existing behavior for nested arrays/tables. Single-line scalars still edit inline. (2026-06-06)
 - Editing — `e` on a scalar **element of an array** now edits it inline (was: opened an empty `$EDITOR` and failed to save). Write-back goes through `Replace` on the trailing `Index` path via `Array::replace`, preserving the other elements and their formats. Non-scalar array elements still open `$EDITOR`. (2026-06-06)
 - Editing — `←/→` value-nudge now also works on a scalar array element (toggle bool / step int/float in place). (2026-06-06)
@@ -21,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Editing — scalar elements of nested arrays (array-of-arrays, `Key Index Index…`) now edit inline and nudge in place, addressed via `array_at_mut`. (2026-06-06)
 
 ### Fixed
+- Editing — deleting a standalone comment node no longer fails with `delete error: path not found`; `Delete` now strips the comment from its decor slot (like `uncomment`) instead of trying to remove a non-existent `#comment:N` table key. (2026-06-07)
 - TUI — multi-line cell values (merged comments, multiline strings, and elements of a multiline-formatted array) now render a single-line preview (first line + ` …`) in the VALUE column. Previously a multiline-array element showed nothing because its repr carries leading newline+indent decor; the full text remains available in the detail popup. (2026-06-07)
 - TUI — the main tree viewport now persists its scroll offset across frames, so the cursor moves within the visible window instead of staying pinned to the bottom edge and scrolling on every key. (2026-06-06)
 - Editing — replacing a value no longer drops a standalone `#` comment sitting above its key; `Replace`/`Insert` overwrite now updates the value in place (preserving key decor) instead of re-inserting the key. (2026-06-06)

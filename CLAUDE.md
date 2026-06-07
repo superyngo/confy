@@ -28,15 +28,20 @@ the table in order, swapping only the target key) — there is no separate user-
 it is driven from the inline editor (see below).
 
 **Editing.** `e` edits a single-line scalar in an in-TUI **inline editor** (`Mode::Edit`) — a direct
-child of a Table/Root, or a scalar **element of an array** addressed by a `Key+ Index*` path
-(including array-of-arrays nesting; written back via `Replace` on the trailing `Index`, routed by
-`replace_array_element` → `Array::replace`, with `array_at_mut` descending nested arrays). The inline
-editor edits one field at a time: **`Tab` toggles between Value (default) and Name**; committing a
-changed Name applies a `Mutation::Rename` first, then the value `Replace` (Tab is disabled for array
-elements, which have no key). Both columns share one horizontal-scroll/overflow treatment
-(`edit_field_spans`). A node nested inside an AoT, multiline strings, and `E` open `$EDITOR` —
-`edit_node` truncates the path at the first `Index` so the edit targets the nearest addressable
-container. Inline commit and the `←/→` value-nudge write back through `Mutation::Replace` (the nudge
+child of a Table/Root, a scalar **member of an inline table** (`pt = { x = 1 }`), or a scalar
+**element of an array** addressed by a `Key+ Index*` path (including array-of-arrays nesting; written
+back via `Replace` on the trailing `Index`, routed by `replace_array_element` → `Array::replace`, with
+`array_at_mut` descending nested arrays). The inline editor edits one field at a time: **`Tab` toggles
+between Value (default) and Name**; committing a changed Name applies a `Mutation::Rename` first, then
+the value `Replace` (Tab is disabled for array elements, which have no key). `Rename` dispatches on the
+parent container — `rename_in_table` for a standard `[table]`, `rename_in_inline_table` (via
+`inline_table_mut`) for an inline table — both order- and decor-preserving. Both columns share one
+horizontal-scroll/overflow treatment (`edit_field_spans`). A node nested inside an AoT, multiline
+strings, and `E` open `$EDITOR` — `edit_node` truncates the path at the first `Index` so the edit
+targets the nearest addressable container. For a **structured** node (table/inline table/array/AoT) the
+editor fragment carries the node's adjacent leading comment(s) (`serialize_node_fragment_opts` copies
+the key's `leaf_decor` prefix; tables already carry theirs in the item decor), and `replace` syncs that
+key decor back from the edited fragment so comment edits round-trip — scalars never carry comments. Inline commit and the `←/→` value-nudge write back through `Mutation::Replace` (the nudge
 re-applies underscore digit grouping when the original had it). A scalar's **Format** (writing style:
 hex/oct/bin, basic/literal/multiline string, …) is derived read-only during projection and is
 orthogonal to its `ScalarType`. TOML has no null, so there is no clear-value operation; `a` seeds a
@@ -50,7 +55,9 @@ multiline strings, multiline-array elements whose repr carries leading newline/i
 collapsed to a one-line preview (first line + ` …`) by `cell_preview` in `ui.rs`; the full text stays
 in the detail popup. `e`/`E` on a comment opens `$EDITOR` with the raw `#`-prefixed text and writes it
 back in place via `Mutation::EditComment` (`edit_comment` → `transform_comment_in_decor`, the
-locate-the-decor-slot helper shared with `uncomment`).
+locate-the-decor-slot helper shared with `uncomment`). Deleting a comment node (`d`) routes through
+the same decor path: `remove_at` detects the synthetic `#comment:N` key and calls
+`remove_comment_from_decor` rather than `Table::remove` (which would fail with `NotFound`).
 
 ## Module map
 
