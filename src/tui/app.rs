@@ -487,12 +487,13 @@ impl App {
             None => return,
         };
         // A comment node has no real item to serialize: open $EDITOR with its raw
-        // `#`-prefixed text and write the edit back into the decor. (Comments nested
-        // inside an AoT entry carry an `Index` in their path and are not addressable
-        // this way — fall through to container editing, as Remark does.)
+        // `#`-prefixed text and write the edit back into the decor. This covers any
+        // decor-addressable comment (no `Array` ancestor — including ones inside an
+        // AoT entry, whose path carries an `Index`); a comment with an `Array`
+        // ancestor is not addressable and falls through to container editing.
         if let Some(node) = node_at(&self.tree.root, &cursor_row.path) {
             if let NodeKind::Comment(text) = &node.kind {
-                if !cursor_row.path.iter().any(|s| matches!(s, Seg::Index(_))) {
+                if self.no_array_ancestor(&cursor_row.path) {
                     let initial = format!("{text}\n");
                     let edited = match crate::tui::editor::edit_text(&initial) {
                         Ok(t) => t,
@@ -590,6 +591,18 @@ impl App {
         }
     }
 
+    /// True when no `Array` node sits above `path`, i.e. every `Index` in it
+    /// descends an array-of-tables entry (a table, addressable by Replace / Rename
+    /// / EditComment) rather than a standard array element (which is not). Empty and
+    /// length-1 paths trivially qualify.
+    fn no_array_ancestor(&self, path: &[Seg]) -> bool {
+        (1..path.len()).all(|i| {
+            node_at(&self.tree.root, &path[..i])
+                .map(|n| !matches!(n.kind, NodeKind::Array))
+                .unwrap_or(false)
+        })
+    }
+
     /// Decide how `e` should edit the cursor node. Inline editing applies only to
     /// a Scalar leaf reachable by an all-`Key` path whose immediate parent is a
     /// Table or the Root — i.e. NOT inside an array, inline table, or AoT entry
@@ -608,13 +621,13 @@ impl App {
             Some(n) => n,
             None => return EditKind::External,
         };
-        // A single-line comment edits inline (raw `#` text → `EditComment`). A
-        // merged multi-line comment, or one nested in an AoT (path carries an
-        // `Index`, not addressable via the decor locator), stays in $EDITOR.
+        // A single-line comment edits inline (raw `#` text → `EditComment`), as long
+        // as it is decor-addressable (no `Array` ancestor — an AoT-entry ancestor is
+        // fine). A merged multi-line comment, or one with an `Array` ancestor, stays
+        // in $EDITOR.
         if let NodeKind::Comment(text) = &node.kind {
             let single_line = !text.contains('\n');
-            let no_index = !path.iter().any(|s| matches!(s, Seg::Index(_)));
-            return if single_line && no_index {
+            return if single_line && self.no_array_ancestor(path) {
                 EditKind::Inline
             } else {
                 EditKind::External
@@ -665,11 +678,7 @@ impl App {
             // its entries ARE tables, reachable via the `Key→Index` AoT descent in
             // `parent_table_mut`/`concrete_table_mut`.
             Some(Seg::Key(_)) => {
-                let no_array_ancestor = (1..path.len()).all(|i| {
-                    node_at(&self.tree.root, &path[..i])
-                        .map(|n| !matches!(n.kind, NodeKind::Array))
-                        .unwrap_or(false)
-                });
+                let no_array_ancestor = self.no_array_ancestor(path);
                 let parent_ok = path.len() == 1
                     || parent
                         .map(|p| {
@@ -2007,6 +2016,28 @@ mod tests {
             s.contains("# changed") && !s.contains("# test"),
             "serialize: {s:?}"
         );
+    }
+
+    #[test]
+    fn comment_inside_aot_entry_edits_inline() {
+        // `#123` before a key inside an AoT entry has an `Index` in its path but no
+        // `Array` ancestor, so it edits inline (was: opened a blank $EDITOR).
+        let mut app = app_with("[[product]]\n#123\nname = \"Hammer\"\n");
+        app.expand_all();
+        app.rebuild_rows();
+        let pos = app.rows.iter().position(|r| r.key == "#123").unwrap();
+        app.cursor = pos;
+        assert_eq!(app.edit_target_kind(), EditKind::Inline);
+        app.begin_inline_edit();
+        if let Mode::Edit(ref mut e) = app.mode {
+            assert!(e.is_comment);
+            e.buffer = "#321".into();
+        } else {
+            panic!("expected inline edit mode");
+        }
+        app.edit_commit();
+        let s = app.doc.as_ref().unwrap().serialize();
+        assert_eq!(s, "[[product]]\n#321\nname = \"Hammer\"\n");
     }
 
     #[test]

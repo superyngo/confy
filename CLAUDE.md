@@ -66,18 +66,19 @@ multiline strings, multiline-array elements whose repr carries leading newline/i
 collapsed to a one-line preview (first line + ` …`) by `cell_preview` in `ui.rs`; the full text stays
 in the detail popup. `e` on a **single-line** comment edits inline (`Mode::Edit` with `is_comment`: the
 raw `#`-prefixed text is the sole field — no name, `Tab` is a no-op — and `edit_commit` routes straight
-to `Mutation::EditComment`, staying in the editor on a non-`#` validation error); `E`, a merged
-multi-line comment, or one nested in an AoT instead open `$EDITOR` with the raw text. Either way the
-edit writes back in place via `Mutation::EditComment` (`edit_comment` → `transform_comment_in_decor`, the
-locate-the-decor-slot helper shared with `uncomment`). Deleting a comment node (`d`) routes through
-the same decor path: `remove_at` detects the synthetic `#comment:N` key and calls
-`remove_comment_from_decor` rather than `Table::remove` (which would fail with `NotFound`).
-A comment **between `[[aot]]` entries** lives in the next entry's `decor().prefix()` and projects as a
-child of the AoT (path `[…aot, #comment:N]`, all-`Key` so it edits inline); `transform_comment_in_decor`
-detects an AoT parent (or AoT first-key) and rewrites via `transform_aot_entry_prefixes`, which sweeps
-every entry prefix (the text-matching transform is a no-op on the slots that don't hold it), so both edit
-and delete reach the right slot. (A comment after the *last* entry, in `doc.trailing()`, is still
-unhandled by the shared locator.)
+to `Mutation::EditComment`, staying in the editor on a non-`#` validation error). A comment edits inline
+whenever it is single-line and **decor-addressable** — no `Array` ancestor, checked by the shared
+`no_array_ancestor` (an AoT-entry ancestor is fine even though it puts an `Index` in the path). `E`, a
+merged multi-line comment, or one with an `Array` ancestor instead open `$EDITOR` with the raw text.
+Either way the edit writes back via `Mutation::EditComment` (`edit_comment` → `transform_comment_in_decor`).
+Deleting a comment node (`d`) routes through the same locator: `remove_at` detects the synthetic
+`#comment:N` key and calls `remove_comment_from_decor` rather than `Table::remove` (which would fail with
+`NotFound`). **The locator sweeps**, it does not guess a single slot: `transform_comment_in_decor` runs
+`sweep_table_comment_slots` over the container — every key's `leaf_decor` prefix, every `[table]` header
+decor, every `[[aot]]` entry prefix (`transform_aot_entry_prefixes`) — plus the document trailing for the
+root, stopping at the first slot the text-matching transform changes. This reaches a comment before **any**
+item (not just the first), an AoT parent's between-entry comments, and comments inside an AoT entry alike.
+(A comment text that is a substring of an earlier-swept comment is the one edge the sweep can mis-target.)
 
 ## Module map
 

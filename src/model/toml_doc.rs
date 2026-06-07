@@ -71,15 +71,15 @@ fn rename_in_inline_table(
     Ok(())
 }
 
-/// Apply `transform` to every entry's leading decor prefix in an array-of-tables.
-/// A comment between successive `[[key]]` entries lives in the following entry's
-/// `decor().prefix()`; the projector surfaces it as a child of the AoT, so an edit
-/// or delete must rewrite whichever entry prefix holds it. Sweeping all entries is
-/// safe — the text-matching transform is a no-op on the slots that don't hold it.
+/// Apply `transform` to each entry's leading decor prefix in an array-of-tables,
+/// stopping at (and reporting) the first slot it changes. A comment before/between
+/// `[[key]]` entries lives in an entry's `decor().prefix()`; the projector surfaces
+/// it as a child of the AoT, so an edit/delete must rewrite whichever entry prefix
+/// holds it. The text-matching transform is a no-op on the slots that don't hold it.
 fn transform_aot_entry_prefixes(
     aot: &mut toml_edit::ArrayOfTables,
     transform: &dyn Fn(&str) -> String,
-) {
+) -> bool {
     for i in 0..aot.len() {
         if let Some(entry) = aot.get_mut(i) {
             let existing = entry
@@ -91,9 +91,60 @@ fn transform_aot_entry_prefixes(
             let new_prefix = transform(&existing);
             if new_prefix != existing {
                 entry.decor_mut().set_prefix(new_prefix);
+                return true;
             }
         }
     }
+    false
+}
+
+/// Sweep every comment-bearing decor slot of a table — each key's `leaf_decor`
+/// prefix (comments before a leaf/inline key), each child `[table]`'s header decor
+/// prefix, and each child array-of-tables' entry prefixes — applying `transform`
+/// and stopping at the first slot it changes. The projector reads a standalone
+/// comment from whichever of these slots precedes the commented item, so a sweep
+/// reaches it regardless of the item's position (the old first-key-only locator
+/// missed comments before any non-first item). Returns whether a slot changed.
+fn sweep_table_comment_slots(tbl: &mut dyn TableLike, transform: &dyn Fn(&str) -> String) -> bool {
+    let keys: Vec<String> = tbl.iter().map(|(k, _)| k.to_string()).collect();
+    for k in keys {
+        // Comment before a leaf/inline key: the key's leaf_decor prefix.
+        let leaf_existing = tbl
+            .key(&k)
+            .and_then(|key| key.leaf_decor().prefix().and_then(|r| r.as_str()))
+            .unwrap_or("")
+            .to_string();
+        let leaf_new = transform(&leaf_existing);
+        if leaf_new != leaf_existing {
+            if let Some(mut km) = tbl.key_mut(&k) {
+                km.leaf_decor_mut().set_prefix(leaf_new);
+            }
+            return true;
+        }
+        // Comment before a `[table]` header or `[[aot]]` entries: the item decor.
+        match tbl.get_mut(&k) {
+            Some(Item::Table(t)) => {
+                let existing = t
+                    .decor()
+                    .prefix()
+                    .and_then(|r| r.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let new_prefix = transform(&existing);
+                if new_prefix != existing {
+                    t.decor_mut().set_prefix(new_prefix);
+                    return true;
+                }
+            }
+            Some(Item::ArrayOfTables(aot)) => {
+                if transform_aot_entry_prefixes(aot, transform) {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+    false
 }
 
 pub struct TomlDocument {
@@ -796,125 +847,47 @@ impl TomlDocument {
         });
     }
 
-    /// Locate the decor slot where the projector reads `parent`'s leading comments
-    /// (top-level leaf/table-header/trailing, or the nested equivalents) and rewrite
-    /// it through `transform`. Shared by comment removal (uncomment) and in-place
-    /// comment editing.
+    /// Rewrite the decor slot holding `parent`'s standalone comment(s) through
+    /// `transform`, by sweeping every candidate slot and stopping at the first it
+    /// changes. Shared by comment removal (uncomment / delete) and in-place comment
+    /// editing. The text-matching transform only mutates the slot that actually
+    /// holds the comment, so a sweep reaches comments before any item (not just the
+    /// first) — and an array-of-tables parent, whose comments live in its entry
+    /// prefixes rather than any contained table.
     fn transform_comment_in_decor(&mut self, parent: &[Seg], transform: &dyn Fn(&str) -> String) {
-        let remove_block = transform;
         if parent.is_empty() {
-            let first_key = self
-                .doc
-                .as_table()
-                .iter()
-                .next()
-                .map(|(k, _)| k.to_string());
-            if let Some(fk) = first_key {
-                // A leading comment before the first `[[aot]]` header lives in the
-                // first entry's decor prefix (not leaf_decor / Table::decor).
-                if matches!(self.doc.as_table().get(&fk), Some(Item::ArrayOfTables(_))) {
-                    if let Some(Item::ArrayOfTables(aot)) = self.doc.as_table_mut().get_mut(&fk) {
-                        transform_aot_entry_prefixes(aot, remove_block);
-                    }
-                    return;
-                }
-                // Comments before [table] headers live in Table::decor(), not leaf_decor.
-                if let Some(Item::Table(t)) = self.doc.as_table().get(&fk) {
-                    let existing = t
-                        .decor()
-                        .prefix()
-                        .and_then(|r| r.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    let new_prefix = remove_block(&existing);
-                    if let Some(Item::Table(t)) = self.doc.as_table_mut().get_mut(&fk) {
-                        t.decor_mut().set_prefix(new_prefix);
-                    }
-                } else {
-                    let existing = self
-                        .doc
-                        .as_table()
-                        .key(&fk)
-                        .and_then(|k| k.leaf_decor().prefix().and_then(|r| r.as_str()))
-                        .unwrap_or("")
-                        .to_string();
-                    let new_prefix = remove_block(&existing);
-                    if let Some(mut km) = self.doc.as_table_mut().key_mut(&fk) {
-                        km.leaf_decor_mut().set_prefix(new_prefix);
-                    }
-                }
-            } else {
-                let trailing = self.doc.trailing().as_str().unwrap_or("");
-                let new_trailing = remove_block(trailing);
+            if sweep_table_comment_slots(self.doc.as_table_mut(), transform) {
+                return;
+            }
+            // End-of-document comments (comment-only files / after the last item).
+            let trailing = self.doc.trailing().as_str().unwrap_or("").to_string();
+            let new_trailing = transform(&trailing);
+            if new_trailing != trailing {
                 self.doc.set_trailing(new_trailing);
             }
-        } else {
-            // When `parent` names an array-of-tables, the projector attributes the
-            // between-entry comments to the AoT itself — they live in its entries'
-            // decor prefixes, not in any contained table. Handle that before the
-            // `parent_table_mut` walk (which can't descend into an AoT key).
-            let (head, last) = parent.split_at(parent.len().saturating_sub(1));
-            if let Some(Seg::Key(aot_key)) = last.first() {
-                let is_aot = matches!(
-                    self.parent_table_mut(head)
-                        .ok()
-                        .and_then(|t| t.get(aot_key)),
-                    Some(Item::ArrayOfTables(_))
-                );
-                if is_aot {
-                    if let Ok(t) = self.parent_table_mut(head) {
-                        if let Some(Item::ArrayOfTables(aot)) = t.get_mut(aot_key) {
-                            transform_aot_entry_prefixes(aot, remove_block);
-                        }
-                    }
-                    return;
-                }
-            }
-            let first_key = self
-                .parent_table_mut(parent)
-                .ok()
-                .and_then(|t| t.iter().next().map(|(k, _)| k.to_string()));
-            if let Some(fk) = first_key {
-                let is_table = self
-                    .parent_table_mut(parent)
+            return;
+        }
+        // An array-of-tables parent is not table-like; its comments live in the
+        // entry prefixes (`parent_table_mut` cannot descend into the AoT key).
+        let (head, last) = parent.split_at(parent.len().saturating_sub(1));
+        if let Some(Seg::Key(aot_key)) = last.first() {
+            let is_aot = matches!(
+                self.parent_table_mut(head)
                     .ok()
-                    .and_then(|t| t.get(&fk))
-                    .map(|item| matches!(item, Item::Table(_)))
-                    .unwrap_or(false);
-                if is_table {
-                    let existing = {
-                        let table = self.parent_table_mut(parent).unwrap();
-                        match table.get_mut(&fk) {
-                            Some(Item::Table(t)) => t
-                                .decor()
-                                .prefix()
-                                .and_then(|r| r.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            _ => String::new(),
-                        }
-                    };
-                    let new_prefix = remove_block(&existing);
-                    let table = self.parent_table_mut(parent).unwrap();
-                    if let Some(Item::Table(t)) = table.get_mut(&fk) {
-                        t.decor_mut().set_prefix(new_prefix);
-                    }
-                } else {
-                    let existing = {
-                        let table = self.parent_table_mut(parent).unwrap();
-                        table
-                            .key(&fk)
-                            .and_then(|k| k.leaf_decor().prefix().and_then(|r| r.as_str()))
-                            .unwrap_or("")
-                            .to_string()
-                    };
-                    let new_prefix = remove_block(&existing);
-                    let table = self.parent_table_mut(parent).unwrap();
-                    if let Some(mut km) = table.key_mut(&fk) {
-                        km.leaf_decor_mut().set_prefix(new_prefix);
+                    .and_then(|t| t.get(aot_key)),
+                Some(Item::ArrayOfTables(_))
+            );
+            if is_aot {
+                if let Ok(t) = self.parent_table_mut(head) {
+                    if let Some(Item::ArrayOfTables(aot)) = t.get_mut(aot_key) {
+                        transform_aot_entry_prefixes(aot, transform);
                     }
                 }
+                return;
             }
+        }
+        if let Ok(tbl) = self.parent_table_mut(parent) {
+            sweep_table_comment_slots(tbl, transform);
         }
     }
 
@@ -1362,6 +1335,71 @@ mod tests {
             doc.serialize(),
             "[[product]]\nname = \"Hammer\"\n[[product]]\nname = \"Nail\"\n"
         );
+    }
+
+    #[test]
+    fn edit_comment_before_aot_in_multi_section_doc() {
+        // Regression: a section-separator comment before `[[product]]` when an
+        // earlier section precedes it lives in the AoT's first-entry prefix, but the
+        // old first-key-only locator looked at the earlier section's slot and missed
+        // it ("cannot save" / "cannot delete"). The sweep reaches it now.
+        use crate::model::document::Mutation;
+        let src = "[meta]\nname = \"x\"\n\n# ── products ──\n[[product]]\nname = \"Hammer\"\n";
+        // Find the comment node (not the first node).
+        fn nth_comment(node: &crate::model::node::Node, text: &str) -> Option<Vec<Seg>> {
+            if matches!(&node.kind, crate::model::node::NodeKind::Comment(t) if t == text) {
+                return Some(node.path.clone());
+            }
+            node.children.iter().find_map(|c| nth_comment(c, text))
+        }
+        let mut doc = doc_from_str(src);
+        let path = nth_comment(&doc.project().root, "# ── products ──").expect("sep comment");
+        doc.apply(Mutation::EditComment {
+            path: path.clone(),
+            text: "# ── PRODUCTS ──".into(),
+        })
+        .unwrap();
+        let s = doc.serialize();
+        assert!(
+            s.contains("# ── PRODUCTS ──") && !s.contains("# ── products ──"),
+            "edit missed: {s:?}"
+        );
+        // And delete strips it, leaving the meta section intact.
+        let mut doc2 = doc_from_str(src);
+        let path2 = nth_comment(&doc2.project().root, "# ── products ──").unwrap();
+        doc2.apply(Mutation::Delete { path: path2 }).unwrap();
+        assert_eq!(
+            doc2.serialize(),
+            "[meta]\nname = \"x\"\n\n[[product]]\nname = \"Hammer\"\n"
+        );
+    }
+
+    #[test]
+    fn edit_and_delete_comment_inside_aot_entry() {
+        // `#123` before a key inside an AoT entry: path carries an `Index` but the
+        // comment lives in the key's leaf_decor and is reachable via parent_table_mut.
+        use crate::model::document::Mutation;
+        let src = "[[product]]\n#123\nname = \"Hammer\"\n";
+        let mut doc = doc_from_str(src);
+        let path = first_comment_path(&doc.project().root).expect("inner comment");
+        assert_eq!(
+            path,
+            vec![
+                Seg::Key("product".into()),
+                Seg::Index(0),
+                Seg::Key("#comment:0".into())
+            ]
+        );
+        doc.apply(Mutation::EditComment {
+            path,
+            text: "#321".into(),
+        })
+        .unwrap();
+        assert_eq!(doc.serialize(), "[[product]]\n#321\nname = \"Hammer\"\n");
+        let mut doc2 = doc_from_str(src);
+        let path2 = first_comment_path(&doc2.project().root).unwrap();
+        doc2.apply(Mutation::Delete { path: path2 }).unwrap();
+        assert_eq!(doc2.serialize(), "[[product]]\nname = \"Hammer\"\n");
     }
 
     #[test]
