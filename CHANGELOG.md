@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.3.0] - 2026-06-07
+
 ### Changed
 - Editing — `E` on an **array-of-tables entry** (`product[0]`) now opens `$EDITOR` with just that single `[[product]]` block (was: the whole array-of-tables). Write-back goes through a new AoT-entry `Replace` branch (`replace_aot_entry`) that rewrites only that entry, preserving the others and the between-entries comments; `edit_node` now truncates the path only at a real `Array` index, keeping AoT-entry indices addressable. (2026-06-07)
 - Editing — `e` on a **scalar member of an array-of-tables entry** (`product[0].sku`) now edits inline (and `←/→` nudges, `Tab`→Name renames) instead of opening `$EDITOR` on the whole AoT. `parent_table_mut`/`concrete_table_mut` now descend a `Key→Index` AoT entry; the inline rule keys on the absence of an `Array` ancestor, so array-of-inline-table members (`x = [{ a = 1 }]`) still open `$EDITOR`. (2026-06-07)
@@ -26,7 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Editing — `a` on an array now inserts a new element (seeded `""`) and opens it for inline editing, instead of failing with a key-collision/`NotFound`. (2026-06-06)
 - Editing — `Tab` in the inline editor toggles between the Value (default) and Name fields; committing a changed Name renames the key via a new position/decor-preserving `Mutation::Rename`. `Tab` is disabled for array elements (no key), and the NAME field gets the same horizontal-overflow scrolling as VALUE. (2026-06-06)
 - Editing — scalar elements of nested arrays (array-of-arrays, `Key Index Index…`) now edit inline and nudge in place, addressed via `array_at_mut`. (2026-06-06)
+- CI — `.github/workflows/release.yml`: on a `v*.*.*` tag, cross-compiles `confy` for Linux x86_64 (gnu + musl), macOS (arm64 + Intel), and Windows x86_64 + i686 (MSVC), packages tar.gz (Unix) / `.exe` (Windows), emits `SHA256SUMS`, and publishes a GitHub Release (annotated-tag message + auto-generated notes).
 
+### Fixed
 - Comments — editing or deleting a standalone comment now works **wherever it sits**, not just before the first item of a container. The shared decor locator (`transform_comment_in_decor`) used to inspect only the first key, so a comment before any *non-first* item — e.g. a section-separator above `[[products]]` when an earlier section precedes it — silently failed to save or delete. It now sweeps every comment-bearing slot (`sweep_table_comment_slots`: each key's `leaf_decor`, each `[table]` header decor, each array-of-tables entry prefix, and the document trailing), stopping at the first slot that matches. This also covers comments **between** AoT entries and **inside** an AoT entry. (2026-06-07)
 - Comments — a comment **inside an array-of-tables entry** (`[[product]]` / `#123` / `name = …`) now edits inline like any other single-line comment, and `E` opens `$EDITOR` with its text instead of a blank buffer. Its path carries an `Index` (the entry), but it is decor-addressable, so editing keys on the absence of an `Array` ancestor (shared `no_array_ancestor`) rather than the mere presence of an `Index`. (2026-06-07)
 - Editing — deleting a standalone comment node no longer fails with `delete error: path not found`; `Delete` now strips the comment from its decor slot (like `uncomment`) instead of trying to remove a non-existent `#comment:N` table key. (2026-06-07)
@@ -35,9 +39,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Editing — replacing a value no longer drops a standalone `#` comment sitting above its key; `Replace`/`Insert` overwrite now updates the value in place (preserving key decor) instead of re-inserting the key. (2026-06-06)
 - Editing — `e` on a node nested inside an array/AoT (or on an element of a multiline array) no longer opens an empty editor; it edits the nearest addressable container, and multiline-array string elements edit inline with their indentation preserved. (2026-06-06)
 - Move — moving a node into a table no longer drops the leading comments and blank lines above it; the move now carries the key's `leaf_decor` (capturing `(Key, Item)` and re-inserting via `entry_format`) instead of re-serializing through a fresh document. Array destinations are unchanged. (2026-06-06)
-
-### Added
-- CI — `.github/workflows/release.yml`: on a `v*.*.*` tag, cross-compiles `confy` for Linux x86_64 (gnu + musl), macOS (arm64 + Intel), and Windows x86_64 + i686 (MSVC), packages tar.gz (Unix) / `.exe` (Windows), emits `SHA256SUMS`, and publishes a GitHub Release (annotated-tag message + auto-generated notes).
 
 ## [v0.2.0] - 2026-06-06
 
