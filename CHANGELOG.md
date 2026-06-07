@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Editing — `e` on a **single-line comment** now edits inline (the raw `#`-prefixed text as the sole field, no `Tab`/name, committed via `Mutation::EditComment`) instead of opening `$EDITOR`. Merged multi-line comments and comments nested in an array-of-tables still open `$EDITOR`. (2026-06-07)
 - Editing — `e` on a scalar **member of an inline table** (`pt = { x = 1 }`) now edits inline instead of opening `$EDITOR`; `Tab`→Name renames the key in place (`Mutation::Rename` now handles inline-table keys, preserving order and the other members). (2026-06-07)
 - Editing — opening `$EDITOR` on a **structured** node (table/inline table/array/array-of-tables) now carries its adjacent leading comment(s) into the editor, and edits to that comment round-trip on save. Previously only `[table]` headers carried their comment; arrays did not. Scalars (including multiline strings) never carry comments. (2026-06-07)
 - Editing — `e` on a multiline string now opens `$EDITOR` instead of the single-line inline editor, matching the existing behavior for nested arrays/tables. Single-line scalars still edit inline. (2026-06-06)

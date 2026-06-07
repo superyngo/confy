@@ -561,6 +561,18 @@ impl App {
             Some(n) => n,
             None => return EditKind::External,
         };
+        // A single-line comment edits inline (raw `#` text → `EditComment`). A
+        // merged multi-line comment, or one nested in an AoT (path carries an
+        // `Index`, not addressable via the decor locator), stays in $EDITOR.
+        if let NodeKind::Comment(text) = &node.kind {
+            let single_line = !text.contains('\n');
+            let no_index = !path.iter().any(|s| matches!(s, Seg::Index(_)));
+            return if single_line && no_index {
+                EditKind::Inline
+            } else {
+                EditKind::External
+            };
+        }
         if !matches!(node.kind, NodeKind::Scalar(_)) {
             return EditKind::External;
         }
@@ -631,15 +643,22 @@ impl App {
             Some(r) => r,
             None => return,
         };
+        // A single-line comment node edits its raw `#`-prefixed text as the sole
+        // field (no key, no type check); `edit_commit` routes it to `EditComment`.
+        let is_comment = node_at(&self.tree.root, &row.path)
+            .map(|n| matches!(n.kind, NodeKind::Comment(_)))
+            .unwrap_or(false);
         let (key, is_element) = match row.path.last() {
-            Some(Seg::Key(k)) => (k.clone(), false),
-            // Array element: no key. `edit_commit` builds a bare-value fragment.
+            Some(Seg::Key(k)) if !is_comment => (k.clone(), false),
+            // Array element / comment: no editable key.
             Some(Seg::Index(_)) => (String::new(), true),
+            Some(Seg::Key(_)) => (String::new(), true), // comment (is_comment is set)
             None => return,
         };
         // `value` is `Value::to_string()`, which carries the decor whitespace
         // around the `=` (e.g. " 8080"); trim it so the edited literal doesn't
-        // accumulate a leading space on write-back.
+        // accumulate a leading space on write-back. A comment's value is its raw
+        // `# …` text — keep it verbatim apart from trimming trailing whitespace.
         let buffer = row.value.clone().unwrap_or_default().trim().to_string();
         let cursor = buffer.chars().count();
         // The Value field is active first; the Name field (the key) is the saved
@@ -650,6 +669,7 @@ impl App {
             key: key.clone(),
             field: crate::tui::state::EditField::Value,
             is_element,
+            is_comment,
             buffer,
             cursor,
             scroll: 0,
@@ -665,7 +685,7 @@ impl App {
     /// elements (no name).
     pub fn edit_toggle_field(&mut self) {
         if let Mode::Edit(ref mut e) = self.mode {
-            if e.is_element {
+            if e.is_element || e.is_comment {
                 return;
             }
             std::mem::swap(&mut e.buffer, &mut e.other_buffer);
@@ -757,6 +777,31 @@ impl App {
             }
         };
         use crate::tui::state::EditField;
+        // A comment node commits its raw `#` text straight through `EditComment`
+        // (no key, no `key = value` re-parse, no type check). On a validation
+        // failure (`EditComment` rejected non-`#` text) stay in the editor.
+        if e.is_comment {
+            let text = e.buffer.clone();
+            let ok = match self.doc.as_mut() {
+                Some(doc) => doc.apply(crate::model::document::Mutation::EditComment {
+                    path: e.path.clone(),
+                    text: text.clone(),
+                }),
+                None => Ok(()),
+            };
+            match ok {
+                Ok(()) => self.on_mutation_success(),
+                Err(crate::model::document::MutateError::Fragment(msg)) => {
+                    self.status = Some(format!("invalid comment: {msg}"));
+                    self.mode = Mode::Edit(e);
+                }
+                Err(err) => {
+                    self.status = Some(format!("error: {err}"));
+                    self.mode = Mode::Edit(e);
+                }
+            }
+            return;
+        }
         // The active working set is the focused field; `other_*` holds the rest.
         let (name_str, value_str) = match e.field {
             EditField::Value => (e.other_buffer.clone(), e.buffer.clone()),
@@ -1787,6 +1832,68 @@ mod tests {
             "invalid comment must surface in status"
         );
         assert_eq!(app.doc.as_ref().unwrap().serialize(), before);
+    }
+
+    #[test]
+    fn single_line_comment_edits_inline() {
+        let mut app = app_with("# old\nx = 1\n");
+        app.expand_all();
+        app.rebuild_rows();
+        app.cursor = 1; // the comment node
+        assert_eq!(app.edit_target_kind(), EditKind::Inline);
+        app.begin_inline_edit();
+        let e = match &app.mode {
+            Mode::Edit(e) => e,
+            _ => panic!("expected inline edit mode"),
+        };
+        assert!(e.is_comment, "comment edit must set is_comment");
+        assert_eq!(e.buffer, "# old", "buffer seeded with raw comment text");
+        // Tab is a no-op for a comment (no name field).
+        app.edit_toggle_field();
+        assert!(
+            matches!(&app.mode, Mode::Edit(e) if e.field == crate::tui::state::EditField::Value)
+        );
+        // Commit an edited comment → EditComment round-trips into the doc.
+        if let Mode::Edit(ref mut e) = app.mode {
+            e.buffer = "# new".into();
+        }
+        app.edit_commit();
+        assert!(matches!(app.mode, Mode::Normal));
+        let s = app.doc.as_ref().unwrap().serialize();
+        assert!(
+            s.contains("# new") && !s.contains("# old"),
+            "serialize: {s:?}"
+        );
+    }
+
+    #[test]
+    fn multiline_comment_routes_external() {
+        let mut app = app_with("# a\n# b\nx = 1\n");
+        app.expand_all();
+        app.rebuild_rows();
+        app.cursor = 1; // merged multi-line comment node
+        assert_eq!(app.edit_target_kind(), EditKind::External);
+    }
+
+    #[test]
+    fn inline_comment_commit_rejects_non_comment_and_stays_in_editor() {
+        let mut app = app_with("# keep\nx = 1\n");
+        let before = app.doc.as_ref().unwrap().serialize();
+        app.expand_all();
+        app.rebuild_rows();
+        app.cursor = 1;
+        app.begin_inline_edit();
+        if let Mode::Edit(ref mut e) = app.mode {
+            e.buffer = "not a comment".into();
+        }
+        app.edit_commit();
+        assert!(matches!(app.mode, Mode::Edit(_)), "stay in editor on error");
+        assert!(app.status.is_some(), "error surfaced in status");
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            before,
+            "doc unchanged"
+        );
     }
 
     #[test]

@@ -294,11 +294,19 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
                     .unwrap_or_default();
                 // The field label / Tab hint only applies when there is a name to
                 // switch to (array elements have no key).
-                let field = match e.field {
-                    crate::tui::state::EditField::Value => "value",
-                    crate::tui::state::EditField::Name => "name",
+                let field = if e.is_comment {
+                    "comment"
+                } else {
+                    match e.field {
+                        crate::tui::state::EditField::Value => "value",
+                        crate::tui::state::EditField::Name => "name",
+                    }
                 };
-                let tab = if e.is_element { "" } else { "  Tab:name/value" };
+                let tab = if e.is_element || e.is_comment {
+                    ""
+                } else {
+                    "  Tab:name/value"
+                };
                 (
                     format!(
                         " editing {field} — Enter:save  Esc:cancel  ←/→/Home/End:move{tab}{hint}"

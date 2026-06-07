@@ -45,6 +45,9 @@ pub struct EditState {
     pub field: EditField,
     /// Array element: no name field, so `Tab` is a no-op.
     pub is_element: bool,
+    /// Comment node: the buffer is the raw `#`-prefixed text, committed via
+    /// `EditComment` (no name field, no type check, so `Tab` is a no-op).
+    pub is_comment: bool,
     pub buffer: String,
     pub cursor: usize,
     pub scroll: usize,

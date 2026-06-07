@@ -53,8 +53,11 @@ target is an array (`insert_fragment` → `array_at_mut`).
 `value`, so the VALUE column and detail popup show it. Multi-line cell values (merged comments,
 multiline strings, multiline-array elements whose repr carries leading newline/indent decor) are
 collapsed to a one-line preview (first line + ` …`) by `cell_preview` in `ui.rs`; the full text stays
-in the detail popup. `e`/`E` on a comment opens `$EDITOR` with the raw `#`-prefixed text and writes it
-back in place via `Mutation::EditComment` (`edit_comment` → `transform_comment_in_decor`, the
+in the detail popup. `e` on a **single-line** comment edits inline (`Mode::Edit` with `is_comment`: the
+raw `#`-prefixed text is the sole field — no name, `Tab` is a no-op — and `edit_commit` routes straight
+to `Mutation::EditComment`, staying in the editor on a non-`#` validation error); `E`, a merged
+multi-line comment, or one nested in an AoT instead open `$EDITOR` with the raw text. Either way the
+edit writes back in place via `Mutation::EditComment` (`edit_comment` → `transform_comment_in_decor`, the
 locate-the-decor-slot helper shared with `uncomment`). Deleting a comment node (`d`) routes through
 the same decor path: `remove_at` detects the synthetic `#comment:N` key and calls
 `remove_comment_from_decor` rather than `Table::remove` (which would fail with `NotFound`).
