@@ -31,6 +31,8 @@ pub struct App {
     pub pending_move: Option<(Vec<Path>, Target)>,
     /// Filter state: current filter string. When non-empty, rows are filtered.
     pub filter: String,
+    /// Caret position (char index) within `filter` while in Filter mode.
+    pub filter_cursor: usize,
     /// Set of node paths that match the current filter (including ancestors kept for context).
     pub filtered_paths: Option<HashSet<Path>>,
     /// Read-only detail text for the current detail popup.
@@ -85,6 +87,7 @@ impl App {
             clipboard: None,
             pending_move: None,
             filter: String::new(),
+            filter_cursor: 0,
             filtered_paths: None,
             detail_text: None,
             pending_edit: None,
@@ -110,6 +113,7 @@ impl App {
             clipboard: None,
             pending_move: None,
             filter: String::new(),
+            filter_cursor: 0,
             filtered_paths: None,
             detail_text: None,
             pending_edit: None,
@@ -224,23 +228,57 @@ impl App {
     /// `/` — enter filter mode.
     pub fn enter_filter(&mut self) {
         self.filter.clear();
+        self.filter_cursor = 0;
         self.filtered_paths = None;
         self.mode = Mode::Filter;
         self.rebuild_rows();
     }
 
-    /// Feed a character into the active filter.
+    /// Insert a character at the filter caret.
     pub fn filter_char(&mut self, c: char) {
-        self.filter.push(c);
+        let at = char_byte_idx(&self.filter, self.filter_cursor);
+        self.filter.insert(at, c);
+        self.filter_cursor += 1;
         self.recompute_filter();
         self.rebuild_rows();
     }
 
-    /// Backspace in filter mode.
+    /// Backspace in filter mode — delete the char *before* the caret.
     pub fn filter_backspace(&mut self) {
-        self.filter.pop();
-        self.recompute_filter();
-        self.rebuild_rows();
+        if self.filter_cursor > 0 {
+            let prev = char_byte_idx(&self.filter, self.filter_cursor - 1);
+            self.filter.remove(prev);
+            self.filter_cursor -= 1;
+            self.recompute_filter();
+            self.rebuild_rows();
+        }
+    }
+
+    /// `Del` in filter mode — delete the char *at* the caret (caret stays).
+    pub fn filter_delete(&mut self) {
+        if self.filter_cursor < self.filter.chars().count() {
+            let at = char_byte_idx(&self.filter, self.filter_cursor);
+            self.filter.remove(at);
+            self.recompute_filter();
+            self.rebuild_rows();
+        }
+    }
+
+    /// Move the filter caret one char left / right / to either end.
+    pub fn filter_cursor_left(&mut self) {
+        self.filter_cursor = self.filter_cursor.saturating_sub(1);
+    }
+    pub fn filter_cursor_right(&mut self) {
+        let len = self.filter.chars().count();
+        if self.filter_cursor < len {
+            self.filter_cursor += 1;
+        }
+    }
+    pub fn filter_cursor_home(&mut self) {
+        self.filter_cursor = 0;
+    }
+    pub fn filter_cursor_end(&mut self) {
+        self.filter_cursor = self.filter.chars().count();
     }
 
     /// Compute which paths match the current filter string. A node is visible
@@ -303,6 +341,7 @@ impl App {
     /// Esc from filter mode clears and restores full view.
     pub fn exit_filter(&mut self) {
         self.filter.clear();
+        self.filter_cursor = 0;
         self.filtered_paths = None;
         self.mode = Mode::Normal;
         self.rebuild_rows();
@@ -725,6 +764,18 @@ impl App {
                 let prev = char_byte_idx(&e.buffer, e.cursor - 1);
                 e.buffer.remove(prev);
                 e.cursor -= 1;
+                self.status = None;
+            }
+        }
+    }
+
+    /// `Del` — remove the char *at* the cursor (forward delete); the cursor stays.
+    pub fn edit_delete(&mut self) {
+        if let Mode::Edit(ref mut e) = self.mode {
+            let len = e.buffer.chars().count();
+            if e.cursor < len {
+                let at = char_byte_idx(&e.buffer, e.cursor);
+                e.buffer.remove(at);
                 self.status = None;
             }
         }
@@ -2209,6 +2260,51 @@ mod tests {
             keys.iter().any(|k| k == "port"),
             "port (value=8080) should be visible after filtering for '8080', got: {keys:?}"
         );
+    }
+
+    #[test]
+    fn edit_delete_removes_char_at_cursor() {
+        let mut app = app_with("port = 8080\n");
+        app.rebuild_rows();
+        app.cursor = app.rows.iter().position(|r| r.key == "port").unwrap();
+        app.begin_inline_edit();
+        app.edit_cursor_home(); // caret before "8080"
+        app.edit_delete(); // remove the '8'
+        if let Mode::Edit(ref e) = app.mode {
+            assert_eq!(e.buffer, "080");
+            assert_eq!(e.cursor, 0, "caret stays after forward delete");
+        } else {
+            panic!("expected edit mode");
+        }
+    }
+
+    #[test]
+    fn filter_edits_at_caret() {
+        let mut app = app_with("port = 8080\n");
+        app.rebuild_rows();
+        app.enter_filter();
+        for c in "prt".chars() {
+            app.filter_char(c);
+        }
+        // Insert 'o' between 'p' and 'r': caret left twice → at index 1.
+        app.filter_cursor_left();
+        app.filter_cursor_left();
+        app.filter_char('o');
+        assert_eq!(app.filter, "port");
+        assert_eq!(app.filter_cursor, 2);
+        // Home then Del removes the leading 'p'.
+        app.filter_cursor_home();
+        app.filter_delete();
+        assert_eq!(app.filter, "ort");
+        assert_eq!(app.filter_cursor, 0);
+        // Backspace at the start is a no-op.
+        app.filter_backspace();
+        assert_eq!(app.filter, "ort");
+        // End then Backspace removes the trailing 't'.
+        app.filter_cursor_end();
+        app.filter_backspace();
+        assert_eq!(app.filter, "or");
+        assert_eq!(app.filter_cursor, 2);
     }
 
     // --- Blocker 2: detail must show type and value ---

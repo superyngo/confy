@@ -92,12 +92,19 @@ fn run_event_loop(
                 }
                 continue;
             }
-            // Filter mode: capture chars for the filter string, Esc clears.
+            // Filter mode: an inline text field — type to filter, edit at the
+            // caret (Backspace/Del), move it (Left/Right/Home/End), Esc clears.
             if matches!(app.mode, crate::tui::state::Mode::Filter) {
+                use crossterm::event::KeyCode;
                 match key.code {
-                    crossterm::event::KeyCode::Char(c) => app.filter_char(c),
-                    crossterm::event::KeyCode::Backspace => app.filter_backspace(),
-                    crossterm::event::KeyCode::Esc => app.escape(),
+                    KeyCode::Char(c) => app.filter_char(c),
+                    KeyCode::Backspace => app.filter_backspace(),
+                    KeyCode::Delete => app.filter_delete(),
+                    KeyCode::Left => app.filter_cursor_left(),
+                    KeyCode::Right => app.filter_cursor_right(),
+                    KeyCode::Home => app.filter_cursor_home(),
+                    KeyCode::End => app.filter_cursor_end(),
+                    KeyCode::Esc => app.escape(),
                     _ => {}
                 }
                 continue;
@@ -139,6 +146,7 @@ fn run_event_loop(
                 match key.code {
                     KeyCode::Char(c) => app.edit_input_char(c),
                     KeyCode::Backspace => app.edit_backspace(),
+                    KeyCode::Delete => app.edit_delete(),
                     KeyCode::Left => app.edit_cursor_left(),
                     KeyCode::Right => app.edit_cursor_right(),
                     KeyCode::Home => app.edit_cursor_home(),

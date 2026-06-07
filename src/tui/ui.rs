@@ -266,11 +266,16 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
 }
 
 fn draw_status(f: &mut Frame, area: Rect, app: &App) {
-    // In filter mode, show the filter input line.
+    // In filter mode, show the filter input line as an inline text field: a
+    // ` /` prefix then the buffer with the char under the caret reverse-
+    // highlighted (same treatment as the inline value editor).
     if matches!(app.mode, Mode::Filter) {
-        let text = format!(" /{}", app.filter);
-        let paragraph =
-            Paragraph::new(text).style(Style::default().bg(Color::DarkGray).fg(Color::Yellow));
+        let prefix = " /";
+        let avail = (area.width as usize).saturating_sub(prefix.chars().count());
+        let mut spans = vec![Span::raw(prefix)];
+        spans.extend(edit_field_spans(&app.filter, app.filter_cursor, 0, avail));
+        let paragraph = Paragraph::new(Line::from(spans))
+            .style(Style::default().bg(Color::DarkGray).fg(Color::Yellow));
         f.render_widget(paragraph, area);
         return;
     }
@@ -309,7 +314,7 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
                 };
                 (
                     format!(
-                        " editing {field} — Enter:save  Esc:cancel  ←/→/Home/End:move{tab}{hint}"
+                        " editing {field} — Enter:save  Esc:cancel  ←/→/Home/End:move  Bksp/Del:erase{tab}{hint}"
                     ),
                     Style::default().bg(Color::DarkGray).fg(Color::Yellow),
                 )

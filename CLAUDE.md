@@ -36,7 +36,9 @@ between Value (default) and Name**; committing a changed Name applies a `Mutatio
 the value `Replace` (Tab is disabled for array elements, which have no key). `Rename` dispatches on the
 parent container — `rename_in_table` for a standard `[table]`, `rename_in_inline_table` (via
 `inline_table_mut`) for an inline table — both order- and decor-preserving. Both columns share one
-horizontal-scroll/overflow treatment (`edit_field_spans`). A node nested inside an AoT, multiline
+horizontal-scroll/overflow treatment (`edit_field_spans`, also reused to render the `/` filter input as
+an inline field with a caret). The editor and the filter input are both caret-based text fields:
+`←/→/Home/End` move the caret, `Backspace`/`Del` erase before/at it. A node nested inside an AoT, multiline
 strings, and `E` open `$EDITOR` — `edit_node` truncates the path at the first `Index` so the edit
 targets the nearest addressable container. For a **structured** node (table/inline table/array/AoT) the
 editor fragment carries the node's adjacent leading comment(s) (`serialize_node_fragment_opts` copies

@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Editing — the value-nudge now re-applies underscore digit grouping when the original value had it (decimal every 3, hex/oct/bin every 4, float fractional every 3), so `1_000_000` stays grouped after a step. (2026-06-06)
 
 ### Added
+- Editing — the inline editor now supports `Del` (forward-delete the char at the caret, alongside `Backspace`). (2026-06-07)
+- Filter — `/` filter is now a full inline text field: a reverse-highlighted caret, `←/→/Home/End` to move it, and `Backspace`/`Del` to edit at the caret (was: append/pop only at the end). (2026-06-07)
 - Comments — adjacent comment lines now project as a single multi-line comment node (a blank line, or any non-`#` line, breaks the group), so a comment block is one navigable node. Comment nodes now carry their text as a value, shown in the VALUE column and the detail popup. (2026-06-07)
 - Editing — `e`/`E` on a comment now opens `$EDITOR` with the comment's raw `#`-prefixed text and writes the edit back into the decor via a new `Mutation::EditComment` (was: opened an empty editor and could not save). Edited text must remain comment lines, else the document is left untouched. (2026-06-07)
 - Editing — `a` on an array now inserts a new element (seeded `""`) and opens it for inline editing, instead of failing with a key-collision/`NotFound`. (2026-06-06)
