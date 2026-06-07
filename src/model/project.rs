@@ -1,15 +1,26 @@
 use crate::model::node::{Format, Node, NodeKind, NodeTree, ScalarType, Seg};
 use toml_edit::{Array, ArrayOfTables, DocumentMut, InlineTable, Item, Table, Value};
 
-/// Pull standalone comment lines out of a decor prefix/trailing string.
-/// Blank lines are dropped; only `#`-prefixed lines become Comment nodes.
-fn comments_in(decor_text: &str) -> Vec<String> {
-    decor_text
-        .lines()
-        .map(str::trim)
-        .filter(|l| l.starts_with('#'))
-        .map(|l| l.to_string())
-        .collect()
+/// Group standalone comment lines from a decor prefix/trailing string into
+/// blocks. A run of consecutive `#`-prefixed lines becomes one block (joined by
+/// `\n`); any blank or non-`#` line breaks the current block. Each returned
+/// block becomes a single (possibly multi-line) Comment node.
+fn comment_blocks(decor_text: &str) -> Vec<String> {
+    let mut blocks = Vec::new();
+    let mut current: Vec<String> = Vec::new();
+    for line in decor_text.lines() {
+        let t = line.trim();
+        if t.starts_with('#') {
+            current.push(t.to_string());
+        } else if !current.is_empty() {
+            blocks.push(current.join("\n"));
+            current.clear();
+        }
+    }
+    if !current.is_empty() {
+        blocks.push(current.join("\n"));
+    }
+    blocks
 }
 
 fn comment_node(text: &str, parent: &[Seg], ordinal: usize) -> Node {
@@ -20,7 +31,7 @@ fn comment_node(text: &str, parent: &[Seg], ordinal: usize) -> Node {
         path,
         kind: NodeKind::Comment(text.to_string()),
         children: Vec::new(),
-        value: None,
+        value: Some(text.to_string()),
         format: Format::Plain,
         trailing_comment: None,
     }
@@ -40,7 +51,7 @@ pub fn project(doc: &DocumentMut, filename: &str) -> NodeTree {
     // Handle document-level trailing comments (comment-only files and end-of-doc comments)
     if let Some(trailing) = doc.trailing().as_str() {
         let base_ordinal = root.children.len();
-        for (i, c) in comments_in(trailing).into_iter().enumerate() {
+        for (i, c) in comment_blocks(trailing).into_iter().enumerate() {
             root.children.push(comment_node(&c, &[], base_ordinal + i));
         }
     }
@@ -112,7 +123,7 @@ fn project_table(table: &Table, base: &[Seg]) -> Vec<Node> {
         // leaf_decor prefix.
         if let Some(k) = table.key(key) {
             if let Some(prefix) = k.leaf_decor().prefix().and_then(|r| r.as_str()) {
-                for c in comments_in(prefix) {
+                for c in comment_blocks(prefix) {
                     out.push(comment_node(&c, base, ordinal));
                     ordinal += 1;
                 }
@@ -124,7 +135,7 @@ fn project_table(table: &Table, base: &[Seg]) -> Vec<Node> {
         match item {
             Item::Table(t) => {
                 if let Some(prefix) = t.decor().prefix().and_then(|r| r.as_str()) {
-                    for c in comments_in(prefix) {
+                    for c in comment_blocks(prefix) {
                         out.push(comment_node(&c, base, ordinal));
                         ordinal += 1;
                     }
@@ -133,7 +144,7 @@ fn project_table(table: &Table, base: &[Seg]) -> Vec<Node> {
             Item::ArrayOfTables(aot) => {
                 if let Some(first) = aot.iter().next() {
                     if let Some(prefix) = first.decor().prefix().and_then(|r| r.as_str()) {
-                        for c in comments_in(prefix) {
+                        for c in comment_blocks(prefix) {
                             out.push(comment_node(&c, base, ordinal));
                             ordinal += 1;
                         }
@@ -172,7 +183,7 @@ fn flatten_dotted(table: &Table, prefix: &str, seg_path: &[Seg], out: &mut Vec<N
         if let Some(k) = table.key(key) {
             if let Some(prefix_s) = k.leaf_decor().prefix().and_then(|r| r.as_str()) {
                 let base_ord = out.len();
-                for (j, c) in comments_in(prefix_s).into_iter().enumerate() {
+                for (j, c) in comment_blocks(prefix_s).into_iter().enumerate() {
                     out.push(comment_node(&c, seg_path, base_ord + j));
                 }
             }
@@ -258,7 +269,7 @@ fn project_aot(key: &str, aot: &ArrayOfTables, path: Vec<Seg>) -> Node {
         if i > 0 {
             if let Some(prefix) = t.decor().prefix().and_then(|r| r.as_str()) {
                 let base_ord = n.children.len();
-                for (j, c) in comments_in(prefix).into_iter().enumerate() {
+                for (j, c) in comment_blocks(prefix).into_iter().enumerate() {
                     n.children.push(comment_node(&c, &path, base_ord + j));
                 }
             }
@@ -335,22 +346,37 @@ mod tests {
     }
 
     #[test]
-    fn multiple_comments_in_one_prefix() {
-        // edge case: each standalone comment line becomes its own Comment node
+    fn consecutive_comments_merge_into_one_node() {
+        // Consecutive `#` lines merge into a single multi-line Comment node whose
+        // key/value carry the joined block.
         let t = tree("# one\n# two\na = 1\n");
         assert_eq!(
             keys_of(&t),
-            vec!["# one".to_string(), "# two".to_string(), "a".to_string()]
+            vec!["# one\n# two".to_string(), "a".to_string()]
+        );
+        let c = &t.root.children[0];
+        assert_eq!(c.kind, NodeKind::Comment("# one\n# two".into()));
+        assert_eq!(c.value.as_deref(), Some("# one\n# two"));
+    }
+
+    #[test]
+    fn blank_line_splits_comment_blocks() {
+        // A blank line breaks a comment block into two separate nodes.
+        let t = tree("# a1\n# a2\n\n# b1\na = 1\n");
+        assert_eq!(
+            keys_of(&t),
+            vec![
+                "# a1\n# a2".to_string(),
+                "# b1".to_string(),
+                "a".to_string()
+            ]
         );
     }
 
     #[test]
     fn comment_only_file() {
         let t = tree("# just\n# comments\n");
-        assert_eq!(
-            keys_of(&t),
-            vec!["# just".to_string(), "# comments".to_string()]
-        );
+        assert_eq!(keys_of(&t), vec!["# just\n# comments".to_string()]);
     }
 
     #[test]

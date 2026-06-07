@@ -45,6 +45,12 @@ pub enum Mutation {
     Remark {
         path: Path,
     },
+    /// Replace the text of the (multi-line) comment node at `path` with `text`,
+    /// rewriting it in place within the owning decor slot.
+    EditComment {
+        path: Path,
+        text: String,
+    },
     Move {
         sources: Vec<Path>,
         target: Target,

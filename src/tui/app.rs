@@ -354,7 +354,10 @@ impl App {
                 "Path:     {dotted}\nType:     {type_str}\nFormat:   {fmt_str}\nChildren: {children}"
             )
         } else {
-            let type_str = row.scalar_type.as_deref().unwrap_or("unknown");
+            // A comment node has no scalar_type; fall back to its type_label
+            // ("comment") so the popup reads `Type: comment`. Its `value` now
+            // carries the full (multi-line) comment text, shown in full below.
+            let type_str = row.scalar_type.as_deref().unwrap_or(&row.type_label);
             let val_str = row.value.as_deref().unwrap_or("");
             // Compact format label, matching the TYPE/FORMAT column; single-style
             // scalars (bool/float/datetime) read as "plain".
@@ -440,12 +443,32 @@ impl App {
     /// `e` — edit the cursor node's fragment in $EDITOR and apply Replace.
     /// On MutateError::Fragment: show error in status line, leave doc unchanged.
     pub fn edit_node(&mut self) {
-        let doc = match self.doc.as_mut() {
-            Some(d) => d,
-            None => return,
-        };
         let cursor_row = match self.rows.get(self.cursor) {
             Some(r) => r.clone(),
+            None => return,
+        };
+        // A comment node has no real item to serialize: open $EDITOR with its raw
+        // `#`-prefixed text and write the edit back into the decor. (Comments nested
+        // inside an AoT entry carry an `Index` in their path and are not addressable
+        // this way — fall through to container editing, as Remark does.)
+        if let Some(node) = node_at(&self.tree.root, &cursor_row.path) {
+            if let NodeKind::Comment(text) = &node.kind {
+                if !cursor_row.path.iter().any(|s| matches!(s, Seg::Index(_))) {
+                    let initial = format!("{text}\n");
+                    let edited = match crate::tui::editor::edit_text(&initial) {
+                        Ok(t) => t,
+                        Err(e) => {
+                            self.status = Some(format!("editor error: {e}"));
+                            return;
+                        }
+                    };
+                    self.apply_edit_comment(cursor_row.path.clone(), edited);
+                    return;
+                }
+            }
+        }
+        let doc = match self.doc.as_mut() {
+            Some(d) => d,
             None => return,
         };
         // `Replace` can only address an all-`Key` path, so for any node inside an
@@ -484,6 +507,23 @@ impl App {
             Ok(()) => self.on_mutation_success(),
             Err(crate::model::document::MutateError::Fragment(msg)) => {
                 self.status = Some(format!("invalid TOML: {msg}"));
+            }
+            Err(e) => self.status = Some(format!("error: {e}")),
+        }
+    }
+
+    /// Apply edited comment text as an `EditComment` at `path` (the post-editor
+    /// half of editing a comment node). On error the status line is set and the
+    /// document is left unchanged.
+    pub(crate) fn apply_edit_comment(&mut self, path: Path, text: String) {
+        let doc = match self.doc.as_mut() {
+            Some(d) => d,
+            None => return,
+        };
+        match doc.apply(crate::model::document::Mutation::EditComment { path, text }) {
+            Ok(()) => self.on_mutation_success(),
+            Err(crate::model::document::MutateError::Fragment(msg)) => {
+                self.status = Some(format!("invalid comment: {msg}"));
             }
             Err(e) => self.status = Some(format!("error: {e}")),
         }
@@ -1675,6 +1715,35 @@ mod tests {
     }
 
     #[test]
+    fn apply_edit_comment_updates_doc_and_rows() {
+        use crate::model::document::ConfigDocument;
+        let mut app = app_with("# old\nx = 1\n");
+        let cpath = app.rows[1].path.clone(); // row 0 is root, row 1 the comment
+        app.apply_edit_comment(cpath, "# new\n".into());
+        assert!(app.status.is_none(), "unexpected status: {:?}", app.status);
+        let s = app.doc.as_ref().unwrap().serialize();
+        assert!(
+            s.contains("# new") && !s.contains("# old"),
+            "serialize: {s:?}"
+        );
+        // The rebuilt rows reflect the edited comment.
+        assert_eq!(app.rows[1].value.as_deref(), Some("# new"));
+    }
+
+    #[test]
+    fn apply_edit_comment_rejects_non_comment_and_keeps_doc() {
+        let mut app = app_with("# keep\nx = 1\n");
+        let before = app.doc.as_ref().unwrap().serialize();
+        let cpath = app.rows[1].path.clone();
+        app.apply_edit_comment(cpath, "not a comment\n".into());
+        assert!(
+            app.status.is_some(),
+            "invalid comment must surface in status"
+        );
+        assert_eq!(app.doc.as_ref().unwrap().serialize(), before);
+    }
+
+    #[test]
     fn apply_replace_invalid_toml_sets_status_and_leaves_doc() {
         let mut app = app_with("port = 8080\n");
         let before = app.doc.as_ref().unwrap().serialize();
@@ -2441,6 +2510,22 @@ mod tests {
         assert!(
             detail.contains("server") || detail.lines().next().is_some_and(|l| l.contains("port")),
             "detail should contain dotted path, got: {detail}"
+        );
+    }
+
+    #[test]
+    fn detail_view_shows_comment_type_and_full_text() {
+        let mut app = app_with("# one\n# two\na = 1\n");
+        app.cursor = 1; // on the merged comment node (row 0 is root)
+        app.open_detail();
+        let detail = app.detail_text.as_ref().expect("detail should be set");
+        assert!(
+            detail.contains("comment"),
+            "detail should label the type as comment, got: {detail}"
+        );
+        assert!(
+            detail.contains("# one") && detail.contains("# two"),
+            "detail should show the full multi-line comment, got: {detail}"
         );
     }
 }

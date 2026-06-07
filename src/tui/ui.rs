@@ -10,6 +10,21 @@ use ratatui::widgets::*;
 /// truncation and cannot be compressed further without abbreviating those.
 const TYPE_WIDTH: u16 = 15;
 
+/// Collapse a possibly multi-line cell value to a single display line: the first
+/// line with non-whitespace content, trimmed, plus a trailing ` …` when any later
+/// line also carries content. Single-line values pass through (the trim also
+/// strips the leading newline+indent decor a multiline-array element carries, so
+/// its value stops rendering blank). Full text stays available in the detail popup.
+pub(crate) fn cell_preview(s: &str) -> String {
+    let mut lines = s.lines().filter(|l| !l.trim().is_empty());
+    let first = lines.next().unwrap_or("").trim().to_string();
+    if lines.next().is_some() {
+        format!("{first} …")
+    } else {
+        first
+    }
+}
+
 /// Compact format suffix for the TYPE/FORMAT column. `None` for the single-style
 /// `Plain` (bool, float, datetimes, and all branches) so they show type only.
 pub(crate) fn format_label(fmt: Format) -> Option<&'static str> {
@@ -188,7 +203,9 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                 " "
             };
             let prefix = format!("{sel_marker}{indent}{marker}");
-            let name = format!("{prefix}{}", row.key);
+            // Collapse the key to one line (a merged multi-line comment node's key
+            // carries newlines) without disturbing the tree prefix/indent.
+            let name = format!("{prefix}{}", cell_preview(&row.key));
             // While inline-editing the cursor row, render the live buffer of the
             // focused field (Value or Name) with the char under the cursor
             // reverse-highlighted — no caret glyph, so characters never shift. The
@@ -207,13 +224,13 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                         spans.extend(edit_field_spans(&e.buffer, e.cursor, e.scroll, avail));
                         (
                             Cell::from(Line::from(spans)),
-                            Cell::from(row.value.clone().unwrap_or_default()),
+                            Cell::from(cell_preview(row.value.as_deref().unwrap_or(""))),
                         )
                     }
                 },
                 _ => (
                     Cell::from(name),
-                    Cell::from(row.value.clone().unwrap_or_default()),
+                    Cell::from(cell_preview(row.value.as_deref().unwrap_or(""))),
                 ),
             };
             let style = if i == app.cursor {
@@ -595,6 +612,52 @@ mod tests {
                 .lines()
                 .any(|l| l.contains("srv") && l.contains("table")),
             "standard table stays plain `table`: {joined:?}"
+        );
+    }
+
+    /// Render with all branches expanded, returning the joined buffer text.
+    fn render_expanded(src: &str, w: u16, h: u16) -> String {
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        f.write_all(src.as_bytes()).unwrap();
+        let doc = crate::model::toml_doc::TomlDocument::load(f.path()).unwrap();
+        let mut app = App::new(doc);
+        app.expand_all();
+        app.rebuild_rows();
+        let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
+        terminal.draw(|fr| draw(fr, &app)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        (0..h)
+            .map(|y| (0..w).map(|x| buf[(x, y)].symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn cell_preview_collapses_multiline() {
+        // first content line, trimmed, with an ellipsis when more content follows
+        assert_eq!(cell_preview("\n  \"a\""), "\"a\"");
+        assert_eq!(cell_preview("# one\n# two"), "# one …");
+        assert_eq!(cell_preview("plain"), "plain");
+        assert_eq!(cell_preview(""), "");
+    }
+
+    #[test]
+    fn multiline_array_element_shows_value() {
+        // Regression: a multiline-array element carries leading "\n  " decor in its
+        // repr, which previously blanked the VALUE cell. cell_preview trims it.
+        let joined = render_expanded("arr = [\n  \"a\",\n  \"b\",\n]\n", 60, 10);
+        assert!(
+            joined.contains("\"a\""),
+            "array element value missing from column: {joined:?}"
+        );
+    }
+
+    #[test]
+    fn merged_comment_value_shows_collapsed_in_column() {
+        let joined = render_expanded("# one\n# two\na = 1\n", 60, 10);
+        assert!(
+            joined.contains("# one …"),
+            "merged comment not collapsed in column: {joined:?}"
         );
     }
 

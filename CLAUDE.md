@@ -22,7 +22,7 @@ MVP ships only the TOML backend (`TomlDocument`). The trait exposes `load`, `ser
 `apply(Mutation)`.
 
 **`Mutation` enum** is the closed set of document operations (Insert, Delete, Replace, Rename,
-Move, Remark). `apply` dispatches each variant to the corresponding `toml_edit` manipulation and
+Move, Remark, EditComment). `apply` dispatches each variant to the corresponding `toml_edit` manipulation and
 rebuilds the Node tree projection afterward. `Rename` is position- and decor-preserving (re-inserts
 the table in order, swapping only the target key) — there is no separate user-facing rename action;
 it is driven from the inline editor (see below).
@@ -42,6 +42,15 @@ hex/oct/bin, basic/literal/multiline string, …) is derived read-only during pr
 orthogonal to its `ScalarType`. TOML has no null, so there is no clear-value operation; `a` seeds a
 new node with the empty string `""` — a key/value under a Table/Root, or a bare element when the
 target is an array (`insert_fragment` → `array_at_mut`).
+
+**Comments.** Consecutive standalone `#` lines project as a *single* multi-line Comment node
+(`comment_blocks`; a blank or non-`#` line breaks the group). A comment node carries its text as its
+`value`, so the VALUE column and detail popup show it. Multi-line cell values (merged comments,
+multiline strings, multiline-array elements whose repr carries leading newline/indent decor) are
+collapsed to a one-line preview (first line + ` …`) by `cell_preview` in `ui.rs`; the full text stays
+in the detail popup. `e`/`E` on a comment opens `$EDITOR` with the raw `#`-prefixed text and writes it
+back in place via `Mutation::EditComment` (`edit_comment` → `transform_comment_in_decor`, the
+locate-the-decor-slot helper shared with `uncomment`).
 
 ## Module map
 

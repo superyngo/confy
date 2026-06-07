@@ -14,14 +14,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Editing — the value-nudge now re-applies underscore digit grouping when the original value had it (decimal every 3, hex/oct/bin every 4, float fractional every 3), so `1_000_000` stays grouped after a step. (2026-06-06)
 
 ### Added
+- Comments — adjacent comment lines now project as a single multi-line comment node (a blank line, or any non-`#` line, breaks the group), so a comment block is one navigable node. Comment nodes now carry their text as a value, shown in the VALUE column and the detail popup. (2026-06-07)
+- Editing — `e`/`E` on a comment now opens `$EDITOR` with the comment's raw `#`-prefixed text and writes the edit back into the decor via a new `Mutation::EditComment` (was: opened an empty editor and could not save). Edited text must remain comment lines, else the document is left untouched. (2026-06-07)
 - Editing — `a` on an array now inserts a new element (seeded `""`) and opens it for inline editing, instead of failing with a key-collision/`NotFound`. (2026-06-06)
 - Editing — `Tab` in the inline editor toggles between the Value (default) and Name fields; committing a changed Name renames the key via a new position/decor-preserving `Mutation::Rename`. `Tab` is disabled for array elements (no key), and the NAME field gets the same horizontal-overflow scrolling as VALUE. (2026-06-06)
 - Editing — scalar elements of nested arrays (array-of-arrays, `Key Index Index…`) now edit inline and nudge in place, addressed via `array_at_mut`. (2026-06-06)
 
 ### Fixed
+- TUI — multi-line cell values (merged comments, multiline strings, and elements of a multiline-formatted array) now render a single-line preview (first line + ` …`) in the VALUE column. Previously a multiline-array element showed nothing because its repr carries leading newline+indent decor; the full text remains available in the detail popup. (2026-06-07)
 - TUI — the main tree viewport now persists its scroll offset across frames, so the cursor moves within the visible window instead of staying pinned to the bottom edge and scrolling on every key. (2026-06-06)
 - Editing — replacing a value no longer drops a standalone `#` comment sitting above its key; `Replace`/`Insert` overwrite now updates the value in place (preserving key decor) instead of re-inserting the key. (2026-06-06)
 - Editing — `e` on a node nested inside an array/AoT (or on an element of a multiline array) no longer opens an empty editor; it edits the nearest addressable container, and multiline-array string elements edit inline with their indentation preserved. (2026-06-06)
+- Move — moving a node into a table no longer drops the leading comments and blank lines above it; the move now carries the key's `leaf_decor` (capturing `(Key, Item)` and re-inserting via `entry_format`) instead of re-serializing through a fresh document. Array destinations are unchanged. (2026-06-06)
 
 ### Added
 - CI — `.github/workflows/release.yml`: on a `v*.*.*` tag, cross-compiles `confy` for Linux x86_64 (gnu + musl), macOS (arm64 + Intel), and Windows x86_64 + i686 (MSVC), packages tar.gz (Unix) / `.exe` (Windows), emits `SHA256SUMS`, and publishes a GitHub Release (annotated-tag message + auto-generated notes).

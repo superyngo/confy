@@ -294,7 +294,87 @@ impl TomlDocument {
         target: &Target,
         oc: crate::model::document::OnCollision,
     ) -> Result<(), MutateError> {
-        // 1. Capture each source's item as a TOML fragment string.
+        // Array destination: arrays hold bare values with no key or decor to
+        // preserve, so keep the value-extraction path (string fragments routed
+        // through insert_fragment, which descends into arrays).
+        if self.array_at_mut(&target.parent).is_some() {
+            return self.move_inner_array(sources, target, oc);
+        }
+
+        // Table destination: capture each source's (Key, Item) rather than
+        // re-serializing through a fresh document. The Key carries leaf_decor —
+        // the leading comments and blank lines above a leaf — so they travel
+        // with the moved node instead of being dropped.
+        let mut captured: Vec<(toml_edit::Key, Item)> = Vec::new();
+        for src_path in sources {
+            let (parent, last) = src_path.split_at(src_path.len().saturating_sub(1));
+            let last = last.first().ok_or(MutateError::NotFound)?;
+            let key_name = match last {
+                Seg::Key(k) => k.as_str(),
+                Seg::Index(_) => return Err(MutateError::Unsupported),
+            };
+            let table = self.parent_table_mut(parent)?;
+            let (key, item) = table.get_key_value(key_name).ok_or(MutateError::NotFound)?;
+            captured.push((key.clone(), item.clone()));
+        }
+
+        // Delete sources in reverse path order to keep paths valid.
+        for src_path in sources.iter().rev() {
+            self.remove_at(src_path)?;
+        }
+
+        // Re-insert at the destination, preserving decor. Position-within-table
+        // is not honored (append), matching the existing Insert path for tables.
+        // Atomicity on a Cancel collision is handled by the r#move wrapper, which
+        // restores the pre-move snapshot on any Err.
+        use crate::model::document::OnCollision::*;
+        let dest = self.parent_table_mut(&target.parent)?;
+        for (key, item) in captured {
+            let name = key.get().to_string();
+            if dest.contains_key(&name) {
+                match oc {
+                    Cancel => return Err(MutateError::Collision(name)),
+                    Overwrite => {
+                        // Replace the colliding entry's value in place, keeping its
+                        // position and key decor (same as insert_fragment).
+                        if let Some(slot) = dest.get_mut(&name) {
+                            *slot = item;
+                        }
+                        continue;
+                    }
+                    Rename => {
+                        let mut n = 2;
+                        while dest.contains_key(&format!("{name}_{n}")) {
+                            n += 1;
+                        }
+                        let mut nk: toml_edit::Key =
+                            format!("{name}_{n}")
+                                .parse()
+                                .map_err(|e: toml_edit::TomlError| {
+                                    MutateError::Fragment(e.to_string())
+                                })?;
+                        *nk.leaf_decor_mut() = key.leaf_decor().clone();
+                        dest.entry_format(&nk).or_insert(item);
+                        continue;
+                    }
+                }
+            }
+            dest.entry_format(&key).or_insert(item);
+        }
+
+        Ok(())
+    }
+
+    /// Array-destination move: capture each source as a `key = value` fragment
+    /// string and route it through `insert_fragment`, which extracts the bare
+    /// value and appends it into the array. Arrays carry no key or decor, so the
+    /// (Key, Item)-preserving table path does not apply here.
+    fn move_inner_array(
+        &mut self,
+        sources: &[crate::model::node::Path],
+        target: &Target,
+        oc: crate::model::document::OnCollision,
+    ) -> Result<(), MutateError> {
         let mut fragments: Vec<String> = Vec::new();
         for src_path in sources {
             let (parent, last) = src_path.split_at(src_path.len().saturating_sub(1));
@@ -310,12 +390,10 @@ impl TomlDocument {
             fragments.push(tmp.to_string());
         }
 
-        // 2. Delete sources in reverse path order to keep paths valid.
         for src_path in sources.iter().rev() {
             self.remove_at(src_path)?;
         }
 
-        // 3. Insert collected fragments at the target.
         for frag in fragments {
             self.insert_fragment(target, &frag, oc)?;
         }
@@ -511,10 +589,18 @@ impl TomlDocument {
 
     /// Remove a comment block from the decor slot where the projector would have read it.
     fn remove_comment_from_decor(&mut self, parent: &[Seg], comment_text: &str) {
-        let remove_block = |s: &str| -> String {
+        self.transform_comment_in_decor(parent, &|s| {
             s.replace(&format!("{comment_text}\n"), "")
                 .replace(comment_text, "")
-        };
+        });
+    }
+
+    /// Locate the decor slot where the projector reads `parent`'s leading comments
+    /// (top-level leaf/table-header/trailing, or the nested equivalents) and rewrite
+    /// it through `transform`. Shared by comment removal (uncomment) and in-place
+    /// comment editing.
+    fn transform_comment_in_decor(&mut self, parent: &[Seg], transform: &dyn Fn(&str) -> String) {
+        let remove_block = transform;
         if parent.is_empty() {
             let first_key = self
                 .doc
@@ -601,6 +687,42 @@ impl TomlDocument {
             }
         }
     }
+
+    /// Edit a (multi-line) comment node in place: replace its current text in the
+    /// owning decor slot with `new_text`. The edited text must be comment lines —
+    /// every non-blank line must start with `#`; otherwise the document is left
+    /// untouched and `Fragment` is returned.
+    fn edit_comment(&mut self, path: &[Seg], new_text: &str) -> Result<(), MutateError> {
+        let (parent, last) = path.split_at(path.len().saturating_sub(1));
+        match last.first() {
+            Some(Seg::Key(k)) if k.starts_with("#comment:") => {}
+            _ => return Err(MutateError::NotFound),
+        }
+        let new_text = new_text.trim_end_matches('\n').to_string();
+        if new_text
+            .lines()
+            .any(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
+        {
+            return Err(MutateError::Fragment(
+                "comment lines must start with '#'".into(),
+            ));
+        }
+        // Read the current comment text from the projection (handles nesting).
+        let old_text = {
+            let projected = self.project();
+            find_node_by_path(&projected.root, path)
+                .and_then(|n| match &n.kind {
+                    crate::model::node::NodeKind::Comment(t) => Some(t.clone()),
+                    _ => None,
+                })
+                .ok_or(MutateError::NotFound)?
+        };
+        if old_text == new_text {
+            return Ok(());
+        }
+        self.transform_comment_in_decor(parent, &|s| s.replacen(&old_text, &new_text, 1));
+        Ok(())
+    }
 }
 
 impl ConfigDocument for TomlDocument {
@@ -645,6 +767,7 @@ impl ConfigDocument for TomlDocument {
             Mutation::Replace { path, toml } => self.replace(&path, &toml),
             Mutation::Rename { path, new_key } => self.rename(&path, &new_key),
             Mutation::Remark { path } => self.remark(&path),
+            Mutation::EditComment { path, text } => self.edit_comment(&path, &text),
             Mutation::Move {
                 sources,
                 target,
@@ -1028,6 +1151,62 @@ mod tests {
     }
 
     #[test]
+    fn edit_comment_rewrites_single_line_in_place() {
+        use crate::model::document::Mutation;
+        let mut doc = doc_from_str("# old note\nx = 1\n");
+        let cpath = doc.project().root.children[0].path.clone();
+        doc.apply(Mutation::EditComment {
+            path: cpath,
+            text: "# new note\n".into(),
+        })
+        .unwrap();
+        let s = doc.serialize();
+        assert!(s.contains("# new note"), "edited text missing: {s:?}");
+        assert!(!s.contains("# old note"), "old text remains: {s:?}");
+        assert!(s.contains("x = 1"), "sibling key disturbed: {s:?}");
+    }
+
+    #[test]
+    fn edit_comment_rewrites_merged_multiline_block() {
+        use crate::model::document::Mutation;
+        let mut doc = doc_from_str("# a\n# b\nx = 1\n");
+        // The two consecutive lines project as one merged comment node.
+        let node = &doc.project().root.children[0];
+        assert_eq!(
+            node.kind,
+            crate::model::node::NodeKind::Comment("# a\n# b".into())
+        );
+        let cpath = node.path.clone();
+        doc.apply(Mutation::EditComment {
+            path: cpath,
+            text: "# a\n# b changed\n# c\n".into(),
+        })
+        .unwrap();
+        let s = doc.serialize();
+        assert!(s.contains("# b changed"), "edit missing: {s:?}");
+        assert!(s.contains("# c"), "added line missing: {s:?}");
+        assert!(s.contains("x = 1"), "sibling key disturbed: {s:?}");
+        // Re-projecting yields the new merged block.
+        assert_eq!(
+            doc.project().root.children[0].kind,
+            crate::model::node::NodeKind::Comment("# a\n# b changed\n# c".into())
+        );
+    }
+
+    #[test]
+    fn edit_comment_rejects_non_comment_text() {
+        use crate::model::document::{MutateError, Mutation};
+        let mut doc = doc_from_str("# note\nx = 1\n");
+        let cpath = doc.project().root.children[0].path.clone();
+        let err = doc.apply(Mutation::EditComment {
+            path: cpath,
+            text: "not a comment\n".into(),
+        });
+        assert!(matches!(err, Err(MutateError::Fragment(_))));
+        assert_eq!(doc.serialize(), "# note\nx = 1\n", "document changed");
+    }
+
+    #[test]
     fn replace_preserves_key_order() {
         use crate::model::document::Mutation;
         use crate::model::node::Seg;
@@ -1160,6 +1339,33 @@ mod tests {
         assert!(s.contains("a = 1"));
         // `a` no longer at top level (only under dest)
         assert_eq!(s.matches("a = 1").count(), 1);
+    }
+
+    #[test]
+    fn move_preserves_leading_comment_and_blank() {
+        // Regression: the moved leaf's leading comment + blank line lived in the
+        // key's leaf_decor; the old re-serialize-through-fresh-doc path dropped them.
+        use crate::model::document::{Mutation, OnCollision, Target};
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("# lead\na = 1\n\n[dest]\n");
+        doc.apply(Mutation::Move {
+            sources: vec![vec![Seg::Key("a".into())]],
+            target: Target {
+                parent: vec![Seg::Key("dest".into())],
+                index: 0,
+            },
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        let s = doc.serialize();
+        assert!(
+            s.contains("# lead"),
+            "leading comment dropped on move: {s:?}"
+        );
+        // a is gone from top level and present under dest, with its comment.
+        let tree = doc.project();
+        let dest = tree.root.children.iter().find(|n| n.key == "dest").unwrap();
+        assert!(dest.children.iter().any(|n| n.key == "a"));
     }
 
     #[test]
