@@ -12,7 +12,7 @@
 //! until ported.
 
 use crate::model::cst_project::{walk, CstIndex, Target};
-use crate::model::document::{MutateError, Mutation, Target as InsTarget};
+use crate::model::document::{MutateError, Mutation, OnCollision, Target as InsTarget};
 use crate::model::node::{Node, Seg};
 use taplo::rowan::NodeOrToken;
 use taplo::syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
@@ -39,6 +39,14 @@ pub(crate) fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<SyntaxNode, Muta
         }
         Mutation::InsertComment { target, text } => {
             insert_comment(&tree, &target, &text)?;
+            Ok(tree)
+        }
+        Mutation::Insert {
+            target,
+            toml,
+            on_collision,
+        } => {
+            insert(&tree, &target, &toml, on_collision)?;
             Ok(tree)
         }
         _ => Err(MutateError::Unsupported),
@@ -195,6 +203,71 @@ fn insert_comment(tree: &SyntaxNode, target: &InsTarget, text: &str) -> Result<(
     }
     tree.splice_children(at..at, els);
     Ok(())
+}
+
+/// Insert a keyed node fragment (`key = val`, `[table]…`) at the projected
+/// `target`. The fragment's first key is collision-checked against the parent
+/// scope's existing keys. (Overwrite/Rename collision modes and bare array-element
+/// inserts are deferred; `Cancel` and the no-collision path are handled.)
+fn insert(
+    tree: &SyntaxNode,
+    target: &InsTarget,
+    toml: &str,
+    on_collision: OnCollision,
+) -> Result<(), MutateError> {
+    let frag_text = if toml.ends_with('\n') {
+        toml.to_string()
+    } else {
+        format!("{toml}\n")
+    };
+    let parse = taplo::parser::parse(&frag_text);
+    if let Some(e) = parse.errors.first() {
+        return Err(MutateError::Fragment(e.to_string()));
+    }
+    let frag = parse.into_syntax().clone_for_update();
+    let new_key = fragment_first_key(&frag)
+        .ok_or_else(|| MutateError::Fragment("fragment has no key".into()))?;
+
+    let (proj, idx) = walk(tree, "");
+    let parent = node_at(&proj.root, &target.parent).ok_or(MutateError::NotFound)?;
+    let depth = target.parent.len();
+    let collides = parent
+        .children
+        .iter()
+        .filter(|c| !matches!(c.kind, crate::model::node::NodeKind::Comment(_)))
+        .any(|c| c.path.get(depth) == Some(&Seg::Key(new_key.clone())));
+    if collides {
+        return match on_collision {
+            OnCollision::Cancel => Err(MutateError::Collision(new_key)),
+            // Overwrite / Rename deferred.
+            _ => Err(MutateError::Unsupported),
+        };
+    }
+
+    let at = resolve_insert_at(tree, &proj.root, &idx, target)?;
+    let els: Vec<_> = frag.children_with_tokens().collect();
+    for e in &els {
+        e.detach();
+    }
+    tree.splice_children(at..at, els);
+    Ok(())
+}
+
+/// The first key of a node fragment — the first segment of its first `KEY` node
+/// (the child key it would occupy under its parent scope).
+fn fragment_first_key(root: &SyntaxNode) -> Option<String> {
+    let key = root.descendants().find(|n| n.kind() == SyntaxKind::KEY)?;
+    key.children_with_tokens().find_map(|c| match c {
+        NodeOrToken::Token(t) => match t.kind() {
+            SyntaxKind::IDENT | SyntaxKind::IDENT_WITH_GLOB => Some(t.text().to_string()),
+            SyntaxKind::STRING | SyntaxKind::STRING_LITERAL => {
+                let s = t.text().trim();
+                Some(s[1..s.len().saturating_sub(1)].to_string())
+            }
+            _ => None,
+        },
+        NodeOrToken::Node(_) => None,
+    })
 }
 
 /// Map a projected insertion `target` (`parent` path + child `index`) to a splice
@@ -562,6 +635,68 @@ mod tests {
             .unwrap_err();
         assert!(matches!(err, MutateError::Fragment(_)));
         assert_eq!(d.serialize(), "a = 1\n");
+    }
+
+    #[test]
+    fn insert_leaf_before_anchor() {
+        let mut d = doc("a = 1\nc = 3\n");
+        d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![],
+                index: 1,
+            },
+            toml: "b = 2\n".into(),
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "a = 1\nb = 2\nc = 3\n");
+    }
+
+    #[test]
+    fn insert_leaf_at_end() {
+        let mut d = doc("a = 1\n");
+        d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![],
+                index: 9,
+            },
+            toml: "z = 9\n".into(),
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "a = 1\nz = 9\n");
+    }
+
+    #[test]
+    fn insert_collision_cancel_errors() {
+        let mut d = doc("a = 1\nb = 2\n");
+        let err = d
+            .apply(Mutation::Insert {
+                target: InsTarget {
+                    parent: vec![],
+                    index: 0,
+                },
+                toml: "b = 9\n".into(),
+                on_collision: OnCollision::Cancel,
+            })
+            .unwrap_err();
+        assert!(matches!(err, MutateError::Collision(k) if k == "b"));
+        assert_eq!(d.serialize(), "a = 1\nb = 2\n");
+    }
+
+    #[test]
+    fn insert_into_table_scope() {
+        let mut d = doc("[s]\nx = 1\n");
+        d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![Seg::Key("s".into())],
+                index: 9,
+            },
+            toml: "y = 2\n".into(),
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "[s]\nx = 1\ny = 2\n");
     }
 
     #[test]
