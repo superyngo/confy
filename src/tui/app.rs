@@ -1280,6 +1280,8 @@ impl App {
     /// Core paste logic, split out so it can be re-issued after a collision prompt.
     /// Takes ownership of the `Clipboard` and restores it on any failure so the
     /// user can retry (collision → remaining fragments; other errors → same).
+    /// CUT uses atomic `Mutation::Move` (delete-before-reinsert, no partial state,
+    /// same-scope paste never collides). COPY uses the per-fragment insert loop.
     pub(crate) fn do_paste(
         &mut self,
         clipboard: Clipboard,
@@ -1291,18 +1293,56 @@ impl App {
             cut: is_cut,
             sources,
         } = clipboard;
-        let doc = match self.doc.as_mut() {
-            Some(d) => d,
-            None => {
-                // Restore clipboard so the user can try again.
-                self.clipboard = Some(Clipboard {
-                    fragments,
-                    cut: is_cut,
-                    sources,
-                });
-                return;
+
+        // Comment sources (synthetic `#comment:N` keys) are handled separately in
+        // a later task; here we operate on node sources only.
+        let is_comment =
+            |p: &Path| matches!(p.last(), Some(Seg::Key(k)) if k.starts_with("#comment:"));
+        let node_sources: Vec<Path> = sources.iter().filter(|p| !is_comment(p)).cloned().collect();
+
+        if self.doc.is_none() {
+            self.clipboard = Some(Clipboard {
+                fragments,
+                cut: is_cut,
+                sources,
+            });
+            return;
+        }
+
+        if is_cut {
+            // Atomic move: delete-before-reinsert, so a same-parent paste never
+            // collides and any failure rolls the document back (no partial state,
+            // no lost clipboard).
+            let doc = self.doc.as_mut().unwrap();
+            match doc.apply(Mutation::Move {
+                sources: node_sources,
+                target: target.clone(),
+                on_collision,
+            }) {
+                Ok(()) => self.on_mutation_success(),
+                Err(crate::model::document::MutateError::Collision(key)) => {
+                    self.clipboard = Some(Clipboard {
+                        fragments,
+                        cut: is_cut,
+                        sources,
+                    });
+                    self.status = Some(format!("collision on key '{key}' — o/r/c"));
+                    self.mode = Mode::Prompt(PromptKind::Collision { key });
+                }
+                Err(e) => {
+                    self.clipboard = Some(Clipboard {
+                        fragments,
+                        cut: is_cut,
+                        sources,
+                    });
+                    self.status = Some(format!("paste error: {e}"));
+                }
             }
-        };
+            return;
+        }
+
+        // COPY: insert each fragment, restoring the remaining clipboard on failure.
+        let doc = self.doc.as_mut().unwrap();
         for (i, frag) in fragments.iter().enumerate() {
             match doc.apply(Mutation::Insert {
                 target: target.clone(),
@@ -1331,17 +1371,6 @@ impl App {
                         sources,
                     });
                     self.status = Some(format!("paste error: {e}"));
-                    return;
-                }
-            }
-        }
-        // If cut, delete source nodes after successful paste.
-        if is_cut {
-            let mut sorted_sources = sources;
-            sorted_sources.sort_by_key(|b| std::cmp::Reverse(b.len()));
-            for src in &sorted_sources {
-                if let Err(e) = doc.apply(Mutation::Delete { path: src.clone() }) {
-                    self.status = Some(format!("cut-delete error: {e}"));
                     return;
                 }
             }
@@ -3186,6 +3215,28 @@ mod tests {
                 .map(|s| s.contains("paste error"))
                 .unwrap_or(false),
             "status must show the error"
+        );
+    }
+
+    #[test]
+    fn cut_paste_same_scope_moves_without_collision() {
+        let mut app = app_with("a = 1\nb = 2\n");
+        app.rebuild_rows();
+        app.cursor = 1; // on `a`
+        app.cut_selected();
+        assert!(app.clipboard.is_some());
+        app.cursor = 2; // on `b`
+        app.paste();
+        assert!(
+            matches!(app.mode, Mode::Normal),
+            "no collision prompt expected"
+        );
+        let out = app.doc.as_ref().unwrap().serialize();
+        assert_eq!(out.matches("a =").count(), 1, "exactly one `a`: {out:?}");
+        assert_eq!(out.matches("b =").count(), 1, "exactly one `b`: {out:?}");
+        assert!(
+            app.clipboard.is_none(),
+            "clipboard consumed on successful move"
         );
     }
 }
