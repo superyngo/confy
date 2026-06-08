@@ -63,6 +63,13 @@ impl ConfigDocument for CstDocument {
         self.serialize() != self.original
     }
 
+    fn serialize_fragment(&self, path: &[crate::model::node::Seg], _carry_comment: bool) -> String {
+        if path.is_empty() {
+            return self.serialize();
+        }
+        crate::model::cst_edit::serialize_fragment(&self.syntax, path)
+    }
+
     fn apply(&mut self, m: Mutation) -> Result<(), MutateError> {
         // Mutate a copy and commit only on success (free atomic rollback). The edit
         // works on a `clone_for_update` (mutable) tree; normalize the result back to

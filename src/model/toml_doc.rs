@@ -33,6 +33,37 @@ pub(crate) fn split_leading_blank_lines(s: &str) -> (&str, &str) {
     s.split_at(idx)
 }
 
+/// Walk an immutable `TableLike` by `segs` (AoT-aware: a `Key→Index` pair descends
+/// into an array-of-tables entry). The immutable mirror of `parent_table_mut`, used
+/// by `serialize_fragment`.
+fn walk_tablelike<'a>(
+    root: &'a dyn toml_edit::TableLike,
+    segs: &[Seg],
+) -> Option<&'a dyn toml_edit::TableLike> {
+    let mut tbl = root;
+    let mut i = 0;
+    while i < segs.len() {
+        match &segs[i] {
+            Seg::Key(k) => {
+                let item = tbl.get(k)?;
+                if let Item::ArrayOfTables(aot) = item {
+                    let idx = match segs.get(i + 1) {
+                        Some(Seg::Index(n)) => *n,
+                        _ => return None,
+                    };
+                    tbl = aot.get(idx)?;
+                    i += 2;
+                    continue;
+                }
+                tbl = item.as_table_like()?;
+                i += 1;
+            }
+            Seg::Index(_) => return None,
+        }
+    }
+    Some(tbl)
+}
+
 fn find_node_by_path<'a>(
     node: &'a crate::model::node::Node,
     path: &[Seg],
@@ -1351,6 +1382,85 @@ impl ConfigDocument for TomlDocument {
 
     fn is_dirty(&self) -> bool {
         self.serialize() != self.original
+    }
+
+    fn serialize_fragment(&self, path: &[Seg], carry_comment: bool) -> String {
+        use toml_edit::{ArrayOfTables, DocumentMut, Item, Value};
+        if path.is_empty() {
+            return self.serialize();
+        }
+        let (parent_segs, last) = path.split_at(path.len().saturating_sub(1));
+        // Array-of-tables entry (`product[0]`): emit a single-entry `[[key]]` block.
+        if let Some(Seg::Index(idx)) = last.first() {
+            let (head, key_seg) = parent_segs.split_at(parent_segs.len().saturating_sub(1));
+            let aot_key = match key_seg.first() {
+                Some(Seg::Key(k)) => k.as_str(),
+                _ => return String::new(),
+            };
+            let tbl = match walk_tablelike(self.doc.as_table(), head) {
+                Some(t) => t,
+                None => return String::new(),
+            };
+            let entry = match tbl.get(aot_key) {
+                Some(Item::ArrayOfTables(a)) => match a.get(*idx) {
+                    Some(t) => t.clone(),
+                    None => return String::new(),
+                },
+                _ => return String::new(),
+            };
+            let mut tmp = DocumentMut::new();
+            let mut aot = ArrayOfTables::new();
+            aot.push(entry);
+            tmp.as_table_mut().insert(aot_key, Item::ArrayOfTables(aot));
+            let s = tmp.to_string();
+            return split_leading_blank_lines(&s).1.to_string();
+        }
+        let key = match last.first() {
+            Some(Seg::Key(k)) => k.as_str(),
+            _ => return String::new(),
+        };
+        if key.starts_with("#comment:") {
+            if let Some(n) = find_node_by_path(&self.project().root, path) {
+                if let crate::model::node::NodeKind::Comment(t) = &n.kind {
+                    return t.clone();
+                }
+            }
+            return String::new();
+        }
+        let tbl = match walk_tablelike(self.doc.as_table(), parent_segs) {
+            Some(t) => t,
+            None => return String::new(),
+        };
+        let item = match tbl.get(key) {
+            Some(i) => i.clone(),
+            None => return String::new(),
+        };
+        let key_comment = if carry_comment {
+            tbl.key(key)
+                .and_then(|k| k.leaf_decor().prefix().and_then(|r| r.as_str()))
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+        } else {
+            None
+        };
+        let trim = carry_comment
+            || matches!(
+                item,
+                Item::Table(_) | Item::Value(Value::Array(_)) | Item::Value(Value::InlineTable(_))
+            );
+        let mut tmp = DocumentMut::new();
+        tmp.as_table_mut().insert(key, item);
+        if let Some(prefix) = key_comment {
+            if let Some(mut km) = tmp.as_table_mut().key_mut(key) {
+                km.leaf_decor_mut().set_prefix(prefix);
+            }
+        }
+        let s = tmp.to_string();
+        if trim {
+            split_leading_blank_lines(&s).1.to_string()
+        } else {
+            s
+        }
     }
 
     fn apply(&mut self, m: Mutation) -> Result<(), MutateError> {

@@ -73,6 +73,56 @@ pub(crate) fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<SyntaxNode, Muta
     }
 }
 
+/// Serialize the node at `path` as a standalone fragment (clipboard / `$EDITOR`).
+/// In the CST a fragment is just the node's source text — comments are independent
+/// nodes, so a node never carries an adjacent comment (`carry_comment` is moot).
+pub(crate) fn serialize_fragment(syntax: &SyntaxNode, path: &[Seg]) -> String {
+    let (proj, idx) = walk(syntax, "");
+    // A comment node: its raw `# …` text.
+    if let Some(node) = node_at(&proj.root, path) {
+        if let crate::model::node::NodeKind::Comment(t) = &node.kind {
+            return t.clone();
+        }
+    }
+    let target = match idx.iter().find(|(p, _)| p == path).map(|(_, t)| t) {
+        Some(t) => t,
+        None => return String::new(),
+    };
+    match target {
+        Target::Entry(n) | Target::ArrayElement(n) => {
+            let s = n.to_string();
+            if s.ends_with('\n') {
+                s
+            } else {
+                format!("{s}\n")
+            }
+        }
+        // A table / AoT entry: the section's source text (header + its lines).
+        Target::Header(h) => section_text(syntax, path, h.index(), false),
+        Target::AotEntry(h) => section_text(syntax, &[], h.index(), true),
+        Target::AotGroup | Target::Comment(_) => String::new(),
+    }
+}
+
+/// The source text of a `[table]` / `[[aot]]` section starting at `header_idx`,
+/// trimmed of a leading blank separator.
+fn section_text(syntax: &SyntaxNode, t_path: &[Seg], header_idx: usize, strict: bool) -> String {
+    let end = if strict {
+        section_end_strict(syntax, header_idx)
+    } else {
+        section_end(syntax, t_path, header_idx)
+    };
+    let els: Vec<_> = syntax.children_with_tokens().collect();
+    let mut s = String::new();
+    for el in &els[header_idx..end] {
+        match el {
+            NodeOrToken::Node(n) => s.push_str(&n.to_string()),
+            NodeOrToken::Token(t) => s.push_str(t.text()),
+        }
+    }
+    s
+}
+
 /// Empty-path `Replace`: reparse the edited text as a whole new document, rejecting
 /// invalid TOML (the document is left untouched because the caller keeps the old
 /// tree on `Err`).
@@ -1268,6 +1318,24 @@ mod tests {
         })
         .unwrap();
         assert_eq!(d.serialize(), "[s]\nx = 1\n# between\ny = 2\n");
+    }
+
+    #[test]
+    fn insert_node_below_a_comment() {
+        // Phase 4: with comments as real ordered nodes, inserting a node right after
+        // a comment row (cursor on the comment at index 0 → target index 1) places it
+        // directly below the comment — the originally-requested capability.
+        let mut d = doc("# section\na = 1\n");
+        d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![],
+                index: 1,
+            },
+            toml: "b = 2\n".into(),
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "# section\nb = 2\na = 1\n");
     }
 
     #[test]

@@ -603,10 +603,10 @@ impl App {
         // comment(s) into the editor so they can be edited alongside the node. This
         // applies to every keyed node opened in `$EDITOR` — structured (table/inline
         // table/array/AoT) and scalar (multiline strings, `E`-forced leaves) alike;
-        // the AoT-entry case carries its own decor in `serialize_node_fragment_opts`.
+        // the AoT-entry case carries its own decor in the backend `serialize_fragment`.
         // Array *elements* have no key and carry no comment.
         let keyed = matches!(path.last(), Some(Seg::Key(_)));
-        let fragment = serialize_node_fragment_opts(doc, &path, keyed);
+        let fragment = doc.serialize_fragment(&path, keyed);
         let edited = match crate::tui::editor::edit_text(&fragment) {
             Ok(t) => t,
             Err(e) => {
@@ -1675,7 +1675,7 @@ impl App {
     }
 }
 
-/// Serialize a node for the clipboard. Like [`serialize_node_fragment`], but for a
+/// Serialize a node for the clipboard. Like the backend `serialize_fragment`, but for a
 /// **node** (not a Comment) it drops the leading blank/`#` block so a copied node
 /// does not carry its upper-adjacent comment to the paste destination — matching
 /// the move path, which leaves the comment at the source. A Comment node's fragment
@@ -1685,7 +1685,7 @@ fn clipboard_fragment(
     path: &[crate::model::node::Seg],
 ) -> String {
     use crate::model::node::Seg;
-    let frag = serialize_node_fragment(doc, path);
+    let frag = doc.serialize_fragment(path, false);
     let is_comment = matches!(path.last(), Some(Seg::Key(k)) if k.starts_with("#comment:"));
     if is_comment {
         frag
@@ -1713,118 +1713,6 @@ fn strip_leading_comment_block(s: &str) -> &str {
     }
 }
 
-/// Serialize a single node at `path` as a TOML fragment string.
-fn serialize_node_fragment(
-    doc: &crate::model::toml_doc::TomlDocument,
-    path: &[crate::model::node::Seg],
-) -> String {
-    serialize_node_fragment_opts(doc, path, false)
-}
-
-/// As [`serialize_node_fragment`], but when `carry_key_comment` is set, copy the
-/// source key's `leaf_decor` prefix onto the emitted key. For an array/inline
-/// table or a scalar the leading standalone comment lives in that decor (not the
-/// value item), so this is how it is carried into `$EDITOR`; tables carry theirs
-/// in the item decor already, so the copy is an empty no-op for them.
-fn serialize_node_fragment_opts(
-    doc: &crate::model::toml_doc::TomlDocument,
-    path: &[crate::model::node::Seg],
-    carry_key_comment: bool,
-) -> String {
-    use crate::model::node::Seg;
-    use crate::model::toml_doc::split_leading_blank_lines;
-    use toml_edit::{ArrayOfTables, DocumentMut, Item, Value};
-    if path.is_empty() {
-        return doc.serialize();
-    }
-    let (parent_segs, last) = path.split_at(path.len().saturating_sub(1));
-    // Array-of-tables entry (`product[0]`): emit a single-entry `[[key]]` block,
-    // carrying the entry's own decor (its leading comment/blank lines) so an
-    // `$EDITOR` round-trip preserves them.
-    if let Some(Seg::Index(idx)) = last.first() {
-        let (head, key_seg) = parent_segs.split_at(parent_segs.len().saturating_sub(1));
-        let aot_key = match key_seg.first() {
-            Some(Seg::Key(k)) => k.as_str(),
-            _ => return String::new(),
-        };
-        let tbl = match walk_tablelike(doc.doc.as_table(), head) {
-            Some(t) => t,
-            None => return String::new(),
-        };
-        let entry = match tbl.get(aot_key) {
-            Some(Item::ArrayOfTables(a)) => match a.get(*idx) {
-                Some(t) => t.clone(),
-                None => return String::new(),
-            },
-            _ => return String::new(),
-        };
-        let mut tmp = DocumentMut::new();
-        let mut aot = ArrayOfTables::new();
-        aot.push(entry);
-        tmp.as_table_mut().insert(aot_key, Item::ArrayOfTables(aot));
-        // Open at the entry's first content line, not its leading blank separator
-        // (re-attached on write-back by `replace_aot_entry`).
-        let s = tmp.to_string();
-        return split_leading_blank_lines(&s).1.to_string();
-    }
-    let key = match last.first() {
-        Some(Seg::Key(k)) => k.as_str(),
-        _ => return String::new(),
-    };
-    // A Comment node has no real table entry; its text lives in decor and is
-    // only available via the projection. Emit the raw `#` block as the fragment.
-    if key.starts_with("#comment:") {
-        if let Some(n) = node_at(&doc.project().root, path) {
-            if let crate::model::node::NodeKind::Comment(t) = &n.kind {
-                return t.clone();
-            }
-        }
-        return String::new();
-    }
-    // Walk to the parent table (AoT-aware: a `Key→Index` pair descends an AoT entry).
-    let tbl = match walk_tablelike(doc.doc.as_table(), parent_segs) {
-        Some(t) => t,
-        None => return String::new(),
-    };
-    let item = match tbl.get(key) {
-        Some(i) => i.clone(),
-        None => return String::new(),
-    };
-    let key_comment = if carry_key_comment {
-        tbl.key(key)
-            .and_then(|k| k.leaf_decor().prefix().and_then(|r| r.as_str()))
-            .filter(|s| !s.is_empty())
-            .map(str::to_string)
-    } else {
-        None
-    };
-    // Open the editor at the node's first content line (comment or header/value),
-    // not its leading blank separator. The blanks are re-attached on write-back
-    // (`replace`, gated on `sync_decor`) so file spacing round-trips. Structured
-    // nodes (`[table]`, array, inline table) always trim; a scalar trims only on
-    // the comment-carrying `$EDITOR` path (`carry_key_comment`), since the
-    // clipboard copy that reuses this with `carry_key_comment == false` keeps the
-    // raw separator.
-    let trim = carry_key_comment
-        || matches!(
-            item,
-            Item::Table(_) | Item::Value(Value::Array(_)) | Item::Value(Value::InlineTable(_))
-        );
-    let mut tmp = DocumentMut::new();
-    tmp.as_table_mut().insert(key, item);
-    if let Some(prefix) = key_comment {
-        if let Some(mut km) = tmp.as_table_mut().key_mut(key) {
-            km.leaf_decor_mut().set_prefix(prefix);
-        }
-    }
-    let s = tmp.to_string();
-    if trim {
-        split_leading_blank_lines(&s).1.to_string()
-    } else {
-        s
-    }
-}
-
 /// Coarse `(type, format)` labels for a branch node: the Type is the conceptual
 /// kind and the Format the concrete TOML writing style. Tables split into
 /// standard/inline; arrays into standard/array-of-tables.
@@ -1837,39 +1725,6 @@ fn branch_type_format(kind: &NodeKind) -> (&'static str, &'static str) {
         NodeKind::ArrayOfTables => ("array", "array-of-tables"),
         NodeKind::Scalar(_) | NodeKind::Comment(_) => ("unknown", "-"),
     }
-}
-
-/// Walk a `&dyn TableLike` along `segs`, descending standard tables/inline tables
-/// by `Key` and array-of-tables entries by a `Key→Index` pair (the AoT itself is
-/// not table-like). Returns the table the path names, or `None` if it does not
-/// resolve to one. The immutable mirror of `TomlDocument::parent_table_mut`.
-fn walk_tablelike<'a>(
-    root: &'a dyn toml_edit::TableLike,
-    segs: &[Seg],
-) -> Option<&'a dyn toml_edit::TableLike> {
-    use toml_edit::Item;
-    let mut tbl = root;
-    let mut i = 0;
-    while i < segs.len() {
-        match &segs[i] {
-            Seg::Key(k) => {
-                let item = tbl.get(k)?;
-                if let Item::ArrayOfTables(aot) = item {
-                    let idx = match segs.get(i + 1) {
-                        Some(Seg::Index(n)) => *n,
-                        _ => return None,
-                    };
-                    tbl = aot.get(idx)?;
-                    i += 2;
-                    continue;
-                }
-                tbl = item.as_table_like()?;
-                i += 1;
-            }
-            Seg::Index(_) => return None,
-        }
-    }
-    Some(tbl)
 }
 
 /// Find a node in the projected tree by its exact path (Root has empty path).
@@ -2187,7 +2042,7 @@ mod tests {
         // open at the comment, not an empty line (the blank round-trips on save).
         let app = app_with("a = 1\n\n# c\n[t]\nx = 1\n");
         let doc = app.doc.as_ref().unwrap();
-        let frag = serialize_node_fragment_opts(doc, &[Seg::Key("t".into())], true);
+        let frag = doc.serialize_fragment(&[Seg::Key("t".into())], true);
         assert!(
             !frag.starts_with('\n'),
             "fragment must not open with a blank line: {frag:?}"
@@ -2204,7 +2059,7 @@ mod tests {
         // the blank separator trimmed from the view (re-attached on save).
         let app = app_with("a = 1\n\n# note\nport = 8080\n");
         let doc = app.doc.as_ref().unwrap();
-        let frag = serialize_node_fragment_opts(doc, &[Seg::Key("port".into())], true);
+        let frag = doc.serialize_fragment(&[Seg::Key("port".into())], true);
         assert_eq!(frag, "# note\nport = 8080\n", "got: {frag:?}");
     }
 
@@ -2882,7 +2737,7 @@ mod tests {
         // whole array-of-tables) for external editing.
         let app = app_with("[[product]]\nname = \"Hammer\"\n[[product]]\nname = \"Nail\"\n");
         let doc = app.doc.as_ref().unwrap();
-        let frag = serialize_node_fragment(doc, &[Seg::Key("product".into()), Seg::Index(1)]);
+        let frag = doc.serialize_fragment(&[Seg::Key("product".into()), Seg::Index(1)], false);
         assert_eq!(frag, "[[product]]\nname = \"Nail\"\n");
     }
 

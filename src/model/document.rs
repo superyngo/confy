@@ -7,6 +7,12 @@ pub trait ConfigDocument: Sized {
     fn serialize(&self) -> String;
     fn is_dirty(&self) -> bool;
     fn apply(&mut self, m: Mutation) -> Result<(), MutateError>;
+
+    /// Serialize the node at `path` as a standalone fragment (for the clipboard and
+    /// `$EDITOR`). The empty path returns the whole document. When `carry_comment`
+    /// is set, an adjacent leading comment is carried into the fragment ($EDITOR);
+    /// when clear it is not (clipboard copy).
+    fn serialize_fragment(&self, path: &[crate::model::node::Seg], carry_comment: bool) -> String;
 }
 
 /// Where an insert/move lands: insert as a child of `parent` at `index`.
