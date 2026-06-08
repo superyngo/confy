@@ -1341,13 +1341,19 @@ impl App {
             Mode::Edit(_) => self.edit_cancel(),
             // Esc in normal mode clears any active multi-selection and clipboard.
             Mode::Normal => {
-                if !self.selection.is_empty() {
+                if self.clipboard.is_some() {
+                    // Peel back clipboard mode first. If a selection was live when the
+                    // user pressed c/x, keep it — a second Esc will clear it below.
+                    self.clipboard = None;
+                    self.status = if !self.selection.is_empty() {
+                        Some("clipboard cleared".into())
+                    } else {
+                        None
+                    };
+                } else if !self.selection.is_empty() {
                     self.selection.clear();
                     self.last_action_was_shift_select = false;
                     self.status = Some("selection cleared".into());
-                } else if self.clipboard.is_some() {
-                    self.clipboard = None;
-                    self.status = None;
                 }
             }
         }
@@ -3155,5 +3161,42 @@ mod tests {
             detail.contains("# one") && detail.contains("# two"),
             "detail should show the full multi-line comment, got: {detail}"
         );
+    }
+
+    #[test]
+    fn esc_from_clipboard_with_selection_clears_clipboard_first() {
+        let mut app = sample();
+        app.cursor = 1;
+        // Simulate: user selected row 1 then pressed 'c'
+        app.selection.toggle(1);
+        app.clipboard = Some(Clipboard {
+            fragments: vec!["x = 1\n".into()],
+            cut: false,
+            sources: vec![vec![Seg::Key("a".into()), Seg::Key("x".into())]],
+        });
+        // First Esc: should clear clipboard, leave selection intact.
+        app.escape();
+        assert!(app.clipboard.is_none(), "first Esc must clear clipboard");
+        assert!(
+            !app.selection.is_empty(),
+            "first Esc must leave selection intact"
+        );
+        // Second Esc: should clear selection.
+        app.escape();
+        assert!(app.selection.is_empty(), "second Esc must clear selection");
+    }
+
+    #[test]
+    fn esc_from_clipboard_without_selection_clears_in_one_step() {
+        let mut app = sample();
+        // No selection — cursor-only clipboard.
+        app.clipboard = Some(Clipboard {
+            fragments: vec!["x = 1\n".into()],
+            cut: false,
+            sources: vec![vec![Seg::Key("a".into()), Seg::Key("x".into())]],
+        });
+        app.escape();
+        assert!(app.clipboard.is_none(), "single Esc must clear clipboard");
+        assert!(app.selection.is_empty(), "selection must stay empty");
     }
 }
