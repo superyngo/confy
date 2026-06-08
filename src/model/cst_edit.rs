@@ -33,6 +33,10 @@ pub(crate) fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<SyntaxNode, Muta
             edit_comment(&tree, &path, &text)?;
             Ok(tree)
         }
+        Mutation::Delete { path } => {
+            delete(&tree, &path)?;
+            Ok(tree)
+        }
         _ => Err(MutateError::Unsupported),
     }
 }
@@ -122,6 +126,52 @@ fn edit_comment(tree: &SyntaxNode, path: &[Seg], text: &str) -> Result<(), Mutat
     }
     parent.splice_children(start..end, els);
     Ok(())
+}
+
+/// Delete the node at `path`. A keyed entry (leaf / array / inline table) at the
+/// document or table scope is removed with its trailing newline; a comment block is
+/// removed with its trailing newline. Because comments are independent nodes now,
+/// deleting an entry leaves any adjacent comment in place for free.
+fn delete(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
+    let (_, idx) = walk(tree, "");
+    let target = idx
+        .iter()
+        .find(|(p, _)| p == path)
+        .map(|(_, t)| t.clone())
+        .ok_or(MutateError::NotFound)?;
+    match target {
+        Target::Comment(first) => {
+            let parent = first.parent().ok_or(MutateError::NotFound)?;
+            let (start, end) = comment_block_range(&parent, &first);
+            let end = extend_over_newline(&parent, end);
+            parent.splice_children(start..end, vec![]);
+            Ok(())
+        }
+        Target::Entry(entry) => {
+            let parent = entry.parent().ok_or(MutateError::NotFound)?;
+            // Inline-table members carry a `,` separator (deferred); handle the
+            // document/table scope where an entry occupies its own line.
+            if parent.kind() != SyntaxKind::ROOT {
+                return Err(MutateError::Unsupported);
+            }
+            let i = entry.index();
+            let end = extend_over_newline(&parent, i + 1);
+            parent.splice_children(i..end, vec![]);
+            Ok(())
+        }
+        _ => Err(MutateError::Unsupported),
+    }
+}
+
+/// If the element at `at` is a `NEWLINE`, return `at + 1` (so a splice consumes it),
+/// else `at`.
+fn extend_over_newline(parent: &SyntaxNode, at: usize) -> usize {
+    let els: Vec<_> = parent.children_with_tokens().collect();
+    if matches!(els.get(at), Some(NodeOrToken::Token(t)) if t.kind() == SyntaxKind::NEWLINE) {
+        at + 1
+    } else {
+        at
+    }
 }
 
 /// The `[start, end)` child-index range of the comment block beginning at `first`
@@ -294,6 +344,55 @@ mod tests {
             .unwrap_err();
         assert!(matches!(err, MutateError::Fragment(_)));
         assert_eq!(d.serialize(), "# old\na = 1\n");
+    }
+
+    #[test]
+    fn delete_leaf_entry() {
+        let mut d = doc("a = 1\nb = 2\nc = 3\n");
+        d.apply(Mutation::Delete {
+            path: vec![Seg::Key("b".into())],
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "a = 1\nc = 3\n");
+    }
+
+    #[test]
+    fn delete_entry_leaves_adjacent_comment_behind() {
+        // The migration's payoff: a comment is an independent node, so deleting the
+        // entry below it does not remove the comment.
+        let mut d = doc("# keep me\nb = 2\nc = 3\n");
+        d.apply(Mutation::Delete {
+            path: vec![Seg::Key("b".into())],
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "# keep me\nc = 3\n");
+    }
+
+    #[test]
+    fn delete_single_and_multiline_comment() {
+        let mut d = doc("# gone\na = 1\n");
+        d.apply(Mutation::Delete {
+            path: vec![Seg::Index(0)],
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "a = 1\n");
+
+        let mut d = doc("# one\n# two\na = 1\n");
+        d.apply(Mutation::Delete {
+            path: vec![Seg::Index(0)],
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "a = 1\n");
+    }
+
+    #[test]
+    fn delete_entry_in_table_scope() {
+        let mut d = doc("[s]\nx = 1\ny = 2\n");
+        d.apply(Mutation::Delete {
+            path: vec![Seg::Key("s".into()), Seg::Key("x".into())],
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "[s]\ny = 2\n");
     }
 
     #[test]
