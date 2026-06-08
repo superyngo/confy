@@ -64,9 +64,12 @@ impl ConfigDocument for CstDocument {
     }
 
     fn apply(&mut self, m: Mutation) -> Result<(), MutateError> {
-        // Mutate a copy and commit only on success (free atomic rollback).
+        // Mutate a copy and commit only on success (free atomic rollback). The edit
+        // works on a `clone_for_update` (mutable) tree; normalize the result back to
+        // an immutable tree (re-parse is byte-identical) so the next `apply` can
+        // `clone_for_update` again.
         let new = crate::model::cst_edit::apply(&self.syntax, m)?;
-        self.syntax = new;
+        self.syntax = taplo::parser::parse(&new.to_string()).into_syntax();
         Ok(())
     }
 }

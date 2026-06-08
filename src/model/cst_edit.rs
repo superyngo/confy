@@ -49,7 +49,22 @@ pub(crate) fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<SyntaxNode, Muta
             insert(&tree, &target, &toml, on_collision)?;
             Ok(tree)
         }
-        _ => Err(MutateError::Unsupported),
+        Mutation::Rename { path, new_key } => {
+            rename(&tree, &path, &new_key)?;
+            Ok(tree)
+        }
+        Mutation::Remark { path } => {
+            remark(&tree, &path)?;
+            Ok(tree)
+        }
+        Mutation::Move {
+            sources,
+            target,
+            on_collision,
+        } => {
+            move_nodes(&tree, &sources, &target, on_collision)?;
+            Ok(tree)
+        }
     }
 }
 
@@ -251,6 +266,241 @@ fn insert(
     }
     tree.splice_children(at..at, els);
     Ok(())
+}
+
+/// Toggle the node at `path` between live and commented-out. A live entry becomes a
+/// `# …` comment of its source line; a comment is uncommented by stripping the `#`
+/// and reparsing as live TOML. (Table/AoT subtree remark is deferred.)
+fn remark(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
+    let (_, idx) = walk(tree, "");
+    let target = idx
+        .iter()
+        .find(|(p, _)| p == path)
+        .map(|(_, t)| t.clone())
+        .ok_or(MutateError::NotFound)?;
+    match target {
+        // Comment out a single entry line.
+        Target::Entry(entry) => {
+            let parent = entry.parent().ok_or(MutateError::NotFound)?;
+            if parent.kind() != SyntaxKind::ROOT {
+                return Err(MutateError::Unsupported);
+            }
+            let comment = format!("# {entry}");
+            let tok = first_comment_token(&comment)?;
+            let i = entry.index();
+            parent.splice_children(i..i + 1, vec![NodeOrToken::Token(tok)]);
+            Ok(())
+        }
+        // Uncomment a comment block: strip `#` and reparse the lines as live TOML.
+        Target::Comment(first) => {
+            let parent = first.parent().ok_or(MutateError::NotFound)?;
+            let (start, end) = comment_block_range(&parent, &first);
+            let els: Vec<_> = parent.children_with_tokens().collect();
+            let mut stripped = String::new();
+            for e in &els[start..end] {
+                if let NodeOrToken::Token(t) = e {
+                    if t.kind() == SyntaxKind::COMMENT {
+                        let s = t.text().trim_start();
+                        let s = s.strip_prefix('#').unwrap_or(s);
+                        let s = s.strip_prefix(' ').unwrap_or(s);
+                        stripped.push_str(s);
+                        stripped.push('\n');
+                    }
+                }
+            }
+            let parse = taplo::parser::parse(&stripped);
+            if let Some(e) = parse.errors.first() {
+                return Err(MutateError::Fragment(e.to_string()));
+            }
+            let frag = parse.into_syntax().clone_for_update();
+            let mut new_els: Vec<_> = frag.children_with_tokens().collect();
+            while matches!(new_els.last(), Some(NodeOrToken::Token(t)) if t.kind() == SyntaxKind::NEWLINE)
+            {
+                new_els.pop();
+            }
+            for e in &new_els {
+                e.detach();
+            }
+            parent.splice_children(start..end, new_els);
+            Ok(())
+        }
+        _ => Err(MutateError::Unsupported),
+    }
+}
+
+/// Move `sources` to `target`, atomically (the caller commits the clone only on
+/// success). Comments are independent CST nodes, so a move repositions only the
+/// named nodes — adjacent comments stay put with no special handling. Entry sources
+/// at document/table scope are supported; table/AoT sources are deferred.
+fn move_nodes(
+    tree: &SyntaxNode,
+    sources: &[Vec<Seg>],
+    target: &InsTarget,
+    on_collision: OnCollision,
+) -> Result<(), MutateError> {
+    let (proj, idx) = walk(tree, "");
+
+    // Capture each source's text (its `key = value` line) before any removal.
+    let mut frags: Vec<String> = Vec::new();
+    for p in sources {
+        let t = idx
+            .iter()
+            .find(|(ip, _)| ip == p)
+            .map(|(_, t)| t.clone())
+            .ok_or(MutateError::NotFound)?;
+        match t {
+            Target::Entry(n) => frags.push(n.to_string()),
+            _ => return Err(MutateError::Unsupported),
+        }
+    }
+
+    // Resolve a stable anchor — the first child at/after the target index that is
+    // not itself a source — to insert before (its keyed path is stable across the
+    // source removals); `None` means append.
+    let parent = node_at(&proj.root, &target.parent).ok_or(MutateError::NotFound)?;
+    let anchor_path: Option<Vec<Seg>> = parent
+        .children
+        .iter()
+        .skip(target.index)
+        .find(|c| {
+            !matches!(c.kind, crate::model::node::NodeKind::Comment(_))
+                && !sources.contains(&c.path)
+        })
+        .map(|c| c.path.clone());
+
+    // Delete sources (longest path first keeps shallower paths valid).
+    let mut ordered: Vec<&Vec<Seg>> = sources.iter().collect();
+    ordered.sort_by_key(|p| std::cmp::Reverse(p.len()));
+    for p in ordered {
+        delete(tree, p)?;
+    }
+
+    // Re-insert before the anchor's current position (or append), in order.
+    for frag in frags {
+        let index = {
+            let (proj2, _) = walk(tree, "");
+            let parent2 = node_at(&proj2.root, &target.parent).ok_or(MutateError::NotFound)?;
+            match &anchor_path {
+                Some(ap) => parent2
+                    .children
+                    .iter()
+                    .position(|c| &c.path == ap)
+                    .unwrap_or(parent2.children.len()),
+                None => parent2.children.len(),
+            }
+        };
+        insert(
+            tree,
+            &InsTarget {
+                parent: target.parent.clone(),
+                index,
+            },
+            &frag,
+            on_collision,
+        )?;
+    }
+    Ok(())
+}
+
+/// Build a single `COMMENT` token from `text` (a `# …` line).
+fn first_comment_token(text: &str) -> Result<SyntaxToken, MutateError> {
+    let frag = taplo::parser::parse(&format!("{text}\n"))
+        .into_syntax()
+        .clone_for_update();
+    let tok = frag
+        .children_with_tokens()
+        .find_map(|c| c.into_token().filter(|t| t.kind() == SyntaxKind::COMMENT))
+        .ok_or_else(|| MutateError::Fragment("not a comment".into()))?;
+    tok.detach();
+    Ok(tok)
+}
+
+/// Rename the key at `path` to `new_key`, swapping the last key-segment token in
+/// place (position/decor preserved). Collides if a sibling already has the resulting
+/// display key.
+fn rename(tree: &SyntaxNode, path: &[Seg], new_key: &str) -> Result<(), MutateError> {
+    // Build the replacement key token from a validated fragment.
+    let parse = taplo::parser::parse(&format!("{new_key} = 0\n"));
+    if let Some(e) = parse.errors.first() {
+        return Err(MutateError::Fragment(e.to_string()));
+    }
+    let nk_root = parse.into_syntax().clone_for_update();
+    let nk_tok = nk_root
+        .descendants()
+        .find(|n| n.kind() == SyntaxKind::KEY)
+        .and_then(|k| k.children_with_tokens().find_map(key_seg_token))
+        .ok_or_else(|| MutateError::Fragment("invalid key".into()))?;
+
+    let (proj, idx) = walk(tree, "");
+    let target = idx
+        .iter()
+        .find(|(p, _)| p == path)
+        .map(|(_, t)| t.clone())
+        .ok_or(MutateError::NotFound)?;
+    let key_node = match &target {
+        Target::Entry(n) | Target::Header(n) | Target::AotEntry(n) => n
+            .children()
+            .find(|c| c.kind() == SyntaxKind::KEY)
+            .ok_or(MutateError::NotFound)?,
+        _ => return Err(MutateError::Unsupported),
+    };
+
+    // Collision: compute the resulting display key and compare against siblings.
+    if let Some((parent, node)) = find_parent(&proj.root, path) {
+        let mut segs: Vec<&str> = node.key.split('.').collect();
+        if let Some(last) = segs.last_mut() {
+            *last = new_key;
+        }
+        let new_display = segs.join(".");
+        if parent.children.iter().any(|c| {
+            !matches!(c.kind, crate::model::node::NodeKind::Comment(_))
+                && c.path != *path
+                && c.key == new_display
+        }) {
+            return Err(MutateError::Collision(new_key.to_string()));
+        }
+    }
+
+    // Replace the last key-segment token (the displayed/renamed segment).
+    let last_tok = key_node
+        .children_with_tokens()
+        .filter_map(|c| c.into_token().filter(|t| is_key_seg(t.kind())))
+        .last()
+        .ok_or(MutateError::NotFound)?;
+    let i = last_tok.index();
+    nk_tok.detach();
+    key_node.splice_children(i..i + 1, vec![NodeOrToken::Token(nk_tok)]);
+    Ok(())
+}
+
+fn is_key_seg(k: SyntaxKind) -> bool {
+    matches!(
+        k,
+        SyntaxKind::IDENT
+            | SyntaxKind::IDENT_WITH_GLOB
+            | SyntaxKind::STRING
+            | SyntaxKind::STRING_LITERAL
+    )
+}
+
+fn key_seg_token(c: taplo::syntax::SyntaxElement) -> Option<SyntaxToken> {
+    c.into_token().filter(|t| is_key_seg(t.kind()))
+}
+
+/// The parent node of the node at `path`, plus the node itself, in the projection.
+fn find_parent<'a>(root: &'a Node, path: &[Seg]) -> Option<(&'a Node, &'a Node)> {
+    fn rec<'a>(n: &'a Node, path: &[Seg]) -> Option<(&'a Node, &'a Node)> {
+        for c in &n.children {
+            if c.path == path {
+                return Some((n, c));
+            }
+            if let Some(r) = rec(c, path) {
+                return Some(r);
+            }
+        }
+        None
+    }
+    rec(root, path)
 }
 
 /// The first key of a node fragment — the first segment of its first `KEY` node
@@ -697,6 +947,135 @@ mod tests {
         })
         .unwrap();
         assert_eq!(d.serialize(), "[s]\nx = 1\ny = 2\n");
+    }
+
+    #[test]
+    fn rename_leaf_key_preserves_value_and_position() {
+        let mut d = doc("a = 1\nb = 2\nc = 3\n");
+        d.apply(Mutation::Rename {
+            path: vec![Seg::Key("b".into())],
+            new_key: "bee".into(),
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "a = 1\nbee = 2\nc = 3\n");
+    }
+
+    #[test]
+    fn rename_table_header() {
+        let mut d = doc("[server]\nport = 8080\n");
+        d.apply(Mutation::Rename {
+            path: vec![Seg::Key("server".into())],
+            new_key: "srv".into(),
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "[srv]\nport = 8080\n");
+    }
+
+    #[test]
+    fn rename_preserves_trailing_comment() {
+        let mut d = doc("a = 1  # keep\n");
+        d.apply(Mutation::Rename {
+            path: vec![Seg::Key("a".into())],
+            new_key: "aa".into(),
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "aa = 1  # keep\n");
+    }
+
+    #[test]
+    fn rename_collision_errors() {
+        let mut d = doc("a = 1\nb = 2\n");
+        let err = d
+            .apply(Mutation::Rename {
+                path: vec![Seg::Key("a".into())],
+                new_key: "b".into(),
+            })
+            .unwrap_err();
+        assert!(matches!(err, MutateError::Collision(k) if k == "b"));
+        assert_eq!(d.serialize(), "a = 1\nb = 2\n");
+    }
+
+    #[test]
+    fn remark_comments_out_a_leaf() {
+        let mut d = doc("a = 1\nb = 2\n");
+        d.apply(Mutation::Remark {
+            path: vec![Seg::Key("b".into())],
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "a = 1\n# b = 2\n");
+    }
+
+    #[test]
+    fn remark_uncomments_back_to_live() {
+        let mut d = doc("a = 1\n# b = 2\n");
+        d.apply(Mutation::Remark {
+            path: vec![Seg::Index(1)],
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "a = 1\nb = 2\n");
+    }
+
+    #[test]
+    fn remark_roundtrips() {
+        let mut d = doc("port = 8080\n");
+        d.apply(Mutation::Remark {
+            path: vec![Seg::Key("port".into())],
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "# port = 8080\n");
+        d.apply(Mutation::Remark {
+            path: vec![Seg::Index(0)],
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "port = 8080\n");
+    }
+
+    #[test]
+    fn move_reorders_within_scope() {
+        let mut d = doc("a = 1\nb = 2\nc = 3\n");
+        // Move `a` to the end (after c).
+        d.apply(Mutation::Move {
+            sources: vec![vec![Seg::Key("a".into())]],
+            target: InsTarget {
+                parent: vec![],
+                index: 9,
+            },
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "b = 2\nc = 3\na = 1\n");
+    }
+
+    #[test]
+    fn move_leaves_comment_behind() {
+        // The whole point of the migration: a move repositions only the node; the
+        // comment above it is an independent node and stays put.
+        let mut d = doc("# header\nx = 1\ny = 2\n");
+        d.apply(Mutation::Move {
+            sources: vec![vec![Seg::Key("x".into())]],
+            target: InsTarget {
+                parent: vec![],
+                index: 9,
+            },
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "# header\ny = 2\nx = 1\n");
+    }
+
+    #[test]
+    fn move_into_table_scope() {
+        let mut d = doc("a = 1\n[dest]\nx = 1\n");
+        d.apply(Mutation::Move {
+            sources: vec![vec![Seg::Key("a".into())]],
+            target: InsTarget {
+                parent: vec![Seg::Key("dest".into())],
+                index: 9,
+            },
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "[dest]\nx = 1\na = 1\n");
     }
 
     #[test]
