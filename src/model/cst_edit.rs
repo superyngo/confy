@@ -109,15 +109,33 @@ fn replace_value(tree: &SyntaxNode, path: &[Seg], toml: &str) -> Result<(), Muta
         .descendants()
         .find(|n| n.kind() == SyntaxKind::VALUE)
         .ok_or_else(|| MutateError::Fragment("fragment has no value".into()))?;
-    let new_tok = scalar_token(&new_value)
-        .ok_or_else(|| MutateError::Fragment("fragment value is not a scalar".into()))?;
 
-    // Swap only the scalar token inside the target VALUE (keeps EOL comment/indent).
-    let old_tok = scalar_token(&value).ok_or(MutateError::Unsupported)?;
-    let i = old_tok.index();
-    new_tok.detach();
-    value.splice_children(i..i + 1, vec![NodeOrToken::Token(new_tok)]);
+    if let Some(old_tok) = scalar_token(&value) {
+        // Scalar: swap only the scalar token (keeps any EOL comment / array indent).
+        let new_tok = scalar_token(&new_value)
+            .ok_or_else(|| MutateError::Fragment("fragment value is not a scalar".into()))?;
+        let i = old_tok.index();
+        new_tok.detach();
+        value.splice_children(i..i + 1, vec![NodeOrToken::Token(new_tok)]);
+        return Ok(());
+    }
+
+    // Structured value (`$EDITOR` on an array / inline table): swap the ARRAY /
+    // INLINE_TABLE node, preserving the VALUE wrapper and any trailing comment.
+    let old_struct = struct_node(&value).ok_or(MutateError::Unsupported)?;
+    let new_struct = struct_node(&new_value)
+        .ok_or_else(|| MutateError::Fragment("not a structured value".into()))?;
+    let i = old_struct.index();
+    new_struct.detach();
+    value.splice_children(i..i + 1, vec![NodeOrToken::Node(new_struct)]);
     Ok(())
+}
+
+/// The `ARRAY` / `INLINE_TABLE` child node of a `VALUE`, if any.
+fn struct_node(value: &SyntaxNode) -> Option<SyntaxNode> {
+    value
+        .children()
+        .find(|n| matches!(n.kind(), SyntaxKind::ARRAY | SyntaxKind::INLINE_TABLE))
 }
 
 /// Replace the text of the standalone comment block at `path`. The block is the run
@@ -186,8 +204,47 @@ fn delete(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
             parent.splice_children(i..end, vec![]);
             Ok(())
         }
+        Target::ArrayElement(value) => {
+            let arr = value.parent().ok_or(MutateError::NotFound)?;
+            delete_array_element(&arr, value.index());
+            Ok(())
+        }
         _ => Err(MutateError::Unsupported),
     }
+}
+
+/// Remove the array element at child index `vi`, taking one `,` separator with it
+/// (the one after the element, or — for the last element — the one before) plus the
+/// adjacent run of whitespace/newlines, so `[1, 2, 3]` → `[1, 3]`.
+fn delete_array_element(arr: &SyntaxNode, vi: usize) {
+    let els: Vec<_> = arr.children_with_tokens().collect();
+    let is_comma = |i: usize| matches!(els.get(i), Some(NodeOrToken::Token(t)) if t.kind() == SyntaxKind::COMMA);
+    let is_trivia = |i: usize| {
+        matches!(els.get(i), Some(NodeOrToken::Token(t))
+            if matches!(t.kind(), SyntaxKind::WHITESPACE | SyntaxKind::NEWLINE))
+    };
+    // Comma after the element (skipping trivia)?
+    let mut j = vi + 1;
+    while is_trivia(j) {
+        j += 1;
+    }
+    if is_comma(j) {
+        let mut end = j + 1;
+        while is_trivia(end) {
+            end += 1;
+        }
+        arr.splice_children(vi..end, vec![]);
+        return;
+    }
+    // Last element: take the preceding comma + trivia.
+    let mut start = vi;
+    while start > 0 && is_trivia(start - 1) {
+        start -= 1;
+    }
+    if start > 0 && is_comma(start - 1) {
+        start -= 1;
+    }
+    arr.splice_children(start..vi + 1, vec![]);
 }
 
 /// Insert a standalone comment block at the projected `target` position. Comments
@@ -863,6 +920,55 @@ mod tests {
         })
         .unwrap();
         assert_eq!(d.serialize(), "a = 1\n");
+    }
+
+    #[test]
+    fn replace_whole_array_value() {
+        let mut d = doc("arr = [1, 2]\n");
+        d.apply(Mutation::Replace {
+            path: vec![Seg::Key("arr".into())],
+            toml: "arr = [9, 8, 7]\n".into(),
+            sync_decor: true,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "arr = [9, 8, 7]\n");
+    }
+
+    #[test]
+    fn replace_inline_table_value_keeps_trailing_comment() {
+        let mut d = doc("pt = { x = 1 }  # p\n");
+        d.apply(Mutation::Replace {
+            path: vec![Seg::Key("pt".into())],
+            toml: "pt = { x = 2, y = 3 }\n".into(),
+            sync_decor: true,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "pt = { x = 2, y = 3 }  # p\n");
+    }
+
+    #[test]
+    fn delete_array_element_middle_and_last() {
+        let mut d = doc("arr = [1, 2, 3]\n");
+        d.apply(Mutation::Delete {
+            path: vec![Seg::Key("arr".into()), Seg::Index(1)],
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "arr = [1, 3]\n");
+        d.apply(Mutation::Delete {
+            path: vec![Seg::Key("arr".into()), Seg::Index(1)],
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "arr = [1]\n");
+    }
+
+    #[test]
+    fn delete_first_array_element() {
+        let mut d = doc("arr = [1, 2, 3]\n");
+        d.apply(Mutation::Delete {
+            path: vec![Seg::Key("arr".into()), Seg::Index(0)],
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "arr = [2, 3]\n");
     }
 
     #[test]
