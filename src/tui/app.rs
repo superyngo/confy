@@ -1257,8 +1257,8 @@ impl App {
     /// On Collision: enters Mode::Prompt(Collision{key}).
     /// If clipboard was cut, deletes sources after successful paste.
     pub fn paste(&mut self) {
-        let (fragments, is_cut, sources) = match self.clipboard.take() {
-            Some(cb) => (cb.fragments, cb.cut, cb.sources),
+        let cb = match self.clipboard.take() {
+            Some(cb) => cb,
             None => {
                 self.status = Some("clipboard empty".into());
                 return;
@@ -1266,26 +1266,42 @@ impl App {
         };
         let cursor_row = match self.rows.get(self.cursor) {
             Some(r) => r.clone(),
-            None => return,
+            None => {
+                self.clipboard = Some(cb);
+                return;
+            }
         };
         let expanded = self.expanded.contains(&cursor_row.path);
         let sibling_index = self.true_sibling_index(&cursor_row.path);
         let target = crate::tui::insertion::resolve_target(&cursor_row, expanded, sibling_index);
-        self.do_paste(fragments, is_cut, sources, target, OnCollision::Cancel);
+        self.do_paste(cb, target, OnCollision::Cancel);
     }
 
     /// Core paste logic, split out so it can be re-issued after a collision prompt.
+    /// Takes ownership of the `Clipboard` and restores it on any failure so the
+    /// user can retry (collision → remaining fragments; other errors → same).
     pub(crate) fn do_paste(
         &mut self,
-        fragments: Vec<String>,
-        is_cut: bool,
-        sources: Vec<Path>,
+        clipboard: Clipboard,
         target: Target,
         on_collision: OnCollision,
     ) {
+        let Clipboard {
+            fragments,
+            cut: is_cut,
+            sources,
+        } = clipboard;
         let doc = match self.doc.as_mut() {
             Some(d) => d,
-            None => return,
+            None => {
+                // Restore clipboard so the user can try again.
+                self.clipboard = Some(Clipboard {
+                    fragments,
+                    cut: is_cut,
+                    sources,
+                });
+                return;
+            }
         };
         for (i, frag) in fragments.iter().enumerate() {
             match doc.apply(Mutation::Insert {
@@ -1307,6 +1323,13 @@ impl App {
                     return;
                 }
                 Err(e) => {
+                    // Non-collision error: restore the remaining clipboard so the
+                    // user can navigate to a valid target and try again.
+                    self.clipboard = Some(Clipboard {
+                        fragments: fragments[i..].to_vec(),
+                        cut: is_cut,
+                        sources,
+                    });
                     self.status = Some(format!("paste error: {e}"));
                     return;
                 }
@@ -1503,7 +1526,15 @@ impl App {
                 let target =
                     crate::tui::insertion::resolve_target(&cursor_row, expanded, sibling_index);
                 self.mode = Mode::Normal;
-                self.do_paste(fragments, is_cut, sources, target, oc);
+                self.do_paste(
+                    Clipboard {
+                        fragments,
+                        cut: is_cut,
+                        sources,
+                    },
+                    target,
+                    oc,
+                );
                 PromptOutcome::Consumed
             }
             Mode::Prompt(PromptKind::ConfirmQuit) => match c {
@@ -2445,9 +2476,11 @@ mod tests {
             index: 0,
         };
         app.do_paste(
-            vec!["a = 1\n".into(), "b = 2\n".into()],
-            false,
-            vec![],
+            Clipboard {
+                fragments: vec!["a = 1\n".into(), "b = 2\n".into()],
+                cut: false,
+                sources: vec![],
+            },
             target,
             OnCollision::Cancel,
         );
@@ -3198,5 +3231,32 @@ mod tests {
         app.escape();
         assert!(app.clipboard.is_none(), "single Esc must clear clipboard");
         assert!(app.selection.is_empty(), "selection must stay empty");
+    }
+
+    #[test]
+    fn paste_error_preserves_clipboard() {
+        // Trying to paste a bare value ("42\n") into a Table/Root parent is a
+        // Fragment error from insert_fragment. The clipboard must survive so the
+        // user can retry at a valid location.
+        let mut app = app_with("a = 1\n");
+        app.rebuild_rows();
+        app.cursor = 0; // root
+        app.clipboard = Some(Clipboard {
+            fragments: vec!["42\n".into()],
+            cut: false,
+            sources: vec![vec![Seg::Key("a".into())]],
+        });
+        app.paste();
+        assert!(
+            app.clipboard.is_some(),
+            "clipboard must be preserved after a paste error"
+        );
+        assert!(
+            app.status
+                .as_deref()
+                .map(|s| s.contains("paste error"))
+                .unwrap_or(false),
+            "status must show the error"
+        );
     }
 }
