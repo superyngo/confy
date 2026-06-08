@@ -266,19 +266,48 @@ fn delete(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
         }
         Target::Entry(entry) => {
             let parent = entry.parent().ok_or(MutateError::NotFound)?;
-            // Inline-table members carry a `,` separator (deferred); handle the
-            // document/table scope where an entry occupies its own line.
-            if parent.kind() != SyntaxKind::ROOT {
-                return Err(MutateError::Unsupported);
+            match parent.kind() {
+                // Document / table scope: the entry occupies its own line.
+                SyntaxKind::ROOT => {
+                    let i = entry.index();
+                    let end = extend_over_newline(&parent, i + 1);
+                    parent.splice_children(i..end, vec![]);
+                    Ok(())
+                }
+                // Inline-table member: remove the entry with its `,` separator.
+                SyntaxKind::INLINE_TABLE => {
+                    delete_seq_element(&parent, entry.index());
+                    Ok(())
+                }
+                _ => Err(MutateError::Unsupported),
             }
-            let i = entry.index();
-            let end = extend_over_newline(&parent, i + 1);
-            parent.splice_children(i..end, vec![]);
-            Ok(())
         }
         Target::ArrayElement(value) => {
             let arr = value.parent().ok_or(MutateError::NotFound)?;
-            delete_array_element(&arr, value.index());
+            delete_seq_element(&arr, value.index());
+            Ok(())
+        }
+        // Delete a whole array-of-tables (`d` on the `[[x]]` group): remove every
+        // section whose header path equals this one, bottom-up.
+        Target::AotGroup => {
+            let mut starts: Vec<usize> = tree
+                .children_with_tokens()
+                .enumerate()
+                .filter_map(|(k, e)| match e {
+                    NodeOrToken::Node(n)
+                        if n.kind() == SyntaxKind::TABLE_ARRAY_HEADER
+                            && header_path(&n) == path =>
+                    {
+                        Some(k)
+                    }
+                    _ => None,
+                })
+                .collect();
+            starts.sort_unstable();
+            for &i in starts.iter().rev() {
+                let end = section_end_strict(tree, i);
+                tree.splice_children(i..end, vec![]);
+            }
             Ok(())
         }
         // Delete a whole `[table]` section (header + entries + nested sub-tables).
@@ -296,7 +325,6 @@ fn delete(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
             tree.splice_children(i..end, vec![]);
             Ok(())
         }
-        _ => Err(MutateError::Unsupported),
     }
 }
 
@@ -336,10 +364,11 @@ fn section_end(tree: &SyntaxNode, t_path: &[Seg], header_idx: usize) -> usize {
     els.len()
 }
 
-/// Remove the array element at child index `vi`, taking one `,` separator with it
-/// (the one after the element, or — for the last element — the one before) plus the
-/// adjacent run of whitespace/newlines, so `[1, 2, 3]` → `[1, 3]`.
-fn delete_array_element(arr: &SyntaxNode, vi: usize) {
+/// Remove the comma-separated element at child index `vi` from an `ARRAY` or
+/// `INLINE_TABLE`, taking one `,` separator with it (the one after the element, or —
+/// for the last element — the one before) plus the adjacent run of whitespace/
+/// newlines, so `[1, 2, 3]` → `[1, 3]` and `{ x = 1, y = 2 }` → `{ y = 2 }`.
+fn delete_seq_element(arr: &SyntaxNode, vi: usize) {
     let els: Vec<_> = arr.children_with_tokens().collect();
     let is_comma = |i: usize| matches!(els.get(i), Some(NodeOrToken::Token(t)) if t.kind() == SyntaxKind::COMMA);
     let is_trivia = |i: usize| {
@@ -644,8 +673,52 @@ fn remark(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
             parent.splice_children(start..end, new_els);
             Ok(())
         }
+        // Comment out a whole `[table]` / `[[aot]]` section, line by line.
+        Target::Header(header) | Target::AotEntry(header) => {
+            let strict = idx_target_is_aot(&header);
+            let i = header.index();
+            let end = if strict {
+                section_end_strict(tree, i)
+            } else {
+                section_end(tree, path, i)
+            };
+            let els: Vec<_> = tree.children_with_tokens().collect();
+            let raw: String = els[i..end]
+                .iter()
+                .map(|e| match e {
+                    NodeOrToken::Node(n) => n.to_string(),
+                    NodeOrToken::Token(t) => t.text().to_string(),
+                })
+                .collect();
+            let body = raw.strip_suffix('\n').unwrap_or(&raw);
+            let commented: String = body
+                .split('\n')
+                .map(|l| {
+                    if l.is_empty() {
+                        "#".to_string()
+                    } else {
+                        format!("# {l}")
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            let frag = taplo::parser::parse(&format!("{commented}\n"))
+                .into_syntax()
+                .clone_for_update();
+            let new_els: Vec<_> = frag.children_with_tokens().collect();
+            for e in &new_els {
+                e.detach();
+            }
+            tree.splice_children(i..end, new_els);
+            Ok(())
+        }
         _ => Err(MutateError::Unsupported),
     }
+}
+
+/// Whether a header node is a `[[aot]]` entry (vs a `[table]`).
+fn idx_target_is_aot(header: &SyntaxNode) -> bool {
+    header.kind() == SyntaxKind::TABLE_ARRAY_HEADER
 }
 
 /// Move `sources` to `target`, atomically (the caller commits the clone only on
@@ -1252,6 +1325,52 @@ mod tests {
         })
         .unwrap();
         assert_eq!(e.serialize(), "xs = [7]\n");
+    }
+
+    #[test]
+    fn delete_inline_table_member() {
+        let mut d = doc("pt = { x = 1, y = 2, z = 3 }\n");
+        d.apply(Mutation::Delete {
+            path: vec![Seg::Key("pt".into()), Seg::Key("y".into())],
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "pt = { x = 1, z = 3 }\n");
+    }
+
+    #[test]
+    fn delete_whole_aot_group() {
+        let mut d = doc("[[p]]\nn = 1\n[[p]]\nn = 2\n[q]\nz = 9\n");
+        d.apply(Mutation::Delete {
+            path: vec![Seg::Key("p".into())],
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "[q]\nz = 9\n");
+    }
+
+    #[test]
+    fn remark_comments_out_and_back_a_table() {
+        let mut d = doc("[s]\nport = 1\nhost = \"x\"\n");
+        d.apply(Mutation::Remark {
+            path: vec![Seg::Key("s".into())],
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "# [s]\n# port = 1\n# host = \"x\"\n");
+        // Uncomment the block back to a live table.
+        d.apply(Mutation::Remark {
+            path: vec![Seg::Index(0)],
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "[s]\nport = 1\nhost = \"x\"\n");
+    }
+
+    #[test]
+    fn remark_comments_out_an_aot_entry() {
+        let mut d = doc("[[p]]\nn = 1\n[[p]]\nn = 2\n");
+        d.apply(Mutation::Remark {
+            path: vec![Seg::Key("p".into()), Seg::Index(0)],
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "# [[p]]\n# n = 1\n[[p]]\nn = 2\n");
     }
 
     #[test]
