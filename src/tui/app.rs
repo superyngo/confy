@@ -1585,60 +1585,6 @@ impl App {
             .and_then(|parent| parent.children.iter().position(|c| &c.path == path))
             .unwrap_or(0)
     }
-
-    /// Return whether the cursor sitting on `row` would be a valid paste target for
-    /// the current clipboard contents. Used by the renderer to colour each row.
-    ///
-    /// A row is valid when:
-    /// - There is a clipboard, AND
-    /// - The resolved target parent's NodeKind is compatible with the clipboard
-    ///   fragments (array-element fragments need an Array parent; everything else
-    ///   needs Table / Root / InlineTable), AND
-    /// - The row is not inside a source that was cut (circular-cut guard).
-    pub fn is_valid_paste_target(&self, row: &RowSnapshot) -> bool {
-        let cb = match &self.clipboard {
-            Some(cb) => cb,
-            None => return false,
-        };
-
-        // Circular-cut guard: disallow pasting inside any source that was cut.
-        if cb.cut {
-            for src in &cb.sources {
-                if row.path.starts_with(src.as_slice()) {
-                    return false;
-                }
-            }
-        }
-
-        // Resolve the Target we would insert at if the cursor were here.
-        let expanded = self.expanded.contains(&row.path);
-        let sibling_index = self.true_sibling_index(&row.path);
-        let target = crate::tui::insertion::resolve_target(row, expanded, sibling_index);
-
-        // Determine the NodeKind of the insertion parent.
-        let parent_kind = node_at(&self.tree.root, &target.parent)
-            .map(|n| &n.kind)
-            .cloned();
-
-        // Classify clipboard sources: all must be array elements for an array paste,
-        // all must be table entries otherwise.
-        let all_array_elements = cb.sources.iter().all(|src| {
-            if src.is_empty() {
-                return false;
-            }
-            matches!(src.last(), Some(Seg::Index(_)))
-                && node_at(&self.tree.root, &src[..src.len() - 1])
-                    .map(|n| matches!(n.kind, NodeKind::Array))
-                    .unwrap_or(false)
-        });
-
-        match parent_kind {
-            Some(NodeKind::Array) => all_array_elements,
-            Some(NodeKind::Root | NodeKind::Table | NodeKind::InlineTable) => !all_array_elements,
-            // AoT container, leaves (scalar/comment), or missing node — cannot insert here.
-            _ => false,
-        }
-    }
 }
 
 /// Serialize a single node at `path` as a TOML fragment string.

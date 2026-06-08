@@ -70,9 +70,7 @@ fn type_col_cell(row: &RowSnapshot, is_cursor: bool) -> Cell<'static> {
         "string" => Some(Color::Green),
         "integer" | "float" => Some(Color::Cyan),
         "bool" => Some(Color::Yellow),
-        "offset-datetime" | "local-datetime" | "local-date" | "local-time" => {
-            Some(Color::Magenta)
-        }
+        "offset-datetime" | "local-datetime" | "local-date" | "local-time" => Some(Color::Magenta),
         "comment" => Some(Color::DarkGray),
         _ => None, // branches: table, array, array-of-tables, inline
     };
@@ -81,7 +79,6 @@ fn type_col_cell(row: &RowSnapshot, is_cursor: bool) -> Cell<'static> {
         None => Cell::from(label),
     }
 }
-
 
 /// width. The tree Table uses `[Min(10), Length(TYPE_WIDTH), Min(10)]` with
 /// `column_spacing(1)` (two gaps), so NAME and VALUE split the leftover equally.
@@ -308,12 +305,14 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                 }
             };
             let is_cursor = i == app.cursor;
+            let clipboard_active = app.clipboard.is_some();
             let in_clipboard_source = app
                 .clipboard
                 .as_ref()
                 .is_some_and(|cb| cb.sources.contains(&row.path));
-            let style = if is_cursor && app.clipboard.is_some() {
-                // Paste target: green when clipboard is active
+            let style = if is_cursor && clipboard_active {
+                // Clipboard active: green cursor signals paste-ready position.
+                // Invalid targets show an error in the status bar on v.
                 Style::default()
                     .bg(Color::Green)
                     .fg(Color::Black)
@@ -324,8 +323,8 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                     .fg(Color::White)
                     .add_modifier(Modifier::BOLD)
             } else if in_clipboard_source {
-                // Copy/cut source: blue tint
-                Style::default().bg(Color::DarkGray).fg(Color::Cyan)
+                // Copy/cut source: blue bg to distinguish from grey multi-select
+                Style::default().bg(Color::Blue).fg(Color::White)
             } else if app.selection.contains(i) {
                 Style::default().bg(Color::DarkGray)
             } else {
@@ -426,15 +425,34 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
     // In the filtered-result selection mode, surface that the list is still
     // filtered (and how to clear/refine it) rather than the generic hints.
     if matches!(app.mode, Mode::FilterResults) {
-        let status = match &app.status {
-            Some(msg) => format!(" [filter: {}] {msg}", app.last_filter),
-            None => format!(
-                " [filter: {}] {pos}/{total} | esc:clear  /:refine",
+        let status = if let Some(cb) = &app.clipboard {
+            let n = cb.fragments.len();
+            let kind = if cb.cut { "cut" } else { "copied" };
+            format!(
+                " [filter: {}] {n} {kind} — v:paste  c/x:toggle  Esc:discard",
                 app.last_filter
-            ),
+            )
+        } else {
+            match &app.status {
+                Some(msg) => format!(" [filter: {}] {msg}", app.last_filter),
+                None => format!(
+                    " [filter: {}] {pos}/{total} | esc:clear  /:refine",
+                    app.last_filter
+                ),
+            }
         };
         let paragraph =
             Paragraph::new(status).style(Style::default().bg(Color::DarkGray).fg(Color::Yellow));
+        f.render_widget(paragraph, area);
+        return;
+    }
+    // When clipboard is loaded, show a sticky hint in place of the normal hints.
+    if let Some(cb) = &app.clipboard {
+        let n = cb.fragments.len();
+        let kind = if cb.cut { "cut" } else { "copied" };
+        let text = format!(" {n} node(s) {kind} — v:paste  c/x:toggle  Esc:discard");
+        let paragraph =
+            Paragraph::new(text).style(Style::default().bg(Color::DarkGray).fg(Color::Yellow));
         f.render_widget(paragraph, area);
         return;
     }
