@@ -11,9 +11,9 @@
 //! inline edit) and `EditComment`. The remaining variants return `Unsupported`
 //! until ported.
 
-use crate::model::cst_project::{walk, Target};
-use crate::model::document::{MutateError, Mutation};
-use crate::model::node::Seg;
+use crate::model::cst_project::{walk, CstIndex, Target};
+use crate::model::document::{MutateError, Mutation, Target as InsTarget};
+use crate::model::node::{Node, Seg};
 use taplo::rowan::NodeOrToken;
 use taplo::syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 
@@ -35,6 +35,10 @@ pub(crate) fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<SyntaxNode, Muta
         }
         Mutation::Delete { path } => {
             delete(&tree, &path)?;
+            Ok(tree)
+        }
+        Mutation::InsertComment { target, text } => {
+            insert_comment(&tree, &target, &text)?;
             Ok(tree)
         }
         _ => Err(MutateError::Unsupported),
@@ -161,6 +165,99 @@ fn delete(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
         }
         _ => Err(MutateError::Unsupported),
     }
+}
+
+/// Insert a standalone comment block at the projected `target` position. Comments
+/// are independent nodes — no key, no collision.
+fn insert_comment(tree: &SyntaxNode, target: &InsTarget, text: &str) -> Result<(), MutateError> {
+    if text
+        .lines()
+        .any(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
+    {
+        return Err(MutateError::Fragment(
+            "comment lines must start with #".into(),
+        ));
+    }
+    let (proj, idx) = walk(tree, "");
+    let at = resolve_insert_at(tree, &proj.root, &idx, target)?;
+    // `# …\n` per line, so each comment lands on its own line before the anchor.
+    let frag_text = if text.ends_with('\n') {
+        text.to_string()
+    } else {
+        format!("{text}\n")
+    };
+    let frag = taplo::parser::parse(&frag_text)
+        .into_syntax()
+        .clone_for_update();
+    let els: Vec<_> = frag.children_with_tokens().collect();
+    for e in &els {
+        e.detach();
+    }
+    tree.splice_children(at..at, els);
+    Ok(())
+}
+
+/// Map a projected insertion `target` (`parent` path + child `index`) to a splice
+/// position among the flat ROOT's children. Handles inserting *before* the child
+/// currently at `index`, and appending at the end of the document or a simple table
+/// scope. (Appending into a table that contains sub-tables is deferred.)
+fn resolve_insert_at(
+    tree: &SyntaxNode,
+    root: &Node,
+    idx: &CstIndex,
+    target: &InsTarget,
+) -> Result<usize, MutateError> {
+    let parent = node_at(root, &target.parent).ok_or(MutateError::NotFound)?;
+    if target.index < parent.children.len() {
+        // Insert before the child currently at `index`.
+        let anchor = &parent.children[target.index];
+        return element_root_index(idx, anchor).ok_or(MutateError::Unsupported);
+    }
+    // Append at the end of the parent's scope.
+    if target.parent.is_empty() {
+        return Ok(tree.children_with_tokens().count());
+    }
+    // A table scope: after the last element belonging to it (header + children),
+    // consuming the following newline so the insert starts on a fresh line.
+    let header_pos = idx
+        .iter()
+        .find(|(p, t)| p == &target.parent && matches!(t, Target::Header(_)))
+        .and_then(|(_, t)| match t {
+            Target::Header(n) => Some(n.index()),
+            _ => None,
+        });
+    let mut last = header_pos.ok_or(MutateError::Unsupported)?;
+    for child in &parent.children {
+        if let Some(p) = element_root_index(idx, child) {
+            last = last.max(p);
+        }
+    }
+    Ok(extend_over_newline(tree, last + 1))
+}
+
+/// The ROOT-child index of the syntax element backing `node` (an entry, header, AoT
+/// entry, or comment — all flat ROOT children).
+fn element_root_index(idx: &CstIndex, node: &Node) -> Option<usize> {
+    let t = idx.iter().find(|(p, _)| p == &node.path).map(|(_, t)| t)?;
+    match t {
+        Target::Entry(n) | Target::Header(n) | Target::AotEntry(n) => Some(n.index()),
+        Target::Comment(tok) => Some(tok.index()),
+        // An AoT group has no single element; anchor on its first entry.
+        Target::AotGroup => node
+            .children
+            .first()
+            .and_then(|first| element_root_index(idx, first)),
+        Target::ArrayElement(_) => None,
+    }
+}
+
+/// Navigate the projected tree to the node at `path`.
+fn node_at<'a>(root: &'a Node, path: &[Seg]) -> Option<&'a Node> {
+    let mut cur = root;
+    for i in 0..path.len() {
+        cur = cur.children.iter().find(|c| c.path == path[..=i])?;
+    }
+    Some(cur)
 }
 
 /// If the element at `at` is a `NEWLINE`, return `at + 1` (so a splice consumes it),
@@ -393,6 +490,78 @@ mod tests {
         })
         .unwrap();
         assert_eq!(d.serialize(), "[s]\ny = 2\n");
+    }
+
+    #[test]
+    fn insert_comment_before_entry() {
+        let mut d = doc("a = 1\nb = 2\n");
+        d.apply(Mutation::InsertComment {
+            target: InsTarget {
+                parent: vec![],
+                index: 1,
+            },
+            text: "# note".into(),
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "a = 1\n# note\nb = 2\n");
+    }
+
+    #[test]
+    fn insert_comment_at_document_end() {
+        let mut d = doc("a = 1\n");
+        d.apply(Mutation::InsertComment {
+            target: InsTarget {
+                parent: vec![],
+                index: 9,
+            },
+            text: "# tail".into(),
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "a = 1\n# tail\n");
+    }
+
+    #[test]
+    fn insert_multiline_comment_before_entry() {
+        let mut d = doc("a = 1\n");
+        d.apply(Mutation::InsertComment {
+            target: InsTarget {
+                parent: vec![],
+                index: 0,
+            },
+            text: "# one\n# two".into(),
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "# one\n# two\na = 1\n");
+    }
+
+    #[test]
+    fn insert_comment_in_table_scope() {
+        let mut d = doc("[s]\nx = 1\ny = 2\n");
+        d.apply(Mutation::InsertComment {
+            target: InsTarget {
+                parent: vec![Seg::Key("s".into())],
+                index: 1,
+            },
+            text: "# between".into(),
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "[s]\nx = 1\n# between\ny = 2\n");
+    }
+
+    #[test]
+    fn insert_comment_rejects_non_comment() {
+        let mut d = doc("a = 1\n");
+        let err = d
+            .apply(Mutation::InsertComment {
+                target: InsTarget {
+                    parent: vec![],
+                    index: 0,
+                },
+                text: "nope".into(),
+            })
+            .unwrap_err();
+        assert!(matches!(err, MutateError::Fragment(_)));
+        assert_eq!(d.serialize(), "a = 1\n");
     }
 
     #[test]
