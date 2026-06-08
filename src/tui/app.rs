@@ -3322,6 +3322,53 @@ mod tests {
     }
 
     #[test]
+    fn cut_string_pastes_below_comment_not_above_it() {
+        // Regression (the live-app bug): cut `x`, put the cursor on the comment and
+        // paste — paste lands *after* the cursor, so `x` goes between the comment and
+        // `y`, NOT above the comment (the old toml_edit decor bug).
+        let mut app = app_with("x = 1\n# note\ny = 2\n");
+        app.rebuild_rows();
+        app.cursor = app
+            .rows
+            .iter()
+            .position(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k == "x"))
+            .unwrap();
+        app.cut_selected();
+        app.cursor = comment_row(&app);
+        app.paste();
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            "# note\nx = 1\ny = 2\n"
+        );
+    }
+
+    #[test]
+    fn cut_comment_pastes_elsewhere_without_vanishing() {
+        // Regression: cutting a comment and pasting it elsewhere must move it, not
+        // lose it.
+        let mut app = app_with("# note\na = 1\nb = 2\nc = 3\n");
+        app.rebuild_rows();
+        app.cursor = comment_row(&app);
+        app.cut_selected();
+        app.cursor = app
+            .rows
+            .iter()
+            .position(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k == "c"))
+            .unwrap();
+        app.paste();
+        let out = app.doc.as_ref().unwrap().serialize();
+        assert_eq!(
+            out.matches("# note").count(),
+            1,
+            "comment vanished/duped:\n{out}"
+        );
+        assert!(
+            out.find("# note").unwrap() > out.find("b = 2").unwrap(),
+            "comment should have moved down near c:\n{out}"
+        );
+    }
+
+    #[test]
     fn paste_multiple_separate_comments_preserves_order() {
         // Two separate comment fragments pasted together must keep their order
         // (`# A` before `# B`), even though each InsertComment prepends at the slot.
