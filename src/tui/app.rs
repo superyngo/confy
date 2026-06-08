@@ -493,12 +493,18 @@ impl App {
 
     /// Toggle selection at the current cursor row (bound to `s`).
     pub fn toggle_select(&mut self) {
+        if self.clipboard.is_some() {
+            return; // clipboard mode: selection locked
+        }
         self.selection.toggle(self.cursor);
     }
 
     /// Extend range selection upward (Shift+Up). A fresh shift run (the previous
     /// key wasn't a shift+arrow) starts a new round anchored at the cursor.
     pub fn extend_select_up(&mut self) {
+        if self.clipboard.is_some() {
+            return; // clipboard mode: use plain cursor movement instead
+        }
         if !self.last_action_was_shift_select {
             self.selection.begin_round(self.cursor);
         }
@@ -511,6 +517,9 @@ impl App {
 
     /// Extend range selection downward (Shift+Down).
     pub fn extend_select_down(&mut self) {
+        if self.clipboard.is_some() {
+            return; // clipboard mode: use plain cursor movement instead
+        }
         if !self.last_action_was_shift_select {
             self.selection.begin_round(self.cursor);
         }
@@ -1068,7 +1077,7 @@ impl App {
         let target = match &cursor_row {
             Some(r) => {
                 let expanded = self.expanded.contains(&r.path);
-                let sibling_index = sibling_index_of(r, &self.rows);
+                let sibling_index = self.true_sibling_index(&r.path);
                 crate::tui::insertion::resolve_target(r, expanded, sibling_index)
             }
             None => Target {
@@ -1176,6 +1185,16 @@ impl App {
 
     /// `c` — copy selected nodes' fragments into clipboard.
     pub fn copy_selected(&mut self) {
+        // If clipboard is already loaded, toggle its mode to copy rather than
+        // re-capturing the selection.
+        if let Some(cb) = &mut self.clipboard {
+            if cb.cut {
+                cb.cut = false;
+                let n = cb.fragments.len();
+                self.status = Some(format!("copied {n} node(s) [changed from cut]"));
+            }
+            return;
+        }
         let paths = self.selected_paths();
         if paths.is_empty() {
             return;
@@ -1201,6 +1220,16 @@ impl App {
 
     /// `x` — cut: copy fragments + remember sources. Deletion deferred to paste (wenv-style).
     pub fn cut_selected(&mut self) {
+        // If clipboard is already loaded, toggle its mode to cut rather than
+        // re-capturing the selection.
+        if let Some(cb) = &mut self.clipboard {
+            if !cb.cut {
+                cb.cut = true;
+                let n = cb.fragments.len();
+                self.status = Some(format!("cut {n} node(s) [changed from copy]"));
+            }
+            return;
+        }
         let paths = self.selected_paths();
         if paths.is_empty() {
             return;
@@ -1240,7 +1269,7 @@ impl App {
             None => return,
         };
         let expanded = self.expanded.contains(&cursor_row.path);
-        let sibling_index = sibling_index_of(&cursor_row, &self.rows);
+        let sibling_index = self.true_sibling_index(&cursor_row.path);
         let target = crate::tui::insertion::resolve_target(&cursor_row, expanded, sibling_index);
         self.do_paste(fragments, is_cut, sources, target, OnCollision::Cancel);
     }
@@ -1504,6 +1533,73 @@ impl App {
             false
         } else {
             true
+        }
+    }
+
+    /// Return the 0-based index of `path` among its actual parent's children in the
+    /// full (unfiltered) NodeTree. Unlike `sibling_index_of`, this is never fooled
+    /// by FilterResults mode hiding siblings from `self.rows`.
+    fn true_sibling_index(&self, path: &Path) -> usize {
+        if path.is_empty() {
+            return 0;
+        }
+        let parent_path = &path[..path.len() - 1];
+        node_at(&self.tree.root, parent_path)
+            .and_then(|parent| parent.children.iter().position(|c| &c.path == path))
+            .unwrap_or(0)
+    }
+
+    /// Return whether the cursor sitting on `row` would be a valid paste target for
+    /// the current clipboard contents. Used by the renderer to colour each row.
+    ///
+    /// A row is valid when:
+    /// - There is a clipboard, AND
+    /// - The resolved target parent's NodeKind is compatible with the clipboard
+    ///   fragments (array-element fragments need an Array parent; everything else
+    ///   needs Table / Root / InlineTable), AND
+    /// - The row is not inside a source that was cut (circular-cut guard).
+    pub fn is_valid_paste_target(&self, row: &RowSnapshot) -> bool {
+        let cb = match &self.clipboard {
+            Some(cb) => cb,
+            None => return false,
+        };
+
+        // Circular-cut guard: disallow pasting inside any source that was cut.
+        if cb.cut {
+            for src in &cb.sources {
+                if row.path.starts_with(src.as_slice()) {
+                    return false;
+                }
+            }
+        }
+
+        // Resolve the Target we would insert at if the cursor were here.
+        let expanded = self.expanded.contains(&row.path);
+        let sibling_index = self.true_sibling_index(&row.path);
+        let target = crate::tui::insertion::resolve_target(row, expanded, sibling_index);
+
+        // Determine the NodeKind of the insertion parent.
+        let parent_kind = node_at(&self.tree.root, &target.parent)
+            .map(|n| &n.kind)
+            .cloned();
+
+        // Classify clipboard sources: all must be array elements for an array paste,
+        // all must be table entries otherwise.
+        let all_array_elements = cb.sources.iter().all(|src| {
+            if src.is_empty() {
+                return false;
+            }
+            matches!(src.last(), Some(Seg::Index(_)))
+                && node_at(&self.tree.root, &src[..src.len() - 1])
+                    .map(|n| matches!(n.kind, NodeKind::Array))
+                    .unwrap_or(false)
+        });
+
+        match parent_kind {
+            Some(NodeKind::Array) => all_array_elements,
+            Some(NodeKind::Root | NodeKind::Table | NodeKind::InlineTable) => !all_array_elements,
+            // AoT container, leaves (scalar/comment), or missing node — cannot insert here.
+            _ => false,
         }
     }
 }
@@ -1912,6 +2008,37 @@ mod tests {
         app.toggle_expand();
         app.rebuild_rows(); // structure changed
         assert!(app.selection.is_empty(), "selection must clear on rebuild");
+    }
+
+    #[test]
+    fn selection_ops_are_blocked_while_clipboard_active() {
+        let mut app = sample();
+        // Move cursor to a leaf so we have something selectable.
+        app.cursor = 1;
+        // Load a clipboard (simulates copy).
+        app.clipboard = Some(Clipboard {
+            fragments: vec!["x = 1\n".into()],
+            cut: false,
+            sources: vec![vec![Seg::Key("a".into()), Seg::Key("x".into())]],
+        });
+        // toggle_select must be a no-op while clipboard is active.
+        app.toggle_select();
+        assert!(
+            app.selection.is_empty(),
+            "s should not select when clipboard active"
+        );
+        // extend_select_down must not alter selection either.
+        app.extend_select_down();
+        assert!(
+            app.selection.is_empty(),
+            "Shift+Down should not select when clipboard active"
+        );
+        // extend_select_up must not alter selection either.
+        app.extend_select_up();
+        assert!(
+            app.selection.is_empty(),
+            "Shift+Up should not select when clipboard active"
+        );
     }
 
     #[test]
