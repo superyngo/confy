@@ -124,7 +124,23 @@ inline editor) close back into the filtered selection via `App::resting_mode` (`
 `round` (`anchor..=cursor`); the live set is their union. A Shift+Arrow run extends `round`; the next
 Shift+Arrow after any non-shift key (tracked by `App.last_action_was_shift_select`, reset in the event
 loop) starts a fresh round, folding the old one into `committed` — so runs union (separate or
-overlapping) rather than re-extending the first anchor. `Esc` in `Mode::Normal` clears the selection.
+overlapping) rather than re-extending the first anchor.
+
+**Clipboard / paste mode.** `copy_selected` (`c`) and `cut_selected` (`x`) load `App.clipboard`
+(`Option<Clipboard>`) from `selected_paths()` (the selection, or the cursor row when none). Cut defers
+deletion until a successful paste. A loaded clipboard *is* "paste mode" and is kept distinct from
+selection mode: while `clipboard.is_some()`, the three selection mutators (`toggle_select`,
+`extend_select_up`/`down`) early-return, so selection is frozen; pressing `c`/`x` again **toggles** the
+existing clipboard's mode (copy ↔ cut) instead of re-capturing. Render cues (`draw_tree`): cursor row
+green (paste-ready), source rows blue, selected rows grey — and since selection is frozen during paste
+mode, blue vs grey never collide. `Esc` in `Mode::Normal` peels one layer per press: clipboard first
+(keeping any live selection, status "clipboard cleared"), then selection. Paste (`v`) resolves the
+insertion `Target` with `resolve_target` over `true_sibling_index` (position in the *full* tree, so
+FilterResults' hidden siblings don't skew it — the same helper is used by `add_node` and the
+collision-retry path). `do_paste` takes the `Clipboard` by value and **restores it on every failure**
+(collision → enters `Mode::Prompt(Collision)` with the remaining fragments; any other error → restores
+remaining fragments + `paste error: …` status), so a failed paste is never destructive; only `Esc`/`c`
+at the collision prompt discards it.
 
 ## Module map
 
