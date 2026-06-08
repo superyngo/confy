@@ -11,7 +11,7 @@
 //! inline edit) and `EditComment`. The remaining variants return `Unsupported`
 //! until ported.
 
-use crate::model::cst_project::{walk, CstIndex, Target};
+use crate::model::cst_project::{header_path, walk, CstIndex, Target};
 use crate::model::document::{MutateError, Mutation, OnCollision, Target as InsTarget};
 use crate::model::node::{Node, Seg};
 use taplo::rowan::NodeOrToken;
@@ -90,6 +90,23 @@ fn replace_value(tree: &SyntaxNode, path: &[Seg], toml: &str) -> Result<(), Muta
         .find(|(p, _)| p == path)
         .map(|(_, t)| t.clone())
         .ok_or(MutateError::NotFound)?;
+    // Whole-table replace (`$EDITOR` on a `[table]`): swap the table's section.
+    if let Target::Header(header) = &target {
+        let parse = taplo::parser::parse(toml);
+        if let Some(e) = parse.errors.first() {
+            return Err(MutateError::Fragment(e.to_string()));
+        }
+        let frag = parse.into_syntax().clone_for_update();
+        let els: Vec<_> = frag.children_with_tokens().collect();
+        for e in &els {
+            e.detach();
+        }
+        let i = header.index();
+        let end = section_end(tree, path, i);
+        tree.splice_children(i..end, els);
+        return Ok(());
+    }
+
     let value = match target {
         Target::Entry(entry) => entry
             .children()
@@ -209,8 +226,34 @@ fn delete(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
             delete_array_element(&arr, value.index());
             Ok(())
         }
+        // Delete a whole `[table]` section (header + entries + nested sub-tables).
+        Target::Header(header) => {
+            let i = header.index();
+            let end = section_end(tree, path, i);
+            tree.splice_children(i..end, vec![]);
+            Ok(())
+        }
         _ => Err(MutateError::Unsupported),
     }
+}
+
+/// The end (exclusive ROOT-child index) of the `[table]` section that starts at
+/// `header_idx`: everything until the next header that is *not* a descendant of
+/// `t_path` (so nested sub-tables stay with their parent), or end of document.
+fn section_end(tree: &SyntaxNode, t_path: &[Seg], header_idx: usize) -> usize {
+    let els: Vec<_> = tree.children_with_tokens().collect();
+    for (k, el) in els.iter().enumerate().skip(header_idx + 1) {
+        if let NodeOrToken::Node(n) = el {
+            if matches!(
+                n.kind(),
+                SyntaxKind::TABLE_HEADER | SyntaxKind::TABLE_ARRAY_HEADER
+            ) && !header_path(n).starts_with(t_path)
+            {
+                return k;
+            }
+        }
+    }
+    els.len()
 }
 
 /// Remove the array element at child index `vi`, taking one `,` separator with it
@@ -969,6 +1012,38 @@ mod tests {
         })
         .unwrap();
         assert_eq!(d.serialize(), "arr = [2, 3]\n");
+    }
+
+    #[test]
+    fn delete_whole_table_keeps_siblings() {
+        let mut d = doc("[a]\nx = 1\n\n[b]\ny = 2\n\n[c]\nz = 3\n");
+        d.apply(Mutation::Delete {
+            path: vec![Seg::Key("b".into())],
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "[a]\nx = 1\n\n[c]\nz = 3\n");
+    }
+
+    #[test]
+    fn delete_table_takes_nested_subtable() {
+        let mut d = doc("[a]\nx = 1\n[a.sub]\nk = 1\n[b]\ny = 2\n");
+        d.apply(Mutation::Delete {
+            path: vec![Seg::Key("a".into())],
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "[b]\ny = 2\n");
+    }
+
+    #[test]
+    fn replace_whole_table_section() {
+        let mut d = doc("[s]\nport = 1\n[d]\nz = 9\n");
+        d.apply(Mutation::Replace {
+            path: vec![Seg::Key("s".into())],
+            toml: "[s]\nport = 2\nhost = \"x\"\n".into(),
+            sync_decor: true,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "[s]\nport = 2\nhost = \"x\"\n[d]\nz = 9\n");
     }
 
     #[test]

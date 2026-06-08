@@ -239,7 +239,7 @@ fn ensure_table_path(root: &mut Node, path: &[Seg]) {
 }
 
 /// The absolute key path named by a `TABLE_HEADER` / `TABLE_ARRAY_HEADER`'s `KEY`.
-fn header_path(header: &SyntaxNode) -> Vec<Seg> {
+pub(crate) fn header_path(header: &SyntaxNode) -> Vec<Seg> {
     header
         .children()
         .find(|c| c.kind() == SyntaxKind::KEY)
