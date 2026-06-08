@@ -246,17 +246,50 @@ fn insert(
     let (proj, idx) = walk(tree, "");
     let parent = node_at(&proj.root, &target.parent).ok_or(MutateError::NotFound)?;
     let depth = target.parent.len();
-    let collides = parent
-        .children
-        .iter()
-        .filter(|c| !matches!(c.kind, crate::model::node::NodeKind::Comment(_)))
-        .any(|c| c.path.get(depth) == Some(&Seg::Key(new_key.clone())));
-    if collides {
-        return match on_collision {
-            OnCollision::Cancel => Err(MutateError::Collision(new_key)),
-            // Overwrite / Rename deferred.
-            _ => Err(MutateError::Unsupported),
-        };
+    let is_collision = |k: &str| {
+        parent
+            .children
+            .iter()
+            .filter(|c| !matches!(c.kind, crate::model::node::NodeKind::Comment(_)))
+            .any(|c| c.path.get(depth) == Some(&Seg::Key(k.to_string())))
+    };
+
+    if is_collision(&new_key) {
+        match on_collision {
+            OnCollision::Cancel => return Err(MutateError::Collision(new_key)),
+            OnCollision::Overwrite => {
+                // Replace the colliding entry's element in place (keeps position).
+                let victim = parent
+                    .children
+                    .iter()
+                    .find(|c| c.path.get(depth) == Some(&Seg::Key(new_key.clone())))
+                    .ok_or(MutateError::NotFound)?;
+                let velem = match idx.iter().find(|(p, _)| p == &victim.path).map(|(_, t)| t) {
+                    Some(Target::Entry(n)) => n.clone(),
+                    _ => return Err(MutateError::Unsupported),
+                };
+                let vparent = velem.parent().ok_or(MutateError::NotFound)?;
+                let mut new_els: Vec<_> = frag.children_with_tokens().collect();
+                while matches!(new_els.last(), Some(NodeOrToken::Token(t)) if t.kind() == SyntaxKind::NEWLINE)
+                {
+                    new_els.pop();
+                }
+                for e in &new_els {
+                    e.detach();
+                }
+                let i = velem.index();
+                vparent.splice_children(i..i + 1, new_els);
+                return Ok(());
+            }
+            OnCollision::Rename => {
+                // Append _2, _3, … to the key until free, rewriting the fragment.
+                let mut n = 2;
+                while is_collision(&format!("{new_key}_{n}")) {
+                    n += 1;
+                }
+                rewrite_first_key(&frag, &format!("{new_key}_{n}"))?;
+            }
+        }
     }
 
     let at = resolve_insert_at(tree, &proj.root, &idx, target)?;
@@ -265,6 +298,33 @@ fn insert(
         e.detach();
     }
     tree.splice_children(at..at, els);
+    Ok(())
+}
+
+/// Rewrite the first key-segment token of a node fragment to `new_key`.
+fn rewrite_first_key(frag: &SyntaxNode, new_key: &str) -> Result<(), MutateError> {
+    let key = frag
+        .descendants()
+        .find(|n| n.kind() == SyntaxKind::KEY)
+        .ok_or_else(|| MutateError::Fragment("fragment has no key".into()))?;
+    let first = key
+        .children_with_tokens()
+        .find_map(key_seg_token)
+        .ok_or_else(|| MutateError::Fragment("fragment key has no segment".into()))?;
+    let parse = taplo::parser::parse(&format!("{new_key} = 0\n"));
+    if let Some(e) = parse.errors.first() {
+        return Err(MutateError::Fragment(e.to_string()));
+    }
+    let nk = parse
+        .into_syntax()
+        .clone_for_update()
+        .descendants()
+        .find(|n| n.kind() == SyntaxKind::KEY)
+        .and_then(|k| k.children_with_tokens().find_map(key_seg_token))
+        .ok_or_else(|| MutateError::Fragment("invalid key".into()))?;
+    nk.detach();
+    let i = first.index();
+    key.splice_children(i..i + 1, vec![NodeOrToken::Token(nk)]);
     Ok(())
 }
 
@@ -932,6 +992,36 @@ mod tests {
             .unwrap_err();
         assert!(matches!(err, MutateError::Collision(k) if k == "b"));
         assert_eq!(d.serialize(), "a = 1\nb = 2\n");
+    }
+
+    #[test]
+    fn insert_collision_overwrite_replaces_in_place() {
+        let mut d = doc("a = 1\nb = 2\nc = 3\n");
+        d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![],
+                index: 9,
+            },
+            toml: "b = 99\n".into(),
+            on_collision: OnCollision::Overwrite,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "a = 1\nb = 99\nc = 3\n");
+    }
+
+    #[test]
+    fn insert_collision_rename_suffixes_key() {
+        let mut d = doc("b = 2\n");
+        d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![],
+                index: 9,
+            },
+            toml: "b = 9\n".into(),
+            on_collision: OnCollision::Rename,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "b = 2\nb_2 = 9\n");
     }
 
     #[test]
