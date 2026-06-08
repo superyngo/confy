@@ -137,10 +137,26 @@ mode, blue vs grey never collide. `Esc` in `Mode::Normal` peels one layer per pr
 (keeping any live selection, status "clipboard cleared"), then selection. Paste (`v`) resolves the
 insertion `Target` with `resolve_target` over `true_sibling_index` (position in the *full* tree, so
 FilterResults' hidden siblings don't skew it — the same helper is used by `add_node` and the
-collision-retry path). `do_paste` takes the `Clipboard` by value and **restores it on every failure**
-(collision → enters `Mode::Prompt(Collision)` with the remaining fragments; any other error → restores
-remaining fragments + `paste error: …` status), so a failed paste is never destructive; only `Esc`/`c`
-at the collision prompt discards it.
+collision-retry path). `do_paste` pairs each fragment with its source path and splits **node** vs
+**comment** entries (a comment's path ends in a synthetic `#comment:N` key). Nodes: **cut** routes
+through the atomic `Mutation::Move` (snapshot+rollback, delete-before-reinsert) so a same-scope reposition
+is a move, not a `Key already exists` collision; **copy** uses the per-fragment `Mutation::Insert` loop.
+Comments: pasted via `Mutation::InsertComment` (never collide); a cut deletes the source comment **first**
+so an identical-text comment elsewhere isn't hit by the delete sweep. `do_paste` takes the `Clipboard` by
+value and **restores it on every failure** (collision → `Mode::Prompt(Collision)` with the remaining
+entries — comment entries are preserved so they run on retry; any other error → restores the rest +
+`paste error: …`), so a failed paste is never destructive; only `Esc`/`c` at the collision prompt discards
+it. A node moved into a `[table]` lands at the cursor position: `move_inner` resolves an **anchor key**
+(`anchor_key_at`, the first real key at/after the projected index, computed *before* the source deletions)
+and splices the entry before it via the order/decor-preserving `insert_before` rebuild (the same technique
+as `rename_in_table`); inline-table destinations keep append.
+
+**Comment clipboard.** A Comment node serializes to its raw `# …` text (`serialize_node_fragment_opts`
+reads it from the projection, since the text lives in decor, not a table item). `Mutation::InsertComment`
+writes the block into the parent's decor at the target position — prepended to the anchor key's decor
+(`Table::decor` for a `[table]`, else `leaf_decor`), or the document trailing / table-header decor when
+appending at the end — mirroring `comment_out`'s decor placement and validating that every line starts
+with `#`.
 
 ## Module map
 
