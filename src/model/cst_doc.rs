@@ -63,9 +63,11 @@ impl ConfigDocument for CstDocument {
         self.serialize() != self.original
     }
 
-    fn apply(&mut self, _m: Mutation) -> Result<(), MutateError> {
-        // Phase 3: re-implement each Mutation as a rowan green-tree splice.
-        Err(MutateError::Unsupported)
+    fn apply(&mut self, m: Mutation) -> Result<(), MutateError> {
+        // Mutate a copy and commit only on success (free atomic rollback).
+        let new = crate::model::cst_edit::apply(&self.syntax, m)?;
+        self.syntax = new;
+        Ok(())
     }
 }
 

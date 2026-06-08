@@ -1,22 +1,49 @@
-//! Phase 2 of the CST migration: project a flat `taplo` rowan tree into the
-//! hierarchical [`NodeTree`].
+//! Phase 2/3 of the CST migration: a single `walk` over the flat `taplo` rowan
+//! tree that produces both the hierarchical [`NodeTree`] (for display) and a
+//! `path → syntax-element` index (for mutation resolution in `cst_edit`). Building
+//! both in one traversal keeps the projection and the resolver from diverging.
 //!
 //! taplo's `ROOT` is a *flat, line-oriented* sequence of `COMMENT` / `NEWLINE` /
 //! `ENTRY` / `TABLE_HEADER` / `TABLE_ARRAY_HEADER`. This module reconstructs the
-//! nesting (tables, dotted headers, array-of-tables) from that stream. Standalone
-//! comments are **real tokens with positions**, so they project as ordered nodes
-//! addressed by `Seg::Index` (their slot in the parent's child vector) — no
-//! synthetic `#comment:N` key, no decor sniffing. Consecutive `#` lines still merge
-//! into one Comment node (a blank line — a `NEWLINE` token with ≥2 newlines —
-//! splits the block), matching the established display behaviour. A trailing
-//! end-of-line comment (`x = 1  # c`) lives inside the entry's `VALUE` and projects
-//! as the node's `trailing_comment`, never a standalone node.
+//! nesting (tables, dotted headers, array-of-tables). Standalone comments are real
+//! positioned tokens → ordered nodes addressed by `Seg::Index` (their child-vector
+//! slot); consecutive `#` lines merge into one Comment node (a blank line splits).
+//! A trailing end-of-line comment lives inside the entry's `VALUE` and projects as
+//! `trailing_comment`, never a standalone node.
 
 use crate::model::node::{Format, Node, NodeKind, NodeTree, ScalarType, Seg};
 use taplo::rowan::NodeOrToken;
-use taplo::syntax::{SyntaxKind, SyntaxNode};
+use taplo::syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
+
+/// The syntax element a projected node was built from, for mutation resolution.
+/// Some variants are consumed by Phase-3 mutations not yet ported (Insert / Delete /
+/// Rename / Move / Remark on tables and array-of-tables).
+#[derive(Clone)]
+#[allow(dead_code)]
+pub(crate) enum Target {
+    /// An `ENTRY` node (leaf / array / inline-table / dotted leaf, and inline-table
+    /// members).
+    Entry(SyntaxNode),
+    /// A `TABLE_HEADER` node (`[table]`).
+    Header(SyntaxNode),
+    /// A `TABLE_ARRAY_HEADER` node — one `[[x]]` entry.
+    AotEntry(SyntaxNode),
+    /// The synthetic array-of-tables group node (no single source element).
+    AotGroup,
+    /// The inner `VALUE` node of an array element.
+    ArrayElement(SyntaxNode),
+    /// The first `COMMENT` token of a (possibly multi-line) comment block.
+    Comment(SyntaxToken),
+}
+
+pub(crate) type CstIndex = Vec<(Vec<Seg>, Target)>;
 
 pub fn project(syntax: &SyntaxNode, filename: &str) -> NodeTree {
+    walk(syntax, filename).0
+}
+
+/// The shared traversal: build the `NodeTree` and the resolver index together.
+pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) {
     let mut root = Node {
         key: filename.to_string(),
         path: Vec::new(),
@@ -26,19 +53,21 @@ pub fn project(syntax: &SyntaxNode, filename: &str) -> NodeTree {
         format: Format::Plain,
         trailing_comment: None,
     };
+    let mut idx: CstIndex = Vec::new();
 
-    // Pending standalone-comment blocks not yet attached to a scope. `lines` is the
-    // block currently accumulating; a blank line moves it into `blocks`. The
-    // destination scope is decided by the next real item (entry / header / EOD).
-    let mut blocks: Vec<String> = Vec::new();
+    // Pending standalone-comment blocks not yet attached to a scope, each paired
+    // with its first `COMMENT` token (for the index). `lines` is the block currently
+    // accumulating; a blank line moves it into `blocks`. The destination scope is
+    // decided by the next real item (entry / header / EOD).
+    let mut blocks: Vec<(String, SyntaxToken)> = Vec::new();
     let mut lines: Vec<String> = Vec::new();
-    // The currently-open table scope (where entries attach); empty = root.
+    let mut first_tok: Option<SyntaxToken> = None;
     let mut current: Vec<Seg> = Vec::new();
 
     macro_rules! finalize_blocks {
         () => {{
             if !lines.is_empty() {
-                blocks.push(lines.join("\n"));
+                blocks.push((lines.join("\n"), first_tok.take().expect("token for block")));
                 lines.clear();
             }
             std::mem::take(&mut blocks)
@@ -48,11 +77,15 @@ pub fn project(syntax: &SyntaxNode, filename: &str) -> NodeTree {
     for child in syntax.children_with_tokens() {
         match child {
             NodeOrToken::Token(t) => match t.kind() {
-                SyntaxKind::COMMENT => lines.push(t.text().trim().to_string()),
+                SyntaxKind::COMMENT => {
+                    if lines.is_empty() {
+                        first_tok = Some(t.clone());
+                    }
+                    lines.push(t.text().trim().to_string());
+                }
                 SyntaxKind::NEWLINE => {
-                    // A blank line (≥2 newlines) closes the current block.
                     if t.text().matches('\n').count() >= 2 && !lines.is_empty() {
-                        blocks.push(lines.join("\n"));
+                        blocks.push((lines.join("\n"), first_tok.take().expect("token")));
                         lines.clear();
                     }
                 }
@@ -61,21 +94,22 @@ pub fn project(syntax: &SyntaxNode, filename: &str) -> NodeTree {
             NodeOrToken::Node(n) => match n.kind() {
                 SyntaxKind::ENTRY => {
                     let pending = finalize_blocks!();
-                    flush_comments(&mut root, &current, pending);
-                    let node = project_entry(&n, &current);
+                    flush_comments(&mut root, &current, pending, &mut idx);
+                    let node = project_entry(&n, &current, &mut idx);
                     append_child(&mut root, &current, node);
                 }
                 SyntaxKind::TABLE_HEADER => {
-                    let path = header_path(&n, &current /*unused*/);
-                    let parent = &path[..path.len().saturating_sub(1)];
+                    let path = header_path(&n);
+                    let parent = path[..path.len().saturating_sub(1)].to_vec();
                     let pending = finalize_blocks!();
-                    ensure_table_path(&mut root, parent);
-                    flush_comments(&mut root, parent, pending);
+                    ensure_table_path(&mut root, &parent);
+                    flush_comments(&mut root, &parent, pending, &mut idx);
                     ensure_table_path(&mut root, &path);
+                    idx.push((path.clone(), Target::Header(n.clone())));
                     current = path;
                 }
                 SyntaxKind::TABLE_ARRAY_HEADER => {
-                    let path = header_path(&n, &current);
+                    let path = header_path(&n);
                     let parent = path[..path.len().saturating_sub(1)].to_vec();
                     let aot_key = match path.last() {
                         Some(Seg::Key(k)) => k.clone(),
@@ -83,15 +117,11 @@ pub fn project(syntax: &SyntaxNode, filename: &str) -> NodeTree {
                     };
                     let pending = finalize_blocks!();
                     ensure_table_path(&mut root, &parent);
-                    // Existing AoT? (a child of `parent` with this path)
                     let exists = node_at(&root, &path).is_some();
                     if exists {
-                        // Subsequent entry: comments become children of the AoT,
-                        // before the new entry.
-                        flush_comments(&mut root, &path, pending);
+                        flush_comments(&mut root, &path, pending, &mut idx);
                     } else {
-                        // First entry: comments are siblings before the AoT node.
-                        flush_comments(&mut root, &parent, pending);
+                        flush_comments(&mut root, &parent, pending, &mut idx);
                         let aot = Node {
                             key: aot_key,
                             path: path.clone(),
@@ -102,11 +132,9 @@ pub fn project(syntax: &SyntaxNode, filename: &str) -> NodeTree {
                             trailing_comment: None,
                         };
                         append_child(&mut root, &parent, aot);
+                        idx.push((path.clone(), Target::AotGroup));
                     }
                     let aot = node_at_mut(&mut root, &path).expect("aot just ensured");
-                    // Display key is the entry ordinal (`[0]`, `[1]`); the path
-                    // `Seg::Index` is the *child-vector position* (uniform with
-                    // comments), so an interleaved comment child never collides.
                     let ordinal = aot
                         .children
                         .iter()
@@ -123,54 +151,57 @@ pub fn project(syntax: &SyntaxNode, filename: &str) -> NodeTree {
                         format: Format::Plain,
                         trailing_comment: None,
                     });
+                    idx.push((entry_path.clone(), Target::AotEntry(n.clone())));
                     current = entry_path;
                 }
                 _ => {}
             },
         }
     }
-    // End of document: remaining comments attach to the current scope.
     let pending = finalize_blocks!();
-    flush_comments(&mut root, &current, pending);
+    flush_comments(&mut root, &current, pending, &mut idx);
 
-    NodeTree { root }
+    (NodeTree { root }, idx)
 }
 
-/// Append each comment block as a `Comment` node (addressed by its child index) to
-/// the node at `scope`.
-fn flush_comments(root: &mut Node, scope: &[Seg], blocks: Vec<String>) {
+fn flush_comments(
+    root: &mut Node,
+    scope: &[Seg],
+    blocks: Vec<(String, SyntaxToken)>,
+    idx: &mut CstIndex,
+) {
     if blocks.is_empty() {
         return;
     }
     let container = node_at_mut(root, scope).expect("scope must exist");
-    for text in blocks {
-        let idx = container.children.len();
+    for (text, tok) in blocks {
+        let i = container.children.len();
         let mut path = scope.to_vec();
-        path.push(Seg::Index(idx));
+        path.push(Seg::Index(i));
         container.children.push(Node {
             key: text.clone(),
-            path,
+            path: path.clone(),
             kind: NodeKind::Comment(text.clone()),
             children: Vec::new(),
             value: Some(text),
             format: Format::Plain,
             trailing_comment: None,
         });
+        idx.push((path, Target::Comment(tok)));
     }
 }
 
-/// Append `node` to the children of the node at `scope`.
 fn append_child(root: &mut Node, scope: &[Seg], node: Node) {
-    let container = node_at_mut(root, scope).expect("scope must exist");
-    container.children.push(node);
+    node_at_mut(root, scope)
+        .expect("scope must exist")
+        .children
+        .push(node);
 }
 
-/// Navigate to the node at `path` (matching each child by its full path prefix).
 fn node_at<'a>(root: &'a Node, path: &[Seg]) -> Option<&'a Node> {
     let mut cur = root;
     for i in 0..path.len() {
-        let target = &path[..=i];
-        cur = cur.children.iter().find(|c| c.path == target)?;
+        cur = cur.children.iter().find(|c| c.path == path[..=i])?;
     }
     Some(cur)
 }
@@ -178,8 +209,7 @@ fn node_at<'a>(root: &'a Node, path: &[Seg]) -> Option<&'a Node> {
 fn node_at_mut<'a>(root: &'a mut Node, path: &[Seg]) -> Option<&'a mut Node> {
     let mut cur = root;
     for i in 0..path.len() {
-        let target = &path[..=i];
-        cur = cur.children.iter_mut().find(|c| c.path == target)?;
+        cur = cur.children.iter_mut().find(|c| c.path == path[..=i])?;
     }
     Some(cur)
 }
@@ -188,30 +218,28 @@ fn node_at_mut<'a>(root: &'a mut Node, path: &[Seg]) -> Option<&'a mut Node> {
 /// intermediate tables for a dotted header like `[x.a]`). No-op for the empty path.
 fn ensure_table_path(root: &mut Node, path: &[Seg]) {
     for i in 0..path.len() {
-        let prefix = &path[..=i];
-        if node_at(root, prefix).is_some() {
+        if node_at(root, &path[..=i]).is_some() {
             continue;
         }
-        let parent = &path[..i];
         let key = match &path[i] {
             Seg::Key(k) => k.clone(),
             Seg::Index(_) => return,
         };
         let node = Node {
             key,
-            path: prefix.to_vec(),
+            path: path[..=i].to_vec(),
             kind: NodeKind::Table,
             children: Vec::new(),
             value: None,
             format: Format::Plain,
             trailing_comment: None,
         };
-        append_child(root, parent, node);
+        append_child(root, &path[..i], node);
     }
 }
 
 /// The absolute key path named by a `TABLE_HEADER` / `TABLE_ARRAY_HEADER`'s `KEY`.
-fn header_path(header: &SyntaxNode, _current: &[Seg]) -> Vec<Seg> {
+fn header_path(header: &SyntaxNode) -> Vec<Seg> {
     header
         .children()
         .find(|c| c.kind() == SyntaxKind::KEY)
@@ -237,8 +265,7 @@ fn key_segments(key: &SyntaxNode) -> Vec<Seg> {
         .collect()
 }
 
-/// The dotted display join of a `KEY` (e.g. `a.b.c`), using the same texts as
-/// [`key_segments`].
+/// The dotted display join of a `KEY` (e.g. `a.b.c`).
 fn key_display(key: &SyntaxNode) -> String {
     key_segments(key)
         .iter()
@@ -260,9 +287,7 @@ fn unquote(s: &str) -> String {
     }
 }
 
-/// Project a top-level (or in-table) `ENTRY` node into a leaf/array/inline-table
-/// node. `scope` is the parent path; the entry's own `KEY` segments are appended.
-fn project_entry(entry: &SyntaxNode, scope: &[Seg]) -> Node {
+fn project_entry(entry: &SyntaxNode, scope: &[Seg], idx: &mut CstIndex) -> Node {
     let key_node = entry.children().find(|c| c.kind() == SyntaxKind::KEY);
     let (display, segs) = match &key_node {
         Some(k) => (key_display(k), key_segments(k)),
@@ -270,9 +295,10 @@ fn project_entry(entry: &SyntaxNode, scope: &[Seg]) -> Node {
     };
     let mut path = scope.to_vec();
     path.extend(segs);
+    idx.push((path.clone(), Target::Entry(entry.clone())));
     let value = entry.children().find(|c| c.kind() == SyntaxKind::VALUE);
     match value {
-        Some(v) => project_value_node(&v, &display, path),
+        Some(v) => project_value_node(&v, &display, path, idx),
         None => leaf(
             &display,
             NodeKind::Scalar(ScalarType::String),
@@ -284,7 +310,7 @@ fn project_entry(entry: &SyntaxNode, scope: &[Seg]) -> Node {
 }
 
 /// Project a `VALUE` node — a scalar token, an `ARRAY`, or an `INLINE_TABLE`.
-fn project_value_node(value: &SyntaxNode, key: &str, path: Vec<Seg>) -> Node {
+fn project_value_node(value: &SyntaxNode, key: &str, path: Vec<Seg>, idx: &mut CstIndex) -> Node {
     let trailing = value
         .children_with_tokens()
         .find_map(|c| match c {
@@ -298,10 +324,10 @@ fn project_value_node(value: &SyntaxNode, key: &str, path: Vec<Seg>) -> Node {
     for c in value.children_with_tokens() {
         match c {
             NodeOrToken::Node(n) if n.kind() == SyntaxKind::ARRAY => {
-                return project_array(&n, key, path);
+                return project_array(&n, key, path, idx);
             }
             NodeOrToken::Node(n) if n.kind() == SyntaxKind::INLINE_TABLE => {
-                return project_inline(&n, key, path);
+                return project_inline(&n, key, path, idx);
             }
             NodeOrToken::Token(t) => {
                 if let Some((st, fmt)) = scalar_kind(t.kind()) {
@@ -327,26 +353,27 @@ fn project_value_node(value: &SyntaxNode, key: &str, path: Vec<Seg>) -> Node {
     )
 }
 
-fn project_array(arr: &SyntaxNode, key: &str, path: Vec<Seg>) -> Node {
+fn project_array(arr: &SyntaxNode, key: &str, path: Vec<Seg>, idx: &mut CstIndex) -> Node {
     let mut n = branch(key, NodeKind::Array, path.clone());
     let mut i = 0;
     for c in arr.children() {
         if c.kind() == SyntaxKind::VALUE {
             let mut p = path.clone();
             p.push(Seg::Index(i));
+            idx.push((p.clone(), Target::ArrayElement(c.clone())));
             n.children
-                .push(project_value_node(&c, &format!("[{i}]"), p));
+                .push(project_value_node(&c, &format!("[{i}]"), p, idx));
             i += 1;
         }
     }
     n
 }
 
-fn project_inline(it: &SyntaxNode, key: &str, path: Vec<Seg>) -> Node {
+fn project_inline(it: &SyntaxNode, key: &str, path: Vec<Seg>, idx: &mut CstIndex) -> Node {
     let mut n = branch(key, NodeKind::InlineTable, path.clone());
     for c in it.children() {
         if c.kind() == SyntaxKind::ENTRY {
-            n.children.push(project_entry(&c, &path));
+            n.children.push(project_entry(&c, &path, idx));
         }
     }
     n
@@ -431,12 +458,8 @@ mod tests {
         crate::model::project::project(&doc, "f.toml")
     }
 
-    /// A path-independent, comparable rendering of a node (the addressing scheme
-    /// intentionally differs between backends, so `path` is excluded).
     fn norm(n: &Node, depth: usize, out: &mut String) {
         let pad = "  ".repeat(depth);
-        // toml_edit's value repr carries the decor space after `=` (e.g. " 8080");
-        // the CST gives the clean token. Trim to compare the logical value.
         let val = n.value.as_deref().map(str::trim);
         out.push_str(&format!(
             "{pad}{:?} key={:?} val={:?} fmt={:?} trail={:?}\n",
@@ -448,9 +471,7 @@ mod tests {
     }
 
     fn assert_parity(src: &str) {
-        // Both backends use a different root filename; compare children only.
-        let cst = cst_tree(src);
-        let toml = toml_tree(src);
+        let (cst, toml) = (cst_tree(src), toml_tree(src));
         let mut a = String::new();
         for c in &cst.root.children {
             norm(c, 0, &mut a);
@@ -461,7 +482,7 @@ mod tests {
         }
         assert_eq!(
             a, b,
-            "projection parity mismatch for:\n{src}\n--- CST ---\n{a}\n--- TOML ---\n{b}"
+            "projection parity mismatch for:\n{src}\n--CST--\n{a}\n--TOML--\n{b}"
         );
     }
 
@@ -487,9 +508,6 @@ mod tests {
 
     #[test]
     fn trailing_eol_comment_extracted_not_lumped_into_value() {
-        // The CST correctly splits an end-of-line comment off the value; the old
-        // toml_edit projection lumped it into the value string (a known quirk), so
-        // this is an intentional *improvement*, asserted directly rather than by parity.
         let t = cst_tree("port = 8080  # http\n");
         let port = &t.root.children[0];
         assert_eq!(port.value.as_deref(), Some("8080"));
@@ -517,9 +535,8 @@ mod tests {
         );
     }
 
-    /// Structural rendering (kind + key + shape only) — value/trailing differ by
-    /// the intended trailing-comment/clean-value improvements, so fixtures (which
-    /// contain EOL comments) are compared on structure.
+    /// Structural rendering (kind + key + shape) for fixtures, which contain EOL
+    /// comments where value/trailing intentionally differ from the old projection.
     fn norm_struct(n: &Node, depth: usize, out: &mut String) {
         let pad = "  ".repeat(depth);
         let tag = match &n.kind {
@@ -564,12 +581,44 @@ mod tests {
 
     #[test]
     fn comments_use_index_addressing_not_synthetic_keys() {
-        // The migration's payoff: comments are real ordered nodes addressed by
-        // Seg::Index, with no `#comment:N` synthetic key.
         let t = cst_tree("# top\na = 1\n");
         let c = &t.root.children[0];
         assert!(matches!(c.kind, NodeKind::Comment(_)));
         assert_eq!(c.path, vec![Seg::Index(0)]);
         assert_eq!(t.root.children[1].path, vec![Seg::Key("a".into())]);
+    }
+
+    /// The index must contain an element for every projected node's path (the
+    /// resolver and the projection agree), and synthetic AoT-group paths aside,
+    /// the path sets match.
+    /// Every projected node must be resolvable via the index, *except* an implicit
+    /// `Table` branch (one created by a dotted header like `[a.b]` with no `[a]`),
+    /// which has no source header element. This ties the resolver to the projection.
+    #[test]
+    fn index_covers_every_projected_path() {
+        fn collect<'a>(n: &'a Node, out: &mut Vec<(&'a Vec<Seg>, &'a NodeKind)>) {
+            if !n.path.is_empty() {
+                out.push((&n.path, &n.kind));
+            }
+            for c in &n.children {
+                collect(c, out);
+            }
+        }
+        let src = std::fs::read_to_string("test.toml").unwrap();
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        f.write_all(src.as_bytes()).unwrap();
+        let doc = crate::model::cst_doc::CstDocument::load(f.path()).unwrap();
+        let (tree, idx) = walk(&doc.syntax, "test.toml");
+        let mut paths = Vec::new();
+        collect(&tree.root, &mut paths);
+        for (p, kind) in &paths {
+            if idx.iter().any(|(ip, _)| &ip == p) {
+                continue;
+            }
+            assert!(
+                matches!(kind, NodeKind::Table),
+                "index missing non-table path {p:?} ({kind:?})"
+            );
+        }
     }
 }
