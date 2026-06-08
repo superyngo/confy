@@ -594,22 +594,14 @@ impl App {
             Some(i) => cursor_row.path[..i].to_vec(),
             None => cursor_row.path.clone(),
         };
-        // Serialize just the (container) node's own fragment. For a *structured*
-        // node (table/inline table/array/AoT) carry its adjacent leading comment(s)
-        // into the editor so they can be edited alongside the node; scalars
-        // (multiline strings, `E`-forced leaves) never carry comments.
-        let structured = node_at(&self.tree.root, &path)
-            .map(|n| {
-                matches!(
-                    n.kind,
-                    NodeKind::Table
-                        | NodeKind::InlineTable
-                        | NodeKind::Array
-                        | NodeKind::ArrayOfTables
-                )
-            })
-            .unwrap_or(false);
-        let fragment = serialize_node_fragment_opts(doc, &path, structured);
+        // Serialize just the node's own fragment, carrying its adjacent leading
+        // comment(s) into the editor so they can be edited alongside the node. This
+        // applies to every keyed node opened in `$EDITOR` — structured (table/inline
+        // table/array/AoT) and scalar (multiline strings, `E`-forced leaves) alike;
+        // the AoT-entry case carries its own decor in `serialize_node_fragment_opts`.
+        // Array *elements* have no key and carry no comment.
+        let keyed = matches!(path.last(), Some(Seg::Key(_)));
+        let fragment = serialize_node_fragment_opts(doc, &path, keyed);
         let edited = match crate::tui::editor::edit_text(&fragment) {
             Ok(t) => t,
             Err(e) => {
@@ -617,18 +609,24 @@ impl App {
                 return;
             }
         };
-        self.apply_replace(path, edited);
+        // `$EDITOR` fragments are authoritative over key decor (the comment), so the
+        // write-back syncs it; inline edits pass `false` and never touch the comment.
+        self.apply_replace(path, edited, true);
     }
 
     /// Apply edited text as a Replace at `path` (the post-editor half of `e`,
     /// split out so it is unit-testable without spawning $EDITOR). On error the
     /// status line is set and the document is left unchanged.
-    pub(crate) fn apply_replace(&mut self, path: Path, edited: String) {
+    pub(crate) fn apply_replace(&mut self, path: Path, edited: String, sync_decor: bool) {
         let doc = match self.doc.as_mut() {
             Some(d) => d,
             None => return,
         };
-        match doc.apply(crate::model::document::Mutation::Replace { path, toml: edited }) {
+        match doc.apply(crate::model::document::Mutation::Replace {
+            path,
+            toml: edited,
+            sync_decor,
+        }) {
             Ok(()) => self.on_mutation_success(),
             Err(crate::model::document::MutateError::Fragment(msg)) => {
                 self.status = Some(format!("invalid TOML: {msg}"));
@@ -1018,7 +1016,7 @@ impl App {
             });
             return;
         }
-        self.apply_replace(e.path, fragment);
+        self.apply_replace(e.path, fragment, false);
     }
 
     /// `←`/`→` in Normal mode: toggle a bool or step an integer/float by ±1 at
@@ -1059,7 +1057,7 @@ impl App {
             None => return,
         };
         if let Some(new_repr) = nudge_scalar(st, node.format, &repr, delta) {
-            self.apply_replace(path, format!("{frag_key} = {new_repr}\n"));
+            self.apply_replace(path, format!("{frag_key} = {new_repr}\n"), false);
         }
     }
 
@@ -1484,7 +1482,7 @@ impl App {
                     'y' => {
                         if let Some((e, fragment)) = self.pending_edit.take() {
                             self.mode = Mode::Normal;
-                            self.apply_replace(e.path, fragment);
+                            self.apply_replace(e.path, fragment, false);
                         } else {
                             self.mode = Mode::Normal;
                         }
@@ -1620,9 +1618,9 @@ fn serialize_node_fragment(
 
 /// As [`serialize_node_fragment`], but when `carry_key_comment` is set, copy the
 /// source key's `leaf_decor` prefix onto the emitted key. For an array/inline
-/// table the leading standalone comment lives in that decor (not the value item),
-/// so this is how it is carried into `$EDITOR`; tables carry theirs in the item
-/// decor already, so the copy is an empty no-op for them.
+/// table or a scalar the leading standalone comment lives in that decor (not the
+/// value item), so this is how it is carried into `$EDITOR`; tables carry theirs
+/// in the item decor already, so the copy is an empty no-op for them.
 fn serialize_node_fragment_opts(
     doc: &crate::model::toml_doc::TomlDocument,
     path: &[crate::model::node::Seg],
@@ -1687,12 +1685,16 @@ fn serialize_node_fragment_opts(
     };
     // Open the editor at the node's first content line (comment or header/value),
     // not its leading blank separator. The blanks are re-attached on write-back
-    // (`replace`) so file spacing round-trips. Only the cases whose write-back
-    // re-attaches are trimmed: `[table]`, array, and inline table.
-    let trim = matches!(
-        item,
-        Item::Table(_) | Item::Value(Value::Array(_)) | Item::Value(Value::InlineTable(_))
-    );
+    // (`replace`, gated on `sync_decor`) so file spacing round-trips. Structured
+    // nodes (`[table]`, array, inline table) always trim; a scalar trims only on
+    // the comment-carrying `$EDITOR` path (`carry_key_comment`), since the
+    // clipboard copy that reuses this with `carry_key_comment == false` keeps the
+    // raw separator.
+    let trim = carry_key_comment
+        || matches!(
+            item,
+            Item::Table(_) | Item::Value(Value::Array(_)) | Item::Value(Value::InlineTable(_))
+        );
     let mut tmp = DocumentMut::new();
     tmp.as_table_mut().insert(key, item);
     if let Some(prefix) = key_comment {
@@ -2067,6 +2069,16 @@ mod tests {
         );
     }
 
+    #[test]
+    fn external_edit_fragment_carries_scalar_leading_comment() {
+        // A scalar opened in `$EDITOR` now carries its adjacent leading comment, with
+        // the blank separator trimmed from the view (re-attached on save).
+        let app = app_with("a = 1\n\n# note\nport = 8080\n");
+        let doc = app.doc.as_ref().unwrap();
+        let frag = serialize_node_fragment_opts(doc, &[Seg::Key("port".into())], true);
+        assert_eq!(frag, "# note\nport = 8080\n", "got: {frag:?}");
+    }
+
     // --- e/n apply-path tests (post-editor logic, no $EDITOR spawned) ---
 
     fn app_with(src: &str) -> App {
@@ -2222,7 +2234,7 @@ mod tests {
     fn apply_replace_invalid_toml_sets_status_and_leaves_doc() {
         let mut app = app_with("port = 8080\n");
         let before = app.doc.as_ref().unwrap().serialize();
-        app.apply_replace(vec![Seg::Key("port".into())], "port = = nope".into());
+        app.apply_replace(vec![Seg::Key("port".into())], "port = = nope".into(), false);
         assert!(app.status.is_some(), "invalid TOML must surface in status");
         assert_eq!(
             app.doc.as_ref().unwrap().serialize(),
@@ -2234,7 +2246,7 @@ mod tests {
     #[test]
     fn apply_replace_valid_pushes_history_and_rebuilds() {
         let mut app = app_with("port = 8080\n");
-        app.apply_replace(vec![Seg::Key("port".into())], "port = 9090\n".into());
+        app.apply_replace(vec![Seg::Key("port".into())], "port = 9090\n".into(), false);
         assert!(app.status.is_none());
         assert!(app.doc.as_ref().unwrap().serialize().contains("9090"));
         // history advanced: undo restores the pre-edit snapshot
@@ -2685,7 +2697,7 @@ mod tests {
         let doc = crate::model::toml_doc::TomlDocument::load(&path).unwrap();
         let mut app = App::new(doc);
         // Mutate to make dirty
-        app.apply_replace(vec![Seg::Key("port".into())], "port = 9090\n".into());
+        app.apply_replace(vec![Seg::Key("port".into())], "port = 9090\n".into(), false);
         assert!(
             app.doc.as_ref().unwrap().is_dirty(),
             "should be dirty after mutation"
@@ -2712,7 +2724,7 @@ mod tests {
     #[test]
     fn quit_when_dirty_enters_confirm_quit() {
         let mut app = app_with("a = 1\n");
-        app.apply_replace(vec![Seg::Key("a".into())], "a = 2\n".into());
+        app.apply_replace(vec![Seg::Key("a".into())], "a = 2\n".into(), false);
         assert!(app.doc.as_ref().unwrap().is_dirty());
         let should_quit = app.quit_requested();
         assert!(!should_quit, "should NOT quit immediately when dirty");
@@ -2828,6 +2840,7 @@ mod tests {
         app.apply_replace(
             vec![Seg::Key("product".into()), Seg::Index(0)],
             "[[product]]\nname = \"Mallet\"\n".into(),
+            true,
         );
         assert!(app.status.is_none(), "unexpected status: {:?}", app.status);
         let s = app.doc.as_ref().unwrap().serialize();

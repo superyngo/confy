@@ -345,7 +345,7 @@ impl TomlDocument {
     /// silent double entry. We therefore require every fragment key to match the
     /// path's final segment and reject a rename with `Fragment`. (Position-preserving
     /// rename is out of scope for the MVP.)
-    fn replace(&mut self, path: &[Seg], toml: &str) -> Result<(), MutateError> {
+    fn replace(&mut self, path: &[Seg], toml: &str, sync_decor: bool) -> Result<(), MutateError> {
         // An empty path targets the whole document (external `E` on the root/file
         // node): reparse the edited text as a full document, validating it so a
         // bad edit leaves the doc untouched and surfaces as `Fragment`.
@@ -376,21 +376,15 @@ impl TomlDocument {
                 "Replace cannot rename key '{expected_key}'; fragment must keep the same key"
             )));
         }
-        // A structured node keeps its leading standalone comment in the key's
-        // `leaf_decor` (array/inline table) or the item decor (`[table]`), which the
-        // value-only Overwrite below would leave stale or replace with the edited
-        // (blank-trimmed) fragment's decor. Capture the edited fragment's key decor
-        // and the *original* node's leading blank separator(s) so both can be synced
-        // back afterwards — letting comment edits round-trip while preserving the
-        // blank lines the `$EDITOR` view intentionally hid. Scalars are skipped
-        // (their fragment carries no comment).
-        let dest_structured = matches!(
-            frag.get(expected_key),
-            Some(Item::Table(_))
-                | Some(Item::ArrayOfTables(_))
-                | Some(Item::Value(toml_edit::Value::Array(_)))
-                | Some(Item::Value(toml_edit::Value::InlineTable(_)))
-        );
+        // When `sync_decor` is set (a full `$EDITOR` node fragment) the edited
+        // fragment's key decor is authoritative: it carries any adjacent leading
+        // comment, which lives in the key's `leaf_decor` (array/inline table/scalar)
+        // or the item decor (`[table]`). The value-only Overwrite below would leave
+        // that stale, so capture the edited fragment's key decor and the *original*
+        // node's leading blank separator(s) and sync both back afterwards — letting
+        // comment edits round-trip while preserving the blank lines the `$EDITOR`
+        // view intentionally hid. Inline edits (`sync_decor == false`) skip this
+        // entirely, leaving the existing key decor (and its comment) untouched.
         let frag_key_prefix = frag
             .key(expected_key)
             .and_then(|k| k.leaf_decor().prefix().and_then(|r| r.as_str()))
@@ -398,7 +392,7 @@ impl TomlDocument {
             .to_string();
         // Leading blank separator(s) of the node as it exists now, taken before the
         // Overwrite, to re-attach to the trimmed fragment decor on write-back.
-        let orig_lead = if dest_structured {
+        let orig_lead = if sync_decor {
             let mut pfx = String::new();
             if let Ok(tbl) = self.parent_table_mut(parent) {
                 pfx = match tbl.get(expected_key) {
@@ -427,7 +421,7 @@ impl TomlDocument {
             toml,
             crate::model::document::OnCollision::Overwrite,
         )?;
-        if dest_structured {
+        if sync_decor {
             if let Ok(tbl) = self.parent_table_mut(parent) {
                 match tbl.get_mut(expected_key) {
                     // `[table]`: its leading comment/blank lives in the item decor.
@@ -1064,7 +1058,11 @@ impl ConfigDocument for TomlDocument {
                 toml,
                 on_collision,
             } => self.insert_fragment(&target, &toml, on_collision),
-            Mutation::Replace { path, toml } => self.replace(&path, &toml),
+            Mutation::Replace {
+                path,
+                toml,
+                sync_decor,
+            } => self.replace(&path, &toml, sync_decor),
             Mutation::Rename { path, new_key } => self.rename(&path, &new_key),
             Mutation::Remark { path } => self.remark(&path),
             Mutation::EditComment { path, text } => self.edit_comment(&path, &text),
@@ -1106,6 +1104,7 @@ mod tests {
         doc.apply(Mutation::Replace {
             path: vec![],
             toml: "a = 10\nc = 3\n".to_string(),
+            sync_decor: true,
         })
         .unwrap();
         assert_eq!(doc.serialize(), "a = 10\nc = 3\n");
@@ -1118,6 +1117,7 @@ mod tests {
             .apply(Mutation::Replace {
                 path: vec![],
                 toml: "a = = bad".to_string(),
+                sync_decor: true,
             })
             .unwrap_err();
         assert!(matches!(err, MutateError::Fragment(_)));
@@ -1141,6 +1141,7 @@ mod tests {
         doc.apply(Mutation::Replace {
             path: vec![Seg::Key("t".into())],
             toml: "# c\n[t]\nx = 1\n".to_string(),
+            sync_decor: true,
         })
         .unwrap();
         assert_eq!(doc.serialize(), "a = 1\n\n# c\n[t]\nx = 1\n");
@@ -1152,6 +1153,7 @@ mod tests {
         doc.apply(Mutation::Replace {
             path: vec![Seg::Key("arr".into())],
             toml: "# c\narr = [1, 2]\n".to_string(),
+            sync_decor: true,
         })
         .unwrap();
         assert_eq!(doc.serialize(), "a = 1\n\n# c\narr = [1, 2]\n");
@@ -1304,6 +1306,7 @@ mod tests {
         doc.apply(Mutation::Replace {
             path: vec![Seg::Key("port".into())],
             toml: "port = 9090\n".into(),
+            sync_decor: false,
         })
         .unwrap();
         assert!(doc.serialize().contains("port = 9090"));
@@ -1319,6 +1322,7 @@ mod tests {
         doc.apply(Mutation::Replace {
             path: vec![Seg::Key("arr".into()), Seg::Index(1)],
             toml: "__elem__ = 99\n".into(),
+            sync_decor: false,
         })
         .unwrap();
         assert_eq!(doc.serialize(), "arr = [0x1, 99, 3] # tail\n");
@@ -1334,6 +1338,7 @@ mod tests {
         doc.apply(Mutation::Replace {
             path: vec![Seg::Key("ml".into()), Seg::Index(0)],
             toml: "__elem__ = \"FIRST\"\n".into(),
+            sync_decor: false,
         })
         .unwrap();
         assert_eq!(doc.serialize(), "ml = [\n  \"FIRST\",\n  \"second\",\n]\n");
@@ -1348,6 +1353,7 @@ mod tests {
         doc.apply(Mutation::Replace {
             path: vec![Seg::Key("nested".into()), Seg::Index(1), Seg::Index(0)],
             toml: "_ = 99\n".into(),
+            sync_decor: false,
         })
         .unwrap();
         assert_eq!(doc.serialize(), "nested = [[1, 2], [99, 4]]\n");
@@ -1588,6 +1594,7 @@ mod tests {
                 Seg::Key("sku".into()),
             ],
             toml: "sku = 999\n".into(),
+            sync_decor: false,
         })
         .unwrap();
         assert_eq!(
@@ -1608,6 +1615,7 @@ mod tests {
         doc.apply(Mutation::Replace {
             path: vec![Seg::Key("product".into()), Seg::Index(0)],
             toml: "[[product]]\nname = \"Mallet\"\nsku = 738\n".into(),
+            sync_decor: true,
         })
         .unwrap();
         assert_eq!(
@@ -1628,6 +1636,7 @@ mod tests {
             .apply(Mutation::Replace {
                 path: vec![Seg::Key("product".into()), Seg::Index(0)],
                 toml: "[[other]]\nname = \"Hammer\"\n".into(),
+                sync_decor: true,
             })
             .unwrap_err();
         assert!(matches!(err, MutateError::Fragment(_)));
@@ -1666,6 +1675,7 @@ mod tests {
         doc.apply(Mutation::Replace {
             path: vec![Seg::Key("nums".into())],
             toml: "# new\nnums = [1, 2, 3]\n".into(),
+            sync_decor: true,
         })
         .unwrap();
         assert_eq!(doc.serialize(), "# new\nnums = [1, 2, 3]\n");
@@ -1681,11 +1691,61 @@ mod tests {
         doc.apply(Mutation::Replace {
             path: vec![Seg::Key("port".into())],
             toml: "port = 9090\n".into(),
+            sync_decor: false,
         })
         .unwrap();
         let s = doc.serialize();
         assert!(s.contains("# leading"), "comment dropped: {s:?}");
         assert!(s.contains("port = 9090"), "value not updated: {s:?}");
+    }
+
+    #[test]
+    fn replace_scalar_roundtrips_edited_leading_comment() {
+        // External (`$EDITOR`) edit of a *scalar* carries its leading comment in the
+        // key's leaf_decor (same slot as an array); with `sync_decor` an edit to that
+        // comment — and the value — round-trips on write-back, blanks preserved.
+        use crate::model::document::Mutation;
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("\n# old\nport = 8080\n");
+        doc.apply(Mutation::Replace {
+            path: vec![Seg::Key("port".into())],
+            toml: "# new\nport = 9090\n".into(),
+            sync_decor: true,
+        })
+        .unwrap();
+        assert_eq!(doc.serialize(), "\n# new\nport = 9090\n");
+    }
+
+    #[test]
+    fn replace_scalar_deletes_leading_comment_with_sync_decor() {
+        // Removing the comment in `$EDITOR` (fragment carries no prefix) drops it on
+        // write-back; the node's leading blank separator is preserved.
+        use crate::model::document::Mutation;
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("\n# gone\nport = 8080\n");
+        doc.apply(Mutation::Replace {
+            path: vec![Seg::Key("port".into())],
+            toml: "port = 9090\n".into(),
+            sync_decor: true,
+        })
+        .unwrap();
+        assert_eq!(doc.serialize(), "\nport = 9090\n");
+    }
+
+    #[test]
+    fn replace_scalar_without_sync_decor_keeps_comment() {
+        // The inline value-only path (`sync_decor == false`) must never disturb the
+        // comment even though the fragment carries none.
+        use crate::model::document::Mutation;
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("# keep\nport = 8080\n");
+        doc.apply(Mutation::Replace {
+            path: vec![Seg::Key("port".into())],
+            toml: "port = 9090\n".into(),
+            sync_decor: false,
+        })
+        .unwrap();
+        assert_eq!(doc.serialize(), "# keep\nport = 9090\n");
     }
 
     #[test]
@@ -1698,6 +1758,7 @@ mod tests {
         let err = doc.apply(Mutation::Replace {
             path: vec![Seg::Key("port".into())],
             toml: "Port = 9090\n".into(),
+            sync_decor: false,
         });
         assert!(matches!(err, Err(MutateError::Fragment(_))));
         // document unchanged: original key/value intact, no stray "Port"
@@ -1816,6 +1877,7 @@ mod tests {
         doc.apply(Mutation::Replace {
             path: vec![Seg::Key("b".into())],
             toml: "b = 99\n".into(),
+            sync_decor: false,
         })
         .unwrap();
         let keys: Vec<&str> = doc.doc.as_table().iter().map(|(k, _)| k).collect();

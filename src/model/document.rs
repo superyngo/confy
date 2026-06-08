@@ -36,6 +36,12 @@ pub enum Mutation {
     Replace {
         path: Path,
         toml: String,
+        /// When `true` the `toml` is a full node fragment (from `$EDITOR`) whose key
+        /// decor — including any adjacent leading comment — is authoritative and is
+        /// synced back to the document. When `false` (inline value-only edits) the
+        /// existing key decor is left untouched, so an inline edit never disturbs the
+        /// node's comment.
+        sync_decor: bool,
     },
     /// Rename the key at `path` to `new_key`, preserving its position and decor.
     Rename {

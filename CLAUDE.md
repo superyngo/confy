@@ -56,13 +56,20 @@ are kept and addressed directly — so `E` on an AoT **entry** (`product[0]`) se
 `[[product]]` block (`serialize_node_fragment_opts` emits a one-entry `ArrayOfTables`; the immutable
 `walk_tablelike` mirrors `parent_table_mut`'s AoT descent) and writes back through `replace`'s
 `replace_aot_entry` branch (rewrites only that entry, sibling entries and between-entry comments intact).
-For a **structured** node (table/inline table/array/AoT) the
-editor fragment carries the node's adjacent leading comment(s) (`serialize_node_fragment_opts` copies
-the key's `leaf_decor` prefix; tables already carry theirs in the item decor), and `replace` syncs that
-key decor back from the edited fragment so comment edits round-trip — scalars never carry comments. The
+**Every keyed node opened in `$EDITOR`** — structured (table/inline table/array/AoT) **and scalar**
+(multiline strings, `E`-forced leaves) — carries its adjacent leading comment(s) into the editor
+(`serialize_node_fragment_opts` copies the key's `leaf_decor` prefix; tables already carry theirs in
+the item decor; array *elements* have no key and carry none), and `replace` syncs that key decor back
+from the edited fragment so comment edits/deletes round-trip. The sync is gated on a `sync_decor` flag
+on `Mutation::Replace`: `$EDITOR` write-backs (`edit_node` → `apply_replace(.., true)`) set it, so the
+fragment decor is authoritative; **inline** value edits (commit / `←→` nudge / type-change confirm) pass
+`false`, so the existing key decor — and its comment — is left untouched (the inline fragment carries no
+comment, so without this gate it would wipe one). The
 fragment's **leading blank separator** is trimmed from the editor view (`split_leading_blank_lines`, so
-`E` opens at the comment/header, not an empty line) but **re-attached on write-back** — `replace`
-(table item decor / array key leaf_decor) and `replace_aot_entry` (entry decor) prepend the original
+`E` opens at the comment/header, not an empty line; a scalar trims only on this carry path, the clipboard
+copy that reuses `serialize_node_fragment_opts` with `carry_key_comment == false` keeps the separator)
+but **re-attached on write-back** — `replace`
+(table item decor / array-or-scalar key leaf_decor) and `replace_aot_entry` (entry decor) prepend the original
 node's leading blanks to the trimmed fragment decor, so file spacing round-trips byte-identically. Inline commit and the `←/→` value-nudge write back through `Mutation::Replace` (the nudge
 re-applies underscore digit grouping when the original had it). A scalar's **Format** (writing style:
 hex/oct/bin, basic/literal/multiline string, …) is derived read-only during projection and is
