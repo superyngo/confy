@@ -723,8 +723,9 @@ fn idx_target_is_aot(header: &SyntaxNode) -> bool {
 
 /// Move `sources` to `target`, atomically (the caller commits the clone only on
 /// success). Comments are independent CST nodes, so a move repositions only the
-/// named nodes — adjacent comments stay put with no special handling. Entry sources
-/// at document/table scope are supported; table/AoT sources are deferred.
+/// named nodes — adjacent comments stay put with no special handling. Entry and
+/// `[table]` sources are supported; AoT-entry sources are deferred (they would need
+/// append-not-collide insert semantics for `[[x]]`).
 fn move_nodes(
     tree: &SyntaxNode,
     sources: &[Vec<Seg>],
@@ -733,7 +734,7 @@ fn move_nodes(
 ) -> Result<(), MutateError> {
     let (proj, idx) = walk(tree, "");
 
-    // Capture each source's text (its `key = value` line) before any removal.
+    // Capture each source's source text before any removal.
     let mut frags: Vec<String> = Vec::new();
     for p in sources {
         let t = idx
@@ -743,6 +744,7 @@ fn move_nodes(
             .ok_or(MutateError::NotFound)?;
         match t {
             Target::Entry(n) => frags.push(n.to_string()),
+            Target::Header(h) => frags.push(section_text(tree, p, h.index(), false)),
             _ => return Err(MutateError::Unsupported),
         }
     }
@@ -1677,6 +1679,26 @@ mod tests {
         })
         .unwrap();
         assert_eq!(d.serialize(), "# header\ny = 2\nx = 1\n");
+    }
+
+    #[test]
+    fn move_table_reorders_at_top_level() {
+        let mut d = doc("[a]\nx = 1\n\n[b]\ny = 2\n\n[c]\nz = 3\n");
+        // Move `[a]` to the end (after c).
+        d.apply(Mutation::Move {
+            sources: vec![vec![Seg::Key("a".into())]],
+            target: InsTarget {
+                parent: vec![],
+                index: 9,
+            },
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        let s = d.serialize();
+        // `[a]` and its body now come after `[c]`; one of each table remains.
+        assert!(s.find("[a]").unwrap() > s.find("[c]").unwrap(), "got:\n{s}");
+        assert_eq!(s.matches("[a]").count(), 1);
+        assert!(s.contains("x = 1") && s.contains("z = 3"));
     }
 
     #[test]
