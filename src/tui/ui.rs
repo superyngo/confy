@@ -59,7 +59,30 @@ fn type_format_label(row: &RowSnapshot) -> String {
     }
 }
 
-/// Approximate width (columns) of the VALUE column for a given total terminal
+/// TYPE column cell with per-type colour. On the cursor row (`is_cursor`) we
+/// skip colouring so the row's own `fg(White)` wins uncontested.
+fn type_col_cell(row: &RowSnapshot, is_cursor: bool) -> Cell<'static> {
+    let label = type_format_label(row);
+    if is_cursor {
+        return Cell::from(label);
+    }
+    let color = match row.type_label.as_str() {
+        "string" => Some(Color::Green),
+        "integer" | "float" => Some(Color::Cyan),
+        "bool" => Some(Color::Yellow),
+        "offset-datetime" | "local-datetime" | "local-date" | "local-time" => {
+            Some(Color::Magenta)
+        }
+        "comment" => Some(Color::DarkGray),
+        _ => None, // branches: table, array, array-of-tables, inline
+    };
+    match color {
+        Some(c) => Cell::from(label).style(Style::default().fg(c)),
+        None => Cell::from(label),
+    }
+}
+
+
 /// width. The tree Table uses `[Min(10), Length(TYPE_WIDTH), Min(10)]` with
 /// `column_spacing(1)` (two gaps), so NAME and VALUE split the leftover equally.
 pub(crate) fn value_col_width(total: u16) -> usize {
@@ -284,15 +307,32 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                     }
                 }
             };
-            let style = if i == app.cursor {
+            let is_cursor = i == app.cursor;
+            let in_clipboard_source = app
+                .clipboard
+                .as_ref()
+                .is_some_and(|cb| cb.sources.contains(&row.path));
+            let style = if is_cursor && app.clipboard.is_some() {
+                // Paste target: green when clipboard is active
+                Style::default()
+                    .bg(Color::Green)
+                    .fg(Color::Black)
+                    .add_modifier(Modifier::BOLD)
+            } else if is_cursor {
                 Style::default()
                     .bg(Color::Blue)
                     .fg(Color::White)
                     .add_modifier(Modifier::BOLD)
+            } else if in_clipboard_source {
+                // Copy/cut source: blue tint
+                Style::default().bg(Color::DarkGray).fg(Color::Cyan)
+            } else if app.selection.contains(i) {
+                Style::default().bg(Color::DarkGray)
             } else {
                 Style::default()
             };
-            Row::new([name_cell, Cell::from(type_format_label(row)), value_cell]).style(style)
+            let type_cell = type_col_cell(row, is_cursor);
+            Row::new([name_cell, type_cell, value_cell]).style(style)
         })
         .collect();
 
@@ -345,9 +385,12 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
                 // When the value overflows the VALUE column, append a compact
                 // hint of which char range is visible out of the total.
                 let len = e.buffer.chars().count();
-                let hint = edit_overflow_hint(e.scroll, len, value_col_width(area.width))
+                // Always show absolute cursor position col/len (1-based).
+                let pos_hint = format!("  {}/{}", e.cursor + 1, len);
+                let overflow = edit_overflow_hint(e.scroll, len, value_col_width(area.width))
                     .map(|h| format!("  {h}"))
                     .unwrap_or_default();
+                let hint = format!("{pos_hint}{overflow}");
                 // The field label / Tab hint only applies when there is a name to
                 // switch to (array elements have no key).
                 let field = if e.is_comment {
@@ -395,7 +438,7 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
         f.render_widget(paragraph, area);
         return;
     }
-    let mut status = format!(" {pos}/{total} | q:quit ?:help d:x:c:v:m:r:z/y");
+    let mut status = format!(" {pos}/{total} | q:quit ?:help d:x:c:v:r:z/y");
     if let Some(ref msg) = app.status {
         status = format!(" {msg}");
     }
@@ -409,12 +452,6 @@ fn draw_prompt_overlay(f: &mut Frame, app: &App) {
         Mode::Prompt(PromptKind::Collision { key }) => {
             format!(
                 " Key '{}' already exists.  o:overwrite  r:rename  c:cancel",
-                key
-            )
-        }
-        Mode::Prompt(PromptKind::MoveCollision { key }) => {
-            format!(
-                " Move collision on '{}' — o:overwrite  r:rename  c:cancel",
                 key
             )
         }

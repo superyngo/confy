@@ -23,7 +23,6 @@ pub enum KeyAction {
     Copy,
     Cut,
     Paste,
-    Move,
     Remark,
     Save,
     Undo,
@@ -60,7 +59,6 @@ pub fn map_key(key: KeyEvent) -> KeyAction {
         (KeyCode::Char('c'), _) => KeyAction::Copy,
         (KeyCode::Char('x'), _) => KeyAction::Cut,
         (KeyCode::Char('v'), _) => KeyAction::Paste,
-        (KeyCode::Char('m'), _) => KeyAction::Move,
         (KeyCode::Char('r'), _) => KeyAction::Remark,
         (KeyCode::Char('w'), _) => KeyAction::Save,
         (KeyCode::Char('z'), _) => KeyAction::Undo,
@@ -84,8 +82,8 @@ pub fn help_text() -> &'static str {
  e            Edit (inline/$EDITOR)  E       Force $EDITOR
  ←/→          Toggle bool / ±1 number    a   Add node
  d            Delete            x/c/v       Cut/copy/paste
- m            Move (2-press)    r           Remark toggle
- z/y          Undo/redo         /           Fuzzy filter
+ r            Remark toggle     z/y         Undo/redo
+ /            Fuzzy filter
  /…Enter      Lock in filtered list   Esc   Clear filter / selection
  w/Ctrl+s     Save              q           Quit
  ?            This help

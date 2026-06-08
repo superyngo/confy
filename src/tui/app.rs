@@ -31,8 +31,6 @@ pub struct App {
     pub status: Option<String>,
     pub mode: Mode,
     pub clipboard: Option<Clipboard>,
-    /// Saved sources + target for a move that entered MoveCollision prompt.
-    pub pending_move: Option<(Vec<Path>, Target)>,
     /// Filter state: current filter string. When non-empty, rows are filtered.
     pub filter: String,
     /// Caret position (char index) within `filter` while in Filter mode.
@@ -93,7 +91,6 @@ impl App {
             status: None,
             mode: Mode::Normal,
             clipboard: None,
-            pending_move: None,
             filter: String::new(),
             filter_cursor: 0,
             last_filter: String::new(),
@@ -125,7 +122,6 @@ impl App {
             status: None,
             mode: Mode::Normal,
             clipboard: None,
-            pending_move: None,
             filter: String::new(),
             filter_cursor: 0,
             last_filter: String::new(),
@@ -1195,7 +1191,7 @@ impl App {
         self.clipboard = Some(Clipboard {
             fragments,
             cut: false,
-            sources: Vec::new(),
+            sources: paths,
         });
         self.status = Some(format!(
             "copied {} node(s)",
@@ -1301,74 +1297,11 @@ impl App {
         self.on_mutation_success();
     }
 
-    /// `m` — move: first press enters MovePending, second press executes.
-    pub fn move_pressed(&mut self) {
-        match &self.mode {
-            Mode::Normal => {
-                let sources = self.selected_paths();
-                if sources.is_empty() {
-                    return;
-                }
-                self.mode = Mode::MovePending { sources };
-                self.status =
-                    Some("move-pending: navigate then press m to drop, Esc to cancel".into());
-            }
-            Mode::MovePending { .. } => {
-                let sources = match std::mem::replace(&mut self.mode, Mode::Normal) {
-                    Mode::MovePending { sources } => sources,
-                    _ => unreachable!(),
-                };
-                let cursor_row = match self.rows.get(self.cursor) {
-                    Some(r) => r.clone(),
-                    None => return,
-                };
-                let expanded = self.expanded.contains(&cursor_row.path);
-                let sibling_index = sibling_index_of(&cursor_row, &self.rows);
-                let target =
-                    crate::tui::insertion::resolve_target(&cursor_row, expanded, sibling_index);
-                let doc = match self.doc.as_mut() {
-                    Some(d) => d,
-                    None => return,
-                };
-                match doc.apply(Mutation::Move {
-                    sources: sources.clone(),
-                    target: target.clone(),
-                    on_collision: OnCollision::Cancel,
-                }) {
-                    Ok(()) => {
-                        self.on_mutation_success();
-                    }
-                    Err(crate::model::document::MutateError::Collision(key)) => {
-                        // Enter a prompt so user can choose o/r/c; preserve sources+target.
-                        self.pending_move = Some((sources, target));
-                        self.status = Some(format!(
-                            "move collision on '{key}' — o:overwrite  r:rename  c:cancel"
-                        ));
-                        self.mode = Mode::Prompt(PromptKind::MoveCollision { key });
-                    }
-                    Err(e) => {
-                        self.status = Some(format!("move error: {e}"));
-                    }
-                }
-            }
-            Mode::Prompt(_)
-            | Mode::Filter
-            | Mode::FilterResults
-            | Mode::Detail
-            | Mode::Help
-            | Mode::Edit(_) => {}
-        }
-    }
     pub fn escape(&mut self) {
         match &self.mode {
-            Mode::MovePending { .. } => {
-                self.mode = Mode::Normal;
-                self.status = Some("move cancelled".into());
-            }
             Mode::Prompt(_) => {
                 self.mode = Mode::Normal;
                 self.clipboard = None;
-                self.pending_move = None;
                 self.pending_edit = None;
                 self.status = None;
             }
@@ -1377,12 +1310,15 @@ impl App {
             Mode::Detail => self.exit_detail(),
             Mode::Help => self.exit_help(),
             Mode::Edit(_) => self.edit_cancel(),
-            // Esc in normal mode clears any active multi-selection.
+            // Esc in normal mode clears any active multi-selection and clipboard.
             Mode::Normal => {
                 if !self.selection.is_empty() {
                     self.selection.clear();
                     self.last_action_was_shift_select = false;
                     self.status = Some("selection cleared".into());
+                } else if self.clipboard.is_some() {
+                    self.clipboard = None;
+                    self.status = None;
                 }
             }
         }
@@ -1550,42 +1486,6 @@ impl App {
                 }
                 _ => PromptOutcome::Consumed,
             },
-            Mode::Prompt(PromptKind::MoveCollision { .. }) => {
-                let on_collision = match c {
-                    'o' => OnCollision::Overwrite,
-                    'r' => OnCollision::Rename,
-                    _ => {
-                        self.mode = Mode::Normal;
-                        self.pending_move = None;
-                        self.status = None;
-                        return PromptOutcome::Consumed;
-                    }
-                };
-                let (sources, target) = match self.pending_move.take() {
-                    Some(pm) => pm,
-                    None => {
-                        self.mode = Mode::Normal;
-                        return PromptOutcome::Consumed;
-                    }
-                };
-                self.mode = Mode::Normal;
-                let doc = match self.doc.as_mut() {
-                    Some(d) => d,
-                    None => return PromptOutcome::Consumed,
-                };
-                match doc.apply(Mutation::Move {
-                    sources,
-                    target,
-                    on_collision,
-                }) {
-                    Ok(()) => self.on_mutation_success(),
-                    Err(crate::model::document::MutateError::Collision(key)) => {
-                        self.status = Some(format!("move collision: {key}"));
-                    }
-                    Err(e) => self.status = Some(format!("move error: {e}")),
-                }
-                PromptOutcome::Consumed
-            }
             _ => PromptOutcome::Consumed,
         }
     }
@@ -2433,63 +2333,6 @@ mod tests {
     }
 
     #[test]
-    fn move_collision_enters_prompt_with_sources_preserved() {
-        // When the second move-press hits a collision, app must enter MoveCollision
-        // prompt so the user can resolve with o/r/c.
-        let mut app = app_with("a = 1\n[dest]\na = 999\n");
-        app.expand_all();
-        app.rebuild_rows();
-        let a_idx = app
-            .rows
-            .iter()
-            .position(|r| r.key == "a" && r.path.len() == 1)
-            .unwrap();
-        app.cursor = a_idx;
-        app.move_pressed(); // first press: MovePending
-        assert!(matches!(&app.mode, Mode::MovePending { .. }));
-        let dest_idx = app.rows.iter().position(|r| r.key == "dest").unwrap();
-        app.cursor = dest_idx;
-        app.move_pressed(); // second press: collision
-        assert!(
-            matches!(&app.mode, Mode::Prompt(PromptKind::MoveCollision { .. })),
-            "expected MoveCollision prompt, got mode is something else"
-        );
-    }
-
-    #[test]
-    fn move_collision_resolve_overwrite() {
-        // After a MoveCollision prompt, pressing 'o' should complete the move.
-        let mut app = app_with("a = 1\n[dest]\na = 999\n");
-        app.expand_all();
-        app.rebuild_rows();
-        let a_idx = app
-            .rows
-            .iter()
-            .position(|r| r.key == "a" && r.path.len() == 1)
-            .unwrap();
-        app.cursor = a_idx;
-        app.move_pressed();
-        let dest_idx = app.rows.iter().position(|r| r.key == "dest").unwrap();
-        app.cursor = dest_idx;
-        app.move_pressed(); // collision
-        assert!(matches!(
-            &app.mode,
-            Mode::Prompt(PromptKind::MoveCollision { .. })
-        ));
-        app.handle_prompt_key('o');
-        assert!(
-            matches!(app.mode, Mode::Normal),
-            "mode should be Normal after resolving"
-        );
-        let s = app.doc.as_ref().unwrap().serialize();
-        assert_eq!(
-            s.matches("a = ").count(),
-            1,
-            "only one 'a' should exist after overwrite move: {s}"
-        );
-    }
-
-    #[test]
     fn confirm_quit_y_returns_quit() {
         let mut app = app_with("a = 1\n");
         app.mode = Mode::Prompt(PromptKind::ConfirmQuit);
@@ -2505,26 +2348,6 @@ mod tests {
         let outcome = app.handle_prompt_key('n');
         assert!(matches!(outcome, PromptOutcome::Consumed));
         assert!(matches!(app.mode, Mode::Normal));
-    }
-
-    #[test]
-    fn move_pressed_two_step() {
-        let mut app = app_with("a = 1\n[dest]\n");
-        app.cursor = 1; // on `a`
-        app.move_pressed(); // first m: enters MovePending
-        assert!(matches!(
-            &app.mode,
-            crate::tui::state::Mode::MovePending { .. }
-        ));
-        // navigate to dest
-        app.expand_all();
-        app.rebuild_rows();
-        let dest_idx = app.rows.iter().position(|r| r.key == "dest").unwrap();
-        app.cursor = dest_idx;
-        app.move_pressed(); // second m: executes move
-        assert!(matches!(app.mode, crate::tui::state::Mode::Normal));
-        let s = app.doc.as_ref().unwrap().serialize();
-        assert_eq!(s.matches("a = 1").count(), 1, "a moved under dest");
     }
 
     // --- Blocker 1: filter must match by scalar VALUE ---

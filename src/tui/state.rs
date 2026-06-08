@@ -2,9 +2,6 @@ use crate::model::node::Path;
 
 pub enum Mode {
     Normal,
-    MovePending {
-        sources: Vec<Path>,
-    },
     Prompt(PromptKind),
     /// Typing a filter query (the inline `/` input field is shown).
     Filter,
@@ -22,9 +19,6 @@ pub enum PromptKind {
         key: String,
     },
     ConfirmQuit,
-    MoveCollision {
-        key: String,
-    },
     /// Inline-edit commit changed the scalar's type; confirm before writing.
     TypeChange {
         from: String,
