@@ -1522,7 +1522,7 @@ impl App {
                     }
                 };
                 let expanded = self.expanded.contains(&cursor_row.path);
-                let sibling_index = sibling_index_of(&cursor_row, &self.rows);
+                let sibling_index = self.true_sibling_index(&cursor_row.path);
                 let target =
                     crate::tui::insertion::resolve_target(&cursor_row, expanded, sibling_index);
                 self.mode = Mode::Normal;
@@ -1574,8 +1574,8 @@ impl App {
     }
 
     /// Return the 0-based index of `path` among its actual parent's children in the
-    /// full (unfiltered) NodeTree. Unlike `sibling_index_of`, this is never fooled
-    /// by FilterResults mode hiding siblings from `self.rows`.
+    /// full (unfiltered) NodeTree, so insertion positions are correct even in
+    /// FilterResults mode (where `self.rows` hides non-matching siblings).
     fn true_sibling_index(&self, path: &Path) -> usize {
         if path.is_empty() {
             return 0;
@@ -1911,23 +1911,6 @@ fn nudge_scalar(st: ScalarType, fmt: Format, repr: &str, delta: i64) -> Option<S
         }
         _ => None,
     }
-}
-
-/// Compute the 0-based index of `row` within its parent's visible children.
-fn sibling_index_of(row: &RowSnapshot, rows: &[RowSnapshot]) -> usize {
-    let parent_depth = row.depth.saturating_sub(1);
-    // Locate the cursor row in the flattened list by path (paths are unique).
-    let row_pos = rows.iter().position(|r| r.path == row.path).unwrap_or(0);
-    // Count siblings (same depth) before this row within the same parent
-    let mut count = 0usize;
-    for r in rows[..row_pos].iter().rev() {
-        if r.depth == row.depth {
-            count += 1;
-        } else if r.depth <= parent_depth {
-            break;
-        }
-    }
-    count
 }
 
 #[cfg(test)]
