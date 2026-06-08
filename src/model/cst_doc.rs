@@ -23,12 +23,10 @@ use crate::model::node::NodeTree;
 pub struct CstDocument {
     /// The rowan syntax tree root — the single source of truth.
     pub(crate) syntax: SyntaxNode,
-    /// Read in later phases: `filename` is the root node's display key (Phase 2
-    /// projection); `path` is the save target (Phase 5 TUI wiring).
+    /// Read in Phase 5 (TUI wiring) as the save target.
     #[allow(dead_code)]
     pub(crate) path: PathBuf,
     pub(crate) original: String,
-    #[allow(dead_code)]
     pub(crate) filename: String,
 }
 
@@ -54,10 +52,7 @@ impl ConfigDocument for CstDocument {
     }
 
     fn project(&self) -> NodeTree {
-        // Phase 2: walk the flat rowan sequence (ROOT → COMMENT / ENTRY /
-        // TABLE_HEADER / TABLE_ARRAY_HEADER …) into a hierarchical NodeTree with
-        // comments as real ordered nodes.
-        unimplemented!("CstDocument::project — Phase 2")
+        crate::model::cst_project::project(&self.syntax, &self.filename)
     }
 
     fn serialize(&self) -> String {
