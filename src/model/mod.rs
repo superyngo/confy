@@ -1,3 +1,4 @@
+pub mod cst_doc;
 pub mod document;
 pub mod fragment;
 pub mod node;
