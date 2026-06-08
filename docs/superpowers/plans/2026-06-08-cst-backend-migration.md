@@ -126,18 +126,26 @@ byte-perfect **multiline-array** element insert/delete spacing, dotted-key renam
 
 ## Phase 4 — New capability enabled by the model
 
-- [ ] **Insert a node below a comment:** with comments as real ordered nodes, an insertion target on
-      a comment row is just "insert after this child index". Add the TUI affordance + a model test.
-      (This is the originally-requested feature #2, now natural.)
+- [x] **Insert a node below a comment:** confirmed at the model level (`insert_node_below_a_comment`
+      in `cst_edit`) — with comments as real ordered nodes it is just "insert at the child index after
+      the comment". The TUI affordance (cursor-on-comment → target index+1) lands with Phase 5b.
 
 ## Phase 5 — Switch the TUI over, retire `toml_edit`
 
-- [ ] Replace `#comment:N` special-cases across `tui/` with `NodeKind::Comment` checks (filter
-      haystack exclusion, paste node/comment partition, delete/edit routing, render).
-- [ ] Point `cli.rs`/`main.rs` construction at `CstDocument`.
-- [ ] Full `cargo test` (incl. `tests/roundtrip.rs`) green on the new backend; manual TUI smoke test
-      by the user (per the no-pty-TUI-testing rule).
-- [ ] Delete `toml_doc.rs`, `project.rs`, and the `toml_edit` dependency **only now**.
+- [x] **5a (done):** fragment serialization moved behind `ConfigDocument::serialize_fragment`, both
+      backends implemented; the TUI no longer reaches into `doc.doc`. Behavior-preserving — `TomlDocument`
+      still live, all tests green. The remaining swap is now a small, well-defined change.
+- [ ] **5b — gated, not started.** Two blockers must clear first:
+  - **Reach CST mutation parity** — fill the deferred Phase-3 edges (inline-table member delete, AoT
+    entry move/remark, whole-AoT delete/replace, multiline-array spacing). Flipping with these still
+    `Unsupported` would *regress* operations `TomlDocument` handles today.
+  - **Replace `#comment:N` path-sniffing** across `tui/` with `NodeKind::Comment` checks (filter
+    haystack, paste node/comment partition, delete/edit routing, render) — comment paths are
+    `Seg::Index` now, not synthetic keys.
+  Then point `cli.rs`/`main.rs` at `CstDocument`, get `cargo test` green, and **the user smoke-tests
+  the TUI interactively** (the no-pty-TUI rule means this step cannot be self-verified). The editing
+  UX changes (e.g. `$EDITOR` no longer pulls an adjacent comment in) need a human in the loop.
+- [ ] Delete `toml_doc.rs`, `project.rs`, and the `toml_edit` dependency **only after** 5b verifies.
 
 ## Phase 6 — Docs + cleanup
 
