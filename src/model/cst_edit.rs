@@ -233,8 +233,33 @@ fn delete(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
             tree.splice_children(i..end, vec![]);
             Ok(())
         }
+        // Delete one `[[aot]]` entry: its header + entries up to the next header of
+        // any kind (the next entry / table starts a new section).
+        Target::AotEntry(header) => {
+            let i = header.index();
+            let end = section_end_strict(tree, i);
+            tree.splice_children(i..end, vec![]);
+            Ok(())
+        }
         _ => Err(MutateError::Unsupported),
     }
+}
+
+/// Like [`section_end`] but stops at the *next header of any kind* — used for a
+/// single array-of-tables entry, where the following `[[x]]` is a separate entry.
+fn section_end_strict(tree: &SyntaxNode, header_idx: usize) -> usize {
+    let els: Vec<_> = tree.children_with_tokens().collect();
+    for (k, el) in els.iter().enumerate().skip(header_idx + 1) {
+        if let NodeOrToken::Node(n) = el {
+            if matches!(
+                n.kind(),
+                SyntaxKind::TABLE_HEADER | SyntaxKind::TABLE_ARRAY_HEADER
+            ) {
+                return k;
+            }
+        }
+    }
+    els.len()
 }
 
 /// The end (exclusive ROOT-child index) of the `[table]` section that starts at
@@ -340,11 +365,17 @@ fn insert(
         return Err(MutateError::Fragment(e.to_string()));
     }
     let frag = parse.into_syntax().clone_for_update();
-    let new_key = fragment_first_key(&frag)
-        .ok_or_else(|| MutateError::Fragment("fragment has no key".into()))?;
 
     let (proj, idx) = walk(tree, "");
     let parent = node_at(&proj.root, &target.parent).ok_or(MutateError::NotFound)?;
+
+    // Inserting a bare element into an array (`a` on an array): no key/collision.
+    if matches!(parent.kind, crate::model::node::NodeKind::Array) {
+        return array_insert(&idx, &target.parent, target.index, &frag);
+    }
+
+    let new_key = fragment_first_key(&frag)
+        .ok_or_else(|| MutateError::Fragment("fragment has no key".into()))?;
     let depth = target.parent.len();
     let is_collision = |k: &str| {
         parent
@@ -399,6 +430,80 @@ fn insert(
     }
     tree.splice_children(at..at, els);
     Ok(())
+}
+
+/// Insert a bare value into the array at `array_path`, at element `index` (or
+/// appended). Uses single-line `, ` separators; multiline-array spacing is rough.
+fn array_insert(
+    idx: &CstIndex,
+    array_path: &[Seg],
+    index: usize,
+    frag: &SyntaxNode,
+) -> Result<(), MutateError> {
+    let arr = match idx.iter().find(|(p, _)| p == array_path).map(|(_, t)| t) {
+        Some(Target::Entry(entry)) => entry
+            .children()
+            .find(|c| c.kind() == SyntaxKind::VALUE)
+            .and_then(|v| struct_node(&v))
+            .filter(|n| n.kind() == SyntaxKind::ARRAY)
+            .ok_or(MutateError::Unsupported)?,
+        _ => return Err(MutateError::Unsupported),
+    };
+    let new_val = frag
+        .descendants()
+        .find(|n| n.kind() == SyntaxKind::VALUE)
+        .ok_or_else(|| MutateError::Fragment("fragment has no value".into()))?;
+    new_val.detach();
+
+    let els: Vec<_> = arr.children_with_tokens().collect();
+    let value_pos: Vec<usize> = els
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| matches!(e, NodeOrToken::Node(n) if n.kind() == SyntaxKind::VALUE))
+        .map(|(i, _)| i)
+        .collect();
+
+    if index < value_pos.len() {
+        let at = value_pos[index];
+        let (comma, space) = array_sep();
+        arr.splice_children(at..at, vec![NodeOrToken::Node(new_val), comma, space]);
+    } else if let Some(&last) = value_pos.last() {
+        let (comma, space) = array_sep();
+        arr.splice_children(
+            last + 1..last + 1,
+            vec![comma, space, NodeOrToken::Node(new_val)],
+        );
+    } else {
+        // Empty array: insert before the closing bracket.
+        let be = els
+            .iter()
+            .position(|e| matches!(e, NodeOrToken::Token(t) if t.kind() == SyntaxKind::BRACKET_END))
+            .ok_or(MutateError::Unsupported)?;
+        arr.splice_children(be..be, vec![NodeOrToken::Node(new_val)]);
+    }
+    Ok(())
+}
+
+/// A fresh detached `,` + ` ` pair for array separators (parsed from a sample).
+fn array_sep() -> (taplo::syntax::SyntaxElement, taplo::syntax::SyntaxElement) {
+    let frag = taplo::parser::parse("x = [0, 0]\n")
+        .into_syntax()
+        .clone_for_update();
+    let arr = frag
+        .descendants()
+        .find(|n| n.kind() == SyntaxKind::ARRAY)
+        .expect("sample array");
+    let comma = arr
+        .children_with_tokens()
+        .find(|c| matches!(c, NodeOrToken::Token(t) if t.kind() == SyntaxKind::COMMA))
+        .expect("comma");
+    let space = arr
+        .children_with_tokens()
+        .find(|c| matches!(c, NodeOrToken::Token(t) if t.kind() == SyntaxKind::WHITESPACE))
+        .expect("space");
+    comma.detach();
+    space.detach();
+    (comma, space)
 }
 
 /// Rewrite the first key-segment token of a node fragment to `new_key`.
@@ -1044,6 +1149,54 @@ mod tests {
         })
         .unwrap();
         assert_eq!(d.serialize(), "[s]\nport = 2\nhost = \"x\"\n[d]\nz = 9\n");
+    }
+
+    #[test]
+    fn delete_aot_entry() {
+        let mut d = doc("[[p]]\nn = 1\n[[p]]\nn = 2\n[[p]]\nn = 3\n");
+        // Delete the middle entry (child-position index 1 under `p`).
+        d.apply(Mutation::Delete {
+            path: vec![Seg::Key("p".into()), Seg::Index(1)],
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "[[p]]\nn = 1\n[[p]]\nn = 3\n");
+    }
+
+    #[test]
+    fn array_insert_middle_end_and_empty() {
+        let mut d = doc("arr = [1, 3]\n");
+        d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![Seg::Key("arr".into())],
+                index: 1,
+            },
+            toml: "__e__ = 2\n".into(),
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "arr = [1, 2, 3]\n");
+        d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![Seg::Key("arr".into())],
+                index: 99,
+            },
+            toml: "__e__ = 4\n".into(),
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "arr = [1, 2, 3, 4]\n");
+
+        let mut e = doc("xs = []\n");
+        e.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![Seg::Key("xs".into())],
+                index: 0,
+            },
+            toml: "__e__ = 7\n".into(),
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(e.serialize(), "xs = [7]\n");
     }
 
     #[test]
