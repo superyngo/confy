@@ -73,6 +73,32 @@ fn rename_in_table(
     Ok(())
 }
 
+/// Insert `(key, item)` into `tbl` immediately before the entry named `anchor`
+/// (or at the end when `anchor` is `None` or not present). Rebuilds via the
+/// order-preserving remove/`insert_formatted` technique used by `rename_in_table`,
+/// so existing keys keep their decor and order.
+fn insert_before(
+    tbl: &mut toml_edit::Table,
+    key: toml_edit::Key,
+    item: Item,
+    anchor: Option<&str>,
+) {
+    let order: Vec<String> = tbl.iter().map(|(k, _)| k.to_string()).collect();
+    let mut new_entry = Some((key, item));
+    for k in &order {
+        let (ko, it) = tbl.remove_entry(k).expect("key listed from iter");
+        if anchor == Some(k.as_str()) {
+            if let Some((nk, ni)) = new_entry.take() {
+                tbl.insert_formatted(&nk, ni);
+            }
+        }
+        tbl.insert_formatted(&ko, it);
+    }
+    if let Some((nk, ni)) = new_entry.take() {
+        tbl.insert_formatted(&nk, ni);
+    }
+}
+
 /// Inline-table counterpart of [`rename_in_table`], using `InlineTable`'s
 /// value-typed `remove_entry`/`insert_formatted`.
 fn rename_in_inline_table(
@@ -564,6 +590,25 @@ impl TomlDocument {
         Some(tbl)
     }
 
+    /// Name of the first real (non-comment) child key at or after projected `index`
+    /// under `parent`, from the current projection. `None` means "append" (index is
+    /// at/after the last real key). Resolves a stable anchor so a moved/inserted
+    /// entry positions correctly even though `move_inner` deletes sources first.
+    fn anchor_key_at(&self, parent: &[Seg], index: usize) -> Option<String> {
+        let projected = self.project();
+        let children = find_node_by_path(&projected.root, parent)
+            .map(|n| n.children.as_slice())
+            .unwrap_or(&[]);
+        children
+            .iter()
+            .skip(index)
+            .find(|c| !matches!(c.kind, crate::model::node::NodeKind::Comment(_)))
+            .and_then(|c| match c.path.last() {
+                Some(Seg::Key(k)) => Some(k.clone()),
+                _ => None,
+            })
+    }
+
     /// Rename the key at `path` to `new_key`, preserving its position, decor (incl.
     /// any standalone comment above it), and every other entry byte-for-byte. The
     /// whole table is re-inserted in order: unchanged keys keep their exact `Key`
@@ -648,6 +693,13 @@ impl TomlDocument {
         // re-serializing through a fresh document. The Key carries leaf_decor —
         // the leading comments and blank lines above a leaf — so they travel
         // with the moved node instead of being dropped.
+
+        // Resolve the anchor key *before* deleting sources (the projection is
+        // still intact here). For a same-parent move where a source precedes the
+        // target index, deleting sources first would shift the numeric index, so
+        // we anchor by *key name* instead of by position.
+        let anchor = self.anchor_key_at(&target.parent, target.index);
+
         let mut captured: Vec<(toml_edit::Key, Item)> = Vec::new();
         for src_path in sources {
             let (parent, last) = src_path.split_at(src_path.len().saturating_sub(1));
@@ -666,43 +718,69 @@ impl TomlDocument {
             self.remove_at(src_path)?;
         }
 
-        // Re-insert at the destination, preserving decor. Position-within-table
-        // is not honored (append), matching the existing Insert path for tables.
-        // Atomicity on a Cancel collision is handled by the r#move wrapper, which
-        // restores the pre-move snapshot on any Err.
+        // Re-insert at the destination, preserving decor and honoring the target
+        // position. For a concrete standard table use anchor-based positional
+        // insert; for inline tables (or non-concrete targets) fall back to append.
         use crate::model::document::OnCollision::*;
-        let dest = self.parent_table_mut(&target.parent)?;
-        for (key, item) in captured {
-            let name = key.get().to_string();
-            if dest.contains_key(&name) {
-                match oc {
-                    Cancel => return Err(MutateError::Collision(name)),
-                    Overwrite => {
-                        // Replace the colliding entry's value in place, keeping its
-                        // position and key decor (same as insert_fragment).
-                        if let Some(slot) = dest.get_mut(&name) {
-                            *slot = item;
+        if self.concrete_table_mut(&target.parent).is_some() {
+            let tbl = self.concrete_table_mut(&target.parent).expect("checked");
+            for (key, item) in captured {
+                let name = key.get().to_string();
+                if tbl.contains_key(&name) {
+                    match oc {
+                        Cancel => return Err(MutateError::Collision(name)),
+                        Overwrite => {
+                            if let Some(slot) = tbl.get_mut(&name) {
+                                *slot = item;
+                            }
+                            continue;
                         }
-                        continue;
-                    }
-                    Rename => {
-                        let mut n = 2;
-                        while dest.contains_key(&format!("{name}_{n}")) {
-                            n += 1;
+                        Rename => {
+                            let mut n = 2;
+                            while tbl.contains_key(&format!("{name}_{n}")) {
+                                n += 1;
+                            }
+                            let mut nk: toml_edit::Key = format!("{name}_{n}").parse().map_err(
+                                |e: toml_edit::TomlError| MutateError::Fragment(e.to_string()),
+                            )?;
+                            *nk.leaf_decor_mut() = key.leaf_decor().clone();
+                            insert_before(tbl, nk, item, anchor.as_deref());
+                            continue;
                         }
-                        let mut nk: toml_edit::Key =
-                            format!("{name}_{n}")
-                                .parse()
-                                .map_err(|e: toml_edit::TomlError| {
-                                    MutateError::Fragment(e.to_string())
-                                })?;
-                        *nk.leaf_decor_mut() = key.leaf_decor().clone();
-                        dest.entry_format(&nk).or_insert(item);
-                        continue;
                     }
                 }
+                insert_before(tbl, key, item, anchor.as_deref());
             }
-            dest.entry_format(&key).or_insert(item);
+        } else {
+            // Inline table (or non-concrete) destination: keep append behaviour.
+            let dest = self.parent_table_mut(&target.parent)?;
+            for (key, item) in captured {
+                let name = key.get().to_string();
+                if dest.contains_key(&name) {
+                    match oc {
+                        Cancel => return Err(MutateError::Collision(name)),
+                        Overwrite => {
+                            if let Some(slot) = dest.get_mut(&name) {
+                                *slot = item;
+                            }
+                            continue;
+                        }
+                        Rename => {
+                            let mut n = 2;
+                            while dest.contains_key(&format!("{name}_{n}")) {
+                                n += 1;
+                            }
+                            let mut nk: toml_edit::Key = format!("{name}_{n}").parse().map_err(
+                                |e: toml_edit::TomlError| MutateError::Fragment(e.to_string()),
+                            )?;
+                            *nk.leaf_decor_mut() = key.leaf_decor().clone();
+                            dest.entry_format(&nk).or_insert(item);
+                            continue;
+                        }
+                    }
+                }
+                dest.entry_format(&key).or_insert(item);
+            }
         }
 
         Ok(())
@@ -2081,6 +2159,75 @@ mod tests {
         assert!(matches!(err, Err(MutateError::Collision(_))));
         // Atomic rollback: document byte-identical to the pre-move state.
         assert_eq!(doc.serialize(), before);
+    }
+
+    #[test]
+    fn move_into_table_honors_target_index() {
+        // dest has x, y, z; move `a` (top-level) to index 1 (between x and y).
+        use crate::model::document::{Mutation, OnCollision, Target};
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("a = 1\n[dest]\nx = 1\ny = 2\nz = 3\n");
+        doc.apply(Mutation::Move {
+            sources: vec![vec![Seg::Key("a".into())]],
+            target: Target {
+                parent: vec![Seg::Key("dest".into())],
+                index: 1,
+            },
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        let out = doc.serialize();
+        let xi = out.find("x = 1").unwrap();
+        let ai = out.find("a = 1").unwrap();
+        let yi = out.find("y = 2").unwrap();
+        assert!(xi < ai && ai < yi, "expected x < a < y, got:\n{out}");
+    }
+
+    #[test]
+    fn move_within_table_after_anchor_handles_shift() {
+        // [a, b, c]; move `a` to just-after `b` (target.index = 2). `a` is deleted
+        // before re-insert, so a naive index would land it after `c`. Anchor-based
+        // insert must place it between b and c.
+        use crate::model::document::{Mutation, OnCollision, Target};
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("a = 1\nb = 2\nc = 3\n");
+        doc.apply(Mutation::Move {
+            sources: vec![vec![Seg::Key("a".into())]],
+            target: Target {
+                parent: vec![],
+                index: 2,
+            },
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        let out = doc.serialize();
+        let bi = out.find("b = 2").unwrap();
+        let ai = out.find("a = 1").unwrap();
+        let ci = out.find("c = 3").unwrap();
+        assert!(bi < ai && ai < ci, "expected b < a < c, got:\n{out}");
+    }
+
+    #[test]
+    fn move_multi_source_preserves_relative_order() {
+        // Move [a, b] (in that order) to the front of [dest] which has y.
+        // Expect a, then b, then y.
+        use crate::model::document::{Mutation, OnCollision, Target};
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("a = 1\nb = 2\n[dest]\ny = 9\n");
+        doc.apply(Mutation::Move {
+            sources: vec![vec![Seg::Key("a".into())], vec![Seg::Key("b".into())]],
+            target: Target {
+                parent: vec![Seg::Key("dest".into())],
+                index: 0,
+            },
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        let out = doc.serialize();
+        let ai = out.find("a = 1").unwrap();
+        let bi = out.find("b = 2").unwrap();
+        let yi = out.find("y = 9").unwrap();
+        assert!(ai < bi && bi < yi, "expected a < b < y, got:\n{out}");
     }
 
     #[test]
