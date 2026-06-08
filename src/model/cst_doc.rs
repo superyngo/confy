@@ -81,6 +81,29 @@ impl ConfigDocument for CstDocument {
     }
 }
 
+impl CstDocument {
+    /// Write the current document to its source path.
+    pub fn save(&self) -> std::io::Result<()> {
+        std::fs::write(&self.path, self.serialize())
+    }
+
+    /// Reset the dirty baseline so `is_dirty()` returns false.
+    pub fn mark_saved(&mut self) {
+        self.original = self.serialize();
+    }
+
+    /// Re-parse the document from a serialized snapshot string (undo/redo restore).
+    /// Propagates a parse error rather than silently no-op'ing.
+    pub fn replace_from_str(&mut self, s: &str) -> Result<(), MutateError> {
+        let parse = taplo::parser::parse(s);
+        if let Some(e) = parse.errors.first() {
+            return Err(MutateError::Fragment(e.to_string()));
+        }
+        self.syntax = parse.into_syntax();
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

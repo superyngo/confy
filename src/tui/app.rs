@@ -25,7 +25,7 @@ pub struct App {
     /// which makes the next shift+arrow start a fresh round.
     pub last_action_was_shift_select: bool,
     /// Present when the app was constructed with a real document (interactive mode).
-    pub doc: Option<crate::model::toml_doc::TomlDocument>,
+    pub doc: Option<crate::model::cst_doc::CstDocument>,
     pub history: Option<History>,
     /// Status message shown in the bottom bar (errors, info).
     pub status: Option<String>,
@@ -74,8 +74,8 @@ pub enum PromptOutcome {
 }
 
 impl App {
-    /// Construct an App backed by a real TomlDocument (interactive mode).
-    pub fn new(doc: crate::model::toml_doc::TomlDocument) -> Self {
+    /// Construct an App backed by a real CstDocument (interactive mode).
+    pub fn new(doc: crate::model::cst_doc::CstDocument) -> Self {
         let tree = doc.project();
         let initial_snapshot = doc.serialize();
         let history = History::new(initial_snapshot);
@@ -776,12 +776,16 @@ impl App {
         let is_comment = node_at(&self.tree.root, &row.path)
             .map(|n| matches!(n.kind, NodeKind::Comment(_)))
             .unwrap_or(false);
-        let (key, is_element) = match row.path.last() {
-            Some(Seg::Key(k)) if !is_comment => (k.clone(), false),
-            // Array element / comment: no editable key.
-            Some(Seg::Index(_)) => (String::new(), true),
-            Some(Seg::Key(_)) => (String::new(), true), // comment (is_comment is set)
-            None => return,
+        // A comment has no editable key and is not an array element (its path may end
+        // in a `Seg::Index` under the CST backend); the `is_comment` flag drives it.
+        let (key, is_element) = if is_comment {
+            (String::new(), false)
+        } else {
+            match row.path.last() {
+                Some(Seg::Key(k)) => (k.clone(), false),
+                Some(Seg::Index(_)) => (String::new(), true), // array element: no key
+                None => return,
+            }
         };
         // `value` is `Value::to_string()`, which carries the decor whitespace
         // around the `=` (e.g. " 8080"); trim it so the edited literal doesn't
@@ -1205,7 +1209,10 @@ impl App {
         };
         let mut fragments = Vec::new();
         for p in &paths {
-            fragments.push(clipboard_fragment(doc, p));
+            let is_comment = node_at(&self.tree.root, p)
+                .map(|n| matches!(n.kind, NodeKind::Comment(_)))
+                .unwrap_or(false);
+            fragments.push(clipboard_fragment(doc, p, is_comment));
         }
         self.clipboard = Some(Clipboard {
             fragments,
@@ -1240,7 +1247,10 @@ impl App {
         };
         let mut fragments = Vec::new();
         for p in &paths {
-            fragments.push(clipboard_fragment(doc, p));
+            let is_comment = node_at(&self.tree.root, p)
+                .map(|n| matches!(n.kind, NodeKind::Comment(_)))
+                .unwrap_or(false);
+            fragments.push(clipboard_fragment(doc, p, is_comment));
         }
         self.clipboard = Some(Clipboard {
             fragments,
@@ -1301,8 +1311,14 @@ impl App {
             sources,
         } = clipboard;
 
-        let is_comment =
-            |p: &Path| matches!(p.last(), Some(Seg::Key(k)) if k.starts_with("#comment:"));
+        // Identify comment sources by the projected node's *kind*, not by sniffing a
+        // synthetic key — works for both the `#comment:N` (toml_edit) and the
+        // `Seg::Index` (CST) addressing schemes.
+        let is_comment = |p: &Path| {
+            node_at(&self.tree.root, p)
+                .map(|n| matches!(n.kind, NodeKind::Comment(_)))
+                .unwrap_or(false)
+        };
 
         // Pair each fragment with its source, then split node vs comment entries.
         // `sources` may be shorter than `fragments` in synthetic / test scenarios;
@@ -1680,13 +1696,12 @@ impl App {
 /// does not carry its upper-adjacent comment to the paste destination — matching
 /// the move path, which leaves the comment at the source. A Comment node's fragment
 /// *is* the comment text, so it is returned whole.
-fn clipboard_fragment(
-    doc: &crate::model::toml_doc::TomlDocument,
+fn clipboard_fragment<D: ConfigDocument>(
+    doc: &D,
     path: &[crate::model::node::Seg],
+    is_comment: bool,
 ) -> String {
-    use crate::model::node::Seg;
     let frag = doc.serialize_fragment(path, false);
-    let is_comment = matches!(path.last(), Some(Seg::Key(k)) if k.starts_with("#comment:"));
     if is_comment {
         frag
     } else {
@@ -2037,9 +2052,10 @@ mod tests {
     }
 
     #[test]
-    fn external_edit_fragment_trims_leading_blank() {
-        // `[t]` sits below a blank separator + comment. The $EDITOR fragment must
-        // open at the comment, not an empty line (the blank round-trips on save).
+    fn external_edit_fragment_is_clean_node_text() {
+        // CST backend: a `[t]` opened in `$EDITOR` is just the table's own section
+        // text — no leading blank, and no adjacent comment (comments are independent
+        // nodes now, edited on their own row).
         let app = app_with("a = 1\n\n# c\n[t]\nx = 1\n");
         let doc = app.doc.as_ref().unwrap();
         let frag = doc.serialize_fragment(&[Seg::Key("t".into())], true);
@@ -2048,19 +2064,23 @@ mod tests {
             "fragment must not open with a blank line: {frag:?}"
         );
         assert!(
-            frag.starts_with("# c"),
-            "should start at the comment: {frag:?}"
+            frag.starts_with("[t]"),
+            "should start at the header: {frag:?}"
+        );
+        assert!(
+            !frag.contains("# c"),
+            "comment must not be carried: {frag:?}"
         );
     }
 
     #[test]
-    fn external_edit_fragment_carries_scalar_leading_comment() {
-        // A scalar opened in `$EDITOR` now carries its adjacent leading comment, with
-        // the blank separator trimmed from the view (re-attached on save).
+    fn external_edit_fragment_does_not_carry_leading_comment() {
+        // CST backend: a scalar's `$EDITOR` fragment is the entry line alone; its
+        // adjacent comment is an independent node and is not pulled in.
         let app = app_with("a = 1\n\n# note\nport = 8080\n");
         let doc = app.doc.as_ref().unwrap();
         let frag = doc.serialize_fragment(&[Seg::Key("port".into())], true);
-        assert_eq!(frag, "# note\nport = 8080\n", "got: {frag:?}");
+        assert_eq!(frag, "port = 8080\n", "got: {frag:?}");
     }
 
     // --- e/n apply-path tests (post-editor logic, no $EDITOR spawned) ---
@@ -2070,8 +2090,21 @@ mod tests {
         use std::io::Write;
         let mut f = tempfile::NamedTempFile::new().unwrap();
         f.write_all(src.as_bytes()).unwrap();
-        let doc = crate::model::toml_doc::TomlDocument::load(f.path()).unwrap();
+        let doc = crate::model::cst_doc::CstDocument::load(f.path()).unwrap();
         App::new(doc)
+    }
+
+    /// First visible row whose projected node is a Comment (backend-agnostic — works
+    /// for both the `#comment:N` and `Seg::Index` comment-addressing schemes).
+    fn comment_row(app: &App) -> usize {
+        app.rows
+            .iter()
+            .position(|r| {
+                node_at(&app.tree.root, &r.path)
+                    .map(|n| matches!(n.kind, NodeKind::Comment(_)))
+                    .unwrap_or(false)
+            })
+            .unwrap()
     }
 
     #[test]
@@ -2603,7 +2636,7 @@ mod tests {
         f.write_all(b"port = 8080\n").unwrap();
         let path = f.path().to_path_buf();
         // Keep the NamedTempFile alive so the path isn't deleted
-        let doc = crate::model::toml_doc::TomlDocument::load(&path).unwrap();
+        let doc = crate::model::cst_doc::CstDocument::load(&path).unwrap();
         let mut app = App::new(doc);
         // Mutate to make dirty
         app.apply_replace(vec![Seg::Key("port".into())], "port = 9090\n".into(), false);
@@ -3206,11 +3239,7 @@ mod tests {
     fn copy_paste_comment_node() {
         let mut app = app_with("# note\na = 1\nb = 2\n");
         app.rebuild_rows();
-        let cpos = app
-            .rows
-            .iter()
-            .position(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k.starts_with("#comment:")))
-            .unwrap();
+        let cpos = comment_row(&app);
         app.cursor = cpos;
         app.copy_selected();
         assert!(app.clipboard.is_some());
@@ -3233,11 +3262,7 @@ mod tests {
     fn cut_paste_comment_node_moves_it() {
         let mut app = app_with("# note\na = 1\nb = 2\n");
         app.rebuild_rows();
-        let cpos = app
-            .rows
-            .iter()
-            .position(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k.starts_with("#comment:")))
-            .unwrap();
+        let cpos = comment_row(&app);
         app.cursor = cpos;
         app.cut_selected();
         let bpos = app
@@ -3266,7 +3291,7 @@ mod tests {
         // paste does not duplicate it — the comment stays at the source.
         let app = app_with("# hdr\n[srv]\nport = 8080\n");
         let doc = app.doc.as_ref().unwrap();
-        let frag = clipboard_fragment(doc, &[Seg::Key("srv".into())]);
+        let frag = clipboard_fragment(doc, &[Seg::Key("srv".into())], false);
         assert!(
             !frag.contains("# hdr"),
             "copied table fragment kept the comment: {frag:?}"
@@ -3292,7 +3317,7 @@ mod tests {
             .unwrap()
             .path
             .clone();
-        let frag = clipboard_fragment(doc, &cpath);
+        let frag = clipboard_fragment(doc, &cpath, true);
         assert_eq!(frag.trim(), "# note");
     }
 
@@ -3300,25 +3325,46 @@ mod tests {
     fn paste_multiple_separate_comments_preserves_order() {
         // Two separate comment fragments pasted together must keep their order
         // (`# A` before `# B`), even though each InsertComment prepends at the slot.
-        let mut app = app_with("x = 1\n");
+        let mut app = app_with("# A\n\n# B\nx = 1\ny = 2\n");
         app.rebuild_rows();
+        // The two top-level comment nodes, by their real (kind-detected) paths.
+        let cpaths: Vec<Path> = app
+            .rows
+            .iter()
+            .filter(|r| {
+                node_at(&app.tree.root, &r.path)
+                    .map(|n| matches!(n.kind, NodeKind::Comment(_)))
+                    .unwrap_or(false)
+            })
+            .map(|r| r.path.clone())
+            .collect();
+        assert_eq!(cpaths.len(), 2);
+        let doc = app.doc.as_ref().unwrap();
+        let fragments: Vec<String> = cpaths
+            .iter()
+            .map(|p| doc.serialize_fragment(p, true))
+            .collect();
+        app.clipboard = Some(Clipboard {
+            fragments,
+            cut: false,
+            sources: cpaths,
+        });
+        // Paste onto `y` (so the copies land together, after the originals).
         app.cursor = app
             .rows
             .iter()
-            .position(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k == "x"))
+            .position(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k == "y"))
             .unwrap();
-        app.clipboard = Some(Clipboard {
-            fragments: vec!["# A".into(), "# B".into()],
-            cut: false,
-            sources: vec![
-                vec![Seg::Key("#comment:0".into())],
-                vec![Seg::Key("#comment:1".into())],
-            ],
-        });
         app.paste();
         let out = app.doc.as_ref().unwrap().serialize();
-        let ai = out.find("# A").expect("# A present");
-        let bi = out.find("# B").expect("# B present");
-        assert!(ai < bi, "expected # A before # B, got:\n{out}");
+        // Each comment now appears twice; the pasted pair keeps A before B.
+        assert_eq!(out.matches("# A").count(), 2, "got:\n{out}");
+        assert_eq!(out.matches("# B").count(), 2, "got:\n{out}");
+        let last_a = out.rfind("# A").unwrap();
+        let last_b = out.rfind("# B").unwrap();
+        assert!(
+            last_a < last_b,
+            "expected # A before # B in the paste, got:\n{out}"
+        );
     }
 }

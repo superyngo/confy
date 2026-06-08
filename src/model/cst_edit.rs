@@ -145,8 +145,9 @@ fn replace_value(tree: &SyntaxNode, path: &[Seg], toml: &str) -> Result<(), Muta
         .find(|(p, _)| p == path)
         .map(|(_, t)| t.clone())
         .ok_or(MutateError::NotFound)?;
-    // Whole-table replace (`$EDITOR` on a `[table]`): swap the table's section.
-    if let Target::Header(header) = &target {
+    // Whole-section replace (`$EDITOR` on a `[table]` or `[[aot]]` entry): swap the
+    // section's elements for the edited fragment.
+    if let Target::Header(header) | Target::AotEntry(header) = &target {
         let parse = taplo::parser::parse(toml);
         if let Some(e) = parse.errors.first() {
             return Err(MutateError::Fragment(e.to_string()));
@@ -157,7 +158,11 @@ fn replace_value(tree: &SyntaxNode, path: &[Seg], toml: &str) -> Result<(), Muta
             e.detach();
         }
         let i = header.index();
-        let end = section_end(tree, path, i);
+        let end = if header.kind() == SyntaxKind::TABLE_ARRAY_HEADER {
+            section_end_strict(tree, i)
+        } else {
+            section_end(tree, path, i)
+        };
         tree.splice_children(i..end, els);
         return Ok(());
     }
