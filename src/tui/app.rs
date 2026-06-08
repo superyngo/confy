@@ -1397,16 +1397,23 @@ impl App {
         }
 
         // ---- COMMENT PHASE (never collides) ----
-        for (i, (frag, src)) in comment_entries.iter().enumerate() {
+        // Each `InsertComment` *prepends* its block at the target slot, so to keep
+        // multiple pasted comments in their original order we apply them last-first.
+        // `oi` is the original index (high→low); restore slices stay in original order.
+        let n_comments = comment_entries.len();
+        for rev in 0..n_comments {
+            let oi = n_comments - 1 - rev;
+            let (frag, src) = &comment_entries[oi];
             if is_cut {
                 // Delete the source first so an identical-text comment elsewhere
                 // isn't removed by the text-matching delete sweep after insert.
                 let doc = self.doc.as_mut().unwrap();
                 if let Err(e) = doc.apply(Mutation::Delete { path: src.clone() }) {
-                    // Earlier phases (node moves/inserts, prior comments) are already
-                    // committed — refresh the projection so the tree isn't stale.
+                    // Earlier phases (node moves/inserts, later comments) are already
+                    // committed — refresh the projection so the tree isn't stale. The
+                    // not-yet-applied comments are the lower indices, including `oi`.
                     self.on_mutation_success();
-                    self.clipboard = Some(rebuild(is_cut, &[], &comment_entries[i..]));
+                    self.clipboard = Some(rebuild(is_cut, &[], &comment_entries[..=oi]));
                     self.status = Some(format!("paste error: {e}"));
                     return;
                 }
@@ -1416,12 +1423,12 @@ impl App {
                 target: target.clone(),
                 text: frag.clone(),
             }) {
-                // For copy: remaining comments can retry. For cut: the source was
-                // already deleted, so only later comments remain. Prior mutations in
-                // this paste are committed — refresh the projection before reporting.
-                let start = if is_cut { i + 1 } else { i };
+                // For cut, `oi`'s source was already deleted, so only lower indices
+                // remain; for copy, `oi` itself can retry. Prior mutations in this
+                // paste are committed — refresh the projection before reporting.
+                let end = if is_cut { oi } else { oi + 1 };
                 self.on_mutation_success();
-                self.clipboard = Some(rebuild(is_cut, &[], &comment_entries[start..]));
+                self.clipboard = Some(rebuild(is_cut, &[], &comment_entries[..end]));
                 self.status = Some(format!("paste error: {e}"));
                 return;
             }
@@ -3357,5 +3364,31 @@ mod tests {
             out.find("# note").unwrap() > out.find("b = 2").unwrap(),
             "comment should be after b:\n{out}"
         );
+    }
+
+    #[test]
+    fn paste_multiple_separate_comments_preserves_order() {
+        // Two separate comment fragments pasted together must keep their order
+        // (`# A` before `# B`), even though each InsertComment prepends at the slot.
+        let mut app = app_with("x = 1\n");
+        app.rebuild_rows();
+        app.cursor = app
+            .rows
+            .iter()
+            .position(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k == "x"))
+            .unwrap();
+        app.clipboard = Some(Clipboard {
+            fragments: vec!["# A".into(), "# B".into()],
+            cut: false,
+            sources: vec![
+                vec![Seg::Key("#comment:0".into())],
+                vec![Seg::Key("#comment:1".into())],
+            ],
+        });
+        app.paste();
+        let out = app.doc.as_ref().unwrap().serialize();
+        let ai = out.find("# A").expect("# A present");
+        let bi = out.find("# B").expect("# B present");
+        assert!(ai < bi, "expected # A before # B, got:\n{out}");
     }
 }
