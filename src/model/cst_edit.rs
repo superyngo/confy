@@ -7,9 +7,14 @@
 //! success, so a failed multi-step edit (e.g. `Move`) rolls back for free — the
 //! caller keeps the original tree untouched.
 //!
-//! Implemented so far: `Replace` (whole-document on the empty path; a scalar value
-//! inline edit) and `EditComment`. The remaining variants return `Unsupported`
-//! until ported.
+//! All eight `Mutation` variants are ported: `Replace` (whole-document, scalar
+//! value, structured array/inline-table, and whole `[table]` section), `Insert`
+//! (keyed into a table/root with Cancel/Overwrite/Rename collisions, and bare array
+//! elements), `Delete` (entry, comment, array element, `[table]` section, `[[aot]]`
+//! entry), `Rename`, `Remark`, `EditComment`, `InsertComment`, and `Move` (atomic;
+//! comments stay put because they are independent nodes). Deferred long-tail edges:
+//! inline-table member delete, AoT entry move/remark, whole-AoT delete/replace, and
+//! byte-perfect multiline-array element insert/delete spacing.
 
 use crate::model::cst_project::{header_path, walk, CstIndex, Target};
 use crate::model::document::{MutateError, Mutation, OnCollision, Target as InsTarget};

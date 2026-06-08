@@ -91,19 +91,18 @@ be rewritten. Confirm this scheme at the start of Phase 2 before building the pr
 
 ## Phase 2 — Projection: CST → NodeTree (comments become real nodes)
 
-- [ ] Confirm the addressing scheme (see *Central design decision*).
-- [ ] `CstDocument::project()`: walk the syntax tree → `NodeTree`. Map syntax kinds to `NodeKind`
+- [x] Confirm the addressing scheme (see *Central design decision*).
+- [x] `CstDocument::project()`: walk the syntax tree → `NodeTree`. Map syntax kinds to `NodeKind`
       (Table / ArrayOfTables / Array / InlineTable / Scalar(ScalarType) / Comment). A `COMMENT`
       token between items projects as a standalone `Comment` node **in document order** — no decor
       sniffing, no `comment_blocks` merging hack needed (though consecutive `#` lines may still be
       grouped for display; decide and document).
-- [ ] Re-derive `ScalarType` and `Format` from syntax (string/integer/float/bool/datetime kinds;
-      hex/oct/bin/basic/literal/multiline). Port the intent of `project.rs::detect_format`.
-- [ ] Preserve current structural behaviour: dotted **keys** (`a.b.c = 1`) collapse; dotted
-      **headers** (`[x.a]` with no `[x]`) nest as a real branch; AoT entries; inline-table members.
-- [ ] **Parity tests:** for each fixture, compare `CstDocument::project()` to
-      `TomlDocument::project()` — identical *except* the intended difference that comments are now
-      real ordered nodes (encode that delta explicitly in the test).
+- [x] Re-derive `ScalarType` and `Format` from syntax kinds (string/integer/float/bool/datetime;
+      hex/oct/bin/basic/literal/multiline).
+- [x] Preserve current structural behaviour: dotted **keys** collapse; dotted **headers** nest;
+      AoT entries; inline-table members.
+- [x] **Parity tests:** snippet battery is full-parity; fixtures are structural-parity (value/trailing
+      differ by two intended *improvements* — no spurious leading space; EOL comment split into `trailing_comment`).
 
 ## Phase 3 — Mutations on rowan (the bulk)
 
@@ -111,16 +110,19 @@ Port one variant at a time, **TDD**: lift each existing `toml_doc.rs` mutation t
 `CstDocument`, make it pass via rowan splicing. Build `cst_edit.rs` splice helpers first
 (insert-token-sequence-before / remove-node / replace-node, with newline/indent normalization).
 
-- [ ] `Replace` (scalar value; whole-document on empty path).
-- [ ] `Rename` (position- & decor-preserving — trivial here since tokens are preserved).
-- [ ] `Insert` (keyed under table/root; bare element into array; collision modes Overwrite/Rename/Cancel).
-- [ ] `Delete` (keyed; array element; **comment node** — now a plain node removal, no decor sweep).
-- [ ] `Remark` (toggle live node ↔ comment).
-- [ ] `EditComment` (edit a comment node's text — now a token text replace).
-- [ ] `InsertComment` (insert a standalone comment node at a child-sequence position).
-- [ ] `Move` (atomic; exact-position reorder; **comments do not travel** — they are separate nodes,
-      so the whole `detach_leading_comments` machinery is *deleted*, the problem is structural-gone).
-- [ ] Re-run the **entire** existing model test suite against `CstDocument`; reach green parity.
+- [x] `Replace` (scalar value; whole-document on empty path; structured array/inline; whole `[table]` section).
+- [x] `Rename` (position- & decor-preserving — swap the key token in place; collision-checked).
+- [x] `Insert` (keyed under table/root; bare element into array; collision modes Overwrite/Rename/Cancel).
+- [x] `Delete` (keyed entry; array element; comment node — plain removal, no decor sweep; `[table]` section; `[[aot]]` entry).
+- [x] `Remark` (toggle live node ↔ comment).
+- [x] `EditComment` (edit a comment node's text — token splice).
+- [x] `InsertComment` (insert a standalone comment node at a child-sequence position).
+- [x] `Move` (atomic; comments do not travel — they are separate nodes, so `detach_leading_comments` is gone for good).
+- [x] `cst_edit` tests green (44) + full suite green (245). Resolver tied to projection by a single `walk` + consistency test.
+
+**Phase 3 deferred long-tail edges** (revisit before/within Phase 5 as the TUI needs them):
+inline-table *member* delete (carries a `,`), AoT entry **move/remark**, whole-AoT-group delete/replace,
+byte-perfect **multiline-array** element insert/delete spacing, dotted-key rename collision nuances.
 
 ## Phase 4 — New capability enabled by the model
 
