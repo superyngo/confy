@@ -1282,6 +1282,13 @@ impl App {
     /// user can retry (collision → remaining fragments; other errors → same).
     /// CUT uses atomic `Mutation::Move` (delete-before-reinsert, no partial state,
     /// same-scope paste never collides). COPY uses the per-fragment insert loop.
+    /// Core paste logic, split out so it can be re-issued after a collision prompt.
+    /// Node entries: CUT uses atomic `Mutation::Move` (delete-before-reinsert,
+    /// same-scope never collides); COPY uses a per-fragment insert loop. Comment
+    /// entries (synthetic `#comment:N` paths) are pasted via `Mutation::InsertComment`
+    /// and never collide; for CUT the source comment is deleted first (so an
+    /// identical-text comment elsewhere isn't removed by the delete sweep).
+    /// The clipboard is restored on any failure so the user can retry.
     pub(crate) fn do_paste(
         &mut self,
         clipboard: Clipboard,
@@ -1294,87 +1301,132 @@ impl App {
             sources,
         } = clipboard;
 
-        // Comment sources (synthetic `#comment:N` keys) are handled separately in
-        // a later task; here we operate on node sources only.
         let is_comment =
             |p: &Path| matches!(p.last(), Some(Seg::Key(k)) if k.starts_with("#comment:"));
-        let node_sources: Vec<Path> = sources.iter().filter(|p| !is_comment(p)).cloned().collect();
+
+        // Pair each fragment with its source, then split node vs comment entries.
+        // `sources` may be shorter than `fragments` in synthetic / test scenarios;
+        // treat any unmatched fragments as node entries with an empty placeholder path.
+        let mut node_entries: Vec<(String, Path)> = Vec::new();
+        let mut comment_entries: Vec<(String, Path)> = Vec::new();
+        let mut frags_iter = fragments.into_iter();
+        let mut srcs_iter = sources.into_iter();
+        loop {
+            match frags_iter.next() {
+                None => break,
+                Some(frag) => {
+                    let src = srcs_iter.next().unwrap_or_default();
+                    if is_comment(&src) {
+                        comment_entries.push((frag, src));
+                    } else {
+                        node_entries.push((frag, src));
+                    }
+                }
+            }
+        }
+
+        // Rebuild a Clipboard from remaining node + comment entries (kept parallel).
+        let rebuild =
+            |is_cut: bool, nodes: &[(String, Path)], comments: &[(String, Path)]| -> Clipboard {
+                let mut fragments = Vec::new();
+                let mut sources = Vec::new();
+                for (f, s) in nodes.iter().chain(comments.iter()) {
+                    fragments.push(f.clone());
+                    sources.push(s.clone());
+                }
+                Clipboard {
+                    fragments,
+                    cut: is_cut,
+                    sources,
+                }
+            };
 
         if self.doc.is_none() {
-            self.clipboard = Some(Clipboard {
-                fragments,
-                cut: is_cut,
-                sources,
-            });
+            self.clipboard = Some(rebuild(is_cut, &node_entries, &comment_entries));
             return;
         }
 
+        // ---- NODE PHASE ----
         if is_cut {
-            // Atomic move: delete-before-reinsert, so a same-parent paste never
-            // collides and any failure rolls the document back (no partial state,
-            // no lost clipboard).
-            let doc = self.doc.as_mut().unwrap();
-            match doc.apply(Mutation::Move {
-                sources: node_sources,
-                target: target.clone(),
-                on_collision,
-            }) {
-                Ok(()) => self.on_mutation_success(),
-                Err(crate::model::document::MutateError::Collision(key)) => {
-                    self.clipboard = Some(Clipboard {
-                        fragments,
-                        cut: is_cut,
-                        sources,
-                    });
-                    self.status = Some(format!("collision on key '{key}' — o/r/c"));
-                    self.mode = Mode::Prompt(PromptKind::Collision { key });
-                }
-                Err(e) => {
-                    self.clipboard = Some(Clipboard {
-                        fragments,
-                        cut: is_cut,
-                        sources,
-                    });
-                    self.status = Some(format!("paste error: {e}"));
+            let node_sources: Vec<Path> = node_entries.iter().map(|(_, s)| s.clone()).collect();
+            if !node_sources.is_empty() {
+                let doc = self.doc.as_mut().unwrap();
+                match doc.apply(Mutation::Move {
+                    sources: node_sources,
+                    target: target.clone(),
+                    on_collision,
+                }) {
+                    Ok(()) => {}
+                    Err(crate::model::document::MutateError::Collision(key)) => {
+                        self.clipboard = Some(rebuild(is_cut, &node_entries, &comment_entries));
+                        self.status = Some(format!("collision on key '{key}' — o/r/c"));
+                        self.mode = Mode::Prompt(PromptKind::Collision { key });
+                        return;
+                    }
+                    Err(e) => {
+                        self.clipboard = Some(rebuild(is_cut, &node_entries, &comment_entries));
+                        self.status = Some(format!("paste error: {e}"));
+                        return;
+                    }
                 }
             }
-            return;
+        } else {
+            let doc = self.doc.as_mut().unwrap();
+            for (i, (frag, _)) in node_entries.iter().enumerate() {
+                match doc.apply(Mutation::Insert {
+                    target: target.clone(),
+                    toml: frag.clone(),
+                    on_collision,
+                }) {
+                    Ok(()) => {}
+                    Err(crate::model::document::MutateError::Collision(key)) => {
+                        self.clipboard =
+                            Some(rebuild(is_cut, &node_entries[i..], &comment_entries));
+                        self.status = Some(format!("collision on key '{key}' — o/r/c"));
+                        self.mode = Mode::Prompt(PromptKind::Collision { key });
+                        return;
+                    }
+                    Err(e) => {
+                        self.clipboard =
+                            Some(rebuild(is_cut, &node_entries[i..], &comment_entries));
+                        self.status = Some(format!("paste error: {e}"));
+                        return;
+                    }
+                }
+            }
         }
 
-        // COPY: insert each fragment, restoring the remaining clipboard on failure.
-        let doc = self.doc.as_mut().unwrap();
-        for (i, frag) in fragments.iter().enumerate() {
-            match doc.apply(Mutation::Insert {
-                target: target.clone(),
-                toml: frag.clone(),
-                on_collision,
-            }) {
-                Ok(()) => {}
-                Err(crate::model::document::MutateError::Collision(key)) => {
-                    // Put only the remaining unprocessed fragments back so retry
-                    // with Rename doesn't re-insert already-inserted fragments.
-                    self.clipboard = Some(Clipboard {
-                        fragments: fragments[i..].to_vec(),
-                        cut: is_cut,
-                        sources,
-                    });
-                    self.status = Some(format!("collision on key '{key}' — o/r/c"));
-                    self.mode = Mode::Prompt(PromptKind::Collision { key });
-                    return;
-                }
-                Err(e) => {
-                    // Non-collision error: restore the remaining clipboard so the
-                    // user can navigate to a valid target and try again.
-                    self.clipboard = Some(Clipboard {
-                        fragments: fragments[i..].to_vec(),
-                        cut: is_cut,
-                        sources,
-                    });
+        // ---- COMMENT PHASE (never collides) ----
+        for (i, (frag, src)) in comment_entries.iter().enumerate() {
+            if is_cut {
+                // Delete the source first so an identical-text comment elsewhere
+                // isn't removed by the text-matching delete sweep after insert.
+                let doc = self.doc.as_mut().unwrap();
+                if let Err(e) = doc.apply(Mutation::Delete { path: src.clone() }) {
+                    // Earlier phases (node moves/inserts, prior comments) are already
+                    // committed — refresh the projection so the tree isn't stale.
+                    self.on_mutation_success();
+                    self.clipboard = Some(rebuild(is_cut, &[], &comment_entries[i..]));
                     self.status = Some(format!("paste error: {e}"));
                     return;
                 }
             }
+            let doc = self.doc.as_mut().unwrap();
+            if let Err(e) = doc.apply(Mutation::InsertComment {
+                target: target.clone(),
+                text: frag.clone(),
+            }) {
+                // For copy: remaining comments can retry. For cut: the source was
+                // already deleted, so only later comments remain. Prior mutations in
+                // this paste are committed — refresh the projection before reporting.
+                let start = if is_cut { i + 1 } else { i };
+                self.on_mutation_success();
+                self.clipboard = Some(rebuild(is_cut, &[], &comment_entries[start..]));
+                self.status = Some(format!("paste error: {e}"));
+                return;
+            }
         }
+
         self.on_mutation_success();
     }
 
@@ -3247,6 +3299,63 @@ mod tests {
         assert!(
             app.clipboard.is_none(),
             "clipboard consumed on successful move"
+        );
+    }
+
+    #[test]
+    fn copy_paste_comment_node() {
+        let mut app = app_with("# note\na = 1\nb = 2\n");
+        app.rebuild_rows();
+        let cpos = app
+            .rows
+            .iter()
+            .position(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k.starts_with("#comment:")))
+            .unwrap();
+        app.cursor = cpos;
+        app.copy_selected();
+        assert!(app.clipboard.is_some());
+        let bpos = app
+            .rows
+            .iter()
+            .position(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k == "b"))
+            .unwrap();
+        app.cursor = bpos;
+        app.paste();
+        let out = app.doc.as_ref().unwrap().serialize();
+        assert_eq!(
+            out.matches("# note").count(),
+            2,
+            "comment now appears twice:\n{out}"
+        );
+    }
+
+    #[test]
+    fn cut_paste_comment_node_moves_it() {
+        let mut app = app_with("# note\na = 1\nb = 2\n");
+        app.rebuild_rows();
+        let cpos = app
+            .rows
+            .iter()
+            .position(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k.starts_with("#comment:")))
+            .unwrap();
+        app.cursor = cpos;
+        app.cut_selected();
+        let bpos = app
+            .rows
+            .iter()
+            .position(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k == "b"))
+            .unwrap();
+        app.cursor = bpos;
+        app.paste();
+        let out = app.doc.as_ref().unwrap().serialize();
+        assert_eq!(
+            out.matches("# note").count(),
+            1,
+            "comment moved, not duplicated:\n{out}"
+        );
+        assert!(
+            out.find("# note").unwrap() > out.find("b = 2").unwrap(),
+            "comment should be after b:\n{out}"
         );
     }
 }
