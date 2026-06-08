@@ -73,6 +73,48 @@ fn rename_in_table(
     Ok(())
 }
 
+/// Read a key's leading decor prefix — the slot a standalone comment above it
+/// occupies. For a `[table]` the comment lives in the table-header item decor; for
+/// everything else (leaf, array, inline table) it lives in the key's `leaf_decor`.
+fn read_leading_prefix(tbl: &dyn TableLike, key: &str, is_table: bool) -> String {
+    let decor_str =
+        |p: Option<&toml_edit::RawString>| p.and_then(|r| r.as_str()).unwrap_or("").to_string();
+    if is_table {
+        match tbl.get(key) {
+            Some(Item::Table(t)) => decor_str(t.decor().prefix()),
+            _ => String::new(),
+        }
+    } else {
+        decor_str(tbl.key(key).and_then(|k| k.leaf_decor().prefix()))
+    }
+}
+
+/// Set a key's leading decor prefix (counterpart of [`read_leading_prefix`]).
+fn set_leading_prefix(tbl: &mut dyn TableLike, key: &str, is_table: bool, prefix: &str) {
+    if is_table {
+        if let Some(Item::Table(t)) = tbl.get_mut(key) {
+            t.decor_mut().set_prefix(prefix);
+        }
+    } else if let Some(mut km) = tbl.key_mut(key) {
+        km.leaf_decor_mut().set_prefix(prefix);
+    }
+}
+
+/// Name of the entry immediately following `key` in `tbl`'s order, or `None` when
+/// `key` is the last entry.
+fn next_key_after(tbl: &dyn TableLike, key: &str) -> Option<String> {
+    let mut seen = false;
+    for (k, _) in tbl.iter() {
+        if seen {
+            return Some(k.to_string());
+        }
+        if k == key {
+            seen = true;
+        }
+    }
+    None
+}
+
 /// Insert `(key, item)` into `tbl` immediately before the entry named `anchor`
 /// (or at the end when `anchor` is `None` or not present). Rebuilds via the
 /// order-preserving remove/`insert_formatted` technique used by `rename_in_table`,
@@ -609,6 +651,73 @@ impl TomlDocument {
             })
     }
 
+    /// Before a move, leave each source's leading comment(s) at their original spot
+    /// instead of dragging them along inside the moved node's decor. Every standalone
+    /// comment above a node — possibly *several* blocks separated by blank lines, e.g.
+    /// a top-of-file banner — is stored in that node's leading decor prefix (a leaf's
+    /// `leaf_decor`, a `[table]`'s header decor). A plain move carries the whole block
+    /// to the destination and erases it at the source. Here we lift the *entire* raw
+    /// prefix off the source (robust against duplicate comment texts, unlike a
+    /// text-matching sweep) and re-home it onto the source's next real sibling — or to
+    /// the document trailing when the source was the last top-level key. No-op when the
+    /// prefix has no comment. Known edge: the last key of a *nested* table keeps the
+    /// old carry-along (its trailing slot is only addressable via the next item).
+    fn detach_leading_comments(
+        &mut self,
+        sources: &[crate::model::node::Path],
+    ) -> Result<(), MutateError> {
+        for src in sources {
+            let parent = &src[..src.len().saturating_sub(1)];
+            let key = match src.last() {
+                Some(Seg::Key(k)) => k.clone(),
+                _ => continue,
+            };
+            // Phase 1 (one borrow of the source parent table): read the source's
+            // whole leading prefix; if it holds a comment, clear it and prepend it
+            // onto the next real sibling. Report the prefix + whether the source was
+            // last, so the trailing case can be handled after the borrow ends.
+            let trailing_prefix = {
+                let table = match self.parent_table_mut(parent) {
+                    Ok(t) => t,
+                    Err(_) => continue,
+                };
+                let is_table = matches!(table.get(&key), Some(Item::Table(_)));
+                let prefix = read_leading_prefix(table, &key, is_table);
+                if !prefix.contains('#') {
+                    continue;
+                }
+                set_leading_prefix(table, &key, is_table, "");
+                match next_key_after(table, &key) {
+                    Some(next) => {
+                        let next_is_table = matches!(table.get(&next), Some(Item::Table(_)));
+                        let existing = read_leading_prefix(table, &next, next_is_table);
+                        set_leading_prefix(
+                            table,
+                            &next,
+                            next_is_table,
+                            &format!("{prefix}{existing}"),
+                        );
+                        None
+                    }
+                    // No next sibling: re-home to the document trailing (top level)
+                    // or fall back to carry-along (nested table — known edge).
+                    None if parent.is_empty() => Some(prefix),
+                    None => {
+                        // Nested last key: restore the prefix so it carries along
+                        // rather than being lost (the trailing slot isn't addressable).
+                        set_leading_prefix(table, &key, is_table, &prefix);
+                        None
+                    }
+                }
+            };
+            if let Some(prefix) = trailing_prefix {
+                let trailing = self.doc.trailing().as_str().unwrap_or("").to_string();
+                self.doc.set_trailing(format!("{prefix}{trailing}"));
+            }
+        }
+        Ok(())
+    }
+
     /// Rename the key at `path` to `new_key`, preserving its position, decor (incl.
     /// any standalone comment above it), and every other entry byte-for-byte. The
     /// whole table is re-inserted in order: unchanged keys keep their exact `Key`
@@ -686,6 +795,8 @@ impl TomlDocument {
         // preserve, so keep the value-extraction path (string fragments routed
         // through insert_fragment, which descends into arrays).
         if self.array_at_mut(&target.parent).is_some() {
+            // Source-side comment leave-behind; array indices are unaffected.
+            self.detach_leading_comments(sources)?;
             return self.move_inner_array(sources, target, oc);
         }
 
@@ -699,6 +810,12 @@ impl TomlDocument {
         // target index, deleting sources first would shift the numeric index, so
         // we anchor by *key name* instead of by position.
         let anchor = self.anchor_key_at(&target.parent, target.index);
+
+        // Leave each source's leading comment behind. Resolved *after* `anchor`
+        // (above) because detaching removes comment nodes from the projection and
+        // would otherwise shift `target.index`; resolved *before* capture so the
+        // moved node travels without its comment.
+        self.detach_leading_comments(sources)?;
 
         let mut captured: Vec<(toml_edit::Key, Item)> = Vec::new();
         for src_path in sources {
@@ -1699,7 +1816,12 @@ mod tests {
             }
             node.children.iter().find_map(|c| nth_comment(c, text))
         }
-        let mut doc = doc_from_str(src);
+        let mut doc = {
+            use std::io::Write;
+            let mut f = tempfile::NamedTempFile::new().unwrap();
+            f.write_all(src.as_bytes()).unwrap();
+            TomlDocument::load(f.path()).unwrap()
+        };
         let path = nth_comment(&doc.project().root, "# ── products ──").expect("sep comment");
         doc.apply(Mutation::EditComment {
             path: path.clone(),
@@ -1727,7 +1849,12 @@ mod tests {
         // comment lives in the key's leaf_decor and is reachable via parent_table_mut.
         use crate::model::document::Mutation;
         let src = "[[product]]\n#123\nname = \"Hammer\"\n";
-        let mut doc = doc_from_str(src);
+        let mut doc = {
+            use std::io::Write;
+            let mut f = tempfile::NamedTempFile::new().unwrap();
+            f.write_all(src.as_bytes()).unwrap();
+            TomlDocument::load(f.path()).unwrap()
+        };
         let path = first_comment_path(&doc.project().root).expect("inner comment");
         assert_eq!(
             path,
@@ -2193,11 +2320,12 @@ mod tests {
     }
 
     #[test]
-    fn move_preserves_leading_comment_and_blank() {
-        // Regression: the moved leaf's leading comment + blank line lived in the
-        // key's leaf_decor; the old re-serialize-through-fresh-doc path dropped them.
+    fn move_leaves_leading_comment_at_source() {
+        // A move repositions only the node; its upper-adjacent comment stays
+        // behind (re-homed before the source's next sibling), it does not travel
+        // into the destination with `a`.
         use crate::model::document::{Mutation, OnCollision, Target};
-        use crate::model::node::Seg;
+        use crate::model::node::{NodeKind, Seg};
         let mut doc = doc_from_str("# lead\na = 1\n\n[dest]\n");
         doc.apply(Mutation::Move {
             sources: vec![vec![Seg::Key("a".into())]],
@@ -2209,14 +2337,162 @@ mod tests {
         })
         .unwrap();
         let s = doc.serialize();
+        assert!(s.contains("# lead"), "comment lost on move: {s:?}");
+        // `# lead` stays above the top-level `[dest]`, not inside dest with `a`.
+        let lead = s.find("# lead").unwrap();
+        let dest = s.find("[dest]").unwrap();
+        let a = s.find("a = 1").unwrap();
         assert!(
-            s.contains("# lead"),
-            "leading comment dropped on move: {s:?}"
+            lead < dest && dest < a,
+            "comment should stay at source, got:\n{s}"
         );
-        // a is gone from top level and present under dest, with its comment.
+        let tree = doc.project();
+        let dest_node = tree.root.children.iter().find(|n| n.key == "dest").unwrap();
+        assert!(dest_node.children.iter().any(|n| n.key == "a"));
+        assert!(
+            !dest_node
+                .children
+                .iter()
+                .any(|n| matches!(n.kind, NodeKind::Comment(_))),
+            "comment must not move into dest: {s:?}"
+        );
+    }
+
+    #[test]
+    fn move_same_scope_leaves_comment_before_next_sibling() {
+        // Reorder within the same table: the comment above `x` stays above `y`
+        // (its next sibling); `x` moves down without the comment, no duplication.
+        use crate::model::document::{Mutation, OnCollision, Target};
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("# note\nx = 1\ny = 2\n");
+        doc.apply(Mutation::Move {
+            sources: vec![vec![Seg::Key("x".into())]],
+            target: Target {
+                parent: vec![],
+                index: 3,
+            },
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        let s = doc.serialize();
+        let note = s.find("# note").unwrap();
+        let y = s.find("y = 2").unwrap();
+        let x = s.find("x = 1").unwrap();
+        assert!(note < y && y < x, "expected # note < y < x, got:\n{s}");
+        assert_eq!(s.matches("# note").count(), 1, "comment duplicated:\n{s}");
+    }
+
+    #[test]
+    fn move_leaves_all_stacked_comment_blocks_behind() {
+        // A node can have several comment blocks above it (blank-separated), e.g.
+        // a top-of-file banner; with duplicate texts a text-matching sweep would
+        // mis-target. The whole leading prefix must stay behind, not just the
+        // nearest block, and the moved node must arrive with no comment above it.
+        use crate::model::document::{Mutation, OnCollision, Target};
+        use crate::model::node::Seg;
+        let mut doc =
+            doc_from_str("# banner\n# dup\n\n# dup\n\n# section\nfirst = 1\nsecond = 2\n[dest]\n");
+        doc.apply(Mutation::Move {
+            sources: vec![vec![Seg::Key("first".into())]],
+            target: Target {
+                parent: vec![Seg::Key("dest".into())],
+                index: 0,
+            },
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        let s = doc.serialize();
+        // Every banner/section comment stays at the top, above `second`/`[dest]`.
+        for c in ["# banner", "# section"] {
+            assert!(
+                s.find(c).unwrap() < s.find("second = 2").unwrap(),
+                "comment {c:?} should stay at source:\n{s}"
+            );
+        }
+        assert_eq!(
+            s.matches("# dup").count(),
+            2,
+            "duplicate comments intact:\n{s}"
+        );
+        // The moved `first` carries no comment under dest.
         let tree = doc.project();
         let dest = tree.root.children.iter().find(|n| n.key == "dest").unwrap();
-        assert!(dest.children.iter().any(|n| n.key == "a"));
+        let fp = dest.children.iter().position(|n| n.key == "first").unwrap();
+        assert!(
+            fp == 0
+                || !matches!(
+                    dest.children[fp - 1].kind,
+                    crate::model::node::NodeKind::Comment(_)
+                ),
+            "no comment should travel with the moved node:\n{s}"
+        );
+    }
+
+    #[test]
+    fn move_middle_leaf_leaves_comment_for_next_sibling() {
+        // Source `x` sits between `y` and `z` with a comment above it; moving `x`
+        // into `[dest]` leaves the comment above `z` (its next sibling).
+        use crate::model::document::{Mutation, OnCollision, Target};
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("y = 1\n# note\nx = 2\nz = 3\n[dest]\n");
+        doc.apply(Mutation::Move {
+            sources: vec![vec![Seg::Key("x".into())]],
+            target: Target {
+                parent: vec![Seg::Key("dest".into())],
+                index: 0,
+            },
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        let s = doc.serialize();
+        assert_eq!(s.matches("# note").count(), 1, "comment duplicated:\n{s}");
+        let note = s.find("# note").unwrap();
+        let z = s.find("z = 3").unwrap();
+        let dest = s.find("[dest]").unwrap();
+        // Comment stays in the top-level scope, right above `z`, not under dest.
+        assert!(
+            note < z && z < dest,
+            "expected note < z < [dest], got:\n{s}"
+        );
+    }
+
+    #[test]
+    fn move_table_leaves_leading_comment_at_source() {
+        // The leading comment of a `[table]` lives in the table header decor; a
+        // move must leave it behind too, not carry it under the new parent.
+        use crate::model::document::{Mutation, OnCollision, Target};
+        use crate::model::node::Seg;
+        let mut doc = doc_from_str("# hdr\n[srv]\nport = 8080\n\n[dest]\n");
+        doc.apply(Mutation::Move {
+            sources: vec![vec![Seg::Key("srv".into())]],
+            target: Target {
+                parent: vec![Seg::Key("dest".into())],
+                index: 0,
+            },
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        let s = doc.serialize();
+        assert_eq!(s.matches("# hdr").count(), 1, "comment duplicated:\n{s}");
+        // The moved `srv` table must not carry `# hdr` to its new parent: it has no
+        // preceding Comment sibling under dest. The comment stays at the top level.
+        let tree = doc.project();
+        let dest = tree.root.children.iter().find(|n| n.key == "dest").unwrap();
+        let srv_pos = dest.children.iter().position(|n| n.key == "srv").unwrap();
+        assert!(
+            srv_pos == 0
+                || !matches!(
+                    dest.children[srv_pos - 1].kind,
+                    crate::model::node::NodeKind::Comment(_)
+                ),
+            "comment must not travel with the moved table: {s:?}"
+        );
+        assert!(
+            tree.root.children.iter().any(
+                |n| matches!(&n.kind, crate::model::node::NodeKind::Comment(t) if t == "# hdr")
+            ),
+            "comment should remain at the top level: {s:?}"
+        );
     }
 
     #[test]

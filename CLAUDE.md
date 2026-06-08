@@ -151,6 +151,22 @@ it. A node moved into a `[table]` lands at the cursor position: `move_inner` res
 and splices the entry before it via the order/decor-preserving `insert_before` rebuild (the same technique
 as `rename_in_table`); inline-table destinations keep append.
 
+**A move leaves the node's upper comment(s) behind.** Every standalone comment above a node — possibly
+*several* blocks separated by blanks (e.g. a top-of-file banner) — is stored in that node's leading decor
+prefix (a leaf's `leaf_decor`, a `[table]`'s header decor), so a naive move/copy would drag the whole
+block to the destination and erase it at the source. `detach_leading_comments` runs first inside
+`move_inner` (covered by `Mutation::Move`'s atomic snapshot/rollback): for each source it lifts the
+*entire raw* leading prefix (via `read_leading_prefix`/`set_leading_prefix` — moving the whole string at
+once is robust against **duplicate comment texts**, which a text-matching sweep would mis-target) and
+prepends it onto the source's **next real sibling** (`next_key_after`), or onto the document trailing when
+the source was the last top-level key. It is resolved *after* the destination `anchor` (removing comments
+would otherwise shift the projected `target.index`) but *before* capture (so the moved node travels clean);
+it is a no-op when the prefix holds no `#`. The **copy** path strips the same block at the fragment level:
+`clipboard_fragment` drops a node fragment's leading blank/`#` lines (`strip_leading_comment_block`) while
+leaving a Comment node's own text whole. Known edge: moving the **last** key out of a *nested* `[table]`
+keeps the old carry-along (that trailing slot is only addressable via the next item's prefix), so the
+prefix is restored on the source rather than lost.
+
 **Comment clipboard.** A Comment node serializes to its raw `# …` text (`serialize_node_fragment_opts`
 reads it from the projection, since the text lives in decor, not a table item). `Mutation::InsertComment`
 writes the block into the parent's decor at the target position — prepended to the anchor key's decor

@@ -1205,7 +1205,7 @@ impl App {
         };
         let mut fragments = Vec::new();
         for p in &paths {
-            fragments.push(serialize_node_fragment(doc, p));
+            fragments.push(clipboard_fragment(doc, p));
         }
         self.clipboard = Some(Clipboard {
             fragments,
@@ -1240,7 +1240,7 @@ impl App {
         };
         let mut fragments = Vec::new();
         for p in &paths {
-            fragments.push(serialize_node_fragment(doc, p));
+            fragments.push(clipboard_fragment(doc, p));
         }
         self.clipboard = Some(Clipboard {
             fragments,
@@ -1672,6 +1672,44 @@ impl App {
         node_at(&self.tree.root, parent_path)
             .and_then(|parent| parent.children.iter().position(|c| &c.path == path))
             .unwrap_or(0)
+    }
+}
+
+/// Serialize a node for the clipboard. Like [`serialize_node_fragment`], but for a
+/// **node** (not a Comment) it drops the leading blank/`#` block so a copied node
+/// does not carry its upper-adjacent comment to the paste destination — matching
+/// the move path, which leaves the comment at the source. A Comment node's fragment
+/// *is* the comment text, so it is returned whole.
+fn clipboard_fragment(
+    doc: &crate::model::toml_doc::TomlDocument,
+    path: &[crate::model::node::Seg],
+) -> String {
+    use crate::model::node::Seg;
+    let frag = serialize_node_fragment(doc, path);
+    let is_comment = matches!(path.last(), Some(Seg::Key(k)) if k.starts_with("#comment:"));
+    if is_comment {
+        frag
+    } else {
+        strip_leading_comment_block(&frag).to_string()
+    }
+}
+
+/// Drop a leading run of blank or `#`-comment lines from a serialized node
+/// fragment, returning the remainder starting at the node's own header/value line.
+/// Used to keep a copied node's upper-adjacent comment from travelling with it.
+fn strip_leading_comment_block(s: &str) -> &str {
+    let mut rest = s;
+    loop {
+        let end = rest.find('\n').map(|i| i + 1).unwrap_or(rest.len());
+        let line = rest[..end].trim_start();
+        if line.is_empty() || line.starts_with('#') {
+            if end == rest.len() {
+                return "";
+            }
+            rest = &rest[end..];
+        } else {
+            return rest;
+        }
     }
 }
 
@@ -3364,6 +3402,43 @@ mod tests {
             out.find("# note").unwrap() > out.find("b = 2").unwrap(),
             "comment should be after b:\n{out}"
         );
+    }
+
+    #[test]
+    fn copy_table_fragment_omits_leading_comment() {
+        // A copied `[table]` carries its header decor (which holds the standalone
+        // comment above it); the clipboard fragment must drop that comment so a
+        // paste does not duplicate it — the comment stays at the source.
+        let app = app_with("# hdr\n[srv]\nport = 8080\n");
+        let doc = app.doc.as_ref().unwrap();
+        let frag = clipboard_fragment(doc, &[Seg::Key("srv".into())]);
+        assert!(
+            !frag.contains("# hdr"),
+            "copied table fragment kept the comment: {frag:?}"
+        );
+        assert!(
+            frag.contains("[srv]") && frag.contains("port = 8080"),
+            "copied table body lost: {frag:?}"
+        );
+    }
+
+    #[test]
+    fn copy_comment_node_fragment_kept_whole() {
+        // A Comment node's fragment *is* the comment text, so the strip must not
+        // touch it (copying a comment still copies the comment).
+        let app = app_with("# note\na = 1\n");
+        let doc = app.doc.as_ref().unwrap();
+        let tree = doc.project();
+        let cpath = tree
+            .root
+            .children
+            .iter()
+            .find(|n| matches!(n.kind, NodeKind::Comment(_)))
+            .unwrap()
+            .path
+            .clone();
+        let frag = clipboard_fragment(doc, &cpath);
+        assert_eq!(frag.trim(), "# note");
     }
 
     #[test]
