@@ -943,6 +943,114 @@ impl TomlDocument {
         Ok(())
     }
 
+    /// Insert a standalone comment block at `target.index` within `target.parent`.
+    /// The text must be comment lines (each non-blank line starts with `#`).
+    fn insert_comment(&mut self, target: &Target, text: &str) -> Result<(), MutateError> {
+        let block = text.trim_end_matches('\n').to_string();
+        if block
+            .lines()
+            .any(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
+        {
+            return Err(MutateError::Fragment(
+                "comment lines must start with #".into(),
+            ));
+        }
+        let parent = target.parent.as_slice();
+        let anchor = self.anchor_key_at(parent, target.index);
+
+        if let Some(anchor_key) = anchor {
+            // Prepend the block to the anchor entry's decor — Table header decor for a
+            // `[table]`, otherwise the key's leaf_decor (mirrors comment_out).
+            let is_table = self
+                .parent_table_mut(parent)
+                .ok()
+                .and_then(|t| t.get(&anchor_key))
+                .map(|item| matches!(item, Item::Table(_)))
+                .unwrap_or(false);
+            if is_table {
+                let existing = {
+                    let t = self.parent_table_mut(parent)?;
+                    match t.get_mut(&anchor_key) {
+                        Some(Item::Table(tb)) => tb
+                            .decor()
+                            .prefix()
+                            .and_then(|r| r.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        _ => String::new(),
+                    }
+                };
+                let t = self.parent_table_mut(parent)?;
+                if let Some(Item::Table(tb)) = t.get_mut(&anchor_key) {
+                    tb.decor_mut().set_prefix(format!("{block}\n{existing}"));
+                }
+            } else {
+                let existing = {
+                    let t = self.parent_table_mut(parent)?;
+                    t.key(&anchor_key)
+                        .and_then(|k| k.leaf_decor().prefix().and_then(|r| r.as_str()))
+                        .unwrap_or("")
+                        .to_string()
+                };
+                let t = self.parent_table_mut(parent)?;
+                if let Some(mut km) = t.key_mut(&anchor_key) {
+                    km.leaf_decor_mut()
+                        .set_prefix(format!("{block}\n{existing}"));
+                }
+            }
+            return Ok(());
+        }
+
+        // anchor None → append at the end of the parent.
+        if parent.is_empty() {
+            // Top-level: prepend to document trailing (after the last item).
+            let trailing = self.doc.trailing().as_str().unwrap_or("").to_string();
+            let new_trailing = if trailing.is_empty() {
+                format!("{block}\n")
+            } else {
+                format!("{block}\n{trailing}")
+            };
+            self.doc.set_trailing(new_trailing);
+            return Ok(());
+        }
+
+        // Nested parent, nothing after the index. If the table is empty, use its
+        // header decor (matches comment_out's empty-nested case). If non-empty, this
+        // is the "after the last key of a nested table" slot, which TOML stores in the
+        // following sibling's prefix — not representable on the table itself; append to
+        // the last key's leaf_decor suffix as a best-effort fallback.
+        let is_empty = self
+            .parent_table_mut(parent)
+            .ok()
+            .map(|t| t.iter().next().is_none())
+            .unwrap_or(true);
+        if is_empty {
+            self.write_comment_to_table_decor(parent, &format!("{block}\n"));
+            return Ok(());
+        }
+        // Best-effort: append the comment after the parent table's last key by
+        // attaching it to that key's leaf_decor suffix.
+        let last_key = self
+            .parent_table_mut(parent)
+            .ok()
+            .and_then(|t| t.iter().last().map(|(k, _)| k.to_string()));
+        if let Some(lk) = last_key {
+            let existing = {
+                let t = self.parent_table_mut(parent)?;
+                t.key(&lk)
+                    .and_then(|k| k.leaf_decor().suffix().and_then(|r| r.as_str()))
+                    .unwrap_or("")
+                    .to_string()
+            };
+            let t = self.parent_table_mut(parent)?;
+            if let Some(mut km) = t.key_mut(&lk) {
+                km.leaf_decor_mut()
+                    .set_suffix(format!("{existing}\n{block}"));
+            }
+        }
+        Ok(())
+    }
+
     /// Uncomment: take the comment text from the projector's synthetic path,
     /// strip `# ` from each line, parse as TOML fragment, and insert at that
     /// position. On parse failure return Fragment and leave the document untouched.
@@ -1149,6 +1257,7 @@ impl ConfigDocument for TomlDocument {
                 target,
                 on_collision,
             } => self.r#move(&sources, &target, on_collision),
+            Mutation::InsertComment { target, text } => self.insert_comment(&target, &text),
         }
     }
 }
@@ -2252,5 +2361,73 @@ mod tests {
             "uncommented: {:?}",
             doc.serialize()
         );
+    }
+
+    #[test]
+    fn insert_comment_lands_before_target_key() {
+        let mut doc = doc_from_str("a = 1\nb = 2\n");
+        doc.apply(Mutation::InsertComment {
+            target: Target {
+                parent: vec![],
+                index: 1,
+            },
+            text: "# hello".into(),
+        })
+        .unwrap();
+        let out = doc.serialize();
+        let ai = out.find("a = 1").unwrap();
+        let ci = out.find("# hello").unwrap();
+        let bi = out.find("b = 2").unwrap();
+        assert!(ai < ci && ci < bi, "expected a < #hello < b, got:\n{out}");
+    }
+
+    #[test]
+    fn insert_comment_at_end_uses_trailing() {
+        let mut doc = doc_from_str("a = 1\n");
+        doc.apply(Mutation::InsertComment {
+            target: Target {
+                parent: vec![],
+                index: 1,
+            },
+            text: "# tail".into(),
+        })
+        .unwrap();
+        assert!(
+            doc.serialize().trim_end().ends_with("# tail"),
+            "{}",
+            doc.serialize()
+        );
+    }
+
+    #[test]
+    fn insert_comment_rejects_non_comment_text() {
+        let mut doc = doc_from_str("a = 1\n");
+        let err = doc.apply(Mutation::InsertComment {
+            target: Target {
+                parent: vec![],
+                index: 0,
+            },
+            text: "not a comment".into(),
+        });
+        assert!(matches!(err, Err(MutateError::Fragment(_))));
+    }
+
+    #[test]
+    fn insert_comment_before_nested_key() {
+        // anchor-Some inside a [table]
+        let mut doc = doc_from_str("[t]\nx = 1\ny = 2\n");
+        doc.apply(Mutation::InsertComment {
+            target: Target {
+                parent: vec![Seg::Key("t".into())],
+                index: 1,
+            },
+            text: "# mid".into(),
+        })
+        .unwrap();
+        let out = doc.serialize();
+        let xi = out.find("x = 1").unwrap();
+        let ci = out.find("# mid").unwrap();
+        let yi = out.find("y = 2").unwrap();
+        assert!(xi < ci && ci < yi, "expected x < #mid < y, got:\n{out}");
     }
 }

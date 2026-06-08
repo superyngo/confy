@@ -1674,6 +1674,16 @@ fn serialize_node_fragment_opts(
         Some(Seg::Key(k)) => k.as_str(),
         _ => return String::new(),
     };
+    // A Comment node has no real table entry; its text lives in decor and is
+    // only available via the projection. Emit the raw `#` block as the fragment.
+    if key.starts_with("#comment:") {
+        if let Some(n) = node_at(&doc.project().root, path) {
+            if let crate::model::node::NodeKind::Comment(t) = &n.kind {
+                return t.clone();
+            }
+        }
+        return String::new();
+    }
     // Walk to the parent table (AoT-aware: a `Key→Index` pair descends an AoT entry).
     let tbl = match walk_tablelike(doc.doc.as_table(), parent_segs) {
         Some(t) => t,

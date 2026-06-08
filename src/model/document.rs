@@ -62,6 +62,13 @@ pub enum Mutation {
         target: Target,
         on_collision: OnCollision,
     },
+    /// Insert a standalone comment block (`# …` lines) into `target.parent`'s
+    /// decor at the projected `target.index`. Comments live in decor — no key,
+    /// no collision.
+    InsertComment {
+        target: Target,
+        text: String,
+    },
 }
 
 #[derive(Debug, thiserror::Error)]
