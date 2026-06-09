@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.0] - 2026-06-09
+
 ### Added
 - Multiline arrays — **interior comments are now first-class nodes.** A standalone `# …` line inside a multiline array projects as a Comment node (sharing the element index slots), so it is visible, editable (`e`/`E` → `EditComment`), deletable (`d`), and can be **pasted/moved into** a multiline array (`v`) — landing on its own indented line; a comment on the *same line* as an element becomes that element's trailing comment. Single-line arrays still reject comments (a `#` would comment out the `]`), and a cut into an illegal target aborts non-destructively. (`project_array`/`array_insert_comment` in `cst_edit.rs`.) (2026-06-09)
 - Editing — **single-line arrays and inline tables now show their value in the VALUE column and edit inline.** A one-line `[1, 2, 3]` / `{ x = 1 }` is projected with its repr as `value` (multiline arrays keep `None`), so `e` edits it in place as a one-line field and commits a structured `Replace`; `Tab` still renames the key. Multiline arrays and nested structured array-elements stay in `$EDITOR`. (`project_array`/`project_inline` in `cst_project.rs`.) (2026-06-09)
