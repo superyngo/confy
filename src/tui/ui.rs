@@ -48,7 +48,7 @@ pub(crate) fn format_label(fmt: Format) -> Option<&'static str> {
 fn type_format_label(row: &RowSnapshot) -> String {
     if row.is_branch {
         match row.type_label.as_str() {
-            "inline" => "table/inline".to_string(),
+            "inline" => "inline-table".to_string(),
             other => other.to_string(),
         }
     } else {
@@ -797,10 +797,10 @@ mod tests {
 
     #[test]
     fn inline_table_column_shows_two_segment_label() {
-        // An inline table reads as `table/inline`; a standard table stays `table`.
+        // An inline table reads as `inline-table`; a standard table stays `table`.
         let lines = render("pt = { x = 1 }\n[srv]\nport = 8080\n", 60, 8);
         let joined = lines.join("\n");
-        assert!(joined.contains("table/inline"), "rows: {joined:?}");
+        assert!(joined.contains("inline-table"), "rows: {joined:?}");
         assert!(
             joined
                 .lines()

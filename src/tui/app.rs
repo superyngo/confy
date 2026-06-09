@@ -804,20 +804,15 @@ impl App {
             };
         }
         // Single-line arrays / inline tables edit inline as their one-line repr (the
-        // projection put it in `value`; a multiline array has `value == None`). Only
-        // a **keyed** one (not a structured array element) — handled by the `Key`
-        // arm below; a structured element stays in $EDITOR.
+        // projection put it in `value`; a multiline array has `value == None`). Both
+        // a keyed one (Key arm) and a structured array element (Index arm) are
+        // addressable; only a multiline array is forced to $EDITOR.
         let structured_inline = matches!(node.kind, NodeKind::Array | NodeKind::InlineTable);
         if !matches!(node.kind, NodeKind::Scalar(_)) && !structured_inline {
             return EditKind::External;
         }
-        if structured_inline {
-            if node.value.is_none() {
-                return EditKind::External; // multiline array
-            }
-            if matches!(path.last(), Some(Seg::Index(_))) {
-                return EditKind::External; // structured array element
-            }
+        if structured_inline && node.value.is_none() {
+            return EditKind::External; // multiline array
         }
         // Multiline strings carry real newlines the single-line inline editor
         // cannot represent — route them to $EDITOR. Keyed on Format (not on a raw
@@ -2937,6 +2932,21 @@ mod tests {
         assert_eq!(pt.value.as_deref(), Some("{ x = 1 }"));
         let ml = app.rows.iter().find(|r| r.key == "ml").unwrap();
         assert_eq!(ml.value, None, "multiline array carries no one-line value");
+    }
+
+    #[test]
+    fn structured_array_element_edits_inline() {
+        // #2: a single-line array / inline table that is an array *element* (not
+        // top-level) is inline-editable, not pushed to $EDITOR.
+        let mut app = app_with("aa = [[1, 2]]\nai = [{ a = 1 }]\n");
+        app.expand_all();
+        app.rebuild_rows();
+        let p_arr = vec![Seg::Key("aa".into()), Seg::Index(0)];
+        let p_inl = vec![Seg::Key("ai".into()), Seg::Index(0)];
+        app.cursor = app.rows.iter().position(|r| r.path == p_arr).unwrap();
+        assert_eq!(app.edit_target_kind(), EditKind::Inline);
+        app.cursor = app.rows.iter().position(|r| r.path == p_inl).unwrap();
+        assert_eq!(app.edit_target_kind(), EditKind::Inline);
     }
 
     #[test]

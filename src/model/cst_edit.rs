@@ -246,24 +246,25 @@ fn replace_value(tree: &SyntaxNode, path: &[Seg], toml: &str) -> Result<(), Muta
         .find(|n| n.kind() == SyntaxKind::VALUE)
         .ok_or_else(|| MutateError::Fragment("fragment has no value".into()))?;
 
-    if let Some(old_tok) = scalar_token(&value) {
-        // Scalar: swap only the scalar token (keeps any EOL comment / array indent).
-        let new_tok = scalar_token(&new_value)
-            .ok_or_else(|| MutateError::Fragment("fragment value is not a scalar".into()))?;
-        let i = old_tok.index();
-        new_tok.detach();
-        value.splice_children(i..i + 1, vec![NodeOrToken::Token(new_tok)]);
-        return Ok(());
-    }
-
-    // Structured value (`$EDITOR` on an array / inline table): swap the ARRAY /
-    // INLINE_TABLE node, preserving the VALUE wrapper and any trailing comment.
-    let old_struct = struct_node(&value).ok_or(MutateError::Unsupported)?;
-    let new_struct = struct_node(&new_value)
-        .ok_or_else(|| MutateError::Fragment("not a structured value".into()))?;
-    let i = old_struct.index();
-    new_struct.detach();
-    value.splice_children(i..i + 1, vec![NodeOrToken::Node(new_struct)]);
+    // Swap the VALUE's content element — a scalar token OR an ARRAY / INLINE_TABLE
+    // node — for the fragment's, preserving the VALUE wrapper and any trailing EOL
+    // comment. Works for every combination, including a scalar↔structured *type
+    // change* (e.g. `5` → `[1, 2]`).
+    let is_content = |c: &taplo::syntax::SyntaxElement| match c {
+        NodeOrToken::Token(t) => is_scalar_kind(t.kind()),
+        NodeOrToken::Node(n) => matches!(n.kind(), SyntaxKind::ARRAY | SyntaxKind::INLINE_TABLE),
+    };
+    let old_content = value
+        .children_with_tokens()
+        .find(&is_content)
+        .ok_or(MutateError::Unsupported)?;
+    let new_content = new_value
+        .children_with_tokens()
+        .find(&is_content)
+        .ok_or_else(|| MutateError::Fragment("fragment has no value".into()))?;
+    let i = old_content.index();
+    new_content.detach();
+    value.splice_children(i..i + 1, vec![new_content]);
     Ok(())
 }
 
@@ -1296,14 +1297,6 @@ fn comment_block_range(parent: &SyntaxNode, first: &SyntaxToken) -> (usize, usiz
     (start, end)
 }
 
-/// The scalar value token of a `VALUE` node (skips trivia and a trailing comment).
-fn scalar_token(value: &SyntaxNode) -> Option<SyntaxToken> {
-    value.children_with_tokens().find_map(|c| match c {
-        NodeOrToken::Token(t) if is_scalar_kind(t.kind()) => Some(t),
-        _ => None,
-    })
-}
-
 fn is_scalar_kind(k: SyntaxKind) -> bool {
     use SyntaxKind as K;
     matches!(
@@ -2023,6 +2016,51 @@ mod tests {
             .unwrap_err();
         assert!(matches!(err, MutateError::Illegal(_)), "got {err:?}");
         assert_eq!(d.serialize(), "arr = [1, 2]\n");
+    }
+
+    #[test]
+    fn replace_scalar_with_array_and_back() {
+        // #1: a scalar↔structured type change round-trips through Replace.
+        let mut d = doc("x = 5\n");
+        d.apply(Mutation::Replace {
+            path: vec![Seg::Key("x".into())],
+            toml: "x = [1, 2]\n".into(),
+            sync_decor: false,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "x = [1, 2]\n");
+        d.apply(Mutation::Replace {
+            path: vec![Seg::Key("x".into())],
+            toml: "x = 9\n".into(),
+            sync_decor: false,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "x = 9\n");
+    }
+
+    #[test]
+    fn replace_scalar_with_inline_table() {
+        let mut d = doc("x = 5\n");
+        d.apply(Mutation::Replace {
+            path: vec![Seg::Key("x".into())],
+            toml: "x = { a = 1 }\n".into(),
+            sync_decor: false,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "x = { a = 1 }\n");
+    }
+
+    #[test]
+    fn replace_structured_array_element() {
+        // #2 write-back: a structured array element (array-of-arrays) swaps in place.
+        let mut d = doc("arr = [[1, 2]]\n");
+        d.apply(Mutation::Replace {
+            path: vec![Seg::Key("arr".into()), Seg::Index(0)],
+            toml: "x = [9]\n".into(),
+            sync_decor: false,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "arr = [[9]]\n");
     }
 
     #[test]
