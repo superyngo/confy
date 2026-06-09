@@ -319,9 +319,12 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                 .clipboard
                 .as_ref()
                 .is_some_and(|cb| cb.sources.contains(&row.path));
-            // Base (non-cursor) appearance: copy/cut source blue, multi-select grey.
+            // Base (non-cursor) appearance: copy source blue, cut source green,
+            // multi-select grey.
             let base = if in_clipboard_source {
-                Style::default().bg(Color::Blue).fg(Color::White)
+                let cut = app.clipboard.as_ref().is_some_and(|cb| cb.cut);
+                let bg = if cut { Color::Green } else { Color::Blue };
+                Style::default().bg(bg).fg(Color::White)
             } else if app.selection.contains(i) {
                 Style::default().bg(Color::DarkGray)
             } else {

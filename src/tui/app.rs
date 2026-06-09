@@ -1386,6 +1386,8 @@ impl App {
             cut: false,
             sources: paths,
         });
+        // Fresh capture: the green line starts at the current cursor (After(cursor)).
+        self.paste_slot = None;
         self.status = Some(format!(
             "copied {} node(s)",
             self.clipboard.as_ref().unwrap().fragments.len()
@@ -1424,6 +1426,8 @@ impl App {
             cut: true,
             sources: paths,
         });
+        // Fresh capture: the green line starts at the current cursor (After(cursor)).
+        self.paste_slot = None;
         self.status = Some(format!(
             "cut {} node(s)",
             self.clipboard.as_ref().unwrap().fragments.len()
@@ -1524,6 +1528,22 @@ impl App {
         if self.doc.is_none() {
             self.clipboard = Some(rebuild(is_cut, &node_entries, &comment_entries));
             return;
+        }
+
+        // Validate the comment destination *before* any mutation: comments need a
+        // table/root decor slot, so a cut must never delete a comment it then can't
+        // paste (which would lose it). Abort non-destructively, keeping the whole
+        // clipboard, so cut behaves like copy on an illegal target.
+        if !comment_entries.is_empty() {
+            let ok = node_at(&self.tree.root, &target.parent)
+                .map(|n| matches!(n.kind, NodeKind::Root | NodeKind::Table))
+                .unwrap_or(false);
+            if !ok {
+                self.clipboard = Some(rebuild(is_cut, &node_entries, &comment_entries));
+                self.status =
+                    Some("paste error: comments can only go into a table or the document".into());
+                return;
+            }
         }
 
         // ---- NODE PHASE ----
@@ -3498,6 +3518,30 @@ mod tests {
             app.doc.as_ref().unwrap().serialize(),
             "a = 1\n[t]\nx = 1\n",
             "document must be untouched"
+        );
+    }
+
+    #[test]
+    fn cut_comment_into_array_rejected_without_losing_it() {
+        // Regression: a cut comment pasted into an array must NOT delete the source
+        // (data loss). It stays in paste mode, the comment survives, error shown.
+        let mut app = app_with("# note\narr = [1]\n");
+        let crow = comment_row(&app);
+        app.cursor = crow;
+        app.cut_selected();
+        let arow = app.rows.iter().position(|r| r.key == "arr").unwrap();
+        app.paste_slot = Some(PasteSlot::Into(arow));
+        app.paste();
+        assert!(app.clipboard.is_some(), "clipboard must be kept");
+        assert!(
+            app.status.as_deref().unwrap_or("").contains("paste error"),
+            "status: {:?}",
+            app.status
+        );
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            "# note\narr = [1]\n",
+            "the comment must not be lost"
         );
     }
 

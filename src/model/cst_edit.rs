@@ -100,8 +100,51 @@ pub(crate) fn serialize_fragment(syntax: &SyntaxNode, path: &[Seg]) -> String {
         // A table / AoT entry: the section's source text (header + its lines).
         Target::Header(h) => section_text(syntax, path, h.index(), false),
         Target::AotEntry(h) => section_text(syntax, &[], h.index(), true),
-        Target::AotGroup | Target::Comment(_) => String::new(),
+        // The whole `[[x]]` group: all of its entries, in order.
+        Target::AotGroup => match aot_group_span(syntax, path) {
+            Some((start, end)) => {
+                let els: Vec<_> = syntax.children_with_tokens().collect();
+                els[start..end]
+                    .iter()
+                    .map(|e| match e {
+                        NodeOrToken::Node(n) => n.to_string(),
+                        NodeOrToken::Token(t) => t.text().to_string(),
+                    })
+                    .collect()
+            }
+            None => String::new(),
+        },
+        Target::Comment(_) => String::new(),
     }
+}
+
+/// The contiguous root-child span `[start, end)` covering every `[[x]]` entry of
+/// the AoT group at `path`. `None` if the group's entries are interleaved with
+/// other sections (so a single splice would touch foreign content) — the
+/// whole-group serialize/replace then bails rather than corrupt.
+fn aot_group_span(tree: &SyntaxNode, path: &[Seg]) -> Option<(usize, usize)> {
+    let mut starts: Vec<usize> = tree
+        .children_with_tokens()
+        .enumerate()
+        .filter_map(|(k, e)| match e {
+            NodeOrToken::Node(n)
+                if n.kind() == SyntaxKind::TABLE_ARRAY_HEADER && header_path(&n) == path =>
+            {
+                Some(k)
+            }
+            _ => None,
+        })
+        .collect();
+    starts.sort_unstable();
+    let first = *starts.first()?;
+    // Contiguity: each entry's strict end must be exactly the next entry's start.
+    for w in starts.windows(2) {
+        if section_end_strict(tree, w[0]) != w[1] {
+            return None;
+        }
+    }
+    let end = section_end_strict(tree, *starts.last()?);
+    Some((first, end))
 }
 
 /// The source text of a `[table]` / `[[aot]]` section starting at `header_idx`,
@@ -145,6 +188,22 @@ fn replace_value(tree: &SyntaxNode, path: &[Seg], toml: &str) -> Result<(), Muta
         .find(|(p, _)| p == path)
         .map(|(_, t)| t.clone())
         .ok_or(MutateError::NotFound)?;
+    // Whole-group replace (`$EDITOR` on an AoT *group* node): swap all of its
+    // `[[x]]` entries for the edited fragment.
+    if let Target::AotGroup = &target {
+        let (start, end) = aot_group_span(tree, path).ok_or(MutateError::Unsupported)?;
+        let parse = taplo::parser::parse(toml);
+        if let Some(e) = parse.errors.first() {
+            return Err(MutateError::Fragment(e.to_string()));
+        }
+        let frag = parse.into_syntax().clone_for_update();
+        let els: Vec<_> = frag.children_with_tokens().collect();
+        for e in &els {
+            e.detach();
+        }
+        tree.splice_children(start..end, els);
+        return Ok(());
+    }
     // Whole-section replace (`$EDITOR` on a `[table]` or `[[aot]]` entry): swap the
     // section's elements for the edited fragment.
     if let Target::Header(header) | Target::AotEntry(header) = &target {
@@ -416,6 +475,17 @@ fn insert_comment(tree: &SyntaxNode, target: &InsTarget, text: &str) -> Result<(
         ));
     }
     let (proj, idx) = walk(tree, "");
+    // Comments live in a table/root's decor — they can't be placed inside an array,
+    // inline table, or AoT group. Reject rather than corrupt.
+    let parent = node_at(&proj.root, &target.parent).ok_or(MutateError::NotFound)?;
+    if !matches!(
+        parent.kind,
+        crate::model::node::NodeKind::Root | crate::model::node::NodeKind::Table
+    ) {
+        return Err(MutateError::Illegal(
+            "comments can only be inserted into a table or the document".into(),
+        ));
+    }
     let at = resolve_insert_at(tree, &proj.root, &idx, target)?;
     // `# …\n` per line, so each comment lands on its own line before the anchor.
     let frag_text = if text.ends_with('\n') {
@@ -1782,6 +1852,31 @@ mod tests {
             .unwrap_err();
         assert!(matches!(err, MutateError::Illegal(_)), "got {err:?}");
         assert_eq!(d.serialize(), "arr = [1]\n");
+    }
+
+    #[test]
+    fn serialize_whole_aot_group_returns_all_entries() {
+        // Regression: editing an AoT *group* node showed blank ($EDITOR got "").
+        let d = doc("[[p]]\nx = 1\n\n[[p]]\nx = 2\n");
+        let frag = d.serialize_fragment(&[Seg::Key("p".into())], false);
+        assert!(
+            frag.contains("[[p]]") && frag.contains("x = 1") && frag.contains("x = 2"),
+            "frag: {frag:?}"
+        );
+    }
+
+    #[test]
+    fn replace_whole_aot_group_swaps_all_entries() {
+        let mut d = doc("[[p]]\nx = 1\n\n[[p]]\nx = 2\n");
+        d.apply(Mutation::Replace {
+            path: vec![Seg::Key("p".into())],
+            toml: "[[p]]\nx = 9\n".into(),
+            sync_decor: true,
+        })
+        .unwrap();
+        let s = d.serialize();
+        assert!(s.contains("x = 9"), "s: {s:?}");
+        assert!(!s.contains("x = 1") && !s.contains("x = 2"), "s: {s:?}");
     }
 
     #[test]
