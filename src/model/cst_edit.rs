@@ -1837,6 +1837,20 @@ mod tests {
     }
 
     #[test]
+    fn replace_single_line_array_value_swaps_it() {
+        // #7 write-back: inline-editing a single-line array commits a structured
+        // Replace that swaps the whole array.
+        let mut d = doc("arr = [1, 2]\n");
+        d.apply(Mutation::Replace {
+            path: vec![Seg::Key("arr".into())],
+            toml: "arr = [9]\n".into(),
+            sync_decor: false,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "arr = [9]\n");
+    }
+
+    #[test]
     fn insert_table_into_array_is_rejected() {
         // D1 ✗ cell: a `[table]` cannot become an array element (hard coerce).
         let mut d = doc("arr = [1]\n");

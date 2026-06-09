@@ -355,6 +355,12 @@ fn project_value_node(value: &SyntaxNode, key: &str, path: Vec<Seg>, idx: &mut C
 
 fn project_array(arr: &SyntaxNode, key: &str, path: Vec<Seg>, idx: &mut CstIndex) -> Node {
     let mut n = branch(key, NodeKind::Array, path.clone());
+    // A single-line array carries its one-line repr as `value` so the VALUE column
+    // shows it and it is inline-editable; a multiline array leaves `value` None.
+    let repr = arr.to_string();
+    if !repr.contains('\n') {
+        n.value = Some(repr);
+    }
     let mut i = 0;
     for c in arr.children() {
         if c.kind() == SyntaxKind::VALUE {
@@ -371,6 +377,12 @@ fn project_array(arr: &SyntaxNode, key: &str, path: Vec<Seg>, idx: &mut CstIndex
 
 fn project_inline(it: &SyntaxNode, key: &str, path: Vec<Seg>, idx: &mut CstIndex) -> Node {
     let mut n = branch(key, NodeKind::InlineTable, path.clone());
+    // Inline tables are single-line; carry the one-line repr as `value` for display
+    // and inline editing (guard on newline anyway, for safety).
+    let repr = it.to_string();
+    if !repr.contains('\n') {
+        n.value = Some(repr);
+    }
     for c in it.children() {
         if c.kind() == SyntaxKind::ENTRY {
             n.children.push(project_entry(&c, &path, idx));
@@ -460,7 +472,13 @@ mod tests {
 
     fn norm(n: &Node, depth: usize, out: &mut String) {
         let pad = "  ".repeat(depth);
-        let val = n.value.as_deref().map(str::trim);
+        // The one-line repr `value` on single-line Array/InlineTable nodes is a
+        // CST-only enhancement (the legacy toml_edit backend leaves it None), so it
+        // is excluded from the projection-parity comparison.
+        let val = match n.kind {
+            NodeKind::Array | NodeKind::InlineTable => None,
+            _ => n.value.as_deref().map(str::trim),
+        };
         out.push_str(&format!(
             "{pad}{:?} key={:?} val={:?} fmt={:?} trail={:?}\n",
             n.kind, n.key, val, n.format, n.trailing_comment

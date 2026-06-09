@@ -803,8 +803,21 @@ impl App {
                 EditKind::External
             };
         }
-        if !matches!(node.kind, NodeKind::Scalar(_)) {
+        // Single-line arrays / inline tables edit inline as their one-line repr (the
+        // projection put it in `value`; a multiline array has `value == None`). Only
+        // a **keyed** one (not a structured array element) — handled by the `Key`
+        // arm below; a structured element stays in $EDITOR.
+        let structured_inline = matches!(node.kind, NodeKind::Array | NodeKind::InlineTable);
+        if !matches!(node.kind, NodeKind::Scalar(_)) && !structured_inline {
             return EditKind::External;
+        }
+        if structured_inline {
+            if node.value.is_none() {
+                return EditKind::External; // multiline array
+            }
+            if matches!(path.last(), Some(Seg::Index(_))) {
+                return EditKind::External; // structured array element
+            }
         }
         // Multiline strings carry real newlines the single-line inline editor
         // cannot represent — route them to $EDITOR. Keyed on Format (not on a raw
@@ -2893,11 +2906,14 @@ mod tests {
         // scalar directly under a [table] → inline
         app.cursor = idx_of(&app, "host");
         assert_eq!(app.edit_target_kind(), EditKind::Inline);
-        // table / array branches → external
+        // a [table] branch → external
         app.cursor = idx_of(&app, "server");
         assert_eq!(app.edit_target_kind(), EditKind::External);
+        // a single-line array / inline table → inline (edited as its one-line repr)
         app.cursor = idx_of(&app, "arr");
-        assert_eq!(app.edit_target_kind(), EditKind::External);
+        assert_eq!(app.edit_target_kind(), EditKind::Inline);
+        app.cursor = idx_of(&app, "pt");
+        assert_eq!(app.edit_target_kind(), EditKind::Inline);
         // scalar element directly in a top-level array → inline
         app.cursor = idx_of(&app, "[0]");
         assert_eq!(app.edit_target_kind(), EditKind::Inline);
@@ -2905,6 +2921,17 @@ mod tests {
         // both address it via an all-`Key` path)
         app.cursor = idx_of(&app, "y");
         assert_eq!(app.edit_target_kind(), EditKind::Inline);
+    }
+
+    #[test]
+    fn single_line_array_and_inline_show_value_multiline_does_not() {
+        let app = app_with("arr = [1, 2]\npt = { x = 1 }\nml = [\n  1,\n]\n");
+        let arr = app.rows.iter().find(|r| r.key == "arr").unwrap();
+        assert_eq!(arr.value.as_deref(), Some("[1, 2]"));
+        let pt = app.rows.iter().find(|r| r.key == "pt").unwrap();
+        assert_eq!(pt.value.as_deref(), Some("{ x = 1 }"));
+        let ml = app.rows.iter().find(|r| r.key == "ml").unwrap();
+        assert_eq!(ml.value, None, "multiline array carries no one-line value");
     }
 
     #[test]
