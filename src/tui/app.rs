@@ -2,7 +2,7 @@ use crate::model::document::{ConfigDocument, Mutation, OnCollision, Target};
 use crate::model::node::{Format, Node, NodeKind, NodeTree, Path, ScalarType, Seg};
 use crate::tui::search::{fuzzy_match, haystack};
 use crate::tui::selection::Selection;
-use crate::tui::state::{Clipboard, EditState, History, Mode, PromptKind};
+use crate::tui::state::{Clipboard, EditState, History, Mode, PasteSlot, PromptKind};
 use std::collections::HashSet;
 
 /// How `e` should edit the cursor node: in-place (single-line scalar directly
@@ -31,6 +31,10 @@ pub struct App {
     pub status: Option<String>,
     pub mode: Mode,
     pub clipboard: Option<Clipboard>,
+    /// Active paste-mode insertion slot. `None` = not navigated, so it defaults to
+    /// `After(cursor)` (the pre-line-paste behavior). Set on copy/cut and as `↑/↓`
+    /// step through slots; reset to `None` on any row rebuild while pasting.
+    pub paste_slot: Option<PasteSlot>,
     /// Filter state: current filter string. When non-empty, rows are filtered.
     pub filter: String,
     /// Caret position (char index) within `filter` while in Filter mode.
@@ -91,6 +95,7 @@ impl App {
             status: None,
             mode: Mode::Normal,
             clipboard: None,
+            paste_slot: None,
             filter: String::new(),
             filter_cursor: 0,
             last_filter: String::new(),
@@ -122,6 +127,7 @@ impl App {
             status: None,
             mode: Mode::Normal,
             clipboard: None,
+            paste_slot: None,
             filter: String::new(),
             filter_cursor: 0,
             last_filter: String::new(),
@@ -175,6 +181,12 @@ impl App {
         if self.cursor >= self.rows.len() {
             self.cursor = self.rows.len().saturating_sub(1);
         }
+        // Row indices in `paste_slot` are invalidated by any structural change
+        // (expand/collapse or mutation), so drop it; `effective_paste_slot` then
+        // falls back to `After(cursor)` near the (re-clamped) cursor.
+        if self.clipboard.is_some() {
+            self.paste_slot = None;
+        }
         // Selection is keyed by row index; any structural change (expand/collapse
         // or a mutation) invalidates those indices, so clear it rather than let it
         // silently point at the wrong rows. Operations read selected_paths() before
@@ -185,11 +197,19 @@ impl App {
         self.rows.iter().map(|r| r.key.clone()).collect()
     }
     pub fn cursor_down(&mut self) {
+        if self.clipboard.is_some() {
+            self.move_paste_slot(1);
+            return;
+        }
         if self.cursor + 1 < self.rows.len() {
             self.cursor += 1;
         }
     }
     pub fn cursor_up(&mut self) {
+        if self.clipboard.is_some() {
+            self.move_paste_slot(-1);
+            return;
+        }
         self.cursor = self.cursor.saturating_sub(1);
     }
     pub fn toggle_expand(&mut self) {
@@ -221,18 +241,102 @@ impl App {
     }
     pub fn page_up(&mut self, page_size: usize) {
         let step = page_size.max(1);
+        if self.clipboard.is_some() {
+            self.move_paste_slot(-(step as isize));
+            return;
+        }
         self.cursor = self.cursor.saturating_sub(step);
     }
     pub fn page_down(&mut self, page_size: usize) {
         let step = page_size.max(1);
+        if self.clipboard.is_some() {
+            self.move_paste_slot(step as isize);
+            return;
+        }
         let max = self.rows.len().saturating_sub(1);
         self.cursor = (self.cursor + step).min(max);
     }
     pub fn cursor_home(&mut self) {
+        if self.clipboard.is_some() {
+            self.move_paste_slot(isize::MIN / 2);
+            return;
+        }
         self.cursor = 0;
     }
     pub fn cursor_end(&mut self) {
+        if self.clipboard.is_some() {
+            self.move_paste_slot(isize::MAX / 2);
+            return;
+        }
         self.cursor = self.rows.len().saturating_sub(1);
+    }
+
+    // ---- Paste-mode insertion slots (line/branch targeting) ----
+
+    /// The merged, top-to-bottom sequence of paste slots over the visible rows:
+    /// each branch row contributes an `Into` (append last child) followed by an
+    /// `After` (line below it); each leaf contributes just an `After`.
+    pub fn paste_slots(&self) -> Vec<PasteSlot> {
+        let mut slots = Vec::with_capacity(self.rows.len() * 2);
+        for (i, row) in self.rows.iter().enumerate() {
+            if row.is_branch {
+                slots.push(PasteSlot::Into(i));
+            }
+            slots.push(PasteSlot::After(i));
+        }
+        slots
+    }
+
+    /// The active slot, defaulting to `After(cursor)` when not yet navigated — so
+    /// a paste right after copy/cut lands exactly where the pre-line-paste cursor
+    /// would have (`resolve_target` parity).
+    pub fn effective_paste_slot(&self) -> PasteSlot {
+        self.paste_slot.unwrap_or(PasteSlot::After(self.cursor))
+    }
+
+    /// Step the active slot by `delta` through `paste_slots`, clamped to range, and
+    /// keep `cursor` on the slot's row so the viewport follows.
+    fn move_paste_slot(&mut self, delta: isize) {
+        let slots = self.paste_slots();
+        if slots.is_empty() {
+            return;
+        }
+        let cur = self.effective_paste_slot();
+        let idx = slots.iter().position(|s| *s == cur).unwrap_or(0) as isize;
+        let max = slots.len() as isize - 1;
+        let next = (idx + delta).clamp(0, max) as usize;
+        let slot = slots[next];
+        self.paste_slot = Some(slot);
+        self.cursor = match slot {
+            PasteSlot::Into(i) | PasteSlot::After(i) => i,
+        };
+    }
+
+    /// Resolve a paste slot to a concrete insertion `Target` (the row index is
+    /// re-checked against the current rows; `None` if it is stale).
+    fn slot_target(&self, slot: PasteSlot) -> Option<Target> {
+        match slot {
+            PasteSlot::Into(i) => {
+                let row = self.rows.get(i)?;
+                let index = node_at(&self.tree.root, &row.path)
+                    .map(|n| n.children.len())
+                    .unwrap_or(0);
+                Some(Target {
+                    parent: row.path.clone(),
+                    index,
+                })
+            }
+            PasteSlot::After(i) => {
+                let row = self.rows.get(i)?;
+                let expanded = self.expanded.contains(&row.path);
+                let sibling_index = self.true_sibling_index(&row.path);
+                Some(crate::tui::insertion::resolve_target(
+                    row,
+                    expanded,
+                    sibling_index,
+                ))
+            }
+        }
     }
     pub fn is_expanded(&self, path: &Path) -> bool {
         self.expanded.contains(path)
@@ -1070,46 +1174,105 @@ impl App {
         }
     }
 
-    /// `a` — insert a new empty-string node (`new_field = ""`) below the cursor
-    /// and immediately open the inline editor on it. (TOML has no null, so the
-    /// neutral placeholder is an empty string; rename the key later via `E`.)
+    /// `a` — insert a new node below/inside the cursor. Routing follows idea 3 / D3:
+    /// an **expanded** branch (or the root) appends as its **last** child; a
+    /// **collapsed** branch or a leaf inserts as the **next sibling**.
+    ///
+    /// The seed is an empty-string scalar (`new_field = ""`, opened in the inline
+    /// editor — TOML has no null). But where a scalar would break TOML's
+    /// table-capture rule at that slot (a sibling right after a `[table]`/`[[aot]]`),
+    /// a same-kind **structured** placeholder is seeded instead (idea 5) — so `a` on
+    /// a collapsed `[table]` adds a sibling `[table]`. Appending a scalar into a
+    /// branch clamps it to the leading region so it stays legal (D5), which also
+    /// lets a root scalar land before the first table.
     pub fn add_node(&mut self) {
         if self.doc.is_none() {
             return;
         }
-        let cursor_row = self.rows.get(self.cursor).cloned();
-        let target = match &cursor_row {
-            Some(r) => {
-                let expanded = self.expanded.contains(&r.path);
-                let sibling_index = self.true_sibling_index(&r.path);
-                crate::tui::insertion::resolve_target(r, expanded, sibling_index)
-            }
-            None => Target {
-                parent: vec![],
-                index: 0,
-            },
+        let cursor_row = match self.rows.get(self.cursor).cloned() {
+            Some(r) => r,
+            None => return,
         };
-        // Choose a key unique within the destination so the insert never collides.
-        let existing: Vec<String> = node_at(&self.tree.root, &target.parent)
+        let expanded = self.expanded.contains(&cursor_row.path);
+        let is_append = cursor_row.path.is_empty() || (cursor_row.is_branch && expanded);
+        let mut target = if is_append {
+            let n = node_at(&self.tree.root, &cursor_row.path)
+                .map(|p| p.children.len())
+                .unwrap_or(0);
+            Target {
+                parent: cursor_row.path.clone(),
+                index: n,
+            }
+        } else {
+            let mut parent = cursor_row.path.clone();
+            parent.pop();
+            Target {
+                parent,
+                index: self.true_sibling_index(&cursor_row.path) + 1,
+            }
+        };
+
+        let parent_node = node_at(&self.tree.root, &target.parent);
+        let parent_is_array = parent_node
+            .map(|n| matches!(n.kind, NodeKind::Array))
+            .unwrap_or(false);
+        // D5 partition split: index of the parent's first sub-table/AoT child.
+        let split = parent_node
+            .map(|p| {
+                p.children
+                    .iter()
+                    .position(|c| matches!(c.kind, NodeKind::Table | NodeKind::ArrayOfTables))
+                    .unwrap_or(p.children.len())
+            })
+            .unwrap_or(0);
+
+        // Appending a scalar into a branch clamps it to the leading region so the
+        // default scalar add stays legal (and a root scalar lands before tables).
+        if is_append && !parent_is_array && target.index > split {
+            target.index = split;
+        }
+
+        let existing: Vec<String> = parent_node
             .map(|p| p.children.iter().map(|c| c.key.clone()).collect())
             .unwrap_or_default();
-        let key = unique_key("new_field", &existing);
+
+        // Seed a scalar where legal; else a same-kind structured placeholder (idea
+        // 5), typed from the node just before the slot (a header). Arrays take a
+        // bare element (the `key` is dropped by `array_insert`).
+        let scalar_legal = parent_is_array || target.index <= split;
+        let placeholder_kind = if scalar_legal {
+            None
+        } else {
+            parent_node
+                .and_then(|p| target.index.checked_sub(1).and_then(|i| p.children.get(i)))
+                .map(|c| c.kind.clone())
+        };
+
         // Ensure the destination branch is expanded so the new node is visible.
         if !target.parent.is_empty() {
             self.expanded.insert(target.parent.clone());
         }
-        // An array parent takes a bare value element at `target.index`; a table
-        // parent takes the seeded `key = ""`. The fragment string is the same
-        // (`insert_fragment` ignores the key for an array), but the new node's path
-        // ends in an `Index` rather than a `Key`.
-        let parent_is_array = node_at(&self.tree.root, &target.parent)
-            .map(|n| matches!(n.kind, NodeKind::Array))
-            .unwrap_or(false);
-        self.apply_insert(target.clone(), format!("{key} = \"\"\n"));
+
+        let (key, fragment, inline) = match placeholder_kind {
+            Some(NodeKind::ArrayOfTables) => {
+                let key = unique_key("placeholder", &existing);
+                (key.clone(), format!("[[{key}]]\n"), false)
+            }
+            Some(_) => {
+                let key = unique_key("placeholder", &existing);
+                (key.clone(), format!("[{key}]\n"), false)
+            }
+            None => {
+                let key = unique_key("new_field", &existing);
+                (key.clone(), format!("{key} = \"\"\n"), true)
+            }
+        };
+
+        self.apply_insert(target.clone(), fragment);
         if self.status.is_some() {
             return; // insert failed; status already set
         }
-        // Locate the freshly inserted row, move the cursor to it, and edit inline.
+        // Locate the freshly inserted row and move the cursor to it.
         let mut new_path = target.parent.clone();
         if parent_is_array {
             new_path.push(Seg::Index(target.index));
@@ -1118,7 +1281,11 @@ impl App {
         }
         if let Some(idx) = self.rows.iter().position(|r| r.path == new_path) {
             self.cursor = idx;
-            self.begin_inline_edit();
+            if inline {
+                self.begin_inline_edit();
+            } else {
+                self.status = Some("added placeholder node — rename with e".into());
+            }
         }
     }
 
@@ -1274,16 +1441,13 @@ impl App {
                 return;
             }
         };
-        let cursor_row = match self.rows.get(self.cursor) {
-            Some(r) => r.clone(),
+        let target = match self.slot_target(self.effective_paste_slot()) {
+            Some(t) => t,
             None => {
                 self.clipboard = Some(cb);
                 return;
             }
         };
-        let expanded = self.expanded.contains(&cursor_row.path);
-        let sibling_index = self.true_sibling_index(&cursor_row.path);
-        let target = crate::tui::insertion::resolve_target(&cursor_row, expanded, sibling_index);
         self.do_paste(cb, target, OnCollision::Cancel);
     }
 
@@ -3049,6 +3213,50 @@ mod tests {
     }
 
     #[test]
+    fn add_on_collapsed_table_adds_sibling_table() {
+        // idea 3 / idea 5: `a` on a collapsed `[t]` adds a sibling `[placeholder]`
+        // (a scalar there would be captured by `[t]`), no inline edit.
+        let mut app = app_with("[t]\nx = 1\n");
+        app.cursor = app.rows.iter().position(|r| r.key == "t").unwrap(); // collapsed
+        app.add_node();
+        assert!(
+            !matches!(app.mode, Mode::Edit(_)),
+            "structured add: no inline"
+        );
+        let s = app.doc.as_ref().unwrap().serialize();
+        assert!(s.contains("[placeholder]"), "serialize: {s:?}");
+        // It is a sibling of [t], not nested inside it.
+        assert!(s.contains("[t]") && s.contains("[placeholder]"));
+    }
+
+    #[test]
+    fn add_on_expanded_table_appends_scalar_child() {
+        // idea 3: `a` on an expanded `[t]` appends a scalar as its last child.
+        let mut app = app_with("[t]\nx = 1\n");
+        app.expanded.insert(vec![Seg::Key("t".into())]);
+        app.rebuild_rows();
+        app.cursor = app.rows.iter().position(|r| r.key == "t").unwrap();
+        app.add_node();
+        assert!(matches!(app.mode, Mode::Edit(_)), "scalar add opens inline");
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            "[t]\nx = 1\nnew_field = \"\"\n"
+        );
+    }
+
+    #[test]
+    fn add_root_scalar_lands_before_first_table() {
+        // D5 clamp: `a` on the root appends a scalar, clamped to before `[t]`.
+        let mut app = app_with("a = 1\n[t]\nx = 1\n");
+        app.cursor = 0; // root
+        app.add_node();
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            "a = 1\nnew_field = \"\"\n[t]\nx = 1\n"
+        );
+    }
+
+    #[test]
     fn toggle_detail_on_branch_shows_kind_and_child_count() {
         let mut app = app_with("[server]\nhost = \"h\"\nport = 8080\n");
         app.expand_all();
@@ -3187,12 +3395,117 @@ mod tests {
     }
 
     #[test]
-    fn paste_error_preserves_clipboard() {
-        // Trying to paste a bare value ("42\n") into a Table/Root parent is a
-        // Fragment error from insert_fragment. The clipboard must survive so the
-        // user can retry at a valid location.
-        let mut app = app_with("a = 1\n");
+    fn paste_slots_interleave_into_then_after() {
+        let mut app = app_with("a = 1\n[t]\nx = 1\n");
+        app.expanded.insert(vec![Seg::Key("t".into())]);
         app.rebuild_rows();
+        // rows: 0 root(branch), 1 a(leaf), 2 [t](branch), 3 t.x(leaf)
+        assert_eq!(
+            app.paste_slots(),
+            vec![
+                PasteSlot::Into(0),
+                PasteSlot::After(0),
+                PasteSlot::After(1),
+                PasteSlot::Into(2),
+                PasteSlot::After(2),
+                PasteSlot::After(3),
+            ]
+        );
+    }
+
+    #[test]
+    fn default_paste_slot_is_after_cursor() {
+        let mut app = app_with("a = 1\nb = 2\n");
+        app.cursor = 1;
+        assert_eq!(app.effective_paste_slot(), PasteSlot::After(1));
+    }
+
+    #[test]
+    fn into_slot_targets_last_child_of_branch() {
+        let mut app = app_with("[t]\nx = 1\ny = 2\n");
+        app.expanded.insert(vec![Seg::Key("t".into())]);
+        app.rebuild_rows();
+        // rows: 0 root, 1 [t], 2 t.x, 3 t.y
+        let target = app.slot_target(PasteSlot::Into(1)).unwrap();
+        assert_eq!(target.parent, vec![Seg::Key("t".into())]);
+        assert_eq!(target.index, 2, "append after both existing children");
+    }
+
+    #[test]
+    fn paste_navigation_steps_slots_and_syncs_cursor() {
+        let mut app = app_with("a = 1\nb = 2\n");
+        // rows: 0 root, 1 a, 2 b → slots [Into(0),After(0),After(1),After(2)]
+        app.cursor = 0;
+        app.clipboard = Some(Clipboard {
+            fragments: vec!["c = 3\n".into()],
+            cut: false,
+            sources: vec![vec![Seg::Key("a".into())]],
+        });
+        assert_eq!(app.effective_paste_slot(), PasteSlot::After(0));
+        app.cursor_down();
+        assert_eq!(app.effective_paste_slot(), PasteSlot::After(1));
+        assert_eq!(app.cursor, 1, "cursor follows the slot's row");
+        app.cursor_up();
+        assert_eq!(app.effective_paste_slot(), PasteSlot::After(0));
+    }
+
+    #[test]
+    fn paste_into_collapsed_branch_appends_as_child() {
+        // [t] collapsed; paste with the Into(t) slot lands inside it (idea 2),
+        // not as a top-level sibling.
+        let mut app = app_with("[t]\nx = 1\n");
+        // rows: 0 root, 1 [t] (collapsed by default)
+        app.cursor = 1;
+        app.clipboard = Some(Clipboard {
+            fragments: vec!["y = 9\n".into()],
+            cut: false,
+            sources: vec![vec![Seg::Key("y".into())]],
+        });
+        app.paste_slot = Some(PasteSlot::Into(1));
+        app.paste();
+        assert!(app.status.is_none(), "unexpected status: {:?}", app.status);
+        let s = app.doc.as_ref().unwrap().serialize();
+        // y must live under [t], after x.
+        let t = s.find("[t]").unwrap();
+        let y = s.find("y = 9").unwrap();
+        assert!(y > t, "y must be inside [t]: {s:?}");
+    }
+
+    #[test]
+    fn paste_scalar_after_table_rejected_preserves_clipboard() {
+        // D5/D4: pasting a scalar into the root slot *after* a table is illegal
+        // (would be captured by the table). The paste must fail non-destructively.
+        let mut app = app_with("a = 1\n[t]\nx = 1\n");
+        // rows: 0 root, 1 a, 2 [t] (collapsed)
+        app.clipboard = Some(Clipboard {
+            fragments: vec!["z = 9\n".into()],
+            cut: false,
+            sources: vec![vec![Seg::Key("a".into())]],
+        });
+        // Aim the slot at "after [t]" (root append, past the header).
+        app.paste_slot = Some(PasteSlot::After(2));
+        app.paste();
+        assert!(
+            app.clipboard.is_some(),
+            "clipboard must survive an illegal paste"
+        );
+        assert!(
+            app.status.as_deref().unwrap_or("").contains("paste error"),
+            "status: {:?}",
+            app.status
+        );
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            "a = 1\n[t]\nx = 1\n",
+            "document must be untouched"
+        );
+    }
+
+    #[test]
+    fn paste_bare_value_into_table_synthesizes_placeholder_key() {
+        // C2 / key+: pasting a bare element value into a Table/Root synthesizes a
+        // `placeholder` key instead of erroring.
+        let mut app = app_with("a = 1\n");
         app.cursor = 0; // root
         app.clipboard = Some(Clipboard {
             fragments: vec!["42\n".into()],
@@ -3200,17 +3513,9 @@ mod tests {
             sources: vec![vec![Seg::Key("a".into())]],
         });
         app.paste();
-        assert!(
-            app.clipboard.is_some(),
-            "clipboard must be preserved after a paste error"
-        );
-        assert!(
-            app.status
-                .as_deref()
-                .map(|s| s.contains("paste error"))
-                .unwrap_or(false),
-            "status must show the error"
-        );
+        assert!(app.status.is_none(), "unexpected status: {:?}", app.status);
+        let s = app.doc.as_ref().unwrap().serialize();
+        assert!(s.contains("placeholder = 42"), "serialize: {s:?}");
     }
 
     #[test]

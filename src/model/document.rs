@@ -85,6 +85,12 @@ pub enum MutateError {
     Collision(String),
     #[error("invalid TOML fragment: {0}")]
     Fragment(String),
+    /// The node type is incompatible with the destination container, or the
+    /// position would break TOML's table-capture rule (a scalar after a `[table]`
+    /// header, or a `[table]` before the keys it would capture). Source-order /
+    /// semantic legality — see the cross-layer-ops plan (D1/D5).
+    #[error("{0}")]
+    Illegal(String),
     #[error("operation not supported by this format")]
     Unsupported,
 }

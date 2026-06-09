@@ -449,22 +449,33 @@ fn insert(
     } else {
         format!("{toml}\n")
     };
-    let parse = taplo::parser::parse(&frag_text);
-    if let Some(e) = parse.errors.first() {
-        return Err(MutateError::Fragment(e.to_string()));
-    }
-    let frag = parse.into_syntax().clone_for_update();
 
     let (proj, idx) = walk(tree, "");
     let parent = node_at(&proj.root, &target.parent).ok_or(MutateError::NotFound)?;
+    let parent_is_array = matches!(parent.kind, crate::model::node::NodeKind::Array);
 
-    // Inserting a bare element into an array (`a` on an array): no key/collision.
-    if matches!(parent.kind, crate::model::node::NodeKind::Array) {
+    // D1 simple adaptation across container types:
+    //  - into an ARRAY we need a bare VALUE: a keyed fragment's key is dropped
+    //    (`key↓`, by `array_insert` reading the VALUE), a bare element parses only
+    //    once wrapped; a `[table]`/`[[aot]]` fragment is rejected (a hard coerce).
+    //  - into a TABLE/root we need a keyed entry: a bare element gets a synthesized
+    //    `placeholder` key (`key+`).
+    let (frag, synthesized_key) = parse_fragment_adapted(&frag_text, parent_is_array)?;
+
+    if parent_is_array {
+        // Bare element into an array (`a` on an array, or `key↓` paste): no collision.
         return array_insert(&idx, &target.parent, target.index, &frag);
     }
 
     let new_key = fragment_first_key(&frag)
         .ok_or_else(|| MutateError::Fragment("fragment has no key".into()))?;
+    // A synthesized `placeholder` key is auto-renamed on collision — the user never
+    // chose it, so a clash shouldn't surface as a prompt/error.
+    let on_collision = if synthesized_key {
+        OnCollision::Rename
+    } else {
+        on_collision
+    };
     let depth = target.parent.len();
     let is_collision = |k: &str| {
         parent
@@ -512,12 +523,93 @@ fn insert(
         }
     }
 
+    check_partition(parent, &frag, target.index)?;
     let at = resolve_insert_at(tree, &proj.root, &idx, target)?;
     let els: Vec<_> = frag.children_with_tokens().collect();
     for e in &els {
         e.detach();
     }
     tree.splice_children(at..at, els);
+    Ok(())
+}
+
+/// The synthesized key for a bare element pasted into a table (`key+`, D1).
+const PLACEHOLDER_KEY: &str = "placeholder";
+
+/// Parse a fragment for insertion into a table (`into_array == false`) or an array
+/// (`true`), adapting across container types (D1 simple adaptation). Returns the
+/// parsed fragment and whether a `placeholder` key was synthesized.
+///
+/// A fragment that parses as a TOML document is used as-is (a keyed entry, or a
+/// `[table]`/`[[aot]]` section). A fragment that does not (a **bare array-element
+/// value** like `42` or `{ a = 1 }`) is wrapped as `placeholder = <value>` so it
+/// becomes a keyed entry — the key is then either kept (table dest, `key+`) or
+/// dropped by `array_insert` (array dest, `key↓`). A `[table]`/`[[aot]]` section
+/// cannot become an array element (a hard coerce), so it is rejected for an array.
+fn parse_fragment_adapted(
+    frag_text: &str,
+    into_array: bool,
+) -> Result<(SyntaxNode, bool), MutateError> {
+    let parse = taplo::parser::parse(frag_text);
+    if parse.errors.is_empty() {
+        let node = parse.into_syntax().clone_for_update();
+        if into_array
+            && node.descendants().any(|n| {
+                matches!(
+                    n.kind(),
+                    SyntaxKind::TABLE_HEADER | SyntaxKind::TABLE_ARRAY_HEADER
+                )
+            })
+        {
+            return Err(MutateError::Illegal(
+                "a table cannot be pasted as an array element".into(),
+            ));
+        }
+        return Ok((node, false));
+    }
+    // Not a standalone document — try treating it as a bare value with a key.
+    let wrapped = format!("{PLACEHOLDER_KEY} = {}\n", frag_text.trim_end());
+    let parse2 = taplo::parser::parse(&wrapped);
+    match parse2.errors.first() {
+        Some(e) => Err(MutateError::Fragment(e.to_string())),
+        None => Ok((parse2.into_syntax().clone_for_update(), true)),
+    }
+}
+
+/// D5 (TOML table-capture): within a table/root the legal layout is partitioned —
+/// a leading region (scalars / arrays / inline tables) then a header region
+/// (sub-`[table]` / `[[aot]]`). A `[table]`/`[[aot]]` header before the keys above
+/// it would capture them; a plain key after a header would be re-keyed into that
+/// section. So a header-like fragment may only land at index `>= split`, a leaf-like
+/// one only at index `<= split`, where `split` is the parent's first sub-table/AoT
+/// child index (or `len` when it has none).
+fn check_partition(parent: &Node, frag: &SyntaxNode, index: usize) -> Result<(), MutateError> {
+    use crate::model::node::NodeKind;
+    let len = parent.children.len();
+    // Clamp the append sentinel (callers pass an out-of-range index to mean "end").
+    let index = index.min(len);
+    let split = parent
+        .children
+        .iter()
+        .position(|c| matches!(c.kind, NodeKind::Table | NodeKind::ArrayOfTables))
+        .unwrap_or(len);
+    let header_like = frag.descendants().any(|n| {
+        matches!(
+            n.kind(),
+            SyntaxKind::TABLE_HEADER | SyntaxKind::TABLE_ARRAY_HEADER
+        )
+    });
+    if header_like {
+        if index < split {
+            return Err(MutateError::Illegal(
+                "a table here would capture the keys above it".into(),
+            ));
+        }
+    } else if index > split {
+        return Err(MutateError::Illegal(
+            "a key here would be captured by the table above it".into(),
+        ));
+    }
     Ok(())
 }
 
@@ -1570,6 +1662,126 @@ mod tests {
         })
         .unwrap();
         assert_eq!(d.serialize(), "[s]\nx = 1\ny = 2\n");
+    }
+
+    #[test]
+    fn insert_scalar_after_table_is_rejected() {
+        // D5: a key appended after `[t]` would be re-keyed into `[t]` — reject,
+        // leave the document untouched.
+        let mut d = doc("a = 1\n[t]\nx = 1\n");
+        let err = d
+            .apply(Mutation::Insert {
+                target: InsTarget {
+                    parent: vec![],
+                    index: 9, // append at root end (past [t])
+                },
+                toml: "z = 9\n".into(),
+                on_collision: OnCollision::Cancel,
+            })
+            .unwrap_err();
+        assert!(matches!(err, MutateError::Illegal(_)), "got {err:?}");
+        assert_eq!(d.serialize(), "a = 1\n[t]\nx = 1\n");
+    }
+
+    #[test]
+    fn insert_scalar_before_table_is_ok() {
+        // The split slot (index == first-header index) accepts a leaf: it lands in
+        // the leading region, before the header.
+        let mut d = doc("a = 1\n[t]\nx = 1\n");
+        d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![],
+                index: 1, // between `a` and `[t]`
+            },
+            toml: "b = 2\n".into(),
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "a = 1\nb = 2\n[t]\nx = 1\n");
+    }
+
+    #[test]
+    fn insert_table_before_scalar_is_rejected() {
+        // D5 inverse: a `[t]` placed before `a` would capture `a` — reject.
+        let mut d = doc("a = 1\n");
+        let err = d
+            .apply(Mutation::Insert {
+                target: InsTarget {
+                    parent: vec![],
+                    index: 0,
+                },
+                toml: "[t]\ny = 1\n".into(),
+                on_collision: OnCollision::Cancel,
+            })
+            .unwrap_err();
+        assert!(matches!(err, MutateError::Illegal(_)), "got {err:?}");
+        assert_eq!(d.serialize(), "a = 1\n");
+    }
+
+    #[test]
+    fn insert_keyed_into_array_drops_key() {
+        // C1 / key↓: a keyed fragment pasted into an array keeps only its value.
+        let mut d = doc("arr = [1, 2]\n");
+        d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![Seg::Key("arr".into())],
+                index: 9,
+            },
+            toml: "x = 99\n".into(),
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "arr = [1, 2, 99]\n");
+    }
+
+    #[test]
+    fn insert_bare_value_into_table_synthesizes_key() {
+        // C2 / key+: a bare element value pasted into a table gets a `placeholder` key.
+        let mut d = doc("a = 1\n");
+        d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![],
+                index: 9,
+            },
+            toml: "42\n".into(),
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "a = 1\nplaceholder = 42\n");
+    }
+
+    #[test]
+    fn insert_synthesized_key_auto_renames_on_collision() {
+        // key+ never prompts: a `placeholder` clash auto-suffixes even under Cancel.
+        let mut d = doc("placeholder = 1\n");
+        d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![],
+                index: 9,
+            },
+            toml: "42\n".into(),
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "placeholder = 1\nplaceholder_2 = 42\n");
+    }
+
+    #[test]
+    fn insert_table_into_array_is_rejected() {
+        // D1 ✗ cell: a `[table]` cannot become an array element (hard coerce).
+        let mut d = doc("arr = [1]\n");
+        let err = d
+            .apply(Mutation::Insert {
+                target: InsTarget {
+                    parent: vec![Seg::Key("arr".into())],
+                    index: 9,
+                },
+                toml: "[t]\nx = 1\n".into(),
+                on_collision: OnCollision::Cancel,
+            })
+            .unwrap_err();
+        assert!(matches!(err, MutateError::Illegal(_)), "got {err:?}");
+        assert_eq!(d.serialize(), "arr = [1]\n");
     }
 
     #[test]

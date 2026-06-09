@@ -187,8 +187,21 @@ fn run_event_loop(
                 keys::KeyAction::Home => app.cursor_home(),
                 keys::KeyAction::End => app.cursor_end(),
                 keys::KeyAction::ToggleExpand => {
-                    // Enter/Space: branch toggles expand, leaf opens detail.
-                    if let Some(r) = app.rows.get(app.cursor) {
+                    if app.clipboard.is_some() {
+                        // Paste mode: only the `Into` (on-branch) slot toggles the
+                        // branch; the green-line `After` slot is about the gap, not
+                        // the branch, so Enter/Space is a no-op there.
+                        if matches!(
+                            app.effective_paste_slot(),
+                            crate::tui::state::PasteSlot::Into(_)
+                        ) {
+                            app.toggle_expand();
+                            app.rebuild_rows();
+                            // rebuild reset the slot — keep the user on the branch.
+                            app.paste_slot = Some(crate::tui::state::PasteSlot::Into(app.cursor));
+                        }
+                    } else if let Some(r) = app.rows.get(app.cursor) {
+                        // Enter/Space: branch toggles expand, leaf opens detail.
                         if r.is_branch {
                             app.toggle_expand();
                             app.rebuild_rows();

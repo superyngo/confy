@@ -1,7 +1,7 @@
 use crate::model::node::Format;
 use crate::tui::app::{App, RowSnapshot};
 use crate::tui::keys;
-use crate::tui::state::{EditState, Mode, PromptKind};
+use crate::tui::state::{EditState, Mode, PasteSlot, PromptKind};
 use ratatui::prelude::*;
 use ratatui::widgets::*;
 
@@ -239,11 +239,21 @@ fn draw_column_header(f: &mut Frame, area: Rect) {
 }
 
 fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
-    let rows: Vec<Row> = app
-        .rows
-        .iter()
-        .enumerate()
-        .map(|(i, row)| {
+    // In paste mode, the active insertion slot is the cue (not the plain cursor):
+    // `Into(i)` fills branch row `i` green (append last child); `After(i)` inserts a
+    // standalone green line *below* row `i` (insert as a sibling after it) — a real
+    // separator row, so the node's own text is never restyled.
+    let active_slot = if app.clipboard.is_some() {
+        Some(app.effective_paste_slot())
+    } else {
+        None
+    };
+    let mut rows: Vec<Row> = Vec::with_capacity(app.rows.len() + 1);
+    // Display index (into `rows`, which may include an inserted green line) of the
+    // active paste cue, so the viewport scrolls to it; else the plain cursor.
+    let mut selected_display = app.cursor;
+    for (i, row) in app.rows.iter().enumerate() {
+        {
             let indent = "  ".repeat(row.depth);
             let marker = if row.is_branch {
                 // Every branch — including the root/file node (empty path) — shows
@@ -305,35 +315,47 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                 }
             };
             let is_cursor = i == app.cursor;
-            let clipboard_active = app.clipboard.is_some();
             let in_clipboard_source = app
                 .clipboard
                 .as_ref()
                 .is_some_and(|cb| cb.sources.contains(&row.path));
-            let style = if is_cursor && clipboard_active {
-                // Clipboard active: green cursor signals paste-ready position.
-                // Invalid targets show an error in the status bar on v.
-                Style::default()
-                    .bg(Color::Green)
-                    .fg(Color::Black)
-                    .add_modifier(Modifier::BOLD)
-            } else if is_cursor {
-                Style::default()
-                    .bg(Color::Blue)
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD)
-            } else if in_clipboard_source {
-                // Copy/cut source: blue bg to distinguish from grey multi-select
+            // Base (non-cursor) appearance: copy/cut source blue, multi-select grey.
+            let base = if in_clipboard_source {
                 Style::default().bg(Color::Blue).fg(Color::White)
             } else if app.selection.contains(i) {
                 Style::default().bg(Color::DarkGray)
             } else {
                 Style::default()
             };
+            let style = match active_slot {
+                // Paste mode `Into`: the green branch row (append last child). An
+                // invalid target errors on v. `After` restyles nothing — its cue is
+                // the inserted green line row below.
+                Some(PasteSlot::Into(t)) if t == i => Style::default()
+                    .bg(Color::Green)
+                    .fg(Color::Black)
+                    .add_modifier(Modifier::BOLD),
+                // Clipboard active but this isn't the slot row: no blue cursor.
+                _ if active_slot.is_some() => base,
+                _ if is_cursor => Style::default()
+                    .bg(Color::Blue)
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+                _ => base,
+            };
             let type_cell = type_col_cell(row, is_cursor);
-            Row::new([name_cell, type_cell, value_cell]).style(style)
-        })
-        .collect();
+            if active_slot == Some(PasteSlot::Into(i)) {
+                selected_display = rows.len();
+            }
+            rows.push(Row::new([name_cell, type_cell, value_cell]).style(style));
+        }
+        // The green insertion line below this row when it's the `After` slot.
+        if active_slot == Some(PasteSlot::After(i)) {
+            let expanded = app.is_expanded(&row.path);
+            selected_display = rows.len();
+            rows.push(paste_line_row(row, expanded, area.width));
+        }
+    }
 
     let table = Table::new(
         rows,
@@ -350,9 +372,24 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
     // store the post-render offset back for the next frame.
     let mut state = TableState::default()
         .with_offset(app.table_offset.get())
-        .with_selected(Some(app.cursor));
+        .with_selected(Some(selected_display));
     f.render_stateful_widget(table, area, &mut state);
     app.table_offset.set(state.offset());
+}
+
+/// The standalone green insertion line shown for an `After` paste slot. It is
+/// indented to the depth the pasted node will land at — one level deeper than an
+/// **expanded** branch (the line reads as "first child"), otherwise the row's own
+/// depth (a sibling after it) — matching `resolve_target`.
+fn paste_line_row<'a>(row: &RowSnapshot, expanded: bool, width: u16) -> Row<'a> {
+    let depth = if row.is_branch && expanded {
+        row.depth + 1
+    } else {
+        row.depth
+    };
+    let line = format!("{}{}", "  ".repeat(depth), "─".repeat(width as usize));
+    Row::new([Cell::from(line), Cell::from(""), Cell::from("")])
+        .style(Style::default().fg(Color::Green))
 }
 
 fn draw_status(f: &mut Frame, area: Rect, app: &App) {
