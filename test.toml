@@ -48,10 +48,14 @@ local_time           = 07:32:00.999999
 array_int            = [1, 2, 3]
 array_string         = ["a", "b", "c"]
 array_mixed_format   = [0x1, 0o2, 0b11, 4]
-array_nested         = [[1, 2], [3, 4]]
+array_nested         = [[[1,2,3], 2], [3, 4]]
 array_empty          = []
 array_multiline = [
-  "first",
+  [
+    1,
+    2,
+    3
+  ],
   "second",
   "third",
 ]
