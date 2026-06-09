@@ -1544,12 +1544,17 @@ impl App {
         }
 
         // Validate the comment destination *before* any mutation: comments need a
-        // table/root decor slot, so a cut must never delete a comment it then can't
-        // paste (which would lose it). Abort non-destructively, keeping the whole
-        // clipboard, so cut behaves like copy on an illegal target.
+        // table/root decor slot or a multiline array, so a cut must never delete a
+        // comment it then can't paste (which would lose it). Abort non-destructively,
+        // keeping the whole clipboard, so cut behaves like copy on an illegal target.
         if !comment_entries.is_empty() {
             let ok = node_at(&self.tree.root, &target.parent)
-                .map(|n| matches!(n.kind, NodeKind::Root | NodeKind::Table))
+                .map(|n| match n.kind {
+                    NodeKind::Root | NodeKind::Table => true,
+                    // multiline array (single-line arrays have a one-line `value`)
+                    NodeKind::Array => n.value.is_none(),
+                    _ => false,
+                })
                 .unwrap_or(false);
             if !ok {
                 self.clipboard = Some(rebuild(is_cut, &node_entries, &comment_entries));
@@ -3546,6 +3551,21 @@ mod tests {
             "a = 1\n[t]\nx = 1\n",
             "document must be untouched"
         );
+    }
+
+    #[test]
+    fn cut_comment_paste_into_multiline_array_moves_it() {
+        // #6e: a cut comment can be moved into a multiline array (append slot).
+        let mut app = app_with("# top\narr = [\n  1,\n  2,\n]\n");
+        let crow = comment_row(&app);
+        app.cursor = crow;
+        app.cut_selected();
+        let arow = app.rows.iter().position(|r| r.key == "arr").unwrap();
+        app.paste_slot = Some(PasteSlot::Into(arow));
+        app.paste();
+        assert!(app.status.is_none(), "unexpected status: {:?}", app.status);
+        let s = app.doc.as_ref().unwrap().serialize();
+        assert_eq!(s, "arr = [\n  1,\n  2,\n  # top\n]\n", "got: {s:?}");
     }
 
     #[test]

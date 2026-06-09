@@ -165,9 +165,11 @@ selected node's kind, else the kind of the node just before the insertion slot �
 - **#7 done** (2026-06-09): single-line arrays + inline tables show value in the VALUE
   column and edit inline (`project_array`/`project_inline` carry a one-line `value`;
   `edit_target_kind` routes them; structured `Replace` writes back). Commit `bcd27bb`.
-- **#6 (in progress):** multiline-array interior **comments** as first-class nodes +
-  edit/delete/move on them — projection change in `cst_project`.
-- **Cut(Move) of a bare array element** is still `Unsupported` (Phase C gap).
+- **#6 done** (2026-06-09): multiline-array interior **comments** are first-class —
+  projected (6a), edit (6b), delete (6c), insert/paste (6d, `array_insert_comment`),
+  move (6e). Single-line arrays reject comments; cut-into-illegal aborts safely.
+- **Cut(Move) / reorder of a bare array ELEMENT** is still `Unsupported` (Phase C gap) —
+  distinct from #6 (which is array *comments*). Open follow-up.
 - **CST bug (uncovered):** a *local datetime* (`1979-05-27T07:32:00`) **inside an array**
   projects as `Scalar(LocalDate)` instead of `LocalDatetime` (parity diff vs the legacy
   backend). The committed fixtures have no datetimes-in-arrays, so it is untested.

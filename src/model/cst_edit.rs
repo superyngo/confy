@@ -463,6 +463,113 @@ fn delete_seq_element(arr: &SyntaxNode, vi: usize) {
     arr.splice_children(start..vi + 1, vec![]);
 }
 
+/// Insert a standalone comment line into a *multiline* array at the projected
+/// full-sequence `index` (counting elements + standalone comments alike). The
+/// comment lands on its own line before the slot's element/comment, indented to
+/// match the array's existing lines; an out-of-range index appends before `]`.
+fn array_insert_comment(
+    idx: &CstIndex,
+    array_path: &[Seg],
+    index: usize,
+    text: &str,
+) -> Result<(), MutateError> {
+    let arr = match idx.iter().find(|(p, _)| p == array_path).map(|(_, t)| t) {
+        Some(Target::Entry(entry)) => entry
+            .children()
+            .find(|c| c.kind() == SyntaxKind::VALUE)
+            .and_then(|v| struct_node(&v))
+            .filter(|n| n.kind() == SyntaxKind::ARRAY)
+            .ok_or(MutateError::Unsupported)?,
+        _ => return Err(MutateError::Unsupported),
+    };
+    let els: Vec<_> = arr.children_with_tokens().collect();
+
+    // Indent = the whitespace before the first element/comment line, else two spaces.
+    let indent = els
+        .iter()
+        .enumerate()
+        .find_map(|(i, e)| match e {
+            NodeOrToken::Token(t) if t.kind() == SyntaxKind::WHITESPACE => match els.get(i + 1) {
+                Some(NodeOrToken::Node(n)) if n.kind() == SyntaxKind::VALUE => {
+                    Some(t.text().to_string())
+                }
+                Some(NodeOrToken::Token(c)) if c.kind() == SyntaxKind::COMMENT => {
+                    Some(t.text().to_string())
+                }
+                _ => None,
+            },
+            _ => None,
+        })
+        .unwrap_or_else(|| "  ".to_string());
+
+    // Slot anchors: each VALUE node + each standalone COMMENT token (a COMMENT with a
+    // NEWLINE since the last value), in order, by their `els` position — matching the
+    // projection's full-sequence indexing.
+    let mut slots: Vec<usize> = Vec::new();
+    let mut newline_since_value = true;
+    for (i, e) in els.iter().enumerate() {
+        match e {
+            NodeOrToken::Node(n) if n.kind() == SyntaxKind::VALUE => {
+                slots.push(i);
+                newline_since_value = false;
+            }
+            NodeOrToken::Token(t) => match t.kind() {
+                SyntaxKind::NEWLINE => newline_since_value = true,
+                SyntaxKind::COMMENT if newline_since_value => slots.push(i),
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+
+    let line = comment_line_elements(&indent, text)?;
+    let at = if let Some(&ci) = slots.get(index) {
+        // Before the slot's line: its leading indent WS if present, else the token.
+        if ci > 0
+            && matches!(els.get(ci - 1), Some(NodeOrToken::Token(t)) if t.kind() == SyntaxKind::WHITESPACE)
+        {
+            ci - 1
+        } else {
+            ci
+        }
+    } else {
+        // Append before the closing bracket.
+        els.iter()
+            .position(|e| matches!(e, NodeOrToken::Token(t) if t.kind() == SyntaxKind::BRACKET_END))
+            .ok_or(MutateError::Unsupported)?
+    };
+    arr.splice_children(at..at, line);
+    Ok(())
+}
+
+/// Fresh `WHITESPACE COMMENT NEWLINE` elements for each line of `text`, indented.
+fn comment_line_elements(
+    indent: &str,
+    text: &str,
+) -> Result<Vec<taplo::syntax::SyntaxElement>, MutateError> {
+    let mut s = String::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if !line.starts_with('#') {
+            return Err(MutateError::Fragment(
+                "comment lines must start with #".into(),
+            ));
+        }
+        s.push_str(indent);
+        s.push_str(line);
+        s.push('\n');
+    }
+    let frag = taplo::parser::parse(&s).into_syntax().clone_for_update();
+    let els: Vec<_> = frag.children_with_tokens().collect();
+    for e in &els {
+        e.detach();
+    }
+    Ok(els)
+}
+
 /// Insert a standalone comment block at the projected `target` position. Comments
 /// are independent nodes — no key, no collision.
 fn insert_comment(tree: &SyntaxNode, target: &InsTarget, text: &str) -> Result<(), MutateError> {
@@ -475,16 +582,27 @@ fn insert_comment(tree: &SyntaxNode, target: &InsTarget, text: &str) -> Result<(
         ));
     }
     let (proj, idx) = walk(tree, "");
-    // Comments live in a table/root's decor — they can't be placed inside an array,
-    // inline table, or AoT group. Reject rather than corrupt.
+    use crate::model::node::NodeKind;
     let parent = node_at(&proj.root, &target.parent).ok_or(MutateError::NotFound)?;
-    if !matches!(
-        parent.kind,
-        crate::model::node::NodeKind::Root | crate::model::node::NodeKind::Table
-    ) {
-        return Err(MutateError::Illegal(
-            "comments can only be inserted into a table or the document".into(),
-        ));
+    match parent.kind {
+        NodeKind::Root | NodeKind::Table => {} // decor slot — handled below
+        // A multiline array can hold a standalone comment line; a single-line array
+        // can't (a `#` would comment out the closing bracket). Inline tables / AoT
+        // groups never hold comments.
+        NodeKind::Array if parent.value.is_none() => {
+            return array_insert_comment(&idx, &target.parent, target.index, text);
+        }
+        NodeKind::Array => {
+            return Err(MutateError::Illegal(
+                "cannot add a comment to a single-line array".into(),
+            ));
+        }
+        _ => {
+            return Err(MutateError::Illegal(
+                "comments can only be inserted into a table, the document, or a multiline array"
+                    .into(),
+            ));
+        }
     }
     let at = resolve_insert_at(tree, &proj.root, &idx, target)?;
     // `# …\n` per line, so each comment lands on its own line before the anchor.
@@ -1860,6 +1978,51 @@ mod tests {
         let s = d.serialize();
         assert!(!s.contains("# c"), "comment removed: {s:?}");
         assert!(s.contains("1,") && s.contains("2,"), "elements kept: {s:?}");
+    }
+
+    #[test]
+    fn insert_comment_into_multiline_array() {
+        // #6d: a comment lands on its own indented line before the slot element.
+        let mut d = doc("arr = [\n  1,\n  2,\n]\n");
+        d.apply(Mutation::InsertComment {
+            target: InsTarget {
+                parent: vec![Seg::Key("arr".into())],
+                index: 1,
+            },
+            text: "# note".into(),
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "arr = [\n  1,\n  # note\n  2,\n]\n");
+    }
+
+    #[test]
+    fn insert_comment_appends_at_array_end() {
+        let mut d = doc("arr = [\n  1,\n  2,\n]\n");
+        d.apply(Mutation::InsertComment {
+            target: InsTarget {
+                parent: vec![Seg::Key("arr".into())],
+                index: 9,
+            },
+            text: "# tail".into(),
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "arr = [\n  1,\n  2,\n  # tail\n]\n");
+    }
+
+    #[test]
+    fn insert_comment_into_single_line_array_is_rejected() {
+        let mut d = doc("arr = [1, 2]\n");
+        let err = d
+            .apply(Mutation::InsertComment {
+                target: InsTarget {
+                    parent: vec![Seg::Key("arr".into())],
+                    index: 0,
+                },
+                text: "# x".into(),
+            })
+            .unwrap_err();
+        assert!(matches!(err, MutateError::Illegal(_)), "got {err:?}");
+        assert_eq!(d.serialize(), "arr = [1, 2]\n");
     }
 
     #[test]
