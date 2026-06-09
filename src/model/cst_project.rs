@@ -361,15 +361,55 @@ fn project_array(arr: &SyntaxNode, key: &str, path: Vec<Seg>, idx: &mut CstIndex
     if !repr.contains('\n') {
         n.value = Some(repr);
     }
-    let mut i = 0;
-    for c in arr.children() {
-        if c.kind() == SyntaxKind::VALUE {
-            let mut p = path.clone();
-            p.push(Seg::Index(i));
-            idx.push((p.clone(), Target::ArrayElement(c.clone())));
-            n.children
-                .push(project_value_node(&c, &format!("[{i}]"), p, idx));
-            i += 1;
+    // Array children — elements and *standalone* interior comments — share one
+    // `Seg::Index` slot sequence (like a table's children). A COMMENT on the same
+    // line as the preceding element (no NEWLINE since it) is that element's trailing
+    // comment; a COMMENT after a NEWLINE is a standalone Comment node.
+    let mut k = 0usize;
+    let mut newline_since_value = true; // a comment before any element is standalone
+    for c in arr.children_with_tokens() {
+        match c {
+            NodeOrToken::Node(node) if node.kind() == SyntaxKind::VALUE => {
+                let mut p = path.clone();
+                p.push(Seg::Index(k));
+                idx.push((p.clone(), Target::ArrayElement(node.clone())));
+                n.children
+                    .push(project_value_node(&node, &format!("[{k}]"), p, idx));
+                k += 1;
+                newline_since_value = false;
+            }
+            NodeOrToken::Token(t) => match t.kind() {
+                SyntaxKind::NEWLINE => newline_since_value = true,
+                SyntaxKind::COMMENT => {
+                    let text = t.text().trim().to_string();
+                    let attached = if newline_since_value {
+                        false
+                    } else if let Some(last) = n.children.last_mut() {
+                        // Trailing comment of the element on this line.
+                        last.trailing_comment = Some(text.clone());
+                        true
+                    } else {
+                        false
+                    };
+                    if !attached {
+                        let mut p = path.clone();
+                        p.push(Seg::Index(k));
+                        idx.push((p.clone(), Target::Comment(t.clone())));
+                        n.children.push(Node {
+                            key: text.clone(),
+                            path: p,
+                            kind: NodeKind::Comment(text.clone()),
+                            children: Vec::new(),
+                            value: Some(text),
+                            format: Format::Plain,
+                            trailing_comment: None,
+                        });
+                        k += 1;
+                    }
+                }
+                _ => {}
+            },
+            _ => {}
         }
     }
     n
@@ -463,6 +503,30 @@ mod tests {
         crate::model::cst_doc::CstDocument::load(f.path())
             .unwrap()
             .project()
+    }
+
+    #[test]
+    fn array_interior_comments_project() {
+        // #6a: standalone interior comments become Comment nodes (sharing the
+        // element index slots); a same-line comment is the element's trailing.
+        let t = cst_tree("arr = [\n  1,  # one\n  2,\n  # standalone\n  3,\n]\n");
+        let arr = &t.root.children[0];
+        assert_eq!(arr.kind, NodeKind::Array);
+        assert_eq!(arr.children.len(), 4, "3 elements + 1 standalone comment");
+        assert_eq!(
+            arr.children[0].trailing_comment.as_deref(),
+            Some("# one"),
+            "same-line comment is the element's trailing"
+        );
+        assert!(
+            matches!(arr.children[2].kind, NodeKind::Comment(_))
+                && arr.children[2].key == "# standalone",
+            "standalone comment is a node at slot [2]"
+        );
+        assert_eq!(
+            arr.children[3].key, "[3]",
+            "element after a comment keeps full-sequence index"
+        );
     }
 
     fn toml_tree(src: &str) -> NodeTree {

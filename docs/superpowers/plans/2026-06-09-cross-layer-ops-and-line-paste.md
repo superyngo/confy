@@ -161,6 +161,18 @@ selected node's kind, else the kind of the node just before the insertion slot �
 - **`a` stays cursor-relative** — no green-line placement mode; it applies the idea-3 rules
   directly to the cursor row.
 
+## Follow-up work / backlog
+- **#7 done** (2026-06-09): single-line arrays + inline tables show value in the VALUE
+  column and edit inline (`project_array`/`project_inline` carry a one-line `value`;
+  `edit_target_kind` routes them; structured `Replace` writes back). Commit `bcd27bb`.
+- **#6 (in progress):** multiline-array interior **comments** as first-class nodes +
+  edit/delete/move on them — projection change in `cst_project`.
+- **Cut(Move) of a bare array element** is still `Unsupported` (Phase C gap).
+- **CST bug (uncovered):** a *local datetime* (`1979-05-27T07:32:00`) **inside an array**
+  projects as `Scalar(LocalDate)` instead of `LocalDatetime` (parity diff vs the legacy
+  backend). The committed fixtures have no datetimes-in-arrays, so it is untested.
+  Suspect `scalar_kind` / taplo token kind for an array element. Deferred.
+
 ## Out of scope (v1)
 - Hard coercions (`[table]`↔inline, →array element, →AoT entry) — the ✗ cells.
 - ←/→ depth picker on the green line (D2 fixed default instead).

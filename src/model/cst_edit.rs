@@ -1837,6 +1837,32 @@ mod tests {
     }
 
     #[test]
+    fn edit_array_interior_comment() {
+        // #6b: a standalone comment inside a multiline array edits in place.
+        let mut d = doc("arr = [\n  1,\n  # c\n  2,\n]\n");
+        d.apply(Mutation::EditComment {
+            path: vec![Seg::Key("arr".into()), Seg::Index(1)],
+            text: "# changed".into(),
+        })
+        .unwrap();
+        let s = d.serialize();
+        assert!(s.contains("# changed") && !s.contains("# c\n"), "s: {s:?}");
+    }
+
+    #[test]
+    fn delete_array_interior_comment() {
+        // #6c: deleting a standalone array comment removes it (and its line).
+        let mut d = doc("arr = [\n  1,\n  # c\n  2,\n]\n");
+        d.apply(Mutation::Delete {
+            path: vec![Seg::Key("arr".into()), Seg::Index(1)],
+        })
+        .unwrap();
+        let s = d.serialize();
+        assert!(!s.contains("# c"), "comment removed: {s:?}");
+        assert!(s.contains("1,") && s.contains("2,"), "elements kept: {s:?}");
+    }
+
+    #[test]
     fn replace_single_line_array_value_swaps_it() {
         // #7 write-back: inline-editing a single-line array commits a structured
         // Replace that swaps the whole array.
