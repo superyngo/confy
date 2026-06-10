@@ -9,6 +9,10 @@ pub enum Mode {
     /// `Normal` for navigation and edits, but the filter stays applied; `/` reopens
     /// the input (prefilled) to refine, and Esc clears the filter.
     FilterResults,
+    /// The `f` type-filter checkbox popup is open. Arrows move the cursor, Space
+    /// toggles the focused cell, Enter applies (locks into `FilterResults`/`Normal`),
+    /// Esc peels the type filter off. The tree filters live in the background.
+    TypeFilter,
     Detail,
     Help,
     Edit(EditState),

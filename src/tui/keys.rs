@@ -32,6 +32,7 @@ pub enum KeyAction {
     Escape,
     Quit,
     Filter,
+    TypeFilter,
     Help,
     Noop,
 }
@@ -70,6 +71,7 @@ pub fn map_key(key: KeyEvent) -> KeyAction {
         (KeyCode::Esc, _) => KeyAction::Escape,
         (KeyCode::Char('q'), _) => KeyAction::Quit,
         (KeyCode::Char('/'), _) => KeyAction::Filter,
+        (KeyCode::Char('f'), _) => KeyAction::TypeFilter,
         (KeyCode::Char('?'), _) => KeyAction::Help,
         _ => KeyAction::Noop,
     }
@@ -88,7 +90,7 @@ pub fn help_text() -> &'static str {
  ←/→          Toggle bool / ±1 number    a   Add node
  d            Delete            x/c/v       Cut/copy/paste
  r            Remark toggle     z/y         Undo/redo
- /            Fuzzy filter
+ /            Fuzzy filter      f           Type filter (checkbox menu)
  /…Enter      Lock in filtered list   Esc   Clear filter / selection
  w/Ctrl+s     Save              q           Quit
  ?            This help

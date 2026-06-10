@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- TUI — **`f` type-filter checkbox popup**. `f` opens a modal menu for filtering the tree by a node's type facets — the same facets the KIND column shows. Two halves: **key sign** (`(B)/(Q)/(D)/(-)`) and **type** (`[G]` root, `[C]` comment, arrays, tables incl. `[A/T]`, strings, integers, floats, bool, dates), each multi-format group with an **`all`** quick-toggle row. Selections within a half **union**; the two halves **intersect** (AND); an empty half is no constraint. The `all` rows are tristate (`[x]`/`[~]`/`[ ]`). Arrows move the cursor (header rows skipped), Space toggles, the tree filters **live** in the background, Enter locks the result into the existing `FilterResults` browse mode, Esc peels the type filter off. Composes with the `/` text filter via AND intersection; when both are active Esc peels **one layer at a time** (most-recently-applied first) and the status bar shows both `[filter: …]` and `[type: N]`. New `tui/type_filter.rs` module (`TypeToken`/`classify` mirror `type_tag` so the popup and KIND column can't drift); new `Mode::TypeFilter`. (2026-06-10)
+
 ## [v0.5.0] - 2026-06-10
 
 ### Added

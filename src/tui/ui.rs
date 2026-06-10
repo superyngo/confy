@@ -189,6 +189,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     draw_prompt_overlay(f, app);
     draw_detail_overlay(f, app);
     draw_help_overlay(f, app);
+    draw_type_filter_overlay(f, app);
 }
 
 fn draw_title(f: &mut Frame, area: Rect, app: &App) {
@@ -457,20 +458,23 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
     // In the filtered-result selection mode, surface that the list is still
     // filtered (and how to clear/refine it) rather than the generic hints.
     if matches!(app.mode, Mode::FilterResults) {
+        // Tag prefix surfacing each active filter layer (text and/or type).
+        let mut tags = String::new();
+        if !app.last_filter.is_empty() {
+            tags.push_str(&format!("[filter: {}] ", app.last_filter));
+        }
+        let n_types = app.type_filter.key_signs.len() + app.type_filter.types.len();
+        if n_types > 0 {
+            tags.push_str(&format!("[type: {n_types}] "));
+        }
         let status = if let Some(cb) = &app.clipboard {
             let n = cb.fragments.len();
             let kind = if cb.cut { "cut" } else { "copied" };
-            format!(
-                " [filter: {}] {n} {kind} — v:paste  c/x:toggle  Esc:discard",
-                app.last_filter
-            )
+            format!(" {tags}{n} {kind} — v:paste  c/x:toggle  Esc:discard")
         } else {
             match &app.status {
-                Some(msg) => format!(" [filter: {}] {msg}", app.last_filter),
-                None => format!(
-                    " [filter: {}] {pos}/{total} | esc:clear  /:refine",
-                    app.last_filter
-                ),
+                Some(msg) => format!(" {tags}{msg}"),
+                None => format!(" {tags}{pos}/{total} | esc:clear  /:refine  f:type"),
             }
         };
         let paragraph =
@@ -599,6 +603,78 @@ fn draw_help_overlay(f: &mut Frame, app: &App) {
     f.render_widget(paragraph, area);
 }
 
+fn draw_type_filter_overlay(f: &mut Frame, app: &App) {
+    if !matches!(app.mode, Mode::TypeFilter) {
+        return;
+    }
+    use crate::tui::type_filter::{layout, CheckState, LayoutRow};
+    let tf = &app.type_filter;
+
+    let check = |state: CheckState| match state {
+        CheckState::On => "[x]",
+        CheckState::Partial => "[~]",
+        CheckState::Off => "[ ]",
+    };
+
+    // Build the popup body, walking the layout and tracking which navigable row
+    // index each cell row is, so the focused cell can be highlighted. We also
+    // remember the body line index of the focused row to keep it on-screen when
+    // the menu is taller than the terminal.
+    let mut lines: Vec<Line> = Vec::new();
+    let mut nav_row = 0usize;
+    let mut focused_line = 0u16;
+    for row in layout() {
+        match row {
+            LayoutRow::Header(h) => lines.push(Line::from(Span::styled(
+                format!(" {h}"),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ))),
+            LayoutRow::Cells(cells) => {
+                let mut spans = vec![Span::raw("   ")];
+                for (col, cell) in cells.iter().enumerate() {
+                    let focused = nav_row == tf.row && col == tf.col;
+                    if focused {
+                        focused_line = lines.len() as u16;
+                    }
+                    let state = tf.cell_state(*cell);
+                    let text = format!("{} {:<16}", check(state), cell.label());
+                    let mut style = Style::default();
+                    if state != CheckState::Off {
+                        style = style.fg(Color::Green);
+                    }
+                    if focused {
+                        style = style.add_modifier(Modifier::REVERSED);
+                    }
+                    spans.push(Span::styled(text, style));
+                }
+                lines.push(Line::from(spans));
+                nav_row += 1;
+            }
+        }
+    }
+
+    // Size the popup to its content but cap at the terminal height; when capped,
+    // scroll just enough to keep the focused row visible (roughly centered).
+    let height = (lines.len() as u16 + 2).min(f.area().height);
+    let area = centered_rect(60, height, f.area());
+    let inner_h = area.height.saturating_sub(2);
+    let max_scroll = (lines.len() as u16).saturating_sub(inner_h);
+    let scroll = if max_scroll == 0 {
+        0
+    } else {
+        focused_line.saturating_sub(inner_h / 2).min(max_scroll)
+    };
+    f.render_widget(Clear, area);
+    let block = Block::default()
+        .title(" Type filter (AND across halves) ")
+        .title_bottom(" ↑↓←→ move · Space toggle · Enter apply · Esc clear ")
+        .borders(Borders::ALL)
+        .style(Style::default().bg(Color::Black).fg(Color::White));
+    f.render_widget(Paragraph::new(lines).block(block).scroll((scroll, 0)), area);
+}
+
 fn centered_rect(percent_x: u16, height: u16, r: Rect) -> Rect {
     let popup_width = (r.width * percent_x / 100).min(r.width);
     let h = height.min(r.height);
@@ -654,6 +730,65 @@ mod tests {
                     .to_string()
             })
             .collect()
+    }
+
+    #[test]
+    fn type_filter_popup_renders_with_checkboxes() {
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        f.write_all(b"port = 8080\n").unwrap();
+        let doc = crate::model::cst_doc::CstDocument::load(f.path()).unwrap();
+        let mut app = App::new(doc);
+        app.enter_type_filter();
+        app.type_filter_toggle(); // toggle the focused cell on
+        let mut terminal = Terminal::new(TestBackend::new(70, 40)).unwrap();
+        terminal.draw(|fr| draw(fr, &app)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let joined: String = (0..40)
+            .map(|y| (0..70).map(|x| buf[(x, y)].symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            joined.contains("Type filter"),
+            "popup title missing: {joined:?}"
+        );
+        assert!(
+            joined.contains("(B) bare"),
+            "key-sign cell missing: {joined:?}"
+        );
+        assert!(
+            joined.contains("[x]"),
+            "a toggled checkbox should show: {joined:?}"
+        );
+        assert!(
+            joined.contains("[ ]"),
+            "an empty checkbox should show: {joined:?}"
+        );
+    }
+
+    #[test]
+    fn type_filter_popup_scrolls_to_keep_cursor_visible() {
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        f.write_all(b"port = 8080\n").unwrap();
+        let doc = crate::model::cst_doc::CstDocument::load(f.path()).unwrap();
+        let mut app = App::new(doc);
+        app.enter_type_filter();
+        app.type_filter_move(1000, 0); // jump to the last (Date) row
+                                       // Short terminal: the full menu can't fit, so it must scroll.
+        let mut terminal = Terminal::new(TestBackend::new(70, 16)).unwrap();
+        terminal.draw(|fr| draw(fr, &app)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let joined: String = (0..16)
+            .map(|y| (0..70).map(|x| buf[(x, y)].symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            joined.contains("[D:ltim]"),
+            "bottom cell should scroll into view: {joined:?}"
+        );
+        assert!(
+            !joined.contains("(B) bare"),
+            "top cell should have scrolled off: {joined:?}"
+        );
     }
 
     #[test]

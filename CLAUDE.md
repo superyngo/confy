@@ -118,8 +118,9 @@ that (repeated presses ascend). Both re-find the cursor by path after `rebuild_r
 or **Esc** clears the filter back to `Mode::Normal`. `App.last_filter` remembers the last committed
 query so `/` (`enter_filter`) prefills it and re-applies the live filter. `FilterResults` reuses the
 Normal key dispatch (no early-return block); its only differences are mode-aware `escape`
-(`exit_filter_results`, keeps `last_filter`) and `/` (`enter_filter`, to refine). Esc fully unfilters
-(`filtered_paths = None`) — `last_filter` is pure memory, never a persisted filter. The fuzzy query
+(`exit_filter_results`, keeps `last_filter`) and `/` (`enter_filter`, to refine). Esc peels **one**
+filter layer (`exit_filter_results`; the text layer when only `/` is active) — `last_filter` is pure
+memory, never a persisted filter. The fuzzy query
 matches a node's **key/path** plus a **Comment node's own text** (`recompute_filter` builds the haystack
 from the path's `Seg::Key` segments — positional nodes contribute none — and appends the comment text
 for a Comment node); a scalar's **value is never matched** — this keeps a loose query from fuzzily hitting unrelated
@@ -129,6 +130,23 @@ query, not the mode, so the highlight survives an inline edit / detail popup; a 
 shows its text, so its match highlights there too). Transient overlays (detail popup,
 inline editor) close back into the filtered selection via `App::resting_mode` (`FilterResults` when
 `filtered_paths.is_some()`, else `Normal`) — `exit_detail`/`edit_cancel`/`edit_commit` use it.
+
+**Type filter.** `f` opens `Mode::TypeFilter`, a modal checkbox popup (`tui/type_filter.rs`) that
+filters by a node's **type facets** — the same `KeySign`/`NodeKind`/`Format` the KIND column shows.
+`TypeToken` enumerates one leaf atom per KIND slot and `classify(kind, format)` is the arm-for-arm
+inverse of `type_tag` (so popup and column can't drift). The popup has two halves — **key sign**
+(`(B)/(Q)/(D)/(-)`) and **type** (root/comment + array/table/string/integer/float/bool/date groups,
+`[A/T]` grouped under tables) — each multi-format group carrying an **`all`** quick-toggle row that
+is **tristate** (`group_state`: `[x]` all / `[~]` some / `[ ]` none; Space selects-or-clears the
+whole group). `TypeFilter::matches` ANDs the two halves and unions within each; an empty half is no
+constraint (`is_active` gates the whole filter). `layout()` is the single source of truth for both
+render and nav; `nav_rows()` drops headers so the `(row,col)` cursor only lands on cells. The popup
+filters **live** (every `type_filter_toggle` recomputes), Enter (`commit_type_filter`) closes into
+`resting_mode`, Esc (`exit_type_filter`) clears the type selections. `recompute_filter` now builds
+`filtered_paths` as the **AND intersection** of the `/` text match and the type match (matched nodes
+keep ancestors). When both filters are active, Esc in `FilterResults` peels **one layer at a time**
+via `App.last_filter_applied: Option<FilterLayer>` (most-recently-applied first); the status bar
+shows `[filter: …]` and/or `[type: N]`.
 
 **Multi-select.** `Selection` holds `committed` (finalized rows + `s` toggles) and an in-progress
 `round` (`anchor..=cursor`); the live set is their union. A Shift+Arrow run extends `round`; the next
@@ -186,6 +204,7 @@ src/
     insertion.rs   §6.1 insertion-target resolution from cursor
     selection.rs   multi-select + range select + §6.2 normalization
     search.rs      fuzzy filter state + haystack builder
+    type_filter.rs type-filter (`f`) facets: TypeToken/classify, TypeFilter predicate, popup layout+nav
     editor.rs      $EDITOR integration (external edit for nested array/table)
     ui.rs          ratatui rendering: title bar + NAME/TYPE/VALUE column header + tree Table, detail popup, help, prompts
 tests/

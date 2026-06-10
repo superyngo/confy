@@ -52,7 +52,7 @@ pub enum Format {
 /// (array elements, comments, AoT entries, Root). Derived read-only during
 /// projection, like `Format`. A dotted-key entry (`a.b.c = 1`) collapses into
 /// one node, which is `Dotted`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum KeySign {
     Bare,
     Quoted,

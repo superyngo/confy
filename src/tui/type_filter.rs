@@ -1,0 +1,482 @@
+//! Type-filter state for the `f` checkbox popup.
+//!
+//! Filters the tree by a node's **type facets** — the same facets the KIND column
+//! shows (`KeySign`, `NodeKind`, `Format`). Two independent dimensions:
+//!
+//! * **Key sign** (`key_signs`): `(B)/(Q)/(D)/(-)` — a node matches if its key
+//!   sign is in the set.
+//! * **Type** (`types`): one [`TypeToken`] per KIND-column slot — a node matches
+//!   if `classify(kind, format)` is in the set.
+//!
+//! Within each half the selections **union**; across halves they **intersect**
+//! (see [`TypeFilter::matches`]). An empty half imposes no constraint. The popup
+//! is laid out as [`layout`] rows; the cursor (`row`/`col`) walks the selectable
+//! cells only (headers are skipped during navigation).
+
+use crate::model::node::{Format, KeySign, NodeKind, ScalarType};
+use std::collections::HashSet;
+
+/// A leaf type atom — one per KIND-column slot. Mirrors `type_tag` in `app.rs`
+/// so the popup and the KIND column can never drift apart (see [`classify`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TypeToken {
+    Root,
+    Comment,
+    ArrayInline,
+    ArrayMultiline,
+    Aot,
+    InlineTable,
+    TableScope,
+    StrBasic,
+    StrMBasic,
+    StrLit,
+    StrMLit,
+    IntDec,
+    IntHex,
+    IntOct,
+    IntBin,
+    FloatPlain,
+    FloatInf,
+    FloatNan,
+    Bool,
+    Odt,
+    Ldt,
+    LDate,
+    LTime,
+}
+
+/// Map a node's `(kind, format)` to its [`TypeToken`] — the inverse of
+/// `type_tag`'s slot match (kept arm-for-arm identical).
+pub fn classify(kind: &NodeKind, format: Format) -> TypeToken {
+    match kind {
+        NodeKind::Root => TypeToken::Root,
+        NodeKind::Comment(_) => TypeToken::Comment,
+        NodeKind::Array => match format {
+            Format::Multiline => TypeToken::ArrayMultiline,
+            _ => TypeToken::ArrayInline,
+        },
+        NodeKind::ArrayOfTables => TypeToken::Aot,
+        NodeKind::InlineTable => TypeToken::InlineTable,
+        NodeKind::Table => TypeToken::TableScope,
+        NodeKind::Scalar(st) => match (st, format) {
+            (ScalarType::String, Format::MultilineBasic) => TypeToken::StrMBasic,
+            (ScalarType::String, Format::Literal) => TypeToken::StrLit,
+            (ScalarType::String, Format::MultilineLiteral) => TypeToken::StrMLit,
+            (ScalarType::String, _) => TypeToken::StrBasic,
+            (ScalarType::Integer, Format::Hex) => TypeToken::IntHex,
+            (ScalarType::Integer, Format::Octal) => TypeToken::IntOct,
+            (ScalarType::Integer, Format::Binary) => TypeToken::IntBin,
+            (ScalarType::Integer, _) => TypeToken::IntDec,
+            (ScalarType::Float, Format::Inf) => TypeToken::FloatInf,
+            (ScalarType::Float, Format::Nan) => TypeToken::FloatNan,
+            (ScalarType::Float, _) => TypeToken::FloatPlain,
+            (ScalarType::Bool, _) => TypeToken::Bool,
+            (ScalarType::OffsetDatetime, _) => TypeToken::Odt,
+            (ScalarType::LocalDatetime, _) => TypeToken::Ldt,
+            (ScalarType::LocalDate, _) => TypeToken::LDate,
+            (ScalarType::LocalTime, _) => TypeToken::LTime,
+        },
+    }
+}
+
+/// A multi-format category whose `all` row quick-toggles every member token.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Group {
+    Array,
+    Table,
+    String,
+    Integer,
+    Float,
+    Date,
+}
+
+impl Group {
+    /// The leaf tokens this group's `all` row toggles. `[A/T]` is grouped under
+    /// Table per the spec.
+    pub fn tokens(self) -> &'static [TypeToken] {
+        use TypeToken::*;
+        match self {
+            Group::Array => &[ArrayInline, ArrayMultiline],
+            Group::Table => &[Aot, InlineTable, TableScope],
+            Group::String => &[StrBasic, StrMBasic, StrLit, StrMLit],
+            Group::Integer => &[IntDec, IntHex, IntOct, IntBin],
+            Group::Float => &[FloatPlain, FloatInf, FloatNan],
+            Group::Date => &[Odt, Ldt, LDate, LTime],
+        }
+    }
+}
+
+/// One selectable checkbox in the popup grid.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Cell {
+    Sign(KeySign),
+    All(Group),
+    Token(TypeToken),
+}
+
+impl Cell {
+    /// Display label (the checkbox prefix is added by the renderer).
+    pub fn label(self) -> &'static str {
+        match self {
+            Cell::All(_) => "all",
+            Cell::Sign(s) => match s {
+                KeySign::Bare => "(B) bare",
+                KeySign::Quoted => "(Q) quoted",
+                KeySign::Dotted => "(D) dotted",
+                KeySign::None => "(-) no key",
+            },
+            Cell::Token(t) => token_label(t),
+        }
+    }
+}
+
+fn token_label(t: TypeToken) -> &'static str {
+    use TypeToken::*;
+    match t {
+        Root => "[G] root",
+        Comment => "[C] comment",
+        ArrayInline => "[A/I] inline",
+        ArrayMultiline => "[A/M] multiline",
+        Aot => "[A/T] aot",
+        InlineTable => "[T/I] inline-tbl",
+        TableScope => "[T/S] scope",
+        StrBasic => "[S:str ]",
+        StrMBasic => "[S:mstr]",
+        StrLit => "[S:lit ]",
+        StrMLit => "[S:mlit]",
+        IntDec => "[I:dec ]",
+        IntHex => "[I:hex ]",
+        IntOct => "[I:oct ]",
+        IntBin => "[I:bin ]",
+        FloatPlain => "[F:flt ]",
+        FloatInf => "[F:inf ]",
+        FloatNan => "[F:nan ]",
+        Bool => "[B:bool]",
+        Odt => "[D:odt ]",
+        Ldt => "[D:ldt ]",
+        LDate => "[D:ldat]",
+        LTime => "[D:ltim]",
+    }
+}
+
+/// A row in the popup layout: a non-selectable section header or a row of cells.
+pub enum LayoutRow {
+    Header(&'static str),
+    Cells(Vec<Cell>),
+}
+
+/// The full popup layout (headers + cell rows), the single source of truth for
+/// both rendering and navigation. [`nav_rows`] derives the navigable grid from it.
+pub fn layout() -> Vec<LayoutRow> {
+    use Cell::*;
+    use Group as G;
+    use KeySign as K;
+    use TypeToken as T;
+    vec![
+        LayoutRow::Header("Key sign"),
+        LayoutRow::Cells(vec![Sign(K::Bare), Sign(K::Quoted)]),
+        LayoutRow::Cells(vec![Sign(K::Dotted), Sign(K::None)]),
+        LayoutRow::Header("Type"),
+        LayoutRow::Cells(vec![Token(T::Root), Token(T::Comment)]),
+        LayoutRow::Header("Arrays"),
+        LayoutRow::Cells(vec![All(G::Array)]),
+        LayoutRow::Cells(vec![Token(T::ArrayInline), Token(T::ArrayMultiline)]),
+        LayoutRow::Header("Tables"),
+        LayoutRow::Cells(vec![All(G::Table)]),
+        LayoutRow::Cells(vec![Token(T::Aot), Token(T::InlineTable)]),
+        LayoutRow::Cells(vec![Token(T::TableScope)]),
+        LayoutRow::Header("String"),
+        LayoutRow::Cells(vec![All(G::String)]),
+        LayoutRow::Cells(vec![Token(T::StrBasic), Token(T::StrMBasic)]),
+        LayoutRow::Cells(vec![Token(T::StrLit), Token(T::StrMLit)]),
+        LayoutRow::Header("Integer"),
+        LayoutRow::Cells(vec![All(G::Integer)]),
+        LayoutRow::Cells(vec![Token(T::IntDec), Token(T::IntHex)]),
+        LayoutRow::Cells(vec![Token(T::IntOct), Token(T::IntBin)]),
+        LayoutRow::Header("Float"),
+        LayoutRow::Cells(vec![All(G::Float)]),
+        LayoutRow::Cells(vec![
+            Token(T::FloatPlain),
+            Token(T::FloatInf),
+            Token(T::FloatNan),
+        ]),
+        LayoutRow::Header("Bool"),
+        LayoutRow::Cells(vec![Token(T::Bool)]),
+        LayoutRow::Header("Date"),
+        LayoutRow::Cells(vec![All(G::Date)]),
+        LayoutRow::Cells(vec![Token(T::Odt), Token(T::Ldt)]),
+        LayoutRow::Cells(vec![Token(T::LDate), Token(T::LTime)]),
+    ]
+}
+
+/// The navigable grid (cell rows only, headers dropped) in cursor order.
+pub fn nav_rows() -> Vec<Vec<Cell>> {
+    layout()
+        .into_iter()
+        .filter_map(|r| match r {
+            LayoutRow::Cells(cells) => Some(cells),
+            LayoutRow::Header(_) => None,
+        })
+        .collect()
+}
+
+/// Tristate display for a checkbox.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CheckState {
+    On,
+    Partial,
+    Off,
+}
+
+/// Selected facets plus the popup cursor. Selections persist across popup opens
+/// (the type-filter analogue of `last_filter`).
+#[derive(Default)]
+pub struct TypeFilter {
+    pub key_signs: HashSet<KeySign>,
+    pub types: HashSet<TypeToken>,
+    /// Cursor row index into [`nav_rows`].
+    pub row: usize,
+    /// Cursor column index within the current row.
+    pub col: usize,
+}
+
+impl TypeFilter {
+    /// Any selection in either half — when false, the type filter is off.
+    pub fn is_active(&self) -> bool {
+        !self.key_signs.is_empty() || !self.types.is_empty()
+    }
+
+    /// Clear all selections (Esc-peel of the type layer). Leaves the cursor.
+    pub fn clear(&mut self) {
+        self.key_signs.clear();
+        self.types.clear();
+    }
+
+    /// Does a node pass the type filter? Empty half = no constraint; the two
+    /// halves intersect (AND), selections within a half union (OR).
+    pub fn matches(&self, key_sign: KeySign, kind: &NodeKind, format: Format) -> bool {
+        let sign_ok = self.key_signs.is_empty() || self.key_signs.contains(&key_sign);
+        let type_ok = self.types.is_empty() || self.types.contains(&classify(kind, format));
+        sign_ok && type_ok
+    }
+
+    /// Move the cursor by `(dr, dc)`, clamping at the grid edges; the column is
+    /// clamped to the destination row's width.
+    pub fn move_cursor(&mut self, dr: i32, dc: i32) {
+        let rows = nav_rows();
+        if rows.is_empty() {
+            return;
+        }
+        if dr != 0 {
+            let r = (self.row as i32 + dr).clamp(0, rows.len() as i32 - 1) as usize;
+            self.row = r;
+            let w = rows[r].len();
+            if self.col >= w {
+                self.col = w - 1;
+            }
+        }
+        if dc != 0 {
+            let w = rows[self.row].len();
+            self.col = (self.col as i32 + dc).clamp(0, w as i32 - 1) as usize;
+        }
+    }
+
+    /// The cell under the cursor, if any.
+    pub fn current_cell(&self) -> Option<Cell> {
+        nav_rows()
+            .get(self.row)
+            .and_then(|r| r.get(self.col))
+            .copied()
+    }
+
+    /// Toggle the cell under the cursor (Space).
+    pub fn toggle_current(&mut self) {
+        if let Some(cell) = self.current_cell() {
+            self.toggle(cell);
+        }
+    }
+
+    fn toggle(&mut self, cell: Cell) {
+        match cell {
+            Cell::Sign(s) => {
+                if !self.key_signs.remove(&s) {
+                    self.key_signs.insert(s);
+                }
+            }
+            Cell::Token(t) => {
+                if !self.types.remove(&t) {
+                    self.types.insert(t);
+                }
+            }
+            Cell::All(g) => {
+                // Not all selected -> select whole group; all selected -> clear it.
+                if self.group_state(g) == CheckState::On {
+                    for t in g.tokens() {
+                        self.types.remove(t);
+                    }
+                } else {
+                    for t in g.tokens() {
+                        self.types.insert(*t);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Tristate of a group's `all` row from how many member tokens are selected.
+    pub fn group_state(&self, g: Group) -> CheckState {
+        let n = g.tokens().iter().filter(|t| self.types.contains(t)).count();
+        if n == 0 {
+            CheckState::Off
+        } else if n == g.tokens().len() {
+            CheckState::On
+        } else {
+            CheckState::Partial
+        }
+    }
+
+    /// Display state of any cell.
+    pub fn cell_state(&self, cell: Cell) -> CheckState {
+        match cell {
+            Cell::Sign(s) => bool_state(self.key_signs.contains(&s)),
+            Cell::Token(t) => bool_state(self.types.contains(&t)),
+            Cell::All(g) => self.group_state(g),
+        }
+    }
+}
+
+fn bool_state(on: bool) -> CheckState {
+    if on {
+        CheckState::On
+    } else {
+        CheckState::Off
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classify_covers_every_kind_slot() {
+        assert_eq!(classify(&NodeKind::Root, Format::Plain), TypeToken::Root);
+        assert_eq!(
+            classify(&NodeKind::Comment("# x".into()), Format::Plain),
+            TypeToken::Comment
+        );
+        assert_eq!(
+            classify(&NodeKind::Array, Format::Inline),
+            TypeToken::ArrayInline
+        );
+        assert_eq!(
+            classify(&NodeKind::Array, Format::Multiline),
+            TypeToken::ArrayMultiline
+        );
+        assert_eq!(
+            classify(&NodeKind::ArrayOfTables, Format::Plain),
+            TypeToken::Aot
+        );
+        assert_eq!(
+            classify(&NodeKind::InlineTable, Format::Inline),
+            TypeToken::InlineTable
+        );
+        assert_eq!(
+            classify(&NodeKind::Table, Format::Scope),
+            TypeToken::TableScope
+        );
+        let s = |f| classify(&NodeKind::Scalar(ScalarType::String), f);
+        assert_eq!(s(Format::BasicString), TypeToken::StrBasic);
+        assert_eq!(s(Format::MultilineBasic), TypeToken::StrMBasic);
+        assert_eq!(s(Format::Literal), TypeToken::StrLit);
+        assert_eq!(s(Format::MultilineLiteral), TypeToken::StrMLit);
+        let i = |f| classify(&NodeKind::Scalar(ScalarType::Integer), f);
+        assert_eq!(i(Format::Decimal), TypeToken::IntDec);
+        assert_eq!(i(Format::Hex), TypeToken::IntHex);
+        assert_eq!(i(Format::Octal), TypeToken::IntOct);
+        assert_eq!(i(Format::Binary), TypeToken::IntBin);
+        let fl = |f| classify(&NodeKind::Scalar(ScalarType::Float), f);
+        assert_eq!(fl(Format::Plain), TypeToken::FloatPlain);
+        assert_eq!(fl(Format::Inf), TypeToken::FloatInf);
+        assert_eq!(fl(Format::Nan), TypeToken::FloatNan);
+        assert_eq!(
+            classify(&NodeKind::Scalar(ScalarType::Bool), Format::Plain),
+            TypeToken::Bool
+        );
+        assert_eq!(
+            classify(&NodeKind::Scalar(ScalarType::OffsetDatetime), Format::Plain),
+            TypeToken::Odt
+        );
+        assert_eq!(
+            classify(&NodeKind::Scalar(ScalarType::LocalDatetime), Format::Plain),
+            TypeToken::Ldt
+        );
+        assert_eq!(
+            classify(&NodeKind::Scalar(ScalarType::LocalDate), Format::Plain),
+            TypeToken::LDate
+        );
+        assert_eq!(
+            classify(&NodeKind::Scalar(ScalarType::LocalTime), Format::Plain),
+            TypeToken::LTime
+        );
+    }
+
+    #[test]
+    fn empty_filter_matches_everything() {
+        let f = TypeFilter::default();
+        assert!(!f.is_active());
+        assert!(f.matches(
+            KeySign::Bare,
+            &NodeKind::Scalar(ScalarType::Integer),
+            Format::Hex
+        ));
+    }
+
+    #[test]
+    fn halves_intersect_atoms_union() {
+        let mut f = TypeFilter::default();
+        // Type half: hex OR decimal integers.
+        f.types.insert(TypeToken::IntHex);
+        f.types.insert(TypeToken::IntDec);
+        // Sign half: bare only.
+        f.key_signs.insert(KeySign::Bare);
+        let int = NodeKind::Scalar(ScalarType::Integer);
+        // bare hex -> both halves pass.
+        assert!(f.matches(KeySign::Bare, &int, Format::Hex));
+        // bare decimal -> union within type half passes.
+        assert!(f.matches(KeySign::Bare, &int, Format::Decimal));
+        // quoted hex -> sign half fails (intersection).
+        assert!(!f.matches(KeySign::Quoted, &int, Format::Hex));
+        // bare octal -> type half fails.
+        assert!(!f.matches(KeySign::Bare, &int, Format::Octal));
+    }
+
+    #[test]
+    fn all_row_is_tristate() {
+        let mut f = TypeFilter::default();
+        assert_eq!(f.group_state(Group::Integer), CheckState::Off);
+        f.toggle(Cell::All(Group::Integer)); // select whole group
+        assert_eq!(f.group_state(Group::Integer), CheckState::On);
+        f.toggle(Cell::Token(TypeToken::IntHex)); // clear one child
+        assert_eq!(f.group_state(Group::Integer), CheckState::Partial);
+        f.toggle(Cell::All(Group::Integer)); // partial -> select all again
+        assert_eq!(f.group_state(Group::Integer), CheckState::On);
+        f.toggle(Cell::All(Group::Integer)); // all -> clear
+        assert_eq!(f.group_state(Group::Integer), CheckState::Off);
+    }
+
+    #[test]
+    fn navigation_clamps_at_edges() {
+        let mut f = TypeFilter::default();
+        let rows = nav_rows();
+        f.move_cursor(-1, 0); // already at top
+        assert_eq!(f.row, 0);
+        f.move_cursor(0, -1); // already at left
+        assert_eq!(f.col, 0);
+        f.move_cursor(0, 1); // into second column of row 0
+        assert_eq!(f.col, 1);
+        f.move_cursor(1000, 0); // clamp to last row
+        assert_eq!(f.row, rows.len() - 1);
+        // Column clamps to the destination row width.
+        assert!(f.col < rows[f.row].len());
+    }
+}

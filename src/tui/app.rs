@@ -3,7 +3,16 @@ use crate::model::node::{Format, KeySign, Node, NodeKind, NodeTree, Path, Scalar
 use crate::tui::search::{fuzzy_match, haystack};
 use crate::tui::selection::Selection;
 use crate::tui::state::{Clipboard, EditState, History, Mode, PasteSlot, PromptKind};
+use crate::tui::type_filter::TypeFilter;
 use std::collections::HashSet;
+
+/// Which filter layer was most recently (re)applied — drives the one-layer Esc
+/// peel when both the `/` text filter and the `f` type filter are active.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FilterLayer {
+    Text,
+    Type,
+}
 
 /// How `e` should edit the cursor node: in-place (single-line scalar directly
 /// under a Table/Root) or by spawning $EDITOR (everything nested, non-scalar,
@@ -42,8 +51,16 @@ pub struct App {
     /// Last committed filter query, remembered across filter sessions so `/`
     /// restores the previous search instead of starting blank.
     pub last_filter: String,
-    /// Set of node paths that match the current filter (including ancestors kept for context).
+    /// Set of node paths that match the current filter (including ancestors kept
+    /// for context). This is the **combined** result of the `/` text filter and
+    /// the `f` type filter (AND intersection); `None` when neither is active.
     pub filtered_paths: Option<HashSet<Path>>,
+    /// Type-filter (`f`) selections + popup cursor. Selections persist across
+    /// popup opens (the type-filter analogue of `last_filter`).
+    pub type_filter: TypeFilter,
+    /// The filter layer applied most recently — Esc in `FilterResults` peels this
+    /// one first so two active filters come off one at a time.
+    pub last_filter_applied: Option<FilterLayer>,
     /// Read-only detail text for the current detail popup.
     pub detail_text: Option<String>,
     /// Saved inline-edit + validated fragment awaiting a TypeChange confirmation.
@@ -105,6 +122,8 @@ impl App {
             filter_cursor: 0,
             last_filter: String::new(),
             filtered_paths: None,
+            type_filter: TypeFilter::default(),
+            last_filter_applied: None,
             detail_text: None,
             pending_edit: None,
             detail_scroll: 0,
@@ -138,6 +157,8 @@ impl App {
             filter_cursor: 0,
             last_filter: String::new(),
             filtered_paths: None,
+            type_filter: TypeFilter::default(),
+            last_filter_applied: None,
             detail_text: None,
             pending_edit: None,
             detail_scroll: 0,
@@ -432,17 +453,78 @@ impl App {
             return;
         }
         self.last_filter = self.filter.clone();
+        self.last_filter_applied = Some(FilterLayer::Text);
         self.mode = Mode::FilterResults;
         self.rebuild_rows();
     }
 
-    /// Esc in the filtered-result selection mode: drop the active filter back to
-    /// the full list (Normal), but keep `last_filter` so `/` can restore it.
+    /// Esc in the filtered-result selection mode: peel **one** filter layer (the
+    /// most-recently-applied one) so two active filters come off one at a time.
+    /// `last_filter` is kept so `/` can restore the text query.
     pub fn exit_filter_results(&mut self) {
-        self.filter.clear();
-        self.filter_cursor = 0;
-        self.filtered_paths = None;
-        self.mode = Mode::Normal;
+        let peel_text = match self.last_filter_applied {
+            // Peel the named layer if it is actually active; otherwise peel
+            // whichever single layer is active.
+            Some(FilterLayer::Text) if !self.filter.is_empty() => true,
+            Some(FilterLayer::Type) if self.type_filter.is_active() => false,
+            _ => !self.filter.is_empty(),
+        };
+        if peel_text {
+            self.filter.clear();
+            self.filter_cursor = 0;
+            self.last_filter_applied = self.type_filter.is_active().then_some(FilterLayer::Type);
+        } else {
+            self.type_filter.clear();
+            self.last_filter_applied = (!self.filter.is_empty()).then_some(FilterLayer::Text);
+        }
+        self.recompute_filter();
+        self.mode = self.resting_mode();
+        self.rebuild_rows();
+    }
+
+    // ---- Type filter (f) ----
+
+    /// `f` — open the type-filter checkbox popup. Selections persist from the
+    /// previous open; the live filtered view is recomputed immediately.
+    pub fn enter_type_filter(&mut self) {
+        self.mode = Mode::TypeFilter;
+        self.recompute_filter();
+        self.rebuild_rows();
+    }
+
+    /// Move the popup cursor; no document/filter change.
+    pub fn type_filter_move(&mut self, dr: i32, dc: i32) {
+        self.type_filter.move_cursor(dr, dc);
+    }
+
+    /// Space — toggle the focused checkbox and live-update the filtered view.
+    pub fn type_filter_toggle(&mut self) {
+        self.type_filter.toggle_current();
+        if self.type_filter.is_active() {
+            self.last_filter_applied = Some(FilterLayer::Type);
+        }
+        self.recompute_filter();
+        self.rebuild_rows();
+    }
+
+    /// Enter — apply the type filter and close the popup into the resting mode
+    /// (`FilterResults` if any filter is active, else `Normal`).
+    pub fn commit_type_filter(&mut self) {
+        if self.type_filter.is_active() {
+            self.last_filter_applied = Some(FilterLayer::Type);
+        }
+        self.recompute_filter();
+        self.mode = self.resting_mode();
+        self.rebuild_rows();
+    }
+
+    /// Esc inside the popup: peel the type layer (clear its selections), then
+    /// close into the resting mode (keeps the `/` text filter if active).
+    pub fn exit_type_filter(&mut self) {
+        self.type_filter.clear();
+        self.last_filter_applied = (!self.filter.is_empty()).then_some(FilterLayer::Text);
+        self.recompute_filter();
+        self.mode = self.resting_mode();
         self.rebuild_rows();
     }
 
@@ -495,8 +577,11 @@ impl App {
 
     /// Compute which paths match the current filter string. A node is visible
     /// if it matches OR is an ancestor of a match (keep context).
+    /// Recompute the combined filtered-path set from the `/` text filter and the
+    /// `f` type filter. A node passes iff it matches **both** (AND); matched nodes
+    /// drag in their ancestors for context. `None` when neither filter is active.
     fn recompute_filter(&mut self) {
-        if self.filter.is_empty() {
+        if self.filter.is_empty() && !self.type_filter.is_active() {
             self.filtered_paths = None;
             return;
         }
@@ -508,13 +593,13 @@ impl App {
             matching: &mut HashSet<Path>,
             ancestors: &mut HashSet<Path>,
             needle: &str,
+            type_filter: &TypeFilter,
         ) {
-            // Match on the node's key/path (positional segments — array elements
+            // Text match: the node's key/path (positional segments — array elements
             // and comments — have no key), plus, for a Comment node, its own text,
             // so a comment is searchable as a standalone node. A scalar's *value*
-            // is still never matched, and matching the comment's single text (not
-            // the old value+comment duplicate in the haystack) keeps a loose query
-            // like `array` from fuzzily dragging in unrelated section comments.
+            // is never matched, which keeps a loose query like `array` from fuzzily
+            // dragging in unrelated section comments. An empty needle matches all.
             let path_keys: Vec<&str> = n
                 .path
                 .iter()
@@ -528,7 +613,10 @@ impl App {
                 _ => None,
             };
             let h = haystack(&path_keys, None, comment_text);
-            if fuzzy_match(&h, needle) {
+            let text_ok = fuzzy_match(&h, needle);
+            // Type match: empty type filter imposes no constraint.
+            let type_ok = type_filter.matches(n.key_sign, &n.kind, n.format);
+            if text_ok && type_ok {
                 matching.insert(n.path.clone());
                 for anc in ancestor_paths.iter() {
                     ancestors.insert(anc.clone());
@@ -536,7 +624,7 @@ impl App {
             }
             ancestor_paths.push(n.path.clone());
             for c in &n.children {
-                walk(c, ancestor_paths, matching, ancestors, needle);
+                walk(c, ancestor_paths, matching, ancestors, needle, type_filter);
             }
             ancestor_paths.pop();
         }
@@ -546,6 +634,7 @@ impl App {
             &mut matching,
             &mut ancestors,
             &self.filter,
+            &self.type_filter,
         );
         matching.extend(ancestors);
         self.filtered_paths = Some(matching);
@@ -1739,6 +1828,7 @@ impl App {
             }
             Mode::Filter => self.exit_filter(),
             Mode::FilterResults => self.exit_filter_results(),
+            Mode::TypeFilter => self.exit_type_filter(),
             Mode::Detail => self.exit_detail(),
             Mode::Help => self.exit_help(),
             Mode::Edit(_) => self.edit_cancel(),
@@ -2243,6 +2333,57 @@ mod tests {
         let mut root = Node::branch("f.toml", NodeKind::Root);
         root.children = vec![a, b];
         App::from_tree(NodeTree { root })
+    }
+
+    /// root > [port (bare decimal int), host (bare basic string)].
+    fn typed_sample() -> App {
+        let mut port = Node::leaf("port", NodeKind::Scalar(ScalarType::Integer));
+        port.path = vec![Seg::Key("port".into())];
+        port.key_sign = KeySign::Bare;
+        let mut host = Node::leaf("host", NodeKind::Scalar(ScalarType::String));
+        host.path = vec![Seg::Key("host".into())];
+        host.key_sign = KeySign::Bare;
+        let mut root = Node::branch("f.toml", NodeKind::Root);
+        root.children = vec![port, host];
+        App::from_tree(NodeTree { root })
+    }
+
+    #[test]
+    fn combined_text_and_type_filter_intersect() {
+        use crate::tui::type_filter::TypeToken;
+        let port_path: Path = vec![Seg::Key("port".into())];
+        let host_path: Path = vec![Seg::Key("host".into())];
+
+        // Neither filter active -> no filtering.
+        let mut app = typed_sample();
+        app.recompute_filter();
+        assert!(app.filtered_paths.is_none());
+
+        // Type only: integers -> keep `port` (+ root ancestor), drop `host`.
+        let mut app = typed_sample();
+        app.type_filter.types.insert(TypeToken::IntDec);
+        app.recompute_filter();
+        let fp = app.filtered_paths.clone().unwrap();
+        assert!(fp.contains(&port_path));
+        assert!(!fp.contains(&host_path));
+        assert!(fp.contains(&Vec::<Seg>::new()), "root ancestor kept");
+
+        // Text only: "host" -> keep `host`, drop `port`.
+        let mut app = typed_sample();
+        app.filter = "host".into();
+        app.recompute_filter();
+        let fp = app.filtered_paths.clone().unwrap();
+        assert!(fp.contains(&host_path));
+        assert!(!fp.contains(&port_path));
+
+        // AND: text "port" + type string -> intersection is empty (no leaf passes).
+        let mut app = typed_sample();
+        app.filter = "port".into();
+        app.type_filter.types.insert(TypeToken::StrBasic);
+        app.recompute_filter();
+        let fp = app.filtered_paths.clone().unwrap();
+        assert!(!fp.contains(&port_path));
+        assert!(!fp.contains(&host_path));
     }
 
     #[test]

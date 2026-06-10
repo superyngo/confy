@@ -46,6 +46,12 @@ vs `255` (decimal), or a string written `"…"` (basic) vs `'…'` (literal) vs 
 Derived (read-only) during projection from the rendered repr; round-trips byte-identically. The
 eventual format-toggle operation is the write-side counterpart.
 
+**Key sign**:
+How a Node's *own key* is written, orthogonal to its type/format — **bare** (`port`), **quoted**
+(`"a.b"`), **dotted** (`a.b.c`), or **none** (keyless: array elements, comments, AoT entries, Root).
+Derived (read-only) during projection. Surfaced as the `(B)/(Q)/(D)/(-)` prefix in the KIND column
+and as one half of the **Type filter**.
+
 **Comment**:
 A **standalone** comment line (occupies its own line) surfaced as a first-class **Leaf node**.
 Navigable, selectable, remarkable, and movable like any Node. A "disabled" setting is just a
@@ -71,6 +77,13 @@ The toggle that turns a live Node into a **Comment** (and back). Canonical name 
 `r` key does.
 _Avoid_: Disable/enable, comment-out (use these only as verbs in prose, never as the concept
 name).
+
+**Type filter** (`f`) vs **Text filter** (`/`):
+Two independent ways to narrow the visible tree. The **Text filter** (`/`) fuzzy-matches a Node's
+key/path (and a Comment's text). The **Type filter** (`f`) is a checkbox menu selecting **type
+facets** — **Key sign** and **Format/kind** (the KIND-column vocabulary). Both narrow the same
+filtered list and **intersect** (a Node must pass both); selections *within* the Type filter's two
+halves union. _Avoid_: calling either one "search" exclusively — both are filters.
 
 ## Flagged ambiguities
 

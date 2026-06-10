@@ -5,6 +5,7 @@ pub mod keys;
 pub mod search;
 pub mod selection;
 pub mod state;
+pub mod type_filter;
 pub mod ui;
 
 use anyhow::Result;
@@ -185,6 +186,24 @@ fn run_event_loop(
                 }
                 continue;
             }
+            // Type-filter popup: arrows move the cursor, Space toggles the focused
+            // cell, Enter applies (→ FilterResults/Normal), Esc peels the type
+            // filter. Every toggle live-updates the filtered background. All other
+            // keys are swallowed so the popup is modal.
+            if matches!(app.mode, crate::tui::state::Mode::TypeFilter) {
+                use crossterm::event::KeyCode;
+                match key.code {
+                    KeyCode::Up => app.type_filter_move(-1, 0),
+                    KeyCode::Down => app.type_filter_move(1, 0),
+                    KeyCode::Left => app.type_filter_move(0, -1),
+                    KeyCode::Right => app.type_filter_move(0, 1),
+                    KeyCode::Char(' ') => app.type_filter_toggle(),
+                    KeyCode::Enter => app.commit_type_filter(),
+                    KeyCode::Esc => app.escape(),
+                    _ => {}
+                }
+                continue;
+            }
             let action = keys::map_key(key);
             // Any non-shift-extend action ends the current shift multi-select
             // round, so the next Shift+Arrow begins a fresh one (unioned on top).
@@ -283,6 +302,7 @@ fn run_event_loop(
                 keys::KeyAction::Redo => app.redo(),
                 keys::KeyAction::Escape => app.escape(),
                 keys::KeyAction::Filter => app.enter_filter(),
+                keys::KeyAction::TypeFilter => app.enter_type_filter(),
                 keys::KeyAction::Help => app.enter_help(),
                 keys::KeyAction::Noop => {}
             }
