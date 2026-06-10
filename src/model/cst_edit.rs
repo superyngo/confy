@@ -1336,7 +1336,6 @@ mod tests {
         d.apply(Mutation::Replace {
             path: vec![Seg::Key("b".into())],
             toml: "b = 42\n".into(),
-            sync_decor: false,
         })
         .unwrap();
         assert_eq!(d.serialize(), "a = 1\nb = 42\n");
@@ -1348,7 +1347,6 @@ mod tests {
         d.apply(Mutation::Replace {
             path: vec![Seg::Key("port".into())],
             toml: "port = 9090\n".into(),
-            sync_decor: false,
         })
         .unwrap();
         assert_eq!(d.serialize(), "port = 9090  # http\n");
@@ -1360,7 +1358,6 @@ mod tests {
         d.apply(Mutation::Replace {
             path: vec![Seg::Key("arr".into()), Seg::Index(1)],
             toml: "__elem__ = 99\n".into(),
-            sync_decor: false,
         })
         .unwrap();
         assert_eq!(d.serialize(), "arr = [0x1, 99, 3] # tail\n");
@@ -1372,7 +1369,6 @@ mod tests {
         d.apply(Mutation::Replace {
             path: vec![Seg::Key("server".into()), Seg::Key("port".into())],
             toml: "port = 1\n".into(),
-            sync_decor: false,
         })
         .unwrap();
         assert_eq!(d.serialize(), "[server]\nport = 1\n");
@@ -1384,7 +1380,6 @@ mod tests {
         d.apply(Mutation::Replace {
             path: vec![],
             toml: "a = 10\nc = 3\n".into(),
-            sync_decor: true,
         })
         .unwrap();
         assert_eq!(d.serialize(), "a = 10\nc = 3\n");
@@ -1397,7 +1392,6 @@ mod tests {
             .apply(Mutation::Replace {
                 path: vec![],
                 toml: "a = = bad".into(),
-                sync_decor: true,
             })
             .unwrap_err();
         assert!(matches!(err, MutateError::Fragment(_)));
@@ -1484,7 +1478,6 @@ mod tests {
         d.apply(Mutation::Replace {
             path: vec![Seg::Key("arr".into())],
             toml: "arr = [9, 8, 7]\n".into(),
-            sync_decor: true,
         })
         .unwrap();
         assert_eq!(d.serialize(), "arr = [9, 8, 7]\n");
@@ -1496,7 +1489,6 @@ mod tests {
         d.apply(Mutation::Replace {
             path: vec![Seg::Key("pt".into())],
             toml: "pt = { x = 2, y = 3 }\n".into(),
-            sync_decor: true,
         })
         .unwrap();
         assert_eq!(d.serialize(), "pt = { x = 2, y = 3 }  # p\n");
@@ -1553,7 +1545,6 @@ mod tests {
         d.apply(Mutation::Replace {
             path: vec![Seg::Key("s".into())],
             toml: "[s]\nport = 2\nhost = \"x\"\n".into(),
-            sync_decor: true,
         })
         .unwrap();
         assert_eq!(d.serialize(), "[s]\nport = 2\nhost = \"x\"\n[d]\nz = 9\n");
@@ -2025,14 +2016,12 @@ mod tests {
         d.apply(Mutation::Replace {
             path: vec![Seg::Key("x".into())],
             toml: "x = [1, 2]\n".into(),
-            sync_decor: false,
         })
         .unwrap();
         assert_eq!(d.serialize(), "x = [1, 2]\n");
         d.apply(Mutation::Replace {
             path: vec![Seg::Key("x".into())],
             toml: "x = 9\n".into(),
-            sync_decor: false,
         })
         .unwrap();
         assert_eq!(d.serialize(), "x = 9\n");
@@ -2044,7 +2033,6 @@ mod tests {
         d.apply(Mutation::Replace {
             path: vec![Seg::Key("x".into())],
             toml: "x = { a = 1 }\n".into(),
-            sync_decor: false,
         })
         .unwrap();
         assert_eq!(d.serialize(), "x = { a = 1 }\n");
@@ -2057,7 +2045,6 @@ mod tests {
         d.apply(Mutation::Replace {
             path: vec![Seg::Key("arr".into()), Seg::Index(0)],
             toml: "x = [9]\n".into(),
-            sync_decor: false,
         })
         .unwrap();
         assert_eq!(d.serialize(), "arr = [[9]]\n");
@@ -2071,7 +2058,6 @@ mod tests {
         d.apply(Mutation::Replace {
             path: vec![Seg::Key("arr".into())],
             toml: "arr = [9]\n".into(),
-            sync_decor: false,
         })
         .unwrap();
         assert_eq!(d.serialize(), "arr = [9]\n");
@@ -2099,7 +2085,7 @@ mod tests {
     fn serialize_whole_aot_group_returns_all_entries() {
         // Regression: editing an AoT *group* node showed blank ($EDITOR got "").
         let d = doc("[[p]]\nx = 1\n\n[[p]]\nx = 2\n");
-        let frag = d.serialize_fragment(&[Seg::Key("p".into())], false);
+        let frag = d.serialize_fragment(&[Seg::Key("p".into())]);
         assert!(
             frag.contains("[[p]]") && frag.contains("x = 1") && frag.contains("x = 2"),
             "frag: {frag:?}"
@@ -2112,7 +2098,6 @@ mod tests {
         d.apply(Mutation::Replace {
             path: vec![Seg::Key("p".into())],
             toml: "[[p]]\nx = 9\n".into(),
-            sync_decor: true,
         })
         .unwrap();
         let s = d.serialize();

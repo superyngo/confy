@@ -13,90 +13,85 @@ cargo run -- <file.toml>      # run against a TOML file
 
 ## Architecture
 
-**CST projection.** `toml_edit::DocumentMut` is the single source of truth. The Node tree is a
-*projection* rebuilt after every mutation — it is never mutated directly. All edits go through
-`toml_edit` APIs or by re-parsing a TOML fragment string.
+**Lossless CST.** `CstDocument` (`model/cst_doc.rs`) holds a `taplo` parse → `rowan` syntax tree
+as the single source of truth. Comments, whitespace and newlines are real tokens with real
+positions, so `serialize()` is plain token concatenation and an untouched file round-trips
+byte-identically. The Node tree is a *projection* (`cst_project.rs`) rebuilt after every
+mutation — it is never mutated directly. `apply` edits a `clone_for_update` copy of the tree and
+commits only on success, so **every mutation is atomic** (failure leaves the document untouched).
 
 **`ConfigDocument` trait** abstracts the storage backend so YAML/JSON can be added later; the
-MVP ships only the TOML backend (`TomlDocument`). The trait exposes `load`, `serialize`, and
-`apply(Mutation)`.
+only backend is `CstDocument` (the original `toml_edit`-based `TomlDocument` was retired after
+reaching parity). The trait exposes `load`, `project`, `serialize`, `serialize_fragment`,
+`is_dirty`, and `apply(Mutation)`.
+
+**Addressing.** Keyed nodes are addressed by `Seg::Key(name)`; **positional** nodes — comments,
+array elements, AoT entries — by `Seg::Index(i)` over the parent's *full child sequence*
+(comments share the slot space, so an element after a comment keeps its full-sequence index).
+There are no synthetic keys; the TUI identifies a comment by `NodeKind::Comment`, never by
+sniffing the path. `cst_edit::walk` builds the same `path → syntax element` index the projection
+uses, so resolver and projection cannot drift (a consistency test ties them).
 
 **`Mutation` enum** is the closed set of document operations (Insert, Delete, Replace, Rename,
-Move, Remark, EditComment). `apply` dispatches each variant to the corresponding `toml_edit` manipulation and
-rebuilds the Node tree projection afterward. `Rename` is position- and decor-preserving (re-inserts
-the table in order, swapping only the target key) — there is no separate user-facing rename action;
-it is driven from the inline editor (see below). `Replace` with an **empty path** targets the whole
-document (external `E` on the root/file node): it reparses the edited text as a full `DocumentMut`,
-rejecting invalid TOML as `Fragment` (doc untouched) rather than the old `Unsupported`.
+Move, Remark, EditComment, InsertComment). Each variant is implemented in `cst_edit.rs` as a
+rowan green-tree splice (insert/remove/replace of syntax elements with newline/indent
+normalization). `Rename` swaps only the key token in place (position-preserving,
+collision-checked) — there is no separate user-facing rename action; it is driven from the
+inline editor (see below). `Replace` with an **empty path** targets the whole document (external
+`E` on the root/file node): it reparses the edited text as a full document, rejecting invalid
+TOML as `Fragment` (doc untouched). `Replace` on an AoT-entry path (`product[0]`) rewrites only
+that `[[product]]` entry; sibling entries and between-entry comments stay intact. `Insert`
+adapts the fragment to the destination (`parse_fragment_adapted`): a keyed fragment dropped into
+an array keeps only its value, a bare value inserted into a table gets a synthesized
+`placeholder` key (auto-renamed on collision), and a `[table]` fragment cannot become an array
+element; a header-vs-leaf **partition check** keeps an insert from being captured by a following
+`[table]` header. Known edges: AoT-*entry* Move degrades to a graceful `Unsupported`, and
+multiline-array element insert/delete spacing is not yet byte-perfect.
 
-**Projection of dotted tables.** Both dotted *keys* (`a.b.c = 1`) and dotted *headers* (`[x.a]` with
-no `[x]`) produce an implicit parent in `toml_edit`, but only dotted keys are also `is_dotted()`.
-`project_table`/`flatten_dotted` flatten on `is_implicit() && is_dotted()` — so `a.b.c` collapses to
-one node, while a header-implied parent (`is_dotted() == false`) projects as a real nested branch.
+**Projection.** Dotted *keys* (`a.b.c = 1`) collapse into one node; dotted *headers* (`[x.a]`
+with no `[x]`) project as a real nested branch. `ScalarType` and a scalar's **Format** (writing
+style: hex/oct/bin, basic/literal/multiline string, …) are derived read-only from the token's
+syntax kind (`scalar_kind`) and are orthogonal to each other. Single-line arrays and inline
+tables carry their one-line source repr in `value` (a multiline array leaves it `None`) — this
+drives both the VALUE column and the inline-editability rule below. Golden tests in
+`cst_project.rs` freeze the projected shape (they were snapshotted at toml_edit parity when the
+legacy backend was retired).
 
-**Editing.** `e` edits a single-line scalar in an in-TUI **inline editor** (`Mode::Edit`) — a direct
-child of a Table/Root, a scalar **member of an inline table** (`pt = { x = 1 }`), a scalar **member of
-an array-of-tables entry** (`product[0].sku` — its path carries an `Index`, but the AoT entry is itself
-a table, reached by the `Key→Index` AoT descent in `parent_table_mut`/`concrete_table_mut`), or a scalar
-**element of an array** addressed by a `Key+ Index*` path (including array-of-arrays nesting; written
-back via `Replace` on the trailing `Index`, routed by `replace_array_element` → `Array::replace`, with
-`array_at_mut` descending nested arrays). The keyed-scalar inline rule keys on the **absence of an
-`Array` ancestor** (an AoT ancestor is addressable; an array element such as `x = [{ a = 1 }]` is not, so
-it stays `$EDITOR`). The inline editor edits one field at a time: **`Tab` toggles
-between Value (default) and Name**; committing a changed Name applies a `Mutation::Rename` first, then
-the value `Replace` (Tab is disabled for array elements, which have no key). `Rename` dispatches on the
-parent container — `rename_in_table` for a standard `[table]`, `rename_in_inline_table` (via
-`inline_table_mut`) for an inline table — both order- and decor-preserving. Both columns share one
-horizontal-scroll/overflow treatment (`edit_field_spans`, also reused to render the `/` filter input as
-an inline field with a caret). The editor and the filter input are both caret-based text fields:
-`←/→/Home/End` move the caret, `Backspace`/`Del` erase before/at it. Multiline strings, structured
-nodes, and `E` open `$EDITOR`. `edit_node` truncates the path only at the first `Index` whose container
-is a real `Array` (editing the whole array there); array-of-tables-entry indices and the keys below them
-are kept and addressed directly — so `E` on an AoT **entry** (`product[0]`) serializes just that single
-`[[product]]` block (`serialize_node_fragment_opts` emits a one-entry `ArrayOfTables`; the immutable
-`walk_tablelike` mirrors `parent_table_mut`'s AoT descent) and writes back through `replace`'s
-`replace_aot_entry` branch (rewrites only that entry, sibling entries and between-entry comments intact).
-**Every keyed node opened in `$EDITOR`** — structured (table/inline table/array/AoT) **and scalar**
-(multiline strings, `E`-forced leaves) — carries its adjacent leading comment(s) into the editor
-(`serialize_node_fragment_opts` copies the key's `leaf_decor` prefix; tables already carry theirs in
-the item decor; array *elements* have no key and carry none), and `replace` syncs that key decor back
-from the edited fragment so comment edits/deletes round-trip. The sync is gated on a `sync_decor` flag
-on `Mutation::Replace`: `$EDITOR` write-backs (`edit_node` → `apply_replace(.., true)`) set it, so the
-fragment decor is authoritative; **inline** value edits (commit / `←→` nudge / type-change confirm) pass
-`false`, so the existing key decor — and its comment — is left untouched (the inline fragment carries no
-comment, so without this gate it would wipe one). The
-fragment's **leading blank separator** is trimmed from the editor view (`split_leading_blank_lines`, so
-`E` opens at the comment/header, not an empty line; a scalar trims only on this carry path, the clipboard
-copy that reuses `serialize_node_fragment_opts` with `carry_key_comment == false` keeps the separator)
-but **re-attached on write-back** — `replace`
-(table item decor / array-or-scalar key leaf_decor) and `replace_aot_entry` (entry decor) prepend the original
-node's leading blanks to the trimmed fragment decor, so file spacing round-trips byte-identically. Inline commit and the `←/→` value-nudge write back through `Mutation::Replace` (the nudge
-re-applies underscore digit grouping when the original had it). A scalar's **Format** (writing style:
-hex/oct/bin, basic/literal/multiline string, …) is derived read-only during projection and is
-orthogonal to its `ScalarType`. TOML has no null, so there is no clear-value operation; `a` seeds a
-new node with the empty string `""` — a key/value under a Table/Root, or a bare element when the
-target is an array (`insert_fragment` → `array_at_mut`).
+**Editing.** `e` dispatches via `edit_target_kind`. **Inline** (`Mode::Edit`): a single-line
+scalar that `Replace` can address — keyed under a Table/Root/inline table with **no `Array`
+ancestor** (an AoT ancestor is fine: `product[0].sku` works; `x = [{ a = 1 }]` does not), or an
+array element on a `Key+ Index*` path (incl. array-of-arrays) — a single-line array/inline table
+(edited as its one-line repr), and a single-line comment (raw `#` text, routed to `EditComment`).
+**`$EDITOR`**: everything else — multiline strings/arrays, merged multi-line comments, tables,
+AoT entries, the Root, and any `E`. The inline editor edits one field at a time: **`Tab` toggles
+between Value (default) and Name**; committing a changed Name applies `Mutation::Rename` first,
+then the value `Replace` (Tab is disabled for array elements and comments, which have no key).
+Commit detects a **type change** by parsing `key = value` with taplo and projecting it
+(`node_type_label`), prompting y/n when the label differs. Both columns share one
+horizontal-scroll/overflow treatment (`edit_field_spans`, also reused to render the `/` filter
+input); editor and filter input are caret-based fields (`←/→/Home/End` move the caret,
+`Backspace`/`Del` erase before/at it). The `←/→` **value nudge** re-applies underscore digit
+grouping when the original had it. `edit_node` truncates the path only at the first `Index`
+whose container is a real `Array` (editing the whole array there); AoT-entry indices and the
+keys below them are kept and addressed directly. A `$EDITOR` fragment starts at the node's own
+header/value line — an adjacent standalone comment is an independent node and is never part of
+the fragment. TOML has no null, so there is no clear-value operation; `a` seeds a new node with
+the empty string `""` — a key/value under a Table/Root, or a bare element when the target is an
+array.
 
-**Comments.** Consecutive standalone `#` lines project as a *single* multi-line Comment node
-(`comment_blocks`; a blank or non-`#` line breaks the group). A comment node carries its text as its
-`value`, so the VALUE column and detail popup show it. Multi-line cell values (merged comments,
-multiline strings, multiline-array elements whose repr carries leading newline/indent decor) are
-collapsed to a one-line preview (first line + ` …`) by `cell_preview` in `ui.rs`; the full text stays
-in the detail popup. `e` on a **single-line** comment edits inline (`Mode::Edit` with `is_comment`: the
-raw `#`-prefixed text is the sole field — no name, `Tab` is a no-op — and `edit_commit` routes straight
-to `Mutation::EditComment`, staying in the editor on a non-`#` validation error). A comment edits inline
-whenever it is single-line and **decor-addressable** — no `Array` ancestor, checked by the shared
-`no_array_ancestor` (an AoT-entry ancestor is fine even though it puts an `Index` in the path). `E`, a
-merged multi-line comment, or one with an `Array` ancestor instead open `$EDITOR` with the raw text.
-Either way the edit writes back via `Mutation::EditComment` (`edit_comment` → `transform_comment_in_decor`).
-Deleting a comment node (`d`) routes through the same locator: `remove_at` detects the synthetic
-`#comment:N` key and calls `remove_comment_from_decor` rather than `Table::remove` (which would fail with
-`NotFound`). **The locator sweeps**, it does not guess a single slot: `transform_comment_in_decor` runs
-`sweep_table_comment_slots` over the container — every key's `leaf_decor` prefix, every `[table]` header
-decor, every `[[aot]]` entry prefix (`transform_aot_entry_prefixes`) — plus the document trailing for the
-root, stopping at the first slot the text-matching transform changes. This reaches a comment before **any**
-item (not just the first), an AoT parent's between-entry comments, and comments inside an AoT entry alike.
-(A comment text that is a substring of an earlier-swept comment is the one edge the sweep can mis-target.)
+**Comments are first-class nodes.** A standalone comment line is a real node in document order —
+navigable, selectable, movable, deletable like any other Node; *moving or copying another node
+never drags a comment along*, and there is no decor-sweep machinery. Consecutive `#` lines
+project as a *single* multi-line Comment node (a blank or non-`#` line breaks the group). A
+comment node carries its text as its `value`, so the VALUE column and detail popup show it;
+multi-line cell values (merged comments, multiline strings) are collapsed to a one-line preview
+(first line + ` …`) by `cell_preview` in `ui.rs`. An end-of-line comment on a value is **not** a
+node — it is that node's `trailing_comment` decoration and travels with it. `e` on a
+**single-line** comment edits inline (`Mode::Edit` with `is_comment`: the raw `#`-prefixed text
+is the sole field — no name, `Tab` is a no-op — and `edit_commit` routes to
+`Mutation::EditComment`, staying in the editor on a non-`#` validation error); `E`, a merged
+multi-line comment, or one with an `Array` ancestor open `$EDITOR` with the raw text. Deleting a
+comment (`d`) is a plain token removal at its `Seg::Index` slot.
 
 **Navigation.** Expand/collapse state is an `App.expanded: HashSet<Path>` of open branch paths. The
 **root/file node has the empty path** and is collapsible like any branch — `flatten` treats it
@@ -111,8 +106,8 @@ Normal key dispatch (no early-return block); its only differences are mode-aware
 (`exit_filter_results`, keeps `last_filter`) and `/` (`enter_filter`, to refine). Esc fully unfilters
 (`filtered_paths = None`) — `last_filter` is pure memory, never a persisted filter. The fuzzy query
 matches a node's **key/path** plus a **Comment node's own text** (`recompute_filter` builds the haystack
-from `path_keys`, excluding synthetic `#comment:N` keys, and appends the comment text for a Comment
-node); a scalar's **value is never matched** — this keeps a loose query from fuzzily hitting unrelated
+from the path's `Seg::Key` segments — positional nodes contribute none — and appends the comment text
+for a Comment node); a scalar's **value is never matched** — this keeps a loose query from fuzzily hitting unrelated
 values while leaving comments searchable as standalone nodes. While a filter is active the matched chars are
 highlighted in the **NAME cell** (`search::fuzzy_indices` → `ui::highlight_spans`; gated on a non-empty
 query, not the mode, so the highlight survives an inline edit / detail popup; a Comment node's NAME
@@ -138,56 +133,32 @@ mode, blue vs grey never collide. `Esc` in `Mode::Normal` peels one layer per pr
 insertion `Target` with `resolve_target` over `true_sibling_index` (position in the *full* tree, so
 FilterResults' hidden siblings don't skew it — the same helper is used by `add_node` and the
 collision-retry path). `do_paste` pairs each fragment with its source path and splits **node** vs
-**comment** entries (a comment's path ends in a synthetic `#comment:N` key). Nodes: **cut** routes
-through the atomic `Mutation::Move` (snapshot+rollback, delete-before-reinsert) so a same-scope reposition
-is a move, not a `Key already exists` collision; **copy** uses the per-fragment `Mutation::Insert` loop.
-Comments: pasted via `Mutation::InsertComment` (never collide); a cut deletes the source comment **first**
-so an identical-text comment elsewhere isn't hit by the delete sweep. `do_paste` takes the `Clipboard` by
-value and **restores it on every failure** (collision → `Mode::Prompt(Collision)` with the remaining
-entries — comment entries are preserved so they run on retry; any other error → restores the rest +
-`paste error: …`), so a failed paste is never destructive; only `Esc`/`c` at the collision prompt discards
-it. A node moved into a `[table]` lands at the cursor position: `move_inner` resolves an **anchor key**
-(`anchor_key_at`, the first real key at/after the projected index, computed *before* the source deletions)
-and splices the entry before it via the order/decor-preserving `insert_before` rebuild (the same technique
-as `rename_in_table`); inline-table destinations keep append.
-
-**A move leaves the node's upper comment(s) behind.** Every standalone comment above a node — possibly
-*several* blocks separated by blanks (e.g. a top-of-file banner) — is stored in that node's leading decor
-prefix (a leaf's `leaf_decor`, a `[table]`'s header decor), so a naive move/copy would drag the whole
-block to the destination and erase it at the source. `detach_leading_comments` runs first inside
-`move_inner` (covered by `Mutation::Move`'s atomic snapshot/rollback): for each source it lifts the
-*entire raw* leading prefix (via `read_leading_prefix`/`set_leading_prefix` — moving the whole string at
-once is robust against **duplicate comment texts**, which a text-matching sweep would mis-target) and
-prepends it onto the source's **next real sibling** (`next_key_after`), or onto the document trailing when
-the source was the last top-level key. It is resolved *after* the destination `anchor` (removing comments
-would otherwise shift the projected `target.index`) but *before* capture (so the moved node travels clean);
-it is a no-op when the prefix holds no `#`. The **copy** path strips the same block at the fragment level:
-`clipboard_fragment` drops a node fragment's leading blank/`#` lines (`strip_leading_comment_block`) while
-leaving a Comment node's own text whole. Known edge: moving the **last** key out of a *nested* `[table]`
-keeps the old carry-along (that trailing slot is only addressable via the next item's prefix), so the
-prefix is restored on the source rather than lost.
-
-**Comment clipboard.** A Comment node serializes to its raw `# …` text (`serialize_node_fragment_opts`
-reads it from the projection, since the text lives in decor, not a table item). `Mutation::InsertComment`
-writes the block into the parent's decor at the target position — prepended to the anchor key's decor
-(`Table::decor` for a `[table]`, else `leaf_decor`), or the document trailing / table-header decor when
-appending at the end — mirroring `comment_out`'s decor placement and validating that every line starts
-with `#`.
+**comment** entries (identified by `NodeKind::Comment`, not by the path). Nodes: **cut** routes
+through the atomic `Mutation::Move` (delete-before-reinsert on a scratch tree, committed only on
+success) so a same-scope reposition is a move, not a `Key already exists` collision; **copy** uses the
+per-fragment `Mutation::Insert` loop. Comments: a Comment node's fragment is its raw `# …` text, pasted
+via `Mutation::InsertComment` (validates every line starts with `#`, splices the block in at the target
+child index, never collides); a cut deletes the source comment first, then inserts. `do_paste` takes the
+`Clipboard` by value and **restores it on every failure** (collision → `Mode::Prompt(Collision)` with
+the remaining entries — comment entries are preserved so they run on retry; any other error → restores
+the rest + `paste error: …`), so a failed paste is never destructive; only `Esc`/`c` at the collision
+prompt discards it. Because comments are independent nodes, a moved or copied node never carries an
+upper-adjacent comment with it — the comment simply stays where it is.
 
 ## Module map
 
 ```
 src/
-  main.rs          CLI entry: parse args, load TomlDocument, run TUI
+  main.rs          CLI entry: parse args, load CstDocument, run TUI
   lib.rs           module declarations + re-exports (enables integration tests)
   cli.rs           clap args; confy <file> [--format toml]; format detection
   model/
     mod.rs         re-exports
     node.rs        Seg, ScalarType, Format, NodeKind, Node, NodeTree
     document.rs    ConfigDocument trait, Mutation, Target, OnCollision, errors
-    toml_doc.rs    TomlDocument wrapping toml_edit::DocumentMut: load/serialize/apply
-    project.rs     DocumentMut → NodeTree projection (§7.1 comment mapping)
-    fragment.rs    parse/validate a TOML fragment string
+    cst_doc.rs     CstDocument holding the taplo/rowan tree: load/serialize/apply (atomic commit)
+    cst_project.rs CST → NodeTree projection (comments as real nodes; golden tests)
+    cst_edit.rs    rowan splice helpers: one fn per Mutation variant + the path→element walk index
   tui/
     mod.rs         re-exports; run() entry point + event loop (run_event_loop)
     app.rs         App state + operation handlers (the event loop dispatches keys to these)

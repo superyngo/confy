@@ -1,6 +1,6 @@
+use confy::model::cst_doc::CstDocument;
 use confy::model::document::{ConfigDocument, Mutation};
 use confy::model::node::Seg;
-use confy::model::toml_doc::TomlDocument;
 
 #[test]
 fn untouched_file_roundtrips_byte_identical() {
@@ -8,7 +8,7 @@ fn untouched_file_roundtrips_byte_identical() {
     let dir = tempfile::tempdir().unwrap();
     let p = dir.path().join("sample.toml");
     std::fs::write(&p, src).unwrap();
-    let doc = TomlDocument::load(&p).unwrap();
+    let doc = CstDocument::load(&p).unwrap();
     assert_eq!(doc.serialize(), src);
 }
 
@@ -18,11 +18,10 @@ fn edit_one_value_leaves_other_bytes_untouched() {
     let dir = tempfile::tempdir().unwrap();
     let p = dir.path().join("sample.toml");
     std::fs::write(&p, src).unwrap();
-    let mut doc = TomlDocument::load(&p).unwrap();
+    let mut doc = CstDocument::load(&p).unwrap();
     doc.apply(Mutation::Replace {
         path: vec![Seg::Key("server".into()), Seg::Key("port".into())],
         toml: "port = 9090\n".into(),
-        sync_decor: false,
     })
     .unwrap();
     let expected = include_str!("fixtures/expected_after_edit.toml");

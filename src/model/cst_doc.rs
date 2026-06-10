@@ -63,7 +63,7 @@ impl ConfigDocument for CstDocument {
         self.serialize() != self.original
     }
 
-    fn serialize_fragment(&self, path: &[crate::model::node::Seg], _carry_comment: bool) -> String {
+    fn serialize_fragment(&self, path: &[crate::model::node::Seg]) -> String {
         if path.is_empty() {
             return self.serialize();
         }

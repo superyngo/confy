@@ -150,15 +150,7 @@ impl App {
                     NodeKind::Scalar(st) => Some(format!("{st:?}").to_lowercase()),
                     _ => None,
                 };
-                let type_label = match &r.node.kind {
-                    NodeKind::Root => String::new(),
-                    NodeKind::Table => "table".into(),
-                    NodeKind::ArrayOfTables => "array-of-tables".into(),
-                    NodeKind::Array => "array".into(),
-                    NodeKind::InlineTable => "inline".into(),
-                    NodeKind::Scalar(st) => format!("{st:?}").to_lowercase(),
-                    NodeKind::Comment(_) => "comment".into(),
-                };
+                let type_label = node_type_label(&r.node.kind);
                 RowSnapshot {
                     key: r.node.key.clone(),
                     path: r.node.path.clone(),
@@ -451,17 +443,17 @@ impl App {
             ancestors: &mut HashSet<Path>,
             needle: &str,
         ) {
-            // Match on the node's key/path (skipping the synthetic `#comment:N`
-            // keys), plus — for a Comment node — its own text, so a comment is
-            // searchable as a standalone node. A scalar's *value* is still never
-            // matched, and matching the comment's single text (not the old
-            // value+comment duplicate in the haystack) keeps a loose query like
-            // `array` from fuzzily dragging in unrelated section comments.
+            // Match on the node's key/path (positional segments — array elements
+            // and comments — have no key), plus, for a Comment node, its own text,
+            // so a comment is searchable as a standalone node. A scalar's *value*
+            // is still never matched, and matching the comment's single text (not
+            // the old value+comment duplicate in the haystack) keeps a loose query
+            // like `array` from fuzzily dragging in unrelated section comments.
             let path_keys: Vec<&str> = n
                 .path
                 .iter()
                 .filter_map(|s| match s {
-                    Seg::Key(k) if !k.starts_with("#comment:") => Some(k.as_str()),
+                    Seg::Key(k) => Some(k.as_str()),
                     _ => None,
                 })
                 .collect();
@@ -703,14 +695,10 @@ impl App {
             Some(i) => cursor_row.path[..i].to_vec(),
             None => cursor_row.path.clone(),
         };
-        // Serialize just the node's own fragment, carrying its adjacent leading
-        // comment(s) into the editor so they can be edited alongside the node. This
-        // applies to every keyed node opened in `$EDITOR` — structured (table/inline
-        // table/array/AoT) and scalar (multiline strings, `E`-forced leaves) alike;
-        // the AoT-entry case carries its own decor in the backend `serialize_fragment`.
-        // Array *elements* have no key and carry no comment.
-        let keyed = matches!(path.last(), Some(Seg::Key(_)));
-        let fragment = doc.serialize_fragment(&path, keyed);
+        // Serialize just the node's own fragment. An adjacent standalone comment is
+        // an independent node in the CST and is NOT part of the fragment — the
+        // editor opens at the node's own header/value line.
+        let fragment = doc.serialize_fragment(&path);
         let edited = match crate::tui::editor::edit_text(&fragment) {
             Ok(t) => t,
             Err(e) => {
@@ -718,24 +706,18 @@ impl App {
                 return;
             }
         };
-        // `$EDITOR` fragments are authoritative over key decor (the comment), so the
-        // write-back syncs it; inline edits pass `false` and never touch the comment.
-        self.apply_replace(path, edited, true);
+        self.apply_replace(path, edited);
     }
 
     /// Apply edited text as a Replace at `path` (the post-editor half of `e`,
     /// split out so it is unit-testable without spawning $EDITOR). On error the
     /// status line is set and the document is left unchanged.
-    pub(crate) fn apply_replace(&mut self, path: Path, edited: String, sync_decor: bool) {
+    pub(crate) fn apply_replace(&mut self, path: Path, edited: String) {
         let doc = match self.doc.as_mut() {
             Some(d) => d,
             None => return,
         };
-        match doc.apply(crate::model::document::Mutation::Replace {
-            path,
-            toml: edited,
-            sync_decor,
-        }) {
+        match doc.apply(crate::model::document::Mutation::Replace { path, toml: edited }) {
             Ok(()) => self.on_mutation_success(),
             Err(crate::model::document::MutateError::Fragment(msg)) => {
                 self.status = Some(format!("invalid TOML: {msg}"));
@@ -1111,17 +1093,17 @@ impl App {
         }
         // 2. Value replace.
         let fragment = format!("{} = {}\n", frag_key, value_str);
-        let table = match crate::model::fragment::parse_fragment(&fragment) {
-            Ok(t) => t,
-            Err(err) => {
-                self.status = Some(format!("invalid TOML: {err}"));
-                self.mode = Mode::Edit(e); // stay in the editor so the user can fix it
-                return;
-            }
-        };
-        let new_label = table
-            .get(&frag_key)
-            .map(fragment_value_label)
+        let parse = taplo::parser::parse(&fragment);
+        if let Some(err) = parse.errors.first() {
+            self.status = Some(format!("invalid TOML: {err}"));
+            self.mode = Mode::Edit(e); // stay in the editor so the user can fix it
+            return;
+        }
+        let new_label = crate::model::cst_project::project(&parse.into_syntax(), "")
+            .root
+            .children
+            .first()
+            .map(|n| node_type_label(&n.kind))
             .unwrap_or_default();
         let old_label = self
             .rows
@@ -1137,7 +1119,7 @@ impl App {
             });
             return;
         }
-        self.apply_replace(e.path, fragment, false);
+        self.apply_replace(e.path, fragment);
     }
 
     /// `←`/`→` in Normal mode: toggle a bool or step an integer/float by ±1 at
@@ -1178,7 +1160,7 @@ impl App {
             None => return,
         };
         if let Some(new_repr) = nudge_scalar(st, node.format, &repr, delta) {
-            self.apply_replace(path, format!("{frag_key} = {new_repr}\n"), false);
+            self.apply_replace(path, format!("{frag_key} = {new_repr}\n"));
         }
     }
 
@@ -1384,10 +1366,7 @@ impl App {
         };
         let mut fragments = Vec::new();
         for p in &paths {
-            let is_comment = node_at(&self.tree.root, p)
-                .map(|n| matches!(n.kind, NodeKind::Comment(_)))
-                .unwrap_or(false);
-            fragments.push(clipboard_fragment(doc, p, is_comment));
+            fragments.push(doc.serialize_fragment(p));
         }
         self.clipboard = Some(Clipboard {
             fragments,
@@ -1424,10 +1403,7 @@ impl App {
         };
         let mut fragments = Vec::new();
         for p in &paths {
-            let is_comment = node_at(&self.tree.root, p)
-                .map(|n| matches!(n.kind, NodeKind::Comment(_)))
-                .unwrap_or(false);
-            fragments.push(clipboard_fragment(doc, p, is_comment));
+            fragments.push(doc.serialize_fragment(p));
         }
         self.clipboard = Some(Clipboard {
             fragments,
@@ -1471,7 +1447,7 @@ impl App {
     /// Core paste logic, split out so it can be re-issued after a collision prompt.
     /// Node entries: CUT uses atomic `Mutation::Move` (delete-before-reinsert,
     /// same-scope never collides); COPY uses a per-fragment insert loop. Comment
-    /// entries (synthetic `#comment:N` paths) are pasted via `Mutation::InsertComment`
+    /// entries (`Seg::Index`-addressed) are pasted via `Mutation::InsertComment`
     /// and never collide; for CUT the source comment is deleted first (so an
     /// identical-text comment elsewhere isn't removed by the delete sweep).
     /// The clipboard is restored on any failure so the user can retry.
@@ -1487,9 +1463,9 @@ impl App {
             sources,
         } = clipboard;
 
-        // Identify comment sources by the projected node's *kind*, not by sniffing a
-        // synthetic key — works for both the `#comment:N` (toml_edit) and the
-        // `Seg::Index` (CST) addressing schemes.
+        // Identify comment sources by the projected node's *kind* (a comment path
+        // ends in `Seg::Index`, which an array element shares — the kind is the
+        // only reliable discriminator).
         let is_comment = |p: &Path| {
             node_at(&self.tree.root, p)
                 .map(|n| matches!(n.kind, NodeKind::Comment(_)))
@@ -1777,7 +1753,7 @@ impl App {
                     'y' => {
                         if let Some((e, fragment)) = self.pending_edit.take() {
                             self.mode = Mode::Normal;
-                            self.apply_replace(e.path, fragment, false);
+                            self.apply_replace(e.path, fragment);
                         } else {
                             self.mode = Mode::Normal;
                         }
@@ -1888,43 +1864,6 @@ impl App {
     }
 }
 
-/// Serialize a node for the clipboard. Like the backend `serialize_fragment`, but for a
-/// **node** (not a Comment) it drops the leading blank/`#` block so a copied node
-/// does not carry its upper-adjacent comment to the paste destination — matching
-/// the move path, which leaves the comment at the source. A Comment node's fragment
-/// *is* the comment text, so it is returned whole.
-fn clipboard_fragment<D: ConfigDocument>(
-    doc: &D,
-    path: &[crate::model::node::Seg],
-    is_comment: bool,
-) -> String {
-    let frag = doc.serialize_fragment(path, false);
-    if is_comment {
-        frag
-    } else {
-        strip_leading_comment_block(&frag).to_string()
-    }
-}
-
-/// Drop a leading run of blank or `#`-comment lines from a serialized node
-/// fragment, returning the remainder starting at the node's own header/value line.
-/// Used to keep a copied node's upper-adjacent comment from travelling with it.
-fn strip_leading_comment_block(s: &str) -> &str {
-    let mut rest = s;
-    loop {
-        let end = rest.find('\n').map(|i| i + 1).unwrap_or(rest.len());
-        let line = rest[..end].trim_start();
-        if line.is_empty() || line.starts_with('#') {
-            if end == rest.len() {
-                return "";
-            }
-            rest = &rest[end..];
-        } else {
-            return rest;
-        }
-    }
-}
-
 /// Coarse `(type, format)` labels for a branch node: the Type is the conceptual
 /// kind and the Format the concrete TOML writing style. Tables split into
 /// standard/inline; arrays into standard/array-of-tables.
@@ -1971,7 +1910,7 @@ fn clamp_scroll(scroll: usize, cursor: usize, len: usize, width: usize) -> usize
 }
 
 /// First non-colliding key formed from `base` (`base`, `base_2`, `base_3`, …),
-/// mirroring the `OnCollision::Rename` scheme in `toml_doc`.
+/// mirroring the `OnCollision::Rename` scheme in `cst_edit`.
 fn unique_key(base: &str, existing: &[String]) -> String {
     if !existing.iter().any(|k| k == base) {
         return base.to_string();
@@ -1986,18 +1925,19 @@ fn unique_key(base: &str, existing: &[String]) -> String {
     }
 }
 
-/// Display type label for a freshly parsed fragment value, matching the labels
-/// `rebuild_rows` assigns so an inline edit can detect a type change by string
-/// comparison.
-fn fragment_value_label(item: &toml_edit::Item) -> String {
-    use toml_edit::{Item, Value};
-    match item {
-        Item::Value(Value::Array(_)) => "array".into(),
-        Item::Value(Value::InlineTable(_)) => "inline".into(),
-        Item::Value(v) => format!("{:?}", crate::model::project::scalar_type(v)).to_lowercase(),
-        Item::Table(_) => "table".into(),
-        Item::ArrayOfTables(_) => "array-of-tables".into(),
-        Item::None => "none".into(),
+/// Display type label for a node kind — used by `rebuild_rows` for the TYPE
+/// column and on a freshly parsed inline-edit fragment, so an edit can detect
+/// a type change by string comparison.
+fn node_type_label(kind: &crate::model::node::NodeKind) -> String {
+    use crate::model::node::NodeKind;
+    match kind {
+        NodeKind::Root => String::new(),
+        NodeKind::Table => "table".into(),
+        NodeKind::ArrayOfTables => "array-of-tables".into(),
+        NodeKind::Array => "array".into(),
+        NodeKind::InlineTable => "inline".into(),
+        NodeKind::Scalar(st) => format!("{st:?}").to_lowercase(),
+        NodeKind::Comment(_) => "comment".into(),
     }
 }
 
@@ -2255,7 +2195,7 @@ mod tests {
         // nodes now, edited on their own row).
         let app = app_with("a = 1\n\n# c\n[t]\nx = 1\n");
         let doc = app.doc.as_ref().unwrap();
-        let frag = doc.serialize_fragment(&[Seg::Key("t".into())], true);
+        let frag = doc.serialize_fragment(&[Seg::Key("t".into())]);
         assert!(
             !frag.starts_with('\n'),
             "fragment must not open with a blank line: {frag:?}"
@@ -2276,7 +2216,7 @@ mod tests {
         // adjacent comment is an independent node and is not pulled in.
         let app = app_with("a = 1\n\n# note\nport = 8080\n");
         let doc = app.doc.as_ref().unwrap();
-        let frag = doc.serialize_fragment(&[Seg::Key("port".into())], true);
+        let frag = doc.serialize_fragment(&[Seg::Key("port".into())]);
         assert_eq!(frag, "port = 8080\n", "got: {frag:?}");
     }
 
@@ -2291,8 +2231,8 @@ mod tests {
         App::new(doc)
     }
 
-    /// First visible row whose projected node is a Comment (backend-agnostic — works
-    /// for both the `#comment:N` and `Seg::Index` comment-addressing schemes).
+    /// First visible row whose projected node is a Comment (identified by kind —
+    /// a comment's `Seg::Index` path is indistinguishable from an array element's).
     fn comment_row(app: &App) -> usize {
         app.rows
             .iter()
@@ -2448,7 +2388,7 @@ mod tests {
     fn apply_replace_invalid_toml_sets_status_and_leaves_doc() {
         let mut app = app_with("port = 8080\n");
         let before = app.doc.as_ref().unwrap().serialize();
-        app.apply_replace(vec![Seg::Key("port".into())], "port = = nope".into(), false);
+        app.apply_replace(vec![Seg::Key("port".into())], "port = = nope".into());
         assert!(app.status.is_some(), "invalid TOML must surface in status");
         assert_eq!(
             app.doc.as_ref().unwrap().serialize(),
@@ -2460,7 +2400,7 @@ mod tests {
     #[test]
     fn apply_replace_valid_pushes_history_and_rebuilds() {
         let mut app = app_with("port = 8080\n");
-        app.apply_replace(vec![Seg::Key("port".into())], "port = 9090\n".into(), false);
+        app.apply_replace(vec![Seg::Key("port".into())], "port = 9090\n".into());
         assert!(app.status.is_none());
         assert!(app.doc.as_ref().unwrap().serialize().contains("9090"));
         // history advanced: undo restores the pre-edit snapshot
@@ -2836,7 +2776,7 @@ mod tests {
         let doc = crate::model::cst_doc::CstDocument::load(&path).unwrap();
         let mut app = App::new(doc);
         // Mutate to make dirty
-        app.apply_replace(vec![Seg::Key("port".into())], "port = 9090\n".into(), false);
+        app.apply_replace(vec![Seg::Key("port".into())], "port = 9090\n".into());
         assert!(
             app.doc.as_ref().unwrap().is_dirty(),
             "should be dirty after mutation"
@@ -2863,7 +2803,7 @@ mod tests {
     #[test]
     fn quit_when_dirty_enters_confirm_quit() {
         let mut app = app_with("a = 1\n");
-        app.apply_replace(vec![Seg::Key("a".into())], "a = 2\n".into(), false);
+        app.apply_replace(vec![Seg::Key("a".into())], "a = 2\n".into());
         assert!(app.doc.as_ref().unwrap().is_dirty());
         let should_quit = app.quit_requested();
         assert!(!should_quit, "should NOT quit immediately when dirty");
@@ -2996,7 +2936,7 @@ mod tests {
         // whole array-of-tables) for external editing.
         let app = app_with("[[product]]\nname = \"Hammer\"\n[[product]]\nname = \"Nail\"\n");
         let doc = app.doc.as_ref().unwrap();
-        let frag = doc.serialize_fragment(&[Seg::Key("product".into()), Seg::Index(1)], false);
+        let frag = doc.serialize_fragment(&[Seg::Key("product".into()), Seg::Index(1)]);
         assert_eq!(frag, "[[product]]\nname = \"Nail\"\n");
     }
 
@@ -3008,7 +2948,6 @@ mod tests {
         app.apply_replace(
             vec![Seg::Key("product".into()), Seg::Index(0)],
             "[[product]]\nname = \"Mallet\"\n".into(),
-            true,
         );
         assert!(app.status.is_none(), "unexpected status: {:?}", app.status);
         let s = app.doc.as_ref().unwrap().serialize();
@@ -3697,7 +3636,7 @@ mod tests {
         // paste does not duplicate it — the comment stays at the source.
         let app = app_with("# hdr\n[srv]\nport = 8080\n");
         let doc = app.doc.as_ref().unwrap();
-        let frag = clipboard_fragment(doc, &[Seg::Key("srv".into())], false);
+        let frag = doc.serialize_fragment(&[Seg::Key("srv".into())]);
         assert!(
             !frag.contains("# hdr"),
             "copied table fragment kept the comment: {frag:?}"
@@ -3723,7 +3662,7 @@ mod tests {
             .unwrap()
             .path
             .clone();
-        let frag = clipboard_fragment(doc, &cpath, true);
+        let frag = doc.serialize_fragment(&cpath);
         assert_eq!(frag.trim(), "# note");
     }
 
@@ -3793,10 +3732,7 @@ mod tests {
             .collect();
         assert_eq!(cpaths.len(), 2);
         let doc = app.doc.as_ref().unwrap();
-        let fragments: Vec<String> = cpaths
-            .iter()
-            .map(|p| doc.serialize_fragment(p, true))
-            .collect();
+        let fragments: Vec<String> = cpaths.iter().map(|p| doc.serialize_fragment(p)).collect();
         app.clipboard = Some(Clipboard {
             fragments,
             cut: false,

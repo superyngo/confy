@@ -529,63 +529,102 @@ mod tests {
         );
     }
 
-    fn toml_tree(src: &str) -> NodeTree {
-        let doc = src.parse::<toml_edit::DocumentMut>().unwrap();
-        crate::model::project::project(&doc, "f.toml")
-    }
-
+    /// One-line-per-node rendering of a projection for the golden tests below.
+    /// The expected strings were frozen from toml_edit-parity output when that
+    /// legacy backend was retired (plus the CST-only one-line Array/InlineTable
+    /// `value` reprs, which the old backend left `None`).
     fn norm(n: &Node, depth: usize, out: &mut String) {
         let pad = "  ".repeat(depth);
-        // The one-line repr `value` on single-line Array/InlineTable nodes is a
-        // CST-only enhancement (the legacy toml_edit backend leaves it None), so it
-        // is excluded from the projection-parity comparison.
-        let val = match n.kind {
-            NodeKind::Array | NodeKind::InlineTable => None,
-            _ => n.value.as_deref().map(str::trim),
-        };
         out.push_str(&format!(
             "{pad}{:?} key={:?} val={:?} fmt={:?} trail={:?}\n",
-            n.kind, n.key, val, n.format, n.trailing_comment
+            n.kind,
+            n.key,
+            n.value.as_deref().map(str::trim),
+            n.format,
+            n.trailing_comment
         ));
         for c in &n.children {
             norm(c, depth + 1, out);
         }
     }
 
-    fn assert_parity(src: &str) {
-        let (cst, toml) = (cst_tree(src), toml_tree(src));
+    #[track_caller]
+    fn assert_projection(src: &str, expected: &str) {
+        let t = cst_tree(src);
         let mut a = String::new();
-        for c in &cst.root.children {
+        for c in &t.root.children {
             norm(c, 0, &mut a);
         }
-        let mut b = String::new();
-        for c in &toml.root.children {
-            norm(c, 0, &mut b);
-        }
-        assert_eq!(
-            a, b,
-            "projection parity mismatch for:\n{src}\n--CST--\n{a}\n--TOML--\n{b}"
+        assert_eq!(a, expected, "projection mismatch for:\n{src}\n--got--\n{a}");
+    }
+
+    #[test]
+    fn golden_scalars_and_tables() {
+        assert_projection(
+            "title = \"x\"\n[server]\nport = 8080\n",
+            r##"Scalar(String) key="title" val=Some("\"x\"") fmt=BasicString trail=None
+Table key="server" val=None fmt=Plain trail=None
+  Scalar(Integer) key="port" val=Some("8080") fmt=Decimal trail=None
+"##,
         );
     }
 
     #[test]
-    fn parity_scalars_and_tables() {
-        assert_parity("title = \"x\"\n[server]\nport = 8080\n");
+    fn golden_comments_all_positions() {
+        assert_projection(
+            "# top\na = 1\n# mid\nb = 2\n# tail\n",
+            r##"Comment("# top") key="# top" val=Some("# top") fmt=Plain trail=None
+Scalar(Integer) key="a" val=Some("1") fmt=Decimal trail=None
+Comment("# mid") key="# mid" val=Some("# mid") fmt=Plain trail=None
+Scalar(Integer) key="b" val=Some("2") fmt=Decimal trail=None
+Comment("# tail") key="# tail" val=Some("# tail") fmt=Plain trail=None
+"##,
+        );
+        assert_projection(
+            "# about\n[server]\nport = 8080\n",
+            r##"Comment("# about") key="# about" val=Some("# about") fmt=Plain trail=None
+Table key="server" val=None fmt=Plain trail=None
+  Scalar(Integer) key="port" val=Some("8080") fmt=Decimal trail=None
+"##,
+        );
+        assert_projection(
+            "[s]\np = 1\n# mid\n[d]\nn = \"t\"\n",
+            r##"Table key="s" val=None fmt=Plain trail=None
+  Scalar(Integer) key="p" val=Some("1") fmt=Decimal trail=None
+Comment("# mid") key="# mid" val=Some("# mid") fmt=Plain trail=None
+Table key="d" val=None fmt=Plain trail=None
+  Scalar(String) key="n" val=Some("\"t\"") fmt=BasicString trail=None
+"##,
+        );
+        assert_projection(
+            "[server]\n# explain\nport = 8080\n",
+            r##"Table key="server" val=None fmt=Plain trail=None
+  Comment("# explain") key="# explain" val=Some("# explain") fmt=Plain trail=None
+  Scalar(Integer) key="port" val=Some("8080") fmt=Decimal trail=None
+"##,
+        );
     }
 
     #[test]
-    fn parity_comments_all_positions() {
-        assert_parity("# top\na = 1\n# mid\nb = 2\n# tail\n");
-        assert_parity("# about\n[server]\nport = 8080\n");
-        assert_parity("[s]\np = 1\n# mid\n[d]\nn = \"t\"\n");
-        assert_parity("[server]\n# explain\nport = 8080\n");
-    }
-
-    #[test]
-    fn parity_comment_grouping() {
-        assert_parity("# one\n# two\na = 1\n");
-        assert_parity("# a1\n# a2\n\n# b1\na = 1\n");
-        assert_parity("# just\n# comments\n");
+    fn golden_comment_grouping() {
+        assert_projection(
+            "# one\n# two\na = 1\n",
+            r##"Comment("# one\n# two") key="# one\n# two" val=Some("# one\n# two") fmt=Plain trail=None
+Scalar(Integer) key="a" val=Some("1") fmt=Decimal trail=None
+"##,
+        );
+        assert_projection(
+            "# a1\n# a2\n\n# b1\na = 1\n",
+            r##"Comment("# a1\n# a2") key="# a1\n# a2" val=Some("# a1\n# a2") fmt=Plain trail=None
+Comment("# b1") key="# b1" val=Some("# b1") fmt=Plain trail=None
+Scalar(Integer) key="a" val=Some("1") fmt=Decimal trail=None
+"##,
+        );
+        assert_projection(
+            "# just\n# comments\n",
+            r##"Comment("# just\n# comments") key="# just\n# comments" val=Some("# just\n# comments") fmt=Plain trail=None
+"##,
+        );
     }
 
     #[test]
@@ -597,42 +636,83 @@ mod tests {
     }
 
     #[test]
-    fn parity_arrays_inline_aot() {
-        assert_parity("nums = [1, 2]\npt = { x = 1 }\n[[item]]\nn = 1\n[[item]]\nn = 2\n");
-        assert_parity("[[s]]\na = 1\n# mid\n[[s]]\nb = 2\n");
-    }
-
-    #[test]
-    fn parity_dotted_key_and_header() {
-        assert_parity("a.b.c = 1\n");
-        assert_parity("[x.a]\nname = \"A\"\n\n[x.b]\nname = \"B\"\n");
-    }
-
-    #[test]
-    fn parity_scalar_types_and_formats() {
-        assert_parity("dec = 255\nhx = 0xFF\noc = 0o377\nbn = 0b1111_1111\n");
-        assert_parity("b = \"hi\"\nl = 'hi'\nmb = \"\"\"hi\"\"\"\nml = '''hi'''\n");
-        assert_parity(
-            "odt = 2021-01-01T00:00:00Z\nldt = 2021-01-01T00:00:00\nld = 2021-01-01\nlt = 12:34:56\n",
+    fn golden_arrays_inline_aot() {
+        assert_projection(
+            "nums = [1, 2]\npt = { x = 1 }\n[[item]]\nn = 1\n[[item]]\nn = 2\n",
+            r##"Array key="nums" val=Some("[1, 2]") fmt=Plain trail=None
+  Scalar(Integer) key="[0]" val=Some("1") fmt=Decimal trail=None
+  Scalar(Integer) key="[1]" val=Some("2") fmt=Decimal trail=None
+InlineTable key="pt" val=Some("{ x = 1 }") fmt=Plain trail=None
+  Scalar(Integer) key="x" val=Some("1") fmt=Decimal trail=None
+ArrayOfTables key="item" val=None fmt=Plain trail=None
+  Table key="[0]" val=None fmt=Plain trail=None
+    Scalar(Integer) key="n" val=Some("1") fmt=Decimal trail=None
+  Table key="[1]" val=None fmt=Plain trail=None
+    Scalar(Integer) key="n" val=Some("2") fmt=Decimal trail=None
+"##,
+        );
+        assert_projection(
+            "[[s]]\na = 1\n# mid\n[[s]]\nb = 2\n",
+            r##"ArrayOfTables key="s" val=None fmt=Plain trail=None
+  Table key="[0]" val=None fmt=Plain trail=None
+    Scalar(Integer) key="a" val=Some("1") fmt=Decimal trail=None
+  Comment("# mid") key="# mid" val=Some("# mid") fmt=Plain trail=None
+  Table key="[1]" val=None fmt=Plain trail=None
+    Scalar(Integer) key="b" val=Some("2") fmt=Decimal trail=None
+"##,
         );
     }
 
-    /// Structural rendering (kind + key + shape) for fixtures, which contain EOL
-    /// comments where value/trailing intentionally differ from the old projection.
-    fn norm_struct(n: &Node, depth: usize, out: &mut String) {
-        let pad = "  ".repeat(depth);
-        let tag = match &n.kind {
-            NodeKind::Comment(_) => "Comment".to_string(),
-            other => format!("{other:?}"),
-        };
-        out.push_str(&format!("{pad}{tag} key={:?}\n", n.key));
-        for c in &n.children {
-            norm_struct(c, depth + 1, out);
-        }
+    #[test]
+    fn golden_dotted_key_and_header() {
+        assert_projection(
+            "a.b.c = 1\n",
+            r##"Scalar(Integer) key="a.b.c" val=Some("1") fmt=Decimal trail=None
+"##,
+        );
+        assert_projection(
+            "[x.a]\nname = \"A\"\n\n[x.b]\nname = \"B\"\n",
+            r##"Table key="x" val=None fmt=Plain trail=None
+  Table key="a" val=None fmt=Plain trail=None
+    Scalar(String) key="name" val=Some("\"A\"") fmt=BasicString trail=None
+  Table key="b" val=None fmt=Plain trail=None
+    Scalar(String) key="name" val=Some("\"B\"") fmt=BasicString trail=None
+"##,
+        );
     }
 
     #[test]
-    fn parity_repo_fixtures_structural() {
+    fn golden_scalar_types_and_formats() {
+        assert_projection(
+            "dec = 255\nhx = 0xFF\noc = 0o377\nbn = 0b1111_1111\n",
+            r##"Scalar(Integer) key="dec" val=Some("255") fmt=Decimal trail=None
+Scalar(Integer) key="hx" val=Some("0xFF") fmt=Hex trail=None
+Scalar(Integer) key="oc" val=Some("0o377") fmt=Octal trail=None
+Scalar(Integer) key="bn" val=Some("0b1111_1111") fmt=Binary trail=None
+"##,
+        );
+        assert_projection(
+            "b = \"hi\"\nl = 'hi'\nmb = \"\"\"hi\"\"\"\nml = '''hi'''\n",
+            r##"Scalar(String) key="b" val=Some("\"hi\"") fmt=BasicString trail=None
+Scalar(String) key="l" val=Some("'hi'") fmt=Literal trail=None
+Scalar(String) key="mb" val=Some("\"\"\"hi\"\"\"") fmt=MultilineBasic trail=None
+Scalar(String) key="ml" val=Some("'''hi'''") fmt=MultilineLiteral trail=None
+"##,
+        );
+        assert_projection(
+            "odt = 2021-01-01T00:00:00Z\nldt = 2021-01-01T00:00:00\nld = 2021-01-01\nlt = 12:34:56\n",
+            r##"Scalar(OffsetDatetime) key="odt" val=Some("2021-01-01T00:00:00Z") fmt=Plain trail=None
+Scalar(LocalDatetime) key="ldt" val=Some("2021-01-01T00:00:00") fmt=Plain trail=None
+Scalar(LocalDate) key="ld" val=Some("2021-01-01") fmt=Plain trail=None
+Scalar(LocalTime) key="lt" val=Some("12:34:56") fmt=Plain trail=None
+"##,
+        );
+    }
+
+    /// Every repo fixture must parse and project without panicking (the
+    /// byte-identical round-trip lives in `tests/roundtrip.rs`).
+    #[test]
+    fn repo_fixtures_project() {
         let mut files = vec![std::path::PathBuf::from("test.toml")];
         let fx = std::path::Path::new("tests/fixtures");
         if fx.is_dir() {
@@ -645,18 +725,10 @@ mod tests {
         }
         for f in &files {
             let src = std::fs::read_to_string(f).unwrap();
-            let (cst, toml) = (cst_tree(&src), toml_tree(&src));
-            let mut a = String::new();
-            for c in &cst.root.children {
-                norm_struct(c, 0, &mut a);
-            }
-            let mut b = String::new();
-            for c in &toml.root.children {
-                norm_struct(c, 0, &mut b);
-            }
-            assert_eq!(
-                a, b,
-                "structural parity mismatch for {f:?}\n--CST--\n{a}\n--TOML--\n{b}"
+            let t = cst_tree(&src);
+            assert!(
+                !t.root.children.is_empty(),
+                "fixture {f:?} projected to an empty tree"
             );
         }
     }

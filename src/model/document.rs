@@ -9,10 +9,10 @@ pub trait ConfigDocument: Sized {
     fn apply(&mut self, m: Mutation) -> Result<(), MutateError>;
 
     /// Serialize the node at `path` as a standalone fragment (for the clipboard and
-    /// `$EDITOR`). The empty path returns the whole document. When `carry_comment`
-    /// is set, an adjacent leading comment is carried into the fragment ($EDITOR);
-    /// when clear it is not (clipboard copy).
-    fn serialize_fragment(&self, path: &[crate::model::node::Seg], carry_comment: bool) -> String;
+    /// `$EDITOR`), starting at the node's own header/value line — an adjacent
+    /// standalone comment is an independent node and is never part of the fragment.
+    /// The empty path returns the whole document.
+    fn serialize_fragment(&self, path: &[crate::model::node::Seg]) -> String;
 }
 
 /// Where an insert/move lands: insert as a child of `parent` at `index`.
@@ -42,12 +42,6 @@ pub enum Mutation {
     Replace {
         path: Path,
         toml: String,
-        /// When `true` the `toml` is a full node fragment (from `$EDITOR`) whose key
-        /// decor — including any adjacent leading comment — is authoritative and is
-        /// synced back to the document. When `false` (inline value-only edits) the
-        /// existing key decor is left untouched, so an inline edit never disturbs the
-        /// node's comment.
-        sync_decor: bool,
     },
     /// Rename the key at `path` to `new_key`, preserving its position and decor.
     Rename {

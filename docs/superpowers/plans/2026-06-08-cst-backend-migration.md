@@ -1,7 +1,9 @@
 # CST backend migration — comments as real, independent nodes
 
-> **Status:** approved direction (Option B). Not yet started. No `model/` rewrite code
-> has been written. This is the implementation plan to review before execution.
+> **Status: COMPLETE (2026-06-10).** All phases done. `CstDocument` went live in v0.4.0
+> (commit 9b8edfd); the legacy `toml_edit` backend (`toml_doc.rs`, `project.rs`,
+> `fragment.rs`) and the `toml_edit` dependency were deleted on 2026-06-10, along with
+> the vestigial `sync_decor`/`carry_comment` flags and the last `#comment:N` sniffing.
 
 **Goal:** Replace `toml_edit::DocumentMut` as the single source of truth with a **lossless
 syntax tree (CST)** in which standalone comments are *real, independently-positioned nodes* —
@@ -136,24 +138,22 @@ AoT-*entry* Move (needs append-not-collide `[[x]]` insert semantics — degrades
 - [x] **5a (done):** fragment serialization moved behind `ConfigDocument::serialize_fragment`, both
       backends implemented; the TUI no longer reaches into `doc.doc`. Behavior-preserving — `TomlDocument`
       still live, all tests green. The remaining swap is now a small, well-defined change.
-- [ ] **5b — not started; parity now mostly cleared.** CST mutation parity is reached except niche
-  AoT-entry Move (graceful `Unsupported`) and multiline-array spacing. Remaining work for the flip:
-  - **Replace `#comment:N` path-sniffing** across `tui/` with `NodeKind::Comment` checks (filter
-    haystack, paste node/comment partition, delete/edit routing, render) — comment paths are
-    `Seg::Index` now, not synthetic keys.
-  - Point `cli.rs`/`main.rs` at `CstDocument`; triage `app.rs` tests (some encode toml_edit-specific
-    fragment/comment behavior that intentionally changes).
-  - **The user smoke-tests the TUI interactively** (the no-pty-TUI rule means this cannot be
-    self-verified). The editing UX changes (e.g. `$EDITOR` no longer pulls an adjacent comment in)
-    need a human in the loop.
-- [ ] Delete `toml_doc.rs`, `project.rs`, and the `toml_edit` dependency **only after** 5b verifies.
+- [x] **5b (done, commit 9b8edfd + follow-ups; shipped in v0.4.0):** TUI wired to `CstDocument`;
+      `#comment:N` checks replaced by `NodeKind::Comment`; live-app paste bugs fixed with regression
+      tests; user smoke-tested across the v0.4.0 release cycle.
+- [x] Deleted `toml_doc.rs`, `project.rs`, `fragment.rs`, and the `toml_edit` dependency (2026-06-10).
+      `tests/roundtrip.rs` switched to `CstDocument`; the projection-parity tests were frozen as golden
+      tests in `cst_project.rs`; the inline editor's type-change check now parses via taplo
+      (`node_type_label`).
 
 ## Phase 6 — Docs + cleanup
 
-- [ ] Rewrite `CLAUDE.md` architecture section (the "CST projection" / decor paragraphs are mostly
-      obsolete — comments are real nodes now).
-- [ ] `CHANGELOG.md` Unreleased entry.
-- [ ] Remove dead helpers (`detach_leading_comments`, `clipboard_fragment` strip, decor sweeps).
+- [x] Rewrite `CLAUDE.md` architecture section (the "CST projection" / decor paragraphs are mostly
+      obsolete — comments are real nodes now). (2026-06-10)
+- [x] `CHANGELOG.md` Unreleased entry. (2026-06-10)
+- [x] Remove dead helpers (`detach_leading_comments` and decor sweeps died with `toml_doc.rs`;
+      `clipboard_fragment`/`strip_leading_comment_block` deleted; vestigial `sync_decor` and
+      `carry_comment` flags removed from the `Mutation`/`ConfigDocument` APIs). (2026-06-10)
 
 ---
 

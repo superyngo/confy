@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- **The legacy `toml_edit` backend is fully retired** (CST migration Phase 5/6 complete). `toml_doc.rs`, `project.rs`, `fragment.rs` and the `toml_edit` dependency are deleted; `CstDocument` (taplo/rowan) — live since v0.4.0 — is the only backend. The migration-era projection-parity tests are frozen as golden tests in `cst_project.rs`; `tests/roundtrip.rs` now runs against the CST backend. (2026-06-10)
+
+### Changed
+- Internal cleanup of vestigial toml_edit-era machinery: the `sync_decor` flag on `Mutation::Replace` and the `carry_comment` flag on `ConfigDocument::serialize_fragment` are removed (comments are independent CST nodes, so a value replace can never disturb one and a fragment never carries one); the `clipboard_fragment`/`strip_leading_comment_block` helpers and the last `#comment:N` path-sniffing in the filter are gone. The inline editor's type-change detection now parses the fragment with taplo and reuses the projection's type labels (`node_type_label`). No user-visible behaviour change. (2026-06-10)
+
+### Docs
+- `CLAUDE.md` architecture section rewritten for the CST backend (comments as first-class nodes, `Seg::Index` addressing, atomic apply); the obsolete decor-machinery paragraphs are gone. (2026-06-10)
+
 ## [v0.4.0] - 2026-06-09
 
 ### Added
