@@ -19,12 +19,14 @@ pub enum ScalarType {
     LocalTime,
 }
 
-/// Writing style of a scalar — orthogonal to its `ScalarType`. Derived from the
-/// rendered repr during projection (read-only); the eventual format-toggle
-/// feature (§future) is the write-side counterpart. Non-scalars are `Plain`.
+/// Writing style of a scalar or container — orthogonal to `ScalarType`/`NodeKind`.
+/// Derived from the syntax during projection (read-only); the eventual
+/// format-toggle feature (§future) is the write-side counterpart. Nodes with a
+/// single possible style (bool, datetimes, Root, AoT groups/entries, comments)
+/// are `Plain`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Format {
-    /// Single writing style (bool, datetimes, plain float, and all non-scalars).
+    /// Single writing style (bool, datetimes, Root, AoT, comments).
     Plain,
     // String
     BasicString,
@@ -36,6 +38,26 @@ pub enum Format {
     Hex,
     Octal,
     Binary,
+    // Float (plain floats stay `Plain`)
+    Inf,
+    Nan,
+    // Container: array / inline table written on one line vs. spread over lines
+    Inline,
+    Multiline,
+    /// A standard `[table]` scope (inline tables are `Inline`).
+    Scope,
+}
+
+/// How a node's own key is written in the source — `None` for keyless nodes
+/// (array elements, comments, AoT entries, Root). Derived read-only during
+/// projection, like `Format`. A dotted-key entry (`a.b.c = 1`) collapses into
+/// one node, which is `Dotted`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeySign {
+    Bare,
+    Quoted,
+    Dotted,
+    None,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -56,8 +78,11 @@ pub struct Node {
     pub kind: NodeKind,
     pub children: Vec<Node>,
     pub value: Option<String>,
-    /// Writing style of a scalar leaf; `Plain` for branches and comments.
+    /// Writing style of a scalar leaf or container; `Plain` where only one
+    /// style exists (Root, AoT, comments, bool, datetimes, plain floats).
     pub format: Format,
+    /// How this node's own key is written; `None` for keyless nodes.
+    pub key_sign: KeySign,
     pub trailing_comment: Option<String>,
 }
 
@@ -81,6 +106,7 @@ impl Node {
             children: Vec::new(),
             value: None,
             format: Format::Plain,
+            key_sign: KeySign::None,
             trailing_comment: None,
         }
     }
@@ -97,6 +123,7 @@ impl Node {
             children: Vec::new(),
             value: None,
             format: Format::Plain,
+            key_sign: KeySign::None,
             trailing_comment: None,
         }
     }

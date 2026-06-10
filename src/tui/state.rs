@@ -24,6 +24,12 @@ pub enum PromptKind {
         from: String,
         to: String,
     },
+    /// Pasting a comment into a single-line array: confirm the reformat to
+    /// multiline before re-issuing the paste with the upgrade allowed.
+    ArrayUpgrade {
+        target: crate::model::document::Target,
+        on_collision: crate::model::document::OnCollision,
+    },
 }
 
 /// Which column the inline editor is currently editing. `Tab` toggles between

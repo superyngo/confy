@@ -1,5 +1,5 @@
 use crate::model::document::{ConfigDocument, Mutation, OnCollision, Target};
-use crate::model::node::{Format, Node, NodeKind, NodeTree, Path, ScalarType, Seg};
+use crate::model::node::{Format, KeySign, Node, NodeKind, NodeTree, Path, ScalarType, Seg};
 use crate::tui::search::{fuzzy_match, haystack};
 use crate::tui::selection::Selection;
 use crate::tui::state::{Clipboard, EditState, History, Mode, PasteSlot, PromptKind};
@@ -50,6 +50,8 @@ pub struct App {
     pub pending_edit: Option<(EditState, String)>,
     /// Vertical scroll offset (in display rows) of the detail popup.
     pub detail_scroll: u16,
+    /// Vertical scroll offset (in display rows) of the help overlay.
+    pub help_scroll: u16,
     /// Persisted vertical scroll offset (top visible row) of the main tree table.
     /// Kept across frames so the viewport only scrolls when the cursor would
     /// leave it, instead of ratatui re-deriving it (and pinning the cursor to an
@@ -65,8 +67,11 @@ pub struct RowSnapshot {
     pub is_branch: bool,
     pub value: Option<String>,
     pub scalar_type: Option<String>,
-    /// Display label for the TYPE column (scalar type, branch kind, or "comment").
+    /// Word label for the node's type (scalar type, branch kind, or "comment") —
+    /// used by the detail popup, colouring, and type-change detection.
     pub type_label: String,
+    /// Fixed-pitch TYPE-column tag, e.g. `(B) [S:str ]` (always 12 chars).
+    pub type_tag: String,
     /// Writing style of a scalar leaf (`Plain` for branches/comments).
     pub format: Format,
     pub trailing_comment: Option<String>,
@@ -103,6 +108,7 @@ impl App {
             detail_text: None,
             pending_edit: None,
             detail_scroll: 0,
+            help_scroll: 0,
             table_offset: std::cell::Cell::new(0),
         };
         // Seed the root (empty path) as expanded so the file node starts open.
@@ -135,6 +141,7 @@ impl App {
             detail_text: None,
             pending_edit: None,
             detail_scroll: 0,
+            help_scroll: 0,
             table_offset: std::cell::Cell::new(0),
         }
     }
@@ -151,6 +158,7 @@ impl App {
                     _ => None,
                 };
                 let type_label = node_type_label(&r.node.kind);
+                let type_tag = type_tag(&r.node.kind, r.node.format, r.node.key_sign);
                 RowSnapshot {
                     key: r.node.key.clone(),
                     path: r.node.path.clone(),
@@ -159,6 +167,7 @@ impl App {
                     value: r.node.value.clone(),
                     scalar_type,
                     type_label,
+                    type_tag,
                     format: r.node.format,
                     trailing_comment: r.node.trailing_comment.clone(),
                 }
@@ -230,6 +239,63 @@ impl App {
         }
         walk(&self.tree.root, &mut all);
         self.expanded = all;
+    }
+    /// `1` — reveal one more depth level of the branch under the cursor: each
+    /// press opens the shallowest not-yet-expanded level within that subtree,
+    /// until it is fully open. No-op on a leaf/comment or when already full.
+    pub fn expand_level(&mut self) {
+        let base = match self.rows.get(self.cursor) {
+            Some(r) if r.is_branch => r.path.clone(),
+            _ => return,
+        };
+        // Collect every branch in the subtree rooted at `base` (incl. base
+        // itself), keyed by depth (= path length).
+        let mut branches: Vec<Path> = Vec::new();
+        fn walk(n: &crate::model::node::Node, base: &Path, out: &mut Vec<Path>) {
+            if n.is_branch() && n.path.len() >= base.len() && n.path[..base.len()] == base[..] {
+                out.push(n.path.clone());
+            }
+            for c in &n.children {
+                walk(c, base, out);
+            }
+        }
+        walk(&self.tree.root, &base, &mut branches);
+        // Shallowest depth that still has an unexpanded branch.
+        let frontier = branches
+            .iter()
+            .filter(|p| !self.expanded.contains(*p))
+            .map(|p| p.len())
+            .min();
+        let Some(d) = frontier else { return };
+        for p in branches.into_iter().filter(|p| p.len() <= d) {
+            self.expanded.insert(p);
+        }
+        self.rebuild_rows();
+        if let Some(i) = self.rows.iter().position(|r| r.path == base) {
+            self.cursor = i;
+        }
+    }
+    /// `2` — collapse one level and climb. An open branch under the cursor
+    /// collapses in place; otherwise the cursor moves up to its parent branch
+    /// and collapses that. Repeated presses ascend the tree.
+    pub fn collapse_level(&mut self) {
+        let path = match self.rows.get(self.cursor) {
+            Some(r) => r.path.clone(),
+            None => return,
+        };
+        let is_open_branch = self.rows[self.cursor].is_branch && self.expanded.contains(&path);
+        let target = if is_open_branch {
+            path
+        } else if path.is_empty() {
+            return; // already at root; nothing above
+        } else {
+            path[..path.len() - 1].to_vec()
+        };
+        self.expanded.remove(&target);
+        self.rebuild_rows();
+        if let Some(i) = self.rows.iter().position(|r| r.path == target) {
+            self.cursor = i;
+        }
     }
     pub fn page_up(&mut self, page_size: usize) {
         let step = page_size.max(1);
@@ -545,7 +611,7 @@ impl App {
             // carries the full (multi-line) comment text, shown in full below.
             let type_str = row.scalar_type.as_deref().unwrap_or(&row.type_label);
             let val_str = row.value.as_deref().unwrap_or("");
-            // Compact format label, matching the TYPE/FORMAT column; single-style
+            // Compact format label, matching the KIND column; single-style
             // scalars (bool/float/datetime) read as "plain".
             let fmt_str = crate::tui::ui::format_label(row.format).unwrap_or("plain");
             format!("Path:     {dotted}\nType:     {type_str}\nFormat:   {fmt_str}\nValue:    {val_str}")
@@ -579,7 +645,19 @@ impl App {
 
     /// `?` — show help overlay.
     pub fn enter_help(&mut self) {
+        self.help_scroll = 0;
         self.mode = Mode::Help;
+    }
+
+    /// Scroll the help overlay by `delta` rows, clamped to `[0, max]`.
+    pub fn help_scroll_by(&mut self, delta: i32, max: u16) {
+        let v = (self.help_scroll as i32 + delta).clamp(0, max as i32);
+        self.help_scroll = v as u16;
+    }
+
+    /// Jump the help overlay to an absolute scroll offset (Home/End).
+    pub fn help_set_scroll(&mut self, v: u16) {
+        self.help_scroll = v;
     }
 
     /// Esc from help overlay.
@@ -1436,7 +1514,7 @@ impl App {
                 return;
             }
         };
-        self.do_paste(cb, target, OnCollision::Cancel);
+        self.do_paste(cb, target, OnCollision::Cancel, false);
     }
 
     /// Core paste logic, split out so it can be re-issued after a collision prompt.
@@ -1456,6 +1534,7 @@ impl App {
         clipboard: Clipboard,
         target: Target,
         on_collision: OnCollision,
+        allow_upgrade: bool,
     ) {
         let Clipboard {
             fragments,
@@ -1515,23 +1594,47 @@ impl App {
         }
 
         // Validate the comment destination *before* any mutation: comments need a
-        // table/root decor slot or a multiline array, so a cut must never delete a
-        // comment it then can't paste (which would lose it). Abort non-destructively,
-        // keeping the whole clipboard, so cut behaves like copy on an illegal target.
+        // table/root decor slot or an array, so a cut must never delete a comment
+        // it then can't paste (which would lose it). Abort non-destructively,
+        // keeping the whole clipboard, so cut behaves like copy on an illegal
+        // target. A *single-line* array is legal but rewrites the array's layout
+        // (`InsertComment` upgrades it to multiline), so it prompts y/n first
+        // unless this paste was re-issued from that prompt (`allow_upgrade`).
         if !comment_entries.is_empty() {
-            let ok = node_at(&self.tree.root, &target.parent)
+            enum Dest {
+                Ok,
+                Prompt,
+                Illegal,
+            }
+            let dest = node_at(&self.tree.root, &target.parent)
                 .map(|n| match n.kind {
-                    NodeKind::Root | NodeKind::Table => true,
+                    NodeKind::Root | NodeKind::Table => Dest::Ok,
                     // multiline array (single-line arrays have a one-line `value`)
-                    NodeKind::Array => n.value.is_none(),
-                    _ => false,
+                    NodeKind::Array if n.value.is_none() => Dest::Ok,
+                    NodeKind::Array if allow_upgrade => Dest::Ok,
+                    NodeKind::Array => Dest::Prompt,
+                    _ => Dest::Illegal,
                 })
-                .unwrap_or(false);
-            if !ok {
-                self.clipboard = Some(rebuild(is_cut, &node_entries, &comment_entries));
-                self.status =
-                    Some("paste error: comments can only go into a table or the document".into());
-                return;
+                .unwrap_or(Dest::Illegal);
+            match dest {
+                Dest::Ok => {}
+                Dest::Prompt => {
+                    self.clipboard = Some(rebuild(is_cut, &node_entries, &comment_entries));
+                    self.status =
+                        Some("single-line array — reformat to multiline and insert? y/n".into());
+                    self.mode = Mode::Prompt(PromptKind::ArrayUpgrade {
+                        target,
+                        on_collision,
+                    });
+                    return;
+                }
+                Dest::Illegal => {
+                    self.clipboard = Some(rebuild(is_cut, &node_entries, &comment_entries));
+                    self.status = Some(
+                        "paste error: comments can only go into a table or the document".into(),
+                    );
+                    return;
+                }
             }
         }
 
@@ -1811,7 +1914,29 @@ impl App {
                     },
                     target,
                     oc,
+                    false,
                 );
+                PromptOutcome::Consumed
+            }
+            Mode::Prompt(PromptKind::ArrayUpgrade { .. }) => {
+                if c != 'y' {
+                    // Keep the clipboard so the user can pick another target.
+                    self.mode = Mode::Normal;
+                    self.status = Some("paste cancelled — clipboard kept".into());
+                    return PromptOutcome::Consumed;
+                }
+                let (target, oc) = match &self.mode {
+                    Mode::Prompt(PromptKind::ArrayUpgrade {
+                        target,
+                        on_collision,
+                    }) => (target.clone(), *on_collision),
+                    _ => unreachable!(),
+                };
+                self.mode = Mode::Normal;
+                match self.clipboard.take() {
+                    Some(cb) => self.do_paste(cb, target, oc, true),
+                    None => self.status = None,
+                }
                 PromptOutcome::Consumed
             }
             Mode::Prompt(PromptKind::ConfirmQuit) => match c {
@@ -1939,6 +2064,51 @@ fn node_type_label(kind: &crate::model::node::NodeKind) -> String {
         NodeKind::Scalar(st) => format!("{st:?}").to_lowercase(),
         NodeKind::Comment(_) => "comment".into(),
     }
+}
+
+/// Fixed-pitch TYPE-column tag: a 3-char key sign + a padded 8-char type slot,
+/// always 12 columns so the column never shifts. Containers use 5-char tags
+/// (`[A/I]` inline array, `[A/M]` multiline, `[A/T]` AoT, `[T/I]` inline table,
+/// `[T/S]` table scope, `[G]` root, `[C]` comment) padded to the slot; scalars
+/// use `[X:xxxx]` (type letter + 4-char format). An AoT *entry* projects as a
+/// Table, so it reads `(-) [T/S]`.
+fn type_tag(kind: &NodeKind, format: Format, key_sign: KeySign) -> String {
+    let sign = match key_sign {
+        KeySign::Bare => "(B)",
+        KeySign::Quoted => "(Q)",
+        KeySign::Dotted => "(D)",
+        KeySign::None => "(-)",
+    };
+    let slot: &str = match kind {
+        NodeKind::Root => "[G]",
+        NodeKind::Comment(_) => "[C]",
+        NodeKind::Array => match format {
+            Format::Multiline => "[A/M]",
+            _ => "[A/I]",
+        },
+        NodeKind::ArrayOfTables => "[A/T]",
+        NodeKind::InlineTable => "[T/I]",
+        NodeKind::Table => "[T/S]",
+        NodeKind::Scalar(st) => match (st, format) {
+            (ScalarType::String, Format::MultilineBasic) => "[S:mstr]",
+            (ScalarType::String, Format::Literal) => "[S:lit ]",
+            (ScalarType::String, Format::MultilineLiteral) => "[S:mlit]",
+            (ScalarType::String, _) => "[S:str ]",
+            (ScalarType::Integer, Format::Hex) => "[I:hex ]",
+            (ScalarType::Integer, Format::Octal) => "[I:oct ]",
+            (ScalarType::Integer, Format::Binary) => "[I:bin ]",
+            (ScalarType::Integer, _) => "[I:dec ]",
+            (ScalarType::Float, Format::Inf) => "[F:inf ]",
+            (ScalarType::Float, Format::Nan) => "[F:nan ]",
+            (ScalarType::Float, _) => "[F:flt ]",
+            (ScalarType::Bool, _) => "[B:bool]",
+            (ScalarType::OffsetDatetime, _) => "[D:odt ]",
+            (ScalarType::LocalDatetime, _) => "[D:ldt ]",
+            (ScalarType::LocalDate, _) => "[D:ldat]",
+            (ScalarType::LocalTime, _) => "[D:ltim]",
+        },
+    };
+    format!("{sign} {slot:<8}")
 }
 
 /// Insert `_` every `n` digits counting from the right (e.g. `1000000` → `1_000_000`).
@@ -2076,6 +2246,72 @@ mod tests {
     }
 
     #[test]
+    fn type_tag_is_fixed_pitch() {
+        let cases = [
+            (NodeKind::Root, Format::Plain, KeySign::None, "(-) [G]     "),
+            (
+                NodeKind::Comment("# c".into()),
+                Format::Plain,
+                KeySign::None,
+                "(-) [C]     ",
+            ),
+            (
+                NodeKind::Array,
+                Format::Inline,
+                KeySign::Bare,
+                "(B) [A/I]   ",
+            ),
+            (
+                NodeKind::Array,
+                Format::Multiline,
+                KeySign::Quoted,
+                "(Q) [A/M]   ",
+            ),
+            (
+                NodeKind::ArrayOfTables,
+                Format::Plain,
+                KeySign::Bare,
+                "(B) [A/T]   ",
+            ),
+            (
+                NodeKind::InlineTable,
+                Format::Inline,
+                KeySign::Dotted,
+                "(D) [T/I]   ",
+            ),
+            (
+                NodeKind::Table,
+                Format::Scope,
+                KeySign::Bare,
+                "(B) [T/S]   ",
+            ),
+            (
+                NodeKind::Scalar(ScalarType::String),
+                Format::MultilineLiteral,
+                KeySign::Bare,
+                "(B) [S:mlit]",
+            ),
+            (
+                NodeKind::Scalar(ScalarType::Float),
+                Format::Inf,
+                KeySign::Bare,
+                "(B) [F:inf ]",
+            ),
+            (
+                NodeKind::Scalar(ScalarType::LocalDate),
+                Format::Plain,
+                KeySign::Bare,
+                "(B) [D:ldat]",
+            ),
+        ];
+        for (kind, fmt, sign, expected) in cases {
+            let tag = type_tag(&kind, fmt, sign);
+            assert_eq!(tag, expected);
+            assert_eq!(tag.chars().count(), 12, "tag must be 12 cols: {tag:?}");
+        }
+    }
+
+    #[test]
     fn cursor_moves_and_expand_reveals_children() {
         let mut app = sample();
         app.rebuild_rows();
@@ -2164,6 +2400,50 @@ mod tests {
         app.expand_all();
         app.rebuild_rows();
         assert_eq!(app.visible_keys(), vec!["f.toml", "a", "x", "b"]);
+    }
+
+    #[test]
+    fn expand_level_reveals_one_depth_per_press() {
+        // Nested headers: a > { p, b > { q, c > { r } } }.
+        let mut app = app_with("[a]\np = 1\n[a.b]\nq = 2\n[a.b.c]\nr = 3\n");
+        // visible_keys()[0] is the root (temp-file name); compare the rest.
+        let below = |app: &App| app.visible_keys()[1..].to_vec();
+        app.collapse_all();
+        app.rebuild_rows();
+        assert_eq!(below(&app), vec!["a"]);
+        app.cursor = app.visible_keys().iter().position(|k| k == "a").unwrap();
+        app.expand_level();
+        assert_eq!(below(&app), vec!["a", "p", "b"]);
+        app.expand_level();
+        assert_eq!(below(&app), vec!["a", "p", "b", "q", "c"]);
+        app.expand_level();
+        assert_eq!(below(&app), vec!["a", "p", "b", "q", "c", "r"]);
+        // Fully open: another press is a no-op and the cursor stays on `a`.
+        let before = below(&app);
+        app.expand_level();
+        assert_eq!(below(&app), before);
+        assert_eq!(app.rows[app.cursor].key, "a");
+    }
+
+    #[test]
+    fn collapse_level_in_place_on_open_branch_else_ascends() {
+        let mut app = app_with("[a]\np = 1\n[a.b]\nq = 2\n");
+        let below = |app: &App| app.visible_keys()[1..].to_vec();
+        app.collapse_all();
+        app.rebuild_rows();
+        app.cursor = app.visible_keys().iter().position(|k| k == "a").unwrap();
+        app.expand_level();
+        assert_eq!(below(&app), vec!["a", "p", "b"]);
+        // Cursor on the open branch `a` -> collapse in place, cursor stays.
+        app.collapse_level();
+        assert_eq!(below(&app), vec!["a"]);
+        assert_eq!(app.rows[app.cursor].key, "a");
+        // Reopen, drop cursor on leaf `p` -> collapse ascends to parent `a`.
+        app.expand_level();
+        app.cursor = app.visible_keys().iter().position(|k| k == "p").unwrap();
+        app.collapse_level();
+        assert_eq!(below(&app), vec!["a"]);
+        assert_eq!(app.rows[app.cursor].key, "a");
     }
 
     #[test]
@@ -2573,6 +2853,7 @@ mod tests {
             },
             target,
             OnCollision::Cancel,
+            false,
         );
         assert!(matches!(
             app.mode,
@@ -3518,9 +3799,9 @@ mod tests {
     }
 
     #[test]
-    fn cut_comment_into_array_rejected_without_losing_it() {
-        // Regression: a cut comment pasted into an array must NOT delete the source
-        // (data loss). It stays in paste mode, the comment survives, error shown.
+    fn cut_comment_into_single_line_array_prompts_for_upgrade() {
+        // A comment pasted into a single-line array no longer errors: it enters
+        // the ArrayUpgrade y/n prompt, non-destructively (clipboard + doc intact).
         let mut app = app_with("# note\narr = [1]\n");
         let crow = comment_row(&app);
         app.cursor = crow;
@@ -3528,17 +3809,39 @@ mod tests {
         let arow = app.rows.iter().position(|r| r.key == "arr").unwrap();
         app.paste_slot = Some(PasteSlot::Into(arow));
         app.paste();
-        assert!(app.clipboard.is_some(), "clipboard must be kept");
         assert!(
-            app.status.as_deref().unwrap_or("").contains("paste error"),
-            "status: {:?}",
-            app.status
+            matches!(app.mode, Mode::Prompt(PromptKind::ArrayUpgrade { .. })),
+            "should prompt for the multiline upgrade"
         );
+        assert!(app.clipboard.is_some(), "clipboard must be kept");
         assert_eq!(
             app.doc.as_ref().unwrap().serialize(),
             "# note\narr = [1]\n",
-            "the comment must not be lost"
+            "nothing mutated before confirmation"
         );
+
+        // 'n' cancels: clipboard kept, document untouched, back to Normal.
+        app.handle_prompt_key('n');
+        assert!(matches!(app.mode, Mode::Normal));
+        assert!(app.clipboard.is_some(), "clipboard survives a 'n'");
+        assert_eq!(app.doc.as_ref().unwrap().serialize(), "# note\narr = [1]\n");
+
+        // Retry and confirm with 'y': the array upgrades to multiline, the
+        // comment lands inside, and the cut source is deleted.
+        app.paste_slot = Some(PasteSlot::Into(arow));
+        app.paste();
+        assert!(matches!(
+            app.mode,
+            Mode::Prompt(PromptKind::ArrayUpgrade { .. })
+        ));
+        app.handle_prompt_key('y');
+        assert!(matches!(app.mode, Mode::Normal));
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            "arr = [\n  1,\n  # note\n]\n",
+            "upgrade + insert + cut-source delete"
+        );
+        assert!(app.clipboard.is_none(), "paste consumed the clipboard");
     }
 
     #[test]

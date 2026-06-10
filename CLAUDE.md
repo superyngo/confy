@@ -49,13 +49,24 @@ element; a header-vs-leaf **partition check** keeps an insert from being capture
 multiline-array element insert/delete spacing is not yet byte-perfect.
 
 **Projection.** Dotted *keys* (`a.b.c = 1`) collapse into one node; dotted *headers* (`[x.a]`
-with no `[x]`) project as a real nested branch. `ScalarType` and a scalar's **Format** (writing
-style: hex/oct/bin, basic/literal/multiline string, …) are derived read-only from the token's
-syntax kind (`scalar_kind`) and are orthogonal to each other. Single-line arrays and inline
-tables carry their one-line source repr in `value` (a multiline array leaves it `None`) — this
-drives both the VALUE column and the inline-editability rule below. Golden tests in
-`cst_project.rs` freeze the projected shape (they were snapshotted at toml_edit parity when the
-legacy backend was retired).
+with no `[x]`) project as a real nested branch. `ScalarType` and a node's **Format** (writing
+style) are derived read-only during projection and are orthogonal to each other. Format covers
+scalars (hex/oct/bin, basic/literal/multiline string — from the token's syntax kind via
+`scalar_kind` — plus `Inf`/`Nan` floats, told apart by token text) *and containers*: an array
+is `Inline` or `Multiline`, an inline table `Inline`, a `[table]` scope `Scope`; Root, AoT
+groups/entries, comments, bools, datetimes and plain floats stay `Plain`. Each node also
+carries a **`KeySign`** facet (`Bare | Quoted | Dotted | None`) describing how its own key is
+written — `None` for keyless nodes (array elements, comments, AoT entries, Root); taplo lexes
+quoted keys as `IDENT` tokens that keep their quotes, so the sign is derived from the token
+text. Single-line arrays and inline tables still carry their one-line source repr in `value`
+(a multiline array leaves it `None`) — this drives both the VALUE column and the
+inline-editability rule below. Golden tests in `cst_project.rs` freeze the projected shape
+(snapshotted at toml_edit parity when the legacy backend was retired; regenerated when `sign=`
+and container formats landed). The **KIND column** (formerly TYPE/FORMAT; takes 40% of the
+terminal width for NAME, kind at the 2/5 mark, value the remainder) renders these facets as a
+**fixed-pitch 12-column tag** (`type_tag` in `app.rs`: key sign `(B)/(Q)/(D)/(-)` + type slot
+`[T/S]`, `[A/I]`, `[S:str ]`, …); the detail popup keeps word labels, and `node_type_label`
+still drives the inline editor's type-change comparison.
 
 **Editing.** `e` dispatches via `edit_target_kind`. **Inline** (`Mode::Edit`): a single-line
 scalar that `Replace` can address — keyed under a Table/Root/inline table with **no `Array`
@@ -97,6 +108,10 @@ comment (`d`) is a plain token removal at its `Seg::Index` slot.
 **root/file node has the empty path** and is collapsible like any branch — `flatten` treats it
 uniformly; the App seeds `[]` into `expanded` so it starts open, and `collapse_all` (`0`) re-inserts
 `[]` so it keeps the file node open (only an explicit toggle on the root row hides everything).
+Beyond the all-at-once `9`/`0`, **`1`/`2` work one level at a time**: `expand_level` (`1`) inserts
+the shallowest not-yet-expanded depth of the cursor branch's subtree per press; `collapse_level`
+(`2`) collapses an open branch in place, else moves the cursor up to its parent branch and collapses
+that (repeated presses ascend). Both re-find the cursor by path after `rebuild_rows`.
 
 **Filter.** `/` is a three-state flow: `Mode::Filter` (the inline `/` input field) → **Enter** →
 `Mode::FilterResults` (browse/select/edit the locked-in filtered list, status shows `[filter: …]`),
@@ -138,7 +153,11 @@ through the atomic `Mutation::Move` (delete-before-reinsert on a scratch tree, c
 success) so a same-scope reposition is a move, not a `Key already exists` collision; **copy** uses the
 per-fragment `Mutation::Insert` loop. Comments: a Comment node's fragment is its raw `# …` text, pasted
 via `Mutation::InsertComment` (validates every line starts with `#`, splices the block in at the target
-child index, never collides); a cut deletes the source comment first, then inserts. `do_paste` takes the
+child index, never collides); a cut deletes the source comment first, then inserts. A comment into a
+**single-line array** is no longer rejected: `InsertComment` upgrades the array to multiline (one
+element per line, exact element reprs kept) and then inserts — the TUI asks first via
+`Mode::Prompt(ArrayUpgrade)` (`y` re-issues `do_paste` with the upgrade allowed, `n` cancels keeping
+the clipboard); the inverse collapse back to inline is deliberately not built. `do_paste` takes the
 `Clipboard` by value and **restores it on every failure** (collision → `Mode::Prompt(Collision)` with
 the remaining entries — comment entries are preserved so they run on retry; any other error → restores
 the rest + `paste error: …`), so a failed paste is never destructive; only `Esc`/`c` at the collision

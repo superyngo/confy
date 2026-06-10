@@ -67,8 +67,13 @@ fn run_event_loop(
     while !should_quit {
         // Keep the inline editor's horizontal viewport in sync with the cursor at
         // the current terminal width before drawing.
-        if matches!(app.mode, crate::tui::state::Mode::Edit(_)) {
-            let w = ui::value_col_width(terminal.size()?.width);
+        if let crate::tui::state::Mode::Edit(ref e) = app.mode {
+            let total = terminal.size()?.width;
+            let w = if e.field == crate::tui::state::EditField::Name {
+                ui::name_col_width(total) as usize
+            } else {
+                ui::value_col_width(total)
+            };
             app.edit_clamp_scroll(w);
         }
         terminal.draw(|f| ui::draw(f, app))?;
@@ -160,12 +165,22 @@ fn run_event_loop(
                 }
                 continue;
             }
-            // Help overlay: Esc or ? dismisses.
+            // Help overlay: ↑/↓/PgUp/PgDn/Home/End scroll; Esc or ? dismisses.
             if matches!(app.mode, crate::tui::state::Mode::Help) {
+                use crossterm::event::KeyCode;
+                let help_lines = keys::help_text().lines().count() as u16;
+                // Approximate visible height: terminal height minus 2 borders.
+                let inner_h = terminal.size()?.height.saturating_sub(2);
+                let max_scroll = help_lines.saturating_sub(inner_h);
+                let page = inner_h.max(1) as i32;
                 match key.code {
-                    crossterm::event::KeyCode::Esc | crossterm::event::KeyCode::Char('?') => {
-                        app.escape()
-                    }
+                    KeyCode::Down | KeyCode::Char('j') => app.help_scroll_by(1, max_scroll),
+                    KeyCode::Up | KeyCode::Char('k') => app.help_scroll_by(-1, max_scroll),
+                    KeyCode::PageDown => app.help_scroll_by(page, max_scroll),
+                    KeyCode::PageUp => app.help_scroll_by(-page, max_scroll),
+                    KeyCode::Home => app.help_set_scroll(0),
+                    KeyCode::End => app.help_set_scroll(max_scroll),
+                    KeyCode::Esc | KeyCode::Char('?') => app.escape(),
                     _ => {}
                 }
                 continue;
@@ -218,6 +233,8 @@ fn run_event_loop(
                     app.expand_all();
                     app.rebuild_rows();
                 }
+                keys::KeyAction::ExpandLevel => app.expand_level(),
+                keys::KeyAction::CollapseLevel => app.collapse_level(),
                 keys::KeyAction::Quit => {
                     if app.confirm_quit() {
                         // Already in ConfirmQuit prompt — y/n handled via char

@@ -5,10 +5,14 @@ use crate::tui::state::{EditState, Mode, PasteSlot, PromptKind};
 use ratatui::prelude::*;
 use ratatui::widgets::*;
 
-/// Fixed width of the TYPE/FORMAT column. The widest labels are "array-of-tables"
-/// and "string/ml-basic", both 15 columns — so 15 is the minimum that avoids
-/// truncation and cannot be compressed further without abbreviating those.
-const TYPE_WIDTH: u16 = 15;
+/// Fixed width of the KIND column. The fixed-pitch tag is always exactly
+/// 12 columns (`(B) [S:str ]`: 3-char key sign + space + 8-char type slot).
+const TYPE_WIDTH: u16 = 12;
+
+/// Width of the NAME column: 40% of the terminal width, floored to 10 columns.
+pub(crate) fn name_col_width(total: u16) -> u16 {
+    (total * 2 / 5).max(10)
+}
 
 /// Collapse a possibly multi-line cell value to a single display line: the first
 /// line with non-whitespace content, trimmed, plus a trailing ` …` when any later
@@ -25,7 +29,7 @@ pub(crate) fn cell_preview(s: &str) -> String {
     }
 }
 
-/// Compact format suffix for the TYPE/FORMAT column. `None` for the single-style
+/// Compact format suffix for the KIND column. `None` for the single-style
 /// `Plain` (bool, float, datetimes, and all branches) so they show type only.
 pub(crate) fn format_label(fmt: Format) -> Option<&'static str> {
     match fmt {
@@ -38,31 +42,18 @@ pub(crate) fn format_label(fmt: Format) -> Option<&'static str> {
         Format::Hex => Some("hex"),
         Format::Octal => Some("oct"),
         Format::Binary => Some("bin"),
+        Format::Inf => Some("inf"),
+        Format::Nan => Some("nan"),
+        // Container facets: the branch labels already carry the distinction.
+        Format::Inline | Format::Multiline | Format::Scope => None,
     }
 }
 
-/// Combined `type/format` label for the TYPE/FORMAT column. Scalars append their
-/// compact format (omitted for `Plain`). Branches stay one word, except an inline
-/// table — which is a `table` written `{ inline }` — reads as `table/inline` so
-/// the writing style is visible (a standard `[table]` stays plain `table`).
-fn type_format_label(row: &RowSnapshot) -> String {
-    if row.is_branch {
-        match row.type_label.as_str() {
-            "inline" => "inline-table".to_string(),
-            other => other.to_string(),
-        }
-    } else {
-        match format_label(row.format) {
-            Some(fmt) => format!("{}/{}", row.type_label, fmt),
-            None => row.type_label.clone(),
-        }
-    }
-}
-
-/// TYPE column cell with per-type colour. On the cursor row (`is_cursor`) we
-/// skip colouring so the row's own `fg(White)` wins uncontested.
+/// TYPE column cell: the precomputed fixed-pitch tag, with per-type colour. On
+/// the cursor row (`is_cursor`) we skip colouring so the row's own `fg(White)`
+/// wins uncontested.
 fn type_col_cell(row: &RowSnapshot, is_cursor: bool) -> Cell<'static> {
-    let label = type_format_label(row);
+    let label = row.type_tag.clone();
     if is_cursor {
         return Cell::from(label);
     }
@@ -80,10 +71,11 @@ fn type_col_cell(row: &RowSnapshot, is_cursor: bool) -> Cell<'static> {
     }
 }
 
-/// width. The tree Table uses `[Min(10), Length(TYPE_WIDTH), Min(10)]` with
-/// `column_spacing(1)` (two gaps), so NAME and VALUE split the leftover equally.
+/// Width of the VALUE column: leftover after NAME (40%) + KIND (12) + two 1-col gaps.
+/// Feeds the inline-editor window, the overflow hint, and the `/` filter input.
 pub(crate) fn value_col_width(total: u16) -> usize {
-    ((total.saturating_sub(2 + TYPE_WIDTH) / 2) as usize).max(1)
+    let name = name_col_width(total);
+    (total.saturating_sub(name + TYPE_WIDTH + 2) as usize).max(1)
 }
 
 /// Build the VALUE cell for the inline editor: the buffer window starting at the
@@ -222,14 +214,14 @@ fn draw_column_header(f: &mut Frame, area: Rect) {
         .add_modifier(Modifier::BOLD);
     let row = Row::new([
         Cell::from("  NAME"),
-        Cell::from("TYPE/FORMAT"),
+        Cell::from("KIND"),
         Cell::from("VALUE"),
     ])
     .style(header_style);
     let table = Table::new(
         std::iter::once(row),
         [
-            Constraint::Min(10),
+            Constraint::Length(name_col_width(area.width)),
             Constraint::Length(TYPE_WIDTH),
             Constraint::Min(10),
         ],
@@ -287,8 +279,8 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                         edit_value_cell(e, value_col_width(area.width)),
                     ),
                     crate::tui::state::EditField::Name => {
-                        let avail =
-                            value_col_width(area.width).saturating_sub(prefix.chars().count());
+                        let avail = (name_col_width(area.width) as usize)
+                            .saturating_sub(prefix.chars().count());
                         let mut spans = vec![Span::raw(prefix)];
                         spans.extend(edit_field_spans(&e.buffer, e.cursor, e.scroll, avail));
                         (
@@ -363,7 +355,7 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
     let table = Table::new(
         rows,
         [
-            Constraint::Min(10),
+            Constraint::Length(name_col_width(area.width)),
             Constraint::Length(TYPE_WIDTH),
             Constraint::Min(10),
         ],
@@ -519,6 +511,9 @@ fn draw_prompt_overlay(f: &mut Frame, app: &App) {
         Mode::Prompt(PromptKind::TypeChange { from, to }) => {
             format!(" Type will change {from} → {to}.  y:confirm  n:edit")
         }
+        Mode::Prompt(PromptKind::ArrayUpgrade { .. }) => {
+            " Reformat array to multiline and insert?  y/n".into()
+        }
         _ => return,
     };
     let area = centered_rect(60, 3, f.area());
@@ -592,21 +587,24 @@ fn draw_help_overlay(f: &mut Frame, app: &App) {
     let help = keys::help_text();
     let line_count = help.lines().count() as u16;
     let height = (line_count + 2).min(f.area().height);
-    let area = centered_rect(55, height, f.area());
+    let area = centered_rect(65, height, f.area());
     f.render_widget(Clear, area);
     let block = Block::default()
-        .title(" Help (? or Esc to close) ")
+        .title(" Help (↑/↓ scroll · ? or Esc) ")
         .borders(Borders::ALL)
         .style(Style::default().bg(Color::Black).fg(Color::White));
-    let paragraph = Paragraph::new(help).block(block);
+    let paragraph = Paragraph::new(help)
+        .block(block)
+        .scroll((app.help_scroll, 0));
     f.render_widget(paragraph, area);
 }
 
 fn centered_rect(percent_x: u16, height: u16, r: Rect) -> Rect {
-    let popup_width = r.width * percent_x / 100;
+    let popup_width = (r.width * percent_x / 100).min(r.width);
+    let h = height.min(r.height);
     let x = (r.width.saturating_sub(popup_width)) / 2;
-    let y = r.height / 2;
-    Rect::new(x, y, popup_width.min(r.width), height.min(r.height))
+    let y = (r.height.saturating_sub(h)) / 2;
+    Rect::new(x, y, popup_width, h)
 }
 
 #[cfg(test)]
@@ -785,27 +783,27 @@ mod tests {
     }
 
     #[test]
-    fn type_format_column_shows_combined_label() {
-        // Integer renders as "integer/dec"; a literal string as "string/lit".
+    fn type_format_column_shows_fixed_pitch_tag() {
+        // A bare-keyed integer renders `(B) [I:dec ]`; a literal string `[S:lit ]`.
         let lines = render("port = 8080\nname = 'x'\n", 60, 8);
         let joined = lines.join("\n");
-        assert!(joined.contains("integer/dec"), "rows: {joined:?}");
-        assert!(joined.contains("string/lit"), "rows: {joined:?}");
+        assert!(joined.contains("(B) [I:dec ]"), "rows: {joined:?}");
+        assert!(joined.contains("(B) [S:lit ]"), "rows: {joined:?}");
         // header reflects both axes
-        assert!(lines[1].contains("TYPE/FORMAT"), "header: {:?}", lines[1]);
+        assert!(lines[1].contains("KIND"), "header: {:?}", lines[1]);
     }
 
     #[test]
-    fn inline_table_column_shows_two_segment_label() {
-        // An inline table reads as `inline-table`; a standard table stays `table`.
+    fn inline_table_tag_differs_from_table_scope() {
+        // An inline table reads `[T/I]`; a standard `[table]` scope `[T/S]`.
         let lines = render("pt = { x = 1 }\n[srv]\nport = 8080\n", 60, 8);
         let joined = lines.join("\n");
-        assert!(joined.contains("inline-table"), "rows: {joined:?}");
+        assert!(joined.contains("(B) [T/I]"), "rows: {joined:?}");
         assert!(
             joined
                 .lines()
-                .any(|l| l.contains("srv") && l.contains("table")),
-            "standard table stays plain `table`: {joined:?}"
+                .any(|l| l.contains("srv") && l.contains("[T/S]")),
+            "standard table scope tag: {joined:?}"
         );
     }
 
@@ -872,12 +870,12 @@ mod tests {
         // row 1 is the column header
         let header = &lines[1];
         assert!(header.contains("NAME"), "header: {header:?}");
-        assert!(header.contains("TYPE"), "header: {header:?}");
+        assert!(header.contains("KIND"), "header: {header:?}");
         assert!(header.contains("VALUE"), "header: {header:?}");
-        // a data row carries the type label and value
+        // a data row carries the type tag and value
         let joined = lines.join("\n");
         assert!(joined.contains("port"), "rows: {joined:?}");
-        assert!(joined.contains("integer"), "type col missing: {joined:?}");
+        assert!(joined.contains("[I:dec ]"), "type col missing: {joined:?}");
         assert!(joined.contains("8080"), "value col missing: {joined:?}");
     }
 }

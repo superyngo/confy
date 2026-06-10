@@ -43,6 +43,7 @@ mod tests {
             value: None,
             scalar_type: None,
             type_label: String::new(),
+            type_tag: String::new(),
             format: crate::model::node::Format::Plain,
             trailing_comment: None,
         }

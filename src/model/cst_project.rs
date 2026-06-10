@@ -11,7 +11,7 @@
 //! A trailing end-of-line comment lives inside the entry's `VALUE` and projects as
 //! `trailing_comment`, never a standalone node.
 
-use crate::model::node::{Format, Node, NodeKind, NodeTree, ScalarType, Seg};
+use crate::model::node::{Format, KeySign, Node, NodeKind, NodeTree, ScalarType, Seg};
 use taplo::rowan::NodeOrToken;
 use taplo::syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 
@@ -51,6 +51,7 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
         children: Vec::new(),
         value: None,
         format: Format::Plain,
+        key_sign: KeySign::None,
         trailing_comment: None,
     };
     let mut idx: CstIndex = Vec::new();
@@ -100,23 +101,25 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
                 }
                 SyntaxKind::TABLE_HEADER => {
                     let path = header_path(&n);
+                    let signs = header_key_signs(&n);
                     let parent = path[..path.len().saturating_sub(1)].to_vec();
                     let pending = finalize_blocks!();
-                    ensure_table_path(&mut root, &parent);
+                    ensure_table_path(&mut root, &parent, &signs);
                     flush_comments(&mut root, &parent, pending, &mut idx);
-                    ensure_table_path(&mut root, &path);
+                    ensure_table_path(&mut root, &path, &signs);
                     idx.push((path.clone(), Target::Header(n.clone())));
                     current = path;
                 }
                 SyntaxKind::TABLE_ARRAY_HEADER => {
                     let path = header_path(&n);
+                    let signs = header_key_signs(&n);
                     let parent = path[..path.len().saturating_sub(1)].to_vec();
                     let aot_key = match path.last() {
                         Some(Seg::Key(k)) => k.clone(),
                         _ => continue,
                     };
                     let pending = finalize_blocks!();
-                    ensure_table_path(&mut root, &parent);
+                    ensure_table_path(&mut root, &parent, &signs);
                     let exists = node_at(&root, &path).is_some();
                     if exists {
                         flush_comments(&mut root, &path, pending, &mut idx);
@@ -129,6 +132,7 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
                             children: Vec::new(),
                             value: None,
                             format: Format::Plain,
+                            key_sign: signs.last().copied().unwrap_or(KeySign::None),
                             trailing_comment: None,
                         };
                         append_child(&mut root, &parent, aot);
@@ -149,6 +153,7 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
                         children: Vec::new(),
                         value: None,
                         format: Format::Plain,
+                        key_sign: KeySign::None,
                         trailing_comment: None,
                     });
                     idx.push((entry_path.clone(), Target::AotEntry(n.clone())));
@@ -185,6 +190,7 @@ fn flush_comments(
             children: Vec::new(),
             value: Some(text),
             format: Format::Plain,
+            key_sign: KeySign::None,
             trailing_comment: None,
         });
         idx.push((path, Target::Comment(tok)));
@@ -215,8 +221,10 @@ fn node_at_mut<'a>(root: &'a mut Node, path: &[Seg]) -> Option<&'a mut Node> {
 }
 
 /// Ensure the chain of `Table` nodes named by `path` exists (creating implicit
-/// intermediate tables for a dotted header like `[x.a]`). No-op for the empty path.
-fn ensure_table_path(root: &mut Node, path: &[Seg]) {
+/// intermediate tables for a dotted header like `[x.a]`). `signs` is the
+/// per-segment `KeySign` of the header's KEY, aligned with `path`. No-op for
+/// the empty path.
+fn ensure_table_path(root: &mut Node, path: &[Seg], signs: &[KeySign]) {
     for i in 0..path.len() {
         if node_at(root, &path[..=i]).is_some() {
             continue;
@@ -231,7 +239,8 @@ fn ensure_table_path(root: &mut Node, path: &[Seg]) {
             kind: NodeKind::Table,
             children: Vec::new(),
             value: None,
-            format: Format::Plain,
+            format: Format::Scope,
+            key_sign: signs.get(i).copied().unwrap_or(KeySign::None),
             trailing_comment: None,
         };
         append_child(root, &path[..i], node);
@@ -245,6 +254,48 @@ pub(crate) fn header_path(header: &SyntaxNode) -> Vec<Seg> {
         .find(|c| c.kind() == SyntaxKind::KEY)
         .map(|k| key_segments(&k))
         .unwrap_or_default()
+}
+
+/// Per-segment `KeySign` of a `KEY` node, aligned with `key_segments`. taplo
+/// lexes a quoted key as an `IDENT` whose text keeps the quotes, so the sign
+/// comes from the text, not the token kind.
+fn key_signs(key: &SyntaxNode) -> Vec<KeySign> {
+    key.children_with_tokens()
+        .filter_map(|c| match c {
+            NodeOrToken::Token(t) => match t.kind() {
+                SyntaxKind::IDENT | SyntaxKind::IDENT_WITH_GLOB => {
+                    Some(if t.text().starts_with(['"', '\'']) {
+                        KeySign::Quoted
+                    } else {
+                        KeySign::Bare
+                    })
+                }
+                SyntaxKind::STRING | SyntaxKind::STRING_LITERAL => Some(KeySign::Quoted),
+                _ => None,
+            },
+            NodeOrToken::Node(_) => None,
+        })
+        .collect()
+}
+
+/// Per-segment `KeySign`s of a header's `KEY` (empty if the header has none).
+fn header_key_signs(header: &SyntaxNode) -> Vec<KeySign> {
+    header
+        .children()
+        .find(|c| c.kind() == SyntaxKind::KEY)
+        .map(|k| key_signs(&k))
+        .unwrap_or_default()
+}
+
+/// `KeySign` of an entry's own key: a dotted key (`a.b.c = 1`) collapses into
+/// one `Dotted` node; a single segment is `Bare` or `Quoted` by its token kind.
+fn key_sign_of(key: &SyntaxNode) -> KeySign {
+    let signs = key_signs(key);
+    match signs.as_slice() {
+        [] => KeySign::None,
+        [one] => *one,
+        _ => KeySign::Dotted,
+    }
 }
 
 /// The `Seg::Key` segments of a `KEY` node (its `IDENT` / quoted-string parts).
@@ -289,15 +340,15 @@ fn unquote(s: &str) -> String {
 
 fn project_entry(entry: &SyntaxNode, scope: &[Seg], idx: &mut CstIndex) -> Node {
     let key_node = entry.children().find(|c| c.kind() == SyntaxKind::KEY);
-    let (display, segs) = match &key_node {
-        Some(k) => (key_display(k), key_segments(k)),
-        None => (String::new(), Vec::new()),
+    let (display, segs, sign) = match &key_node {
+        Some(k) => (key_display(k), key_segments(k), key_sign_of(k)),
+        None => (String::new(), Vec::new(), KeySign::None),
     };
     let mut path = scope.to_vec();
     path.extend(segs);
     idx.push((path.clone(), Target::Entry(entry.clone())));
     let value = entry.children().find(|c| c.kind() == SyntaxKind::VALUE);
-    match value {
+    let mut node = match value {
         Some(v) => project_value_node(&v, &display, path, idx),
         None => leaf(
             &display,
@@ -306,7 +357,9 @@ fn project_entry(entry: &SyntaxNode, scope: &[Seg], idx: &mut CstIndex) -> Node 
             None,
             None,
         ),
-    }
+    };
+    node.key_sign = sign;
+    node
 }
 
 /// Project a `VALUE` node — a scalar token, an `ARRAY`, or an `INLINE_TABLE`.
@@ -331,6 +384,16 @@ fn project_value_node(value: &SyntaxNode, key: &str, path: Vec<Seg>, idx: &mut C
             }
             NodeOrToken::Token(t) => {
                 if let Some((st, fmt)) = scalar_kind(t.kind()) {
+                    // `inf`/`nan` are FLOAT tokens; only the text tells them apart.
+                    let fmt = if st == ScalarType::Float {
+                        match t.text().trim_start_matches(['+', '-']) {
+                            "inf" => Format::Inf,
+                            "nan" => Format::Nan,
+                            _ => fmt,
+                        }
+                    } else {
+                        fmt
+                    };
                     return leaf(
                         key,
                         NodeKind::Scalar(st),
@@ -357,9 +420,13 @@ fn project_array(arr: &SyntaxNode, key: &str, path: Vec<Seg>, idx: &mut CstIndex
     let mut n = branch(key, NodeKind::Array, path.clone());
     // A single-line array carries its one-line repr as `value` so the VALUE column
     // shows it and it is inline-editable; a multiline array leaves `value` None.
+    // The same distinction is the array's Format facet.
     let repr = arr.to_string();
     if !repr.contains('\n') {
         n.value = Some(repr);
+        n.format = Format::Inline;
+    } else {
+        n.format = Format::Multiline;
     }
     // Array children — elements and *standalone* interior comments — share one
     // `Seg::Index` slot sequence (like a table's children). A COMMENT on the same
@@ -402,6 +469,7 @@ fn project_array(arr: &SyntaxNode, key: &str, path: Vec<Seg>, idx: &mut CstIndex
                             children: Vec::new(),
                             value: Some(text),
                             format: Format::Plain,
+                            key_sign: KeySign::None,
                             trailing_comment: None,
                         });
                         k += 1;
@@ -417,6 +485,7 @@ fn project_array(arr: &SyntaxNode, key: &str, path: Vec<Seg>, idx: &mut CstIndex
 
 fn project_inline(it: &SyntaxNode, key: &str, path: Vec<Seg>, idx: &mut CstIndex) -> Node {
     let mut n = branch(key, NodeKind::InlineTable, path.clone());
+    n.format = Format::Inline;
     // Inline tables are single-line; carry the one-line repr as `value` for display
     // and inline editing (guard on newline anyway, for safety).
     let repr = it.to_string();
@@ -468,6 +537,7 @@ fn leaf(
         children: Vec::new(),
         value,
         format: Format::Plain,
+        key_sign: KeySign::None,
         trailing_comment,
     }
 }
@@ -480,6 +550,7 @@ fn branch(key: &str, kind: NodeKind, path: Vec<Seg>) -> Node {
         children: Vec::new(),
         value: None,
         format: Format::Plain,
+        key_sign: KeySign::None,
         trailing_comment: None,
     }
 }
@@ -532,13 +603,15 @@ mod tests {
     /// One-line-per-node rendering of a projection for the golden tests below.
     /// The expected strings were frozen from toml_edit-parity output when that
     /// legacy backend was retired (plus the CST-only one-line Array/InlineTable
-    /// `value` reprs, which the old backend left `None`).
+    /// `value` reprs, which the old backend left `None`; `sign=`/container
+    /// `fmt=` facets were regenerated when KeySign and container Formats landed).
     fn norm(n: &Node, depth: usize, out: &mut String) {
         let pad = "  ".repeat(depth);
         out.push_str(&format!(
-            "{pad}{:?} key={:?} val={:?} fmt={:?} trail={:?}\n",
+            "{pad}{:?} key={:?} sign={:?} val={:?} fmt={:?} trail={:?}\n",
             n.kind,
             n.key,
+            n.key_sign,
             n.value.as_deref().map(str::trim),
             n.format,
             n.trailing_comment
@@ -562,9 +635,9 @@ mod tests {
     fn golden_scalars_and_tables() {
         assert_projection(
             "title = \"x\"\n[server]\nport = 8080\n",
-            r##"Scalar(String) key="title" val=Some("\"x\"") fmt=BasicString trail=None
-Table key="server" val=None fmt=Plain trail=None
-  Scalar(Integer) key="port" val=Some("8080") fmt=Decimal trail=None
+            r##"Scalar(String) key="title" sign=Bare val=Some("\"x\"") fmt=BasicString trail=None
+Table key="server" sign=Bare val=None fmt=Scope trail=None
+  Scalar(Integer) key="port" sign=Bare val=Some("8080") fmt=Decimal trail=None
 "##,
         );
     }
@@ -573,34 +646,34 @@ Table key="server" val=None fmt=Plain trail=None
     fn golden_comments_all_positions() {
         assert_projection(
             "# top\na = 1\n# mid\nb = 2\n# tail\n",
-            r##"Comment("# top") key="# top" val=Some("# top") fmt=Plain trail=None
-Scalar(Integer) key="a" val=Some("1") fmt=Decimal trail=None
-Comment("# mid") key="# mid" val=Some("# mid") fmt=Plain trail=None
-Scalar(Integer) key="b" val=Some("2") fmt=Decimal trail=None
-Comment("# tail") key="# tail" val=Some("# tail") fmt=Plain trail=None
+            r##"Comment("# top") key="# top" sign=None val=Some("# top") fmt=Plain trail=None
+Scalar(Integer) key="a" sign=Bare val=Some("1") fmt=Decimal trail=None
+Comment("# mid") key="# mid" sign=None val=Some("# mid") fmt=Plain trail=None
+Scalar(Integer) key="b" sign=Bare val=Some("2") fmt=Decimal trail=None
+Comment("# tail") key="# tail" sign=None val=Some("# tail") fmt=Plain trail=None
 "##,
         );
         assert_projection(
             "# about\n[server]\nport = 8080\n",
-            r##"Comment("# about") key="# about" val=Some("# about") fmt=Plain trail=None
-Table key="server" val=None fmt=Plain trail=None
-  Scalar(Integer) key="port" val=Some("8080") fmt=Decimal trail=None
+            r##"Comment("# about") key="# about" sign=None val=Some("# about") fmt=Plain trail=None
+Table key="server" sign=Bare val=None fmt=Scope trail=None
+  Scalar(Integer) key="port" sign=Bare val=Some("8080") fmt=Decimal trail=None
 "##,
         );
         assert_projection(
             "[s]\np = 1\n# mid\n[d]\nn = \"t\"\n",
-            r##"Table key="s" val=None fmt=Plain trail=None
-  Scalar(Integer) key="p" val=Some("1") fmt=Decimal trail=None
-Comment("# mid") key="# mid" val=Some("# mid") fmt=Plain trail=None
-Table key="d" val=None fmt=Plain trail=None
-  Scalar(String) key="n" val=Some("\"t\"") fmt=BasicString trail=None
+            r##"Table key="s" sign=Bare val=None fmt=Scope trail=None
+  Scalar(Integer) key="p" sign=Bare val=Some("1") fmt=Decimal trail=None
+Comment("# mid") key="# mid" sign=None val=Some("# mid") fmt=Plain trail=None
+Table key="d" sign=Bare val=None fmt=Scope trail=None
+  Scalar(String) key="n" sign=Bare val=Some("\"t\"") fmt=BasicString trail=None
 "##,
         );
         assert_projection(
             "[server]\n# explain\nport = 8080\n",
-            r##"Table key="server" val=None fmt=Plain trail=None
-  Comment("# explain") key="# explain" val=Some("# explain") fmt=Plain trail=None
-  Scalar(Integer) key="port" val=Some("8080") fmt=Decimal trail=None
+            r##"Table key="server" sign=Bare val=None fmt=Scope trail=None
+  Comment("# explain") key="# explain" sign=None val=Some("# explain") fmt=Plain trail=None
+  Scalar(Integer) key="port" sign=Bare val=Some("8080") fmt=Decimal trail=None
 "##,
         );
     }
@@ -609,20 +682,20 @@ Table key="d" val=None fmt=Plain trail=None
     fn golden_comment_grouping() {
         assert_projection(
             "# one\n# two\na = 1\n",
-            r##"Comment("# one\n# two") key="# one\n# two" val=Some("# one\n# two") fmt=Plain trail=None
-Scalar(Integer) key="a" val=Some("1") fmt=Decimal trail=None
+            r##"Comment("# one\n# two") key="# one\n# two" sign=None val=Some("# one\n# two") fmt=Plain trail=None
+Scalar(Integer) key="a" sign=Bare val=Some("1") fmt=Decimal trail=None
 "##,
         );
         assert_projection(
             "# a1\n# a2\n\n# b1\na = 1\n",
-            r##"Comment("# a1\n# a2") key="# a1\n# a2" val=Some("# a1\n# a2") fmt=Plain trail=None
-Comment("# b1") key="# b1" val=Some("# b1") fmt=Plain trail=None
-Scalar(Integer) key="a" val=Some("1") fmt=Decimal trail=None
+            r##"Comment("# a1\n# a2") key="# a1\n# a2" sign=None val=Some("# a1\n# a2") fmt=Plain trail=None
+Comment("# b1") key="# b1" sign=None val=Some("# b1") fmt=Plain trail=None
+Scalar(Integer) key="a" sign=Bare val=Some("1") fmt=Decimal trail=None
 "##,
         );
         assert_projection(
             "# just\n# comments\n",
-            r##"Comment("# just\n# comments") key="# just\n# comments" val=Some("# just\n# comments") fmt=Plain trail=None
+            r##"Comment("# just\n# comments") key="# just\n# comments" sign=None val=Some("# just\n# comments") fmt=Plain trail=None
 "##,
         );
     }
@@ -639,26 +712,26 @@ Scalar(Integer) key="a" val=Some("1") fmt=Decimal trail=None
     fn golden_arrays_inline_aot() {
         assert_projection(
             "nums = [1, 2]\npt = { x = 1 }\n[[item]]\nn = 1\n[[item]]\nn = 2\n",
-            r##"Array key="nums" val=Some("[1, 2]") fmt=Plain trail=None
-  Scalar(Integer) key="[0]" val=Some("1") fmt=Decimal trail=None
-  Scalar(Integer) key="[1]" val=Some("2") fmt=Decimal trail=None
-InlineTable key="pt" val=Some("{ x = 1 }") fmt=Plain trail=None
-  Scalar(Integer) key="x" val=Some("1") fmt=Decimal trail=None
-ArrayOfTables key="item" val=None fmt=Plain trail=None
-  Table key="[0]" val=None fmt=Plain trail=None
-    Scalar(Integer) key="n" val=Some("1") fmt=Decimal trail=None
-  Table key="[1]" val=None fmt=Plain trail=None
-    Scalar(Integer) key="n" val=Some("2") fmt=Decimal trail=None
+            r##"Array key="nums" sign=Bare val=Some("[1, 2]") fmt=Inline trail=None
+  Scalar(Integer) key="[0]" sign=None val=Some("1") fmt=Decimal trail=None
+  Scalar(Integer) key="[1]" sign=None val=Some("2") fmt=Decimal trail=None
+InlineTable key="pt" sign=Bare val=Some("{ x = 1 }") fmt=Inline trail=None
+  Scalar(Integer) key="x" sign=Bare val=Some("1") fmt=Decimal trail=None
+ArrayOfTables key="item" sign=Bare val=None fmt=Plain trail=None
+  Table key="[0]" sign=None val=None fmt=Plain trail=None
+    Scalar(Integer) key="n" sign=Bare val=Some("1") fmt=Decimal trail=None
+  Table key="[1]" sign=None val=None fmt=Plain trail=None
+    Scalar(Integer) key="n" sign=Bare val=Some("2") fmt=Decimal trail=None
 "##,
         );
         assert_projection(
             "[[s]]\na = 1\n# mid\n[[s]]\nb = 2\n",
-            r##"ArrayOfTables key="s" val=None fmt=Plain trail=None
-  Table key="[0]" val=None fmt=Plain trail=None
-    Scalar(Integer) key="a" val=Some("1") fmt=Decimal trail=None
-  Comment("# mid") key="# mid" val=Some("# mid") fmt=Plain trail=None
-  Table key="[1]" val=None fmt=Plain trail=None
-    Scalar(Integer) key="b" val=Some("2") fmt=Decimal trail=None
+            r##"ArrayOfTables key="s" sign=Bare val=None fmt=Plain trail=None
+  Table key="[0]" sign=None val=None fmt=Plain trail=None
+    Scalar(Integer) key="a" sign=Bare val=Some("1") fmt=Decimal trail=None
+  Comment("# mid") key="# mid" sign=None val=Some("# mid") fmt=Plain trail=None
+  Table key="[1]" sign=None val=None fmt=Plain trail=None
+    Scalar(Integer) key="b" sign=Bare val=Some("2") fmt=Decimal trail=None
 "##,
         );
     }
@@ -667,16 +740,16 @@ ArrayOfTables key="item" val=None fmt=Plain trail=None
     fn golden_dotted_key_and_header() {
         assert_projection(
             "a.b.c = 1\n",
-            r##"Scalar(Integer) key="a.b.c" val=Some("1") fmt=Decimal trail=None
+            r##"Scalar(Integer) key="a.b.c" sign=Dotted val=Some("1") fmt=Decimal trail=None
 "##,
         );
         assert_projection(
             "[x.a]\nname = \"A\"\n\n[x.b]\nname = \"B\"\n",
-            r##"Table key="x" val=None fmt=Plain trail=None
-  Table key="a" val=None fmt=Plain trail=None
-    Scalar(String) key="name" val=Some("\"A\"") fmt=BasicString trail=None
-  Table key="b" val=None fmt=Plain trail=None
-    Scalar(String) key="name" val=Some("\"B\"") fmt=BasicString trail=None
+            r##"Table key="x" sign=Bare val=None fmt=Scope trail=None
+  Table key="a" sign=Bare val=None fmt=Scope trail=None
+    Scalar(String) key="name" sign=Bare val=Some("\"A\"") fmt=BasicString trail=None
+  Table key="b" sign=Bare val=None fmt=Scope trail=None
+    Scalar(String) key="name" sign=Bare val=Some("\"B\"") fmt=BasicString trail=None
 "##,
         );
     }
@@ -685,26 +758,40 @@ ArrayOfTables key="item" val=None fmt=Plain trail=None
     fn golden_scalar_types_and_formats() {
         assert_projection(
             "dec = 255\nhx = 0xFF\noc = 0o377\nbn = 0b1111_1111\n",
-            r##"Scalar(Integer) key="dec" val=Some("255") fmt=Decimal trail=None
-Scalar(Integer) key="hx" val=Some("0xFF") fmt=Hex trail=None
-Scalar(Integer) key="oc" val=Some("0o377") fmt=Octal trail=None
-Scalar(Integer) key="bn" val=Some("0b1111_1111") fmt=Binary trail=None
+            r##"Scalar(Integer) key="dec" sign=Bare val=Some("255") fmt=Decimal trail=None
+Scalar(Integer) key="hx" sign=Bare val=Some("0xFF") fmt=Hex trail=None
+Scalar(Integer) key="oc" sign=Bare val=Some("0o377") fmt=Octal trail=None
+Scalar(Integer) key="bn" sign=Bare val=Some("0b1111_1111") fmt=Binary trail=None
 "##,
         );
         assert_projection(
             "b = \"hi\"\nl = 'hi'\nmb = \"\"\"hi\"\"\"\nml = '''hi'''\n",
-            r##"Scalar(String) key="b" val=Some("\"hi\"") fmt=BasicString trail=None
-Scalar(String) key="l" val=Some("'hi'") fmt=Literal trail=None
-Scalar(String) key="mb" val=Some("\"\"\"hi\"\"\"") fmt=MultilineBasic trail=None
-Scalar(String) key="ml" val=Some("'''hi'''") fmt=MultilineLiteral trail=None
+            r##"Scalar(String) key="b" sign=Bare val=Some("\"hi\"") fmt=BasicString trail=None
+Scalar(String) key="l" sign=Bare val=Some("'hi'") fmt=Literal trail=None
+Scalar(String) key="mb" sign=Bare val=Some("\"\"\"hi\"\"\"") fmt=MultilineBasic trail=None
+Scalar(String) key="ml" sign=Bare val=Some("'''hi'''") fmt=MultilineLiteral trail=None
 "##,
         );
         assert_projection(
             "odt = 2021-01-01T00:00:00Z\nldt = 2021-01-01T00:00:00\nld = 2021-01-01\nlt = 12:34:56\n",
-            r##"Scalar(OffsetDatetime) key="odt" val=Some("2021-01-01T00:00:00Z") fmt=Plain trail=None
-Scalar(LocalDatetime) key="ldt" val=Some("2021-01-01T00:00:00") fmt=Plain trail=None
-Scalar(LocalDate) key="ld" val=Some("2021-01-01") fmt=Plain trail=None
-Scalar(LocalTime) key="lt" val=Some("12:34:56") fmt=Plain trail=None
+            r##"Scalar(OffsetDatetime) key="odt" sign=Bare val=Some("2021-01-01T00:00:00Z") fmt=Plain trail=None
+Scalar(LocalDatetime) key="ldt" sign=Bare val=Some("2021-01-01T00:00:00") fmt=Plain trail=None
+Scalar(LocalDate) key="ld" sign=Bare val=Some("2021-01-01") fmt=Plain trail=None
+Scalar(LocalTime) key="lt" sign=Bare val=Some("12:34:56") fmt=Plain trail=None
+"##,
+        );
+    }
+
+    #[test]
+    fn golden_key_signs_and_new_formats() {
+        // Quoted key, inf/nan float formats, and the Inline/Multiline array facet.
+        assert_projection(
+            "\"q k\" = 1\npi = inf\nnn = -nan\nml = [\n  1,\n]\n",
+            r##"Scalar(Integer) key="\"q k\"" sign=Quoted val=Some("1") fmt=Decimal trail=None
+Scalar(Float) key="pi" sign=Bare val=Some("inf") fmt=Inf trail=None
+Scalar(Float) key="nn" sign=Bare val=Some("-nan") fmt=Nan trail=None
+Array key="ml" sign=Bare val=None fmt=Multiline trail=None
+  Scalar(Integer) key="[0]" sign=None val=Some("1") fmt=Decimal trail=None
 "##,
         );
     }

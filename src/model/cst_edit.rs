@@ -474,15 +474,7 @@ fn array_insert_comment(
     index: usize,
     text: &str,
 ) -> Result<(), MutateError> {
-    let arr = match idx.iter().find(|(p, _)| p == array_path).map(|(_, t)| t) {
-        Some(Target::Entry(entry)) => entry
-            .children()
-            .find(|c| c.kind() == SyntaxKind::VALUE)
-            .and_then(|v| struct_node(&v))
-            .filter(|n| n.kind() == SyntaxKind::ARRAY)
-            .ok_or(MutateError::Unsupported)?,
-        _ => return Err(MutateError::Unsupported),
-    };
+    let arr = entry_array(idx, array_path)?;
     let els: Vec<_> = arr.children_with_tokens().collect();
 
     // Indent = the whitespace before the first element/comment line, else two spaces.
@@ -543,6 +535,56 @@ fn array_insert_comment(
     Ok(())
 }
 
+/// Resolve a keyed-array path to its `ARRAY` syntax node (via the entry's VALUE).
+fn entry_array(idx: &CstIndex, array_path: &[Seg]) -> Result<SyntaxNode, MutateError> {
+    match idx.iter().find(|(p, _)| p == array_path).map(|(_, t)| t) {
+        Some(Target::Entry(entry)) => entry
+            .children()
+            .find(|c| c.kind() == SyntaxKind::VALUE)
+            .and_then(|v| struct_node(&v))
+            .filter(|n| n.kind() == SyntaxKind::ARRAY)
+            .ok_or(MutateError::Unsupported),
+        _ => Err(MutateError::Unsupported),
+    }
+}
+
+/// Rewrite a single-line array as multiline — one element per line with a
+/// trailing comma, two-space indent — so it can hold standalone comment lines.
+/// Elements keep their exact source repr; a trailing comment after the array on
+/// the entry line is outside the `ARRAY` node and stays put.
+fn array_make_multiline(arr: &SyntaxNode) -> Result<(), MutateError> {
+    let elems: Vec<String> = arr
+        .children_with_tokens()
+        .filter_map(|c| match c {
+            NodeOrToken::Node(n) if n.kind() == SyntaxKind::VALUE => {
+                Some(n.to_string().trim().to_string())
+            }
+            _ => None,
+        })
+        .collect();
+    let mut s = String::from("[\n");
+    for e in &elems {
+        s.push_str("  ");
+        s.push_str(e);
+        s.push_str(",\n");
+    }
+    s.push(']');
+    let parse = taplo::parser::parse(&format!("x = {s}\n"));
+    if let Some(e) = parse.errors.first() {
+        return Err(MutateError::Fragment(e.to_string()));
+    }
+    let root = parse.into_syntax().clone_for_update();
+    let new_arr = root
+        .descendants()
+        .find(|n| n.kind() == SyntaxKind::ARRAY)
+        .ok_or(MutateError::Unsupported)?;
+    new_arr.detach();
+    let parent = arr.parent().ok_or(MutateError::NotFound)?;
+    let i = arr.index();
+    parent.splice_children(i..i + 1, vec![NodeOrToken::Node(new_arr)]);
+    Ok(())
+}
+
 /// Fresh `WHITESPACE COMMENT NEWLINE` elements for each line of `text`, indented.
 fn comment_line_elements(
     indent: &str,
@@ -588,15 +630,17 @@ fn insert_comment(tree: &SyntaxNode, target: &InsTarget, text: &str) -> Result<(
     match parent.kind {
         NodeKind::Root | NodeKind::Table => {} // decor slot — handled below
         // A multiline array can hold a standalone comment line; a single-line array
-        // can't (a `#` would comment out the closing bracket). Inline tables / AoT
-        // groups never hold comments.
+        // can't (a `#` would comment out the closing bracket), so it is upgraded to
+        // multiline first. Inline tables / AoT groups never hold comments.
         NodeKind::Array if parent.value.is_none() => {
             return array_insert_comment(&idx, &target.parent, target.index, text);
         }
         NodeKind::Array => {
-            return Err(MutateError::Illegal(
-                "cannot add a comment to a single-line array".into(),
-            ));
+            let arr = entry_array(&idx, &target.parent)?;
+            array_make_multiline(&arr)?;
+            // The entry in `idx` is still live; array_insert_comment re-resolves
+            // the (now multiline) ARRAY through it.
+            return array_insert_comment(&idx, &target.parent, target.index, text);
         }
         _ => {
             return Err(MutateError::Illegal(
@@ -1994,19 +2038,71 @@ mod tests {
     }
 
     #[test]
-    fn insert_comment_into_single_line_array_is_rejected() {
+    fn insert_comment_into_single_line_array_upgrades_to_multiline() {
+        // Reconstruct increment 3: instead of rejecting, the array is reformatted
+        // to one element per line and the comment lands at the requested slot.
         let mut d = doc("arr = [1, 2]\n");
-        let err = d
-            .apply(Mutation::InsertComment {
-                target: InsTarget {
-                    parent: vec![Seg::Key("arr".into())],
-                    index: 0,
-                },
-                text: "# x".into(),
-            })
-            .unwrap_err();
-        assert!(matches!(err, MutateError::Illegal(_)), "got {err:?}");
-        assert_eq!(d.serialize(), "arr = [1, 2]\n");
+        d.apply(Mutation::InsertComment {
+            target: InsTarget {
+                parent: vec![Seg::Key("arr".into())],
+                index: 0,
+            },
+            text: "# x".into(),
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "arr = [\n  # x\n  1,\n  2,\n]\n");
+    }
+
+    #[test]
+    fn comment_upgrade_inserts_mid_and_tail() {
+        let mut d = doc("arr = [1, 2]\n");
+        d.apply(Mutation::InsertComment {
+            target: InsTarget {
+                parent: vec![Seg::Key("arr".into())],
+                index: 1,
+            },
+            text: "# mid".into(),
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "arr = [\n  1,\n  # mid\n  2,\n]\n");
+
+        let mut d = doc("arr = [1, 2]\n");
+        d.apply(Mutation::InsertComment {
+            target: InsTarget {
+                parent: vec![Seg::Key("arr".into())],
+                index: 9,
+            },
+            text: "# tail".into(),
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "arr = [\n  1,\n  2,\n  # tail\n]\n");
+    }
+
+    #[test]
+    fn comment_upgrade_empty_array_and_trailing_comment() {
+        // An empty array upgrades to hold just the comment.
+        let mut d = doc("arr = []\n");
+        d.apply(Mutation::InsertComment {
+            target: InsTarget {
+                parent: vec![Seg::Key("arr".into())],
+                index: 0,
+            },
+            text: "# todo".into(),
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "arr = [\n  # todo\n]\n");
+
+        // A trailing comment on the entry line is outside the ARRAY and stays put.
+        let mut d = doc("arr = [1] # eol\n");
+        d.apply(Mutation::InsertComment {
+            target: InsTarget {
+                parent: vec![Seg::Key("arr".into())],
+                index: 0,
+            },
+            text: "# in".into(),
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "arr = [\n  # in\n  1,\n] # eol\n");
     }
 
     #[test]
