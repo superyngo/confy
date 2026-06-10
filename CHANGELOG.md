@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.5.0] - 2026-06-10
+
 ### Added
 - TUI — **`1`/`2` level-by-level expand/collapse**. `1` reveals one more depth level of the branch under the cursor (subtree-scoped, shallowest unexpanded level per press, until full) — distinct from `9` which expands the whole tree at once. `2` collapses one level and climbs: an open branch under the cursor collapses in place (cursor stays); otherwise the cursor moves up to its parent branch and collapses that, so repeated presses ascend the tree. Both are pure view-state (no document mutation), mirroring `9`/`0`. (2026-06-10)
 - TUI — **KIND column header, 40% NAME column, and scrollable help overlay with KIND legend**. The `TYPE/FORMAT` column header is renamed to `KIND`. The NAME column now takes a fixed 40% of the terminal width (`name_col_width = total * 2/5`, floor 10) instead of an equal split with VALUE — KIND starts at the 2/5 mark and VALUE gets the wider remainder. The `?` help overlay is now scrollable (`↑/↓/PgUp/PgDn/Home/End`; `help_scroll` in `App`, reset on open) and its title advertises scrolling; the popup is widened to 65% to accommodate the new KIND legend section (key signs `(B)/(Q)/(D)/(-)`, container slots, and all scalar slots with one-line meanings). Name-field inline edit width is now driven by `name_col_width` instead of `value_col_width`; the per-frame scroll clamp in `mod.rs` picks `name_col_width` when editing the Name field. (2026-06-10)
