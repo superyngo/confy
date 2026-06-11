@@ -893,6 +893,41 @@ fn insert(
     //    `placeholder` key (`key+`).
     let (frag, synthesized_key) = parse_fragment_adapted(&frag_text, parent_is_array)?;
 
+    // A `[table]`/`[[aot]]` **section** fragment is legal only into a real scope/root.
+    // It cannot live inside an inline table, nor be nested under a synthetic `[T/D]`
+    // dotted table (which opens no scope) — both surface a clear `Illegal`. Into a real
+    // sub-scope its headers are re-prefixed with the destination path, so a `[T/S]`
+    // table moved into another scope nests: `[a]` into `[b]` → `[b.a]`.
+    let has_header = frag.descendants().any(|n| {
+        matches!(
+            n.kind(),
+            SyntaxKind::TABLE_HEADER | SyntaxKind::TABLE_ARRAY_HEADER
+        )
+    });
+    if has_header {
+        if parent_is_inline {
+            return Err(MutateError::Illegal(
+                "a table cannot be inserted into an inline table".into(),
+            ));
+        }
+        if parent.format == Format::Dotted {
+            return Err(MutateError::Illegal(
+                "a scope table cannot be nested under a dotted table".into(),
+            ));
+        }
+        if !target.parent.is_empty() {
+            let prefix: Vec<String> = target
+                .parent
+                .iter()
+                .filter_map(|s| match s {
+                    Seg::Key(k) => Some(k.clone()),
+                    _ => None,
+                })
+                .collect();
+            prefix_section_headers(&frag, &prefix)?;
+        }
+    }
+
     if parent_is_array {
         // Into an array (no collision). A *keyless* bare value keeps its element form;
         // a *keyed* node is wrapped as a `{ key = value }` inline-table element so the
@@ -926,12 +961,6 @@ fn insert(
     // dotted prefix and the per-leaf collision check apply to each member — a single
     // splice would only re-key the first. A `[table]`/`[[aot]]` section keeps its
     // entries together (they belong under the header) and is never split.
-    let has_header = frag.descendants().any(|n| {
-        matches!(
-            n.kind(),
-            SyntaxKind::TABLE_HEADER | SyntaxKind::TABLE_ARRAY_HEADER
-        )
-    });
     let top_entries: Vec<SyntaxNode> = frag
         .children()
         .filter(|n| n.kind() == SyntaxKind::ENTRY)
@@ -1348,6 +1377,58 @@ fn prefix_entry_key(frag: &SyntaxNode, prefix: &[String]) -> Result<(), MutateEr
         e.detach();
     }
     key.splice_children(0..0, prefix_tokens.to_vec());
+    Ok(())
+}
+
+/// Prefix every `[table]`/`[[aot]]` header in a section fragment with `prefix`, so a
+/// `[T/S]` scope table moved into another scope nests: `[a]` (with a nested `[a.sub]`)
+/// dropped under `[b]` becomes `[b.a]` (and `[b.a.sub]`). Mirrors `prefix_entry_key`'s
+/// front-splice, applied to each header's `KEY` (a fresh token copy per header, since a
+/// token can only live in one tree).
+fn prefix_section_headers(frag: &SyntaxNode, prefix: &[String]) -> Result<(), MutateError> {
+    if prefix.is_empty() {
+        return Ok(());
+    }
+    let joined = prefix
+        .iter()
+        .map(|s| quote_key_seg(s))
+        .collect::<Vec<_>>()
+        .join(".");
+    let headers: Vec<SyntaxNode> = frag
+        .descendants()
+        .filter(|n| {
+            matches!(
+                n.kind(),
+                SyntaxKind::TABLE_HEADER | SyntaxKind::TABLE_ARRAY_HEADER
+            )
+        })
+        .collect();
+    for h in headers {
+        let key = h
+            .children()
+            .find(|c| c.kind() == SyntaxKind::KEY)
+            .ok_or_else(|| MutateError::Fragment("header has no key".into()))?;
+        let parsed = taplo::parser::parse(&format!("{joined}.__seg__ = 0\n"));
+        if let Some(e) = parsed.errors.first() {
+            return Err(MutateError::Fragment(e.to_string()));
+        }
+        let pkey = parsed
+            .into_syntax()
+            .clone_for_update()
+            .descendants()
+            .find(|n| n.kind() == SyntaxKind::KEY)
+            .ok_or_else(|| MutateError::Fragment("invalid key".into()))?;
+        let toks: Vec<_> = pkey.children_with_tokens().collect();
+        let last = toks
+            .iter()
+            .rposition(|c| matches!(c, NodeOrToken::Token(t) if is_key_seg(t.kind())))
+            .ok_or_else(|| MutateError::Fragment("invalid key".into()))?;
+        let prefix_tokens: Vec<_> = toks[..last].to_vec();
+        for e in &prefix_tokens {
+            e.detach();
+        }
+        key.splice_children(0..0, prefix_tokens);
+    }
     Ok(())
 }
 
@@ -3308,6 +3389,85 @@ mod tests {
         assert_eq!(
             d.serialize(),
             "a.x = 1\na.y = 2\nb.k = 9\nb.a.x = 1\nb.a.y = 2\n"
+        );
+    }
+
+    fn move_try(
+        initial: &str,
+        src: Vec<Seg>,
+        dst: Vec<Seg>,
+    ) -> Result<String, crate::model::document::MutateError> {
+        let mut d = doc(initial);
+        d.apply(Mutation::Move {
+            sources: vec![src],
+            target: InsTarget {
+                parent: dst,
+                index: 99,
+            },
+            on_collision: OnCollision::Cancel,
+        })?;
+        Ok(d.serialize())
+    }
+
+    // Phase 3: cross-type table moves.
+    #[test]
+    fn move_dotted_table_into_inline_table_flattens() {
+        let s = move_try(
+            "a.x = 1\na.y = 2\nt = { k = 0 }\n",
+            vec![Seg::Key("a".into())],
+            vec![Seg::Key("t".into())],
+        )
+        .unwrap();
+        assert_eq!(s, "t = { k = 0, a.x = 1, a.y = 2 }\n");
+    }
+
+    #[test]
+    fn move_scope_table_into_scope_nests_header() {
+        let s = move_try(
+            "[a]\nx = 1\n[b]\ny = 2\n",
+            vec![Seg::Key("a".into())],
+            vec![Seg::Key("b".into())],
+        )
+        .unwrap();
+        assert_eq!(s, "[b]\ny = 2\n[b.a]\nx = 1\n");
+    }
+
+    #[test]
+    fn move_scope_table_with_subtable_into_scope_nests_all_headers() {
+        let s = move_try(
+            "[a]\nx = 1\n[a.sub]\nz = 3\n[b]\ny = 2\n",
+            vec![Seg::Key("a".into())],
+            vec![Seg::Key("b".into())],
+        )
+        .unwrap();
+        assert_eq!(s, "[b]\ny = 2\n[b.a]\nx = 1\n[b.a.sub]\nz = 3\n");
+    }
+
+    #[test]
+    fn move_scope_table_into_dotted_is_illegal() {
+        // `b` must be a *top-level* dotted table, so it precedes the `[a]` header
+        // (entries after `[a]` would belong to `a`).
+        let r = move_try(
+            "b.k = 9\n[a]\nx = 1\n",
+            vec![Seg::Key("a".into())],
+            vec![Seg::Key("b".into())],
+        );
+        assert!(
+            matches!(&r, Err(MutateError::Illegal(m)) if m.contains("dotted")),
+            "got {r:?}"
+        );
+    }
+
+    #[test]
+    fn move_scope_table_into_inline_is_illegal() {
+        let r = move_try(
+            "t = { k = 0 }\n[a]\nx = 1\n",
+            vec![Seg::Key("a".into())],
+            vec![Seg::Key("t".into())],
+        );
+        assert!(
+            matches!(&r, Err(MutateError::Illegal(m)) if m.contains("inline")),
+            "got {r:?}"
         );
     }
 

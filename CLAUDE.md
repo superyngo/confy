@@ -82,7 +82,12 @@ type change and defers the whole edit (`PendingCommit::Rename`) so `n` is a no-o
 header-less multi-entry `insert` split), each captured scope-relative and re-prefixed for the
 destination — so cut/copy of a `[T/D]` table into a scope / another `[T/D]` / root adjusts the prefix.
 Insert **collision is exact full-path** (`target.parent ++ key segments`): a dotted sibling sharing only
-a prefix merges into the same table instead of colliding. Dotted *headers* (`[x.a]` with no `[x]`) still
+a prefix merges into the same table instead of colliding. Moving a **`[T/S]` scope table into another
+scope nests it** — every header in the moved section is re-prefixed with the destination path
+(`prefix_section_headers`: `[a]`/`[a.sub]` into `[b]` → `[b.a]`/`[b.a.sub]`); a `[T/D]` table into an
+inline table flattens its members to inline dotted keys. **Illegal table moves report `Illegal`**: a
+`[table]` section into an inline table or nested under a `[T/D]` dotted table (both checked in `insert`).
+Dotted *headers* (`[x.a]` with no `[x]`) still
 project as a real nested `Scope` branch. `ScalarType` and a node's
 **Format** (writing style) are derived read-only during projection and are orthogonal to each other.
 Format covers scalars (hex/oct/bin, basic/literal/multiline string — from the token's syntax kind via
