@@ -1604,9 +1604,12 @@ fn resolve_insert_at(
 ) -> Result<usize, MutateError> {
     let parent = node_at(root, &target.parent).ok_or(MutateError::NotFound)?;
     if target.index < parent.children.len() {
-        // Insert before the child currently at `index`.
+        // Insert before the child currently at `index`. A synthetic `[T/D]` table
+        // has no backing element of its own, so anchor on the physical start of its
+        // subtree (its first dotted member line) — otherwise inserting *before* a
+        // `[T/D]` table would fail as `Unsupported`.
         let anchor = &parent.children[target.index];
-        return element_root_index(idx, anchor).ok_or(MutateError::Unsupported);
+        return node_start_root_index(idx, anchor).ok_or(MutateError::Unsupported);
     }
     // Append at the end of the parent's scope.
     if target.parent.is_empty() {
@@ -1638,6 +1641,20 @@ fn resolve_insert_at(
         }
     }
     Ok(extend_over_newline(tree, last + 1))
+}
+
+/// The ROOT-child index where `node`'s physical source *begins*: its own backing
+/// element if it has one, else (for a synthetic `[T/D]` table, which has none) the
+/// smallest start index among its descendants — i.e. its first member line. Used to
+/// anchor an "insert before this node" against a node that may be synthetic.
+fn node_start_root_index(idx: &CstIndex, node: &Node) -> Option<usize> {
+    if let Some(i) = element_root_index(idx, node) {
+        return Some(i);
+    }
+    node.children
+        .iter()
+        .filter_map(|c| node_start_root_index(idx, c))
+        .min()
 }
 
 /// The ROOT-child index of the syntax element backing `node` (an entry, header, AoT
@@ -2927,6 +2944,42 @@ mod tests {
         })
         .unwrap();
         assert_eq!(d.serialize(), "[dest]\nx = 1\nflag = true\n");
+    }
+
+    // Regression: inserting into the slot *before* a `[T/D]` synthetic table (which
+    // has no backing element) must anchor on the table's first member line, not fail
+    // as `Unsupported`. Mirrors "cut a scalar, paste after a multiline array that is
+    // immediately followed by a `[T/D]` table".
+    #[test]
+    fn insert_before_dotted_table_anchors_on_first_member() {
+        let mut d = doc("arr = [\n  1,\n]\ndotted.x = 1\n");
+        // Insert `gg = 5` at root index 1 — the slot occupied by the `dotted` table.
+        d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![],
+                index: 1,
+            },
+            toml: "gg = 5\n".into(),
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "arr = [\n  1,\n]\ngg = 5\ndotted.x = 1\n");
+    }
+
+    #[test]
+    fn move_before_dotted_table_succeeds() {
+        let mut d = doc("gg = 5\narr = [\n  1,\n]\ndotted.x = 1\n");
+        // Move `gg` into the slot before the `dotted` table (after the array).
+        d.apply(Mutation::Move {
+            sources: vec![vec![Seg::Key("gg".into())]],
+            target: InsTarget {
+                parent: vec![],
+                index: 2,
+            },
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "arr = [\n  1,\n]\ngg = 5\ndotted.x = 1\n");
     }
 
     // Issue 3: inserting a keyed entry into an inline table splices it inside `{ … }`.
