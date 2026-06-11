@@ -99,6 +99,35 @@ facets** — **Key sign** and **Format/kind** (the KIND-column vocabulary). Both
 filtered list and **intersect** (a Node must pass both); selections *within* the Type filter's two
 halves union. _Avoid_: calling either one "search" exclusively — both are filters.
 
+## Insert / move legality
+
+What happens when a **source** Node is inserted (copy/paste) or moved (cut/paste) into a
+**destination** container. The same rules apply to copy and to move. KIND tags are the
+KIND-column vocabulary (`[T/S]` scope table, `[T/D]` dotted table, `[T/I]` inline table,
+`[A/I]`/`[A/M]` array, `[A/T]` array-of-tables). ✅ = allowed (with the noted adaptation),
+❌ = rejected with an error message.
+
+| Source ＼ Dest | Table / Root | `[T/D]` dotted table | `[T/I]` inline table | Array (`[A/I]`/`[A/M]`) |
+|---|---|---|---|---|
+| **scalar** (keyed) | ✅ `k = v` | ✅ `pfx.k = v` (gets prefix) | ✅ inline member | ✅ wrapped `{ k = v }` |
+| **array** (keyed) | ✅ | ✅ prefix | ✅ member | ✅ `{ k = [...] }` |
+| **`[T/I]`** (keyed) | ✅ | ✅ prefix | ✅ nested member | ✅ `{ k = { … } }` |
+| **`[T/S]`** scope table | ✅ nests → `[dest.k]` | ❌ scope table can't nest under a dotted table | ❌ table can't go into an inline table | ❌ table can't be an array element |
+| **`[T/D]`** dotted table | ✅ members, prefix dropped | ✅ members, prefix adjusted | ✅ flattened to inline dotted keys | ❌ table can't be an array element |
+| **array element** | single-key `{k=v}` → `k = v`; else `placeholder = …` | (same, then prefix) | (same, then member) | ✅ stays a bare element |
+| **bare value** (no key) | ✅ `placeholder = …` | ✅ `placeholder` then prefix | ✅ `placeholder` member | ✅ stays a bare element |
+| **comment** | ✅ | ✅ | ❌ inline tables hold no comments | ✅ (single-line array upgrades to multiline first) |
+| **`[A/T]`** array-of-tables | ⏸ not supported yet | ⏸ | ⏸ | ❌ |
+
+Notes:
+- "prefix" = the destination's dotted-ancestor path is prepended so the moved Node merges into the
+  destination `[T/D]` table; moving *out* of a `[T/D]` table drops that prefix (scope-relative).
+- A `[T/S]`/`[T/D]` **whole table** is moved/copied by fanning out to its member lines.
+- **Collision** is decided on the inserted leaf's *exact full path*: dotted siblings sharing only a
+  prefix (`a.x` beside `a.y`) merge; an identical full key clashes.
+- ⏸ = array-of-tables sources are deferred to a later round (they currently report an error rather
+  than moving).
+
 ## Flagged ambiguities
 
 - **"Entry" is banned in confy.** It is wenv's term for a flat, line-based item and means
