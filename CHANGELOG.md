@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - TUI — **`[T/D]` dotted tables now start collapsed** like every other branch, instead of being seeded open at load. Only the root file node starts expanded; a dotted key shows just its top segment until expanded (`1`/`9`). (Removed `seed_dotted_expanded`.) (2026-06-11)
 
+### Added
+- Move out of an array — **array elements can now be moved/cut**. Cutting an array element and pasting it elsewhere used to be `Unsupported`. Into another array it stays a bare element; into a table/root a **single-key inline table** (`{ k = v }`) unwraps back to a keyed entry `k = v` (the inverse of the insert-into-array wrapping), while a multi-key inline table or a bare value gets a synthesized `placeholder` key. The destination format is then applied normally (e.g. a `[T/D]` dotted-table destination re-prefixes the key). (`unwrap_single_key_inline`.) (2026-06-11)
+
 ### Changed
 - Insert into array — **a keyed node now keeps its key**. Pasting/moving a keyed entry into an array used to drop the key (keeping only the value); it is now wrapped as a `{ key = value }` inline-table element (a keyed inline-table value becomes a nested inline table). A *keyless* bare value (scalar, inline table, or array) still becomes the element as-is; a `[table]`/`[[aot]]` header is still rejected. (`wrap_keyed_as_inline_element`.) (2026-06-11)
 

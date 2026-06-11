@@ -1051,6 +1051,27 @@ fn wrap_keyed_as_inline_element(frag_text: &str) -> Result<SyntaxNode, MutateErr
     }
 }
 
+/// If `value_text` is a **single-entry** inline table (`{ k = v }`), return its inner
+/// `k = v`; else `None`. The inverse of `wrap_keyed_as_inline_element`: moving such an
+/// element out of an array into a table unwraps it back to a keyed entry. A multi-key
+/// inline table (or any other value) returns `None` and gets a synthesized key instead.
+fn unwrap_single_key_inline(value_text: &str) -> Option<String> {
+    let parse = taplo::parser::parse(&format!("__w = {}\n", value_text.trim()));
+    if !parse.errors.is_empty() {
+        return None;
+    }
+    let it = parse
+        .into_syntax()
+        .descendants()
+        .find(|n| n.kind() == SyntaxKind::INLINE_TABLE)?;
+    let mut entries = it.children().filter(|c| c.kind() == SyntaxKind::ENTRY);
+    let first = entries.next()?;
+    if entries.next().is_some() {
+        return None; // multi-key
+    }
+    Some(first.to_string().trim().to_string())
+}
+
 /// D5 (TOML table-capture): within a table/root the legal layout is partitioned —
 /// a leading region (scalars / arrays / inline tables) then a header region
 /// (sub-`[table]` / `[[aot]]`). A `[table]`/`[[aot]]` header before the keys above
@@ -1408,9 +1429,9 @@ fn idx_target_is_aot(header: &SyntaxNode) -> bool {
 
 /// Move `sources` to `target`, atomically (the caller commits the clone only on
 /// success). Comments are independent CST nodes, so a move repositions only the
-/// named nodes — adjacent comments stay put with no special handling. Entry and
-/// `[table]` sources are supported; AoT-entry sources are deferred (they would need
-/// append-not-collide insert semantics for `[[x]]`).
+/// named nodes — adjacent comments stay put with no special handling. Entry,
+/// `[table]` and **array-element** sources are supported; AoT-entry sources are
+/// deferred (they would need append-not-collide insert semantics for `[[x]]`).
 fn move_nodes(
     tree: &SyntaxNode,
     sources: &[Vec<Seg>],
@@ -1435,6 +1456,22 @@ fn move_nodes(
                 frags.push(strip_key_prefix(&n, strip));
             }
             Target::Header(h) => frags.push(section_text(tree, p, h.index(), false)),
+            // Moving an array element out: into another array it stays a bare element;
+            // into a table/root a single-key inline table `{ k = v }` unwraps to `k = v`
+            // (key preserved), anything else gets a synthesized `placeholder` key on
+            // insert. The destination format is then applied by `insert` (dotted prefix,
+            // inline-table splice, …).
+            Target::ArrayElement(value) => {
+                let text = value.to_string();
+                let dest_is_array = node_at(&proj.root, &target.parent)
+                    .map(|n| matches!(n.kind, crate::model::node::NodeKind::Array))
+                    .unwrap_or(false);
+                let frag = match (dest_is_array, unwrap_single_key_inline(&text)) {
+                    (false, Some(kv)) => format!("{kv}\n"),
+                    _ => format!("{}\n", text.trim()),
+                };
+                frags.push(frag);
+            }
             _ => return Err(MutateError::Unsupported),
         }
     }
@@ -3038,6 +3075,76 @@ mod tests {
         })
         .unwrap();
         assert_eq!(d.serialize(), "arr = [\n  1,\n]\ngg = 5\ndotted.x = 1\n");
+    }
+
+    // Move an array element out: into a table a single-key inline table unwraps to a
+    // keyed entry, a multi-key one / bare value gets a synthesized placeholder; into
+    // another array it stays a bare element.
+    fn move_elem(initial: &str, src: Vec<Seg>, dst: Vec<Seg>) -> String {
+        let mut d = doc(initial);
+        d.apply(Mutation::Move {
+            sources: vec![src],
+            target: InsTarget {
+                parent: dst,
+                index: 99,
+            },
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        d.serialize()
+    }
+
+    #[test]
+    fn move_single_key_element_into_table_unwraps() {
+        let s = move_elem(
+            "arr = [{ foo = 1 }]\n[dest]\nz = 0\n",
+            vec![Seg::Key("arr".into()), Seg::Index(0)],
+            vec![Seg::Key("dest".into())],
+        );
+        assert_eq!(s, "arr = []\n[dest]\nz = 0\nfoo = 1\n");
+    }
+
+    #[test]
+    fn move_multikey_element_into_table_gets_placeholder() {
+        let s = move_elem(
+            "arr = [{ a = 1, b = 2 }]\n[dest]\nz = 0\n",
+            vec![Seg::Key("arr".into()), Seg::Index(0)],
+            vec![Seg::Key("dest".into())],
+        );
+        assert_eq!(
+            s,
+            "arr = []\n[dest]\nz = 0\nplaceholder = { a = 1, b = 2 }\n"
+        );
+    }
+
+    #[test]
+    fn move_bare_element_into_table_gets_placeholder() {
+        let s = move_elem(
+            "arr = [42]\n[dest]\nz = 0\n",
+            vec![Seg::Key("arr".into()), Seg::Index(0)],
+            vec![Seg::Key("dest".into())],
+        );
+        assert_eq!(s, "arr = []\n[dest]\nz = 0\nplaceholder = 42\n");
+    }
+
+    #[test]
+    fn move_element_into_array_stays_bare() {
+        let s = move_elem(
+            "arr = [{ foo = 1 }]\nbrr = [9]\n",
+            vec![Seg::Key("arr".into()), Seg::Index(0)],
+            vec![Seg::Key("brr".into())],
+        );
+        assert_eq!(s, "arr = []\nbrr = [9, { foo = 1 }]\n");
+    }
+
+    #[test]
+    fn move_single_key_element_into_dotted_table_prefixes() {
+        let s = move_elem(
+            "arr = [{ foo = 1 }]\n[d]\ndd.x = 0\n",
+            vec![Seg::Key("arr".into()), Seg::Index(0)],
+            vec![Seg::Key("d".into()), Seg::Key("dd".into())],
+        );
+        assert_eq!(s, "arr = []\n[d]\ndd.x = 0\ndd.foo = 1\n");
     }
 
     // Issue 3: inserting a keyed entry into an inline table splices it inside `{ … }`.
