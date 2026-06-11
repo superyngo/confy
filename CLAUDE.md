@@ -77,8 +77,12 @@ out to remove every member (plain cascade). `dotted_member_entries` counts only 
 entries — an entry nested inside an inline-table/array *value* (`dotted.t = {x=1}`) belongs to that
 value, not the table, so its interior is never pulled out as a stray top-level line. `Rename` rewrites the **whole** key (not just the last
 segment), so `foo` → `foo.x` turns a scalar into a `[T/D]` table — the inline editor confirms the
-type change and defers the whole edit (`PendingCommit::Rename`) so `n` is a no-op. Whole-subtree
-*move* of a synthetic table is still `Unsupported`. Dotted *headers* (`[x.a]` with no `[x]`) still
+type change and defers the whole edit (`PendingCommit::Rename`) so `n` is a no-op. A whole-subtree
+*move/copy* of a synthetic `[T/D]` table **fans out to its member entries** (`move_nodes` and the
+header-less multi-entry `insert` split), each captured scope-relative and re-prefixed for the
+destination — so cut/copy of a `[T/D]` table into a scope / another `[T/D]` / root adjusts the prefix.
+Insert **collision is exact full-path** (`target.parent ++ key segments`): a dotted sibling sharing only
+a prefix merges into the same table instead of colliding. Dotted *headers* (`[x.a]` with no `[x]`) still
 project as a real nested `Scope` branch. `ScalarType` and a node's
 **Format** (writing style) are derived read-only during projection and are orthogonal to each other.
 Format covers scalars (hex/oct/bin, basic/literal/multiline string — from the token's syntax kind via

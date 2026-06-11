@@ -2757,6 +2757,30 @@ mod tests {
     }
 
     #[test]
+    fn cut_paste_whole_dotted_table_into_scope() {
+        // End-to-end TUI path: cut a whole `[T/D]` table and paste it into a scope —
+        // routes through Mutation::Move's member fan-out.
+        let mut app = app_with("a.x = 1\na.y = 2\n[dest]\nz = 0\n");
+        for _ in 0..8 {
+            app.expand_level();
+        }
+        app.rebuild_rows();
+        let ai = app.rows.iter().position(|r| r.key == "a").unwrap();
+        app.cursor = ai;
+        app.cut_selected();
+        let di = app.rows.iter().position(|r| r.key == "dest").unwrap();
+        app.paste_slot = Some(crate::tui::app::PasteSlot::Into(di));
+        app.cursor = di;
+        app.paste();
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            "[dest]\nz = 0\na.x = 1\na.y = 2\n",
+            "status={:?}",
+            app.status
+        );
+    }
+
+    #[test]
     fn dotted_tables_load_collapsed() {
         // `a.b.c = 1` nests into `a → b → c`; like any branch, `[T/D]` tables start
         // collapsed, so only the top `a` shows until expanded.

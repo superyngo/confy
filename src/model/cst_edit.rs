@@ -921,8 +921,41 @@ fn insert(
         return inline_table_insert(&idx, &target.parent, target.index, &frag);
     }
 
-    let new_key = fragment_first_key(&frag)
-        .ok_or_else(|| MutateError::Fragment("fragment has no key".into()))?;
+    // A header-less **multi-entry** fragment (a copied `[T/D]` table block, whose
+    // members are several flat dotted entries) is inserted one entry at a time, so the
+    // dotted prefix and the per-leaf collision check apply to each member — a single
+    // splice would only re-key the first. A `[table]`/`[[aot]]` section keeps its
+    // entries together (they belong under the header) and is never split.
+    let has_header = frag.descendants().any(|n| {
+        matches!(
+            n.kind(),
+            SyntaxKind::TABLE_HEADER | SyntaxKind::TABLE_ARRAY_HEADER
+        )
+    });
+    let top_entries: Vec<SyntaxNode> = frag
+        .children()
+        .filter(|n| n.kind() == SyntaxKind::ENTRY)
+        .collect();
+    if !has_header && top_entries.len() > 1 {
+        for (k, e) in top_entries.iter().enumerate() {
+            let entry_text = format!("{}\n", e.to_string().trim());
+            insert(
+                tree,
+                &InsTarget {
+                    parent: target.parent.clone(),
+                    index: target.index.saturating_add(k),
+                },
+                &entry_text,
+                on_collision,
+            )?;
+        }
+        return Ok(());
+    }
+
+    let frag_segs = fragment_key_segs(&frag);
+    if frag_segs.is_empty() {
+        return Err(MutateError::Fragment("fragment has no key".into()));
+    }
     // A synthesized `placeholder` key is auto-renamed on collision — the user never
     // chose it, so a clash shouldn't surface as a prompt/error.
     let on_collision = if synthesized_key {
@@ -930,26 +963,29 @@ fn insert(
     } else {
         on_collision
     };
-    let depth = target.parent.len();
-    let is_collision = |k: &str| {
-        parent
-            .children
-            .iter()
-            .filter(|c| !matches!(c.kind, crate::model::node::NodeKind::Comment(_)))
-            .any(|c| c.path.get(depth) == Some(&Seg::Key(k.to_string())))
+    // Carry the dotted ancestor prefix onto the key *before* the collision check, so
+    // an Overwrite/splice keeps the destination prefix. Collision is decided on
+    // `frag_segs` (the key relative to the parent), which equals the leaf's projected
+    // path tail regardless of how the key is written.
+    check_partition(parent, &frag, target.index)?;
+    if !dotted_prefix.is_empty() {
+        prefix_entry_key(&frag, &dotted_prefix)?;
+    }
+    // Collision is **exact full path** (`target.parent ++ frag_segs`): dotted siblings
+    // that merely share a prefix (`a.x` beside `a.y`) merge into one `[T/D]` table
+    // instead of colliding — only an identical full key clashes.
+    let full_path = |segs: &[String]| -> Vec<Seg> {
+        let mut p = target.parent.clone();
+        p.extend(segs.iter().cloned().map(Seg::Key));
+        p
     };
-
-    if is_collision(&new_key) {
+    if node_at(&proj.root, &full_path(&frag_segs)).is_some() {
         match on_collision {
-            OnCollision::Cancel => return Err(MutateError::Collision(new_key)),
+            OnCollision::Cancel => return Err(MutateError::Collision(frag_segs.join("."))),
             OnCollision::Overwrite => {
-                // Replace the colliding entry's element in place (keeps position).
-                let victim = parent
-                    .children
-                    .iter()
-                    .find(|c| c.path.get(depth) == Some(&Seg::Key(new_key.clone())))
-                    .ok_or(MutateError::NotFound)?;
-                let velem = match idx.iter().find(|(p, _)| p == &victim.path).map(|(_, t)| t) {
+                // Replace the colliding leaf's element in place (keeps position).
+                let victim_path = full_path(&frag_segs);
+                let velem = match idx.iter().find(|(p, _)| p == &victim_path).map(|(_, t)| t) {
                     Some(Target::Entry(n)) => n.clone(),
                     _ => return Err(MutateError::Unsupported),
                 };
@@ -967,21 +1003,23 @@ fn insert(
                 return Ok(());
             }
             OnCollision::Rename => {
-                // Append _2, _3, … to the key until free, rewriting the fragment.
+                // Append _2, _3, … to the **last** segment until the full path is free.
+                let base = frag_segs.last().cloned().unwrap_or_default();
+                let mut segs = frag_segs.clone();
                 let mut n = 2;
-                while is_collision(&format!("{new_key}_{n}")) {
+                loop {
+                    let last = segs.len() - 1;
+                    segs[last] = format!("{base}_{n}");
+                    if node_at(&proj.root, &full_path(&segs)).is_none() {
+                        break;
+                    }
                     n += 1;
                 }
-                rewrite_first_key(&frag, &format!("{new_key}_{n}"))?;
+                rewrite_last_key(&frag, segs.last().unwrap())?;
             }
         }
     }
 
-    check_partition(parent, &frag, target.index)?;
-    // Carry the dotted ancestor prefix onto the (collision-resolved) key.
-    if !dotted_prefix.is_empty() {
-        prefix_entry_key(&frag, &dotted_prefix)?;
-    }
     let at = resolve_insert_at(tree, &proj.root, &idx, target)?;
     let els: Vec<_> = frag.children_with_tokens().collect();
     for e in &els {
@@ -1242,17 +1280,20 @@ fn array_sep() -> (taplo::syntax::SyntaxElement, taplo::syntax::SyntaxElement) {
     (comma, space)
 }
 
-/// Rewrite the first key-segment token of a node fragment to `new_key`.
-fn rewrite_first_key(frag: &SyntaxNode, new_key: &str) -> Result<(), MutateError> {
+/// Swap the **last** key-segment token of a node fragment to `new_seg` (`a.b` →
+/// `a.b_2`), used to de-collide an entry on `OnCollision::Rename` (for a bare key the
+/// last segment is the only one).
+fn rewrite_last_key(frag: &SyntaxNode, new_seg: &str) -> Result<(), MutateError> {
     let key = frag
         .descendants()
         .find(|n| n.kind() == SyntaxKind::KEY)
         .ok_or_else(|| MutateError::Fragment("fragment has no key".into()))?;
-    let first = key
+    let last = key
         .children_with_tokens()
-        .find_map(key_seg_token)
+        .filter_map(key_seg_token)
+        .last()
         .ok_or_else(|| MutateError::Fragment("fragment key has no segment".into()))?;
-    let parse = taplo::parser::parse(&format!("{new_key} = 0\n"));
+    let parse = taplo::parser::parse(&format!("{new_seg} = 0\n"));
     if let Some(e) = parse.errors.first() {
         return Err(MutateError::Fragment(e.to_string()));
     }
@@ -1264,7 +1305,7 @@ fn rewrite_first_key(frag: &SyntaxNode, new_key: &str) -> Result<(), MutateError
         .and_then(|k| k.children_with_tokens().find_map(key_seg_token))
         .ok_or_else(|| MutateError::Fragment("invalid key".into()))?;
     nk.detach();
-    let i = first.index();
+    let i = last.index();
     key.splice_children(i..i + 1, vec![NodeOrToken::Token(nk)]);
     Ok(())
 }
@@ -1443,11 +1484,24 @@ fn move_nodes(
     // Capture each source's source text before any removal.
     let mut frags: Vec<String> = Vec::new();
     for p in sources {
-        let t = idx
-            .iter()
-            .find(|(ip, _)| ip == p)
-            .map(|(_, t)| t.clone())
-            .ok_or(MutateError::NotFound)?;
+        let t = match idx.iter().find(|(ip, _)| ip == p).map(|(_, t)| t.clone()) {
+            Some(t) => t,
+            // A synthetic `[T/D]` dotted table has no element of its own — fan out to
+            // its member entries, each captured scope-relative (dropping the table's
+            // own dotted-ancestor prefix). The re-insert then re-prefixes for the
+            // destination, so moving `[T/D]` a into/out of a scope or another `[T/D]`
+            // adjusts the prefix; the source side is removed by `delete` (which fans
+            // out the same way). Whole-subtree move of a *real* scope sub-table is
+            // still routed through `Target::Header`.
+            None if node_at(&proj.root, p).map(|n| n.format) == Some(Format::Dotted) => {
+                let strip = dotted_ancestor_prefix_len(&proj.root, p);
+                for m in dotted_member_entries(&idx, p) {
+                    frags.push(strip_key_prefix(&m, strip));
+                }
+                continue;
+            }
+            None => return Err(MutateError::NotFound),
+        };
         match t {
             // Scope-relative capture: drop the source's dotted-ancestor prefix so the
             // re-insert re-prefixes only for the destination (matching copy/paste).
@@ -1640,18 +1694,29 @@ fn find_parent<'a>(root: &'a Node, path: &[Seg]) -> Option<(&'a Node, &'a Node)>
 /// The first key of a node fragment — the first segment of its first `KEY` node
 /// (the child key it would occupy under its parent scope).
 fn fragment_first_key(root: &SyntaxNode) -> Option<String> {
-    let key = root.descendants().find(|n| n.kind() == SyntaxKind::KEY)?;
-    key.children_with_tokens().find_map(|c| match c {
-        NodeOrToken::Token(t) => match t.kind() {
-            SyntaxKind::IDENT | SyntaxKind::IDENT_WITH_GLOB => Some(t.text().to_string()),
-            SyntaxKind::STRING | SyntaxKind::STRING_LITERAL => {
-                let s = t.text().trim();
-                Some(s[1..s.len().saturating_sub(1)].to_string())
-            }
-            _ => None,
-        },
-        NodeOrToken::Node(_) => None,
-    })
+    fragment_key_segs(root).into_iter().next()
+}
+
+/// All key segments of the fragment's first `KEY` (`a.b.c = v` → `["a","b","c"]`),
+/// quotes stripped. A bare key yields one segment; a dotted key yields the chain —
+/// used to compute the inserted leaf's full projected path for collision detection.
+fn fragment_key_segs(root: &SyntaxNode) -> Vec<String> {
+    let Some(key) = root.descendants().find(|n| n.kind() == SyntaxKind::KEY) else {
+        return Vec::new();
+    };
+    key.children_with_tokens()
+        .filter_map(|c| match c {
+            NodeOrToken::Token(t) => match t.kind() {
+                SyntaxKind::IDENT | SyntaxKind::IDENT_WITH_GLOB => Some(t.text().to_string()),
+                SyntaxKind::STRING | SyntaxKind::STRING_LITERAL => {
+                    let s = t.text().trim();
+                    Some(s[1..s.len().saturating_sub(1)].to_string())
+                }
+                _ => None,
+            },
+            NodeOrToken::Node(_) => None,
+        })
+        .collect()
 }
 
 /// Map a projected insertion `target` (`parent` path + child `index`) to a splice
@@ -1687,22 +1752,38 @@ fn resolve_insert_at(
             _ => None,
         });
     // A synthetic `[T/D]` dotted table has no header — anchor on its children
-    // (their dotted entries), which always exist.
+    // (their dotted entries), which always exist. `node_last_root_index` descends
+    // into any synthetic-table child so appending lands after its *last* member
+    // (not before it).
     let mut last = match header_pos {
         Some(h) => h,
         None => parent
             .children
             .iter()
-            .filter_map(|c| element_root_index(idx, c))
+            .filter_map(|c| node_last_root_index(idx, c))
             .max()
             .ok_or(MutateError::Unsupported)?,
     };
     for child in &parent.children {
-        if let Some(p) = element_root_index(idx, child) {
+        if let Some(p) = node_last_root_index(idx, child) {
             last = last.max(p);
         }
     }
     Ok(extend_over_newline(tree, last + 1))
+}
+
+/// The ROOT-child index where `node`'s physical source *ends*: the largest start
+/// index among its own element and all descendants. The dual of
+/// [`node_start_root_index`] — used to append *after* a node whose subtree may include
+/// a synthetic `[T/D]` table with no element of its own.
+fn node_last_root_index(idx: &CstIndex, node: &Node) -> Option<usize> {
+    let own = element_root_index(idx, node);
+    let deepest = node
+        .children
+        .iter()
+        .filter_map(|c| node_last_root_index(idx, c))
+        .max();
+    own.into_iter().chain(deepest).max()
 }
 
 /// The ROOT-child index where `node`'s physical source *begins*: its own backing
@@ -3145,6 +3226,89 @@ mod tests {
             vec![Seg::Key("d".into()), Seg::Key("dd".into())],
         );
         assert_eq!(s, "arr = []\n[d]\ndd.x = 0\ndd.foo = 1\n");
+    }
+
+    // Phase 2: a whole synthetic `[T/D]` table moves by fanning out its members,
+    // each re-prefixed for the destination.
+    #[test]
+    fn move_whole_dotted_table_into_scope() {
+        let s = move_elem(
+            "a.x = 1\na.y = 2\n[dest]\nz = 0\n",
+            vec![Seg::Key("a".into())],
+            vec![Seg::Key("dest".into())],
+        );
+        assert_eq!(s, "[dest]\nz = 0\na.x = 1\na.y = 2\n");
+    }
+
+    #[test]
+    fn move_whole_dotted_table_into_dotted_adds_prefix() {
+        let s = move_elem(
+            "a.x = 1\nb.y = 2\n",
+            vec![Seg::Key("a".into())],
+            vec![Seg::Key("b".into())],
+        );
+        assert_eq!(s, "b.y = 2\nb.a.x = 1\n");
+    }
+
+    #[test]
+    fn move_dotted_subtable_out_to_root_drops_prefix() {
+        let s = move_elem(
+            "dotted.test.p = 1\ndotted.test.q = 2\ndotted.keep = 9\n",
+            vec![Seg::Key("dotted".into()), Seg::Key("test".into())],
+            vec![],
+        );
+        assert_eq!(s, "dotted.keep = 9\ntest.p = 1\ntest.q = 2\n");
+    }
+
+    // Collision is exact full-path: a dotted entry sharing only a prefix merges into
+    // the same `[T/D]` table instead of colliding.
+    #[test]
+    fn insert_dotted_sibling_merges_not_collides() {
+        let mut d = doc("a.x = 1\n");
+        d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![],
+                index: 99,
+            },
+            toml: "a.y = 2\n".into(),
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "a.x = 1\na.y = 2\n");
+    }
+
+    #[test]
+    fn insert_identical_dotted_key_still_collides() {
+        let mut d = doc("a.x = 1\n");
+        let r = d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![],
+                index: 99,
+            },
+            toml: "a.x = 9\n".into(),
+            on_collision: OnCollision::Cancel,
+        });
+        assert!(matches!(r, Err(MutateError::Collision(k)) if k == "a.x"));
+    }
+
+    #[test]
+    fn copy_dotted_block_into_dotted_prefixes_every_member() {
+        // Copy path: a multi-member [T/D] block inserted into a dotted dest re-prefixes
+        // EVERY member (was: second member dropped).
+        let mut d = doc("a.x = 1\na.y = 2\nb.k = 9\n");
+        d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![Seg::Key("b".into())],
+                index: 99,
+            },
+            toml: "a.x = 1\na.y = 2\n".into(),
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(
+            d.serialize(),
+            "a.x = 1\na.y = 2\nb.k = 9\nb.a.x = 1\nb.a.y = 2\n"
+        );
     }
 
     // Issue 3: inserting a keyed entry into an inline table splices it inside `{ … }`.
