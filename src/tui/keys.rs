@@ -105,6 +105,7 @@ pub fn help_text() -> &'static str {
    [A/I]   inline array        [A/M]  multiline array
    [A/T]   array-of-tables     [T/I]  inline table
    [T/S]   table scope (standard [header])
+   [T/D]   dotted-key table (a.b.c = …)
 
  Scalars  [type:format]:
    [S:str ] basic string        [S:mstr] multiline basic string

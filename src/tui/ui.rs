@@ -45,7 +45,7 @@ pub(crate) fn format_label(fmt: Format) -> Option<&'static str> {
         Format::Inf => Some("inf"),
         Format::Nan => Some("nan"),
         // Container facets: the branch labels already carry the distinction.
-        Format::Inline | Format::Multiline | Format::Scope => None,
+        Format::Inline | Format::Multiline | Format::Scope | Format::Dotted => None,
     }
 }
 

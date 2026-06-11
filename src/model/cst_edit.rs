@@ -18,7 +18,7 @@
 
 use crate::model::cst_project::{header_path, walk, CstIndex, Target};
 use crate::model::document::{MutateError, Mutation, OnCollision, Target as InsTarget};
-use crate::model::node::{Node, Seg};
+use crate::model::node::{Format, Node, NodeKind, Seg};
 use taplo::rowan::NodeOrToken;
 use taplo::syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 
@@ -77,11 +77,47 @@ pub(crate) fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<SyntaxNode, Muta
 /// In the CST a fragment is just the node's source text — comments are independent
 /// nodes, so a node never carries an adjacent comment (`carry_comment` is moot).
 pub(crate) fn serialize_fragment(syntax: &SyntaxNode, path: &[Seg]) -> String {
+    serialize_fragment_impl(syntax, path, false)
+}
+
+/// Like [`serialize_fragment`] but **scope-relative**: a node copied out of a
+/// `[T/D]` dotted table has its leading dotted-ancestor key segments dropped
+/// (`dotted.test.bool_true` → `bool_true`; the `test` subtable's members →
+/// `test.bool_true`). Used by copy/cut so a paste re-prefixes only for the new
+/// destination instead of stacking the source's prefix. The plain
+/// `serialize_fragment` (used by the `$EDITOR` block edit, which must keep full
+/// keys for `replace_dotted_table`) is unaffected.
+pub(crate) fn serialize_fragment_relative(syntax: &SyntaxNode, path: &[Seg]) -> String {
+    serialize_fragment_impl(syntax, path, true)
+}
+
+fn serialize_fragment_impl(syntax: &SyntaxNode, path: &[Seg], relative: bool) -> String {
     let (proj, idx) = walk(syntax, "");
     // A comment node: its raw `# …` text.
     if let Some(node) = node_at(&proj.root, path) {
-        if let crate::model::node::NodeKind::Comment(t) = &node.kind {
+        if let NodeKind::Comment(t) = &node.kind {
             return t.clone();
+        }
+        // A synthetic `[T/D]` dotted table has no single element — its fragment is
+        // all of its member entries' source lines, in document order (the block a
+        // `$EDITOR` edit rewrites).
+        if node.format == Format::Dotted {
+            let strip = if relative {
+                dotted_ancestor_prefix_len(&proj.root, path)
+            } else {
+                0
+            };
+            return dotted_member_entries(&idx, path)
+                .iter()
+                .map(|n| {
+                    let s = strip_key_prefix(n, strip);
+                    if s.ends_with('\n') {
+                        s
+                    } else {
+                        format!("{s}\n")
+                    }
+                })
+                .collect();
         }
     }
     let target = match idx.iter().find(|(p, _)| p == path).map(|(_, t)| t) {
@@ -90,7 +126,12 @@ pub(crate) fn serialize_fragment(syntax: &SyntaxNode, path: &[Seg]) -> String {
     };
     match target {
         Target::Entry(n) | Target::ArrayElement(n) => {
-            let s = n.to_string();
+            let strip = if relative {
+                dotted_ancestor_prefix_len(&proj.root, path)
+            } else {
+                0
+            };
+            let s = strip_key_prefix(n, strip);
             if s.ends_with('\n') {
                 s
             } else {
@@ -181,13 +222,140 @@ fn reparse_document(toml: &str) -> Result<SyntaxNode, MutateError> {
 /// fragment (array elements use a synthetic `__elem__ = <value>`); only the scalar
 /// token is swapped, so a trailing EOL comment and any surrounding array indent are
 /// preserved.
-fn replace_value(tree: &SyntaxNode, path: &[Seg], toml: &str) -> Result<(), MutateError> {
-    let (_, idx) = walk(tree, "");
-    let target = idx
+/// Every flat-ROOT `ENTRY` element belonging to the dotted table at `path` (paths
+/// strictly under it), in document order. Shared by the `[T/D]` block edit, delete
+/// fan-out, and fragment serialization.
+fn dotted_member_entries(idx: &CstIndex, path: &[Seg]) -> Vec<SyntaxNode> {
+    let mut v: Vec<(usize, SyntaxNode)> = idx
         .iter()
-        .find(|(p, _)| p == path)
-        .map(|(_, t)| t.clone())
-        .ok_or(MutateError::NotFound)?;
+        .filter_map(|(p, t)| match t {
+            // Only *flat-root* entries: an entry nested inside an inline-table (or
+            // array) value belongs to that value, not to the dotted table — skip it
+            // so a `new_field = {x=1}` member never has its inner `x=1` pulled out.
+            Target::Entry(n)
+                if p.len() > path.len()
+                    && p[..path.len()] == *path
+                    && !n.ancestors().skip(1).any(|a| {
+                        matches!(a.kind(), SyntaxKind::INLINE_TABLE | SyntaxKind::ARRAY)
+                    }) =>
+            {
+                Some((n.index(), n.clone()))
+            }
+            _ => None,
+        })
+        .collect();
+    v.sort_by_key(|(i, _)| *i);
+    v.into_iter().map(|(_, n)| n).collect()
+}
+
+/// The number of contiguous `Dotted`-format **proper ancestors** above the node at
+/// `path` (counted from the deepest up, stopping at the first non-dotted scope).
+/// This is exactly the count of leading key segments a copied fragment must drop to
+/// become scope-relative: a `dotted.test.bool_true` leaf yields `2`, the `test`
+/// subtable yields `1`.
+fn dotted_ancestor_prefix_len(root: &Node, path: &[Seg]) -> usize {
+    let mut count = 0;
+    for k in (1..path.len()).rev() {
+        if node_at(root, &path[..k]).map(|n| n.format) == Some(Format::Dotted) {
+            count += 1;
+        } else {
+            break;
+        }
+    }
+    count
+}
+
+/// The source text of `entry` with the first `strip` key segments (and the dots
+/// that separate them) dropped from its `KEY` — so `dotted.test.bool_true = true`
+/// with `strip = 2` renders `bool_true = true`. `strip == 0` is the entry verbatim.
+fn strip_key_prefix(entry: &SyntaxNode, strip: usize) -> String {
+    let full = entry.to_string();
+    if strip == 0 {
+        return full;
+    }
+    let key = match entry.children().find(|c| c.kind() == SyntaxKind::KEY) {
+        Some(k) => k,
+        None => return full,
+    };
+    let old_key = key.to_string();
+    // The ENTRY begins with its KEY token text, so the new key text plus the rest of
+    // the entry (the ` = value …` tail) reproduces a scope-relative line.
+    let mut new_key = String::new();
+    let mut seen_segs = 0usize;
+    let mut started = false;
+    for c in key.children_with_tokens() {
+        if let NodeOrToken::Token(t) = &c {
+            if is_key_seg(t.kind()) {
+                seen_segs += 1;
+                if seen_segs > strip {
+                    started = true;
+                }
+            }
+            if started {
+                new_key.push_str(t.text());
+            }
+        }
+    }
+    format!("{new_key}{}", &full[old_key.len()..])
+}
+
+/// Detach an `ENTRY` together with its trailing `NEWLINE` (removing the whole line).
+fn detach_entry_line(entry: &SyntaxNode) {
+    if let Some(nl) = entry.next_sibling_or_token() {
+        if matches!(&nl, NodeOrToken::Token(t) if t.kind() == SyntaxKind::NEWLINE) {
+            nl.detach();
+        }
+    }
+    entry.detach();
+}
+
+/// Block-rewrite a `[T/D]` dotted table (`$EDITOR` on the table): remove all of its
+/// member entries and splice the edited block in at the **last** member's position
+/// (the consolidation the user opted into). Scattered members are gathered; any
+/// standalone comments between them stay put.
+fn replace_dotted_table(
+    tree: &SyntaxNode,
+    idx: &CstIndex,
+    path: &[Seg],
+    toml: &str,
+) -> Result<(), MutateError> {
+    let members = dotted_member_entries(idx, path);
+    let last = members.last().ok_or(MutateError::NotFound)?.clone();
+    let parse = taplo::parser::parse(toml);
+    if let Some(e) = parse.errors.first() {
+        return Err(MutateError::Fragment(e.to_string()));
+    }
+    let frag = parse.into_syntax().clone_for_update();
+    let els: Vec<_> = frag.children_with_tokens().collect();
+    for e in &els {
+        e.detach();
+    }
+    // Remove the non-last members (whole lines); `detach` is position-independent.
+    for m in &members[..members.len() - 1] {
+        detach_entry_line(m);
+    }
+    // Replace the last member's slot (line) with the edited block.
+    let i = last.index();
+    let end = match last.next_sibling_or_token() {
+        Some(NodeOrToken::Token(t)) if t.kind() == SyntaxKind::NEWLINE => i + 2,
+        _ => i + 1,
+    };
+    tree.splice_children(i..end, els);
+    Ok(())
+}
+
+fn replace_value(tree: &SyntaxNode, path: &[Seg], toml: &str) -> Result<(), MutateError> {
+    let (proj, idx) = walk(tree, "");
+    let target = match idx.iter().find(|(p, _)| p == path).map(|(_, t)| t.clone()) {
+        Some(t) => t,
+        // No single element: a `[T/D]` dotted table block-rewrites its members.
+        None => {
+            if node_at(&proj.root, path).map(|n| n.format) == Some(Format::Dotted) {
+                return replace_dotted_table(tree, &idx, path, toml);
+            }
+            return Err(MutateError::NotFound);
+        }
+    };
     // Whole-group replace (`$EDITOR` on an AoT *group* node): swap all of its
     // `[[x]]` entries for the edited fragment.
     if let Target::AotGroup = &target {
@@ -315,12 +483,21 @@ fn edit_comment(tree: &SyntaxNode, path: &[Seg], text: &str) -> Result<(), Mutat
 /// removed with its trailing newline. Because comments are independent nodes now,
 /// deleting an entry leaves any adjacent comment in place for free.
 fn delete(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
-    let (_, idx) = walk(tree, "");
-    let target = idx
-        .iter()
-        .find(|(p, _)| p == path)
-        .map(|(_, t)| t.clone())
-        .ok_or(MutateError::NotFound)?;
+    let (proj, idx) = walk(tree, "");
+    let target = match idx.iter().find(|(p, _)| p == path).map(|(_, t)| t.clone()) {
+        Some(t) => t,
+        // A synthetic `[T/D]` dotted table has no element — delete all its member
+        // entries (plain cascade; the table then disappears with its last child).
+        None => {
+            if node_at(&proj.root, path).map(|n| n.format) == Some(Format::Dotted) {
+                for entry in dotted_member_entries(&idx, path) {
+                    detach_entry_line(&entry);
+                }
+                return Ok(());
+            }
+            return Err(MutateError::NotFound);
+        }
+    };
     match target {
         Target::Comment(first) => {
             let parent = first.parent().ok_or(MutateError::NotFound)?;
@@ -686,6 +863,27 @@ fn insert(
     let (proj, idx) = walk(tree, "");
     let parent = node_at(&proj.root, &target.parent).ok_or(MutateError::NotFound)?;
     let parent_is_array = matches!(parent.kind, crate::model::node::NodeKind::Array);
+    let parent_is_inline = matches!(parent.kind, crate::model::node::NodeKind::InlineTable);
+
+    // Inserting into a synthetic `[T/D]` dotted table: the new entry has no header
+    // to live under, so it is written as a dotted entry whose key carries the
+    // ancestor prefix (`x = v` into `a.b` becomes `a.b.x = v`), placed next to its
+    // dotted siblings. The prefix is the trailing run of `Dotted` ancestors of the
+    // parent (down from the nearest real scope / root); empty for a normal table.
+    let dotted_prefix: Vec<String> = {
+        let mut segs = Vec::new();
+        for i in (0..target.parent.len()).rev() {
+            let anc = node_at(&proj.root, &target.parent[..=i]).ok_or(MutateError::NotFound)?;
+            if anc.format != crate::model::node::Format::Dotted {
+                break;
+            }
+            if let Seg::Key(k) = &target.parent[i] {
+                segs.push(k.clone());
+            }
+        }
+        segs.reverse();
+        segs
+    };
 
     // D1 simple adaptation across container types:
     //  - into an ARRAY we need a bare VALUE: a keyed fragment's key is dropped
@@ -698,6 +896,21 @@ fn insert(
     if parent_is_array {
         // Bare element into an array (`a` on an array, or `key↓` paste): no collision.
         return array_insert(&idx, &target.parent, target.index, &frag);
+    }
+
+    if parent_is_inline {
+        // A keyed entry spliced into the `{ … }` node — the flat-ROOT splice machinery
+        // below does not reach inside an inline table.
+        let new_key = fragment_first_key(&frag)
+            .ok_or_else(|| MutateError::Fragment("fragment has no key".into()))?;
+        if parent
+            .children
+            .iter()
+            .any(|c| c.path.last() == Some(&Seg::Key(new_key.clone())))
+        {
+            return Err(MutateError::Collision(new_key));
+        }
+        return inline_table_insert(&idx, &target.parent, target.index, &frag);
     }
 
     let new_key = fragment_first_key(&frag)
@@ -757,6 +970,10 @@ fn insert(
     }
 
     check_partition(parent, &frag, target.index)?;
+    // Carry the dotted ancestor prefix onto the (collision-resolved) key.
+    if !dotted_prefix.is_empty() {
+        prefix_entry_key(&frag, &dotted_prefix)?;
+    }
     let at = resolve_insert_at(tree, &proj.root, &idx, target)?;
     let els: Vec<_> = frag.children_with_tokens().collect();
     for e in &els {
@@ -821,10 +1038,15 @@ fn check_partition(parent: &Node, frag: &SyntaxNode, index: usize) -> Result<(),
     let len = parent.children.len();
     // Clamp the append sentinel (callers pass an out-of-range index to mean "end").
     let index = index.min(len);
+    // A `[T/D]` dotted table is not a capturing header (it opens no scope), so it
+    // is not a partition boundary — a scalar may sit after it.
     let split = parent
         .children
         .iter()
-        .position(|c| matches!(c.kind, NodeKind::Table | NodeKind::ArrayOfTables))
+        .position(|c| {
+            matches!(c.kind, NodeKind::Table | NodeKind::ArrayOfTables)
+                && c.format != Format::Dotted
+        })
         .unwrap_or(len);
     let header_like = frag.descendants().any(|n| {
         matches!(
@@ -898,6 +1120,60 @@ fn array_insert(
     Ok(())
 }
 
+/// Insert a keyed `ENTRY` into the inline table at `table_path`, at member `index`
+/// (or appended). taplo bakes the closing `}`'s leading whitespace into the last
+/// entry, so token surgery is brittle — instead the table is rebuilt from its
+/// members' verbatim source with normalized `, ` separators (`{ … }` padding), each
+/// existing member kept byte-for-byte. An empty `{}` becomes `{ k = v }`.
+fn inline_table_insert(
+    idx: &CstIndex,
+    table_path: &[Seg],
+    index: usize,
+    frag: &SyntaxNode,
+) -> Result<(), MutateError> {
+    let it = match idx.iter().find(|(p, _)| p == table_path).map(|(_, t)| t) {
+        Some(Target::Entry(entry)) => entry
+            .children()
+            .find(|c| c.kind() == SyntaxKind::VALUE)
+            .and_then(|v| struct_node(&v))
+            .filter(|n| n.kind() == SyntaxKind::INLINE_TABLE)
+            .ok_or(MutateError::Unsupported)?,
+        _ => return Err(MutateError::Unsupported),
+    };
+    let new_entry = frag
+        .descendants()
+        .find(|n| n.kind() == SyntaxKind::ENTRY)
+        .ok_or_else(|| MutateError::Fragment("fragment has no entry".into()))?;
+
+    let mut texts: Vec<String> = it
+        .children()
+        .filter(|c| c.kind() == SyntaxKind::ENTRY)
+        .map(|e| e.to_string().trim().to_string())
+        .collect();
+    let new_text = new_entry.to_string().trim().to_string();
+    if index < texts.len() {
+        texts.insert(index, new_text);
+    } else {
+        texts.push(new_text);
+    }
+    let built = format!("__v__ = {{ {} }}\n", texts.join(", "));
+    let parse = taplo::parser::parse(&built);
+    if let Some(e) = parse.errors.first() {
+        return Err(MutateError::Fragment(e.to_string()));
+    }
+    let new_it = parse
+        .into_syntax()
+        .clone_for_update()
+        .descendants()
+        .find(|n| n.kind() == SyntaxKind::INLINE_TABLE)
+        .ok_or(MutateError::Unsupported)?;
+    new_it.detach();
+    let value = it.parent().ok_or(MutateError::Unsupported)?;
+    let i = it.index();
+    value.splice_children(i..i + 1, vec![NodeOrToken::Node(new_it)]);
+    Ok(())
+}
+
 /// A fresh detached `,` + ` ` pair for array separators (parsed from a sample).
 fn array_sep() -> (taplo::syntax::SyntaxElement, taplo::syntax::SyntaxElement) {
     let frag = taplo::parser::parse("x = [0, 0]\n")
@@ -945,6 +1221,60 @@ fn rewrite_first_key(frag: &SyntaxNode, new_key: &str) -> Result<(), MutateError
     let i = first.index();
     key.splice_children(i..i + 1, vec![NodeOrToken::Token(nk)]);
     Ok(())
+}
+
+/// Prefix the fragment's (single-segment) key with a dotted ancestor path, so an
+/// insert into a synthetic `[T/D]` table is written as a dotted entry: `x = v`
+/// with prefix `[a, b]` becomes `a.b.x = v`. Replaces the whole `KEY` node,
+/// preserving the original final segment's source (quoting intact); non-bare
+/// prefix segments are re-quoted.
+fn prefix_entry_key(frag: &SyntaxNode, prefix: &[String]) -> Result<(), MutateError> {
+    let key = frag
+        .descendants()
+        .find(|n| n.kind() == SyntaxKind::KEY)
+        .ok_or_else(|| MutateError::Fragment("fragment has no key".into()))?;
+    let joined = prefix
+        .iter()
+        .map(|s| quote_key_seg(s))
+        .collect::<Vec<_>>()
+        .join(".");
+    // Borrow correctly-tokenized `<prefix>.` segments (idents + dots) from a
+    // throwaway parse, then splice them in front of the original key — preserving
+    // the original final segment's tokens (and the entry's spacing) verbatim.
+    let parsed = taplo::parser::parse(&format!("{joined}.__seg__ = 0\n"));
+    if let Some(e) = parsed.errors.first() {
+        return Err(MutateError::Fragment(e.to_string()));
+    }
+    let pkey = parsed
+        .into_syntax()
+        .clone_for_update()
+        .descendants()
+        .find(|n| n.kind() == SyntaxKind::KEY)
+        .ok_or_else(|| MutateError::Fragment("invalid key".into()))?;
+    let toks: Vec<_> = pkey.children_with_tokens().collect();
+    let last = toks
+        .iter()
+        .rposition(|c| matches!(c, NodeOrToken::Token(t) if is_key_seg(t.kind())))
+        .ok_or_else(|| MutateError::Fragment("invalid key".into()))?;
+    let prefix_tokens = &toks[..last];
+    for e in prefix_tokens {
+        e.detach();
+    }
+    key.splice_children(0..0, prefix_tokens.to_vec());
+    Ok(())
+}
+
+/// A key segment as written in source: bare if it is a legal bare key, else a
+/// basic-quoted string.
+fn quote_key_seg(s: &str) -> String {
+    let bare = !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    if bare {
+        s.to_string()
+    } else {
+        format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
+    }
 }
 
 /// Toggle the node at `path` between live and commented-out. A live entry becomes a
@@ -1073,7 +1403,12 @@ fn move_nodes(
             .map(|(_, t)| t.clone())
             .ok_or(MutateError::NotFound)?;
         match t {
-            Target::Entry(n) => frags.push(n.to_string()),
+            // Scope-relative capture: drop the source's dotted-ancestor prefix so the
+            // re-insert re-prefixes only for the destination (matching copy/paste).
+            Target::Entry(n) => {
+                let strip = dotted_ancestor_prefix_len(&proj.root, p);
+                frags.push(strip_key_prefix(&n, strip));
+            }
             Target::Header(h) => frags.push(section_text(tree, p, h.index(), false)),
             _ => return Err(MutateError::Unsupported),
         }
@@ -1150,11 +1485,20 @@ fn rename(tree: &SyntaxNode, path: &[Seg], new_key: &str) -> Result<(), MutateEr
         return Err(MutateError::Fragment(e.to_string()));
     }
     let nk_root = parse.into_syntax().clone_for_update();
-    let nk_tok = nk_root
+    // All tokens of the new key (segments + dots), so a multi-segment new key turns
+    // a plain key dotted in place (`foo` → `foo.x`, making a `[T/D]` table). Trim any
+    // trailing whitespace taplo lexes into the KEY so the swap stays tight.
+    let mut nk_tokens: Vec<_> = nk_root
         .descendants()
         .find(|n| n.kind() == SyntaxKind::KEY)
-        .and_then(|k| k.children_with_tokens().find_map(key_seg_token))
+        .ok_or_else(|| MutateError::Fragment("invalid key".into()))?
+        .children_with_tokens()
+        .collect();
+    let last_seg = nk_tokens
+        .iter()
+        .rposition(|c| matches!(c, NodeOrToken::Token(t) if is_key_seg(t.kind())))
         .ok_or_else(|| MutateError::Fragment("invalid key".into()))?;
+    nk_tokens.truncate(last_seg + 1);
 
     let (proj, idx) = walk(tree, "");
     let target = idx
@@ -1186,15 +1530,18 @@ fn rename(tree: &SyntaxNode, path: &[Seg], new_key: &str) -> Result<(), MutateEr
         }
     }
 
-    // Replace the last key-segment token (the displayed/renamed segment).
+    // Replace the last key-segment token (the displayed/renamed segment) with the
+    // new key's tokens — one segment for a plain rename, several to introduce dots.
     let last_tok = key_node
         .children_with_tokens()
         .filter_map(|c| c.into_token().filter(|t| is_key_seg(t.kind())))
         .last()
         .ok_or(MutateError::NotFound)?;
     let i = last_tok.index();
-    nk_tok.detach();
-    key_node.splice_children(i..i + 1, vec![NodeOrToken::Token(nk_tok)]);
+    for t in &nk_tokens {
+        t.detach();
+    }
+    key_node.splice_children(i..i + 1, nk_tokens);
     Ok(())
 }
 
@@ -1274,7 +1621,17 @@ fn resolve_insert_at(
             Target::Header(n) => Some(n.index()),
             _ => None,
         });
-    let mut last = header_pos.ok_or(MutateError::Unsupported)?;
+    // A synthetic `[T/D]` dotted table has no header — anchor on its children
+    // (their dotted entries), which always exist.
+    let mut last = match header_pos {
+        Some(h) => h,
+        None => parent
+            .children
+            .iter()
+            .filter_map(|c| element_root_index(idx, c))
+            .max()
+            .ok_or(MutateError::Unsupported)?,
+    };
     for child in &parent.children {
         if let Some(p) = element_root_index(idx, child) {
             last = last.max(p);
@@ -1640,6 +1997,143 @@ mod tests {
         })
         .unwrap();
         assert_eq!(e.serialize(), "xs = [7]\n");
+    }
+
+    #[test]
+    fn block_edit_dotted_table_consolidates_at_last_position() {
+        // `$EDITOR` on a `[T/D]` table: members scattered around `x` get rewritten
+        // and land where the last member was.
+        let mut d = doc("a.b = 1\nx = 0\na.c = 2\n");
+        d.apply(Mutation::Replace {
+            path: vec![Seg::Key("a".into())],
+            toml: "a.b = 10\na.c = 20\n".into(),
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "x = 0\na.b = 10\na.c = 20\n");
+    }
+
+    #[test]
+    fn block_edit_contiguous_dotted_table() {
+        let mut d = doc("a.b = 1\na.c = 2\n");
+        d.apply(Mutation::Replace {
+            path: vec![Seg::Key("a".into())],
+            toml: "a.b = 1\na.c = 2\na.d = 3\n".into(),
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "a.b = 1\na.c = 2\na.d = 3\n");
+    }
+
+    #[test]
+    fn rename_plain_key_to_dotted_makes_table() {
+        // `foo` → `foo.x` rewrites the key in place, projecting as a `[T/D]` table.
+        let mut d = doc("foo = 1\n");
+        d.apply(Mutation::Rename {
+            path: vec![Seg::Key("foo".into())],
+            new_key: "foo.x".into(),
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "foo.x = 1\n");
+    }
+
+    #[test]
+    fn rename_dotted_leaf_swaps_last_segment() {
+        let mut d = doc("a.b.c = 1\n");
+        d.apply(Mutation::Rename {
+            path: vec![
+                Seg::Key("a".into()),
+                Seg::Key("b".into()),
+                Seg::Key("c".into()),
+            ],
+            new_key: "z".into(),
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "a.b.z = 1\n");
+    }
+
+    #[test]
+    fn delete_dotted_table_removes_all_members() {
+        // Delete on a `[T/D]` table fans out to every member (plain cascade).
+        let mut d = doc("a.b = 1\nx = 0\na.c = 2\n");
+        d.apply(Mutation::Delete {
+            path: vec![Seg::Key("a".into())],
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "x = 0\n");
+    }
+
+    #[test]
+    fn delete_last_dotted_leaf_drops_the_table() {
+        // Deleting the only remaining member removes the implicit table too.
+        let mut d = doc("a.b = 1\n");
+        d.apply(Mutation::Delete {
+            path: vec![Seg::Key("a".into()), Seg::Key("b".into())],
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "");
+    }
+
+    #[test]
+    fn rename_whole_synthetic_dotted_table_is_rejected() {
+        // Renaming a whole `[T/D]` table has no source element → doc untouched.
+        let mut d = doc("a.b.c = 1\n");
+        assert!(d
+            .apply(Mutation::Rename {
+                path: vec![Seg::Key("a".into())],
+                new_key: "x".into(),
+            })
+            .is_err());
+        assert_eq!(d.serialize(), "a.b.c = 1\n");
+    }
+
+    #[test]
+    fn insert_into_dotted_table_writes_dotted_entry() {
+        // Inserting a child into a synthetic `[T/D]` table writes a dotted entry
+        // next to its siblings — no header.
+        let mut d = doc("a.b = 1\n");
+        d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![Seg::Key("a".into())],
+                index: 1,
+            },
+            toml: "x = 2\n".into(),
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "a.b = 1\na.x = 2\n");
+    }
+
+    #[test]
+    fn insert_into_nested_dotted_table() {
+        let mut d = doc("a.b.c = 1\n");
+        d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![Seg::Key("a".into()), Seg::Key("b".into())],
+                index: 1,
+            },
+            toml: "d = 2\n".into(),
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "a.b.c = 1\na.b.d = 2\n");
+    }
+
+    #[test]
+    fn insert_into_dotted_table_under_scope_is_scope_relative() {
+        // A dotted table nested in a real `[scope]` prefixes only the dotted run.
+        let mut d = doc("[server]\nhost.name = \"h\"\n");
+        d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![Seg::Key("server".into()), Seg::Key("host".into())],
+                index: 1,
+            },
+            toml: "port = 80\n".into(),
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(
+            d.serialize(),
+            "[server]\nhost.name = \"h\"\nhost.port = 80\n"
+        );
     }
 
     #[test]
@@ -2359,5 +2853,139 @@ mod tests {
         })
         .unwrap();
         assert_eq!(d.serialize(), "[s]\n# clarify\nport = 1\n");
+    }
+
+    // Issue 1: a `{ … }` value member of a `[T/D]` table must not have its interior
+    // entries pulled out by the block edit — only the flat dotted entries are members.
+    #[test]
+    fn replace_dotted_table_keeps_inline_table_value_intact() {
+        let mut d = doc("dotted.a = 1\ndotted.t = {x=1}\n");
+        // Re-emit the same block: the inline table's inner `x=1` must not surface.
+        d.apply(Mutation::Replace {
+            path: vec![Seg::Key("dotted".into())],
+            toml: "dotted.a = 1\ndotted.t = {x=1}\n".into(),
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "dotted.a = 1\ndotted.t = {x=1}\n");
+    }
+
+    #[test]
+    fn fragment_of_inline_value_member_is_not_a_separate_line() {
+        let d = doc("dotted.a = 1\ndotted.t = {x=1}\n");
+        // The block fragment for the whole `[T/D]` table lists exactly two members.
+        let frag = d.serialize_fragment(&[Seg::Key("dotted".into())]);
+        assert_eq!(frag, "dotted.a = 1\ndotted.t = {x=1}\n");
+    }
+
+    // Issue 2: copy/cut out of a `[T/D]` table drops the dotted-ancestor prefix.
+    #[test]
+    fn relative_fragment_strips_dotted_prefix_of_leaf() {
+        let d = doc("dotted.test.bool_true = true\n");
+        let frag = d.serialize_fragment_relative(&[
+            Seg::Key("dotted".into()),
+            Seg::Key("test".into()),
+            Seg::Key("bool_true".into()),
+        ]);
+        assert_eq!(frag, "bool_true = true\n");
+    }
+
+    #[test]
+    fn relative_fragment_strips_one_level_for_subtable() {
+        let d = doc("dotted.test.a = 1\ndotted.test.b = 2\n");
+        // Copying the `test` subtable strips only the `dotted` ancestor.
+        let frag =
+            d.serialize_fragment_relative(&[Seg::Key("dotted".into()), Seg::Key("test".into())]);
+        assert_eq!(frag, "test.a = 1\ntest.b = 2\n");
+    }
+
+    #[test]
+    fn plain_fragment_keeps_full_dotted_key() {
+        // The `$EDITOR` path (non-relative) must keep full keys for the block rewrite.
+        let d = doc("dotted.test.bool_true = true\n");
+        let frag = d.serialize_fragment(&[
+            Seg::Key("dotted".into()),
+            Seg::Key("test".into()),
+            Seg::Key("bool_true".into()),
+        ]);
+        assert_eq!(frag, "dotted.test.bool_true = true\n");
+    }
+
+    #[test]
+    fn cut_out_of_dotted_table_drops_prefix() {
+        let mut d = doc("dotted.test.flag = true\n[dest]\nx = 1\n");
+        d.apply(Mutation::Move {
+            sources: vec![vec![
+                Seg::Key("dotted".into()),
+                Seg::Key("test".into()),
+                Seg::Key("flag".into()),
+            ]],
+            target: InsTarget {
+                parent: vec![Seg::Key("dest".into())],
+                index: 99,
+            },
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "[dest]\nx = 1\nflag = true\n");
+    }
+
+    // Issue 3: inserting a keyed entry into an inline table splices it inside `{ … }`.
+    #[test]
+    fn insert_into_inline_table() {
+        let mut d = doc("t = { a = 1 }\n");
+        d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![Seg::Key("t".into())],
+                index: 99,
+            },
+            toml: "b = 2\n".into(),
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "t = { a = 1, b = 2 }\n");
+    }
+
+    #[test]
+    fn insert_into_inline_table_at_front() {
+        let mut d = doc("t = { a = 1 }\n");
+        d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![Seg::Key("t".into())],
+                index: 0,
+            },
+            toml: "b = 2\n".into(),
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "t = { b = 2, a = 1 }\n");
+    }
+
+    #[test]
+    fn insert_into_empty_inline_table() {
+        let mut d = doc("t = {}\n");
+        d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![Seg::Key("t".into())],
+                index: 0,
+            },
+            toml: "a = 1\n".into(),
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "t = { a = 1 }\n");
+    }
+
+    #[test]
+    fn insert_into_inline_table_collision_rejected() {
+        let mut d = doc("t = { a = 1 }\n");
+        let r = d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![Seg::Key("t".into())],
+                index: 99,
+            },
+            toml: "a = 2\n".into(),
+            on_collision: OnCollision::Cancel,
+        });
+        assert!(matches!(r, Err(MutateError::Collision(_))));
     }
 }

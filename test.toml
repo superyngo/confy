@@ -2,7 +2,6 @@
 # Mirrors src/model/node.rs (ScalarType, Format) and project.rs::detect_format.
 
 # ── String (ScalarType::String) ──────────────────────────────────────────────
-basic_string         = "basic \"quoted\", tab\tand unicode é"
 multiline_basic      = """
 multiline basic line 1
 line 2 with "quotes" and trailing backslash \
@@ -60,7 +59,17 @@ array_multiline = [
   "third",
 ]
 
-# ── Array of tables (NodeKind::ArrayOfTables) ────────────────────────────────
+new_field_2.xxx = { b = "", x=1, array_nested         = [[[1,2,3], 2], [3, 4]] }
+# Dotted keys table
+dotted.test.table = ""
+dotted.test.new = ""
+dotted.test.new_field_2 = {z=3}
+dotted.test.new_field_3 = ""
+dotted.new_field_2.b = ""
+dotted.new_field = {x=1,y=2}
+dotted.gg=5
+dotted.new_field_3 = ""
+new_field = ""
 [[product]]
 name                 = "Hammer"
 sku                  = 738_594_939
@@ -85,6 +94,22 @@ ciphers              = ["TLS_AES_256", "TLS_CHACHA20"]
 
 [product_table]
 
+array_int            = [1, 2, 3]
+color                = "gray"
+dotted.test.table = ""
+dotted.test.new = ""
+dotted.test.new_field_2 = {z=3}
+dotted.test.new_field_3 = ""
+dotted.new_field_2.b = ""
+dotted.new_field = {x=1,y=2}
+dotted.gg=5
+dotted.new_field_3 = ""
+test.table = ""
+test.new = ""
+test.new_field_2 = {z=3}
+test.new_field_3 = ""
+# Dotted keys table
+
 [product_table.a]
 name                 = "Hammer"
 sku                  = 738_594_939
@@ -92,7 +117,6 @@ sku                  = 738_594_939
 [product_table.b]
 name                 = "Nail"
 sku                  = 0x0284_FE_AB
-color                = "gray"
 
 [product_table2.a]
 name                 = "Hammer"

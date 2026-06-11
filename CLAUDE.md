@@ -45,16 +45,44 @@ adapts the fragment to the destination (`parse_fragment_adapted`): a keyed fragm
 an array keeps only its value, a bare value inserted into a table gets a synthesized
 `placeholder` key (auto-renamed on collision), and a `[table]` fragment cannot become an array
 element; a header-vs-leaf **partition check** keeps an insert from being captured by a following
-`[table]` header. Known edges: AoT-*entry* Move degrades to a graceful `Unsupported`, and
-multiline-array element insert/delete spacing is not yet byte-perfect.
+`[table]` header. Inserting a keyed entry **into an inline table** routes to `inline_table_insert`,
+which rebuilds the `{ … }` from its members' verbatim source with normalized `, ` separators
+(taplo bakes the closing brace's leading space into the last entry, so token surgery is brittle) —
+the new entry lands at the target slot (front/middle/append), a duplicate key is a `Collision`, and
+an empty `{}` becomes `{ k = v }`. Known edges: AoT-*entry* Move degrades to a graceful
+`Unsupported`, and multiline-array element insert/delete spacing is not yet byte-perfect.
 
-**Projection.** Dotted *keys* (`a.b.c = 1`) collapse into one node; dotted *headers* (`[x.a]`
-with no `[x]`) project as a real nested branch. `ScalarType` and a node's **Format** (writing
-style) are derived read-only during projection and are orthogonal to each other. Format covers
-scalars (hex/oct/bin, basic/literal/multiline string — from the token's syntax kind via
+**Projection.** Dotted *keys* (`a.b.c = 1`) **nest** into a chain of synthetic `Table` nodes
+(`a → b → c`) with `Format::Dotted` (rendered `[T/D]`) — `project_entry_into`/`ensure_dotted_chain`
+in `cst_project.rs`; scattered dotted entries sharing a prefix merge under one table **per scope**,
+positioned at the table's **last** definition (`move_to_back` bubbles the table on each member, so
+its slot matches where a block-rewrite lands). The leaf keeps the **full** path for its
+`Target::Entry`, so an **untouched file round-trips byte-identically**; the synthetic intermediates
+carry no index target (like an implicit header table — the `index_covers_every_projected_path` test
+exempts `Table` nodes), and — like every other branch — **start collapsed** (only the root file node
+is seeded into `expanded` at load). The whole
+decomposed chain (synthetic tables **and** leaf) carries `KeySign::Dotted` (`(D)`) — `(D)` marks
+any dotted-key origin, so the `f` filter's `(D)` checkbox matches decomposed dotted entries;
+per-segment `Bare`/`Quoted` is no longer surfaced for a decomposed chain (a dotted key **inside an
+inline table** is *not* decomposed and stays one `Dotted` leaf). **Editing a `[T/D]` table**
+(`cst_edit.rs`, all keyed off `Format::Dotted` since the table has no own element): a child
+insert/add writes a scope-relative dotted entry next to its siblings (`x = v` → `a.b.x = v`,
+`prefix_entry_key`); a child `add` seeds a scalar (a dotted table is excluded from the
+table-capture **partition split** in `add_node`/`check_partition`, so a following scalar is legal);
+`Replace` (the `e` block edit) **consolidates** — `replace_dotted_table` removes every member
+(`dotted_member_entries`) and splices the edited block in at the last member's slot; `Delete` fans
+out to remove every member (plain cascade). `dotted_member_entries` counts only **flat-ROOT**
+entries — an entry nested inside an inline-table/array *value* (`dotted.t = {x=1}`) belongs to that
+value, not the table, so its interior is never pulled out as a stray top-level line. `Rename` rewrites the **whole** key (not just the last
+segment), so `foo` → `foo.x` turns a scalar into a `[T/D]` table — the inline editor confirms the
+type change and defers the whole edit (`PendingCommit::Rename`) so `n` is a no-op. Whole-subtree
+*move* of a synthetic table is still `Unsupported`. Dotted *headers* (`[x.a]` with no `[x]`) still
+project as a real nested `Scope` branch. `ScalarType` and a node's
+**Format** (writing style) are derived read-only during projection and are orthogonal to each other.
+Format covers scalars (hex/oct/bin, basic/literal/multiline string — from the token's syntax kind via
 `scalar_kind` — plus `Inf`/`Nan` floats, told apart by token text) *and containers*: an array
-is `Inline` or `Multiline`, an inline table `Inline`, a `[table]` scope `Scope`; Root, AoT
-groups/entries, comments, bools, datetimes and plain floats stay `Plain`. Each node also
+is `Inline` or `Multiline`, an inline table `Inline`, a `[table]` scope `Scope`, a dotted-key table
+`Dotted`; Root, AoT groups/entries, comments, bools, datetimes and plain floats stay `Plain`. Each node also
 carries a **`KeySign`** facet (`Bare | Quoted | Dotted | None`) describing how its own key is
 written — `None` for keyless nodes (array elements, comments, AoT entries, Root); taplo lexes
 quoted keys as `IDENT` tokens that keep their quotes, so the sign is derived from the token
@@ -155,8 +183,13 @@ loop) starts a fresh round, folding the old one into `committed` — so runs uni
 overlapping) rather than re-extending the first anchor.
 
 **Clipboard / paste mode.** `copy_selected` (`c`) and `cut_selected` (`x`) load `App.clipboard`
-(`Option<Clipboard>`) from `selected_paths()` (the selection, or the cursor row when none). Cut defers
-deletion until a successful paste. A loaded clipboard *is* "paste mode" and is kept distinct from
+(`Option<Clipboard>`) from `selected_paths()` (the selection, or the cursor row when none). Both
+capture **scope-relative** fragments: a node copied/cut out of a `[T/D]` table drops its leading
+dotted-ancestor key segments (`serialize_fragment_relative` for copy; `Mutation::Move` strips at
+capture for cut — `dotted_ancestor_prefix_len` + `strip_key_prefix`), so `dotted.test.bool_true`
+becomes `bool_true` and a paste re-prefixes only for the **destination** (`prefix_entry_key`) instead
+of stacking the source prefix. (The `$EDITOR` block edit still uses the full-key `serialize_fragment`.)
+Cut defers deletion until a successful paste. A loaded clipboard *is* "paste mode" and is kept distinct from
 selection mode: while `clipboard.is_some()`, the three selection mutators (`toggle_select`,
 `extend_select_up`/`down`) early-return, so selection is frozen; pressing `c`/`x` again **toggles** the
 existing clipboard's mode (copy ↔ cut) instead of re-capturing. Render cues (`draw_tree`): cursor row

@@ -50,7 +50,21 @@ eventual format-toggle operation is the write-side counterpart.
 How a Node's *own key* is written, orthogonal to its type/format — **bare** (`port`), **quoted**
 (`"a.b"`), **dotted** (`a.b.c`), or **none** (keyless: array elements, comments, AoT entries, Root).
 Derived (read-only) during projection. Surfaced as the `(B)/(Q)/(D)/(-)` prefix in the KIND column
-and as one half of the **Type filter**.
+and as one half of the **Type filter**. Note: a top-level/scope dotted key now **nests** into
+synthetic **Dotted tables** (see below); the whole decomposed chain (tables **and** leaf) reads
+the **dotted** sign, so `(D)` marks any dotted-key origin (per-segment `bare`/`quoted` is not
+surfaced for a decomposed chain). A dotted key *inside an inline table* is not decomposed and stays
+one **dotted** leaf.
+
+**Dotted table** (`Format::Dotted`, KIND tag `[T/D]`):
+A Table that exists only because dotted keys defined it (`a.b.c = 1` → tables `a`, `b`), with no
+`[table]` header. A synthetic projection node merging the dotted entries that share a prefix
+**within one scope**, shown at the table's **last** definition position. The value leaves stay
+mapped to their original source entries, so an *untouched* file round-trips byte-identically.
+Editing it, though, does rewrite: a child `add` seeds a scalar and inserts write a scope-relative
+dotted entry (`a.b.x = …`); `e` block-edits all member lines and **consolidates** them at the last
+position; `d` deletes all members; renaming a plain key to a dotted one (`foo` → `foo.x`) converts
+the scalar into a `[T/D]` table. Whole-table *move* is still unsupported.
 
 **Comment**:
 A **standalone** comment line (occupies its own line) surfaced as a first-class **Leaf node**.

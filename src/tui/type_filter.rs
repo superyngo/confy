@@ -27,6 +27,7 @@ pub enum TypeToken {
     Aot,
     InlineTable,
     TableScope,
+    TableDotted,
     StrBasic,
     StrMBasic,
     StrLit,
@@ -57,7 +58,10 @@ pub fn classify(kind: &NodeKind, format: Format) -> TypeToken {
         },
         NodeKind::ArrayOfTables => TypeToken::Aot,
         NodeKind::InlineTable => TypeToken::InlineTable,
-        NodeKind::Table => TypeToken::TableScope,
+        NodeKind::Table => match format {
+            Format::Dotted => TypeToken::TableDotted,
+            _ => TypeToken::TableScope,
+        },
         NodeKind::Scalar(st) => match (st, format) {
             (ScalarType::String, Format::MultilineBasic) => TypeToken::StrMBasic,
             (ScalarType::String, Format::Literal) => TypeToken::StrLit,
@@ -97,7 +101,7 @@ impl Group {
         use TypeToken::*;
         match self {
             Group::Array => &[ArrayInline, ArrayMultiline],
-            Group::Table => &[Aot, InlineTable, TableScope],
+            Group::Table => &[Aot, InlineTable, TableScope, TableDotted],
             Group::String => &[StrBasic, StrMBasic, StrLit, StrMLit],
             Group::Integer => &[IntDec, IntHex, IntOct, IntBin],
             Group::Float => &[FloatPlain, FloatInf, FloatNan],
@@ -140,6 +144,7 @@ fn token_label(t: TypeToken) -> &'static str {
         Aot => "[A/T] aot",
         InlineTable => "[T/I] inline-tbl",
         TableScope => "[T/S] scope",
+        TableDotted => "[T/D] dotted",
         StrBasic => "[S:str ]",
         StrMBasic => "[S:mstr]",
         StrLit => "[S:lit ]",
@@ -184,7 +189,7 @@ pub fn layout() -> Vec<LayoutRow> {
         LayoutRow::Header("Tables"),
         LayoutRow::Cells(vec![All(G::Table)]),
         LayoutRow::Cells(vec![Token(T::Aot), Token(T::InlineTable)]),
-        LayoutRow::Cells(vec![Token(T::TableScope)]),
+        LayoutRow::Cells(vec![Token(T::TableScope), Token(T::TableDotted)]),
         LayoutRow::Header("String"),
         LayoutRow::Cells(vec![All(G::String)]),
         LayoutRow::Cells(vec![Token(T::StrBasic), Token(T::StrMBasic)]),
@@ -383,6 +388,10 @@ mod tests {
         assert_eq!(
             classify(&NodeKind::Table, Format::Scope),
             TypeToken::TableScope
+        );
+        assert_eq!(
+            classify(&NodeKind::Table, Format::Dotted),
+            TypeToken::TableDotted
         );
         let s = |f| classify(&NodeKind::Scalar(ScalarType::String), f);
         assert_eq!(s(Format::BasicString), TypeToken::StrBasic);

@@ -14,6 +14,16 @@ pub enum FilterLayer {
     Type,
 }
 
+/// The action a TypeChange confirmation (`y`) applies. A plain value edit replaces
+/// in place; a Name edit that changes the node's type (e.g. `foo` → `foo.x`, scalar
+/// → `[T/D]` table) is deferred whole so `n` leaves the document untouched.
+pub enum PendingCommit {
+    /// Replace the node's value with this `key = value` fragment.
+    Replace(String),
+    /// Rename the key to `new_name` (may introduce dots), then set the value.
+    Rename { new_name: String, value: String },
+}
+
 /// How `e` should edit the cursor node: in-place (single-line scalar directly
 /// under a Table/Root) or by spawning $EDITOR (everything nested, non-scalar,
 /// or a multiline string).
@@ -63,8 +73,8 @@ pub struct App {
     pub last_filter_applied: Option<FilterLayer>,
     /// Read-only detail text for the current detail popup.
     pub detail_text: Option<String>,
-    /// Saved inline-edit + validated fragment awaiting a TypeChange confirmation.
-    pub pending_edit: Option<(EditState, String)>,
+    /// Saved inline-edit awaiting a TypeChange confirmation.
+    pub pending_edit: Option<(EditState, PendingCommit)>,
     /// Vertical scroll offset (in display rows) of the detail popup.
     pub detail_scroll: u16,
     /// Vertical scroll offset (in display rows) of the help overlay.
@@ -1234,6 +1244,32 @@ impl App {
                     self.mode = Mode::Edit(e);
                     return;
                 }
+                // A rename that changes the node's *type* (e.g. a dotted key turns a
+                // scalar into a `[T/D]` table) is confirmed first and deferred whole,
+                // so `n` leaves the document untouched.
+                let old_label = self
+                    .rows
+                    .get(self.cursor)
+                    .map(|r| r.type_label.clone())
+                    .unwrap_or_default();
+                let new_label = project_first_label(&format!("{new_name} = {value_str}\n"));
+                if let Some(new_label) = new_label {
+                    if new_label != old_label {
+                        self.status = Some(format!("type {old_label} → {new_label}? y/n"));
+                        self.pending_edit = Some((
+                            e,
+                            PendingCommit::Rename {
+                                new_name,
+                                value: value_str,
+                            },
+                        ));
+                        self.mode = Mode::Prompt(PromptKind::TypeChange {
+                            from: old_label,
+                            to: new_label,
+                        });
+                        return;
+                    }
+                }
                 let res = match self.doc.as_mut() {
                     Some(doc) => doc.apply(crate::model::document::Mutation::Rename {
                         path: e.path.clone(),
@@ -1279,7 +1315,7 @@ impl App {
             .unwrap_or_default();
         if new_label != old_label {
             self.status = Some(format!("type {old_label} → {new_label}? y/n"));
-            self.pending_edit = Some((e, fragment));
+            self.pending_edit = Some((e, PendingCommit::Replace(fragment)));
             self.mode = Mode::Prompt(PromptKind::TypeChange {
                 from: old_label,
                 to: new_label,
@@ -1287,6 +1323,37 @@ impl App {
             return;
         }
         self.apply_replace(e.path, fragment);
+    }
+
+    /// Apply a confirmed type-changing Name edit: rename the key (may introduce
+    /// dots, turning a scalar into a `[T/D]` table), then set the value on the
+    /// resulting leaf. On rename failure the document is left untouched.
+    fn apply_deferred_rename(&mut self, mut e: EditState, new_name: String, value: String) {
+        let res = match self.doc.as_mut() {
+            Some(doc) => doc.apply(crate::model::document::Mutation::Rename {
+                path: e.path.clone(),
+                new_key: new_name.clone(),
+            }),
+            None => return,
+        };
+        if let Err(err) = res {
+            self.status = Some(format!("rename failed: {err}"));
+            return;
+        }
+        self.on_mutation_success();
+        // The node moved to parent + the new key's segments; set the value there.
+        let parent_len = e.path.len() - 1;
+        let new_segs: Vec<Seg> = new_name
+            .split('.')
+            .map(|s| Seg::Key(s.to_string()))
+            .collect();
+        let leaf_key = match new_segs.last() {
+            Some(Seg::Key(k)) => k.clone(),
+            _ => new_name.clone(),
+        };
+        e.path.truncate(parent_len);
+        e.path.extend(new_segs);
+        self.apply_replace(e.path, format!("{leaf_key} = {value}\n"));
     }
 
     /// `←`/`→` in Normal mode: toggle a bool or step an integer/float by ±1 at
@@ -1373,12 +1440,17 @@ impl App {
         let parent_is_array = parent_node
             .map(|n| matches!(n.kind, NodeKind::Array))
             .unwrap_or(false);
-        // D5 partition split: index of the parent's first sub-table/AoT child.
+        // D5 partition split: index of the parent's first sub-table/AoT child. A
+        // `[T/D]` dotted table is *not* a capturing header (it opens no scope), so a
+        // scalar is legal after it — exclude it from the split.
         let split = parent_node
             .map(|p| {
                 p.children
                     .iter()
-                    .position(|c| matches!(c.kind, NodeKind::Table | NodeKind::ArrayOfTables))
+                    .position(|c| {
+                        matches!(c.kind, NodeKind::Table | NodeKind::ArrayOfTables)
+                            && c.format != Format::Dotted
+                    })
                     .unwrap_or(p.children.len())
             })
             .unwrap_or(0);
@@ -1533,7 +1605,7 @@ impl App {
         };
         let mut fragments = Vec::new();
         for p in &paths {
-            fragments.push(doc.serialize_fragment(p));
+            fragments.push(doc.serialize_fragment_relative(p));
         }
         self.clipboard = Some(Clipboard {
             fragments,
@@ -1570,7 +1642,7 @@ impl App {
         };
         let mut fragments = Vec::new();
         for p in &paths {
-            fragments.push(doc.serialize_fragment(p));
+            fragments.push(doc.serialize_fragment_relative(p));
         }
         self.clipboard = Some(Clipboard {
             fragments,
@@ -1944,9 +2016,16 @@ impl App {
             Mode::Prompt(PromptKind::TypeChange { .. }) => {
                 match c {
                     'y' => {
-                        if let Some((e, fragment)) = self.pending_edit.take() {
+                        if let Some((e, commit)) = self.pending_edit.take() {
                             self.mode = Mode::Normal;
-                            self.apply_replace(e.path, fragment);
+                            match commit {
+                                PendingCommit::Replace(fragment) => {
+                                    self.apply_replace(e.path, fragment)
+                                }
+                                PendingCommit::Rename { new_name, value } => {
+                                    self.apply_deferred_rename(e, new_name, value)
+                                }
+                            }
                         } else {
                             self.mode = Mode::Normal;
                         }
@@ -2140,6 +2219,21 @@ fn unique_key(base: &str, existing: &[String]) -> String {
     }
 }
 
+/// The type label of the first node a `key = value` (or dotted) fragment projects
+/// to — `None` if it doesn't parse. Used to detect whether a Name edit changes the
+/// node's type (e.g. `foo` → `foo.x` projects to a `table`).
+fn project_first_label(fragment: &str) -> Option<String> {
+    let parse = taplo::parser::parse(fragment);
+    if !parse.errors.is_empty() {
+        return None;
+    }
+    crate::model::cst_project::project(&parse.into_syntax(), "")
+        .root
+        .children
+        .first()
+        .map(|n| node_type_label(&n.kind))
+}
+
 /// Display type label for a node kind — used by `rebuild_rows` for the TYPE
 /// column and on a freshly parsed inline-edit fragment, so an edit can detect
 /// a type change by string comparison.
@@ -2159,7 +2253,8 @@ fn node_type_label(kind: &crate::model::node::NodeKind) -> String {
 /// Fixed-pitch TYPE-column tag: a 3-char key sign + a padded 8-char type slot,
 /// always 12 columns so the column never shifts. Containers use 5-char tags
 /// (`[A/I]` inline array, `[A/M]` multiline, `[A/T]` AoT, `[T/I]` inline table,
-/// `[T/S]` table scope, `[G]` root, `[C]` comment) padded to the slot; scalars
+/// `[T/S]` table scope, `[T/D]` dotted-key table, `[G]` root, `[C]` comment)
+/// padded to the slot; scalars
 /// use `[X:xxxx]` (type letter + 4-char format). An AoT *entry* projects as a
 /// Table, so it reads `(-) [T/S]`.
 fn type_tag(kind: &NodeKind, format: Format, key_sign: KeySign) -> String {
@@ -2178,7 +2273,10 @@ fn type_tag(kind: &NodeKind, format: Format, key_sign: KeySign) -> String {
         },
         NodeKind::ArrayOfTables => "[A/T]",
         NodeKind::InlineTable => "[T/I]",
-        NodeKind::Table => "[T/S]",
+        NodeKind::Table => match format {
+            Format::Dotted => "[T/D]",
+            _ => "[T/S]",
+        },
         NodeKind::Scalar(st) => match (st, format) {
             (ScalarType::String, Format::MultilineBasic) => "[S:mstr]",
             (ScalarType::String, Format::Literal) => "[S:lit ]",
@@ -2427,6 +2525,12 @@ mod tests {
                 "(B) [T/S]   ",
             ),
             (
+                NodeKind::Table,
+                Format::Dotted,
+                KeySign::Bare,
+                "(B) [T/D]   ",
+            ),
+            (
                 NodeKind::Scalar(ScalarType::String),
                 Format::MultilineLiteral,
                 KeySign::Bare,
@@ -2650,6 +2754,15 @@ mod tests {
         f.write_all(src.as_bytes()).unwrap();
         let doc = crate::model::cst_doc::CstDocument::load(f.path()).unwrap();
         App::new(doc)
+    }
+
+    #[test]
+    fn dotted_tables_load_collapsed() {
+        // `a.b.c = 1` nests into `a → b → c`; like any branch, `[T/D]` tables start
+        // collapsed, so only the top `a` shows until expanded.
+        let app = app_with("a.b.c = 1\n");
+        // [0] is the (temp-file) root key; the dotted table `a` follows, collapsed.
+        assert_eq!(&app.visible_keys()[1..], &["a"]);
     }
 
     /// First visible row whose projected node is a Comment (identified by kind —
@@ -3519,6 +3632,43 @@ mod tests {
     }
 
     #[test]
+    fn inline_rename_to_dotted_confirms_and_converts_to_table() {
+        // Editing a scalar's Name to `foo.x` asks "integer → table"; `y` applies the
+        // rename, turning it into a `[T/D]` table (issue 4).
+        use crate::tui::state::EditField;
+        let mut app = app_with("foo = 1\n");
+        app.cursor = 1;
+        app.begin_inline_edit();
+        app.edit_toggle_field();
+        assert!(matches!(&app.mode, Mode::Edit(e) if e.field == EditField::Name));
+        for c in ".x".chars() {
+            app.edit_input_char(c); // "foo" -> "foo.x"
+        }
+        app.edit_commit();
+        assert!(
+            matches!(app.mode, Mode::Prompt(PromptKind::TypeChange { .. })),
+            "dotted rename must confirm the type change"
+        );
+        app.handle_prompt_key('y');
+        assert!(matches!(app.mode, Mode::Normal));
+        assert_eq!(app.doc.as_ref().unwrap().serialize(), "foo.x = 1\n");
+    }
+
+    #[test]
+    fn inline_rename_to_dotted_cancel_leaves_doc_untouched() {
+        let mut app = app_with("foo = 1\n");
+        app.cursor = 1;
+        app.begin_inline_edit();
+        app.edit_toggle_field();
+        for c in ".x".chars() {
+            app.edit_input_char(c);
+        }
+        app.edit_commit();
+        app.handle_prompt_key('n'); // decline
+        assert_eq!(app.doc.as_ref().unwrap().serialize(), "foo = 1\n");
+    }
+
+    #[test]
     fn inline_tab_is_noop_for_array_element() {
         use crate::tui::state::EditField;
         let mut app = app_with("arr = [1, 2]\n");
@@ -3650,6 +3800,20 @@ mod tests {
         assert!(s.contains("[placeholder]"), "serialize: {s:?}");
         // It is a sibling of [t], not nested inside it.
         assert!(s.contains("[t]") && s.contains("[placeholder]"));
+    }
+
+    #[test]
+    fn add_on_collapsed_dotted_table_seeds_scalar() {
+        // A `[T/D]` table opens no scope, so a scalar is legal after it — `a` seeds
+        // `new_field = ""` (inline edit), not a `[placeholder]` table.
+        // `[T/D]` tables start collapsed, so `a` is already a collapsed branch.
+        let mut app = app_with("a.b = 1\n");
+        app.cursor = app.rows.iter().position(|r| r.key == "a").unwrap();
+        app.add_node();
+        assert!(matches!(app.mode, Mode::Edit(_)), "scalar add opens inline");
+        let s = app.doc.as_ref().unwrap().serialize();
+        assert!(s.contains("new_field = \"\""), "serialize: {s:?}");
+        assert!(!s.contains("[placeholder]"), "serialize: {s:?}");
     }
 
     #[test]

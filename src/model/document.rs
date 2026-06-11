@@ -13,6 +13,12 @@ pub trait ConfigDocument: Sized {
     /// standalone comment is an independent node and is never part of the fragment.
     /// The empty path returns the whole document.
     fn serialize_fragment(&self, path: &[crate::model::node::Seg]) -> String;
+
+    /// Like [`serialize_fragment`](Self::serialize_fragment) but **scope-relative**:
+    /// a node copied out of a `[T/D]` dotted table has its leading dotted-ancestor
+    /// key segments dropped (`dotted.test.bool_true` → `bool_true`). Used by
+    /// copy/cut so a paste re-prefixes only for the new destination.
+    fn serialize_fragment_relative(&self, path: &[crate::model::node::Seg]) -> String;
 }
 
 /// Where an insert/move lands: insert as a child of `parent` at `index`.

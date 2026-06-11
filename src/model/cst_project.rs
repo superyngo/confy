@@ -96,8 +96,7 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
                 SyntaxKind::ENTRY => {
                     let pending = finalize_blocks!();
                     flush_comments(&mut root, &current, pending, &mut idx);
-                    let node = project_entry(&n, &current, &mut idx);
-                    append_child(&mut root, &current, node);
+                    project_entry_into(&mut root, &current, &n, &mut idx);
                 }
                 SyntaxKind::TABLE_HEADER => {
                     let path = header_path(&n);
@@ -360,6 +359,99 @@ fn project_entry(entry: &SyntaxNode, scope: &[Seg], idx: &mut CstIndex) -> Node 
     };
     node.key_sign = sign;
     node
+}
+
+/// Project a top-level / scope-level `ENTRY` into `root`, decomposing a
+/// multi-segment dotted key (`a.b.c = 1`) into a chain of synthetic `Dotted`
+/// `Table` nodes with the value as the leaf — so dotted keys nest like real
+/// tables and offer an insertion target. A single-segment key behaves exactly as
+/// before (one leaf appended under `scope`). The leaf keeps the **full** path for
+/// `Target::Entry`, so mutation addressing is unchanged; the synthetic
+/// intermediates carry no index target (like an implicit header table). Inline
+/// table members keep using `project_entry` (their dotted keys are not split).
+fn project_entry_into(root: &mut Node, scope: &[Seg], entry: &SyntaxNode, idx: &mut CstIndex) {
+    let key_node = entry.children().find(|c| c.kind() == SyntaxKind::KEY);
+    let segs = key_node.as_ref().map(key_segments).unwrap_or_default();
+
+    // Single (or zero) segment: unchanged — one node directly under `scope`.
+    if segs.len() <= 1 {
+        let node = project_entry(entry, scope, idx);
+        append_child(root, scope, node);
+        return;
+    }
+    let mut full = scope.to_vec();
+    full.extend(segs.iter().cloned());
+    idx.push((full.clone(), Target::Entry(entry.clone())));
+
+    let leaf_key = match segs.last() {
+        Some(Seg::Key(k)) => k.clone(),
+        _ => String::new(),
+    };
+    let value = entry.children().find(|c| c.kind() == SyntaxKind::VALUE);
+    let mut node = match value {
+        Some(v) => project_value_node(&v, &leaf_key, full.clone(), idx),
+        None => leaf(
+            &leaf_key,
+            NodeKind::Scalar(ScalarType::String),
+            full.clone(),
+            None,
+            None,
+        ),
+    };
+    node.key_sign = KeySign::Dotted;
+
+    ensure_dotted_chain(root, scope.len(), &full);
+    append_child(root, &full[..full.len() - 1], node);
+
+    // A `[T/D]` table projects at the position of its **last** definition in the
+    // scope (where a consolidating block-rewrite will place it), so bubble each
+    // dotted ancestor to the back of its parent now that this member was added.
+    for i in scope.len()..full.len() - 1 {
+        move_to_back(root, &full[..=i]);
+    }
+}
+
+/// Move the node at `path` to the end of its parent's children (no-op if absent
+/// or root). Used to keep a `[T/D]` table at its last member's document position.
+fn move_to_back(root: &mut Node, path: &[Seg]) {
+    if path.is_empty() {
+        return;
+    }
+    if let Some(parent) = node_at_mut(root, &path[..path.len() - 1]) {
+        if let Some(pos) = parent.children.iter().position(|c| c.path == path) {
+            let node = parent.children.remove(pos);
+            parent.children.push(node);
+        }
+    }
+}
+
+/// Ensure the synthetic `Dotted` `Table` chain for a dotted-key entry exists under
+/// an already-projected scope. `full` is the entry's absolute path, `scope_len`
+/// the count of leading segments the enclosing scope already provides (never
+/// recreated). Creates every segment from `scope_len` up to but **excluding** the
+/// last (the leaf, appended by the caller). Every synthetic node reads
+/// `KeySign::Dotted` — the whole decomposed chain signals its dotted-key origin.
+fn ensure_dotted_chain(root: &mut Node, scope_len: usize, full: &[Seg]) {
+    for i in scope_len..full.len().saturating_sub(1) {
+        if node_at(root, &full[..=i]).is_some() {
+            continue;
+        }
+        let key = match &full[i] {
+            Seg::Key(k) => k.clone(),
+            Seg::Index(_) => return,
+        };
+        let node = Node {
+            key,
+            path: full[..=i].to_vec(),
+            kind: NodeKind::Table,
+            children: Vec::new(),
+            value: None,
+            format: Format::Dotted,
+            key_sign: KeySign::Dotted,
+            trailing_comment: None,
+        };
+        append_child(root, &full[..i], node);
+    }
 }
 
 /// Project a `VALUE` node — a scalar token, an `ARRAY`, or an `INLINE_TABLE`.
@@ -738,9 +830,39 @@ ArrayOfTables key="item" sign=Bare val=None fmt=Plain trail=None
 
     #[test]
     fn golden_dotted_key_and_header() {
+        // A multi-segment dotted key nests into synthetic `Dotted` tables; the
+        // whole decomposed chain (tables + leaf) reads `Dotted`.
         assert_projection(
             "a.b.c = 1\n",
-            r##"Scalar(Integer) key="a.b.c" sign=Dotted val=Some("1") fmt=Decimal trail=None
+            r##"Table key="a" sign=Dotted val=None fmt=Dotted trail=None
+  Table key="b" sign=Dotted val=None fmt=Dotted trail=None
+    Scalar(Integer) key="c" sign=Dotted val=Some("1") fmt=Decimal trail=None
+"##,
+        );
+        // Scattered dotted entries sharing a prefix merge under one Dotted table,
+        // which sits at its **last** member's scope position (after `x` here).
+        assert_projection(
+            "a.b = 1\nx = 0\na.c = 2\n",
+            r##"Scalar(Integer) key="x" sign=Bare val=Some("0") fmt=Decimal trail=None
+Table key="a" sign=Dotted val=None fmt=Dotted trail=None
+  Scalar(Integer) key="b" sign=Dotted val=Some("1") fmt=Decimal trail=None
+  Scalar(Integer) key="c" sign=Dotted val=Some("2") fmt=Decimal trail=None
+"##,
+        );
+        // Dotted keys under a `[scope]` nest below it; the scope stays `Scope`.
+        assert_projection(
+            "[server]\nhost.name = \"h\"\nhost.port = 80\n",
+            r##"Table key="server" sign=Bare val=None fmt=Scope trail=None
+  Table key="host" sign=Dotted val=None fmt=Dotted trail=None
+    Scalar(String) key="name" sign=Dotted val=Some("\"h\"") fmt=BasicString trail=None
+    Scalar(Integer) key="port" sign=Dotted val=Some("80") fmt=Decimal trail=None
+"##,
+        );
+        // A dotted key *inside an inline table* is NOT decomposed (stays Dotted sign).
+        assert_projection(
+            "p = { x.y = 1 }\n",
+            r##"InlineTable key="p" sign=Bare val=Some("{ x.y = 1 }") fmt=Inline trail=None
+  Scalar(Integer) key="x.y" sign=Dotted val=Some("1") fmt=Decimal trail=None
 "##,
         );
         assert_projection(

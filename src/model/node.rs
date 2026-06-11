@@ -46,6 +46,9 @@ pub enum Format {
     Multiline,
     /// A standard `[table]` scope (inline tables are `Inline`).
     Scope,
+    /// A table that exists only because dotted keys (`a.b.c = 1`) defined it —
+    /// no `[table]` header. Synthetic intermediate node, rendered `[T/D]`.
+    Dotted,
 }
 
 /// How a node's own key is written in the source — `None` for keyless nodes
