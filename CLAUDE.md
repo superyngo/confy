@@ -41,10 +41,12 @@ inline editor (see below). `Replace` with an **empty path** targets the whole do
 `E` on the root/file node): it reparses the edited text as a full document, rejecting invalid
 TOML as `Fragment` (doc untouched). `Replace` on an AoT-entry path (`product[0]`) rewrites only
 that `[[product]]` entry; sibling entries and between-entry comments stay intact. `Insert`
-adapts the fragment to the destination (`parse_fragment_adapted`): a keyed fragment dropped into
-an array keeps only its value, a bare value inserted into a table gets a synthesized
-`placeholder` key (auto-renamed on collision), and a `[table]` fragment cannot become an array
-element; a header-vs-leaf **partition check** keeps an insert from being captured by a following
+adapts the fragment to the destination (`parse_fragment_adapted`): a **keyless** bare value dropped
+into an array becomes the element as-is while a **keyed** fragment is wrapped as a `{ key = value }`
+inline-table element to preserve its key (a keyed inline table nests; `wrap_keyed_as_inline_element`),
+a bare value inserted into a table gets a synthesized
+`placeholder` key (auto-renamed on collision), and a `[table]`/`[[aot]]` fragment cannot become an array
+element (rejected as `Illegal`); a header-vs-leaf **partition check** keeps an insert from being captured by a following
 `[table]` header. Inserting a keyed entry **into an inline table** routes to `inline_table_insert`,
 which rebuilds the `{ … }` from its members' verbatim source with normalized `, ` separators
 (taplo bakes the closing brace's leading space into the last entry, so token surgery is brittle) —

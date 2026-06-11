@@ -886,16 +886,24 @@ fn insert(
     };
 
     // D1 simple adaptation across container types:
-    //  - into an ARRAY we need a bare VALUE: a keyed fragment's key is dropped
-    //    (`key↓`, by `array_insert` reading the VALUE), a bare element parses only
-    //    once wrapped; a `[table]`/`[[aot]]` fragment is rejected (a hard coerce).
+    //  - into an ARRAY: a *keyless* bare value becomes the element as-is; a *keyed*
+    //    fragment is wrapped as a `{ key = value }` inline-table element so the key is
+    //    preserved (`key→{}`, below); a `[table]`/`[[aot]]` fragment is rejected.
     //  - into a TABLE/root we need a keyed entry: a bare element gets a synthesized
     //    `placeholder` key (`key+`).
     let (frag, synthesized_key) = parse_fragment_adapted(&frag_text, parent_is_array)?;
 
     if parent_is_array {
-        // Bare element into an array (`a` on an array, or `key↓` paste): no collision.
-        return array_insert(&idx, &target.parent, target.index, &frag);
+        // Into an array (no collision). A *keyless* bare value keeps its element form;
+        // a *keyed* node is wrapped as a `{ key = value }` inline-table element so the
+        // key is preserved (a keyed inline table becomes a nested inline table).
+        // `[T/S]`/`[A/T]` headers are already rejected by `parse_fragment_adapted`.
+        let element = if synthesized_key {
+            frag
+        } else {
+            wrap_keyed_as_inline_element(&frag_text)?
+        };
+        return array_insert(&idx, &target.parent, target.index, &element);
     }
 
     if parent_is_inline {
@@ -993,9 +1001,11 @@ const PLACEHOLDER_KEY: &str = "placeholder";
 /// A fragment that parses as a TOML document is used as-is (a keyed entry, or a
 /// `[table]`/`[[aot]]` section). A fragment that does not (a **bare array-element
 /// value** like `42` or `{ a = 1 }`) is wrapped as `placeholder = <value>` so it
-/// becomes a keyed entry — the key is then either kept (table dest, `key+`) or
-/// dropped by `array_insert` (array dest, `key↓`). A `[table]`/`[[aot]]` section
-/// cannot become an array element (a hard coerce), so it is rejected for an array.
+/// becomes a keyed entry — for a table dest the key is kept (`key+`); for an array
+/// dest the synthesized key marks the value as keyless, so it stays a bare element
+/// (a *real* keyed fragment is instead wrapped as `{ key = value }` by the caller to
+/// preserve its key). A `[table]`/`[[aot]]` section cannot become an array element
+/// (a hard coerce), so it is rejected for an array.
 fn parse_fragment_adapted(
     frag_text: &str,
     into_array: bool,
@@ -1023,6 +1033,21 @@ fn parse_fragment_adapted(
     match parse2.errors.first() {
         Some(e) => Err(MutateError::Fragment(e.to_string())),
         None => Ok((parse2.into_syntax().clone_for_update(), true)),
+    }
+}
+
+/// Wrap a keyed entry fragment (`k = v`) as a bare inline-table value (`__w = { k = v }`)
+/// so inserting it into an array preserves the key as a `{ k = v }` element (a keyed
+/// inline-table value becomes a nested inline table). `array_insert` extracts the first
+/// VALUE descendant, which is the wrapping inline table. A multi-line value (multiline
+/// string/array) can't live on the inline table's single line, so it surfaces as a
+/// `Fragment` error.
+fn wrap_keyed_as_inline_element(frag_text: &str) -> Result<SyntaxNode, MutateError> {
+    let entry = frag_text.trim();
+    let parse = taplo::parser::parse(&format!("__w = {{ {entry} }}\n"));
+    match parse.errors.first() {
+        Some(e) => Err(MutateError::Fragment(e.to_string())),
+        None => Ok(parse.into_syntax().clone_for_update()),
     }
 }
 
@@ -1987,7 +2012,7 @@ mod tests {
                 parent: vec![Seg::Key("arr".into())],
                 index: 1,
             },
-            toml: "__e__ = 2\n".into(),
+            toml: "2\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -1997,7 +2022,7 @@ mod tests {
                 parent: vec![Seg::Key("arr".into())],
                 index: 99,
             },
-            toml: "__e__ = 4\n".into(),
+            toml: "4\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -2009,7 +2034,7 @@ mod tests {
                 parent: vec![Seg::Key("xs".into())],
                 index: 0,
             },
-            toml: "__e__ = 7\n".into(),
+            toml: "7\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -2446,8 +2471,9 @@ mod tests {
     }
 
     #[test]
-    fn insert_keyed_into_array_drops_key() {
-        // C1 / key↓: a keyed fragment pasted into an array keeps only its value.
+    fn insert_keyed_into_array_wraps_as_inline_table() {
+        // A keyed fragment pasted into an array is wrapped as `{ k = v }` so the key
+        // is preserved (was: key dropped).
         let mut d = doc("arr = [1, 2]\n");
         d.apply(Mutation::Insert {
             target: InsTarget {
@@ -2458,7 +2484,39 @@ mod tests {
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
-        assert_eq!(d.serialize(), "arr = [1, 2, 99]\n");
+        assert_eq!(d.serialize(), "arr = [1, 2, { x = 99 }]\n");
+    }
+
+    #[test]
+    fn insert_keyed_inline_table_into_array_nests() {
+        // A keyed inline-table value becomes a nested inline table element.
+        let mut d = doc("arr = [1]\n");
+        d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![Seg::Key("arr".into())],
+                index: 9,
+            },
+            toml: "foo = { a = 1 }\n".into(),
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "arr = [1, { foo = { a = 1 } }]\n");
+    }
+
+    #[test]
+    fn insert_bare_inline_table_into_array_stays_bare() {
+        // A keyless inline-table value keeps its element form (no wrapping).
+        let mut d = doc("arr = [1]\n");
+        d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![Seg::Key("arr".into())],
+                index: 9,
+            },
+            toml: "{ a = 1 }\n".into(),
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "arr = [1, { a = 1 }]\n");
     }
 
     #[test]

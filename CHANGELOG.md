@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - TUI — **`[T/D]` dotted tables now start collapsed** like every other branch, instead of being seeded open at load. Only the root file node starts expanded; a dotted key shows just its top segment until expanded (`1`/`9`). (Removed `seed_dotted_expanded`.) (2026-06-11)
 
+### Changed
+- Insert into array — **a keyed node now keeps its key**. Pasting/moving a keyed entry into an array used to drop the key (keeping only the value); it is now wrapped as a `{ key = value }` inline-table element (a keyed inline-table value becomes a nested inline table). A *keyless* bare value (scalar, inline table, or array) still becomes the element as-is; a `[table]`/`[[aot]]` header is still rejected. (`wrap_keyed_as_inline_element`.) (2026-06-11)
+
 ### Fixed
 - Insert/Move — **pasting or moving a node into the slot *before* a `[T/D]` dotted table no longer fails silently**. A synthetic `[T/D]` table has no backing CST element, so `resolve_insert_at` returned `Unsupported` when asked to anchor an insert before it — manifesting as a stuck paste (`v` did nothing) when the destination line sat between a node and a following `[T/D]` table (e.g. cut a scalar, paste after a multiline array immediately followed by a dotted table). The anchor now descends to the table's first member line (`node_start_root_index`). (2026-06-11)
 - `[T/D]` editing — **an inline-table value member no longer leaks its contents on block edit**. A `[T/D]` table member whose value is an inline table (`dotted.t = {x=1}`) had its interior `x=1` mis-counted as a flat dotted member by `dotted_member_entries`, so the `$EDITOR` block edit (and the table fragment) pulled `x=1` out as a stray top-level line. The member scan now skips any entry nested inside an `INLINE_TABLE`/`ARRAY` value, restoring the documented "flat-ROOT" rule. (2026-06-11)
