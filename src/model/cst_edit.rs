@@ -174,12 +174,18 @@ fn serialize_fragment_impl(syntax: &SyntaxNode, path: &[Seg], relative: bool) ->
         }
         // A table / AoT entry: the section's source text (header + its lines).
         Target::Header(h) => section_text(syntax, path, h.index(), false),
-        // Relative (clipboard) capture converts the entry to a scope-relative
-        // `[k]` section — pasted out of its array it becomes a `[scope]` table;
-        // the full capture (the `$EDITOR` block edit) keeps the `[[…]]` header.
+        // Relative (clipboard) capture splits the entry into its member
+        // fragments (sub-sections flattened to dotted entries) — pasted out of
+        // its array it becomes member nodes, like an inline-table element. A
+        // nested `[[…]]` sub-group has no dotted form, so that entry falls back
+        // to the full section capture. The full capture (the `$EDITOR` block
+        // edit) keeps the `[[…]]` header.
         Target::AotEntry(h) => {
             if relative {
-                aot_entry_scope_fragment(syntax, h)
+                match aot_entry_member_fragments(syntax, h) {
+                    Ok(frags) => frags.concat(),
+                    Err(_) => section_text(syntax, &[], h.index(), true),
+                }
             } else {
                 section_text(syntax, &[], h.index(), true)
             }
@@ -918,12 +924,18 @@ fn convert_kind(
 ) -> Result<(), MutateError> {
     use crate::model::document::KindTarget as KT;
     let (proj, idx) = walk(tree, "");
-    node_at(&proj.root, path).ok_or(MutateError::NotFound)?;
+    let node = node_at(&proj.root, path).ok_or(MutateError::NotFound)?;
     match target {
         KT::ScalarString | KT::ScalarInteger | KT::ScalarFloat | KT::ScalarBool => {
             convert_scalar(tree, &idx, path, target)
         }
+        KT::ArrayInline | KT::ArrayMultiline
+            if matches!(node.kind, crate::model::node::NodeKind::ArrayOfTables) =>
+        {
+            convert_aot_to_array(tree, path, matches!(target, KT::ArrayMultiline))
+        }
         KT::ArrayInline | KT::ArrayMultiline => convert_array(tree, &idx, path, target),
+        KT::ArrayOfTables => convert_array_to_aot(tree, &idx, path),
         KT::TableInline | KT::TableDotted | KT::TableScope => {
             convert_table(tree, &proj.root, &idx, path, target)
         }
@@ -1057,6 +1069,200 @@ fn convert_array(
         }
         _ => unreachable!(),
     }
+}
+
+/// `K` on an `[A/T]` group: rewrite the whole group as a keyed array of inline
+/// tables (`key = [{ … }, …]`, inline or multiline) — the two container kinds
+/// are equivalent. Requires a contiguous group span whose entries hold only
+/// plain single-line `ENTRY` lines (no sub-sections) and no comments. The
+/// replacement entry lands at the first `[[header]]`'s slot, legal only when
+/// the nearest preceding header is the parent scope's own `[table]` (or none,
+/// at root) — the same capture rule as the `[T/S]` conversions.
+fn convert_aot_to_array(
+    tree: &SyntaxNode,
+    path: &[Seg],
+    multiline: bool,
+) -> Result<(), MutateError> {
+    let (start, end) = aot_group_span(tree, path).ok_or(MutateError::Unsupported)?;
+    // A sub-section anywhere under the group belongs to one of its entries and
+    // has no place in an inline-table element.
+    if tree.children().any(|n| {
+        n.kind() == SyntaxKind::TABLE_HEADER && {
+            let p = header_path(&n);
+            p.len() > path.len() && p.starts_with(path)
+        }
+    }) {
+        return Err(MutateError::Illegal(
+            "an entry holds a sub-section — flatten it first".into(),
+        ));
+    }
+    let els: Vec<_> = tree.children_with_tokens().collect();
+    // Gather each entry's member texts, rejecting content an inline table
+    // can't keep.
+    let mut entries: Vec<Vec<String>> = Vec::new();
+    for el in &els[start..end] {
+        match el {
+            NodeOrToken::Node(n) => match n.kind() {
+                SyntaxKind::TABLE_ARRAY_HEADER => entries.push(Vec::new()),
+                SyntaxKind::ENTRY => {
+                    if n.descendants_with_tokens().any(
+                        |c| matches!(&c, NodeOrToken::Token(t) if t.kind() == SyntaxKind::COMMENT),
+                    ) {
+                        return Err(MutateError::Illegal(
+                            "the group holds comments — remove them first".into(),
+                        ));
+                    }
+                    let t = n.to_string().trim().to_string();
+                    if t.contains('\n') {
+                        return Err(MutateError::Illegal(
+                            "a multi-line member cannot live in an inline table".into(),
+                        ));
+                    }
+                    entries.last_mut().ok_or(MutateError::Unsupported)?.push(t);
+                }
+                _ => {}
+            },
+            NodeOrToken::Token(t) if t.kind() == SyntaxKind::COMMENT => {
+                return Err(MutateError::Illegal(
+                    "the group holds comments — remove them first".into(),
+                ));
+            }
+            _ => {}
+        }
+    }
+    let preceding = els[..start].iter().rev().find_map(|el| match el {
+        NodeOrToken::Node(n)
+            if matches!(
+                n.kind(),
+                SyntaxKind::TABLE_HEADER | SyntaxKind::TABLE_ARRAY_HEADER
+            ) =>
+        {
+            Some(n.clone())
+        }
+        _ => None,
+    });
+    let parent_path = &path[..path.len() - 1];
+    let capture_ok = match &preceding {
+        None => parent_path.is_empty(),
+        Some(p) => header_path(p) == parent_path && p.kind() == SyntaxKind::TABLE_HEADER,
+    };
+    if !capture_ok {
+        return Err(MutateError::Illegal(
+            "the entry written here would be captured by the preceding table".into(),
+        ));
+    }
+    let key = path_key_display(&path[parent_path.len()..]);
+    let elems: Vec<String> = entries
+        .iter()
+        .map(|ms| {
+            if ms.is_empty() {
+                "{}".to_string()
+            } else {
+                format!("{{ {} }}", ms.join(", "))
+            }
+        })
+        .collect();
+    let text = if multiline {
+        let mut s = format!("{key} = [\n");
+        for e in &elems {
+            s.push_str("  ");
+            s.push_str(e);
+            s.push_str(",\n");
+        }
+        s.push_str("]\n");
+        s
+    } else {
+        format!("{key} = [{}]\n", elems.join(", "))
+    };
+    let parse = taplo::parser::parse(&text);
+    if let Some(e) = parse.errors.first() {
+        return Err(MutateError::Fragment(e.to_string()));
+    }
+    let frag = parse.into_syntax().clone_for_update();
+    let new_els: Vec<_> = frag.children_with_tokens().collect();
+    for e in &new_els {
+        e.detach();
+    }
+    tree.splice_children(start..end, new_els);
+    Ok(())
+}
+
+/// `K` on a keyed array whose elements are **all inline tables**: rewrite it as
+/// an `[A/T]` group — one `[[full.path]]` section per element, members one per
+/// line. Flat-ROOT keyed entries only; rejected when an entry follows before
+/// the next header (the `[[…]]` sections would capture it — D5).
+fn convert_array_to_aot(
+    tree: &SyntaxNode,
+    idx: &CstIndex,
+    path: &[Seg],
+) -> Result<(), MutateError> {
+    let Some(Target::Entry(entry)) = idx.iter().find(|(p, _)| p == path).map(|(_, t)| t.clone())
+    else {
+        return Err(MutateError::Unsupported);
+    };
+    if entry.parent().map(|p| p.kind()) != Some(SyntaxKind::ROOT) {
+        return Err(MutateError::Unsupported);
+    }
+    let arr = entry
+        .children()
+        .find(|c| c.kind() == SyntaxKind::VALUE)
+        .and_then(|v| struct_node(&v))
+        .filter(|n| n.kind() == SyntaxKind::ARRAY)
+        .ok_or(MutateError::Unsupported)?;
+    if arr
+        .descendants_with_tokens()
+        .any(|c| matches!(&c, NodeOrToken::Token(t) if t.kind() == SyntaxKind::COMMENT))
+    {
+        return Err(MutateError::Illegal(
+            "the array holds comments — remove them first".into(),
+        ));
+    }
+    let values: Vec<SyntaxNode> = arr
+        .children()
+        .filter(|c| c.kind() == SyntaxKind::VALUE)
+        .collect();
+    if values.is_empty() {
+        return Err(MutateError::Illegal(
+            "an empty array has no elements to convert".into(),
+        ));
+    }
+    let mut tables = Vec::new();
+    for v in &values {
+        let it = struct_node(v)
+            .filter(|n| n.kind() == SyntaxKind::INLINE_TABLE)
+            .ok_or_else(|| {
+                MutateError::Illegal(
+                    "only an array of inline tables can become an array of tables".into(),
+                )
+            })?;
+        tables.push(it);
+    }
+    if entry_follows_before_next_header(tree, entry.index()) {
+        return Err(MutateError::Illegal(
+            "the [[entries]] written here would capture the keys below them".into(),
+        ));
+    }
+    let header = path_key_display(path);
+    let mut text = String::new();
+    for it in &tables {
+        text.push_str(&format!("[[{header}]]\n"));
+        for e in it.children().filter(|c| c.kind() == SyntaxKind::ENTRY) {
+            text.push_str(&format!("{}\n", e.to_string().trim()));
+        }
+    }
+    let parse = taplo::parser::parse(&text);
+    if let Some(e) = parse.errors.first() {
+        return Err(MutateError::Fragment(e.to_string()));
+    }
+    let frag = parse.into_syntax().clone_for_update();
+    let new_els: Vec<_> = frag.children_with_tokens().collect();
+    for e in &new_els {
+        e.detach();
+    }
+    let i = entry.index();
+    let end = extend_over_newline(tree, i + 1);
+    tree.splice_children(i..end, new_els);
+    Ok(())
 }
 
 /// True when, scanning the flat ROOT from child `from` (exclusive), an `ENTRY`
@@ -1517,11 +1723,12 @@ fn delete(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
             tree.splice_children(i..end, vec![]);
             Ok(())
         }
-        // Delete one `[[aot]]` entry: its header + entries up to the next header of
-        // any kind (the next entry / table starts a new section).
+        // Delete one `[[aot]]` entry: its full extent — header + entries + its
+        // own sub-sections (`[fruit.physical]`), up to the group's next entry or
+        // a foreign header.
         Target::AotEntry(header) => {
             let i = header.index();
-            let end = section_end_strict(tree, i);
+            let end = aot_entry_end(tree, &header_path(&header), i);
             tree.splice_children(i..end, vec![]);
             Ok(())
         }
@@ -1901,6 +2108,17 @@ fn insert(
     //  - into a TABLE/root we need a keyed entry: a bare element gets a synthesized
     //    `placeholder` key (`key+`).
     let (frag, synthesized_key) = parse_fragment_adapted(&frag_text, parent_is_array)?;
+
+    // A keyless `{ … }` element copied out of an array **unpacks** into its
+    // member entries for a table/root/[A/T] destination — matching the cut path
+    // in `move_nodes` (and packing into ONE `[[…]]` entry for an `[A/T]` group).
+    // A bare scalar keeps the synthesized `placeholder` key; into a plain array
+    // the element form is kept.
+    if synthesized_key && !parent_is_array {
+        if let Some(entries) = unpack_inline_table(frag_text.trim()) {
+            return insert(tree, target, &entries.concat(), on_collision);
+        }
+    }
 
     // A `[table]`/`[[aot]]` **section** fragment is legal only into a real scope/root.
     // It cannot live inside an inline table, nor be nested under a synthetic `[T/D]`
@@ -2517,23 +2735,67 @@ fn remove_entry_line(frag: &SyntaxNode, entry: &SyntaxNode) {
     frag.splice_children(i..end, Vec::new());
 }
 
-/// The source text of the `[[…]]` AoT entry backed by `header`, rewritten as a
-/// **scope-relative `[table]` section**: `[[a.b]]` + body → `[b]` + body (the own
-/// key segment is kept verbatim, the ancestor path dropped). Moving/copying an
-/// entry out of its array hands this to `insert`, which re-prefixes and
-/// partition-checks it for the destination like any other section fragment.
-fn aot_entry_scope_fragment(tree: &SyntaxNode, header: &SyntaxNode) -> String {
-    let text = section_text(tree, &[], header.index(), true);
-    let key = header
-        .descendants()
-        .find(|n| n.kind() == SyntaxKind::KEY)
-        .and_then(|k| k.children_with_tokens().filter_map(key_seg_token).last())
-        .map(|t| t.text().to_string())
-        .unwrap_or_default();
-    match text.strip_prefix(&header.to_string()) {
-        Some(body) if !key.is_empty() => format!("[{key}]{body}"),
-        _ => text,
+/// End (exclusive ROOT-child index) of the **full extent** of the `[[…]]` entry
+/// at `header_idx`: its own strict section plus any following sub-sections under
+/// the group path (`[fruit.physical]` after `[[fruit]]` belongs to that entry),
+/// stopping at the group's next `[[…]]` entry or a foreign header.
+fn aot_entry_end(tree: &SyntaxNode, group_path: &[Seg], header_idx: usize) -> usize {
+    let els: Vec<_> = tree.children_with_tokens().collect();
+    for (k, el) in els.iter().enumerate().skip(header_idx + 1) {
+        if let NodeOrToken::Node(n) = el {
+            if !matches!(
+                n.kind(),
+                SyntaxKind::TABLE_HEADER | SyntaxKind::TABLE_ARRAY_HEADER
+            ) {
+                continue;
+            }
+            let p = header_path(n);
+            if p == group_path || !p.starts_with(group_path) {
+                return k;
+            }
+        }
     }
+    els.len()
+}
+
+/// The member fragments of the `[[…]]` AoT entry backed by `header` — an `[A/T]`
+/// group is equivalent to an array of inline tables, so moving/copying an entry
+/// out of its array **splits it into member nodes**: the body `ENTRY` lines
+/// verbatim (one fragment each), and every sub-section flattened to dotted
+/// entries (`[fruit.physical]` + `color = "red"` → `physical.color = "red"`; the
+/// prefix is the section's header path relative to the entry, deeper nesting the
+/// same). `Err(Unsupported)` when the entry holds a nested `[[…]]` sub-group,
+/// which has no dotted form.
+fn aot_entry_member_fragments(
+    tree: &SyntaxNode,
+    header: &SyntaxNode,
+) -> Result<Vec<String>, MutateError> {
+    let group_path = header_path(header);
+    let i = header.index();
+    let end = aot_entry_end(tree, &group_path, i);
+    let els: Vec<_> = tree.children_with_tokens().collect();
+    let mut prefix = String::new();
+    let mut frags = Vec::new();
+    for el in &els[i + 1..end] {
+        if let NodeOrToken::Node(n) = el {
+            match n.kind() {
+                SyntaxKind::TABLE_ARRAY_HEADER => return Err(MutateError::Unsupported),
+                SyntaxKind::TABLE_HEADER => {
+                    prefix = path_key_display(&header_path(n)[group_path.len()..]);
+                }
+                SyntaxKind::ENTRY => {
+                    let text = n.to_string().trim().to_string();
+                    frags.push(if prefix.is_empty() {
+                        format!("{text}\n")
+                    } else {
+                        format!("{prefix}.{text}\n")
+                    });
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(frags)
 }
 
 /// Insert a keyed `ENTRY` into the inline table at `table_path`, at member `index`
@@ -2936,10 +3198,11 @@ fn move_nodes(
                     _ => frags.push(format!("{}\n", text.trim())),
                 }
             }
-            // Moving a `[[…]]` entry out of its array: it becomes a `[scope]`
-            // table — captured scope-relative (`[[a.b]]` entry → `[b]` + body) so
-            // `insert` re-prefixes and partition-checks it for the destination.
-            Target::AotEntry(h) => frags.push(aot_entry_scope_fragment(tree, &h)),
+            // Moving a `[[…]]` entry out of its array splits it into member
+            // nodes — one fragment per line (like the `[T/D]` fan-out, so the
+            // per-leaf collision check applies), sub-sections flattened to
+            // dotted entries.
+            Target::AotEntry(h) => frags.extend(aot_entry_member_fragments(tree, &h)?),
             _ => return Err(MutateError::Unsupported),
         }
     }
@@ -4139,8 +4402,10 @@ mod tests {
     }
 
     #[test]
-    fn move_aot_entry_out_into_scope_becomes_subtable() {
-        let mut d = doc("[[p]]\na = 1\n\n[[p]]\nb = 2\n\n[s]\nx = 1\n");
+    fn move_aot_entry_out_into_scope_splits_into_members() {
+        // An [A/T] entry ≡ an inline-table array element: moving it out splits
+        // it into its member nodes inside the destination scope.
+        let mut d = doc("[[p]]\na = 1\n\n[[p]]\nb = 2\nc = 3\n\n[s]\nx = 1\n");
         d.apply(Mutation::Move {
             sources: vec![vec![Seg::Key("p".into()), Seg::Index(1)]],
             target: InsTarget {
@@ -4151,35 +4416,231 @@ mod tests {
         })
         .unwrap();
         let out = d.serialize();
-        assert!(out.contains("[s.p]\nb = 2\n"), "entry became [s.p]: {out}");
+        assert!(out.contains("[s]\nx = 1\nb = 2\nc = 3\n"), "members: {out}");
         assert_eq!(out.matches("[[p]]").count(), 1, "one entry left: {out}");
     }
 
     #[test]
-    fn move_aot_entry_to_root_collides_with_its_group() {
-        // `[p]` at root beside the remaining `[[p]]` group is a TOML conflict —
-        // surfaced as a Collision (rename produces `[p_2]`).
-        let src = "[[p]]\na = 1\n\n[[p]]\nb = 2\n";
-        let mut d = doc(src);
-        let err = d
-            .apply(Mutation::Move {
-                sources: vec![vec![Seg::Key("p".into()), Seg::Index(1)]],
-                target: InsTarget {
-                    parent: vec![],
-                    index: 9,
-                },
-                on_collision: OnCollision::Cancel,
-            })
-            .unwrap_err();
-        assert!(matches!(err, MutateError::Collision(_)), "got {err:?}");
-        assert_eq!(d.serialize(), src);
+    fn move_aot_entry_to_root_lands_members() {
+        // Members land as plain root entries (index 0: the leaf partition).
+        let mut d = doc("x = 0\n\n[[p]]\na = 1\n\n[[p]]\nb = 2\n");
+        d.apply(Mutation::Move {
+            sources: vec![vec![Seg::Key("p".into()), Seg::Index(1)]],
+            target: InsTarget {
+                parent: vec![],
+                index: 0,
+            },
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        let out = d.serialize();
+        assert!(out.starts_with("b = 2\nx = 0\n"), "member at root: {out}");
+        assert_eq!(out.matches("[[p]]").count(), 1, "one entry left: {out}");
     }
 
     #[test]
-    fn copy_aot_entry_relative_is_scope_section() {
-        let d = doc("[[p]]\na = 1\n\n[[p]]\nb = 2\n");
+    fn move_aot_entry_into_other_group_packs_one_entry() {
+        let mut d = doc("[[p]]\na = 1\nb = 2\n\n[[q]]\nx = 1\n");
+        d.apply(Mutation::Move {
+            sources: vec![vec![Seg::Key("p".into()), Seg::Index(0)]],
+            target: InsTarget {
+                parent: vec![Seg::Key("q".into())],
+                index: 9,
+            },
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        let out = d.serialize();
+        assert!(out.contains("[[q]]\nx = 1\n"), "existing entry kept: {out}");
+        assert!(
+            out.contains("[[q]]\na = 1\nb = 2\n"),
+            "ONE new entry: {out}"
+        );
+        assert!(!out.contains("[[p]]"), "source group emptied: {out}");
+    }
+
+    #[test]
+    fn move_aot_entry_into_array_packs_one_element() {
+        let mut d = doc("arr = [1]\n\n[[p]]\na = 1\nb = 2\n");
+        d.apply(Mutation::Move {
+            sources: vec![vec![Seg::Key("p".into()), Seg::Index(0)]],
+            target: InsTarget {
+                parent: vec![Seg::Key("arr".into())],
+                index: 9,
+            },
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        // The blank separator line that preceded the deleted `[[p]]` remains.
+        assert_eq!(d.serialize(), "arr = [1, { a = 1, b = 2 }]\n\n");
+    }
+
+    #[test]
+    fn move_aot_entry_flattens_subsections_to_dotted() {
+        // A sub-section of the entry flattens to dotted entries; the source side
+        // removes the sub-section with the entry.
+        let mut d = doc(
+            "[[fruit]]\nname = \"apple\"\n\n[fruit.physical]\ncolor = \"red\"\n\n[[fruit]]\nname = \"pear\"\n\n[s]\nx = 1\n",
+        );
+        d.apply(Mutation::Move {
+            sources: vec![vec![Seg::Key("fruit".into()), Seg::Index(0)]],
+            target: InsTarget {
+                parent: vec![Seg::Key("s".into())],
+                index: 9,
+            },
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        let out = d.serialize();
+        assert!(
+            out.contains("name = \"apple\"\nphysical.color = \"red\"\n"),
+            "flattened: {out}"
+        );
+        assert!(!out.contains("[fruit.physical]"), "sub-section gone: {out}");
+        assert_eq!(out.matches("[[fruit]]").count(), 1, "one entry left: {out}");
+    }
+
+    #[test]
+    fn copy_inline_table_element_into_table_unpacks() {
+        // The copy path matches the cut path: a keyless `{ … }` element pasted
+        // into a table unpacks into its member entries (no placeholder key).
+        let mut d = doc("arr = [{ a = 1, b = 2 }]\n\n[s]\nx = 1\n");
+        d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![Seg::Key("s".into())],
+                index: 9,
+            },
+            toml: "{ a = 1, b = 2 }".into(),
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(
+            d.serialize(),
+            "arr = [{ a = 1, b = 2 }]\n\n[s]\nx = 1\na = 1\nb = 2\n"
+        );
+    }
+
+    #[test]
+    fn copy_inline_table_element_into_aot_group_packs_one_entry() {
+        let mut d = doc("[[p]]\nx = 1\n");
+        d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![Seg::Key("p".into())],
+                index: 9,
+            },
+            toml: "{ a = 1, b = 2 }".into(),
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "[[p]]\nx = 1\n[[p]]\na = 1\nb = 2\n");
+    }
+
+    #[test]
+    fn copy_bare_scalar_into_table_keeps_placeholder() {
+        let mut d = doc("[s]\nx = 1\n");
+        d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![Seg::Key("s".into())],
+                index: 9,
+            },
+            toml: "42".into(),
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "[s]\nx = 1\nplaceholder = 42\n");
+    }
+
+    #[test]
+    fn copy_aot_entry_relative_is_member_fragment() {
+        let d = doc("[[p]]\na = 1\n\n[[p]]\nb = 2\nc = 3\n");
         let frag = d.serialize_fragment_relative(&[Seg::Key("p".into()), Seg::Index(1)]);
-        assert_eq!(frag, "[p]\nb = 2\n");
+        assert_eq!(frag, "b = 2\nc = 3\n");
+    }
+
+    #[test]
+    fn convert_aot_group_to_arrays() {
+        use crate::model::document::KindTarget as KT;
+        let k = |s: &str| vec![Seg::Key(s.into())];
+        assert_eq!(
+            convert(
+                "[[p]]\na = 1\nb = 2\n[[p]]\nc = 3\n",
+                k("p"),
+                KT::ArrayInline
+            ),
+            "p = [{ a = 1, b = 2 }, { c = 3 }]\n"
+        );
+        assert_eq!(
+            convert("[[p]]\na = 1\n[[p]]\nc = 3\n", k("p"), KT::ArrayMultiline),
+            "p = [\n  { a = 1 },\n  { c = 3 },\n]\n"
+        );
+        // A nested group converts relative to its parent scope.
+        assert_eq!(
+            convert(
+                "[s]\nx = 1\n[[s.p]]\na = 1\n",
+                vec![Seg::Key("s".into()), Seg::Key("p".into())],
+                KT::ArrayInline
+            ),
+            "[s]\nx = 1\np = [{ a = 1 }]\n"
+        );
+        // Position: the replacement entry would be captured by a foreign table.
+        assert!(matches!(
+            convert_err("[t]\nx = 1\n\n[[p]]\na = 1\n", k("p"), KT::ArrayInline),
+            MutateError::Illegal(_)
+        ));
+        // A sub-section / a comment can't live in an inline-table element.
+        assert!(matches!(
+            convert_err("[[p]]\na = 1\n[p.sub]\nx = 1\n", k("p"), KT::ArrayInline),
+            MutateError::Illegal(_)
+        ));
+        assert!(matches!(
+            convert_err("[[p]]\n# c\na = 1\n", k("p"), KT::ArrayInline),
+            MutateError::Illegal(_)
+        ));
+    }
+
+    #[test]
+    fn convert_array_of_inline_tables_to_aot() {
+        use crate::model::document::KindTarget as KT;
+        let k = |s: &str| vec![Seg::Key(s.into())];
+        assert_eq!(
+            convert(
+                "p = [{ a = 1, b = 2 }, { c = 3 }]\n",
+                k("p"),
+                KT::ArrayOfTables
+            ),
+            "[[p]]\na = 1\nb = 2\n[[p]]\nc = 3\n"
+        );
+        // Inside a scope: full-path headers.
+        assert_eq!(
+            convert(
+                "[s]\np = [{ a = 1 }]\n",
+                vec![Seg::Key("s".into()), Seg::Key("p".into())],
+                KT::ArrayOfTables
+            ),
+            "[s]\n[[s.p]]\na = 1\n"
+        );
+        // The `[[…]]` sections would capture the entry below.
+        assert!(matches!(
+            convert_err("p = [{ a = 1 }]\nx = 1\n", k("p"), KT::ArrayOfTables),
+            MutateError::Illegal(_)
+        ));
+        // Mixed / non-inline-table elements can't become entries.
+        assert!(matches!(
+            convert_err("p = [{ a = 1 }, 2]\n", k("p"), KT::ArrayOfTables),
+            MutateError::Illegal(_)
+        ));
+    }
+
+    #[test]
+    fn delete_aot_entry_removes_its_subsections() {
+        let mut d = doc(
+            "[[fruit]]\nname = \"apple\"\n\n[fruit.physical]\ncolor = \"red\"\n\n[[fruit]]\nname = \"pear\"\n",
+        );
+        d.apply(Mutation::Delete {
+            path: vec![Seg::Key("fruit".into()), Seg::Index(0)],
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "[[fruit]]\nname = \"pear\"\n");
     }
 
     #[test]

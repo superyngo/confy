@@ -96,6 +96,7 @@ pub enum KindTarget {
     ScalarBool,
     ArrayInline,
     ArrayMultiline,
+    ArrayOfTables,
     TableInline,
     TableDotted,
     TableScope,

@@ -542,7 +542,7 @@ impl App {
 
     /// `K` — open the kind-switch popup for the cursor node: a single-select
     /// list of the kinds/notations it can convert to. Non-convertible nodes
-    /// (Root, comments, `[A/T]`, AoT entries) report via the status line.
+    /// (Root, comments, AoT entries) report via the status line.
     pub fn open_kind_switch(&mut self) {
         use crate::model::document::KindTarget as KT;
         use crate::model::node::ScalarType as ST;
@@ -571,10 +571,31 @@ impl App {
                 ST::Bool => vec![("string".into(), KT::ScalarString)],
                 _ => vec![("string".into(), KT::ScalarString)],
             },
-            NodeKind::Array if node.value.is_some() => {
-                vec![("multiline array  [A/M]".into(), KT::ArrayMultiline)]
+            NodeKind::Array => {
+                let mut opts: Vec<(String, KT)> = if node.value.is_some() {
+                    vec![("multiline array  [A/M]".into(), KT::ArrayMultiline)]
+                } else {
+                    vec![("inline array  [A/I]".into(), KT::ArrayInline)]
+                };
+                // All-inline-table elements: the array can become an `[[…]]` group.
+                let elems: Vec<_> = node
+                    .children
+                    .iter()
+                    .filter(|c| !matches!(c.kind, NodeKind::Comment(_)))
+                    .collect();
+                if !elems.is_empty()
+                    && elems
+                        .iter()
+                        .all(|c| matches!(c.kind, NodeKind::InlineTable))
+                {
+                    opts.push(("array of tables  [A/T]".into(), KT::ArrayOfTables));
+                }
+                opts
             }
-            NodeKind::Array => vec![("inline array  [A/I]".into(), KT::ArrayInline)],
+            NodeKind::ArrayOfTables => vec![
+                ("inline array     [A/I]".into(), KT::ArrayInline),
+                ("multiline array  [A/M]".into(), KT::ArrayMultiline),
+            ],
             NodeKind::InlineTable => vec![
                 ("dotted table  [T/D]".into(), KT::TableDotted),
                 ("table scope   [T/S]".into(), KT::TableScope),

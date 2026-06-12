@@ -61,10 +61,15 @@ the new entry lands at the target slot (front/middle/append), a duplicate key is
 an empty `{}` becomes `{ k = v }`. **`[A/T]` interactions**: inserting keyed
 fragments into an AoT *group* synthesizes a new `[[…]]` entry at the target slot
 (`aot_group_insert`; multiple pasted nodes are joined — `joinable_entry` — and pack into ONE
-entry; in-set duplicate keys follow o/r/c; a section fragment is `Illegal`). Moving/copying an
-AoT *entry* out converts it to a scope-relative `[k]` section (`aot_entry_scope_fragment`),
-which `insert` re-prefixes and partition/collision-checks for the destination (landing beside
-its own group is a `Collision`). Known edges: whole-AoT-*group* Move degrades to a graceful
+entry; in-set duplicate keys follow o/r/c; a section fragment is `Illegal`). An `[A/T]` group is
+**equivalent to an array of inline tables**: moving/copying an AoT *entry* out **splits it into
+member fragments** (`aot_entry_member_fragments` — body entry lines verbatim, one fragment each,
+**sub-sections flattened to dotted entries**: `[fruit.physical]` `color` → `physical.color`), so
+into a table/root the members land as nodes (dotted re-prefix, per-leaf collision) and into
+another group / an array they join into ONE `[[entry]]` / `{ … }` element. Deleting an entry
+removes its **full extent** (`aot_entry_end`: own section + its sub-sections). A nested `[[…]]`
+sub-group has no dotted form — move degrades to `Unsupported`, copy falls back to the full
+section capture. Known edges: whole-AoT-*group* Move degrades to a graceful
 `Unsupported`, and multiline-array element insert/delete spacing is not yet byte-perfect.
 
 **Projection.** Dotted *keys* (`a.b.c = 1`) **nest** into a chain of synthetic `Table` nodes
@@ -177,7 +182,13 @@ losslessly between string/int/float/bool (lossy → `Illegal`); arrays toggle in
 (collapse rejects comments / multi-line elements); tables convert between `[T/I]`/`[T/D]`/`[T/S]`
 with `[T/S]` targets checked against the D5 capture rule (mid-entry `[t]`, or a section preceded by
 a foreign header, is `Illegal`; a nested `[s.t]` converts relative to its parent's capture) and
-inline targets rejecting held comments. `[A/T]`, AoT entries, Root and comments don't convert.
+inline targets rejecting held comments. **`[A/T]` ↔ arrays**: a group converts to an
+inline/multiline array of inline tables (`convert_aot_to_array`: contiguous span, plain
+single-line entry bodies only — no sub-sections/comments — and the replacement `key = […]` entry
+must not be captured by a foreign preceding header), and a keyed flat-ROOT array whose elements
+are **all inline tables** converts to an `[[…]]` group (`convert_array_to_aot`,
+`KindTarget::ArrayOfTables`; rejected when an entry follows before the next header — the
+sections would capture it). AoT entries, Root and comments don't convert.
 
 **Comments are first-class nodes.** A standalone comment line is a real node in document order —
 navigable, selectable, movable, deletable like any other Node; *moving or copying another node
@@ -263,10 +274,12 @@ collision-retry path). `do_paste` pairs each fragment with its source path and s
 **comment** entries (identified by `NodeKind::Comment`, not by the path). Nodes: **cut** routes
 through the atomic `Mutation::Move` (delete-before-reinsert on a scratch tree, committed only on
 success) so a same-scope reposition is a move, not a `Key already exists` collision; **copy** uses the
-per-fragment `Mutation::Insert` loop. **Moving an array element out** is supported: into another array
-it stays a bare element; into a table/root an **inline table** (`{ k = v, … }`) unpacks into its
-member entries (`unpack_inline_table` — the inverse of `wrap_keyed_as_inline_element`; each entry is
-per-leaf collision-checked), while a bare value gets a synthesized `placeholder` key, then `insert`
+per-fragment `Mutation::Insert` loop. **Moving or copying an array element out** is supported: into
+another array it stays a bare element; into a table/root/`[A/T]` an **inline table** (`{ k = v, … }`)
+unpacks into its member entries (`unpack_inline_table` — the inverse of `wrap_keyed_as_inline_element`;
+each entry per-leaf collision-checked; the copy path unpacks in `insert` right after
+`parse_fragment_adapted`, matching the cut path in `move_nodes`), while a bare value gets a
+synthesized `placeholder` key, then `insert`
 applies the destination format (dotted prefix, …). Dually, **multiple keyed nodes pasted into an
 array or `[A/T]` group are joined** (`joinable_entry`, in `move_nodes` for cut and `do_paste` for
 copy) and pack into ONE `{ a = 1, b = 2 }` element / `[[…]]` entry; a multi-entry fragment into an
