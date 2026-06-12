@@ -1824,8 +1824,30 @@ impl App {
                 }
             }
         } else {
+            // Destination `[A/T]` group: pack all copied keyed nodes into ONE new
+            // `[[…]]` entry by joining their fragments into a single Insert
+            // (mirrors the cut path's join in `move_nodes`).
+            let dest_is_aot = node_at(&self.tree.root, &target.parent)
+                .map(|n| matches!(n.kind, NodeKind::ArrayOfTables))
+                .unwrap_or(false);
+            let grouped: Vec<(String, usize)> = if dest_is_aot
+                && node_entries.len() > 1
+                && node_entries
+                    .iter()
+                    .all(|(f, _)| crate::model::cst_edit::joinable_entry(f))
+            {
+                let joined: String = node_entries.iter().map(|(f, _)| f.as_str()).collect();
+                vec![(joined, 0)]
+            } else {
+                node_entries
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (f, _))| (f.clone(), i))
+                    .collect()
+            };
             let doc = self.doc.as_mut().unwrap();
-            for (i, (frag, _)) in node_entries.iter().enumerate() {
+            for (frag, i) in &grouped {
+                let i = *i;
                 match doc.apply(Mutation::Insert {
                     target: target.clone(),
                     toml: frag.clone(),

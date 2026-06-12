@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `[A/T]` interactions — **pasting keyed nodes into an array-of-tables group now synthesizes a new `[[…]]` entry at the target slot**: a keyed node, inline table or `[T/D]` table (its members fan out) lands inside the new entry; multiple copied/cut nodes are joined and **pack into one entry**. Keys never collide with sibling entries (each `[[…]]` opens a fresh namespace); duplicates *within* the pasted set follow o/r/c. A `[table]`/`[[aot]]` section into a group stays `Illegal`. **Moving a `[[…]]` entry out of its array is now supported**: the entry converts to a `[scope]` table — captured scope-relative (`[[a.b]]` → `[b]`), re-prefixed for the destination (`[s]` → `[s.b]`), partition- and collision-checked (landing it beside its own group is a `Collision`; rename yields `[p_2]`). Copy (`c`) of an entry captures the same `[k]` scope form; the `$EDITOR` block edit keeps the verbatim `[[…]]` header. (2026-06-12)
+
 ### Fixed
 - Duplicate-key safety — **every mutation now runs a semantic backstop (taplo DOM validation) before commit**: taplo's parser is syntax-only, so a whole-document `E` rewrite or a block `e` edit could introduce a duplicate `[a]` section or re-defined key and be accepted. The result tree is now DOM-validated (conflicting keys → `Collision`, other semantic errors → `Illegal`), with the document left untouched on rejection; all legal layouts (scattered `[a] … [a.sub]`, dotted siblings, AoT re-openings, mixed `fruit.apple`) still pass. Also fixed the targeted pre-check for **section inserts into a sub-scope**: the header is re-prefixed to `[b.a]` before the collision check, but the check prepended `target.parent` again and looked up a phantom `b.b.a` — pasting `[a]` into `[b]` when `[b.a]` existed silently produced a duplicate section. (2026-06-12)
 

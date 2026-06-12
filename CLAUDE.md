@@ -58,7 +58,13 @@ still reports `Illegal`. Inserting a keyed entry **into an inline table** routes
 which rebuilds the `{ … }` from its members' verbatim source with normalized `, ` separators
 (taplo bakes the closing brace's leading space into the last entry, so token surgery is brittle) —
 the new entry lands at the target slot (front/middle/append), a duplicate key is a `Collision`, and
-an empty `{}` becomes `{ k = v }`. Known edges: AoT-*entry* Move degrades to a graceful
+an empty `{}` becomes `{ k = v }`. **`[A/T]` interactions**: inserting keyed
+fragments into an AoT *group* synthesizes a new `[[…]]` entry at the target slot
+(`aot_group_insert`; multiple pasted nodes are joined — `joinable_entry` — and pack into ONE
+entry; in-set duplicate keys follow o/r/c; a section fragment is `Illegal`). Moving/copying an
+AoT *entry* out converts it to a scope-relative `[k]` section (`aot_entry_scope_fragment`),
+which `insert` re-prefixes and partition/collision-checks for the destination (landing beside
+its own group is a `Collision`). Known edges: whole-AoT-*group* Move degrades to a graceful
 `Unsupported`, and multiline-array element insert/delete spacing is not yet byte-perfect.
 
 **Projection.** Dotted *keys* (`a.b.c = 1`) **nest** into a chain of synthetic `Table` nodes

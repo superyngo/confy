@@ -170,7 +170,16 @@ fn serialize_fragment_impl(syntax: &SyntaxNode, path: &[Seg], relative: bool) ->
         }
         // A table / AoT entry: the section's source text (header + its lines).
         Target::Header(h) => section_text(syntax, path, h.index(), false),
-        Target::AotEntry(h) => section_text(syntax, &[], h.index(), true),
+        // Relative (clipboard) capture converts the entry to a scope-relative
+        // `[k]` section — pasted out of its array it becomes a `[scope]` table;
+        // the full capture (the `$EDITOR` block edit) keeps the `[[…]]` header.
+        Target::AotEntry(h) => {
+            if relative {
+                aot_entry_scope_fragment(syntax, h)
+            } else {
+                section_text(syntax, &[], h.index(), true)
+            }
+        }
         // The whole `[[x]]` group: all of its entries, in order.
         Target::AotGroup => match aot_group_span(syntax, path) {
             Some((start, end)) => {
@@ -1459,6 +1468,27 @@ fn insert(
         return array_insert(&idx, &target.parent, target.index, &element);
     }
 
+    if matches!(parent.kind, NodeKind::ArrayOfTables) {
+        // Into an `[A/T]` group: keyed entries land in a **new `[[…]]` entry**
+        // synthesized at the target slot (multiple pasted nodes are joined into one
+        // fragment by the caller, so they pack into the same entry). A
+        // `[table]`/`[[aot]]` section cannot become an entry — `Illegal`.
+        if has_header {
+            return Err(MutateError::Illegal(
+                "a table section cannot be inserted into an array of tables".into(),
+            ));
+        }
+        return aot_group_insert(
+            tree,
+            &idx,
+            parent,
+            &target.parent,
+            target.index,
+            &frag,
+            on_collision,
+        );
+    }
+
     // A header-less **multi-entry** fragment (a copied `[T/D]` table block, whose
     // members are several flat dotted entries) is inserted one entry at a time, so the
     // dotted prefix and the per-leaf collision check apply to each member — a single
@@ -1872,6 +1902,133 @@ fn array_insert(
     Ok(())
 }
 
+/// Insert keyed entries into an `[A/T]` group as a **new `[[…]]` entry** at child
+/// slot `index` (over the group's full child sequence — comments share the slot
+/// space). The fragment's source becomes the entry body verbatim, so trailing
+/// comments travel. Keys never collide with sibling entries (each `[[…]]` opens a
+/// fresh namespace); duplicate keys *within* the body (several pasted nodes
+/// sharing a key) follow `on_collision`: Cancel surfaces `Collision`, Rename
+/// suffixes later duplicates, Overwrite drops the earlier occurrence.
+fn aot_group_insert(
+    tree: &SyntaxNode,
+    idx: &CstIndex,
+    group: &Node,
+    group_path: &[Seg],
+    index: usize,
+    frag: &SyntaxNode,
+    on_collision: OnCollision,
+) -> Result<(), MutateError> {
+    let entries: Vec<SyntaxNode> = frag
+        .children()
+        .filter(|n| n.kind() == SyntaxKind::ENTRY)
+        .collect();
+    if entries.is_empty() {
+        return Err(MutateError::Fragment("fragment has no entries".into()));
+    }
+    let mut keys: Vec<String> = entries
+        .iter()
+        .map(|e| fragment_key_segs(e).join("."))
+        .collect();
+    let mut dropped: Vec<usize> = Vec::new();
+    for i in 0..keys.len() {
+        let dup = keys[..i]
+            .iter()
+            .enumerate()
+            .position(|(j, k)| !dropped.contains(&j) && k == &keys[i]);
+        let Some(j) = dup else { continue };
+        match on_collision {
+            OnCollision::Cancel => return Err(MutateError::Collision(keys[i].clone())),
+            OnCollision::Overwrite => {
+                remove_entry_line(frag, &entries[j]);
+                dropped.push(j);
+            }
+            OnCollision::Rename => {
+                let segs = fragment_key_segs(&entries[i]);
+                let base = segs.last().cloned().unwrap_or_default();
+                let mut n = 2;
+                let new_last = loop {
+                    let mut cand = segs.clone();
+                    *cand.last_mut().unwrap() = format!("{base}_{n}");
+                    if !keys.contains(&cand.join(".")) {
+                        break cand;
+                    }
+                    n += 1;
+                };
+                rewrite_last_key(&entries[i], new_last.last().unwrap())?;
+                keys[i] = new_last.join(".");
+            }
+        }
+    }
+
+    // Splice slot among the flat ROOT children: before the element backing the
+    // first group child at/after `index`, else appended after the last entry's
+    // section span.
+    let at = match group
+        .children
+        .iter()
+        .skip(index)
+        .find_map(|c| element_root_index(idx, c))
+    {
+        Some(i) => i,
+        None => {
+            let last_header = group
+                .children
+                .iter()
+                .filter_map(|c| element_root_index(idx, c))
+                .max()
+                .ok_or(MutateError::Unsupported)?;
+            section_end_strict(tree, last_header)
+        }
+    };
+
+    let body = frag.to_string();
+    let text = format!("[[{}]]\n{}", path_key_display(group_path), body);
+    let parse = taplo::parser::parse(&text);
+    if let Some(e) = parse.errors.first() {
+        return Err(MutateError::Fragment(e.to_string()));
+    }
+    let new = parse.into_syntax().clone_for_update();
+    let els: Vec<_> = new.children_with_tokens().collect();
+    for e in &els {
+        e.detach();
+    }
+    tree.splice_children(at..at, els);
+    Ok(())
+}
+
+/// Detach `entry` (a top-level `ENTRY` of `frag`) together with its trailing
+/// `NEWLINE`, so the remaining body keeps clean lines.
+fn remove_entry_line(frag: &SyntaxNode, entry: &SyntaxNode) {
+    let i = entry.index();
+    let els: Vec<_> = frag.children_with_tokens().collect();
+    let end = if matches!(els.get(i + 1), Some(NodeOrToken::Token(t)) if t.kind() == SyntaxKind::NEWLINE)
+    {
+        i + 2
+    } else {
+        i + 1
+    };
+    frag.splice_children(i..end, Vec::new());
+}
+
+/// The source text of the `[[…]]` AoT entry backed by `header`, rewritten as a
+/// **scope-relative `[table]` section**: `[[a.b]]` + body → `[b]` + body (the own
+/// key segment is kept verbatim, the ancestor path dropped). Moving/copying an
+/// entry out of its array hands this to `insert`, which re-prefixes and
+/// partition-checks it for the destination like any other section fragment.
+fn aot_entry_scope_fragment(tree: &SyntaxNode, header: &SyntaxNode) -> String {
+    let text = section_text(tree, &[], header.index(), true);
+    let key = header
+        .descendants()
+        .find(|n| n.kind() == SyntaxKind::KEY)
+        .and_then(|k| k.children_with_tokens().filter_map(key_seg_token).last())
+        .map(|t| t.text().to_string())
+        .unwrap_or_default();
+    match text.strip_prefix(&header.to_string()) {
+        Some(body) if !key.is_empty() => format!("[{key}]{body}"),
+        _ => text,
+    }
+}
+
 /// Insert a keyed `ENTRY` into the inline table at `table_path`, at member `index`
 /// (or appended). taplo bakes the closing `}`'s leading whitespace into the last
 /// entry, so token surgery is brittle — instead the table is rebuilt from its
@@ -2272,9 +2429,27 @@ fn move_nodes(
                 };
                 frags.push(frag);
             }
+            // Moving a `[[…]]` entry out of its array: it becomes a `[scope]`
+            // table — captured scope-relative (`[[a.b]]` entry → `[b]` + body) so
+            // `insert` re-prefixes and partition-checks it for the destination.
+            Target::AotEntry(h) => frags.push(aot_entry_scope_fragment(tree, &h)),
             _ => return Err(MutateError::Unsupported),
         }
     }
+
+    // Destination `[A/T]` group: several moved nodes pack into ONE new `[[…]]`
+    // entry, so join the fragments when every one is a header-less keyed entry
+    // (bare values / sections keep the per-fragment path and its own handling).
+    let dest_is_aot = node_at(&proj.root, &target.parent)
+        .is_some_and(|n| matches!(n.kind, NodeKind::ArrayOfTables));
+    let frags = if dest_is_aot && frags.len() > 1 && frags.iter().all(|f| joinable_entry(f)) {
+        vec![frags
+            .iter()
+            .map(|f| format!("{}\n", f.trim_end()))
+            .collect::<String>()]
+    } else {
+        frags
+    };
 
     // Resolve a stable anchor — the first child at/after the target index that is
     // not itself a source — to insert before (its keyed path is stable across the
@@ -2322,6 +2497,20 @@ fn move_nodes(
         )?;
     }
     Ok(())
+}
+
+/// True when `text` parses clean as a standalone TOML document with **no**
+/// `[table]`/`[[aot]]` header — i.e. keyed entry lines that can be joined with
+/// other fragments into one `[[…]]` entry body.
+pub(crate) fn joinable_entry(text: &str) -> bool {
+    let parse = taplo::parser::parse(text);
+    parse.errors.is_empty()
+        && !parse.into_syntax().descendants().any(|n| {
+            matches!(
+                n.kind(),
+                SyntaxKind::TABLE_HEADER | SyntaxKind::TABLE_ARRAY_HEADER
+            )
+        })
 }
 
 /// Build a single `COMMENT` token from `text` (a `# …` line).
@@ -3341,6 +3530,148 @@ mod tests {
             .unwrap_err();
         assert!(matches!(err, MutateError::Collision(_)), "got {err:?}");
         assert_eq!(d.serialize(), src);
+    }
+
+    #[test]
+    fn insert_keyed_into_aot_group_appends_new_entry() {
+        let mut d = doc("[[p]]\na = 1\n\n[[p]]\na = 2\n");
+        d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![Seg::Key("p".into())],
+                index: 9,
+            },
+            toml: "b = 3\n".into(),
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(
+            d.serialize(),
+            "[[p]]\na = 1\n\n[[p]]\na = 2\n[[p]]\nb = 3\n"
+        );
+    }
+
+    #[test]
+    fn insert_keyed_into_aot_group_at_front() {
+        let mut d = doc("[[p]]\na = 1\n\n[[p]]\na = 2\n");
+        d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![Seg::Key("p".into())],
+                index: 0,
+            },
+            toml: "b = 3\n".into(),
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(
+            d.serialize(),
+            "[[p]]\nb = 3\n[[p]]\na = 1\n\n[[p]]\na = 2\n"
+        );
+    }
+
+    #[test]
+    fn insert_multi_entry_fragment_packs_one_aot_entry() {
+        // A joined multi-node fragment lands in ONE new [[…]] entry, not several.
+        let mut d = doc("[[p]]\na = 1\n");
+        d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![Seg::Key("p".into())],
+                index: 9,
+            },
+            toml: "x = 1\ny = 2\n".into(),
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "[[p]]\na = 1\n[[p]]\nx = 1\ny = 2\n");
+    }
+
+    #[test]
+    fn insert_section_into_aot_group_is_illegal() {
+        let src = "[[p]]\na = 1\n";
+        let mut d = doc(src);
+        let err = d
+            .apply(Mutation::Insert {
+                target: InsTarget {
+                    parent: vec![Seg::Key("p".into())],
+                    index: 9,
+                },
+                toml: "[t]\nz = 1\n".into(),
+                on_collision: OnCollision::Cancel,
+            })
+            .unwrap_err();
+        assert!(matches!(err, MutateError::Illegal(_)), "got {err:?}");
+        assert_eq!(d.serialize(), src);
+    }
+
+    #[test]
+    fn move_two_scalars_into_aot_group_packs_one_entry() {
+        let mut d = doc("k1 = 1\nk2 = 2\n\n[[p]]\na = 1\n");
+        d.apply(Mutation::Move {
+            sources: vec![vec![Seg::Key("k1".into())], vec![Seg::Key("k2".into())]],
+            target: InsTarget {
+                parent: vec![Seg::Key("p".into())],
+                index: 9,
+            },
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        let out = d.serialize();
+        assert_eq!(
+            out.matches("[[p]]").count(),
+            2,
+            "exactly one new entry: {out}"
+        );
+        assert!(
+            out.contains("[[p]]\nk1 = 1\nk2 = 2\n"),
+            "packed into one entry: {out}"
+        );
+        assert!(
+            !out.contains("k1 = 1\nk2 = 2\n\n[[p]]"),
+            "sources moved: {out}"
+        );
+    }
+
+    #[test]
+    fn move_aot_entry_out_into_scope_becomes_subtable() {
+        let mut d = doc("[[p]]\na = 1\n\n[[p]]\nb = 2\n\n[s]\nx = 1\n");
+        d.apply(Mutation::Move {
+            sources: vec![vec![Seg::Key("p".into()), Seg::Index(1)]],
+            target: InsTarget {
+                parent: vec![Seg::Key("s".into())],
+                index: 9,
+            },
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        let out = d.serialize();
+        assert!(out.contains("[s.p]\nb = 2\n"), "entry became [s.p]: {out}");
+        assert_eq!(out.matches("[[p]]").count(), 1, "one entry left: {out}");
+    }
+
+    #[test]
+    fn move_aot_entry_to_root_collides_with_its_group() {
+        // `[p]` at root beside the remaining `[[p]]` group is a TOML conflict —
+        // surfaced as a Collision (rename produces `[p_2]`).
+        let src = "[[p]]\na = 1\n\n[[p]]\nb = 2\n";
+        let mut d = doc(src);
+        let err = d
+            .apply(Mutation::Move {
+                sources: vec![vec![Seg::Key("p".into()), Seg::Index(1)]],
+                target: InsTarget {
+                    parent: vec![],
+                    index: 9,
+                },
+                on_collision: OnCollision::Cancel,
+            })
+            .unwrap_err();
+        assert!(matches!(err, MutateError::Collision(_)), "got {err:?}");
+        assert_eq!(d.serialize(), src);
+    }
+
+    #[test]
+    fn copy_aot_entry_relative_is_scope_section() {
+        let d = doc("[[p]]\na = 1\n\n[[p]]\nb = 2\n");
+        let frag = d.serialize_fragment_relative(&[Seg::Key("p".into()), Seg::Index(1)]);
+        assert_eq!(frag, "[p]\nb = 2\n");
     }
 
     #[test]
