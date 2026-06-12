@@ -88,12 +88,11 @@ and lands via `inline_table_insert` with the projected index translated to a raw
 move/copy fan out over the member entries (`inline_member_entries`; capture drops the segments
 between the `{ … }` and the node, keeping its own key); the `e` block edit consolidates at the
 first member (`replace_inline_dotted_table`, single-line entries only); comments are rejected
-(`{ … }` holds none). For a **flat** `[T/D]` table, a comment **directly above a member** (no
-blank line) is *bound* to it (`bound_comment_start`/`bound_comment_text`, mirrored by the
-projection's adjacency rule in `project_entry_into`): it projects inside the table at the
-member's slot, travels with the member on whole-table move/copy and the `e` consolidation, and
-is removed with the table on delete; a blank-separated comment stays an independent scope node.
-`InsertComment` into a `[T/D]` lands the line above the member at the target slot. **Editing a `[T/D]` table**
+(`{ … }` holds none). **Comments are never inside a `[T/D]` table**: a comment adjacent to a
+dotted member is an independent scope-level node (it stays put on table move/copy/delete and
+the `e` consolidation), and `InsertComment` targeting a `[T/D]` re-routes to the scope level —
+the comment lands directly **above the table's first member** as an independent node, never
+rejected, never bound. **Editing a `[T/D]` table**
 (`cst_edit.rs`, all keyed off `Format::Dotted` since the table has no own element): a child
 insert/add writes a scope-relative dotted entry next to its siblings (`x = v` → `a.b.x = v`,
 `prefix_entry_key`); a child `add` seeds a scalar (a dotted table is excluded from the
