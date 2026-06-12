@@ -75,6 +75,30 @@ pub enum Mutation {
         target: Target,
         text: String,
     },
+    /// Convert the node at `path` to another kind/notation in place (the `K`
+    /// kind-switch): a scalar to another scalar type (value re-rendered), an
+    /// array between inline and multiline, a table between `[T/I]`/`[T/D]`/`[T/S]`
+    /// writing styles. Illegal conversions (lossy value, a position that would
+    /// break the table-capture rule, comments that can't survive the target form)
+    /// reject with the document untouched.
+    ConvertKind {
+        path: Path,
+        target: KindTarget,
+    },
+}
+
+/// The target of a [`Mutation::ConvertKind`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KindTarget {
+    ScalarString,
+    ScalarInteger,
+    ScalarFloat,
+    ScalarBool,
+    ArrayInline,
+    ArrayMultiline,
+    TableInline,
+    TableDotted,
+    TableScope,
 }
 
 #[derive(Debug, thiserror::Error)]

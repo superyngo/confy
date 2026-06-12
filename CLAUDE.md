@@ -170,6 +170,16 @@ the fragment. TOML has no null, so there is no clear-value operation; `a` seeds 
 the empty string `""` — a key/value under a Table/Root, or a bare element when the target is an
 array.
 
+**Kind switch (`K`).** `Mutation::ConvertKind { path, target: KindTarget }` (`convert_kind` in
+`cst_edit.rs`) rewrites a node's kind/notation in place; the TUI side is `Mode::KindSwitch` —
+`open_kind_switch` builds the per-node option list (current kind excluded), a small single-select
+popup applies on Enter (`k` remains vim cursor-up, so the binding is capital `K`). Scalars convert
+losslessly between string/int/float/bool (lossy → `Illegal`); arrays toggle inline ↔ multiline
+(collapse rejects comments / multi-line elements); tables convert between `[T/I]`/`[T/D]`/`[T/S]`
+with `[T/S]` targets checked against the D5 capture rule (mid-entry `[t]`, or a section preceded by
+a foreign header, is `Illegal`; a nested `[s.t]` converts relative to its parent's capture) and
+inline targets rejecting held comments. `[A/T]`, AoT entries, Root and comments don't convert.
+
 **Comments are first-class nodes.** A standalone comment line is a real node in document order —
 navigable, selectable, movable, deletable like any other Node; *moving or copying another node
 never drags a comment along*, and there is no decor-sweep machinery. Consecutive `#` lines

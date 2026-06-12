@@ -71,6 +71,10 @@ pub(crate) fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<SyntaxNode, Muta
             move_nodes(&tree, &sources, &target, on_collision)?;
             tree
         }
+        Mutation::ConvertKind { path, target } => {
+            convert_kind(&tree, &path, target)?;
+            tree
+        }
     };
     validate_semantics(&result)?;
     Ok(result)
@@ -946,6 +950,481 @@ fn replace_value(tree: &SyntaxNode, path: &[Seg], toml: &str) -> Result<(), Muta
     new_content.detach();
     value.splice_children(i..i + 1, vec![new_content]);
     Ok(())
+}
+
+/// `Mutation::ConvertKind` — rewrite the node at `path` in another kind/notation,
+/// in place. Scalars re-render their literal (lossless conversions only — a
+/// non-integral float to integer, a non-`true`/`false` string to bool, … reject
+/// as `Illegal`); arrays toggle inline ↔ multiline; tables convert between
+/// `[T/I]`, `[T/D]` and `[T/S]` writing styles, with `[T/S]` conversions checked
+/// against the table-capture rule (D5) and inline targets rejecting comments
+/// (a `{ … }` holds none).
+fn convert_kind(
+    tree: &SyntaxNode,
+    path: &[Seg],
+    target: crate::model::document::KindTarget,
+) -> Result<(), MutateError> {
+    use crate::model::document::KindTarget as KT;
+    let (proj, idx) = walk(tree, "");
+    node_at(&proj.root, path).ok_or(MutateError::NotFound)?;
+    match target {
+        KT::ScalarString | KT::ScalarInteger | KT::ScalarFloat | KT::ScalarBool => {
+            convert_scalar(tree, &idx, path, target)
+        }
+        KT::ArrayInline | KT::ArrayMultiline => convert_array(tree, &idx, path, target),
+        KT::TableInline | KT::TableDotted | KT::TableScope => {
+            convert_table(tree, &proj.root, &idx, path, target)
+        }
+    }
+}
+
+/// The scalar token of the VALUE backing `path` (a keyed entry or array element).
+fn scalar_token_at(idx: &CstIndex, path: &[Seg]) -> Result<SyntaxToken, MutateError> {
+    let value = match idx.iter().find(|(p, _)| p == path).map(|(_, t)| t) {
+        Some(Target::Entry(e)) => e
+            .children()
+            .find(|c| c.kind() == SyntaxKind::VALUE)
+            .ok_or(MutateError::Unsupported)?,
+        Some(Target::ArrayElement(v)) => v.clone(),
+        _ => return Err(MutateError::Unsupported),
+    };
+    value
+        .children_with_tokens()
+        .find_map(|c| c.into_token().filter(|t| is_scalar_kind(t.kind())))
+        .ok_or(MutateError::Unsupported)
+}
+
+fn convert_scalar(
+    tree: &SyntaxNode,
+    idx: &CstIndex,
+    path: &[Seg],
+    target: crate::model::document::KindTarget,
+) -> Result<(), MutateError> {
+    use crate::model::document::KindTarget as KT;
+    let tok = scalar_token_at(idx, path)?;
+    let raw = tok.text().to_string();
+    // The "plain" source text: a string's inner content, any other scalar's
+    // literal as written.
+    let is_string = matches!(
+        tok.kind(),
+        SyntaxKind::STRING
+            | SyntaxKind::STRING_LITERAL
+            | SyntaxKind::MULTI_LINE_STRING
+            | SyntaxKind::MULTI_LINE_STRING_LITERAL
+    );
+    let plain = if is_string {
+        let t = raw.trim();
+        let strip = if t.starts_with("\"\"\"") || t.starts_with("'''") {
+            3
+        } else {
+            1
+        };
+        t[strip..t.len().saturating_sub(strip)].to_string()
+    } else {
+        raw.clone()
+    };
+    let cleaned = plain.trim().replace('_', "");
+    let illegal = |what: &str| MutateError::Illegal(format!("cannot convert `{plain}` to {what}"));
+    let lit = match target {
+        KT::ScalarString => format!("\"{}\"", plain.replace('\\', "\\\\").replace('"', "\\\"")),
+        KT::ScalarInteger => {
+            if let Ok(v) = cleaned.parse::<i64>() {
+                v.to_string()
+            } else if let Ok(f) = cleaned.parse::<f64>() {
+                if f.fract() == 0.0 && f.is_finite() {
+                    format!("{}", f as i64)
+                } else {
+                    return Err(illegal("integer"));
+                }
+            } else {
+                return Err(illegal("integer"));
+            }
+        }
+        KT::ScalarFloat => {
+            let f: f64 = cleaned.parse().map_err(|_| illegal("float"))?;
+            let mut s = format!("{f}");
+            if !s.contains('.') && !s.contains('e') && !s.contains("inf") && !s.contains("nan") {
+                s.push_str(".0");
+            }
+            s
+        }
+        KT::ScalarBool => match cleaned.as_str() {
+            "true" | "false" => cleaned,
+            _ => return Err(illegal("boolean")),
+        },
+        _ => unreachable!(),
+    };
+    let parse = taplo::parser::parse(&format!("__k__ = {lit}\n"));
+    if let Some(e) = parse.errors.first() {
+        return Err(MutateError::Fragment(e.to_string()));
+    }
+    replace_value(tree, path, &format!("__k__ = {lit}\n"))
+}
+
+fn convert_array(
+    tree: &SyntaxNode,
+    idx: &CstIndex,
+    path: &[Seg],
+    target: crate::model::document::KindTarget,
+) -> Result<(), MutateError> {
+    use crate::model::document::KindTarget as KT;
+    let arr = entry_array(idx, path)?;
+    let is_multiline = arr.to_string().contains('\n');
+    match target {
+        KT::ArrayMultiline => {
+            if is_multiline {
+                return Err(MutateError::Illegal("array is already multiline".into()));
+            }
+            array_make_multiline(&arr)
+        }
+        KT::ArrayInline => {
+            if !is_multiline {
+                return Err(MutateError::Illegal("array is already inline".into()));
+            }
+            // Comments can't survive a single line; nested multi-line elements
+            // can't either.
+            if arr
+                .descendants_with_tokens()
+                .any(|c| matches!(&c, NodeOrToken::Token(t) if t.kind() == SyntaxKind::COMMENT))
+            {
+                return Err(MutateError::Illegal(
+                    "the array holds comments — remove them first".into(),
+                ));
+            }
+            let elems: Vec<String> = arr
+                .children()
+                .filter(|c| c.kind() == SyntaxKind::VALUE)
+                .map(|v| v.to_string().trim().to_string())
+                .collect();
+            if elems.iter().any(|e| e.contains('\n')) {
+                return Err(MutateError::Illegal(
+                    "a multi-line element cannot be collapsed".into(),
+                ));
+            }
+            replace_value(tree, path, &format!("__k__ = [{}]\n", elems.join(", ")))
+        }
+        _ => unreachable!(),
+    }
+}
+
+/// True when, scanning the flat ROOT from child `from` (exclusive), an `ENTRY`
+/// appears before the next `[…]`/`[[…]]` header — i.e. a header spliced at/before
+/// `from` would capture it (D5).
+fn entry_follows_before_next_header(tree: &SyntaxNode, from: usize) -> bool {
+    for el in tree.children_with_tokens().skip(from + 1) {
+        if let NodeOrToken::Node(n) = el {
+            match n.kind() {
+                SyntaxKind::TABLE_HEADER | SyntaxKind::TABLE_ARRAY_HEADER => return false,
+                SyntaxKind::ENTRY => return true,
+                _ => {}
+            }
+        }
+    }
+    false
+}
+
+/// The first `keep` key segments of `entry`'s KEY (with their separators), as
+/// written — the complement of [`strip_key_prefix`].
+fn key_prefix_text(entry: &SyntaxNode, keep: usize) -> String {
+    let Some(key) = entry.children().find(|c| c.kind() == SyntaxKind::KEY) else {
+        return String::new();
+    };
+    let mut out = String::new();
+    let mut seen = 0usize;
+    for c in key.children_with_tokens() {
+        if let NodeOrToken::Token(t) = &c {
+            if is_key_seg(t.kind()) {
+                seen += 1;
+                if seen > keep {
+                    break;
+                }
+                if !out.is_empty() {
+                    out.push('.');
+                }
+                out.push_str(t.text());
+            }
+        }
+    }
+    out
+}
+
+fn convert_table(
+    tree: &SyntaxNode,
+    root: &Node,
+    idx: &CstIndex,
+    path: &[Seg],
+    target: crate::model::document::KindTarget,
+) -> Result<(), MutateError> {
+    use crate::model::document::KindTarget as KT;
+
+    // ---- current form: [T/I] — a keyed inline-table entry on the flat ROOT ----
+    if let Some(Target::Entry(entry)) = idx.iter().find(|(p, _)| p == path).map(|(_, t)| t) {
+        let it = entry
+            .children()
+            .find(|c| c.kind() == SyntaxKind::VALUE)
+            .and_then(|v| struct_node(&v))
+            .filter(|n| n.kind() == SyntaxKind::INLINE_TABLE)
+            .ok_or(MutateError::Unsupported)?;
+        if entry.parent().map(|p| p.kind()) != Some(SyntaxKind::ROOT) {
+            return Err(MutateError::Unsupported);
+        }
+        let members: Vec<String> = it
+            .children()
+            .filter(|c| c.kind() == SyntaxKind::ENTRY)
+            .map(|e| e.to_string().trim().to_string())
+            .collect();
+        if members.is_empty() {
+            return Err(MutateError::Illegal(
+                "an empty inline table has no members to convert".into(),
+            ));
+        }
+        let key_text = entry
+            .children()
+            .find(|c| c.kind() == SyntaxKind::KEY)
+            .map(|k| k.to_string().trim().to_string())
+            .ok_or(MutateError::Unsupported)?;
+        let text = match target {
+            KT::TableInline => return Err(MutateError::Illegal("table is already inline".into())),
+            KT::TableDotted => members
+                .iter()
+                .map(|m| format!("{key_text}.{m}\n"))
+                .collect::<String>(),
+            KT::TableScope => {
+                if entry_follows_before_next_header(tree, entry.index()) {
+                    return Err(MutateError::Illegal(
+                        "a [table] here would capture the keys below it".into(),
+                    ));
+                }
+                format!(
+                    "[{}]\n{}",
+                    path_key_display(path),
+                    members.iter().map(|m| format!("{m}\n")).collect::<String>()
+                )
+            }
+            _ => unreachable!(),
+        };
+        let parse = taplo::parser::parse(&text);
+        if let Some(e) = parse.errors.first() {
+            return Err(MutateError::Fragment(e.to_string()));
+        }
+        let frag = parse.into_syntax().clone_for_update();
+        let els: Vec<_> = frag.children_with_tokens().collect();
+        for e in &els {
+            e.detach();
+        }
+        let i = entry.index();
+        let end = extend_over_newline(tree, i + 1);
+        tree.splice_children(i..end, els);
+        return Ok(());
+    }
+
+    // ---- current form: [T/D] — flat dotted members, no own header ----
+    if is_headerless_table(idx, root, path) {
+        let members = dotted_member_entries(idx, path);
+        if members.is_empty() {
+            return Err(MutateError::Unsupported);
+        }
+        let first = members.first().unwrap().clone();
+        let depth_below = |e: &SyntaxNode| {
+            idx.iter()
+                .find(|(_, t)| matches!(t, Target::Entry(n) if n == e))
+                .map(|(p, _)| p.len() - path.len())
+                .unwrap_or(1)
+        };
+        let below = |e: &SyntaxNode| {
+            let strip = entry_key_seg_count(e).saturating_sub(depth_below(e));
+            strip_key_prefix(e, strip).trim().to_string()
+        };
+        let has_bound_comments = members
+            .iter()
+            .any(|m| bound_comment_start(tree, m.index()) != m.index());
+        let text = match target {
+            KT::TableDotted => return Err(MutateError::Illegal("table is already dotted".into())),
+            KT::TableInline => {
+                if has_bound_comments {
+                    return Err(MutateError::Illegal(
+                        "the table holds comments — an inline table can't keep them".into(),
+                    ));
+                }
+                let ms: Vec<String> = members.iter().map(&below).collect();
+                if ms.iter().any(|m| m.contains('\n')) {
+                    return Err(MutateError::Illegal(
+                        "a multi-line member cannot live in an inline table".into(),
+                    ));
+                }
+                // The entry key: the member key's leading segments down to the
+                // table (keeps any headerless-ancestor prefix, e.g. `a.b` for a
+                // nested `[T/D]`).
+                let keep = entry_key_seg_count(&first).saturating_sub(depth_below(&first));
+                let key = key_prefix_text(&first, keep);
+                key_text_sanity(&key)?;
+                format!("{key} = {{ {} }}\n", ms.join(", "))
+            }
+            KT::TableScope => {
+                if entry_follows_foreign(tree, &members) {
+                    return Err(MutateError::Illegal(
+                        "a [table] here would capture the keys below it".into(),
+                    ));
+                }
+                let mut t = format!("[{}]\n", path_key_display(path));
+                for m in &members {
+                    t.push_str(&bound_comment_text(tree, m));
+                    t.push_str(&format!("{}\n", below(m)));
+                }
+                t
+            }
+            _ => unreachable!(),
+        };
+        return replace_dotted_table(tree, idx, path, &text);
+    }
+
+    // ---- current form: [T/S] — own [header] section ----
+    let Some(Target::Header(h)) = idx.iter().find(|(p, _)| p == path).map(|(_, t)| t.clone())
+    else {
+        return Err(MutateError::Unsupported);
+    };
+    let spans = table_member_spans(tree, idx, path);
+    if spans.iter().any(|s| match s {
+        MemberSpan::Section(sh) => header_path(sh) != *path,
+        MemberSpan::Entry(_) => true,
+    }) {
+        return Err(MutateError::Illegal(
+            "only a self-contained [table] (no sub-tables or dotted members) can convert".into(),
+        ));
+    }
+    // The lines written in place of the section land in whatever scope precedes
+    // them: legal only when the nearest preceding header is the parent scope's
+    // own (or none, for a root-level table).
+    let preceding = tree
+        .children_with_tokens()
+        .take(h.index())
+        .filter_map(|el| match el {
+            NodeOrToken::Node(n)
+                if matches!(
+                    n.kind(),
+                    SyntaxKind::TABLE_HEADER | SyntaxKind::TABLE_ARRAY_HEADER
+                ) =>
+            {
+                Some(n)
+            }
+            _ => None,
+        })
+        .last();
+    let parent_path = &path[..path.len() - 1];
+    let capture_ok = match &preceding {
+        None => parent_path.is_empty(),
+        Some(p) => header_path(p) == parent_path && p.kind() == SyntaxKind::TABLE_HEADER,
+    };
+    if !capture_ok {
+        return Err(MutateError::Illegal(
+            "the section's lines would be captured by the preceding table".into(),
+        ));
+    }
+    let i = h.index();
+    let end = section_end(tree, path, i);
+    let els: Vec<_> = tree.children_with_tokens().collect();
+    // Skip the newline that terminates the header line — it belongs to the
+    // header, not the body.
+    let mut body = &els[i + 1..end];
+    if matches!(body.first(), Some(NodeOrToken::Token(t)) if t.kind() == SyntaxKind::NEWLINE) {
+        body = &body[1..];
+    }
+    let entries: Vec<SyntaxNode> = body
+        .iter()
+        .filter_map(|el| match el {
+            NodeOrToken::Node(n) if n.kind() == SyntaxKind::ENTRY => Some(n.clone()),
+            _ => None,
+        })
+        .collect();
+    // The key prefix relative to the capturing scope (own key for a nested
+    // table, the full path at root).
+    let rel_prefix = path_key_display(&path[parent_path.len()..]);
+    let text = match target {
+        KT::TableScope => return Err(MutateError::Illegal("table is already a [scope]".into())),
+        KT::TableDotted => {
+            if entries.is_empty() {
+                return Err(MutateError::Illegal(
+                    "an empty [table] has no members to convert".into(),
+                ));
+            }
+            // Keep the body verbatim, prefixing each entry line; comments and
+            // blank lines survive in place.
+            body.iter()
+                .map(|el| match el {
+                    NodeOrToken::Node(n) if n.kind() == SyntaxKind::ENTRY => {
+                        format!("{rel_prefix}.{}", n.to_string().trim_start())
+                    }
+                    NodeOrToken::Node(n) => n.to_string(),
+                    NodeOrToken::Token(t) => t.text().to_string(),
+                })
+                .collect::<String>()
+        }
+        KT::TableInline => {
+            if body
+                .iter()
+                .any(|el| matches!(el, NodeOrToken::Token(t) if t.kind() == SyntaxKind::COMMENT))
+            {
+                return Err(MutateError::Illegal(
+                    "the table holds comments — an inline table can't keep them".into(),
+                ));
+            }
+            if entries.is_empty() {
+                return Err(MutateError::Illegal(
+                    "an empty [table] has no members to convert".into(),
+                ));
+            }
+            let ms: Vec<String> = entries
+                .iter()
+                .map(|e| e.to_string().trim().to_string())
+                .collect();
+            if ms.iter().any(|m| m.contains('\n')) {
+                return Err(MutateError::Illegal(
+                    "a multi-line member cannot live in an inline table".into(),
+                ));
+            }
+            format!("{rel_prefix} = {{ {} }}\n", ms.join(", "))
+        }
+        _ => unreachable!(),
+    };
+    let parse = taplo::parser::parse(&text);
+    if let Some(e) = parse.errors.first() {
+        return Err(MutateError::Fragment(e.to_string()));
+    }
+    let frag = parse.into_syntax().clone_for_update();
+    let new_els: Vec<_> = frag.children_with_tokens().collect();
+    for e in &new_els {
+        e.detach();
+    }
+    tree.splice_children(i..end, new_els);
+    Ok(())
+}
+
+/// Validate a rebuilt dotted key parses (`k = 0`); returns the key unchanged.
+fn key_text_sanity(key: &str) -> Result<(), MutateError> {
+    let parse = taplo::parser::parse(&format!("{key} = 0\n"));
+    match parse.errors.first() {
+        Some(e) => Err(MutateError::Fragment(e.to_string())),
+        None => Ok(()),
+    }
+}
+
+/// True when an ENTRY that is **not** one of `members` sits between the first
+/// member and the next section header — a `[table]` consolidated at the first
+/// member would capture it.
+fn entry_follows_foreign(tree: &SyntaxNode, members: &[SyntaxNode]) -> bool {
+    let Some(first) = members.first() else {
+        return false;
+    };
+    for el in tree.children_with_tokens().skip(first.index() + 1) {
+        if let NodeOrToken::Node(n) = el {
+            match n.kind() {
+                SyntaxKind::TABLE_HEADER | SyntaxKind::TABLE_ARRAY_HEADER => return false,
+                SyntaxKind::ENTRY if !members.contains(&n) => return true,
+                _ => {}
+            }
+        }
+    }
+    false
 }
 
 /// The `ARRAY` / `INLINE_TABLE` child node of a `VALUE`, if any.
@@ -3832,6 +4311,148 @@ mod tests {
         })
         .unwrap();
         assert_eq!(d.serialize(), "a.b = 1\n# new\na.c = 2\n");
+    }
+
+    fn convert(src: &str, path: Vec<Seg>, target: crate::model::document::KindTarget) -> String {
+        let mut d = doc(src);
+        d.apply(Mutation::ConvertKind { path, target }).unwrap();
+        d.serialize()
+    }
+
+    fn convert_err(
+        src: &str,
+        path: Vec<Seg>,
+        target: crate::model::document::KindTarget,
+    ) -> MutateError {
+        let mut d = doc(src);
+        let err = d.apply(Mutation::ConvertKind { path, target }).unwrap_err();
+        assert_eq!(d.serialize(), src, "doc must stay untouched on error");
+        err
+    }
+
+    #[test]
+    fn convert_scalar_types() {
+        use crate::model::document::KindTarget as KT;
+        let k = |s: &str| vec![Seg::Key(s.into())];
+        assert_eq!(
+            convert("a = 42 # c\n", k("a"), KT::ScalarString),
+            "a = \"42\" # c\n"
+        );
+        assert_eq!(
+            convert("a = \"42\"\n", k("a"), KT::ScalarInteger),
+            "a = 42\n"
+        );
+        assert_eq!(convert("a = 1\n", k("a"), KT::ScalarFloat), "a = 1.0\n");
+        assert_eq!(convert("a = 2.0\n", k("a"), KT::ScalarInteger), "a = 2\n");
+        assert_eq!(
+            convert("a = \"true\"\n", k("a"), KT::ScalarBool),
+            "a = true\n"
+        );
+        assert!(matches!(
+            convert_err("a = \"x\"\n", k("a"), KT::ScalarInteger),
+            MutateError::Illegal(_)
+        ));
+        assert!(matches!(
+            convert_err("a = 2.5\n", k("a"), KT::ScalarInteger),
+            MutateError::Illegal(_)
+        ));
+    }
+
+    #[test]
+    fn convert_array_inline_multiline_roundtrip() {
+        use crate::model::document::KindTarget as KT;
+        let k = vec![Seg::Key("arr".into())];
+        let multi = convert("arr = [1, 2]\n", k.clone(), KT::ArrayMultiline);
+        assert!(
+            multi.contains('\n') && multi.matches('\n').count() > 1,
+            "{multi}"
+        );
+        let mut d = doc(&multi);
+        d.apply(Mutation::ConvertKind {
+            path: k.clone(),
+            target: KT::ArrayInline,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "arr = [1, 2]\n");
+        // Comments block the collapse.
+        assert!(matches!(
+            convert_err("arr = [\n  1,\n  # c\n  2,\n]\n", k, KT::ArrayInline),
+            MutateError::Illegal(_)
+        ));
+    }
+
+    #[test]
+    fn convert_inline_table_to_dotted_and_scope() {
+        use crate::model::document::KindTarget as KT;
+        let k = |s: &str| vec![Seg::Key(s.into())];
+        assert_eq!(
+            convert("t = { a = 1, b = 2 }\n", k("t"), KT::TableDotted),
+            "t.a = 1\nt.b = 2\n"
+        );
+        assert_eq!(
+            convert("x = 0\nt = { a = 1 }\n", k("t"), KT::TableScope),
+            "x = 0\n[t]\na = 1\n"
+        );
+        // A [table] mid-entries would capture the keys below it.
+        assert!(matches!(
+            convert_err("t = { a = 1 }\nx = 0\n", k("t"), KT::TableScope),
+            MutateError::Illegal(_)
+        ));
+    }
+
+    #[test]
+    fn convert_dotted_table_to_inline_and_scope() {
+        use crate::model::document::KindTarget as KT;
+        let k = |s: &str| vec![Seg::Key(s.into())];
+        assert_eq!(
+            convert("t.a = 1\nt.b = 2\n", k("t"), KT::TableInline),
+            "t = { a = 1, b = 2 }\n"
+        );
+        assert_eq!(
+            convert("x = 0\nt.a = 1\nt.b = 2\n", k("t"), KT::TableScope),
+            "x = 0\n[t]\na = 1\nb = 2\n"
+        );
+        assert!(matches!(
+            convert_err("t.a = 1\nx = 0\n", k("t"), KT::TableScope),
+            MutateError::Illegal(_)
+        ));
+        // A bound comment can't live in a `{ … }`.
+        assert!(matches!(
+            convert_err("# c\nt.a = 1\n", k("t"), KT::TableInline),
+            MutateError::Illegal(_)
+        ));
+        // … but it travels into the scope form.
+        assert_eq!(
+            convert("# c\nt.a = 1\n", k("t"), KT::TableScope),
+            "[t]\n# c\na = 1\n"
+        );
+    }
+
+    #[test]
+    fn convert_scope_table_to_dotted_and_inline() {
+        use crate::model::document::KindTarget as KT;
+        let k = |s: &str| vec![Seg::Key(s.into())];
+        assert_eq!(
+            convert("[t]\na = 1\nb = 2\n", k("t"), KT::TableDotted),
+            "t.a = 1\nt.b = 2\n"
+        );
+        assert_eq!(
+            convert("[t]\na = 1\n", k("t"), KT::TableInline),
+            "t = { a = 1 }\n"
+        );
+        // Preceded by a foreign section: its lines would be captured.
+        assert!(matches!(
+            convert_err("[s]\nx = 1\n\n[t]\na = 1\n", k("t"), KT::TableDotted),
+            MutateError::Illegal(_)
+        ));
+        // A nested sub-scope converts relative to its parent's capture.
+        let mut d = doc("[s]\nx = 1\n\n[s.t]\na = 1\n");
+        d.apply(Mutation::ConvertKind {
+            path: vec![Seg::Key("s".into()), Seg::Key("t".into())],
+            target: KT::TableDotted,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "[s]\nx = 1\n\nt.a = 1\n");
     }
 
     #[test]

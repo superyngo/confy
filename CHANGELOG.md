@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `K` kind switch — a single-select popup converting the cursor node's kind/notation in place (`Mutation::ConvertKind`; `k` stays vim cursor-up). **Scalars** convert losslessly between string/integer/float/boolean (any scalar → string by quoting; a non-integral float → integer, a non-`true/false` string → bool, … reject as `Illegal`, document untouched). **Arrays** toggle inline ↔ multiline (the collapse rejects interior comments and multi-line elements). **Tables** convert between `[T/I]`, `[T/D]` and `[T/S]` writing styles: `[T/S]` targets are checked against the table-capture rule (a `[t]` mid-entries, or a section preceded by a foreign header, rejects as `Illegal`), inline targets reject held comments, a nested `[s.t]` converts relative to its parent's capture (`[s.t]` → dotted `t.a = …` under `[s]`), and a `[T/D]`'s bound comments travel into the scope form. `[A/T]`, AoT entries, Root and comments are not convertible. (2026-06-12)
+
+### Added
 - `[T/D]` comment binding — **a comment directly above a dotted member (no blank line) now binds to the `[T/D]` table**: it projects *inside* the synthetic table at the member's slot, travels with the member on whole-table move/copy and the `e` consolidation (the block edit gathers bound comments at the first definition instead of orphaning them), and dies with the table on delete. A blank-separated comment stays an independent scope-level node, and single-member moves still never drag a comment. Comments can be **inserted into a `[T/D]` table** (`InsertComment` lands the line above the member at the target slot). (2026-06-12)
 
 ### Added

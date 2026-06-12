@@ -13,9 +13,21 @@ pub enum Mode {
     /// toggles the focused cell, Enter applies (locks into `FilterResults`/`Normal`),
     /// Esc peels the type filter off. The tree filters live in the background.
     TypeFilter,
+    /// The `K` kind-switch popup is open: a single-select list of the kinds the
+    /// cursor node can convert to. Up/Down (or j/k) move, Enter applies
+    /// (`Mutation::ConvertKind`), Esc cancels.
+    KindSwitch(KindSwitchState),
     Detail,
     Help,
     Edit(EditState),
+}
+
+/// In-flight `K` kind-switch popup state.
+pub struct KindSwitchState {
+    pub path: Path,
+    /// `(label, target)` choices for the node — the current kind is excluded.
+    pub options: Vec<(String, crate::model::document::KindTarget)>,
+    pub cursor: usize,
 }
 
 pub enum PromptKind {

@@ -204,6 +204,19 @@ fn run_event_loop(
                 }
                 continue;
             }
+            // Kind-switch popup: Up/Down (or j/k) move the selection, Enter
+            // applies the conversion, Esc cancels. Modal — other keys swallowed.
+            if matches!(app.mode, crate::tui::state::Mode::KindSwitch(_)) {
+                use crossterm::event::KeyCode;
+                match key.code {
+                    KeyCode::Up | KeyCode::Char('k') => app.kind_switch_move(-1),
+                    KeyCode::Down | KeyCode::Char('j') => app.kind_switch_move(1),
+                    KeyCode::Enter => app.kind_switch_commit(),
+                    KeyCode::Esc => app.escape(),
+                    _ => {}
+                }
+                continue;
+            }
             let action = keys::map_key(key);
             // Any non-shift-extend action ends the current shift multi-select
             // round, so the next Shift+Arrow begins a fresh one (unioned on top).
@@ -303,6 +316,7 @@ fn run_event_loop(
                 keys::KeyAction::Escape => app.escape(),
                 keys::KeyAction::Filter => app.enter_filter(),
                 keys::KeyAction::TypeFilter => app.enter_type_filter(),
+                keys::KeyAction::KindSwitch => app.open_kind_switch(),
                 keys::KeyAction::Help => app.enter_help(),
                 keys::KeyAction::Noop => {}
             }

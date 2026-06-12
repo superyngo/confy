@@ -538,6 +538,107 @@ impl App {
         self.rebuild_rows();
     }
 
+    // ---- Kind switch (K) ----
+
+    /// `K` — open the kind-switch popup for the cursor node: a single-select
+    /// list of the kinds/notations it can convert to. Non-convertible nodes
+    /// (Root, comments, `[A/T]`, AoT entries) report via the status line.
+    pub fn open_kind_switch(&mut self) {
+        use crate::model::document::KindTarget as KT;
+        use crate::model::node::ScalarType as ST;
+        let Some(row) = self.rows.get(self.cursor) else {
+            return;
+        };
+        let path = row.path.clone();
+        let Some(node) = node_at(&self.tree.root, &path) else {
+            return;
+        };
+        let options: Vec<(String, KT)> = match &node.kind {
+            NodeKind::Scalar(st) => match st {
+                ST::String => vec![
+                    ("integer".into(), KT::ScalarInteger),
+                    ("float".into(), KT::ScalarFloat),
+                    ("boolean".into(), KT::ScalarBool),
+                ],
+                ST::Integer => vec![
+                    ("string".into(), KT::ScalarString),
+                    ("float".into(), KT::ScalarFloat),
+                ],
+                ST::Float => vec![
+                    ("string".into(), KT::ScalarString),
+                    ("integer".into(), KT::ScalarInteger),
+                ],
+                ST::Bool => vec![("string".into(), KT::ScalarString)],
+                _ => vec![("string".into(), KT::ScalarString)],
+            },
+            NodeKind::Array if node.value.is_some() => {
+                vec![("multiline array  [A/M]".into(), KT::ArrayMultiline)]
+            }
+            NodeKind::Array => vec![("inline array  [A/I]".into(), KT::ArrayInline)],
+            NodeKind::InlineTable => vec![
+                ("dotted table  [T/D]".into(), KT::TableDotted),
+                ("table scope   [T/S]".into(), KT::TableScope),
+            ],
+            NodeKind::Table if node.format == Format::Dotted => vec![
+                ("inline table  [T/I]".into(), KT::TableInline),
+                ("table scope   [T/S]".into(), KT::TableScope),
+            ],
+            NodeKind::Table if matches!(path.last(), Some(Seg::Key(_))) => vec![
+                ("dotted table  [T/D]".into(), KT::TableDotted),
+                ("inline table  [T/I]".into(), KT::TableInline),
+            ],
+            _ => {
+                self.status = Some("this node's kind cannot be switched".into());
+                return;
+            }
+        };
+        self.mode = Mode::KindSwitch(crate::tui::state::KindSwitchState {
+            path,
+            options,
+            cursor: 0,
+        });
+    }
+
+    /// Move the kind-switch popup cursor.
+    pub fn kind_switch_move(&mut self, delta: i32) {
+        if let Mode::KindSwitch(st) = &mut self.mode {
+            let n = st.options.len() as i32;
+            if n > 0 {
+                st.cursor = (st.cursor as i32 + delta).rem_euclid(n) as usize;
+            }
+        }
+    }
+
+    /// Enter — apply the selected conversion and close the popup.
+    pub fn kind_switch_commit(&mut self) {
+        let Mode::KindSwitch(st) = std::mem::replace(&mut self.mode, Mode::Normal) else {
+            return;
+        };
+        self.mode = self.resting_mode();
+        let Some((label, target)) = st.options.get(st.cursor).cloned() else {
+            return;
+        };
+        let Some(doc) = self.doc.as_mut() else {
+            return;
+        };
+        match doc.apply(crate::model::document::Mutation::ConvertKind {
+            path: st.path,
+            target,
+        }) {
+            Ok(()) => {
+                self.on_mutation_success();
+                self.status = Some(format!("converted to {label}"));
+            }
+            Err(e) => self.status = Some(format!("kind switch: {e}")),
+        }
+    }
+
+    /// Esc — close the popup without converting.
+    pub fn exit_kind_switch(&mut self) {
+        self.mode = self.resting_mode();
+        self.status = None;
+    }
+
     /// Insert a character at the filter caret.
     pub fn filter_char(&mut self, c: char) {
         let at = char_byte_idx(&self.filter, self.filter_cursor);
@@ -1923,6 +2024,7 @@ impl App {
             Mode::Filter => self.exit_filter(),
             Mode::FilterResults => self.exit_filter_results(),
             Mode::TypeFilter => self.exit_type_filter(),
+            Mode::KindSwitch(_) => self.exit_kind_switch(),
             Mode::Detail => self.exit_detail(),
             Mode::Help => self.exit_help(),
             Mode::Edit(_) => self.edit_cancel(),
@@ -2776,6 +2878,33 @@ mod tests {
         f.write_all(src.as_bytes()).unwrap();
         let doc = crate::model::cst_doc::CstDocument::load(f.path()).unwrap();
         App::new(doc)
+    }
+
+    #[test]
+    fn kind_switch_converts_scalar_via_popup() {
+        let mut app = app_with("a = \"42\"\nb = 1\n");
+        app.cursor = app.rows.iter().position(|r| r.key == "a").unwrap();
+        app.open_kind_switch();
+        let Mode::KindSwitch(st) = &app.mode else {
+            panic!("popup should be open");
+        };
+        assert_eq!(st.options[0].0, "integer");
+        app.kind_switch_commit();
+        assert_eq!(app.doc.as_ref().unwrap().serialize(), "a = 42\nb = 1\n");
+        assert!(matches!(app.mode, Mode::Normal));
+    }
+
+    #[test]
+    fn kind_switch_rejects_non_convertible_node() {
+        let mut app = app_with("# c\na = 1\n");
+        app.cursor = app
+            .rows
+            .iter()
+            .position(|r| r.key.starts_with('#'))
+            .unwrap();
+        app.open_kind_switch();
+        assert!(matches!(app.mode, Mode::Normal), "popup must not open");
+        assert!(app.status.as_deref().unwrap_or("").contains("cannot"));
     }
 
     #[test]
