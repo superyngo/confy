@@ -177,8 +177,15 @@ array.
 **Kind switch (`K`).** `Mutation::ConvertKind { path, target: KindTarget }` (`convert_kind` in
 `cst_edit.rs`) rewrites a node's kind/notation in place; the TUI side is `Mode::KindSwitch` —
 `open_kind_switch` builds the per-node option list (current kind excluded), a small single-select
-popup applies on Enter (`k` remains vim cursor-up, so the binding is capital `K`). Scalars convert
-losslessly between string/int/float/bool (lossy → `Illegal`); arrays toggle inline ↔ multiline
+popup applies on Enter (`k` remains vim cursor-up, so the binding is capital `K`). **Scalars switch
+between notations of their own type**, never across types: strings between
+basic/literal/multiline/multiline-literal (content decoded then re-encoded; a `'` in a literal
+form, `'''` in a multiline literal, or a real newline in a single-line literal is `Illegal` —
+single-line *basic* escapes newlines as `\n`, so mstr→str is lossless), integers between
+dec/hex/oct/bin radices (`_` separators parse; negatives have no prefixed form), floats between
+plain ↔ exponent (exponent detected from the value text — `Format` has no variant for it; re-rendered
+from the parsed `f64`); bools, datetimes and `inf`/`nan` have one notation and don't convert.
+Arrays toggle inline ↔ multiline
 (collapse rejects comments / multi-line elements); tables convert between `[T/I]`/`[T/D]`/`[T/S]`
 with `[T/S]` targets checked against the D5 capture rule (mid-entry `[t]`, or a section preceded by
 a foreign header, is `Illegal`; a nested `[s.t]` converts relative to its parent's capture) and

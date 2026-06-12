@@ -926,9 +926,16 @@ fn convert_kind(
     let (proj, idx) = walk(tree, "");
     let node = node_at(&proj.root, path).ok_or(MutateError::NotFound)?;
     match target {
-        KT::ScalarString | KT::ScalarInteger | KT::ScalarFloat | KT::ScalarBool => {
-            convert_scalar(tree, &idx, path, target)
-        }
+        KT::StringBasic
+        | KT::StringLiteral
+        | KT::StringMultiline
+        | KT::StringMultilineLiteral
+        | KT::IntDecimal
+        | KT::IntHex
+        | KT::IntOctal
+        | KT::IntBinary
+        | KT::FloatPlain
+        | KT::FloatExponent => convert_scalar(tree, &idx, path, target),
         KT::ArrayInline | KT::ArrayMultiline
             if matches!(node.kind, crate::model::node::NodeKind::ArrayOfTables) =>
         {
@@ -958,6 +965,133 @@ fn scalar_token_at(idx: &CstIndex, path: &[Seg]) -> Result<SyntaxToken, MutateEr
         .ok_or(MutateError::Unsupported)
 }
 
+/// The inner content of a string token's text: the delimiters dropped, a
+/// multiline form's immediate leading newline trimmed.
+fn string_inner(raw: &str, delim_len: usize) -> String {
+    let inner = &raw[delim_len..raw.len().saturating_sub(delim_len)];
+    if delim_len == 3 {
+        inner
+            .strip_prefix("\r\n")
+            .or_else(|| inner.strip_prefix('\n'))
+            .unwrap_or(inner)
+            .to_string()
+    } else {
+        inner.to_string()
+    }
+}
+
+/// Resolve the escapes of a basic (`"…"` / `"""…"""`) string's inner text.
+fn unescape_basic(s: &str, multiline: bool) -> Result<String, MutateError> {
+    let mut out = String::new();
+    let mut chars = s.chars().peekable();
+    let hex = |chars: &mut std::iter::Peekable<std::str::Chars>, n: usize| {
+        let code: String = (0..n).filter_map(|_| chars.next()).collect();
+        u32::from_str_radix(&code, 16)
+            .ok()
+            .and_then(char::from_u32)
+            .ok_or_else(|| MutateError::Illegal(format!("bad unicode escape `\\{code}`")))
+    };
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('b') => out.push('\u{8}'),
+            Some('t') => out.push('\t'),
+            Some('n') => out.push('\n'),
+            Some('f') => out.push('\u{c}'),
+            Some('r') => out.push('\r'),
+            Some('"') => out.push('"'),
+            Some('\\') => out.push('\\'),
+            Some('u') => out.push(hex(&mut chars, 4)?),
+            Some('U') => out.push(hex(&mut chars, 8)?),
+            // Line-ending backslash (multiline only): skip whitespace through
+            // the next non-whitespace character.
+            Some(w) if multiline && w.is_ascii_whitespace() => {
+                while chars.peek().is_some_and(|p| p.is_ascii_whitespace()) {
+                    chars.next();
+                }
+            }
+            other => {
+                return Err(MutateError::Illegal(format!(
+                    "unsupported escape `\\{}`",
+                    other.map(String::from).unwrap_or_default()
+                )));
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Render `content` as a single-line basic string (`"…"`, escapes applied —
+/// newlines become `\n`, so a multiline source converts losslessly).
+fn encode_basic_string(content: &str) -> String {
+    let mut out = String::from("\"");
+    for c in content.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{8}' => out.push_str("\\b"),
+            '\u{c}' => out.push_str("\\f"),
+            c if (c as u32) < 0x20 || c == '\u{7f}' => {
+                out.push_str(&format!("\\u{:04X}", c as u32));
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// Render `content` as a multiline basic string (`"""…"""`): newlines and tabs
+/// stay raw, backslashes and delimiter-forming quote runs are escaped, and a
+/// leading newline is doubled (the parser trims the one right after `"""`).
+fn encode_multiline_basic(content: &str) -> String {
+    let mut out = String::from("\"\"\"");
+    if content.starts_with('\n') || content.starts_with("\r\n") {
+        out.push('\n');
+    }
+    let mut quotes = 0usize;
+    for c in content.chars() {
+        match c {
+            '"' => {
+                quotes += 1;
+                if quotes == 3 {
+                    out.pop();
+                    out.push_str("\\\"\"");
+                    quotes = 0;
+                } else {
+                    out.push('"');
+                }
+                continue;
+            }
+            '\\' => out.push_str("\\\\"),
+            '\n' | '\t' => out.push(c),
+            '\r' => out.push_str("\\r"),
+            c if (c as u32) < 0x20 || c == '\u{7f}' => {
+                out.push_str(&format!("\\u{:04X}", c as u32));
+            }
+            c => out.push(c),
+        }
+        quotes = 0;
+    }
+    if out.ends_with('"') {
+        out.pop();
+        out.push_str("\\\"");
+    }
+    out.push_str("\"\"\"");
+    out
+}
+
+/// `K` on a scalar: re-render its value in another **notation of the same
+/// type** — string basic/literal/multiline forms, integer radix, float plain ↔
+/// exponent. A value the target notation can't represent (a `'` in a literal
+/// form, a real newline in a single-line literal, a negative integer in a
+/// prefixed radix) rejects as `Illegal`; bools and datetimes have one notation.
 fn convert_scalar(
     tree: &SyntaxNode,
     idx: &CstIndex,
@@ -965,64 +1099,127 @@ fn convert_scalar(
     target: crate::model::document::KindTarget,
 ) -> Result<(), MutateError> {
     use crate::model::document::KindTarget as KT;
+    use SyntaxKind as K;
     let tok = scalar_token_at(idx, path)?;
     let raw = tok.text().to_string();
-    // The "plain" source text: a string's inner content, any other scalar's
-    // literal as written.
-    let is_string = matches!(
-        tok.kind(),
-        SyntaxKind::STRING
-            | SyntaxKind::STRING_LITERAL
-            | SyntaxKind::MULTI_LINE_STRING
-            | SyntaxKind::MULTI_LINE_STRING_LITERAL
-    );
-    let plain = if is_string {
-        let t = raw.trim();
-        let strip = if t.starts_with("\"\"\"") || t.starts_with("'''") {
-            3
-        } else {
-            1
-        };
-        t[strip..t.len().saturating_sub(strip)].to_string()
-    } else {
-        raw.clone()
-    };
-    let cleaned = plain.trim().replace('_', "");
-    let illegal = |what: &str| MutateError::Illegal(format!("cannot convert `{plain}` to {what}"));
     let lit = match target {
-        KT::ScalarString => format!("\"{}\"", plain.replace('\\', "\\\\").replace('"', "\\\"")),
-        KT::ScalarInteger => {
-            if let Ok(v) = cleaned.parse::<i64>() {
-                v.to_string()
-            } else if let Ok(f) = cleaned.parse::<f64>() {
-                if f.fract() == 0.0 && f.is_finite() {
-                    format!("{}", f as i64)
-                } else {
-                    return Err(illegal("integer"));
+        KT::StringBasic | KT::StringLiteral | KT::StringMultiline | KT::StringMultilineLiteral => {
+            let content = match tok.kind() {
+                K::STRING => unescape_basic(&string_inner(&raw, 1), false)?,
+                K::MULTI_LINE_STRING => unescape_basic(&string_inner(&raw, 3), true)?,
+                K::STRING_LITERAL => string_inner(&raw, 1),
+                K::MULTI_LINE_STRING_LITERAL => string_inner(&raw, 3),
+                _ => {
+                    return Err(MutateError::Illegal(
+                        "only a string converts between string notations".into(),
+                    ));
                 }
+            };
+            match target {
+                KT::StringBasic => encode_basic_string(&content),
+                KT::StringMultiline => encode_multiline_basic(&content),
+                KT::StringLiteral => {
+                    if content.contains('\'') {
+                        return Err(MutateError::Illegal(
+                            "the value holds a `'` — a literal string can't".into(),
+                        ));
+                    }
+                    if content.contains('\n') || content.contains('\r') {
+                        return Err(MutateError::Illegal(
+                            "a multi-line value cannot live in a single-line literal".into(),
+                        ));
+                    }
+                    format!("'{content}'")
+                }
+                KT::StringMultilineLiteral => {
+                    if content.contains("'''") {
+                        return Err(MutateError::Illegal(
+                            "the value holds `'''` — a multiline literal can't".into(),
+                        ));
+                    }
+                    let lead = if content.starts_with('\n') || content.starts_with("\r\n") {
+                        "\n"
+                    } else {
+                        ""
+                    };
+                    format!("'''{lead}{content}'''")
+                }
+                _ => unreachable!(),
+            }
+        }
+        KT::IntDecimal | KT::IntHex | KT::IntOctal | KT::IntBinary => {
+            if !matches!(
+                tok.kind(),
+                K::INTEGER | K::INTEGER_HEX | K::INTEGER_OCT | K::INTEGER_BIN
+            ) {
+                return Err(MutateError::Illegal(
+                    "only an integer converts between radices".into(),
+                ));
+            }
+            let cleaned = raw.replace('_', "");
+            let (neg, body) = match cleaned.strip_prefix('-') {
+                Some(b) => (true, b),
+                None => (false, cleaned.strip_prefix('+').unwrap_or(&cleaned)),
+            };
+            let v = if let Some(h) = body.strip_prefix("0x") {
+                i64::from_str_radix(h, 16)
+            } else if let Some(o) = body.strip_prefix("0o") {
+                i64::from_str_radix(o, 8)
+            } else if let Some(b) = body.strip_prefix("0b") {
+                i64::from_str_radix(b, 2)
             } else {
-                return Err(illegal("integer"));
+                body.parse()
+            }
+            .map_err(|_| MutateError::Illegal(format!("cannot parse `{raw}` as an integer")))?;
+            let v: i64 = if neg { -v } else { v };
+            match target {
+                KT::IntDecimal => v.to_string(),
+                _ if v < 0 => {
+                    return Err(MutateError::Illegal(
+                        "a negative integer has no hex/octal/binary form".into(),
+                    ));
+                }
+                KT::IntHex => format!("0x{v:x}"),
+                KT::IntOctal => format!("0o{v:o}"),
+                KT::IntBinary => format!("0b{v:b}"),
+                _ => unreachable!(),
             }
         }
-        KT::ScalarFloat => {
-            let f: f64 = cleaned.parse().map_err(|_| illegal("float"))?;
-            let mut s = format!("{f}");
-            if !s.contains('.') && !s.contains('e') && !s.contains("inf") && !s.contains("nan") {
-                s.push_str(".0");
+        KT::FloatPlain | KT::FloatExponent => {
+            if tok.kind() != K::FLOAT {
+                return Err(MutateError::Illegal(
+                    "only a float converts between notations".into(),
+                ));
             }
-            s
+            let f: f64 = raw
+                .replace('_', "")
+                .parse()
+                .map_err(|_| MutateError::Illegal(format!("cannot parse `{raw}` as a float")))?;
+            if !f.is_finite() {
+                return Err(MutateError::Illegal(
+                    "inf/nan have a single notation".into(),
+                ));
+            }
+            match target {
+                KT::FloatExponent => format!("{f:e}"),
+                KT::FloatPlain => {
+                    let mut s = format!("{f}");
+                    if !s.contains('.') {
+                        s.push_str(".0");
+                    }
+                    s
+                }
+                _ => unreachable!(),
+            }
         }
-        KT::ScalarBool => match cleaned.as_str() {
-            "true" | "false" => cleaned,
-            _ => return Err(illegal("boolean")),
-        },
-        _ => unreachable!(),
+        _ => return Err(MutateError::Unsupported),
     };
-    let parse = taplo::parser::parse(&format!("__k__ = {lit}\n"));
+    let built = format!("__k__ = {lit}\n");
+    let parse = taplo::parser::parse(&built);
     if let Some(e) = parse.errors.first() {
         return Err(MutateError::Fragment(e.to_string()));
     }
-    replace_value(tree, path, &format!("__k__ = {lit}\n"))
+    replace_value(tree, path, &built)
 }
 
 fn convert_array(
@@ -4706,29 +4903,93 @@ mod tests {
     }
 
     #[test]
-    fn convert_scalar_types() {
+    fn convert_string_notations() {
         use crate::model::document::KindTarget as KT;
         let k = |s: &str| vec![Seg::Key(s.into())];
+        // basic ↔ literal (escapes resolved / re-applied), trailing comment kept.
         assert_eq!(
-            convert("a = 42 # c\n", k("a"), KT::ScalarString),
-            "a = \"42\" # c\n"
+            convert("a = \"x\\\"y\" # c\n", k("a"), KT::StringLiteral),
+            "a = 'x\"y' # c\n"
         );
         assert_eq!(
-            convert("a = \"42\"\n", k("a"), KT::ScalarInteger),
-            "a = 42\n"
+            convert("a = 'C:\\dir'\n", k("a"), KT::StringBasic),
+            "a = \"C:\\\\dir\"\n"
         );
-        assert_eq!(convert("a = 1\n", k("a"), KT::ScalarFloat), "a = 1.0\n");
-        assert_eq!(convert("a = 2.0\n", k("a"), KT::ScalarInteger), "a = 2\n");
+        // single-line → multiline forms.
         assert_eq!(
-            convert("a = \"true\"\n", k("a"), KT::ScalarBool),
-            "a = true\n"
+            convert("a = \"hi\"\n", k("a"), KT::StringMultiline),
+            "a = \"\"\"hi\"\"\"\n"
         );
+        assert_eq!(
+            convert("a = \"hi\"\n", k("a"), KT::StringMultilineLiteral),
+            "a = '''hi'''\n"
+        );
+        // multiline basic → single-line basic escapes the newline (lossless).
+        assert_eq!(
+            convert("a = \"\"\"l1\nl2\"\"\"\n", k("a"), KT::StringBasic),
+            "a = \"l1\\nl2\"\n"
+        );
+        // … but a real newline can't live in a single-line literal,
         assert!(matches!(
-            convert_err("a = \"x\"\n", k("a"), KT::ScalarInteger),
+            convert_err("a = \"\"\"l1\nl2\"\"\"\n", k("a"), KT::StringLiteral),
+            MutateError::Illegal(_)
+        ));
+        // a `'` can't live in a literal, and `'''` not in a multiline literal.
+        assert!(matches!(
+            convert_err("a = \"it's\"\n", k("a"), KT::StringLiteral),
             MutateError::Illegal(_)
         ));
         assert!(matches!(
-            convert_err("a = 2.5\n", k("a"), KT::ScalarInteger),
+            convert_err("a = \"q'''q\"\n", k("a"), KT::StringMultilineLiteral),
+            MutateError::Illegal(_)
+        ));
+        // a non-string doesn't convert to a string notation.
+        assert!(matches!(
+            convert_err("a = 42\n", k("a"), KT::StringBasic),
+            MutateError::Illegal(_)
+        ));
+    }
+
+    #[test]
+    fn convert_integer_radices() {
+        use crate::model::document::KindTarget as KT;
+        let k = |s: &str| vec![Seg::Key(s.into())];
+        assert_eq!(convert("a = 255\n", k("a"), KT::IntHex), "a = 0xff\n");
+        assert_eq!(convert("a = 0xff\n", k("a"), KT::IntDecimal), "a = 255\n");
+        assert_eq!(convert("a = 8\n", k("a"), KT::IntOctal), "a = 0o10\n");
+        assert_eq!(convert("a = 5\n", k("a"), KT::IntBinary), "a = 0b101\n");
+        // `_` separators parse; negatives have no prefixed form.
+        assert_eq!(convert("a = 1_000\n", k("a"), KT::IntHex), "a = 0x3e8\n");
+        assert!(matches!(
+            convert_err("a = -1\n", k("a"), KT::IntHex),
+            MutateError::Illegal(_)
+        ));
+        assert!(matches!(
+            convert_err("a = 1.5\n", k("a"), KT::IntHex),
+            MutateError::Illegal(_)
+        ));
+    }
+
+    #[test]
+    fn convert_float_notations() {
+        use crate::model::document::KindTarget as KT;
+        let k = |s: &str| vec![Seg::Key(s.into())];
+        assert_eq!(
+            convert("a = 150.0\n", k("a"), KT::FloatExponent),
+            "a = 1.5e2\n"
+        );
+        assert_eq!(
+            convert("a = 1.5e2\n", k("a"), KT::FloatPlain),
+            "a = 150.0\n"
+        );
+        assert_eq!(convert("a = 1e0\n", k("a"), KT::FloatPlain), "a = 1.0\n");
+        // inf/nan and non-floats don't convert.
+        assert!(matches!(
+            convert_err("a = inf\n", k("a"), KT::FloatExponent),
+            MutateError::Illegal(_)
+        ));
+        assert!(matches!(
+            convert_err("a = 1\n", k("a"), KT::FloatPlain),
             MutateError::Illegal(_)
         ));
     }

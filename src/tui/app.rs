@@ -553,23 +553,53 @@ impl App {
         let Some(node) = node_at(&self.tree.root, &path) else {
             return;
         };
+        // A scalar switches between notations of its own type; the current
+        // notation is excluded. Bools/datetimes (and inf/nan floats) have one
+        // notation — no options, reported below.
         let options: Vec<(String, KT)> = match &node.kind {
             NodeKind::Scalar(st) => match st {
-                ST::String => vec![
-                    ("integer".into(), KT::ScalarInteger),
-                    ("float".into(), KT::ScalarFloat),
-                    ("boolean".into(), KT::ScalarBool),
-                ],
-                ST::Integer => vec![
-                    ("string".into(), KT::ScalarString),
-                    ("float".into(), KT::ScalarFloat),
-                ],
-                ST::Float => vec![
-                    ("string".into(), KT::ScalarString),
-                    ("integer".into(), KT::ScalarInteger),
-                ],
-                ST::Bool => vec![("string".into(), KT::ScalarString)],
-                _ => vec![("string".into(), KT::ScalarString)],
+                ST::String => [
+                    (Format::BasicString, "basic string  \"…\"", KT::StringBasic),
+                    (Format::Literal, "literal string  '…'", KT::StringLiteral),
+                    (
+                        Format::MultilineBasic,
+                        "multiline string  \"\"\"…\"\"\"",
+                        KT::StringMultiline,
+                    ),
+                    (
+                        Format::MultilineLiteral,
+                        "multiline literal  '''…'''",
+                        KT::StringMultilineLiteral,
+                    ),
+                ]
+                .iter()
+                .filter(|(f, ..)| *f != node.format)
+                .map(|(_, l, t)| ((*l).into(), *t))
+                .collect(),
+                ST::Integer => [
+                    (Format::Decimal, "decimal", KT::IntDecimal),
+                    (Format::Hex, "hex  0x…", KT::IntHex),
+                    (Format::Octal, "octal  0o…", KT::IntOctal),
+                    (Format::Binary, "binary  0b…", KT::IntBinary),
+                ]
+                .iter()
+                .filter(|(f, ..)| *f != node.format)
+                .map(|(_, l, t)| ((*l).into(), *t))
+                .collect(),
+                ST::Float if node.format == Format::Plain => {
+                    // Exponent notation is told from the value text — `Format`
+                    // has no variant for it.
+                    let is_exp = node
+                        .value
+                        .as_deref()
+                        .is_some_and(|v| v.contains(['e', 'E']));
+                    if is_exp {
+                        vec![("plain float  1.5".into(), KT::FloatPlain)]
+                    } else {
+                        vec![("exponent float  1e5".into(), KT::FloatExponent)]
+                    }
+                }
+                _ => Vec::new(),
             },
             NodeKind::Array => {
                 let mut opts: Vec<(String, KT)> = if node.value.is_some() {
@@ -613,6 +643,10 @@ impl App {
                 return;
             }
         };
+        if options.is_empty() {
+            self.status = Some("this node's kind cannot be switched".into());
+            return;
+        }
         self.mode = Mode::KindSwitch(crate::tui::state::KindSwitchState {
             path,
             options,
@@ -2909,10 +2943,21 @@ mod tests {
         let Mode::KindSwitch(st) = &app.mode else {
             panic!("popup should be open");
         };
-        assert_eq!(st.options[0].0, "integer");
+        // A basic string offers the other three string notations.
+        assert_eq!(st.options[0].0, "literal string  '…'");
+        assert_eq!(st.options.len(), 3);
         app.kind_switch_commit();
-        assert_eq!(app.doc.as_ref().unwrap().serialize(), "a = 42\nb = 1\n");
+        assert_eq!(app.doc.as_ref().unwrap().serialize(), "a = '42'\nb = 1\n");
         assert!(matches!(app.mode, Mode::Normal));
+    }
+
+    #[test]
+    fn kind_switch_rejects_bool_scalar() {
+        let mut app = app_with("a = true\n");
+        app.cursor = app.rows.iter().position(|r| r.key == "a").unwrap();
+        app.open_kind_switch();
+        assert!(matches!(app.mode, Mode::Normal), "popup must not open");
+        assert!(app.status.as_deref().unwrap_or("").contains("cannot"));
     }
 
     #[test]

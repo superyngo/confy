@@ -75,12 +75,14 @@ pub enum Mutation {
         target: Target,
         text: String,
     },
-    /// Convert the node at `path` to another kind/notation in place (the `K`
-    /// kind-switch): a scalar to another scalar type (value re-rendered), an
-    /// array between inline and multiline, a table between `[T/I]`/`[T/D]`/`[T/S]`
-    /// writing styles. Illegal conversions (lossy value, a position that would
-    /// break the table-capture rule, comments that can't survive the target form)
-    /// reject with the document untouched.
+    /// Convert the node at `path` to another notation of the same kind in place
+    /// (the `K` kind-switch): a scalar to another notation of its type (string
+    /// basic/literal/multiline forms, integer radix, float plain ↔ exponent), an
+    /// array between inline, multiline and `[[…]]` group form, a table between
+    /// `[T/I]`/`[T/D]`/`[T/S]` writing styles. Illegal conversions (a value the
+    /// target notation can't represent, a position that would break the
+    /// table-capture rule, comments that can't survive the target form) reject
+    /// with the document untouched.
     ConvertKind {
         path: Path,
         target: KindTarget,
@@ -90,10 +92,16 @@ pub enum Mutation {
 /// The target of a [`Mutation::ConvertKind`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KindTarget {
-    ScalarString,
-    ScalarInteger,
-    ScalarFloat,
-    ScalarBool,
+    StringBasic,
+    StringLiteral,
+    StringMultiline,
+    StringMultilineLiteral,
+    IntDecimal,
+    IntHex,
+    IntOctal,
+    IntBinary,
+    FloatPlain,
+    FloatExponent,
     ArrayInline,
     ArrayMultiline,
     ArrayOfTables,
