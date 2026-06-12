@@ -25,9 +25,18 @@ taplo DOM validation — duplicate sections/keys reject as `Collision`, other se
 `$EDITOR` rewrite introducing a duplicate `[a]`).
 
 **`ConfigDocument` trait** abstracts the storage backend so YAML/JSON can be added later; the
-only backend is `CstDocument` (the original `toml_edit`-based `TomlDocument` was retired after
-reaching parity). The trait exposes `load`, `project`, `serialize`, `serialize_fragment`,
-`is_dirty`, and `apply(Mutation)`.
+only concrete backend is `CstDocument` (the original `toml_edit`-based `TomlDocument` was retired
+after reaching parity). The trait exposes `load`, `project`, `serialize`, `serialize_fragment`,
+`serialize_fragment_relative`, `is_dirty`, `apply(Mutation)`, and three **format facets** —
+`format() -> DocFormat`, `comment_prefix()`, `supports_comments()` — plus `kind_options(path)`,
+which serves the `K` popup's per-node convertible-kind list (`(label, KindTarget)` pairs) so the
+TUI never hard-codes a backend's notations. **`AnyDocument`** (`model/any_doc.rs`) is a one-enum
+dispatcher wrapping every backend (one `Toml(CstDocument)` variant today) and implementing
+`ConfigDocument` by match-delegation; the TUI holds a single `AnyDocument`, and a new format is one
+more variant. `detect_format(path)` maps the extension to a `DocFormat` (`.toml`/`.json`/`.jsonc`/
+`.yaml`/`.yml`); `load_as(path, format)` dispatches, **bailing politely** for JSON/YAML until their
+phases land. `Mutation::Insert`/`Replace` carry a format-neutral `fragment:` field (not `toml:`).
+Path→node lookup lives on `NodeTree::node_at(path)` (model layer, reused by `kind_options`).
 
 **Addressing.** Keyed nodes are addressed by `Seg::Key(name)`; **positional** nodes — comments,
 array elements, AoT entries — by `Seg::Index(i)` over the parent's *full child sequence*
@@ -309,11 +318,12 @@ upper-adjacent comment with it — the comment simply stays where it is.
 src/
   main.rs          CLI entry: parse args, load CstDocument, run TUI
   lib.rs           module declarations + re-exports (enables integration tests)
-  cli.rs           clap args; confy <file> [--format toml]; format detection
+  cli.rs           clap args; confy <file> [--format toml|json|yaml]; resolves DocFormat
   model/
     mod.rs         re-exports
-    node.rs        Seg, ScalarType, Format, NodeKind, Node, NodeTree
-    document.rs    ConfigDocument trait, Mutation, Target, OnCollision, errors
+    node.rs        Seg, ScalarType, Format, NodeKind, Node, NodeTree (+ node_at lookup)
+    document.rs    ConfigDocument trait, DocFormat, Mutation, Target, OnCollision, errors
+    any_doc.rs     AnyDocument enum: per-format dispatch + detect_format/load_as (JSON/YAML bail)
     cst_doc.rs     CstDocument holding the taplo/rowan tree: load/serialize/apply (atomic commit)
     cst_project.rs CST → NodeTree projection (comments as real nodes; golden tests)
     cst_edit.rs    rowan splice helpers: one fn per Mutation variant + the path→element walk index
