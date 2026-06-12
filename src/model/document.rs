@@ -28,6 +28,14 @@ pub trait ConfigDocument: Sized {
     /// Whether authored comments are currently legal in this document
     /// (false only for a pure `.json` before the JSONC upgrade, Phase 2).
     fn supports_comments(&self) -> bool;
+
+    /// The kinds/notations the node at `path` can convert to via
+    /// [`Mutation::ConvertKind`], as `(label, target)` pairs — the current
+    /// notation excluded. Empty when the node's kind cannot be switched.
+    /// Labels are format-specific notation names rendered verbatim in the
+    /// `K` popup. Positional legality (capture rules…) is still checked by
+    /// `apply`; this lists only what is legal *by kind*.
+    fn kind_options(&self, path: &[crate::model::node::Seg]) -> Vec<(String, KindTarget)>;
 }
 
 /// Which config syntax a document speaks. Backends report it via

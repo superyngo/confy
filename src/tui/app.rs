@@ -551,105 +551,14 @@ impl App {
     /// list of the kinds/notations it can convert to. Non-convertible nodes
     /// (Root, comments, AoT entries) report via the status line.
     pub fn open_kind_switch(&mut self) {
-        use crate::model::document::KindTarget as KT;
-        use crate::model::node::ScalarType as ST;
         let Some(row) = self.rows.get(self.cursor) else {
             return;
         };
         let path = row.path.clone();
-        let Some(node) = self.tree.node_at(&path) else {
+        let Some(doc) = &self.doc else {
             return;
         };
-        // A scalar switches between notations of its own type; the current
-        // notation is excluded. Bools/datetimes (and inf/nan floats) have one
-        // notation — no options, reported below.
-        let options: Vec<(String, KT)> = match &node.kind {
-            NodeKind::Scalar(st) => match st {
-                ST::String => [
-                    (Format::BasicString, "basic string  \"…\"", KT::StringBasic),
-                    (Format::Literal, "literal string  '…'", KT::StringLiteral),
-                    (
-                        Format::MultilineBasic,
-                        "multiline string  \"\"\"…\"\"\"",
-                        KT::StringMultiline,
-                    ),
-                    (
-                        Format::MultilineLiteral,
-                        "multiline literal  '''…'''",
-                        KT::StringMultilineLiteral,
-                    ),
-                ]
-                .iter()
-                .filter(|(f, ..)| *f != node.format)
-                .map(|(_, l, t)| ((*l).into(), *t))
-                .collect(),
-                ST::Integer => [
-                    (Format::Decimal, "decimal", KT::IntDecimal),
-                    (Format::Hex, "hex  0x…", KT::IntHex),
-                    (Format::Octal, "octal  0o…", KT::IntOctal),
-                    (Format::Binary, "binary  0b…", KT::IntBinary),
-                ]
-                .iter()
-                .filter(|(f, ..)| *f != node.format)
-                .map(|(_, l, t)| ((*l).into(), *t))
-                .collect(),
-                ST::Float if node.format == Format::Plain => {
-                    // Exponent notation is told from the value text — `Format`
-                    // has no variant for it.
-                    let is_exp = node
-                        .value
-                        .as_deref()
-                        .is_some_and(|v| v.contains(['e', 'E']));
-                    if is_exp {
-                        vec![("plain float  1.5".into(), KT::FloatPlain)]
-                    } else {
-                        vec![("exponent float  1e5".into(), KT::FloatExponent)]
-                    }
-                }
-                _ => Vec::new(),
-            },
-            NodeKind::Array => {
-                let mut opts: Vec<(String, KT)> = if node.value.is_some() {
-                    vec![("multiline array  [A/M]".into(), KT::ArrayMultiline)]
-                } else {
-                    vec![("inline array  [A/I]".into(), KT::ArrayInline)]
-                };
-                // All-inline-table elements: the array can become an `[[…]]` group.
-                let elems: Vec<_> = node
-                    .children
-                    .iter()
-                    .filter(|c| !matches!(c.kind, NodeKind::Comment(_)))
-                    .collect();
-                if !elems.is_empty()
-                    && elems
-                        .iter()
-                        .all(|c| matches!(c.kind, NodeKind::InlineTable))
-                {
-                    opts.push(("array of tables  [A/T]".into(), KT::ArrayOfTables));
-                }
-                opts
-            }
-            NodeKind::ArrayOfTables => vec![
-                ("inline array     [A/I]".into(), KT::ArrayInline),
-                ("multiline array  [A/M]".into(), KT::ArrayMultiline),
-            ],
-            NodeKind::InlineTable => vec![
-                ("dotted table  [T/D]".into(), KT::TableDotted),
-                ("table scope   [T/S]".into(), KT::TableScope),
-            ],
-            NodeKind::Table if node.format == Format::Dotted => vec![
-                ("inline table  [T/I]".into(), KT::TableInline),
-                ("table scope   [T/S]".into(), KT::TableScope),
-            ],
-            NodeKind::Table if matches!(path.last(), Some(Seg::Key(_))) => vec![
-                ("dotted table  [T/D]".into(), KT::TableDotted),
-                ("inline table  [T/I]".into(), KT::TableInline),
-            ],
-            _ => {
-                self.error = Some("this node's kind cannot be switched".into());
-                return;
-            }
-        };
+        let options = doc.kind_options(&path);
         if options.is_empty() {
             self.error = Some("this node's kind cannot be switched".into());
             return;

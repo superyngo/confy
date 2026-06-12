@@ -17,8 +17,8 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 use taplo::syntax::SyntaxNode;
 
-use crate::model::document::{ConfigDocument, DocFormat, MutateError, Mutation};
-use crate::model::node::NodeTree;
+use crate::model::document::{ConfigDocument, DocFormat, KindTarget, MutateError, Mutation};
+use crate::model::node::{Format, NodeKind, NodeTree, Seg};
 
 pub struct CstDocument {
     /// The rowan syntax tree root — the single source of truth.
@@ -95,6 +95,103 @@ impl ConfigDocument for CstDocument {
     }
     fn supports_comments(&self) -> bool {
         true
+    }
+
+    fn kind_options(&self, path: &[Seg]) -> Vec<(String, KindTarget)> {
+        use crate::model::document::KindTarget as KT;
+        use crate::model::node::ScalarType as ST;
+        let tree = self.project();
+        let Some(node) = tree.node_at(path) else {
+            return Vec::new();
+        };
+        // A scalar switches between notations of its own type; the current
+        // notation is excluded. Bools/datetimes (and inf/nan floats) have one
+        // notation — no options, reported below.
+        let options: Vec<(String, KT)> = match &node.kind {
+            NodeKind::Scalar(st) => match st {
+                ST::String => [
+                    (Format::BasicString, "basic string  \"…\"", KT::StringBasic),
+                    (Format::Literal, "literal string  '…'", KT::StringLiteral),
+                    (
+                        Format::MultilineBasic,
+                        "multiline string  \"\"\"…\"\"\"",
+                        KT::StringMultiline,
+                    ),
+                    (
+                        Format::MultilineLiteral,
+                        "multiline literal  '''…'''",
+                        KT::StringMultilineLiteral,
+                    ),
+                ]
+                .iter()
+                .filter(|(f, ..)| *f != node.format)
+                .map(|(_, l, t)| ((*l).into(), *t))
+                .collect(),
+                ST::Integer => [
+                    (Format::Decimal, "decimal", KT::IntDecimal),
+                    (Format::Hex, "hex  0x…", KT::IntHex),
+                    (Format::Octal, "octal  0o…", KT::IntOctal),
+                    (Format::Binary, "binary  0b…", KT::IntBinary),
+                ]
+                .iter()
+                .filter(|(f, ..)| *f != node.format)
+                .map(|(_, l, t)| ((*l).into(), *t))
+                .collect(),
+                ST::Float if node.format == Format::Plain => {
+                    // Exponent notation is told from the value text — `Format`
+                    // has no variant for it.
+                    let is_exp = node
+                        .value
+                        .as_deref()
+                        .is_some_and(|v| v.contains(['e', 'E']));
+                    if is_exp {
+                        vec![("plain float  1.5".into(), KT::FloatPlain)]
+                    } else {
+                        vec![("exponent float  1e5".into(), KT::FloatExponent)]
+                    }
+                }
+                _ => Vec::new(),
+            },
+            NodeKind::Array => {
+                let mut opts: Vec<(String, KT)> = if node.value.is_some() {
+                    vec![("multiline array  [A/M]".into(), KT::ArrayMultiline)]
+                } else {
+                    vec![("inline array  [A/I]".into(), KT::ArrayInline)]
+                };
+                // All-inline-table elements: the array can become an `[[…]]` group.
+                let elems: Vec<_> = node
+                    .children
+                    .iter()
+                    .filter(|c| !matches!(c.kind, NodeKind::Comment(_)))
+                    .collect();
+                if !elems.is_empty()
+                    && elems
+                        .iter()
+                        .all(|c| matches!(c.kind, NodeKind::InlineTable))
+                {
+                    opts.push(("array of tables  [A/T]".into(), KT::ArrayOfTables));
+                }
+                opts
+            }
+            NodeKind::ArrayOfTables => vec![
+                ("inline array     [A/I]".into(), KT::ArrayInline),
+                ("multiline array  [A/M]".into(), KT::ArrayMultiline),
+            ],
+            NodeKind::InlineTable => vec![
+                ("dotted table  [T/D]".into(), KT::TableDotted),
+                ("table scope   [T/S]".into(), KT::TableScope),
+            ],
+            NodeKind::Table if node.format == Format::Dotted => vec![
+                ("inline table  [T/I]".into(), KT::TableInline),
+                ("table scope   [T/S]".into(), KT::TableScope),
+            ],
+            NodeKind::Table if matches!(path.last(), Some(Seg::Key(_))) => vec![
+                ("dotted table  [T/D]".into(), KT::TableDotted),
+                ("inline table  [T/I]".into(), KT::TableInline),
+            ],
+            _ => Vec::new(),
+        };
+        options
     }
 }
 
