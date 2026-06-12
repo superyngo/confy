@@ -389,14 +389,44 @@ fn strip_key_prefix(entry: &SyntaxNode, strip: usize) -> String {
     format!("{new_key}{}", &full[old_key.len()..])
 }
 
-/// Detach an `ENTRY` together with its trailing `NEWLINE` (removing the whole line).
-fn detach_entry_line(entry: &SyntaxNode) {
-    if let Some(nl) = entry.next_sibling_or_token() {
-        if matches!(&nl, NodeOrToken::Token(t) if t.kind() == SyntaxKind::NEWLINE) {
-            nl.detach();
+/// The child index (in `parent`'s child sequence) where the standalone comment
+/// block sitting **directly above** the child at `i` starts: consecutive
+/// `# …` lines joined by single newlines, no blank line before the child — the
+/// same adjacency the projection uses to bind a comment into a `[T/D]` table.
+/// Returns `i` when there is none.
+fn bound_comment_start(parent: &SyntaxNode, i: usize) -> usize {
+    let els: Vec<_> = parent.children_with_tokens().collect();
+    let mut start = i;
+    while start >= 2 {
+        let (Some(NodeOrToken::Token(nl)), Some(NodeOrToken::Token(c))) =
+            (els.get(start - 1), els.get(start - 2))
+        else {
+            break;
+        };
+        if nl.kind() != SyntaxKind::NEWLINE
+            || nl.text().matches('\n').count() != 1
+            || c.kind() != SyntaxKind::COMMENT
+        {
+            break;
         }
+        start -= 2;
     }
-    entry.detach();
+    start
+}
+
+/// The source text (`# …\n` lines) of the comment block bound to the ROOT child
+/// at `entry`'s index; empty when none.
+fn bound_comment_text(tree: &SyntaxNode, entry: &SyntaxNode) -> String {
+    let i = entry.index();
+    let start = bound_comment_start(tree, i);
+    let els: Vec<_> = tree.children_with_tokens().collect();
+    els[start..i]
+        .iter()
+        .map(|e| match e {
+            NodeOrToken::Node(n) => n.to_string(),
+            NodeOrToken::Token(t) => t.text().to_string(),
+        })
+        .collect()
 }
 
 /// One root-child piece of a table's member set, in document order. A table's
@@ -573,7 +603,13 @@ fn table_fragment(
             spans
                 .iter()
                 .map(|s| match s {
-                    MemberSpan::Entry(e) => ensure_nl(strip_key_prefix(e, entry_strip)),
+                    // A comment bound to the member (directly above it) travels
+                    // with it.
+                    MemberSpan::Entry(e) => format!(
+                        "{}{}",
+                        bound_comment_text(tree, e),
+                        ensure_nl(strip_key_prefix(e, entry_strip))
+                    ),
                     MemberSpan::Section(_) => unreachable!(),
                 })
                 .collect(),
@@ -601,6 +637,7 @@ fn table_fragment(
                         .unwrap_or(1);
                     entry_key_seg_count(e).saturating_sub(depth_below)
                 };
+                text.push_str(&bound_comment_text(tree, e));
                 text.push_str(&ensure_nl(strip_key_prefix(e, strip)));
             }
             MemberSpan::Section(h) => text.push_str(&section_span_text(tree, h)),
@@ -674,7 +711,12 @@ fn replace_table_spans(
     // positions, so earlier spans stay valid).
     for s in spans.iter().rev() {
         match s {
-            MemberSpan::Entry(e) => detach_entry_line(e),
+            MemberSpan::Entry(e) => {
+                let i = e.index();
+                let start = bound_comment_start(tree, i);
+                let end = extend_over_newline(tree, i + 1);
+                tree.splice_children(start..end, vec![]);
+            }
             MemberSpan::Section(h) if *h != anchor => {
                 let i = h.index();
                 let end = section_end_strict(tree, i);
@@ -694,10 +736,11 @@ fn replace_table_spans(
 }
 
 /// Block-rewrite a `[T/D]` dotted table (`$EDITOR` on the table): remove all of its
-/// member entries and splice the edited block in at the **first** member's position
-/// (the consolidation the user opted into; the table projects at its first
-/// definition). Scattered members are gathered; any standalone comments between
-/// them stay put.
+/// member entries — together with the comments **bound** to them (directly above
+/// a member, no blank line; they are part of the captured block) — and splice the
+/// edited block in at the **first** member's position (the consolidation the user
+/// opted into; the table projects at its first definition). Scattered members are
+/// gathered; unbound comments between them stay put.
 fn replace_dotted_table(
     tree: &SyntaxNode,
     idx: &CstIndex,
@@ -715,17 +758,22 @@ fn replace_dotted_table(
     for e in &els {
         e.detach();
     }
-    // Remove the non-first members (whole lines); `detach` is position-independent.
-    for m in &members[1..] {
-        detach_entry_line(m);
+    // Remove the non-first members (with their bound comments), bottom-up so
+    // earlier indices stay valid.
+    for m in members[1..].iter().rev() {
+        let i = m.index();
+        let start = bound_comment_start(tree, i);
+        let end = extend_over_newline(tree, i + 1);
+        tree.splice_children(start..end, vec![]);
     }
-    // Replace the first member's slot (line) with the edited block.
+    // Replace the first member's slot (bound comment + line) with the edited block.
     let i = first.index();
+    let start = bound_comment_start(tree, i);
     let end = match first.next_sibling_or_token() {
         Some(NodeOrToken::Token(t)) if t.kind() == SyntaxKind::NEWLINE => i + 2,
         _ => i + 1,
     };
-    tree.splice_children(i..end, els);
+    tree.splice_children(start..end, els);
     Ok(())
 }
 
@@ -958,7 +1006,14 @@ fn delete(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
         if !spans.is_empty() {
             for s in spans.iter().rev() {
                 match s {
-                    MemberSpan::Entry(e) => detach_entry_line(e),
+                    // A bound comment (directly above the member) is part of the
+                    // member's line set — it dies with the table.
+                    MemberSpan::Entry(e) => {
+                        let i = e.index();
+                        let start = bound_comment_start(tree, i);
+                        let end = extend_over_newline(tree, i + 1);
+                        tree.splice_children(start..end, vec![]);
+                    }
                     MemberSpan::Section(h) => {
                         let i = h.index();
                         let end = section_end_strict(tree, i);
@@ -1512,7 +1567,9 @@ fn insert(
             .find(|c| !matches!(c.kind, NodeKind::Comment(_)))
             .map(|c| c.path.clone());
         for e in &top_entries {
-            let entry_text = format!("{}\n", e.to_string().trim());
+            // A comment block directly above the entry *within the fragment* (a
+            // bound `[T/D]` member comment) stays attached to it.
+            let entry_text = format!("{}{}\n", bound_comment_text(&frag, e), e.to_string().trim());
             let index = {
                 let (proj2, _) = walk(tree, "");
                 let parent2 = node_at(&proj2.root, &target.parent).ok_or(MutateError::NotFound)?;
@@ -2404,7 +2461,12 @@ fn move_nodes(
                 let strip = dotted_ancestor_prefix_len(&idx, &proj.root, p);
                 for s in &spans {
                     if let MemberSpan::Entry(m) = s {
-                        frags.push(strip_key_prefix(m, strip));
+                        // A comment bound to the member travels with it.
+                        frags.push(format!(
+                            "{}{}",
+                            bound_comment_text(tree, m),
+                            strip_key_prefix(m, strip)
+                        ));
                     }
                 }
                 continue;
@@ -3695,6 +3757,81 @@ mod tests {
         let d = doc("[[p]]\na = 1\n\n[[p]]\nb = 2\n");
         let frag = d.serialize_fragment_relative(&[Seg::Key("p".into()), Seg::Index(1)]);
         assert_eq!(frag, "[p]\nb = 2\n");
+    }
+
+    #[test]
+    fn dotted_table_fragment_includes_bound_comment() {
+        let d = doc("a.b = 1\nx = 0\n# note\na.c = 2\n");
+        let frag = d.serialize_fragment(&[Seg::Key("a".into())]);
+        assert_eq!(frag, "a.b = 1\n# note\na.c = 2\n");
+    }
+
+    #[test]
+    fn replace_dotted_table_consolidates_bound_comment() {
+        // The `e` block edit gathers scattered members *and their bound comments*
+        // at the first definition; the old comment line is removed with its member.
+        let mut d = doc("a.b = 1\nx = 0\n# note\na.c = 2\n");
+        d.apply(Mutation::Replace {
+            path: vec![Seg::Key("a".into())],
+            toml: "a.b = 1\n# note\na.c = 2\n".into(),
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "a.b = 1\n# note\na.c = 2\nx = 0\n");
+    }
+
+    #[test]
+    fn delete_dotted_table_removes_bound_comments() {
+        let mut d = doc("# note\na.b = 1\nx = 0\na.c = 2\n");
+        d.apply(Mutation::Delete {
+            path: vec![Seg::Key("a".into())],
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "x = 0\n");
+    }
+
+    #[test]
+    fn delete_dotted_table_keeps_unbound_comment() {
+        // Blank-separated comment above a member is not bound — it survives.
+        let mut d = doc("# free\n\na.b = 1\nx = 0\n");
+        d.apply(Mutation::Delete {
+            path: vec![Seg::Key("a".into())],
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "# free\n\nx = 0\n");
+    }
+
+    #[test]
+    fn move_dotted_table_carries_bound_comment() {
+        let mut d = doc("# note\na.b = 1\n\n[s]\nx = 1\n");
+        d.apply(Mutation::Move {
+            sources: vec![vec![Seg::Key("a".into())]],
+            target: InsTarget {
+                parent: vec![Seg::Key("s".into())],
+                index: 9,
+            },
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        let out = d.serialize();
+        assert!(
+            out.contains("# note\na.b = 1\n"),
+            "comment travels with the member: {out}"
+        );
+        assert!(!out.starts_with("# note"), "source comment removed: {out}");
+    }
+
+    #[test]
+    fn insert_comment_into_dotted_table() {
+        let mut d = doc("a.b = 1\na.c = 2\n");
+        d.apply(Mutation::InsertComment {
+            target: InsTarget {
+                parent: vec![Seg::Key("a".into())],
+                index: 1,
+            },
+            text: "# new".into(),
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "a.b = 1\n# new\na.c = 2\n");
     }
 
     #[test]

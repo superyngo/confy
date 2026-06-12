@@ -94,9 +94,17 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
             },
             NodeOrToken::Node(n) => match n.kind() {
                 SyntaxKind::ENTRY => {
-                    let pending = finalize_blocks!();
+                    // A comment block sitting **directly above** the entry (still
+                    // accumulating in `lines` — no blank line in between) binds to
+                    // the entry: for a dotted entry it is diverted into the
+                    // synthetic `[T/D]` chain so it projects beside the member it
+                    // annotates; for a plain entry it flushes to the scope as
+                    // before.
+                    let adjacent = !lines.is_empty();
+                    let mut pending = finalize_blocks!();
+                    let bound = if adjacent { pending.pop() } else { None };
                     flush_comments(&mut root, &current, pending, &mut idx);
-                    project_entry_into(&mut root, &current, &n, &mut idx);
+                    project_entry_into(&mut root, &current, &n, &mut idx, bound);
                 }
                 SyntaxKind::TABLE_HEADER => {
                     let path = header_path(&n);
@@ -369,12 +377,22 @@ fn project_entry(entry: &SyntaxNode, scope: &[Seg], idx: &mut CstIndex) -> Node 
 /// `Target::Entry`, so mutation addressing is unchanged; the synthetic
 /// intermediates carry no index target (like an implicit header table). Inline
 /// table members keep using `project_entry` (their dotted keys are not split).
-fn project_entry_into(root: &mut Node, scope: &[Seg], entry: &SyntaxNode, idx: &mut CstIndex) {
+fn project_entry_into(
+    root: &mut Node,
+    scope: &[Seg],
+    entry: &SyntaxNode,
+    idx: &mut CstIndex,
+    bound: Option<(String, SyntaxToken)>,
+) {
     let key_node = entry.children().find(|c| c.kind() == SyntaxKind::KEY);
     let segs = key_node.as_ref().map(key_segments).unwrap_or_default();
 
-    // Single (or zero) segment: unchanged — one node directly under `scope`.
+    // Single (or zero) segment: unchanged — one node directly under `scope`, the
+    // bound comment (if any) flushed right before it, as before.
     if segs.len() <= 1 {
+        if let Some(b) = bound {
+            flush_comments(root, scope, vec![b], idx);
+        }
         let node = project_entry(entry, scope, idx);
         append_child(root, scope, node);
         return;
@@ -401,6 +419,11 @@ fn project_entry_into(root: &mut Node, scope: &[Seg], entry: &SyntaxNode, idx: &
     node.key_sign = KeySign::Dotted;
 
     ensure_dotted_chain(root, scope.len(), &full);
+    // The bound comment lands inside the `[T/D]` chain, directly before the
+    // member it sits above in the source.
+    if let Some(b) = bound {
+        flush_comments(root, &full[..full.len() - 1], vec![b], idx);
+    }
     append_child(root, &full[..full.len() - 1], node);
 
     // A `[T/D]` table projects at the position of its **first** definition in the
@@ -804,6 +827,33 @@ Table key="d" sign=Bare val=None fmt=Scope trail=None
             r##"Table key="server" sign=Bare val=None fmt=Scope trail=None
   Comment("# explain") key="# explain" sign=None val=Some("# explain") fmt=Plain trail=None
   Scalar(Integer) key="port" sign=Bare val=Some("8080") fmt=Decimal trail=None
+"##,
+        );
+    }
+
+    #[test]
+    fn dotted_member_bound_comment_projects_inside_chain() {
+        // A comment directly above a dotted member binds into the [T/D] table,
+        // positioned before the member it annotates.
+        assert_projection(
+            "x = 0\n# why\na.b = 1\na.c = 2\n",
+            r##"Scalar(Integer) key="x" sign=Bare val=Some("0") fmt=Decimal trail=None
+Table key="a" sign=Dotted val=None fmt=Dotted trail=None
+  Comment("# why") key="# why" sign=None val=Some("# why") fmt=Plain trail=None
+  Scalar(Integer) key="b" sign=Dotted val=Some("1") fmt=Decimal trail=None
+  Scalar(Integer) key="c" sign=Dotted val=Some("2") fmt=Decimal trail=None
+"##,
+        );
+    }
+
+    #[test]
+    fn dotted_member_blank_separated_comment_stays_outside() {
+        // A blank line breaks the binding: the comment stays a scope-level node.
+        assert_projection(
+            "# free\n\na.b = 1\n",
+            r##"Comment("# free") key="# free" sign=None val=Some("# free") fmt=Plain trail=None
+Table key="a" sign=Dotted val=None fmt=Dotted trail=None
+  Scalar(Integer) key="b" sign=Dotted val=Some("1") fmt=Decimal trail=None
 "##,
         );
     }

@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `[T/D]` comment binding — **a comment directly above a dotted member (no blank line) now binds to the `[T/D]` table**: it projects *inside* the synthetic table at the member's slot, travels with the member on whole-table move/copy and the `e` consolidation (the block edit gathers bound comments at the first definition instead of orphaning them), and dies with the table on delete. A blank-separated comment stays an independent scope-level node, and single-member moves still never drag a comment. Comments can be **inserted into a `[T/D]` table** (`InsertComment` lands the line above the member at the target slot). (2026-06-12)
+
+### Added
 - Array paste alignment — **plain arrays now mirror the `[A/T]` interactions**: multiple copied/cut keyed nodes (or a `[T/D]` table's members) pack into **one** `{ a = 1, b = 2 }` inline-table element instead of one element each; **moving an inline-table element out of an array unpacks it into keyed entries** (`{ a = 1, b = 2 }` into a table → `a = 1` / `b = 2`, each per-leaf collision-checked; previously only a single-key `{ k = v }` unwrapped and a multi-key one got a `placeholder` key). Bare values keep their element form / `placeholder` key; `[T/S]`/`[A/T]` sections into an array stay `Illegal`. (2026-06-12)
 
 ### Added
