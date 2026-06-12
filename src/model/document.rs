@@ -19,6 +19,25 @@ pub trait ConfigDocument: Sized {
     /// key segments dropped (`dotted.test.bool_true` → `bool_true`). Used by
     /// copy/cut so a paste re-prefixes only for the new destination.
     fn serialize_fragment_relative(&self, path: &[crate::model::node::Seg]) -> String;
+
+    /// The config syntax this document speaks (title bar, help text, comment
+    /// validation).
+    fn format(&self) -> DocFormat;
+    /// Line-comment leader for this format ("#" / "//").
+    fn comment_prefix(&self) -> &'static str;
+    /// Whether authored comments are currently legal in this document
+    /// (false only for a pure `.json` before the JSONC upgrade, Phase 2).
+    fn supports_comments(&self) -> bool;
+}
+
+/// Which config syntax a document speaks. Backends report it via
+/// [`ConfigDocument::format`]; the TUI uses it for the title bar, help text
+/// and comment validation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DocFormat {
+    Toml,
+    Json,
+    Yaml,
 }
 
 /// Where an insert/move lands: insert as a child of `parent` at `index`.

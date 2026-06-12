@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 use taplo::syntax::SyntaxNode;
 
-use crate::model::document::{ConfigDocument, MutateError, Mutation};
+use crate::model::document::{ConfigDocument, DocFormat, MutateError, Mutation};
 use crate::model::node::NodeTree;
 
 pub struct CstDocument {
@@ -86,6 +86,16 @@ impl ConfigDocument for CstDocument {
         self.syntax = taplo::parser::parse(&new.to_string()).into_syntax();
         Ok(())
     }
+
+    fn format(&self) -> DocFormat {
+        DocFormat::Toml
+    }
+    fn comment_prefix(&self) -> &'static str {
+        "#"
+    }
+    fn supports_comments(&self) -> bool {
+        true
+    }
 }
 
 impl CstDocument {
@@ -152,6 +162,14 @@ mod tests {
         let mut f = tempfile::NamedTempFile::new().unwrap();
         f.write_all(b"this is = = not toml").unwrap();
         assert!(CstDocument::load(f.path()).is_err());
+    }
+
+    #[test]
+    fn toml_format_facets() {
+        let doc = cst_from_str("a = 1\n");
+        assert_eq!(doc.format(), DocFormat::Toml);
+        assert_eq!(doc.comment_prefix(), "#");
+        assert!(doc.supports_comments());
     }
 
     #[test]
