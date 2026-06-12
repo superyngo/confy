@@ -83,9 +83,19 @@ pub fn map_key(key: KeyEvent) -> KeyAction {
     }
 }
 
-/// Keybinding help text, displayed in the `?` overlay.
-pub fn help_text() -> &'static str {
-    "\
+/// Keybinding help text, displayed in the `?` overlay. Format-specific: the
+/// op list and KIND legend differ per backend (Phases 2–3 add their texts).
+pub fn help_text(format: crate::model::document::DocFormat) -> &'static str {
+    use crate::model::document::DocFormat;
+    match format {
+        DocFormat::Toml => TOML_HELP,
+        // Until their backends land (load_as bails), these are unreachable;
+        // wire real texts in Phases 2–3.
+        DocFormat::Json | DocFormat::Yaml => TOML_HELP,
+    }
+}
+
+const TOML_HELP: &str = "\
  j/k/Arrows  Move cursor       PgUp/PgDn  Page up/down
  Home/End     First/last row    0/9         Collapse/expand all
  1/2          Expand/collapse one level (subtree / ascend)
@@ -124,5 +134,4 @@ pub fn help_text() -> &'static str {
    [B:bool] boolean
    [D:odt ] offset datetime     [D:ldt ] local datetime
    [D:ldat] local date          [D:ltim] local time
- "
-}
+ ";

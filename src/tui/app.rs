@@ -550,6 +550,13 @@ impl App {
     /// `K` — open the kind-switch popup for the cursor node: a single-select
     /// list of the kinds/notations it can convert to. Non-convertible nodes
     /// (Root, comments, AoT entries) report via the status line.
+    /// The backend's format (Toml when there is no document, e.g. in tests).
+    pub fn doc_format(&self) -> crate::model::document::DocFormat {
+        self.doc
+            .as_ref()
+            .map_or(crate::model::document::DocFormat::Toml, |d| d.format())
+    }
+
     pub fn open_kind_switch(&mut self) {
         let Some(row) = self.rows.get(self.cursor) else {
             return;

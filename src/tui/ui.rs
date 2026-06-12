@@ -608,7 +608,7 @@ fn draw_help_overlay(f: &mut Frame, app: &App) {
     if !matches!(app.mode, Mode::Help) {
         return;
     }
-    let help = keys::help_text();
+    let help = keys::help_text(app.doc_format());
     let line_count = help.lines().count() as u16;
     let height = (line_count + 2).min(f.area().height);
     let area = centered_rect(65, height, f.area());

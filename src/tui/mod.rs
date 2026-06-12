@@ -168,7 +168,7 @@ fn run_event_loop(
             // Help overlay: ↑/↓/PgUp/PgDn/Home/End scroll; Esc or ? dismisses.
             if matches!(app.mode, crate::tui::state::Mode::Help) {
                 use crossterm::event::KeyCode;
-                let help_lines = keys::help_text().lines().count() as u16;
+                let help_lines = keys::help_text(app.doc_format()).lines().count() as u16;
                 // Approximate visible height: terminal height minus 2 borders.
                 let inner_h = terminal.size()?.height.saturating_sub(2);
                 let max_scroll = help_lines.saturating_sub(inner_h);
