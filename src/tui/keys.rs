@@ -35,6 +35,7 @@ pub enum KeyAction {
     TypeFilter,
     KindSwitch,
     Help,
+    Rename,
     Noop,
 }
 
@@ -62,6 +63,7 @@ pub fn map_key(key: KeyEvent) -> KeyAction {
         (KeyCode::Char('e'), _) => KeyAction::EditNode,
         (KeyCode::Char('a'), _) => KeyAction::AddNode,
         (KeyCode::Char('d'), _) => KeyAction::Delete,
+        (KeyCode::Delete, _) => KeyAction::Delete,
         (KeyCode::Char('c'), _) => KeyAction::Copy,
         (KeyCode::Char('x'), _) => KeyAction::Cut,
         (KeyCode::Char('v'), _) => KeyAction::Paste,
@@ -76,6 +78,7 @@ pub fn map_key(key: KeyEvent) -> KeyAction {
         // `k` is vim cursor-up, so kind-switch lives on the capital.
         (KeyCode::Char('K'), _) => KeyAction::KindSwitch,
         (KeyCode::Char('?'), _) => KeyAction::Help,
+        (KeyCode::F(2), _) => KeyAction::Rename,
         _ => KeyAction::Noop,
     }
 }
@@ -91,7 +94,8 @@ pub fn help_text() -> &'static str {
  i            Detail/info popup (any node)
  e            Edit (inline/$EDITOR)  E       Force $EDITOR
  ←/→          Toggle bool / ±1 number    a   Add node
- d            Delete            x/c/v       Cut/copy/paste
+ d/Del        Delete            x/c/v       Cut/copy/paste
+ F2           Rename key (inline, works for all node types)
  r            Remark toggle     z/y         Undo/redo
  K            Kind switch (scalar type / table & array notation)
  /            Fuzzy filter      f           Type filter (checkbox menu)

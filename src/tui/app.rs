@@ -46,8 +46,11 @@ pub struct App {
     /// Present when the app was constructed with a real document (interactive mode).
     pub doc: Option<crate::model::cst_doc::CstDocument>,
     pub history: Option<History>,
-    /// Status message shown in the bottom bar (errors, info).
+    /// Status message shown in the bottom bar (info messages).
     pub status: Option<String>,
+    /// Error message shown in the bottom bar with red styling, always visible
+    /// even when clipboard is active or in filter mode.
+    pub error: Option<String>,
     pub mode: Mode,
     pub clipboard: Option<Clipboard>,
     /// Active paste-mode insertion slot. `None` = not navigated, so it defaults to
@@ -125,6 +128,7 @@ impl App {
             doc: Some(doc),
             history: Some(history),
             status: None,
+            error: None,
             mode: Mode::Normal,
             clipboard: None,
             paste_slot: None,
@@ -160,6 +164,7 @@ impl App {
             doc: None,
             history: None,
             status: None,
+            error: None,
             mode: Mode::Normal,
             clipboard: None,
             paste_slot: None,
@@ -639,12 +644,12 @@ impl App {
                 ("inline table  [T/I]".into(), KT::TableInline),
             ],
             _ => {
-                self.status = Some("this node's kind cannot be switched".into());
+                self.error = Some("this node's kind cannot be switched".into());
                 return;
             }
         };
         if options.is_empty() {
-            self.status = Some("this node's kind cannot be switched".into());
+            self.error = Some("this node's kind cannot be switched".into());
             return;
         }
         self.mode = Mode::KindSwitch(crate::tui::state::KindSwitchState {
@@ -684,7 +689,7 @@ impl App {
                 self.on_mutation_success();
                 self.status = Some(format!("converted to {label}"));
             }
-            Err(e) => self.status = Some(format!("kind switch: {e}")),
+            Err(e) => self.error = Some(format!("kind switch: {e}")),
         }
     }
 
@@ -995,7 +1000,7 @@ impl App {
                     let edited = match crate::tui::editor::edit_text(&initial) {
                         Ok(t) => t,
                         Err(e) => {
-                            self.status = Some(format!("editor error: {e}"));
+                            self.error = Some(format!("editor error: {e}"));
                             return;
                         }
                     };
@@ -1035,7 +1040,7 @@ impl App {
         let edited = match crate::tui::editor::edit_text(&fragment) {
             Ok(t) => t,
             Err(e) => {
-                self.status = Some(format!("editor error: {e}"));
+                self.error = Some(format!("editor error: {e}"));
                 return;
             }
         };
@@ -1044,7 +1049,7 @@ impl App {
 
     /// Apply edited text as a Replace at `path` (the post-editor half of `e`,
     /// split out so it is unit-testable without spawning $EDITOR). On error the
-    /// status line is set and the document is left unchanged.
+    /// error field is set and the document is left unchanged.
     pub(crate) fn apply_replace(&mut self, path: Path, edited: String) {
         let doc = match self.doc.as_mut() {
             Some(d) => d,
@@ -1053,14 +1058,14 @@ impl App {
         match doc.apply(crate::model::document::Mutation::Replace { path, toml: edited }) {
             Ok(()) => self.on_mutation_success(),
             Err(crate::model::document::MutateError::Fragment(msg)) => {
-                self.status = Some(format!("invalid TOML: {msg}"));
+                self.error = Some(format!("invalid TOML: {msg}"));
             }
-            Err(e) => self.status = Some(format!("error: {e}")),
+            Err(e) => self.error = Some(format!("error: {e}")),
         }
     }
 
     /// Apply edited comment text as an `EditComment` at `path` (the post-editor
-    /// half of editing a comment node). On error the status line is set and the
+    /// half of editing a comment node). On error the error field is set and the
     /// document is left unchanged.
     pub(crate) fn apply_edit_comment(&mut self, path: Path, text: String) {
         let doc = match self.doc.as_mut() {
@@ -1070,9 +1075,9 @@ impl App {
         match doc.apply(crate::model::document::Mutation::EditComment { path, text }) {
             Ok(()) => self.on_mutation_success(),
             Err(crate::model::document::MutateError::Fragment(msg)) => {
-                self.status = Some(format!("invalid comment: {msg}"));
+                self.error = Some(format!("invalid comment: {msg}"));
             }
-            Err(e) => self.status = Some(format!("error: {e}")),
+            Err(e) => self.error = Some(format!("error: {e}")),
         }
     }
 
@@ -1229,6 +1234,7 @@ impl App {
             field: crate::tui::state::EditField::Value,
             is_element,
             is_comment,
+            rename_only: false,
             buffer,
             cursor,
             scroll: 0,
@@ -1239,12 +1245,51 @@ impl App {
         self.status = None;
     }
 
+    /// `F2` — open the inline editor on the Name field for any keyed node,
+    /// including [T/D] synthetic tables, [T/S] scope tables, and [A/T] groups.
+    /// Skips the value Replace step on commit (rename-only).
+    pub fn begin_inline_rename(&mut self) {
+        let row = match self.rows.get(self.cursor) {
+            Some(r) => r,
+            None => return,
+        };
+        // Only nodes addressed by a key can be renamed (not root, array elements).
+        let key = match row.path.last() {
+            Some(Seg::Key(k)) => k.clone(),
+            _ => return,
+        };
+        // Comments have no rename-able key.
+        let is_comment = node_at(&self.tree.root, &row.path)
+            .map(|n| matches!(n.kind, NodeKind::Comment(_)))
+            .unwrap_or(false);
+        if is_comment {
+            return;
+        }
+        let name_cursor = key.chars().count();
+        self.mode = Mode::Edit(crate::tui::state::EditState {
+            path: row.path.clone(),
+            key: key.clone(),
+            field: crate::tui::state::EditField::Name,
+            is_element: false,
+            is_comment: false,
+            rename_only: true,
+            buffer: key.clone(),
+            cursor: name_cursor,
+            scroll: 0,
+            other_buffer: String::new(),
+            other_cursor: 0,
+            other_scroll: 0,
+        });
+        self.status = None;
+        self.error = None;
+    }
+
     /// `Tab` in the inline editor: swap focus between the Value and Name fields,
     /// stashing the active working set and loading the other. No-op for array
     /// elements (no name).
     pub fn edit_toggle_field(&mut self) {
         if let Mode::Edit(ref mut e) = self.mode {
-            if e.is_element || e.is_comment {
+            if e.is_element || e.is_comment || e.rename_only {
                 return;
             }
             std::mem::swap(&mut e.buffer, &mut e.other_buffer);
@@ -1450,6 +1495,11 @@ impl App {
                 }
             }
         }
+        // F2 rename-only: skip the value Replace step entirely.
+        if e.rename_only {
+            self.mode = self.resting_mode();
+            return;
+        }
         // 2. Value replace.
         let fragment = format!("{} = {}\n", frag_key, value_str);
         let parse = taplo::parser::parse(&fragment);
@@ -1493,7 +1543,7 @@ impl App {
             None => return,
         };
         if let Err(err) = res {
-            self.status = Some(format!("rename failed: {err}"));
+            self.error = Some(format!("rename failed: {err}"));
             return;
         }
         self.on_mutation_success();
@@ -1689,14 +1739,14 @@ impl App {
         }) {
             Ok(()) => self.on_mutation_success(),
             Err(crate::model::document::MutateError::Collision(key)) => {
-                self.status = Some(format!(
+                self.error = Some(format!(
                     "key collision: {key} (rename/overwrite not yet prompted)"
                 ));
             }
             Err(crate::model::document::MutateError::Fragment(msg)) => {
-                self.status = Some(format!("invalid TOML: {msg}"));
+                self.error = Some(format!("invalid TOML: {msg}"));
             }
-            Err(e) => self.status = Some(format!("error: {e}")),
+            Err(e) => self.error = Some(format!("error: {e}")),
         }
     }
 
@@ -1713,6 +1763,7 @@ impl App {
         }
         self.rebuild_rows();
         self.status = None;
+        self.error = None;
     }
 
     // ---- §6 operations: d/x/c/v/m/r/z/y ----
@@ -1732,7 +1783,7 @@ impl App {
         };
         for p in &paths {
             if let Err(e) = doc.apply(Mutation::Delete { path: p.clone() }) {
-                self.status = Some(format!("delete error: {e}"));
+                self.error = Some(format!("delete error: {e}"));
                 return;
             }
         }
@@ -1947,7 +1998,7 @@ impl App {
                 }
                 Dest::Illegal => {
                     self.clipboard = Some(rebuild(is_cut, &node_entries, &comment_entries));
-                    self.status = Some(
+                    self.error = Some(
                         "paste error: comments can only go into a table or the document".into(),
                     );
                     return;
@@ -1968,13 +2019,13 @@ impl App {
                     Ok(()) => {}
                     Err(crate::model::document::MutateError::Collision(key)) => {
                         self.clipboard = Some(rebuild(is_cut, &node_entries, &comment_entries));
-                        self.status = Some(format!("collision on key '{key}' — o/r/c"));
+                        self.error = Some(format!("collision on key '{key}' — o/r/c"));
                         self.mode = Mode::Prompt(PromptKind::Collision { key });
                         return;
                     }
                     Err(e) => {
                         self.clipboard = Some(rebuild(is_cut, &node_entries, &comment_entries));
-                        self.status = Some(format!("paste error: {e}"));
+                        self.error = Some(format!("paste error: {e}"));
                         return;
                     }
                 }
@@ -2013,14 +2064,14 @@ impl App {
                     Err(crate::model::document::MutateError::Collision(key)) => {
                         self.clipboard =
                             Some(rebuild(is_cut, &node_entries[i..], &comment_entries));
-                        self.status = Some(format!("collision on key '{key}' — o/r/c"));
+                        self.error = Some(format!("collision on key '{key}' — o/r/c"));
                         self.mode = Mode::Prompt(PromptKind::Collision { key });
                         return;
                     }
                     Err(e) => {
                         self.clipboard =
                             Some(rebuild(is_cut, &node_entries[i..], &comment_entries));
-                        self.status = Some(format!("paste error: {e}"));
+                        self.error = Some(format!("paste error: {e}"));
                         return;
                     }
                 }
@@ -2045,7 +2096,7 @@ impl App {
                     // not-yet-applied comments are the lower indices, including `oi`.
                     self.on_mutation_success();
                     self.clipboard = Some(rebuild(is_cut, &[], &comment_entries[..=oi]));
-                    self.status = Some(format!("paste error: {e}"));
+                    self.error = Some(format!("paste error: {e}"));
                     return;
                 }
             }
@@ -2060,7 +2111,7 @@ impl App {
                 let end = if is_cut { oi } else { oi + 1 };
                 self.on_mutation_success();
                 self.clipboard = Some(rebuild(is_cut, &[], &comment_entries[..end]));
-                self.status = Some(format!("paste error: {e}"));
+                self.error = Some(format!("paste error: {e}"));
                 return;
             }
         }
@@ -2069,6 +2120,7 @@ impl App {
     }
 
     pub fn escape(&mut self) {
+        self.error = None;
         match &self.mode {
             Mode::Prompt(_) => {
                 self.mode = Mode::Normal;
@@ -2118,7 +2170,7 @@ impl App {
             Err(crate::model::document::MutateError::Fragment(_)) => {
                 self.status = Some("not valid TOML, kept as comment".into());
             }
-            Err(e) => self.status = Some(format!("remark error: {e}")),
+            Err(e) => self.error = Some(format!("remark error: {e}")),
         }
     }
 
@@ -2138,7 +2190,7 @@ impl App {
                 self.status = Some("Saved".into());
             }
             Err(e) => {
-                self.status = Some(format!("save error: {e}"));
+                self.error = Some(format!("save error: {e}"));
             }
         }
     }
@@ -2162,7 +2214,7 @@ impl App {
                 self.rebuild_rows();
                 self.status = None;
             }
-            Err(e) => self.status = Some(format!("undo restore error: {e}")),
+            Err(e) => self.error = Some(format!("undo restore error: {e}")),
         }
     }
 
@@ -2185,7 +2237,7 @@ impl App {
                 self.rebuild_rows();
                 self.status = None;
             }
-            Err(e) => self.status = Some(format!("redo restore error: {e}")),
+            Err(e) => self.error = Some(format!("redo restore error: {e}")),
         }
     }
 
@@ -2957,7 +3009,7 @@ mod tests {
         app.cursor = app.rows.iter().position(|r| r.key == "a").unwrap();
         app.open_kind_switch();
         assert!(matches!(app.mode, Mode::Normal), "popup must not open");
-        assert!(app.status.as_deref().unwrap_or("").contains("cannot"));
+        assert!(app.error.as_deref().unwrap_or("").contains("cannot"));
     }
 
     #[test]
@@ -2970,7 +3022,7 @@ mod tests {
             .unwrap();
         app.open_kind_switch();
         assert!(matches!(app.mode, Mode::Normal), "popup must not open");
-        assert!(app.status.as_deref().unwrap_or("").contains("cannot"));
+        assert!(app.error.as_deref().unwrap_or("").contains("cannot"));
     }
 
     #[test]
@@ -3041,10 +3093,7 @@ mod tests {
         let before = app.doc.as_ref().unwrap().serialize();
         let cpath = app.rows[1].path.clone();
         app.apply_edit_comment(cpath, "not a comment\n".into());
-        assert!(
-            app.status.is_some(),
-            "invalid comment must surface in status"
-        );
+        assert!(app.error.is_some(), "invalid comment must surface in error");
         assert_eq!(app.doc.as_ref().unwrap().serialize(), before);
     }
 
@@ -3164,7 +3213,7 @@ mod tests {
         let mut app = app_with("port = 8080\n");
         let before = app.doc.as_ref().unwrap().serialize();
         app.apply_replace(vec![Seg::Key("port".into())], "port = = nope".into());
-        assert!(app.status.is_some(), "invalid TOML must surface in status");
+        assert!(app.error.is_some(), "invalid TOML must surface in error");
         assert_eq!(
             app.doc.as_ref().unwrap().serialize(),
             before,
@@ -3194,7 +3243,7 @@ mod tests {
             },
             "port = 1\n".into(),
         );
-        assert!(app.status.is_some(), "collision must surface in status");
+        assert!(app.error.is_some(), "collision must surface in error");
         assert_eq!(
             app.doc.as_ref().unwrap().serialize(),
             before,
@@ -3204,7 +3253,7 @@ mod tests {
 
     #[test]
     fn apply_insert_invalid_toml_sets_status_and_leaves_doc() {
-        // §10 rejection path for `n`: invalid fragment -> Fragment -> status, no change.
+        // §10 rejection path for `n`: invalid fragment -> Fragment -> error, no change.
         let mut app = app_with("port = 8080\n");
         let before = app.doc.as_ref().unwrap().serialize();
         app.apply_insert(
@@ -3214,7 +3263,7 @@ mod tests {
             },
             "= = nope".into(),
         );
-        assert!(app.status.is_some(), "invalid TOML must surface in status");
+        assert!(app.error.is_some(), "invalid TOML must surface in error");
         assert_eq!(
             app.doc.as_ref().unwrap().serialize(),
             before,
@@ -4318,9 +4367,9 @@ mod tests {
             "clipboard must survive an illegal paste"
         );
         assert!(
-            app.status.as_deref().unwrap_or("").contains("paste error"),
-            "status: {:?}",
-            app.status
+            app.error.as_deref().unwrap_or("").contains("paste error"),
+            "error: {:?}",
+            app.error
         );
         assert_eq!(
             app.doc.as_ref().unwrap().serialize(),

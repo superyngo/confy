@@ -71,6 +71,10 @@ pub struct EditState {
     /// Comment node: the buffer is the raw `#`-prefixed text, committed via
     /// `EditComment` (no name field, no type check, so `Tab` is a no-op).
     pub is_comment: bool,
+    /// F2 rename-only mode: only the Name field is active; Tab and value Replace
+    /// are skipped. Supports all node types including [T/D] synthetic tables,
+    /// [T/S] scope tables, and [A/T] groups.
+    pub rename_only: bool,
     pub buffer: String,
     pub cursor: usize,
     pub scroll: usize,

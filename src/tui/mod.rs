@@ -318,6 +318,7 @@ fn run_event_loop(
                 keys::KeyAction::TypeFilter => app.enter_type_filter(),
                 keys::KeyAction::KindSwitch => app.open_kind_switch(),
                 keys::KeyAction::Help => app.enter_help(),
+                keys::KeyAction::Rename => app.begin_inline_rename(),
                 keys::KeyAction::Noop => {}
             }
         }

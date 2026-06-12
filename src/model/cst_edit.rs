@@ -3494,73 +3494,289 @@ fn first_comment_token(text: &str) -> Result<SyntaxToken, MutateError> {
     Ok(tok)
 }
 
-/// Rename the key at `path` to `new_key`, swapping the last key-segment token in
-/// place (position/decor preserved). Collides if a sibling already has the resulting
-/// display key.
+/// Rename the key at `path` to `new_key`, swapping the relevant segment token(s)
+/// in place (position/decor preserved). Handles all node types:
+///
+/// - Entry/Header/AotEntry: renames the last key segment AND propagates the same
+///   segment rename to all sub-scope headers under `path` (e.g. renaming
+///   `[product_table]` also fixes `[product_table.a]`, `[product_table.b]`).
+/// - AotGroup: renames ALL `[[group]]` headers + any nested sub-scope headers.
+/// - Path not in index but has sub-scope headers (implicit scope table): renames
+///   the segment in all those headers.
+/// - Path not in index and no sub-scope headers (synthetic `[T/D]` intermediate):
+///   renames the segment at `path.len()-1` in all member dotted-key entries.
 fn rename(tree: &SyntaxNode, path: &[Seg], new_key: &str) -> Result<(), MutateError> {
-    // Build the replacement key token from a validated fragment.
+    // Validate the new key fragment up front (shared by all branches).
     let parse = taplo::parser::parse(&format!("{new_key} = 0\n"));
     if let Some(e) = parse.errors.first() {
         return Err(MutateError::Fragment(e.to_string()));
     }
-    let nk_root = parse.into_syntax().clone_for_update();
-    // All tokens of the new key (segments + dots), so a multi-segment new key turns
-    // a plain key dotted in place (`foo` → `foo.x`, making a `[T/D]` table). Trim any
-    // trailing whitespace taplo lexes into the KEY so the swap stays tight.
+
+    let (proj, idx) = walk(tree, "");
+    let maybe_target = idx.iter().find(|(p, _)| p == path).map(|(_, t)| t.clone());
+
+    // The segment position to rename within each key's token list.
+    // For a node at path depth N, the segment at index N-1 is the "own" segment.
+    // This is also the segment that sub-scope headers share as a prefix.
+    let seg_pos = path.len().saturating_sub(1);
+
+    // All [section] headers anywhere under `path` (may be sub-tables or nested
+    // scope tables inside AoT entries). These always need the same segment renamed
+    // whenever the owning path is renamed.
+    let sub_scope_headers: Vec<SyntaxNode> = idx
+        .iter()
+        .filter_map(|(p, t)| {
+            if p.len() > path.len() && p[..path.len()] == *path {
+                if let Target::Header(n) = t {
+                    Some(n.clone())
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    match maybe_target {
+        // Concrete entry/header/AoT entry: rename its last key segment.
+        // Also propagate to all sub-scope headers that share the prefix.
+        Some(Target::Entry(n) | Target::Header(n) | Target::AotEntry(n)) => {
+            let key_node = n
+                .children()
+                .find(|c| c.kind() == SyntaxKind::KEY)
+                .ok_or(MutateError::NotFound)?;
+
+            // Collision check on the direct parent.
+            if let Some((parent, node)) = find_parent(&proj.root, path) {
+                let mut segs: Vec<&str> = node.key.split('.').collect();
+                if let Some(last) = segs.last_mut() {
+                    *last = new_key;
+                }
+                let new_display = segs.join(".");
+                if parent.children.iter().any(|c| {
+                    !matches!(c.kind, crate::model::node::NodeKind::Comment(_))
+                        && c.path != *path
+                        && c.key == new_display
+                }) {
+                    return Err(MutateError::Collision(new_key.to_string()));
+                }
+            }
+
+            // Rename this node's key segment (last for own node).
+            rename_key_seg_at_pos(key_node, seg_pos, new_key)?;
+
+            // Rename the same segment in all sub-scope headers.
+            for sub in &sub_scope_headers {
+                let kn = sub
+                    .children()
+                    .find(|c| c.kind() == SyntaxKind::KEY)
+                    .ok_or(MutateError::NotFound)?;
+                rename_key_seg_at_pos(kn, seg_pos, new_key)?;
+            }
+            Ok(())
+        }
+
+        // AoT group: rename ALL `[[group]]` entry headers + any nested sub-scope headers.
+        Some(Target::AotGroup) => {
+            // Collect the AoT entry headers.
+            let entry_nodes: Vec<SyntaxNode> = idx
+                .iter()
+                .filter_map(|(p, t)| {
+                    if p.len() == path.len() + 1
+                        && p[..path.len()] == *path
+                        && matches!(p.last(), Some(Seg::Index(_)))
+                    {
+                        if let Target::AotEntry(n) = t {
+                            Some(n.clone())
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            if entry_nodes.is_empty() && sub_scope_headers.is_empty() {
+                return Err(MutateError::NotFound);
+            }
+
+            // Collision check at the sibling level.
+            if let Some((parent, _)) = find_parent(&proj.root, path) {
+                if parent.children.iter().any(|c| {
+                    !matches!(c.kind, crate::model::node::NodeKind::Comment(_))
+                        && c.path != *path
+                        && c.key == new_key
+                }) {
+                    return Err(MutateError::Collision(new_key.to_string()));
+                }
+            }
+
+            // Rename each [[group]] entry header.
+            for entry_node in &entry_nodes {
+                let kn = entry_node
+                    .children()
+                    .find(|c| c.kind() == SyntaxKind::KEY)
+                    .ok_or(MutateError::NotFound)?;
+                rename_key_seg_at_pos(kn, seg_pos, new_key)?;
+            }
+            // Rename the same segment in nested sub-scope headers.
+            for sub in &sub_scope_headers {
+                let kn = sub
+                    .children()
+                    .find(|c| c.kind() == SyntaxKind::KEY)
+                    .ok_or(MutateError::NotFound)?;
+                rename_key_seg_at_pos(kn, seg_pos, new_key)?;
+            }
+            Ok(())
+        }
+
+        // Path not in index: implicit scope table (only sub-headers, no own [header])
+        // OR a synthetic [T/D] intermediate table (only dotted member entries).
+        None => {
+            if !sub_scope_headers.is_empty() {
+                // Implicit scope table: rename the segment in all sub-headers.
+                for sub in &sub_scope_headers {
+                    let kn = sub
+                        .children()
+                        .find(|c| c.kind() == SyntaxKind::KEY)
+                        .ok_or(MutateError::NotFound)?;
+                    rename_key_seg_at_pos(kn, seg_pos, new_key)?;
+                }
+                Ok(())
+            } else {
+                // Synthetic [T/D] table: rename segment in all dotted member entries.
+                rename_dotted_segment(tree, &idx, path, new_key)
+            }
+        }
+
+        Some(_) => Err(MutateError::Unsupported),
+    }
+}
+
+/// Rename ALL `[[group]]` headers of the AoT group at `path`.
+/// (Retained as a standalone function for possible future direct use.)
+#[allow(dead_code)]
+fn rename_aot_group(
+    _tree: &SyntaxNode,
+    idx: &CstIndex,
+    proj_root: &Node,
+    path: &[Seg],
+    new_key: &str,
+) -> Result<(), MutateError> {
+    let entry_nodes: Vec<SyntaxNode> = idx
+        .iter()
+        .filter_map(|(p, t)| {
+            if p.len() == path.len() + 1
+                && p[..path.len()] == *path
+                && matches!(p.last(), Some(Seg::Index(_)))
+            {
+                if let Target::AotEntry(n) = t {
+                    Some(n.clone())
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if entry_nodes.is_empty() {
+        return Err(MutateError::NotFound);
+    }
+
+    if let Some((parent, _)) = find_parent(proj_root, path) {
+        if parent.children.iter().any(|c| {
+            !matches!(c.kind, crate::model::node::NodeKind::Comment(_))
+                && c.path != *path
+                && c.key == new_key
+        }) {
+            return Err(MutateError::Collision(new_key.to_string()));
+        }
+    }
+
+    let seg_pos = path.len().saturating_sub(1);
+    for entry_node in &entry_nodes {
+        let kn = entry_node
+            .children()
+            .find(|c| c.kind() == SyntaxKind::KEY)
+            .ok_or(MutateError::NotFound)?;
+        rename_key_seg_at_pos(kn, seg_pos, new_key)?;
+    }
+    Ok(())
+}
+
+/// Rename the segment at position `path.len()-1` in all flat-ROOT member entries
+/// of the synthetic `[T/D]` table at `path`.
+fn rename_dotted_segment(
+    _tree: &SyntaxNode,
+    idx: &CstIndex,
+    path: &[Seg],
+    new_seg: &str,
+) -> Result<(), MutateError> {
+    if path.is_empty() {
+        return Err(MutateError::Illegal("cannot rename root".into()));
+    }
+    // Validate: new_seg must be a valid TOML key.
+    let parse = taplo::parser::parse(&format!("{new_seg} = 0\n"));
+    if let Some(e) = parse.errors.first() {
+        return Err(MutateError::Fragment(e.to_string()));
+    }
+
+    let seg_pos = path.len() - 1;
+    let members = dotted_member_entries(idx, path);
+    if members.is_empty() {
+        return Err(MutateError::NotFound);
+    }
+
+    for entry_node in &members {
+        let key_node = entry_node
+            .children()
+            .find(|c| c.kind() == SyntaxKind::KEY)
+            .ok_or(MutateError::NotFound)?;
+        rename_key_seg_at_pos(key_node, seg_pos, new_seg)?;
+    }
+    Ok(())
+}
+
+/// Replace the key segment at `seg_pos` (0-indexed) in `key_node` with fresh
+/// tokens built from `new_seg`. Used by all rename paths.
+/// A fresh parse is required per call because rowan tokens cannot be reused.
+fn rename_key_seg_at_pos(
+    key_node: SyntaxNode,
+    seg_pos: usize,
+    new_seg: &str,
+) -> Result<(), MutateError> {
+    // Find the token at the target segment position.
+    let seg_tokens: Vec<SyntaxToken> = key_node
+        .children_with_tokens()
+        .filter_map(|c| c.into_token().filter(|t| is_key_seg(t.kind())))
+        .collect();
+    let old_tok = seg_tokens.get(seg_pos).ok_or(MutateError::NotFound)?;
+    let tok_idx = old_tok.index();
+
+    // Build replacement tokens from a fresh parse.
+    let nk_root = taplo::parser::parse(&format!("{new_seg} = 0\n"))
+        .into_syntax()
+        .clone_for_update();
     let mut nk_tokens: Vec<_> = nk_root
         .descendants()
         .find(|n| n.kind() == SyntaxKind::KEY)
         .ok_or_else(|| MutateError::Fragment("invalid key".into()))?
         .children_with_tokens()
         .collect();
-    let last_seg = nk_tokens
+    let last_seg_idx = nk_tokens
         .iter()
         .rposition(|c| matches!(c, NodeOrToken::Token(t) if is_key_seg(t.kind())))
         .ok_or_else(|| MutateError::Fragment("invalid key".into()))?;
-    nk_tokens.truncate(last_seg + 1);
+    nk_tokens.truncate(last_seg_idx + 1);
 
-    let (proj, idx) = walk(tree, "");
-    let target = idx
-        .iter()
-        .find(|(p, _)| p == path)
-        .map(|(_, t)| t.clone())
-        .ok_or(MutateError::NotFound)?;
-    let key_node = match &target {
-        Target::Entry(n) | Target::Header(n) | Target::AotEntry(n) => n
-            .children()
-            .find(|c| c.kind() == SyntaxKind::KEY)
-            .ok_or(MutateError::NotFound)?,
-        _ => return Err(MutateError::Unsupported),
-    };
-
-    // Collision: compute the resulting display key and compare against siblings.
-    if let Some((parent, node)) = find_parent(&proj.root, path) {
-        let mut segs: Vec<&str> = node.key.split('.').collect();
-        if let Some(last) = segs.last_mut() {
-            *last = new_key;
-        }
-        let new_display = segs.join(".");
-        if parent.children.iter().any(|c| {
-            !matches!(c.kind, crate::model::node::NodeKind::Comment(_))
-                && c.path != *path
-                && c.key == new_display
-        }) {
-            return Err(MutateError::Collision(new_key.to_string()));
-        }
-    }
-
-    // Replace the last key-segment token (the displayed/renamed segment) with the
-    // new key's tokens — one segment for a plain rename, several to introduce dots.
-    let last_tok = key_node
-        .children_with_tokens()
-        .filter_map(|c| c.into_token().filter(|t| is_key_seg(t.kind())))
-        .last()
-        .ok_or(MutateError::NotFound)?;
-    let i = last_tok.index();
     for t in &nk_tokens {
         t.detach();
     }
-    key_node.splice_children(i..i + 1, nk_tokens);
+    key_node.splice_children(tok_idx..tok_idx + 1, nk_tokens);
     Ok(())
 }
 
@@ -4163,16 +4379,27 @@ mod tests {
     }
 
     #[test]
-    fn rename_whole_synthetic_dotted_table_is_rejected() {
-        // Renaming a whole `[T/D]` table has no source element → doc untouched.
+    fn rename_whole_synthetic_dotted_table_updates_all_members() {
+        // Renaming a synthetic `[T/D]` table renames its segment in all member entries.
         let mut d = doc("a.b.c = 1\n");
-        assert!(d
-            .apply(Mutation::Rename {
-                path: vec![Seg::Key("a".into())],
-                new_key: "x".into(),
-            })
-            .is_err());
-        assert_eq!(d.serialize(), "a.b.c = 1\n");
+        d.apply(Mutation::Rename {
+            path: vec![Seg::Key("a".into())],
+            new_key: "x".into(),
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "x.b.c = 1\n");
+    }
+
+    #[test]
+    fn rename_synthetic_dotted_table_intermediate_segment() {
+        // Renaming an intermediate segment in a deeper dotted chain.
+        let mut d = doc("a.b.c = 1\na.b.d = 2\n");
+        d.apply(Mutation::Rename {
+            path: vec![Seg::Key("a".into()), Seg::Key("b".into())],
+            new_key: "z".into(),
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "a.z.c = 1\na.z.d = 2\n");
     }
 
     #[test]
@@ -5480,6 +5707,40 @@ mod tests {
         })
         .unwrap();
         assert_eq!(d.serialize(), "[srv]\nport = 8080\n");
+    }
+
+    #[test]
+    fn rename_scope_table_propagates_to_sub_headers() {
+        // Renaming [product_table] must also fix [product_table.a] and [product_table.b].
+        let mut d = doc(
+            "[product_table]\n[product_table.a]\nname = \"Hammer\"\n[product_table.b]\nname = \"Nail\"\n",
+        );
+        d.apply(Mutation::Rename {
+            path: vec![Seg::Key("product_table".into())],
+            new_key: "item".into(),
+        })
+        .unwrap();
+        assert_eq!(
+            d.serialize(),
+            "[item]\n[item.a]\nname = \"Hammer\"\n[item.b]\nname = \"Nail\"\n"
+        );
+    }
+
+    #[test]
+    fn rename_implicit_scope_table_propagates_to_sub_headers() {
+        // No top-level [product_table] header; only sub-tables exist.
+        // Renaming the implicit root must still fix all sub-headers.
+        let mut d =
+            doc("[product_table.a]\nname = \"Hammer\"\n[product_table.b]\nname = \"Nail\"\n");
+        d.apply(Mutation::Rename {
+            path: vec![Seg::Key("product_table".into())],
+            new_key: "item".into(),
+        })
+        .unwrap();
+        assert_eq!(
+            d.serialize(),
+            "[item.a]\nname = \"Hammer\"\n[item.b]\nname = \"Nail\"\n"
+        );
     }
 
     #[test]

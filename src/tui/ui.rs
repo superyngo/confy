@@ -390,6 +390,20 @@ fn paste_line_row<'a>(row: &RowSnapshot, expanded: bool, width: u16) -> Row<'a> 
 }
 
 fn draw_status(f: &mut Frame, area: Rect, app: &App) {
+    // Error messages always take priority — shown with red background regardless
+    // of mode or clipboard state so they are never hidden.
+    if !matches!(app.mode, Mode::Edit(_)) {
+        if let Some(ref msg) = app.error {
+            let paragraph = Paragraph::new(format!(" ✗ {msg}")).style(
+                Style::default()
+                    .bg(Color::Red)
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            );
+            f.render_widget(paragraph, area);
+            return;
+        }
+    }
     // In filter mode, show the filter input line as an inline text field: a
     // ` /` prefix then the buffer with the char under the caret reverse-
     // highlighted (same treatment as the inline value editor).
@@ -434,10 +448,15 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
                         crate::tui::state::EditField::Name => "name",
                     }
                 };
-                let tab = if e.is_element || e.is_comment {
+                let tab = if e.is_element || e.is_comment || e.rename_only {
                     ""
                 } else {
                     "  Tab:name/value"
+                };
+                let field = if e.rename_only {
+                    "name (rename)"
+                } else {
+                    field
                 };
                 (
                     format!(
