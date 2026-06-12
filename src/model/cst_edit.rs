@@ -26,25 +26,26 @@ use taplo::syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 /// mutated, so the caller commits only on `Ok`.
 pub(crate) fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<SyntaxNode, MutateError> {
     let tree = syntax.clone_for_update();
-    match m {
+    let result = match m {
         Mutation::Replace { path, toml, .. } => {
             if path.is_empty() {
-                return reparse_document(&toml);
+                reparse_document(&toml)?
+            } else {
+                replace_value(&tree, &path, &toml)?;
+                tree
             }
-            replace_value(&tree, &path, &toml)?;
-            Ok(tree)
         }
         Mutation::EditComment { path, text } => {
             edit_comment(&tree, &path, &text)?;
-            Ok(tree)
+            tree
         }
         Mutation::Delete { path } => {
             delete(&tree, &path)?;
-            Ok(tree)
+            tree
         }
         Mutation::InsertComment { target, text } => {
             insert_comment(&tree, &target, &text)?;
-            Ok(tree)
+            tree
         }
         Mutation::Insert {
             target,
@@ -52,15 +53,15 @@ pub(crate) fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<SyntaxNode, Muta
             on_collision,
         } => {
             insert(&tree, &target, &toml, on_collision)?;
-            Ok(tree)
+            tree
         }
         Mutation::Rename { path, new_key } => {
             rename(&tree, &path, &new_key)?;
-            Ok(tree)
+            tree
         }
         Mutation::Remark { path } => {
             remark(&tree, &path)?;
-            Ok(tree)
+            tree
         }
         Mutation::Move {
             sources,
@@ -68,9 +69,34 @@ pub(crate) fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<SyntaxNode, Muta
             on_collision,
         } => {
             move_nodes(&tree, &sources, &target, on_collision)?;
-            Ok(tree)
+            tree
+        }
+    };
+    validate_semantics(&result)?;
+    Ok(result)
+}
+
+/// Semantic backstop run on every successful mutation before commit: taplo's
+/// parser is syntax-only (a duplicate `[a]` section or re-defined key parses
+/// clean), so the result is checked with taplo's DOM validation, which rejects
+/// conflicting keys / table redefinitions while accepting every legal layout
+/// (scattered `[a] … [a.sub]`, dotted siblings, AoT re-openings, the
+/// `fruit.apple` mixed pattern). Catches duplicates the targeted pre-checks
+/// can't see — e.g. a whole-document or block `$EDITOR` rewrite that introduces
+/// a duplicate section.
+fn validate_semantics(tree: &SyntaxNode) -> Result<(), MutateError> {
+    let dom = taplo::parser::parse(&tree.to_string()).into_dom();
+    if let Err(errors) = dom.validate() {
+        if let Some(e) = errors.into_iter().next() {
+            return Err(match &e {
+                taplo::dom::Error::ConflictingKeys { key, .. } => {
+                    MutateError::Collision(key.value().to_string())
+                }
+                other => MutateError::Illegal(other.to_string()),
+            });
         }
     }
+    Ok(())
 }
 
 /// Serialize the node at `path` as a standalone fragment (clipboard / `$EDITOR`).
@@ -1568,9 +1594,18 @@ fn insert(
     }
     // Collision is **exact full path** (`target.parent ++ frag_segs`): dotted siblings
     // that merely share a prefix (`a.x` beside `a.y`) merge into one `[T/D]` table
-    // instead of colliding — only an identical full key clashes.
+    // instead of colliding — only an identical full key clashes. A header fragment
+    // bound for a sub-scope was already re-prefixed with the destination path
+    // (`prefix_section_headers`), so its key segments are absolute from the root —
+    // prepending `target.parent` again would check a phantom `b.b.a` path and let a
+    // duplicate `[b.a]` through.
+    let header_is_absolute = has_header && !target.parent.is_empty();
     let full_path = |segs: &[String]| -> Vec<Seg> {
-        let mut p = target.parent.clone();
+        let mut p = if header_is_absolute {
+            Vec::new()
+        } else {
+            target.parent.clone()
+        };
         p.extend(segs.iter().cloned().map(Seg::Key));
         p
     };
@@ -3255,6 +3290,57 @@ mod tests {
         })
         .unwrap();
         assert_eq!(d.serialize(), "b = 2\nb_2 = 9\n");
+    }
+
+    #[test]
+    fn insert_section_into_scope_collides_with_existing_subtable() {
+        // The header was re-prefixed to `[b.a]` before the collision check; the
+        // check must use the absolute path (a phantom `b.b.a` lookup used to let
+        // the duplicate through).
+        let mut d = doc("[b]\nx = 1\n\n[b.a]\ny = 2\n");
+        let err = d
+            .apply(Mutation::Insert {
+                target: InsTarget {
+                    parent: vec![Seg::Key("b".into())],
+                    index: 9,
+                },
+                toml: "[a]\nz = 3\n".into(),
+                on_collision: OnCollision::Cancel,
+            })
+            .unwrap_err();
+        assert!(matches!(err, MutateError::Collision(_)), "got {err:?}");
+        assert_eq!(d.serialize(), "[b]\nx = 1\n\n[b.a]\ny = 2\n");
+    }
+
+    #[test]
+    fn replace_document_rejects_duplicate_sections() {
+        // taplo's parser is syntax-only; the semantic backstop must reject a
+        // whole-document rewrite that introduces a duplicate `[a]`.
+        let mut d = doc("a = 1\n");
+        let err = d
+            .apply(Mutation::Replace {
+                path: vec![],
+                toml: "[a]\nx = 1\n[c]\ny = 2\n[a]\nz = 3\n".into(),
+            })
+            .unwrap_err();
+        assert!(matches!(err, MutateError::Collision(_)), "got {err:?}");
+        assert_eq!(d.serialize(), "a = 1\n");
+    }
+
+    #[test]
+    fn replace_section_rejects_resulting_duplicate() {
+        // A block edit that renames `[a]` to an already-existing `[b]` would leave
+        // two `[b]` sections — the backstop rejects it, doc untouched.
+        let src = "[a]\nx = 1\n\n[b]\ny = 2\n";
+        let mut d = doc(src);
+        let err = d
+            .apply(Mutation::Replace {
+                path: vec![Seg::Key("a".into())],
+                toml: "[b]\nz = 3\n".into(),
+            })
+            .unwrap_err();
+        assert!(matches!(err, MutateError::Collision(_)), "got {err:?}");
+        assert_eq!(d.serialize(), src);
     }
 
     #[test]

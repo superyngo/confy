@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Duplicate-key safety — **every mutation now runs a semantic backstop (taplo DOM validation) before commit**: taplo's parser is syntax-only, so a whole-document `E` rewrite or a block `e` edit could introduce a duplicate `[a]` section or re-defined key and be accepted. The result tree is now DOM-validated (conflicting keys → `Collision`, other semantic errors → `Illegal`), with the document left untouched on rejection; all legal layouts (scattered `[a] … [a.sub]`, dotted siblings, AoT re-openings, mixed `fruit.apple`) still pass. Also fixed the targeted pre-check for **section inserts into a sub-scope**: the header is re-prefixed to `[b.a]` before the collision check, but the check prepended `target.parent` again and looked up a phantom `b.b.a` — pasting `[a]` into `[b]` when `[b.a]` existed silently produced a duplicate section. (2026-06-12)
+
 ### Added
 - Projection — **dotted keys inside inline tables now decompose into `[T/D]` chains**. `t = { x.y = 1, x.z = 2, w = 3 }` projects a synthetic `[T/D]` table `x` nesting `y`/`z` (members sharing a prefix merge), instead of flat `x.y`/`x.z` leaves. Operations on the synthetic node route through the inline-table machinery, never the flat-ROOT splices (which previously panicked on such paths): insert/add re-prefixes the key scope-relative (`q = 9` into `t.x` → member `x.q = 9`) with exact-full-path collision (a shared prefix merges); delete and move/copy fan out over the `{ … }` member entries (capture keeps the node's own key: cutting `t.x` to root yields `x.y = 1` / `x.z = 2`); the `e` block edit consolidates the members at the first one (single-line entries only); comments into it are rejected. (2026-06-11)
 

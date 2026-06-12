@@ -19,6 +19,10 @@ positions, so `serialize()` is plain token concatenation and an untouched file r
 byte-identically. The Node tree is a *projection* (`cst_project.rs`) rebuilt after every
 mutation — it is never mutated directly. `apply` edits a `clone_for_update` copy of the tree and
 commits only on success, so **every mutation is atomic** (failure leaves the document untouched).
+Every successful mutation is also **semantically validated before commit** (`validate_semantics`:
+taplo DOM validation — duplicate sections/keys reject as `Collision`, other semantic errors as
+`Illegal`), a backstop for edits the targeted pre-checks can't see (e.g. a whole-document or block
+`$EDITOR` rewrite introducing a duplicate `[a]`).
 
 **`ConfigDocument` trait** abstracts the storage backend so YAML/JSON can be added later; the
 only backend is `CstDocument` (the original `toml_edit`-based `TomlDocument` was retired after
