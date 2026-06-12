@@ -17,7 +17,7 @@ use std::path::Path;
 
 pub fn run(path: &Path) -> Result<()> {
     use crate::model::document::ConfigDocument;
-    let doc = crate::model::cst_doc::CstDocument::load(path)?;
+    let doc = crate::model::any_doc::AnyDocument::load(path)?;
     let mut app = app::App::new(doc);
 
     // Restore the terminal even if the event loop panics, so a crash never

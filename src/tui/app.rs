@@ -44,7 +44,7 @@ pub struct App {
     /// which makes the next shift+arrow start a fresh round.
     pub last_action_was_shift_select: bool,
     /// Present when the app was constructed with a real document (interactive mode).
-    pub doc: Option<crate::model::cst_doc::CstDocument>,
+    pub doc: Option<crate::model::any_doc::AnyDocument>,
     pub history: Option<History>,
     /// Status message shown in the bottom bar (info messages).
     pub status: Option<String>,
@@ -113,8 +113,8 @@ pub enum PromptOutcome {
 }
 
 impl App {
-    /// Construct an App backed by a real CstDocument (interactive mode).
-    pub fn new(doc: crate::model::cst_doc::CstDocument) -> Self {
+    /// Construct an App backed by a real document (interactive mode).
+    pub fn new(doc: crate::model::any_doc::AnyDocument) -> Self {
         let tree = doc.project();
         let initial_snapshot = doc.serialize();
         let history = History::new(initial_snapshot);
@@ -2904,7 +2904,9 @@ mod tests {
         use std::io::Write;
         let mut f = tempfile::NamedTempFile::new().unwrap();
         f.write_all(src.as_bytes()).unwrap();
-        let doc = crate::model::cst_doc::CstDocument::load(f.path()).unwrap();
+        let doc = crate::model::any_doc::AnyDocument::Toml(
+            crate::model::cst_doc::CstDocument::load(f.path()).unwrap(),
+        );
         App::new(doc)
     }
 
@@ -3520,7 +3522,9 @@ mod tests {
         f.write_all(b"port = 8080\n").unwrap();
         let path = f.path().to_path_buf();
         // Keep the NamedTempFile alive so the path isn't deleted
-        let doc = crate::model::cst_doc::CstDocument::load(&path).unwrap();
+        let doc = crate::model::any_doc::AnyDocument::Toml(
+            crate::model::cst_doc::CstDocument::load(&path).unwrap(),
+        );
         let mut app = App::new(doc);
         // Mutate to make dirty
         app.apply_replace(vec![Seg::Key("port".into())], "port = 9090\n".into());

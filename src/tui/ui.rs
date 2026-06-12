@@ -765,7 +765,9 @@ mod tests {
     fn render(src: &str, w: u16, h: u16) -> Vec<String> {
         let mut f = tempfile::NamedTempFile::new().unwrap();
         f.write_all(src.as_bytes()).unwrap();
-        let doc = crate::model::cst_doc::CstDocument::load(f.path()).unwrap();
+        let doc = crate::model::any_doc::AnyDocument::Toml(
+            crate::model::cst_doc::CstDocument::load(f.path()).unwrap(),
+        );
         let app = App::new(doc);
         let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
         terminal.draw(|fr| draw(fr, &app)).unwrap();
@@ -785,7 +787,9 @@ mod tests {
     fn type_filter_popup_renders_with_checkboxes() {
         let mut f = tempfile::NamedTempFile::new().unwrap();
         f.write_all(b"port = 8080\n").unwrap();
-        let doc = crate::model::cst_doc::CstDocument::load(f.path()).unwrap();
+        let doc = crate::model::any_doc::AnyDocument::Toml(
+            crate::model::cst_doc::CstDocument::load(f.path()).unwrap(),
+        );
         let mut app = App::new(doc);
         app.enter_type_filter();
         app.type_filter_toggle(); // toggle the focused cell on
@@ -818,7 +822,9 @@ mod tests {
     fn type_filter_popup_scrolls_to_keep_cursor_visible() {
         let mut f = tempfile::NamedTempFile::new().unwrap();
         f.write_all(b"port = 8080\n").unwrap();
-        let doc = crate::model::cst_doc::CstDocument::load(f.path()).unwrap();
+        let doc = crate::model::any_doc::AnyDocument::Toml(
+            crate::model::cst_doc::CstDocument::load(f.path()).unwrap(),
+        );
         let mut app = App::new(doc);
         app.enter_type_filter();
         app.type_filter_move(1000, 0); // jump to the last (Date) row
@@ -844,7 +850,9 @@ mod tests {
     fn inline_editor_renders_buffer_in_value_column() {
         let mut f = tempfile::NamedTempFile::new().unwrap();
         f.write_all(b"port = 8080\n").unwrap();
-        let doc = crate::model::cst_doc::CstDocument::load(f.path()).unwrap();
+        let doc = crate::model::any_doc::AnyDocument::Toml(
+            crate::model::cst_doc::CstDocument::load(f.path()).unwrap(),
+        );
         let mut app = App::new(doc);
         app.cursor = 1; // on port
         app.begin_inline_edit();
@@ -881,7 +889,9 @@ mod tests {
     fn inline_commit_error_is_shown_in_status() {
         let mut f = tempfile::NamedTempFile::new().unwrap();
         f.write_all(b"port = 8080\n").unwrap();
-        let doc = crate::model::cst_doc::CstDocument::load(f.path()).unwrap();
+        let doc = crate::model::any_doc::AnyDocument::Toml(
+            crate::model::cst_doc::CstDocument::load(f.path()).unwrap(),
+        );
         let mut app = App::new(doc);
         app.cursor = 1;
         app.begin_inline_edit();
@@ -932,7 +942,9 @@ mod tests {
         let long = "x".repeat(400);
         f.write_all(format!("blob = \"{long}\"\n").as_bytes())
             .unwrap();
-        let doc = crate::model::cst_doc::CstDocument::load(f.path()).unwrap();
+        let doc = crate::model::any_doc::AnyDocument::Toml(
+            crate::model::cst_doc::CstDocument::load(f.path()).unwrap(),
+        );
         let mut app = App::new(doc);
         app.cursor = 1; // on blob
         app.open_detail();
@@ -995,7 +1007,9 @@ mod tests {
     fn render_expanded(src: &str, w: u16, h: u16) -> String {
         let mut f = tempfile::NamedTempFile::new().unwrap();
         f.write_all(src.as_bytes()).unwrap();
-        let doc = crate::model::cst_doc::CstDocument::load(f.path()).unwrap();
+        let doc = crate::model::any_doc::AnyDocument::Toml(
+            crate::model::cst_doc::CstDocument::load(f.path()).unwrap(),
+        );
         let mut app = App::new(doc);
         app.expand_all();
         app.rebuild_rows();
