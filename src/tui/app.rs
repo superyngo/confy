@@ -1,5 +1,5 @@
 use crate::model::document::{ConfigDocument, Mutation, OnCollision, Target};
-use crate::model::node::{Format, KeySign, Node, NodeKind, NodeTree, Path, ScalarType, Seg};
+use crate::model::node::{Format, KeySign, NodeKind, NodeTree, Path, ScalarType, Seg};
 use crate::tui::search::{fuzzy_match, haystack};
 use crate::tui::selection::Selection;
 use crate::tui::state::{Clipboard, EditState, History, Mode, PasteSlot, PromptKind};
@@ -412,7 +412,9 @@ impl App {
         match slot {
             PasteSlot::Into(i) => {
                 let row = self.rows.get(i)?;
-                let index = node_at(&self.tree.root, &row.path)
+                let index = self
+                    .tree
+                    .node_at(&row.path)
                     .map(|n| n.children.len())
                     .unwrap_or(0);
                 Some(Target {
@@ -555,7 +557,7 @@ impl App {
             return;
         };
         let path = row.path.clone();
-        let Some(node) = node_at(&self.tree.root, &path) else {
+        let Some(node) = self.tree.node_at(&path) else {
             return;
         };
         // A scalar switches between notations of its own type; the current
@@ -857,7 +859,7 @@ impl App {
             // a standard `[table]` or an `{ inline }` table, an array a standard
             // `[...]` or an `[[array-of-tables]]`. Surface both axes — the coarse
             // Type and the concrete Format — plus the child count.
-            let node = node_at(&self.tree.root, &row.path);
+            let node = self.tree.node_at(&row.path);
             let (type_str, fmt_str) = node
                 .map(|n| branch_type_format(&n.kind))
                 .unwrap_or(("unknown", "-"));
@@ -993,7 +995,7 @@ impl App {
         // decor-addressable comment (no `Array` ancestor — including ones inside an
         // AoT entry, whose path carries an `Index`); a comment with an `Array`
         // ancestor is not addressable and falls through to container editing.
-        if let Some(node) = node_at(&self.tree.root, &cursor_row.path) {
+        if let Some(node) = self.tree.node_at(&cursor_row.path) {
             if let NodeKind::Comment(text) = &node.kind {
                 if self.no_array_ancestor(&cursor_row.path) {
                     let initial = format!("{text}\n");
@@ -1020,7 +1022,9 @@ impl App {
         // indices and the keys below them are kept and addressed directly.
         let truncate_at = cursor_row.path.iter().enumerate().find_map(|(i, s)| {
             if matches!(s, Seg::Index(_)) {
-                let container_is_array = node_at(&self.tree.root, &cursor_row.path[..i])
+                let container_is_array = self
+                    .tree
+                    .node_at(&cursor_row.path[..i])
                     .map(|n| matches!(n.kind, NodeKind::Array))
                     .unwrap_or(false);
                 if container_is_array {
@@ -1090,7 +1094,8 @@ impl App {
     /// length-1 paths trivially qualify.
     fn no_array_ancestor(&self, path: &[Seg]) -> bool {
         (1..path.len()).all(|i| {
-            node_at(&self.tree.root, &path[..i])
+            self.tree
+                .node_at(&path[..i])
                 .map(|n| !matches!(n.kind, NodeKind::Array))
                 .unwrap_or(false)
         })
@@ -1110,7 +1115,7 @@ impl App {
         if path.is_empty() {
             return EditKind::External; // Root
         }
-        let node = match node_at(&self.tree.root, path) {
+        let node = match self.tree.node_at(path) {
             Some(n) => n,
             None => return EditKind::External,
         };
@@ -1148,7 +1153,7 @@ impl App {
             return EditKind::External;
         }
         let parent_path = &path[..path.len() - 1];
-        let parent = node_at(&self.tree.root, parent_path);
+        let parent = self.tree.node_at(parent_path);
         match path.last() {
             // Scalar element of an array: inline when the path is `Key+ Index*`
             // (a run of keys then array-index descents, no `Key` after the first
@@ -1208,7 +1213,9 @@ impl App {
         };
         // A single-line comment node edits its raw `#`-prefixed text as the sole
         // field (no key, no type check); `edit_commit` routes it to `EditComment`.
-        let is_comment = node_at(&self.tree.root, &row.path)
+        let is_comment = self
+            .tree
+            .node_at(&row.path)
             .map(|n| matches!(n.kind, NodeKind::Comment(_)))
             .unwrap_or(false);
         // A comment has no editable key and is not an array element (its path may end
@@ -1262,7 +1269,9 @@ impl App {
             _ => return,
         };
         // Comments have no rename-able key.
-        let is_comment = node_at(&self.tree.root, &row.path)
+        let is_comment = self
+            .tree
+            .node_at(&row.path)
             .map(|n| matches!(n.kind, NodeKind::Comment(_)))
             .unwrap_or(false);
         if is_comment {
@@ -1590,7 +1599,7 @@ impl App {
             }
             _ => return,
         };
-        let node = match node_at(&self.tree.root, &path) {
+        let node = match self.tree.node_at(&path) {
             Some(n) => n,
             None => return,
         };
@@ -1629,7 +1638,9 @@ impl App {
         let expanded = self.expanded.contains(&cursor_row.path);
         let is_append = cursor_row.path.is_empty() || (cursor_row.is_branch && expanded);
         let mut target = if is_append {
-            let n = node_at(&self.tree.root, &cursor_row.path)
+            let n = self
+                .tree
+                .node_at(&cursor_row.path)
                 .map(|p| p.children.len())
                 .unwrap_or(0);
             Target {
@@ -1645,7 +1656,7 @@ impl App {
             }
         };
 
-        let parent_node = node_at(&self.tree.root, &target.parent);
+        let parent_node = self.tree.node_at(&target.parent);
         let parent_is_array = parent_node
             .map(|n| matches!(n.kind, NodeKind::Array))
             .unwrap_or(false);
@@ -1917,7 +1928,8 @@ impl App {
         // ends in `Seg::Index`, which an array element shares — the kind is the
         // only reliable discriminator).
         let is_comment = |p: &Path| {
-            node_at(&self.tree.root, p)
+            self.tree
+                .node_at(p)
                 .map(|n| matches!(n.kind, NodeKind::Comment(_)))
                 .unwrap_or(false)
         };
@@ -1977,7 +1989,9 @@ impl App {
                 Prompt,
                 Illegal,
             }
-            let dest = node_at(&self.tree.root, &target.parent)
+            let dest = self
+                .tree
+                .node_at(&target.parent)
                 .map(|n| match n.kind {
                     NodeKind::Root | NodeKind::Table => Dest::Ok,
                     // multiline array (single-line arrays have a one-line `value`)
@@ -2037,7 +2051,9 @@ impl App {
             // Destination `[A/T]` group or plain array: pack all copied keyed nodes
             // into ONE new `[[…]]` entry / `{ … }` element by joining their fragments
             // into a single Insert (mirrors the cut path's join in `move_nodes`).
-            let dest_packs = node_at(&self.tree.root, &target.parent)
+            let dest_packs = self
+                .tree
+                .node_at(&target.parent)
                 .map(|n| matches!(n.kind, NodeKind::ArrayOfTables | NodeKind::Array))
                 .unwrap_or(false);
             let grouped: Vec<(String, usize)> = if dest_packs
@@ -2386,7 +2402,8 @@ impl App {
             return 0;
         }
         let parent_path = &path[..path.len() - 1];
-        node_at(&self.tree.root, parent_path)
+        self.tree
+            .node_at(parent_path)
             .and_then(|parent| parent.children.iter().position(|c| &c.path == path))
             .unwrap_or(0)
     }
@@ -2404,14 +2421,6 @@ fn branch_type_format(kind: &NodeKind) -> (&'static str, &'static str) {
         NodeKind::ArrayOfTables => ("array", "array-of-tables"),
         NodeKind::Scalar(_) | NodeKind::Comment(_) => ("unknown", "-"),
     }
-}
-
-/// Find a node in the projected tree by its exact path (Root has empty path).
-fn node_at<'a>(root: &'a Node, path: &[Seg]) -> Option<&'a Node> {
-    if root.path == path {
-        return Some(root);
-    }
-    root.children.iter().find_map(|c| node_at(c, path))
 }
 
 /// Byte offset of the `n`-th char in `s` (==`s.len()` when `n` is the char count).
@@ -3067,7 +3076,8 @@ mod tests {
         app.rows
             .iter()
             .position(|r| {
-                node_at(&app.tree.root, &r.path)
+                app.tree
+                    .node_at(&r.path)
                     .map(|n| matches!(n.kind, NodeKind::Comment(_)))
                     .unwrap_or(false)
             })
@@ -4625,7 +4635,8 @@ mod tests {
             .rows
             .iter()
             .filter(|r| {
-                node_at(&app.tree.root, &r.path)
+                app.tree
+                    .node_at(&r.path)
                     .map(|n| matches!(n.kind, NodeKind::Comment(_)))
                     .unwrap_or(false)
             })

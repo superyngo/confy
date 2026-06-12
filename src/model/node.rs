@@ -182,6 +182,17 @@ impl NodeTree {
         walk(&self.root, 0, is_expanded, &mut rows);
         rows
     }
+
+    /// Find a node by its exact projected path (Root has the empty path).
+    pub fn node_at(&self, path: &[Seg]) -> Option<&Node> {
+        fn walk<'a>(n: &'a Node, path: &[Seg]) -> Option<&'a Node> {
+            if n.path == path {
+                return Some(n);
+            }
+            n.children.iter().find_map(|c| walk(c, path))
+        }
+        walk(&self.root, path)
+    }
 }
 
 #[cfg(test)]
@@ -241,5 +252,22 @@ mod tests {
         assert_eq!(expanded.len(), 3);
         assert_eq!(expanded[2].node.key, "port");
         assert_eq!(expanded[2].depth, 2);
+    }
+
+    #[test]
+    fn node_at_resolves_paths() {
+        let mut port = Node::leaf("port", NodeKind::Scalar(ScalarType::Integer));
+        port.path = vec![Seg::Key("server".into()), Seg::Key("port".into())];
+        let mut server = Node::branch("server", NodeKind::Table);
+        server.path = vec![Seg::Key("server".into())];
+        server.children = vec![port];
+        let mut root = Node::branch("f.toml", NodeKind::Root);
+        root.children = vec![server];
+        let tree = NodeTree { root };
+
+        assert!(tree.node_at(&[]).is_some_and(|n| n.key == "f.toml"));
+        let p = vec![Seg::Key("server".into()), Seg::Key("port".into())];
+        assert!(tree.node_at(&p).is_some_and(|n| n.key == "port"));
+        assert!(tree.node_at(&[Seg::Key("nope".into())]).is_none());
     }
 }
