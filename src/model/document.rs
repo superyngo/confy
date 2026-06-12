@@ -42,12 +42,12 @@ pub enum Mutation {
     },
     Insert {
         target: Target,
-        toml: String,
+        fragment: String,
         on_collision: OnCollision,
     },
     Replace {
         path: Path,
-        toml: String,
+        fragment: String,
     },
     /// Rename the key at `path` to `new_key`, preserving its position and decor.
     Rename {
@@ -116,7 +116,7 @@ pub enum MutateError {
     NotFound,
     #[error("key collision: {0}")]
     Collision(String),
-    #[error("invalid TOML fragment: {0}")]
+    #[error("invalid fragment: {0}")]
     Fragment(String),
     /// The node type is incompatible with the destination container, or the
     /// position would break TOML's table-capture rule (a scalar after a `[table]`

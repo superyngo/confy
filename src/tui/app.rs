@@ -1055,7 +1055,10 @@ impl App {
             Some(d) => d,
             None => return,
         };
-        match doc.apply(crate::model::document::Mutation::Replace { path, toml: edited }) {
+        match doc.apply(crate::model::document::Mutation::Replace {
+            path,
+            fragment: edited,
+        }) {
             Ok(()) => self.on_mutation_success(),
             Err(crate::model::document::MutateError::Fragment(msg)) => {
                 self.error = Some(format!("invalid TOML: {msg}"));
@@ -1734,7 +1737,7 @@ impl App {
         };
         match doc.apply(crate::model::document::Mutation::Insert {
             target,
-            toml: edited,
+            fragment: edited,
             on_collision: crate::model::document::OnCollision::Cancel,
         }) {
             Ok(()) => self.on_mutation_success(),
@@ -2057,7 +2060,7 @@ impl App {
                 let i = *i;
                 match doc.apply(Mutation::Insert {
                     target: target.clone(),
-                    toml: frag.clone(),
+                    fragment: frag.clone(),
                     on_collision,
                 }) {
                     Ok(()) => {}

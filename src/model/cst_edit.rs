@@ -27,7 +27,11 @@ use taplo::syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 pub(crate) fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<SyntaxNode, MutateError> {
     let tree = syntax.clone_for_update();
     let result = match m {
-        Mutation::Replace { path, toml, .. } => {
+        Mutation::Replace {
+            path,
+            fragment: toml,
+            ..
+        } => {
             if path.is_empty() {
                 reparse_document(&toml)?
             } else {
@@ -49,7 +53,7 @@ pub(crate) fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<SyntaxNode, Muta
         }
         Mutation::Insert {
             target,
-            toml,
+            fragment: toml,
             on_collision,
         } => {
             insert(&tree, &target, &toml, on_collision)?;
@@ -4042,7 +4046,7 @@ mod tests {
         let mut d = doc("a = 1\nb = 2\n");
         d.apply(Mutation::Replace {
             path: vec![Seg::Key("b".into())],
-            toml: "b = 42\n".into(),
+            fragment: "b = 42\n".into(),
         })
         .unwrap();
         assert_eq!(d.serialize(), "a = 1\nb = 42\n");
@@ -4053,7 +4057,7 @@ mod tests {
         let mut d = doc("port = 8080  # http\n");
         d.apply(Mutation::Replace {
             path: vec![Seg::Key("port".into())],
-            toml: "port = 9090\n".into(),
+            fragment: "port = 9090\n".into(),
         })
         .unwrap();
         assert_eq!(d.serialize(), "port = 9090  # http\n");
@@ -4064,7 +4068,7 @@ mod tests {
         let mut d = doc("arr = [0x1, 0o2, 3] # tail\n");
         d.apply(Mutation::Replace {
             path: vec![Seg::Key("arr".into()), Seg::Index(1)],
-            toml: "__elem__ = 99\n".into(),
+            fragment: "__elem__ = 99\n".into(),
         })
         .unwrap();
         assert_eq!(d.serialize(), "arr = [0x1, 99, 3] # tail\n");
@@ -4075,7 +4079,7 @@ mod tests {
         let mut d = doc("[server]\nport = 8080\n");
         d.apply(Mutation::Replace {
             path: vec![Seg::Key("server".into()), Seg::Key("port".into())],
-            toml: "port = 1\n".into(),
+            fragment: "port = 1\n".into(),
         })
         .unwrap();
         assert_eq!(d.serialize(), "[server]\nport = 1\n");
@@ -4086,7 +4090,7 @@ mod tests {
         let mut d = doc("a = 1\nb = 2\n");
         d.apply(Mutation::Replace {
             path: vec![],
-            toml: "a = 10\nc = 3\n".into(),
+            fragment: "a = 10\nc = 3\n".into(),
         })
         .unwrap();
         assert_eq!(d.serialize(), "a = 10\nc = 3\n");
@@ -4098,7 +4102,7 @@ mod tests {
         let err = d
             .apply(Mutation::Replace {
                 path: vec![],
-                toml: "a = = bad".into(),
+                fragment: "a = = bad".into(),
             })
             .unwrap_err();
         assert!(matches!(err, MutateError::Fragment(_)));
@@ -4184,7 +4188,7 @@ mod tests {
         let mut d = doc("arr = [1, 2]\n");
         d.apply(Mutation::Replace {
             path: vec![Seg::Key("arr".into())],
-            toml: "arr = [9, 8, 7]\n".into(),
+            fragment: "arr = [9, 8, 7]\n".into(),
         })
         .unwrap();
         assert_eq!(d.serialize(), "arr = [9, 8, 7]\n");
@@ -4195,7 +4199,7 @@ mod tests {
         let mut d = doc("pt = { x = 1 }  # p\n");
         d.apply(Mutation::Replace {
             path: vec![Seg::Key("pt".into())],
-            toml: "pt = { x = 2, y = 3 }\n".into(),
+            fragment: "pt = { x = 2, y = 3 }\n".into(),
         })
         .unwrap();
         assert_eq!(d.serialize(), "pt = { x = 2, y = 3 }  # p\n");
@@ -4251,7 +4255,7 @@ mod tests {
         let mut d = doc("[s]\nport = 1\n[d]\nz = 9\n");
         d.apply(Mutation::Replace {
             path: vec![Seg::Key("s".into())],
-            toml: "[s]\nport = 2\nhost = \"x\"\n".into(),
+            fragment: "[s]\nport = 2\nhost = \"x\"\n".into(),
         })
         .unwrap();
         assert_eq!(d.serialize(), "[s]\nport = 2\nhost = \"x\"\n[d]\nz = 9\n");
@@ -4276,7 +4280,7 @@ mod tests {
                 parent: vec![Seg::Key("arr".into())],
                 index: 1,
             },
-            toml: "2\n".into(),
+            fragment: "2\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -4286,7 +4290,7 @@ mod tests {
                 parent: vec![Seg::Key("arr".into())],
                 index: 99,
             },
-            toml: "4\n".into(),
+            fragment: "4\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -4298,7 +4302,7 @@ mod tests {
                 parent: vec![Seg::Key("xs".into())],
                 index: 0,
             },
-            toml: "7\n".into(),
+            fragment: "7\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -4312,7 +4316,7 @@ mod tests {
         let mut d = doc("a.b = 1\nx = 0\na.c = 2\n");
         d.apply(Mutation::Replace {
             path: vec![Seg::Key("a".into())],
-            toml: "a.b = 10\na.c = 20\n".into(),
+            fragment: "a.b = 10\na.c = 20\n".into(),
         })
         .unwrap();
         assert_eq!(d.serialize(), "a.b = 10\na.c = 20\nx = 0\n");
@@ -4323,7 +4327,7 @@ mod tests {
         let mut d = doc("a.b = 1\na.c = 2\n");
         d.apply(Mutation::Replace {
             path: vec![Seg::Key("a".into())],
-            toml: "a.b = 1\na.c = 2\na.d = 3\n".into(),
+            fragment: "a.b = 1\na.c = 2\na.d = 3\n".into(),
         })
         .unwrap();
         assert_eq!(d.serialize(), "a.b = 1\na.c = 2\na.d = 3\n");
@@ -4412,7 +4416,7 @@ mod tests {
                 parent: vec![Seg::Key("a".into())],
                 index: 1,
             },
-            toml: "x = 2\n".into(),
+            fragment: "x = 2\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -4427,7 +4431,7 @@ mod tests {
                 parent: vec![Seg::Key("a".into()), Seg::Key("b".into())],
                 index: 1,
             },
-            toml: "d = 2\n".into(),
+            fragment: "d = 2\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -4443,7 +4447,7 @@ mod tests {
                 parent: vec![Seg::Key("server".into()), Seg::Key("host".into())],
                 index: 1,
             },
-            toml: "port = 80\n".into(),
+            fragment: "port = 80\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -4576,7 +4580,7 @@ mod tests {
                 parent: vec![],
                 index: 1,
             },
-            toml: "b = 2\n".into(),
+            fragment: "b = 2\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -4607,7 +4611,7 @@ mod tests {
                 parent: vec![],
                 index: 1,
             },
-            toml: "b = 2\n".into(),
+            fragment: "b = 2\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -4622,7 +4626,7 @@ mod tests {
                 parent: vec![],
                 index: 9,
             },
-            toml: "z = 9\n".into(),
+            fragment: "z = 9\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -4638,7 +4642,7 @@ mod tests {
                     parent: vec![],
                     index: 0,
                 },
-                toml: "b = 9\n".into(),
+                fragment: "b = 9\n".into(),
                 on_collision: OnCollision::Cancel,
             })
             .unwrap_err();
@@ -4654,7 +4658,7 @@ mod tests {
                 parent: vec![],
                 index: 9,
             },
-            toml: "b = 99\n".into(),
+            fragment: "b = 99\n".into(),
             on_collision: OnCollision::Overwrite,
         })
         .unwrap();
@@ -4669,7 +4673,7 @@ mod tests {
                 parent: vec![],
                 index: 9,
             },
-            toml: "b = 9\n".into(),
+            fragment: "b = 9\n".into(),
             on_collision: OnCollision::Rename,
         })
         .unwrap();
@@ -4688,7 +4692,7 @@ mod tests {
                     parent: vec![Seg::Key("b".into())],
                     index: 9,
                 },
-                toml: "[a]\nz = 3\n".into(),
+                fragment: "[a]\nz = 3\n".into(),
                 on_collision: OnCollision::Cancel,
             })
             .unwrap_err();
@@ -4704,7 +4708,7 @@ mod tests {
         let err = d
             .apply(Mutation::Replace {
                 path: vec![],
-                toml: "[a]\nx = 1\n[c]\ny = 2\n[a]\nz = 3\n".into(),
+                fragment: "[a]\nx = 1\n[c]\ny = 2\n[a]\nz = 3\n".into(),
             })
             .unwrap_err();
         assert!(matches!(err, MutateError::Collision(_)), "got {err:?}");
@@ -4720,7 +4724,7 @@ mod tests {
         let err = d
             .apply(Mutation::Replace {
                 path: vec![Seg::Key("a".into())],
-                toml: "[b]\nz = 3\n".into(),
+                fragment: "[b]\nz = 3\n".into(),
             })
             .unwrap_err();
         assert!(matches!(err, MutateError::Collision(_)), "got {err:?}");
@@ -4735,7 +4739,7 @@ mod tests {
                 parent: vec![Seg::Key("p".into())],
                 index: 9,
             },
-            toml: "b = 3\n".into(),
+            fragment: "b = 3\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -4753,7 +4757,7 @@ mod tests {
                 parent: vec![Seg::Key("p".into())],
                 index: 0,
             },
-            toml: "b = 3\n".into(),
+            fragment: "b = 3\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -4772,7 +4776,7 @@ mod tests {
                 parent: vec![Seg::Key("p".into())],
                 index: 9,
             },
-            toml: "x = 1\ny = 2\n".into(),
+            fragment: "x = 1\ny = 2\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -4789,7 +4793,7 @@ mod tests {
                     parent: vec![Seg::Key("p".into())],
                     index: 9,
                 },
-                toml: "[t]\nz = 1\n".into(),
+                fragment: "[t]\nz = 1\n".into(),
                 on_collision: OnCollision::Cancel,
             })
             .unwrap_err();
@@ -4934,7 +4938,7 @@ mod tests {
                 parent: vec![Seg::Key("s".into())],
                 index: 9,
             },
-            toml: "{ a = 1, b = 2 }".into(),
+            fragment: "{ a = 1, b = 2 }".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -4952,7 +4956,7 @@ mod tests {
                 parent: vec![Seg::Key("p".into())],
                 index: 9,
             },
-            toml: "{ a = 1, b = 2 }".into(),
+            fragment: "{ a = 1, b = 2 }".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -4967,7 +4971,7 @@ mod tests {
                 parent: vec![Seg::Key("s".into())],
                 index: 9,
             },
-            toml: "42".into(),
+            fragment: "42".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -5326,7 +5330,7 @@ mod tests {
                 parent: vec![Seg::Key("s".into())],
                 index: 9,
             },
-            toml: "y = 2\n".into(),
+            fragment: "y = 2\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -5344,7 +5348,7 @@ mod tests {
                     parent: vec![],
                     index: 9, // append at root end (past [t])
                 },
-                toml: "z = 9\n".into(),
+                fragment: "z = 9\n".into(),
                 on_collision: OnCollision::Cancel,
             })
             .unwrap_err();
@@ -5362,7 +5366,7 @@ mod tests {
                 parent: vec![],
                 index: 1, // between `a` and `[t]`
             },
-            toml: "b = 2\n".into(),
+            fragment: "b = 2\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -5379,7 +5383,7 @@ mod tests {
                     parent: vec![],
                     index: 0,
                 },
-                toml: "[t]\ny = 1\n".into(),
+                fragment: "[t]\ny = 1\n".into(),
                 on_collision: OnCollision::Cancel,
             })
             .unwrap_err();
@@ -5397,7 +5401,7 @@ mod tests {
                 parent: vec![Seg::Key("arr".into())],
                 index: 9,
             },
-            toml: "x = 99\n".into(),
+            fragment: "x = 99\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -5413,7 +5417,7 @@ mod tests {
                 parent: vec![Seg::Key("arr".into())],
                 index: 9,
             },
-            toml: "foo = { a = 1 }\n".into(),
+            fragment: "foo = { a = 1 }\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -5429,7 +5433,7 @@ mod tests {
                 parent: vec![Seg::Key("arr".into())],
                 index: 9,
             },
-            toml: "{ a = 1 }\n".into(),
+            fragment: "{ a = 1 }\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -5445,7 +5449,7 @@ mod tests {
                 parent: vec![],
                 index: 9,
             },
-            toml: "42\n".into(),
+            fragment: "42\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -5461,7 +5465,7 @@ mod tests {
                 parent: vec![],
                 index: 9,
             },
-            toml: "42\n".into(),
+            fragment: "42\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -5597,13 +5601,13 @@ mod tests {
         let mut d = doc("x = 5\n");
         d.apply(Mutation::Replace {
             path: vec![Seg::Key("x".into())],
-            toml: "x = [1, 2]\n".into(),
+            fragment: "x = [1, 2]\n".into(),
         })
         .unwrap();
         assert_eq!(d.serialize(), "x = [1, 2]\n");
         d.apply(Mutation::Replace {
             path: vec![Seg::Key("x".into())],
-            toml: "x = 9\n".into(),
+            fragment: "x = 9\n".into(),
         })
         .unwrap();
         assert_eq!(d.serialize(), "x = 9\n");
@@ -5614,7 +5618,7 @@ mod tests {
         let mut d = doc("x = 5\n");
         d.apply(Mutation::Replace {
             path: vec![Seg::Key("x".into())],
-            toml: "x = { a = 1 }\n".into(),
+            fragment: "x = { a = 1 }\n".into(),
         })
         .unwrap();
         assert_eq!(d.serialize(), "x = { a = 1 }\n");
@@ -5626,7 +5630,7 @@ mod tests {
         let mut d = doc("arr = [[1, 2]]\n");
         d.apply(Mutation::Replace {
             path: vec![Seg::Key("arr".into()), Seg::Index(0)],
-            toml: "x = [9]\n".into(),
+            fragment: "x = [9]\n".into(),
         })
         .unwrap();
         assert_eq!(d.serialize(), "arr = [[9]]\n");
@@ -5639,7 +5643,7 @@ mod tests {
         let mut d = doc("arr = [1, 2]\n");
         d.apply(Mutation::Replace {
             path: vec![Seg::Key("arr".into())],
-            toml: "arr = [9]\n".into(),
+            fragment: "arr = [9]\n".into(),
         })
         .unwrap();
         assert_eq!(d.serialize(), "arr = [9]\n");
@@ -5655,7 +5659,7 @@ mod tests {
                     parent: vec![Seg::Key("arr".into())],
                     index: 9,
                 },
-                toml: "[t]\nx = 1\n".into(),
+                fragment: "[t]\nx = 1\n".into(),
                 on_collision: OnCollision::Cancel,
             })
             .unwrap_err();
@@ -5679,7 +5683,7 @@ mod tests {
         let mut d = doc("[[p]]\nx = 1\n\n[[p]]\nx = 2\n");
         d.apply(Mutation::Replace {
             path: vec![Seg::Key("p".into())],
-            toml: "[[p]]\nx = 9\n".into(),
+            fragment: "[[p]]\nx = 9\n".into(),
         })
         .unwrap();
         let s = d.serialize();
@@ -5889,7 +5893,7 @@ mod tests {
         // Re-emit the same block: the inline table's inner `x=1` must not surface.
         d.apply(Mutation::Replace {
             path: vec![Seg::Key("dotted".into())],
-            toml: "dotted.a = 1\ndotted.t = {x=1}\n".into(),
+            fragment: "dotted.a = 1\ndotted.t = {x=1}\n".into(),
         })
         .unwrap();
         assert_eq!(d.serialize(), "dotted.a = 1\ndotted.t = {x=1}\n");
@@ -5968,7 +5972,7 @@ mod tests {
                 parent: vec![],
                 index: 1,
             },
-            toml: "gg = 5\n".into(),
+            fragment: "gg = 5\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -6073,7 +6077,7 @@ mod tests {
                 parent: vec![Seg::Key("arr".into())],
                 index: 9,
             },
-            toml: "t.x = 1\nt.y = 2\n".into(),
+            fragment: "t.x = 1\nt.y = 2\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -6152,7 +6156,7 @@ mod tests {
                 parent: vec![],
                 index: 99,
             },
-            toml: "a.y = 2\n".into(),
+            fragment: "a.y = 2\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -6167,7 +6171,7 @@ mod tests {
                 parent: vec![],
                 index: 99,
             },
-            toml: "a.x = 9\n".into(),
+            fragment: "a.x = 9\n".into(),
             on_collision: OnCollision::Cancel,
         });
         assert!(matches!(r, Err(MutateError::Collision(k)) if k == "a.x"));
@@ -6183,7 +6187,7 @@ mod tests {
                 parent: vec![Seg::Key("b".into())],
                 index: 99,
             },
-            toml: "a.x = 1\na.y = 2\n".into(),
+            fragment: "a.x = 1\na.y = 2\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -6315,7 +6319,7 @@ mod tests {
                 parent: vec![Seg::Key("t".into())],
                 index: 99,
             },
-            toml: frag,
+            fragment: frag,
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -6337,7 +6341,7 @@ mod tests {
                 parent: vec![Seg::Key("s".into())],
                 index: 0,
             },
-            toml: frag,
+            fragment: frag,
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -6359,7 +6363,7 @@ mod tests {
                 parent: vec![Seg::Key("t".into()), Seg::Key("x".into())],
                 index: 99,
             },
-            toml: "q = 9\n".into(),
+            fragment: "q = 9\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -6374,7 +6378,7 @@ mod tests {
                 parent: vec![Seg::Key("t".into())],
                 index: 0,
             },
-            toml: "x.y = 7\n".into(),
+            fragment: "x.y = 7\n".into(),
             on_collision: OnCollision::Cancel,
         });
         assert!(matches!(r, Err(MutateError::Collision(k)) if k == "x.y"));
@@ -6383,7 +6387,7 @@ mod tests {
                 parent: vec![Seg::Key("t".into())],
                 index: 0,
             },
-            toml: "x.q = 7\n".into(),
+            fragment: "x.q = 7\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -6434,7 +6438,7 @@ mod tests {
         let mut d = doc(INLINE_DOTTED);
         d.apply(Mutation::Replace {
             path: vec![Seg::Key("t".into()), Seg::Key("x".into())],
-            toml: "x.y = 5\nx.q = 6\n".into(),
+            fragment: "x.y = 5\nx.q = 6\n".into(),
         })
         .unwrap();
         assert_eq!(d.serialize(), "t = { x.y = 5, x.q = 6, w = 3 }\n");
@@ -6462,7 +6466,7 @@ mod tests {
                 parent: vec![Seg::Key("t".into())],
                 index: 99,
             },
-            toml: "b = 2\n".into(),
+            fragment: "b = 2\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -6477,7 +6481,7 @@ mod tests {
                 parent: vec![Seg::Key("t".into())],
                 index: 0,
             },
-            toml: "b = 2\n".into(),
+            fragment: "b = 2\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -6492,7 +6496,7 @@ mod tests {
                 parent: vec![Seg::Key("t".into())],
                 index: 0,
             },
-            toml: "a = 1\n".into(),
+            fragment: "a = 1\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -6507,7 +6511,7 @@ mod tests {
                 parent: vec![Seg::Key("t".into())],
                 index: 99,
             },
-            toml: "a = 2\n".into(),
+            fragment: "a = 2\n".into(),
             on_collision: OnCollision::Cancel,
         });
         assert!(matches!(r, Err(MutateError::Collision(_))));
@@ -6563,7 +6567,7 @@ mod tests {
         let mut d = doc(SCATTERED);
         d.apply(Mutation::Replace {
             path: vec![Seg::Key("a".into())],
-            toml: "[a]\nx = 9\n[a.sub]\nz = 9\n".into(),
+            fragment: "[a]\nx = 9\n[a.sub]\nz = 9\n".into(),
         })
         .unwrap();
         assert_eq!(d.serialize(), "[a]\nx = 9\n[a.sub]\nz = 9\n[b]\ny = 2\n\n");
@@ -6574,7 +6578,7 @@ mod tests {
         let mut d = doc(SCATTERED);
         let r = d.apply(Mutation::Replace {
             path: vec![Seg::Key("a".into())],
-            toml: "[a]\nx = 9\n[c]\nq = 1\n".into(),
+            fragment: "[a]\nx = 9\n[c]\nq = 1\n".into(),
         });
         assert!(matches!(r, Err(MutateError::Illegal(_))), "got {r:?}");
         assert_eq!(d.serialize(), SCATTERED);
@@ -6609,7 +6613,7 @@ mod tests {
                 parent: vec![Seg::Key("a".into())],
                 index: 99,
             },
-            toml: "x = 1\n".into(),
+            fragment: "x = 1\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();
@@ -6638,7 +6642,7 @@ mod tests {
         let mut d = doc(MIXED);
         d.apply(Mutation::Replace {
             path: vec![Seg::Key("fruit".into()), Seg::Key("apple".into())],
-            toml: "[fruit.apple]\ncolor = \"green\"\n[fruit.apple.texture]\nsmooth = false\n"
+            fragment: "[fruit.apple]\ncolor = \"green\"\n[fruit.apple.texture]\nsmooth = false\n"
                 .into(),
         })
         .unwrap();
@@ -6670,7 +6674,7 @@ mod tests {
                 parent: vec![Seg::Key("fruit".into()), Seg::Key("apple".into())],
                 index: 99,
             },
-            toml: "size = 3\n".into(),
+            fragment: "size = 3\n".into(),
             on_collision: OnCollision::Cancel,
         })
         .unwrap();

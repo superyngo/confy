@@ -21,7 +21,7 @@ fn edit_one_value_leaves_other_bytes_untouched() {
     let mut doc = CstDocument::load(&p).unwrap();
     doc.apply(Mutation::Replace {
         path: vec![Seg::Key("server".into()), Seg::Key("port".into())],
-        toml: "port = 9090\n".into(),
+        fragment: "port = 9090\n".into(),
     })
     .unwrap();
     let expected = include_str!("fixtures/expected_after_edit.toml");
