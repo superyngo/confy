@@ -1824,13 +1824,13 @@ impl App {
                 }
             }
         } else {
-            // Destination `[A/T]` group: pack all copied keyed nodes into ONE new
-            // `[[…]]` entry by joining their fragments into a single Insert
-            // (mirrors the cut path's join in `move_nodes`).
-            let dest_is_aot = node_at(&self.tree.root, &target.parent)
-                .map(|n| matches!(n.kind, NodeKind::ArrayOfTables))
+            // Destination `[A/T]` group or plain array: pack all copied keyed nodes
+            // into ONE new `[[…]]` entry / `{ … }` element by joining their fragments
+            // into a single Insert (mirrors the cut path's join in `move_nodes`).
+            let dest_packs = node_at(&self.tree.root, &target.parent)
+                .map(|n| matches!(n.kind, NodeKind::ArrayOfTables | NodeKind::Array))
                 .unwrap_or(false);
-            let grouped: Vec<(String, usize)> = if dest_is_aot
+            let grouped: Vec<(String, usize)> = if dest_packs
                 && node_entries.len() > 1
                 && node_entries
                     .iter()

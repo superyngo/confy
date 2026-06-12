@@ -1458,7 +1458,9 @@ fn insert(
     if parent_is_array {
         // Into an array (no collision). A *keyless* bare value keeps its element form;
         // a *keyed* node is wrapped as a `{ key = value }` inline-table element so the
-        // key is preserved (a keyed inline table becomes a nested inline table).
+        // key is preserved (a keyed inline table becomes a nested inline table); a
+        // multi-entry fragment (several pasted nodes, or a `[T/D]` table's members)
+        // packs into ONE `{ a = 1, b = 2 }` element.
         // `[T/S]`/`[A/T]` headers are already rejected by `parse_fragment_adapted`.
         let element = if synthesized_key {
             frag
@@ -1772,26 +1774,43 @@ fn parse_fragment_adapted(
     }
 }
 
-/// Wrap a keyed entry fragment (`k = v`) as a bare inline-table value (`__w = { k = v }`)
-/// so inserting it into an array preserves the key as a `{ k = v }` element (a keyed
-/// inline-table value becomes a nested inline table). `array_insert` extracts the first
-/// VALUE descendant, which is the wrapping inline table. A multi-line value (multiline
-/// string/array) can't live on the inline table's single line, so it surfaces as a
-/// `Fragment` error.
+/// Wrap a keyed fragment as a bare inline-table value (`__w = { k = v }`) so
+/// inserting it into an array preserves the key as a `{ k = v }` element (a keyed
+/// inline-table value becomes a nested inline table). A **multi-entry** fragment
+/// packs all entries into ONE element (`{ a = 1, b = 2 }`, `, `-joined).
+/// `array_insert` extracts the first VALUE descendant, which is the wrapping
+/// inline table. A multi-line value (multiline string/array) can't live on the
+/// inline table's single line, so it surfaces as a `Fragment` error.
 fn wrap_keyed_as_inline_element(frag_text: &str) -> Result<SyntaxNode, MutateError> {
-    let entry = frag_text.trim();
-    let parse = taplo::parser::parse(&format!("__w = {{ {entry} }}\n"));
+    let pre = taplo::parser::parse(frag_text);
+    let inner = if pre.errors.is_empty() {
+        let entries: Vec<String> = pre
+            .into_syntax()
+            .children()
+            .filter(|n| n.kind() == SyntaxKind::ENTRY)
+            .map(|e| e.to_string().trim().to_string())
+            .collect();
+        if entries.is_empty() {
+            frag_text.trim().to_string()
+        } else {
+            entries.join(", ")
+        }
+    } else {
+        frag_text.trim().to_string()
+    };
+    let parse = taplo::parser::parse(&format!("__w = {{ {inner} }}\n"));
     match parse.errors.first() {
         Some(e) => Err(MutateError::Fragment(e.to_string())),
         None => Ok(parse.into_syntax().clone_for_update()),
     }
 }
 
-/// If `value_text` is a **single-entry** inline table (`{ k = v }`), return its inner
-/// `k = v`; else `None`. The inverse of `wrap_keyed_as_inline_element`: moving such an
-/// element out of an array into a table unwraps it back to a keyed entry. A multi-key
-/// inline table (or any other value) returns `None` and gets a synthesized key instead.
-fn unwrap_single_key_inline(value_text: &str) -> Option<String> {
+/// If `value_text` is an inline table (`{ k = v, … }`), return its member entries
+/// (`k = v`, one per element). The inverse of `wrap_keyed_as_inline_element`:
+/// moving such an element out of an array into a table **unpacks** it back into
+/// keyed entries (each insert runs the per-leaf collision check). An empty `{}`
+/// or any other value returns `None` and gets a synthesized key instead.
+fn unpack_inline_table(value_text: &str) -> Option<Vec<String>> {
     let parse = taplo::parser::parse(&format!("__w = {}\n", value_text.trim()));
     if !parse.errors.is_empty() {
         return None;
@@ -1800,12 +1819,15 @@ fn unwrap_single_key_inline(value_text: &str) -> Option<String> {
         .into_syntax()
         .descendants()
         .find(|n| n.kind() == SyntaxKind::INLINE_TABLE)?;
-    let mut entries = it.children().filter(|c| c.kind() == SyntaxKind::ENTRY);
-    let first = entries.next()?;
-    if entries.next().is_some() {
-        return None; // multi-key
+    let entries: Vec<String> = it
+        .children()
+        .filter(|c| c.kind() == SyntaxKind::ENTRY)
+        .map(|e| format!("{}\n", e.to_string().trim()))
+        .collect();
+    if entries.is_empty() {
+        return None;
     }
-    Some(first.to_string().trim().to_string())
+    Some(entries)
 }
 
 /// D5 (TOML table-capture): within a table/root the legal layout is partitioned —
@@ -2414,8 +2436,9 @@ fn move_nodes(
             }
             Target::Header(h) => frags.push(section_text(tree, p, h.index(), false)),
             // Moving an array element out: into another array it stays a bare element;
-            // into a table/root a single-key inline table `{ k = v }` unwraps to `k = v`
-            // (key preserved), anything else gets a synthesized `placeholder` key on
+            // into a table/root an inline table `{ k = v, … }` **unpacks** into its
+            // member entries (keys preserved, one node each — the per-leaf collision
+            // check applies), anything else gets a synthesized `placeholder` key on
             // insert. The destination format is then applied by `insert` (dotted prefix,
             // inline-table splice, …).
             Target::ArrayElement(value) => {
@@ -2423,11 +2446,10 @@ fn move_nodes(
                 let dest_is_array = node_at(&proj.root, &target.parent)
                     .map(|n| matches!(n.kind, crate::model::node::NodeKind::Array))
                     .unwrap_or(false);
-                let frag = match (dest_is_array, unwrap_single_key_inline(&text)) {
-                    (false, Some(kv)) => format!("{kv}\n"),
-                    _ => format!("{}\n", text.trim()),
-                };
-                frags.push(frag);
+                match (dest_is_array, unpack_inline_table(&text)) {
+                    (false, Some(entries)) => frags.extend(entries),
+                    _ => frags.push(format!("{}\n", text.trim())),
+                }
             }
             // Moving a `[[…]]` entry out of its array: it becomes a `[scope]`
             // table — captured scope-relative (`[[a.b]]` entry → `[b]` + body) so
@@ -2437,12 +2459,13 @@ fn move_nodes(
         }
     }
 
-    // Destination `[A/T]` group: several moved nodes pack into ONE new `[[…]]`
-    // entry, so join the fragments when every one is a header-less keyed entry
-    // (bare values / sections keep the per-fragment path and its own handling).
-    let dest_is_aot = node_at(&proj.root, &target.parent)
-        .is_some_and(|n| matches!(n.kind, NodeKind::ArrayOfTables));
-    let frags = if dest_is_aot && frags.len() > 1 && frags.iter().all(|f| joinable_entry(f)) {
+    // Destination `[A/T]` group or plain array: several moved nodes pack into ONE
+    // new `[[…]]` entry / `{ … }` element, so join the fragments when every one is
+    // a header-less keyed entry (bare values / sections keep the per-fragment path
+    // and its own handling).
+    let dest_packs = node_at(&proj.root, &target.parent)
+        .is_some_and(|n| matches!(n.kind, NodeKind::ArrayOfTables | NodeKind::Array));
+    let frags = if dest_packs && frags.len() > 1 && frags.iter().all(|f| joinable_entry(f)) {
         vec![frags
             .iter()
             .map(|f| format!("{}\n", f.trim_end()))
@@ -4341,16 +4364,65 @@ mod tests {
     }
 
     #[test]
-    fn move_multikey_element_into_table_gets_placeholder() {
+    fn move_multikey_element_into_table_unpacks_entries() {
         let s = move_elem(
             "arr = [{ a = 1, b = 2 }]\n[dest]\nz = 0\n",
             vec![Seg::Key("arr".into()), Seg::Index(0)],
             vec![Seg::Key("dest".into())],
         );
-        assert_eq!(
-            s,
-            "arr = []\n[dest]\nz = 0\nplaceholder = { a = 1, b = 2 }\n"
-        );
+        assert_eq!(s, "arr = []\n[dest]\nz = 0\na = 1\nb = 2\n");
+    }
+
+    #[test]
+    fn move_inline_element_out_collides_per_member() {
+        // Unpacked members run the per-leaf collision check; the move is atomic,
+        // so the document stays untouched.
+        let src = "arr = [{ a = 1, b = 2 }]\n[dest]\nb = 0\n";
+        let mut d = doc(src);
+        let err = d
+            .apply(Mutation::Move {
+                sources: vec![vec![Seg::Key("arr".into()), Seg::Index(0)]],
+                target: InsTarget {
+                    parent: vec![Seg::Key("dest".into())],
+                    index: 9,
+                },
+                on_collision: OnCollision::Cancel,
+            })
+            .unwrap_err();
+        assert!(matches!(err, MutateError::Collision(_)), "got {err:?}");
+        assert_eq!(d.serialize(), src);
+    }
+
+    #[test]
+    fn move_two_keyed_nodes_into_array_packs_one_inline_table() {
+        let mut d = doc("a = 1\nb = 2\narr = [0]\n");
+        d.apply(Mutation::Move {
+            sources: vec![vec![Seg::Key("a".into())], vec![Seg::Key("b".into())]],
+            target: InsTarget {
+                parent: vec![Seg::Key("arr".into())],
+                index: 9,
+            },
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "arr = [0, { a = 1, b = 2 }]\n");
+    }
+
+    #[test]
+    fn insert_multi_entry_fragment_into_array_packs_one_inline_table() {
+        // A copied [T/D] table's members arrive as one multi-entry fragment —
+        // they pack into ONE `{ … }` element.
+        let mut d = doc("arr = [0]\n");
+        d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![Seg::Key("arr".into())],
+                index: 9,
+            },
+            toml: "t.x = 1\nt.y = 2\n".into(),
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "arr = [0, { t.x = 1, t.y = 2 }]\n");
     }
 
     #[test]

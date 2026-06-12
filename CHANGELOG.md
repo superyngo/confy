@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Array paste alignment — **plain arrays now mirror the `[A/T]` interactions**: multiple copied/cut keyed nodes (or a `[T/D]` table's members) pack into **one** `{ a = 1, b = 2 }` inline-table element instead of one element each; **moving an inline-table element out of an array unpacks it into keyed entries** (`{ a = 1, b = 2 }` into a table → `a = 1` / `b = 2`, each per-leaf collision-checked; previously only a single-key `{ k = v }` unwrapped and a multi-key one got a `placeholder` key). Bare values keep their element form / `placeholder` key; `[T/S]`/`[A/T]` sections into an array stay `Illegal`. (2026-06-12)
+
+### Added
 - `[A/T]` interactions — **pasting keyed nodes into an array-of-tables group now synthesizes a new `[[…]]` entry at the target slot**: a keyed node, inline table or `[T/D]` table (its members fan out) lands inside the new entry; multiple copied/cut nodes are joined and **pack into one entry**. Keys never collide with sibling entries (each `[[…]]` opens a fresh namespace); duplicates *within* the pasted set follow o/r/c. A `[table]`/`[[aot]]` section into a group stays `Illegal`. **Moving a `[[…]]` entry out of its array is now supported**: the entry converts to a `[scope]` table — captured scope-relative (`[[a.b]]` → `[b]`), re-prefixed for the destination (`[s]` → `[s.b]`), partition- and collision-checked (landing it beside its own group is a `Collision`; rename yields `[p_2]`). Copy (`c`) of an entry captures the same `[k]` scope form; the `$EDITOR` block edit keeps the verbatim `[[…]]` header. (2026-06-12)
 
 ### Fixed

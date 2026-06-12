@@ -250,10 +250,13 @@ collision-retry path). `do_paste` pairs each fragment with its source path and s
 through the atomic `Mutation::Move` (delete-before-reinsert on a scratch tree, committed only on
 success) so a same-scope reposition is a move, not a `Key already exists` collision; **copy** uses the
 per-fragment `Mutation::Insert` loop. **Moving an array element out** is supported: into another array
-it stays a bare element; into a table/root a **single-key inline table** (`{ k = v }`) unwraps to a
-keyed entry `k = v` (`unwrap_single_key_inline` — the inverse of `wrap_keyed_as_inline_element`), while a
-multi-key inline table or a bare value gets a synthesized `placeholder` key, then `insert` applies the
-destination format (dotted prefix, …). Comments: a Comment node's fragment is its raw `# …` text, pasted
+it stays a bare element; into a table/root an **inline table** (`{ k = v, … }`) unpacks into its
+member entries (`unpack_inline_table` — the inverse of `wrap_keyed_as_inline_element`; each entry is
+per-leaf collision-checked), while a bare value gets a synthesized `placeholder` key, then `insert`
+applies the destination format (dotted prefix, …). Dually, **multiple keyed nodes pasted into an
+array or `[A/T]` group are joined** (`joinable_entry`, in `move_nodes` for cut and `do_paste` for
+copy) and pack into ONE `{ a = 1, b = 2 }` element / `[[…]]` entry; a multi-entry fragment into an
+array packs the same way via `wrap_keyed_as_inline_element`. Comments: a Comment node's fragment is its raw `# …` text, pasted
 via `Mutation::InsertComment` (validates every line starts with `#`, splices the block in at the target
 child index, never collides); a cut deletes the source comment first, then inserts. A comment into a
 **single-line array** is no longer rejected: `InsertComment` upgrades the array to multiline (one
