@@ -47,7 +47,10 @@ inline-table element to preserve its key (a keyed inline table nests; `wrap_keye
 a bare value inserted into a table gets a synthesized
 `placeholder` key (auto-renamed on collision), and a `[table]`/`[[aot]]` fragment cannot become an array
 element (rejected as `Illegal`); a header-vs-leaf **partition check** keeps an insert from being captured by a following
-`[table]` header. Inserting a keyed entry **into an inline table** routes to `inline_table_insert`,
+`[table]` header — for a *table* destination the index is **clamped to the nearest legal slot**
+(an entry lands at the end of the entry run, a section at the start of the section run), so the
+paste "Into" slot (append) never fails on position; only a Root-level out-of-partition insert
+still reports `Illegal`. Inserting a keyed entry **into an inline table** routes to `inline_table_insert`,
 which rebuilds the `{ … }` from its members' verbatim source with normalized `, ` separators
 (taplo bakes the closing brace's leading space into the last entry, so token surgery is brittle) —
 the new entry lands at the target slot (front/middle/append), a duplicate key is a `Collision`, and
@@ -57,22 +60,31 @@ an empty `{}` becomes `{ k = v }`. Known edges: AoT-*entry* Move degrades to a g
 **Projection.** Dotted *keys* (`a.b.c = 1`) **nest** into a chain of synthetic `Table` nodes
 (`a → b → c`) with `Format::Dotted` (rendered `[T/D]`) — `project_entry_into`/`ensure_dotted_chain`
 in `cst_project.rs`; scattered dotted entries sharing a prefix merge under one table **per scope**,
-positioned at the table's **last** definition (`move_to_back` bubbles the table on each member, so
-its slot matches where a block-rewrite lands). The leaf keeps the **full** path for its
+positioned at the table's **first** definition (matching where a consolidating block-rewrite
+lands). The leaf keeps the **full** path for its
 `Target::Entry`, so an **untouched file round-trips byte-identically**; the synthetic intermediates
 carry no index target (like an implicit header table — the `index_covers_every_projected_path` test
 exempts `Table` nodes), and — like every other branch — **start collapsed** (only the root file node
 is seeded into `expanded` at load). The whole
 decomposed chain (synthetic tables **and** leaf) carries `KeySign::Dotted` (`(D)`) — `(D)` marks
 any dotted-key origin, so the `f` filter's `(D)` checkbox matches decomposed dotted entries;
-per-segment `Bare`/`Quoted` is no longer surfaced for a decomposed chain (a dotted key **inside an
-inline table** is *not* decomposed and stays one `Dotted` leaf). **Editing a `[T/D]` table**
+per-segment `Bare`/`Quoted` is no longer surfaced for a decomposed chain. A dotted key **inside an
+inline table** (`t = { x.y = 1, x.z = 2 }`) decomposes the same way — members sharing a prefix
+merge under one synthetic `[T/D]` chain inside the `[T/I]` node. Ops on such a synthetic table
+route through the **inline machinery**, never the flat-ROOT splices (`inline_ancestor_len` guards
+the path): insert/add re-prefixes the key scope-relative (`q = 9` into `t.x` → member `x.q = 9`)
+and lands via `inline_table_insert` with the projected index translated to a raw member slot
+(`inline_raw_member_index`); collision is exact full path (a shared prefix merges); `Delete` and
+move/copy fan out over the member entries (`inline_member_entries`; capture drops the segments
+between the `{ … }` and the node, keeping its own key); the `e` block edit consolidates at the
+first member (`replace_inline_dotted_table`, single-line entries only); comments are rejected
+(`{ … }` holds none). **Editing a `[T/D]` table**
 (`cst_edit.rs`, all keyed off `Format::Dotted` since the table has no own element): a child
 insert/add writes a scope-relative dotted entry next to its siblings (`x = v` → `a.b.x = v`,
 `prefix_entry_key`); a child `add` seeds a scalar (a dotted table is excluded from the
 table-capture **partition split** in `add_node`/`check_partition`, so a following scalar is legal);
 `Replace` (the `e` block edit) **consolidates** — `replace_dotted_table` removes every member
-(`dotted_member_entries`) and splices the edited block in at the last member's slot; `Delete` fans
+(`dotted_member_entries`) and splices the edited block in at the first member's slot; `Delete` fans
 out to remove every member (plain cascade). `dotted_member_entries` counts only **flat-ROOT**
 entries — an entry nested inside an inline-table/array *value* (`dotted.t = {x=1}`) belongs to that
 value, not the table, so its interior is never pulled out as a stray top-level line. `Rename` rewrites the **whole** key (not just the last
@@ -82,11 +94,25 @@ type change and defers the whole edit (`PendingCommit::Rename`) so `n` is a no-o
 header-less multi-entry `insert` split), each captured scope-relative and re-prefixed for the
 destination — so cut/copy of a `[T/D]` table into a scope / another `[T/D]` / root adjusts the prefix.
 Insert **collision is exact full-path** (`target.parent ++ key segments`): a dotted sibling sharing only
-a prefix merges into the same table instead of colliding. Moving a **`[T/S]` scope table into another
+a prefix merges into the same table instead of colliding. **Every table is an open set of "member
+spans"** (`table_member_spans` in `cst_edit.rs`): its own `[a]` section, every descendant
+`[a.sub]`/`[[a.list]]` section wherever it sits, plus flat dotted member lines — serialize/`e`,
+delete and move/copy fan out over all of them, so a scattered `[a] … [b] … [a.sub]` is captured,
+deleted and moved whole (no orphan `[a.sub]`), the block edit consolidating at the **first
+definition** (validated when 2+ spans: headers must stay in-subtree and the block header-led — see
+CONTEXT.md's `e` matrix). An **implicit** table (only `[a.sub]` written) gets its `[a]` section
+synthesized at first definition when an entry child is inserted; a **mixed** table (dotted members
++ sections, the `fruit.apple` pattern) takes entry children as dotted members (a header would be
+spec-illegal while dotted definitions remain), accepts sub-table sections, and `e`-consolidates to
+scope form. The headerless-ancestor rule (`is_headerless_table`) replaces the old `Format::Dotted`
+checks for prefix strip/add. Moving a **`[T/S]` scope table into another
 scope nests it** — every header in the moved section is re-prefixed with the destination path
-(`prefix_section_headers`: `[a]`/`[a.sub]` into `[b]` → `[b.a]`/`[b.a.sub]`); a `[T/D]` table into an
+(`prefix_section_headers`: `[a]`/`[a.sub]` into `[b]` → `[b.a]`/`[b.a.sub]`; capture is
+scope-relative via `strip_section_header_prefix`, so a nested `[a.sub]` cut into `[b]` becomes
+`[b.sub]`); a `[T/D]` table into an
 inline table flattens its members to inline dotted keys. **Illegal table moves report `Illegal`**: a
-`[table]` section into an inline table or nested under a `[T/D]` dotted table (both checked in `insert`).
+`[table]` section into an inline table or nested under a *pure* `[T/D]` dotted table (both checked
+in `insert`).
 Dotted *headers* (`[x.a]` with no `[x]`) still
 project as a real nested `Scope` branch. `ScalarType` and a node's
 **Format** (writing style) are derived read-only during projection and are orthogonal to each other.

@@ -39,16 +39,13 @@ bool_false           = false
 # ── Date/Time (Format::Plain) ────────────────────────────────────────────────
 offset_datetime      = 1979-05-27T07:32:00Z
 offset_datetime_tz   = 1979-05-27T00:32:00-07:00
-local_datetime       = 1979-05-27T07:32:00
-local_date           = 1979-05-27
-local_time           = 07:32:00.999999
-
+local_datetime       = 1979-05-27T07:32:00 
 # ── Array (NodeKind::Array) ──────────────────────────────────────────────────
 array_int            = [1, 2, 3]
 array_string         = ["a", "b", "c"]
 array_mixed_format   = [0x1, 0o2, 0b11, 4]
 array_nested         = [[[1,2,3], 2], [3, 4]]
-array_empty          = []
+array_empty          = [{ local_datetime       = 1979-05-27T07:32:00 }]
 array_multiline = [
   [
     1,
@@ -59,17 +56,15 @@ array_multiline = [
   "third",
 ]
 
-new_field_2.xxx = { b = "", x=1, array_nested         = [[[1,2,3], 2], [3, 4]] }
+# Inline Table
+inline_table = { x=1, y=2, test.new_field_3 = "", test.new = "" }
+
+
+new_field = {dotted.test.a = "a", dotted.test.b = "b", dotted.c.d = "e", dotted.gg=5}
 # Dotted keys table
-dotted.test.table = ""
-dotted.test.new = ""
-dotted.test.new_field_2 = {z=3}
-dotted.test.new_field_3 = ""
 dotted.new_field_2.b = ""
 dotted.new_field = {x=1,y=2}
 dotted.gg=5
-dotted.new_field_3 = ""
-new_field = ""
 [[product]]
 name                 = "Hammer"
 sku                  = 738_594_939
@@ -92,25 +87,30 @@ enabled              = true
 cert                 = 'C:\certs\server.pem'
 ciphers              = ["TLS_AES_256", "TLS_CHACHA20"]
 
-[product_table]
-
-array_int            = [1, 2, 3]
-color                = "gray"
+dotted.test.new_field_3 = ""
 dotted.test.table = ""
 dotted.test.new = ""
-dotted.test.new_field_2 = {z=3}
-dotted.test.new_field_3 = ""
 dotted.new_field_2.b = ""
 dotted.new_field = {x=1,y=2}
 dotted.gg=5
-dotted.new_field_3 = ""
-test.table = ""
-test.new = ""
-test.new_field_2 = {z=3}
-test.new_field_3 = ""
-# Dotted keys table
+[server.tls.product_table]
+
+[server.tls.product_table.a]
+name                 = "Hammer"
+sku                  = 738_594_939
+
+[server.tls.product_table.b]
+name                 = "Nail"
+sku                  = 0x0284_FE_AB
+
+[product_table]
 
 [product_table.a]
+dotted.test.new_field_3 = ""
+dotted.test.new = ""
+dotted.new_field_2.b = ""
+dotted.new_field = {x=1,y=2}
+dotted.gg=5
 name                 = "Hammer"
 sku                  = 738_594_939
 
@@ -118,6 +118,7 @@ sku                  = 738_594_939
 name                 = "Nail"
 sku                  = 0x0284_FE_AB
 
+[product_table2]
 [product_table2.a]
 name                 = "Hammer"
 sku                  = 738_594_939

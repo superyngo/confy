@@ -403,26 +403,9 @@ fn project_entry_into(root: &mut Node, scope: &[Seg], entry: &SyntaxNode, idx: &
     ensure_dotted_chain(root, scope.len(), &full);
     append_child(root, &full[..full.len() - 1], node);
 
-    // A `[T/D]` table projects at the position of its **last** definition in the
-    // scope (where a consolidating block-rewrite will place it), so bubble each
-    // dotted ancestor to the back of its parent now that this member was added.
-    for i in scope.len()..full.len() - 1 {
-        move_to_back(root, &full[..=i]);
-    }
-}
-
-/// Move the node at `path` to the end of its parent's children (no-op if absent
-/// or root). Used to keep a `[T/D]` table at its last member's document position.
-fn move_to_back(root: &mut Node, path: &[Seg]) {
-    if path.is_empty() {
-        return;
-    }
-    if let Some(parent) = node_at_mut(root, &path[..path.len() - 1]) {
-        if let Some(pos) = parent.children.iter().position(|c| c.path == path) {
-            let node = parent.children.remove(pos);
-            parent.children.push(node);
-        }
-    }
+    // A `[T/D]` table projects at the position of its **first** definition in the
+    // scope (where a consolidating block-rewrite will place it) — the chain node
+    // stays where `ensure_dotted_chain` first created it.
 }
 
 /// Ensure the synthetic `Dotted` `Table` chain for a dotted-key entry exists under
@@ -585,9 +568,64 @@ fn project_inline(it: &SyntaxNode, key: &str, path: Vec<Seg>, idx: &mut CstIndex
         n.value = Some(repr);
     }
     for c in it.children() {
-        if c.kind() == SyntaxKind::ENTRY {
-            n.children.push(project_entry(&c, &path, idx));
+        if c.kind() != SyntaxKind::ENTRY {
+            continue;
         }
+        let key_node = c.children().find(|k| k.kind() == SyntaxKind::KEY);
+        let segs = key_node.as_ref().map(key_segments).unwrap_or_default();
+        if segs.len() <= 1 {
+            n.children.push(project_entry(&c, &path, idx));
+            continue;
+        }
+        // A multi-segment dotted key nests as a synthetic `[T/D]` chain, mirroring
+        // `project_entry_into`: members sharing a prefix merge under one table, the
+        // leaf keeps the full path for `Target::Entry`, the intermediates carry no
+        // index target, and the whole chain reads `KeySign::Dotted`.
+        let mut full = path.clone();
+        full.extend(segs.iter().cloned());
+        idx.push((full.clone(), Target::Entry(c.clone())));
+        let leaf_key = match segs.last() {
+            Some(Seg::Key(k)) => k.clone(),
+            _ => String::new(),
+        };
+        let value = c.children().find(|v| v.kind() == SyntaxKind::VALUE);
+        let mut node = match value {
+            Some(v) => project_value_node(&v, &leaf_key, full.clone(), idx),
+            None => leaf(
+                &leaf_key,
+                NodeKind::Scalar(ScalarType::String),
+                full.clone(),
+                None,
+                None,
+            ),
+        };
+        node.key_sign = KeySign::Dotted;
+        let mut cur = &mut n;
+        for i in path.len()..full.len() - 1 {
+            let sub = &full[..=i];
+            let pos = match cur.children.iter().position(|ch| ch.path == sub) {
+                Some(p) => p,
+                None => {
+                    let key = match &full[i] {
+                        Seg::Key(k) => k.clone(),
+                        Seg::Index(_) => unreachable!("key segments only"),
+                    };
+                    cur.children.push(Node {
+                        key,
+                        path: sub.to_vec(),
+                        kind: NodeKind::Table,
+                        children: Vec::new(),
+                        value: None,
+                        format: Format::Dotted,
+                        key_sign: KeySign::Dotted,
+                        trailing_comment: None,
+                    });
+                    cur.children.len() - 1
+                }
+            };
+            cur = &mut cur.children[pos];
+        }
+        cur.children.push(node);
     }
     n
 }
@@ -840,13 +878,14 @@ ArrayOfTables key="item" sign=Bare val=None fmt=Plain trail=None
 "##,
         );
         // Scattered dotted entries sharing a prefix merge under one Dotted table,
-        // which sits at its **last** member's scope position (after `x` here).
+        // which sits at its **first** member's scope position (before `x` here),
+        // matching where a consolidating block-rewrite lands.
         assert_projection(
             "a.b = 1\nx = 0\na.c = 2\n",
-            r##"Scalar(Integer) key="x" sign=Bare val=Some("0") fmt=Decimal trail=None
-Table key="a" sign=Dotted val=None fmt=Dotted trail=None
+            r##"Table key="a" sign=Dotted val=None fmt=Dotted trail=None
   Scalar(Integer) key="b" sign=Dotted val=Some("1") fmt=Decimal trail=None
   Scalar(Integer) key="c" sign=Dotted val=Some("2") fmt=Decimal trail=None
+Scalar(Integer) key="x" sign=Bare val=Some("0") fmt=Decimal trail=None
 "##,
         );
         // Dotted keys under a `[scope]` nest below it; the scope stays `Scope`.
@@ -858,11 +897,15 @@ Table key="a" sign=Dotted val=None fmt=Dotted trail=None
     Scalar(Integer) key="port" sign=Dotted val=Some("80") fmt=Decimal trail=None
 "##,
         );
-        // A dotted key *inside an inline table* is NOT decomposed (stays Dotted sign).
+        // A dotted key *inside an inline table* decomposes into a `[T/D]` chain too;
+        // members sharing a prefix merge under one synthetic table.
         assert_projection(
-            "p = { x.y = 1 }\n",
-            r##"InlineTable key="p" sign=Bare val=Some("{ x.y = 1 }") fmt=Inline trail=None
-  Scalar(Integer) key="x.y" sign=Dotted val=Some("1") fmt=Decimal trail=None
+            "p = { x.y = 1, x.z = 2, w = 3 }\n",
+            r##"InlineTable key="p" sign=Bare val=Some("{ x.y = 1, x.z = 2, w = 3 }") fmt=Inline trail=None
+  Table key="x" sign=Dotted val=None fmt=Dotted trail=None
+    Scalar(Integer) key="y" sign=Dotted val=Some("1") fmt=Decimal trail=None
+    Scalar(Integer) key="z" sign=Dotted val=Some("2") fmt=Decimal trail=None
+  Scalar(Integer) key="w" sign=Bare val=Some("3") fmt=Decimal trail=None
 "##,
         );
         assert_projection(

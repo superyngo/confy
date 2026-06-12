@@ -53,18 +53,36 @@ Derived (read-only) during projection. Surfaced as the `(B)/(Q)/(D)/(-)` prefix 
 and as one half of the **Type filter**. Note: a top-level/scope dotted key now **nests** into
 synthetic **Dotted tables** (see below); the whole decomposed chain (tables **and** leaf) reads
 the **dotted** sign, so `(D)` marks any dotted-key origin (per-segment `bare`/`quoted` is not
-surfaced for a decomposed chain). A dotted key *inside an inline table* is not decomposed and stays
-one **dotted** leaf.
+surfaced for a decomposed chain). A dotted key *inside an inline table* decomposes the same way:
+`t = { x.y = 1, x.z = 2 }` projects a synthetic **Dotted table** `x` under the inline table, and
+operations on it route through the inline-table machinery (members stay `{ … }` entries).
+
+**Member spans**:
+The discrete pieces of source that *constitute* a table: its own `[a]` section (if written),
+every descendant `[a.sub]` / `[[a.list]]` section — wherever it sits in the file — and any flat
+dotted member lines. A table's definition is an **open set**: TOML lets these spans scatter and
+interleave with foreign sections. `[T/D]`, `[T/S]`, **implicit** (only `[a.sub]` written) and
+**mixed** (dotted members *plus* header sub-sections) tables are the four compositions of one
+span list, and serialize/edit/delete/move all fan out over it.
 
 **Dotted table** (`Format::Dotted`, KIND tag `[T/D]`):
 A Table that exists only because dotted keys defined it (`a.b.c = 1` → tables `a`, `b`), with no
 `[table]` header. A synthetic projection node merging the dotted entries that share a prefix
-**within one scope**, shown at the table's **last** definition position. The value leaves stay
-mapped to their original source entries, so an *untouched* file round-trips byte-identically.
-Editing it, though, does rewrite: a child `add` seeds a scalar and inserts write a scope-relative
-dotted entry (`a.b.x = …`); `e` block-edits all member lines and **consolidates** them at the last
-position; `d` deletes all members; renaming a plain key to a dotted one (`foo` → `foo.x`) converts
-the scalar into a `[T/D]` table. Whole-table *move* is still unsupported.
+**within one scope**, shown at the table's **first** definition position (where a consolidating
+block-rewrite lands). The value leaves stay mapped to their original source entries, so an
+*untouched* file round-trips byte-identically. Editing it, though, does rewrite: a child `add`
+seeds a scalar and inserts write a scope-relative dotted entry (`a.b.x = …`); `e` block-edits all
+member lines and **consolidates** them at the first position; `d` deletes all members; renaming a
+plain key to a dotted one (`foo` → `foo.x`) converts the scalar into a `[T/D]` table.
+Whole-table move/copy fans out over the member lines.
+
+**Mixed table**:
+A table defined by dotted members *and* header sub-sections (the TOML-spec `fruit.apple`
+pattern: `apple.color = …` under `[fruit]`, plus `[fruit.apple.texture]`). The spec forbids
+giving such a table its own header while any dotted definition remains, so: inserting an entry
+writes a dotted member; inserting a sub-table writes a header section (legal); `e` consolidates
+the whole table to **scope form** — a synthesized `[fruit.apple]` header with the dotted members
+folded under it, then the member sections — the only header form that leaves nothing behind.
 
 **Comment**:
 A **standalone** comment line (occupies its own line) surfaced as a first-class **Leaf node**.
@@ -112,7 +130,7 @@ KIND-column vocabulary (`[T/S]` scope table, `[T/D]` dotted table, `[T/I]` inlin
 | **scalar** (keyed) | ✅ `k = v` | ✅ `pfx.k = v` (gets prefix) | ✅ inline member | ✅ wrapped `{ k = v }` |
 | **array** (keyed) | ✅ | ✅ prefix | ✅ member | ✅ `{ k = [...] }` |
 | **`[T/I]`** (keyed) | ✅ | ✅ prefix | ✅ nested member | ✅ `{ k = { … } }` |
-| **`[T/S]`** scope table | ✅ nests → `[dest.k]` | ❌ scope table can't nest under a dotted table | ❌ table can't go into an inline table | ❌ table can't be an array element |
+| **`[T/S]`** scope table | ✅ nests → `[dest.k]` | ❌ scope table can't nest under a *pure* dotted table (a **mixed** dest accepts it) | ❌ table can't go into an inline table | ❌ table can't be an array element |
 | **`[T/D]`** dotted table | ✅ members, prefix dropped | ✅ members, prefix adjusted | ✅ flattened to inline dotted keys | ❌ table can't be an array element |
 | **array element** | single-key `{k=v}` → `k = v`; else `placeholder = …` | (same, then prefix) | (same, then member) | ✅ stays a bare element |
 | **bare value** (no key) | ✅ `placeholder = …` | ✅ `placeholder` then prefix | ✅ `placeholder` member | ✅ stays a bare element |
@@ -122,11 +140,41 @@ KIND-column vocabulary (`[T/S]` scope table, `[T/D]` dotted table, `[T/I]` inlin
 Notes:
 - "prefix" = the destination's dotted-ancestor path is prepended so the moved Node merges into the
   destination `[T/D]` table; moving *out* of a `[T/D]` table drops that prefix (scope-relative).
-- A `[T/S]`/`[T/D]` **whole table** is moved/copied by fanning out to its member lines.
+- A **whole table** is moved/copied by fanning out over its **member spans** — all of them, even
+  scattered (`[a] … [b] … [a.sub]` moves both sections; `[[a.list]]` sub-groups travel in entry
+  order). Headers are captured scope-relative (`[a.sub]` cut as table `sub` → `[sub]`) and
+  re-prefixed for the destination.
+- An **entry into an implicit table** (only `[a.sub]` written) synthesizes the `[a]` section at
+  the table's first definition. An **entry into a mixed table** joins the dotted-member run.
 - **Collision** is decided on the inserted leaf's *exact full path*: dotted siblings sharing only a
   prefix (`a.x` beside `a.y`) merge; an identical full key clashes.
+- **Position is clamped, not rejected, for a table destination**: an entry whose index points past
+  the table's sub-sections lands at the end of its entry run (so the paste "Into" slot — append —
+  always works, e.g. an entry into `[pt]` whose only children are `[pt.a]`/`[pt.b]`); a section
+  targeted before the entries lands at the start of the section run. Only a Root-level
+  out-of-partition insert still reports `Illegal`.
+- A **`[T/D]` inside a `[T/I]`** (decomposed inline dotted keys) moves/copies like any `[T/D]`:
+  fan-out over its `{ … }` member entries, captured scope-relative.
 - ⏸ = array-of-tables sources are deferred to a later round (they currently report an error rather
   than moving).
+
+## `e` block-edit behavior (tables)
+
+What the `$EDITOR` block edit captures for each table composition, and where the rewritten
+block lands. Invariant: **the landing slot equals the node's projected position**, so the tree
+row you edited is where the result appears.
+
+| Composition | Captured block | Lands at | Notes |
+|---|---|---|---|
+| `[T/S]` contiguous | own section (+ contiguous descendants), verbatim | its own header | unchanged block ⇒ unchanged bytes |
+| `[T/S]` scattered | **all** member sections, in document order | first definition | foreign sections/comments in between stay put |
+| `[T/S]` implicit (no `[a]`) | all descendant sections | first definition | no header is synthesized (none is needed) |
+| `[T/D]` dotted | member lines, full keys | first member line | dotted style kept |
+| **Mixed** | canonical scope form: synthesized `[a]` header + dotted members folded under it + sections | first member *section* | dotted definitions are consumed — required for the header to be legal |
+
+A consolidating rewrite (2+ spans) validates the returned block: every header must stay inside
+the table's subtree and the block must start with a `[header]` line, else `Illegal` and the
+document is untouched. A single-span (contiguous) edit keeps the old unchecked-splice freedom.
 
 ## Flagged ambiguities
 
