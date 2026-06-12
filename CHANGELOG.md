@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Planned
+- Multi-format backends design approved — JSON/JSONC + restricted-subset YAML (both lossless), document-level conversion, XML out of scope. Spec: `docs/superpowers/specs/2026-06-12-multiformat-backends-design.md`; Phase 1 (backend abstraction) implementation plan + per-phase handover prompts in `docs/superpowers/plans/`. No code changes yet. (2026-06-12)
+
 ### Changed
 - `[A/T]` ≡ array of inline tables — the two container kinds now behave as one. **Moving/copying a `[[entry]]` out of its group splits it into member nodes** (the old `[scope]`-section conversion is gone): body entries land one node each, **sub-sections flatten to dotted entries** (`[fruit.physical]` `color` → `physical.color`), into another group / an array the members pack into ONE `[[entry]]` / `{ … }` element; deleting an entry now removes its sub-sections with it. **Copying a `{ … }` array element into a table/root/`[A/T]` unpacks it into member entries** (matching the existing cut path; bare scalars keep the `placeholder` key). **`K` converts `[A/T]` ↔ `[A/I]`/`[A/M]`**: a contiguous comment-free group of plain single-line entries becomes `key = [{ … }, …]` (position-checked against the capture rule), and a keyed flat-ROOT array of inline tables becomes an `[[…]]` group (rejected when the sections would capture a following entry). (2026-06-12)
 
