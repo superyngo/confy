@@ -15,9 +15,8 @@ use crossterm::{
 };
 use std::path::Path;
 
-pub fn run(path: &Path) -> Result<()> {
-    use crate::model::document::ConfigDocument;
-    let doc = crate::model::any_doc::AnyDocument::load(path)?;
+pub fn run(path: &Path, format: crate::model::document::DocFormat) -> Result<()> {
+    let doc = crate::model::any_doc::AnyDocument::load_as(path, format)?;
     let mut app = app::App::new(doc);
 
     // Restore the terminal even if the event loop panics, so a crash never

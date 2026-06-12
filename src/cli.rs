@@ -1,48 +1,47 @@
-use anyhow::{bail, Result};
+use anyhow::Result;
 use clap::Parser;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+
+use crate::model::any_doc::detect_format;
+use crate::model::document::DocFormat;
 
 #[derive(Parser)]
 #[command(name = "confy", about = "TUI editor for structured config files")]
 struct Args {
     /// Path to the config file to edit
     file: PathBuf,
-    /// Override format detection (only `toml` supported in MVP)
+    /// Override format detection (toml; json/yaml planned)
     #[arg(long)]
     format: Option<String>,
-}
-
-pub enum Format {
-    Toml,
-}
-
-pub fn detect_format(path: &Path) -> Result<Format> {
-    match path.extension().and_then(|e| e.to_str()) {
-        Some("toml") => Ok(Format::Toml),
-        other => bail!(
-            "format not yet supported: {:?} (MVP supports .toml only)",
-            other
-        ),
-    }
 }
 
 pub fn run() -> Result<()> {
     let args = Args::parse();
     let fmt = match args.format.as_deref() {
-        Some("toml") => Format::Toml,
-        Some(other) => anyhow::bail!("format not yet supported: {other}"),
-        None => detect_format(&args.file)?,
+        Some("toml") => DocFormat::Toml,
+        Some("json") | Some("jsonc") => DocFormat::Json,
+        Some("yaml") | Some("yml") => DocFormat::Yaml,
+        Some(other) => anyhow::bail!("unknown format: {other}"),
+        None => detect_format(&args.file).ok_or_else(|| {
+            anyhow::anyhow!("unrecognized config format: {}", args.file.display())
+        })?,
     };
-    let Format::Toml = fmt;
-    crate::tui::run(&args.file)
+    crate::tui::run(&args.file, fmt)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::model::any_doc::detect_format;
+    use crate::model::document::DocFormat;
+
     #[test]
-    fn rejects_non_toml() {
-        assert!(detect_format(std::path::Path::new("a.yaml")).is_err());
-        assert!(detect_format(std::path::Path::new("a.toml")).is_ok());
+    fn detects_known_formats() {
+        let p = |s: &str| detect_format(std::path::Path::new(s));
+        assert_eq!(p("a.toml"), Some(DocFormat::Toml));
+        assert_eq!(p("a.json"), Some(DocFormat::Json));
+        assert_eq!(p("a.jsonc"), Some(DocFormat::Json));
+        assert_eq!(p("a.yaml"), Some(DocFormat::Yaml));
+        assert_eq!(p("a.yml"), Some(DocFormat::Yaml));
+        assert_eq!(p("a.ini"), None);
     }
 }
