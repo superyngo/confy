@@ -901,9 +901,24 @@ impl App {
         crate::tui::selection::normalize(paths)
     }
 
+    /// Return true when the cursor node is read-only (a JSONC `/* */` block
+    /// comment). Such nodes may be copied but must not be edited, deleted, cut,
+    /// or remarked.
+    fn cursor_is_read_only(&self) -> bool {
+        self.rows
+            .get(self.cursor)
+            .and_then(|r| self.tree.node_at(&r.path))
+            .map(|n| n.read_only)
+            .unwrap_or(false)
+    }
+
     /// `e` — edit the cursor node's fragment in $EDITOR and apply Replace.
     /// On MutateError::Fragment: show error in status line, leave doc unchanged.
     pub fn edit_node(&mut self) {
+        if self.cursor_is_read_only() {
+            self.status = Some("read-only node (block comment)".into());
+            return;
+        }
         let cursor_row = match self.rows.get(self.cursor) {
             Some(r) => r.clone(),
             None => return,
@@ -1702,6 +1717,10 @@ impl App {
 
     /// `d` — delete selected or cursor node(s).
     pub fn delete_selected(&mut self) {
+        if self.cursor_is_read_only() {
+            self.status = Some("read-only node (block comment)".into());
+            return;
+        }
         let paths = self.selected_paths();
         if paths.is_empty() {
             return;
@@ -1761,6 +1780,10 @@ impl App {
 
     /// `x` — cut: copy fragments + remember sources. Deletion deferred to paste (wenv-style).
     pub fn cut_selected(&mut self) {
+        if self.cursor_is_read_only() {
+            self.status = Some("read-only node (block comment)".into());
+            return;
+        }
         // If clipboard is already loaded, toggle its mode to cut rather than
         // re-capturing the selection.
         if let Some(cb) = &mut self.clipboard {
@@ -2098,6 +2121,10 @@ impl App {
 
     /// `r` — toggle remark on cursor node.
     pub fn remark(&mut self) {
+        if self.cursor_is_read_only() {
+            self.status = Some("read-only node (block comment)".into());
+            return;
+        }
         let path = match self.rows.get(self.cursor) {
             Some(r) => r.path.clone(),
             None => return,
@@ -4689,6 +4716,143 @@ mod tests {
         assert!(
             last_a < last_b,
             "expected # A before # B in the paste, got:\n{out}"
+        );
+    }
+
+    // --- Task 19: read-only guards for block-comment nodes ---
+
+    fn app_with_jsonc(src: &str) -> App {
+        use std::io::Write;
+        let mut f = tempfile::Builder::new()
+            .suffix(".jsonc")
+            .tempfile()
+            .unwrap();
+        f.write_all(src.as_bytes()).unwrap();
+        let doc = crate::model::any_doc::AnyDocument::load(f.path()).unwrap();
+        App::new(doc)
+    }
+
+    #[test]
+    fn block_comment_rejects_delete() {
+        let mut app = app_with_jsonc("{\n  /* ro */\n  \"a\": 1\n}\n");
+        // Expand root so children appear, then position cursor on the block comment.
+        app.expand_level();
+        app.rebuild_rows();
+        let ci = app
+            .rows
+            .iter()
+            .position(|r| r.key.contains("/* ro */"))
+            .expect("block comment row not found");
+        app.cursor = ci;
+        // Verify the node is read_only before mutating.
+        assert!(
+            app.cursor_is_read_only(),
+            "block comment must be read_only"
+        );
+        app.delete_selected();
+        assert!(
+            app.status
+                .as_deref()
+                .unwrap_or("")
+                .contains("read-only"),
+            "expected read-only status, got: {:?}",
+            app.status
+        );
+        use crate::model::document::ConfigDocument;
+        assert!(
+            app.doc.as_ref().unwrap().serialize().contains("/* ro */"),
+            "document must not be mutated"
+        );
+    }
+
+    #[test]
+    fn block_comment_rejects_edit() {
+        let mut app = app_with_jsonc("{\n  /* ro */\n  \"a\": 1\n}\n");
+        app.expand_level();
+        app.rebuild_rows();
+        let ci = app
+            .rows
+            .iter()
+            .position(|r| r.key.contains("/* ro */"))
+            .expect("block comment row not found");
+        app.cursor = ci;
+        app.edit_node();
+        assert!(
+            app.status
+                .as_deref()
+                .unwrap_or("")
+                .contains("read-only"),
+            "expected read-only status, got: {:?}",
+            app.status
+        );
+    }
+
+    #[test]
+    fn block_comment_rejects_cut() {
+        let mut app = app_with_jsonc("{\n  /* ro */\n  \"a\": 1\n}\n");
+        app.expand_level();
+        app.rebuild_rows();
+        let ci = app
+            .rows
+            .iter()
+            .position(|r| r.key.contains("/* ro */"))
+            .expect("block comment row not found");
+        app.cursor = ci;
+        app.cut_selected();
+        assert!(
+            app.status
+                .as_deref()
+                .unwrap_or("")
+                .contains("read-only"),
+            "expected read-only status, got: {:?}",
+            app.status
+        );
+        assert!(app.clipboard.is_none(), "clipboard must not be set after rejected cut");
+    }
+
+    #[test]
+    fn block_comment_rejects_remark() {
+        let mut app = app_with_jsonc("{\n  /* ro */\n  \"a\": 1\n}\n");
+        app.expand_level();
+        app.rebuild_rows();
+        let ci = app
+            .rows
+            .iter()
+            .position(|r| r.key.contains("/* ro */"))
+            .expect("block comment row not found");
+        app.cursor = ci;
+        app.remark();
+        assert!(
+            app.status
+                .as_deref()
+                .unwrap_or("")
+                .contains("read-only"),
+            "expected read-only status, got: {:?}",
+            app.status
+        );
+        use crate::model::document::ConfigDocument;
+        assert!(
+            app.doc.as_ref().unwrap().serialize().contains("/* ro */"),
+            "document must not be mutated"
+        );
+    }
+
+    #[test]
+    fn block_comment_allows_copy() {
+        let mut app = app_with_jsonc("{\n  /* ro */\n  \"a\": 1\n}\n");
+        app.expand_level();
+        app.rebuild_rows();
+        let ci = app
+            .rows
+            .iter()
+            .position(|r| r.key.contains("/* ro */"))
+            .expect("block comment row not found");
+        app.cursor = ci;
+        assert!(app.cursor_is_read_only(), "block comment must be read_only");
+        app.copy_selected();
+        assert!(
+            app.clipboard.is_some(),
+            "copy of a read-only block comment must succeed"
         );
     }
 }
