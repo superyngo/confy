@@ -1595,7 +1595,17 @@ fn convert_float(
         .map_err(|_| MutateError::Illegal("not a float".into()))?;
     let rendered = match target {
         KT::FloatExponent => format!("{parsed:e}"),
-        KT::FloatPlain => format!("{parsed}"),
+        KT::FloatPlain => {
+            // Rust's Display drops a whole float's `.0` (`1500.0` → "1500"),
+            // which YAML's core schema would re-read as an Integer — a type
+            // change in a float→float convert. Force a float-recognizable form.
+            let s = format!("{parsed}");
+            if s.contains('.') || s.contains('e') || s.contains('E') {
+                s
+            } else {
+                format!("{s}.0")
+            }
+        }
         _ => unreachable!(),
     };
     splice_value_text(tree, &value, &format!("{rendered}\n"))
@@ -2495,7 +2505,30 @@ mod tests {
         assert!(out.contains("e3"), "expected exponent form, got {out:?}");
         let back =
             convert(&out, vec![Seg::Key("k".into())], KindTarget::FloatPlain).expect("exp→plain");
-        assert_eq!(back, "k: 1500\n");
+        // Must stay a float: a whole value keeps its `.0` so it doesn't
+        // re-classify as an integer.
+        assert_eq!(back, "k: 1500.0\n");
+    }
+
+    #[test]
+    fn convert_float_plain_target_keeps_float_type() {
+        // 2.0 → plain must not collapse to `2` (which YAML reads as Integer).
+        let out = convert(
+            "k: 2.0\n",
+            vec![Seg::Key("k".into())],
+            KindTarget::FloatPlain,
+        );
+        // already plain → no conversion offered; exercise exp→plain instead.
+        let _ = out;
+        let exp = convert(
+            "k: 2.0\n",
+            vec![Seg::Key("k".into())],
+            KindTarget::FloatExponent,
+        )
+        .expect("plain→exp");
+        let plain =
+            convert(&exp, vec![Seg::Key("k".into())], KindTarget::FloatPlain).expect("exp→plain");
+        assert_eq!(plain, "k: 2.0\n");
     }
 
     #[test]
