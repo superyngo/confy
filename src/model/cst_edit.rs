@@ -951,6 +951,8 @@ fn convert_kind(
             convert_table(tree, &proj.root, &idx, path, target)
         }
         KT::TableMultiline => Err(MutateError::Unsupported),
+        // YAML-only targets — not reachable from the TOML backend.
+        _ => Err(MutateError::Unsupported),
     }
 }
 

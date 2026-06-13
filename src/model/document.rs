@@ -150,6 +150,20 @@ pub enum KindTarget {
     /// A JSON object spread over multiple lines (`[T/M]`). TOML's scope table
     /// stays `[T/S]`; this is the JSON multiline-object form.
     TableMultiline,
+    /// YAML flow collection (single-line `{ }` / `[ ]`).
+    Flow,
+    /// YAML block collection (`key:\n  …` / `- …`).
+    Block,
+    /// YAML plain (unquoted) scalar.
+    StringPlain,
+    /// YAML 'single quoted' scalar.
+    StringSingle,
+    /// YAML "double quoted" scalar.
+    StringDouble,
+    /// YAML literal block scalar `|`.
+    StringLiteralBlock,
+    /// YAML folded block scalar `>`.
+    StringFolded,
 }
 
 #[derive(Debug, thiserror::Error)]

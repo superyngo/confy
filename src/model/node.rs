@@ -53,6 +53,18 @@ pub enum Format {
     /// A table that exists only because dotted keys (`a.b.c = 1`) defined it —
     /// no `[table]` header. Synthetic intermediate node, rendered `[T/D]`.
     Dotted,
+    // YAML containers / scalar styles (block collections + 4 explicit string
+    // styles; flow collections reuse `Inline`, plain scalars stay `Plain`).
+    /// YAML block mapping/sequence (`key:\n  …`, `- …`). Rendered `[T/B]`/`[A/B]`.
+    Block,
+    /// YAML 'single quoted' scalar.
+    SingleQuoted,
+    /// YAML "double quoted" scalar.
+    DoubleQuoted,
+    /// YAML literal block scalar `|` (newlines preserved).
+    LiteralBlock,
+    /// YAML folded block scalar `>` (newlines folded).
+    Folded,
 }
 
 /// How a node's own key is written in the source — `None` for keyless nodes

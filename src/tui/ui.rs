@@ -47,6 +47,8 @@ pub(crate) fn format_label(fmt: Format) -> Option<&'static str> {
         Format::Exponent => Some("exp"),
         // Container facets: the branch labels already carry the distinction.
         Format::Inline | Format::Multiline | Format::Scope | Format::Dotted => None,
+        // YAML-only formats — distinguishing labels added in Tasks 7-8.
+        _ => None,
     }
 }
 
