@@ -683,8 +683,65 @@ fn insert(
     rebuild_and_splice(tree, &container, &items)
 }
 
-fn rename(_tree: &SyntaxNode, _path: &[Seg], _new_key: &str) -> Result<(), MutateError> {
-    Err(MutateError::Unsupported)
+fn rename(tree: &SyntaxNode, path: &[Seg], new_key: &str) -> Result<(), MutateError> {
+    let entry = match resolve(tree, path).ok_or(MutateError::NotFound)? {
+        Target::MapEntry(e) => e,
+        _ => return Err(MutateError::Illegal("rename requires a key".into())),
+    };
+
+    // Sibling collision check against the other MAP_ENTRY keys in the same parent.
+    let parent = entry.parent().expect("entry has parent");
+    for sib in parent
+        .children()
+        .filter(|n| n.kind() == SyntaxKind::MAP_ENTRY)
+    {
+        if sib == entry {
+            continue;
+        }
+        if entry_key_text(&sib) == new_key {
+            return Err(MutateError::Collision(new_key.to_string()));
+        }
+    }
+
+    // Locate the KEY node, then its scalar token.
+    let key_node = entry
+        .children()
+        .find(|n| n.kind() == SyntaxKind::KEY)
+        .ok_or(MutateError::NotFound)?;
+    let children: Vec<_> = key_node.children_with_tokens().collect();
+    let tok_idx = children
+        .iter()
+        .position(|c| {
+            matches!(c, rowan::NodeOrToken::Token(t)
+                if matches!(t.kind(), SyntaxKind::PLAIN | SyntaxKind::SINGLE | SyntaxKind::DOUBLE))
+        })
+        .ok_or(MutateError::NotFound)?;
+
+    // Build a replacement scalar token by parsing a probe `new_key: 0`.
+    let probe = format!("{new_key}: 0\n");
+    let new_entry = parse_map_entry_fragment(&probe).ok_or(MutateError::Illegal(
+        "new key does not parse as a map entry".into(),
+    ))?;
+    let new_tok = new_entry
+        .children()
+        .find(|n| n.kind() == SyntaxKind::KEY)
+        .and_then(|kn| {
+            kn.children_with_tokens().find_map(|c| match c {
+                rowan::NodeOrToken::Token(t)
+                    if matches!(
+                        t.kind(),
+                        SyntaxKind::PLAIN | SyntaxKind::SINGLE | SyntaxKind::DOUBLE
+                    ) =>
+                {
+                    Some(t)
+                }
+                _ => None,
+            })
+        })
+        .ok_or(MutateError::Illegal("new key has no scalar token".into()))?;
+
+    key_node.splice_children(tok_idx..tok_idx + 1, vec![new_tok.into()]);
+    Ok(())
 }
 
 fn remark(_tree: &SyntaxNode, _path: &[Seg]) -> Result<(), MutateError> {
@@ -936,20 +993,48 @@ mod tests {
         assert_eq!(serialize_fragment(&s, &[Seg::Key("nope".into())]), "");
     }
 
-    // ── Rename/Remark/etc still unsupported ─────────────────────────────────
+    // ── 5f: Rename ───────────────────────────────────────────────────────────
 
     #[test]
-    fn rename_still_unsupported() {
-        let r = apply_str(
+    fn rename_key_token_in_place() {
+        let out = apply_str(
             "a: 1\n",
+            Mutation::Rename {
+                path: vec![Seg::Key("a".into())],
+                new_key: "c".into(),
+            },
+        )
+        .expect("rename should succeed");
+        assert_eq!(out, "c: 1\n");
+    }
+
+    #[test]
+    fn rename_onto_existing_sibling_is_collision() {
+        let r = apply_str(
+            "a: 1\nb: 2\n",
             Mutation::Rename {
                 path: vec![Seg::Key("a".into())],
                 new_key: "b".into(),
             },
         );
         assert!(
-            matches!(r, Err(MutateError::Unsupported)),
-            "rename expected Unsupported, got {r:?}"
+            matches!(r, Err(MutateError::Collision(_))),
+            "rename onto sibling expected Collision, got {r:?}"
+        );
+    }
+
+    #[test]
+    fn rename_non_key_is_illegal() {
+        let r = apply_str(
+            "- 1\n- 2\n",
+            Mutation::Rename {
+                path: vec![Seg::Index(0)],
+                new_key: "x".into(),
+            },
+        );
+        assert!(
+            matches!(r, Err(MutateError::Illegal(_))),
+            "rename of seq element expected Illegal, got {r:?}"
         );
     }
 
