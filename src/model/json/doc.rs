@@ -122,9 +122,36 @@ impl JsonDocument {
     }
 }
 
-/// Per-node convertible-kind list. Filled in by a later task; empty for now.
-pub(crate) fn kind_options(_tree: &NodeTree, _path: &[Seg]) -> Vec<(String, KindTarget)> {
-    Vec::new()
+/// Per-node convertible-kind list (current notation excluded).
+pub(crate) fn kind_options(tree: &NodeTree, path: &[Seg]) -> Vec<(String, KindTarget)> {
+    use crate::model::node::{Format, NodeKind, ScalarType};
+    let Some(node) = tree.node_at(path) else {
+        return Vec::new();
+    };
+    match &node.kind {
+        NodeKind::Table => {
+            if node.format == Format::Multiline {
+                vec![("inline object  [T/I]".into(), KindTarget::TableInline)]
+            } else {
+                vec![("multiline object  [T/M]".into(), KindTarget::TableMultiline)]
+            }
+        }
+        NodeKind::Array => {
+            if node.format == Format::Multiline {
+                vec![("inline array  [A/I]".into(), KindTarget::ArrayInline)]
+            } else {
+                vec![("multiline array  [A/M]".into(), KindTarget::ArrayMultiline)]
+            }
+        }
+        NodeKind::Scalar(ScalarType::Float) => {
+            if node.format == Format::Exponent {
+                vec![("plain float  1.5".into(), KindTarget::FloatPlain)]
+            } else {
+                vec![("exponent float  1e5".into(), KindTarget::FloatExponent)]
+            }
+        }
+        _ => Vec::new(),
+    }
 }
 
 #[cfg(test)]
@@ -182,5 +209,33 @@ mod tests {
         assert!(!doc.supports_comments());
         doc.enable_comments();
         assert!(doc.supports_comments());
+    }
+
+    #[test]
+    fn kind_options_per_node() {
+        use crate::model::document::KindTarget as KT;
+        let doc = json_from_str(".json", "{\n  \"o\": {\n    \"a\": 1\n  },\n  \"arr\": [1],\n  \"f\": 1.5,\n  \"s\": \"x\",\n  \"i\": 7,\n  \"b\": true,\n  \"n\": null\n}\n");
+        let opts = |p: &[Seg]| -> Vec<KT> {
+            doc.kind_options(p).into_iter().map(|(_, t)| t).collect()
+        };
+        // multiline object -> can go inline
+        assert_eq!(opts(&[Seg::Key("o".into())]), vec![KT::TableInline]);
+        // inline array -> can go multiline
+        assert_eq!(opts(&[Seg::Key("arr".into())]), vec![KT::ArrayMultiline]);
+        // plain float -> exponent
+        assert_eq!(opts(&[Seg::Key("f".into())]), vec![KT::FloatExponent]);
+        // string/int/bool/null -> no options
+        assert!(opts(&[Seg::Key("s".into())]).is_empty());
+        assert!(opts(&[Seg::Key("i".into())]).is_empty());
+        assert!(opts(&[Seg::Key("b".into())]).is_empty());
+        assert!(opts(&[Seg::Key("n".into())]).is_empty());
+    }
+
+    #[test]
+    fn kind_options_exponent_float_offers_plain() {
+        use crate::model::document::KindTarget as KT;
+        let doc = json_from_str(".json", "{ \"f\": 1e3 }\n");
+        let opts: Vec<KT> = doc.kind_options(&[Seg::Key("f".into())]).into_iter().map(|(_, t)| t).collect();
+        assert_eq!(opts, vec![KT::FloatPlain]);
     }
 }
