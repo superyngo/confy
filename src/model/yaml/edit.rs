@@ -473,13 +473,63 @@ fn collect_items(container: &SyntaxNode) -> Vec<String> {
                 items.push(n.text().to_string());
             }
             rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::COMMENT => {
-                // Standalone comment at this level.
-                items.push(t.text().to_string());
+                // Standalone comment at this level. A COMMENT token excludes its
+                // line's trailing NEWLINE (a separate token), so re-add it to keep
+                // items newline-terminated like MAP_ENTRY/SEQ_ENTRY items — else
+                // concatenation in `rebuild_and_splice` would run lines together.
+                items.push(format!("{}\n", t.text().trim_end()));
             }
             _ => {}
         }
     }
     items
+}
+
+/// Position of an entry `node` within `collect_items`'s slot sequence, matched by
+/// node identity (not text) so duplicate-valued siblings resolve correctly.
+fn item_index_of_node(container: &SyntaxNode, node: &SyntaxNode) -> Option<usize> {
+    let mut i = 0;
+    for child in container.children_with_tokens() {
+        match &child {
+            rowan::NodeOrToken::Node(n)
+                if matches!(n.kind(), SyntaxKind::MAP_ENTRY | SyntaxKind::SEQ_ENTRY) =>
+            {
+                if n == node {
+                    return Some(i);
+                }
+                i += 1;
+            }
+            rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::COMMENT => i += 1,
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Position of a standalone COMMENT `tok` within `collect_items`'s slot sequence,
+/// matched by token identity so duplicate-text comment blocks resolve correctly.
+fn item_index_of_comment(
+    container: &SyntaxNode,
+    tok: &crate::model::yaml::syntax::SyntaxToken,
+) -> Option<usize> {
+    let mut i = 0;
+    for child in container.children_with_tokens() {
+        match &child {
+            rowan::NodeOrToken::Node(n)
+                if matches!(n.kind(), SyntaxKind::MAP_ENTRY | SyntaxKind::SEQ_ENTRY) =>
+            {
+                i += 1
+            }
+            rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::COMMENT => {
+                if t == tok {
+                    return Some(i);
+                }
+                i += 1;
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Detect the indentation depth of a container's entries (number of leading spaces).
@@ -788,11 +838,7 @@ fn remark(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
             let container = entry.parent().expect("entry has parent");
             let items = collect_items(&container);
             let entry_text = entry.text().to_string();
-            let entry_trim = entry_text.trim();
-            let pos = items
-                .iter()
-                .position(|it| it.trim() == entry_trim)
-                .ok_or(MutateError::NotFound)?;
+            let pos = item_index_of_node(&container, &entry).ok_or(MutateError::NotFound)?;
 
             let commented = ensure_newline(&comment_out(entry_text.trim_end()));
             let mut new_items = items.clone();
@@ -804,11 +850,7 @@ fn remark(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
             let items = collect_items(&container);
             let block_text = comment_block_text(&first_tok);
             let block_lines: Vec<&str> = block_text.lines().collect();
-            let first_line = block_lines.first().copied().unwrap_or("");
-            let pos = items
-                .iter()
-                .position(|it| it.trim() == first_line.trim())
-                .ok_or(MutateError::NotFound)?;
+            let pos = item_index_of_comment(&container, &first_tok).ok_or(MutateError::NotFound)?;
 
             // Recover the live text by stripping the comment leader.
             let recovered = uncomment(&block_text);
@@ -856,11 +898,7 @@ fn edit_comment(tree: &SyntaxNode, path: &[Seg], text: &str) -> Result<(), Mutat
     let items = collect_items(&container);
     let block_text = comment_block_text(&first_tok);
     let block_lines: Vec<&str> = block_text.lines().collect();
-    let first_line = block_lines.first().copied().unwrap_or("");
-    let pos = items
-        .iter()
-        .position(|it| it.trim() == first_line.trim())
-        .ok_or(MutateError::NotFound)?;
+    let pos = item_index_of_comment(&container, &first_tok).ok_or(MutateError::NotFound)?;
 
     let mut new_items = items.clone();
     new_items.splice(pos..pos + block_lines.len(), [ensure_newline(text)]);
@@ -1214,6 +1252,41 @@ mod tests {
         assert_eq!(out, "srv:\n  # host: a\n  port: 80\n");
     }
 
+    #[test]
+    fn remark_duplicate_sequence_element_targets_the_right_one() {
+        // Two identical elements: remarking index 2 must comment the THIRD,
+        // not the first (identity-based position, not text match).
+        let src = "- x\n- y\n- x\n";
+        let out = apply_str(
+            src,
+            Mutation::Remark {
+                path: vec![Seg::Index(2)],
+            },
+        )
+        .expect("remark dup element");
+        assert_eq!(out, "- x\n- y\n# - x\n");
+    }
+
+    #[test]
+    fn edit_comment_duplicate_first_line_targets_the_right_block() {
+        // Two comment blocks share the first line `# TODO`; a blank line breaks
+        // them into two projected Comment nodes (Index 0 and 1). Editing the
+        // SECOND must rewrite that block, leaving the first untouched.
+        let src = "# TODO\n# a\n\n# TODO\n# b\nk: 1\n";
+        let out = apply_str(
+            src,
+            Mutation::EditComment {
+                path: vec![Seg::Index(1)],
+                text: "# DONE".into(),
+            },
+        )
+        .expect("edit second dup-first-line block");
+        assert!(
+            out.starts_with("# TODO\n# a\n") && out.contains("# DONE") && !out.contains("# b"),
+            "expected first block intact and second→# DONE, got {out:?}"
+        );
+    }
+
     // ── 5h: EditComment ──────────────────────────────────────────────────────
 
     #[test]
@@ -1261,6 +1334,26 @@ mod tests {
         )
         .expect("insert comment should succeed");
         assert_eq!(out, "# note\na: 1\n");
+    }
+
+    #[test]
+    fn insert_member_after_leading_comment_is_not_mangled() {
+        // A pre-existing standalone comment must keep its newline through the
+        // collect_items/rebuild round-trip (regression for run-together lines).
+        use crate::model::document::{OnCollision, Target};
+        let out = apply_str(
+            "# header\na: 1\n",
+            Mutation::Insert {
+                target: Target {
+                    parent: vec![],
+                    index: 2,
+                },
+                fragment: "b: 2\n".into(),
+                on_collision: OnCollision::Cancel,
+            },
+        )
+        .expect("insert after leading comment");
+        assert_eq!(out, "# header\na: 1\nb: 2\n");
     }
 
     #[test]
