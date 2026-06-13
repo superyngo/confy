@@ -10,7 +10,7 @@ use crate::model::document::DocFormat;
 struct Args {
     /// Path to the config file to edit
     file: PathBuf,
-    /// Override format detection (toml; json/yaml planned)
+    /// Override format detection (toml, json, jsonc, yaml)
     #[arg(long)]
     format: Option<String>,
 }

@@ -5,12 +5,13 @@ use crate::model::cst_doc::CstDocument;
 use crate::model::document::{ConfigDocument, DocFormat, KindTarget, MutateError, Mutation};
 use crate::model::json::JsonDocument;
 use crate::model::node::{NodeTree, Seg};
+use crate::model::yaml::YamlDocument;
 use std::path::Path as FsPath;
 
 pub enum AnyDocument {
     Toml(CstDocument),
     Json(JsonDocument),
-    // Yaml(YamlDocument)  — Phase 3
+    Yaml(YamlDocument),
 }
 
 /// Format from the file extension. `None` = unrecognized.
@@ -28,6 +29,7 @@ macro_rules! delegate {
         match $self {
             AnyDocument::Toml($d) => $body,
             AnyDocument::Json($d) => $body,
+            AnyDocument::Yaml($d) => $body,
         }
     };
 }
@@ -38,7 +40,7 @@ impl AnyDocument {
         match format {
             DocFormat::Toml => Ok(Self::Toml(CstDocument::load(path)?)),
             DocFormat::Json => Ok(Self::Json(JsonDocument::load(path)?)),
-            DocFormat::Yaml => anyhow::bail!("YAML support is coming in a later release"),
+            DocFormat::Yaml => Ok(Self::Yaml(YamlDocument::load(path)?)),
         }
     }
 
@@ -138,5 +140,14 @@ mod tests {
         let doc = AnyDocument::load(f.path()).unwrap();
         assert_eq!(doc.format(), DocFormat::Json);
         assert_eq!(doc.serialize(), "{ \"a\": 1 }\n");
+    }
+
+    #[test]
+    fn any_document_loads_yaml() {
+        let f = tempfile::Builder::new().suffix(".yaml").tempfile().unwrap();
+        std::fs::write(f.path(), "a: 1\n").unwrap();
+        let doc = AnyDocument::load(f.path()).unwrap();
+        assert_eq!(doc.format(), DocFormat::Yaml);
+        assert_eq!(doc.serialize(), "a: 1\n");
     }
 }
