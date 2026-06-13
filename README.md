@@ -15,10 +15,18 @@ Opens the file in an interactive TUI tree editor. On save (`w` or `Ctrl+s`) the 
 written back with comments, key order, and formatting fully preserved (byte-identical round-trip
 for unmodified subtrees).
 
+## Format support
+
+| Format | Status | Notes |
+|--------|--------|-------|
+| TOML | Full | Lossless CST via taplo/rowan; all TOML 1.0 features |
+| JSON / JSONC | Supported | Lossless hand-rolled rowan CST; `//` line comments become first-class nodes; `/* */` block comments are read-only nodes; trailing commas accepted on parse |
+| YAML | Planned | Phase 3 |
+
 ## Scope
 
 - **Single-file editing** — one file per session; no multi-file workspace.
-- **TOML-first** — round-trip via `toml_edit`; YAML/JSON planned but not in MVP.
+- **Multi-format** — TOML and JSON/JSONC fully supported; YAML planned.
 - **Round-trip preserving** — comments, key order, and whitespace are kept intact on save.
 
 ## Keybindings

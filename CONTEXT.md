@@ -98,6 +98,24 @@ Node — it is decoration belonging to that Node, travels with it on edit/remark
 in the Node's Detail view. Only standalone comments become **Comment** Nodes.
 _Avoid_: Inline comment node (it is never a node), suffix comment.
 
+**Read-only node**:
+A **Comment** node whose `Node.read_only` flag is set. Currently produced by JSONC `/* */` block
+comments, which are displayed in the tree and copyable but reject edit (`e`/`E`), delete (`d`),
+cut (`x`), and remark (`r`). Also the planned mechanism for opaque YAML nodes in Phase 3 (nodes
+that survive round-trip but cannot be mutated safely without full YAML write support).
+
+**JSONC upgrade**:
+The prompt shown when a user triggers `r` (remark) on a node in a pure `.json` file (one loaded
+without `supports_comments()` true). Confirming (`y`) flips the document's comment support on,
+so the remarked node is written with a `//` prefix and subsequent remarks work without prompting.
+The file extension is never rewritten; `.json` files with `//` comments are valid JSONC.
+
+**DocFormat**:
+The backend's self-reported syntax, one of `Toml` / `Json` / `Yaml`. Returned by
+`ConfigDocument::format()` and used by the TUI to select format-appropriate help text, `K`
+kind-switch options, `f` type-filter facets, and the comment prefix (`#` for TOML, `//` for
+JSON/JSONC). Mapped from the file extension by `detect_format`; overridable via `--format`.
+
 ### Operations & projection
 
 **Projection**:
@@ -116,6 +134,15 @@ key/path (and a Comment's text). The **Type filter** (`f`) is a checkbox menu se
 facets** — **Key sign** and **Format/kind** (the KIND-column vocabulary). Both narrow the same
 filtered list and **intersect** (a Node must pass both); selections *within* the Type filter's two
 halves union. _Avoid_: calling either one "search" exclusively — both are filters.
+
+## KIND column tags (full vocabulary)
+
+TOML: `[T/S]` scope table, `[T/D]` dotted table, `[T/I]` inline table, `[T/M]` multiline object
+(JSON only), `[A/I]`/`[A/M]` inline/multiline array, `[A/T]` array-of-tables (TOML only).
+Scalars: `[S:str ]`/`[S:mstr]`/`[S:lit ]`/`[S:mlit]` strings, `[I:dec]`/`[I:hex]`/`[I:oct]`/
+`[I:bin]` integers, `[F:flt ]`/`[F:exp ]`/`[F:inf ]`/`[F:nan ]` floats, `[B:bool]`, `[S:null]`
+(JSON null), datetime types. `[G]` root, `[C]` comment.
+Key sign prefix: `(B)` bare, `(Q)` quoted, `(D)` dotted, `(-)` keyless.
 
 ## Insert / move legality
 

@@ -24,18 +24,36 @@ taplo DOM validation — duplicate sections/keys reject as `Collision`, other se
 `Illegal`), a backstop for edits the targeted pre-checks can't see (e.g. a whole-document or block
 `$EDITOR` rewrite introducing a duplicate `[a]`).
 
+**JSON/JSONC backend.** `JsonDocument` (`model/json/`) is a second concrete `ConfigDocument`
+built on a hand-rolled lossless lexer + recursive-descent parser that emits a `rowan` green tree
+(the same `rowan` version taplo uses, pinned `=0.15.18`). Load, serialize, and apply are all
+atomic-commit; a `validate_semantics` post-check (DOM re-parse for duplicate keys) mirrors the
+TOML backstop. JSONC extends `.json` with `//` line comments — which project as first-class
+Comment nodes (consecutive lines merge; a blank splits them) or `trailing_comment` — and `/* */`
+block comments, which project as **read-only** Comment nodes (new `Node.read_only` flag:
+displayed and copyable, but edit/delete/cut/remark reject them). A pure `.json` file whose first
+remark is triggered prompts `Mode::Prompt(JsoncUpgrade)`; `y` flips `supports_comments()` true
+and `//` is used thereafter (the file extension is never rewritten). Trailing commas are accepted
+on parse but never emitted by splices. `K` switch covers object/array Inline↔Multiline and float
+Plain↔Exponent; the `f` type-filter shows only JSON-reachable facets (`(Q)`/`(-)` key signs,
+no `[A/T]`/`[T/D]`/`[T/S]`, no radix/string-style/datetime rows). JSON omits TOML-only
+features: no dotted keys, array-of-tables, datetimes, integer radixes, multiline strings, or
+string-notation switching; newlines are `\n`-encoded only. New model atoms added for this
+backend: `ScalarType::Null` (KIND tag `[S:null]`), `Format::Exponent` (KIND tag `[F:exp ]`),
+`KindTarget::TableMultiline` (KIND tag `[T/M]`), `Node.read_only`.
+
 **`ConfigDocument` trait** abstracts the storage backend so YAML/JSON can be added later; the
-only concrete backend is `CstDocument` (the original `toml_edit`-based `TomlDocument` was retired
-after reaching parity). The trait exposes `load`, `project`, `serialize`, `serialize_fragment`,
+only concrete backends are `CstDocument` (TOML) and `JsonDocument` (JSON/JSONC) (the original
+`toml_edit`-based `TomlDocument` was retired after reaching parity). The trait exposes `load`, `project`, `serialize`, `serialize_fragment`,
 `serialize_fragment_relative`, `is_dirty`, `apply(Mutation)`, and three **format facets** —
 `format() -> DocFormat`, `comment_prefix()`, `supports_comments()` — plus `kind_options(path)`,
 which serves the `K` popup's per-node convertible-kind list (`(label, KindTarget)` pairs) so the
 TUI never hard-codes a backend's notations. **`AnyDocument`** (`model/any_doc.rs`) is a one-enum
-dispatcher wrapping every backend (one `Toml(CstDocument)` variant today) and implementing
+dispatcher wrapping every backend (`Toml(CstDocument)` and `Json(JsonDocument)`) and implementing
 `ConfigDocument` by match-delegation; the TUI holds a single `AnyDocument`, and a new format is one
 more variant. `detect_format(path)` maps the extension to a `DocFormat` (`.toml`/`.json`/`.jsonc`/
-`.yaml`/`.yml`); `load_as(path, format)` dispatches, **bailing politely** for JSON/YAML until their
-phases land. `Mutation::Insert`/`Replace` carry a format-neutral `fragment:` field (not `toml:`).
+`.yaml`/`.yml`); `load_as(path, format)` dispatches to TOML or JSON/JSONC, **bailing politely** for
+YAML until that phase lands. `Mutation::Insert`/`Replace` carry a format-neutral `fragment:` field (not `toml:`).
 Path→node lookup lives on `NodeTree::node_at(path)` (model layer, reused by `kind_options`).
 
 **Addressing.** Keyed nodes are addressed by `Seg::Key(name)`; **positional** nodes — comments,
@@ -158,7 +176,8 @@ inline-editability rule below. Golden tests in `cst_project.rs` freeze the proje
 and container formats landed). The **KIND column** (formerly TYPE/FORMAT; takes 40% of the
 terminal width for NAME, kind at the 2/5 mark, value the remainder) renders these facets as a
 **fixed-pitch 12-column tag** (`type_tag` in `app.rs`: key sign `(B)/(Q)/(D)/(-)` + type slot
-`[T/S]`, `[A/I]`, `[S:str ]`, …); the detail popup keeps word labels, and `node_type_label`
+`[T/S]`, `[A/I]`, `[S:str ]`, …); JSON adds `[S:null]` (null scalar), `[T/M]` (multiline
+object), and `[F:exp ]` (exponent float); the detail popup keeps word labels, and `node_type_label`
 still drives the inline editor's type-change comparison.
 
 **Editing.** `e` dispatches via `edit_target_kind`. **Inline** (`Mode::Edit`): a single-line
@@ -327,6 +346,13 @@ src/
     cst_doc.rs     CstDocument holding the taplo/rowan tree: load/serialize/apply (atomic commit)
     cst_project.rs CST → NodeTree projection (comments as real nodes; golden tests)
     cst_edit.rs    rowan splice helpers: one fn per Mutation variant + the path→element walk index
+    json/
+      mod.rs       re-exports for the JSON/JSONC backend
+      syntax.rs    SyntaxKind enum + rowan Language impl (hand-rolled JSON token/node kinds)
+      parse.rs     lossless lexer + recursive-descent parser → rowan GreenTree (JSONC-aware)
+      doc.rs       JsonDocument: load/serialize/apply (atomic commit + validate_semantics)
+      project.rs   GreenTree → NodeTree projection (// comments as real nodes; golden tests)
+      edit.rs      rowan splice helpers: one fn per Mutation variant for JSON/JSONC
   tui/
     mod.rs         re-exports; run() entry point + event loop (run_event_loop)
     app.rs         App state + operation handlers (the event loop dispatches keys to these)
