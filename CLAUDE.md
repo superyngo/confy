@@ -48,7 +48,10 @@ only concrete backends are `CstDocument` (TOML) and `JsonDocument` (JSON/JSONC) 
 `serialize_fragment_relative`, `is_dirty`, `apply(Mutation)`, and three **format facets** —
 `format() -> DocFormat`, `comment_prefix()`, `supports_comments()` — plus `kind_options(path)`,
 which serves the `K` popup's per-node convertible-kind list (`(label, KindTarget)` pairs) so the
-TUI never hard-codes a backend's notations. **`AnyDocument`** (`model/any_doc.rs`) is a one-enum
+TUI never hard-codes a backend's notations, and two **fragment facets** the inline editor/`nudge`/`a`
+use so they don't hard-code a notation either: `scalar_fragment(key, value)` (wraps a value repr as
+`key = value` / `"key": value`, or a bare element for `key: None`) and `value_kind(value)` (projects
+the value in the backend's own syntax for the type-change check). **`AnyDocument`** (`model/any_doc.rs`) is a one-enum
 dispatcher wrapping every backend (`Toml(CstDocument)` and `Json(JsonDocument)`) and implementing
 `ConfigDocument` by match-delegation; the TUI holds a single `AnyDocument`, and a new format is one
 more variant. `detect_format(path)` maps the extension to a `DocFormat` (`.toml`/`.json`/`.jsonc`/
@@ -189,8 +192,10 @@ array element on a `Key+ Index*` path (incl. array-of-arrays) — a single-line 
 AoT entries, the Root, and any `E`. The inline editor edits one field at a time: **`Tab` toggles
 between Value (default) and Name**; committing a changed Name applies `Mutation::Rename` first,
 then the value `Replace` (Tab is disabled for array elements and comments, which have no key).
-Commit detects a **type change** by parsing `key = value` with taplo and projecting it
-(`node_type_label`), prompting y/n when the label differs. Both columns share one
+Commit detects a **type change** via the backend's `value_kind(value)` (which parses+projects the
+value in the doc's own syntax) fed to `node_type_label`, prompting y/n when the label differs; the
+fragment it applies comes from `scalar_fragment` (so TOML and JSON each get their own notation). The
+TOML-only dotted-key→table rename prompt (a Name edit such as `foo` → `foo.x`) is gated to TOML. Both columns share one
 horizontal-scroll/overflow treatment (`edit_field_spans`, also reused to render the `/` filter
 input); editor and filter input are caret-based fields (`←/→/Home/End` move the caret,
 `Backspace`/`Del` erase before/at it). The `←/→` **value nudge** re-applies underscore digit

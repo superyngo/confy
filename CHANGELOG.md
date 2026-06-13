@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- JSON inline editing rejected every commit with `invalid TOML: unexpected token` — the TUI hard-coded TOML `key = value` fragments (and taplo validation) for inline value edits, key renames, the `←/→` nudge, and the `a` seed, which the JSON backend's parser rejected. Fragment construction and the inline editor's type-change projection now go through two new format facets on `ConfigDocument` — `scalar_fragment(key, value)` (builds `key = value` / `"key": value` / a bare element) and `value_kind(value)` (projects the value in the backend's own syntax) — so the TUI never hard-codes a notation. The TOML-only dotted-key→table rename prompt is now gated to TOML. Editor validation errors read `invalid value:` (format-neutral) instead of `invalid TOML:`. (2026-06-13)
+
 ### Planned
 - Multi-format backends — restricted-subset YAML (lossless), document-level conversion, XML out of scope. Spec: `docs/superpowers/specs/2026-06-12-multiformat-backends-design.md`. **Phases 1–2 (backend abstraction + JSON/JSONC) are now implemented** (below); Phase 3 (YAML) remains planned. (2026-06-12)
 

@@ -193,6 +193,27 @@ impl ConfigDocument for CstDocument {
         };
         options
     }
+
+    fn scalar_fragment(&self, key: Option<&str>, value: &str) -> String {
+        // An array element has no key; taplo can't parse a bare top-level value,
+        // so it is wrapped under a synthetic key the element `Replace` ignores.
+        let k = key.unwrap_or("__elem__");
+        format!("{k} = {value}\n")
+    }
+
+    fn value_kind(&self, value: &str) -> Result<NodeKind, String> {
+        let parse = taplo::parser::parse(&format!("__k__ = {value}\n"));
+        if let Some(err) = parse.errors.first() {
+            return Err(err.to_string());
+        }
+        crate::model::cst_project::project(&parse.into_syntax(), "")
+            .root
+            .children
+            .into_iter()
+            .next()
+            .map(|n| n.kind)
+            .ok_or_else(|| "fragment has no value".into())
+    }
 }
 
 impl CstDocument {
@@ -252,6 +273,30 @@ mod tests {
                 "round-trip not byte-identical for {f:?}"
             );
         }
+    }
+
+    #[test]
+    fn scalar_fragment_uses_toml_assignment() {
+        let doc = cst_from_str("a = 1\n");
+        assert_eq!(doc.scalar_fragment(Some("tags"), "\"x\""), "tags = \"x\"\n");
+        // An element wraps under the synthetic key the element Replace ignores.
+        assert_eq!(doc.scalar_fragment(None, "42"), "__elem__ = 42\n");
+    }
+
+    #[test]
+    fn value_kind_classifies_toml_values() {
+        use crate::model::node::ScalarType;
+        let doc = cst_from_str("a = 1\n");
+        assert_eq!(
+            doc.value_kind("\"hi\"").unwrap(),
+            NodeKind::Scalar(ScalarType::String)
+        );
+        assert_eq!(
+            doc.value_kind("42").unwrap(),
+            NodeKind::Scalar(ScalarType::Integer)
+        );
+        assert_eq!(doc.value_kind("[1, 2]").unwrap(), NodeKind::Array);
+        assert!(doc.value_kind("= bad").is_err());
     }
 
     #[test]

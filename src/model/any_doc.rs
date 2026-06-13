@@ -101,6 +101,12 @@ impl ConfigDocument for AnyDocument {
     fn kind_options(&self, path: &[Seg]) -> Vec<(String, KindTarget)> {
         delegate!(self, d => d.kind_options(path))
     }
+    fn scalar_fragment(&self, key: Option<&str>, value: &str) -> String {
+        delegate!(self, d => d.scalar_fragment(key, value))
+    }
+    fn value_kind(&self, value: &str) -> Result<crate::model::node::NodeKind, String> {
+        delegate!(self, d => d.value_kind(value))
+    }
 }
 
 #[cfg(test)]

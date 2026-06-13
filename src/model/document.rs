@@ -1,4 +1,4 @@
-use crate::model::node::{NodeTree, Path};
+use crate::model::node::{NodeKind, NodeTree, Path};
 use std::path::Path as FsPath;
 
 pub trait ConfigDocument: Sized {
@@ -36,6 +36,18 @@ pub trait ConfigDocument: Sized {
     /// `K` popup. Positional legality (capture rules…) is still checked by
     /// `apply`; this lists only what is legal *by kind*.
     fn kind_options(&self, path: &[crate::model::node::Seg]) -> Vec<(String, KindTarget)>;
+
+    /// Wrap a value repr (and optional key) into a one-node fragment in this
+    /// format, suitable for `Replace`/`Insert` from the inline editor and
+    /// `nudge`: `key = value` (TOML) / `"key": value` (JSON). With `key: None`
+    /// (an array element) it returns the bare value fragment the backend's
+    /// element `Replace` expects. So the TUI never hard-codes a notation.
+    fn scalar_fragment(&self, key: Option<&str>, value: &str) -> String;
+
+    /// The [`NodeKind`] a bare `value` repr projects to in this format — used by
+    /// the inline editor's type-change detection. `Err` (with the parse message)
+    /// when the value doesn't parse, so the editor can stay open on a bad edit.
+    fn value_kind(&self, value: &str) -> Result<NodeKind, String>;
 }
 
 /// Which config syntax a document speaks. Backends report it via

@@ -6,7 +6,7 @@ use anyhow::Context;
 
 use crate::model::document::{ConfigDocument, DocFormat, KindTarget, MutateError, Mutation};
 use crate::model::json::syntax::SyntaxNode;
-use crate::model::node::{NodeTree, Seg};
+use crate::model::node::{NodeKind, NodeTree, Seg};
 
 pub struct JsonDocument {
     pub(crate) syntax: SyntaxNode,
@@ -92,6 +92,26 @@ impl ConfigDocument for JsonDocument {
 
     fn kind_options(&self, path: &[Seg]) -> Vec<(String, KindTarget)> {
         kind_options(&self.project(), path)
+    }
+
+    fn scalar_fragment(&self, key: Option<&str>, value: &str) -> String {
+        match key {
+            // Keyed member; the array-element `Replace` takes a bare value.
+            Some(k) => format!("\"{k}\": {value}\n"),
+            None => format!("{value}\n"),
+        }
+    }
+
+    fn value_kind(&self, value: &str) -> Result<NodeKind, String> {
+        // Project the value as the sole member of an object and read its kind.
+        let green = crate::model::json::parse::parse(&format!("{{\"__k__\": {value}}}"))?;
+        crate::model::json::project::project(&SyntaxNode::new_root(green), "")
+            .root
+            .children
+            .into_iter()
+            .next()
+            .map(|n| n.kind)
+            .ok_or_else(|| "fragment has no value".into())
     }
 }
 
@@ -188,6 +208,42 @@ mod tests {
     fn existing_comment_enables_support() {
         let doc = json_from_str(".json", "// hi\n{}\n");
         assert!(doc.supports_comments());
+    }
+
+    #[test]
+    fn scalar_fragment_uses_json_member_and_bare_element() {
+        let doc = json_from_str(".json", "{}\n");
+        assert_eq!(
+            doc.scalar_fragment(Some("tags"), "\"x\""),
+            "\"tags\": \"x\"\n"
+        );
+        assert_eq!(doc.scalar_fragment(None, "42"), "42\n");
+    }
+
+    #[test]
+    fn value_kind_classifies_json_values() {
+        use crate::model::node::{NodeKind, ScalarType};
+        let doc = json_from_str(".json", "{}\n");
+        assert_eq!(
+            doc.value_kind("\"hi\"").unwrap(),
+            NodeKind::Scalar(ScalarType::String)
+        );
+        assert_eq!(
+            doc.value_kind("42").unwrap(),
+            NodeKind::Scalar(ScalarType::Integer)
+        );
+        assert_eq!(
+            doc.value_kind("true").unwrap(),
+            NodeKind::Scalar(ScalarType::Bool)
+        );
+        assert_eq!(
+            doc.value_kind("null").unwrap(),
+            NodeKind::Scalar(ScalarType::Null)
+        );
+        assert_eq!(doc.value_kind("[1, 2]").unwrap(), NodeKind::Array);
+        assert_eq!(doc.value_kind("{\"a\": 1}").unwrap(), NodeKind::Table);
+        // A bare TOML-style value is not legal JSON → Err keeps the editor open.
+        assert!(doc.value_kind("oops").is_err());
     }
 
     #[test]

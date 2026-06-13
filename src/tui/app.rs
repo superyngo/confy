@@ -1390,15 +1390,18 @@ impl App {
                     self.mode = Mode::Edit(e);
                     return;
                 }
-                // A rename that changes the node's *type* (e.g. a dotted key turns a
-                // scalar into a `[T/D]` table) is confirmed first and deferred whole,
-                // so `n` leaves the document untouched.
+                // A rename that changes the node's *type* (e.g. a TOML dotted key
+                // turns a scalar into a `[T/D]` table) is confirmed first and
+                // deferred whole, so `n` leaves the document untouched. JSON has no
+                // dotted keys, so a rename never changes type — skip the check.
                 let old_label = self
                     .rows
                     .get(self.cursor)
                     .map(|r| r.type_label.clone())
                     .unwrap_or_default();
-                let new_label = project_first_label(&format!("{new_name} = {value_str}\n"));
+                let new_label = (self.doc_format() == crate::model::document::DocFormat::Toml)
+                    .then(|| project_first_label(&format!("{new_name} = {value_str}\n")))
+                    .flatten();
                 if let Some(new_label) = new_label {
                     if new_label != old_label {
                         self.status = Some(format!("type {old_label} → {new_label}? y/n"));
@@ -1445,20 +1448,24 @@ impl App {
             self.mode = self.resting_mode();
             return;
         }
-        // 2. Value replace.
-        let fragment = format!("{} = {}\n", frag_key, value_str);
-        let parse = taplo::parser::parse(&fragment);
-        if let Some(err) = parse.errors.first() {
-            self.status = Some(format!("invalid TOML: {err}"));
-            self.mode = Mode::Edit(e); // stay in the editor so the user can fix it
-            return;
-        }
-        let new_label = crate::model::cst_project::project(&parse.into_syntax(), "")
-            .root
-            .children
-            .first()
-            .map(|n| node_type_label(&n.kind))
-            .unwrap_or_default();
+        // 2. Value replace. The fragment and the type-change projection are built
+        //    by the backend so the TUI never hard-codes `key = value` vs JSON's
+        //    `"key": value` (a bad value keeps the editor open).
+        let key_arg = (!is_element).then_some(frag_key.as_str());
+        let (fragment, new_label) = match self.doc.as_ref() {
+            Some(doc) => {
+                let fragment = doc.scalar_fragment(key_arg, &value_str);
+                match doc.value_kind(&value_str) {
+                    Ok(kind) => (fragment, node_type_label(&kind)),
+                    Err(msg) => {
+                        self.status = Some(format!("invalid value: {msg}"));
+                        self.mode = Mode::Edit(e); // stay in the editor to fix it
+                        return;
+                    }
+                }
+            }
+            None => (format!("{frag_key} = {value_str}\n"), String::new()),
+        };
         let old_label = self
             .rows
             .get(self.cursor)
@@ -1545,7 +1552,12 @@ impl App {
             None => return,
         };
         if let Some(new_repr) = nudge_scalar(st, node.format, &repr, delta) {
-            self.apply_replace(path, format!("{frag_key} = {new_repr}\n"));
+            let key_arg = (frag_key != "__elem__").then_some(frag_key.as_str());
+            let fragment = match self.doc.as_ref() {
+                Some(doc) => doc.scalar_fragment(key_arg, &new_repr),
+                None => format!("{frag_key} = {new_repr}\n"),
+            };
+            self.apply_replace(path, fragment);
         }
     }
 
@@ -1646,7 +1658,11 @@ impl App {
             }
             None => {
                 let key = unique_key("new_field", &existing);
-                (key.clone(), format!("{key} = \"\"\n"), true)
+                let frag = match self.doc.as_ref() {
+                    Some(doc) => doc.scalar_fragment(Some(&key), "\"\""),
+                    None => format!("{key} = \"\"\n"),
+                };
+                (key.clone(), frag, true)
             }
         };
 
@@ -4838,6 +4854,73 @@ mod tests {
         assert!(
             app.clipboard.is_some(),
             "copy of a read-only block comment must succeed"
+        );
+    }
+
+    /// Regression: inline-editing a JSON value built a TOML `key = value`
+    /// fragment the JSON backend rejected ("invalid TOML: unexpected token").
+    /// The edit must now commit cleanly to a `"key": value` member.
+    #[test]
+    fn json_inline_value_edit_commits() {
+        use crate::model::document::ConfigDocument;
+        let mut app = app_with_jsonc("{\n  \"tags\": \"a\"\n}\n");
+        app.expand_level();
+        app.rebuild_rows();
+        let ci = app
+            .rows
+            .iter()
+            .position(|r| r.key == "tags")
+            .expect("tags row not found");
+        app.cursor = ci;
+        app.begin_inline_edit();
+        // Clear the value buffer and type a new JSON string literal `"b"`.
+        if let Mode::Edit(ref mut e) = app.mode {
+            e.buffer.clear();
+            e.cursor = 0;
+        }
+        for c in "\"b\"".chars() {
+            app.edit_input_char(c);
+        }
+        app.edit_commit();
+        assert!(app.error.is_none(), "unexpected error: {:?}", app.error);
+        assert!(
+            app.status.as_deref() != Some("invalid value"),
+            "edit should not have failed validation"
+        );
+        assert!(
+            app.doc
+                .as_ref()
+                .unwrap()
+                .serialize()
+                .contains("\"tags\": \"b\""),
+            "value must be updated: {}",
+            app.doc.as_ref().unwrap().serialize()
+        );
+    }
+
+    /// Regression: `←/→` nudge on a JSON integer built a TOML fragment too.
+    #[test]
+    fn json_nudge_integer_commits() {
+        use crate::model::document::ConfigDocument;
+        let mut app = app_with_jsonc("{\n  \"port\": 8080\n}\n");
+        app.expand_level();
+        app.rebuild_rows();
+        let ci = app
+            .rows
+            .iter()
+            .position(|r| r.key == "port")
+            .expect("port row not found");
+        app.cursor = ci;
+        app.nudge(1);
+        assert!(app.error.is_none(), "unexpected error: {:?}", app.error);
+        assert!(
+            app.doc
+                .as_ref()
+                .unwrap()
+                .serialize()
+                .contains("\"port\": 8081"),
+            "nudged value must be 8081: {}",
+            app.doc.as_ref().unwrap().serialize()
         );
     }
 }

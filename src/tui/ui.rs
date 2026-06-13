@@ -915,7 +915,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(
-            joined.contains("invalid TOML"),
+            joined.contains("invalid value"),
             "commit error must be visible in the status line: {joined:?}"
         );
     }
