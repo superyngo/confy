@@ -594,6 +594,12 @@ fn bare_value_of_fragment(fragment: &str) -> Option<&str> {
     Some(after)
 }
 
+/// Returns true if an item string represents a comment (LINE_COMMENT or BLOCK_COMMENT).
+fn is_comment_item(item: &str) -> bool {
+    let t = item.trim();
+    t.starts_with("//") || t.starts_with("/*")
+}
+
 /// Rebuild a MULTILINE container (object or array) from item strings.
 /// Detects indent from the first existing member and the container's own closing indent.
 fn rebuild_multiline(container: &SyntaxNode, items: &[String]) -> String {
@@ -606,12 +612,21 @@ fn rebuild_multiline(container: &SyntaxNode, items: &[String]) -> String {
     // Detect the closing brace/bracket indent (the whitespace before R_BRACE/R_BRACK).
     let close_indent = detect_close_indent(container);
 
-    // Build the container content.
+    // Build the container content. Comments never get commas; non-comment items
+    // get a comma if the *next* non-comment item exists.
     let mut lines: Vec<String> = Vec::new();
-    let n = items.len();
     for (i, item) in items.iter().enumerate() {
-        let comma = if i + 1 < n { "," } else { "" };
-        lines.push(format!("{item_indent}{item}{comma}"));
+        if is_comment_item(item) {
+            // Comments are emitted as-is, one line per item (no comma).
+            for line in item.lines() {
+                lines.push(format!("{item_indent}{line}"));
+            }
+        } else {
+            // Non-comment: comma if there is a later non-comment item.
+            let has_later = items[i + 1..].iter().any(|it| !is_comment_item(it));
+            let comma = if has_later { "," } else { "" };
+            lines.push(format!("{item_indent}{item}{comma}"));
+        }
     }
 
     let content = lines.join("\n");
@@ -724,24 +739,203 @@ fn parse_container_text(text: &str, _is_object: bool) -> Result<SyntaxNode, Muta
     Ok(container)
 }
 
-#[allow(unused_variables)]
-fn rename(_tree: &SyntaxNode, _path: &[Seg], _new_key: &str) -> Result<(), MutateError> {
-    Err(MutateError::Unsupported)
+fn rename(tree: &SyntaxNode, path: &[Seg], new_key: &str) -> Result<(), MutateError> {
+    let member = match resolve(tree, path).ok_or(MutateError::NotFound)? {
+        Target::Member(m) => m,
+        _ => return Err(MutateError::Illegal("rename requires a member".into())),
+    };
+
+    // Sibling collision check: find parent container and check other members' keys.
+    let parent = member.parent().expect("member has parent");
+    for sib in parent.children().filter(|n| n.kind() == SyntaxKind::MEMBER) {
+        if sib == member {
+            continue;
+        }
+        if let Some(key_node) = sib.children().find(|n| n.kind() == SyntaxKind::KEY) {
+            if key_name_of(&key_node) == new_key {
+                return Err(MutateError::Collision(new_key.to_string()));
+            }
+        }
+    }
+
+    // Locate the KEY node inside the member, then find its STRING token.
+    let key_node = member
+        .children()
+        .find(|n| n.kind() == SyntaxKind::KEY)
+        .ok_or(MutateError::NotFound)?;
+
+    // Find the STRING token's index among KEY's children_with_tokens.
+    let children: Vec<_> = key_node.children_with_tokens().collect();
+    let str_idx = children
+        .iter()
+        .position(|c| matches!(c, rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::STRING))
+        .ok_or(MutateError::NotFound)?;
+
+    // Build a new STRING token by parsing a minimal object and extracting its KEY's STRING.
+    let probe = format!("{{\"{new_key}\": 0}}");
+    let new_green = crate::model::json::parse::parse(&probe).map_err(MutateError::Fragment)?;
+    let new_root = SyntaxNode::new_root(new_green).clone_for_update();
+    let new_str_tok = new_root
+        .descendants()
+        .find(|n| n.kind() == SyntaxKind::KEY)
+        .and_then(|kn| {
+            kn.children_with_tokens().find_map(|c| match c {
+                rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::STRING => Some(t),
+                _ => None,
+            })
+        })
+        .ok_or(MutateError::NotFound)?;
+
+    key_node.splice_children(str_idx..str_idx + 1, vec![new_str_tok.into()]);
+    Ok(())
 }
 
-#[allow(unused_variables)]
-fn remark(_tree: &SyntaxNode, _path: &[Seg]) -> Result<(), MutateError> {
-    Err(MutateError::Unsupported)
+fn remark(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
+    match resolve(tree, path).ok_or(MutateError::NotFound)? {
+        Target::Member(member) => {
+            // Live member → comment it out.
+            // Find the container (parent OBJECT or ARRAY node).
+            let container = member.parent().expect("member has parent");
+
+            // Find the member's position in collect_items order.
+            let items = collect_items(&container);
+            let member_text = member.text().to_string().trim().to_string();
+            let member_pos = items
+                .iter()
+                .position(|it| it.trim() == member_text.as_str())
+                .ok_or(MutateError::NotFound)?;
+
+            // Build comment text: prefix each line with "// ".
+            let commented: String = member_text
+                .lines()
+                .map(|l| format!("// {l}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            let mut new_items = items.clone();
+            new_items[member_pos] = commented;
+
+            let is_multiline = container.text().to_string().contains('\n');
+            let new_text = if is_multiline {
+                rebuild_multiline(&container, &new_items)
+            } else {
+                rebuild_inline(&container, &new_items)
+            };
+            let new_container = parse_container_text(&new_text, container.kind() == SyntaxKind::OBJECT)?;
+            replace_node(&container, new_container);
+            Ok(())
+        }
+        Target::Comment(first_tok) => {
+            // Standalone // block → un-comment and restore as member.
+            let container = first_tok.parent().expect("comment has parent");
+
+            let items = collect_items(&container);
+            // Find the item that matches this comment block.
+            let block_text = comment_block_text(&first_tok);
+            let comment_pos = items
+                .iter()
+                .position(|it| it.trim() == block_text.trim())
+                .ok_or(MutateError::NotFound)?;
+
+            // Strip "// " (or "//") prefix from each line to recover member text.
+            let member_text: String = block_text
+                .lines()
+                .map(|l| {
+                    if let Some(rest) = l.trim_start().strip_prefix("// ") {
+                        rest.to_string()
+                    } else if let Some(rest) = l.trim_start().strip_prefix("//") {
+                        rest.to_string()
+                    } else {
+                        l.to_string()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            // Validate the recovered text parses as a member.
+            parse_member_fragment(&member_text)
+                .ok_or_else(|| MutateError::Fragment("comment is not a valid member".into()))?;
+
+            let mut new_items = items.clone();
+            new_items[comment_pos] = member_text;
+
+            let is_multiline = container.text().to_string().contains('\n');
+            let new_text = if is_multiline {
+                rebuild_multiline(&container, &new_items)
+            } else {
+                rebuild_inline(&container, &new_items)
+            };
+            let new_container = parse_container_text(&new_text, container.kind() == SyntaxKind::OBJECT)?;
+            replace_node(&container, new_container);
+            Ok(())
+        }
+        Target::Block(_) => Err(MutateError::Illegal("cannot remark a block comment".into())),
+        Target::Element(_) => Err(MutateError::Illegal("cannot remark an array element".into())),
+    }
 }
 
-#[allow(unused_variables)]
-fn edit_comment(_tree: &SyntaxNode, _path: &[Seg], _text: &str) -> Result<(), MutateError> {
-    Err(MutateError::Unsupported)
+fn edit_comment(tree: &SyntaxNode, path: &[Seg], text: &str) -> Result<(), MutateError> {
+    // Validate: every line must start with "//".
+    for line in text.lines() {
+        if !line.trim_start().starts_with("//") {
+            return Err(MutateError::Fragment(
+                "every line of a comment must start with //".into(),
+            ));
+        }
+    }
+
+    let first_tok = match resolve(tree, path).ok_or(MutateError::NotFound)? {
+        Target::Comment(t) => t,
+        Target::Block(_) => return Err(MutateError::Illegal("block comments are read-only".into())),
+        _ => return Err(MutateError::Illegal("path does not resolve to a comment".into())),
+    };
+
+    let container = first_tok.parent().expect("comment has parent");
+    let items = collect_items(&container);
+    let block_text = comment_block_text(&first_tok);
+    let comment_pos = items
+        .iter()
+        .position(|it| it.trim() == block_text.trim())
+        .ok_or(MutateError::NotFound)?;
+
+    let mut new_items = items.clone();
+    new_items[comment_pos] = text.to_string();
+
+    let is_multiline = container.text().to_string().contains('\n');
+    let new_text = if is_multiline {
+        rebuild_multiline(&container, &new_items)
+    } else {
+        rebuild_inline(&container, &new_items)
+    };
+    let new_container = parse_container_text(&new_text, container.kind() == SyntaxKind::OBJECT)?;
+    replace_node(&container, new_container);
+    Ok(())
 }
 
-#[allow(unused_variables)]
-fn insert_comment(_tree: &SyntaxNode, _target: &MutTarget, _text: &str) -> Result<(), MutateError> {
-    Err(MutateError::Unsupported)
+fn insert_comment(tree: &SyntaxNode, target: &MutTarget, text: &str) -> Result<(), MutateError> {
+    // Validate: every line must start with "//".
+    for line in text.lines() {
+        if !line.trim_start().starts_with("//") {
+            return Err(MutateError::Fragment(
+                "every line of a comment must start with //".into(),
+            ));
+        }
+    }
+
+    let container = find_container(tree, &target.parent)?;
+    let mut items = collect_items(&container);
+    let idx = target.index.min(items.len());
+    items.insert(idx, text.to_string());
+
+    let is_multiline = container.text().to_string().contains('\n');
+    let new_text = if is_multiline {
+        rebuild_multiline(&container, &items)
+    } else {
+        rebuild_inline(&container, &items)
+    };
+    let new_container = parse_container_text(&new_text, container.kind() == SyntaxKind::OBJECT)?;
+    replace_node(&container, new_container);
+    Ok(())
 }
 
 #[allow(unused_variables)]
@@ -889,12 +1083,13 @@ mod tests {
     #[test]
     fn stubbed_mutations_unsupported() {
         let t = parse("{ \"a\": 1 }\n");
-        // Rename is still stubbed — use it to verify Unsupported.
+        // Move is still stubbed — use it to verify Unsupported.
         let r = apply(
             &t,
-            Mutation::Rename {
-                path: vec![Seg::Key("a".into())],
-                new_key: "x".into(),
+            Mutation::Move {
+                sources: vec![vec![Seg::Key("a".into())]],
+                target: crate::model::document::Target { parent: vec![], index: 0 },
+                on_collision: OnCollision::Cancel,
             },
         );
         assert!(matches!(r, Err(MutateError::Unsupported)));
@@ -1045,5 +1240,69 @@ mod tests {
             },
         );
         assert_eq!(out, "{\n  \"o\": {\n    \"a\": 1,\n    \"b\": 2\n  }\n}\n");
+    }
+
+    #[test]
+    fn rename_member_key() {
+        let out = apply_str(
+            "{ \"a\": 1 }\n",
+            Mutation::Rename { path: vec![Seg::Key("a".into())], new_key: "b".into() },
+        );
+        assert_eq!(out, "{ \"b\": 1 }\n");
+    }
+
+    #[test]
+    fn rename_collision() {
+        let t = parse("{ \"a\": 1, \"b\": 2 }\n");
+        let r = super::apply(&t, Mutation::Rename {
+            path: vec![Seg::Key("a".into())], new_key: "b".into(),
+        });
+        assert!(matches!(r, Err(MutateError::Collision(_))));
+    }
+
+    #[test]
+    fn remark_member_to_comment() {
+        let out = apply_str(
+            "{\n  \"a\": 1\n}\n",
+            Mutation::Remark { path: vec![Seg::Key("a".into())] },
+        );
+        assert_eq!(out, "{\n  // \"a\": 1\n}\n");
+    }
+
+    #[test]
+    fn remark_comment_to_member() {
+        let out = apply_str(
+            "{\n  // \"a\": 1\n}\n",
+            Mutation::Remark { path: vec![Seg::Index(0)] },
+        );
+        assert_eq!(out, "{\n  \"a\": 1\n}\n");
+    }
+
+    #[test]
+    fn edit_comment_text() {
+        let out = apply_str(
+            "{\n  // old\n  \"a\": 1\n}\n",
+            Mutation::EditComment { path: vec![Seg::Index(0)], text: "// new".into() },
+        );
+        assert_eq!(out, "{\n  // new\n  \"a\": 1\n}\n");
+    }
+
+    #[test]
+    fn edit_comment_rejects_non_comment() {
+        let t = parse("{\n  // old\n  \"a\": 1\n}\n");
+        let r = super::apply(&t, Mutation::EditComment { path: vec![Seg::Index(0)], text: "not a comment".into() });
+        assert!(matches!(r, Err(MutateError::Fragment(_))));
+    }
+
+    #[test]
+    fn insert_comment_block() {
+        let out = apply_str(
+            "{\n  \"a\": 1\n}\n",
+            Mutation::InsertComment {
+                target: crate::model::document::Target { parent: vec![], index: 0 },
+                text: "// note".into(),
+            },
+        );
+        assert_eq!(out, "{\n  // note\n  \"a\": 1\n}\n");
     }
 }
