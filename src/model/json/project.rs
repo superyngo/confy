@@ -302,6 +302,11 @@ fn walk_container_tokens(
     // Comment accumulator for consecutive `//` lines.
     let mut lines: Vec<String> = Vec::new();
     let mut first_tok: Option<SyntaxToken> = None;
+    // Blank-line detection: JSON lexer emits ONE NEWLINE token per '\n'.
+    // The first NEWLINE after a comment line is its line terminator (keep accumulating).
+    // A SECOND NEWLINE before the next comment line signals a blank line (flush).
+    // WHITESPACE tokens between NEWLINEs are ignored for this purpose.
+    let mut seen_newline_since_last_comment: bool = false;
 
     // Flush the current accumulated `//` block as a Comment node.
     macro_rules! flush_line_comments {
@@ -339,16 +344,23 @@ fn walk_container_tokens(
                             first_tok = Some(tok.clone());
                         }
                         lines.push(tok.text().trim_end().to_string());
+                        seen_newline_since_last_comment = false;
                     }
                     // Trailing comments are captured by trailing_comment_of() on the
                     // VALUE node — skip them here.
                 }
                 SyntaxKind::NEWLINE => {
-                    // A NEWLINE with 2+ `\n` characters (blank line) breaks a comment
-                    // accumulation block.
-                    let newline_count = tok.text().matches('\n').count();
-                    if newline_count >= 2 && !lines.is_empty() {
-                        flush_line_comments!();
+                    // The JSON lexer emits exactly one '\n' per NEWLINE token.
+                    // First NEWLINE after a comment line = line terminator (keep accumulating).
+                    // Second NEWLINE before the next comment line = blank line → flush.
+                    if !lines.is_empty() {
+                        if seen_newline_since_last_comment {
+                            // Blank line detected.
+                            flush_line_comments!();
+                            seen_newline_since_last_comment = false;
+                        } else {
+                            seen_newline_since_last_comment = true;
+                        }
                     }
                 }
                 SyntaxKind::BLOCK_COMMENT => {
@@ -540,6 +552,27 @@ mod tests {
         let c = &t.root.children[0];
         assert!(matches!(c.kind, NodeKind::Comment(_)));
         assert_eq!(c.value.as_deref(), Some("// l1\n// l2"));
+    }
+
+    #[test]
+    fn blank_line_splits_comment_blocks() {
+        let t = tree("{\n  // a\n\n  // b\n  \"k\": 1\n}\n");
+        let comments: Vec<_> = t.root.children.iter()
+            .filter(|c| matches!(c.kind, NodeKind::Comment(_)))
+            .collect();
+        assert_eq!(comments.len(), 2);
+        assert_eq!(comments[0].value.as_deref(), Some("// a"));
+        assert_eq!(comments[1].value.as_deref(), Some("// b"));
+        // shared slot space: // a @0, // b @1, k @ Key
+        assert_eq!(comments[0].path, vec![Seg::Index(0)]);
+        assert_eq!(comments[1].path, vec![Seg::Index(1)]);
+    }
+
+    #[test]
+    fn blank_line_with_whitespace_splits() {
+        let t = tree("{\n  // a\n  \n  // b\n  \"k\": 1\n}\n");
+        let n = t.root.children.iter().filter(|c| matches!(c.kind, NodeKind::Comment(_))).count();
+        assert_eq!(n, 2);
     }
 
     #[test]
