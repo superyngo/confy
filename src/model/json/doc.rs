@@ -96,20 +96,14 @@ impl ConfigDocument for JsonDocument {
 }
 
 impl JsonDocument {
-    // wired into AnyDocument in a later task
-    #[allow(dead_code)]
     pub fn save(&self) -> std::io::Result<()> {
         std::fs::write(&self.path, self.serialize())
     }
 
-    // wired into AnyDocument in a later task
-    #[allow(dead_code)]
     pub fn mark_saved(&mut self) {
         self.original = self.serialize();
     }
 
-    // wired into AnyDocument in a later task
-    #[allow(dead_code)]
     pub fn replace_from_str(&mut self, s: &str) -> Result<(), MutateError> {
         let green = crate::model::json::parse::parse(s).map_err(MutateError::Fragment)?;
         self.syntax = SyntaxNode::new_root(green);

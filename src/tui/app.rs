@@ -511,12 +511,14 @@ impl App {
 
     /// Move the popup cursor; no document/filter change.
     pub fn type_filter_move(&mut self, dr: i32, dc: i32) {
-        self.type_filter.move_cursor(dr, dc);
+        let fmt = self.doc_format();
+        self.type_filter.move_cursor(dr, dc, fmt);
     }
 
     /// Space — toggle the focused checkbox and live-update the filtered view.
     pub fn type_filter_toggle(&mut self) {
-        self.type_filter.toggle_current();
+        let fmt = self.doc_format();
+        self.type_filter.toggle_current(fmt);
         if self.type_filter.is_active() {
             self.last_filter_applied = Some(FilterLayer::Type);
         }

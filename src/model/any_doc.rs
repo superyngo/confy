@@ -3,12 +3,13 @@
 
 use crate::model::cst_doc::CstDocument;
 use crate::model::document::{ConfigDocument, DocFormat, KindTarget, MutateError, Mutation};
+use crate::model::json::JsonDocument;
 use crate::model::node::{NodeTree, Seg};
 use std::path::Path as FsPath;
 
 pub enum AnyDocument {
     Toml(CstDocument),
-    // Json(JsonDocument)  — Phase 2
+    Json(JsonDocument),
     // Yaml(YamlDocument)  — Phase 3
 }
 
@@ -26,6 +27,7 @@ macro_rules! delegate {
     ($self:ident, $d:ident => $body:expr) => {
         match $self {
             AnyDocument::Toml($d) => $body,
+            AnyDocument::Json($d) => $body,
         }
     };
 }
@@ -35,7 +37,7 @@ impl AnyDocument {
     pub fn load_as(path: &FsPath, format: DocFormat) -> anyhow::Result<Self> {
         match format {
             DocFormat::Toml => Ok(Self::Toml(CstDocument::load(path)?)),
-            DocFormat::Json => anyhow::bail!("JSON support is coming in a later release"),
+            DocFormat::Json => Ok(Self::Json(JsonDocument::load(path)?)),
             DocFormat::Yaml => anyhow::bail!("YAML support is coming in a later release"),
         }
     }
@@ -53,6 +55,13 @@ impl AnyDocument {
     /// Re-parse the document from a serialized snapshot string (undo/redo restore).
     pub fn replace_from_str(&mut self, s: &str) -> Result<(), MutateError> {
         delegate!(self, d => d.replace_from_str(s))
+    }
+
+    /// Accept the JSONC upgrade (enables authored comments). No-op for TOML.
+    pub fn enable_comments(&mut self) {
+        if let AnyDocument::Json(d) = self {
+            d.enable_comments();
+        }
     }
 }
 
@@ -114,5 +123,14 @@ mod tests {
         let f = tempfile::NamedTempFile::with_suffix(".ini").unwrap();
         std::fs::write(f.path(), "a = 1\n").unwrap();
         assert!(AnyDocument::load(f.path()).is_err());
+    }
+
+    #[test]
+    fn any_document_loads_json() {
+        let f = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+        std::fs::write(f.path(), "{ \"a\": 1 }\n").unwrap();
+        let doc = AnyDocument::load(f.path()).unwrap();
+        assert_eq!(doc.format(), DocFormat::Json);
+        assert_eq!(doc.serialize(), "{ \"a\": 1 }\n");
     }
 }

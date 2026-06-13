@@ -630,6 +630,7 @@ fn draw_type_filter_overlay(f: &mut Frame, app: &App) {
     }
     use crate::tui::type_filter::{layout, CheckState, LayoutRow};
     let tf = &app.type_filter;
+    let fmt = app.doc_format();
 
     let check = |state: CheckState| match state {
         CheckState::On => "[x]",
@@ -644,7 +645,7 @@ fn draw_type_filter_overlay(f: &mut Frame, app: &App) {
     let mut lines: Vec<Line> = Vec::new();
     let mut nav_row = 0usize;
     let mut focused_line = 0u16;
-    for row in layout() {
+    for row in layout(fmt) {
         match row {
             LayoutRow::Header(h) => lines.push(Line::from(Span::styled(
                 format!(" {h}"),

@@ -13,6 +13,7 @@
 //! is laid out as [`layout`] rows; the cursor (`row`/`col`) walks the selectable
 //! cells only (headers are skipped during navigation).
 
+use crate::model::document::DocFormat;
 use crate::model::node::{Format, KeySign, NodeKind, ScalarType};
 use std::collections::HashSet;
 
@@ -181,51 +182,76 @@ pub enum LayoutRow {
 
 /// The full popup layout (headers + cell rows), the single source of truth for
 /// both rendering and navigation. [`nav_rows`] derives the navigable grid from it.
-pub fn layout() -> Vec<LayoutRow> {
+/// Pass the loaded document's [`DocFormat`] so JSON omits TOML-only facets.
+pub fn layout(format: DocFormat) -> Vec<LayoutRow> {
     use Cell::*;
     use Group as G;
     use KeySign as K;
     use TypeToken as T;
-    vec![
-        LayoutRow::Header("Key sign"),
-        LayoutRow::Cells(vec![Sign(K::Bare), Sign(K::Quoted)]),
-        LayoutRow::Cells(vec![Sign(K::Dotted), Sign(K::None)]),
-        LayoutRow::Header("Type"),
-        LayoutRow::Cells(vec![Token(T::Root), Token(T::Comment)]),
-        LayoutRow::Header("Arrays"),
-        LayoutRow::Cells(vec![All(G::Array)]),
-        LayoutRow::Cells(vec![Token(T::ArrayInline), Token(T::ArrayMultiline)]),
-        LayoutRow::Header("Tables"),
-        LayoutRow::Cells(vec![All(G::Table)]),
-        LayoutRow::Cells(vec![Token(T::Aot), Token(T::InlineTable)]),
-        LayoutRow::Cells(vec![Token(T::TableScope), Token(T::TableDotted)]),
-        LayoutRow::Header("String"),
-        LayoutRow::Cells(vec![All(G::String)]),
-        LayoutRow::Cells(vec![Token(T::StrBasic), Token(T::StrMBasic)]),
-        LayoutRow::Cells(vec![Token(T::StrLit), Token(T::StrMLit)]),
-        LayoutRow::Header("Integer"),
-        LayoutRow::Cells(vec![All(G::Integer)]),
-        LayoutRow::Cells(vec![Token(T::IntDec), Token(T::IntHex)]),
-        LayoutRow::Cells(vec![Token(T::IntOct), Token(T::IntBin)]),
-        LayoutRow::Header("Float"),
-        LayoutRow::Cells(vec![All(G::Float)]),
-        LayoutRow::Cells(vec![
-            Token(T::FloatPlain),
-            Token(T::FloatInf),
-            Token(T::FloatNan),
-        ]),
-        LayoutRow::Header("Bool"),
-        LayoutRow::Cells(vec![Token(T::Bool)]),
-        LayoutRow::Header("Date"),
-        LayoutRow::Cells(vec![All(G::Date)]),
-        LayoutRow::Cells(vec![Token(T::Odt), Token(T::Ldt)]),
-        LayoutRow::Cells(vec![Token(T::LDate), Token(T::LTime)]),
-    ]
+    match format {
+        DocFormat::Json => vec![
+            LayoutRow::Header("Key sign"),
+            LayoutRow::Cells(vec![Sign(K::Quoted), Sign(K::None)]),
+            LayoutRow::Header("Type"),
+            LayoutRow::Cells(vec![Token(T::Root), Token(T::Comment)]),
+            LayoutRow::Header("Arrays"),
+            LayoutRow::Cells(vec![All(G::Array)]),
+            LayoutRow::Cells(vec![Token(T::ArrayInline), Token(T::ArrayMultiline)]),
+            LayoutRow::Header("Tables"),
+            LayoutRow::Cells(vec![Token(T::InlineTable), Token(T::TableMultiline)]),
+            LayoutRow::Header("String"),
+            LayoutRow::Cells(vec![Token(T::StrBasic)]),
+            LayoutRow::Header("Integer"),
+            LayoutRow::Cells(vec![Token(T::IntDec)]),
+            LayoutRow::Header("Float"),
+            LayoutRow::Cells(vec![Token(T::FloatPlain), Token(T::FloatExp)]),
+            LayoutRow::Header("Bool"),
+            LayoutRow::Cells(vec![Token(T::Bool)]),
+            LayoutRow::Header("Null"),
+            LayoutRow::Cells(vec![Token(T::Null)]),
+        ],
+        // TOML (and future YAML): full facet set, unchanged.
+        _ => vec![
+            LayoutRow::Header("Key sign"),
+            LayoutRow::Cells(vec![Sign(K::Bare), Sign(K::Quoted)]),
+            LayoutRow::Cells(vec![Sign(K::Dotted), Sign(K::None)]),
+            LayoutRow::Header("Type"),
+            LayoutRow::Cells(vec![Token(T::Root), Token(T::Comment)]),
+            LayoutRow::Header("Arrays"),
+            LayoutRow::Cells(vec![All(G::Array)]),
+            LayoutRow::Cells(vec![Token(T::ArrayInline), Token(T::ArrayMultiline)]),
+            LayoutRow::Header("Tables"),
+            LayoutRow::Cells(vec![All(G::Table)]),
+            LayoutRow::Cells(vec![Token(T::Aot), Token(T::InlineTable)]),
+            LayoutRow::Cells(vec![Token(T::TableScope), Token(T::TableDotted)]),
+            LayoutRow::Header("String"),
+            LayoutRow::Cells(vec![All(G::String)]),
+            LayoutRow::Cells(vec![Token(T::StrBasic), Token(T::StrMBasic)]),
+            LayoutRow::Cells(vec![Token(T::StrLit), Token(T::StrMLit)]),
+            LayoutRow::Header("Integer"),
+            LayoutRow::Cells(vec![All(G::Integer)]),
+            LayoutRow::Cells(vec![Token(T::IntDec), Token(T::IntHex)]),
+            LayoutRow::Cells(vec![Token(T::IntOct), Token(T::IntBin)]),
+            LayoutRow::Header("Float"),
+            LayoutRow::Cells(vec![All(G::Float)]),
+            LayoutRow::Cells(vec![
+                Token(T::FloatPlain),
+                Token(T::FloatInf),
+                Token(T::FloatNan),
+            ]),
+            LayoutRow::Header("Bool"),
+            LayoutRow::Cells(vec![Token(T::Bool)]),
+            LayoutRow::Header("Date"),
+            LayoutRow::Cells(vec![All(G::Date)]),
+            LayoutRow::Cells(vec![Token(T::Odt), Token(T::Ldt)]),
+            LayoutRow::Cells(vec![Token(T::LDate), Token(T::LTime)]),
+        ],
+    }
 }
 
 /// The navigable grid (cell rows only, headers dropped) in cursor order.
-pub fn nav_rows() -> Vec<Vec<Cell>> {
-    layout()
+pub fn nav_rows(format: DocFormat) -> Vec<Vec<Cell>> {
+    layout(format)
         .into_iter()
         .filter_map(|r| match r {
             LayoutRow::Cells(cells) => Some(cells),
@@ -276,8 +302,8 @@ impl TypeFilter {
 
     /// Move the cursor by `(dr, dc)`, clamping at the grid edges; the column is
     /// clamped to the destination row's width.
-    pub fn move_cursor(&mut self, dr: i32, dc: i32) {
-        let rows = nav_rows();
+    pub fn move_cursor(&mut self, dr: i32, dc: i32, format: DocFormat) {
+        let rows = nav_rows(format);
         if rows.is_empty() {
             return;
         }
@@ -296,16 +322,16 @@ impl TypeFilter {
     }
 
     /// The cell under the cursor, if any.
-    pub fn current_cell(&self) -> Option<Cell> {
-        nav_rows()
+    pub fn current_cell(&self, format: DocFormat) -> Option<Cell> {
+        nav_rows(format)
             .get(self.row)
             .and_then(|r| r.get(self.col))
             .copied()
     }
 
     /// Toggle the cell under the cursor (Space).
-    pub fn toggle_current(&mut self) {
-        if let Some(cell) = self.current_cell() {
+    pub fn toggle_current(&mut self, format: DocFormat) {
+        if let Some(cell) = self.current_cell(format) {
             self.toggle(cell);
         }
     }
@@ -370,6 +396,22 @@ fn bool_state(on: bool) -> CheckState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn json_layout_hides_toml_only_facets() {
+        use crate::model::document::DocFormat;
+        let labels: Vec<&str> = layout(DocFormat::Json)
+            .iter()
+            .flat_map(|r| match r {
+                LayoutRow::Cells(cs) => cs.iter().map(|c| c.label()).collect::<Vec<_>>(),
+                LayoutRow::Header(_) => vec![],
+            })
+            .collect();
+        assert!(labels.iter().any(|l| l.contains("[S:null]")));
+        assert!(!labels.iter().any(|l| l.contains("[T/D]")));
+        assert!(!labels.iter().any(|l| l.contains("[A/T]")));
+        assert!(!labels.iter().any(|l| l.contains("(B) bare")));
+    }
 
     #[test]
     fn classify_covers_every_kind_slot() {
@@ -497,15 +539,17 @@ mod tests {
 
     #[test]
     fn navigation_clamps_at_edges() {
+        use crate::model::document::DocFormat;
+        let fmt = DocFormat::Toml;
         let mut f = TypeFilter::default();
-        let rows = nav_rows();
-        f.move_cursor(-1, 0); // already at top
+        let rows = nav_rows(fmt);
+        f.move_cursor(-1, 0, fmt); // already at top
         assert_eq!(f.row, 0);
-        f.move_cursor(0, -1); // already at left
+        f.move_cursor(0, -1, fmt); // already at left
         assert_eq!(f.col, 0);
-        f.move_cursor(0, 1); // into second column of row 0
+        f.move_cursor(0, 1, fmt); // into second column of row 0
         assert_eq!(f.col, 1);
-        f.move_cursor(1000, 0); // clamp to last row
+        f.move_cursor(1000, 0, fmt); // clamp to last row
         assert_eq!(f.row, rows.len() - 1);
         // Column clamps to the destination row width.
         assert!(f.col < rows[f.row].len());
