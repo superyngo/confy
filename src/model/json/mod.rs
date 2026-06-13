@@ -11,4 +11,4 @@ pub mod doc;
 pub mod project;
 pub mod edit;
 
-// pub use doc::JsonDocument;  // uncommented once doc.rs defines it (later task)
+pub use doc::JsonDocument;
