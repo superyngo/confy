@@ -867,8 +867,30 @@ fn edit_comment(tree: &SyntaxNode, path: &[Seg], text: &str) -> Result<(), Mutat
     rebuild_and_splice(tree, &container, &new_items)
 }
 
-fn insert_comment(_tree: &SyntaxNode, _target: &MutTarget, _text: &str) -> Result<(), MutateError> {
-    Err(MutateError::Unsupported)
+fn insert_comment(tree: &SyntaxNode, target: &MutTarget, text: &str) -> Result<(), MutateError> {
+    // Validate: every line must start with `#` (after leading whitespace).
+    for line in text.lines() {
+        if !line.trim_start().starts_with('#') {
+            return Err(MutateError::Fragment(
+                "every line of a comment must start with #".into(),
+            ));
+        }
+    }
+
+    let container = find_container(tree, &target.parent)?;
+    let dest_indent = container_indent(&container);
+    let mut items = collect_items(&container);
+
+    // Reindent the comment block to the container's indentation.
+    let reindented = ensure_newline(&reindent(
+        &ensure_newline(text),
+        fragment_indent(text),
+        dest_indent,
+    ));
+
+    let idx = target.index.min(items.len());
+    items.insert(idx, reindented);
+    rebuild_and_splice(tree, &container, &items)
 }
 
 fn move_nodes(
@@ -1214,6 +1236,44 @@ mod tests {
             Mutation::EditComment {
                 path: vec![Seg::Index(0)],
                 text: "not a comment".into(),
+            },
+        );
+        assert!(
+            matches!(r, Err(MutateError::Fragment(_))),
+            "non-# text expected Fragment, got {r:?}"
+        );
+    }
+
+    // ── 5i: InsertComment ────────────────────────────────────────────────────
+
+    #[test]
+    fn insert_comment_at_front() {
+        use crate::model::document::Target;
+        let out = apply_str(
+            "a: 1\n",
+            Mutation::InsertComment {
+                target: Target {
+                    parent: vec![],
+                    index: 0,
+                },
+                text: "# note".into(),
+            },
+        )
+        .expect("insert comment should succeed");
+        assert_eq!(out, "# note\na: 1\n");
+    }
+
+    #[test]
+    fn insert_comment_non_hash_rejected() {
+        use crate::model::document::Target;
+        let r = apply_str(
+            "a: 1\n",
+            Mutation::InsertComment {
+                target: Target {
+                    parent: vec![],
+                    index: 0,
+                },
+                text: "nope".into(),
             },
         );
         assert!(
