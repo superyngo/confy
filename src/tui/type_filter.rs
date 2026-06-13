@@ -29,9 +29,9 @@ pub enum TypeToken {
     InlineTable,
     TableScope,
     TableDotted,
-    TableMultiline,    // [T/M]  JSON multiline object
-    Null,              // [S:null]
-    FloatExp,          // [F:exp ]
+    TableMultiline, // [T/M]  JSON multiline object
+    Null,           // [S:null]
+    FloatExp,       // [F:exp ]
     StrBasic,
     StrMBasic,
     StrLit,

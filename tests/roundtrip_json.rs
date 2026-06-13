@@ -42,10 +42,7 @@ fn mutation_then_reparse_is_lossless() {
         "version not updated in:\n{after}"
     );
     // re-load the serialized text and serialize again — must be stable (lossless apply)
-    let tmp = tempfile::Builder::new()
-        .suffix(".json")
-        .tempfile()
-        .unwrap();
+    let tmp = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
     std::fs::write(tmp.path(), &after).unwrap();
     let doc2 = JsonDocument::load(tmp.path()).unwrap();
     assert_eq!(doc2.serialize(), after, "reload of mutated doc not stable");

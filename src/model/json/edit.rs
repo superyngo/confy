@@ -39,13 +39,7 @@ fn comment_block_text(first: &SyntaxToken) -> String {
                 }
             }
             SyntaxKind::LINE_COMMENT if newlines == 1 => {
-                out.push(
-                    el.as_token()
-                        .unwrap()
-                        .text()
-                        .trim_end()
-                        .to_string(),
-                );
+                out.push(el.as_token().unwrap().text().trim_end().to_string());
                 newlines = 0;
             }
             _ => break,
@@ -85,8 +79,7 @@ fn replace(tree: &SyntaxNode, path: &[Seg], fragment: &str) -> Result<(), Mutate
         // Whole-document replace: parse fragment as a full JSON doc, splice its
         // ROOT children over the old ROOT children.
         // We need mutable SyntaxElements from a separate mutable tree.
-        let green =
-            crate::model::json::parse::parse(fragment).map_err(MutateError::Fragment)?;
+        let green = crate::model::json::parse::parse(fragment).map_err(MutateError::Fragment)?;
         // Create an immutable root first, then clone_for_update to get mutable children.
         let new_root_immutable = SyntaxNode::new_root(green);
         let new_root = new_root_immutable.clone_for_update();
@@ -115,9 +108,9 @@ fn replace(tree: &SyntaxNode, path: &[Seg], fragment: &str) -> Result<(), Mutate
             replace_node(&value, new_value);
             Ok(())
         }
-        Target::Comment(_) | Target::Block(_) => {
-            Err(MutateError::Illegal("use EditComment to edit a comment".into()))
-        }
+        Target::Comment(_) | Target::Block(_) => Err(MutateError::Illegal(
+            "use EditComment to edit a comment".into(),
+        )),
     }
 }
 
@@ -131,8 +124,7 @@ fn replace_node(old: &SyntaxNode, new: SyntaxNode) {
 /// Parse `fragment` as one bare VALUE (clone_for_update). Error `Fragment` if it
 /// is not exactly one value.
 fn parse_value_fragment(fragment: &str) -> Result<SyntaxNode, MutateError> {
-    let green =
-        crate::model::json::parse::parse(fragment).map_err(MutateError::Fragment)?;
+    let green = crate::model::json::parse::parse(fragment).map_err(MutateError::Fragment)?;
     let root = SyntaxNode::new_root(green);
     let value = root
         .children()
@@ -379,9 +371,9 @@ fn insert(
                     }
                     OnCollision::Overwrite => {
                         // Remove the colliding member from items list; we'll insert the new one.
-                        let collision_idx = items.iter().position(|it| {
-                            member_key_of_text(it).as_deref() == Some(key.as_str())
-                        });
+                        let collision_idx = items
+                            .iter()
+                            .position(|it| member_key_of_text(it).as_deref() == Some(key.as_str()));
                         if let Some(ci) = collision_idx {
                             items.remove(ci);
                         }
@@ -579,7 +571,10 @@ fn adapt_fragment(
         let val = fragment.trim().to_string();
         if is_object {
             // Synthesize placeholder key.
-            Ok((format!("\"placeholder\": {val}"), Some("placeholder".to_string())))
+            Ok((
+                format!("\"placeholder\": {val}"),
+                Some("placeholder".to_string()),
+            ))
         } else {
             Ok((val, None))
         }
@@ -674,14 +669,11 @@ fn detect_indent(container: &SyntaxNode) -> String {
             rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::NEWLINE => {
                 after_newline = true;
             }
-            rowan::NodeOrToken::Token(t)
-                if t.kind() == SyntaxKind::WHITESPACE && after_newline =>
-            {
+            rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::WHITESPACE && after_newline => {
                 return t.text().to_string();
             }
             rowan::NodeOrToken::Node(n)
-                if after_newline
-                    && matches!(n.kind(), SyntaxKind::MEMBER | SyntaxKind::VALUE) =>
+                if after_newline && matches!(n.kind(), SyntaxKind::MEMBER | SyntaxKind::VALUE) =>
             {
                 // No indent whitespace found — use 2 spaces.
                 return "  ".to_string();
@@ -821,7 +813,8 @@ fn remark(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
             } else {
                 rebuild_inline(&container, &new_items)
             };
-            let new_container = parse_container_text(&new_text, container.kind() == SyntaxKind::OBJECT)?;
+            let new_container =
+                parse_container_text(&new_text, container.kind() == SyntaxKind::OBJECT)?;
             replace_node(&container, new_container);
             Ok(())
         }
@@ -865,12 +858,15 @@ fn remark(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
             } else {
                 rebuild_inline(&container, &new_items)
             };
-            let new_container = parse_container_text(&new_text, container.kind() == SyntaxKind::OBJECT)?;
+            let new_container =
+                parse_container_text(&new_text, container.kind() == SyntaxKind::OBJECT)?;
             replace_node(&container, new_container);
             Ok(())
         }
         Target::Block(_) => Err(MutateError::Illegal("cannot remark a block comment".into())),
-        Target::Element(_) => Err(MutateError::Illegal("cannot remark an array element".into())),
+        Target::Element(_) => Err(MutateError::Illegal(
+            "cannot remark an array element".into(),
+        )),
     }
 }
 
@@ -886,8 +882,14 @@ fn edit_comment(tree: &SyntaxNode, path: &[Seg], text: &str) -> Result<(), Mutat
 
     let first_tok = match resolve(tree, path).ok_or(MutateError::NotFound)? {
         Target::Comment(t) => t,
-        Target::Block(_) => return Err(MutateError::Illegal("block comments are read-only".into())),
-        _ => return Err(MutateError::Illegal("path does not resolve to a comment".into())),
+        Target::Block(_) => {
+            return Err(MutateError::Illegal("block comments are read-only".into()))
+        }
+        _ => {
+            return Err(MutateError::Illegal(
+                "path does not resolve to a comment".into(),
+            ))
+        }
     };
 
     let container = first_tok.parent().expect("comment has parent");
@@ -994,9 +996,7 @@ fn move_nodes(
             // A source is "in the same container" when its parent == target.parent
             // (i.e., path has one more segment than target.parent and that segment
             // is an index/key in the container).
-            if path.len() == target.parent.len() + 1
-                && path.starts_with(target.parent.as_slice())
-            {
+            if path.len() == target.parent.len() + 1 && path.starts_with(target.parent.as_slice()) {
                 // Source was in the same container. Get its projected index.
                 // Use collect_items ordering: for Key segments, we need the
                 // member's position among collect_items. For Index segments,
@@ -1089,22 +1089,20 @@ fn move_nodes(
 
 fn convert_kind(tree: &SyntaxNode, path: &[Seg], target: KindTarget) -> Result<(), MutateError> {
     match target {
-        KindTarget::ArrayInline | KindTarget::ArrayMultiline => {
-            convert_array(tree, path, target)
-        }
-        KindTarget::TableInline | KindTarget::TableMultiline => {
-            convert_object(tree, path, target)
-        }
-        KindTarget::FloatPlain | KindTarget::FloatExponent => {
-            convert_float(tree, path, target)
-        }
+        KindTarget::ArrayInline | KindTarget::ArrayMultiline => convert_array(tree, path, target),
+        KindTarget::TableInline | KindTarget::TableMultiline => convert_object(tree, path, target),
+        KindTarget::FloatPlain | KindTarget::FloatExponent => convert_float(tree, path, target),
         _ => Err(MutateError::Unsupported),
     }
 }
 
 /// Find the ARRAY or OBJECT node at `path` (through a member value).
 /// Returns the container node.
-fn find_value_container(tree: &SyntaxNode, path: &[Seg], expected_kind: SyntaxKind) -> Result<SyntaxNode, MutateError> {
+fn find_value_container(
+    tree: &SyntaxNode,
+    path: &[Seg],
+    expected_kind: SyntaxKind,
+) -> Result<SyntaxNode, MutateError> {
     if path.is_empty() {
         // Root value
         let top_value = tree
@@ -1125,15 +1123,17 @@ fn find_value_container(tree: &SyntaxNode, path: &[Seg], expected_kind: SyntaxKi
             value
                 .children()
                 .find(|n| n.kind() == expected_kind)
-                .ok_or_else(|| MutateError::Illegal("node is not the expected container kind".into()))
+                .ok_or_else(|| {
+                    MutateError::Illegal("node is not the expected container kind".into())
+                })
         }
-        Target::Element(value) => {
-            value
-                .children()
-                .find(|n| n.kind() == expected_kind)
-                .ok_or_else(|| MutateError::Illegal("node is not the expected container kind".into()))
-        }
-        _ => Err(MutateError::Illegal("path does not point to a container".into())),
+        Target::Element(value) => value
+            .children()
+            .find(|n| n.kind() == expected_kind)
+            .ok_or_else(|| MutateError::Illegal("node is not the expected container kind".into())),
+        _ => Err(MutateError::Illegal(
+            "path does not point to a container".into(),
+        )),
     }
 }
 
@@ -1295,7 +1295,9 @@ fn convert_float(tree: &SyntaxNode, path: &[Seg], target: KindTarget) -> Result<
     let num_token = find_float_token(tree, path)?;
 
     let text = num_token.text().to_string();
-    let value: f64 = text.parse().map_err(|_| MutateError::Illegal("not a float".into()))?;
+    let value: f64 = text
+        .parse()
+        .map_err(|_| MutateError::Illegal("not a float".into()))?;
 
     let new_text = match target {
         KindTarget::FloatExponent => {
@@ -1490,7 +1492,10 @@ mod tests {
                 fragment: "@@@".into(),
             },
         );
-        assert!(matches!(r, Err(MutateError::Fragment(_)) | Err(MutateError::Illegal(_))));
+        assert!(matches!(
+            r,
+            Err(MutateError::Fragment(_)) | Err(MutateError::Illegal(_))
+        ));
     }
 
     #[test]
@@ -1511,7 +1516,9 @@ mod tests {
     fn delete_middle_member() {
         let out = apply_str(
             "{\n  \"a\": 1,\n  \"b\": 2,\n  \"c\": 3\n}\n",
-            Mutation::Delete { path: vec![Seg::Key("b".into())] },
+            Mutation::Delete {
+                path: vec![Seg::Key("b".into())],
+            },
         );
         assert_eq!(out, "{\n  \"a\": 1,\n  \"c\": 3\n}\n");
     }
@@ -1520,7 +1527,9 @@ mod tests {
     fn delete_last_member_fixes_comma() {
         let out = apply_str(
             "{\n  \"a\": 1,\n  \"b\": 2\n}\n",
-            Mutation::Delete { path: vec![Seg::Key("b".into())] },
+            Mutation::Delete {
+                path: vec![Seg::Key("b".into())],
+            },
         );
         assert_eq!(out, "{\n  \"a\": 1\n}\n");
     }
@@ -1529,7 +1538,9 @@ mod tests {
     fn delete_only_member() {
         let out = apply_str(
             "{\n  \"a\": 1\n}\n",
-            Mutation::Delete { path: vec![Seg::Key("a".into())] },
+            Mutation::Delete {
+                path: vec![Seg::Key("a".into())],
+            },
         );
         // The splice removes NEWLINE + WHITESPACE before "a" and the MEMBER node.
         // No comma exists, so the result is "{\n}" — valid JSON.
@@ -1540,7 +1551,9 @@ mod tests {
     fn delete_middle_element() {
         let out = apply_str(
             "[1, 2, 3]\n",
-            Mutation::Delete { path: vec![Seg::Index(1)] },
+            Mutation::Delete {
+                path: vec![Seg::Index(1)],
+            },
         );
         assert_eq!(out, "[1, 3]\n");
     }
@@ -1549,7 +1562,9 @@ mod tests {
     fn delete_last_element() {
         let out = apply_str(
             "[1, 2]\n",
-            Mutation::Delete { path: vec![Seg::Index(1)] },
+            Mutation::Delete {
+                path: vec![Seg::Index(1)],
+            },
         );
         assert_eq!(out, "[1]\n");
     }
@@ -1558,7 +1573,9 @@ mod tests {
     fn delete_comment() {
         let out = apply_str(
             "{\n  // gone\n  \"a\": 1\n}\n",
-            Mutation::Delete { path: vec![Seg::Index(0)] },
+            Mutation::Delete {
+                path: vec![Seg::Index(0)],
+            },
         );
         assert_eq!(out, "{\n  \"a\": 1\n}\n");
     }
@@ -1570,7 +1587,10 @@ mod tests {
         let out = apply_str(
             "{\n  \"a\": 1\n}\n",
             Mutation::Insert {
-                target: MTarget { parent: vec![], index: 1 },
+                target: MTarget {
+                    parent: vec![],
+                    index: 1,
+                },
                 fragment: "\"b\": 2".into(),
                 on_collision: OnCollision::Cancel,
             },
@@ -1583,7 +1603,10 @@ mod tests {
         let out = apply_str(
             "{\n  \"a\": 1\n}\n",
             Mutation::Insert {
-                target: MTarget { parent: vec![], index: 0 },
+                target: MTarget {
+                    parent: vec![],
+                    index: 0,
+                },
                 fragment: "\"b\": 2".into(),
                 on_collision: OnCollision::Cancel,
             },
@@ -1596,7 +1619,10 @@ mod tests {
         let out = apply_str(
             "[1, 2]\n",
             Mutation::Insert {
-                target: MTarget { parent: vec![], index: 2 },
+                target: MTarget {
+                    parent: vec![],
+                    index: 2,
+                },
                 fragment: "3".into(),
                 on_collision: OnCollision::Cancel,
             },
@@ -1609,7 +1635,10 @@ mod tests {
         let out = apply_str(
             "[1]\n",
             Mutation::Insert {
-                target: MTarget { parent: vec![], index: 1 },
+                target: MTarget {
+                    parent: vec![],
+                    index: 1,
+                },
                 fragment: "\"k\": 2".into(),
                 on_collision: OnCollision::Cancel,
             },
@@ -1622,7 +1651,10 @@ mod tests {
         let out = apply_str(
             "{\n  \"a\": 1\n}\n",
             Mutation::Insert {
-                target: MTarget { parent: vec![], index: 1 },
+                target: MTarget {
+                    parent: vec![],
+                    index: 1,
+                },
                 fragment: "42".into(),
                 on_collision: OnCollision::Rename,
             },
@@ -1633,11 +1665,17 @@ mod tests {
     #[test]
     fn insert_collision_cancels() {
         let t = parse("{ \"a\": 1 }\n");
-        let r = super::apply(&t, Mutation::Insert {
-            target: MTarget { parent: vec![], index: 1 },
-            fragment: "\"a\": 2".into(),
-            on_collision: OnCollision::Cancel,
-        });
+        let r = super::apply(
+            &t,
+            Mutation::Insert {
+                target: MTarget {
+                    parent: vec![],
+                    index: 1,
+                },
+                fragment: "\"a\": 2".into(),
+                on_collision: OnCollision::Cancel,
+            },
+        );
         assert!(matches!(r, Err(MutateError::Collision(_))));
     }
 
@@ -1646,7 +1684,10 @@ mod tests {
         let out = apply_str(
             "{\n  \"o\": {\n    \"a\": 1\n  }\n}\n",
             Mutation::Insert {
-                target: MTarget { parent: vec![Seg::Key("o".into())], index: 1 },
+                target: MTarget {
+                    parent: vec![Seg::Key("o".into())],
+                    index: 1,
+                },
                 fragment: "\"b\": 2".into(),
                 on_collision: OnCollision::Cancel,
             },
@@ -1658,7 +1699,10 @@ mod tests {
     fn rename_member_key() {
         let out = apply_str(
             "{ \"a\": 1 }\n",
-            Mutation::Rename { path: vec![Seg::Key("a".into())], new_key: "b".into() },
+            Mutation::Rename {
+                path: vec![Seg::Key("a".into())],
+                new_key: "b".into(),
+            },
         );
         assert_eq!(out, "{ \"b\": 1 }\n");
     }
@@ -1666,9 +1710,13 @@ mod tests {
     #[test]
     fn rename_collision() {
         let t = parse("{ \"a\": 1, \"b\": 2 }\n");
-        let r = super::apply(&t, Mutation::Rename {
-            path: vec![Seg::Key("a".into())], new_key: "b".into(),
-        });
+        let r = super::apply(
+            &t,
+            Mutation::Rename {
+                path: vec![Seg::Key("a".into())],
+                new_key: "b".into(),
+            },
+        );
         assert!(matches!(r, Err(MutateError::Collision(_))));
     }
 
@@ -1676,7 +1724,9 @@ mod tests {
     fn remark_member_to_comment() {
         let out = apply_str(
             "{\n  \"a\": 1\n}\n",
-            Mutation::Remark { path: vec![Seg::Key("a".into())] },
+            Mutation::Remark {
+                path: vec![Seg::Key("a".into())],
+            },
         );
         assert_eq!(out, "{\n  // \"a\": 1\n}\n");
     }
@@ -1685,7 +1735,9 @@ mod tests {
     fn remark_comment_to_member() {
         let out = apply_str(
             "{\n  // \"a\": 1\n}\n",
-            Mutation::Remark { path: vec![Seg::Index(0)] },
+            Mutation::Remark {
+                path: vec![Seg::Index(0)],
+            },
         );
         assert_eq!(out, "{\n  \"a\": 1\n}\n");
     }
@@ -1694,7 +1746,10 @@ mod tests {
     fn edit_comment_text() {
         let out = apply_str(
             "{\n  // old\n  \"a\": 1\n}\n",
-            Mutation::EditComment { path: vec![Seg::Index(0)], text: "// new".into() },
+            Mutation::EditComment {
+                path: vec![Seg::Index(0)],
+                text: "// new".into(),
+            },
         );
         assert_eq!(out, "{\n  // new\n  \"a\": 1\n}\n");
     }
@@ -1702,7 +1757,13 @@ mod tests {
     #[test]
     fn edit_comment_rejects_non_comment() {
         let t = parse("{\n  // old\n  \"a\": 1\n}\n");
-        let r = super::apply(&t, Mutation::EditComment { path: vec![Seg::Index(0)], text: "not a comment".into() });
+        let r = super::apply(
+            &t,
+            Mutation::EditComment {
+                path: vec![Seg::Index(0)],
+                text: "not a comment".into(),
+            },
+        );
         assert!(matches!(r, Err(MutateError::Fragment(_))));
     }
 
@@ -1712,7 +1773,10 @@ mod tests {
             "{\n  \"a\": 1,\n  \"b\": 2\n}\n",
             Mutation::Move {
                 sources: vec![vec![Seg::Key("a".into())]],
-                target: crate::model::document::Target { parent: vec![], index: 2 },
+                target: crate::model::document::Target {
+                    parent: vec![],
+                    index: 2,
+                },
                 on_collision: OnCollision::Cancel,
             },
         );
@@ -1725,7 +1789,10 @@ mod tests {
             "{\n  \"a\": 1,\n  \"arr\": []\n}\n",
             Mutation::Move {
                 sources: vec![vec![Seg::Key("a".into())]],
-                target: crate::model::document::Target { parent: vec![Seg::Key("arr".into())], index: 0 },
+                target: crate::model::document::Target {
+                    parent: vec![Seg::Key("arr".into())],
+                    index: 0,
+                },
                 on_collision: OnCollision::Cancel,
             },
         );
@@ -1737,7 +1804,10 @@ mod tests {
         let out = apply_str(
             "{\n  \"a\": 1\n}\n",
             Mutation::InsertComment {
-                target: crate::model::document::Target { parent: vec![], index: 0 },
+                target: crate::model::document::Target {
+                    parent: vec![],
+                    index: 0,
+                },
                 text: "// note".into(),
             },
         );
@@ -1798,10 +1868,13 @@ mod tests {
     #[test]
     fn inline_collapse_rejects_comment() {
         let t = parse("{\n  \"a\": [\n    1, // c\n    2\n  ]\n}\n");
-        let r = super::apply(&t, Mutation::ConvertKind {
-            path: vec![Seg::Key("a".into())],
-            target: KindTarget::ArrayInline,
-        });
+        let r = super::apply(
+            &t,
+            Mutation::ConvertKind {
+                path: vec![Seg::Key("a".into())],
+                target: KindTarget::ArrayInline,
+            },
+        );
         assert!(matches!(r, Err(MutateError::Illegal(_))));
     }
 
@@ -1821,10 +1894,13 @@ mod tests {
     #[test]
     fn convert_string_unsupported() {
         let t = parse("{ \"s\": \"x\" }\n");
-        let r = super::apply(&t, Mutation::ConvertKind {
-            path: vec![Seg::Key("s".into())],
-            target: KindTarget::StringBasic,
-        });
+        let r = super::apply(
+            &t,
+            Mutation::ConvertKind {
+                path: vec![Seg::Key("s".into())],
+                target: KindTarget::StringBasic,
+            },
+        );
         assert!(matches!(r, Err(MutateError::Unsupported)));
     }
 }

@@ -16,8 +16,8 @@ pub enum SyntaxKind {
     // trivia
     WHITESPACE = 0,
     NEWLINE,
-    LINE_COMMENT,   // // … (to end of line, newline NOT included)
-    BLOCK_COMMENT,  // /* … */ (may span lines)
+    LINE_COMMENT,  // // … (to end of line, newline NOT included)
+    BLOCK_COMMENT, // /* … */ (may span lines)
     // punctuation
     L_BRACE,
     R_BRACE,
@@ -33,12 +33,12 @@ pub enum SyntaxKind {
     NULL,
     ERROR,
     // nodes
-    KEY,     // wraps the STRING token used as an object key
-    VALUE,   // wraps one value: a scalar token OR an OBJECT/ARRAY node
-    MEMBER,  // KEY COLON VALUE (trivia interspersed)
-    OBJECT,  // L_BRACE … R_BRACE
-    ARRAY,   // L_BRACK … R_BRACK
-    ROOT,    // whole document
+    KEY,    // wraps the STRING token used as an object key
+    VALUE,  // wraps one value: a scalar token OR an OBJECT/ARRAY node
+    MEMBER, // KEY COLON VALUE (trivia interspersed)
+    OBJECT, // L_BRACE … R_BRACE
+    ARRAY,  // L_BRACK … R_BRACK
+    ROOT,   // whole document
 }
 
 impl From<SyntaxKind> for rowan::SyntaxKind {
@@ -54,16 +54,16 @@ impl rowan::Language for Json {
     type Kind = SyntaxKind;
     fn kind_from_raw(raw: rowan::SyntaxKind) -> Self::Kind {
         match raw.0 {
-            0  => SyntaxKind::WHITESPACE,
-            1  => SyntaxKind::NEWLINE,
-            2  => SyntaxKind::LINE_COMMENT,
-            3  => SyntaxKind::BLOCK_COMMENT,
-            4  => SyntaxKind::L_BRACE,
-            5  => SyntaxKind::R_BRACE,
-            6  => SyntaxKind::L_BRACK,
-            7  => SyntaxKind::R_BRACK,
-            8  => SyntaxKind::COLON,
-            9  => SyntaxKind::COMMA,
+            0 => SyntaxKind::WHITESPACE,
+            1 => SyntaxKind::NEWLINE,
+            2 => SyntaxKind::LINE_COMMENT,
+            3 => SyntaxKind::BLOCK_COMMENT,
+            4 => SyntaxKind::L_BRACE,
+            5 => SyntaxKind::R_BRACE,
+            6 => SyntaxKind::L_BRACK,
+            7 => SyntaxKind::R_BRACK,
+            8 => SyntaxKind::COLON,
+            9 => SyntaxKind::COMMA,
             10 => SyntaxKind::STRING,
             11 => SyntaxKind::NUMBER,
             12 => SyntaxKind::TRUE,
@@ -76,7 +76,7 @@ impl rowan::Language for Json {
             19 => SyntaxKind::OBJECT,
             20 => SyntaxKind::ARRAY,
             21 => SyntaxKind::ROOT,
-            n  => panic!("unknown SyntaxKind discriminant: {n}"),
+            n => panic!("unknown SyntaxKind discriminant: {n}"),
         }
     }
     fn kind_to_raw(kind: Self::Kind) -> rowan::SyntaxKind {

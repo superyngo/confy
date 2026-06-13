@@ -3411,10 +3411,7 @@ mod tests {
         // Remark on a live node in a pure .json must show the JSONC-upgrade prompt.
         app.remark();
         assert!(
-            matches!(
-                app.mode,
-                Mode::Prompt(PromptKind::JsoncUpgrade { .. })
-            ),
+            matches!(app.mode, Mode::Prompt(PromptKind::JsoncUpgrade { .. })),
             "expected JsoncUpgrade prompt, got {:?}",
             std::mem::discriminant(&app.mode)
         );
@@ -4745,16 +4742,10 @@ mod tests {
             .expect("block comment row not found");
         app.cursor = ci;
         // Verify the node is read_only before mutating.
-        assert!(
-            app.cursor_is_read_only(),
-            "block comment must be read_only"
-        );
+        assert!(app.cursor_is_read_only(), "block comment must be read_only");
         app.delete_selected();
         assert!(
-            app.status
-                .as_deref()
-                .unwrap_or("")
-                .contains("read-only"),
+            app.status.as_deref().unwrap_or("").contains("read-only"),
             "expected read-only status, got: {:?}",
             app.status
         );
@@ -4778,10 +4769,7 @@ mod tests {
         app.cursor = ci;
         app.edit_node();
         assert!(
-            app.status
-                .as_deref()
-                .unwrap_or("")
-                .contains("read-only"),
+            app.status.as_deref().unwrap_or("").contains("read-only"),
             "expected read-only status, got: {:?}",
             app.status
         );
@@ -4800,14 +4788,14 @@ mod tests {
         app.cursor = ci;
         app.cut_selected();
         assert!(
-            app.status
-                .as_deref()
-                .unwrap_or("")
-                .contains("read-only"),
+            app.status.as_deref().unwrap_or("").contains("read-only"),
             "expected read-only status, got: {:?}",
             app.status
         );
-        assert!(app.clipboard.is_none(), "clipboard must not be set after rejected cut");
+        assert!(
+            app.clipboard.is_none(),
+            "clipboard must not be set after rejected cut"
+        );
     }
 
     #[test]
@@ -4823,10 +4811,7 @@ mod tests {
         app.cursor = ci;
         app.remark();
         assert!(
-            app.status
-                .as_deref()
-                .unwrap_or("")
-                .contains("read-only"),
+            app.status.as_deref().unwrap_or("").contains("read-only"),
             "expected read-only status, got: {:?}",
             app.status
         );

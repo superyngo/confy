@@ -209,9 +209,8 @@ mod tests {
     fn kind_options_per_node() {
         use crate::model::document::KindTarget as KT;
         let doc = json_from_str(".json", "{\n  \"o\": {\n    \"a\": 1\n  },\n  \"arr\": [1],\n  \"f\": 1.5,\n  \"s\": \"x\",\n  \"i\": 7,\n  \"b\": true,\n  \"n\": null\n}\n");
-        let opts = |p: &[Seg]| -> Vec<KT> {
-            doc.kind_options(p).into_iter().map(|(_, t)| t).collect()
-        };
+        let opts =
+            |p: &[Seg]| -> Vec<KT> { doc.kind_options(p).into_iter().map(|(_, t)| t).collect() };
         // multiline object -> can go inline
         assert_eq!(opts(&[Seg::Key("o".into())]), vec![KT::TableInline]);
         // inline array -> can go multiline
@@ -229,7 +228,11 @@ mod tests {
     fn kind_options_exponent_float_offers_plain() {
         use crate::model::document::KindTarget as KT;
         let doc = json_from_str(".json", "{ \"f\": 1e3 }\n");
-        let opts: Vec<KT> = doc.kind_options(&[Seg::Key("f".into())]).into_iter().map(|(_, t)| t).collect();
+        let opts: Vec<KT> = doc
+            .kind_options(&[Seg::Key("f".into())])
+            .into_iter()
+            .map(|(_, t)| t)
+            .collect();
         assert_eq!(opts, vec![KT::FloatPlain]);
     }
 }

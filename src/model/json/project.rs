@@ -122,7 +122,10 @@ fn value_inner(value: &SyntaxNode) -> Option<NodeOrToken<SyntaxNode, SyntaxToken
     value.children_with_tokens().find(|c| match c {
         NodeOrToken::Token(t) => !matches!(
             t.kind(),
-            SyntaxKind::WHITESPACE | SyntaxKind::NEWLINE | SyntaxKind::LINE_COMMENT | SyntaxKind::BLOCK_COMMENT
+            SyntaxKind::WHITESPACE
+                | SyntaxKind::NEWLINE
+                | SyntaxKind::LINE_COMMENT
+                | SyntaxKind::BLOCK_COMMENT
         ),
         NodeOrToken::Node(_) => true,
     })
@@ -159,11 +162,7 @@ fn classify_scalar(tok: &SyntaxToken) -> (NodeKind, Format, String) {
         SyntaxKind::NULL => (NodeKind::Scalar(ScalarType::Null), Format::Plain, text),
         SyntaxKind::NUMBER => {
             if text.contains('e') || text.contains('E') {
-                (
-                    NodeKind::Scalar(ScalarType::Float),
-                    Format::Exponent,
-                    text,
-                )
+                (NodeKind::Scalar(ScalarType::Float), Format::Exponent, text)
             } else if text.contains('.') {
                 (NodeKind::Scalar(ScalarType::Float), Format::Plain, text)
             } else {
@@ -313,7 +312,9 @@ fn walk_container_tokens(
         () => {
             if !lines.is_empty() {
                 let text = lines.join("\n");
-                let tok = first_tok.take().expect("first_tok set when lines non-empty");
+                let tok = first_tok
+                    .take()
+                    .expect("first_tok set when lines non-empty");
                 let i = out.len();
                 let mut path = parent_path.to_vec();
                 path.push(Seg::Index(i));
@@ -392,10 +393,7 @@ fn walk_container_tokens(
                     flush_line_comments!();
                     // Extract key name and build child node.
                     let key_node = node.children().find(|c| c.kind() == SyntaxKind::KEY);
-                    let name = key_node
-                        .as_ref()
-                        .map(key_name)
-                        .unwrap_or_default();
+                    let name = key_node.as_ref().map(key_name).unwrap_or_default();
                     let mut path = parent_path.to_vec();
                     path.push(Seg::Key(name.clone()));
                     let value_node = node.children().find(|c| c.kind() == SyntaxKind::VALUE);
@@ -522,12 +520,18 @@ mod tests {
         assert_eq!(o.kind, NodeKind::Table);
         assert_eq!(o.format, Format::Inline);
         assert_eq!(o.children[0].key, "a");
-        assert_eq!(o.children[0].path, vec![Seg::Key("o".into()), Seg::Key("a".into())]);
+        assert_eq!(
+            o.children[0].path,
+            vec![Seg::Key("o".into()), Seg::Key("a".into())]
+        );
         let arr = t.root.children.iter().find(|c| c.key == "arr").unwrap();
         assert_eq!(arr.kind, NodeKind::Array);
         assert_eq!(arr.format, Format::Inline);
         assert_eq!(arr.children.len(), 2);
-        assert_eq!(arr.children[0].path, vec![Seg::Key("arr".into()), Seg::Index(0)]);
+        assert_eq!(
+            arr.children[0].path,
+            vec![Seg::Key("arr".into()), Seg::Index(0)]
+        );
     }
 
     #[test]
@@ -557,7 +561,10 @@ mod tests {
     #[test]
     fn blank_line_splits_comment_blocks() {
         let t = tree("{\n  // a\n\n  // b\n  \"k\": 1\n}\n");
-        let comments: Vec<_> = t.root.children.iter()
+        let comments: Vec<_> = t
+            .root
+            .children
+            .iter()
             .filter(|c| matches!(c.kind, NodeKind::Comment(_)))
             .collect();
         assert_eq!(comments.len(), 2);
@@ -571,7 +578,12 @@ mod tests {
     #[test]
     fn blank_line_with_whitespace_splits() {
         let t = tree("{\n  // a\n  \n  // b\n  \"k\": 1\n}\n");
-        let n = t.root.children.iter().filter(|c| matches!(c.kind, NodeKind::Comment(_))).count();
+        let n = t
+            .root
+            .children
+            .iter()
+            .filter(|c| matches!(c.kind, NodeKind::Comment(_)))
+            .count();
         assert_eq!(n, 2);
     }
 
@@ -598,10 +610,20 @@ mod tests {
     #[test]
     fn jsonc_fixture_shape() {
         let src = include_str!("../../../tests/fixtures/sample.jsonc");
-        let t = project(&SyntaxNode::new_root(crate::model::json::parse::parse(src).unwrap()), "sample.jsonc");
+        let t = project(
+            &SyntaxNode::new_root(crate::model::json::parse::parse(src).unwrap()),
+            "sample.jsonc",
+        );
         assert!(matches!(t.root.children[0].kind, NodeKind::Comment(_)));
         let name = t.root.children.iter().find(|c| c.key == "name").unwrap();
-        assert_eq!(name.trailing_comment.as_deref(), Some("// trailing comment"));
-        assert!(t.root.children.iter().any(|c| matches!(c.kind, NodeKind::Comment(_)) && c.read_only));
+        assert_eq!(
+            name.trailing_comment.as_deref(),
+            Some("// trailing comment")
+        );
+        assert!(t
+            .root
+            .children
+            .iter()
+            .any(|c| matches!(c.kind, NodeKind::Comment(_)) && c.read_only));
     }
 }

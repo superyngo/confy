@@ -5,10 +5,10 @@
 //! trailing comments), read-only `/* */` blocks, and trailing commas accepted on
 //! parse but never emitted by confy's own splices.
 
-pub mod syntax;
-pub mod parse;
 pub mod doc;
-pub mod project;
 pub mod edit;
+pub mod parse;
+pub mod project;
+pub mod syntax;
 
 pub use doc::JsonDocument;

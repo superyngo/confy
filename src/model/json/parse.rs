@@ -255,8 +255,7 @@ pub(crate) fn lex(src: &str) -> Vec<Lexeme> {
                 if b[i] == b'-' {
                     i += 1;
                 }
-                while i < b.len()
-                    && matches!(b[i], b'0'..=b'9' | b'.' | b'e' | b'E' | b'+' | b'-')
+                while i < b.len() && matches!(b[i], b'0'..=b'9' | b'.' | b'e' | b'E' | b'+' | b'-')
                 {
                     i += 1;
                 }
@@ -329,10 +328,10 @@ mod tests {
 
     #[test]
     fn parse_rejects_invalid() {
-        assert!(parse("{ \"a\": }").is_err());      // missing value
-        assert!(parse("{ \"a\" 1 }").is_err());      // missing colon
-        assert!(parse("[1 2]").is_err());            // missing comma
-        assert!(parse("@nonsense").is_err());        // ERROR token
+        assert!(parse("{ \"a\": }").is_err()); // missing value
+        assert!(parse("{ \"a\" 1 }").is_err()); // missing colon
+        assert!(parse("[1 2]").is_err()); // missing comma
+        assert!(parse("@nonsense").is_err()); // ERROR token
     }
 
     fn kinds(src: &str) -> Vec<K> {
@@ -376,13 +375,7 @@ mod tests {
         assert_eq!(kinds("/* x */"), vec![K::BLOCK_COMMENT]);
         assert_eq!(
             kinds("true false null"),
-            vec![
-                K::TRUE,
-                K::WHITESPACE,
-                K::FALSE,
-                K::WHITESPACE,
-                K::NULL
-            ]
+            vec![K::TRUE, K::WHITESPACE, K::FALSE, K::WHITESPACE, K::NULL]
         );
     }
 
@@ -397,10 +390,7 @@ mod tests {
             "\"\\"
         );
         assert_eq!(
-            lex("/*")
-                .iter()
-                .map(|(_, t)| t.clone())
-                .collect::<String>(),
+            lex("/*").iter().map(|(_, t)| t.clone()).collect::<String>(),
             "/*"
         );
         assert_eq!(
