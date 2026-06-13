@@ -42,9 +42,31 @@ string-notation switching; newlines are `\n`-encoded only. New model atoms added
 backend: `ScalarType::Null` (KIND tag `[S:null]`), `Format::Exponent` (KIND tag `[F:exp ]`),
 `KindTarget::TableMultiline` (KIND tag `[T/M]`), `Node.read_only`.
 
+**YAML subset backend.** `YamlDocument` (`model/yaml/`) is a third concrete `ConfigDocument`, also
+a hand-rolled lossless lexer + recursive-descent parser onto the same `rowan` green tree; load,
+serialize, and apply are atomic-commit with a `validate_semantics` duplicate-key backstop. The
+splice core is a **reindent engine** (`reindent` in `edit.rs`) — YAML's analogue of JSON's
+comma/brace normalization — that re-flows a fragment from its source indent to the destination's.
+**Subset:** a single document (an optional leading `---` is kept verbatim), block + single-line flow
+maps/sequences, 5 scalar styles (plain, single-quoted, double-quoted, literal `|`, folded `>` with
+chomping), `#` comments, and YAML 1.2 **core-schema typing** with **no datetime** (date-looking
+scalars are strings). **Out-of-subset constructs** — `&anchor`, `*alias`, `<<:` merge, `!tag`,
+multi-line flow — project as **read-only opaque nodes** (`Node.read_only`, KIND tag `[opaq ]`): they
+render and copy, but every mutation on or into them (and on any entry whose *value* is opaque —
+`entry_has_opaque_value`) returns `Unsupported`, leaving the document untouched. **Multi-document**
+files are rejected at load (a whole-document `E` re-parse rejects them too). The resolver maps a path
+to a `Target` (`MapEntry`/`Element`/`Comment`/`Opaque`); `is_opaque` walks ancestors so a path inside
+an opaque span is blocked. New model atoms: `Format::{Block, SingleQuoted, DoubleQuoted, LiteralBlock,
+Folded}` and `KindTarget::{Flow, Block, StringPlain, StringSingle, StringDouble, StringLiteralBlock,
+StringFolded}` — driving KIND tags `[A/B]`/`[A/F]` (block/flow seq), `[T/B]`/`[T/F]` (block/flow map;
+`[T/F]` is shared by flow map and inline table), `[S:sq  ]`/`[S:dq  ]`/`[S:lit ]`/`[S:fold]`. `K`
+covers map/seq block↔flow, the 5 string styles, integer radix (dec/hex/oct), float plain↔exponent.
+`scalar_fragment` wraps `key: value` (or a bare `- ` element); `value_kind` projects the value in YAML
+syntax for the type-change check.
+
 **`ConfigDocument` trait** abstracts the storage backend so YAML/JSON can be added later; the
-only concrete backends are `CstDocument` (TOML) and `JsonDocument` (JSON/JSONC) (the original
-`toml_edit`-based `TomlDocument` was retired after reaching parity). The trait exposes `load`, `project`, `serialize`, `serialize_fragment`,
+concrete backends are `CstDocument` (TOML), `JsonDocument` (JSON/JSONC), and `YamlDocument`
+(YAML subset) (the original `toml_edit`-based `TomlDocument` was retired after reaching parity). The trait exposes `load`, `project`, `serialize`, `serialize_fragment`,
 `serialize_fragment_relative`, `is_dirty`, `apply(Mutation)`, and three **format facets** —
 `format() -> DocFormat`, `comment_prefix()`, `supports_comments()` — plus `kind_options(path)`,
 which serves the `K` popup's per-node convertible-kind list (`(label, KindTarget)` pairs) so the
@@ -52,11 +74,11 @@ TUI never hard-codes a backend's notations, and two **fragment facets** the inli
 use so they don't hard-code a notation either: `scalar_fragment(key, value)` (wraps a value repr as
 `key = value` / `"key": value`, or a bare element for `key: None`) and `value_kind(value)` (projects
 the value in the backend's own syntax for the type-change check). **`AnyDocument`** (`model/any_doc.rs`) is a one-enum
-dispatcher wrapping every backend (`Toml(CstDocument)` and `Json(JsonDocument)`) and implementing
-`ConfigDocument` by match-delegation; the TUI holds a single `AnyDocument`, and a new format is one
-more variant. `detect_format(path)` maps the extension to a `DocFormat` (`.toml`/`.json`/`.jsonc`/
-`.yaml`/`.yml`); `load_as(path, format)` dispatches to TOML or JSON/JSONC, **bailing politely** for
-YAML until that phase lands. `Mutation::Insert`/`Replace` carry a format-neutral `fragment:` field (not `toml:`).
+dispatcher wrapping every backend (`Toml(CstDocument)`, `Json(JsonDocument)`, `Yaml(YamlDocument)`)
+and implementing `ConfigDocument` by match-delegation; the TUI holds a single `AnyDocument`, and a
+new format is one more variant. `detect_format(path)` maps the extension to a `DocFormat`
+(`.toml`/`.json`/`.jsonc`/`.yaml`/`.yml`); `load_as(path, format)` dispatches to TOML, JSON/JSONC,
+or YAML. `Mutation::Insert`/`Replace` carry a format-neutral `fragment:` field (not `toml:`).
 Path→node lookup lives on `NodeTree::node_at(path)` (model layer, reused by `kind_options`).
 
 **Addressing.** Keyed nodes are addressed by `Seg::Key(name)`; **positional** nodes — comments,
@@ -180,7 +202,11 @@ and container formats landed). The **KIND column** (formerly TYPE/FORMAT; takes 
 terminal width for NAME, kind at the 2/5 mark, value the remainder) renders these facets as a
 **fixed-pitch 12-column tag** (`type_tag` in `app.rs`: key sign `(B)/(Q)/(D)/(-)` + type slot
 `[T/S]`, `[A/I]`, `[S:str ]`, …); JSON adds `[S:null]` (null scalar), `[T/M]` (multiline
-object), and `[F:exp ]` (exponent float); the detail popup keeps word labels, and `node_type_label`
+object), and `[F:exp ]` (exponent float); YAML adds `[A/B]`/`[A/F]` (block/flow seq), `[T/B]`/`[T/F]`
+(block/flow map), `[S:sq  ]`/`[S:dq  ]`/`[S:lit ]`/`[S:fold]` (string styles), and `[opaq ]`
+(out-of-subset read-only). `type_tag` (and the type-filter's `classify`) now take `(doc: DocFormat,
+read_only)` so the rendered slot is backend-aware — the YAML opaque gate (`read_only && doc==Yaml`)
+tags `[opaq ]` whatever the underlying kind. The detail popup keeps word labels, and `node_type_label`
 still drives the inline editor's type-change comparison.
 
 **Editing.** `e` dispatches via `edit_target_kind`. **Inline** (`Mode::Edit`): a single-line
@@ -273,8 +299,9 @@ inline editor) close back into the filtered selection via `App::resting_mode` (`
 
 **Type filter.** `f` opens `Mode::TypeFilter`, a modal checkbox popup (`tui/type_filter.rs`) that
 filters by a node's **type facets** — the same `KeySign`/`NodeKind`/`Format` the KIND column shows.
-`TypeToken` enumerates one leaf atom per KIND slot and `classify(kind, format)` is the arm-for-arm
-inverse of `type_tag` (so popup and column can't drift). The popup has two halves — **key sign**
+`TypeToken` enumerates one leaf atom per KIND slot and `classify(kind, format, doc, read_only)` is
+the arm-for-arm inverse of `type_tag` (so popup and column can't drift; `layout(doc)` shows only the
+loaded backend's reachable facets — JSON/YAML omit TOML-only rows, YAML adds block/flow + opaque). The popup has two halves — **key sign**
 (`(B)/(Q)/(D)/(-)`) and **type** (root/comment + array/table/string/integer/float/bool/date groups,
 `[A/T]` grouped under tables) — each multi-format group carrying an **`all`** quick-toggle row that
 is **tristate** (`group_state`: `[x]` all / `[~]` some / `[ ]` none; Space selects-or-clears the
@@ -347,7 +374,7 @@ src/
     mod.rs         re-exports
     node.rs        Seg, ScalarType, Format, NodeKind, Node, NodeTree (+ node_at lookup)
     document.rs    ConfigDocument trait, DocFormat, Mutation, Target, OnCollision, errors
-    any_doc.rs     AnyDocument enum: per-format dispatch + detect_format/load_as (JSON/YAML bail)
+    any_doc.rs     AnyDocument enum: per-format dispatch + detect_format/load_as (TOML/JSON/YAML)
     cst_doc.rs     CstDocument holding the taplo/rowan tree: load/serialize/apply (atomic commit)
     cst_project.rs CST → NodeTree projection (comments as real nodes; golden tests)
     cst_edit.rs    rowan splice helpers: one fn per Mutation variant + the path→element walk index
@@ -358,6 +385,13 @@ src/
       doc.rs       JsonDocument: load/serialize/apply (atomic commit + validate_semantics)
       project.rs   GreenTree → NodeTree projection (// comments as real nodes; golden tests)
       edit.rs      rowan splice helpers: one fn per Mutation variant for JSON/JSONC
+    yaml/
+      mod.rs       re-exports for the YAML-subset backend
+      syntax.rs    SyntaxKind enum + rowan Language impl (hand-rolled YAML token/node kinds)
+      parse.rs     lossless lexer + recursive-descent parser → rowan GreenTree (subset; multi-doc reject)
+      doc.rs       YamlDocument: load/serialize/apply (atomic commit + validate_semantics)
+      project.rs   GreenTree → NodeTree projection (# comments real nodes; opaque read-only nodes; golden tests)
+      edit.rs      rowan splice helpers: reindent engine + one fn per Mutation variant; opaque guard
   tui/
     mod.rs         re-exports; run() entry point + event loop (run_event_loop)
     app.rs         App state + operation handlers (the event loop dispatches keys to these)

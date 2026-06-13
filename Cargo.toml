@@ -3,7 +3,7 @@ name = "confy"
 version = "0.5.0"
 edition = "2021"
 authors = ["wen"]
-description = "A TUI editor for structured config files (TOML + JSON/JSONC; YAML planned)"
+description = "A TUI editor for structured config files (TOML, JSON/JSONC, and a lossless YAML subset)"
 license = "MIT"
 repository = "https://github.com/superyngo/confy"
 

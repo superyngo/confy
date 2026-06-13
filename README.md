@@ -3,7 +3,7 @@
 A cross-platform Terminal User Interface (TUI) for editing structured configuration files.
 
 Modeled on [wenv](https://github.com/superyngo/wenv)'s navigation/selection/editing UX, but
-targeting **markup config formats** (TOML first; YAML and JSON planned) and **single-file editing**.
+targeting **markup config formats** (TOML, JSON/JSONC, and a lossless YAML subset) and **single-file editing**.
 
 ## Usage
 
@@ -21,12 +21,12 @@ for unmodified subtrees).
 |--------|--------|-------|
 | TOML | Full | Lossless CST via taplo/rowan; all TOML 1.0 features |
 | JSON / JSONC | Supported | Lossless hand-rolled rowan CST; `//` line comments become first-class nodes; `/* */` block comments are read-only nodes; trailing commas accepted on parse |
-| YAML | Planned | Phase 3 |
+| YAML | Subset | Lossless hand-rolled rowan CST; single document (optional leading `---`); block + single-line flow maps/seqs; 5 scalar styles (plain/single/double/`\|`/`>`); `#` comments; YAML 1.2 core-schema typing (no datetime). Out-of-subset constructs (anchors, aliases, `<<` merge, tags, multi-line flow) become **read-only opaque nodes** (`[opaq ]`); multi-document files are rejected at load |
 
 ## Scope
 
 - **Single-file editing** — one file per session; no multi-file workspace.
-- **Multi-format** — TOML and JSON/JSONC fully supported; YAML planned.
+- **Multi-format** — TOML and JSON/JSONC fully supported; a lossless YAML subset (out-of-subset constructs degrade to read-only opaque nodes).
 - **Round-trip preserving** — comments, key order, and whitespace are kept intact on save.
 
 ## Keybindings

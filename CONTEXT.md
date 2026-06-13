@@ -99,10 +99,32 @@ in the Node's Detail view. Only standalone comments become **Comment** Nodes.
 _Avoid_: Inline comment node (it is never a node), suffix comment.
 
 **Read-only node**:
-A **Comment** node whose `Node.read_only` flag is set. Currently produced by JSONC `/* */` block
-comments, which are displayed in the tree and copyable but reject edit (`e`/`E`), delete (`d`),
-cut (`x`), and remark (`r`). Also the planned mechanism for opaque YAML nodes in Phase 3 (nodes
-that survive round-trip but cannot be mutated safely without full YAML write support).
+A node whose `Node.read_only` flag is set: displayed in the tree and copyable, but rejecting edit
+(`e`/`E`), delete (`d`), cut (`x`), and remark (`r`). Produced by JSONC `/* */` block comments
+(a Comment node) and by YAML **opaque nodes** (any kind).
+
+**Opaque node**:
+A YAML node holding an out-of-subset construct — `&anchor`, `*alias`, `<<:` merge key, `!tag`, or
+multi-line flow — projected as a **read-only node** with the KIND tag `[opaq ]` (whatever its
+underlying kind). It survives round-trip byte-identically but cannot be mutated safely without full
+YAML write support, so every mutation on or into it (or on any entry whose *value* is opaque)
+returns `Unsupported`, leaving the document untouched. Copy is allowed.
+
+**YAML subset**:
+The slice of YAML 1.2 that confy edits as first-class nodes: a single document (optional leading
+`---`), block + single-line flow maps/sequences, 5 scalar styles (plain, single-quoted,
+double-quoted, literal `|`, folded `>` with chomping), and `#` comments. Anything outside it becomes
+an **opaque node**; multi-document files are rejected at load.
+
+**Core schema typing**:
+YAML 1.2 core-schema scalar typing as confy applies it — `null`, `bool`, `int` (dec/hex/oct),
+`float` (incl. `.inf`/`.nan`/exponent), else `string`. confy deliberately has **no datetime** type
+in YAML: a date- or time-looking plain scalar is a string.
+
+**Indent engine** (`reindent`):
+The YAML splice core — the analogue of JSON's comma/brace normalization. It re-flows a fragment from
+its captured source indentation to the destination's indent level when inserting/moving, so block
+structure stays well-formed without per-call token surgery.
 
 **JSONC upgrade**:
 The prompt shown when a user triggers `r` (remark) on a node in a pure `.json` file (one loaded
@@ -113,8 +135,8 @@ The file extension is never rewritten; `.json` files with `//` comments are vali
 **DocFormat**:
 The backend's self-reported syntax, one of `Toml` / `Json` / `Yaml`. Returned by
 `ConfigDocument::format()` and used by the TUI to select format-appropriate help text, `K`
-kind-switch options, `f` type-filter facets, and the comment prefix (`#` for TOML, `//` for
-JSON/JSONC). Mapped from the file extension by `detect_format`; overridable via `--format`.
+kind-switch options, `f` type-filter facets, and the comment prefix (`#` for TOML and YAML, `//`
+for JSON/JSONC). Mapped from the file extension by `detect_format`; overridable via `--format`.
 
 ### Operations & projection
 
@@ -141,7 +163,10 @@ TOML: `[T/S]` scope table, `[T/D]` dotted table, `[T/I]` inline table, `[T/M]` m
 (JSON only), `[A/I]`/`[A/M]` inline/multiline array, `[A/T]` array-of-tables (TOML only).
 Scalars: `[S:str ]`/`[S:mstr]`/`[S:lit ]`/`[S:mlit]` strings, `[I:dec]`/`[I:hex]`/`[I:oct]`/
 `[I:bin]` integers, `[F:flt ]`/`[F:exp ]`/`[F:inf ]`/`[F:nan ]` floats, `[B:bool]`, `[S:null]`
-(JSON null), datetime types. `[G]` root, `[C]` comment.
+(JSON/YAML null), datetime types. `[G]` root, `[C]` comment.
+YAML: `[A/B]`/`[A/F]` block/flow sequence, `[T/B]`/`[T/F]` block/flow mapping (`[T/F]` also the YAML
+inline table), `[S:sq  ]`/`[S:dq  ]`/`[S:lit ]`/`[S:fold]` string styles, `[opaq ]` out-of-subset
+read-only (no datetime, no `[A/T]`/`[T/D]`, no `[I:bin]`).
 Key sign prefix: `(B)` bare, `(Q)` quoted, `(D)` dotted, `(-)` keyless.
 
 ## Insert / move legality
