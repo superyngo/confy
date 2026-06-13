@@ -1,0 +1,15 @@
+{
+  "name": "confy",
+  "version": 5,
+  "ratio": 1.5,
+  "enabled": true,
+  "disabled": false,
+  "nothing": null,
+  "tags": ["a", "b", "c"],
+  "nested": {
+    "host": "localhost",
+    "port": 8080,
+    "exp": 1.2e-3
+  },
+  "matrix": [[1, 2], [3, 4]]
+}

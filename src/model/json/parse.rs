@@ -1,14 +1,172 @@
 //! Lossless JSON/JSONC lexer + recursive-descent parser → rowan green tree.
 
 use crate::model::json::syntax::SyntaxKind;
+use rowan::{GreenNode, GreenNodeBuilder};
 
-#[allow(dead_code)]
 pub(crate) type Lexeme = (SyntaxKind, String);
+
+/// Parse `src` into a lossless green tree. Returns `Err(message)` on a structural
+/// error or any `ERROR` token. Every byte is preserved, so
+/// `SyntaxNode::new_root(parse(src)?).to_string() == src`.
+#[allow(dead_code)]
+pub(crate) fn parse(src: &str) -> Result<GreenNode, String> {
+    let tokens = lex(src);
+    let mut p = Parser {
+        tokens,
+        pos: 0,
+        builder: GreenNodeBuilder::new(),
+        error: None,
+    };
+    p.builder.start_node(SyntaxKind::ROOT.into());
+    p.skip_trivia();
+    if p.error.is_none() && p.peek().is_some() {
+        p.value();
+    }
+    p.skip_trivia();
+    if p.error.is_none() {
+        if let Some((k, t)) = p.peek() {
+            p.error = Some(format!("unexpected `{}` ({k:?}) after document", t));
+        }
+    }
+    p.builder.finish_node(); // ROOT
+    match p.error {
+        Some(e) => Err(e),
+        None => Ok(p.builder.finish()),
+    }
+}
+
+struct Parser {
+    tokens: Vec<Lexeme>,
+    pos: usize,
+    builder: GreenNodeBuilder<'static>,
+    error: Option<String>,
+}
+
+impl Parser {
+    fn peek(&self) -> Option<(SyntaxKind, &str)> {
+        self.tokens.get(self.pos).map(|(k, t)| (*k, t.as_str()))
+    }
+    fn bump(&mut self) {
+        if let Some((k, t)) = self.tokens.get(self.pos) {
+            self.builder.token((*k).into(), t);
+            self.pos += 1;
+        }
+    }
+    fn skip_trivia(&mut self) {
+        use SyntaxKind::*;
+        while let Some((k, t)) = self.peek() {
+            match k {
+                WHITESPACE | NEWLINE | LINE_COMMENT | BLOCK_COMMENT => self.bump(),
+                ERROR => {
+                    if self.error.is_none() {
+                        self.error = Some(format!("unexpected token: {t:?}"));
+                    }
+                    self.bump();
+                }
+                _ => break,
+            }
+        }
+    }
+    fn expect(&mut self, kind: SyntaxKind) -> bool {
+        if self.peek().map(|(k, _)| k) == Some(kind) {
+            self.bump();
+            true
+        } else {
+            if self.error.is_none() {
+                self.error = Some(format!(
+                    "expected {kind:?}, found {:?}",
+                    self.peek().map(|(k, _)| k)
+                ));
+            }
+            false
+        }
+    }
+    fn value(&mut self) {
+        use SyntaxKind::*;
+        self.builder.start_node(VALUE.into());
+        match self.peek().map(|(k, _)| k) {
+            Some(L_BRACE) => self.object(),
+            Some(L_BRACK) => self.array(),
+            Some(STRING | NUMBER | TRUE | FALSE | NULL) => self.bump(),
+            other => {
+                if self.error.is_none() {
+                    self.error = Some(format!("expected a value, found {other:?}"));
+                }
+            }
+        }
+        self.builder.finish_node(); // VALUE
+    }
+    fn object(&mut self) {
+        use SyntaxKind::*;
+        self.builder.start_node(OBJECT.into());
+        self.bump(); // {
+        loop {
+            self.skip_trivia();
+            match self.peek().map(|(k, _)| k) {
+                Some(R_BRACE) | None => break,
+                Some(STRING) => self.member(),
+                other => {
+                    if self.error.is_none() {
+                        self.error = Some(format!("expected string key, found {other:?}"));
+                    }
+                    break;
+                }
+            }
+            self.skip_trivia();
+            if self.peek().map(|(k, _)| k) == Some(COMMA) {
+                self.bump();
+            } else {
+                break;
+            }
+        }
+        self.skip_trivia();
+        self.expect(R_BRACE);
+        self.builder.finish_node(); // OBJECT
+    }
+    fn member(&mut self) {
+        use SyntaxKind::*;
+        self.builder.start_node(MEMBER.into());
+        self.builder.start_node(KEY.into());
+        self.bump(); // STRING key
+        self.builder.finish_node(); // KEY
+        self.skip_trivia();
+        self.expect(COLON);
+        self.skip_trivia();
+        self.value();
+        self.builder.finish_node(); // MEMBER
+    }
+    fn array(&mut self) {
+        use SyntaxKind::*;
+        self.builder.start_node(ARRAY.into());
+        self.bump(); // [
+        loop {
+            self.skip_trivia();
+            match self.peek().map(|(k, _)| k) {
+                Some(R_BRACK) | None => break,
+                Some(STRING | NUMBER | TRUE | FALSE | NULL | L_BRACE | L_BRACK) => self.value(),
+                other => {
+                    if self.error.is_none() {
+                        self.error = Some(format!("expected a value, found {other:?}"));
+                    }
+                    break;
+                }
+            }
+            self.skip_trivia();
+            if self.peek().map(|(k, _)| k) == Some(COMMA) {
+                self.bump();
+            } else {
+                break;
+            }
+        }
+        self.skip_trivia();
+        self.expect(R_BRACK);
+        self.builder.finish_node(); // ARRAY
+    }
+}
 
 /// Tokenize losslessly: every byte of `src` lands in exactly one lexeme, so
 /// `lex(src).map(|(_, t)| t).concat() == src`. Malformed runs become `ERROR`
 /// tokens (the parser turns the presence of any `ERROR` into a load failure).
-#[allow(dead_code)]
 pub(crate) fn lex(src: &str) -> Vec<Lexeme> {
     use SyntaxKind::*;
     let b = src.as_bytes();
@@ -149,7 +307,33 @@ pub(crate) fn lex(src: &str) -> Vec<Lexeme> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::json::syntax::SyntaxKind as K;
+    use crate::model::json::syntax::{SyntaxKind as K, SyntaxNode};
+
+    #[test]
+    fn parse_roundtrips_byte_identical() {
+        for src in [
+            "{}",
+            "{ \"a\": 1 }\n",
+            "[1, 2, 3]\n",
+            "// c\n{\n  \"x\": true,\n}\n",
+            "/* b */ null\n",
+            "{\n  \"a\": 1,\n}\n",
+            include_str!("../../../tests/fixtures/sample.json"),
+            include_str!("../../../tests/fixtures/sample.jsonc"),
+        ] {
+            let green = parse(src).expect("parse ok");
+            let node = SyntaxNode::new_root(green);
+            assert_eq!(node.to_string(), src, "roundtrip mismatch for {src:?}");
+        }
+    }
+
+    #[test]
+    fn parse_rejects_invalid() {
+        assert!(parse("{ \"a\": }").is_err());      // missing value
+        assert!(parse("{ \"a\" 1 }").is_err());      // missing colon
+        assert!(parse("[1 2]").is_err());            // missing comma
+        assert!(parse("@nonsense").is_err());        // ERROR token
+    }
 
     fn kinds(src: &str) -> Vec<K> {
         lex(src).into_iter().map(|(k, _)| k).collect()

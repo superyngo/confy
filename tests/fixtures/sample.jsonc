@@ -1,0 +1,11 @@
+// top-of-file comment
+{
+  // a line comment above a member
+  "name": "confy", // trailing comment
+  "list": [
+    1,
+    2, // trailing on element
+  ],
+  /* a read-only block comment */
+  "ok": true,
+}
