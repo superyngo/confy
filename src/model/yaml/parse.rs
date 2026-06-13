@@ -862,6 +862,30 @@ mod tests {
     }
 
     #[test]
+    fn roundtrips_edge_cases() {
+        for src in [
+            "a: b: c\n",                   // colon in plain value
+            "url: http://example.com\n",   // colon-not-indicator stays plain
+            "tpl: ${{ matrix.os }}\n",     // braces mid-plain-scalar are literal
+            "empty:\n",                    // implicit null value
+            "nested:\n  - - 1\n  - - 2\n", // compact nested sequence
+            "k: 'a''b'\n",                 // single-quote escape
+            "k: \"a\\\"b\"\n",             // double-quote escape
+            "- - a\n- - b\n",              // sequence of sequences
+            "a:\n- x\n- y\n",              // seq at key indent (block, same column)
+            "x: |-\n  no trailing nl\n",   // chomping indicator
+            "  # leading-indented comment\nk: 1\n",
+        ] {
+            let green = parse(src).unwrap_or_else(|e| panic!("parse {src:?}: {e}"));
+            assert_eq!(
+                SyntaxNode::new_root(green).to_string(),
+                src,
+                "roundtrip {src:?}"
+            );
+        }
+    }
+
+    #[test]
     fn smoke_small_inputs() {
         for src in [
             "key: value\n",
