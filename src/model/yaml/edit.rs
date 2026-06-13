@@ -1459,20 +1459,17 @@ fn plain_safe(s: &str) -> bool {
     }
     // A bare value that re-parses as a non-string type would change the type;
     // reject so the conversion stays string→string. Re-project the candidate
-    // and require it to classify as a String.
+    // and require it to classify as a String. Fail closed: if the candidate
+    // doesn't even parse, it is not plain-safe.
+    let Ok(green) = crate::model::yaml::parse::parse(&format!("__k__: {s}\n")) else {
+        return false;
+    };
     matches!(
-        crate::model::yaml::project::project(
-            &SyntaxNode::new_root(
-                crate::model::yaml::parse::parse(&format!("__k__: {s}\n")).unwrap_or_else(|_| {
-                    crate::model::yaml::parse::parse("__k__: x\n").unwrap()
-                })
-            ),
-            ""
-        )
-        .root
-        .children
-        .first()
-        .map(|n| &n.kind),
+        crate::model::yaml::project::project(&SyntaxNode::new_root(green), "")
+            .root
+            .children
+            .first()
+            .map(|n| &n.kind),
         Some(NodeKind::Scalar(ScalarType::String))
     )
 }
