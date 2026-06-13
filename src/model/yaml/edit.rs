@@ -8,10 +8,10 @@
 //! Per-variant splice implementations come in Tasks 5c–6; every variant returns
 //! `Err(MutateError::Unsupported)` until then.
 
-use crate::model::document::{MutateError, Mutation, Target as MutTarget};
+use crate::model::document::{MutateError, Mutation, OnCollision, Target as MutTarget};
 use crate::model::node::Seg;
 use crate::model::yaml::project::{walk, Target};
-use crate::model::yaml::syntax::SyntaxNode;
+use crate::model::yaml::syntax::{SyntaxKind, SyntaxNode};
 
 // ── Indent engine ─────────────────────────────────────────────────────────────
 
@@ -70,23 +70,617 @@ fn is_opaque(syntax: &SyntaxNode, path: &[Seg]) -> bool {
     false
 }
 
-// ── Per-variant stubs (filled in by Tasks 5c–6) ───────────────────────────────
+// ── Per-variant implementations (5c–5e) + remaining stubs ────────────────────
 
-fn delete(_tree: &SyntaxNode, _path: &[Seg]) -> Result<(), MutateError> {
-    Err(MutateError::Unsupported)
+// ── 5c: Replace ───────────────────────────────────────────────────────────────
+
+/// Replace the value at `path` with `fragment`.
+///
+/// Three cases:
+///   (a) Empty path → whole-document replace: reparse fragment as a full YAML
+///       doc and splice its ROOT children over the old ROOT children.
+///   (b) Path → MapEntry: the fragment may be `key: value` (reuse whole entry)
+///       or a bare value (replace just the value child).
+///   (c) Path → Element (seq entry): replace the value child of the SEQ_ENTRY.
+fn replace(tree: &SyntaxNode, path: &[Seg], fragment: &str) -> Result<(), MutateError> {
+    if path.is_empty() {
+        // Whole-document replace.
+        // Reject multi-doc fragments.
+        let doc_markers = fragment
+            .split_inclusive('\n')
+            .filter(|l| l.trim_start().starts_with("---"))
+            .count();
+        if doc_markers > 1 {
+            return Err(MutateError::Fragment(
+                "multi-document YAML is not supported".into(),
+            ));
+        }
+        let green = crate::model::yaml::parse::parse(fragment).map_err(MutateError::Fragment)?;
+        let new_root_immutable = SyntaxNode::new_root(green);
+        let new_root = new_root_immutable.clone_for_update();
+        let n = tree.children_with_tokens().count();
+        let new_children: Vec<_> = new_root.children_with_tokens().collect();
+        tree.splice_children(0..n, new_children);
+        return Ok(());
+    }
+
+    match resolve(tree, path).ok_or(MutateError::NotFound)? {
+        Target::MapEntry(entry) => {
+            // An entry whose value is an opaque (out-of-subset) construct is
+            // read-only — like Delete, reject before touching the tree.
+            if entry_has_opaque_value(&entry) {
+                return Err(MutateError::Unsupported);
+            }
+            // Detect the entry's indent depth (the INDENT token inside it).
+            let entry_indent = entry_indent_depth(&entry);
+            // Normalize the fragment to indent 0 for parsing, then build a
+            // correctly-indented replacement entry.
+            let frag_trimmed = ensure_newline(&reindent(
+                &ensure_newline(fragment),
+                fragment_indent(fragment),
+                0,
+            ));
+            // Try to parse fragment as a full `key: value` entry at indent 0.
+            if let Some(new_entry_0) = parse_map_entry_fragment(&frag_trimmed) {
+                // Build the final entry at the target indent by re-building
+                // the entry text with the correct leading spaces.
+                let new_text = reindent(&new_entry_0.text().to_string(), 0, entry_indent);
+                if let Some(new_entry) = parse_map_entry_fragment(&new_text) {
+                    replace_node(&entry, new_entry);
+                } else {
+                    // Edge case: re-parse at correct indent failed (shouldn't happen for
+                    // simple entries); fall back to whole-document replace strategy.
+                    let whole = tree.to_string();
+                    let offset: usize = entry.text_range().start().into();
+                    let end: usize = entry.text_range().end().into();
+                    let new_doc = format!("{}{}{}", &whole[..offset], new_text, &whole[end..]);
+                    let new_green = crate::model::yaml::parse::parse(&new_doc)
+                        .map_err(MutateError::Fragment)?;
+                    let new_root = SyntaxNode::new_root(new_green).clone_for_update();
+                    let n = tree.children_with_tokens().count();
+                    let children: Vec<_> = new_root.children_with_tokens().collect();
+                    tree.splice_children(0..n, children);
+                }
+            } else {
+                // Bare value: replace just the value child of the entry.
+                let new_value = parse_value_fragment(fragment)?;
+                if let Some(old_value) = entry.children().find(|c| {
+                    matches!(
+                        c.kind(),
+                        SyntaxKind::MAPPING | SyntaxKind::SEQUENCE | SyntaxKind::VALUE
+                    )
+                }) {
+                    replace_node(&old_value, new_value);
+                } else {
+                    // Entry currently has no value child (implicit null):
+                    // rebuild the entry by re-parsing the whole entry.
+                    let key_text = entry_key_text(&entry);
+                    let spaces = " ".repeat(entry_indent);
+                    let rebuilt = format!("{spaces}{key_text}: {}\n", fragment.trim());
+                    if let Some(new_entry) = parse_map_entry_fragment(&rebuilt) {
+                        replace_node(&entry, new_entry);
+                    } else {
+                        return Err(MutateError::Fragment(
+                            "could not build replacement entry".into(),
+                        ));
+                    }
+                }
+            }
+            Ok(())
+        }
+        Target::Element(entry) => {
+            if entry_has_opaque_value(&entry) {
+                return Err(MutateError::Unsupported);
+            }
+            // Seq entry: replace the VALUE/MAPPING/SEQUENCE child.
+            let new_value = parse_value_fragment(fragment)?;
+            if let Some(old_value) = entry.children().find(|c| {
+                matches!(
+                    c.kind(),
+                    SyntaxKind::MAPPING | SyntaxKind::SEQUENCE | SyntaxKind::VALUE
+                )
+            }) {
+                replace_node(&old_value, new_value);
+            } else {
+                return Err(MutateError::NotFound);
+            }
+            Ok(())
+        }
+        Target::Comment(_) => Err(MutateError::Illegal(
+            "use EditComment to edit a comment".into(),
+        )),
+        Target::Opaque(_) => Err(MutateError::Unsupported),
+    }
 }
 
-fn insert(
-    _tree: &SyntaxNode,
-    _target: &MutTarget,
-    _fragment: &str,
-    _on_collision: crate::model::document::OnCollision,
+/// Replace a SyntaxNode in-place within its parent.
+fn replace_node(old: &SyntaxNode, new: SyntaxNode) {
+    let parent = old.parent().expect("node has a parent");
+    let idx = old.index();
+    parent.splice_children(idx..idx + 1, vec![new.into()]);
+}
+
+/// Returns the indent depth of a MAP_ENTRY or SEQ_ENTRY node (spaces before content).
+fn entry_indent_depth(entry: &SyntaxNode) -> usize {
+    for c in entry.children_with_tokens() {
+        if let rowan::NodeOrToken::Token(t) = c {
+            if t.kind() == SyntaxKind::INDENT {
+                return t.text().len();
+            }
+            // First non-trivia token — no indent.
+            break;
+        }
+    }
+    0
+}
+
+/// Ensure a string ends with a newline.
+fn ensure_newline(s: &str) -> String {
+    if s.ends_with('\n') {
+        s.to_string()
+    } else {
+        format!("{s}\n")
+    }
+}
+
+/// Extract the key text from a MAP_ENTRY's KEY child.
+fn entry_key_text(entry: &SyntaxNode) -> String {
+    entry
+        .children()
+        .find(|c| c.kind() == SyntaxKind::KEY)
+        .and_then(|k| {
+            k.children_with_tokens().find_map(|c| match c {
+                rowan::NodeOrToken::Token(t)
+                    if matches!(
+                        t.kind(),
+                        SyntaxKind::PLAIN | SyntaxKind::SINGLE | SyntaxKind::DOUBLE
+                    ) =>
+                {
+                    Some(t.text().to_string())
+                }
+                _ => None,
+            })
+        })
+        .unwrap_or_default()
+}
+
+/// Parse `fragment` as a `key: value` map entry.
+/// Returns `None` if the fragment doesn't contain a COLON at the top level.
+fn parse_map_entry_fragment(fragment: &str) -> Option<SyntaxNode> {
+    // Must contain `: ` to be a keyed fragment.
+    if !fragment.contains(": ") && !fragment.ends_with(":\n") && !fragment.ends_with(':') {
+        return None;
+    }
+    // Ensure it ends with a newline for the parser.
+    let owned;
+    let src = if fragment.ends_with('\n') {
+        fragment
+    } else {
+        owned = format!("{fragment}\n");
+        &owned
+    };
+    let green = crate::model::yaml::parse::parse(src).ok()?;
+    let root = SyntaxNode::new_root(green);
+    let mapping = root.children().find(|n| n.kind() == SyntaxKind::MAPPING)?;
+    let entry = mapping
+        .children()
+        .find(|n| n.kind() == SyntaxKind::MAP_ENTRY)?;
+    // Exactly one entry.
+    if mapping
+        .children()
+        .filter(|n| n.kind() == SyntaxKind::MAP_ENTRY)
+        .count()
+        == 1
+    {
+        Some(entry.clone_for_update())
+    } else {
+        None
+    }
+}
+
+/// Parse `fragment` as a bare YAML value (MAPPING, SEQUENCE, or scalar).
+/// Returns the inner value SyntaxNode (MAPPING, SEQUENCE, or VALUE).
+fn parse_value_fragment(fragment: &str) -> Result<SyntaxNode, MutateError> {
+    // Wrap as a dummy `__v__: <fragment>` entry and extract the value child.
+    let src = if fragment.trim().ends_with('\n') || fragment.trim().is_empty() {
+        let mut owned = format!("__v__: {fragment}");
+        if !owned.ends_with('\n') {
+            owned.push('\n');
+        }
+        owned
+    } else {
+        format!("__v__: {fragment}\n")
+    };
+    let green = crate::model::yaml::parse::parse(&src).map_err(MutateError::Fragment)?;
+    let root = SyntaxNode::new_root(green);
+    let mapping = root
+        .children()
+        .find(|n| n.kind() == SyntaxKind::MAPPING)
+        .ok_or_else(|| MutateError::Fragment("could not parse value fragment".into()))?;
+    let entry = mapping
+        .children()
+        .find(|n| n.kind() == SyntaxKind::MAP_ENTRY)
+        .ok_or_else(|| MutateError::Fragment("could not parse value fragment".into()))?;
+    // The value child is MAPPING, SEQUENCE, or VALUE.
+    entry
+        .children()
+        .find(|c| {
+            matches!(
+                c.kind(),
+                SyntaxKind::MAPPING | SyntaxKind::SEQUENCE | SyntaxKind::VALUE
+            )
+        })
+        .map(|n| n.clone_for_update())
+        .ok_or_else(|| MutateError::Fragment("fragment has no value".into()))
+}
+
+// ── 5d: Delete ────────────────────────────────────────────────────────────────
+
+/// Delete a map entry, sequence element, or standalone comment block.
+/// Each MAP_ENTRY / SEQ_ENTRY node already includes its own NEWLINE token, so
+/// removing the node from its parent MAPPING / SEQUENCE is all we need.
+/// Comment tokens (COMMENT + NEWLINE) are free children of their container.
+fn delete(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
+    match resolve(tree, path).ok_or(MutateError::NotFound)? {
+        Target::MapEntry(entry) => {
+            // If the entry's value is an opaque node, block mutation.
+            if entry_has_opaque_value(&entry) {
+                return Err(MutateError::Unsupported);
+            }
+            delete_node(&entry);
+            Ok(())
+        }
+        Target::Element(entry) => {
+            if entry_has_opaque_value(&entry) {
+                return Err(MutateError::Unsupported);
+            }
+            delete_node(&entry);
+            Ok(())
+        }
+        Target::Comment(tok) => {
+            delete_comment_token(&tok);
+            Ok(())
+        }
+        Target::Opaque(node) => {
+            // Root-level opaque nodes: block.
+            let _ = node;
+            Err(MutateError::Unsupported)
+        }
+    }
+}
+
+/// Returns true if the entry (MAP_ENTRY or SEQ_ENTRY) contains an OPAQUE value child
+/// at any depth, indicating the entry is read-only.
+fn entry_has_opaque_value(entry: &SyntaxNode) -> bool {
+    entry.descendants().any(|n| n.kind() == SyntaxKind::OPAQUE)
+}
+
+/// Remove a MAP_ENTRY or SEQ_ENTRY node from its parent.
+/// The node already contains its own trailing NEWLINE, so the splice is clean.
+fn delete_node(node: &SyntaxNode) {
+    let parent = node.parent().expect("node has parent");
+    let children: Vec<_> = parent.children_with_tokens().collect();
+    let node_idx = children
+        .iter()
+        .position(|c| match c {
+            rowan::NodeOrToken::Node(sn) => sn == node,
+            _ => false,
+        })
+        .expect("node is child of parent");
+    parent.splice_children(node_idx..node_idx + 1, vec![]);
+}
+
+/// Delete a standalone COMMENT token and its associated NEWLINE.
+/// COMMENT tokens are free children at the MAPPING / SEQUENCE / ROOT level.
+/// Layout: …NEWLINE? INDENT? COMMENT NEWLINE…
+/// We remove: optional preceding INDENT, the COMMENT, and the following NEWLINE.
+fn delete_comment_token(tok: &crate::model::yaml::syntax::SyntaxToken) {
+    let parent = tok.parent().expect("parent");
+    let children: Vec<_> = parent.children_with_tokens().collect();
+    let n = children.len();
+
+    // Find the comment token's index.
+    let tok_idx = children
+        .iter()
+        .position(|c| match c {
+            rowan::NodeOrToken::Token(t) => t == tok,
+            _ => false,
+        })
+        .expect("token is child of parent");
+
+    let mut start = tok_idx;
+    let mut end = tok_idx + 1;
+
+    // Eat the following NEWLINE.
+    if end < n {
+        if let rowan::NodeOrToken::Token(t) = &children[end] {
+            if t.kind() == SyntaxKind::NEWLINE {
+                end += 1;
+            }
+        }
+    }
+
+    // Eat a preceding INDENT (leading whitespace of this comment's line).
+    if start > 0 {
+        if let rowan::NodeOrToken::Token(t) = &children[start - 1] {
+            if t.kind() == SyntaxKind::INDENT {
+                start -= 1;
+            }
+        }
+    }
+
+    parent.splice_children(start..end, vec![]);
+}
+
+// ── 5e: Insert ────────────────────────────────────────────────────────────────
+
+/// Find the MAPPING or SEQUENCE container that is the child collection for `parent_path`.
+/// For root level, returns the top-level MAPPING or SEQUENCE child of ROOT.
+/// For deeper levels, walks the path to find the innermost container.
+fn find_container(tree: &SyntaxNode, parent_path: &[Seg]) -> Result<SyntaxNode, MutateError> {
+    // Top-level container is the direct child of ROOT that is MAPPING or SEQUENCE.
+    let top = tree
+        .children()
+        .find(|n| matches!(n.kind(), SyntaxKind::MAPPING | SyntaxKind::SEQUENCE))
+        .ok_or(MutateError::NotFound)?;
+
+    if parent_path.is_empty() {
+        return Ok(top);
+    }
+
+    let mut container = top;
+    for seg in parent_path {
+        container = match seg {
+            Seg::Key(k) => {
+                // Find MAP_ENTRY with this key, then its value MAPPING or SEQUENCE.
+                let entry = container
+                    .children()
+                    .filter(|n| n.kind() == SyntaxKind::MAP_ENTRY)
+                    .find(|e| entry_key_text(e) == k.as_str())
+                    .ok_or(MutateError::NotFound)?;
+                entry
+                    .children()
+                    .find(|c| matches!(c.kind(), SyntaxKind::MAPPING | SyntaxKind::SEQUENCE))
+                    .ok_or(MutateError::NotFound)?
+            }
+            Seg::Index(i) => {
+                // Find the i-th SEQ_ENTRY, then its value MAPPING or SEQUENCE.
+                let entry = container
+                    .children()
+                    .filter(|n| n.kind() == SyntaxKind::SEQ_ENTRY)
+                    .nth(*i)
+                    .ok_or(MutateError::NotFound)?;
+                entry
+                    .children()
+                    .find(|c| matches!(c.kind(), SyntaxKind::MAPPING | SyntaxKind::SEQUENCE))
+                    .ok_or(MutateError::NotFound)?
+            }
+        };
+    }
+    Ok(container)
+}
+
+/// Collect the items of a MAPPING or SEQUENCE as verbatim text strings
+/// (trimmed of leading INDENT but keeping the trailing newline).
+/// Order matches projection order (same traversal as project.rs).
+fn collect_items(container: &SyntaxNode) -> Vec<String> {
+    let mut items = Vec::new();
+    for child in container.children_with_tokens() {
+        match &child {
+            rowan::NodeOrToken::Node(n)
+                if matches!(n.kind(), SyntaxKind::MAP_ENTRY | SyntaxKind::SEQ_ENTRY) =>
+            {
+                items.push(n.text().to_string());
+            }
+            rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::COMMENT => {
+                // Standalone comment at this level.
+                items.push(t.text().to_string());
+            }
+            _ => {}
+        }
+    }
+    items
+}
+
+/// Detect the indentation depth of a container's entries (number of leading spaces).
+/// Returns 0 for root-level containers.
+fn container_indent(container: &SyntaxNode) -> usize {
+    // Look at the first MAP_ENTRY or SEQ_ENTRY and count its leading INDENT.
+    for child in container.children() {
+        if matches!(child.kind(), SyntaxKind::MAP_ENTRY | SyntaxKind::SEQ_ENTRY) {
+            // The INDENT token is the first child of the entry (if the entry is indented).
+            for c in child.children_with_tokens() {
+                if let rowan::NodeOrToken::Token(t) = c {
+                    if t.kind() == SyntaxKind::INDENT {
+                        return t.text().len();
+                    }
+                    // If first token is not INDENT, entry is at column 0.
+                    break;
+                }
+            }
+            break;
+        }
+    }
+    0
+}
+
+/// Extract the key name from the item text of a MAP_ENTRY (everything before `: `).
+fn item_key_name(item: &str) -> Option<String> {
+    // Strip leading indent.
+    let t = item.trim_start();
+    // Find `: ` at depth 0.
+    let colon = t.find(": ")?;
+    Some(t[..colon].trim_matches('\'').trim_matches('"').to_string())
+}
+
+/// Collect existing map key names from the container.
+fn existing_map_keys(container: &SyntaxNode) -> Vec<String> {
+    container
+        .children()
+        .filter(|n| n.kind() == SyntaxKind::MAP_ENTRY)
+        .map(|e| entry_key_text(&e))
+        .collect()
+}
+
+/// Adapt a fragment for insertion into `container`.
+///
+/// - keyed (`b: 2`) into MAPPING → use as-is, key = Some("b")
+/// - keyed (`b: 2`) into SEQUENCE → wrap as `- b: 2` element, key = None
+/// - bare value (`5`) into MAPPING → synthesize `placeholder: 5`, key = Some("placeholder")
+/// - bare value (`5`) into SEQUENCE → use as `- 5`, key = None
+///
+/// Returns `(item_text, Option<key_name>)`.
+fn adapt_fragment(
+    fragment: &str,
+    is_mapping: bool,
+    dest_indent: usize,
+) -> Result<(String, Option<String>), MutateError> {
+    let frag = fragment.trim_end_matches('\n');
+
+    // Detect if fragment is keyed by checking for `: ` at depth 0.
+    let trimmed = frag.trim_start();
+    let is_keyed = trimmed.contains(": ") || trimmed.ends_with(':');
+
+    if is_keyed {
+        // Re-indent the fragment to dest_indent.
+        let reindented = reindent(&format!("{frag}\n"), fragment_indent(frag), dest_indent);
+        let key = item_key_name(&reindented).or_else(|| item_key_name(frag));
+        if is_mapping {
+            Ok((reindented, key))
+        } else {
+            // keyed fragment into SEQUENCE → `- key: value`
+            // The fragment at dest_indent becomes: "  key: value\n"
+            // We need to produce: "<dest_indent_spaces>- key: value\n"
+            // Strip the leading spaces from reindented then prefix with "- ".
+            let stripped = reindented.trim_start().to_string();
+            let spaces = " ".repeat(dest_indent);
+            Ok((format!("{spaces}- {stripped}"), None))
+        }
+    } else {
+        // Bare value.
+        let val = trimmed.to_string();
+        if is_mapping {
+            let placeholder = format!("{}: {val}", " ".repeat(dest_indent) + "placeholder");
+            // Ensure trailing newline.
+            let text = if placeholder.ends_with('\n') {
+                placeholder
+            } else {
+                format!("{placeholder}\n")
+            };
+            Ok((text, Some("placeholder".to_string())))
+        } else {
+            let spaces = " ".repeat(dest_indent);
+            Ok((format!("{spaces}- {val}\n"), None))
+        }
+    }
+}
+
+/// Detect the leading-indent count of a fragment (first non-blank line's indent).
+fn fragment_indent(fragment: &str) -> usize {
+    for line in fragment.lines() {
+        if !line.trim().is_empty() {
+            return line.len() - line.trim_start().len();
+        }
+    }
+    0
+}
+
+/// Build the complete document text with the container's content replaced by `new_content`.
+/// Uses the container's text_range to do a string-level splice on the full document text.
+fn rebuild_and_splice(
+    tree: &SyntaxNode,
+    container: &SyntaxNode,
+    items: &[String],
 ) -> Result<(), MutateError> {
-    Err(MutateError::Unsupported)
+    let full_text = tree.to_string();
+    let offset: usize = container.text_range().start().into();
+    let end_offset: usize = container.text_range().end().into();
+
+    let new_content: String = items.iter().cloned().collect();
+    let new_doc = format!(
+        "{}{}{}",
+        &full_text[..offset],
+        new_content,
+        &full_text[end_offset..]
+    );
+
+    // Re-parse the rebuilt document and replace the whole ROOT.
+    let new_green = crate::model::yaml::parse::parse(&new_doc).map_err(MutateError::Illegal)?;
+    let new_root = SyntaxNode::new_root(new_green).clone_for_update();
+    let n = tree.children_with_tokens().count();
+    let new_children: Vec<_> = new_root.children_with_tokens().collect();
+    tree.splice_children(0..n, new_children);
+    Ok(())
 }
 
-fn replace(_tree: &SyntaxNode, _path: &[Seg], _fragment: &str) -> Result<(), MutateError> {
-    Err(MutateError::Unsupported)
+/// Insert a new member/element into the container at `target`.
+fn insert(
+    tree: &SyntaxNode,
+    target: &MutTarget,
+    fragment: &str,
+    on_collision: OnCollision,
+) -> Result<(), MutateError> {
+    // Find the container MAPPING or SEQUENCE.
+    let container = find_container(tree, &target.parent)?;
+    let is_mapping = container.kind() == SyntaxKind::MAPPING;
+    let dest_indent = container_indent(&container);
+
+    // Collect existing items.
+    let mut items: Vec<String> = collect_items(&container);
+
+    // Adapt the fragment to the destination.
+    let (new_item, new_key) = adapt_fragment(fragment, is_mapping, dest_indent)?;
+
+    // Collision check for mappings.
+    let mut final_item = new_item;
+    if is_mapping {
+        if let Some(key) = &new_key {
+            let existing = existing_map_keys(&container);
+            if existing.iter().any(|k| k == key) {
+                match on_collision {
+                    OnCollision::Cancel => {
+                        return Err(MutateError::Collision(key.clone()));
+                    }
+                    OnCollision::Overwrite => {
+                        // Remove the existing item with this key.
+                        let ci = items
+                            .iter()
+                            .position(|it| item_key_name(it).as_deref() == Some(key.as_str()));
+                        if let Some(ci) = ci {
+                            items.remove(ci);
+                        }
+                    }
+                    OnCollision::Rename => {
+                        let mut n = 2usize;
+                        loop {
+                            let candidate = format!("{key}{n}");
+                            if !existing.iter().any(|k| k == &candidate) {
+                                // Rebuild item with renamed key.
+                                let spaces = " ".repeat(dest_indent);
+                                let trimmed_frag = fragment.trim();
+                                let val_part = trimmed_frag
+                                    .split_once(": ")
+                                    .map(|x| x.1)
+                                    .unwrap_or(trimmed_frag)
+                                    .trim_end_matches('\n');
+                                let renamed = format!("{spaces}{candidate}: {val_part}\n");
+                                final_item = renamed;
+                                break;
+                            }
+                            n += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Insert at the clamped index.
+    let idx = target.index.min(items.len());
+    items.insert(idx, final_item);
+
+    // Rebuild and splice.
+    rebuild_and_splice(tree, &container, &items)
 }
 
 fn rename(_tree: &SyntaxNode, _path: &[Seg], _new_key: &str) -> Result<(), MutateError> {
@@ -109,7 +703,7 @@ fn move_nodes(
     _tree: &SyntaxNode,
     _sources: &[Vec<Seg>],
     _target: &MutTarget,
-    _on_collision: crate::model::document::OnCollision,
+    _on_collision: OnCollision,
 ) -> Result<(), MutateError> {
     Err(MutateError::Unsupported)
 }
@@ -342,45 +936,218 @@ mod tests {
         assert_eq!(serialize_fragment(&s, &[Seg::Key("nope".into())]), "");
     }
 
-    // ── apply stub returns Unsupported for non-opaque mutations ──────────────
+    // ── Rename/Remark/etc still unsupported ─────────────────────────────────
 
     #[test]
-    fn non_opaque_mutations_return_unsupported() {
-        // Since all variant fns are stubs, a normal (non-opaque) path also
-        // returns Unsupported — this confirms the opaque check doesn't swallow
-        // regular paths.
+    fn rename_still_unsupported() {
         let r = apply_str(
-            "k: 1\n",
-            Mutation::Delete {
-                path: vec![Seg::Key("k".into())],
-            },
-        );
-        assert!(matches!(r, Err(MutateError::Unsupported)));
-    }
-
-    // ── apply_str helper smoke test ──────────────────────────────────────────
-
-    #[test]
-    fn apply_str_returns_unsupported_for_all_stubs() {
-        let mutations: Vec<Mutation> = vec![
-            Mutation::Delete {
-                path: vec![Seg::Key("a".into())],
-            },
-            Mutation::Replace {
-                path: vec![Seg::Key("a".into())],
-                fragment: "a: 2".into(),
-            },
+            "a: 1\n",
             Mutation::Rename {
                 path: vec![Seg::Key("a".into())],
                 new_key: "b".into(),
             },
-        ];
-        for m in mutations {
-            let r = apply_str("a: 1\n", m);
-            assert!(
-                matches!(r, Err(MutateError::Unsupported)),
-                "expected Unsupported"
-            );
-        }
+        );
+        assert!(
+            matches!(r, Err(MutateError::Unsupported)),
+            "rename expected Unsupported, got {r:?}"
+        );
+    }
+
+    // ── 5c: Replace ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn replace_inline_scalar_value() {
+        let out = apply_str(
+            "k: 1\n",
+            Mutation::Replace {
+                path: vec![Seg::Key("k".into())],
+                fragment: "k: 2".into(),
+            },
+        )
+        .expect("replace should succeed");
+        assert_eq!(out, "k: 2\n");
+    }
+
+    #[test]
+    fn replace_block_mapping_value() {
+        // Replace `host: a` inside `srv:` with `host: b`.
+        let src = "srv:\n  host: a\n  port: 80\n";
+        let out = apply_str(
+            src,
+            Mutation::Replace {
+                path: vec![Seg::Key("srv".into()), Seg::Key("host".into())],
+                fragment: "host: b".into(),
+            },
+        )
+        .expect("replace should succeed");
+        assert_eq!(out, "srv:\n  host: b\n  port: 80\n");
+    }
+
+    #[test]
+    fn replace_whole_document_valid() {
+        let out = apply_str(
+            "a: 1\n",
+            Mutation::Replace {
+                path: vec![],
+                fragment: "b: 2\n".into(),
+            },
+        )
+        .expect("whole-doc replace should succeed");
+        assert_eq!(out, "b: 2\n");
+    }
+
+    #[test]
+    fn replace_whole_document_multi_doc_rejected() {
+        let r = apply_str(
+            "a: 1\n",
+            Mutation::Replace {
+                path: vec![],
+                fragment: "---\na: 1\n---\nb: 2\n".into(),
+            },
+        );
+        assert!(
+            matches!(r, Err(MutateError::Fragment(_))),
+            "multi-doc replace should be Fragment error, got {r:?}"
+        );
+    }
+
+    #[test]
+    fn replace_over_opaque_value_is_unsupported() {
+        // `ref: *anchor` projects as a read-only MapEntry (opaque value);
+        // Replace must reject it, leaving the doc untouched.
+        let r = apply_str(
+            "ref: *anchor\nk: 1\n",
+            Mutation::Replace {
+                path: vec![Seg::Key("ref".into())],
+                fragment: "ref: 5".into(),
+            },
+        );
+        assert!(
+            matches!(r, Err(MutateError::Unsupported)),
+            "replace over opaque value expected Unsupported, got {r:?}"
+        );
+    }
+
+    // ── 5d: Delete ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn delete_middle_element_of_sequence() {
+        let src = "- 10\n- 20\n- 30\n";
+        let out = apply_str(
+            src,
+            Mutation::Delete {
+                path: vec![Seg::Index(1)],
+            },
+        )
+        .expect("delete middle element should succeed");
+        assert_eq!(out, "- 10\n- 30\n");
+    }
+
+    #[test]
+    fn delete_map_entry_with_nested_children() {
+        let src = "srv:\n  host: a\n  port: 80\nother: x\n";
+        let out = apply_str(
+            src,
+            Mutation::Delete {
+                path: vec![Seg::Key("srv".into())],
+            },
+        )
+        .expect("delete entry with nested children");
+        assert_eq!(out, "other: x\n");
+    }
+
+    #[test]
+    fn delete_standalone_comment() {
+        let src = "# hello\na: 1\n";
+        let out = apply_str(
+            src,
+            Mutation::Delete {
+                path: vec![Seg::Index(0)],
+            },
+        )
+        .expect("delete comment should succeed");
+        assert_eq!(out, "a: 1\n");
+    }
+
+    // ── 5e: Insert ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn insert_member_at_end_of_mapping() {
+        use crate::model::document::{OnCollision, Target};
+        let out = apply_str(
+            "a: 1\n",
+            Mutation::Insert {
+                target: Target {
+                    parent: vec![],
+                    index: 1,
+                },
+                fragment: "b: 2\n".into(),
+                on_collision: OnCollision::Cancel,
+            },
+        )
+        .expect("insert member at end");
+        assert_eq!(out, "a: 1\nb: 2\n");
+    }
+
+    #[test]
+    fn insert_keyed_fragment_into_sequence() {
+        use crate::model::document::{OnCollision, Target};
+        let out = apply_str(
+            "- 1\n- 2\n",
+            Mutation::Insert {
+                target: Target {
+                    parent: vec![],
+                    index: 1,
+                },
+                fragment: "b: 2\n".into(),
+                on_collision: OnCollision::Cancel,
+            },
+        )
+        .expect("insert keyed fragment into sequence");
+        // Keyed fragment into a sequence → becomes a sequence element `- b: 2`
+        assert!(
+            out.contains("- b: 2"),
+            "expected '- b: 2' in output: {out:?}"
+        );
+    }
+
+    #[test]
+    fn insert_bare_value_into_mapping_gets_placeholder_key() {
+        use crate::model::document::{OnCollision, Target};
+        let out = apply_str(
+            "a: 1\n",
+            Mutation::Insert {
+                target: Target {
+                    parent: vec![],
+                    index: 1,
+                },
+                fragment: "5".into(),
+                on_collision: OnCollision::Cancel,
+            },
+        )
+        .expect("insert bare value into mapping");
+        assert!(
+            out.contains("placeholder"),
+            "expected 'placeholder' key in output: {out:?}"
+        );
+    }
+
+    #[test]
+    fn insert_into_nested_block_mapping() {
+        use crate::model::document::{OnCollision, Target};
+        let src = "srv:\n  host: a\n";
+        let out = apply_str(
+            src,
+            Mutation::Insert {
+                target: Target {
+                    parent: vec![Seg::Key("srv".into())],
+                    index: 1,
+                },
+                fragment: "port: 80\n".into(),
+                on_collision: OnCollision::Cancel,
+            },
+        )
+        .expect("insert into nested block mapping");
+        assert_eq!(out, "srv:\n  host: a\n  port: 80\n");
     }
 }
