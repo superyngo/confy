@@ -182,6 +182,7 @@ impl App {
         }
     }
     pub fn rebuild_rows(&mut self) {
+        let doc = self.doc_format();
         let expanded = &self.expanded;
         let rows = self
             .tree
@@ -194,7 +195,13 @@ impl App {
                     _ => None,
                 };
                 let type_label = node_type_label(&r.node.kind);
-                let type_tag = type_tag(&r.node.kind, r.node.format, r.node.key_sign);
+                let type_tag = type_tag(
+                    &r.node.kind,
+                    r.node.format,
+                    r.node.key_sign,
+                    doc,
+                    r.node.read_only,
+                );
                 RowSnapshot {
                     key: r.node.key.clone(),
                     path: r.node.path.clone(),
@@ -2511,31 +2518,55 @@ fn node_type_label(kind: &crate::model::node::NodeKind) -> String {
 /// padded to the slot; scalars
 /// use `[X:xxxx]` (type letter + 4-char format). An AoT *entry* projects as a
 /// Table, so it reads `(-) [T/S]`.
-fn type_tag(kind: &NodeKind, format: Format, key_sign: KeySign) -> String {
+fn type_tag(
+    kind: &NodeKind,
+    format: Format,
+    key_sign: KeySign,
+    doc: crate::model::document::DocFormat,
+    read_only: bool,
+) -> String {
+    use crate::model::document::DocFormat;
     let sign = match key_sign {
         KeySign::Bare => "(B)",
         KeySign::Quoted => "(Q)",
         KeySign::Dotted => "(D)",
         KeySign::None => "(-)",
     };
+    // A YAML opaque (out-of-subset) node is read-only — tag it `[opaq ]`
+    // regardless of its underlying kind. (JSONC `/* */` block comments are also
+    // read-only but stay `[C]`, so gate on the YAML format.)
+    if read_only && doc == DocFormat::Yaml {
+        return format!("{sign} {:<8}", "[opaq ]");
+    }
     let slot: &str = match kind {
         NodeKind::Root => "[G]",
         NodeKind::Comment(_) => "[C]",
-        NodeKind::Array => match format {
-            Format::Multiline => "[A/M]",
+        NodeKind::Array => match (doc, format) {
+            (DocFormat::Yaml, Format::Block) => "[A/B]",
+            (DocFormat::Yaml, _) => "[A/F]", // inline flow sequence
+            (_, Format::Multiline) => "[A/M]",
             _ => "[A/I]",
         },
         NodeKind::ArrayOfTables => "[A/T]",
-        NodeKind::InlineTable => "[T/I]",
-        NodeKind::Table => match format {
-            Format::Dotted => "[T/D]",
-            Format::Multiline => "[T/M]",
+        NodeKind::InlineTable => match doc {
+            DocFormat::Yaml => "[T/F]",
+            _ => "[T/I]",
+        },
+        NodeKind::Table => match (doc, format) {
+            (DocFormat::Yaml, Format::Block) => "[T/B]",
+            (DocFormat::Yaml, _) => "[T/F]",
+            (_, Format::Dotted) => "[T/D]",
+            (_, Format::Multiline) => "[T/M]",
             _ => "[T/S]",
         },
         NodeKind::Scalar(st) => match (st, format) {
             (ScalarType::String, Format::MultilineBasic) => "[S:mstr]",
             (ScalarType::String, Format::Literal) => "[S:lit ]",
             (ScalarType::String, Format::MultilineLiteral) => "[S:mlit]",
+            (ScalarType::String, Format::SingleQuoted) => "[S:sq  ]",
+            (ScalarType::String, Format::DoubleQuoted) => "[S:dq  ]",
+            (ScalarType::String, Format::LiteralBlock) => "[S:lit ]",
+            (ScalarType::String, Format::Folded) => "[S:fold]",
             (ScalarType::String, _) => "[S:str ]",
             (ScalarType::Integer, Format::Hex) => "[I:hex ]",
             (ScalarType::Integer, Format::Octal) => "[I:oct ]",
@@ -2743,71 +2774,183 @@ mod tests {
 
     #[test]
     fn type_tag_is_fixed_pitch() {
+        use crate::model::document::DocFormat::{Json, Toml, Yaml};
         let cases = [
-            (NodeKind::Root, Format::Plain, KeySign::None, "(-) [G]     "),
+            (
+                NodeKind::Root,
+                Format::Plain,
+                KeySign::None,
+                Toml,
+                false,
+                "(-) [G]     ",
+            ),
             (
                 NodeKind::Comment("# c".into()),
                 Format::Plain,
                 KeySign::None,
+                Toml,
+                false,
                 "(-) [C]     ",
             ),
             (
                 NodeKind::Array,
                 Format::Inline,
                 KeySign::Bare,
+                Toml,
+                false,
                 "(B) [A/I]   ",
             ),
             (
                 NodeKind::Array,
                 Format::Multiline,
                 KeySign::Quoted,
+                Toml,
+                false,
                 "(Q) [A/M]   ",
             ),
             (
                 NodeKind::ArrayOfTables,
                 Format::Plain,
                 KeySign::Bare,
+                Toml,
+                false,
                 "(B) [A/T]   ",
             ),
             (
                 NodeKind::InlineTable,
                 Format::Inline,
                 KeySign::Dotted,
+                Toml,
+                false,
                 "(D) [T/I]   ",
             ),
             (
                 NodeKind::Table,
                 Format::Scope,
                 KeySign::Bare,
+                Toml,
+                false,
                 "(B) [T/S]   ",
             ),
             (
                 NodeKind::Table,
                 Format::Dotted,
                 KeySign::Bare,
+                Toml,
+                false,
                 "(B) [T/D]   ",
             ),
             (
                 NodeKind::Scalar(ScalarType::String),
                 Format::MultilineLiteral,
                 KeySign::Bare,
+                Toml,
+                false,
                 "(B) [S:mlit]",
             ),
             (
                 NodeKind::Scalar(ScalarType::Float),
                 Format::Inf,
                 KeySign::Bare,
+                Toml,
+                false,
                 "(B) [F:inf ]",
             ),
             (
                 NodeKind::Scalar(ScalarType::LocalDate),
                 Format::Plain,
                 KeySign::Bare,
+                Toml,
+                false,
                 "(B) [D:ldat]",
             ),
+            // YAML-specific tags.
+            (
+                NodeKind::Table,
+                Format::Block,
+                KeySign::Bare,
+                Yaml,
+                false,
+                "(B) [T/B]   ",
+            ),
+            (
+                NodeKind::Table,
+                Format::Inline,
+                KeySign::Bare,
+                Yaml,
+                false,
+                "(B) [T/F]   ",
+            ),
+            (
+                NodeKind::InlineTable,
+                Format::Inline,
+                KeySign::Bare,
+                Yaml,
+                false,
+                "(B) [T/F]   ",
+            ),
+            (
+                NodeKind::Array,
+                Format::Block,
+                KeySign::Bare,
+                Yaml,
+                false,
+                "(B) [A/B]   ",
+            ),
+            (
+                NodeKind::Array,
+                Format::Inline,
+                KeySign::None,
+                Yaml,
+                false,
+                "(-) [A/F]   ",
+            ),
+            (
+                NodeKind::Scalar(ScalarType::String),
+                Format::SingleQuoted,
+                KeySign::Bare,
+                Yaml,
+                false,
+                "(B) [S:sq  ]",
+            ),
+            (
+                NodeKind::Scalar(ScalarType::String),
+                Format::DoubleQuoted,
+                KeySign::Bare,
+                Yaml,
+                false,
+                "(B) [S:dq  ]",
+            ),
+            (
+                NodeKind::Scalar(ScalarType::String),
+                Format::Folded,
+                KeySign::Bare,
+                Yaml,
+                false,
+                "(B) [S:fold]",
+            ),
+            // A read-only YAML opaque node tags `[opaq ]` whatever its kind.
+            (
+                NodeKind::Scalar(ScalarType::String),
+                Format::Plain,
+                KeySign::None,
+                Yaml,
+                true,
+                "(-) [opaq ] ",
+            ),
+            // The opaque gate is YAML-only: a read-only JSONC block comment
+            // still renders `[C]`, not `[opaq ]`.
+            (
+                NodeKind::Comment("/* x */".into()),
+                Format::Plain,
+                KeySign::None,
+                Json,
+                true,
+                "(-) [C]     ",
+            ),
         ];
-        for (kind, fmt, sign, expected) in cases {
-            let tag = type_tag(&kind, fmt, sign);
+        for (kind, fmt, sign, doc, read_only, expected) in cases {
+            let tag = type_tag(&kind, fmt, sign, doc, read_only);
             assert_eq!(tag, expected);
             assert_eq!(tag.chars().count(), 12, "tag must be 12 cols: {tag:?}");
         }
