@@ -1,0 +1,17 @@
+# Top-of-file comment block
+# spanning two lines
+name: app   # trailing comment on a value
+
+# A standalone comment above a section
+server:
+  # indented comment inside a mapping
+  host: localhost  # inline
+  port: 8080
+
+# break
+
+list:
+  - one    # first
+  - two
+  # comment between elements
+  - three

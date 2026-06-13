@@ -1,0 +1,13 @@
+name: my-app
+debug: false
+port: 8080
+timeout: 30
+log_level: info
+database:
+  host: localhost
+  port: 5432
+  name: mydb
+features:
+  - auth
+  - billing
+  - reporting

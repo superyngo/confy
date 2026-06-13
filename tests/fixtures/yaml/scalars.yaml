@@ -1,0 +1,29 @@
+plain_str: hello world
+single_str: 'it''s quoted'
+double_str: "line\twith\tescapes"
+literal: |
+  first line
+  second line
+  third line
+folded: >
+  this folds
+  onto one line
+literal_keep: |+
+  keeps trailing
+
+
+folded_strip: >-
+  no trailing newline
+null_tilde: ~
+null_word: null
+bool_true: true
+bool_false: false
+int_dec: 42
+int_hex: 0x1A
+int_oct: 0o17
+float_plain: 3.14
+float_exp: 6.022e23
+float_inf: .inf
+float_ninf: -.inf
+float_nan: .nan
+looks_like_date: 2026-06-13

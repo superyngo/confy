@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust: [stable, beta]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup toolchain install ${{ matrix.rust }}
+      - name: Build
+        run: cargo build --verbose
+      - name: Test
+        run: |
+          cargo test --all
+          cargo clippy -- -D warnings
+      - name: Notes
+        run: >
+          this is a folded
+          multi-line string that
+          collapses to one line

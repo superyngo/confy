@@ -1,0 +1,27 @@
+# docker-compose with anchors, aliases and merge keys (out-of-subset → opaque)
+version: "3.8"
+
+x-common: &common
+  restart: always
+  networks:
+    - backend
+
+services:
+  web:
+    <<: *common
+    image: nginx:1.25
+    ports:
+      - "8080:80"
+    environment:
+      - NGINX_HOST=example.com
+      - NGINX_PORT=80
+  db:
+    <<: *common
+    image: postgres:16
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: secret
+
+networks:
+  backend:
+    driver: bridge
