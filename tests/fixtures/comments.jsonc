@@ -1,0 +1,14 @@
+// header comment
+// second header line
+{
+  "a": 1, // trailing
+  // standalone above b
+  "b": [
+    1,
+    2, // trailing on element
+  ],
+  /* block comment (read-only) */
+  "c": {
+    "nested": true
+  },
+}

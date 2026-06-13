@@ -1,0 +1,11 @@
+{
+  "empty_obj": {},
+  "empty_arr": [],
+  "nested": { "a": { "b": { "c": 1 } } },
+  "mixed_arr": [1, "two", true, null, 3.14, 1e10],
+  "arr_of_arr": [[1, 2], [3, 4]],
+  "neg": -5,
+  "exp": -1.2e-3,
+  "unicode": "café ☕",
+  "escaped": "line1\nline2\ttab\"quote"
+}
