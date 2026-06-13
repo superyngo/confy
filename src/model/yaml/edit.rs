@@ -460,76 +460,56 @@ fn find_container(tree: &SyntaxNode, parent_path: &[Seg]) -> Result<SyntaxNode, 
     Ok(container)
 }
 
-/// Collect the items of a MAPPING or SEQUENCE as verbatim text strings
-/// (trimmed of leading INDENT but keeping the trailing newline).
-/// Order matches projection order (same traversal as project.rs).
+/// The ordered "slot elements" of a MAPPING or SEQUENCE: each MAP_ENTRY/SEQ_ENTRY
+/// node and each standalone COMMENT token, in document order. Single source of
+/// truth for what counts as an item — `collect_items` and the index lookups all
+/// build on it so their positions can never drift.
+fn slot_elements(
+    container: &SyntaxNode,
+) -> Vec<rowan::NodeOrToken<SyntaxNode, crate::model::yaml::syntax::SyntaxToken>> {
+    container
+        .children_with_tokens()
+        .filter(|c| match c {
+            rowan::NodeOrToken::Node(n) => {
+                matches!(n.kind(), SyntaxKind::MAP_ENTRY | SyntaxKind::SEQ_ENTRY)
+            }
+            rowan::NodeOrToken::Token(t) => t.kind() == SyntaxKind::COMMENT,
+        })
+        .collect()
+}
+
+/// Collect the slot items as verbatim text strings, newline-terminated.
+/// Order matches projection order (same traversal as project.rs). A COMMENT token
+/// excludes its line's trailing NEWLINE (a separate token), so re-add it to keep
+/// comment items newline-terminated like entry items — else concatenation in
+/// `rebuild_and_splice` would run lines together.
 fn collect_items(container: &SyntaxNode) -> Vec<String> {
-    let mut items = Vec::new();
-    for child in container.children_with_tokens() {
-        match &child {
-            rowan::NodeOrToken::Node(n)
-                if matches!(n.kind(), SyntaxKind::MAP_ENTRY | SyntaxKind::SEQ_ENTRY) =>
-            {
-                items.push(n.text().to_string());
-            }
-            rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::COMMENT => {
-                // Standalone comment at this level. A COMMENT token excludes its
-                // line's trailing NEWLINE (a separate token), so re-add it to keep
-                // items newline-terminated like MAP_ENTRY/SEQ_ENTRY items — else
-                // concatenation in `rebuild_and_splice` would run lines together.
-                items.push(format!("{}\n", t.text().trim_end()));
-            }
-            _ => {}
-        }
-    }
-    items
+    slot_elements(container)
+        .iter()
+        .map(|el| match el {
+            rowan::NodeOrToken::Node(n) => n.text().to_string(),
+            rowan::NodeOrToken::Token(t) => format!("{}\n", t.text().trim_end()),
+        })
+        .collect()
 }
 
-/// Position of an entry `node` within `collect_items`'s slot sequence, matched by
-/// node identity (not text) so duplicate-valued siblings resolve correctly.
+/// Position of an entry `node` among the slot items, matched by node identity (not
+/// text) so duplicate-valued siblings resolve correctly.
 fn item_index_of_node(container: &SyntaxNode, node: &SyntaxNode) -> Option<usize> {
-    let mut i = 0;
-    for child in container.children_with_tokens() {
-        match &child {
-            rowan::NodeOrToken::Node(n)
-                if matches!(n.kind(), SyntaxKind::MAP_ENTRY | SyntaxKind::SEQ_ENTRY) =>
-            {
-                if n == node {
-                    return Some(i);
-                }
-                i += 1;
-            }
-            rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::COMMENT => i += 1,
-            _ => {}
-        }
-    }
-    None
+    slot_elements(container)
+        .iter()
+        .position(|el| matches!(el, rowan::NodeOrToken::Node(n) if n == node))
 }
 
-/// Position of a standalone COMMENT `tok` within `collect_items`'s slot sequence,
-/// matched by token identity so duplicate-text comment blocks resolve correctly.
+/// Position of a standalone COMMENT `tok` among the slot items, matched by token
+/// identity so duplicate-text comment blocks resolve correctly.
 fn item_index_of_comment(
     container: &SyntaxNode,
     tok: &crate::model::yaml::syntax::SyntaxToken,
 ) -> Option<usize> {
-    let mut i = 0;
-    for child in container.children_with_tokens() {
-        match &child {
-            rowan::NodeOrToken::Node(n)
-                if matches!(n.kind(), SyntaxKind::MAP_ENTRY | SyntaxKind::SEQ_ENTRY) =>
-            {
-                i += 1
-            }
-            rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::COMMENT => {
-                if t == tok {
-                    return Some(i);
-                }
-                i += 1;
-            }
-            _ => {}
-        }
-    }
-    None
+    slot_elements(container)
+        .iter()
+        .position(|el| matches!(el, rowan::NodeOrToken::Token(t) if t == tok))
 }
 
 /// Detect the indentation depth of a container's entries (number of leading spaces).
