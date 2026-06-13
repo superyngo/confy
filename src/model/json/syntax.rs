@@ -84,9 +84,5 @@ impl rowan::Language for Json {
     }
 }
 
-#[allow(dead_code)]
 pub type SyntaxNode = rowan::SyntaxNode<Json>;
-#[allow(dead_code)]
 pub type SyntaxToken = rowan::SyntaxToken<Json>;
-#[allow(dead_code)]
-pub type SyntaxElement = rowan::SyntaxElement<Json>;

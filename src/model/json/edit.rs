@@ -1253,14 +1253,14 @@ fn rebuild_multiline_from_inline(container: &SyntaxNode, items: &[String]) -> St
 }
 
 /// Detect the whitespace indent of the line that contains the container's opening token.
-/// Walks ancestors to find a MEMBER or VALUE whose line starts with whitespace.
+/// Walks ancestors to find a MEMBER whose line starts with whitespace (NEWLINE + WHITESPACE).
 fn detect_container_line_indent(container: &SyntaxNode) -> String {
-    // Look at container's parent chain to find a MEMBER node, then look at
-    // that member's leading whitespace in its parent's children_with_tokens.
+    // Walk up to find the enclosing MEMBER, then look at the MEMBER's leading whitespace
+    // in its parent's children sequence (NEWLINE + WHITESPACE pattern before the MEMBER).
     let mut node: Option<SyntaxNode> = container.parent();
     while let Some(n) = node {
-        if n.kind() == SyntaxKind::MEMBER || n.kind() == SyntaxKind::VALUE {
-            // Look at the parent for the whitespace before this node.
+        if n.kind() == SyntaxKind::MEMBER {
+            // Look at the parent (OBJECT/ARRAY) for NEWLINE + WHITESPACE before this MEMBER.
             if let Some(parent) = n.parent() {
                 let children: Vec<_> = parent.children_with_tokens().collect();
                 let n_idx = children.iter().position(|c| match c {
@@ -1286,7 +1286,7 @@ fn detect_container_line_indent(container: &SyntaxNode) -> String {
         }
         node = n.parent();
     }
-    // Fallback: no indent (top-level inline)
+    // Fallback: no indent (top-level or inline ancestor with no own-line indent)
     String::new()
 }
 
@@ -1305,15 +1305,8 @@ fn convert_float(tree: &SyntaxNode, path: &[Seg], target: KindTarget) -> Result<
             format!("{:e}", value)
         }
         KindTarget::FloatPlain => {
-            // Use Rust's {} — for 1500.0 this gives "1500"; for 1.5 gives "1.5"
-            let s = format!("{}", value);
-            // Ensure it's not in exponent form (Rust {} may use e-notation for very large/small)
-            if s.contains('e') || s.contains('E') {
-                // Fall back to a fixed representation
-                format!("{:.}", value)
-            } else {
-                s
-            }
+            // Rust's {} on f64 never emits e/E notation — use it directly.
+            format!("{}", value)
         }
         _ => unreachable!(),
     };
@@ -1501,7 +1494,7 @@ mod tests {
     #[test]
     fn stubbed_mutations_unsupported() {
         let t = parse("{ \"a\": 1 }\n");
-        // ConvertKind is still stubbed — use it to verify Unsupported.
+        // ConvertKind TableInline on an integer value -> not an object -> Unsupported.
         let r = apply(
             &t,
             Mutation::ConvertKind {
@@ -1837,8 +1830,8 @@ mod tests {
                 target: KindTarget::ArrayMultiline,
             },
         );
-        // item indent = 2 spaces (fallback); close indent = "" (inline ancestor, no parent newline)
-        assert_eq!(out, "{\n  \"a\": [\n  1,\n  2\n]\n}\n");
+        // "a" member is on a line with 2-space indent, so items at 4 spaces, close at 2 spaces.
+        assert_eq!(out, "{\n  \"a\": [\n    1,\n    2\n  ]\n}\n");
     }
 
     #[test]
@@ -1887,7 +1880,7 @@ mod tests {
                 target: KindTarget::TableMultiline,
             },
         );
-        // item indent = 2 spaces (fallback); close indent = "" (inline ancestor, no parent newline)
+        // "o" member has no own-line indent (inline ancestor) — fallback: items at 2 spaces, close at 0.
         assert_eq!(out, "{ \"o\": {\n  \"a\": 1,\n  \"b\": 2\n} }\n");
     }
 
