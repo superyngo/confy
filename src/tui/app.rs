@@ -2434,6 +2434,7 @@ fn type_tag(kind: &NodeKind, format: Format, key_sign: KeySign) -> String {
         NodeKind::InlineTable => "[T/I]",
         NodeKind::Table => match format {
             Format::Dotted => "[T/D]",
+            Format::Multiline => "[T/M]",
             _ => "[T/S]",
         },
         NodeKind::Scalar(st) => match (st, format) {
@@ -2447,8 +2448,10 @@ fn type_tag(kind: &NodeKind, format: Format, key_sign: KeySign) -> String {
             (ScalarType::Integer, _) => "[I:dec ]",
             (ScalarType::Float, Format::Inf) => "[F:inf ]",
             (ScalarType::Float, Format::Nan) => "[F:nan ]",
+            (ScalarType::Float, Format::Exponent) => "[F:exp ]",
             (ScalarType::Float, _) => "[F:flt ]",
             (ScalarType::Bool, _) => "[B:bool]",
+            (ScalarType::Null, _) => "[S:null]",
             (ScalarType::OffsetDatetime, _) => "[D:odt ]",
             (ScalarType::LocalDatetime, _) => "[D:ldt ]",
             (ScalarType::LocalDate, _) => "[D:ldat]",

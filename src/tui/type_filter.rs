@@ -28,6 +28,9 @@ pub enum TypeToken {
     InlineTable,
     TableScope,
     TableDotted,
+    TableMultiline,    // [T/M]  JSON multiline object
+    Null,              // [S:null]
+    FloatExp,          // [F:exp ]
     StrBasic,
     StrMBasic,
     StrLit,
@@ -60,6 +63,7 @@ pub fn classify(kind: &NodeKind, format: Format) -> TypeToken {
         NodeKind::InlineTable => TypeToken::InlineTable,
         NodeKind::Table => match format {
             Format::Dotted => TypeToken::TableDotted,
+            Format::Multiline => TypeToken::TableMultiline,
             _ => TypeToken::TableScope,
         },
         NodeKind::Scalar(st) => match (st, format) {
@@ -73,8 +77,10 @@ pub fn classify(kind: &NodeKind, format: Format) -> TypeToken {
             (ScalarType::Integer, _) => TypeToken::IntDec,
             (ScalarType::Float, Format::Inf) => TypeToken::FloatInf,
             (ScalarType::Float, Format::Nan) => TypeToken::FloatNan,
+            (ScalarType::Float, Format::Exponent) => TypeToken::FloatExp,
             (ScalarType::Float, _) => TypeToken::FloatPlain,
             (ScalarType::Bool, _) => TypeToken::Bool,
+            (ScalarType::Null, _) => TypeToken::Null,
             (ScalarType::OffsetDatetime, _) => TypeToken::Odt,
             (ScalarType::LocalDatetime, _) => TypeToken::Ldt,
             (ScalarType::LocalDate, _) => TypeToken::LDate,
@@ -101,10 +107,10 @@ impl Group {
         use TypeToken::*;
         match self {
             Group::Array => &[ArrayInline, ArrayMultiline],
-            Group::Table => &[Aot, InlineTable, TableScope, TableDotted],
+            Group::Table => &[Aot, InlineTable, TableScope, TableDotted, TableMultiline],
             Group::String => &[StrBasic, StrMBasic, StrLit, StrMLit],
             Group::Integer => &[IntDec, IntHex, IntOct, IntBin],
-            Group::Float => &[FloatPlain, FloatInf, FloatNan],
+            Group::Float => &[FloatPlain, FloatInf, FloatNan, FloatExp],
             Group::Date => &[Odt, Ldt, LDate, LTime],
         }
     }
@@ -156,7 +162,10 @@ fn token_label(t: TypeToken) -> &'static str {
         FloatPlain => "[F:flt ]",
         FloatInf => "[F:inf ]",
         FloatNan => "[F:nan ]",
+        FloatExp => "[F:exp ]",
         Bool => "[B:bool]",
+        Null => "[S:null]",
+        TableMultiline => "[T/M] multiline",
         Odt => "[D:odt ]",
         Ldt => "[D:ldt ]",
         LDate => "[D:ldat]",
@@ -426,6 +435,19 @@ mod tests {
         assert_eq!(
             classify(&NodeKind::Scalar(ScalarType::LocalTime), Format::Plain),
             TypeToken::LTime
+        );
+        // New JSON atoms.
+        assert_eq!(
+            classify(&NodeKind::Scalar(ScalarType::Null), Format::Plain),
+            TypeToken::Null
+        );
+        assert_eq!(
+            classify(&NodeKind::Scalar(ScalarType::Float), Format::Exponent),
+            TypeToken::FloatExp
+        );
+        assert_eq!(
+            classify(&NodeKind::Table, Format::Multiline),
+            TypeToken::TableMultiline
         );
     }
 

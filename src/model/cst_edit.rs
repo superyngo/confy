@@ -950,6 +950,7 @@ fn convert_kind(
         KT::TableInline | KT::TableDotted | KT::TableScope => {
             convert_table(tree, &proj.root, &idx, path, target)
         }
+        KT::TableMultiline => Err(MutateError::Unsupported),
     }
 }
 
