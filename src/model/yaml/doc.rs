@@ -120,10 +120,62 @@ impl YamlDocument {
     }
 }
 
-/// Per-node convertible-kind list (current notation excluded). See Task 6 for
-/// the body; stubbed empty until then.
-pub(crate) fn kind_options(_tree: &NodeTree, _path: &[Seg]) -> Vec<(String, KindTarget)> {
-    Vec::new()
+/// Per-node convertible-kind list (current notation excluded).
+pub(crate) fn kind_options(tree: &NodeTree, path: &[Seg]) -> Vec<(String, KindTarget)> {
+    use crate::model::node::{Format, NodeKind, ScalarType};
+    let Some(node) = tree.node_at(path) else {
+        return Vec::new();
+    };
+    if node.read_only {
+        return Vec::new();
+    }
+    match &node.kind {
+        NodeKind::Table | NodeKind::InlineTable | NodeKind::Array => {
+            if node.format == Format::Inline {
+                vec![("block  [_/B]".into(), KindTarget::Block)]
+            } else {
+                vec![("flow  [_/F]".into(), KindTarget::Flow)]
+            }
+        }
+        NodeKind::Scalar(ScalarType::String) => {
+            let all = [
+                (Format::Plain, "plain", KindTarget::StringPlain),
+                (Format::SingleQuoted, "single", KindTarget::StringSingle),
+                (Format::DoubleQuoted, "double", KindTarget::StringDouble),
+                (
+                    Format::LiteralBlock,
+                    "literal |",
+                    KindTarget::StringLiteralBlock,
+                ),
+                (Format::Folded, "folded >", KindTarget::StringFolded),
+            ];
+            all.iter()
+                .filter(|(f, ..)| *f != node.format)
+                .map(|(_, l, t)| (l.to_string(), *t))
+                .collect()
+        }
+        NodeKind::Scalar(ScalarType::Integer) => {
+            let all = [
+                (Format::Decimal, "dec", KindTarget::IntDecimal),
+                (Format::Hex, "hex 0x", KindTarget::IntHex),
+                (Format::Octal, "oct 0o", KindTarget::IntOctal),
+            ];
+            all.iter()
+                .filter(|(f, ..)| *f != node.format)
+                .map(|(_, l, t)| (l.to_string(), *t))
+                .collect()
+        }
+        NodeKind::Scalar(ScalarType::Float) => {
+            if node.format == Format::Exponent {
+                vec![("plain float".into(), KindTarget::FloatPlain)]
+            } else if node.format == Format::Plain {
+                vec![("exponent float".into(), KindTarget::FloatExponent)]
+            } else {
+                Vec::new()
+            }
+        }
+        _ => Vec::new(),
+    }
 }
 
 #[cfg(test)]
@@ -155,6 +207,36 @@ mod tests {
         let mut f = tempfile::Builder::new().suffix(".yaml").tempfile().unwrap();
         f.write_all(b"---\na: 1\n---\nb: 2\n").unwrap();
         assert!(YamlDocument::load(f.path()).is_err());
+    }
+
+    #[test]
+    fn kind_options_per_node() {
+        use crate::model::document::KindTarget as KT;
+        let src = "blk:\n  x: 1\nflow: {a: 1}\nq: 'hi'\nh: 0xff\ne: 1.5e3\n";
+        let doc = yaml_from_str(".yaml", src);
+        let opts =
+            |p: &[Seg]| -> Vec<KT> { doc.kind_options(p).into_iter().map(|(_, t)| t).collect() };
+        // block mapping -> flow
+        assert_eq!(opts(&[Seg::Key("blk".into())]), vec![KT::Flow]);
+        // flow mapping -> block
+        assert_eq!(opts(&[Seg::Key("flow".into())]), vec![KT::Block]);
+        // single-quoted string -> plain/double/literal/folded (single excluded)
+        assert_eq!(
+            opts(&[Seg::Key("q".into())]),
+            vec![
+                KT::StringPlain,
+                KT::StringDouble,
+                KT::StringLiteralBlock,
+                KT::StringFolded
+            ]
+        );
+        // hex int -> dec/oct (hex excluded)
+        assert_eq!(
+            opts(&[Seg::Key("h".into())]),
+            vec![KT::IntDecimal, KT::IntOctal]
+        );
+        // exponent float -> plain
+        assert_eq!(opts(&[Seg::Key("e".into())]), vec![KT::FloatPlain]);
     }
 
     #[test]
