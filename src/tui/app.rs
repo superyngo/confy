@@ -1901,6 +1901,10 @@ impl App {
         // target. A *single-line* array is legal but rewrites the array's layout
         // (`InsertComment` upgrades it to multiline), so it prompts y/n first
         // unless this paste was re-issued from that prompt (`allow_upgrade`).
+        // TODO(jsonc-upgrade): also gate comment-paste/InsertComment — when
+        // `!self.doc.as_ref().map(|d| d.supports_comments()).unwrap_or(true)` and
+        // `!comment_entries.is_empty()`, show a `PromptKind::JsoncUpgrade` with a
+        // `PendingComment` variant that re-issues `do_paste` after `enable_comments()`.
         if !comment_entries.is_empty() {
             enum Dest {
                 Ok,
@@ -2098,6 +2102,30 @@ impl App {
             Some(r) => r.path.clone(),
             None => return,
         };
+        // Determine direction: if the current node is already a Comment, remark
+        // un-comments it (no comment authoring). If it's a live node, remark authors
+        // a comment — so we need `supports_comments()`.
+        let authoring = self
+            .tree
+            .node_at(&path)
+            .map(|n| !matches!(n.kind, NodeKind::Comment(_)))
+            .unwrap_or(false);
+        let supports = self
+            .doc
+            .as_ref()
+            .map(|d| d.supports_comments())
+            .unwrap_or(true);
+        if authoring && !supports {
+            self.mode = Mode::Prompt(PromptKind::JsoncUpgrade {
+                pending: crate::tui::state::PendingComment::Remark { path },
+            });
+            return;
+        }
+        self.do_remark(path);
+    }
+
+    /// Apply `Mutation::Remark` for the given path (post-gate).
+    fn do_remark(&mut self, path: Path) {
         let doc = match self.doc.as_mut() {
             Some(d) => d,
             None => return,
@@ -2105,7 +2133,7 @@ impl App {
         match doc.apply(Mutation::Remark { path }) {
             Ok(()) => self.on_mutation_success(),
             Err(crate::model::document::MutateError::Fragment(_)) => {
-                self.status = Some("not valid TOML, kept as comment".into());
+                self.status = Some("not valid comment, kept as-is".into());
             }
             Err(e) => self.error = Some(format!("remark error: {e}")),
         }
@@ -2273,6 +2301,28 @@ impl App {
                 match self.clipboard.take() {
                     Some(cb) => self.do_paste(cb, target, oc, true),
                     None => self.status = None,
+                }
+                PromptOutcome::Consumed
+            }
+            Mode::Prompt(PromptKind::JsoncUpgrade { .. }) => {
+                match c {
+                    'y' | 'Y' => {
+                        if let Mode::Prompt(PromptKind::JsoncUpgrade { pending }) =
+                            std::mem::replace(&mut self.mode, Mode::Normal)
+                        {
+                            if let Some(d) = self.doc.as_mut() {
+                                d.enable_comments();
+                            }
+                            match pending {
+                                crate::tui::state::PendingComment::Remark { path } => {
+                                    self.do_remark(path)
+                                }
+                            }
+                        }
+                    }
+                    _ => {
+                        self.mode = self.resting_mode();
+                    }
                 }
                 PromptOutcome::Consumed
             }
@@ -3309,6 +3359,54 @@ mod tests {
         assert!(
             s.contains("# port = 8080"),
             "remark should comment out: {s:?}"
+        );
+    }
+
+    #[test]
+    fn pure_json_remark_prompts_then_upgrades() {
+        use crate::model::document::ConfigDocument;
+        use std::io::Write;
+        let mut f = tempfile::NamedTempFile::with_suffix(".json").unwrap();
+        f.write_all(b"{\n  \"a\": 1\n}\n").unwrap();
+        let doc = crate::model::any_doc::AnyDocument::load_as(
+            f.path(),
+            crate::model::document::DocFormat::Json,
+        )
+        .unwrap();
+        let mut app = App::new(doc);
+
+        // Expand the root so "a" appears as a row, then position the cursor on it.
+        app.expand_level();
+        app.rebuild_rows();
+        let ai = app.rows.iter().position(|r| r.key == "a").unwrap();
+        app.cursor = ai;
+
+        // Remark on a live node in a pure .json must show the JSONC-upgrade prompt.
+        app.remark();
+        assert!(
+            matches!(
+                app.mode,
+                Mode::Prompt(PromptKind::JsoncUpgrade { .. })
+            ),
+            "expected JsoncUpgrade prompt, got {:?}",
+            std::mem::discriminant(&app.mode)
+        );
+        // Document must be unchanged at this point.
+        assert!(
+            !app.doc.as_ref().unwrap().is_dirty(),
+            "doc must be clean while prompt is pending"
+        );
+
+        // Confirm with 'y' — should enable comments and apply the remark.
+        app.handle_prompt_key('y');
+        let s = app.doc.as_ref().unwrap().serialize();
+        assert!(
+            s.contains("//"),
+            "after upgrade the serialized output must contain a // comment: {s:?}"
+        );
+        assert!(
+            app.doc.as_ref().unwrap().supports_comments(),
+            "doc must now support comments"
         );
     }
 

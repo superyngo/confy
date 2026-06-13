@@ -46,6 +46,16 @@ pub enum PromptKind {
         target: crate::model::document::Target,
         on_collision: crate::model::document::OnCollision,
     },
+    /// A comment-introducing op on a pure `.json` file: confirm the JSONC upgrade
+    /// before applying the deferred operation.
+    JsoncUpgrade {
+        pending: PendingComment,
+    },
+}
+
+/// A comment-introducing operation deferred behind the JSONC-upgrade confirmation.
+pub enum PendingComment {
+    Remark { path: Path },
 }
 
 /// Which column the inline editor is currently editing. `Tab` toggles between

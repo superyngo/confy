@@ -539,6 +539,9 @@ fn draw_prompt_overlay(f: &mut Frame, app: &App) {
         Mode::Prompt(PromptKind::ArrayUpgrade { .. }) => {
             " Reformat array to multiline and insert?  y/n".into()
         }
+        Mode::Prompt(PromptKind::JsoncUpgrade { .. }) => {
+            " Introduce a // comment? This makes the file JSONC.  y/n".into()
+        }
         _ => return,
     };
     let area = centered_rect(60, 3, f.area());
