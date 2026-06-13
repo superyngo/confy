@@ -92,7 +92,7 @@ pub fn help_text(format: crate::model::document::DocFormat) -> &'static str {
         // Until their backends land (load_as bails), these are unreachable;
         // wire real texts in Phases 2–3.
         DocFormat::Json => JSON_HELP,
-        DocFormat::Yaml => TOML_HELP, // Phase 3
+        DocFormat::Yaml => YAML_HELP,
     }
 }
 
@@ -172,6 +172,46 @@ const JSON_HELP: &str = "\
    [B:bool] boolean
  ";
 
+const YAML_HELP: &str = "\
+ j/k/Arrows  Move cursor       PgUp/PgDn  Page up/down
+ Home/End     First/last row    0/9         Collapse/expand all
+ 1/2          Expand/collapse one level (subtree / ascend)
+ Enter/Space  Expand branch or open leaf detail
+ s            Toggle select     Shift+Up/Dn Range select
+ i            Detail/info popup (any node)
+ e            Edit (inline/$EDITOR)  E       Force $EDITOR
+ ←/→          Toggle bool / ±1 number    a   Add node
+ d/Del        Delete            x/c/v       Cut/copy/paste
+ F2           Rename key (inline, works for all node types)
+ r            Remark toggle (comment out with #)   z/y  Undo/redo
+ K            Kind switch (map/seq block↔flow, string style, int radix, float plain↔exp)
+ /            Fuzzy filter      f           Type filter (checkbox menu)
+ /…Enter      Lock in filtered list   Esc   Clear filter / selection
+ w/Ctrl+s     Save              q           Quit
+ ?            This help
+
+ ── KIND column ──────────────────────────────────────────────────
+ Key sign (first 3 chars):
+   (B) bare key   (Q) quoted key   (-) no key
+
+ Containers:
+   [G]     root/file node
+   [C]     comment node
+   [A/B]   block sequence      [A/F]  flow sequence
+   [T/B]   block mapping       [T/F]  flow mapping
+   [opaq ] out-of-subset, read-only (anchors, aliases, merge, tags)
+
+ Scalars  [type:format]:
+   [S:str ] plain string        [S:sq  ] single-quoted string
+   [S:dq  ] double-quoted       [S:lit ] literal block (|)
+   [S:fold] folded block (>)
+   [I:dec ] decimal integer     [I:hex ] hex integer
+   [I:oct ] octal integer
+   [F:flt ] float               [F:exp ] exponent float
+   [F:inf ] infinity            [F:nan ] NaN
+   [B:bool] boolean             [S:null] null
+ ";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -185,5 +225,17 @@ mod tests {
         assert!(!j.contains("dotted"));
         assert!(!j.contains("[A/T]"));
         assert_ne!(j, help_text(DocFormat::Toml));
+    }
+
+    #[test]
+    fn yaml_help_differs_from_toml() {
+        use crate::model::document::DocFormat;
+        let y = help_text(DocFormat::Yaml);
+        assert!(y.contains("[opaq ]"));
+        assert!(y.contains("block"));
+        assert!(y.contains("flow"));
+        assert!(!y.contains("dotted"));
+        assert!(!y.contains("[A/T]"));
+        assert_ne!(y, help_text(DocFormat::Toml));
     }
 }
