@@ -91,7 +91,8 @@ pub fn help_text(format: crate::model::document::DocFormat) -> &'static str {
         DocFormat::Toml => TOML_HELP,
         // Until their backends land (load_as bails), these are unreachable;
         // wire real texts in Phases 2–3.
-        DocFormat::Json | DocFormat::Yaml => TOML_HELP,
+        DocFormat::Json => JSON_HELP,
+        DocFormat::Yaml => TOML_HELP, // Phase 3
     }
 }
 
@@ -135,3 +136,54 @@ const TOML_HELP: &str = "\
    [D:odt ] offset datetime     [D:ldt ] local datetime
    [D:ldat] local date          [D:ltim] local time
  ";
+
+const JSON_HELP: &str = "\
+ j/k/Arrows  Move cursor       PgUp/PgDn  Page up/down
+ Home/End     First/last row    0/9         Collapse/expand all
+ 1/2          Expand/collapse one level (subtree / ascend)
+ Enter/Space  Expand branch or open leaf detail
+ s            Toggle select     Shift+Up/Dn Range select
+ i            Detail/info popup (any node)
+ e            Edit (inline/$EDITOR)  E       Force $EDITOR
+ ←/→          Toggle bool / ±1 number    a   Add node
+ d/Del        Delete            x/c/v       Cut/copy/paste
+ F2           Rename key (inline, works for all node types)
+ r            Remark toggle (comment out with //)   z/y  Undo/redo
+ K            Kind switch (object/array inline↔multiline, float plain↔exponent)
+ /            Fuzzy filter      f           Type filter (checkbox menu)
+ /…Enter      Lock in filtered list   Esc   Clear filter / selection
+ w/Ctrl+s     Save              q           Quit
+ ?            This help
+
+ ── KIND column ──────────────────────────────────────────────────
+ Key sign (first 3 chars):
+   (Q) quoted key   (-) no key
+
+ Containers:
+   [G]     root/file node
+   [C]     comment node  (// line editable; /* */ block read-only)
+   [A/I]   inline array        [A/M]  multiline array
+   [T/I]   inline object       [T/M]  multiline object
+
+ Scalars  [type:format]:
+   [S:str ] string              [S:null] null
+   [I:dec ] integer
+   [F:flt ] float               [F:exp ] exponent float
+   [B:bool] boolean
+ ";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn json_help_differs_from_toml() {
+        use crate::model::document::DocFormat;
+        let j = help_text(DocFormat::Json);
+        assert!(j.contains("//"));
+        assert!(j.contains("[S:null]"));
+        assert!(!j.contains("dotted"));
+        assert!(!j.contains("[A/T]"));
+        assert_ne!(j, help_text(DocFormat::Toml));
+    }
+}
