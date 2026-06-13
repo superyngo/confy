@@ -6,7 +6,7 @@
 //! * **Key sign** (`key_signs`): `(B)/(Q)/(D)/(-)` — a node matches if its key
 //!   sign is in the set.
 //! * **Type** (`types`): one [`TypeToken`] per KIND-column slot — a node matches
-//!   if `classify(kind, format)` is in the set.
+//!   if `classify(kind, format, doc, read_only)` is in the set.
 //!
 //! Within each half the selections **union**; across halves they **intersect**
 //! (see [`TypeFilter::matches`]). An empty half imposes no constraint. The popup
@@ -48,29 +48,56 @@ pub enum TypeToken {
     Ldt,
     LDate,
     LTime,
+    // YAML atoms.
+    SeqBlock,        // [A/B] block sequence
+    SeqFlow,         // [A/F] flow sequence
+    MapBlock,        // [T/B] block mapping
+    MapFlow,         // [T/F] flow mapping (also YAML inline table)
+    StrSingle,       // [S:sq  ]
+    StrDouble,       // [S:dq  ]
+    StrLiteralBlock, // [S:lit ] (YAML literal block, shares tag with TOML Literal)
+    StrFolded,       // [S:fold]
+    Opaque,          // [opaq ] YAML out-of-subset read-only node
 }
 
-/// Map a node's `(kind, format)` to its [`TypeToken`] — the inverse of
-/// `type_tag`'s slot match (kept arm-for-arm identical).
-pub fn classify(kind: &NodeKind, format: Format) -> TypeToken {
+/// Map a node's `(kind, format, doc, read_only)` to its [`TypeToken`] — the
+/// inverse of `type_tag`'s slot match (kept arm-for-arm identical). `doc` and
+/// `read_only` thread the YAML opaque gate and block/flow split.
+pub fn classify(kind: &NodeKind, format: Format, doc: DocFormat, read_only: bool) -> TypeToken {
+    // Mirror `type_tag`'s opaque gate: a YAML out-of-subset read-only node is
+    // `[opaq ]` regardless of its underlying kind.
+    if read_only && doc == DocFormat::Yaml {
+        return TypeToken::Opaque;
+    }
     match kind {
         NodeKind::Root => TypeToken::Root,
         NodeKind::Comment(_) => TypeToken::Comment,
-        NodeKind::Array => match format {
-            Format::Multiline => TypeToken::ArrayMultiline,
+        NodeKind::Array => match (doc, format) {
+            (DocFormat::Yaml, Format::Block) => TypeToken::SeqBlock,
+            (DocFormat::Yaml, _) => TypeToken::SeqFlow,
+            (_, Format::Multiline) => TypeToken::ArrayMultiline,
             _ => TypeToken::ArrayInline,
         },
         NodeKind::ArrayOfTables => TypeToken::Aot,
-        NodeKind::InlineTable => TypeToken::InlineTable,
-        NodeKind::Table => match format {
-            Format::Dotted => TypeToken::TableDotted,
-            Format::Multiline => TypeToken::TableMultiline,
+        NodeKind::InlineTable => match doc {
+            DocFormat::Yaml => TypeToken::MapFlow,
+            _ => TypeToken::InlineTable,
+        },
+        NodeKind::Table => match (doc, format) {
+            (DocFormat::Yaml, Format::Block) => TypeToken::MapBlock,
+            (DocFormat::Yaml, _) => TypeToken::MapFlow,
+            (_, Format::Dotted) => TypeToken::TableDotted,
+            (_, Format::Multiline) => TypeToken::TableMultiline,
             _ => TypeToken::TableScope,
         },
         NodeKind::Scalar(st) => match (st, format) {
             (ScalarType::String, Format::MultilineBasic) => TypeToken::StrMBasic,
             (ScalarType::String, Format::Literal) => TypeToken::StrLit,
             (ScalarType::String, Format::MultilineLiteral) => TypeToken::StrMLit,
+            (ScalarType::String, Format::SingleQuoted) => TypeToken::StrSingle,
+            (ScalarType::String, Format::DoubleQuoted) => TypeToken::StrDouble,
+            (ScalarType::String, Format::LiteralBlock) => TypeToken::StrLiteralBlock,
+            (ScalarType::String, Format::Folded) => TypeToken::StrFolded,
             (ScalarType::String, _) => TypeToken::StrBasic,
             (ScalarType::Integer, Format::Hex) => TypeToken::IntHex,
             (ScalarType::Integer, Format::Octal) => TypeToken::IntOct,
@@ -99,6 +126,11 @@ pub enum Group {
     Integer,
     Float,
     Date,
+    // YAML-specific groups (membership differs from the TOML/JSON groups).
+    Seq,         // block + flow sequences
+    Map,         // block + flow mappings
+    StringYaml,  // plain + sq + dq + literal-block + folded (no TOML mstr/mlit)
+    IntegerYaml, // dec + hex + oct (no binary)
 }
 
 impl Group {
@@ -113,6 +145,10 @@ impl Group {
             Group::Integer => &[IntDec, IntHex, IntOct, IntBin],
             Group::Float => &[FloatPlain, FloatInf, FloatNan, FloatExp],
             Group::Date => &[Odt, Ldt, LDate, LTime],
+            Group::Seq => &[SeqBlock, SeqFlow],
+            Group::Map => &[MapBlock, MapFlow],
+            Group::StringYaml => &[StrBasic, StrSingle, StrDouble, StrLiteralBlock, StrFolded],
+            Group::IntegerYaml => &[IntDec, IntHex, IntOct],
         }
     }
 }
@@ -171,6 +207,15 @@ fn token_label(t: TypeToken) -> &'static str {
         Ldt => "[D:ldt ]",
         LDate => "[D:ldat]",
         LTime => "[D:ltim]",
+        SeqBlock => "[A/B] block",
+        SeqFlow => "[A/F] flow",
+        MapBlock => "[T/B] block",
+        MapFlow => "[T/F] flow",
+        StrSingle => "[S:sq  ]",
+        StrDouble => "[S:dq  ]",
+        StrLiteralBlock => "[S:lit ]",
+        StrFolded => "[S:fold]",
+        Opaque => "[opaq ] read-only",
     }
 }
 
@@ -210,7 +255,43 @@ pub fn layout(format: DocFormat) -> Vec<LayoutRow> {
             LayoutRow::Header("Null"),
             LayoutRow::Cells(vec![Token(T::Null)]),
         ],
-        // TOML (and future YAML): full facet set, unchanged.
+        DocFormat::Yaml => vec![
+            LayoutRow::Header("Key sign"),
+            LayoutRow::Cells(vec![Sign(K::Bare), Sign(K::Quoted)]),
+            LayoutRow::Cells(vec![Sign(K::None)]),
+            LayoutRow::Header("Type"),
+            LayoutRow::Cells(vec![Token(T::Root), Token(T::Comment)]),
+            LayoutRow::Header("Sequences"),
+            LayoutRow::Cells(vec![All(G::Seq)]),
+            LayoutRow::Cells(vec![Token(T::SeqBlock), Token(T::SeqFlow)]),
+            LayoutRow::Header("Mappings"),
+            LayoutRow::Cells(vec![All(G::Map)]),
+            LayoutRow::Cells(vec![Token(T::MapBlock), Token(T::MapFlow)]),
+            LayoutRow::Header("String"),
+            LayoutRow::Cells(vec![All(G::StringYaml)]),
+            LayoutRow::Cells(vec![Token(T::StrBasic), Token(T::StrSingle)]),
+            LayoutRow::Cells(vec![Token(T::StrDouble), Token(T::StrLiteralBlock)]),
+            LayoutRow::Cells(vec![Token(T::StrFolded)]),
+            LayoutRow::Header("Integer"),
+            LayoutRow::Cells(vec![All(G::IntegerYaml)]),
+            LayoutRow::Cells(vec![Token(T::IntDec), Token(T::IntHex)]),
+            LayoutRow::Cells(vec![Token(T::IntOct)]),
+            LayoutRow::Header("Float"),
+            LayoutRow::Cells(vec![All(G::Float)]),
+            LayoutRow::Cells(vec![
+                Token(T::FloatPlain),
+                Token(T::FloatExp),
+                Token(T::FloatInf),
+                Token(T::FloatNan),
+            ]),
+            LayoutRow::Header("Bool"),
+            LayoutRow::Cells(vec![Token(T::Bool)]),
+            LayoutRow::Header("Null"),
+            LayoutRow::Cells(vec![Token(T::Null)]),
+            LayoutRow::Header("Opaque"),
+            LayoutRow::Cells(vec![Token(T::Opaque)]),
+        ],
+        // TOML: full facet set, unchanged.
         _ => vec![
             LayoutRow::Header("Key sign"),
             LayoutRow::Cells(vec![Sign(K::Bare), Sign(K::Quoted)]),
@@ -294,9 +375,17 @@ impl TypeFilter {
 
     /// Does a node pass the type filter? Empty half = no constraint; the two
     /// halves intersect (AND), selections within a half union (OR).
-    pub fn matches(&self, key_sign: KeySign, kind: &NodeKind, format: Format) -> bool {
+    pub fn matches(
+        &self,
+        key_sign: KeySign,
+        kind: &NodeKind,
+        format: Format,
+        doc: DocFormat,
+        read_only: bool,
+    ) -> bool {
         let sign_ok = self.key_signs.is_empty() || self.key_signs.contains(&key_sign);
-        let type_ok = self.types.is_empty() || self.types.contains(&classify(kind, format));
+        let type_ok =
+            self.types.is_empty() || self.types.contains(&classify(kind, format, doc, read_only));
         sign_ok && type_ok
     }
 
@@ -415,82 +504,139 @@ mod tests {
 
     #[test]
     fn classify_covers_every_kind_slot() {
-        assert_eq!(classify(&NodeKind::Root, Format::Plain), TypeToken::Root);
+        let c = |k: &NodeKind, f| classify(k, f, DocFormat::Toml, false);
+        assert_eq!(c(&NodeKind::Root, Format::Plain), TypeToken::Root);
         assert_eq!(
-            classify(&NodeKind::Comment("# x".into()), Format::Plain),
+            c(&NodeKind::Comment("# x".into()), Format::Plain),
             TypeToken::Comment
         );
+        assert_eq!(c(&NodeKind::Array, Format::Inline), TypeToken::ArrayInline);
         assert_eq!(
-            classify(&NodeKind::Array, Format::Inline),
-            TypeToken::ArrayInline
-        );
-        assert_eq!(
-            classify(&NodeKind::Array, Format::Multiline),
+            c(&NodeKind::Array, Format::Multiline),
             TypeToken::ArrayMultiline
         );
+        assert_eq!(c(&NodeKind::ArrayOfTables, Format::Plain), TypeToken::Aot);
         assert_eq!(
-            classify(&NodeKind::ArrayOfTables, Format::Plain),
-            TypeToken::Aot
-        );
-        assert_eq!(
-            classify(&NodeKind::InlineTable, Format::Inline),
+            c(&NodeKind::InlineTable, Format::Inline),
             TypeToken::InlineTable
         );
-        assert_eq!(
-            classify(&NodeKind::Table, Format::Scope),
-            TypeToken::TableScope
-        );
-        assert_eq!(
-            classify(&NodeKind::Table, Format::Dotted),
-            TypeToken::TableDotted
-        );
-        let s = |f| classify(&NodeKind::Scalar(ScalarType::String), f);
+        assert_eq!(c(&NodeKind::Table, Format::Scope), TypeToken::TableScope);
+        assert_eq!(c(&NodeKind::Table, Format::Dotted), TypeToken::TableDotted);
+        let s = |f| c(&NodeKind::Scalar(ScalarType::String), f);
         assert_eq!(s(Format::BasicString), TypeToken::StrBasic);
         assert_eq!(s(Format::MultilineBasic), TypeToken::StrMBasic);
         assert_eq!(s(Format::Literal), TypeToken::StrLit);
         assert_eq!(s(Format::MultilineLiteral), TypeToken::StrMLit);
-        let i = |f| classify(&NodeKind::Scalar(ScalarType::Integer), f);
+        let i = |f| c(&NodeKind::Scalar(ScalarType::Integer), f);
         assert_eq!(i(Format::Decimal), TypeToken::IntDec);
         assert_eq!(i(Format::Hex), TypeToken::IntHex);
         assert_eq!(i(Format::Octal), TypeToken::IntOct);
         assert_eq!(i(Format::Binary), TypeToken::IntBin);
-        let fl = |f| classify(&NodeKind::Scalar(ScalarType::Float), f);
+        let fl = |f| c(&NodeKind::Scalar(ScalarType::Float), f);
         assert_eq!(fl(Format::Plain), TypeToken::FloatPlain);
         assert_eq!(fl(Format::Inf), TypeToken::FloatInf);
         assert_eq!(fl(Format::Nan), TypeToken::FloatNan);
         assert_eq!(
-            classify(&NodeKind::Scalar(ScalarType::Bool), Format::Plain),
+            c(&NodeKind::Scalar(ScalarType::Bool), Format::Plain),
             TypeToken::Bool
         );
         assert_eq!(
-            classify(&NodeKind::Scalar(ScalarType::OffsetDatetime), Format::Plain),
+            c(&NodeKind::Scalar(ScalarType::OffsetDatetime), Format::Plain),
             TypeToken::Odt
         );
         assert_eq!(
-            classify(&NodeKind::Scalar(ScalarType::LocalDatetime), Format::Plain),
+            c(&NodeKind::Scalar(ScalarType::LocalDatetime), Format::Plain),
             TypeToken::Ldt
         );
         assert_eq!(
-            classify(&NodeKind::Scalar(ScalarType::LocalDate), Format::Plain),
+            c(&NodeKind::Scalar(ScalarType::LocalDate), Format::Plain),
             TypeToken::LDate
         );
         assert_eq!(
-            classify(&NodeKind::Scalar(ScalarType::LocalTime), Format::Plain),
+            c(&NodeKind::Scalar(ScalarType::LocalTime), Format::Plain),
             TypeToken::LTime
         );
         // New JSON atoms.
         assert_eq!(
-            classify(&NodeKind::Scalar(ScalarType::Null), Format::Plain),
+            c(&NodeKind::Scalar(ScalarType::Null), Format::Plain),
             TypeToken::Null
         );
         assert_eq!(
-            classify(&NodeKind::Scalar(ScalarType::Float), Format::Exponent),
+            c(&NodeKind::Scalar(ScalarType::Float), Format::Exponent),
             TypeToken::FloatExp
         );
         assert_eq!(
-            classify(&NodeKind::Table, Format::Multiline),
+            c(&NodeKind::Table, Format::Multiline),
             TypeToken::TableMultiline
         );
+    }
+
+    #[test]
+    fn classify_covers_every_yaml_slot() {
+        let c = |k: &NodeKind, f| classify(k, f, DocFormat::Yaml, false);
+        // Sequences split block/flow.
+        assert_eq!(c(&NodeKind::Array, Format::Block), TypeToken::SeqBlock);
+        assert_eq!(c(&NodeKind::Array, Format::Inline), TypeToken::SeqFlow);
+        // Mappings split block/flow; an InlineTable is also a flow map.
+        assert_eq!(c(&NodeKind::Table, Format::Block), TypeToken::MapBlock);
+        assert_eq!(c(&NodeKind::Table, Format::Inline), TypeToken::MapFlow);
+        assert_eq!(
+            c(&NodeKind::InlineTable, Format::Inline),
+            TypeToken::MapFlow
+        );
+        // YAML string styles.
+        let s = |f| c(&NodeKind::Scalar(ScalarType::String), f);
+        assert_eq!(s(Format::SingleQuoted), TypeToken::StrSingle);
+        assert_eq!(s(Format::DoubleQuoted), TypeToken::StrDouble);
+        assert_eq!(s(Format::LiteralBlock), TypeToken::StrLiteralBlock);
+        assert_eq!(s(Format::Folded), TypeToken::StrFolded);
+        assert_eq!(s(Format::Plain), TypeToken::StrBasic);
+        // Opaque gate: any kind, read_only, YAML -> Opaque.
+        assert_eq!(
+            classify(&NodeKind::Table, Format::Block, DocFormat::Yaml, true),
+            TypeToken::Opaque
+        );
+        assert_eq!(
+            classify(
+                &NodeKind::Scalar(ScalarType::String),
+                Format::Plain,
+                DocFormat::Yaml,
+                true
+            ),
+            TypeToken::Opaque
+        );
+        // The gate is YAML-only: a read-only JSONC block comment is not Opaque.
+        assert_ne!(
+            classify(
+                &NodeKind::Comment("/* x */".into()),
+                Format::Plain,
+                DocFormat::Json,
+                true
+            ),
+            TypeToken::Opaque
+        );
+    }
+
+    #[test]
+    fn yaml_layout_hides_toml_only_facets() {
+        let labels: Vec<&str> = layout(DocFormat::Yaml)
+            .iter()
+            .flat_map(|r| match r {
+                LayoutRow::Cells(cs) => cs.iter().map(|c| c.label()).collect::<Vec<_>>(),
+                LayoutRow::Header(_) => vec![],
+            })
+            .collect();
+        // YAML-reachable facets present.
+        assert!(labels.iter().any(|l| l.contains("[A/B]")));
+        assert!(labels.iter().any(|l| l.contains("[T/B]")));
+        assert!(labels.iter().any(|l| l.contains("[S:fold]")));
+        assert!(labels.iter().any(|l| l.contains("[opaq ]")));
+        // TOML/JSON-only facets absent.
+        assert!(!labels.iter().any(|l| l.contains("(D) dotted")));
+        assert!(!labels.iter().any(|l| l.contains("[A/T]")));
+        assert!(!labels.iter().any(|l| l.contains("[A/M]")));
+        assert!(!labels.iter().any(|l| l.contains("[I:bin ]")));
+        assert!(!labels.iter().any(|l| l.contains("[D:odt ]")));
     }
 
     #[test]
@@ -500,7 +646,9 @@ mod tests {
         assert!(f.matches(
             KeySign::Bare,
             &NodeKind::Scalar(ScalarType::Integer),
-            Format::Hex
+            Format::Hex,
+            DocFormat::Toml,
+            false
         ));
     }
 
@@ -513,14 +661,15 @@ mod tests {
         // Sign half: bare only.
         f.key_signs.insert(KeySign::Bare);
         let int = NodeKind::Scalar(ScalarType::Integer);
+        let m = |ks, f2| f.matches(ks, &int, f2, DocFormat::Toml, false);
         // bare hex -> both halves pass.
-        assert!(f.matches(KeySign::Bare, &int, Format::Hex));
+        assert!(m(KeySign::Bare, Format::Hex));
         // bare decimal -> union within type half passes.
-        assert!(f.matches(KeySign::Bare, &int, Format::Decimal));
+        assert!(m(KeySign::Bare, Format::Decimal));
         // quoted hex -> sign half fails (intersection).
-        assert!(!f.matches(KeySign::Quoted, &int, Format::Hex));
+        assert!(!m(KeySign::Quoted, Format::Hex));
         // bare octal -> type half fails.
-        assert!(!f.matches(KeySign::Bare, &int, Format::Octal));
+        assert!(!m(KeySign::Bare, Format::Octal));
     }
 
     #[test]

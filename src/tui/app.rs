@@ -692,6 +692,7 @@ impl App {
             ancestors: &mut HashSet<Path>,
             needle: &str,
             type_filter: &TypeFilter,
+            doc: crate::model::document::DocFormat,
         ) {
             // Text match: the node's key/path (positional segments — array elements
             // and comments — have no key), plus, for a Comment node, its own text,
@@ -713,7 +714,7 @@ impl App {
             let h = haystack(&path_keys, None, comment_text);
             let text_ok = fuzzy_match(&h, needle);
             // Type match: empty type filter imposes no constraint.
-            let type_ok = type_filter.matches(n.key_sign, &n.kind, n.format);
+            let type_ok = type_filter.matches(n.key_sign, &n.kind, n.format, doc, n.read_only);
             if text_ok && type_ok {
                 matching.insert(n.path.clone());
                 for anc in ancestor_paths.iter() {
@@ -722,10 +723,19 @@ impl App {
             }
             ancestor_paths.push(n.path.clone());
             for c in &n.children {
-                walk(c, ancestor_paths, matching, ancestors, needle, type_filter);
+                walk(
+                    c,
+                    ancestor_paths,
+                    matching,
+                    ancestors,
+                    needle,
+                    type_filter,
+                    doc,
+                );
             }
             ancestor_paths.pop();
         }
+        let doc = self.doc_format();
         walk(
             &self.tree.root,
             &mut Vec::new(),
@@ -733,6 +743,7 @@ impl App {
             &mut ancestors,
             &self.filter,
             &self.type_filter,
+            doc,
         );
         matching.extend(ancestors);
         self.filtered_paths = Some(matching);
