@@ -832,8 +832,39 @@ fn remark(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
     }
 }
 
-fn edit_comment(_tree: &SyntaxNode, _path: &[Seg], _text: &str) -> Result<(), MutateError> {
-    Err(MutateError::Unsupported)
+fn edit_comment(tree: &SyntaxNode, path: &[Seg], text: &str) -> Result<(), MutateError> {
+    // Validate: every line must start with `#` (after leading whitespace).
+    for line in text.lines() {
+        if !line.trim_start().starts_with('#') {
+            return Err(MutateError::Fragment(
+                "every line of a comment must start with #".into(),
+            ));
+        }
+    }
+
+    let first_tok = match resolve(tree, path).ok_or(MutateError::NotFound)? {
+        Target::Comment(t) => t,
+        Target::Opaque(_) => return Err(MutateError::Unsupported),
+        _ => {
+            return Err(MutateError::Illegal(
+                "path does not resolve to a comment".into(),
+            ))
+        }
+    };
+
+    let container = first_tok.parent().expect("comment has parent");
+    let items = collect_items(&container);
+    let block_text = comment_block_text(&first_tok);
+    let block_lines: Vec<&str> = block_text.lines().collect();
+    let first_line = block_lines.first().copied().unwrap_or("");
+    let pos = items
+        .iter()
+        .position(|it| it.trim() == first_line.trim())
+        .ok_or(MutateError::NotFound)?;
+
+    let mut new_items = items.clone();
+    new_items.splice(pos..pos + block_lines.len(), [ensure_newline(text)]);
+    rebuild_and_splice(tree, &container, &new_items)
 }
 
 fn insert_comment(_tree: &SyntaxNode, _target: &MutTarget, _text: &str) -> Result<(), MutateError> {
@@ -1159,6 +1190,36 @@ mod tests {
         )
         .expect("remark nested entry");
         assert_eq!(out, "srv:\n  # host: a\n  port: 80\n");
+    }
+
+    // ── 5h: EditComment ──────────────────────────────────────────────────────
+
+    #[test]
+    fn edit_comment_rewrites_block() {
+        let out = apply_str(
+            "# old\n",
+            Mutation::EditComment {
+                path: vec![Seg::Index(0)],
+                text: "# new".into(),
+            },
+        )
+        .expect("edit comment should succeed");
+        assert_eq!(out, "# new\n");
+    }
+
+    #[test]
+    fn edit_comment_non_hash_rejected() {
+        let r = apply_str(
+            "# old\n",
+            Mutation::EditComment {
+                path: vec![Seg::Index(0)],
+                text: "not a comment".into(),
+            },
+        );
+        assert!(
+            matches!(r, Err(MutateError::Fragment(_))),
+            "non-# text expected Fragment, got {r:?}"
+        );
     }
 
     // ── 5c: Replace ─────────────────────────────────────────────────────────
