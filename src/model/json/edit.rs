@@ -161,9 +161,189 @@ fn parse_member_fragment(fragment: &str) -> Option<SyntaxNode> {
     }
 }
 
-#[allow(unused_variables)]
-fn delete(_tree: &SyntaxNode, _path: &[Seg]) -> Result<(), MutateError> {
-    Err(MutateError::Unsupported)
+fn delete(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
+    match resolve(tree, path).ok_or(MutateError::NotFound)? {
+        Target::Member(m) => delete_item(&m),
+        Target::Element(v) => delete_item(&v),
+        Target::Comment(tok) | Target::Block(tok) => delete_comment_tokens(&tok),
+    }
+    Ok(())
+}
+
+/// Delete a MEMBER or VALUE (array element) node from its parent, removing the
+/// associated comma and leading indent+newline so the result is well-formed.
+fn delete_item(node: &SyntaxNode) {
+    let parent = node.parent().expect("node has parent");
+    let children: Vec<_> = parent.children_with_tokens().collect();
+    let n = children.len();
+
+    // Find `node`'s index in children_with_tokens (by identity).
+    let node_idx = children
+        .iter()
+        .position(|c| match c {
+            rowan::NodeOrToken::Node(sn) => sn == node,
+            _ => false,
+        })
+        .expect("node is child of parent");
+
+    let mut start = node_idx;
+    let mut end = node_idx + 1; // exclusive
+
+    // --- Forward scan: look for a trailing comma (and an optional space after it). ---
+    let mut found_trailing_comma = false;
+    let mut scan = end;
+    while scan < n {
+        match &children[scan] {
+            rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::WHITESPACE => {
+                scan += 1;
+            }
+            rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::COMMA => {
+                // Include everything from `end` through this comma.
+                end = scan + 1;
+                found_trailing_comma = true;
+                // Also eat one trailing WHITESPACE (space after comma in inline arrays).
+                if end < n {
+                    if let rowan::NodeOrToken::Token(next) = &children[end] {
+                        if next.kind() == SyntaxKind::WHITESPACE {
+                            end += 1;
+                        }
+                    }
+                }
+                break;
+            }
+            _ => break,
+        }
+    }
+
+    // --- Backward scan: if no trailing comma, remove the preceding comma (last item). ---
+    if !found_trailing_comma {
+        let mut scan_back = start;
+        while scan_back > 0 {
+            scan_back -= 1;
+            match &children[scan_back] {
+                rowan::NodeOrToken::Token(t)
+                    if matches!(t.kind(), SyntaxKind::WHITESPACE | SyntaxKind::NEWLINE) =>
+                {
+                    // keep scanning over whitespace/newlines between node and comma
+                }
+                rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::COMMA => {
+                    // Set start to the comma — include it in deletion range.
+                    start = scan_back;
+                    break;
+                }
+                _ => break,
+            }
+        }
+    }
+
+    // --- Backward scan: swallow the leading newline + indent (multiline containers). ---
+    // Only for multiline: if the token immediately before `start` is WHITESPACE (indent)
+    // and before that is a NEWLINE, absorb them.
+    if start > 0 {
+        let prev = start - 1;
+        match &children[prev] {
+            rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::WHITESPACE => {
+                // Check if the token before the whitespace is a NEWLINE.
+                if prev > 0 {
+                    if let rowan::NodeOrToken::Token(t2) = &children[prev - 1] {
+                        if t2.kind() == SyntaxKind::NEWLINE {
+                            start = prev - 1; // include NEWLINE + WHITESPACE
+                        }
+                    }
+                }
+            }
+            rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::NEWLINE => {
+                start = prev; // just a NEWLINE (no indent)
+            }
+            _ => {}
+        }
+    }
+
+    parent.splice_children(start..end, vec![]);
+}
+
+/// Delete a standalone comment block (LINE_COMMENT or BLOCK_COMMENT token).
+/// Removes the token(s) plus their line's leading WHITESPACE and trailing NEWLINE.
+fn delete_comment_tokens(first_tok: &SyntaxToken) {
+    let parent = first_tok.parent().expect("parent");
+    let children: Vec<_> = parent.children_with_tokens().collect();
+    let n = children.len();
+
+    // Find the first token's index.
+    let tok_idx = children
+        .iter()
+        .position(|c| match c {
+            rowan::NodeOrToken::Token(t) => t == first_tok,
+            _ => false,
+        })
+        .expect("token is child of parent");
+
+    let mut start = tok_idx;
+    let mut end = tok_idx + 1;
+
+    // Extend `end` forward over the entire LINE_COMMENT block (consecutive // lines
+    // joined by NEWLINE + optional WHITESPACE) and a BLOCK_COMMENT's trailing NEWLINE.
+    if first_tok.kind() == SyntaxKind::LINE_COMMENT {
+        // Walk forward consuming consecutive `// …` lines:
+        // each NEWLINE followed by optional WHITESPACE + LINE_COMMENT extends the block.
+        let mut scan = end;
+        while scan < n {
+            // Expect a NEWLINE token next.
+            let is_newline = matches!(
+                &children[scan],
+                rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::NEWLINE
+            );
+            if !is_newline {
+                break;
+            }
+            // Look past the NEWLINE for optional WS then another LINE_COMMENT.
+            let mut s2 = scan + 1;
+            while s2 < n {
+                match &children[s2] {
+                    rowan::NodeOrToken::Token(t2) if t2.kind() == SyntaxKind::WHITESPACE => {
+                        s2 += 1;
+                    }
+                    rowan::NodeOrToken::Token(t2) if t2.kind() == SyntaxKind::LINE_COMMENT => {
+                        // Continuation comment — extend end through it.
+                        end = s2 + 1;
+                        scan = end;
+                        break;
+                    }
+                    _ => {
+                        // The NEWLINE terminates the last comment line — include it.
+                        end = scan + 1;
+                        scan = n; // stop outer loop
+                        break;
+                    }
+                }
+            }
+            if s2 >= n {
+                // NEWLINE at EOF — include it.
+                end = scan + 1;
+                break;
+            }
+        }
+    } else {
+        // BLOCK_COMMENT: include the trailing NEWLINE.
+        if end < n {
+            if let rowan::NodeOrToken::Token(t) = &children[end] {
+                if t.kind() == SyntaxKind::NEWLINE {
+                    end += 1;
+                }
+            }
+        }
+    }
+
+    // Extend `start` backward over the leading WHITESPACE (indent).
+    if start > 0 {
+        if let rowan::NodeOrToken::Token(t) = &children[start - 1] {
+            if t.kind() == SyntaxKind::WHITESPACE {
+                start -= 1;
+            }
+        }
+    }
+
+    parent.splice_children(start..end, vec![]);
 }
 
 #[allow(unused_variables)]
@@ -341,7 +521,70 @@ mod tests {
     #[test]
     fn stubbed_mutations_unsupported() {
         let t = parse("{ \"a\": 1 }\n");
-        let r = apply(&t, Mutation::Delete { path: vec![Seg::Key("a".into())] });
+        // Rename is still stubbed — use it to verify Unsupported.
+        let r = apply(
+            &t,
+            Mutation::Rename {
+                path: vec![Seg::Key("a".into())],
+                new_key: "x".into(),
+            },
+        );
         assert!(matches!(r, Err(MutateError::Unsupported)));
+    }
+
+    #[test]
+    fn delete_middle_member() {
+        let out = apply_str(
+            "{\n  \"a\": 1,\n  \"b\": 2,\n  \"c\": 3\n}\n",
+            Mutation::Delete { path: vec![Seg::Key("b".into())] },
+        );
+        assert_eq!(out, "{\n  \"a\": 1,\n  \"c\": 3\n}\n");
+    }
+
+    #[test]
+    fn delete_last_member_fixes_comma() {
+        let out = apply_str(
+            "{\n  \"a\": 1,\n  \"b\": 2\n}\n",
+            Mutation::Delete { path: vec![Seg::Key("b".into())] },
+        );
+        assert_eq!(out, "{\n  \"a\": 1\n}\n");
+    }
+
+    #[test]
+    fn delete_only_member() {
+        let out = apply_str(
+            "{\n  \"a\": 1\n}\n",
+            Mutation::Delete { path: vec![Seg::Key("a".into())] },
+        );
+        // The splice removes NEWLINE + WHITESPACE before "a" and the MEMBER node.
+        // No comma exists, so the result is "{\n}" — valid JSON.
+        assert_eq!(out, "{\n}\n");
+    }
+
+    #[test]
+    fn delete_middle_element() {
+        let out = apply_str(
+            "[1, 2, 3]\n",
+            Mutation::Delete { path: vec![Seg::Index(1)] },
+        );
+        assert_eq!(out, "[1, 3]\n");
+    }
+
+    #[test]
+    fn delete_last_element() {
+        let out = apply_str(
+            "[1, 2]\n",
+            Mutation::Delete { path: vec![Seg::Index(1)] },
+        );
+        assert_eq!(out, "[1]\n");
+    }
+
+    #[test]
+    fn delete_comment() {
+        let out = apply_str(
+            "{\n  // gone\n  \"a\": 1\n}\n",
+            Mutation::Delete { path: vec![Seg::Index(0)] },
+        );
+        assert_eq!(out, "{\n  \"a\": 1\n}\n");
     }
 }
