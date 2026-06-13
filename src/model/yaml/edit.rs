@@ -567,6 +567,18 @@ fn adapt_fragment(
 ) -> Result<(String, Option<String>), MutateError> {
     let frag = fragment.trim_end_matches('\n');
 
+    // An already-`- ` sequence-element fragment (e.g. captured from a moved seq
+    // element). Into a SEQUENCE it is reindented and passed through as-is; into
+    // a MAPPING its `- ` is stripped and the inner value re-adapted.
+    if frag.trim_start().starts_with("- ") {
+        if is_mapping {
+            let inner = frag.trim_start().trim_start_matches("- ");
+            return adapt_fragment(inner, true, dest_indent);
+        }
+        let reindented = reindent(&format!("{frag}\n"), fragment_indent(frag), dest_indent);
+        return Ok((reindented, None));
+    }
+
     // Detect if fragment is keyed by checking for `: ` at depth 0.
     let trimmed = frag.trim_start();
     let is_keyed = trimmed.contains(": ") || trimmed.ends_with(':');
@@ -912,12 +924,71 @@ fn insert_comment(tree: &SyntaxNode, target: &MutTarget, text: &str) -> Result<(
 }
 
 fn move_nodes(
-    _tree: &SyntaxNode,
-    _sources: &[Vec<Seg>],
-    _target: &MutTarget,
-    _on_collision: OnCollision,
+    tree: &SyntaxNode,
+    sources: &[Vec<Seg>],
+    target: &MutTarget,
+    on_collision: OnCollision,
 ) -> Result<(), MutateError> {
-    Err(MutateError::Unsupported)
+    if sources.is_empty() {
+        return Ok(());
+    }
+
+    // ── 0. Opaque source-value guard ────────────────────────────────────────
+    // The `apply` dispatcher already rejects a source/target that *is* opaque;
+    // additionally reject a source whose VALUE is opaque (mirrors delete/replace).
+    for path in sources.iter() {
+        match resolve(tree, path) {
+            Some(Target::MapEntry(entry)) | Some(Target::Element(entry)) => {
+                if entry_has_opaque_value(&entry) {
+                    return Err(MutateError::Unsupported);
+                }
+            }
+            Some(Target::Opaque(_)) => return Err(MutateError::Unsupported),
+            _ => {}
+        }
+    }
+
+    // ── 1. Capture fragments BEFORE any deletion ────────────────────────────
+    let captured: Vec<String> = sources
+        .iter()
+        .map(|path| {
+            let frag = serialize_fragment(tree, path);
+            if frag.is_empty() {
+                Err(MutateError::NotFound)
+            } else {
+                Ok(frag)
+            }
+        })
+        .collect::<Result<_, _>>()?;
+
+    // ── 2. Delete sources back-to-front ─────────────────────────────────────
+    // Later/higher-index sources first so earlier sources' indices stay valid.
+    let mut delete_indices: Vec<usize> = (0..sources.len()).collect();
+    delete_indices.sort_by(|&a, &b| match (sources[a].last(), sources[b].last()) {
+        (Some(Seg::Index(ia)), Some(Seg::Index(ib))) => ib.cmp(ia),
+        _ => b.cmp(&a),
+    });
+    for i in delete_indices {
+        delete(tree, &sources[i])?;
+    }
+
+    // ── 3. Effective insertion index ────────────────────────────────────────
+    // `target.index` is the desired final ordinal in the destination container.
+    // A same-container source deleted at a *lower* index already shifts the
+    // surviving slots down, so the desired ordinal maps directly to the
+    // post-deletion insert position; `insert` clamps it via `target.index.min(len)`.
+    let effective_index = target.index;
+
+    // ── 4. Insert each captured fragment at the effective target ─────────────
+    for (i, frag) in captured.iter().enumerate() {
+        let insert_target = MutTarget {
+            parent: target.parent.clone(),
+            index: effective_index + i,
+        };
+        insert(tree, &insert_target, frag, on_collision)?;
+    }
+
+    Ok(())
 }
 
 fn convert_kind(
@@ -1085,7 +1156,7 @@ pub(crate) fn apply_str(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::document::{MutateError, Mutation};
+    use crate::model::document::{MutateError, Mutation, OnCollision};
     use crate::model::node::Seg;
 
     // ── Indent engine tests ───────────────────────────────────────────────────
@@ -1532,6 +1603,85 @@ mod tests {
             out.contains("placeholder"),
             "expected 'placeholder' key in output: {out:?}"
         );
+    }
+
+    // ── 5j: Move ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn move_block_entry_between_mappings_reindents() {
+        // Move `a.x` into `b` (depth 2). It should reindent under `b` and be
+        // gone from `a`.
+        let src = "a:\n  x: 1\nb:\n  y: 2\n";
+        let out = apply_str(
+            src,
+            Mutation::Move {
+                sources: vec![vec![Seg::Key("a".into()), Seg::Key("x".into())]],
+                target: crate::model::document::Target {
+                    parent: vec![Seg::Key("b".into())],
+                    index: 1,
+                },
+                on_collision: OnCollision::Cancel,
+            },
+        )
+        .expect("move block entry between mappings");
+        assert_eq!(out, "a:\nb:\n  y: 2\n  x: 1\n");
+    }
+
+    #[test]
+    fn move_sequence_element() {
+        // Move index 0 to the end (index 2).
+        let src = "- 1\n- 2\n- 3\n";
+        let out = apply_str(
+            src,
+            Mutation::Move {
+                sources: vec![vec![Seg::Index(0)]],
+                target: crate::model::document::Target {
+                    parent: vec![],
+                    index: 2,
+                },
+                on_collision: OnCollision::Cancel,
+            },
+        )
+        .expect("move sequence element to end");
+        assert_eq!(out, "- 2\n- 3\n- 1\n");
+    }
+
+    #[test]
+    fn move_source_opaque_is_unsupported() {
+        // `ref: *anchor` is a read-only (opaque-valued) entry; moving it rejects
+        // and leaves the doc untouched.
+        let r = apply_str(
+            "ref: *anchor\nk: 1\n",
+            Mutation::Move {
+                sources: vec![vec![Seg::Key("ref".into())]],
+                target: crate::model::document::Target {
+                    parent: vec![],
+                    index: 2,
+                },
+                on_collision: OnCollision::Cancel,
+            },
+        );
+        assert!(
+            matches!(r, Err(MutateError::Unsupported)),
+            "move of opaque-valued entry expected Unsupported, got {r:?}"
+        );
+    }
+
+    #[test]
+    fn move_empty_sources_is_noop() {
+        let out = apply_str(
+            "a: 1\n",
+            Mutation::Move {
+                sources: vec![],
+                target: crate::model::document::Target {
+                    parent: vec![],
+                    index: 0,
+                },
+                on_collision: OnCollision::Cancel,
+            },
+        )
+        .expect("empty move is a no-op");
+        assert_eq!(out, "a: 1\n");
     }
 
     #[test]
