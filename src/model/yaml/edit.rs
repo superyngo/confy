@@ -744,8 +744,92 @@ fn rename(tree: &SyntaxNode, path: &[Seg], new_key: &str) -> Result<(), MutateEr
     Ok(())
 }
 
-fn remark(_tree: &SyntaxNode, _path: &[Seg]) -> Result<(), MutateError> {
-    Err(MutateError::Unsupported)
+/// Prefix `# ` to each non-blank line of `text`, after that line's leading
+/// whitespace (so indentation is preserved). Blank lines stay blank.
+fn comment_out(text: &str) -> String {
+    text.lines()
+        .map(|l| {
+            if l.trim().is_empty() {
+                l.to_string()
+            } else {
+                let indent_len = l.len() - l.trim_start().len();
+                format!("{}# {}", &l[..indent_len], &l[indent_len..])
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Strip a `# ` (or `#`) prefix from each line of `text`, after that line's
+/// leading whitespace. Lines without a `#` are left unchanged.
+fn uncomment(text: &str) -> String {
+    text.lines()
+        .map(|l| {
+            let indent_len = l.len() - l.trim_start().len();
+            let (indent, rest) = l.split_at(indent_len);
+            if let Some(r) = rest.strip_prefix("# ") {
+                format!("{indent}{r}")
+            } else if let Some(r) = rest.strip_prefix('#') {
+                format!("{indent}{r}")
+            } else {
+                l.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn remark(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
+    match resolve(tree, path).ok_or(MutateError::NotFound)? {
+        Target::MapEntry(entry) | Target::Element(entry) => {
+            if entry_has_opaque_value(&entry) {
+                return Err(MutateError::Unsupported);
+            }
+            let container = entry.parent().expect("entry has parent");
+            let items = collect_items(&container);
+            let entry_text = entry.text().to_string();
+            let entry_trim = entry_text.trim();
+            let pos = items
+                .iter()
+                .position(|it| it.trim() == entry_trim)
+                .ok_or(MutateError::NotFound)?;
+
+            let commented = ensure_newline(&comment_out(entry_text.trim_end()));
+            let mut new_items = items.clone();
+            new_items[pos] = commented;
+            rebuild_and_splice(tree, &container, &new_items)
+        }
+        Target::Comment(first_tok) => {
+            let container = first_tok.parent().expect("comment has parent");
+            let items = collect_items(&container);
+            let block_text = comment_block_text(&first_tok);
+            let block_lines: Vec<&str> = block_text.lines().collect();
+            let first_line = block_lines.first().copied().unwrap_or("");
+            let pos = items
+                .iter()
+                .position(|it| it.trim() == first_line.trim())
+                .ok_or(MutateError::NotFound)?;
+
+            // Recover the live text by stripping the comment leader.
+            let recovered = uncomment(&block_text);
+            // Validate it parses as a map entry or a `- ` sequence element.
+            let recovered_nl = ensure_newline(&recovered);
+            let valid = parse_map_entry_fragment(&recovered_nl).is_some()
+                || recovered.trim_start().starts_with("- ");
+            if !valid {
+                return Err(MutateError::Fragment(
+                    "comment does not parse as a map entry or sequence element".into(),
+                ));
+            }
+
+            let mut new_items = items.clone();
+            // The block occupies `block_lines.len()` consecutive comment items.
+            let span = block_lines.len();
+            new_items.splice(pos..pos + span, [ensure_newline(&recovered)]);
+            rebuild_and_splice(tree, &container, &new_items)
+        }
+        Target::Opaque(_) => Err(MutateError::Unsupported),
+    }
 }
 
 fn edit_comment(_tree: &SyntaxNode, _path: &[Seg], _text: &str) -> Result<(), MutateError> {
@@ -1036,6 +1120,45 @@ mod tests {
             matches!(r, Err(MutateError::Illegal(_))),
             "rename of seq element expected Illegal, got {r:?}"
         );
+    }
+
+    // ── 5g: Remark ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn remark_entry_to_comment() {
+        let out = apply_str(
+            "a: 1\n",
+            Mutation::Remark {
+                path: vec![Seg::Key("a".into())],
+            },
+        )
+        .expect("remark entry should succeed");
+        assert_eq!(out, "# a: 1\n");
+    }
+
+    #[test]
+    fn remark_comment_to_entry() {
+        let out = apply_str(
+            "# a: 1\n",
+            Mutation::Remark {
+                path: vec![Seg::Index(0)],
+            },
+        )
+        .expect("remark comment should succeed");
+        assert_eq!(out, "a: 1\n");
+    }
+
+    #[test]
+    fn remark_nested_entry_preserves_indent() {
+        let src = "srv:\n  host: a\n  port: 80\n";
+        let out = apply_str(
+            src,
+            Mutation::Remark {
+                path: vec![Seg::Key("srv".into()), Seg::Key("host".into())],
+            },
+        )
+        .expect("remark nested entry");
+        assert_eq!(out, "srv:\n  # host: a\n  port: 80\n");
     }
 
     // ── 5c: Replace ─────────────────────────────────────────────────────────
