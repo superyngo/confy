@@ -53,6 +53,9 @@ pub(crate) fn resolve(syntax: &SyntaxNode, path: &[Seg]) -> Option<Target> {
 
 /// Returns `true` if `path` itself or any strict ancestor path resolves to an
 /// `Target::Opaque` — i.e. the path is inside (or is) an opaque span.
+///
+/// Precondition: `path` is non-empty. The root (`[]`) is never opaque and is
+/// guarded out by the caller (`apply`); an empty path here always yields `false`.
 fn is_opaque(syntax: &SyntaxNode, path: &[Seg]) -> bool {
     // Check the path itself first.
     if let Some(Target::Opaque(_)) = resolve(syntax, path) {
@@ -251,6 +254,26 @@ pub fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<SyntaxNode, MutateError
     Ok(tree)
 }
 
+// ── Test helpers (pub(crate) so later chunk tests can import them) ────────────
+
+#[cfg(test)]
+pub(crate) fn parse_syntax(src: &str) -> SyntaxNode {
+    SyntaxNode::new_root(
+        crate::model::yaml::parse::parse(src).unwrap_or_else(|e| panic!("parse failed: {e}")),
+    )
+}
+
+/// Parse `src`, apply `m`, and return the serialized result.
+/// Used by per-variant tests across later chunks.
+#[cfg(test)]
+pub(crate) fn apply_str(
+    src: &str,
+    m: crate::model::document::Mutation,
+) -> Result<String, crate::model::document::MutateError> {
+    let t = parse_syntax(src);
+    apply(&t, m).map(|tree| tree.to_string())
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -258,18 +281,6 @@ mod tests {
     use super::*;
     use crate::model::document::{MutateError, Mutation};
     use crate::model::node::Seg;
-
-    fn parse_syntax(src: &str) -> SyntaxNode {
-        SyntaxNode::new_root(
-            crate::model::yaml::parse::parse(src).unwrap_or_else(|e| panic!("parse failed: {e}")),
-        )
-    }
-
-    /// Apply a mutation and return the resulting document text on success.
-    fn apply_str(src: &str, m: Mutation) -> Result<String, MutateError> {
-        let t = parse_syntax(src);
-        super::apply(&t, m).map(|tree| tree.to_string())
-    }
 
     // ── Indent engine tests ───────────────────────────────────────────────────
 
