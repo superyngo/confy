@@ -572,7 +572,10 @@ fn adapt_fragment(
     // a MAPPING its `- ` is stripped and the inner value re-adapted.
     if frag.trim_start().starts_with("- ") {
         if is_mapping {
-            let inner = frag.trim_start().trim_start_matches("- ");
+            // Strip exactly one `- ` level (a nested-seq element `- - x` keeps
+            // its inner `- x`), then re-adapt as a mapping member.
+            let trimmed = frag.trim_start();
+            let inner = trimmed.strip_prefix("- ").unwrap_or(trimmed);
             return adapt_fragment(inner, true, dest_indent);
         }
         let reindented = reindent(&format!("{frag}\n"), fragment_indent(frag), dest_indent);
