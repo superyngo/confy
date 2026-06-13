@@ -13,6 +13,7 @@ pub enum ScalarType {
     Integer,
     Float,
     Bool,
+    Null,
     OffsetDatetime,
     LocalDatetime,
     LocalDate,
@@ -41,6 +42,9 @@ pub enum Format {
     // Float (plain floats stay `Plain`)
     Inf,
     Nan,
+    /// Float written in exponent notation (`1e5`, `1.2E-3`). New in the JSON
+    /// backend; the TOML projection still detects exponent from value text.
+    Exponent,
     // Container: array / inline table written on one line vs. spread over lines
     Inline,
     Multiline,
@@ -87,6 +91,9 @@ pub struct Node {
     /// How this node's own key is written; `None` for keyless nodes.
     pub key_sign: KeySign,
     pub trailing_comment: Option<String>,
+    /// Read-only nodes (a JSONC `/* */` block comment, a Phase-3 opaque YAML
+    /// node) display and copy but reject `e`/`d`/`x`/`r`/insert-into. Default false.
+    pub read_only: bool,
 }
 
 impl Node {
@@ -111,6 +118,7 @@ impl Node {
             format: Format::Plain,
             key_sign: KeySign::None,
             trailing_comment: None,
+            read_only: false,
         }
     }
 
@@ -128,6 +136,7 @@ impl Node {
             format: Format::Plain,
             key_sign: KeySign::None,
             trailing_comment: None,
+            read_only: false,
         }
     }
 

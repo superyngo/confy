@@ -135,6 +135,9 @@ pub enum KindTarget {
     TableInline,
     TableDotted,
     TableScope,
+    /// A JSON object spread over multiple lines (`[T/M]`). TOML's scope table
+    /// stays `[T/S]`; this is the JSON multiline-object form.
+    TableMultiline,
 }
 
 #[derive(Debug, thiserror::Error)]

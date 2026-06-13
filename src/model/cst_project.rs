@@ -53,6 +53,7 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
         format: Format::Plain,
         key_sign: KeySign::None,
         trailing_comment: None,
+        read_only: false,
     };
     let mut idx: CstIndex = Vec::new();
 
@@ -133,6 +134,7 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
                             format: Format::Plain,
                             key_sign: signs.last().copied().unwrap_or(KeySign::None),
                             trailing_comment: None,
+                            read_only: false,
                         };
                         append_child(&mut root, &parent, aot);
                         idx.push((path.clone(), Target::AotGroup));
@@ -154,6 +156,7 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
                         format: Format::Plain,
                         key_sign: KeySign::None,
                         trailing_comment: None,
+                        read_only: false,
                     });
                     idx.push((entry_path.clone(), Target::AotEntry(n.clone())));
                     current = entry_path;
@@ -191,6 +194,7 @@ fn flush_comments(
             format: Format::Plain,
             key_sign: KeySign::None,
             trailing_comment: None,
+            read_only: false,
         });
         idx.push((path, Target::Comment(tok)));
     }
@@ -241,6 +245,7 @@ fn ensure_table_path(root: &mut Node, path: &[Seg], signs: &[KeySign]) {
             format: Format::Scope,
             key_sign: signs.get(i).copied().unwrap_or(KeySign::None),
             trailing_comment: None,
+            read_only: false,
         };
         append_child(root, &path[..i], node);
     }
@@ -432,6 +437,7 @@ fn ensure_dotted_chain(root: &mut Node, scope_len: usize, full: &[Seg]) {
             format: Format::Dotted,
             key_sign: KeySign::Dotted,
             trailing_comment: None,
+            read_only: false,
         };
         append_child(root, &full[..i], node);
     }
@@ -546,6 +552,7 @@ fn project_array(arr: &SyntaxNode, key: &str, path: Vec<Seg>, idx: &mut CstIndex
                             format: Format::Plain,
                             key_sign: KeySign::None,
                             trailing_comment: None,
+                            read_only: false,
                         });
                         k += 1;
                     }
@@ -619,6 +626,7 @@ fn project_inline(it: &SyntaxNode, key: &str, path: Vec<Seg>, idx: &mut CstIndex
                         format: Format::Dotted,
                         key_sign: KeySign::Dotted,
                         trailing_comment: None,
+                        read_only: false,
                     });
                     cur.children.len() - 1
                 }
@@ -669,6 +677,7 @@ fn leaf(
         format: Format::Plain,
         key_sign: KeySign::None,
         trailing_comment,
+        read_only: false,
     }
 }
 
@@ -682,6 +691,7 @@ fn branch(key: &str, kind: NodeKind, path: Vec<Seg>) -> Node {
         format: Format::Plain,
         key_sign: KeySign::None,
         trailing_comment: None,
+        read_only: false,
     }
 }
 
