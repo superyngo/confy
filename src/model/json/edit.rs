@@ -80,9 +80,85 @@ fn validate_semantics(tree: &SyntaxNode) -> Result<(), MutateError> {
 
 // ── Per-variant stubs (filled in by later tasks) ────────────────────────────
 
-#[allow(unused_variables)]
-fn replace(_tree: &SyntaxNode, _path: &[Seg], _fragment: &str) -> Result<(), MutateError> {
-    Err(MutateError::Unsupported)
+fn replace(tree: &SyntaxNode, path: &[Seg], fragment: &str) -> Result<(), MutateError> {
+    if path.is_empty() {
+        // Whole-document replace: parse fragment as a full JSON doc, splice its
+        // ROOT children over the old ROOT children.
+        // We need mutable SyntaxElements from a separate mutable tree.
+        let green =
+            crate::model::json::parse::parse(fragment).map_err(MutateError::Fragment)?;
+        // Create an immutable root first, then clone_for_update to get mutable children.
+        let new_root_immutable = SyntaxNode::new_root(green);
+        let new_root = new_root_immutable.clone_for_update();
+        let n = tree.children_with_tokens().count();
+        // Children of a mutable node are already mutable — collect them directly.
+        let new_children: Vec<_> = new_root.children_with_tokens().collect();
+        tree.splice_children(0..n, new_children);
+        return Ok(());
+    }
+    match resolve(tree, path).ok_or(MutateError::NotFound)? {
+        Target::Member(member) => {
+            if let Some(new_member) = parse_member_fragment(fragment) {
+                replace_node(&member, new_member);
+            } else {
+                let value = member
+                    .children()
+                    .find(|n| n.kind() == SyntaxKind::VALUE)
+                    .ok_or(MutateError::NotFound)?;
+                let new_value = parse_value_fragment(fragment)?;
+                replace_node(&value, new_value);
+            }
+            Ok(())
+        }
+        Target::Element(value) => {
+            let new_value = parse_value_fragment(fragment)?;
+            replace_node(&value, new_value);
+            Ok(())
+        }
+        Target::Comment(_) | Target::Block(_) => {
+            Err(MutateError::Illegal("use EditComment to edit a comment".into()))
+        }
+    }
+}
+
+/// Replace a node in a mutable tree by splicing over its slot in its parent.
+fn replace_node(old: &SyntaxNode, new: SyntaxNode) {
+    let parent = old.parent().expect("node has a parent");
+    let idx = old.index();
+    parent.splice_children(idx..idx + 1, vec![new.into()]);
+}
+
+/// Parse `fragment` as one bare VALUE (clone_for_update). Error `Fragment` if it
+/// is not exactly one value.
+fn parse_value_fragment(fragment: &str) -> Result<SyntaxNode, MutateError> {
+    let green =
+        crate::model::json::parse::parse(fragment).map_err(MutateError::Fragment)?;
+    let root = SyntaxNode::new_root(green);
+    let value = root
+        .children()
+        .find(|n| n.kind() == SyntaxKind::VALUE)
+        .ok_or_else(|| MutateError::Fragment("fragment is not a value".into()))?;
+    Ok(value.clone_for_update())
+}
+
+/// Parse `fragment` as a `"key": value` member by wrapping it in `{ … }`. Returns
+/// None if it isn't a single member.
+fn parse_member_fragment(fragment: &str) -> Option<SyntaxNode> {
+    let wrapped = format!("{{{fragment}}}");
+    let green = crate::model::json::parse::parse(&wrapped).ok()?;
+    let root = SyntaxNode::new_root(green);
+    let obj = root
+        .descendants()
+        .find(|n| n.kind() == SyntaxKind::OBJECT)?;
+    let members: Vec<_> = obj
+        .children()
+        .filter(|n| n.kind() == SyntaxKind::MEMBER)
+        .collect();
+    if members.len() == 1 {
+        Some(members[0].clone_for_update())
+    } else {
+        None
+    }
 }
 
 #[allow(unused_variables)]
@@ -194,6 +270,72 @@ mod tests {
     fn fragment_of_comment() {
         let t = parse("{\n  // hi\n  \"a\": 1\n}\n");
         assert_eq!(serialize_fragment(&t, &[Seg::Index(0)]), "// hi");
+    }
+
+    fn apply_str(src: &str, m: Mutation) -> String {
+        let t = parse(src);
+        super::apply(&t, m).unwrap().to_string()
+    }
+
+    #[test]
+    fn replace_member_value() {
+        let out = apply_str(
+            "{\n  \"a\": 1\n}\n",
+            Mutation::Replace {
+                path: vec![Seg::Key("a".into())],
+                fragment: "\"a\": 2".into(),
+            },
+        );
+        assert_eq!(out, "{\n  \"a\": 2\n}\n");
+    }
+
+    #[test]
+    fn replace_member_value_bare() {
+        let out = apply_str(
+            "{\n  \"a\": 1\n}\n",
+            Mutation::Replace {
+                path: vec![Seg::Key("a".into())],
+                fragment: "2".into(),
+            },
+        );
+        assert_eq!(out, "{\n  \"a\": 2\n}\n");
+    }
+
+    #[test]
+    fn replace_element() {
+        let out = apply_str(
+            "[1, 2, 3]\n",
+            Mutation::Replace {
+                path: vec![Seg::Index(1)],
+                fragment: "20".into(),
+            },
+        );
+        assert_eq!(out, "[1, 20, 3]\n");
+    }
+
+    #[test]
+    fn replace_whole_document() {
+        let out = apply_str(
+            "{ \"a\": 1 }\n",
+            Mutation::Replace {
+                path: vec![],
+                fragment: "{ \"b\": 2 }\n".into(),
+            },
+        );
+        assert_eq!(out, "{ \"b\": 2 }\n");
+    }
+
+    #[test]
+    fn replace_invalid_fragment_rejected() {
+        let t = parse("{ \"a\": 1 }\n");
+        let r = super::apply(
+            &t,
+            Mutation::Replace {
+                path: vec![Seg::Key("a".into())],
+                fragment: "@@@".into(),
+            },
+        );
+        assert!(matches!(r, Err(MutateError::Fragment(_)) | Err(MutateError::Illegal(_))));
     }
 
     #[test]
