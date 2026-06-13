@@ -973,11 +973,22 @@ fn move_nodes(
     }
 
     // ── 3. Effective insertion index ────────────────────────────────────────
-    // `target.index` is the desired final ordinal in the destination container.
-    // A same-container source deleted at a *lower* index already shifts the
-    // surviving slots down, so the desired ordinal maps directly to the
-    // post-deletion insert position; `insert` clamps it via `target.index.min(len)`.
-    let effective_index = target.index;
+    // `target.index` is a *pre-deletion* ordinal (the TUI's `true_sibling_index`
+    // + 1, taken on the full tree before the move). For each same-container
+    // source deleted at a *lower* index, the surviving slots shift down by one,
+    // so decrement the insert position to keep it at the intended ordinal —
+    // mirroring `json::move_nodes`. Key-keyed same-container sources are handled
+    // by `insert`'s `target.index.min(len)` clamp, so they need no adjustment.
+    let mut effective_index = target.index;
+    for path in sources.iter() {
+        if path.len() == target.parent.len() + 1 && path.starts_with(target.parent.as_slice()) {
+            if let Seg::Index(i) = &path[target.parent.len()] {
+                if *i < target.index && effective_index > 0 {
+                    effective_index -= 1;
+                }
+            }
+        }
+    }
 
     // ── 4. Insert each captured fragment at the effective target ─────────────
     for (i, frag) in captured.iter().enumerate() {
@@ -1629,8 +1640,32 @@ mod tests {
 
     #[test]
     fn move_sequence_element() {
-        // Move index 0 to the end (index 2).
+        // Move index 0 to the end. target.index is a pre-deletion ordinal, so
+        // "after the last (index-2) element" is ordinal 3; after deleting index
+        // 0 the decrement + min(len) clamp lands it at the tail.
         let src = "- 1\n- 2\n- 3\n";
+        let out = apply_str(
+            src,
+            Mutation::Move {
+                sources: vec![vec![Seg::Index(0)]],
+                target: crate::model::document::Target {
+                    parent: vec![],
+                    index: 3,
+                },
+                on_collision: OnCollision::Cancel,
+            },
+        )
+        .expect("move sequence element to end");
+        assert_eq!(out, "- 2\n- 3\n- 1\n");
+    }
+
+    #[test]
+    fn move_sequence_element_low_to_middle_ordinal() {
+        // target.index is a pre-deletion ordinal: move index 0 to ordinal 2
+        // ("after the original index-1 element"). After deleting index 0 the
+        // slots shift down, so the moved element must land at post-deletion
+        // index 1 — between the survivors, not appended.
+        let src = "- 10\n- 20\n- 30\n- 40\n";
         let out = apply_str(
             src,
             Mutation::Move {
@@ -1642,8 +1677,8 @@ mod tests {
                 on_collision: OnCollision::Cancel,
             },
         )
-        .expect("move sequence element to end");
-        assert_eq!(out, "- 2\n- 3\n- 1\n");
+        .expect("move low index to middle ordinal");
+        assert_eq!(out, "- 20\n- 10\n- 30\n- 40\n");
     }
 
     #[test]
