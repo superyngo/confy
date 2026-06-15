@@ -133,18 +133,9 @@ fn replace(tree: &SyntaxNode, path: &[Seg], fragment: &str) -> Result<(), Mutate
                 if let Some(new_entry) = parse_map_entry_fragment(&new_text) {
                     replace_node(&entry, new_entry);
                 } else {
-                    // Edge case: re-parse at correct indent failed (shouldn't happen for
-                    // simple entries); fall back to whole-document replace strategy.
-                    let whole = tree.to_string();
-                    let offset: usize = entry.text_range().start().into();
-                    let end: usize = entry.text_range().end().into();
-                    let new_doc = format!("{}{}{}", &whole[..offset], new_text, &whole[end..]);
-                    let new_green = crate::model::yaml::parse::parse(&new_doc)
-                        .map_err(MutateError::Fragment)?;
-                    let new_root = SyntaxNode::new_root(new_green).clone_for_update();
-                    let n = tree.children_with_tokens().count();
-                    let children: Vec<_> = new_root.children_with_tokens().collect();
-                    tree.splice_children(0..n, children);
+                    // Edge case: re-parse at correct indent failed (shouldn't happen
+                    // for simple entries); fall back to a whole-document span splice.
+                    splice_node_span(tree, &entry, &new_text)?;
                 }
             } else {
                 // Bare value: replace just the value child of the entry.
@@ -199,17 +190,7 @@ fn replace(tree: &SyntaxNode, path: &[Seg], fragment: &str) -> Result<(), Mutate
                 );
                 // The SEQ_ENTRY span includes its own trailing newline, so `new_text`
                 // (exactly one trailing `\n` via `ensure_newline`) substitutes 1:1.
-                let whole = tree.to_string();
-                let start: usize = entry.text_range().start().into();
-                let end: usize = entry.text_range().end().into();
-                let new_doc = format!("{}{}{}", &whole[..start], new_text, &whole[end..]);
-                let new_green =
-                    crate::model::yaml::parse::parse(&new_doc).map_err(MutateError::Fragment)?;
-                let new_root = SyntaxNode::new_root(new_green).clone_for_update();
-                let n = tree.children_with_tokens().count();
-                let children: Vec<_> = new_root.children_with_tokens().collect();
-                tree.splice_children(0..n, children);
-                return Ok(());
+                return splice_node_span(tree, &entry, &new_text);
             }
             // Seq entry: replace the VALUE/MAPPING/SEQUENCE child.
             let new_value = parse_value_fragment(fragment)?;
@@ -230,6 +211,28 @@ fn replace(tree: &SyntaxNode, path: &[Seg], fragment: &str) -> Result<(), Mutate
         )),
         Target::Opaque(_) => Err(MutateError::Unsupported),
     }
+}
+
+/// Replace `node`'s exact byte span in the document with `new_text`, then
+/// reparse the whole tree. `new_text` must already carry the span's original
+/// trailing-newline state (a MAP_ENTRY/SEQ_ENTRY span includes its newline).
+/// Used where an in-place subtree splice can't express a layout change — an
+/// entry replacement whose re-indent shifts following lines.
+fn splice_node_span(
+    tree: &SyntaxNode,
+    node: &SyntaxNode,
+    new_text: &str,
+) -> Result<(), MutateError> {
+    let whole = tree.to_string();
+    let start: usize = node.text_range().start().into();
+    let end: usize = node.text_range().end().into();
+    let new_doc = format!("{}{}{}", &whole[..start], new_text, &whole[end..]);
+    let green = crate::model::yaml::parse::parse(&new_doc).map_err(MutateError::Fragment)?;
+    let new_root = SyntaxNode::new_root(green).clone_for_update();
+    let n = tree.children_with_tokens().count();
+    let children: Vec<_> = new_root.children_with_tokens().collect();
+    tree.splice_children(0..n, children);
+    Ok(())
 }
 
 /// Replace a SyntaxNode in-place within its parent.
@@ -283,6 +286,49 @@ fn entry_key_text(entry: &SyntaxNode) -> String {
         .unwrap_or_default()
 }
 
+/// Find the key/value colon at quote-depth 0 on a single line.
+///
+/// Returns the byte index of a `:` that is either followed by whitespace
+/// (`key: value`) or is the last non-blank char (`flags:` block value) — but
+/// only when it falls **outside** a single- or double-quoted span. This is what
+/// tells a quoted key holding `: ` (`"a: b": v`) and a bare quoted scalar
+/// holding `: ` (`"a: b"`) apart from a real `key: value`, which a plain
+/// `contains(": ")` cannot. Double-quote backslash escapes are honored; YAML's
+/// single-quote `''` doubling round-trips through the toggle harmlessly.
+fn key_colon(line: &str) -> Option<usize> {
+    let bytes = line.as_bytes();
+    let trimmed_end = line.trim_end().len();
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+    for (i, &b) in bytes.iter().enumerate() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match b {
+            b'\\' if in_double => escaped = true,
+            b'\'' if !in_double => in_single = !in_single,
+            b'"' if !in_single => in_double = !in_double,
+            b':' if !in_single && !in_double => {
+                let next = bytes.get(i + 1);
+                if matches!(next, Some(b' ') | Some(b'\t')) || i + 1 == trimmed_end {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Does a fragment's first line look like a keyed map entry (`key: value` or a
+/// block `key:`)? Depth-aware via [`key_colon`].
+fn is_keyed_line(fragment: &str) -> bool {
+    let first = fragment.lines().next().unwrap_or("");
+    key_colon(first).is_some()
+}
+
 /// Parse `fragment` as a `key: value` map entry.
 /// Returns `None` if the fragment doesn't contain a COLON at the top level.
 fn parse_map_entry_fragment(fragment: &str) -> Option<SyntaxNode> {
@@ -291,8 +337,7 @@ fn parse_map_entry_fragment(fragment: &str) -> Option<SyntaxNode> {
     // Checking the first line (not the whole fragment) is what lets a block
     // collection — `flags:\n  - a\n  - b` — be recognized; its first line ends
     // with `:` and contains no `: `, so a whole-fragment check would miss it.
-    let first_line = fragment.lines().next().unwrap_or("").trim_end();
-    if !first_line.contains(": ") && !first_line.ends_with(':') {
+    if !is_keyed_line(fragment) {
         return None;
     }
     // Ensure it ends with a newline for the parser.
@@ -583,10 +628,10 @@ fn container_indent(container: &SyntaxNode) -> usize {
 
 /// Extract the key name from the item text of a MAP_ENTRY (everything before `: `).
 fn item_key_name(item: &str) -> Option<String> {
-    // Strip leading indent.
+    // Strip leading indent, then find the key/value colon at quote-depth 0 so a
+    // quoted key holding `: ` (`"a: b": v`) keys on the whole quoted span.
     let t = item.trim_start();
-    // Find `: ` at depth 0.
-    let colon = t.find(": ")?;
+    let colon = key_colon(t)?;
     Some(t[..colon].trim_matches('\'').trim_matches('"').to_string())
 }
 
@@ -629,9 +674,10 @@ fn adapt_fragment(
         return Ok((reindented, None));
     }
 
-    // Detect if fragment is keyed by checking for `: ` at depth 0.
+    // Detect if fragment is keyed by checking for the colon at depth 0 — so a
+    // bare quoted scalar holding `: ` (`"a: b"`) is not misread as keyed.
     let trimmed = frag.trim_start();
-    let is_keyed = trimmed.contains(": ") || trimmed.ends_with(':');
+    let is_keyed = is_keyed_line(trimmed);
 
     if is_keyed {
         // Re-indent the fragment to dest_indent.
@@ -1301,6 +1347,20 @@ fn convert_kind(
 /// Resolve `path` to the MAP_ENTRY / SEQ_ENTRY node carrying the value, plus the
 /// value-content child node (VALUE / MAPPING / SEQUENCE / FLOW_MAP / FLOW_SEQ /
 /// BLOCK_SCALAR). Rejects opaque-valued entries (read-only).
+/// Find the first PLAIN scalar token under `value` — the numeric leaf of an
+/// int/float entry. `Unsupported` if there is none.
+fn first_plain_token(
+    value: &SyntaxNode,
+) -> Result<crate::model::yaml::syntax::SyntaxToken, MutateError> {
+    value
+        .descendants_with_tokens()
+        .find_map(|el| match el {
+            rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::PLAIN => Some(t),
+            _ => None,
+        })
+        .ok_or(MutateError::Unsupported)
+}
+
 fn resolve_value_node(
     tree: &SyntaxNode,
     path: &[Seg],
@@ -1789,7 +1849,7 @@ fn encode_double(content: &str) -> String {
 }
 
 /// Decode a double-quoted scalar's inner content (handle common escapes).
-fn decode_double(inner: &str) -> String {
+pub(crate) fn decode_double(inner: &str) -> String {
     let mut out = String::with_capacity(inner.len());
     let mut chars = inner.chars();
     while let Some(c) = chars.next() {
@@ -1821,13 +1881,7 @@ fn convert_int(
 ) -> Result<(), MutateError> {
     use crate::model::document::KindTarget as KT;
     let (_, value) = resolve_value_node(tree, path)?;
-    let tok = value
-        .descendants_with_tokens()
-        .find_map(|el| match el {
-            rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::PLAIN => Some(t),
-            _ => None,
-        })
-        .ok_or(MutateError::Unsupported)?;
+    let tok = first_plain_token(&value)?;
     let text = tok.text().trim().to_string();
 
     // Parse the integer, honoring sign / radix prefix / `_` separators.
@@ -1877,13 +1931,7 @@ fn convert_float(
 ) -> Result<(), MutateError> {
     use crate::model::document::KindTarget as KT;
     let (_, value) = resolve_value_node(tree, path)?;
-    let tok = value
-        .descendants_with_tokens()
-        .find_map(|el| match el {
-            rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::PLAIN => Some(t),
-            _ => None,
-        })
-        .ok_or(MutateError::Unsupported)?;
+    let tok = first_plain_token(&value)?;
     let parsed: f64 = tok
         .text()
         .trim()
@@ -2146,6 +2194,37 @@ mod tests {
             reindent(frag, 0, 2),
             "  note: |\n    line one\n    line two\n"
         );
+    }
+
+    // ── key_colon / item_key_name (depth-aware `: `) ──────────────────────────
+
+    #[test]
+    fn key_colon_ignores_quoted_colon_space() {
+        // Real keyed entries.
+        assert_eq!(key_colon("a: 1"), Some(1));
+        assert_eq!(key_colon("flags:"), Some(5)); // trailing-colon block value
+                                                  // A quoted key holding `: ` keys on the whole quoted span.
+        assert_eq!(key_colon(r#""a: b": v"#), Some(6));
+        // A bare quoted scalar holding `: ` is NOT keyed.
+        assert_eq!(key_colon(r#""a: b""#), None);
+        assert_eq!(key_colon("'a: b'"), None);
+        // A double-quoted value with `: ` after a real key still keys on the key.
+        assert_eq!(key_colon(r#"k: "a: b""#), Some(1));
+    }
+
+    #[test]
+    fn item_key_name_uses_whole_quoted_key() {
+        assert_eq!(item_key_name("a: 1").as_deref(), Some("a"));
+        assert_eq!(item_key_name(r#""a: b": v"#).as_deref(), Some("a: b"));
+        assert_eq!(item_key_name(r#""a: b""#), None); // bare quoted scalar, no key
+    }
+
+    #[test]
+    fn parse_map_entry_fragment_rejects_bare_quoted_scalar() {
+        // A bare quoted scalar holding `: ` must not parse as a keyed entry.
+        assert!(parse_map_entry_fragment(r#""a: b""#).is_none());
+        // A real entry whose value holds `: ` still parses.
+        assert!(parse_map_entry_fragment(r#"k: "a: b""#).is_some());
     }
 
     // ── Opaque rejection test ─────────────────────────────────────────────────

@@ -59,11 +59,41 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, YamlIndex)
     (NodeTree { root }, idx)
 }
 
+/// Emit an accumulated run of consecutive standalone `#` lines as a single
+/// multi-line Comment node, then clear the accumulator. Shared verbatim by the
+/// root/mapping/sequence walkers (the old `flush_comments!` macro).
+fn flush_comment_block(
+    comment_lines: &mut Vec<String>,
+    first_comment_tok: &mut Option<SyntaxToken>,
+    parent_path: &[Seg],
+    out: &mut Vec<Node>,
+    idx: &mut YamlIndex,
+) {
+    if comment_lines.is_empty() {
+        return;
+    }
+    let text = comment_lines.join("\n");
+    let tok = first_comment_tok.take().expect("set when non-empty");
+    let i = out.len();
+    let mut path = parent_path.to_vec();
+    path.push(Seg::Index(i));
+    idx.push((path.clone(), Target::Comment(tok)));
+    out.push(Node {
+        key: text.clone(),
+        path,
+        kind: NodeKind::Comment(text.clone()),
+        children: Vec::new(),
+        value: Some(text),
+        format: Format::Plain,
+        key_sign: KeySign::None,
+        trailing_comment: None,
+        read_only: false,
+    });
+    comment_lines.clear();
+}
+
 /// Walk the ROOT node. Its direct children may be trivia tokens, comments, and
 /// a single MAPPING or SEQUENCE (or VALUE for scalar root).
-// The flush_comments! macro resets `seen_newline_after_comment`; the final flush
-// at function end leaves a write that is never read again — that is expected.
-#[allow(unused_assignments)]
 fn walk_root_node(
     root: &SyntaxNode,
     parent_path: &[Seg],
@@ -77,27 +107,13 @@ fn walk_root_node(
 
     macro_rules! flush_comments {
         () => {
-            if !comment_lines.is_empty() {
-                let text = comment_lines.join("\n");
-                let tok = first_comment_tok.take().expect("set when non-empty");
-                let i = out.len();
-                let mut path = parent_path.to_vec();
-                path.push(Seg::Index(i));
-                idx.push((path.clone(), Target::Comment(tok)));
-                out.push(Node {
-                    key: text.clone(),
-                    path,
-                    kind: NodeKind::Comment(text.clone()),
-                    children: Vec::new(),
-                    value: Some(text),
-                    format: Format::Plain,
-                    key_sign: KeySign::None,
-                    trailing_comment: None,
-                    read_only: false,
-                });
-                comment_lines.clear();
-                seen_newline_after_comment = false;
-            }
+            flush_comment_block(
+                &mut comment_lines,
+                &mut first_comment_tok,
+                parent_path,
+                out,
+                idx,
+            )
         };
     }
 
@@ -182,7 +198,6 @@ fn walk_root_node(
 
 /// Walk a MAPPING node — emit MAP_ENTRY children and OPAQUE children (merge keys).
 /// Comments and newlines float at this level as trivia tokens.
-#[allow(unused_assignments)] // final flush_comments! write is intentionally dead
 fn walk_mapping(
     mapping: &SyntaxNode,
     parent_path: &[Seg],
@@ -195,27 +210,13 @@ fn walk_mapping(
 
     macro_rules! flush_comments {
         () => {
-            if !comment_lines.is_empty() {
-                let text = comment_lines.join("\n");
-                let tok = first_comment_tok.take().expect("set when non-empty");
-                let i = out.len();
-                let mut path = parent_path.to_vec();
-                path.push(Seg::Index(i));
-                idx.push((path.clone(), Target::Comment(tok)));
-                out.push(Node {
-                    key: text.clone(),
-                    path,
-                    kind: NodeKind::Comment(text.clone()),
-                    children: Vec::new(),
-                    value: Some(text),
-                    format: Format::Plain,
-                    key_sign: KeySign::None,
-                    trailing_comment: None,
-                    read_only: false,
-                });
-                comment_lines.clear();
-                seen_newline_after_comment = false;
-            }
+            flush_comment_block(
+                &mut comment_lines,
+                &mut first_comment_tok,
+                parent_path,
+                out,
+                idx,
+            )
         };
     }
 
@@ -277,7 +278,6 @@ fn walk_mapping(
 }
 
 /// Walk a SEQUENCE node — emit SEQ_ENTRY children.
-#[allow(unused_assignments)] // final flush_comments! write is intentionally dead
 fn walk_sequence(
     sequence: &SyntaxNode,
     parent_path: &[Seg],
@@ -290,27 +290,13 @@ fn walk_sequence(
 
     macro_rules! flush_comments {
         () => {
-            if !comment_lines.is_empty() {
-                let text = comment_lines.join("\n");
-                let tok = first_comment_tok.take().expect("set when non-empty");
-                let i = out.len();
-                let mut path = parent_path.to_vec();
-                path.push(Seg::Index(i));
-                idx.push((path.clone(), Target::Comment(tok)));
-                out.push(Node {
-                    key: text.clone(),
-                    path,
-                    kind: NodeKind::Comment(text.clone()),
-                    children: Vec::new(),
-                    value: Some(text),
-                    format: Format::Plain,
-                    key_sign: KeySign::None,
-                    trailing_comment: None,
-                    read_only: false,
-                });
-                comment_lines.clear();
-                seen_newline_after_comment = false;
-            }
+            flush_comment_block(
+                &mut comment_lines,
+                &mut first_comment_tok,
+                parent_path,
+                out,
+                idx,
+            )
         };
     }
 
@@ -880,9 +866,10 @@ fn key_text_and_sign(tok: &SyntaxToken) -> (String, KeySign) {
         }
         SyntaxKind::DOUBLE => {
             let t = tok.text();
-            // Strip surrounding double quotes.
+            // Strip surrounding double quotes, then decode escape sequences so a
+            // key like `"a\tb"` projects as `a<TAB>b` rather than literal `\t`.
             let inner = if t.len() >= 2 && t.starts_with('"') && t.ends_with('"') {
-                t[1..t.len() - 1].to_string()
+                crate::model::yaml::edit::decode_double(&t[1..t.len() - 1])
             } else {
                 t.to_string()
             };
@@ -1049,6 +1036,14 @@ mod tests {
         assert_eq!(by("b").kind, NodeKind::Scalar(ScalarType::Bool));
         assert_eq!(by("nul").kind, NodeKind::Scalar(ScalarType::Null));
         assert_eq!(by("d").kind, NodeKind::Scalar(ScalarType::String));
+    }
+
+    #[test]
+    fn double_quoted_key_is_unescaped() {
+        let t = tree("\"a\\tb\": 1\n");
+        let n = &t.root.children[0];
+        assert_eq!(n.key, "a\tb");
+        assert_eq!(n.key_sign, KeySign::Quoted);
     }
 
     #[test]
