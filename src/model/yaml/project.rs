@@ -783,6 +783,13 @@ fn walk_flow_map_entries(
     }
 }
 
+/// The **decoded** key name of a MAP_ENTRY / FLOW_ENTRY (quotes stripped, escape
+/// sequences resolved) — the same form projection puts in a `Seg::Key` path, so
+/// edit-side string matching against a path segment agrees on quoted keys.
+pub(crate) fn entry_key_name(entry: &SyntaxNode) -> String {
+    key_name_and_sign(entry).0
+}
+
 /// Extract the key name and sign from a MAP_ENTRY / FLOW_ENTRY's KEY child.
 fn key_name_and_sign(entry: &SyntaxNode) -> (String, KeySign) {
     match entry.children().find(|c| c.kind() == SyntaxKind::KEY) {

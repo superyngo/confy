@@ -10,7 +10,7 @@
 
 use crate::model::document::{MutateError, Mutation, OnCollision, Target as MutTarget};
 use crate::model::node::{NodeKind, ScalarType, Seg};
-use crate::model::yaml::project::{walk, Target};
+use crate::model::yaml::project::{entry_key_name, walk, Target};
 use crate::model::yaml::syntax::{SyntaxKind, SyntaxNode};
 
 // ── Indent engine ─────────────────────────────────────────────────────────────
@@ -530,7 +530,7 @@ fn find_container(tree: &SyntaxNode, parent_path: &[Seg]) -> Result<SyntaxNode, 
                 let entry = container
                     .children()
                     .filter(|n| matches!(n.kind(), SyntaxKind::MAP_ENTRY | SyntaxKind::FLOW_ENTRY))
-                    .find(|e| entry_key_text(e) == k.as_str())
+                    .find(|e| entry_key_name(e) == k.as_str())
                     .ok_or(MutateError::NotFound)?;
                 child_collection(&entry).ok_or(MutateError::NotFound)?
             }
@@ -640,7 +640,7 @@ fn existing_map_keys(container: &SyntaxNode) -> Vec<String> {
     container
         .children()
         .filter(|n| n.kind() == SyntaxKind::MAP_ENTRY)
-        .map(|e| entry_key_text(&e))
+        .map(|e| entry_key_name(&e))
         .collect()
 }
 
@@ -1016,7 +1016,7 @@ fn rename(tree: &SyntaxNode, path: &[Seg], new_key: &str) -> Result<(), MutateEr
         if sib == entry {
             continue;
         }
-        if entry_key_text(&sib) == new_key {
+        if entry_key_name(&sib) == new_key {
             return Err(MutateError::Collision(new_key.to_string()));
         }
     }
@@ -2225,6 +2225,59 @@ mod tests {
         assert!(parse_map_entry_fragment(r#""a: b""#).is_none());
         // A real entry whose value holds `: ` still parses.
         assert!(parse_map_entry_fragment(r#"k: "a: b""#).is_some());
+    }
+
+    // ── Quoted-key resolution (insert/delete/collision through quoted keys) ───
+
+    #[test]
+    fn insert_under_quoted_key_parent() {
+        // `find_container` must descend through a quoted parent key.
+        let src = "\"a b\":\n  x: 1\n";
+        let out = apply_str(
+            src,
+            Mutation::Insert {
+                target: crate::model::document::Target {
+                    parent: vec![Seg::Key("a b".into())],
+                    index: 1,
+                },
+                fragment: "y: 2".into(),
+                on_collision: OnCollision::Cancel,
+            },
+        )
+        .expect("insert under quoted-key parent");
+        assert_eq!(out, "\"a b\":\n  x: 1\n  y: 2\n");
+    }
+
+    #[test]
+    fn insert_colliding_quoted_key_is_collision() {
+        // `existing_map_keys` must see the decoded form of a quoted sibling key.
+        let src = "\"a b\": 1\n";
+        let res = apply_str(
+            src,
+            Mutation::Insert {
+                target: crate::model::document::Target {
+                    parent: vec![],
+                    index: 1,
+                },
+                fragment: "\"a b\": 2".into(),
+                on_collision: OnCollision::Cancel,
+            },
+        );
+        assert!(matches!(res, Err(MutateError::Collision(_))));
+    }
+
+    #[test]
+    fn rename_onto_quoted_sibling_is_collision() {
+        // The rename sibling check must compare decoded keys.
+        let src = "\"a b\": 1\nc: 2\n";
+        let res = apply_str(
+            src,
+            Mutation::Rename {
+                path: vec![Seg::Key("c".into())],
+                new_key: "a b".into(),
+            },
+        );
+        assert!(matches!(res, Err(MutateError::Collision(_))));
     }
 
     // ── Opaque rejection test ─────────────────────────────────────────────────
