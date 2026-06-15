@@ -1010,13 +1010,14 @@ impl App {
             Some(d) => d,
             None => return,
         };
+        let fmt = doc.format().name();
         match doc.apply(crate::model::document::Mutation::Replace {
             path,
             fragment: edited,
         }) {
             Ok(()) => self.on_mutation_success(),
             Err(crate::model::document::MutateError::Fragment(msg)) => {
-                self.error = Some(format!("invalid TOML: {msg}"));
+                self.error = Some(format!("invalid {fmt}: {msg}"));
             }
             Err(e) => self.error = Some(format!("error: {e}")),
         }
@@ -1713,6 +1714,7 @@ impl App {
             Some(d) => d,
             None => return,
         };
+        let fmt = doc.format().name();
         match doc.apply(crate::model::document::Mutation::Insert {
             target,
             fragment: edited,
@@ -1725,7 +1727,7 @@ impl App {
                 ));
             }
             Err(crate::model::document::MutateError::Fragment(msg)) => {
-                self.error = Some(format!("invalid TOML: {msg}"));
+                self.error = Some(format!("invalid {fmt}: {msg}"));
             }
             Err(e) => self.error = Some(format!("error: {e}")),
         }

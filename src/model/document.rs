@@ -60,6 +60,17 @@ pub enum DocFormat {
     Yaml,
 }
 
+impl DocFormat {
+    /// Human-readable name for status/error messages ("TOML", "JSON", "YAML").
+    pub fn name(self) -> &'static str {
+        match self {
+            DocFormat::Toml => "TOML",
+            DocFormat::Json => "JSON",
+            DocFormat::Yaml => "YAML",
+        }
+    }
+}
+
 /// Where an insert/move lands: insert as a child of `parent` at `index`.
 #[derive(Clone, Debug)]
 pub struct Target {

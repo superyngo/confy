@@ -401,31 +401,7 @@ fn project_map_entry(
     out: &mut Vec<Node>,
     idx: &mut YamlIndex,
 ) {
-    // Find KEY child node.
-    let key_node = entry.children().find(|c| c.kind() == SyntaxKind::KEY);
-    let (key_name, key_sign) = match &key_node {
-        Some(kn) => {
-            // KEY contains a single scalar token (PLAIN, SINGLE, or DOUBLE).
-            let inner = kn.children_with_tokens().find_map(|c| {
-                if let NodeOrToken::Token(t) = c {
-                    match t.kind() {
-                        SyntaxKind::PLAIN | SyntaxKind::SINGLE | SyntaxKind::DOUBLE => Some(t),
-                        _ => None,
-                    }
-                } else {
-                    None
-                }
-            });
-            match inner {
-                Some(tok) => {
-                    let (name, sign) = key_text_and_sign(&tok);
-                    (name, sign)
-                }
-                None => (kn.text().to_string().trim().to_string(), KeySign::Bare),
-            }
-        }
-        None => (String::new(), KeySign::Bare),
-    };
+    let (key_name, key_sign) = key_name_and_sign(entry);
 
     let mut path = parent_path.to_vec();
     path.push(Seg::Key(key_name.clone()));
@@ -776,146 +752,72 @@ fn build_value_node(
     }
 }
 
-/// Scan FLOW_MAP children for key-value pairs and emit projected nodes.
-/// Structure: L_BRACE + (key_tok WHITESPACE* COLON WHITESPACE* value COMMA?)* + R_BRACE
-/// Keys and scalar values are tokens; nested containers are child nodes.
+/// Project a FLOW_MAP's members. Each member is a `FLOW_ENTRY` child node
+/// (`KEY COLON value`), so projection mirrors `project_map_entry`: the member is
+/// individually addressable (its own `Target::MapEntry(flow_entry)`) and a nested
+/// flow `{…}`/`[…]` value is a real child node that recurses, not a flat token run.
 fn walk_flow_map_entries(
     flow_map: &SyntaxNode,
     parent_path: &[Seg],
     out: &mut Vec<Node>,
     idx: &mut YamlIndex,
 ) {
-    // Collect into a list for indexed scanning.
-    let children: Vec<NodeOrToken<SyntaxNode, SyntaxToken>> =
-        flow_map.children_with_tokens().collect();
-    let n = children.len();
-    let mut i = 0;
+    for entry in flow_map
+        .children()
+        .filter(|c| c.kind() == SyntaxKind::FLOW_ENTRY)
+    {
+        let (key_name, key_sign) = key_name_and_sign(&entry);
+        let mut path = parent_path.to_vec();
+        path.push(Seg::Key(key_name.clone()));
+        idx.push((path.clone(), Target::MapEntry(entry.clone())));
 
-    while i < n {
-        match &children[i] {
-            NodeOrToken::Token(tok) => {
-                match tok.kind() {
-                    SyntaxKind::PLAIN | SyntaxKind::SINGLE | SyntaxKind::DOUBLE => {
-                        // This is a key token. Find the COLON then the value.
-                        let key_tok = tok.clone();
-                        let (key_name, key_sign) = key_text_and_sign(&key_tok);
-                        let mut path = parent_path.to_vec();
-                        path.push(Seg::Key(key_name.clone()));
+        // Value child: VALUE wrapper (SCALAR / nested FLOW_MAP / FLOW_SEQ), or
+        // absent for an implicit null member (`{x:}`).
+        let value_child = entry.children().find(|c| {
+            matches!(
+                c.kind(),
+                SyntaxKind::MAPPING | SyntaxKind::SEQUENCE | SyntaxKind::VALUE | SyntaxKind::OPAQUE
+            )
+        });
+        let node = match value_child {
+            None => Node {
+                key: key_name,
+                path,
+                kind: NodeKind::Scalar(ScalarType::Null),
+                children: Vec::new(),
+                value: None,
+                format: Format::Plain,
+                key_sign,
+                trailing_comment: None,
+                read_only: false,
+            },
+            Some(vc) => build_value_node_from_child(&vc, &key_name, key_sign, path, None, idx),
+        };
+        out.push(node);
+    }
+}
 
-                        // Scan forward past WHITESPACE to find COLON.
-                        let mut j = i + 1;
-                        while j < n {
-                            if let NodeOrToken::Token(t) = &children[j] {
-                                if t.kind() == SyntaxKind::WHITESPACE {
-                                    j += 1;
-                                    continue;
-                                }
-                                if t.kind() == SyntaxKind::COLON {
-                                    j += 1;
-                                    break;
-                                }
-                            }
-                            j += 1;
-                            break;
-                        }
-                        // Skip whitespace after colon.
-                        while j < n {
-                            if let NodeOrToken::Token(t) = &children[j] {
-                                if t.kind() == SyntaxKind::WHITESPACE {
-                                    j += 1;
-                                    continue;
-                                }
-                            }
-                            break;
-                        }
-
-                        // The value is at children[j] — either a token (scalar) or node.
-                        let node = if j < n {
-                            match &children[j] {
-                                NodeOrToken::Token(v_tok) => {
-                                    match v_tok.kind() {
-                                        SyntaxKind::PLAIN
-                                        | SyntaxKind::SINGLE
-                                        | SyntaxKind::DOUBLE => {
-                                            let (kind, fmt, val_text) =
-                                                classify_scalar_token(v_tok);
-                                            idx.push((
-                                                path.clone(),
-                                                Target::MapEntry(flow_map.clone()),
-                                            ));
-                                            let n = Node {
-                                                key: key_name,
-                                                path,
-                                                kind,
-                                                children: Vec::new(),
-                                                value: Some(val_text),
-                                                format: fmt,
-                                                key_sign,
-                                                trailing_comment: None,
-                                                read_only: false,
-                                            };
-                                            i = j + 1;
-                                            out.push(n);
-                                            continue;
-                                        }
-                                        _ => {
-                                            // null or unknown
-                                            idx.push((
-                                                path.clone(),
-                                                Target::MapEntry(flow_map.clone()),
-                                            ));
-                                            Node {
-                                                key: key_name,
-                                                path,
-                                                kind: NodeKind::Scalar(ScalarType::Null),
-                                                children: Vec::new(),
-                                                value: None,
-                                                format: Format::Plain,
-                                                key_sign,
-                                                trailing_comment: None,
-                                                read_only: false,
-                                            }
-                                        }
-                                    }
-                                }
-                                NodeOrToken::Node(v_node) => {
-                                    idx.push((path.clone(), Target::MapEntry(flow_map.clone())));
-                                    let n = build_value_node_from_child(
-                                        v_node, &key_name, key_sign, path, None, idx,
-                                    );
-                                    i = j + 1;
-                                    out.push(n);
-                                    continue;
-                                }
-                            }
-                        } else {
-                            idx.push((path.clone(), Target::MapEntry(flow_map.clone())));
-                            Node {
-                                key: key_name,
-                                path,
-                                kind: NodeKind::Scalar(ScalarType::Null),
-                                children: Vec::new(),
-                                value: None,
-                                format: Format::Plain,
-                                key_sign,
-                                trailing_comment: None,
-                                read_only: false,
-                            }
-                        };
-                        i += 1;
-                        out.push(node);
-                        continue;
-                    }
-                    _ => {}
+/// Extract the key name and sign from a MAP_ENTRY / FLOW_ENTRY's KEY child.
+fn key_name_and_sign(entry: &SyntaxNode) -> (String, KeySign) {
+    match entry.children().find(|c| c.kind() == SyntaxKind::KEY) {
+        Some(kn) => {
+            let inner = kn.children_with_tokens().find_map(|c| match c {
+                NodeOrToken::Token(t)
+                    if matches!(
+                        t.kind(),
+                        SyntaxKind::PLAIN | SyntaxKind::SINGLE | SyntaxKind::DOUBLE
+                    ) =>
+                {
+                    Some(t)
                 }
-                i += 1;
-            }
-            NodeOrToken::Node(_) => {
-                // Nested nodes in flow_map context — skip (handled when we encounter
-                // them as values above in the j-scan).
-                i += 1;
+                _ => None,
+            });
+            match inner {
+                Some(tok) => key_text_and_sign(&tok),
+                None => (kn.text().to_string().trim().to_string(), KeySign::Bare),
             }
         }
+        None => (String::new(), KeySign::Bare),
     }
 }
 
@@ -1177,6 +1079,45 @@ mod tests {
         let ls = t.root.children.iter().find(|c| c.key == "ls").unwrap();
         assert_eq!(ls.kind, NodeKind::Array);
         assert_eq!(ls.format, Format::Inline);
+    }
+
+    #[test]
+    fn nested_flow_map_does_not_flatten() {
+        // R3: a flow map value inside a flow map must project as a nested
+        // InlineTable with its own members — not collapse to null with the inner
+        // keys leaking out as siblings.
+        let t = tree("server: {host: a, inner: {x: 1, y: 2}}\n");
+        let server = t.root.children.iter().find(|c| c.key == "server").unwrap();
+        assert_eq!(server.kind, NodeKind::InlineTable);
+        // Exactly two members: host and inner (no leaked x/y).
+        assert_eq!(server.children.len(), 2);
+        let inner = server.children.iter().find(|c| c.key == "inner").unwrap();
+        assert_eq!(inner.kind, NodeKind::InlineTable);
+        assert_eq!(inner.children.len(), 2);
+        assert_eq!(inner.children[0].key, "x");
+        assert_eq!(
+            inner.children[0].kind,
+            NodeKind::Scalar(ScalarType::Integer)
+        );
+        assert_eq!(
+            inner.children[1].path,
+            vec![
+                Seg::Key("server".into()),
+                Seg::Key("inner".into()),
+                Seg::Key("y".into())
+            ]
+        );
+    }
+
+    #[test]
+    fn nested_flow_seq_of_maps() {
+        // A flow seq holding flow maps: each element is an addressable InlineTable.
+        let t = tree("items: [{a: 1}, {b: 2}]\n");
+        let items = t.root.children.iter().find(|c| c.key == "items").unwrap();
+        assert_eq!(items.kind, NodeKind::Array);
+        assert_eq!(items.children.len(), 2);
+        assert_eq!(items.children[0].kind, NodeKind::InlineTable);
+        assert_eq!(items.children[0].children[0].key, "a");
     }
 
     #[test]

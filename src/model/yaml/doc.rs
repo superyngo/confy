@@ -129,10 +129,17 @@ pub(crate) fn kind_options(tree: &NodeTree, path: &[Seg]) -> Vec<(String, KindTa
     if node.read_only {
         return Vec::new();
     }
+    // A member sitting inside an inline flow collection can't take a block layout
+    // (block expansion, literal/folded scalars) without breaking the one line.
+    let in_flow = inside_inline_collection(tree, path);
     match &node.kind {
         NodeKind::Table | NodeKind::InlineTable | NodeKind::Array => {
             if node.format == Format::Inline {
-                vec![("block  [_/B]".into(), KindTarget::Block)]
+                if in_flow {
+                    Vec::new() // can't expand an inline member to block
+                } else {
+                    vec![("block  [_/B]".into(), KindTarget::Block)]
+                }
             } else {
                 vec![("flow  [_/F]".into(), KindTarget::Flow)]
             }
@@ -151,6 +158,8 @@ pub(crate) fn kind_options(tree: &NodeTree, path: &[Seg]) -> Vec<(String, KindTa
             ];
             all.iter()
                 .filter(|(f, ..)| *f != node.format)
+                // Block scalars are multi-line: not available inside a flow line.
+                .filter(|(f, ..)| !(in_flow && matches!(f, Format::LiteralBlock | Format::Folded)))
                 .map(|(_, l, t)| (l.to_string(), *t))
                 .collect()
         }
@@ -176,6 +185,17 @@ pub(crate) fn kind_options(tree: &NodeTree, path: &[Seg]) -> Vec<(String, KindTa
         }
         _ => Vec::new(),
     }
+}
+
+/// `true` if any strict ancestor of `path` is an inline flow collection.
+fn inside_inline_collection(tree: &NodeTree, path: &[Seg]) -> bool {
+    use crate::model::node::{Format, NodeKind};
+    (1..path.len()).any(|len| {
+        tree.node_at(&path[..len]).is_some_and(|n| {
+            matches!(n.kind, NodeKind::InlineTable)
+                || (matches!(n.kind, NodeKind::Array) && n.format == Format::Inline)
+        })
+    })
 }
 
 #[cfg(test)]
@@ -237,6 +257,23 @@ mod tests {
         );
         // exponent float -> plain
         assert_eq!(opts(&[Seg::Key("e".into())]), vec![KT::FloatPlain]);
+    }
+
+    #[test]
+    fn kind_options_inside_flow_hides_block_forms() {
+        use crate::model::document::KindTarget as KT;
+        let src = "pt: {s: hi, n: {x: 1}}\n";
+        let doc = yaml_from_str(".yaml", src);
+        let opts =
+            |p: &[Seg]| -> Vec<KT> { doc.kind_options(p).into_iter().map(|(_, t)| t).collect() };
+        // A plain string member of a flow map: single/double only (plain is the
+        // current form; the literal/folded block scalars are dropped inside flow).
+        assert_eq!(
+            opts(&[Seg::Key("pt".into()), Seg::Key("s".into())]),
+            vec![KT::StringSingle, KT::StringDouble]
+        );
+        // A nested flow map member can't expand to block while inline.
+        assert!(opts(&[Seg::Key("pt".into()), Seg::Key("n".into())]).is_empty());
     }
 
     #[test]

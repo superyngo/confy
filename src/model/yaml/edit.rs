@@ -111,6 +111,11 @@ fn replace(tree: &SyntaxNode, path: &[Seg], fragment: &str) -> Result<(), Mutate
             if entry_has_opaque_value(&entry) {
                 return Err(MutateError::Unsupported);
             }
+            // A flow-map member (`{x: 1}`) is an inline `FLOW_ENTRY`; rebuild it
+            // inline rather than splicing a multi-line block MAP_ENTRY in its place.
+            if entry.kind() == SyntaxKind::FLOW_ENTRY {
+                return replace_flow_entry(tree, &entry, fragment);
+            }
             // Detect the entry's indent depth (the INDENT token inside it).
             let entry_indent = entry_indent_depth(&entry);
             // Normalize the fragment to indent 0 for parsing, then build a
@@ -247,8 +252,13 @@ fn entry_key_text(entry: &SyntaxNode) -> String {
 /// Parse `fragment` as a `key: value` map entry.
 /// Returns `None` if the fragment doesn't contain a COLON at the top level.
 fn parse_map_entry_fragment(fragment: &str) -> Option<SyntaxNode> {
-    // Must contain `: ` to be a keyed fragment.
-    if !fragment.contains(": ") && !fragment.ends_with(":\n") && !fragment.ends_with(':') {
+    // Must look keyed: the first content line is either `key: value` (inline) or
+    // `key:` with the value on following indented lines (a block map/seq value).
+    // Checking the first line (not the whole fragment) is what lets a block
+    // collection — `flags:\n  - a\n  - b` — be recognized; its first line ends
+    // with `:` and contains no `: `, so a whole-fragment check would miss it.
+    let first_line = fragment.lines().next().unwrap_or("").trim_end();
+    if !first_line.contains(": ") && !first_line.ends_with(':') {
         return None;
     }
     // Ensure it ends with a newline for the parser.
@@ -326,6 +336,11 @@ fn delete(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
             // If the entry's value is an opaque node, block mutation.
             if entry_has_opaque_value(&entry) {
                 return Err(MutateError::Unsupported);
+            }
+            // A flow-map member: rebuild the `{…}` without it (a plain node
+            // removal would leave a dangling `, ` separator).
+            if entry.kind() == SyntaxKind::FLOW_ENTRY {
+                return delete_flow_member(tree, &entry);
             }
             delete_node(&entry);
             Ok(())
@@ -432,32 +447,41 @@ fn find_container(tree: &SyntaxNode, parent_path: &[Seg]) -> Result<SyntaxNode, 
     for seg in parent_path {
         container = match seg {
             Seg::Key(k) => {
-                // Find MAP_ENTRY with this key, then its value MAPPING or SEQUENCE.
+                // A keyed member: a block MAP_ENTRY or a flow FLOW_ENTRY.
                 let entry = container
                     .children()
-                    .filter(|n| n.kind() == SyntaxKind::MAP_ENTRY)
+                    .filter(|n| matches!(n.kind(), SyntaxKind::MAP_ENTRY | SyntaxKind::FLOW_ENTRY))
                     .find(|e| entry_key_text(e) == k.as_str())
                     .ok_or(MutateError::NotFound)?;
-                entry
-                    .children()
-                    .find(|c| matches!(c.kind(), SyntaxKind::MAPPING | SyntaxKind::SEQUENCE))
-                    .ok_or(MutateError::NotFound)?
+                child_collection(&entry).ok_or(MutateError::NotFound)?
             }
             Seg::Index(i) => {
-                // Find the i-th SEQ_ENTRY, then its value MAPPING or SEQUENCE.
+                // Positional member: a block SEQ_ENTRY, then its value collection.
                 let entry = container
                     .children()
                     .filter(|n| n.kind() == SyntaxKind::SEQ_ENTRY)
                     .nth(*i)
                     .ok_or(MutateError::NotFound)?;
-                entry
-                    .children()
-                    .find(|c| matches!(c.kind(), SyntaxKind::MAPPING | SyntaxKind::SEQUENCE))
-                    .ok_or(MutateError::NotFound)?
+                child_collection(&entry).ok_or(MutateError::NotFound)?
             }
         };
     }
     Ok(container)
+}
+
+/// The collection node holding an entry's children: a block MAPPING/SEQUENCE, or
+/// a flow FLOW_MAP/FLOW_SEQ (possibly VALUE-wrapped).
+fn child_collection(entry: &SyntaxNode) -> Option<SyntaxNode> {
+    entry.children().find_map(|c| match c.kind() {
+        SyntaxKind::MAPPING
+        | SyntaxKind::SEQUENCE
+        | SyntaxKind::FLOW_MAP
+        | SyntaxKind::FLOW_SEQ => Some(c.clone()),
+        SyntaxKind::VALUE => c
+            .children()
+            .find(|v| matches!(v.kind(), SyntaxKind::FLOW_MAP | SyntaxKind::FLOW_SEQ)),
+        _ => None,
+    })
 }
 
 /// The ordered "slot elements" of a MAPPING or SEQUENCE: each MAP_ENTRY/SEQ_ENTRY
@@ -499,17 +523,6 @@ fn item_index_of_node(container: &SyntaxNode, node: &SyntaxNode) -> Option<usize
     slot_elements(container)
         .iter()
         .position(|el| matches!(el, rowan::NodeOrToken::Node(n) if n == node))
-}
-
-/// Position of a standalone COMMENT `tok` among the slot items, matched by token
-/// identity so duplicate-text comment blocks resolve correctly.
-fn item_index_of_comment(
-    container: &SyntaxNode,
-    tok: &crate::model::yaml::syntax::SyntaxToken,
-) -> Option<usize> {
-    slot_elements(container)
-        .iter()
-        .position(|el| matches!(el, rowan::NodeOrToken::Token(t) if t == tok))
 }
 
 /// Detect the indentation depth of a container's entries (number of leading spaces).
@@ -667,6 +680,13 @@ fn insert(
 ) -> Result<(), MutateError> {
     // Find the container MAPPING or SEQUENCE.
     let container = find_container(tree, &target.parent)?;
+    // Inserting into an inline flow collection: rebuild the `{…}`/`[…]` inline.
+    if matches!(
+        container.kind(),
+        SyntaxKind::FLOW_MAP | SyntaxKind::FLOW_SEQ
+    ) {
+        return insert_flow(tree, &container, target, fragment, on_collision);
+    }
     let is_mapping = container.kind() == SyntaxKind::MAPPING;
     let dest_indent = container_indent(&container);
 
@@ -728,17 +748,190 @@ fn insert(
     rebuild_and_splice(tree, &container, &items)
 }
 
+// ── Flow-collection edits ─────────────────────────────────────────────────────
+
+/// `true` if `node` sits inside an inline flow collection (so block-producing
+/// edits — block expansion, literal/folded scalars — would break the one line).
+fn node_in_flow(node: &SyntaxNode) -> bool {
+    node.ancestors()
+        .any(|a| matches!(a.kind(), SyntaxKind::FLOW_MAP | SyntaxKind::FLOW_SEQ))
+}
+
+/// The verbatim `key: value` texts of a FLOW_MAP's members, in order.
+fn flow_map_member_texts(flow: &SyntaxNode) -> Vec<String> {
+    flow.children()
+        .filter(|c| c.kind() == SyntaxKind::FLOW_ENTRY)
+        .map(|e| e.text().to_string())
+        .collect()
+}
+
+/// The verbatim element texts of a FLOW_SEQ (scalar tokens + nested flow nodes).
+fn flow_seq_element_texts(flow: &SyntaxNode) -> Vec<String> {
+    flow.children_with_tokens()
+        .filter_map(|c| match c {
+            rowan::NodeOrToken::Token(t)
+                if matches!(
+                    t.kind(),
+                    SyntaxKind::PLAIN | SyntaxKind::SINGLE | SyntaxKind::DOUBLE
+                ) =>
+            {
+                Some(t.text().to_string())
+            }
+            rowan::NodeOrToken::Node(n)
+                if matches!(n.kind(), SyntaxKind::FLOW_MAP | SyntaxKind::FLOW_SEQ) =>
+            {
+                Some(n.text().to_string())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// Re-emit a flow collection from member texts and splice it over `flow`'s range.
+fn rebuild_flow(
+    tree: &SyntaxNode,
+    flow: &SyntaxNode,
+    members: &[String],
+) -> Result<(), MutateError> {
+    let inner = members.join(", ");
+    let text = if flow.kind() == SyntaxKind::FLOW_MAP {
+        format!("{{{inner}}}")
+    } else {
+        format!("[{inner}]")
+    };
+    let full = tree.to_string();
+    let start: usize = flow.text_range().start().into();
+    let end: usize = flow.text_range().end().into();
+    let new_doc = format!("{}{}{}", &full[..start], text, &full[end..]);
+    let green = crate::model::yaml::parse::parse(&new_doc).map_err(MutateError::Illegal)?;
+    let new_root = SyntaxNode::new_root(green).clone_for_update();
+    let n = tree.children_with_tokens().count();
+    let children: Vec<_> = new_root.children_with_tokens().collect();
+    tree.splice_children(0..n, children);
+    Ok(())
+}
+
+/// Replace a flow-map member (`FLOW_ENTRY`) with `fragment`, keeping it inline.
+fn replace_flow_entry(
+    tree: &SyntaxNode,
+    member: &SyntaxNode,
+    fragment: &str,
+) -> Result<(), MutateError> {
+    let frag = fragment.trim();
+    if frag.contains('\n') {
+        return Err(MutateError::Unsupported);
+    }
+    // A keyed `k: v` fragment is used as-is; a bare value re-uses the member's key.
+    let new_text = if frag.contains(": ") || frag.ends_with(':') {
+        frag.to_string()
+    } else {
+        format!("{}: {frag}", entry_key_text(member))
+    };
+    let full = tree.to_string();
+    let start: usize = member.text_range().start().into();
+    let end: usize = member.text_range().end().into();
+    let new_doc = format!("{}{}{}", &full[..start], new_text, &full[end..]);
+    let green = crate::model::yaml::parse::parse(&new_doc).map_err(MutateError::Illegal)?;
+    let new_root = SyntaxNode::new_root(green).clone_for_update();
+    let n = tree.children_with_tokens().count();
+    let children: Vec<_> = new_root.children_with_tokens().collect();
+    tree.splice_children(0..n, children);
+    Ok(())
+}
+
+/// Delete a flow-map member by rebuilding the `{…}` without it.
+fn delete_flow_member(tree: &SyntaxNode, member: &SyntaxNode) -> Result<(), MutateError> {
+    let flow = member.parent().expect("flow member has a FLOW_MAP parent");
+    let members: Vec<String> = flow
+        .children()
+        .filter(|c| c.kind() == SyntaxKind::FLOW_ENTRY && c != member)
+        .map(|e| e.text().to_string())
+        .collect();
+    rebuild_flow(tree, &flow, &members)
+}
+
+/// Insert a new member/element into a flow collection at `target`.
+fn insert_flow(
+    tree: &SyntaxNode,
+    flow: &SyntaxNode,
+    target: &MutTarget,
+    fragment: &str,
+    on_collision: OnCollision,
+) -> Result<(), MutateError> {
+    let frag = fragment.trim();
+    if flow.kind() == SyntaxKind::FLOW_MAP {
+        // Build a single-line `key: value` member; a bare value gets a placeholder.
+        let member = if frag.contains(": ") || frag.ends_with(':') {
+            frag.to_string()
+        } else {
+            format!("placeholder: {frag}")
+        };
+        if member.contains('\n') {
+            return Err(MutateError::Unsupported);
+        }
+        let mut members = flow_map_member_texts(flow);
+        let new_key = item_key_name(&member);
+        let mut final_member = member;
+        if let Some(key) = &new_key {
+            let existing: Vec<String> = members.iter().filter_map(|m| item_key_name(m)).collect();
+            if existing.iter().any(|k| k == key) {
+                match on_collision {
+                    OnCollision::Cancel => return Err(MutateError::Collision(key.clone())),
+                    OnCollision::Overwrite => {
+                        if let Some(ci) = members
+                            .iter()
+                            .position(|m| item_key_name(m).as_deref() == Some(key))
+                        {
+                            members.remove(ci);
+                        }
+                    }
+                    OnCollision::Rename => {
+                        let val = final_member
+                            .split_once(": ")
+                            .map(|x| x.1)
+                            .unwrap_or("")
+                            .to_string();
+                        let mut n = 2usize;
+                        let renamed = loop {
+                            let candidate = format!("{key}{n}");
+                            if !existing.iter().any(|k| k == &candidate) {
+                                break format!("{candidate}: {val}");
+                            }
+                            n += 1;
+                        };
+                        final_member = renamed;
+                    }
+                }
+            }
+        }
+        let idx = target.index.min(members.len());
+        members.insert(idx, final_member);
+        rebuild_flow(tree, flow, &members)
+    } else {
+        // Flow sequence: a bare value (strip a leading `- ` if present).
+        let elem = frag.strip_prefix("- ").unwrap_or(frag).trim().to_string();
+        if elem.contains('\n') {
+            return Err(MutateError::Unsupported);
+        }
+        let mut elems = flow_seq_element_texts(flow);
+        let idx = target.index.min(elems.len());
+        elems.insert(idx, elem);
+        rebuild_flow(tree, flow, &elems)
+    }
+}
+
 fn rename(tree: &SyntaxNode, path: &[Seg], new_key: &str) -> Result<(), MutateError> {
     let entry = match resolve(tree, path).ok_or(MutateError::NotFound)? {
         Target::MapEntry(e) => e,
         _ => return Err(MutateError::Illegal("rename requires a key".into())),
     };
 
-    // Sibling collision check against the other MAP_ENTRY keys in the same parent.
+    // Sibling collision check against the other keyed members in the same parent
+    // (block MAP_ENTRY or flow FLOW_ENTRY).
     let parent = entry.parent().expect("entry has parent");
     for sib in parent
         .children()
-        .filter(|n| n.kind() == SyntaxKind::MAP_ENTRY)
+        .filter(|n| matches!(n.kind(), SyntaxKind::MAP_ENTRY | SyntaxKind::FLOW_ENTRY))
     {
         if sib == entry {
             continue;
@@ -841,12 +1034,7 @@ fn remark(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
             rebuild_and_splice(tree, &container, &new_items)
         }
         Target::Comment(first_tok) => {
-            let container = first_tok.parent().expect("comment has parent");
-            let items = collect_items(&container);
             let block_text = comment_block_text(&first_tok);
-            let block_lines: Vec<&str> = block_text.lines().collect();
-            let pos = item_index_of_comment(&container, &first_tok).ok_or(MutateError::NotFound)?;
-
             // Recover the live text by stripping the comment leader.
             let recovered = uncomment(&block_text);
             // Validate it parses as a map entry or a `- ` sequence element.
@@ -859,14 +1047,74 @@ fn remark(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
                 ));
             }
 
-            let mut new_items = items.clone();
-            // The block occupies `block_lines.len()` consecutive comment items.
-            let span = block_lines.len();
-            new_items.splice(pos..pos + span, [ensure_newline(&recovered)]);
-            rebuild_and_splice(tree, &container, &new_items)
+            splice_comment_block(tree, &first_tok, &recovered)
         }
         Target::Opaque(_) => Err(MutateError::Unsupported),
     }
+}
+
+/// Byte range `[start, end)` covering the comment block beginning at `first`,
+/// plus the block's leading-indent width. The range spans an optional leading
+/// INDENT token through the NEWLINE that terminates the block's last comment
+/// line, so replacing just that slice leaves every sibling — including a
+/// ROOT-level MAPPING/SEQUENCE that sits beside a leading comment — untouched.
+/// Mirrors the consecutive-comment grouping in `comment_block_text`.
+fn comment_block_bounds(first: &crate::model::yaml::syntax::SyntaxToken) -> (usize, usize, usize) {
+    use rowan::NodeOrToken;
+    let mut start = usize::from(first.text_range().start());
+    let mut indent = 0usize;
+    if let Some(NodeOrToken::Token(prev)) = first.prev_sibling_or_token() {
+        if prev.kind() == SyntaxKind::INDENT {
+            start = usize::from(prev.text_range().start());
+            indent = prev.text().chars().count();
+        }
+    }
+    let mut end = usize::from(first.text_range().end());
+    let mut sib = first.next_sibling_or_token();
+    let mut newlines = 0u32;
+    while let Some(el) = sib {
+        match el.kind() {
+            SyntaxKind::WHITESPACE | SyntaxKind::INDENT => {}
+            SyntaxKind::NEWLINE => {
+                newlines += 1;
+                if newlines == 1 {
+                    end = usize::from(el.text_range().end());
+                }
+                if newlines >= 2 {
+                    break;
+                }
+            }
+            SyntaxKind::COMMENT if newlines == 1 => newlines = 0,
+            _ => break,
+        }
+        sib = el.next_sibling_or_token();
+    }
+    (start, end, indent)
+}
+
+/// Replace the comment block beginning at `first` with `text` (reindented to the
+/// block's own indentation) via a whole-document reparse. Container-agnostic:
+/// unlike the slot-item rebuild, this preserves a ROOT-level MAPPING/SEQUENCE
+/// sibling, so editing or remarking the leading comment never drops the body.
+fn splice_comment_block(
+    tree: &SyntaxNode,
+    first: &crate::model::yaml::syntax::SyntaxToken,
+    text: &str,
+) -> Result<(), MutateError> {
+    let (start, end, indent) = comment_block_bounds(first);
+    let body = ensure_newline(&reindent(
+        &ensure_newline(text),
+        fragment_indent(text),
+        indent,
+    ));
+    let full = tree.to_string();
+    let new_doc = format!("{}{}{}", &full[..start], body, &full[end..]);
+    let new_green = crate::model::yaml::parse::parse(&new_doc).map_err(MutateError::Illegal)?;
+    let new_root = SyntaxNode::new_root(new_green).clone_for_update();
+    let n = tree.children_with_tokens().count();
+    let new_children: Vec<_> = new_root.children_with_tokens().collect();
+    tree.splice_children(0..n, new_children);
+    Ok(())
 }
 
 fn edit_comment(tree: &SyntaxNode, path: &[Seg], text: &str) -> Result<(), MutateError> {
@@ -889,15 +1137,7 @@ fn edit_comment(tree: &SyntaxNode, path: &[Seg], text: &str) -> Result<(), Mutat
         }
     };
 
-    let container = first_tok.parent().expect("comment has parent");
-    let items = collect_items(&container);
-    let block_text = comment_block_text(&first_tok);
-    let block_lines: Vec<&str> = block_text.lines().collect();
-    let pos = item_index_of_comment(&container, &first_tok).ok_or(MutateError::NotFound)?;
-
-    let mut new_items = items.clone();
-    new_items.splice(pos..pos + block_lines.len(), [ensure_newline(text)]);
-    rebuild_and_splice(tree, &container, &new_items)
+    splice_comment_block(tree, &first_tok, text)
 }
 
 fn insert_comment(tree: &SyntaxNode, target: &MutTarget, text: &str) -> Result<(), MutateError> {
@@ -1090,6 +1330,13 @@ fn convert_container(
     use crate::model::document::KindTarget as KT;
     let (entry, value) = resolve_value_node(tree, path)?;
 
+    // A member sitting *inside* an inline flow collection can't be block-expanded
+    // (it would break the one line); reject. The flow collection as a whole is
+    // converted via its own block-level entry, which is not in-flow.
+    if node_in_flow(&entry) {
+        return Err(MutateError::Unsupported);
+    }
+
     // Locate the actual collection node (FLOW_MAP/FLOW_SEQ/MAPPING/SEQUENCE):
     // it may be the value itself or a VALUE-wrapped flow collection.
     let coll = if matches!(
@@ -1281,6 +1528,14 @@ fn convert_string(
     use crate::model::document::KindTarget as KT;
     let (entry, value) = resolve_value_node(tree, path)?;
     let indent = entry_indent_depth(&entry);
+
+    // A literal/folded block scalar is multi-line — illegal for a member inside an
+    // inline flow collection.
+    if node_in_flow(&entry) && matches!(target, KT::StringLiteralBlock | KT::StringFolded) {
+        return Err(MutateError::Illegal(
+            "cannot use a block scalar inside an inline flow collection".into(),
+        ));
+    }
 
     // Decode the current scalar content into a plain Rust string.
     let content = decode_string_value(&value)?;
@@ -1963,6 +2218,37 @@ mod tests {
     }
 
     #[test]
+    fn edit_leading_comment_preserves_body() {
+        // Regression: a leading comment is a direct ROOT child sitting beside the
+        // top MAPPING. The old slot-item rebuild overwrote ROOT's whole span and
+        // dropped the mapping (total data loss). The body must survive.
+        let src = "# header\ntitle: demo\nport: 8080\n";
+        let out = apply_str(
+            src,
+            Mutation::EditComment {
+                path: vec![Seg::Index(0)],
+                text: "# header EDITED".into(),
+            },
+        )
+        .expect("edit leading comment should succeed");
+        assert_eq!(out, "# header EDITED\ntitle: demo\nport: 8080\n");
+    }
+
+    #[test]
+    fn remark_leading_comment_preserves_body() {
+        // Same ROOT-sibling hazard for the remark (comment→entry) path.
+        let src = "# title: old\nport: 8080\n";
+        let out = apply_str(
+            src,
+            Mutation::Remark {
+                path: vec![Seg::Index(0)],
+            },
+        )
+        .expect("remark leading comment should succeed");
+        assert_eq!(out, "title: old\nport: 8080\n");
+    }
+
+    #[test]
     fn edit_comment_non_hash_rejected() {
         let r = apply_str(
             "# old\n",
@@ -2063,6 +2349,39 @@ mod tests {
         )
         .expect("replace should succeed");
         assert_eq!(out, "srv:\n  host: b\n  port: 80\n");
+    }
+
+    #[test]
+    fn replace_block_seq_entry_with_own_fragment() {
+        // Regression ($EDITOR on a block sequence): the entry's serialized
+        // fragment is `flags:\n  - a\n  - b` — its first line ends with `:`
+        // (no `: `), which the old keyed-fragment guard missed, sending it down
+        // the bare-value path and failing to reparse. Re-applying it must be a
+        // lossless no-op and keep the trailing sibling.
+        let src = "flags:\n  - a\n  - b\nafter: 1\n";
+        let out = apply_str(
+            src,
+            Mutation::Replace {
+                path: vec![Seg::Key("flags".into())],
+                fragment: "flags:\n  - a\n  - b".into(),
+            },
+        )
+        .expect("block-seq replace should succeed");
+        assert_eq!(out, src);
+    }
+
+    #[test]
+    fn replace_block_map_entry_with_own_fragment() {
+        let src = "server:\n  host: a\n  port: 1\nafter: 1\n";
+        let out = apply_str(
+            src,
+            Mutation::Replace {
+                path: vec![Seg::Key("server".into())],
+                fragment: "server:\n  host: a\n  port: 1".into(),
+            },
+        )
+        .expect("block-map replace should succeed");
+        assert_eq!(out, src);
     }
 
     #[test]
@@ -2546,6 +2865,146 @@ mod tests {
             matches!(r, Err(MutateError::Unsupported)),
             "convert on opaque expected Unsupported, got {r:?}"
         );
+    }
+
+    // ── Flow-collection member edits (R4) ─────────────────────────────────────
+
+    #[test]
+    fn replace_flow_map_member_stays_inline() {
+        // R4: editing a flow-map member must keep the `{…}` on one line.
+        let out = apply_str(
+            "ratio: {x: 1.5, y: 2.5}\n",
+            Mutation::Replace {
+                path: vec![Seg::Key("ratio".into()), Seg::Key("x".into())],
+                fragment: "x: 9.9".into(),
+            },
+        )
+        .expect("replace flow member");
+        assert_eq!(out, "ratio: {x: 9.9, y: 2.5}\n");
+    }
+
+    #[test]
+    fn convert_flow_map_member_int_radix() {
+        // R4: kind-switch on a flow-map member (the reported `ratio: {x: …}` case).
+        let out = convert(
+            "n: {a: 255, b: 2}\n",
+            vec![Seg::Key("n".into()), Seg::Key("a".into())],
+            KindTarget::IntHex,
+        )
+        .expect("convert flow member dec→hex");
+        assert_eq!(out, "n: {a: 0xff, b: 2}\n");
+    }
+
+    #[test]
+    fn add_child_into_flow_map() {
+        use crate::model::document::{OnCollision, Target};
+        let out = apply_str(
+            "pt: {x: 1, y: 2}\n",
+            Mutation::Insert {
+                target: Target {
+                    parent: vec![Seg::Key("pt".into())],
+                    index: 2,
+                },
+                fragment: "z: 3\n".into(),
+                on_collision: OnCollision::Cancel,
+            },
+        )
+        .expect("insert into flow map");
+        assert_eq!(out, "pt: {x: 1, y: 2, z: 3}\n");
+    }
+
+    #[test]
+    fn add_child_into_flow_map_front() {
+        use crate::model::document::{OnCollision, Target};
+        let out = apply_str(
+            "pt: {y: 2}\n",
+            Mutation::Insert {
+                target: Target {
+                    parent: vec![Seg::Key("pt".into())],
+                    index: 0,
+                },
+                fragment: "x: 1\n".into(),
+                on_collision: OnCollision::Cancel,
+            },
+        )
+        .expect("insert at front of flow map");
+        assert_eq!(out, "pt: {x: 1, y: 2}\n");
+    }
+
+    #[test]
+    fn add_child_into_flow_map_collision_cancels() {
+        use crate::model::document::{OnCollision, Target};
+        let r = apply_str(
+            "pt: {x: 1}\n",
+            Mutation::Insert {
+                target: Target {
+                    parent: vec![Seg::Key("pt".into())],
+                    index: 1,
+                },
+                fragment: "x: 9\n".into(),
+                on_collision: OnCollision::Cancel,
+            },
+        );
+        assert!(
+            matches!(r, Err(MutateError::Collision(_))),
+            "duplicate flow key expected Collision, got {r:?}"
+        );
+    }
+
+    #[test]
+    fn delete_flow_map_member_fixes_separator() {
+        let out = apply_str(
+            "pt: {x: 1, y: 2, z: 3}\n",
+            Mutation::Delete {
+                path: vec![Seg::Key("pt".into()), Seg::Key("y".into())],
+            },
+        )
+        .expect("delete flow member");
+        assert_eq!(out, "pt: {x: 1, z: 3}\n");
+    }
+
+    #[test]
+    fn rename_flow_map_member() {
+        let out = apply_str(
+            "pt: {x: 1, y: 2}\n",
+            Mutation::Rename {
+                path: vec![Seg::Key("pt".into()), Seg::Key("x".into())],
+                new_key: "w".into(),
+            },
+        )
+        .expect("rename flow member");
+        assert_eq!(out, "pt: {w: 1, y: 2}\n");
+    }
+
+    #[test]
+    fn convert_flow_member_to_block_scalar_rejected() {
+        let r = convert(
+            "s: {a: hi}\n",
+            vec![Seg::Key("s".into()), Seg::Key("a".into())],
+            KindTarget::StringLiteralBlock,
+        );
+        assert!(
+            matches!(r, Err(MutateError::Illegal(_))),
+            "block scalar inside flow expected Illegal, got {r:?}"
+        );
+    }
+
+    #[test]
+    fn add_element_into_flow_seq() {
+        use crate::model::document::{OnCollision, Target};
+        let out = apply_str(
+            "ls: [a, b]\n",
+            Mutation::Insert {
+                target: Target {
+                    parent: vec![Seg::Key("ls".into())],
+                    index: 2,
+                },
+                fragment: "c\n".into(),
+                on_collision: OnCollision::Cancel,
+            },
+        )
+        .expect("insert into flow seq");
+        assert_eq!(out, "ls: [a, b, c]\n");
     }
 
     #[test]

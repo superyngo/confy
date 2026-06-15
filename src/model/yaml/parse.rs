@@ -428,35 +428,131 @@ impl Parser {
                 _ => j += 1,
             }
         };
-        let node_kind = if single_line {
-            single_line_kind
-        } else {
-            SyntaxKind::OPAQUE
-        };
         self.builder.start_node(SyntaxKind::VALUE.into());
-        self.builder.start_node(node_kind.into());
-        // bump through the matching close (depth back to 0)
-        let mut depth = 0i32;
+        if single_line {
+            // Recursively build nested FLOW_MAP/FLOW_SEQ + FLOW_ENTRY nodes so a
+            // nested `{…}` value is a real child (not a flat token run) and each
+            // map member is individually addressable.
+            self.parse_flow_collection(single_line_kind);
+        } else {
+            // Multi-line flow is out of subset → opaque flat span.
+            self.builder.start_node(SyntaxKind::OPAQUE.into());
+            let mut depth = 0i32;
+            loop {
+                match self.at() {
+                    None => break,
+                    Some(SyntaxKind::L_BRACE | SyntaxKind::L_BRACK) => {
+                        depth += 1;
+                        self.bump();
+                    }
+                    Some(SyntaxKind::R_BRACE | SyntaxKind::R_BRACK) => {
+                        depth -= 1;
+                        self.bump();
+                        if depth == 0 {
+                            break;
+                        }
+                    }
+                    _ => self.bump(),
+                }
+            }
+            self.builder.finish_node(); // OPAQUE
+        }
+        self.builder.finish_node(); // VALUE
+        self.bump_trailing();
+    }
+
+    /// Parse a single-line flow collection (`{…}` or `[…]`) into a structured
+    /// node. The opening `{`/`[` is the current token. Separators (`,`) and
+    /// inter-member whitespace float as direct children of the collection node.
+    fn parse_flow_collection(&mut self, kind: SyntaxKind) {
+        self.builder.start_node(kind.into());
+        self.bump(); // L_BRACE / L_BRACK
+        if kind == SyntaxKind::FLOW_MAP {
+            self.parse_flow_map_body();
+        } else {
+            self.parse_flow_seq_body();
+        }
+        // Closing brace/bracket.
+        if matches!(self.at(), Some(SyntaxKind::R_BRACE | SyntaxKind::R_BRACK)) {
+            self.bump();
+        }
+        self.builder.finish_node(); // kind
+    }
+
+    /// Flow map body: a run of FLOW_ENTRY members, with `,`/whitespace floating
+    /// between them. Stops at the closing brace (or EOF).
+    fn parse_flow_map_body(&mut self) {
         loop {
             match self.at() {
-                None => break,
-                Some(SyntaxKind::L_BRACE | SyntaxKind::L_BRACK) => {
-                    depth += 1;
-                    self.bump();
+                None | Some(SyntaxKind::R_BRACE | SyntaxKind::R_BRACK) => break,
+                Some(SyntaxKind::WHITESPACE | SyntaxKind::COMMA) => self.bump(),
+                Some(SyntaxKind::PLAIN | SyntaxKind::SINGLE | SyntaxKind::DOUBLE) => {
+                    self.parse_flow_entry()
                 }
-                Some(SyntaxKind::R_BRACE | SyntaxKind::R_BRACK) => {
-                    depth -= 1;
-                    self.bump();
-                    if depth == 0 {
-                        break;
-                    }
-                }
+                // Defensive: anything unexpected floats (keeps the tree lossless).
                 _ => self.bump(),
             }
         }
-        self.builder.finish_node(); // node_kind
-        self.builder.finish_node(); // VALUE
-        self.bump_trailing();
+    }
+
+    /// A flow map member: `KEY : value`. Whitespace around the colon and the
+    /// value itself live inside the FLOW_ENTRY; the trailing `,` floats outside.
+    fn parse_flow_entry(&mut self) {
+        self.builder.start_node(SyntaxKind::FLOW_ENTRY.into());
+        self.builder.start_node(SyntaxKind::KEY.into());
+        self.bump(); // key scalar token
+        self.builder.finish_node(); // KEY
+        while self.at() == Some(SyntaxKind::WHITESPACE) {
+            self.bump();
+        }
+        if self.at() == Some(SyntaxKind::COLON) {
+            self.bump();
+        }
+        while self.at() == Some(SyntaxKind::WHITESPACE) {
+            self.bump();
+        }
+        self.parse_flow_value();
+        self.builder.finish_node(); // FLOW_ENTRY
+    }
+
+    /// The value of a flow map member: a nested flow collection (VALUE-wrapped,
+    /// like a block value) or a scalar token, or nothing (implicit null `{x:}`).
+    fn parse_flow_value(&mut self) {
+        match self.at() {
+            Some(SyntaxKind::L_BRACE) => {
+                self.builder.start_node(SyntaxKind::VALUE.into());
+                self.parse_flow_collection(SyntaxKind::FLOW_MAP);
+                self.builder.finish_node();
+            }
+            Some(SyntaxKind::L_BRACK) => {
+                self.builder.start_node(SyntaxKind::VALUE.into());
+                self.parse_flow_collection(SyntaxKind::FLOW_SEQ);
+                self.builder.finish_node();
+            }
+            Some(SyntaxKind::PLAIN | SyntaxKind::SINGLE | SyntaxKind::DOUBLE) => {
+                self.builder.start_node(SyntaxKind::VALUE.into());
+                self.builder.start_node(SyntaxKind::SCALAR.into());
+                self.bump();
+                self.builder.finish_node(); // SCALAR
+                self.builder.finish_node(); // VALUE
+            }
+            _ => {} // implicit null
+        }
+    }
+
+    /// Flow seq body: scalar elements as bare tokens, nested collections as real
+    /// child nodes, with `,`/whitespace floating between them.
+    fn parse_flow_seq_body(&mut self) {
+        loop {
+            match self.at() {
+                None | Some(SyntaxKind::R_BRACE | SyntaxKind::R_BRACK) => break,
+                Some(SyntaxKind::WHITESPACE | SyntaxKind::COMMA) => self.bump(),
+                Some(SyntaxKind::L_BRACE) => self.parse_flow_collection(SyntaxKind::FLOW_MAP),
+                Some(SyntaxKind::L_BRACK) => self.parse_flow_collection(SyntaxKind::FLOW_SEQ),
+                Some(SyntaxKind::PLAIN | SyntaxKind::SINGLE | SyntaxKind::DOUBLE) => self.bump(),
+                _ => self.bump(),
+            }
+        }
     }
 }
 
@@ -883,6 +979,39 @@ mod tests {
                 "roundtrip {src:?}"
             );
         }
+    }
+
+    #[test]
+    fn nested_flow_roundtrips_and_nests() {
+        for src in [
+            "server: {host: a, inner: {x: 1, y: 2}}\n",
+            "items: [{a: 1}, {b: 2}]\n",
+            "deep: {a: {b: {c: 1}}}\n",
+            "mix: {list: [1, 2], name: x}\n",
+            "trailing: {a: 1,}\n",
+            "seq: [[1, 2], [3, 4]]\n",
+            "empty: {}\n",
+        ] {
+            let green = parse(src).unwrap_or_else(|e| panic!("parse {src:?}: {e}"));
+            assert_eq!(
+                SyntaxNode::new_root(green).to_string(),
+                src,
+                "roundtrip {src:?}"
+            );
+        }
+        // A nested flow map is a real child node, not a flat token run.
+        let green = parse("server: {host: a, inner: {x: 1}}\n").unwrap();
+        let root = SyntaxNode::new_root(green);
+        let flow_maps = root
+            .descendants()
+            .filter(|n| n.kind() == SyntaxKind::FLOW_MAP)
+            .count();
+        assert_eq!(flow_maps, 2, "outer + nested FLOW_MAP expected");
+        let flow_entries = root
+            .descendants()
+            .filter(|n| n.kind() == SyntaxKind::FLOW_ENTRY)
+            .count();
+        assert_eq!(flow_entries, 3, "host, inner, x");
     }
 
     #[test]

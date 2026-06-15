@@ -50,7 +50,8 @@ pub enum SyntaxKind {
     SEQUENCE,
     FLOW_MAP,
     FLOW_SEQ,
-    OPAQUE, // out-of-subset span; projects read-only
+    FLOW_ENTRY, // a `key: value` member inside a FLOW_MAP
+    OPAQUE,     // out-of-subset span; projects read-only
     ROOT,
 }
 
@@ -99,8 +100,9 @@ impl rowan::Language for Yaml {
             28 => SEQUENCE,
             29 => FLOW_MAP,
             30 => FLOW_SEQ,
-            31 => OPAQUE,
-            32 => ROOT,
+            31 => FLOW_ENTRY,
+            32 => OPAQUE,
+            33 => ROOT,
             n => panic!("unknown SyntaxKind discriminant: {n}"),
         }
     }

@@ -48,7 +48,11 @@ serialize, and apply are atomic-commit with a `validate_semantics` duplicate-key
 splice core is a **reindent engine** (`reindent` in `edit.rs`) — YAML's analogue of JSON's
 comma/brace normalization — that re-flows a fragment from its source indent to the destination's.
 **Subset:** a single document (an optional leading `---` is kept verbatim), block + single-line flow
-maps/sequences, 5 scalar styles (plain, single-quoted, double-quoted, literal `|`, folded `>` with
+maps/sequences (**nesting is preserved** — the parser builds nested `FLOW_MAP`/`FLOW_SEQ` child nodes
+and a `FLOW_ENTRY` node per flow-map member, so a nested `{…}`/`[…]` value is a real recursing child
+and each member is individually addressable/editable; replace/insert/delete/rename on a flow member
+rebuild the `{…}` inline, while block-producing converts on an inline member are rejected and the `K`
+popup hides them), 5 scalar styles (plain, single-quoted, double-quoted, literal `|`, folded `>` with
 chomping), `#` comments, and YAML 1.2 **core-schema typing** with **no datetime** (date-looking
 scalars are strings). **Out-of-subset constructs** — `&anchor`, `*alias`, `<<:` merge, `!tag`,
 multi-line flow — project as **read-only opaque nodes** (`Node.read_only`, KIND tag `[opaq ]`): they
