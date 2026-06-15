@@ -85,6 +85,29 @@ new format is one more variant. `detect_format(path)` maps the extension to a `D
 or YAML. `Mutation::Insert`/`Replace` carry a format-neutral `fragment:` field (not `toml:`).
 Path→node lookup lives on `NodeTree::node_at(path)` (model layer, reused by `kind_options`).
 
+**Document-level conversion** (`model/convert.rs`, spec §Phase 4). `convert(doc, target) ->
+Result<ConvertResult, ConvertAbort>` lowers a loaded document to a **format-neutral `Value`
+tree** (`model/value.rs`: `Value::{Null,Bool,Int,Float,Str,Datetime,Seq,Map}`, ordered
+`Vec<Item>` where `Item::{Comment, Node{key,value,trailing}}` keeps confy's first-class comments
+in document order), then renders it back in the *target's* default style. The lowering is one
+generic walk — `tree_to_value(&NodeTree, src)` maps containers by `NodeKind` (Table/InlineTable→
+`Map`, Array/ArrayOfTables→`Seq`, the Root sniffs keyed-vs-keyless children, a comment→
+`Item::Comment` with markers stripped, `trailing_comment`→`Item.trailing`), and per-format
+`decode_*` helpers decode each scalar's raw token text (`node.value`) to typed data (TOML/JSON/
+YAML radix, escapes, block scalars, inf/nan). Each backend implements `ConfigDocument::to_value`
+as `tree_to_value(&self.project(), <fmt>)`. **Loss policy** (the documented lossy contract):
+notation/style that the default render drops is collected as deduplicated **warnings** during the
+walk (`style_note`: radix, string style, inline/flow, dotted, AoT, exponent); `analyze` adds the
+target-specific rules — `null`→TOML and a YAML opaque node→any target **abort** (no output;
+null paths listed), TOML datetime→JSON/YAML and non-finite floats→JSON **warn**. The three
+renderers emit default style only (`render_toml` scope tables + bare keys + `#`, two-phase so
+keys precede `[sub]`/`[[aot]]` headers; `render_json` 2-space multiline, `//` comments only when
+present ⇒ JSONC; `render_yaml` block + plain-where-safe scalars + `#`). A **reparse safety net**
+loads the rendered text with the target backend before returning, so invalid output never reaches
+disk. The **source document is never modified**. Two surfaces: the `confy convert <in> <out>
+[--from --to --yes]` CLI (`cli.rs`) and a TUI Root-node action on `C` (`Mode::Convert`: pick
+format → output path → warning/confirm; the open doc is untouched).
+
 **Addressing.** Keyed nodes are addressed by `Seg::Key(name)`; **positional** nodes — comments,
 array elements, AoT entries — by `Seg::Index(i)` over the parent's *full child sequence*
 (comments share the slot space, so an element after a comment keeps its full-sequence index).
@@ -397,11 +420,13 @@ upper-adjacent comment with it — the comment simply stays where it is.
 src/
   main.rs          CLI entry: parse args, load CstDocument, run TUI
   lib.rs           module declarations + re-exports (enables integration tests)
-  cli.rs           clap args; confy <file> [--format toml|json|yaml]; resolves DocFormat
+  cli.rs           clap args: default `confy <file> [--format]` (TUI) + `confy convert <in> <out>` subcommand
   model/
     mod.rs         re-exports
     node.rs        Seg, ScalarType, Format, NodeKind, Node, NodeTree (+ node_at lookup)
-    document.rs    ConfigDocument trait, DocFormat, Mutation, Target, OnCollision, errors
+    document.rs    ConfigDocument trait (+ to_value), DocFormat, Mutation, Target, OnCollision, ConvertAbort, errors
+    value.rs       format-neutral Value/Item tree for conversion (has_null/has_datetime)
+    convert.rs     document-level conversion: tree_to_value walk + per-format scalar decoders + default-style renderers + loss policy
     any_doc.rs     AnyDocument enum: per-format dispatch + detect_format/load_as (TOML/JSON/YAML)
     cst_doc.rs     CstDocument holding the taplo/rowan tree: load/serialize/apply (atomic commit)
     cst_project.rs CST → NodeTree projection (comments as real nodes; golden tests)
@@ -433,6 +458,7 @@ src/
     ui.rs          ratatui rendering: title bar + NAME/TYPE/VALUE column header + tree Table, detail popup, help, prompts
 tests/
   roundtrip.rs     integration: open/edit/save, diff fixture
+  convert_cli.rs   integration: `confy convert` happy/lossy/abort paths, source-unchanged
   fixtures/        sample .toml files
 ```
 

@@ -69,7 +69,24 @@ pub trait ConfigDocument: Sized {
     fn replace_preserves_trailing_comment(&self) -> bool {
         true
     }
+
+    /// Lower the whole document to the format-neutral [`Value`](crate::model::value::Value)
+    /// tree for document-level conversion (spec §Phase 4), decoding every scalar
+    /// to typed data and carrying standalone + trailing comments in order.
+    /// Returns `(value, warnings)` where `warnings` are normalization notes
+    /// gathered during the walk (notation that the default-style render will
+    /// drop). `Err(ConvertAbort)` when the document holds a construct that cannot
+    /// be represented at all (a YAML opaque node). The source is never modified.
+    fn to_value(&self) -> Result<(crate::model::value::Value, Vec<String>), ConvertAbort>;
 }
+
+/// A document-level conversion aborted before any output: the source holds a
+/// construct that cannot be represented in the neutral [`Value`] tree, or (added
+/// by the target-format loss check in `convert.rs`) a value the target format
+/// has no notation for. No file is written.
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+pub struct ConvertAbort(pub String);
 
 /// Which config syntax a document speaks. Backends report it via
 /// [`ConfigDocument::format`]; the TUI uses it for the title bar, help text

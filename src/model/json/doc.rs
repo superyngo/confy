@@ -117,6 +117,13 @@ impl ConfigDocument for JsonDocument {
     fn split_value_comment(&self, buffer: &str) -> (String, Option<String>) {
         split_value_comment(buffer)
     }
+
+    fn to_value(
+        &self,
+    ) -> Result<(crate::model::value::Value, Vec<String>), crate::model::document::ConvertAbort>
+    {
+        crate::model::convert::tree_to_value(&self.project(), DocFormat::Json)
+    }
 }
 
 /// Split `value  // comment` via the JSON lexer (a `//` inside a quoted string is

@@ -17,9 +17,42 @@ pub enum Mode {
     /// cursor node can convert to. Up/Down (or j/k) move, Enter applies
     /// (`Mutation::ConvertKind`), Esc cancels.
     KindSwitch(KindSwitchState),
+    /// The `C` document-conversion flow is open (Root node only): pick a target
+    /// format, type an output path, then confirm past the lossy-warning list.
+    /// The open document is never modified — a successful conversion writes a
+    /// brand-new file.
+    Convert(ConvertState),
     Detail,
     Help,
     Edit(EditState),
+}
+
+/// In-flight `C` conversion flow state.
+pub struct ConvertState {
+    pub step: ConvertStep,
+    /// Selectable target formats (the current format excluded).
+    pub options: Vec<crate::model::document::DocFormat>,
+    /// Cursor into `options` during [`ConvertStep::Format`].
+    pub cursor: usize,
+    /// Chosen target (valid once past [`ConvertStep::Format`]).
+    pub target: crate::model::document::DocFormat,
+    /// Output path being typed (caret field) in [`ConvertStep::Path`].
+    pub path: String,
+    pub path_cursor: usize,
+    /// Lossy-normalization warnings shown in [`ConvertStep::Confirm`].
+    pub warnings: Vec<String>,
+    /// Rendered output text, held between the confirm prompt and the write.
+    pub text: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConvertStep {
+    /// Choosing the target format (single-select list).
+    Format,
+    /// Typing the output file path.
+    Path,
+    /// Confirming a lossy conversion (warning list + y/n).
+    Confirm,
 }
 
 /// In-flight `K` kind-switch popup state.

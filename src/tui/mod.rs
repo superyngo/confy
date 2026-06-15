@@ -18,6 +18,7 @@ use std::path::Path;
 pub fn run(path: &Path, format: crate::model::document::DocFormat) -> Result<()> {
     let doc = crate::model::any_doc::AnyDocument::load_as(path, format)?;
     let mut app = app::App::new(doc);
+    app.source_path = Some(path.to_path_buf());
 
     // Restore the terminal even if the event loop panics, so a crash never
     // leaves the user's shell stuck in raw mode / the alternate screen.
@@ -216,6 +217,43 @@ fn run_event_loop(
                 }
                 continue;
             }
+            // Document-conversion flow (modal). The step decides the keys:
+            //   Format  — Up/Down (j/k) pick a target, Enter advances, Esc cancels.
+            //   Path    — caret text field for the output path, Enter renders.
+            //   Confirm — y/Enter writes (lossy), n/Esc cancels.
+            if let crate::tui::state::Mode::Convert(ref st) = app.mode {
+                use crate::tui::state::ConvertStep;
+                use crossterm::event::KeyCode;
+                match st.step {
+                    ConvertStep::Format => match key.code {
+                        KeyCode::Up | KeyCode::Char('k') => app.convert_move(-1),
+                        KeyCode::Down | KeyCode::Char('j') => app.convert_move(1),
+                        KeyCode::Enter => app.convert_pick_format(),
+                        KeyCode::Esc => app.escape(),
+                        _ => {}
+                    },
+                    ConvertStep::Path => match key.code {
+                        KeyCode::Char(c) => app.convert_path_char(c),
+                        KeyCode::Backspace => app.convert_path_backspace(),
+                        KeyCode::Delete => app.convert_path_delete(),
+                        KeyCode::Left => app.convert_path_left(),
+                        KeyCode::Right => app.convert_path_right(),
+                        KeyCode::Home => app.convert_path_home(),
+                        KeyCode::End => app.convert_path_end(),
+                        KeyCode::Enter => app.convert_run(),
+                        KeyCode::Esc => app.escape(),
+                        _ => {}
+                    },
+                    ConvertStep::Confirm => match key.code {
+                        KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
+                            app.convert_confirm()
+                        }
+                        KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => app.escape(),
+                        _ => {}
+                    },
+                }
+                continue;
+            }
             let action = keys::map_key(key);
             // Any non-shift-extend action ends the current shift multi-select
             // round, so the next Shift+Arrow begins a fresh one (unioned on top).
@@ -316,6 +354,7 @@ fn run_event_loop(
                 keys::KeyAction::Filter => app.enter_filter(),
                 keys::KeyAction::TypeFilter => app.enter_type_filter(),
                 keys::KeyAction::KindSwitch => app.open_kind_switch(),
+                keys::KeyAction::Convert => app.open_convert(),
                 keys::KeyAction::Help => app.enter_help(),
                 keys::KeyAction::Rename => app.begin_inline_rename(),
                 keys::KeyAction::Noop => {}

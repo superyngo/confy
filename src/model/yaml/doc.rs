@@ -111,6 +111,13 @@ impl ConfigDocument for YamlDocument {
         // YAML `Replace` swaps the whole `key: value` entry, dropping the comment.
         false
     }
+
+    fn to_value(
+        &self,
+    ) -> Result<(crate::model::value::Value, Vec<String>), crate::model::document::ConvertAbort>
+    {
+        crate::model::convert::tree_to_value(&self.project(), DocFormat::Yaml)
+    }
 }
 
 /// Split `value  # comment` via the YAML lexer (a `#` inside a quoted string is

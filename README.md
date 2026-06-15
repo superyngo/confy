@@ -15,6 +15,20 @@ Opens the file in an interactive TUI tree editor. On save (`w` or `Ctrl+s`) the 
 written back with comments, key order, and formatting fully preserved (byte-identical round-trip
 for unmodified subtrees).
 
+### Convert between formats
+
+```
+confy convert <in> <out> [--from <fmt>] [--to <fmt>] [--yes]
+```
+
+Converts a config file to another format (`toml` / `json` / `jsonc` / `yaml`), defaulting the
+formats from the file extensions. Comments carry across; notation/style differences are
+**normalized to the target's default style with an up-front lossy-warning list** (on a TTY you
+confirm y/n, otherwise pass `--yes`). A conversion **aborts and writes nothing** when the source
+holds something the target can't represent (`null` → TOML, or a YAML opaque node → any target).
+**The source file is never modified.** The same flow is available inside the TUI on the Root node
+via `C`.
+
 ## Format support
 
 | Format | Status | Notes |
@@ -53,6 +67,8 @@ for unmodified subtrees).
 | `v` | Paste clipboard |
 | `m` | Move selected node(s) |
 | `r` | Remark (toggle comment-out) |
+| `K` | Kind switch (scalar notation / container style) |
+| `C` | Convert document to another format (Root node) |
 | `z` | Undo |
 | `y` | Redo |
 | `/` | Filter (fuzzy search) |

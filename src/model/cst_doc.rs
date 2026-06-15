@@ -218,6 +218,13 @@ impl ConfigDocument for CstDocument {
     fn split_value_comment(&self, buffer: &str) -> (String, Option<String>) {
         split_value_comment(buffer)
     }
+
+    fn to_value(
+        &self,
+    ) -> Result<(crate::model::value::Value, Vec<String>), crate::model::document::ConvertAbort>
+    {
+        crate::model::convert::tree_to_value(&self.project(), DocFormat::Toml)
+    }
 }
 
 /// Split `value  # comment` via taplo's lexer (a `#` inside a string is not a

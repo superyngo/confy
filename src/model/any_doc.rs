@@ -115,6 +115,12 @@ impl ConfigDocument for AnyDocument {
     fn replace_preserves_trailing_comment(&self) -> bool {
         delegate!(self, d => d.replace_preserves_trailing_comment())
     }
+    fn to_value(
+        &self,
+    ) -> Result<(crate::model::value::Value, Vec<String>), crate::model::document::ConvertAbort>
+    {
+        delegate!(self, d => d.to_value())
+    }
 }
 
 #[cfg(test)]

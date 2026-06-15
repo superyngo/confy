@@ -138,6 +138,24 @@ The backend's self-reported syntax, one of `Toml` / `Json` / `Yaml`. Returned by
 kind-switch options, `f` type-filter facets, and the comment prefix (`#` for TOML and YAML, `//`
 for JSON/JSONC). Mapped from the file extension by `detect_format`; overridable via `--format`.
 
+**Conversion** (document-level):
+Producing a new file in a *different* `DocFormat` from a loaded document (key `C` in the TUI, or
+`confy convert <in> <out>`). The document is lowered to a format-neutral **`Value`** tree, then
+re-rendered in the target's **default style** — so it is deliberately **lossy on notation/style**
+(radix, string style, inline-vs-block, dotted keys, array-of-tables are normalized, with an
+**up-front warning list**), but **comments carry across** with the target marker. A conversion
+**aborts** (writes nothing) when the source holds something the target cannot represent: a `null`
+into TOML, or a YAML **opaque node** into any target. The **source file is never modified**.
+_Avoid_: confusing this with **Kind switch** (`K`), which converts one node's *notation in place*
+within the same format.
+
+**Value** (neutral tree):
+The format-independent intermediate the conversion pipeline lowers to (`model/value.rs`):
+`Null/Bool/Int/Float/Str/Datetime` scalars plus ordered `Seq`/`Map` of `Item`s, where an `Item`
+is either a standalone `Comment` or a `Node { key, value, trailing }`. It carries decoded data and
+confy's first-class comments (standalone + trailing) in document order, but **no source notation**
+— that is the point: rendering it re-imposes the target format's default style.
+
 ### Operations & projection
 
 **Projection**:

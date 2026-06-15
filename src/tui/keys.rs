@@ -34,6 +34,7 @@ pub enum KeyAction {
     Filter,
     TypeFilter,
     KindSwitch,
+    Convert,
     Help,
     Rename,
     Noop,
@@ -77,6 +78,8 @@ pub fn map_key(key: KeyEvent) -> KeyAction {
         (KeyCode::Char('f'), _) => KeyAction::TypeFilter,
         // `k` is vim cursor-up, so kind-switch lives on the capital.
         (KeyCode::Char('K'), _) => KeyAction::KindSwitch,
+        // `c` is copy, so document-convert (Root node) lives on the capital.
+        (KeyCode::Char('C'), _) => KeyAction::Convert,
         (KeyCode::Char('?'), _) => KeyAction::Help,
         (KeyCode::F(2), _) => KeyAction::Rename,
         _ => KeyAction::Noop,
@@ -109,6 +112,7 @@ const TOML_HELP: &str = "\
  F2           Rename key (inline, works for all node types)
  r            Remark toggle     z/y         Undo/redo
  K            Kind switch (scalar type / table & array notation)
+ C            Convert document to another format (Root node)
  /            Fuzzy filter      f           Type filter (checkbox menu)
  /…Enter      Lock in filtered list   Esc   Clear filter / selection
  w/Ctrl+s     Save              q           Quit
@@ -150,6 +154,7 @@ const JSON_HELP: &str = "\
  F2           Rename key (inline, works for all node types)
  r            Remark toggle (comment out with //)   z/y  Undo/redo
  K            Kind switch (object/array inline↔multiline, float plain↔exponent)
+ C            Convert document to another format (Root node)
  /            Fuzzy filter      f           Type filter (checkbox menu)
  /…Enter      Lock in filtered list   Esc   Clear filter / selection
  w/Ctrl+s     Save              q           Quit
@@ -185,6 +190,7 @@ const YAML_HELP: &str = "\
  F2           Rename key (inline, works for all node types)
  r            Remark toggle (comment out with #)   z/y  Undo/redo
  K            Kind switch (map/seq block↔flow, string style, int radix, float plain↔exp)
+ C            Convert document to another format (Root node)
  /            Fuzzy filter      f           Type filter (checkbox menu)
  /…Enter      Lock in filtered list   Esc   Clear filter / selection
  w/Ctrl+s     Save              q           Quit

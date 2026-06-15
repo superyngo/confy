@@ -45,6 +45,9 @@ pub struct App {
     pub last_action_was_shift_select: bool,
     /// Present when the app was constructed with a real document (interactive mode).
     pub doc: Option<crate::model::any_doc::AnyDocument>,
+    /// The source file path (interactive mode), used to seed the `C` convert
+    /// flow's default output path. `None` in headless tests.
+    pub source_path: Option<std::path::PathBuf>,
     pub history: Option<History>,
     /// Status message shown in the bottom bar (info messages).
     pub status: Option<String>,
@@ -131,6 +134,7 @@ impl App {
             selection: Selection::new(),
             last_action_was_shift_select: false,
             doc: Some(doc),
+            source_path: None,
             history: Some(history),
             status: None,
             error: None,
@@ -168,6 +172,7 @@ impl App {
             selection: Selection::new(),
             last_action_was_shift_select: false,
             doc: None,
+            source_path: None,
             history: None,
             status: None,
             error: None,
@@ -629,6 +634,170 @@ impl App {
 
     /// Esc — close the popup without converting.
     pub fn exit_kind_switch(&mut self) {
+        self.mode = self.resting_mode();
+        self.status = None;
+    }
+
+    // ── document conversion (`C`, Root node) ────────────────────────────────────
+
+    /// `C` — open the document-conversion flow. Only valid on the Root/file node.
+    pub fn open_convert(&mut self) {
+        let Some(row) = self.rows.get(self.cursor) else {
+            return;
+        };
+        if !row.path.is_empty() {
+            self.error = Some("convert: move to the root/file node first (key C)".into());
+            return;
+        }
+        let Some(doc) = &self.doc else {
+            return;
+        };
+        let current = doc.format();
+        let options: Vec<crate::model::document::DocFormat> = [
+            crate::model::document::DocFormat::Toml,
+            crate::model::document::DocFormat::Json,
+            crate::model::document::DocFormat::Yaml,
+        ]
+        .into_iter()
+        .filter(|f| *f != current)
+        .collect();
+        self.mode = Mode::Convert(crate::tui::state::ConvertState {
+            step: crate::tui::state::ConvertStep::Format,
+            options,
+            cursor: 0,
+            target: current,
+            path: String::new(),
+            path_cursor: 0,
+            warnings: Vec::new(),
+            text: String::new(),
+        });
+    }
+
+    /// Move the target-format selection cursor (Format step).
+    pub fn convert_move(&mut self, delta: i32) {
+        if let Mode::Convert(st) = &mut self.mode {
+            let n = st.options.len() as i32;
+            if n > 0 {
+                st.cursor = (st.cursor as i32 + delta).rem_euclid(n) as usize;
+            }
+        }
+    }
+
+    /// Enter on the Format step: lock the target and seed the output path.
+    pub fn convert_pick_format(&mut self) {
+        let default_path = self.source_path.clone();
+        if let Mode::Convert(st) = &mut self.mode {
+            let Some(target) = st.options.get(st.cursor).copied() else {
+                return;
+            };
+            st.target = target;
+            let ext = match target {
+                crate::model::document::DocFormat::Toml => "toml",
+                crate::model::document::DocFormat::Json => "json",
+                crate::model::document::DocFormat::Yaml => "yaml",
+            };
+            st.path = default_path
+                .map(|p| p.with_extension(ext).to_string_lossy().into_owned())
+                .unwrap_or_else(|| format!("out.{ext}"));
+            st.path_cursor = st.path.chars().count();
+            st.step = crate::tui::state::ConvertStep::Path;
+        }
+    }
+
+    /// Caret-field editing for the output-path input (Path step).
+    pub fn convert_path_char(&mut self, c: char) {
+        if let Mode::Convert(st) = &mut self.mode {
+            let at = char_byte_idx(&st.path, st.path_cursor);
+            st.path.insert(at, c);
+            st.path_cursor += 1;
+        }
+    }
+    pub fn convert_path_backspace(&mut self) {
+        if let Mode::Convert(st) = &mut self.mode {
+            if st.path_cursor > 0 {
+                let at = char_byte_idx(&st.path, st.path_cursor - 1);
+                st.path.remove(at);
+                st.path_cursor -= 1;
+            }
+        }
+    }
+    pub fn convert_path_delete(&mut self) {
+        if let Mode::Convert(st) = &mut self.mode {
+            if st.path_cursor < st.path.chars().count() {
+                let at = char_byte_idx(&st.path, st.path_cursor);
+                st.path.remove(at);
+            }
+        }
+    }
+    pub fn convert_path_left(&mut self) {
+        if let Mode::Convert(st) = &mut self.mode {
+            st.path_cursor = st.path_cursor.saturating_sub(1);
+        }
+    }
+    pub fn convert_path_right(&mut self) {
+        if let Mode::Convert(st) = &mut self.mode {
+            st.path_cursor = (st.path_cursor + 1).min(st.path.chars().count());
+        }
+    }
+    pub fn convert_path_home(&mut self) {
+        if let Mode::Convert(st) = &mut self.mode {
+            st.path_cursor = 0;
+        }
+    }
+    pub fn convert_path_end(&mut self) {
+        if let Mode::Convert(st) = &mut self.mode {
+            st.path_cursor = st.path.chars().count();
+        }
+    }
+
+    /// Enter on the Path step: render the conversion. Writes immediately when
+    /// there are no warnings, else advances to the Confirm step.
+    pub fn convert_run(&mut self) {
+        let (target, path) = match &self.mode {
+            Mode::Convert(st) => (st.target, st.path.clone()),
+            _ => return,
+        };
+        let Some(doc) = &self.doc else {
+            return;
+        };
+        match crate::model::convert::convert(doc, target) {
+            Ok(result) => {
+                if result.warnings.is_empty() {
+                    self.convert_write(&path, &result.text);
+                } else if let Mode::Convert(st) = &mut self.mode {
+                    st.warnings = result.warnings;
+                    st.text = result.text;
+                    st.step = crate::tui::state::ConvertStep::Confirm;
+                }
+            }
+            Err(abort) => {
+                self.error = Some(format!("conversion aborted: {abort}"));
+                self.mode = self.resting_mode();
+            }
+        }
+    }
+
+    /// `y` on the Confirm step: write the rendered output.
+    pub fn convert_confirm(&mut self) {
+        let (path, text) = match &self.mode {
+            Mode::Convert(st) => (st.path.clone(), st.text.clone()),
+            _ => return,
+        };
+        self.convert_write(&path, &text);
+    }
+
+    /// Write the converted output and close the flow. The open document is never
+    /// modified (no reload, dirty state untouched).
+    fn convert_write(&mut self, path: &str, text: &str) {
+        match std::fs::write(path, text) {
+            Ok(()) => self.status = Some(format!("converted → {path}")),
+            Err(e) => self.error = Some(format!("convert write failed: {e}")),
+        }
+        self.mode = self.resting_mode();
+    }
+
+    /// Esc — abandon the conversion flow without writing.
+    pub fn exit_convert(&mut self) {
         self.mode = self.resting_mode();
         self.status = None;
     }
@@ -2258,6 +2427,7 @@ impl App {
             Mode::FilterResults => self.exit_filter_results(),
             Mode::TypeFilter => self.exit_type_filter(),
             Mode::KindSwitch(_) => self.exit_kind_switch(),
+            Mode::Convert(_) => self.exit_convert(),
             Mode::Detail => self.exit_detail(),
             Mode::Help => self.exit_help(),
             Mode::Edit(_) => self.edit_cancel(),
@@ -3331,6 +3501,93 @@ mod tests {
         app.kind_switch_commit();
         assert_eq!(app.doc.as_ref().unwrap().serialize(), "a = '42'\nb = 1\n");
         assert!(matches!(app.mode, Mode::Normal));
+    }
+
+    #[test]
+    fn convert_flow_opens_only_on_root() {
+        let mut app = app_with("a = 1\n");
+        // On a non-root node it refuses.
+        app.cursor = app.rows.iter().position(|r| r.key == "a").unwrap();
+        app.open_convert();
+        assert!(matches!(app.mode, Mode::Normal));
+        assert!(app.error.as_deref().unwrap_or("").contains("root"));
+        // On the root node it opens with the other two formats offered.
+        app.error = None;
+        app.cursor = app.rows.iter().position(|r| r.path.is_empty()).unwrap();
+        app.open_convert();
+        let Mode::Convert(st) = &app.mode else {
+            panic!("convert flow should be open");
+        };
+        assert_eq!(st.options.len(), 2);
+        assert!(!st
+            .options
+            .contains(&crate::model::document::DocFormat::Toml));
+    }
+
+    #[test]
+    fn convert_flow_writes_target_file() {
+        let mut app = app_with("a = 1\nb = \"x\"\n");
+        let out = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+        app.source_path = Some(out.path().to_path_buf());
+        app.cursor = app.rows.iter().position(|r| r.path.is_empty()).unwrap();
+        app.open_convert();
+        // Pick JSON.
+        if let Mode::Convert(st) = &mut app.mode {
+            st.cursor = st
+                .options
+                .iter()
+                .position(|f| *f == crate::model::document::DocFormat::Json)
+                .unwrap();
+        }
+        app.convert_pick_format();
+        // Path step seeded with the .json extension.
+        if let Mode::Convert(st) = &app.mode {
+            assert!(st.path.ends_with(".json"));
+        } else {
+            panic!("should be on the path step");
+        }
+        // Overwrite the path with the temp file and run (lossless → writes at once).
+        if let Mode::Convert(st) = &mut app.mode {
+            st.path = out.path().to_string_lossy().into_owned();
+        }
+        app.convert_run();
+        assert!(matches!(app.mode, Mode::Normal));
+        let written = std::fs::read_to_string(out.path()).unwrap();
+        assert_eq!(written, "{\n  \"a\": 1,\n  \"b\": \"x\"\n}\n");
+        // The open document is untouched.
+        assert_eq!(app.doc.as_ref().unwrap().serialize(), "a = 1\nb = \"x\"\n");
+    }
+
+    #[test]
+    fn convert_flow_lossy_requires_confirm() {
+        let mut app = app_with("n = 0xFF\n");
+        let out = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+        app.cursor = app.rows.iter().position(|r| r.path.is_empty()).unwrap();
+        app.open_convert();
+        if let Mode::Convert(st) = &mut app.mode {
+            st.cursor = st
+                .options
+                .iter()
+                .position(|f| *f == crate::model::document::DocFormat::Json)
+                .unwrap();
+        }
+        app.convert_pick_format();
+        if let Mode::Convert(st) = &mut app.mode {
+            st.path = out.path().to_string_lossy().into_owned();
+        }
+        app.convert_run();
+        // A lossy conversion stops at the confirm step (warning shown, no write yet).
+        let Mode::Convert(st) = &app.mode else {
+            panic!("should pause at confirm");
+        };
+        assert!(matches!(st.step, crate::tui::state::ConvertStep::Confirm));
+        assert!(st.warnings.iter().any(|w| w.contains("non-decimal")));
+        app.convert_confirm();
+        assert!(matches!(app.mode, Mode::Normal));
+        assert_eq!(
+            std::fs::read_to_string(out.path()).unwrap(),
+            "{\n  \"n\": 255\n}\n"
+        );
     }
 
     #[test]

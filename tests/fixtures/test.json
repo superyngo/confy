@@ -1,0 +1,199 @@
+{
+  // test.toml — every ScalarType in every Format, plus all container kinds.
+  // Mirrors src/model/node.rs (ScalarType, Format) and project.rs::detect_format.
+  // ── String (ScalarType::String) ──────────────────────────────────────────────
+  "multiline_basic": "multiline basic line 1\nline 2 with \"quotes\" and trailing backslash \\\njoined onto line 3\n",
+  "literal_string": "C:\\Users\\no\\escapes\\here",
+  "multiline_literal": "multiline literal line 1\nline 2 — backslashes \\n stay literal\n",
+  "empty_string": "",
+  // ── Integer (ScalarType::Integer) ────────────────────────────────────────────
+  "decimal": 42,
+  "decimal_negative": -17,
+  "decimal_underscored": 1000000,
+  "hex": 3735928559,
+  "octal": 493,
+  "binary": 161,
+  // ── Float (ScalarType::Float, Format::Plain) ─────────────────────────────────
+  "float_plain": 3.1415,
+  "float_negative": -0.5,
+  "float_exponent": 50000000000000000000000.0,
+  "float_frac_exp": 0.0000000000000000000000000000000006626,
+  "float_underscored": 9224617.445991,
+  "float_inf": "inf",
+  "float_neg_inf": "-inf",
+  "float_nan": "nan",
+  // ── Bool (ScalarType::Bool, Format::Plain) ───────────────────────────────────
+  "bool_true": true,
+  "bool_false": false,
+  // ── Date/Time (Format::Plain) ────────────────────────────────────────────────
+  "offset_datetime": "1979-05-27T07:32:00Z",
+  "offset_datetime_tz": "1979-05-27T00:32:00-07:00",
+  "local_datetime": "1979-05-27T07:32:00",
+  // ── Array (NodeKind::Array) ──────────────────────────────────────────────────
+  "array_int": [
+    1,
+    2,
+    3
+  ],
+  "array_string": [
+    "a",
+    "b",
+    "c"
+  ],
+  "array_mixed_format": [
+    1,
+    2,
+    3,
+    4
+  ],
+  "array_nested": [
+    [
+      [
+        1,
+        2,
+        3
+      ],
+      2
+    ],
+    [
+      3,
+      4
+    ]
+  ],
+  "array_empty": [
+    {
+      "local_datetime": "1979-05-27T07:32:00"
+    }
+  ],
+  "array_multiline": [
+    [
+      1,
+      2,
+      3
+    ],
+    "second",
+    "third"
+  ],
+  // Inline Table
+  "inline_table": {
+    "x": 1,
+    "y": 2,
+    "test": {
+      "new_field_3": "",
+      "new": ""
+    }
+  },
+  "new_field": {
+    "dotted": {
+      "test": {
+        "a": "a",
+        "b": "b"
+      },
+      "c": {
+        "d": "e"
+      },
+      "gg": 5
+    }
+  },
+  // Dotted keys table
+  "dotted": {
+    "new_field_2": {
+      "b": ""
+    },
+    "new_field": {
+      "x": 1,
+      "y": 2
+    },
+    "gg": 5
+  },
+  "product": [
+    {
+      "name": "Hammer",
+      "sku": 738594939
+    },
+    {
+      "name": "Nail",
+      "sku": 42270379,
+      "color": "gray",
+      // ── Inline table (NodeKind::InlineTable) ─────────────────────────────────────
+      "inline_table": {
+        "x": 1,
+        "y": 2,
+        "label": "origin"
+      }
+    }
+  ],
+  // ── Table (NodeKind::Table) ──────────────────────────────────────────────────
+  "server": {
+    "host": "localhost",
+    "port": 8080,
+    "enabled": true,
+    "tls": {
+      "cert": "C:\\certs\\server.pem",
+      "ciphers": [
+        "TLS_AES_256",
+        "TLS_CHACHA20"
+      ],
+      "dotted": {
+        "test": {
+          "new_field_3": "",
+          "table": "",
+          "new": ""
+        },
+        "new_field_2": {
+          "b": ""
+        },
+        "new_field": {
+          "x": 1,
+          "y": 2
+        },
+        "gg": 5
+      },
+      "product_table": {
+        "a": {
+          "name": "Hammer",
+          "sku": 738594939
+        },
+        "b": {
+          "name": "Nail",
+          "sku": 42270379
+        }
+      }
+    }
+  },
+  "product_table": {
+    "a": {
+      "dotted": {
+        "test": {
+          "new_field_3": "",
+          "new": ""
+        },
+        "new_field_2": {
+          "b": ""
+        },
+        "new_field": {
+          "x": 1,
+          "y": 2
+        },
+        "gg": 5
+      },
+      "name": "Hammer",
+      "sku": 738594939
+    },
+    "b": {
+      "name": "Nail",
+      "sku": 42270379
+    }
+  },
+  "product_table2": {
+    "a": {
+      "name": "Hammer",
+      "sku": 738594939
+    },
+    "b": {
+      "name": "Nail",
+      "sku": 42270379,
+      "color": "gray"
+    }
+  }
+}
