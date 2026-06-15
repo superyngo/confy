@@ -7,7 +7,7 @@ use crate::model::any_doc::{detect_format, AnyDocument};
 use crate::model::document::DocFormat;
 
 #[derive(Parser)]
-#[command(name = "confy", about = "TUI editor for structured config files")]
+#[command(name = "confy", version, about = "TUI editor for structured config files")]
 #[command(args_conflicts_with_subcommands = true)]
 struct Args {
     #[command(subcommand)]
