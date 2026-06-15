@@ -1,9 +1,7 @@
 # confy sample
 title = "demo"
 
-[server]
-host = "0.0.0.0"  # bind address
-port = 9090
-
+server.host = "0.0.0.0"  #123456 456
+server.port = 9090  #789
 [[plugin]]
 name = "a"

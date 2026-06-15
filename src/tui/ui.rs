@@ -92,6 +92,25 @@ fn edit_value_cell(e: &EditState, width: usize) -> Cell<'static> {
     )))
 }
 
+/// The static VALUE cell: the value preview, plus the node's trailing inline
+/// comment (`host: x  # bind`) rendered dimmed after it. Used in Normal mode and
+/// while editing the Name field (the Value-field editor renders the live buffer,
+/// which already carries the comment).
+fn value_cell(row: &crate::tui::app::RowSnapshot) -> Cell<'static> {
+    let preview = cell_preview(row.value.as_deref().unwrap_or(""));
+    match &row.trailing_comment {
+        Some(tc) => Cell::from(Line::from(vec![
+            Span::raw(preview),
+            Span::raw("  "),
+            Span::styled(
+                cell_preview(tc),
+                Style::default().add_modifier(Modifier::DIM),
+            ),
+        ])),
+        None => Cell::from(preview),
+    }
+}
+
 /// Reverse-highlighted window of `buffer` starting at `scroll`, `width` columns
 /// wide, with the char at `cursor` highlighted (trailing space when past the end).
 /// Shared by the VALUE and (editable) NAME cells.
@@ -288,10 +307,7 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                             .saturating_sub(prefix.chars().count());
                         let mut spans = vec![Span::raw(prefix)];
                         spans.extend(edit_field_spans(&e.buffer, e.cursor, e.scroll, avail));
-                        (
-                            Cell::from(Line::from(spans)),
-                            Cell::from(cell_preview(row.value.as_deref().unwrap_or(""))),
-                        )
+                        (Cell::from(Line::from(spans)), value_cell(row))
                     }
                 },
                 _ => {
@@ -301,7 +317,7 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                     // query, not the mode, so the highlight survives an inline edit or
                     // detail popup opened from the filtered list.
                     let needle = app.filter.as_str();
-                    let val_cell = Cell::from(cell_preview(row.value.as_deref().unwrap_or("")));
+                    let val_cell = value_cell(row);
                     if needle.is_empty() {
                         (Cell::from(name), val_cell)
                     } else {

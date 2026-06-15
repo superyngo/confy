@@ -177,6 +177,40 @@ fn replace(tree: &SyntaxNode, path: &[Seg], fragment: &str) -> Result<(), Mutate
             if entry_has_opaque_value(&entry) {
                 return Err(MutateError::Unsupported);
             }
+            // A fragment that is itself a `- …` seq element (what `$EDITOR` shows for
+            // a block-map/seq element via `serialize_fragment`) replaces the WHOLE
+            // entry: reindent it to the entry's own depth and splice its byte span.
+            // Without this, `parse_value_fragment("- name: c")` would nest it as a
+            // sub-sequence and double the dash.
+            let is_element_fragment = fragment
+                .lines()
+                .find(|l| !l.trim().is_empty())
+                .map(|l| {
+                    let t = l.trim_start();
+                    t == "-" || t.starts_with("- ")
+                })
+                .unwrap_or(false);
+            if is_element_fragment {
+                let entry_indent = fragment_indent(&entry.text().to_string());
+                let new_text = reindent(
+                    &ensure_newline(fragment),
+                    fragment_indent(fragment),
+                    entry_indent,
+                );
+                // The SEQ_ENTRY span includes its own trailing newline, so `new_text`
+                // (exactly one trailing `\n` via `ensure_newline`) substitutes 1:1.
+                let whole = tree.to_string();
+                let start: usize = entry.text_range().start().into();
+                let end: usize = entry.text_range().end().into();
+                let new_doc = format!("{}{}{}", &whole[..start], new_text, &whole[end..]);
+                let new_green =
+                    crate::model::yaml::parse::parse(&new_doc).map_err(MutateError::Fragment)?;
+                let new_root = SyntaxNode::new_root(new_green).clone_for_update();
+                let n = tree.children_with_tokens().count();
+                let children: Vec<_> = new_root.children_with_tokens().collect();
+                tree.splice_children(0..n, children);
+                return Ok(());
+            }
             // Seq entry: replace the VALUE/MAPPING/SEQUENCE child.
             let new_value = parse_value_fragment(fragment)?;
             if let Some(old_value) = entry.children().find(|c| {
@@ -1424,8 +1458,18 @@ fn convert_container(
         }
         if is_map_entry {
             format!("{key_prefix}:\n{body}")
+        } else if is_map {
+            // Seq element holding a map: compact `- key: v` form — the first
+            // member rides the dash line, the rest align under it. (An empty
+            // dash line then an indented map parses fine but reads as a stray
+            // blank line, so emit the canonical compact block mapping.)
+            let mut s = format!("{key_prefix} {}\n", members[0]);
+            for m in &members[1..] {
+                s.push_str(&format!("{}{}\n", " ".repeat(child_indent), m));
+            }
+            s
         } else {
-            // Seq element holding a nested collection: `-\n  ...`.
+            // Seq element holding a nested sequence: `-\n  - ...`.
             format!("{key_prefix}\n{body}")
         }
     };
@@ -1960,6 +2004,7 @@ fn mutation_paths(m: &Mutation) -> Vec<&Vec<Seg>> {
             paths
         }
         Mutation::ConvertKind { path, .. } => vec![path],
+        Mutation::SetTrailingComment { path, .. } => vec![path],
     }
 }
 
@@ -1990,9 +2035,69 @@ pub fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<SyntaxNode, MutateError
             on_collision,
         } => move_nodes(&tree, &sources, &target, on_collision)?,
         Mutation::ConvertKind { path, target } => convert_kind(&tree, &path, target)?,
+        Mutation::SetTrailingComment { path, comment } => {
+            set_trailing_comment(&tree, &path, comment.as_deref())?
+        }
     }
     validate_semantics(&tree)?;
     Ok(tree)
+}
+
+/// `Mutation::SetTrailingComment` — set/change/clear the EOL `#` comment of the
+/// keyed scalar at `path`. The comment lives inside the `MAP_ENTRY`, after the
+/// value child; the splice rewrites from the value's end to the line's newline
+/// and reparses. Only a single-line scalar map entry is supported.
+fn set_trailing_comment(
+    tree: &SyntaxNode,
+    path: &[Seg],
+    comment: Option<&str>,
+) -> Result<(), MutateError> {
+    // A block MAP_ENTRY or a block SEQ_ENTRY (array element): both hold their value
+    // as a child node and end the line the same way. Flow members/elements are
+    // single-line inline collections with no per-item EOL slot — rejected upstream.
+    let entry = match resolve(tree, path).ok_or(MutateError::NotFound)? {
+        Target::MapEntry(e) if e.kind() == SyntaxKind::MAP_ENTRY => e,
+        Target::Element(e) if e.kind() == SyntaxKind::SEQ_ENTRY => e,
+        _ => return Err(MutateError::Unsupported),
+    };
+    let value = entry
+        .children()
+        .find(|c| {
+            matches!(
+                c.kind(),
+                SyntaxKind::MAPPING
+                    | SyntaxKind::SEQUENCE
+                    | SyntaxKind::VALUE
+                    | SyntaxKind::FLOW_MAP
+                    | SyntaxKind::FLOW_SEQ
+            )
+        })
+        .ok_or(MutateError::Unsupported)?;
+    // A multi-line value (block collection / block scalar) has no single EOL slot.
+    let value_text = value.text().to_string();
+    if value_text.contains('\n') {
+        return Err(MutateError::Unsupported);
+    }
+    // The VALUE node may swallow the spaces before an existing comment; cut at the
+    // value's last non-whitespace byte so we don't accumulate separator spaces.
+    let value_start: usize = value.text_range().start().into();
+    let cut_start = value_start + value_text.trim_end().len();
+    let full = tree.to_string();
+    let cut_end = full[cut_start..]
+        .find('\n')
+        .map(|i| cut_start + i)
+        .unwrap_or(full.len());
+    let tail = match comment {
+        Some(c) => format!("  {}", c.trim()),
+        None => String::new(),
+    };
+    let new_text = format!("{}{}{}", &full[..cut_start], tail, &full[cut_end..]);
+    let green = crate::model::yaml::parse::parse(&new_text).map_err(MutateError::Fragment)?;
+    let new_root = SyntaxNode::new_root(green).clone_for_update();
+    let n = tree.children_with_tokens().count();
+    let children: Vec<_> = new_root.children_with_tokens().collect();
+    tree.splice_children(0..n, children);
+    Ok(())
 }
 
 // ── Test helpers (pub(crate) so later chunk tests can import them) ────────────
@@ -2682,6 +2787,83 @@ mod tests {
         let out = convert("a: [1, 2]\n", vec![Seg::Key("a".into())], KindTarget::Block)
             .expect("flow seq→block");
         assert_eq!(out, "a:\n  - 1\n  - 2\n");
+    }
+
+    #[test]
+    fn set_trailing_comment_add_change_clear() {
+        let p = || vec![Seg::Key("host".into())];
+        let set = |c: Option<&str>| Mutation::SetTrailingComment {
+            path: p(),
+            comment: c.map(str::to_string),
+        };
+        // add
+        assert_eq!(
+            apply_str("host: x\n", set(Some("# bind"))).unwrap(),
+            "host: x  # bind\n"
+        );
+        // change
+        assert_eq!(
+            apply_str("host: x  # old\n", set(Some("# new"))).unwrap(),
+            "host: x  # new\n"
+        );
+        // clear
+        assert_eq!(
+            apply_str("host: x  # old\n", set(None)).unwrap(),
+            "host: x\n"
+        );
+        // a `#` inside a quoted string is not the trailing comment
+        assert_eq!(
+            apply_str("host: \"a # b\"\n", set(Some("# note"))).unwrap(),
+            "host: \"a # b\"  # note\n"
+        );
+    }
+
+    #[test]
+    fn set_trailing_comment_on_block_seq_scalar_element() {
+        // A block-sequence scalar element can gain/clear a trailing comment.
+        let set = |src: &str, c: Option<&str>| {
+            apply_str(
+                src,
+                Mutation::SetTrailingComment {
+                    path: vec![Seg::Key("flags".into()), Seg::Index(1)],
+                    comment: c.map(str::to_string),
+                },
+            )
+        };
+        assert_eq!(
+            set("flags:\n  - a\n  - b\n", Some("# second")).unwrap(),
+            "flags:\n  - a\n  - b  # second\n"
+        );
+        assert_eq!(
+            set("flags:\n  - a\n  - b  # old\n", None).unwrap(),
+            "flags:\n  - a\n  - b\n"
+        );
+    }
+
+    #[test]
+    fn set_trailing_comment_rejects_block_value() {
+        let r = apply_str(
+            "host:\n  x: 1\n",
+            Mutation::SetTrailingComment {
+                path: vec![Seg::Key("host".into())],
+                comment: Some("# c".into()),
+            },
+        );
+        assert!(matches!(r, Err(MutateError::Unsupported)), "got {r:?}");
+    }
+
+    #[test]
+    fn convert_flow_map_seq_element_to_block_is_compact() {
+        // A seq element holding a flow map expands to the compact `- key: v`
+        // form (first member on the dash line), not `-\n  key: v` which reads
+        // as a stray blank line. (R5)
+        let out = convert(
+            "items:\n  - {name: a, age: 5}\n",
+            vec![Seg::Key("items".into()), Seg::Index(0)],
+            KindTarget::Block,
+        )
+        .expect("flow-map seq element→block");
+        assert_eq!(out, "items:\n  - name: a\n    age: 5\n");
     }
 
     #[test]

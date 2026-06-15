@@ -113,6 +113,32 @@ impl ConfigDocument for JsonDocument {
             .map(|n| n.kind)
             .ok_or_else(|| "fragment has no value".into())
     }
+
+    fn split_value_comment(&self, buffer: &str) -> (String, Option<String>) {
+        split_value_comment(buffer)
+    }
+}
+
+/// Split `value  // comment` via the JSON lexer (a `//` inside a quoted string is
+/// not a comment). The value sits on its own line so the comment ends before the
+/// closing brace. Returns `(value, Option<comment-with-//>)`; on parse failure or
+/// no comment, `(buffer, None)`.
+pub(crate) fn split_value_comment(buffer: &str) -> (String, Option<String>) {
+    let Ok(green) = crate::model::json::parse::parse(&format!("{{\"__k__\": {buffer}\n}}")) else {
+        return (buffer.to_string(), None);
+    };
+    match crate::model::json::project::project(&SyntaxNode::new_root(green), "")
+        .root
+        .children
+        .into_iter()
+        .next()
+    {
+        Some(n) => (
+            n.value.unwrap_or_else(|| buffer.to_string()),
+            n.trailing_comment,
+        ),
+        None => (buffer.to_string(), None),
+    }
 }
 
 impl JsonDocument {
@@ -218,6 +244,21 @@ mod tests {
             "\"tags\": \"x\"\n"
         );
         assert_eq!(doc.scalar_fragment(None, "42"), "42\n");
+    }
+
+    #[test]
+    fn split_value_comment_splits_json() {
+        let doc = json_from_str(".jsonc", "{}\n");
+        assert_eq!(doc.split_value_comment("8080"), ("8080".into(), None));
+        assert_eq!(
+            doc.split_value_comment("8080  // http"),
+            ("8080".into(), Some("// http".into()))
+        );
+        // a `//` inside a string is not the comment
+        assert_eq!(
+            doc.split_value_comment("\"a // b\""),
+            ("\"a // b\"".into(), None)
+        );
     }
 
     #[test]

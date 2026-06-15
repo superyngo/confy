@@ -214,6 +214,32 @@ impl ConfigDocument for CstDocument {
             .map(|n| n.kind)
             .ok_or_else(|| "fragment has no value".into())
     }
+
+    fn split_value_comment(&self, buffer: &str) -> (String, Option<String>) {
+        split_value_comment(buffer)
+    }
+}
+
+/// Split `value  # comment` via taplo's lexer (a `#` inside a string is not a
+/// comment). Returns `(value, Option<comment-with-#>)`; on parse failure or no
+/// comment, `(buffer, None)`.
+pub(crate) fn split_value_comment(buffer: &str) -> (String, Option<String>) {
+    let parse = taplo::parser::parse(&format!("__k__ = {buffer}\n"));
+    if !parse.errors.is_empty() {
+        return (buffer.to_string(), None);
+    }
+    match crate::model::cst_project::project(&parse.into_syntax(), "")
+        .root
+        .children
+        .into_iter()
+        .next()
+    {
+        Some(n) => (
+            n.value.unwrap_or_else(|| buffer.to_string()),
+            n.trailing_comment,
+        ),
+        None => (buffer.to_string(), None),
+    }
 }
 
 impl CstDocument {
@@ -254,7 +280,8 @@ mod tests {
     /// and the project's own `test.toml`. This is the go/no-go gate for the backend.
     #[test]
     fn roundtrip_is_byte_identical() {
-        let mut files: Vec<PathBuf> = vec![PathBuf::from("test.toml")];
+        // `test.toml` now lives under tests/fixtures/ and is picked up by the scan.
+        let mut files: Vec<PathBuf> = Vec::new();
         let fx = Path::new("tests/fixtures");
         if fx.is_dir() {
             for e in std::fs::read_dir(fx).unwrap() {
@@ -281,6 +308,21 @@ mod tests {
         assert_eq!(doc.scalar_fragment(Some("tags"), "\"x\""), "tags = \"x\"\n");
         // An element wraps under the synthetic key the element Replace ignores.
         assert_eq!(doc.scalar_fragment(None, "42"), "__elem__ = 42\n");
+    }
+
+    #[test]
+    fn split_value_comment_splits_toml() {
+        let doc = cst_from_str("a = 1\n");
+        assert_eq!(doc.split_value_comment("8080"), ("8080".into(), None));
+        assert_eq!(
+            doc.split_value_comment("8080  # http"),
+            ("8080".into(), Some("# http".into()))
+        );
+        // a `#` inside a string is not the comment
+        assert_eq!(
+            doc.split_value_comment("\"a # b\""),
+            ("\"a # b\"".into(), None)
+        );
     }
 
     #[test]

@@ -1,11 +1,16 @@
 // top-of-file comment
 {
   // a line comment above a member
-  "name": "confy", // trailing comment
+  "name": "confy",
+  // trailing comment
   "list": [
-    1,
-    2, // trailing on element
+    3,  // 123
+    2
   ],
+  "new_field": {
+    "a": 4,  // 123
+    "new_field": {"b": 3, "new_field": ""}
+  },
   /* a read-only block comment */
-  "ok": true,
+  "ok": true  //123
 }

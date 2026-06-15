@@ -78,6 +78,11 @@ pub struct App {
     pub detail_text: Option<String>,
     /// Saved inline-edit awaiting a TypeChange confirmation.
     pub pending_edit: Option<(EditState, PendingCommit)>,
+    /// A trailing-comment change staged by the inline editor, consumed by the next
+    /// `apply_replace` (so the value edit and its comment commit as one undo step).
+    /// `Some(Some(c))` sets/changes the comment, `Some(None)` clears it, the outer
+    /// `None` means no change.
+    pub pending_trailing: Option<Option<String>>,
     /// Vertical scroll offset (in display rows) of the detail popup.
     pub detail_scroll: u16,
     /// Vertical scroll offset (in display rows) of the help overlay.
@@ -140,6 +145,7 @@ impl App {
             last_filter_applied: None,
             detail_text: None,
             pending_edit: None,
+            pending_trailing: None,
             detail_scroll: 0,
             help_scroll: 0,
             table_offset: std::cell::Cell::new(0),
@@ -176,6 +182,7 @@ impl App {
             last_filter_applied: None,
             detail_text: None,
             pending_edit: None,
+            pending_trailing: None,
             detail_scroll: 0,
             help_scroll: 0,
             table_offset: std::cell::Cell::new(0),
@@ -967,23 +974,30 @@ impl App {
             None => return,
         };
         // `Replace` addresses an all-`Key` path, an array-of-tables entry, and any
-        // key nested inside one (via the `Key→Index` AoT descent), but NOT a element
-        // of a standard array. So truncate the path only at the first `Index` whose
-        // container is a real `Array` (editing the whole array there); AoT-entry
-        // indices and the keys below them are kept and addressed directly.
-        let truncate_at = cursor_row.path.iter().enumerate().find_map(|(i, s)| {
-            if matches!(s, Seg::Index(_)) {
-                let container_is_array = self
-                    .tree
-                    .node_at(&cursor_row.path[..i])
-                    .map(|n| matches!(n.kind, NodeKind::Array))
-                    .unwrap_or(false);
-                if container_is_array {
-                    return Some(i);
-                }
-            }
-            None
-        });
+        // key nested inside one (via the `Key→Index` AoT descent), but for TOML/JSON
+        // NOT an element of a standard array. So truncate the path only at the first
+        // `Index` whose container is a real `Array` (editing the whole array there);
+        // AoT-entry indices and the keys below them are kept and addressed directly.
+        // YAML addresses every block-seq element / nested key individually, so it
+        // never truncates — the fragment is the node's own entry, not the whole seq.
+        let yaml = doc.format() == crate::model::document::DocFormat::Yaml;
+        let truncate_at = (!yaml)
+            .then(|| {
+                cursor_row.path.iter().enumerate().find_map(|(i, s)| {
+                    if matches!(s, Seg::Index(_)) {
+                        let container_is_array = self
+                            .tree
+                            .node_at(&cursor_row.path[..i])
+                            .map(|n| matches!(n.kind, NodeKind::Array))
+                            .unwrap_or(false);
+                        if container_is_array {
+                            return Some(i);
+                        }
+                    }
+                    None
+                })
+            })
+            .flatten();
         let path = match truncate_at {
             Some(i) => cursor_row.path[..i].to_vec(),
             None => cursor_row.path.clone(),
@@ -1006,16 +1020,31 @@ impl App {
     /// split out so it is unit-testable without spawning $EDITOR). On error the
     /// error field is set and the document is left unchanged.
     pub(crate) fn apply_replace(&mut self, path: Path, edited: String) {
+        // A staged trailing-comment change rides along: applied as a second
+        // mutation after the value, then both are committed as one history step.
+        let trailing = self.pending_trailing.take();
         let doc = match self.doc.as_mut() {
             Some(d) => d,
             None => return,
         };
         let fmt = doc.format().name();
         match doc.apply(crate::model::document::Mutation::Replace {
-            path,
+            path: path.clone(),
             fragment: edited,
         }) {
-            Ok(()) => self.on_mutation_success(),
+            Ok(()) => {
+                if let Some(comment) = trailing {
+                    if let Err(e) =
+                        doc.apply(crate::model::document::Mutation::SetTrailingComment {
+                            path,
+                            comment,
+                        })
+                    {
+                        self.error = Some(format!("comment update failed: {e}"));
+                    }
+                }
+                self.on_mutation_success();
+            }
             Err(crate::model::document::MutateError::Fragment(msg)) => {
                 self.error = Some(format!("invalid {fmt}: {msg}"));
             }
@@ -1097,13 +1126,22 @@ impl App {
         // Multiline strings carry real newlines the single-line inline editor
         // cannot represent — route them to $EDITOR. Keyed on Format (not on a raw
         // `\n` scan): an element of a *multiline array* carries indentation-newline
-        // decor in its repr yet is itself an ordinary single-line string.
+        // decor in its repr yet is itself an ordinary single-line string. YAML's
+        // literal `|` and folded `>` block scalars are likewise multi-line.
         if matches!(
             node.format,
-            Format::MultilineBasic | Format::MultilineLiteral
+            Format::MultilineBasic
+                | Format::MultilineLiteral
+                | Format::LiteralBlock
+                | Format::Folded
         ) {
             return EditKind::External;
         }
+        // YAML addresses any scalar reachable through block-sequence / flow elements
+        // (`resolve` descends `Index`→`Key`), so an `Array` ancestor does NOT force
+        // $EDITOR the way it must for TOML/JSON (whose array elements aren't
+        // `Replace`-addressable). Gate the array-ancestor checks below on the format.
+        let yaml = self.doc_format() == crate::model::document::DocFormat::Yaml;
         let parent_path = &path[..path.len() - 1];
         let parent = self.tree.node_at(parent_path);
         match path.last() {
@@ -1123,7 +1161,11 @@ impl App {
                 let parent_is_array = parent
                     .map(|p| matches!(p.kind, NodeKind::Array))
                     .unwrap_or(false);
-                if tail_all_index && parent_is_array {
+                // YAML: a single-line scalar element of any seq (even nested under a
+                // key, e.g. `plugins[1].tags[0]`) is addressable, so drop the
+                // `tail_all_index` restriction the non-addressable backends need.
+                let ok = parent_is_array && (yaml || tail_all_index);
+                if ok {
                     EditKind::Inline
                 } else {
                     EditKind::External
@@ -1136,7 +1178,6 @@ impl App {
             // its entries ARE tables, reachable via the `Key→Index` AoT descent in
             // `parent_table_mut`/`concrete_table_mut`.
             Some(Seg::Key(_)) => {
-                let no_array_ancestor = self.no_array_ancestor(path);
                 let parent_ok = path.len() == 1
                     || parent
                         .map(|p| {
@@ -1146,7 +1187,10 @@ impl App {
                             )
                         })
                         .unwrap_or(false);
-                if no_array_ancestor && parent_ok {
+                // YAML addresses a key inside a block-seq / flow element; TOML/JSON
+                // need no `Array` ancestor (`x = [{ a = 1 }]` isn't addressable).
+                let addressable = parent_ok && (yaml || self.no_array_ancestor(path));
+                if addressable {
                     EditKind::Inline
                 } else {
                     EditKind::External
@@ -1185,7 +1229,22 @@ impl App {
         // around the `=` (e.g. " 8080"); trim it so the edited literal doesn't
         // accumulate a leading space on write-back. A comment's value is its raw
         // `# …` text — keep it verbatim apart from trimming trailing whitespace.
-        let buffer = row.value.clone().unwrap_or_default().trim().to_string();
+        let mut buffer = row.value.clone().unwrap_or_default().trim().to_string();
+        // A keyed scalar's trailing inline comment is appended to the Value buffer so
+        // it's edited inline together; commit splits it back out. (Array elements and
+        // comment nodes don't carry an editable trailing comment here.)
+        // Seed any trailing comment into the Value buffer so it's edited inline. An
+        // array element carries one too (a multiline-array `1,  # note`); only a
+        // comment *node* has no separate trailing comment.
+        let orig_trailing = if is_comment {
+            None
+        } else {
+            row.trailing_comment.clone()
+        };
+        if let Some(tc) = &orig_trailing {
+            buffer.push_str("  ");
+            buffer.push_str(tc);
+        }
         let cursor = buffer.chars().count();
         // The Value field is active first; the Name field (the key) is the saved
         // inactive set, ready for a `Tab` swap.
@@ -1203,6 +1262,7 @@ impl App {
             other_buffer: key,
             other_cursor: name_cursor,
             other_scroll: 0,
+            orig_trailing,
         });
         self.status = None;
     }
@@ -1243,6 +1303,7 @@ impl App {
             other_buffer: String::new(),
             other_cursor: 0,
             other_scroll: 0,
+            orig_trailing: None,
         });
         self.status = None;
         self.error = None;
@@ -1340,6 +1401,9 @@ impl App {
     pub fn edit_cancel(&mut self) {
         self.mode = self.resting_mode();
         self.pending_edit = None;
+        // A staged trailing-comment change must not survive a cancelled edit, or a
+        // later `apply_replace` (e.g. a nudge) would consume it on another node.
+        self.pending_trailing = None;
         self.status = None;
     }
 
@@ -1387,13 +1451,59 @@ impl App {
             return;
         }
         // The active working set is the focused field; `other_*` holds the rest.
-        let (name_str, value_str) = match e.field {
+        let (name_str, raw_value) = match e.field {
             EditField::Value => (e.other_buffer.clone(), e.buffer.clone()),
             EditField::Name => (e.buffer.clone(), e.other_buffer.clone()),
         };
         // Array elements have no key; validate/label the bare value under a
         // placeholder key. The model's Replace ignores the key for an Index path.
         let is_element = matches!(e.path.last(), Some(Seg::Index(_)));
+        // Split a scalar/element buffer back into value + trailing comment (the
+        // backend lexer handles a `#`/`//` inside a string). A comment-less backend
+        // leaves the buffer as the value verbatim. A change from the baseline is
+        // staged for `apply_replace` to commit alongside the value.
+        let split = self
+            .doc
+            .as_ref()
+            .filter(|d| d.supports_comments())
+            .map(|d| d.split_value_comment(&raw_value));
+        let (value_str, new_trailing) = match split {
+            Some((v, c)) => (v, c),
+            None => (raw_value.clone(), None),
+        };
+        // A trailing comment can't share the single line of an inline array / flow
+        // collection (`[1, 2]`, `{a: 1}`). Reject cleanly before any mutation so the
+        // edit is atomic; the user can `K` to a multiline/block form first.
+        if new_trailing.is_some() {
+            let in_inline = (1..e.path.len()).any(|i| {
+                self.tree
+                    .node_at(&e.path[..i])
+                    .map(|n| {
+                        matches!(n.kind, NodeKind::InlineTable)
+                            || (matches!(n.kind, NodeKind::Array) && n.format == Format::Inline)
+                    })
+                    .unwrap_or(false)
+            });
+            if in_inline {
+                self.status = Some(
+                    "inline collection can't hold a trailing comment — switch to multiline (K) first"
+                        .into(),
+                );
+                self.mode = Mode::Edit(e);
+                return;
+            }
+        }
+        // Stage the comment for `apply_replace`. Normally only a real change is
+        // staged; but a backend whose `Replace` drops the comment (YAML's whole-entry
+        // swap) must re-assert an existing comment even when its text is unchanged.
+        let preserves = self
+            .doc
+            .as_ref()
+            .map(|d| d.replace_preserves_trailing_comment())
+            .unwrap_or(true);
+        let changed = new_trailing != e.orig_trailing;
+        let reassert = !preserves && new_trailing.is_some();
+        self.pending_trailing = (changed || reassert).then_some(new_trailing);
         let mut frag_key = if is_element {
             "__elem__".to_string()
         } else {
@@ -1570,12 +1680,28 @@ impl App {
             Some(v) => v.clone(),
             None => return,
         };
-        if let Some(new_repr) = nudge_scalar(st, node.format, &repr, delta) {
+        let format = node.format;
+        // Capture the trailing comment now and drop the `node` (self.tree) borrow so
+        // `pending_trailing` can be staged below.
+        let trailing = node.trailing_comment.clone();
+        if let Some(new_repr) = nudge_scalar(st, format, &repr, delta) {
             let key_arg = (frag_key != "__elem__").then_some(frag_key.as_str());
+            let preserves = self
+                .doc
+                .as_ref()
+                .map(|d| d.replace_preserves_trailing_comment())
+                .unwrap_or(true);
             let fragment = match self.doc.as_ref() {
                 Some(doc) => doc.scalar_fragment(key_arg, &new_repr),
                 None => format!("{frag_key} = {new_repr}\n"),
             };
+            // A backend whose value `Replace` drops the trailing comment (YAML's
+            // whole-entry swap) must re-assert it, exactly as the inline editor does.
+            if !preserves {
+                if let Some(tc) = trailing {
+                    self.pending_trailing = Some(Some(tc));
+                }
+            }
             self.apply_replace(path, fragment);
         }
     }
@@ -2568,6 +2694,9 @@ fn type_tag(
         NodeKind::Table => match (doc, format) {
             (DocFormat::Yaml, Format::Block) => "[T/B]",
             (DocFormat::Yaml, _) => "[T/F]",
+            // JSON has no scope table: an object is inline `[T/I]` or multiline `[T/M]`.
+            (DocFormat::Json, Format::Multiline) => "[T/M]",
+            (DocFormat::Json, _) => "[T/I]",
             (_, Format::Dotted) => "[T/D]",
             (_, Format::Multiline) => "[T/M]",
             _ => "[T/S]",
@@ -2960,6 +3089,23 @@ mod tests {
                 Json,
                 true,
                 "(-) [C]     ",
+            ),
+            // JSON has no scope table: an inline object is `[T/I]`, multiline `[T/M]`.
+            (
+                NodeKind::Table,
+                Format::Inline,
+                KeySign::Quoted,
+                Json,
+                false,
+                "(Q) [T/I]   ",
+            ),
+            (
+                NodeKind::Table,
+                Format::Multiline,
+                KeySign::Quoted,
+                Json,
+                false,
+                "(Q) [T/M]   ",
             ),
         ];
         for (kind, fmt, sign, doc, read_only, expected) in cases {
@@ -4111,6 +4257,24 @@ mod tests {
     }
 
     #[test]
+    fn edit_cancel_clears_staged_trailing_comment() {
+        // A staged trailing-comment change must not survive a cancelled edit, or a
+        // later nudge/replace would stamp it onto an unrelated node.
+        let mut app = app_with("port = 8080\ncount = 5\n");
+        app.pending_trailing = Some(Some("# leak".into()));
+        app.edit_cancel();
+        assert!(app.pending_trailing.is_none());
+        // A subsequent nudge writes only the value, no stray comment.
+        app.cursor = 1;
+        app.nudge(1);
+        let out = app.doc.as_ref().unwrap().serialize();
+        assert!(
+            !out.contains("# leak"),
+            "stale comment leaked into nudge: {out}"
+        );
+    }
+
+    #[test]
     fn inline_commit_same_type_applies_replace() {
         let mut app = app_with("port = 8080\n");
         app.cursor = 1;
@@ -4899,6 +5063,172 @@ mod tests {
         f.write_all(src.as_bytes()).unwrap();
         let doc = crate::model::any_doc::AnyDocument::load(f.path()).unwrap();
         App::new(doc)
+    }
+
+    fn app_with_yaml(src: &str) -> App {
+        use std::io::Write;
+        let mut f = tempfile::Builder::new().suffix(".yaml").tempfile().unwrap();
+        f.write_all(src.as_bytes()).unwrap();
+        let doc = crate::model::any_doc::AnyDocument::load(f.path()).unwrap();
+        App::new(doc)
+    }
+
+    /// Drive the inline editor to set the Value field to `new_value` and commit.
+    fn inline_set_value(app: &mut App, new_value: &str) {
+        app.begin_inline_edit();
+        if let Mode::Edit(e) = &mut app.mode {
+            e.buffer.clear();
+            e.cursor = 0;
+        }
+        for c in new_value.chars() {
+            app.edit_input_char(c);
+        }
+        app.edit_commit();
+    }
+
+    #[test]
+    fn yaml_block_seq_scalar_child_edits_inline() {
+        // ⑤ A keyed scalar inside a block-sequence element is inline-editable in
+        // YAML (the block-array ancestor must not force $EDITOR).
+        let mut app = app_with_yaml("plugins:\n  - name: a\n  - port: 8081\n");
+        // Expand so the nested entries appear.
+        app.expand_level();
+        app.expand_level();
+        let name_row = app
+            .rows
+            .iter()
+            .position(|r| r.key == "name")
+            .expect("name row visible");
+        app.cursor = name_row;
+        assert_eq!(app.edit_target_kind(), EditKind::Inline);
+        let port_row = app.rows.iter().position(|r| r.key == "port").unwrap();
+        app.cursor = port_row;
+        assert_eq!(app.edit_target_kind(), EditKind::Inline);
+        // And the edit actually applies through Replace.
+        inline_set_value(&mut app, "9090");
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            "plugins:\n  - name: a\n  - port: 9090\n"
+        );
+    }
+
+    #[test]
+    fn yaml_block_seq_map_element_external_fragment_is_the_element() {
+        // ⑤ A block-map element of a sequence stays $EDITOR, but the captured
+        // fragment is that element alone — not the whole `plugins` array.
+        let app = app_with_yaml("plugins:\n  - name: a\n  - name: b\n");
+        // plugins[1] is the second block-map element.
+        let frag = app
+            .doc
+            .as_ref()
+            .unwrap()
+            .serialize_fragment(&[Seg::Key("plugins".into()), Seg::Index(1)]);
+        // Just the element (with its source indent) — not the whole `plugins` seq.
+        assert_eq!(frag, "  - name: b");
+    }
+
+    #[test]
+    fn yaml_block_seq_map_element_replace_roundtrips() {
+        // The indented element fragment `edit_node` captures applies cleanly back
+        // to that element, leaving siblings intact.
+        let mut app = app_with_yaml("plugins:\n  - name: a\n  - name: b\n");
+        app.apply_replace(
+            vec![Seg::Key("plugins".into()), Seg::Index(1)],
+            "  - name: c\n".into(),
+        );
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            "plugins:\n  - name: a\n  - name: c\n"
+        );
+    }
+
+    #[test]
+    fn yaml_block_seq_first_multikey_element_replace_roundtrips() {
+        // Replacing a non-last element that is a multi-key block map keeps the
+        // sibling and the trailing newline.
+        let mut app = app_with_yaml("plugins:\n  - name: a\n    port: 1\n  - name: b\n");
+        app.apply_replace(
+            vec![Seg::Key("plugins".into()), Seg::Index(0)],
+            "  - name: z\n    port: 9\n".into(),
+        );
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            "plugins:\n  - name: z\n    port: 9\n  - name: b\n"
+        );
+    }
+
+    #[test]
+    fn json_multiline_array_element_takes_trailing_comment() {
+        // ③ A multiline-array element can gain a trailing `//` comment.
+        let mut app = app_with_jsonc("{\n  \"arr\": [\n    1,\n    2\n  ]\n}\n");
+        app.expand_level();
+        app.expand_level();
+        let row = app
+            .rows
+            .iter()
+            .position(|r| r.path == vec![Seg::Key("arr".into()), Seg::Index(0)])
+            .expect("arr[0] visible");
+        app.cursor = row;
+        assert_eq!(app.edit_target_kind(), EditKind::Inline);
+        inline_set_value(&mut app, "1  // first");
+        assert!(matches!(app.mode, Mode::Normal), "should commit");
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            "{\n  \"arr\": [\n    1,  // first\n    2\n  ]\n}\n"
+        );
+    }
+
+    #[test]
+    fn json_inline_array_element_rejects_trailing_comment() {
+        // ② An inline-array element can't take a trailing comment — reject cleanly,
+        // leaving the document untouched and the editor open.
+        let mut app = app_with_jsonc("{\n  \"arr\": [1, 2]\n}\n");
+        app.expand_level();
+        app.expand_level();
+        let row = app
+            .rows
+            .iter()
+            .position(|r| r.path == vec![Seg::Key("arr".into()), Seg::Index(0)])
+            .expect("arr[0] visible");
+        app.cursor = row;
+        let before = app.doc.as_ref().unwrap().serialize();
+        inline_set_value(&mut app, "1  // nope");
+        assert!(matches!(app.mode, Mode::Edit(_)), "stays in editor");
+        assert!(app
+            .status
+            .as_deref()
+            .unwrap_or("")
+            .contains("inline collection"));
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            before,
+            "doc untouched"
+        );
+    }
+
+    #[test]
+    fn yaml_nudge_preserves_inline_comment() {
+        // The ←/→ value nudge must keep a YAML trailing comment (YAML Replace drops
+        // it, so the nudge re-asserts it like the editor does).
+        let mut app = app_with_yaml("port: 8081  # bind\n");
+        app.cursor = app.rows.iter().position(|r| r.key == "port").unwrap();
+        app.nudge(1);
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            "port: 8082  # bind\n"
+        );
+    }
+
+    #[test]
+    fn yaml_value_edit_preserves_inline_comment() {
+        // ④ YAML Replace swaps the whole entry (dropping the comment); the editor
+        // must re-assert the unchanged comment so it survives a value-only edit.
+        let mut app = app_with_yaml("host: x  # bind\n");
+        app.cursor = app.rows.iter().position(|r| r.key == "host").unwrap();
+        // Edit only the value; keep the comment text the same.
+        inline_set_value(&mut app, "y  # bind");
+        assert!(matches!(app.mode, Mode::Normal), "should commit cleanly");
+        assert_eq!(app.doc.as_ref().unwrap().serialize(), "host: y  # bind\n");
     }
 
     #[test]

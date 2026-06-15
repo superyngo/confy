@@ -102,6 +102,36 @@ impl ConfigDocument for YamlDocument {
             .map(|n| n.kind)
             .ok_or_else(|| "fragment has no value".into())
     }
+
+    fn split_value_comment(&self, buffer: &str) -> (String, Option<String>) {
+        split_value_comment(buffer)
+    }
+
+    fn replace_preserves_trailing_comment(&self) -> bool {
+        // YAML `Replace` swaps the whole `key: value` entry, dropping the comment.
+        false
+    }
+}
+
+/// Split `value  # comment` via the YAML lexer (a `#` inside a quoted string is
+/// not a comment). Returns `(value, Option<comment-with-#>)`; on a parse failure
+/// or no comment, `(buffer, None)`.
+pub(crate) fn split_value_comment(buffer: &str) -> (String, Option<String>) {
+    let Ok(green) = crate::model::yaml::parse::parse(&format!("__k__: {buffer}\n")) else {
+        return (buffer.to_string(), None);
+    };
+    match crate::model::yaml::project::project(&SyntaxNode::new_root(green), "")
+        .root
+        .children
+        .into_iter()
+        .next()
+    {
+        Some(n) => (
+            n.value.unwrap_or_else(|| buffer.to_string()),
+            n.trailing_comment,
+        ),
+        None => (buffer.to_string(), None),
+    }
 }
 
 impl YamlDocument {
@@ -274,6 +304,21 @@ mod tests {
         );
         // A nested flow map member can't expand to block while inline.
         assert!(opts(&[Seg::Key("pt".into()), Seg::Key("n".into())]).is_empty());
+    }
+
+    #[test]
+    fn split_value_comment_splits_yaml() {
+        let doc = yaml_from_str(".yaml", "a: 1\n");
+        assert_eq!(doc.split_value_comment("x"), ("x".into(), None));
+        assert_eq!(
+            doc.split_value_comment("x  # bind"),
+            ("x".into(), Some("# bind".into()))
+        );
+        // a `#` inside a quoted string is not the comment
+        assert_eq!(
+            doc.split_value_comment("\"a # b\""),
+            ("\"a # b\"".into(), None)
+        );
     }
 
     #[test]

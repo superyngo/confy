@@ -205,8 +205,8 @@ inline-editability rule below. Golden tests in `cst_project.rs` freeze the proje
 and container formats landed). The **KIND column** (formerly TYPE/FORMAT; takes 40% of the
 terminal width for NAME, kind at the 2/5 mark, value the remainder) renders these facets as a
 **fixed-pitch 12-column tag** (`type_tag` in `app.rs`: key sign `(B)/(Q)/(D)/(-)` + type slot
-`[T/S]`, `[A/I]`, `[S:str ]`, …); JSON adds `[S:null]` (null scalar), `[T/M]` (multiline
-object), and `[F:exp ]` (exponent float); YAML adds `[A/B]`/`[A/F]` (block/flow seq), `[T/B]`/`[T/F]`
+`[T/S]`, `[A/I]`, `[S:str ]`, …); JSON has no scope table — an inline object is `[T/I]`, a
+multiline one `[T/M]` — and adds `[S:null]` (null scalar) and `[F:exp ]` (exponent float); YAML adds `[A/B]`/`[A/F]` (block/flow seq), `[T/B]`/`[T/F]`
 (block/flow map), `[S:sq  ]`/`[S:dq  ]`/`[S:lit ]`/`[S:fold]` (string styles), and `[opaq ]`
 (out-of-subset read-only). `type_tag` (and the type-filter's `classify`) now take `(doc: DocFormat,
 read_only)` so the rendered slot is backend-aware — the YAML opaque gate (`read_only && doc==Yaml`)
@@ -214,9 +214,15 @@ tags `[opaq ]` whatever the underlying kind. The detail popup keeps word labels,
 still drives the inline editor's type-change comparison.
 
 **Editing.** `e` dispatches via `edit_target_kind`. **Inline** (`Mode::Edit`): a single-line
-scalar that `Replace` can address — keyed under a Table/Root/inline table with **no `Array`
-ancestor** (an AoT ancestor is fine: `product[0].sku` works; `x = [{ a = 1 }]` does not), or an
-array element on a `Key+ Index*` path (incl. array-of-arrays) — a single-line array/inline table
+scalar that `Replace` can address — for TOML/JSON keyed under a Table/Root/inline table with **no
+`Array` ancestor** (an AoT ancestor is fine: `product[0].sku` works; `x = [{ a = 1 }]` does not),
+or an array element on a `Key+ Index*` path (incl. array-of-arrays). **YAML** addresses every
+block-seq element and nested key individually (`resolve` descends `Index`→`Key`), so the
+array-ancestor restriction is lifted there — `plugins[1].name` / `plugins[3]` edit inline, and a
+non-inline node that stays `$EDITOR` (a block-map element) captures just *that* element, not the
+whole sequence (`edit_node` skips the array truncation for YAML; `Replace` on a `Target::Element`
+accepts the `- `-prefixed element fragment). YAML literal `|` / folded `>` block scalars route to
+`$EDITOR`. Also inline: a single-line array/inline table
 (edited as its one-line repr), and a single-line comment (raw `#` text, routed to `EditComment`).
 **`$EDITOR`**: everything else — multiline strings/arrays, merged multi-line comments, tables,
 AoT entries, the Root, and any `E`. The inline editor edits one field at a time: **`Tab` toggles
@@ -267,7 +273,25 @@ project as a *single* multi-line Comment node (a blank or non-`#` line breaks th
 comment node carries its text as its `value`, so the VALUE column and detail popup show it;
 multi-line cell values (merged comments, multiline strings) are collapsed to a one-line preview
 (first line + ` …`) by `cell_preview` in `ui.rs`. An end-of-line comment on a value is **not** a
-node — it is that node's `trailing_comment` decoration and travels with it. `e` on a
+node — it is that node's `trailing_comment` decoration and travels with it. A trailing comment
+is **shown in-row** (dimmed, after the value, in the VALUE cell — `value_cell` in `ui.rs`) and is
+**edited inline together with the value**: `begin_inline_edit` seeds the Value buffer as
+`value  # comment`, and `edit_commit` splits it back via `ConfigDocument::split_value_comment`
+(which lexes through the backend so a `#`/`//` *inside a string* is not the comment). A change
+from the baseline (`EditState.orig_trailing`) is staged in `App.pending_trailing` and applied by
+`apply_replace` as a `Mutation::SetTrailingComment { path, comment: Option<String> }` right after
+the value `Replace` (one undo step); `edit_cancel` clears the stage so it can't leak onto a later
+nudge. `SetTrailingComment` is a uniform text-splice in each backend's `edit.rs` (replace the span
+from the value's content end — past a separator comma for a multiline-array element — to the next
+newline), `comment: None` clears, and it handles both keyed entries and **array elements**
+(`Target::Element`/`ArrayElement`). **Array elements** carry an editable trailing comment too: a
+**multiline-array** element gains `1,  # x`; an element (or member) inside an **inline** array /
+flow collection is rejected cleanly in `edit_commit` ("switch to multiline (K) first") so the edit
+stays atomic. Most backends' value `Replace` preserves an unchanged comment, but YAML's whole-entry
+swap drops it; `ConfigDocument::replace_preserves_trailing_comment()` (default `true`, YAML `false`)
+makes the editor re-assert an existing comment after a YAML value edit. The `←/→` value nudge
+goes through the same value `Replace`, so it stages the same re-assert (a YAML nudge keeps its
+trailing comment; TOML/JSON preserve it natively). `e` on a
 **single-line** comment edits inline (`Mode::Edit` with `is_comment`: the raw `#`-prefixed text
 is the sole field — no name, `Tab` is a no-op — and `edit_commit` routes to
 `Mutation::EditComment`, staying in the editor on a non-`#` validation error); `E`, a merged

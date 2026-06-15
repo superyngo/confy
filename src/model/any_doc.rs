@@ -109,6 +109,12 @@ impl ConfigDocument for AnyDocument {
     fn value_kind(&self, value: &str) -> Result<crate::model::node::NodeKind, String> {
         delegate!(self, d => d.value_kind(value))
     }
+    fn split_value_comment(&self, buffer: &str) -> (String, Option<String>) {
+        delegate!(self, d => d.split_value_comment(buffer))
+    }
+    fn replace_preserves_trailing_comment(&self) -> bool {
+        delegate!(self, d => d.replace_preserves_trailing_comment())
+    }
 }
 
 #[cfg(test)]

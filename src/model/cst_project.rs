@@ -1002,7 +1002,8 @@ Array key="ml" sign=Bare val=None fmt=Multiline trail=None
     /// byte-identical round-trip lives in `tests/roundtrip.rs`).
     #[test]
     fn repo_fixtures_project() {
-        let mut files = vec![std::path::PathBuf::from("test.toml")];
+        // `test.toml` now lives under tests/fixtures/ and is picked up by the scan.
+        let mut files: Vec<std::path::PathBuf> = Vec::new();
         let fx = std::path::Path::new("tests/fixtures");
         if fx.is_dir() {
             for e in std::fs::read_dir(fx).unwrap() {
@@ -1047,7 +1048,7 @@ Array key="ml" sign=Bare val=None fmt=Multiline trail=None
                 collect(c, out);
             }
         }
-        let src = std::fs::read_to_string("test.toml").unwrap();
+        let src = std::fs::read_to_string("tests/fixtures/test.toml").unwrap();
         let mut f = tempfile::NamedTempFile::new().unwrap();
         f.write_all(src.as_bytes()).unwrap();
         let doc = crate::model::cst_doc::CstDocument::load(f.path()).unwrap();

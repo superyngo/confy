@@ -614,12 +614,18 @@ mod tests {
             &SyntaxNode::new_root(crate::model::json::parse::parse(src).unwrap()),
             "sample.jsonc",
         );
+        // Leading `//` line is a first-class Comment node.
         assert!(matches!(t.root.children[0].kind, NodeKind::Comment(_)));
+        // `name` is a plain string member with no trailing comment.
         let name = t.root.children.iter().find(|c| c.key == "name").unwrap();
-        assert_eq!(
-            name.trailing_comment.as_deref(),
-            Some("// trailing comment")
-        );
+        assert_eq!(name.trailing_comment, None);
+        // `ok` carries an end-of-line `//` trailing comment.
+        let ok = t.root.children.iter().find(|c| c.key == "ok").unwrap();
+        assert_eq!(ok.trailing_comment.as_deref(), Some("//123"));
+        // A multiline-array element carries its own trailing comment.
+        let list = t.root.children.iter().find(|c| c.key == "list").unwrap();
+        assert_eq!(list.children[0].trailing_comment.as_deref(), Some("// 123"));
+        // A `/* */` block comment projects as a read-only Comment node.
         assert!(t
             .root
             .children

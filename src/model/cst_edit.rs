@@ -79,6 +79,9 @@ pub(crate) fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<SyntaxNode, Muta
             convert_kind(&tree, &path, target)?;
             tree
         }
+        Mutation::SetTrailingComment { path, comment } => {
+            set_trailing_comment(&tree, &path, comment.as_deref())?
+        }
     };
     validate_semantics(&result)?;
     Ok(result)
@@ -912,6 +915,62 @@ fn replace_value(tree: &SyntaxNode, path: &[Seg], toml: &str) -> Result<(), Muta
     new_content.detach();
     value.splice_children(i..i + 1, vec![new_content]);
     Ok(())
+}
+
+/// `Mutation::SetTrailingComment` — set/change/clear the EOL comment of the keyed
+/// scalar at `path`. The trailing `# …` is replaced textually between the value's
+/// own content and the line's terminating newline (a comment can't span lines, so
+/// the next `\n` is the safe right edge); the result is reparsed. Only a keyed
+/// scalar entry is supported — array elements stay display-only.
+fn set_trailing_comment(
+    tree: &SyntaxNode,
+    path: &[Seg],
+    comment: Option<&str>,
+) -> Result<SyntaxNode, MutateError> {
+    let (_proj, idx) = walk(tree, "");
+    let target = idx
+        .iter()
+        .find(|(p, _)| p == path)
+        .map(|(_, t)| t.clone())
+        .ok_or(MutateError::NotFound)?;
+    let value = match target {
+        Target::Entry(entry) => entry
+            .children()
+            .find(|c| c.kind() == SyntaxKind::VALUE)
+            .ok_or(MutateError::NotFound)?,
+        // A multiline-array element: the carried node is already its VALUE.
+        Target::ArrayElement(value) => value,
+        _ => return Err(MutateError::Unsupported),
+    };
+    // End of the value's *own* content (scalar token / array / inline table),
+    // before any trailing whitespace + comment that the VALUE node also holds.
+    let is_content = |c: &taplo::syntax::SyntaxElement| match c {
+        NodeOrToken::Token(t) => is_scalar_kind(t.kind()),
+        NodeOrToken::Node(n) => matches!(n.kind(), SyntaxKind::ARRAY | SyntaxKind::INLINE_TABLE),
+    };
+    let content = value
+        .children_with_tokens()
+        .find(&is_content)
+        .ok_or(MutateError::Unsupported)?;
+    let mut cut_start: usize = content.text_range().end().into();
+    let full = tree.to_string();
+    // Preserve a following separator comma (a multiline-array element is
+    // `1,  # c`); a keyed entry has no comma, so this is a no-op for it.
+    let rest = &full[cut_start..];
+    let after_ws = rest.trim_start_matches([' ', '\t']);
+    if after_ws.starts_with(',') {
+        cut_start += (rest.len() - after_ws.len()) + 1;
+    }
+    let cut_end = full[cut_start..]
+        .find('\n')
+        .map(|i| cut_start + i)
+        .unwrap_or(full.len());
+    let tail = match comment {
+        Some(c) => format!("  {}", c.trim()),
+        None => String::new(),
+    };
+    let new_text = format!("{}{}{}", &full[..cut_start], tail, &full[cut_end..]);
+    reparse_document(&new_text)
 }
 
 /// `Mutation::ConvertKind` — rewrite the node at `path` in another kind/notation,
@@ -4042,6 +4101,46 @@ mod tests {
         let mut f = tempfile::NamedTempFile::new().unwrap();
         f.write_all(src.as_bytes()).unwrap();
         crate::model::cst_doc::CstDocument::load(f.path()).unwrap()
+    }
+
+    #[test]
+    fn set_trailing_comment_add_change_clear() {
+        let set = |c: Option<&str>| Mutation::SetTrailingComment {
+            path: vec![Seg::Key("port".into())],
+            comment: c.map(str::to_string),
+        };
+        // add
+        let mut d = doc("port = 8080\n");
+        d.apply(set(Some("# http"))).unwrap();
+        assert_eq!(d.serialize(), "port = 8080  # http\n");
+        // change
+        let mut d = doc("port = 8080  # old\n");
+        d.apply(set(Some("# new"))).unwrap();
+        assert_eq!(d.serialize(), "port = 8080  # new\n");
+        // clear
+        let mut d = doc("port = 8080  # old\n");
+        d.apply(set(None)).unwrap();
+        assert_eq!(d.serialize(), "port = 8080\n");
+        // a `#` inside a basic string is not the trailing comment
+        let mut d = doc("port = \"a # b\"\n");
+        d.apply(set(Some("# note"))).unwrap();
+        assert_eq!(d.serialize(), "port = \"a # b\"  # note\n");
+    }
+
+    #[test]
+    fn set_trailing_comment_on_multiline_array_element() {
+        // A multiline-array element keeps its separator comma when a trailing
+        // comment is added, and the comment clears cleanly.
+        let set = |idx: usize, c: Option<&str>| Mutation::SetTrailingComment {
+            path: vec![Seg::Key("arr".into()), Seg::Index(idx)],
+            comment: c.map(str::to_string),
+        };
+        let mut d = doc("arr = [\n  1,\n  2,\n]\n");
+        d.apply(set(0, Some("# first"))).unwrap();
+        assert_eq!(d.serialize(), "arr = [\n  1,  # first\n  2,\n]\n");
+        // clear it again
+        d.apply(set(0, None)).unwrap();
+        assert_eq!(d.serialize(), "arr = [\n  1,\n  2,\n]\n");
     }
 
     #[test]

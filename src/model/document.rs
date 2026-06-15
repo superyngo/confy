@@ -48,6 +48,27 @@ pub trait ConfigDocument: Sized {
     /// the inline editor's type-change detection. `Err` (with the parse message)
     /// when the value doesn't parse, so the editor can stay open on a bad edit.
     fn value_kind(&self, value: &str) -> Result<NodeKind, String>;
+
+    /// Split an inline-editor buffer of the form `value  # comment` into its
+    /// `(value, Option<comment>)` parts using the backend's own lexer, so a
+    /// `#`/`//` *inside* a string value (`"a # b"  # note`) is not mistaken for
+    /// the trailing comment. The returned comment keeps its `#`/`//` prefix; the
+    /// value is the exact source text. A buffer with no trailing comment returns
+    /// `(buffer, None)`.
+    fn split_value_comment(&self, buffer: &str) -> (String, Option<String>) {
+        // Backend-agnostic fallback: no split (overridden by comment-capable
+        // backends). Keeps a hypothetical comment-less backend correct.
+        (buffer.to_string(), None)
+    }
+
+    /// Whether a value-scoped `Replace` keeps an existing trailing inline comment.
+    /// TOML/JSON `Replace` rewrites only the value token and leaves the comment in
+    /// place (`true`); YAML `Replace` swaps the whole `key: value` entry and drops
+    /// it (`false`), so the inline editor must re-assert the comment via
+    /// `SetTrailingComment` even when the comment text is unchanged.
+    fn replace_preserves_trailing_comment(&self) -> bool {
+        true
+    }
 }
 
 /// Which config syntax a document speaks. Backends report it via
@@ -136,6 +157,16 @@ pub enum Mutation {
     ConvertKind {
         path: Path,
         target: KindTarget,
+    },
+    /// Set, change, or clear the **trailing inline comment** of the keyed scalar
+    /// at `path` (`host: x  # bind`). `Some(text)` sets/changes it (the text
+    /// carries its own `#`/`//` prefix); `None` clears it. Independent of the
+    /// value `Replace` so a plain value edit / `nudge` / paste still *preserve*
+    /// the comment (they never issue this), while the inline editor issues it
+    /// only when the comment portion of the buffer changed.
+    SetTrailingComment {
+        path: Path,
+        comment: Option<String>,
     },
 }
 

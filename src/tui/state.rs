@@ -91,6 +91,11 @@ pub struct EditState {
     pub other_buffer: String,
     pub other_cursor: usize,
     pub other_scroll: usize,
+    /// The node's trailing inline comment at edit start (`# bind` / `// bind`),
+    /// seeded into the Value buffer after the value. On commit the buffer is split
+    /// back into value + comment; a change from this baseline drives
+    /// `Mutation::SetTrailingComment`. `None` when the node had no trailing comment.
+    pub orig_trailing: Option<String>,
 }
 
 /// Where a paste lands in the tree, addressed against a *visible-row index*.

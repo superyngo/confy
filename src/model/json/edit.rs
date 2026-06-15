@@ -1383,9 +1383,61 @@ pub fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<SyntaxNode, MutateError
             on_collision,
         } => move_nodes(&tree, &sources, &target, on_collision)?,
         Mutation::ConvertKind { path, target } => convert_kind(&tree, &path, target)?,
+        Mutation::SetTrailingComment { path, comment } => {
+            set_trailing_comment(&tree, &path, comment.as_deref())?
+        }
     }
     validate_semantics(&tree)?;
     Ok(tree)
+}
+
+/// `Mutation::SetTrailingComment` — set/change/clear the EOL `//` comment of the
+/// keyed scalar at `path`. The comment sits *after* the member (past an optional
+/// trailing comma), so the splice keeps everything up to and including the comma
+/// and rewrites from there to the line's terminating newline. Reparsed in place.
+fn set_trailing_comment(
+    tree: &SyntaxNode,
+    path: &[Seg],
+    comment: Option<&str>,
+) -> Result<(), MutateError> {
+    // A keyed member or an array element (its VALUE node); both end the line the
+    // same way, so the splice is identical.
+    let anchor = match resolve(tree, path).ok_or(MutateError::NotFound)? {
+        Target::Member(m) => m,
+        Target::Element(v) => v,
+        _ => return Err(MutateError::Unsupported),
+    };
+    // Keep the node and a following comma (if any); rewrite the rest of the line.
+    let mut cut_start: usize = anchor.text_range().end().into();
+    let mut sib = anchor.next_sibling_or_token();
+    while let Some(s) = sib {
+        match &s {
+            rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::WHITESPACE => {
+                sib = t.next_sibling_or_token();
+            }
+            rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::COMMA => {
+                cut_start = t.text_range().end().into();
+                break;
+            }
+            _ => break,
+        }
+    }
+    let full = tree.to_string();
+    let cut_end = full[cut_start..]
+        .find('\n')
+        .map(|i| cut_start + i)
+        .unwrap_or(full.len());
+    let tail = match comment {
+        Some(c) => format!("  {}", c.trim()),
+        None => String::new(),
+    };
+    let new_text = format!("{}{}{}", &full[..cut_start], tail, &full[cut_end..]);
+    let green = crate::model::json::parse::parse(&new_text).map_err(MutateError::Fragment)?;
+    let new_root = SyntaxNode::new_root(green).clone_for_update();
+    let n = tree.children_with_tokens().count();
+    let children: Vec<_> = new_root.children_with_tokens().collect();
+    tree.splice_children(0..n, children);
+    Ok(())
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -1425,6 +1477,34 @@ mod tests {
     fn apply_str(src: &str, m: Mutation) -> String {
         let t = parse(src);
         super::apply(&t, m).unwrap().to_string()
+    }
+
+    #[test]
+    fn set_trailing_comment_add_change_clear_comma() {
+        let set = |c: Option<&str>| Mutation::SetTrailingComment {
+            path: vec![Seg::Key("a".into())],
+            comment: c.map(str::to_string),
+        };
+        // add to the last member (no comma)
+        assert_eq!(
+            apply_str("{\n  \"a\": 1\n}\n", set(Some("// bind"))),
+            "{\n  \"a\": 1  // bind\n}\n"
+        );
+        // add keeps a following comma before the comment
+        assert_eq!(
+            apply_str("{\n  \"a\": 1,\n  \"b\": 2\n}\n", set(Some("// bind"))),
+            "{\n  \"a\": 1,  // bind\n  \"b\": 2\n}\n"
+        );
+        // change
+        assert_eq!(
+            apply_str("{\n  \"a\": 1 // old\n}\n", set(Some("// new"))),
+            "{\n  \"a\": 1  // new\n}\n"
+        );
+        // clear
+        assert_eq!(
+            apply_str("{\n  \"a\": 1 // old\n}\n", set(None)),
+            "{\n  \"a\": 1\n}\n"
+        );
     }
 
     #[test]

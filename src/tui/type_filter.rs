@@ -86,6 +86,9 @@ pub fn classify(kind: &NodeKind, format: Format, doc: DocFormat, read_only: bool
         NodeKind::Table => match (doc, format) {
             (DocFormat::Yaml, Format::Block) => TypeToken::MapBlock,
             (DocFormat::Yaml, _) => TypeToken::MapFlow,
+            // JSON has no scope table: inline object `[T/I]`, multiline `[T/M]`.
+            (DocFormat::Json, Format::Multiline) => TypeToken::TableMultiline,
+            (DocFormat::Json, _) => TypeToken::InlineTable,
             (_, Format::Dotted) => TypeToken::TableDotted,
             (_, Format::Multiline) => TypeToken::TableMultiline,
             _ => TypeToken::TableScope,
@@ -565,6 +568,18 @@ mod tests {
             c(&NodeKind::Scalar(ScalarType::Float), Format::Exponent),
             TypeToken::FloatExp
         );
+        assert_eq!(
+            c(&NodeKind::Table, Format::Multiline),
+            TypeToken::TableMultiline
+        );
+    }
+
+    #[test]
+    fn classify_json_object_inline_vs_multiline() {
+        // JSON has no scope table: an inline object is the inline-table slot
+        // (`[T/I]`), a multiline object is `[T/M]` — never `[T/S]`.
+        let c = |k: &NodeKind, f| classify(k, f, DocFormat::Json, false);
+        assert_eq!(c(&NodeKind::Table, Format::Inline), TypeToken::InlineTable);
         assert_eq!(
             c(&NodeKind::Table, Format::Multiline),
             TypeToken::TableMultiline
