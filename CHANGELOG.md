@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.6.0] - 2026-06-15
+
 ### Fixed
 - JSON inline object mis-tagged `[T/S]` — a single-line JSON object projects as `Table` + `Format::Inline`, which fell through to TOML's scope-table default. `type_tag` and the type-filter's `classify` now carry a JSON arm: inline object → `[T/I]`, multiline → `[T/M]` (consistent with JSON's `kind_options`). (2026-06-15)
 - YAML: editing a value with a trailing inline comment dropped the comment — YAML's `Replace` swaps the whole `key: value` entry, and the editor only re-asserted the comment when it had *changed*. New `ConfigDocument::replace_preserves_trailing_comment()` facet (default `true`; YAML `false`) makes the editor re-apply an existing comment after a value-only edit. The `←/→` value **nudge** does the same (it also goes through a value `Replace`), so a YAML int/float/bool toggle keeps its trailing comment. (2026-06-15)
