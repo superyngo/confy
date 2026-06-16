@@ -248,6 +248,9 @@ document is untouched. A single-span (contiguous) edit keeps the old unchecked-s
 
 ## Nested behavior matrix
 
+> The full, self-contained reference is **`BEHAVIOR_MATRIX.md`** at the repo root (scopes, tables
+> A/B/C, criteria, the facet layer, invariants). This section is the condensed in-context form.
+
 A normalized cross-backend (TOML/JSON/YAML) account of how the nesting **scope** governs each
 editing behavior. **Governing rule:** every behavior is governed by exactly one **container**, and
 the matrix column is always that governing container's scope — never the acted-on node's own kind
@@ -287,6 +290,13 @@ decides whether children are keyed (seq elements are keyless → no rename / no 
 | holds standalone comment node | ✓ | ✗ | ✓ | ✗ | ✓ |
 | insert / append child forming | add line | rebuild `[…]` | add line | rebuild `{…}` | add line / section |
 | add: expanded → append child | ✓ scalar (clamp) | ✓ bare elem (rebuild) | ✓ bare elem | ✓ member (rebuild) | ✓ scalar (clamp) |
+| switch layout flow↔block (`K`) | ✗ root | ✓ →block | ✓ →flow² | ✓ →block | ✓ →flow² |
+
+² `K` toggles a container between its flow and block layout (TOML `[A/I]`↔`[A/M]`, `[T/I]`↔`[T/D]`↔`[T/S]`;
+JSON object/array Inline↔Multiline; YAML map/seq block↔flow). The **collapse to flow** direction is
+rejected (`Illegal`) when the container **holds a comment** or a **multi-line element** (a flow layout
+holds neither). The criterion is symmetric: every flow scope can expand to block and every block scope
+that holds only inline-representable children can collapse to flow.
 
 ### C — Leaf node as a child (governed by **parent**; column = parent scope)
 
@@ -296,22 +306,29 @@ decides whether children are keyed (seq elements are keyless → no rename / no 
 | own external precise edit | ✓ | ⚠ whole repr | ✓ just the element | ⚠ whole repr | ✓ |
 | inline editor | ✓ single-line | ✓ as repr | ✓ | ✓ | ✓ (multiline str → `$EDITOR`) |
 
-A single-line **plain-array element** is inline-editable **wherever the array sits** — even nested
-under a key (`array_int[1].vals[0]`); `Replace` addresses the element directly. The gate is just
-"immediate parent is a plain `Array`" (an AoT group is `ArrayOfTables`, so its entries stay
-`$EDITOR`; a multiline-string element routes to `$EDITOR` by its Format).
+**Criterion — universal scalar inline editing.** Every **single-line scalar** leaf is inline-editable
+with **precise (element-level) `Replace`** in *every scope* — global, both seq layouts, both map
+layouts, TOML `[T/D]`/`[T/S]`, and AoT-entry members — independent of nesting depth. The C row above
+is therefore ✓ across all columns for single-line scalars. The **only** routes to `$EDITOR` are by a
+scalar's **Format**, never by its scope: a multiline / literal `|` / folded `>` string opens
+`$EDITOR` because it cannot round-trip through a one-line field. A single-line **plain-array element**
+follows the same rule **wherever the array sits** — even nested under a key (`array_int[1].vals[0]`);
+`Replace` addresses the element directly. The gate is just "immediate parent is a plain `Array`" (an
+AoT group is `ArrayOfTables`, so its entries stay `$EDITOR`).
 | add: collapsed leaf → sibling | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 **Invariants (not scope-dependent, so not in the matrix):** consecutive `#`/`//` comment lines merge
 into one Comment node (a blank or non-comment line breaks the group); a YAML **opaque node** is
 read-only — every row's behavior is rejected (`Unsupported`) whatever its underlying kind.
 
-**External-editor precise range (now uniform).** `e`/`E` on a standard-array element captures and
-Replaces **just that element** in every backend (`App::external_edit_path`): TOML/JSON wrap the bare
-element repr as the value-Replace form (`scalar_fragment(None, …)` → TOML `__elem__ = …`, JSON bare)
-so `Replace` splices only that element; YAML's `- value` fragment is addressable directly. (Earlier
-TOML/JSON truncated to the whole array — fixed to YAML's per-element standard.) A key reached
-*through* a standard-array index is still truncated to the whole array in TOML/JSON (not addressable).
+**External-editor precise range (uniform across backends).** `e`/`E` captures and Replaces **just the
+edited node** in every backend (`App::external_edit_path` — no truncation). A standard-array
+**element** (`x[0]`, `x[0][1]`) wraps its bare repr as the value-Replace form (`scalar_fragment(None, …)`
+→ TOML `__elem__ = …`, JSON bare) so `Replace` splices only that element; YAML's `- value` fragment is
+addressable directly (no wrap). A key/index reached *through* an array index (`x[0].a`, `x[0].a.b`) is
+`Replace`-addressable directly too — the inline splice rebuilds the enclosing `{ … }`/`[ … ]` element
+in place — so the whole path is kept and the edit lands precisely (this closed the last TOML/JSON gap;
+earlier those truncated to the whole array).
 
 ## Flagged ambiguities
 

@@ -1184,15 +1184,16 @@ impl App {
     /// whether that capture is a standard-array **element** whose bare fragment must
     /// be wrapped as the backend's value-Replace element form on commit.
     ///
-    /// An array element edits *precisely* — just that element — in every backend.
-    /// For TOML/JSON the bare element repr isn't `Replace`-addressable on its own, so
-    /// the caller wraps it (`scalar_fragment(None, …)` → TOML `__elem__ = …`, JSON a
-    /// bare value); YAML's `- value` fragment is addressable directly, so no wrap.
-    /// A key reached *through* a standard-array index is still not addressable in
-    /// TOML/JSON, so the path is truncated to the whole array there; AoT-entry indices
-    /// and the keys below them are kept and addressed directly. YAML never truncates.
+    /// Every node edits *precisely* — just that node — in every backend. A standard-array
+    /// **element** (`x[0]`, `x[0][1]`) has no key, and its bare repr isn't
+    /// `Replace`-addressable on its own in TOML/JSON, so the caller wraps it
+    /// (`scalar_fragment(None, …)` → TOML `__elem__ = …`, JSON a bare value); YAML's
+    /// `- value` fragment is addressable directly, so no wrap. Any other node — including
+    /// a key/index reached *through* an array index (`x[0].a`, `x[0].a.b`) — is
+    /// `Replace`-addressable directly: the inline splice rebuilds the enclosing
+    /// `{ … }` / `[ … ]` element in place, so the path is kept whole and never truncated
+    /// to the array (matching YAML; AoT-entry indices and their keys were already kept).
     pub(crate) fn external_edit_path(&self, path: &Path) -> (Path, bool) {
-        let yaml = self.doc_format() == crate::model::document::DocFormat::Yaml;
         let is_array_element = matches!(path.last(), Some(Seg::Index(_)))
             && path
                 .len()
@@ -1201,29 +1202,14 @@ impl App {
                 .map(|n| matches!(n.kind, NodeKind::Array))
                 .unwrap_or(false);
         if is_array_element {
-            return (path.clone(), !yaml);
+            let addressable = self
+                .doc
+                .as_ref()
+                .map(|d| d.array_elements_addressable())
+                .unwrap_or(false);
+            return (path.clone(), !addressable);
         }
-        let truncate_at = (!yaml)
-            .then(|| {
-                path.iter().enumerate().find_map(|(i, s)| {
-                    if matches!(s, Seg::Index(_)) {
-                        let container_is_array = self
-                            .tree
-                            .node_at(&path[..i])
-                            .map(|n| matches!(n.kind, NodeKind::Array))
-                            .unwrap_or(false);
-                        if container_is_array {
-                            return Some(i);
-                        }
-                    }
-                    None
-                })
-            })
-            .flatten();
-        match truncate_at {
-            Some(i) => (path[..i].to_vec(), false),
-            None => (path.clone(), false),
-        }
+        (path.clone(), false)
     }
 
     /// Apply edited text as a Replace at `path` (the post-editor half of `e`,
@@ -1354,8 +1340,12 @@ impl App {
         // YAML addresses any scalar reachable through block-sequence / flow elements
         // (`resolve` descends `Index`→`Key`), so an `Array` ancestor does NOT force
         // $EDITOR the way it must for TOML/JSON (whose array elements aren't
-        // `Replace`-addressable). Gate the array-ancestor checks below on the format.
-        let yaml = self.doc_format() == crate::model::document::DocFormat::Yaml;
+        // `Replace`-addressable). Gate the array-ancestor checks below on the facet.
+        let addressable = self
+            .doc
+            .as_ref()
+            .map(|d| d.array_elements_addressable())
+            .unwrap_or(false);
         let parent_path = &path[..path.len() - 1];
         let parent = self.tree.node_at(parent_path);
         match path.last() {
@@ -1406,8 +1396,8 @@ impl App {
                             || (matches!(p.kind, NodeKind::Table) && p.format == Format::Inline)
                     })
                     .unwrap_or(false);
-                let addressable =
-                    parent_ok && (yaml || self.no_array_ancestor(path) || parent_inline_container);
+                let addressable = parent_ok
+                    && (addressable || self.no_array_ancestor(path) || parent_inline_container);
                 if addressable {
                     EditKind::Inline
                 } else {
@@ -1774,7 +1764,11 @@ impl App {
                     .get(self.cursor)
                     .map(|r| r.type_label.clone())
                     .unwrap_or_default();
-                let new_label = (self.doc_format() == crate::model::document::DocFormat::Toml)
+                let new_label = self
+                    .doc
+                    .as_ref()
+                    .map(|d| d.rename_can_change_type())
+                    .unwrap_or(false)
                     .then(|| project_first_label(&format!("{new_name} = {value_str}\n")))
                     .flatten();
                 if let Some(new_label) = new_label {
@@ -1967,7 +1961,6 @@ impl App {
             Some(r) => r,
             None => return,
         };
-        let fmt = self.doc_format();
         let expanded = self.expanded.contains(&cursor_row.path);
         let is_append = cursor_row.path.is_empty() || (cursor_row.is_branch && expanded);
         // The cursor's own kind drives the same-kind sibling seed.
@@ -2067,28 +2060,18 @@ impl App {
             }
         };
         let (fragment, inline) = match &seed_kind {
-            NodeKind::Scalar(_) => (seed_value("\"\""), true),
-            NodeKind::Array => (seed_value("[]"), false),
-            NodeKind::InlineTable => (seed_value("{}"), false),
-            NodeKind::ArrayOfTables => {
-                // TOML-only construct.
+            NodeKind::Scalar(_) | NodeKind::Root | NodeKind::Comment(_) => {
+                (seed_value("\"\""), true)
+            }
+            // Containers: the backend forms the empty seed in its own notation
+            // (TOML `[table]`/`[[aot]]`, JSON/YAML `{}`/`[]`), so no format sniff
+            // and no hard-coded notation here.
+            NodeKind::Array | NodeKind::InlineTable | NodeKind::ArrayOfTables | NodeKind::Table => {
                 (
-                    format!("[[{}]]\n", key.as_deref().unwrap_or("placeholder")),
+                    doc.empty_container_fragment(&seed_kind, key.as_deref()),
                     false,
                 )
             }
-            NodeKind::Table => {
-                if fmt == crate::model::document::DocFormat::Toml {
-                    (
-                        format!("[{}]\n", key.as_deref().unwrap_or("placeholder")),
-                        false,
-                    )
-                } else {
-                    // JSON/YAML have no scope table — an empty map is `{}`.
-                    (seed_value("{}"), false)
-                }
-            }
-            NodeKind::Root | NodeKind::Comment(_) => (seed_value("\"\""), true),
         };
 
         self.apply_insert(target.clone(), fragment);
@@ -5827,6 +5810,56 @@ mod tests {
         let (path, wrap) = app.external_edit_path(&p);
         assert_eq!(path, p);
         assert!(!wrap, "AoT entry is not a standard-array element");
+    }
+
+    #[test]
+    fn toml_key_through_array_index_external_path_is_precise() {
+        // GAP FIX: a key reached *through* a standard-array index (`arr[0].a`) is
+        // `Replace`-addressable directly — the splice rebuilds the `{ … }` element in
+        // place — so the external path keeps the WHOLE path (no wrap) instead of
+        // truncating to the whole `arr` (matching YAML's per-node precision).
+        let mut app = app_with("arr = [\n  { a = \"x\", b = 2 },\n  { a = \"y\" },\n]\n");
+        let p = vec![Seg::Key("arr".into()), Seg::Index(0), Seg::Key("a".into())];
+        let (path, wrap) = app.external_edit_path(&p);
+        assert_eq!(path, p, "the member is addressed, not the whole array");
+        assert!(!wrap, "a keyed member fragment needs no element wrap");
+        app.apply_replace(path, "a = \"z\"\n".into());
+        assert!(
+            app.status.is_none() && app.error.is_none(),
+            "status {:?} error {:?}",
+            app.status,
+            app.error
+        );
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            "arr = [\n  { a = \"z\", b = 2 },\n  { a = \"y\" },\n]\n",
+            "only arr[0].a changed; sibling element + member b intact"
+        );
+    }
+
+    #[test]
+    fn json_key_through_array_index_external_path_is_precise() {
+        // JSON parity for the gap fix: `arr[0].a` (a member of an object element)
+        // keeps the whole path and Replaces only that member.
+        let mut app = app_with_json(
+            "{\n  \"arr\": [\n    { \"a\": 1, \"b\": 2 },\n    { \"a\": 3 }\n  ]\n}\n",
+        );
+        let p = vec![Seg::Key("arr".into()), Seg::Index(0), Seg::Key("a".into())];
+        let (path, wrap) = app.external_edit_path(&p);
+        assert_eq!(path, p);
+        assert!(!wrap);
+        app.apply_replace(path, "\"a\": 99\n".into());
+        assert!(
+            app.status.is_none() && app.error.is_none(),
+            "status {:?} error {:?}",
+            app.status,
+            app.error
+        );
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            "{\n  \"arr\": [\n    { \"a\": 99, \"b\": 2 },\n    { \"a\": 3 }\n  ]\n}\n",
+            "only arr[0].a changed"
+        );
     }
 
     #[test]

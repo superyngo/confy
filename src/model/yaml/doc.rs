@@ -116,6 +116,12 @@ impl ConfigDocument for YamlDocument {
         false
     }
 
+    fn array_elements_addressable(&self) -> bool {
+        // `resolve` descends `Index`→`Key`, so every block/flow element and the
+        // scalars under it are individually `Replace`-addressable.
+        true
+    }
+
     fn to_value(
         &self,
     ) -> Result<(crate::model::value::Value, Vec<String>), crate::model::document::ConvertAbort>
@@ -337,5 +343,22 @@ mod tests {
         let doc = yaml_from_str(".yaml", "a: 1\n");
         assert_eq!(doc.scalar_fragment(Some("k"), "v"), "k: v\n");
         assert_eq!(doc.scalar_fragment(None, "v"), "- v\n");
+    }
+
+    #[test]
+    fn yaml_facets_have_no_scope_table_and_address_elements() {
+        use crate::model::node::NodeKind;
+        let doc = yaml_from_str(".yaml", "a: 1\n");
+        // No scope table / AoT — an empty map is `{}`, an array `[]`.
+        assert_eq!(
+            doc.empty_container_fragment(&NodeKind::Table, Some("t")),
+            "t: {}\n"
+        );
+        assert_eq!(
+            doc.empty_container_fragment(&NodeKind::Array, Some("xs")),
+            "xs: []\n"
+        );
+        assert!(doc.array_elements_addressable());
+        assert!(!doc.rename_can_change_type());
     }
 }

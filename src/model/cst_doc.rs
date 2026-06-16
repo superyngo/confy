@@ -201,6 +201,30 @@ impl ConfigDocument for CstDocument {
         format!("{k} = {value}\n")
     }
 
+    fn empty_container_fragment(&self, kind: &NodeKind, key: Option<&str>) -> String {
+        // TOML's scope table / array-of-tables are header forms with no `key = …`
+        // notation; everything else (inline table, array) uses the default.
+        match kind {
+            NodeKind::Table => format!("[{}]\n", key.unwrap_or("placeholder")),
+            NodeKind::ArrayOfTables => format!("[[{}]]\n", key.unwrap_or("placeholder")),
+            _ => {
+                let v = if matches!(kind, NodeKind::Array) {
+                    "[]"
+                } else {
+                    "{}"
+                };
+                match key {
+                    None => self.array_element_fragment(v),
+                    Some(k) => self.scalar_fragment(Some(k), v),
+                }
+            }
+        }
+    }
+
+    fn rename_can_change_type(&self) -> bool {
+        true
+    }
+
     fn value_kind(&self, value: &str) -> Result<NodeKind, String> {
         let parse = taplo::parser::parse(&format!("__k__ = {value}\n"));
         if let Some(err) = parse.errors.first() {
@@ -315,6 +339,31 @@ mod tests {
         assert_eq!(doc.scalar_fragment(Some("tags"), "\"x\""), "tags = \"x\"\n");
         // An element wraps under the synthetic key the element Replace ignores.
         assert_eq!(doc.scalar_fragment(None, "42"), "__elem__ = 42\n");
+    }
+
+    #[test]
+    fn empty_container_fragment_uses_toml_headers() {
+        let doc = cst_from_str("a = 1\n");
+        assert_eq!(
+            doc.empty_container_fragment(&NodeKind::Table, Some("cfg")),
+            "[cfg]\n"
+        );
+        assert_eq!(
+            doc.empty_container_fragment(&NodeKind::ArrayOfTables, Some("item")),
+            "[[item]]\n"
+        );
+        assert_eq!(
+            doc.empty_container_fragment(&NodeKind::Array, Some("tags")),
+            "tags = []\n"
+        );
+        assert_eq!(
+            doc.empty_container_fragment(&NodeKind::InlineTable, Some("t")),
+            "t = {}\n"
+        );
+        // keyless (array element) → bare element form
+        assert_eq!(doc.empty_container_fragment(&NodeKind::Array, None), "[]\n");
+        assert!(doc.rename_can_change_type());
+        assert!(!doc.array_elements_addressable());
     }
 
     #[test]

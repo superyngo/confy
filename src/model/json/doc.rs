@@ -254,6 +254,23 @@ mod tests {
     }
 
     #[test]
+    fn json_facets_default_no_scope_table_not_addressable() {
+        use crate::model::node::NodeKind;
+        let doc = json_from_str(".json", "{}\n");
+        // No scope table / AoT — an empty object is `{}`, an array `[]`.
+        assert_eq!(
+            doc.empty_container_fragment(&NodeKind::Table, Some("cfg")),
+            "\"cfg\": {}\n"
+        );
+        assert_eq!(
+            doc.empty_container_fragment(&NodeKind::Array, Some("xs")),
+            "\"xs\": []\n"
+        );
+        assert!(!doc.array_elements_addressable());
+        assert!(!doc.rename_can_change_type());
+    }
+
+    #[test]
     fn split_value_comment_splits_json() {
         let doc = json_from_str(".jsonc", "{}\n");
         assert_eq!(doc.split_value_comment("8080"), ("8080".into(), None));

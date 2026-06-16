@@ -56,6 +56,43 @@ pub trait ConfigDocument: Sized {
         format!("{value}\n")
     }
 
+    /// An empty-container seed for `a` (add): the backend's notation for an empty
+    /// Array / inline table / scope table / array-of-tables named `key` (keyless
+    /// when `key` is `None` → the bare element form). Keeps the TUI from
+    /// hard-coding a notation. Default suits flat map/array syntaxes (JSON/YAML):
+    /// `[]` for an array, `{}` for any map. TOML overrides the header forms
+    /// (`Table → [key]`, `ArrayOfTables → [[key]]`).
+    fn empty_container_fragment(&self, kind: &NodeKind, key: Option<&str>) -> String {
+        let v = if matches!(kind, NodeKind::Array) {
+            "[]"
+        } else {
+            "{}"
+        };
+        match key {
+            None => self.array_element_fragment(v),
+            Some(k) => self.scalar_fragment(Some(k), v),
+        }
+    }
+
+    /// Whether a value nested *within* an array/sequence — an element itself, or a
+    /// scalar reached through a sequence index — is individually `Replace`-addressable.
+    /// YAML's `resolve` descends `Index`→`Key` so every block/flow element is
+    /// addressable (`true`); TOML/JSON array elements are not addressable as bare
+    /// fragments (`false`), so the editor either truncates to the whole array or wraps
+    /// the element repr. Drives the inline-vs-`$EDITOR` routing and the external-edit
+    /// element wrap.
+    fn array_elements_addressable(&self) -> bool {
+        false
+    }
+
+    /// Whether a key **rename** can change the node's *type* — TOML only, where a
+    /// dotted key (`foo` → `foo.x`) turns a scalar into a `[T/D]` table, so the
+    /// inline editor must run a type-change check on rename. JSON/YAML keys never
+    /// carry structure, so a rename never changes type (`false`).
+    fn rename_can_change_type(&self) -> bool {
+        false
+    }
+
     /// The [`NodeKind`] a bare `value` repr projects to in this format — used by
     /// the inline editor's type-change detection. `Err` (with the parse message)
     /// when the value doesn't parse, so the editor can stay open on a bad edit.

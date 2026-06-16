@@ -109,6 +109,19 @@ impl ConfigDocument for AnyDocument {
     fn array_element_fragment(&self, value: &str) -> String {
         delegate!(self, d => d.array_element_fragment(value))
     }
+    fn empty_container_fragment(
+        &self,
+        kind: &crate::model::node::NodeKind,
+        key: Option<&str>,
+    ) -> String {
+        delegate!(self, d => d.empty_container_fragment(kind, key))
+    }
+    fn array_elements_addressable(&self) -> bool {
+        delegate!(self, d => d.array_elements_addressable())
+    }
+    fn rename_can_change_type(&self) -> bool {
+        delegate!(self, d => d.rename_can_change_type())
+    }
     fn value_kind(&self, value: &str) -> Result<crate::model::node::NodeKind, String> {
         delegate!(self, d => d.value_kind(value))
     }
