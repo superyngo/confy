@@ -168,6 +168,16 @@ fn replace(tree: &SyntaxNode, path: &[Seg], fragment: &str) -> Result<(), Mutate
             if entry_has_opaque_value(&entry) {
                 return Err(MutateError::Unsupported);
             }
+            // A flow-seq element shares the whole FLOW_SEQ as its target; the
+            // ordinal is the path's trailing index. Rebuild `[…]` inline rather
+            // than replacing the whole sequence node.
+            if entry.kind() == SyntaxKind::FLOW_SEQ {
+                let ord = match path.last() {
+                    Some(Seg::Index(i)) => *i,
+                    _ => return Err(MutateError::NotFound),
+                };
+                return replace_flow_seq_element(tree, &entry, ord, fragment);
+            }
             // A fragment that is itself a `- …` seq element (what `$EDITOR` shows for
             // a block-map/seq element via `serialize_fragment`) replaces the WHOLE
             // entry: reindent it to the entry's own depth and splice its byte span.
@@ -428,6 +438,16 @@ fn delete(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
             if entry_has_opaque_value(&entry) {
                 return Err(MutateError::Unsupported);
             }
+            // A flow-seq element's target is the whole FLOW_SEQ; the element
+            // ordinal is the path's trailing index. Rebuild `[…]` without it so
+            // sibling elements survive (deleting the node would drop the seq).
+            if entry.kind() == SyntaxKind::FLOW_SEQ {
+                let ord = match path.last() {
+                    Some(Seg::Index(i)) => *i,
+                    _ => return Err(MutateError::NotFound),
+                };
+                return delete_flow_seq_element(tree, &entry, ord);
+            }
             delete_node(&entry);
             Ok(())
         }
@@ -535,13 +555,19 @@ fn find_container(tree: &SyntaxNode, parent_path: &[Seg]) -> Result<SyntaxNode, 
                 child_collection(&entry).ok_or(MutateError::NotFound)?
             }
             Seg::Index(i) => {
-                // Positional member: a block SEQ_ENTRY, then its value collection.
-                let entry = container
-                    .children()
-                    .filter(|n| n.kind() == SyntaxKind::SEQ_ENTRY)
-                    .nth(*i)
-                    .ok_or(MutateError::NotFound)?;
-                child_collection(&entry).ok_or(MutateError::NotFound)?
+                // A flow seq holds its elements directly (no SEQ_ENTRY wrapper): a
+                // nested `{…}`/`[…]` element IS the collection to descend into.
+                if container.kind() == SyntaxKind::FLOW_SEQ {
+                    flow_seq_element_node(&container, *i).ok_or(MutateError::NotFound)?
+                } else {
+                    // Block seq: a positional SEQ_ENTRY, then its value collection.
+                    let entry = container
+                        .children()
+                        .filter(|n| n.kind() == SyntaxKind::SEQ_ENTRY)
+                        .nth(*i)
+                        .ok_or(MutateError::NotFound)?;
+                    child_collection(&entry).ok_or(MutateError::NotFound)?
+                }
             }
         };
     }
@@ -867,6 +893,40 @@ fn flow_seq_element_texts(flow: &SyntaxNode) -> Vec<String> {
         .collect()
 }
 
+/// The `ord`-th element *node* of a FLOW_SEQ — counting scalar tokens **and**
+/// nested flow nodes in document order (the same order the projection indexes
+/// them), so this maps a path `Seg::Index` to its child. Returns `None` when the
+/// element at `ord` is a scalar token (no collection to descend into) or `ord` is
+/// out of range. Used by `find_container` to descend a path *through* a flow seq.
+fn flow_seq_element_node(flow: &SyntaxNode, ord: usize) -> Option<SyntaxNode> {
+    let mut i = 0usize;
+    for c in flow.children_with_tokens() {
+        match c {
+            rowan::NodeOrToken::Token(t)
+                if matches!(
+                    t.kind(),
+                    SyntaxKind::PLAIN | SyntaxKind::SINGLE | SyntaxKind::DOUBLE
+                ) =>
+            {
+                if i == ord {
+                    return None; // scalar element: nothing to descend into
+                }
+                i += 1;
+            }
+            rowan::NodeOrToken::Node(n)
+                if matches!(n.kind(), SyntaxKind::FLOW_MAP | SyntaxKind::FLOW_SEQ) =>
+            {
+                if i == ord {
+                    return Some(n);
+                }
+                i += 1;
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 /// Re-emit a flow collection from member texts and splice it over `flow`'s range.
 fn rebuild_flow(
     tree: &SyntaxNode,
@@ -928,6 +988,44 @@ fn delete_flow_member(tree: &SyntaxNode, member: &SyntaxNode) -> Result<(), Muta
         .map(|e| e.text().to_string())
         .collect();
     rebuild_flow(tree, &flow, &members)
+}
+
+/// Delete the `ord`-th element of a FLOW_SEQ by rebuilding `[…]` without it.
+/// (A flow-seq element shares the whole FLOW_SEQ as its resolver target — unlike a
+/// block SEQ_ENTRY — so a plain node removal would drop the entire sequence.)
+fn delete_flow_seq_element(
+    tree: &SyntaxNode,
+    flow: &SyntaxNode,
+    ord: usize,
+) -> Result<(), MutateError> {
+    let mut members = flow_seq_element_texts(flow);
+    if ord >= members.len() {
+        return Err(MutateError::NotFound);
+    }
+    members.remove(ord);
+    rebuild_flow(tree, flow, &members)
+}
+
+/// Replace the `ord`-th element of a FLOW_SEQ with `fragment` (a bare value),
+/// keeping the `[…]` inline.
+fn replace_flow_seq_element(
+    tree: &SyntaxNode,
+    flow: &SyntaxNode,
+    ord: usize,
+    fragment: &str,
+) -> Result<(), MutateError> {
+    // The inline editor may hand back a `- value` element fragment; strip the dash.
+    let frag = fragment.trim();
+    let frag = frag.strip_prefix("- ").unwrap_or(frag).trim();
+    if frag.contains('\n') {
+        return Err(MutateError::Unsupported);
+    }
+    let mut members = flow_seq_element_texts(flow);
+    if ord >= members.len() {
+        return Err(MutateError::NotFound);
+    }
+    members[ord] = frag.to_string();
+    rebuild_flow(tree, flow, &members)
 }
 
 /// Insert a new member/element into a flow collection at `target`.
@@ -1602,12 +1700,12 @@ fn block_members_from_flow(coll: &SyntaxNode, is_map: bool) -> Result<Vec<String
     if inner.is_empty() {
         return Ok(Vec::new());
     }
-    // Split on top-level commas (no nested flow collections supported here).
-    if inner.contains('{') || inner.contains('[') {
-        return Err(MutateError::Unsupported);
-    }
-    let members: Vec<String> = inner
-        .split(',')
+    // Split on **top-level** commas (depth-aware): a nested `{…}`/`[…]` element
+    // (an `[A/F]`/`[T/F]` inside this flow collection) is kept verbatim as one
+    // member, so block-expanding the outer container leaves the inner flow form
+    // intact — the symmetric inverse of `[A/B]`-nested-`[T/F]` → `[A/F]`.
+    let members: Vec<String> = split_top_level_commas(inner)
+        .into_iter()
         .map(|m| m.trim().to_string())
         .filter(|m| !m.is_empty())
         .collect();
@@ -1620,6 +1718,32 @@ fn block_members_from_flow(coll: &SyntaxNode, is_map: bool) -> Result<Vec<String
         return Err(MutateError::Unsupported);
     }
     Ok(members)
+}
+
+/// Split a flow collection's inner text on commas that sit at brace/bracket depth
+/// 0 and outside quotes — so a nested `{…}`/`[…]` element (whose own commas are
+/// nested) stays a single member.
+fn split_top_level_commas(inner: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut depth = 0i32;
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut start = 0usize;
+    for (i, c) in inner.char_indices() {
+        match c {
+            '\'' if !in_double => in_single = !in_single,
+            '"' if !in_single => in_double = !in_double,
+            '{' | '[' if !in_single && !in_double => depth += 1,
+            '}' | ']' if !in_single && !in_double => depth -= 1,
+            ',' if depth == 0 && !in_single && !in_double => {
+                out.push(inner[start..i].to_string());
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    out.push(inner[start..].to_string());
+    out
 }
 
 // ── String style conversion ──────────────────────────────────────────────────
@@ -2682,6 +2806,65 @@ mod tests {
     }
 
     #[test]
+    fn delete_flow_seq_element_keeps_siblings() {
+        // Regression (#2): deleting one element of a `[A/F]` flow seq must keep the
+        // other elements and the key, not wipe the whole sequence to null.
+        let out = apply_str(
+            "a: [1, 2, 3]\nb: 9\n",
+            Mutation::Delete {
+                path: vec![Seg::Key("a".into()), Seg::Index(1)],
+            },
+        )
+        .expect("delete flow-seq element should succeed");
+        assert_eq!(out, "a: [1, 3]\nb: 9\n");
+    }
+
+    #[test]
+    fn delete_only_flow_seq_element_leaves_empty_seq() {
+        let out = apply_str(
+            "a: [1]\n",
+            Mutation::Delete {
+                path: vec![Seg::Key("a".into()), Seg::Index(0)],
+            },
+        )
+        .expect("delete last flow-seq element should succeed");
+        assert_eq!(out, "a: []\n");
+    }
+
+    #[test]
+    fn insert_member_into_flow_map_nested_in_flow_seq() {
+        // Item 2d.2: a `[T/F]` inside an `[A/F]` is addressable; inserting a member
+        // descends through the flow seq by index and rebuilds the `{…}` inline.
+        use crate::model::document::{OnCollision, Target};
+        let out = apply_str(
+            "a: [{x: 1}, {y: 2}]\n",
+            Mutation::Insert {
+                target: Target {
+                    parent: vec![Seg::Key("a".into()), Seg::Index(0)],
+                    index: 1,
+                },
+                fragment: "z: 9\n".into(),
+                on_collision: OnCollision::Cancel,
+            },
+        )
+        .expect("insert into flow-map nested in flow-seq should succeed");
+        assert_eq!(out, "a: [{x: 1, z: 9}, {y: 2}]\n");
+    }
+
+    #[test]
+    fn replace_flow_seq_element_inline() {
+        let out = apply_str(
+            "a: [1, 2, 3]\n",
+            Mutation::Replace {
+                path: vec![Seg::Key("a".into()), Seg::Index(1)],
+                fragment: "20".into(),
+            },
+        )
+        .expect("replace flow-seq element should succeed");
+        assert_eq!(out, "a: [1, 20, 3]\n");
+    }
+
+    #[test]
     fn delete_map_entry_with_nested_children() {
         let src = "srv:\n  host: a\n  port: 80\nother: x\n";
         let out = apply_str(
@@ -2919,6 +3102,31 @@ mod tests {
         let out = convert("a: [1, 2]\n", vec![Seg::Key("a".into())], KindTarget::Block)
             .expect("flow seq→block");
         assert_eq!(out, "a:\n  - 1\n  - 2\n");
+    }
+
+    #[test]
+    fn convert_flow_seq_of_flow_maps_to_block() {
+        // Item 2d.1: an `[A/F]` nested with `[T/F]` elements expands to block,
+        // keeping each inner flow map verbatim (symmetric with the forward path).
+        let out = convert(
+            "a: [{x: 1}, {y: 2}]\n",
+            vec![Seg::Key("a".into())],
+            KindTarget::Block,
+        )
+        .expect("flow seq of flow maps → block");
+        assert_eq!(out, "a:\n  - {x: 1}\n  - {y: 2}\n");
+    }
+
+    #[test]
+    fn convert_block_seq_of_flow_maps_to_flow_roundtrips() {
+        // The inverse direction already worked; together they round-trip.
+        let out = convert(
+            "a:\n  - {x: 1}\n  - {y: 2}\n",
+            vec![Seg::Key("a".into())],
+            KindTarget::Flow,
+        )
+        .expect("block seq of flow maps → flow");
+        assert_eq!(out, "a: [{x: 1}, {y: 2}]\n");
     }
 
     #[test]

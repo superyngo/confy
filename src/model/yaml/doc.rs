@@ -91,6 +91,10 @@ impl ConfigDocument for YamlDocument {
         }
     }
 
+    fn array_element_fragment(&self, value: &str) -> String {
+        format!("- {value}\n")
+    }
+
     fn value_kind(&self, value: &str) -> Result<NodeKind, String> {
         // Project the value as the sole member of a mapping and read its kind.
         let green = crate::model::yaml::parse::parse(&format!("__k__: {value}\n"))?;

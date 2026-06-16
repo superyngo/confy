@@ -246,6 +246,73 @@ A consolidating rewrite (2+ spans) validates the returned block: every header mu
 the table's subtree and the block must start with a `[header]` line, else `Illegal` and the
 document is untouched. A single-span (contiguous) edit keeps the old unchecked-splice freedom.
 
+## Nested behavior matrix
+
+A normalized cross-backend (TOML/JSON/YAML) account of how the nesting **scope** governs each
+editing behavior. **Governing rule:** every behavior is governed by exactly one **container**, and
+the matrix column is always that governing container's scope — never the acted-on node's own kind
+unless the behavior is about the node's *insides* or *self-representation*. So the same node is
+looked up under different columns for different behaviors (its trailing comment under its **parent**
+container; what it may *hold* under its **own** container).
+
+**Scopes (columns).** `kind × layout` — five legal combinations:
+
+| scope | TOML | JSON | YAML |
+|---|---|---|---|
+| **global** (root, block-map) | top-level table | top object/array | top block map |
+| **seq-flow** | `[A/I]` inline array | inline array | flow seq `[…]` |
+| **seq-block** | `[A/M]` array · `[[AoT]]` group | multiline array | block seq `- ` |
+| **map-flow** | `[T/I]` inline table · `[T/D]` dotted¹ | inline object `[T/I]` | flow map `[T/F]` |
+| **map-block** | `[T/S]` scope · `[[AoT]]` entry | multiline object `[T/M]` | block map `[T/B]` |
+
+**2×2 observation.** **`layout` (flow vs block) is the primary discriminator** — it decides trailing
+comments, insert forming, and external-edit precision. **`kind` (seq vs map) is secondary** — it only
+decides whether children are keyed (seq elements are keyless → no rename / no `Tab`-to-Name).
+
+¹ `[T/D]` dotted table: block *layout* but **map-flow rules** (rebuilds members, holds no comments).
+
+### A — Branch node as a child (governed by **parent**; column = parent scope)
+
+| behavior \ parent | global | seq-flow | seq-block | map-flow | map-block |
+|---|---|---|---|---|---|
+| own trailing comment | ✓ | ✗ flow | ✓ | ✗ flow | ✓ |
+| own external precise edit | ✓ | ⚠ whole repr | ✓ | ⚠ whole repr | ✓ |
+| add: collapsed → sibling | ✓ | ✓ rebuild | ✓ | ✓ rebuild | ✓ |
+| paste-in forming | — | see *Insert / move legality* table | | | |
+
+### B — Branch node as a container (governed by **self**; column = its own scope)
+
+| behavior \ own scope | global | seq-flow | seq-block | map-flow / `[T/D]` | map-block |
+|---|---|---|---|---|---|
+| holds standalone comment node | ✓ | ✗ | ✓ | ✗ | ✓ |
+| insert / append child forming | add line | rebuild `[…]` | add line | rebuild `{…}` | add line / section |
+| add: expanded → append child | ✓ scalar (clamp) | ✓ bare elem (rebuild) | ✓ bare elem | ✓ member (rebuild) | ✓ scalar (clamp) |
+
+### C — Leaf node as a child (governed by **parent**; column = parent scope)
+
+| behavior \ parent | global | seq-flow | seq-block | map-flow | map-block |
+|---|---|---|---|---|---|
+| own trailing comment | ✓ | ✗ flow | ✓ multiline elem | ✗ flow | ✓ |
+| own external precise edit | ✓ | ⚠ whole repr | ✓ just the element | ⚠ whole repr | ✓ |
+| inline editor | ✓ single-line | ✓ as repr | ✓ | ✓ | ✓ (multiline str → `$EDITOR`) |
+
+A single-line **plain-array element** is inline-editable **wherever the array sits** — even nested
+under a key (`array_int[1].vals[0]`); `Replace` addresses the element directly. The gate is just
+"immediate parent is a plain `Array`" (an AoT group is `ArrayOfTables`, so its entries stay
+`$EDITOR`; a multiline-string element routes to `$EDITOR` by its Format).
+| add: collapsed leaf → sibling | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+**Invariants (not scope-dependent, so not in the matrix):** consecutive `#`/`//` comment lines merge
+into one Comment node (a blank or non-comment line breaks the group); a YAML **opaque node** is
+read-only — every row's behavior is rejected (`Unsupported`) whatever its underlying kind.
+
+**External-editor precise range (now uniform).** `e`/`E` on a standard-array element captures and
+Replaces **just that element** in every backend (`App::external_edit_path`): TOML/JSON wrap the bare
+element repr as the value-Replace form (`scalar_fragment(None, …)` → TOML `__elem__ = …`, JSON bare)
+so `Replace` splices only that element; YAML's `- value` fragment is addressable directly. (Earlier
+TOML/JSON truncated to the whole array — fixed to YAML's per-element standard.) A key reached
+*through* a standard-array index is still truncated to the whole array in TOML/JSON (not addressable).
+
 ## Flagged ambiguities
 
 - **"Entry" is banned in confy.** It is wenv's term for a flat, line-based item and means

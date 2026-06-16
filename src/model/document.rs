@@ -44,6 +44,18 @@ pub trait ConfigDocument: Sized {
     /// element `Replace` expects. So the TUI never hard-codes a notation.
     fn scalar_fragment(&self, key: Option<&str>, value: &str) -> String;
 
+    /// A fragment that, inserted into an array/sequence, yields a single
+    /// **keyless** element holding `value`. Unlike `scalar_fragment(None, …)`
+    /// — which produces a *value-Replace* fragment a backend may wrap with a
+    /// synthetic key (TOML's `__elem__ = value`) — this is the bare element form
+    /// the array `Insert` adapter expects, so all backends seed array elements
+    /// uniformly. Default suits flat value syntaxes (TOML/JSON, where a bare
+    /// value re-wraps and is spliced keyless); YAML overrides with its `- `
+    /// element form.
+    fn array_element_fragment(&self, value: &str) -> String {
+        format!("{value}\n")
+    }
+
     /// The [`NodeKind`] a bare `value` repr projects to in this format — used by
     /// the inline editor's type-change detection. `Err` (with the parse message)
     /// when the value doesn't parse, so the editor can stay open on a bad edit.

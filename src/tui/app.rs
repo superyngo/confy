@@ -207,13 +207,7 @@ impl App {
                     _ => None,
                 };
                 let type_label = node_type_label(&r.node.kind);
-                let type_tag = type_tag(
-                    &r.node.kind,
-                    r.node.format,
-                    r.node.key_sign,
-                    doc,
-                    r.node.read_only,
-                );
+                let type_tag = type_tag(&r.node.kind, r.node.format, doc, r.node.read_only);
                 RowSnapshot {
                     key: r.node.key.clone(),
                     path: r.node.path.clone(),
@@ -953,18 +947,25 @@ impl App {
             Some(r) => r.clone(),
             None => return,
         };
-        let path_keys: Vec<String> = row
-            .path
-            .iter()
-            .filter_map(|s| match s {
-                Seg::Key(k) => Some(k.clone()),
-                _ => None,
-            })
-            .collect();
-        let dotted = if path_keys.is_empty() {
+        // Full path, indices included: keys join with `.`, positional segments
+        // (array elements, AoT entries, comments) render as `[i]` so an element's
+        // path reads `a.b[2].c` rather than the truncated `a.b.c`.
+        let dotted = if row.path.is_empty() {
             "(root)".to_string()
         } else {
-            path_keys.join(".")
+            let mut s = String::new();
+            for seg in &row.path {
+                match seg {
+                    Seg::Key(k) => {
+                        if !s.is_empty() {
+                            s.push('.');
+                        }
+                        s.push_str(k);
+                    }
+                    Seg::Index(i) => s.push_str(&format!("[{i}]")),
+                }
+            }
+            s
         };
         let mut detail = if row.is_branch {
             // Branch nodes carry their writing style in the kind: a table can be
@@ -990,6 +991,16 @@ impl App {
             let fmt_str = crate::tui::ui::format_label(row.format).unwrap_or("plain");
             format!("Path:     {dotted}\nType:     {type_str}\nFormat:   {fmt_str}\nValue:    {val_str}")
         };
+        // Key-sign facet: no longer shown in the KIND column, surfaced here as a
+        // word. Positional nodes (array elements, AoT entries, comments) read
+        // `none`.
+        let sign_str = match self.tree.node_at(&row.path).map(|n| n.key_sign) {
+            Some(KeySign::Bare) => "bare",
+            Some(KeySign::Quoted) => "quoted",
+            Some(KeySign::Dotted) => "dotted",
+            _ => "none",
+        };
+        detail.push_str(&format!("\nSign:     {sign_str}"));
         if let Some(tc) = &row.trailing_comment {
             detail.push_str(&format!("\nComment:  {tc}"));
         }
@@ -1138,25 +1149,67 @@ impl App {
                 }
             }
         }
-        let doc = match self.doc.as_mut() {
-            Some(d) => d,
+        // Decide the capture/Replace path and whether it is a standard-array
+        // element that must be wrapped on commit (see `external_edit_path`).
+        let (path, wrap_element) = self.external_edit_path(&cursor_row.path);
+        // Serialize just the node's own fragment. An adjacent standalone comment is
+        // an independent node in the CST and is NOT part of the fragment — the
+        // editor opens at the node's own header/value line.
+        let fragment = match self.doc.as_ref() {
+            Some(d) => d.serialize_fragment(&path),
             None => return,
         };
-        // `Replace` addresses an all-`Key` path, an array-of-tables entry, and any
-        // key nested inside one (via the `Key→Index` AoT descent), but for TOML/JSON
-        // NOT an element of a standard array. So truncate the path only at the first
-        // `Index` whose container is a real `Array` (editing the whole array there);
-        // AoT-entry indices and the keys below them are kept and addressed directly.
-        // YAML addresses every block-seq element / nested key individually, so it
-        // never truncates — the fragment is the node's own entry, not the whole seq.
-        let yaml = doc.format() == crate::model::document::DocFormat::Yaml;
+        let edited = match crate::tui::editor::edit_text(&fragment) {
+            Ok(t) => t,
+            Err(e) => {
+                self.error = Some(format!("editor error: {e}"));
+                return;
+            }
+        };
+        // A standard-array element's fragment is a bare value repr; wrap it as the
+        // backend's value-Replace element form so `Replace` splices just that
+        // element instead of the whole array (TOML `__elem__ = …`, JSON bare).
+        let edited = if wrap_element {
+            match self.doc.as_ref() {
+                Some(d) => d.scalar_fragment(None, edited.trim_end_matches('\n')),
+                None => return,
+            }
+        } else {
+            edited
+        };
+        self.apply_replace(path, edited);
+    }
+
+    /// The path to capture/Replace for an external (`$EDITOR`) edit of `path`, and
+    /// whether that capture is a standard-array **element** whose bare fragment must
+    /// be wrapped as the backend's value-Replace element form on commit.
+    ///
+    /// An array element edits *precisely* — just that element — in every backend.
+    /// For TOML/JSON the bare element repr isn't `Replace`-addressable on its own, so
+    /// the caller wraps it (`scalar_fragment(None, …)` → TOML `__elem__ = …`, JSON a
+    /// bare value); YAML's `- value` fragment is addressable directly, so no wrap.
+    /// A key reached *through* a standard-array index is still not addressable in
+    /// TOML/JSON, so the path is truncated to the whole array there; AoT-entry indices
+    /// and the keys below them are kept and addressed directly. YAML never truncates.
+    pub(crate) fn external_edit_path(&self, path: &Path) -> (Path, bool) {
+        let yaml = self.doc_format() == crate::model::document::DocFormat::Yaml;
+        let is_array_element = matches!(path.last(), Some(Seg::Index(_)))
+            && path
+                .len()
+                .checked_sub(1)
+                .and_then(|plen| self.tree.node_at(&path[..plen]))
+                .map(|n| matches!(n.kind, NodeKind::Array))
+                .unwrap_or(false);
+        if is_array_element {
+            return (path.clone(), !yaml);
+        }
         let truncate_at = (!yaml)
             .then(|| {
-                cursor_row.path.iter().enumerate().find_map(|(i, s)| {
+                path.iter().enumerate().find_map(|(i, s)| {
                     if matches!(s, Seg::Index(_)) {
                         let container_is_array = self
                             .tree
-                            .node_at(&cursor_row.path[..i])
+                            .node_at(&path[..i])
                             .map(|n| matches!(n.kind, NodeKind::Array))
                             .unwrap_or(false);
                         if container_is_array {
@@ -1167,22 +1220,10 @@ impl App {
                 })
             })
             .flatten();
-        let path = match truncate_at {
-            Some(i) => cursor_row.path[..i].to_vec(),
-            None => cursor_row.path.clone(),
-        };
-        // Serialize just the node's own fragment. An adjacent standalone comment is
-        // an independent node in the CST and is NOT part of the fragment — the
-        // editor opens at the node's own header/value line.
-        let fragment = doc.serialize_fragment(&path);
-        let edited = match crate::tui::editor::edit_text(&fragment) {
-            Ok(t) => t,
-            Err(e) => {
-                self.error = Some(format!("editor error: {e}"));
-                return;
-            }
-        };
-        self.apply_replace(path, edited);
+        match truncate_at {
+            Some(i) => (path[..i].to_vec(), false),
+            None => (path.clone(), false),
+        }
     }
 
     /// Apply edited text as a Replace at `path` (the post-editor half of `e`,
@@ -1281,16 +1322,20 @@ impl App {
                 EditKind::External
             };
         }
-        // Single-line arrays / inline tables edit inline as their one-line repr (the
-        // projection put it in `value`; a multiline array has `value == None`). Both
-        // a keyed one (Key arm) and a structured array element (Index arm) are
-        // addressable; only a multiline array is forced to $EDITOR.
-        let structured_inline = matches!(node.kind, NodeKind::Array | NodeKind::InlineTable);
+        // Single-line arrays / inline tables / objects edit inline as their one-line
+        // repr (the projection put it in `value`; a multiline container leaves
+        // `value == None`). A TOML inline table is `NodeKind::InlineTable`; a JSON
+        // inline object is `NodeKind::Table` with `Format::Inline` (no scope tables in
+        // JSON) — both carry a one-line repr and are inline-editable. A TOML scope /
+        // dotted table is a `Table` with another Format and stays $EDITOR.
+        let inline_object = matches!(node.kind, NodeKind::Table) && node.format == Format::Inline;
+        let structured_inline =
+            matches!(node.kind, NodeKind::Array | NodeKind::InlineTable) || inline_object;
         if !matches!(node.kind, NodeKind::Scalar(_)) && !structured_inline {
             return EditKind::External;
         }
         if structured_inline && node.value.is_none() {
-            return EditKind::External; // multiline array
+            return EditKind::External; // multiline container
         }
         // Multiline strings carry real newlines the single-line inline editor
         // cannot represent — route them to $EDITOR. Keyed on Format (not on a raw
@@ -1314,27 +1359,20 @@ impl App {
         let parent_path = &path[..path.len() - 1];
         let parent = self.tree.node_at(parent_path);
         match path.last() {
-            // Scalar element of an array: inline when the path is `Key+ Index*`
-            // (a run of keys then array-index descents, no `Key` after the first
-            // `Index`) so the Replace write-back can address it — covers top-level
-            // and array-of-arrays nesting. Arrays inside AoT/inline-table entries
-            // (a `Key` after an `Index`) stay External (edit the whole container).
+            // Scalar element of a plain array: inline-editable wherever the array
+            // sits. `Replace` addresses the element directly (`Target::ArrayElement`)
+            // even when the array is nested under a key inside an inline-table / AoT
+            // element (e.g. `x[0].vals[1]`) — so the old `Key`-after-`Index`
+            // restriction is dropped (it was over-conservative; verified across all
+            // backends). A *multiline* string element was already routed to $EDITOR
+            // above by its Format. The immediate parent being an `Array` is the whole
+            // condition (an AoT group is `ArrayOfTables`, not `Array`, so its entries
+            // still go External as before).
             Some(Seg::Index(_)) => {
-                let first_index = path
-                    .iter()
-                    .position(|s| matches!(s, Seg::Index(_)))
-                    .unwrap_or(0);
-                let tail_all_index = path[first_index..]
-                    .iter()
-                    .all(|s| matches!(s, Seg::Index(_)));
                 let parent_is_array = parent
                     .map(|p| matches!(p.kind, NodeKind::Array))
                     .unwrap_or(false);
-                // YAML: a single-line scalar element of any seq (even nested under a
-                // key, e.g. `plugins[1].tags[0]`) is addressable, so drop the
-                // `tail_all_index` restriction the non-addressable backends need.
-                let ok = parent_is_array && (yaml || tail_all_index);
-                if ok {
+                if parent_is_array {
                     EditKind::Inline
                 } else {
                     EditKind::External
@@ -1356,9 +1394,20 @@ impl App {
                             )
                         })
                         .unwrap_or(false);
-                // YAML addresses a key inside a block-seq / flow element; TOML/JSON
-                // need no `Array` ancestor (`x = [{ a = 1 }]` isn't addressable).
-                let addressable = parent_ok && (yaml || self.no_array_ancestor(path));
+                // A single-line member of an inline table / inline object IS
+                // `Replace`-addressable even under an `Array` ancestor (`x = [{ a = 1 }]`
+                // → `x[0].a`): the projection indexes the member as a `Target::Entry` /
+                // `Target::Member`, and the replace splice rebuilds the `{ … }` in place.
+                // So an `Array` ancestor no longer forces $EDITOR when the immediate
+                // parent is an inline container. YAML stays addressable everywhere.
+                let parent_inline_container = parent
+                    .map(|p| {
+                        matches!(p.kind, NodeKind::InlineTable)
+                            || (matches!(p.kind, NodeKind::Table) && p.format == Format::Inline)
+                    })
+                    .unwrap_or(false);
+                let addressable =
+                    parent_ok && (yaml || self.no_array_ancestor(path) || parent_inline_container);
                 if addressable {
                     EditKind::Inline
                 } else {
@@ -1432,6 +1481,7 @@ impl App {
             other_cursor: name_cursor,
             other_scroll: 0,
             orig_trailing,
+            created_on_add: false,
         });
         self.status = None;
     }
@@ -1473,6 +1523,7 @@ impl App {
             other_cursor: 0,
             other_scroll: 0,
             orig_trailing: None,
+            created_on_add: false,
         });
         self.status = None;
         self.error = None;
@@ -1568,12 +1619,38 @@ impl App {
     }
 
     pub fn edit_cancel(&mut self) {
+        // Esc on a freshly-added seed (opened by `a`) rolls the insert back so the
+        // add leaves no trace — the document and undo/redo history return to their
+        // pre-add state, and the cursor falls back to the prior row.
+        let created_on_add = matches!(&self.mode, Mode::Edit(e) if e.created_on_add);
         self.mode = self.resting_mode();
         self.pending_edit = None;
         // A staged trailing-comment change must not survive a cancelled edit, or a
         // later `apply_replace` (e.g. a nudge) would consume it on another node.
         self.pending_trailing = None;
         self.status = None;
+        if created_on_add {
+            self.cancel_added_node();
+        }
+    }
+
+    /// Roll back the most recent `a` insert (the seed whose inline edit was just
+    /// cancelled): restore the prior document snapshot without leaving an undo/redo
+    /// crumb, then re-project and clamp the cursor.
+    fn cancel_added_node(&mut self) {
+        let snapshot = match self.history.as_mut().and_then(|h| h.cancel_last()) {
+            Some(s) => s,
+            None => return,
+        };
+        if let Some(doc) = self.doc.as_mut() {
+            if doc.replace_from_str(&snapshot).is_ok() {
+                self.tree = doc.project();
+            }
+        }
+        self.rebuild_rows();
+        if self.cursor >= self.rows.len() {
+            self.cursor = self.rows.len().saturating_sub(1);
+        }
     }
 
     /// Commit the inline edit. First apply a key rename if the Name field changed
@@ -1875,17 +1952,13 @@ impl App {
         }
     }
 
-    /// `a` — insert a new node below/inside the cursor. Routing follows idea 3 / D3:
-    /// an **expanded** branch (or the root) appends as its **last** child; a
-    /// **collapsed** branch or a leaf inserts as the **next sibling**.
-    ///
-    /// The seed is an empty-string scalar (`new_field = ""`, opened in the inline
-    /// editor — TOML has no null). But where a scalar would break TOML's
-    /// table-capture rule at that slot (a sibling right after a `[table]`/`[[aot]]`),
-    /// a same-kind **structured** placeholder is seeded instead (idea 5) — so `a` on
-    /// a collapsed `[table]` adds a sibling `[table]`. Appending a scalar into a
-    /// branch clamps it to the leading region so it stays legal (D5), which also
-    /// lets a root scalar land before the first table.
+    /// `a` — add a new node. The **root or an expanded branch** appends an empty
+    /// scalar as its **last child**; **any other node** (a collapsed branch or a
+    /// leaf) gets a **next sibling of its own kind** in the same scope — a scalar
+    /// beside a scalar, an (empty) array beside an array, a table beside a table,
+    /// and so on. The seed for a scalar is an empty string opened in the inline
+    /// editor (TOML has no null); a container seed is empty (`[]`/`{}`, or a
+    /// `[key]`/`[[key]]` TOML header) and is named `placeholder` for `e` to rename.
     pub fn add_node(&mut self) {
         if self.doc.is_none() {
             return;
@@ -1894,8 +1967,12 @@ impl App {
             Some(r) => r,
             None => return,
         };
+        let fmt = self.doc_format();
         let expanded = self.expanded.contains(&cursor_row.path);
         let is_append = cursor_row.path.is_empty() || (cursor_row.is_branch && expanded);
+        // The cursor's own kind drives the same-kind sibling seed.
+        let cursor_kind = self.tree.node_at(&cursor_row.path).map(|n| n.kind.clone());
+
         let mut target = if is_append {
             let n = self
                 .tree
@@ -1919,85 +1996,152 @@ impl App {
         let parent_is_array = parent_node
             .map(|n| matches!(n.kind, NodeKind::Array))
             .unwrap_or(false);
-        // D5 partition split: index of the parent's first sub-table/AoT child. A
-        // `[T/D]` dotted table is *not* a capturing header (it opens no scope), so a
-        // scalar is legal after it — exclude it from the split.
-        let split = parent_node
-            .map(|p| {
-                p.children
-                    .iter()
-                    .position(|c| {
-                        matches!(c.kind, NodeKind::Table | NodeKind::ArrayOfTables)
-                            && c.format != Format::Dotted
-                    })
-                    .unwrap_or(p.children.len())
-            })
-            .unwrap_or(0);
-
-        // Appending a scalar into a branch clamps it to the leading region so the
-        // default scalar add stays legal (and a root scalar lands before tables).
-        if is_append && !parent_is_array && target.index > split {
-            target.index = split;
-        }
-
         let existing: Vec<String> = parent_node
             .map(|p| p.children.iter().map(|c| c.key.clone()).collect())
             .unwrap_or_default();
 
-        // Seed a scalar where legal; else a same-kind structured placeholder (idea
-        // 5), typed from the node just before the slot (a header). Arrays take a
-        // bare element (the `key` is dropped by `array_insert`).
-        let scalar_legal = parent_is_array || target.index <= split;
-        let placeholder_kind = if scalar_legal {
-            None
+        // The seed kind: a scalar for the append (child) path; otherwise the
+        // cursor's own kind so the sibling matches it.
+        let seed_kind = if is_append {
+            NodeKind::Scalar(ScalarType::String)
         } else {
-            parent_node
-                .and_then(|p| target.index.checked_sub(1).and_then(|i| p.children.get(i)))
-                .map(|c| c.kind.clone())
+            cursor_kind.unwrap_or(NodeKind::Scalar(ScalarType::String))
         };
+
+        // A sibling beside a comment is another standalone comment.
+        if matches!(seed_kind, NodeKind::Comment(_)) {
+            self.add_comment_sibling(target);
+            return;
+        }
+
+        // Appending a scalar into a non-array branch clamps it to the leading
+        // region (before any `[table]`/`[[aot]]`) so it stays legal (D5) — this
+        // only applies to the append path; a same-kind sibling already respects
+        // the partition. A `[T/D]` dotted table is not a capturing header.
+        if is_append && !parent_is_array && matches!(seed_kind, NodeKind::Scalar(_)) {
+            let split = parent_node
+                .map(|p| {
+                    p.children
+                        .iter()
+                        .position(|c| {
+                            matches!(c.kind, NodeKind::Table | NodeKind::ArrayOfTables)
+                                && c.format != Format::Dotted
+                        })
+                        .unwrap_or(p.children.len())
+                })
+                .unwrap_or(0);
+            if target.index > split {
+                target.index = split;
+            }
+        }
 
         // Ensure the destination branch is expanded so the new node is visible.
         if !target.parent.is_empty() {
             self.expanded.insert(target.parent.clone());
         }
 
-        let (key, fragment, inline) = match placeholder_kind {
-            Some(NodeKind::ArrayOfTables) => {
-                let key = unique_key("placeholder", &existing);
-                (key.clone(), format!("[[{key}]]\n"), false)
+        // Build the seed fragment from the backend (so notation isn't hard-coded),
+        // except TOML's header-only `[table]`/`[[aot]]` which have no `key = value`
+        // form. `key = None` yields a bare array element.
+        let doc = self.doc.as_ref().unwrap();
+        let bare = parent_is_array;
+        let key = if bare {
+            None
+        } else {
+            Some(unique_key(
+                if matches!(seed_kind, NodeKind::Scalar(_)) {
+                    "new_field"
+                } else {
+                    "placeholder"
+                },
+                &existing,
+            ))
+        };
+        // A keyless array element uses the backend's bare-element form (uniform
+        // across TOML/JSON/YAML); a keyed member uses `scalar_fragment`.
+        let seed_value = |v: &str| -> String {
+            if bare {
+                doc.array_element_fragment(v)
+            } else {
+                doc.scalar_fragment(key.as_deref(), v)
             }
-            Some(_) => {
-                let key = unique_key("placeholder", &existing);
-                (key.clone(), format!("[{key}]\n"), false)
+        };
+        let (fragment, inline) = match &seed_kind {
+            NodeKind::Scalar(_) => (seed_value("\"\""), true),
+            NodeKind::Array => (seed_value("[]"), false),
+            NodeKind::InlineTable => (seed_value("{}"), false),
+            NodeKind::ArrayOfTables => {
+                // TOML-only construct.
+                (
+                    format!("[[{}]]\n", key.as_deref().unwrap_or("placeholder")),
+                    false,
+                )
             }
-            None => {
-                let key = unique_key("new_field", &existing);
-                let frag = match self.doc.as_ref() {
-                    Some(doc) => doc.scalar_fragment(Some(&key), "\"\""),
-                    None => format!("{key} = \"\"\n"),
-                };
-                (key.clone(), frag, true)
+            NodeKind::Table => {
+                if fmt == crate::model::document::DocFormat::Toml {
+                    (
+                        format!("[{}]\n", key.as_deref().unwrap_or("placeholder")),
+                        false,
+                    )
+                } else {
+                    // JSON/YAML have no scope table — an empty map is `{}`.
+                    (seed_value("{}"), false)
+                }
             }
+            NodeKind::Root | NodeKind::Comment(_) => (seed_value("\"\""), true),
         };
 
         self.apply_insert(target.clone(), fragment);
-        if self.status.is_some() {
-            return; // insert failed; status already set
+        if self.error.is_some() {
+            return; // insert failed; error already set
         }
         // Locate the freshly inserted row and move the cursor to it.
         let mut new_path = target.parent.clone();
-        if parent_is_array {
-            new_path.push(Seg::Index(target.index));
-        } else {
-            new_path.push(Seg::Key(key));
+        match &key {
+            Some(k) => new_path.push(Seg::Key(k.clone())),
+            None => new_path.push(Seg::Index(target.index)),
         }
         if let Some(idx) = self.rows.iter().position(|r| r.path == new_path) {
             self.cursor = idx;
             if inline {
                 self.begin_inline_edit();
+                // Flag the session so Esc rolls the just-inserted seed back.
+                if let Mode::Edit(e) = &mut self.mode {
+                    e.created_on_add = true;
+                }
             } else {
                 self.status = Some("added placeholder node — rename with e".into());
             }
+        }
+    }
+
+    /// Insert an empty standalone comment line at `target` (the same-kind sibling
+    /// of a comment cursor) and move the cursor onto it.
+    fn add_comment_sibling(&mut self, target: Target) {
+        let doc = match self.doc.as_mut() {
+            Some(d) => d,
+            None => return,
+        };
+        if !doc.supports_comments() {
+            self.status = Some("comments not supported here".into());
+            return;
+        }
+        let text = format!("{} ", doc.comment_prefix());
+        match doc.apply(crate::model::document::Mutation::InsertComment {
+            target: target.clone(),
+            text,
+        }) {
+            Ok(()) => self.on_mutation_success(),
+            Err(e) => {
+                self.error = Some(format!("add error: {e}"));
+                return;
+            }
+        }
+        let mut new_path = target.parent.clone();
+        new_path.push(Seg::Index(target.index));
+        if let Some(idx) = self.rows.iter().position(|r| r.path == new_path) {
+            self.cursor = idx;
+            self.status = Some("added comment — edit with e".into());
         }
     }
 
@@ -2830,22 +2974,18 @@ fn node_type_label(kind: &crate::model::node::NodeKind) -> String {
 fn type_tag(
     kind: &NodeKind,
     format: Format,
-    key_sign: KeySign,
     doc: crate::model::document::DocFormat,
     read_only: bool,
 ) -> String {
     use crate::model::document::DocFormat;
-    let sign = match key_sign {
-        KeySign::Bare => "(B)",
-        KeySign::Quoted => "(Q)",
-        KeySign::Dotted => "(D)",
-        KeySign::None => "(-)",
-    };
+    // The key-sign facet (`(B)/(Q)/(D)/(-)`) is no longer surfaced in the KIND
+    // column — it reads as the word `Sign:` in the detail popup instead. The
+    // column shows only the fixed-pitch 8-column type/notation slot.
     // A YAML opaque (out-of-subset) node is read-only — tag it `[opaq ]`
     // regardless of its underlying kind. (JSONC `/* */` block comments are also
     // read-only but stay `[C]`, so gate on the YAML format.)
     if read_only && doc == DocFormat::Yaml {
-        return format!("{sign} {:<8}", "[opaq ]");
+        return format!("{:<8}", "[opaq ]");
     }
     let slot: &str = match kind {
         NodeKind::Root => "[G]",
@@ -2896,7 +3036,7 @@ fn type_tag(
             (ScalarType::LocalTime, _) => "[D:ltim]",
         },
     };
-    format!("{sign} {slot:<8}")
+    format!("{slot:<8}")
 }
 
 /// Insert `_` every `n` digits counting from the right (e.g. `1000000` → `1_000_000`).
@@ -3087,201 +3227,114 @@ mod tests {
     #[test]
     fn type_tag_is_fixed_pitch() {
         use crate::model::document::DocFormat::{Json, Toml, Yaml};
+        // The key-sign facet is no longer part of the tag; the column is the
+        // 8-column type/notation slot only.
         let cases = [
-            (
-                NodeKind::Root,
-                Format::Plain,
-                KeySign::None,
-                Toml,
-                false,
-                "(-) [G]     ",
-            ),
+            (NodeKind::Root, Format::Plain, Toml, false, "[G]     "),
             (
                 NodeKind::Comment("# c".into()),
                 Format::Plain,
-                KeySign::None,
                 Toml,
                 false,
-                "(-) [C]     ",
+                "[C]     ",
             ),
-            (
-                NodeKind::Array,
-                Format::Inline,
-                KeySign::Bare,
-                Toml,
-                false,
-                "(B) [A/I]   ",
-            ),
-            (
-                NodeKind::Array,
-                Format::Multiline,
-                KeySign::Quoted,
-                Toml,
-                false,
-                "(Q) [A/M]   ",
-            ),
+            (NodeKind::Array, Format::Inline, Toml, false, "[A/I]   "),
+            (NodeKind::Array, Format::Multiline, Toml, false, "[A/M]   "),
             (
                 NodeKind::ArrayOfTables,
                 Format::Plain,
-                KeySign::Bare,
                 Toml,
                 false,
-                "(B) [A/T]   ",
+                "[A/T]   ",
             ),
             (
                 NodeKind::InlineTable,
                 Format::Inline,
-                KeySign::Dotted,
                 Toml,
                 false,
-                "(D) [T/I]   ",
+                "[T/I]   ",
             ),
-            (
-                NodeKind::Table,
-                Format::Scope,
-                KeySign::Bare,
-                Toml,
-                false,
-                "(B) [T/S]   ",
-            ),
-            (
-                NodeKind::Table,
-                Format::Dotted,
-                KeySign::Bare,
-                Toml,
-                false,
-                "(B) [T/D]   ",
-            ),
+            (NodeKind::Table, Format::Scope, Toml, false, "[T/S]   "),
+            (NodeKind::Table, Format::Dotted, Toml, false, "[T/D]   "),
             (
                 NodeKind::Scalar(ScalarType::String),
                 Format::MultilineLiteral,
-                KeySign::Bare,
                 Toml,
                 false,
-                "(B) [S:mlit]",
+                "[S:mlit]",
             ),
             (
                 NodeKind::Scalar(ScalarType::Float),
                 Format::Inf,
-                KeySign::Bare,
                 Toml,
                 false,
-                "(B) [F:inf ]",
+                "[F:inf ]",
             ),
             (
                 NodeKind::Scalar(ScalarType::LocalDate),
                 Format::Plain,
-                KeySign::Bare,
                 Toml,
                 false,
-                "(B) [D:ldat]",
+                "[D:ldat]",
             ),
             // YAML-specific tags.
-            (
-                NodeKind::Table,
-                Format::Block,
-                KeySign::Bare,
-                Yaml,
-                false,
-                "(B) [T/B]   ",
-            ),
-            (
-                NodeKind::Table,
-                Format::Inline,
-                KeySign::Bare,
-                Yaml,
-                false,
-                "(B) [T/F]   ",
-            ),
+            (NodeKind::Table, Format::Block, Yaml, false, "[T/B]   "),
+            (NodeKind::Table, Format::Inline, Yaml, false, "[T/F]   "),
             (
                 NodeKind::InlineTable,
                 Format::Inline,
-                KeySign::Bare,
                 Yaml,
                 false,
-                "(B) [T/F]   ",
+                "[T/F]   ",
             ),
-            (
-                NodeKind::Array,
-                Format::Block,
-                KeySign::Bare,
-                Yaml,
-                false,
-                "(B) [A/B]   ",
-            ),
-            (
-                NodeKind::Array,
-                Format::Inline,
-                KeySign::None,
-                Yaml,
-                false,
-                "(-) [A/F]   ",
-            ),
+            (NodeKind::Array, Format::Block, Yaml, false, "[A/B]   "),
+            (NodeKind::Array, Format::Inline, Yaml, false, "[A/F]   "),
             (
                 NodeKind::Scalar(ScalarType::String),
                 Format::SingleQuoted,
-                KeySign::Bare,
                 Yaml,
                 false,
-                "(B) [S:sq  ]",
+                "[S:sq  ]",
             ),
             (
                 NodeKind::Scalar(ScalarType::String),
                 Format::DoubleQuoted,
-                KeySign::Bare,
                 Yaml,
                 false,
-                "(B) [S:dq  ]",
+                "[S:dq  ]",
             ),
             (
                 NodeKind::Scalar(ScalarType::String),
                 Format::Folded,
-                KeySign::Bare,
                 Yaml,
                 false,
-                "(B) [S:fold]",
+                "[S:fold]",
             ),
             // A read-only YAML opaque node tags `[opaq ]` whatever its kind.
             (
                 NodeKind::Scalar(ScalarType::String),
                 Format::Plain,
-                KeySign::None,
                 Yaml,
                 true,
-                "(-) [opaq ] ",
+                "[opaq ] ",
             ),
             // The opaque gate is YAML-only: a read-only JSONC block comment
             // still renders `[C]`, not `[opaq ]`.
             (
                 NodeKind::Comment("/* x */".into()),
                 Format::Plain,
-                KeySign::None,
                 Json,
                 true,
-                "(-) [C]     ",
+                "[C]     ",
             ),
             // JSON has no scope table: an inline object is `[T/I]`, multiline `[T/M]`.
-            (
-                NodeKind::Table,
-                Format::Inline,
-                KeySign::Quoted,
-                Json,
-                false,
-                "(Q) [T/I]   ",
-            ),
-            (
-                NodeKind::Table,
-                Format::Multiline,
-                KeySign::Quoted,
-                Json,
-                false,
-                "(Q) [T/M]   ",
-            ),
+            (NodeKind::Table, Format::Inline, Json, false, "[T/I]   "),
+            (NodeKind::Table, Format::Multiline, Json, false, "[T/M]   "),
         ];
-        for (kind, fmt, sign, doc, read_only, expected) in cases {
-            let tag = type_tag(&kind, fmt, sign, doc, read_only);
+        for (kind, fmt, doc, read_only, expected) in cases {
+            let tag = type_tag(&kind, fmt, doc, read_only);
             assert_eq!(tag, expected);
-            assert_eq!(tag.chars().count(), 12, "tag must be 12 cols: {tag:?}");
+            assert_eq!(tag.chars().count(), 8, "tag must be 8 cols: {tag:?}");
         }
     }
 
@@ -4430,15 +4483,16 @@ mod tests {
     }
 
     #[test]
-    fn edit_target_kind_array_of_inline_tables_scalar_is_external() {
-        // A scalar inside an inline table that is itself an array element has an
-        // `Array` ancestor, which `Replace` cannot address — stay External.
+    fn edit_target_kind_array_of_inline_tables_scalar_is_inline() {
+        // Group B: a scalar member of an inline table that is an array element
+        // (`items[0].a`) IS `Replace`-addressable (the projection indexes the
+        // member; the splice rebuilds the `{ … }` in place), so it edits inline.
         let mut app = app_with("items = [{ a = 1 }]\n");
         app.expand_all();
         app.rebuild_rows();
         let pos = app.rows.iter().position(|r| r.key == "a").unwrap();
         app.cursor = pos;
-        assert_eq!(app.edit_target_kind(), EditKind::External);
+        assert_eq!(app.edit_target_kind(), EditKind::Inline);
     }
 
     #[test]
@@ -4746,17 +4800,93 @@ mod tests {
     }
 
     #[test]
-    fn add_on_collapsed_dotted_table_seeds_scalar() {
-        // A `[T/D]` table opens no scope, so a scalar is legal after it — `a` seeds
-        // `new_field = ""` (inline edit), not a `[placeholder]` table.
-        // `[T/D]` tables start collapsed, so `a` is already a collapsed branch.
+    fn add_on_collapsed_dotted_table_adds_table_sibling() {
+        // Same-kind model: `a` on a `[T/D]` table (a Table node) adds a sibling
+        // table — an empty `[placeholder]` scope table, no inline edit.
+        // `[T/D]` tables start collapsed, so `a` is a collapsed branch.
         let mut app = app_with("a.b = 1\n");
         app.cursor = app.rows.iter().position(|r| r.key == "a").unwrap();
         app.add_node();
-        assert!(matches!(app.mode, Mode::Edit(_)), "scalar add opens inline");
+        assert!(!matches!(app.mode, Mode::Edit(_)), "table add: no inline");
         let s = app.doc.as_ref().unwrap().serialize();
-        assert!(s.contains("new_field = \"\""), "serialize: {s:?}");
-        assert!(!s.contains("[placeholder]"), "serialize: {s:?}");
+        assert!(s.contains("[placeholder]"), "serialize: {s:?}");
+    }
+
+    #[test]
+    fn add_on_collapsed_array_adds_array_sibling() {
+        // Same-kind model: `a` on a collapsed array adds an empty array sibling
+        // right after it in the same scope — no stray scalar two rows up.
+        let mut app = app_with("nums = [1, 2]\nname = \"x\"\n");
+        app.cursor = app.rows.iter().position(|r| r.key == "nums").unwrap();
+        app.add_node();
+        assert!(!matches!(app.mode, Mode::Edit(_)), "array add: no inline");
+        let s = app.doc.as_ref().unwrap().serialize();
+        assert_eq!(s, "nums = [1, 2]\nplaceholder = []\nname = \"x\"\n");
+    }
+
+    #[test]
+    fn add_on_toml_array_element_seeds_keyless_bare() {
+        // Item 1: adding beside an array *element* seeds a keyless bare scalar
+        // (`""`), not a `{ __elem__ = "" }` inline table — uniform with JSON/YAML.
+        let mut app = app_with("nums = [1, 2]\n");
+        app.expanded.insert(vec![Seg::Key("nums".into())]);
+        app.rebuild_rows();
+        app.cursor = app
+            .rows
+            .iter()
+            .position(|r| r.path == vec![Seg::Key("nums".into()), Seg::Index(0)])
+            .unwrap();
+        app.add_node();
+        assert!(matches!(app.mode, Mode::Edit(_)), "scalar element: inline");
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            "nums = [1, \"\", 2]\n"
+        );
+    }
+
+    #[test]
+    fn esc_after_add_rolls_the_insert_back() {
+        // Item 2a: `a` opens the inline editor on a seed; Esc removes the seed and
+        // leaves the document (and undo history) exactly as before the add.
+        let mut app = app_with("a = 1\nb = 2\n");
+        app.cursor = app.rows.iter().position(|r| r.key == "a").unwrap();
+        app.add_node();
+        assert!(matches!(app.mode, Mode::Edit(_)));
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            "a = 1\nnew_field = \"\"\nb = 2\n"
+        );
+        app.edit_cancel();
+        assert!(!matches!(app.mode, Mode::Edit(_)));
+        assert_eq!(app.doc.as_ref().unwrap().serialize(), "a = 1\nb = 2\n");
+        // No undo/redo crumb: the add never happened.
+        app.undo();
+        assert_eq!(app.doc.as_ref().unwrap().serialize(), "a = 1\nb = 2\n");
+    }
+
+    #[test]
+    fn esc_after_normal_edit_keeps_node() {
+        // A cancelled edit of an *existing* node leaves it intact (created_on_add
+        // is false), so the rollback path must not fire.
+        let mut app = app_with("a = 1\nb = 2\n");
+        app.cursor = app.rows.iter().position(|r| r.key == "a").unwrap();
+        app.begin_inline_edit();
+        app.edit_cancel();
+        assert_eq!(app.doc.as_ref().unwrap().serialize(), "a = 1\nb = 2\n");
+    }
+
+    #[test]
+    fn add_on_scalar_leaf_adds_scalar_sibling_after() {
+        // `a` on a scalar leaf adds an empty-string scalar sibling immediately
+        // after it (inline edit), in the same scope.
+        let mut app = app_with("a = 1\nb = 2\n");
+        app.cursor = app.rows.iter().position(|r| r.key == "a").unwrap();
+        app.add_node();
+        assert!(matches!(app.mode, Mode::Edit(_)), "scalar add opens inline");
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            "a = 1\nnew_field = \"\"\nb = 2\n"
+        );
     }
 
     #[test]
@@ -4884,6 +5014,21 @@ mod tests {
         assert!(
             detail.contains("# one") && detail.contains("# two"),
             "detail should show the full multi-line comment, got: {detail}"
+        );
+    }
+
+    #[test]
+    fn detail_path_includes_array_index() {
+        let mut app = app_with("hosts = [\n  \"a\",\n  \"b\",\n]\n");
+        // Expand the array branch so its elements are flattened into rows.
+        app.expanded.insert(vec![Seg::Key("hosts".into())]);
+        app.rebuild_rows();
+        app.cursor = 3; // hosts[1] = "b" (root=0, hosts=1, [0]=2, [1]=3)
+        app.open_detail();
+        let detail = app.detail_text.as_ref().expect("detail should be set");
+        assert!(
+            detail.contains("hosts[1]"),
+            "detail path should include the element index, got: {detail}"
         );
     }
 
@@ -5330,6 +5475,136 @@ mod tests {
         App::new(doc)
     }
 
+    fn app_with_json(src: &str) -> App {
+        use std::io::Write;
+        let mut f = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+        f.write_all(src.as_bytes()).unwrap();
+        let doc = crate::model::any_doc::AnyDocument::load(f.path()).unwrap();
+        App::new(doc)
+    }
+
+    /// Move the cursor to the first row whose path ends in the given key segment,
+    /// expanding everything first.
+    fn cursor_to_key(app: &mut App, key: &str) {
+        app.expand_all();
+        app.rebuild_rows();
+        app.cursor = app
+            .rows
+            .iter()
+            .position(|r| r.key == key)
+            .unwrap_or_else(|| panic!("row {key:?} not found"));
+    }
+
+    #[test]
+    fn toml_inline_table_array_element_member_edits_inline() {
+        // Group B item 2b.3: a member of a `[T/I]` element of an `[A/M]` array is
+        // inline-editable and the edit applies in place.
+        let mut app = app_with("arr = [\n  { a = 1, b = 2 },\n  { c = 3 },\n]\n");
+        cursor_to_key(&mut app, "a");
+        assert_eq!(app.edit_target_kind(), EditKind::Inline);
+        inline_set_value(&mut app, "5");
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            "arr = [\n  { a = 5, b = 2 },\n  { c = 3 },\n]\n"
+        );
+    }
+
+    #[test]
+    fn add_member_into_inline_table_array_element() {
+        // Group B item 2b.2: `a` on a member of a `[T/I]` array element adds a
+        // sibling member inside the same `{ … }` (previously "operation not
+        // supported"). The seed opens the inline editor on the new member.
+        let mut app = app_with("arr = [\n  { a = 1 },\n]\n");
+        cursor_to_key(&mut app, "a");
+        app.add_node();
+        assert!(matches!(app.mode, Mode::Edit(_)), "member add opens inline");
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            "arr = [\n  { a = 1, new_field = \"\" },\n]\n"
+        );
+    }
+
+    #[test]
+    fn toml_inline_table_array_element_edits_inline_keeping_comment() {
+        // Group B items 2b.1 + 7: the `[T/I]` element itself edits inline as its
+        // one-liner, and its trailing comment survives the edit.
+        let mut app = app_with("arr = [\n  { a = 1 },  # note\n]\n");
+        app.expanded.insert(vec![Seg::Key("arr".into())]);
+        app.rebuild_rows();
+        app.cursor = app
+            .rows
+            .iter()
+            .position(|r| r.path == vec![Seg::Key("arr".into()), Seg::Index(0)])
+            .unwrap();
+        assert_eq!(app.edit_target_kind(), EditKind::Inline);
+        // The editor seeds the buffer as `value  # comment`; editing the value while
+        // keeping the comment must preserve it on commit.
+        app.begin_inline_edit();
+        let seeded = match &app.mode {
+            Mode::Edit(e) => e.buffer.clone(),
+            _ => panic!("inline editor open"),
+        };
+        assert_eq!(seeded, "{ a = 1 }  # note", "comment seeded into buffer");
+        if let Mode::Edit(e) = &mut app.mode {
+            e.buffer = "{ a = 2 }  # note".to_string();
+            e.cursor = e.buffer.chars().count();
+        }
+        app.edit_commit();
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            "arr = [\n  { a = 2 },  # note\n]\n"
+        );
+    }
+
+    #[test]
+    fn json_inline_object_array_element_edits_inline() {
+        // Group B item 2c.1: a JSON inline object (`NodeKind::Table`+`Inline`) that
+        // is an array element is inline-editable (was forced $EDITOR before).
+        let mut app = app_with_json("{\n  \"arr\": [\n    { \"a\": 1, \"b\": 2 }\n  ]\n}\n");
+        app.expand_all();
+        app.rebuild_rows();
+        app.cursor = app
+            .rows
+            .iter()
+            .position(|r| r.path == vec![Seg::Key("arr".into()), Seg::Index(0)])
+            .unwrap();
+        assert_eq!(app.edit_target_kind(), EditKind::Inline);
+        // And the one-liner edit applies through Replace.
+        inline_set_value(&mut app, "{ \"a\": 1 }");
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            "{\n  \"arr\": [\n    { \"a\": 1 }\n  ]\n}\n"
+        );
+    }
+
+    #[test]
+    fn add_member_into_json_inline_object_array_element() {
+        // Group B parity: `a` on a member of a JSON inline-object array element
+        // adds a sibling member inside the same object.
+        let mut app = app_with_json("{\n  \"arr\": [\n    { \"a\": 1 }\n  ]\n}\n");
+        cursor_to_key(&mut app, "a");
+        app.add_node();
+        assert!(matches!(app.mode, Mode::Edit(_)));
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            "{\n  \"arr\": [\n    { \"a\": 1, \"new_field\": \"\" }\n  ]\n}\n"
+        );
+    }
+
+    #[test]
+    fn json_inline_object_array_element_member_edits_inline() {
+        // Group B item 2c.2: a member of a JSON inline-object array element edits
+        // inline and applies through Replace.
+        let mut app = app_with_json("{\n  \"arr\": [\n    { \"a\": 1, \"b\": 2 }\n  ]\n}\n");
+        cursor_to_key(&mut app, "a");
+        assert_eq!(app.edit_target_kind(), EditKind::Inline);
+        inline_set_value(&mut app, "5");
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            "{\n  \"arr\": [\n    { \"a\": 5, \"b\": 2 }\n  ]\n}\n"
+        );
+    }
+
     /// Drive the inline editor to set the Value field to `new_value` and commit.
     fn inline_set_value(app: &mut App, new_value: &str) {
         app.begin_inline_edit();
@@ -5412,6 +5687,146 @@ mod tests {
             app.doc.as_ref().unwrap().serialize(),
             "plugins:\n  - name: z\n    port: 9\n  - name: b\n"
         );
+    }
+
+    #[test]
+    fn toml_array_element_external_edit_replaces_only_that_element() {
+        // BUG FIX: the `$EDITOR` path now captures + Replaces just the array element
+        // (previously it truncated to the whole `arr`, matching YAML's per-element
+        // precision). This mirrors edit_node's commit: the edited element repr is
+        // wrapped via `scalar_fragment(None, …)` → TOML `__elem__ = …`.
+        let mut app = app_with("arr = [\n  \"a\",\n  \"b\",\n]\n");
+        let p = vec![Seg::Key("arr".into()), Seg::Index(0)];
+        let (path, wrap) = app.external_edit_path(&p);
+        assert_eq!(path, p, "edits the element, not the whole array");
+        assert!(wrap, "TOML element fragment needs the __elem__ wrap");
+        let wrapped = app.doc.as_ref().unwrap().scalar_fragment(None, "\"z\"");
+        app.apply_replace(path, wrapped);
+        assert!(
+            app.status.is_none() && app.error.is_none(),
+            "status {:?} error {:?}",
+            app.status,
+            app.error
+        );
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            "arr = [\n  \"z\",\n  \"b\",\n]\n",
+            "only arr[0] changed"
+        );
+    }
+
+    #[test]
+    fn toml_array_element_nested_in_inline_table_edits_inline() {
+        // A plain-array element is inline-editable wherever the array sits — here the
+        // array is a member of an inline-table element of a multiline array
+        // (`array_int[1].vals[0]`). `Replace` addresses it directly; the commit
+        // changes only that element. (Works for any member key, incl. `__elem__`.)
+        let mut app =
+            app_with("array_int = [\n  3,\n  { vals = [123, 456], new_field = { a = 1 } },\n]\n");
+        app.expand_all();
+        app.rebuild_rows();
+        let p = vec![
+            Seg::Key("array_int".into()),
+            Seg::Index(1),
+            Seg::Key("vals".into()),
+            Seg::Index(0),
+        ];
+        app.cursor = app
+            .rows
+            .iter()
+            .position(|r| r.path == p)
+            .expect("vals[0] visible");
+        assert_eq!(
+            app.edit_target_kind(),
+            EditKind::Inline,
+            "deep array element edits inline"
+        );
+        inline_set_value(&mut app, "999");
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            "array_int = [\n  3,\n  { vals = [999, 456], new_field = { a = 1 } },\n]\n",
+            "only vals[0] changed"
+        );
+    }
+
+    #[test]
+    fn json_array_element_nested_in_object_edits_inline() {
+        // JSON parity: an array element nested under a key inside an array element
+        // (`arr[1].vals[0]`) edits inline and Replaces only that element.
+        let mut app =
+            app_with_json("{\n  \"arr\": [\n    3,\n    { \"vals\": [123, 456] }\n  ]\n}\n");
+        app.expand_all();
+        app.rebuild_rows();
+        let p = vec![
+            Seg::Key("arr".into()),
+            Seg::Index(1),
+            Seg::Key("vals".into()),
+            Seg::Index(0),
+        ];
+        app.cursor = app
+            .rows
+            .iter()
+            .position(|r| r.path == p)
+            .expect("vals[0] visible");
+        assert_eq!(app.edit_target_kind(), EditKind::Inline);
+        inline_set_value(&mut app, "999");
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            "{\n  \"arr\": [\n    3,\n    { \"vals\": [999, 456] }\n  ]\n}\n",
+            "only vals[0] changed"
+        );
+    }
+
+    #[test]
+    fn json_array_element_external_edit_replaces_only_that_element() {
+        // BUG FIX parity: `E` on a JSON array element (e.g. an object) Replaces just
+        // that element. The edited repr wraps as a bare value (`scalar_fragment(None)`).
+        let mut app =
+            app_with_json("{\n  \"arr\": [\n    { \"a\": 1 },\n    { \"b\": 2 }\n  ]\n}\n");
+        let p = vec![Seg::Key("arr".into()), Seg::Index(0)];
+        let (path, wrap) = app.external_edit_path(&p);
+        assert_eq!(path, p);
+        assert!(wrap, "JSON element fragment also wrapped (bare value)");
+        let wrapped = app
+            .doc
+            .as_ref()
+            .unwrap()
+            .scalar_fragment(None, "{ \"a\": 9 }");
+        app.apply_replace(path, wrapped);
+        assert!(
+            app.status.is_none() && app.error.is_none(),
+            "status {:?} error {:?}",
+            app.status,
+            app.error
+        );
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            "{\n  \"arr\": [\n    { \"a\": 9 },\n    { \"b\": 2 }\n  ]\n}\n",
+            "only arr[0] changed"
+        );
+    }
+
+    #[test]
+    fn yaml_block_seq_element_external_path_needs_no_wrap() {
+        // YAML's `- value` element fragment is Replace-addressable directly, so the
+        // external path is the element with NO wrap (the per-element standard the
+        // TOML/JSON fix aligns to).
+        let app = app_with_yaml("plugins:\n  - name: a\n  - name: b\n");
+        let p = vec![Seg::Key("plugins".into()), Seg::Index(1)];
+        let (path, wrap) = app.external_edit_path(&p);
+        assert_eq!(path, p);
+        assert!(!wrap, "YAML element needs no wrap");
+    }
+
+    #[test]
+    fn aot_entry_external_path_is_the_entry_not_wrapped() {
+        // Guard: an AoT entry (`product[1]`, parent is ArrayOfTables not Array) is not
+        // a standard-array element — its whole `[[product]]` block is the fragment.
+        let app = app_with("[[product]]\nname = \"Hammer\"\n[[product]]\nname = \"Nail\"\n");
+        let p = vec![Seg::Key("product".into()), Seg::Index(1)];
+        let (path, wrap) = app.external_edit_path(&p);
+        assert_eq!(path, p);
+        assert!(!wrap, "AoT entry is not a standard-array element");
     }
 
     #[test]

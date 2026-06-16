@@ -29,7 +29,13 @@ offset_datetime = "1979-05-27T07:32:00Z"
 offset_datetime_tz = "1979-05-27T00:32:00-07:00"
 local_datetime = "1979-05-27T07:32:00"
 # ── Array (NodeKind::Array) ──────────────────────────────────────────────────
-array_int = [1, 2, 3]
+array_int = [
+  1,
+  2,
+  3,
+  { __elem__ = [123, 456] },
+  { __elem__ = "" },
+]
 array_string = ["a", "b", "c"]
 array_mixed_format = [1, 2, 3, 4]
 array_nested = [[[1, 2, 3], 2], [3, 4]]
@@ -38,9 +44,6 @@ array_multiline = [[1, 2, 3], "second", "third"]
 # Dotted keys table
 # ── Table (NodeKind::Table) ──────────────────────────────────────────────────
 
-[[array_empty]]
-local_datetime = "1979-05-27T07:32:00"
-
 [inline_table]
 x = 1
 y = 2
@@ -48,6 +51,9 @@ y = 2
 [inline_table.test]
 new_field_3 = ""
 new = ""
+
+[[array_empty]]
+local_datetime = "1979-05-27T07:32:00"
 
 [new_field]
 

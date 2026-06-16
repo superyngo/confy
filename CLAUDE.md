@@ -76,7 +76,10 @@ concrete backends are `CstDocument` (TOML), `JsonDocument` (JSON/JSONC), and `Ya
 which serves the `K` popup's per-node convertible-kind list (`(label, KindTarget)` pairs) so the
 TUI never hard-codes a backend's notations, and two **fragment facets** the inline editor/`nudge`/`a`
 use so they don't hard-code a notation either: `scalar_fragment(key, value)` (wraps a value repr as
-`key = value` / `"key": value`, or a bare element for `key: None`) and `value_kind(value)` (projects
+`key = value` / `"key": value`, or — `key: None` — the backend's *value-Replace* element form, which
+TOML wraps as `__elem__ = value`), `array_element_fragment(value)` (the **bare keyless element** form
+`a` seeds into an array/seq — TOML/JSON re-wrap a bare value spliced keyless, YAML's `- value` — so all
+three seed array elements uniformly), and `value_kind(value)` (projects
 the value in the backend's own syntax for the type-change check). **`AnyDocument`** (`model/any_doc.rs`) is a one-enum
 dispatcher wrapping every backend (`Toml(CstDocument)`, `Json(JsonDocument)`, `Yaml(YamlDocument)`)
 and implementing `ConfigDocument` by match-delegation; the TUI holds a single `AnyDocument`, and a
@@ -226,20 +229,29 @@ text. Single-line arrays and inline tables still carry their one-line source rep
 inline-editability rule below. Golden tests in `cst_project.rs` freeze the projected shape
 (snapshotted at toml_edit parity when the legacy backend was retired; regenerated when `sign=`
 and container formats landed). The **KIND column** (formerly TYPE/FORMAT; takes 40% of the
-terminal width for NAME, kind at the 2/5 mark, value the remainder) renders these facets as a
-**fixed-pitch 12-column tag** (`type_tag` in `app.rs`: key sign `(B)/(Q)/(D)/(-)` + type slot
+terminal width for NAME, kind at the 2/5 mark, value the remainder) renders the type/notation facet as a
+**fixed-pitch 8-column tag** (`type_tag` in `app.rs`: the type slot
 `[T/S]`, `[A/I]`, `[S:str ]`, …); JSON has no scope table — an inline object is `[T/I]`, a
 multiline one `[T/M]` — and adds `[S:null]` (null scalar) and `[F:exp ]` (exponent float); YAML adds `[A/B]`/`[A/F]` (block/flow seq), `[T/B]`/`[T/F]`
 (block/flow map), `[S:sq  ]`/`[S:dq  ]`/`[S:lit ]`/`[S:fold]` (string styles), and `[opaq ]`
-(out-of-subset read-only). `type_tag` (and the type-filter's `classify`) now take `(doc: DocFormat,
+(out-of-subset read-only). The **key-sign facet** (`(B)/(Q)/(D)/(-)`) is no longer in the column —
+it reads as a word on the detail popup's `Sign:` line. `type_tag` (and the type-filter's `classify`) take `(doc: DocFormat,
 read_only)` so the rendered slot is backend-aware — the YAML opaque gate (`read_only && doc==Yaml`)
-tags `[opaq ]` whatever the underlying kind. The detail popup keeps word labels, and `node_type_label`
+tags `[opaq ]` whatever the underlying kind. The detail popup keeps word labels (its `Path:` line
+includes positional indices, e.g. `a.b[2].c`), and `node_type_label`
 still drives the inline editor's type-change comparison.
 
 **Editing.** `e` dispatches via `edit_target_kind`. **Inline** (`Mode::Edit`): a single-line
-scalar that `Replace` can address — for TOML/JSON keyed under a Table/Root/inline table with **no
-`Array` ancestor** (an AoT ancestor is fine: `product[0].sku` works; `x = [{ a = 1 }]` does not),
-or an array element on a `Key+ Index*` path (incl. array-of-arrays). **YAML** addresses every
+scalar that `Replace` can address — for TOML/JSON keyed under a Table/Root/inline table, no
+plain-`Array` ancestor **unless the immediate parent is an inline container** (an inline table, or a
+JSON inline object — `NodeKind::Table` + `Format::Inline`), because a single-line member of a
+`[T/I]` element of an `[A/M]` array (`x = [{ a = 1 }]` → `x[0].a`) **is** `Replace`-addressable: the
+projection indexes the member as a `Target::Entry`/`Member`, and the splice rebuilds the `{ … }` in
+place (`inline_table_insert` accepts a `Target::ArrayElement` inline table for inserts too). An AoT
+ancestor is also fine (`product[0].sku`). Also inline: a single-line array / inline table / **JSON
+inline object** edited as its one-line repr (its EOL comment, attached by taplo to the ENTRY not the
+VALUE, is recovered by `entry_trailing_comment` so an inline edit preserves it). An array element on
+a `Key+ Index*` path (incl. array-of-arrays). **YAML** addresses every
 block-seq element and nested key individually (`resolve` descends `Index`→`Key`), so the
 array-ancestor restriction is lifted there — `plugins[1].name` / `plugins[3]` edit inline, and a
 non-inline node that stays `$EDITOR` (a block-map element) captures just *that* element, not the
@@ -262,9 +274,18 @@ grouping when the original had it. `edit_node` truncates the path only at the fi
 whose container is a real `Array` (editing the whole array there); AoT-entry indices and the
 keys below them are kept and addressed directly. A `$EDITOR` fragment starts at the node's own
 header/value line — an adjacent standalone comment is an independent node and is never part of
-the fragment. TOML has no null, so there is no clear-value operation; `a` seeds a new node with
-the empty string `""` — a key/value under a Table/Root, or a bare element when the target is an
-array.
+the fragment. TOML has no null, so there is no clear-value operation. **`a` (add)** adds a
+**next sibling of the cursor's own kind** in the cursor's scope — a scalar (empty string, opened
+in the inline editor) beside a scalar, an empty container beside a container (`[]`/`{}`, or a TOML
+`[table]`/`[[aot]]` header, named `placeholder`), and another standalone comment beside a comment;
+the **root or an expanded branch** appends an empty scalar as its last child. Container/scalar seeds
+go through the backend's `scalar_fragment` (no hard-coded notation), **except an array/seq element
+seed**, which uses `array_element_fragment` so it is a **bare keyless** element in every backend
+(TOML included — previously TOML seeded a `{ __elem__ = "" }` inline table). A scalar appended into a
+branch is still clamped to the leading region (before any `[table]`/`[[aot]]`) so it stays legal (D5).
+A scalar add opens the inline editor on the seed; pressing **Esc** there (`edit_cancel` with
+`EditState.created_on_add`) rolls the insert back via `History::cancel_last` — no node, no undo/redo
+crumb — so a mistaken `a` is undone in one keystroke.
 
 **Kind switch (`K`).** `Mutation::ConvertKind { path, target: KindTarget }` (`convert_kind` in
 `cst_edit.rs`) rewrites a node's kind/notation in place; the TUI side is `Mode::KindSwitch` —

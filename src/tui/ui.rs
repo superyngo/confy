@@ -6,8 +6,9 @@ use ratatui::prelude::*;
 use ratatui::widgets::*;
 
 /// Fixed width of the KIND column. The fixed-pitch tag is always exactly
-/// 12 columns (`(B) [S:str ]`: 3-char key sign + space + 8-char type slot).
-const TYPE_WIDTH: u16 = 12;
+/// 8 columns (the type/notation slot, e.g. `[S:str ]`). The key-sign facet
+/// moved to the detail popup's `Sign:` line.
+const TYPE_WIDTH: u16 = 8;
 
 /// Width of the NAME column: 40% of the terminal width, floored to 10 columns.
 pub(crate) fn name_col_width(total: u16) -> u16 {
@@ -74,7 +75,7 @@ fn type_col_cell(row: &RowSnapshot, is_cursor: bool) -> Cell<'static> {
     }
 }
 
-/// Width of the VALUE column: leftover after NAME (40%) + KIND (12) + two 1-col gaps.
+/// Width of the VALUE column: leftover after NAME (40%) + KIND (8) + two 1-col gaps.
 /// Feeds the inline-editor window, the overflow hint, and the `/` filter input.
 pub(crate) fn value_col_width(total: u16) -> usize {
     let name = name_col_width(total);
@@ -1062,11 +1063,12 @@ mod tests {
 
     #[test]
     fn type_format_column_shows_fixed_pitch_tag() {
-        // A bare-keyed integer renders `(B) [I:dec ]`; a literal string `[S:lit ]`.
+        // An integer renders `[I:dec ]`; a literal string `[S:lit ]`. (The
+        // key-sign prefix moved to the detail popup.)
         let lines = render("port = 8080\nname = 'x'\n", 60, 8);
         let joined = lines.join("\n");
-        assert!(joined.contains("(B) [I:dec ]"), "rows: {joined:?}");
-        assert!(joined.contains("(B) [S:lit ]"), "rows: {joined:?}");
+        assert!(joined.contains("[I:dec ]"), "rows: {joined:?}");
+        assert!(joined.contains("[S:lit ]"), "rows: {joined:?}");
         // header reflects both axes
         assert!(lines[1].contains("KIND"), "header: {:?}", lines[1]);
     }
@@ -1076,7 +1078,7 @@ mod tests {
         // An inline table reads `[T/I]`; a standard `[table]` scope `[T/S]`.
         let lines = render("pt = { x = 1 }\n[srv]\nport = 8080\n", 60, 8);
         let joined = lines.join("\n");
-        assert!(joined.contains("(B) [T/I]"), "rows: {joined:?}");
+        assert!(joined.contains("[T/I]"), "rows: {joined:?}");
         assert!(
             joined
                 .lines()

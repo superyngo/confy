@@ -342,6 +342,23 @@ fn unquote(s: &str) -> String {
     }
 }
 
+/// An EOL comment that taplo attaches **directly to the ENTRY** (a sibling of the
+/// VALUE) rather than inside the VALUE. That is where an inline table's / array's
+/// trailing comment lives (`x = { a = 1 }  # note`) — a scalar's sits inside its
+/// VALUE and is picked up by `project_value_node`, so this is only consulted as a
+/// fallback when the value node didn't already carry one.
+fn entry_trailing_comment(entry: &SyntaxNode) -> Option<String> {
+    entry
+        .children_with_tokens()
+        .find_map(|c| match c {
+            NodeOrToken::Token(t) if t.kind() == SyntaxKind::COMMENT => {
+                Some(t.text().trim().to_string())
+            }
+            _ => None,
+        })
+        .filter(|s| s.starts_with('#'))
+}
+
 fn project_entry(entry: &SyntaxNode, scope: &[Seg], idx: &mut CstIndex) -> Node {
     let key_node = entry.children().find(|c| c.kind() == SyntaxKind::KEY);
     let (display, segs, sign) = match &key_node {
@@ -363,6 +380,11 @@ fn project_entry(entry: &SyntaxNode, scope: &[Seg], idx: &mut CstIndex) -> Node 
         ),
     };
     node.key_sign = sign;
+    // An inline table / array attaches its EOL comment to the ENTRY, not the VALUE,
+    // so pick it up here as a fallback (a scalar already has it from its VALUE).
+    if node.trailing_comment.is_none() {
+        node.trailing_comment = entry_trailing_comment(entry);
+    }
     node
 }
 
@@ -404,6 +426,9 @@ fn project_entry_into(root: &mut Node, scope: &[Seg], entry: &SyntaxNode, idx: &
         ),
     };
     node.key_sign = KeySign::Dotted;
+    if node.trailing_comment.is_none() {
+        node.trailing_comment = entry_trailing_comment(entry);
+    }
 
     ensure_dotted_chain(root, scope.len(), &full);
     append_child(root, &full[..full.len() - 1], node);
@@ -515,6 +540,15 @@ fn project_array(arr: &SyntaxNode, key: &str, path: Vec<Seg>, idx: &mut CstIndex
     // comment; a COMMENT after a NEWLINE is a standalone Comment node.
     let mut k = 0usize;
     let mut newline_since_value = true; // a comment before any element is standalone
+                                        // Consecutive standalone `#` lines (one NEWLINE apart, no blank line, no
+                                        // element between) merge into ONE multi-line Comment node — mirroring the
+                                        // table/root-level projection. `merge_into` is the child index of the last
+                                        // standalone comment still eligible to absorb the next line; a blank line
+                                        // (2+ NEWLINEs) or any element clears it.
+                                        // `nl_since` counts `\n` characters since the last content token (taplo lexes
+                                        // a blank line as one NEWLINE token holding `\n\n`, so count chars, not tokens).
+    let mut nl_since = 0usize;
+    let mut merge_into: Option<usize> = None;
     for c in arr.children_with_tokens() {
         match c {
             NodeOrToken::Node(node) if node.kind() == SyntaxKind::VALUE => {
@@ -525,9 +559,18 @@ fn project_array(arr: &SyntaxNode, key: &str, path: Vec<Seg>, idx: &mut CstIndex
                     .push(project_value_node(&node, &format!("[{k}]"), p, idx));
                 k += 1;
                 newline_since_value = false;
+                nl_since = 0;
+                merge_into = None;
             }
             NodeOrToken::Token(t) => match t.kind() {
-                SyntaxKind::NEWLINE => newline_since_value = true,
+                SyntaxKind::NEWLINE => {
+                    newline_since_value = true;
+                    nl_since += t.text().matches('\n').count();
+                    // A blank line (2+ newlines) breaks a comment group.
+                    if nl_since >= 2 {
+                        merge_into = None;
+                    }
+                }
                 SyntaxKind::COMMENT => {
                     let text = t.text().trim().to_string();
                     let attached = if newline_since_value {
@@ -540,22 +583,34 @@ fn project_array(arr: &SyntaxNode, key: &str, path: Vec<Seg>, idx: &mut CstIndex
                         false
                     };
                     if !attached {
-                        let mut p = path.clone();
-                        p.push(Seg::Index(k));
-                        idx.push((p.clone(), Target::Comment(t.clone())));
-                        n.children.push(Node {
-                            key: text.clone(),
-                            path: p,
-                            kind: NodeKind::Comment(text.clone()),
-                            children: Vec::new(),
-                            value: Some(text),
-                            format: Format::Plain,
-                            key_sign: KeySign::None,
-                            trailing_comment: None,
-                            read_only: false,
-                        });
-                        k += 1;
+                        if let Some(mi) = merge_into.filter(|_| nl_since == 1) {
+                            // Merge into the preceding standalone comment node.
+                            let node = &mut n.children[mi];
+                            let merged =
+                                format!("{}\n{}", node.value.as_deref().unwrap_or(""), text);
+                            node.key = merged.clone();
+                            node.kind = NodeKind::Comment(merged.clone());
+                            node.value = Some(merged);
+                        } else {
+                            let mut p = path.clone();
+                            p.push(Seg::Index(k));
+                            idx.push((p.clone(), Target::Comment(t.clone())));
+                            n.children.push(Node {
+                                key: text.clone(),
+                                path: p,
+                                kind: NodeKind::Comment(text.clone()),
+                                children: Vec::new(),
+                                value: Some(text),
+                                format: Format::Plain,
+                                key_sign: KeySign::None,
+                                trailing_comment: None,
+                                read_only: false,
+                            });
+                            merge_into = Some(n.children.len() - 1);
+                            k += 1;
+                        }
                     }
+                    nl_since = 0;
                 }
                 _ => {}
             },
@@ -737,6 +792,32 @@ mod tests {
         assert_eq!(
             arr.children[3].key, "[3]",
             "element after a comment keeps full-sequence index"
+        );
+    }
+
+    #[test]
+    fn array_consecutive_comments_merge() {
+        // Adjacent standalone `#` lines inside a multiline array merge into ONE
+        // multi-line Comment node; a blank line splits the group.
+        let t = cst_tree("arr = [\n  # a\n  # b\n\n  # c\n  1,\n]\n");
+        let arr = &t.root.children[0];
+        assert_eq!(arr.kind, NodeKind::Array);
+        // children: [merged "# a\n# b"], [# c], [1]
+        assert_eq!(arr.children.len(), 3, "two comment nodes + one element");
+        assert!(
+            matches!(arr.children[0].kind, NodeKind::Comment(_))
+                && arr.children[0].value.as_deref() == Some("# a\n# b"),
+            "consecutive comments merge: {:?}",
+            arr.children[0].value
+        );
+        assert!(
+            matches!(arr.children[1].kind, NodeKind::Comment(_))
+                && arr.children[1].value.as_deref() == Some("# c"),
+            "blank line starts a new comment node"
+        );
+        assert_eq!(
+            arr.children[2].key, "[2]",
+            "element keeps full-sequence index"
         );
     }
 

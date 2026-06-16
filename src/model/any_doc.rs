@@ -106,6 +106,9 @@ impl ConfigDocument for AnyDocument {
     fn scalar_fragment(&self, key: Option<&str>, value: &str) -> String {
         delegate!(self, d => d.scalar_fragment(key, value))
     }
+    fn array_element_fragment(&self, value: &str) -> String {
+        delegate!(self, d => d.array_element_fragment(value))
+    }
     fn value_kind(&self, value: &str) -> Result<crate::model::node::NodeKind, String> {
         delegate!(self, d => d.value_kind(value))
     }

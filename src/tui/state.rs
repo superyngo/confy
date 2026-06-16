@@ -129,6 +129,10 @@ pub struct EditState {
     /// back into value + comment; a change from this baseline drives
     /// `Mutation::SetTrailingComment`. `None` when the node had no trailing comment.
     pub orig_trailing: Option<String>,
+    /// Set when this edit session was opened by `a` (add) on a freshly inserted
+    /// seed node. Esc (`edit_cancel`) then rolls the insert back so the add
+    /// leaves no trace; a normal edit of an existing node leaves this `false`.
+    pub created_on_add: bool,
 }
 
 /// Where a paste lands in the tree, addressed against a *visible-row index*.
@@ -186,6 +190,16 @@ impl History {
         self.past
             .push(std::mem::replace(&mut self.current, next.clone()));
         Some(next)
+    }
+    /// Discard the most recent `push` as if it never happened: revert `current`
+    /// to the prior snapshot and drop it from `past`, leaving the redo `future`
+    /// untouched (unlike `undo`, which records a redo step). Returns the restored
+    /// snapshot, or `None` when there is nothing to roll back. Used to cancel a
+    /// freshly-added node via Esc so the add leaves no undo/redo trace.
+    pub fn cancel_last(&mut self) -> Option<String> {
+        let prev = self.past.pop()?;
+        self.current = prev.clone();
+        Some(prev)
     }
 }
 

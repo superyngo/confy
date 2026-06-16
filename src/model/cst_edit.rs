@@ -3072,11 +3072,17 @@ fn inline_table_insert(
     index: usize,
     frag: &SyntaxNode,
 ) -> Result<(), MutateError> {
+    // The inline table is either a keyed entry's value (`t = { … }`) or an array
+    // **element** (`x = [{ … }]`, a `Target::ArrayElement` whose own node is the
+    // `VALUE`) — both reach their `INLINE_TABLE` through `struct_node`.
     let it = match idx.iter().find(|(p, _)| p == table_path).map(|(_, t)| t) {
         Some(Target::Entry(entry)) => entry
             .children()
             .find(|c| c.kind() == SyntaxKind::VALUE)
             .and_then(|v| struct_node(&v))
+            .filter(|n| n.kind() == SyntaxKind::INLINE_TABLE)
+            .ok_or(MutateError::Unsupported)?,
+        Some(Target::ArrayElement(value)) => struct_node(value)
             .filter(|n| n.kind() == SyntaxKind::INLINE_TABLE)
             .ok_or(MutateError::Unsupported)?,
         _ => return Err(MutateError::Unsupported),
@@ -4058,11 +4064,21 @@ fn comment_block_range(parent: &SyntaxNode, first: &SyntaxToken) -> (usize, usiz
     while i + 1 < els.len() {
         let sep_is_single_nl = matches!(&els[i], NodeOrToken::Token(t)
             if t.kind() == SyntaxKind::NEWLINE && t.text().matches('\n').count() == 1);
-        let next_is_comment = matches!(&els[i + 1], NodeOrToken::Token(t)
+        // Inside an array the next comment line is indented, so a WHITESPACE
+        // token sits between the NEWLINE and the COMMENT — step over it. (At
+        // root/table scope there is no such whitespace, so this is a no-op there.)
+        let after_sep = if matches!(&els.get(i + 1), Some(NodeOrToken::Token(t))
+            if t.kind() == SyntaxKind::WHITESPACE)
+        {
+            i + 2
+        } else {
+            i + 1
+        };
+        let next_is_comment = matches!(els.get(after_sep), Some(NodeOrToken::Token(t))
             if t.kind() == SyntaxKind::COMMENT);
         if sep_is_single_nl && next_is_comment {
-            end = i + 2;
-            i += 2;
+            end = after_sep + 1;
+            i = after_sep + 1;
         } else {
             break;
         }
@@ -4174,6 +4190,42 @@ mod tests {
         })
         .unwrap();
         assert_eq!(d.serialize(), "arr = [0x1, 99, 3] # tail\n");
+    }
+
+    #[test]
+    fn replace_member_of_inline_table_array_element() {
+        // Group B item 5: a member of a `[T/I]` element of a multiline `[A/M]`
+        // array (`arr[0].a`) is Replace-addressable in place.
+        let mut d = doc("arr = [\n  { a = 1, b = 2 },\n  { c = 3 },\n]\n");
+        d.apply(Mutation::Replace {
+            path: vec![Seg::Key("arr".into()), Seg::Index(0), Seg::Key("a".into())],
+            fragment: "a = 5\n".into(),
+        })
+        .unwrap();
+        assert_eq!(
+            d.serialize(),
+            "arr = [\n  { a = 5, b = 2 },\n  { c = 3 },\n]\n"
+        );
+    }
+
+    #[test]
+    fn insert_member_into_inline_table_array_element() {
+        // Group B item 6: inserting a member into a `[T/I]` element of an `[A/M]`
+        // array rebuilds the `{ … }` in place (previously `Unsupported`).
+        let mut d = doc("arr = [\n  { a = 1, b = 2 },\n  { c = 3 },\n]\n");
+        d.apply(Mutation::Insert {
+            target: crate::model::document::Target {
+                parent: vec![Seg::Key("arr".into()), Seg::Index(0)],
+                index: 2,
+            },
+            fragment: "d = 9\n".into(),
+            on_collision: crate::model::document::OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(
+            d.serialize(),
+            "arr = [\n  { a = 1, b = 2, d = 9 },\n  { c = 3 },\n]\n"
+        );
     }
 
     #[test]
@@ -5598,6 +5650,38 @@ mod tests {
         let s = d.serialize();
         assert!(!s.contains("# c"), "comment removed: {s:?}");
         assert!(s.contains("1,") && s.contains("2,"), "elements kept: {s:?}");
+    }
+
+    #[test]
+    fn delete_merged_array_comment_removes_whole_block() {
+        // A merged multi-line comment node inside an array deletes as one block.
+        let mut d = doc("arr = [\n  # a\n  # b\n  1,\n]\n");
+        d.apply(Mutation::Delete {
+            path: vec![Seg::Key("arr".into()), Seg::Index(0)],
+        })
+        .unwrap();
+        let s = d.serialize();
+        assert!(
+            !s.contains("# a") && !s.contains("# b"),
+            "both lines gone: {s:?}"
+        );
+        assert!(s.contains("1,"), "element kept: {s:?}");
+    }
+
+    #[test]
+    fn edit_merged_array_comment_replaces_whole_block() {
+        // Editing a merged array comment replaces every line of the block.
+        let mut d = doc("arr = [\n  # a\n  # b\n  1,\n]\n");
+        d.apply(Mutation::EditComment {
+            path: vec![Seg::Key("arr".into()), Seg::Index(0)],
+            text: "# x\n# y".into(),
+        })
+        .unwrap();
+        let s = d.serialize();
+        assert!(
+            s.contains("# x") && s.contains("# y") && !s.contains("# a") && !s.contains("# b"),
+            "block replaced: {s:?}"
+        );
     }
 
     #[test]
