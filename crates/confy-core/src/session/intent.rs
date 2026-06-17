@@ -91,9 +91,15 @@ pub enum Intent {
 
     // ---- External edit ($EDITOR) — dispatched by host ----
     /// Host already obtained edited text; apply it as Replace at the path.
-    ApplyReplace { path: crate::model::node::Path, text: String },
+    ApplyReplace {
+        path: crate::model::node::Path,
+        text: String,
+    },
     /// Host already obtained edited comment text.
-    ApplyEditComment { path: crate::model::node::Path, text: String },
+    ApplyEditComment {
+        path: crate::model::node::Path,
+        text: String,
+    },
 
     // ---- Mutations ----
     Nudge(i64),

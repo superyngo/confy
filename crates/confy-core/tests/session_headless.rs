@@ -2,8 +2,8 @@
 /// These run entirely in confy-core with no TUI or filesystem dependency.
 use confy_core::model::any_doc::AnyDocument;
 use confy_core::model::document::DocFormat;
-use confy_core::session::{Session, Mode, EditKind};
 use confy_core::model::node::Seg;
+use confy_core::session::{EditKind, Mode, Session};
 
 fn toml_session(src: &str) -> Session {
     let doc = AnyDocument::from_str_as(src, DocFormat::Toml).unwrap();
@@ -147,10 +147,8 @@ fn copy_selected_loads_clipboard() {
 
 #[test]
 fn session_works_with_json_backend() {
-    let doc = AnyDocument::from_str_as(
-        "{\n  \"a\": 1,\n  \"b\": \"x\"\n}\n",
-        DocFormat::Json,
-    ).unwrap();
+    let doc =
+        AnyDocument::from_str_as("{\n  \"a\": 1,\n  \"b\": \"x\"\n}\n", DocFormat::Json).unwrap();
     let mut s = Session::new(doc);
     s.expand_all();
     let k = keys(&s);
@@ -160,10 +158,7 @@ fn session_works_with_json_backend() {
 
 #[test]
 fn session_works_with_yaml_backend() {
-    let doc = AnyDocument::from_str_as(
-        "a: 1\nb: x\n",
-        DocFormat::Yaml,
-    ).unwrap();
+    let doc = AnyDocument::from_str_as("a: 1\nb: x\n", DocFormat::Yaml).unwrap();
     let s = Session::new(doc);
     let k = keys(&s);
     assert!(k.iter().any(|k| k == "a"), "a visible: {k:?}");

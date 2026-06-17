@@ -8,24 +8,25 @@ This file is the durable companion to the doc set: `CONTEXT.md` (model glossary)
 `BEHAVIOR_MATRIX.md` (nested behavior), `TUI.md` (ratatui mechanics). It records *what moves
 where and why*; the eventual `WEBUI.md` will document the shared Web UI against this contract.
 
-> **Status (2026-06-17).** Slices 1–4 landed.
+> **Status (2026-06-17).** Slices 1–5 Phase D landed.
 >
 > Slice 1: §1 workspace split (`confy-core` + `confy-tui`) and §2 **A1/A3** fixes.
 > Slice 2: §2 **A2/A4/A5** + §7 fs-gate — `confy-core` is fully filesystem-free at runtime.
 > Slice 3: §3 cursor reshape — `App.cursor` is now a `Path`, selection/paste are Path-keyed.
+> Slice 4: §5 Phases A–C — complete `Session` struct in `confy-core/session/` with all CORE
+> fields and every CORE operation; `Intent` enum; `Host` trait; `ViewRow`/`Update`; 13 headless tests.
 >
-> **Slice 4 (this slice):** §5 state-machine lift — `confy-core/session/` now contains the
-> complete `Session` struct with all CORE fields and every CORE operation (navigation, filter,
-> type-filter, kind-switch, convert, inline-edit, mutations, undo/redo, escape, prompt dispatch).
-> `Session::visible_rows() -> Vec<ViewRow>` computes the pure view on demand. `Intent` enum
-> (all key-mapped actions) and the `Host` trait (`edit_text` callback) are defined.
-> `confy-core/tests/session_headless.rs` exercises `Session` end-to-end across TOML/JSON/YAML.
-> The binary still builds as `confy`; the full suite passes
-> (438 core-unit + 167 tui + 26 integration + 13 session headless).
+> **Slice 5 Phase D (current):** `App` rewritten as a thin Host wrapper: `pub session: Session`
+> + HOST-only fields (`rows: Vec<RowSnapshot>`, `source_path`, `detail_scroll`, `help_scroll`,
+> `table_offset`). Every CORE method is a 1-line delegate to `self.session.*`. `RowSnapshot`
+> adds `type_label`/`type_tag`/`scalar_type` on top of `ViewRow`. `rebuild_rows()` maps
+> `ViewRow→RowSnapshot`. HOST-split methods (`edit_node`, `save`, `convert_write`) stay on `App`.
+> `selection.clear()` removed from `compute_rows()` (selection is path-keyed; paths survive
+> structural changes). Full suite: 438 core-unit + 167 tui + 26 integration + 13 headless;
+> clippy/fmt clean. The binary still builds and runs as `confy`.
 >
-> **Not yet done (Slice 5):** Phase D — rewriting `App` as a thin Host wrapper that holds
-> `session: Session` + HOST-only fields and delegates via 1-line wrappers; Phase E — serde
-> round-trips for `Intent`/`ViewRow`/`Update`, fake-Host $EDITOR path test.
+> **Not yet done (Slice 5 Phase E):** serde round-trips for `Intent`/`ViewRow`/`Update`/`Mutation`
+> (§7 gate #3); fake-Host `$EDITOR` integration test (§7 gate #5).
 
 ---
 

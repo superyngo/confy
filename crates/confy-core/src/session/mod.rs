@@ -14,12 +14,12 @@ pub use insertion::resolve_target;
 pub use intent::Intent;
 pub use search::{fuzzy_indices, fuzzy_match, haystack};
 pub use selection::{normalize, Selection};
-pub use session::{Session, format_label, node_type_label, node_type_label_str};
+pub use session::{format_label, node_type_label, node_type_label_str, Session};
 pub use state::{
     Clipboard, ConvertState, ConvertStep, EditField, EditKind, EditState, FilterLayer, History,
     KindSwitchState, Mode, PasteSlot, PendingComment, PendingCommit, PromptKind,
 };
 pub use type_filter::{
-    Cell, CheckState, Group, LayoutRow, TypeFilter, TypeToken, classify, layout, nav_rows,
+    classify, layout, nav_rows, Cell, CheckState, Group, LayoutRow, TypeFilter, TypeToken,
 };
 pub use view::{Update, ViewRow};

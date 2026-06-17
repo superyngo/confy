@@ -68,7 +68,7 @@ fn run_event_loop(
     while !should_quit {
         // Keep the inline editor's horizontal viewport in sync with the cursor at
         // the current terminal width before drawing.
-        if let crate::tui::state::Mode::Edit(ref e) = app.mode {
+        if let crate::tui::state::Mode::Edit(ref e) = app.session.mode {
             let total = terminal.size()?.width;
             let w = if e.field == crate::tui::state::EditField::Name {
                 ui::name_col_width(total) as usize
@@ -87,7 +87,7 @@ fn run_event_loop(
             // navigation can't move the cursor mid-prompt (which would split a
             // multi-fragment paste across two targets). MovePending is deliberately
             // NOT locked — the user navigates to choose the move target there.
-            if matches!(app.mode, crate::tui::state::Mode::Prompt(_)) {
+            if matches!(app.session.mode, crate::tui::state::Mode::Prompt(_)) {
                 match key.code {
                     crossterm::event::KeyCode::Char(c) => match app.handle_prompt_key(c) {
                         crate::tui::app::PromptOutcome::Quit => should_quit = true,
@@ -101,7 +101,7 @@ fn run_event_loop(
             // Filter input: an inline text field — type to filter, edit at the
             // caret (Backspace/Del), move it (Left/Right/Home/End). Enter locks in
             // the filtered set (filtered-result selection); Esc clears the filter.
-            if matches!(app.mode, crate::tui::state::Mode::Filter) {
+            if matches!(app.session.mode, crate::tui::state::Mode::Filter) {
                 use crossterm::event::KeyCode;
                 match key.code {
                     KeyCode::Char(c) => app.filter_char(c),
@@ -119,11 +119,11 @@ fn run_event_loop(
             }
             // Detail view: scroll with ↑/↓/j/k, PgUp/PgDn, Home/End; Esc/Enter/
             // Space/i dismiss. Height adapts to content; long values scroll within.
-            if matches!(app.mode, crate::tui::state::Mode::Detail) {
+            if matches!(app.session.mode, crate::tui::state::Mode::Detail) {
                 use crossterm::event::KeyCode;
                 // Compute the popup's inner viewport + content height to clamp scrolling.
                 let size = terminal.size()?;
-                let text = app.detail_text.clone().unwrap_or_default();
+                let text = app.session.detail_text.clone().unwrap_or_default();
                 let rect = ui::detail_popup_rect(
                     ratatui::layout::Rect::new(0, 0, size.width, size.height),
                     &text,
@@ -149,7 +149,7 @@ fn run_event_loop(
             }
             // Inline editor: type into the buffer; Enter commits, Esc cancels.
             // Left/Right move the in-buffer cursor (not the value-nudge bindings).
-            if matches!(app.mode, crate::tui::state::Mode::Edit(_)) {
+            if matches!(app.session.mode, crate::tui::state::Mode::Edit(_)) {
                 use crossterm::event::KeyCode;
                 match key.code {
                     KeyCode::Char(c) => app.edit_input_char(c),
@@ -167,7 +167,7 @@ fn run_event_loop(
                 continue;
             }
             // Help overlay: ↑/↓/PgUp/PgDn/Home/End scroll; Esc or ? dismisses.
-            if matches!(app.mode, crate::tui::state::Mode::Help) {
+            if matches!(app.session.mode, crate::tui::state::Mode::Help) {
                 use crossterm::event::KeyCode;
                 let help_lines = keys::help_text(app.doc_format()).lines().count() as u16;
                 // Approximate visible height: terminal height minus 2 borders.
@@ -190,7 +190,7 @@ fn run_event_loop(
             // cell, Enter applies (→ FilterResults/Normal), Esc peels the type
             // filter. Every toggle live-updates the filtered background. All other
             // keys are swallowed so the popup is modal.
-            if matches!(app.mode, crate::tui::state::Mode::TypeFilter) {
+            if matches!(app.session.mode, crate::tui::state::Mode::TypeFilter) {
                 use crossterm::event::KeyCode;
                 match key.code {
                     KeyCode::Up => app.type_filter_move(-1, 0),
@@ -206,7 +206,7 @@ fn run_event_loop(
             }
             // Kind-switch popup: Up/Down (or j/k) move the selection, Enter
             // applies the conversion, Esc cancels. Modal — other keys swallowed.
-            if matches!(app.mode, crate::tui::state::Mode::KindSwitch(_)) {
+            if matches!(app.session.mode, crate::tui::state::Mode::KindSwitch(_)) {
                 use crossterm::event::KeyCode;
                 match key.code {
                     KeyCode::Up | KeyCode::Char('k') => app.kind_switch_move(-1),
@@ -221,7 +221,7 @@ fn run_event_loop(
             //   Format  — Up/Down (j/k) pick a target, Enter advances, Esc cancels.
             //   Path    — caret text field for the output path, Enter renders.
             //   Confirm — y/Enter writes (lossy), n/Esc cancels.
-            if let crate::tui::state::Mode::Convert(ref st) = app.mode {
+            if let crate::tui::state::Mode::Convert(ref st) = app.session.mode {
                 use crate::tui::state::ConvertStep;
                 use crossterm::event::KeyCode;
                 match st.step {
@@ -261,7 +261,7 @@ fn run_event_loop(
                 action,
                 keys::KeyAction::ExtendSelectUp | keys::KeyAction::ExtendSelectDown
             ) {
-                app.last_action_was_shift_select = false;
+                app.session.last_action_was_shift_select = false;
             }
             match action {
                 keys::KeyAction::CursorDown => app.cursor_down(),
@@ -271,7 +271,7 @@ fn run_event_loop(
                 keys::KeyAction::Home => app.cursor_home(),
                 keys::KeyAction::End => app.cursor_end(),
                 keys::KeyAction::ToggleExpand => {
-                    if app.clipboard.is_some() {
+                    if app.session.clipboard.is_some() {
                         // Paste mode: only the `Into` (on-branch) slot toggles the
                         // branch; the green-line `After` slot is about the gap, not
                         // the branch, so Enter/Space is a no-op there.
@@ -282,8 +282,9 @@ fn run_event_loop(
                             app.toggle_expand();
                             app.rebuild_rows();
                             // rebuild reset the slot — keep the user on the branch.
-                            app.paste_slot =
-                                Some(crate::tui::state::PasteSlot::Into(app.cursor.clone()));
+                            app.session.paste_slot = Some(crate::tui::state::PasteSlot::Into(
+                                app.session.cursor.clone(),
+                            ));
                         }
                     } else if let Some(r) = app.cursor_row() {
                         // Enter/Space: branch toggles expand, leaf opens detail.

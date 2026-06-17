@@ -1,4 +1,3 @@
-use crate::model::node::Format;
 use crate::tui::app::{App, RowSnapshot};
 use crate::tui::keys;
 use crate::tui::state::{EditState, Mode, PasteSlot, PromptKind};
@@ -27,29 +26,6 @@ pub(crate) fn cell_preview(s: &str) -> String {
         format!("{first} …")
     } else {
         first
-    }
-}
-
-/// Compact format suffix for the KIND column. `None` for the single-style
-/// `Plain` (bool, float, datetimes, and all branches) so they show type only.
-pub(crate) fn format_label(fmt: Format) -> Option<&'static str> {
-    match fmt {
-        Format::Plain => None,
-        Format::BasicString => Some("basic"),
-        Format::MultilineBasic => Some("ml-basic"),
-        Format::Literal => Some("lit"),
-        Format::MultilineLiteral => Some("ml-lit"),
-        Format::Decimal => Some("dec"),
-        Format::Hex => Some("hex"),
-        Format::Octal => Some("oct"),
-        Format::Binary => Some("bin"),
-        Format::Inf => Some("inf"),
-        Format::Nan => Some("nan"),
-        Format::Exponent => Some("exp"),
-        // Container facets: the branch labels already carry the distinction.
-        Format::Inline | Format::Multiline | Format::Scope | Format::Dotted => None,
-        // YAML-only formats — distinguishing labels added in Tasks 7-8.
-        _ => None,
     }
 }
 
@@ -261,7 +237,7 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
     // `Into(i)` fills branch row `i` green (append last child); `After(i)` inserts a
     // standalone green line *below* row `i` (insert as a sibling after it) — a real
     // separator row, so the node's own text is never restyled.
-    let active_slot = if app.clipboard.is_some() {
+    let active_slot = if app.session.clipboard.is_some() {
         Some(app.effective_paste_slot())
     } else {
         None
@@ -287,7 +263,7 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
             } else {
                 "  "
             };
-            let sel_marker = if app.selection.contains(&row.path) {
+            let sel_marker = if app.session.selection.contains(&row.path) {
                 "●"
             } else {
                 " "
@@ -300,8 +276,8 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
             // focused field (Value or Name) with the char under the cursor
             // reverse-highlighted — no caret glyph, so characters never shift. The
             // NAME field scrolls the same way as VALUE, after the fixed tree prefix.
-            let editing = matches!(&app.mode, Mode::Edit(_) if Some(i) == cursor_idx);
-            let (name_cell, value_cell) = match &app.mode {
+            let editing = matches!(&app.session.mode, Mode::Edit(_) if Some(i) == cursor_idx);
+            let (name_cell, value_cell) = match &app.session.mode {
                 Mode::Edit(e) if editing => match e.field {
                     crate::tui::state::EditField::Value => (
                         Cell::from(name),
@@ -321,7 +297,7 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                     // key/path, not value, so VALUE is never highlighted. Gated on the
                     // query, not the mode, so the highlight survives an inline edit or
                     // detail popup opened from the filtered list.
-                    let needle = app.filter.as_str();
+                    let needle = app.session.filter.as_str();
                     let val_cell = value_cell(row);
                     if needle.is_empty() {
                         (Cell::from(name), val_cell)
@@ -334,16 +310,17 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
             };
             let is_cursor = Some(i) == cursor_idx;
             let in_clipboard_source = app
+                .session
                 .clipboard
                 .as_ref()
                 .is_some_and(|cb| cb.sources.contains(&row.path));
             // Base (non-cursor) appearance: copy source blue, cut source green,
             // multi-select grey.
             let base = if in_clipboard_source {
-                let cut = app.clipboard.as_ref().is_some_and(|cb| cb.cut);
+                let cut = app.session.clipboard.as_ref().is_some_and(|cb| cb.cut);
                 let bg = if cut { Color::Green } else { Color::Blue };
                 Style::default().bg(bg).fg(Color::White)
-            } else if app.selection.contains(&row.path) {
+            } else if app.session.selection.contains(&row.path) {
                 Style::default().bg(Color::DarkGray)
             } else {
                 Style::default()
@@ -418,8 +395,8 @@ fn paste_line_row<'a>(row: &RowSnapshot, expanded: bool, width: u16) -> Row<'a> 
 fn draw_status(f: &mut Frame, area: Rect, app: &App) {
     // Error messages always take priority — shown with red background regardless
     // of mode or clipboard state so they are never hidden.
-    if !matches!(app.mode, Mode::Edit(_)) {
-        if let Some(ref msg) = app.error {
+    if !matches!(app.session.mode, Mode::Edit(_)) {
+        if let Some(ref msg) = app.session.error {
             let paragraph = Paragraph::new(format!(" ✗ {msg}")).style(
                 Style::default()
                     .bg(Color::Red)
@@ -433,11 +410,16 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
     // In filter mode, show the filter input line as an inline text field: a
     // ` /` prefix then the buffer with the char under the caret reverse-
     // highlighted (same treatment as the inline value editor).
-    if matches!(app.mode, Mode::Filter) {
+    if matches!(app.session.mode, Mode::Filter) {
         let prefix = " /";
         let avail = (area.width as usize).saturating_sub(prefix.chars().count());
         let mut spans = vec![Span::raw(prefix)];
-        spans.extend(edit_field_spans(&app.filter, app.filter_cursor, 0, avail));
+        spans.extend(edit_field_spans(
+            &app.session.filter,
+            app.session.filter_cursor,
+            0,
+            avail,
+        ));
         let paragraph = Paragraph::new(Line::from(spans))
             .style(Style::default().bg(Color::DarkGray).fg(Color::Yellow));
         f.render_widget(paragraph, area);
@@ -445,8 +427,8 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
     }
     // In the inline editor, show a commit error if there is one (e.g. the value
     // failed the semantic re-parse and could not be saved), otherwise the hints.
-    if let Mode::Edit(e) = &app.mode {
-        let (text, style) = match &app.status {
+    if let Mode::Edit(e) = &app.session.mode {
+        let (text, style) = match &app.session.status {
             Some(msg) => (
                 format!(" {msg}  (Esc:cancel)"),
                 Style::default()
@@ -503,22 +485,22 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
     };
     // In the filtered-result selection mode, surface that the list is still
     // filtered (and how to clear/refine it) rather than the generic hints.
-    if matches!(app.mode, Mode::FilterResults) {
+    if matches!(app.session.mode, Mode::FilterResults) {
         // Tag prefix surfacing each active filter layer (text and/or type).
         let mut tags = String::new();
-        if !app.last_filter.is_empty() {
-            tags.push_str(&format!("[filter: {}] ", app.last_filter));
+        if !app.session.last_filter.is_empty() {
+            tags.push_str(&format!("[filter: {}] ", app.session.last_filter));
         }
-        let n_types = app.type_filter.key_signs.len() + app.type_filter.types.len();
+        let n_types = app.session.type_filter.key_signs.len() + app.session.type_filter.types.len();
         if n_types > 0 {
             tags.push_str(&format!("[type: {n_types}] "));
         }
-        let status = if let Some(cb) = &app.clipboard {
+        let status = if let Some(cb) = &app.session.clipboard {
             let n = cb.fragments.len();
             let kind = if cb.cut { "cut" } else { "copied" };
             format!(" {tags}{n} {kind} — v:paste  c/x:toggle  Esc:discard")
         } else {
-            match &app.status {
+            match &app.session.status {
                 Some(msg) => format!(" {tags}{msg}"),
                 None => format!(" {tags}{pos}/{total} | esc:clear  /:refine  f:type"),
             }
@@ -529,7 +511,7 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
         return;
     }
     // When clipboard is loaded, show a sticky hint in place of the normal hints.
-    if let Some(cb) = &app.clipboard {
+    if let Some(cb) = &app.session.clipboard {
         let n = cb.fragments.len();
         let kind = if cb.cut { "cut" } else { "copied" };
         let text = format!(" {n} node(s) {kind} — v:paste  c/x:toggle  Esc:discard");
@@ -539,7 +521,7 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
         return;
     }
     let mut status = format!(" {pos}/{total} | q:quit ?:help d:x:c:v:r:z/y");
-    if let Some(ref msg) = app.status {
+    if let Some(ref msg) = app.session.status {
         status = format!(" {msg}");
     }
     let paragraph =
@@ -548,7 +530,7 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
 }
 
 fn draw_prompt_overlay(f: &mut Frame, app: &App) {
-    let text = match &app.mode {
+    let text = match &app.session.mode {
         Mode::Prompt(PromptKind::Collision { key }) => {
             format!(
                 " Key '{}' already exists.  o:overwrite  r:rename  c:cancel",
@@ -613,10 +595,10 @@ pub(crate) fn wrapped_line_count(text: &str, width: u16) -> usize {
 }
 
 fn draw_detail_overlay(f: &mut Frame, app: &App) {
-    if !matches!(app.mode, Mode::Detail) {
+    if !matches!(app.session.mode, Mode::Detail) {
         return;
     }
-    let detail_text = match &app.detail_text {
+    let detail_text = match &app.session.detail_text {
         Some(t) => t.clone(),
         None => return,
     };
@@ -634,7 +616,7 @@ fn draw_detail_overlay(f: &mut Frame, app: &App) {
 }
 
 fn draw_help_overlay(f: &mut Frame, app: &App) {
-    if !matches!(app.mode, Mode::Help) {
+    if !matches!(app.session.mode, Mode::Help) {
         return;
     }
     let help = keys::help_text(app.doc_format());
@@ -653,11 +635,11 @@ fn draw_help_overlay(f: &mut Frame, app: &App) {
 }
 
 fn draw_type_filter_overlay(f: &mut Frame, app: &App) {
-    if !matches!(app.mode, Mode::TypeFilter) {
+    if !matches!(app.session.mode, Mode::TypeFilter) {
         return;
     }
     use crate::tui::type_filter::{layout, CheckState, LayoutRow};
-    let tf = &app.type_filter;
+    let tf = &app.session.type_filter;
     let fmt = app.doc_format();
 
     let check = |state: CheckState| match state {
@@ -727,7 +709,7 @@ fn draw_type_filter_overlay(f: &mut Frame, app: &App) {
 
 /// The `K` kind-switch popup: a small centered single-select list.
 fn draw_kind_switch_overlay(f: &mut Frame, app: &App) {
-    let Mode::KindSwitch(st) = &app.mode else {
+    let Mode::KindSwitch(st) = &app.session.mode else {
         return;
     };
     let lines: Vec<Line> = st
@@ -756,7 +738,7 @@ fn draw_kind_switch_overlay(f: &mut Frame, app: &App) {
 
 fn draw_convert_overlay(f: &mut Frame, app: &App) {
     use crate::tui::state::ConvertStep;
-    let Mode::Convert(st) = &app.mode else {
+    let Mode::Convert(st) = &app.session.mode else {
         return;
     };
     let (lines, footer): (Vec<Line>, &str) = match st.step {

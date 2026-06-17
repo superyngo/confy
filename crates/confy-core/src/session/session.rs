@@ -1,7 +1,6 @@
-use std::collections::HashSet;
 use crate::model::any_doc::AnyDocument;
 use crate::model::document::{
-    ConfigDocument, DocFormat, Mutation, MutateError, OnCollision, Target,
+    ConfigDocument, DocFormat, MutateError, Mutation, OnCollision, Target,
 };
 use crate::model::node::{Format, KeySign, NodeKind, NodeTree, Path, ScalarType, Seg};
 use crate::session::search::{fuzzy_match, haystack};
@@ -12,6 +11,7 @@ use crate::session::state::{
 };
 use crate::session::type_filter::TypeFilter;
 use crate::session::view::{Update, ViewRow};
+use std::collections::HashSet;
 
 pub struct Session {
     pub doc: Option<AnyDocument>,
@@ -152,7 +152,6 @@ impl Session {
         if self.clipboard.is_some() {
             self.paste_slot = None;
         }
-        self.selection.clear();
         rows
     }
 
@@ -166,12 +165,16 @@ impl Session {
     /// Path the cursor is on, if visible.
     pub fn cursor_row_path(&self) -> Option<Path> {
         let rows = self.visible_rows();
-        rows.iter().find(|r| r.path == self.cursor).map(|r| r.path.clone())
+        rows.iter()
+            .find(|r| r.path == self.cursor)
+            .map(|r| r.path.clone())
     }
 
     /// Cursor's visible-row index.
     pub fn cursor_row_index(&self) -> Option<usize> {
-        self.visible_rows().iter().position(|r| r.path == self.cursor)
+        self.visible_rows()
+            .iter()
+            .position(|r| r.path == self.cursor)
     }
 
     // ---- Navigation ----
@@ -202,8 +205,10 @@ impl Session {
 
     pub fn toggle_expand(&mut self) {
         let rows = self.visible_rows();
-        let Some((is_branch, path)) =
-            rows.iter().find(|r| r.path == self.cursor).map(|r| (r.is_branch, r.path.clone()))
+        let Some((is_branch, path)) = rows
+            .iter()
+            .find(|r| r.path == self.cursor)
+            .map(|r| (r.is_branch, r.path.clone()))
         else {
             return;
         };
@@ -285,7 +290,11 @@ impl Session {
             return;
         }
         let rows = self.visible_rows();
-        let idx = rows.iter().position(|r| r.path == self.cursor).unwrap_or(0).saturating_sub(step);
+        let idx = rows
+            .iter()
+            .position(|r| r.path == self.cursor)
+            .unwrap_or(0)
+            .saturating_sub(step);
         if let Some(r) = rows.get(idx) {
             self.cursor = r.path.clone();
         }
@@ -363,7 +372,7 @@ impl Session {
         self.paste_slot = Some(slot);
     }
 
-    fn slot_target(&self, slot: PasteSlot) -> Option<Target> {
+    pub fn slot_target(&self, slot: PasteSlot) -> Option<Target> {
         let rows = self.visible_rows();
         match slot {
             PasteSlot::Into(p) => {
@@ -373,7 +382,10 @@ impl Session {
                     .node_at(&row.path)
                     .map(|n| n.children.len())
                     .unwrap_or(0);
-                Some(Target { parent: row.path.clone(), index })
+                Some(Target {
+                    parent: row.path.clone(),
+                    index,
+                })
             }
             PasteSlot::After(p) => {
                 let row = rows.iter().find(|r| r.path == p)?;
@@ -533,7 +545,15 @@ impl Session {
             }
             ancestor_paths.push(n.path.clone());
             for c in &n.children {
-                walk(c, ancestor_paths, matching, ancestors, needle, type_filter, doc);
+                walk(
+                    c,
+                    ancestor_paths,
+                    matching,
+                    ancestors,
+                    needle,
+                    type_filter,
+                    doc,
+                );
             }
             ancestor_paths.pop();
         }
@@ -603,7 +623,11 @@ impl Session {
             self.error = Some("this node's kind cannot be switched".into());
             return;
         }
-        self.mode = Mode::KindSwitch(KindSwitchState { path, options, cursor: 0 });
+        self.mode = Mode::KindSwitch(KindSwitchState {
+            path,
+            options,
+            cursor: 0,
+        });
     }
 
     pub fn kind_switch_move(&mut self, delta: i32) {
@@ -626,7 +650,10 @@ impl Session {
         let Some(doc) = self.doc.as_mut() else {
             return;
         };
-        match doc.apply(Mutation::ConvertKind { path: st.path, target }) {
+        match doc.apply(Mutation::ConvertKind {
+            path: st.path,
+            target,
+        }) {
             Ok(()) => {
                 self.on_mutation_success();
                 self.status = Some(format!("converted to {label}"));
@@ -766,7 +793,10 @@ impl Session {
             Ok(result) => {
                 if result.warnings.is_empty() {
                     self.mode = self.resting_mode();
-                    Update { convert_write: Some((path, result.text)), ..Default::default() }
+                    Update {
+                        convert_write: Some((path, result.text)),
+                        ..Default::default()
+                    }
                 } else {
                     if let Mode::Convert(st) = &mut self.mode {
                         st.warnings = result.warnings;
@@ -791,7 +821,10 @@ impl Session {
             _ => return Update::default(),
         };
         self.mode = self.resting_mode();
-        Update { convert_write: Some((path, text)), ..Default::default() }
+        Update {
+            convert_write: Some((path, text)),
+            ..Default::default()
+        }
     }
 
     pub fn exit_convert(&mut self) {
@@ -834,8 +867,9 @@ impl Session {
         };
         let mut detail = if row.is_branch {
             let node = self.tree.node_at(&row.path);
-            let (type_str, fmt_str) =
-                node.map(|n| branch_type_format(&n.kind)).unwrap_or(("unknown", "-"));
+            let (type_str, fmt_str) = node
+                .map(|n| branch_type_format(&n.kind))
+                .unwrap_or(("unknown", "-"));
             let children = node.map(|n| n.children.len()).unwrap_or(0);
             format!(
                 "Path:     {dotted}\nType:     {type_str}\nFormat:   {fmt_str}\nChildren: {children}"
@@ -843,7 +877,11 @@ impl Session {
         } else {
             let type_str = row.scalar_type.map(|st| format!("{st:?}").to_lowercase());
             let type_str = type_str.as_deref().unwrap_or(node_type_label_str(
-                &self.tree.node_at(&row.path).map(|n| n.kind.clone()).unwrap_or(NodeKind::Root),
+                &self
+                    .tree
+                    .node_at(&row.path)
+                    .map(|n| n.kind.clone())
+                    .unwrap_or(NodeKind::Root),
             ));
             let val_str = row.value.as_deref().unwrap_or("");
             let fmt_str = format_label(row.format).unwrap_or("plain");
@@ -968,8 +1006,7 @@ impl Session {
                 EditKind::External
             };
         }
-        let inline_object =
-            matches!(node.kind, NodeKind::Table) && node.format == Format::Inline;
+        let inline_object = matches!(node.kind, NodeKind::Table) && node.format == Format::Inline;
         let structured_inline =
             matches!(node.kind, NodeKind::Array | NodeKind::InlineTable) || inline_object;
         if !matches!(node.kind, NodeKind::Scalar(_)) && !structured_inline {
@@ -996,9 +1033,14 @@ impl Session {
         let parent = self.tree.node_at(parent_path);
         match path.last() {
             Some(Seg::Index(_)) => {
-                let parent_is_array =
-                    parent.map(|p| matches!(p.kind, NodeKind::Array)).unwrap_or(false);
-                if parent_is_array { EditKind::Inline } else { EditKind::External }
+                let parent_is_array = parent
+                    .map(|p| matches!(p.kind, NodeKind::Array))
+                    .unwrap_or(false);
+                if parent_is_array {
+                    EditKind::Inline
+                } else {
+                    EditKind::External
+                }
             }
             Some(Seg::Key(_)) => {
                 let parent_ok = path.len() == 1
@@ -1018,7 +1060,11 @@ impl Session {
                     .unwrap_or(false);
                 let addressable = parent_ok
                     && (addressable || self.no_array_ancestor(&path) || parent_inline_container);
-                if addressable { EditKind::Inline } else { EditKind::External }
+                if addressable {
+                    EditKind::Inline
+                } else {
+                    EditKind::External
+                }
             }
             None => EditKind::External,
         }
@@ -1043,7 +1089,7 @@ impl Session {
         (path.clone(), false)
     }
 
-    fn no_array_ancestor(&self, path: &[Seg]) -> bool {
+    pub fn no_array_ancestor(&self, path: &[Seg]) -> bool {
         (1..path.len()).all(|i| {
             self.tree
                 .node_at(&path[..i])
@@ -1074,7 +1120,11 @@ impl Session {
                 None => return,
             }
         };
-        let orig_trailing = if is_comment { None } else { row.trailing_comment.clone() };
+        let orig_trailing = if is_comment {
+            None
+        } else {
+            row.trailing_comment.clone()
+        };
         let mut buffer = row.value.clone().unwrap_or_default().trim().to_string();
         if let Some(tc) = &orig_trailing {
             buffer.push_str("  ");
@@ -1257,7 +1307,10 @@ impl Session {
         if e.is_comment {
             let text = e.buffer.clone();
             let ok = match self.doc.as_mut() {
-                Some(doc) => doc.apply(Mutation::EditComment { path: e.path.clone(), text }),
+                Some(doc) => doc.apply(Mutation::EditComment {
+                    path: e.path.clone(),
+                    text,
+                }),
                 None => Ok(()),
             };
             match ok {
@@ -1314,8 +1367,11 @@ impl Session {
         let changed = new_trailing != e.orig_trailing;
         let reassert = !preserves && new_trailing.is_some();
         self.pending_trailing = (changed || reassert).then_some(new_trailing);
-        let mut frag_key =
-            if is_element { "__elem__".to_string() } else { e.key.clone() };
+        let mut frag_key = if is_element {
+            "__elem__".to_string()
+        } else {
+            e.key.clone()
+        };
         // 1. Key rename (Name field changed).
         if !is_element {
             let new_name = name_str.trim().to_string();
@@ -1326,8 +1382,13 @@ impl Session {
                     return;
                 }
                 let old_label = node_type_label_str(
-                    &self.tree.node_at(&e.path).map(|n| n.kind.clone()).unwrap_or(NodeKind::Root),
-                ).to_string();
+                    &self
+                        .tree
+                        .node_at(&e.path)
+                        .map(|n| n.kind.clone())
+                        .unwrap_or(NodeKind::Root),
+                )
+                .to_string();
                 let new_label = self
                     .doc
                     .as_ref()
@@ -1340,7 +1401,10 @@ impl Session {
                         self.status = Some(format!("type {old_label} → {new_label}? y/n"));
                         self.pending_edit = Some((
                             e,
-                            PendingCommit::Rename { new_name, value: value_str },
+                            PendingCommit::Rename {
+                                new_name,
+                                value: value_str,
+                            },
                         ));
                         self.mode = Mode::Prompt(PromptKind::TypeChange {
                             from: old_label,
@@ -1395,8 +1459,13 @@ impl Session {
             None => (format!("{frag_key} = {value_str}\n"), String::new()),
         };
         let old_label = node_type_label_str(
-            &self.tree.node_at(&e.path).map(|n| n.kind.clone()).unwrap_or(NodeKind::Root),
-        ).to_string();
+            &self
+                .tree
+                .node_at(&e.path)
+                .map(|n| n.kind.clone())
+                .unwrap_or(NodeKind::Root),
+        )
+        .to_string();
         if new_label != old_label {
             self.status = Some(format!("type {old_label} → {new_label}? y/n"));
             self.pending_edit = Some((e, PendingCommit::Replace(fragment)));
@@ -1423,8 +1492,10 @@ impl Session {
         }
         self.on_mutation_success();
         let parent_len = e.path.len() - 1;
-        let new_segs: Vec<Seg> =
-            new_name.split('.').map(|s| Seg::Key(s.to_string())).collect();
+        let new_segs: Vec<Seg> = new_name
+            .split('.')
+            .map(|s| Seg::Key(s.to_string()))
+            .collect();
         let leaf_key = match new_segs.last() {
             Some(Seg::Key(k)) => k.clone(),
             _ => new_name.clone(),
@@ -1441,12 +1512,13 @@ impl Session {
             None => return,
         };
         let fmt = doc.format().name();
-        match doc.apply(Mutation::Replace { path: path.clone(), fragment: edited }) {
+        match doc.apply(Mutation::Replace {
+            path: path.clone(),
+            fragment: edited,
+        }) {
             Ok(()) => {
                 if let Some(comment) = trailing {
-                    if let Err(e) =
-                        doc.apply(Mutation::SetTrailingComment { path, comment })
-                    {
+                    if let Err(e) = doc.apply(Mutation::SetTrailingComment { path, comment }) {
                         self.error = Some(format!("comment update failed: {e}"));
                     }
                 }
@@ -1484,7 +1556,10 @@ impl Session {
         let frag_key = match path.last() {
             Some(Seg::Key(k)) => k.clone(),
             Some(Seg::Index(_)) => {
-                let fi = path.iter().position(|s| matches!(s, Seg::Index(_))).unwrap_or(0);
+                let fi = path
+                    .iter()
+                    .position(|s| matches!(s, Seg::Index(_)))
+                    .unwrap_or(0);
                 if path[fi..].iter().all(|s| matches!(s, Seg::Index(_))) {
                     "__elem__".to_string()
                 } else {
@@ -1547,15 +1622,22 @@ impl Session {
                 .node_at(&cursor_row.path)
                 .map(|p| p.children.len())
                 .unwrap_or(0);
-            Target { parent: cursor_row.path.clone(), index: n }
+            Target {
+                parent: cursor_row.path.clone(),
+                index: n,
+            }
         } else {
             let mut parent = cursor_row.path.clone();
             parent.pop();
-            Target { parent, index: self.true_sibling_index(&cursor_row.path) + 1 }
+            Target {
+                parent,
+                index: self.true_sibling_index(&cursor_row.path) + 1,
+            }
         };
         let parent_node = self.tree.node_at(&target.parent);
-        let parent_is_array =
-            parent_node.map(|n| matches!(n.kind, NodeKind::Array)).unwrap_or(false);
+        let parent_is_array = parent_node
+            .map(|n| matches!(n.kind, NodeKind::Array))
+            .unwrap_or(false);
         let existing: Vec<String> = parent_node
             .map(|p| p.children.iter().map(|c| c.key.clone()).collect())
             .unwrap_or_default();
@@ -1593,7 +1675,11 @@ impl Session {
             None
         } else {
             Some(unique_key(
-                if matches!(seed_kind, NodeKind::Scalar(_)) { "new_field" } else { "placeholder" },
+                if matches!(seed_kind, NodeKind::Scalar(_)) {
+                    "new_field"
+                } else {
+                    "placeholder"
+                },
                 &existing,
             ))
         };
@@ -1608,10 +1694,12 @@ impl Session {
             NodeKind::Scalar(_) | NodeKind::Root | NodeKind::Comment(_) => {
                 (seed_value("\"\""), true)
             }
-            NodeKind::Array
-            | NodeKind::InlineTable
-            | NodeKind::ArrayOfTables
-            | NodeKind::Table => (doc.empty_container_fragment(&seed_kind, key.as_deref()), false),
+            NodeKind::Array | NodeKind::InlineTable | NodeKind::ArrayOfTables | NodeKind::Table => {
+                (
+                    doc.empty_container_fragment(&seed_kind, key.as_deref()),
+                    false,
+                )
+            }
         };
         self.apply_insert(target.clone(), fragment);
         if self.error.is_some() {
@@ -1646,7 +1734,10 @@ impl Session {
             return;
         }
         let text = format!("{} ", doc.comment_prefix());
-        match doc.apply(Mutation::InsertComment { target: target.clone(), text }) {
+        match doc.apply(Mutation::InsertComment {
+            target: target.clone(),
+            text,
+        }) {
             Ok(()) => self.on_mutation_success(),
             Err(e) => {
                 self.error = Some(format!("add error: {e}"));
@@ -1675,8 +1766,9 @@ impl Session {
         }) {
             Ok(()) => self.on_mutation_success(),
             Err(MutateError::Collision(key)) => {
-                self.error =
-                    Some(format!("key collision: {key} (rename/overwrite not yet prompted)"));
+                self.error = Some(format!(
+                    "key collision: {key} (rename/overwrite not yet prompted)"
+                ));
             }
             Err(MutateError::Fragment(msg)) => {
                 self.error = Some(format!("invalid {fmt}: {msg}"));
@@ -1745,8 +1837,11 @@ impl Session {
         for p in &paths {
             fragments.push(doc.serialize_fragment_relative(p));
         }
-        self.clipboard =
-            Some(Clipboard { fragments, cut: false, sources: paths });
+        self.clipboard = Some(Clipboard {
+            fragments,
+            cut: false,
+            sources: paths,
+        });
         self.paste_slot = None;
         self.status = Some(format!(
             "copied {} node(s)",
@@ -1779,7 +1874,11 @@ impl Session {
         for p in &paths {
             fragments.push(doc.serialize_fragment_relative(p));
         }
-        self.clipboard = Some(Clipboard { fragments, cut: true, sources: paths });
+        self.clipboard = Some(Clipboard {
+            fragments,
+            cut: true,
+            sources: paths,
+        });
         self.paste_slot = None;
         self.status = Some(format!(
             "cut {} node(s)",
@@ -1812,7 +1911,11 @@ impl Session {
         on_collision: OnCollision,
         allow_upgrade: bool,
     ) {
-        let Clipboard { fragments, cut: is_cut, sources } = clipboard;
+        let Clipboard {
+            fragments,
+            cut: is_cut,
+            sources,
+        } = clipboard;
         let is_comment = |p: &Path| {
             self.tree
                 .node_at(p)
@@ -1844,14 +1947,22 @@ impl Session {
                     fragments.push(f.clone());
                     sources.push(s.clone());
                 }
-                Clipboard { fragments, cut: is_cut, sources }
+                Clipboard {
+                    fragments,
+                    cut: is_cut,
+                    sources,
+                }
             };
         if self.doc.is_none() {
             self.clipboard = Some(rebuild(is_cut, &node_entries, &comment_entries));
             return;
         }
         if !comment_entries.is_empty() {
-            enum Dest { Ok, Prompt, Illegal }
+            enum Dest {
+                Ok,
+                Prompt,
+                Illegal,
+            }
             let dest = self
                 .tree
                 .node_at(&target.parent)
@@ -1867,10 +1978,12 @@ impl Session {
                 Dest::Ok => {}
                 Dest::Prompt => {
                     self.clipboard = Some(rebuild(is_cut, &node_entries, &comment_entries));
-                    self.status = Some(
-                        "single-line array — reformat to multiline and insert? y/n".into(),
-                    );
-                    self.mode = Mode::Prompt(PromptKind::ArrayUpgrade { target, on_collision });
+                    self.status =
+                        Some("single-line array — reformat to multiline and insert? y/n".into());
+                    self.mode = Mode::Prompt(PromptKind::ArrayUpgrade {
+                        target,
+                        on_collision,
+                    });
                     return;
                 }
                 Dest::Illegal => {
@@ -1894,15 +2007,13 @@ impl Session {
                 }) {
                     Ok(()) => {}
                     Err(MutateError::Collision(key)) => {
-                        self.clipboard =
-                            Some(rebuild(is_cut, &node_entries, &comment_entries));
+                        self.clipboard = Some(rebuild(is_cut, &node_entries, &comment_entries));
                         self.error = Some(format!("collision on key '{key}' — o/r/c"));
                         self.mode = Mode::Prompt(PromptKind::Collision { key });
                         return;
                     }
                     Err(e) => {
-                        self.clipboard =
-                            Some(rebuild(is_cut, &node_entries, &comment_entries));
+                        self.clipboard = Some(rebuild(is_cut, &node_entries, &comment_entries));
                         self.error = Some(format!("paste error: {e}"));
                         return;
                     }
@@ -1923,7 +2034,11 @@ impl Session {
                 let joined: String = node_entries.iter().map(|(f, _)| f.as_str()).collect();
                 vec![(joined, 0)]
             } else {
-                node_entries.iter().enumerate().map(|(i, (f, _))| (f.clone(), i)).collect()
+                node_entries
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (f, _))| (f.clone(), i))
+                    .collect()
             };
             let doc = self.doc.as_mut().unwrap();
             for (frag, i) in &grouped {
@@ -2021,7 +2136,11 @@ impl Session {
             .node_at(&path)
             .map(|n| !matches!(n.kind, NodeKind::Comment(_)))
             .unwrap_or(false);
-        let supports = self.doc.as_ref().map(|d| d.supports_comments()).unwrap_or(true);
+        let supports = self
+            .doc
+            .as_ref()
+            .map(|d| d.supports_comments())
+            .unwrap_or(true);
         if authoring && !supports {
             self.mode = Mode::Prompt(PromptKind::JsoncUpgrade {
                 pending: PendingComment::Remark { path },
@@ -2194,7 +2313,11 @@ impl Session {
                 );
                 self.mode = Mode::Normal;
                 self.do_paste(
-                    Clipboard { fragments, cut: is_cut, sources },
+                    Clipboard {
+                        fragments,
+                        cut: is_cut,
+                        sources,
+                    },
                     target,
                     oc,
                     false,
@@ -2208,9 +2331,10 @@ impl Session {
                     return false;
                 }
                 let (target, oc) = match &self.mode {
-                    Mode::Prompt(PromptKind::ArrayUpgrade { target, on_collision }) => {
-                        (target.clone(), *on_collision)
-                    }
+                    Mode::Prompt(PromptKind::ArrayUpgrade {
+                        target,
+                        on_collision,
+                    }) => (target.clone(), *on_collision),
                     _ => unreachable!(),
                 };
                 self.mode = Mode::Normal;
@@ -2438,7 +2562,11 @@ fn nudge_scalar(st: ScalarType, fmt: Format, repr: &str, delta: i64) -> Option<S
                 Format::Hex => {
                     let upper = clean[2..].chars().any(|c| c.is_ascii_uppercase());
                     let n = i64::from_str_radix(&clean[2..], 16).ok()? + delta;
-                    if upper { format!("0x{n:X}") } else { format!("0x{n:x}") }
+                    if upper {
+                        format!("0x{n:X}")
+                    } else {
+                        format!("0x{n:x}")
+                    }
                 }
                 Format::Octal => {
                     let n = i64::from_str_radix(&clean[2..], 8).ok()? + delta;
@@ -2458,10 +2586,16 @@ fn nudge_scalar(st: ScalarType, fmt: Format, repr: &str, delta: i64) -> Option<S
         ScalarType::Float => {
             let had_us = s.contains('_');
             let clean = s.replace('_', "");
-            if clean.bytes().any(|b| matches!(b, b'e' | b'E') || b.is_ascii_alphabetic()) {
+            if clean
+                .bytes()
+                .any(|b| matches!(b, b'e' | b'E') || b.is_ascii_alphabetic())
+            {
                 return None;
             }
-            let places = clean.split_once('.').map(|(_, frac)| frac.len()).unwrap_or(0);
+            let places = clean
+                .split_once('.')
+                .map(|(_, frac)| frac.len())
+                .unwrap_or(0);
             let val = clean.parse::<f64>().ok()?;
             let step = 10f64.powi(-(places as i32));
             let next = val + delta as f64 * step;
