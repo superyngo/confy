@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.7.0] - 2026-06-17
+
 ### Fixed
 - YAML: **cut/delete of a merged multi-line `#` comment block removed only its first line** — a 3-line block projects as ONE Comment node, but `delete_comment_token` spliced out just the single COMMENT token (+ its NEWLINE/INDENT), leaving the rest behind (and a cut-paste then re-inserted the whole block, duplicating lines). `delete` now removes the **whole** block via `delete_comment_block` (the same `comment_block_bounds` span the edit/remark path uses). (2026-06-16)
 - YAML: **moving/pasting a node or comment past a top-level mapping's leading `#` comment landed it one slot too far**, and a cut comment block could mangle a neighbouring entry. A leading ROOT-level comment is projected as a root child but lives *outside* the top `MAPPING`/`SEQUENCE` (the edit container), so the projection index space — which `target.index` and the move `shift` use — ran one ahead of the container's own slot space per leading comment block. Insert/insert-comment now translate the projection index to container-local by subtracting `root_prefix_offset` (the count of leading ROOT-level comment blocks before the container; 0 for any nested container), so a move/add/paste lands at the projected slot. (Combined with routing a cut comment through the whole-block delete + `InsertComment`, this fixes the `placeholder:`-wrapping and value-loss seen when cut-pasting a comment block.) (2026-06-16)
