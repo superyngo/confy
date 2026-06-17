@@ -169,35 +169,43 @@ failure), and InsertComment/ArrayUpgrade paths — TUI.md §*Clipboard / paste*.
 
 ## Module map
 
+Cargo **workspace** (see `PORTING.md`): `confy-core` is the headless model crate; `confy-tui`
+is the ratatui TUI + CLI binary (`confy`) that depends on it and re-exports `model` so its UI
+modules keep their `crate::model::…` paths.
+
 ```
-src/
-  main.rs          CLI entry: parse args, load CstDocument, run TUI
-  lib.rs           module declarations + re-exports (enables integration tests)
-  cli.rs           clap args: default `confy <file> [--format]` (TUI) + `confy convert <in> <out>` subcommand
+crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runtime deps
+  lib.rs           `pub mod model;`
   model/
     mod.rs         re-exports
     node.rs        Seg, ScalarType, Format, NodeKind, Node, NodeTree (+ node_at lookup)
     document.rs    ConfigDocument trait (+ to_value), DocFormat, Mutation, Target, OnCollision, ConvertAbort, errors
     value.rs       format-neutral Value/Item tree for conversion (has_null/has_datetime)
     convert.rs     document-level conversion: tree_to_value walk + per-format scalar decoders + default-style renderers + loss policy
-    any_doc.rs     AnyDocument enum: per-format dispatch + detect_format/load_as (TOML/JSON/YAML)
-    cst_doc.rs     CstDocument holding the taplo/rowan tree: load/serialize/apply (atomic commit)
+    any_doc.rs     AnyDocument enum: per-format dispatch + detect_format/load_as/from_str_as (TOML/JSON/YAML)
+    cst_doc.rs     CstDocument holding the taplo/rowan tree: from_str (headless parse) / load (=fs+from_str) / serialize / apply (atomic commit)
     cst_project.rs CST → NodeTree projection (comments as real nodes; golden tests)
     cst_edit.rs    rowan splice helpers: one fn per Mutation variant + the path→element walk index
     json/
       mod.rs       re-exports for the JSON/JSONC backend
       syntax.rs    SyntaxKind enum + rowan Language impl (hand-rolled JSON token/node kinds)
       parse.rs     lossless lexer + recursive-descent parser → rowan GreenTree (JSONC-aware)
-      doc.rs       JsonDocument: load/serialize/apply (atomic commit + validate_semantics)
+      doc.rs       JsonDocument: from_str/load/serialize/apply (atomic commit + validate_semantics)
       project.rs   GreenTree → NodeTree projection (// comments as real nodes; golden tests)
       edit.rs      rowan splice helpers: one fn per Mutation variant for JSON/JSONC
     yaml/
       mod.rs       re-exports for the YAML-subset backend
       syntax.rs    SyntaxKind enum + rowan Language impl (hand-rolled YAML token/node kinds)
       parse.rs     lossless lexer + recursive-descent parser → rowan GreenTree (subset; multi-doc reject)
-      doc.rs       YamlDocument: load/serialize/apply (atomic commit + validate_semantics)
+      doc.rs       YamlDocument: from_str/load/serialize/apply (atomic commit + validate_semantics)
       project.rs   GreenTree → NodeTree projection (# comments real nodes; opaque read-only nodes; golden tests)
       edit.rs      rowan splice helpers: reindent engine + one fn per Mutation variant; opaque guard
+crates/confy-core/tests/  roundtrip*.rs / yaml_scratch.rs integration + fixtures/ (open/edit/save, diff)
+
+crates/confy-tui/src/    ratatui TUI + CLI; depends on confy-core, `pub use confy_core::model`
+  main.rs          bin `confy`: parse args, load AnyDocument, run TUI
+  lib.rs           `pub use confy_core::model;` + `pub mod cli; pub mod tui;`
+  cli.rs           clap args: default `confy <file> [--format]` (TUI) + `confy convert <in> <out>` subcommand
   tui/
     mod.rs         re-exports; run() entry point + event loop (run_event_loop)
     app.rs         App state + operation handlers (the event loop dispatches keys to these)
@@ -209,13 +217,14 @@ src/
     type_filter.rs type-filter (`f`) facets: TypeToken/classify, TypeFilter predicate, popup layout+nav
     editor.rs      $EDITOR integration (external edit for nested array/table)
     ui.rs          ratatui rendering: title bar + NAME/TYPE/VALUE column header + tree Table, detail popup, help, prompts
-tests/
-  roundtrip.rs     integration: open/edit/save, diff fixture
-  convert_cli.rs   integration: `confy convert` happy/lossy/abort paths, source-unchanged
-  fixtures/        sample .toml files
+crates/confy-tui/tests/   convert_cli.rs integration: `confy convert` happy/lossy/abort paths, source-unchanged
 ```
 
-`model/` is pure (no TUI deps) and fully unit-testable in isolation.
+`confy-core` is pure (no TUI/terminal deps) and fully unit-testable in isolation. Backends expose
+a file-system-free `from_str` constructor (`AnyDocument::from_str_as`) alongside `load`; the
+conversion reparse-net uses it, so the model has no runtime `fs`/`tempfile` in the conversion path.
+Severing `load`/`save` file I/O entirely from the core (and dropping the `path` field) is the next
+slice — see `PORTING.md` §2 A2/A4/A5.
 
 ## Terminology
 

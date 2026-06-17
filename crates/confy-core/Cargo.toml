@@ -1,0 +1,21 @@
+[package]
+name = "confy-core"
+description = "Headless core for confy: lossless CST model, mutations, and cross-format conversion (no UI, no terminal)"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "confy_core"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+taplo.workspace = true
+rowan.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

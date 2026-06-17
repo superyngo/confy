@@ -34,21 +34,14 @@ impl ConfigDocument for CstDocument {
     fn load(path: &Path) -> anyhow::Result<Self> {
         let original =
             std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-        let parse = taplo::parser::parse(&original);
-        if let Some(err) = parse.errors.first() {
-            anyhow::bail!("parsing {} as TOML: {}", path.display(), err);
-        }
-        let syntax = parse.into_syntax();
-        let filename = path
+        let mut doc = Self::from_str(&original)
+            .with_context(|| format!("parsing {} as TOML", path.display()))?;
+        doc.path = path.to_path_buf();
+        doc.filename = path
             .file_name()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| path.display().to_string());
-        Ok(CstDocument {
-            syntax,
-            path: path.to_path_buf(),
-            original,
-            filename,
-        })
+        Ok(doc)
     }
 
     fn project(&self) -> NodeTree {
@@ -274,6 +267,27 @@ pub(crate) fn split_value_comment(buffer: &str) -> (String, Option<String>) {
 }
 
 impl CstDocument {
+    /// Parse a document from in-memory text (no file system). The headless
+    /// constructor used by WASM/web hosts and the conversion reparse-net; `load`
+    /// is this plus a `fs::read` and the source `path`/`filename`. The document
+    /// starts with an empty `path` (the host owns the save target).
+    // Named `from_str` per PORTING.md so it reads `CstDocument::from_str(text)`
+    // without importing `FromStr`; a real `FromStr` impl is a poor fit (anyhow
+    // error, JSON's content-derived state on the sibling backend).
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(text: &str) -> anyhow::Result<Self> {
+        let parse = taplo::parser::parse(text);
+        if let Some(err) = parse.errors.first() {
+            anyhow::bail!("parsing TOML: {err}");
+        }
+        Ok(CstDocument {
+            syntax: parse.into_syntax(),
+            path: PathBuf::new(),
+            original: text.to_string(),
+            filename: String::new(),
+        })
+    }
+
     /// Write the current document to its source path.
     pub fn save(&self) -> std::io::Result<()> {
         std::fs::write(&self.path, self.serialize())

@@ -44,6 +44,17 @@ impl AnyDocument {
         }
     }
 
+    /// Parse `text` as `format` from memory — the file-system-free counterpart of
+    /// [`load_as`](Self::load_as), used by the conversion reparse-net and future
+    /// WASM/web hosts.
+    pub fn from_str_as(text: &str, format: DocFormat) -> anyhow::Result<Self> {
+        match format {
+            DocFormat::Toml => Ok(Self::Toml(CstDocument::from_str(text)?)),
+            DocFormat::Json => Ok(Self::Json(JsonDocument::from_str(text)?)),
+            DocFormat::Yaml => Ok(Self::Yaml(YamlDocument::from_str(text)?)),
+        }
+    }
+
     /// Write the current document to its source path.
     pub fn save(&self) -> std::io::Result<()> {
         delegate!(self, d => d.save())
@@ -177,5 +188,36 @@ mod tests {
         let doc = AnyDocument::load(f.path()).unwrap();
         assert_eq!(doc.format(), DocFormat::Yaml);
         assert_eq!(doc.serialize(), "a: 1\n");
+    }
+
+    #[test]
+    fn from_str_as_parses_each_format_without_a_file() {
+        // The headless primitive: construct from text only (no fs, no path),
+        // serialize round-trips, and the doc is clean.
+        for (fmt, src) in [
+            (DocFormat::Toml, "a = 1\n"),
+            (DocFormat::Json, "{ \"a\": 1 }\n"),
+            (DocFormat::Yaml, "a: 1\n"),
+        ] {
+            let doc = AnyDocument::from_str_as(src, fmt).unwrap();
+            assert_eq!(doc.format(), fmt);
+            assert_eq!(doc.serialize(), src);
+            assert!(!doc.is_dirty());
+        }
+    }
+
+    #[test]
+    fn from_str_as_rejects_invalid_input() {
+        assert!(AnyDocument::from_str_as("a = = bad", DocFormat::Toml).is_err());
+        assert!(AnyDocument::from_str_as("{ \"a\": }", DocFormat::Json).is_err());
+    }
+
+    #[test]
+    fn json_from_str_enables_comments_from_content_only() {
+        // `.jsonc`-extension enabling lives in `load`; `from_str` keys off content.
+        let plain = JsonDocument::from_str("{}\n").unwrap();
+        assert!(!plain.supports_comments());
+        let commented = JsonDocument::from_str("// hi\n{}\n").unwrap();
+        assert!(commented.supports_comments());
     }
 }

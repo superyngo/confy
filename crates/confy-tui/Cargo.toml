@@ -1,0 +1,33 @@
+[package]
+name = "confy-tui"
+description = "A TUI editor for structured config files (TOML, JSON/JSONC, and a lossless YAML subset)"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "confy_tui"
+path = "src/lib.rs"
+
+[[bin]]
+name = "confy"
+path = "src/main.rs"
+
+[dependencies]
+confy-core = { path = "../confy-core" }
+clap = { version = "4", features = ["derive"] }
+anyhow.workspace = true
+thiserror.workspace = true
+taplo.workspace = true            # app.rs project_first_label parses a TOML fragment
+ratatui = "0.28"
+crossterm = "0.28"
+fuzzy-matcher = "0.3"
+tempfile.workspace = true        # $EDITOR scratch file (tui/editor.rs)
+dirs = "5"
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+tempfile.workspace = true

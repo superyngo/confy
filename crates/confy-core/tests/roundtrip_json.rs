@@ -1,5 +1,5 @@
-use confy::model::document::ConfigDocument;
-use confy::model::json::JsonDocument;
+use confy_core::model::document::ConfigDocument;
+use confy_core::model::json::JsonDocument;
 use std::path::Path;
 
 #[test]
@@ -25,8 +25,8 @@ fn json_fixtures_roundtrip_byte_identical() {
 
 #[test]
 fn mutation_then_reparse_is_lossless() {
-    use confy::model::document::Mutation;
-    use confy::model::node::Seg;
+    use confy_core::model::document::Mutation;
+    use confy_core::model::node::Seg;
 
     let p = Path::new("tests/fixtures/sample.json");
     let mut doc = JsonDocument::load(p).unwrap();
@@ -59,8 +59,8 @@ fn mutation_then_reparse_is_lossless() {
 
 #[test]
 fn delete_preserves_unrelated_comment() {
-    use confy::model::document::Mutation;
-    use confy::model::node::Seg;
+    use confy_core::model::document::Mutation;
+    use confy_core::model::node::Seg;
 
     let p = Path::new("tests/fixtures/comments.jsonc");
     let mut doc = JsonDocument::load(p).unwrap();

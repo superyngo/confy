@@ -1,6 +1,6 @@
-use confy::model::cst_doc::CstDocument;
-use confy::model::document::{ConfigDocument, Mutation};
-use confy::model::node::Seg;
+use confy_core::model::cst_doc::CstDocument;
+use confy_core::model::document::{ConfigDocument, Mutation};
+use confy_core::model::node::Seg;
 
 #[test]
 fn untouched_file_roundtrips_byte_identical() {

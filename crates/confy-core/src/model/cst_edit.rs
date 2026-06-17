@@ -3556,7 +3556,9 @@ fn move_nodes(
 /// True when `text` parses clean as a standalone TOML document with **no**
 /// `[table]`/`[[aot]]` header — i.e. keyed entry lines that can be joined with
 /// other fragments into one `[[…]]` entry body.
-pub(crate) fn joinable_entry(text: &str) -> bool {
+///
+/// `pub` (not `pub(crate)`) so the TUI crate's paste-forming can pre-check it.
+pub fn joinable_entry(text: &str) -> bool {
     let parse = taplo::parser::parse(text);
     parse.errors.is_empty()
         && !parse.into_syntax().descendants().any(|n| {

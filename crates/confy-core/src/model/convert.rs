@@ -487,17 +487,7 @@ fn has_nonfinite(value: &Value) -> bool {
 // ── reparse safety net ───────────────────────────────────────────────────────
 
 fn reparse_check(text: &str, target: DocFormat) -> Result<(), ConvertAbort> {
-    let suffix = match target {
-        DocFormat::Toml => ".toml",
-        DocFormat::Json => ".json",
-        DocFormat::Yaml => ".yaml",
-    };
-    let f = tempfile::Builder::new()
-        .suffix(suffix)
-        .tempfile()
-        .map_err(|e| ConvertAbort(format!("internal: temp file: {e}")))?;
-    std::fs::write(f.path(), text).map_err(|e| ConvertAbort(format!("internal: write: {e}")))?;
-    AnyDocument::load_as(f.path(), target)
+    AnyDocument::from_str_as(text, target)
         .map_err(|e| ConvertAbort(format!("internal: converted output did not re-parse: {e}")))?;
     Ok(())
 }

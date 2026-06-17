@@ -1,8 +1,8 @@
-use confy::model::document::{ConfigDocument, Mutation};
-use confy::model::node::Seg;
-use confy::model::yaml::YamlDocument;
+use confy_core::model::document::{ConfigDocument, Mutation};
+use confy_core::model::node::Seg;
+use confy_core::model::yaml::YamlDocument;
 
-fn dump(n: &confy::model::node::Node, depth: usize) {
+fn dump(n: &confy_core::model::node::Node, depth: usize) {
     println!(
         "{}{} kind={:?} fmt={:?} val={:?} trailing={:?} ro={}",
         "  ".repeat(depth),

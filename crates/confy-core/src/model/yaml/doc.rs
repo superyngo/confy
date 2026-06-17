@@ -19,19 +19,14 @@ impl ConfigDocument for YamlDocument {
     fn load(path: &Path) -> anyhow::Result<Self> {
         let original =
             std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-        let green = crate::model::yaml::parse::parse(&original)
-            .map_err(|e| anyhow::anyhow!("parsing {} as YAML: {}", path.display(), e))?;
-        let syntax = SyntaxNode::new_root(green);
-        let filename = path
+        let mut doc = Self::from_str(&original)
+            .with_context(|| format!("parsing {} as YAML", path.display()))?;
+        doc.path = path.to_path_buf();
+        doc.filename = path
             .file_name()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| path.display().to_string());
-        Ok(YamlDocument {
-            syntax,
-            path: path.to_path_buf(),
-            original,
-            filename,
-        })
+        Ok(doc)
     }
 
     fn project(&self) -> NodeTree {
@@ -152,6 +147,20 @@ pub(crate) fn split_value_comment(buffer: &str) -> (String, Option<String>) {
 }
 
 impl YamlDocument {
+    /// Parse a document from in-memory text (no file system). The document starts
+    /// with an empty `path` (the host owns the save target).
+    #[allow(clippy::should_implement_trait)] // named per PORTING.md; see cst_doc.rs
+    pub fn from_str(text: &str) -> anyhow::Result<Self> {
+        let green = crate::model::yaml::parse::parse(text)
+            .map_err(|e| anyhow::anyhow!("parsing YAML: {e}"))?;
+        Ok(YamlDocument {
+            syntax: SyntaxNode::new_root(green),
+            path: PathBuf::new(),
+            original: text.to_string(),
+            filename: String::new(),
+        })
+    }
+
     pub fn save(&self) -> std::io::Result<()> {
         std::fs::write(&self.path, self.serialize())
     }

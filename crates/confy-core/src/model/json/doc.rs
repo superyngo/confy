@@ -23,27 +23,22 @@ impl ConfigDocument for JsonDocument {
     fn load(path: &Path) -> anyhow::Result<Self> {
         let original =
             std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-        let green = crate::model::json::parse::parse(&original)
-            .map_err(|e| anyhow::anyhow!("parsing {} as JSON: {}", path.display(), e))?;
-        let syntax = SyntaxNode::new_root(green);
-        let filename = path
+        let mut doc = Self::from_str(&original)
+            .with_context(|| format!("parsing {} as JSON", path.display()))?;
+        doc.path = path.to_path_buf();
+        doc.filename = path
             .file_name()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| path.display().to_string());
+        // A `.jsonc` extension enables authored comments even when the file holds
+        // none yet; `from_str` only sees content, so OR the extension in here.
         let is_jsonc_ext = path
             .extension()
             .and_then(|e| e.to_str())
             .map(|e| e.eq_ignore_ascii_case("jsonc"))
             .unwrap_or(false);
-        let has_comment = original.contains("//") || original.contains("/*");
-        let comments_enabled = is_jsonc_ext || has_comment;
-        Ok(JsonDocument {
-            syntax,
-            path: path.to_path_buf(),
-            original,
-            filename,
-            comments_enabled,
-        })
+        doc.comments_enabled |= is_jsonc_ext;
+        Ok(doc)
     }
 
     fn project(&self) -> NodeTree {
@@ -149,6 +144,23 @@ pub(crate) fn split_value_comment(buffer: &str) -> (String, Option<String>) {
 }
 
 impl JsonDocument {
+    /// Parse a document from in-memory text (no file system). `comments_enabled`
+    /// is derived from content only (a `//` or `/* */` present); `load` additionally
+    /// OR's the `.jsonc` extension. The document starts with an empty `path`.
+    #[allow(clippy::should_implement_trait)] // named per PORTING.md; see cst_doc.rs
+    pub fn from_str(text: &str) -> anyhow::Result<Self> {
+        let green = crate::model::json::parse::parse(text)
+            .map_err(|e| anyhow::anyhow!("parsing JSON: {e}"))?;
+        let comments_enabled = text.contains("//") || text.contains("/*");
+        Ok(JsonDocument {
+            syntax: SyntaxNode::new_root(green),
+            path: PathBuf::new(),
+            original: text.to_string(),
+            filename: String::new(),
+            comments_enabled,
+        })
+    }
+
     pub fn save(&self) -> std::io::Result<()> {
         std::fs::write(&self.path, self.serialize())
     }

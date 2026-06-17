@@ -1,27 +1,19 @@
-[package]
-name = "confy"
+[workspace]
+members = ["crates/confy-core", "crates/confy-tui"]
+resolver = "2"
+
+[workspace.package]
 version = "0.7.0"
 edition = "2021"
 authors = ["wen"]
-description = "A TUI editor for structured config files (TOML, JSON/JSONC, and a lossless YAML subset)"
 license = "MIT"
 repository = "https://github.com/superyngo/confy"
 
-[dependencies]
-clap = { version = "4", features = ["derive"] }
+[workspace.dependencies]
 anyhow = "1"
 thiserror = "1"
 taplo = "0.14"            # lossless rowan CST backend (comments as real nodes)
 rowan = "=0.15.18"        # lossless hand-rolled JSON/JSONC CST (same version taplo uses)
-ratatui = "0.28"
-crossterm = "0.28"
-fuzzy-matcher = "0.3"
-tempfile = "3"
-dirs = "5"
-
-[dev-dependencies]
-assert_cmd = "2"
-predicates = "3"
 tempfile = "3"
 
 [profile.release]

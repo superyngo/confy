@@ -1,5 +1,5 @@
-use confy::model::document::ConfigDocument;
-use confy::model::yaml::YamlDocument;
+use confy_core::model::document::ConfigDocument;
+use confy_core::model::yaml::YamlDocument;
 use std::path::Path;
 
 #[test]
@@ -35,8 +35,8 @@ fn multi_document_is_rejected_at_load() {
 
 #[test]
 fn mutation_then_reparse_is_lossless() {
-    use confy::model::document::Mutation;
-    use confy::model::node::Seg;
+    use confy_core::model::document::Mutation;
+    use confy_core::model::node::Seg;
 
     let p = Path::new("tests/fixtures/yaml/simple-config.yaml");
     let mut doc = YamlDocument::load(p).unwrap();
@@ -70,8 +70,8 @@ fn mutation_then_reparse_is_lossless() {
 
 #[test]
 fn opaque_node_mutation_is_unsupported() {
-    use confy::model::document::{MutateError, Mutation};
-    use confy::model::node::Seg;
+    use confy_core::model::document::{MutateError, Mutation};
+    use confy_core::model::node::Seg;
 
     let p = Path::new("tests/fixtures/yaml/tags-and-anchors.yaml");
     let mut doc = YamlDocument::load(p).unwrap();
