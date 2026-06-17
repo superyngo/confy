@@ -5,25 +5,36 @@ what's next" pointer; delete or rewrite it when the port is done.
 
 ## Where we are (2026-06-17)
 
-- Branch **`port/slice-2-fs-boundary`** (off `port/slice-1-workspace-split`). Tree clean. Not pushed.
+- Branch **`port/slice-3-path-cursor`** (off `port/slice-2-fs-boundary`). Tree clean. Not pushed.
 - **Slice 1 DONE:** PORTING.md §1 (workspace split) + §2 **A1** (`from_str`) + **A3** (tempfile-free
   conversion reparse-net).
 - **Slice 2 DONE:** PORTING.md §2 **A2/A4/A5** + the §7 gate. `confy-core` is now **fully
   filesystem-free at runtime**: no `load`/`save`, no `path` field, no `tempfile` dep. `from_str` /
   `from_str_as` are the sole constructors; the host owns I/O via `confy_tui::load_document` (read →
   `from_str_as` → `set_filename` → `.jsonc` enable) and `App::save` (serialize → `fs::write` to
-  `App::source_path`). Enforced by `crates/confy-core/tests/no_fs_gate.rs`. 415 core-unit + 190 tui
-  + 26 integration tests pass; clippy `-D warnings` + `fmt --check` clean; real-binary `confy convert`
-  smoke-tested.
+  `App::source_path`). Enforced by `crates/confy-core/tests/no_fs_gate.rs`.
+- **Slice 3 DONE:** PORTING.md §3 identity reshape. `App.cursor: Path` (was a row `usize`);
+  `Selection`/`PasteSlot` re-keyed to `Path`; nav/selection/paste read `App::visible_paths()` +
+  `cursor_row()` instead of indexing `rows`. The **only** index↔path bridge is `cursor_row_index()`
+  (ratatui highlight/viewport + footer). `insertion::resolve_target` now takes `(path, is_branch, …)`,
+  not a `&RowSnapshot`. Touched methods carry `§5: CORE/HOST/SPLIT` seam comments. 415 core-unit +
+  190 tui + 26 integration tests pass; clippy `-D warnings` + `fmt --check` clean; real-binary
+  `confy convert` smoke-tested. (TUI itself not pty-driven — behavior parity is the 190-test app.rs
+  suite.)
 - Layout: `crates/confy-core/` (pure model) + `crates/confy-tui/` (ratatui TUI + CLI, binary `confy`).
   `confy-tui/src/lib.rs` does `pub use confy_core::model;` so UI modules keep `crate::model::…` paths.
 
-## Next task: PORTING.md §3 (cursor → `Path` reshape) and §5 (state-machine lift)
+## Next task: PORTING.md §5 (state-machine lift)
 
-The fs boundary is fully severed. The remaining work is the larger §3/§5 reshape — inverting
-`App.cursor: usize` (row index) to a `Path`-based selection, then lifting the `app.rs` state machine
-into `confy-core` behind a `Host` capability for the `$EDITOR`/multi-line path. See `PORTING.md` §3–§6.
-This is a big, invasive slice — scope it on its own.
+The fs boundary (§2) and the cursor identity (§3) are done. The remaining big slice is §5 — lift
+the `app.rs` state machine into `confy-core` as a `Session` (owns the doc + `cursor: Path` +
+`expanded`/`selection`/`mode`/`history`), expose `visible_rows()`/`dispatch(Intent, &dyn Host)`,
+and route the `$EDITOR`/multi-line path through a `Host::edit_text` capability. §3 already shaped
+the code for this: nav/selection logic is path-based and index-free, `visible_paths()` is the
+`visible_rows()` precursor, and the `§5: CORE/HOST/SPLIT` seam comments in `app.rs`/`selection.rs`/
+`insertion.rs` mark each method's destination. See `PORTING.md` §4–§6 (`Host` trait, portability
+map, `Session`/`Intent`/`ViewRow`/`Update` sketch, Stage-1 exit gates). Big, invasive — scope it
+on its own.
 
 ## Gotchas / don't re-derive these
 

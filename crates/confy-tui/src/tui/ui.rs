@@ -267,9 +267,12 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
         None
     };
     let mut rows: Vec<Row> = Vec::with_capacity(app.rows.len() + 1);
+    // The cursor identity is a path (§3); map it to a visible-row index here, the
+    // sole index↔path bridge on the render side.
+    let cursor_idx = app.cursor_row_index();
     // Display index (into `rows`, which may include an inserted green line) of the
     // active paste cue, so the viewport scrolls to it; else the plain cursor.
-    let mut selected_display = app.cursor;
+    let mut selected_display = cursor_idx.unwrap_or(0);
     for (i, row) in app.rows.iter().enumerate() {
         {
             let indent = "  ".repeat(row.depth);
@@ -284,7 +287,7 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
             } else {
                 "  "
             };
-            let sel_marker = if app.selection.contains(i) {
+            let sel_marker = if app.selection.contains(&row.path) {
                 "●"
             } else {
                 " "
@@ -297,7 +300,7 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
             // focused field (Value or Name) with the char under the cursor
             // reverse-highlighted — no caret glyph, so characters never shift. The
             // NAME field scrolls the same way as VALUE, after the fixed tree prefix.
-            let editing = matches!(&app.mode, Mode::Edit(e) if i == app.cursor);
+            let editing = matches!(&app.mode, Mode::Edit(_) if Some(i) == cursor_idx);
             let (name_cell, value_cell) = match &app.mode {
                 Mode::Edit(e) if editing => match e.field {
                     crate::tui::state::EditField::Value => (
@@ -329,7 +332,7 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                     }
                 }
             };
-            let is_cursor = i == app.cursor;
+            let is_cursor = Some(i) == cursor_idx;
             let in_clipboard_source = app
                 .clipboard
                 .as_ref()
@@ -340,16 +343,18 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                 let cut = app.clipboard.as_ref().is_some_and(|cb| cb.cut);
                 let bg = if cut { Color::Green } else { Color::Blue };
                 Style::default().bg(bg).fg(Color::White)
-            } else if app.selection.contains(i) {
+            } else if app.selection.contains(&row.path) {
                 Style::default().bg(Color::DarkGray)
             } else {
                 Style::default()
             };
-            let style = match active_slot {
+            // Paste slots are now path-keyed (§3); test this row's path against them.
+            let into_here = matches!(&active_slot, Some(PasteSlot::Into(p)) if *p == row.path);
+            let style = match () {
                 // Paste mode `Into`: the green branch row (append last child). An
                 // invalid target errors on v. `After` restyles nothing — its cue is
                 // the inserted green line row below.
-                Some(PasteSlot::Into(t)) if t == i => Style::default()
+                _ if into_here => Style::default()
                     .bg(Color::Green)
                     .fg(Color::Black)
                     .add_modifier(Modifier::BOLD),
@@ -362,13 +367,13 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                 _ => base,
             };
             let type_cell = type_col_cell(row, is_cursor);
-            if active_slot == Some(PasteSlot::Into(i)) {
+            if into_here {
                 selected_display = rows.len();
             }
             rows.push(Row::new([name_cell, type_cell, value_cell]).style(style));
         }
         // The green insertion line below this row when it's the `After` slot.
-        if active_slot == Some(PasteSlot::After(i)) {
+        if matches!(&active_slot, Some(PasteSlot::After(p)) if *p == row.path) {
             let expanded = app.is_expanded(&row.path);
             selected_display = rows.len();
             rows.push(paste_line_row(row, expanded, area.width));
@@ -494,7 +499,7 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
     let pos = if app.rows.is_empty() {
         0
     } else {
-        app.cursor + 1
+        app.cursor_row_index().unwrap_or(0) + 1
     };
     // In the filtered-result selection mode, surface that the list is still
     // filtered (and how to clear/refine it) rather than the generic hints.
@@ -927,7 +932,7 @@ mod tests {
             crate::model::cst_doc::CstDocument::from_str("port = 8080\n").unwrap(),
         );
         let mut app = App::new(doc);
-        app.cursor = 1; // on port
+        app.select_row(1); // on port
         app.begin_inline_edit();
         for _ in 0..4 {
             app.edit_backspace();
@@ -964,7 +969,7 @@ mod tests {
             crate::model::cst_doc::CstDocument::from_str("port = 8080\n").unwrap(),
         );
         let mut app = App::new(doc);
-        app.cursor = 1;
+        app.select_row(1);
         app.begin_inline_edit();
         for _ in 0..4 {
             app.edit_backspace();
@@ -1014,7 +1019,7 @@ mod tests {
             crate::model::cst_doc::CstDocument::from_str(&format!("blob = \"{long}\"\n")).unwrap(),
         );
         let mut app = App::new(doc);
-        app.cursor = 1; // on blob
+        app.select_row(1); // on blob
         app.open_detail();
         let render_detail = |app: &App| -> String {
             let mut t = Terminal::new(TestBackend::new(60, 20)).unwrap();

@@ -282,9 +282,10 @@ fn run_event_loop(
                             app.toggle_expand();
                             app.rebuild_rows();
                             // rebuild reset the slot — keep the user on the branch.
-                            app.paste_slot = Some(crate::tui::state::PasteSlot::Into(app.cursor));
+                            app.paste_slot =
+                                Some(crate::tui::state::PasteSlot::Into(app.cursor.clone()));
                         }
-                    } else if let Some(r) = app.rows.get(app.cursor) {
+                    } else if let Some(r) = app.cursor_row() {
                         // Enter/Space: branch toggles expand, leaf opens detail.
                         if r.is_branch {
                             app.toggle_expand();

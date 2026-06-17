@@ -36,7 +36,17 @@ pub enum EditKind {
 pub struct App {
     pub tree: NodeTree,
     pub expanded: HashSet<Path>,
-    pub cursor: usize,
+    /// Cursor identity is the **path** of the selected node, not a row index (§3:
+    /// the row-index → Path reshape). A declarative UI re-renders from a
+    /// projection, so an index cursor can't survive; the path is stable across
+    /// rebuilds. The UI maps this path back to a highlighted row index for
+    /// rendering (`cursor_row_index`). §5: CORE — moves to `Session.cursor`.
+    pub cursor: Path,
+    /// Render projection of the visible tree (tree × expanded × filter). Rebuilt
+    /// by `rebuild_rows`; the navigation/selection logic addresses it by path via
+    /// `cursor_row`/`visible_paths`, never by raw index. §5: SPLIT — the flatten
+    /// becomes `Session::visible_rows()`; ratatui presentation (`type_tag`,
+    /// padding) stays host-side.
     pub rows: Vec<RowSnapshot>,
     pub selection: Selection,
     /// True while the previous key was a shift+arrow (so the next shift+arrow
@@ -129,7 +139,7 @@ impl App {
         let mut app = App {
             tree,
             expanded: HashSet::new(),
-            cursor: 0,
+            cursor: Vec::new(),
             rows: Vec::new(),
             selection: Selection::new(),
             last_action_was_shift_select: false,
@@ -167,7 +177,7 @@ impl App {
         App {
             tree,
             expanded,
-            cursor: 0,
+            cursor: Vec::new(),
             rows: Vec::new(),
             selection: Selection::new(),
             last_action_was_shift_select: false,
@@ -194,6 +204,10 @@ impl App {
         }
     }
     pub fn rebuild_rows(&mut self) {
+        // Cursor identity is a path; remember its visible *position* first so that
+        // if the path disappears (its parent collapsed, or the node was deleted)
+        // we land on the same visible row the index cursor used to (pre-§3 parity).
+        let prev_index = self.cursor_row_index();
         let doc = self.doc_format();
         let expanded = &self.expanded;
         let rows = self
@@ -228,10 +242,16 @@ impl App {
         } else {
             rows
         };
-        if self.cursor >= self.rows.len() {
-            self.cursor = self.rows.len().saturating_sub(1);
+        // If the cursor path is no longer visible, snap to the same visible
+        // position it held before (clamped to the new length) — matching the
+        // pre-§3 index-clamp behavior after a collapse/delete.
+        if !self.rows.iter().any(|r| r.path == self.cursor) {
+            let i = prev_index
+                .unwrap_or(0)
+                .min(self.rows.len().saturating_sub(1));
+            self.cursor = self.rows.get(i).map(|r| r.path.clone()).unwrap_or_default();
         }
-        // Row indices in `paste_slot` are invalidated by any structural change
+        // Paste slots in `paste_slot` are invalidated by any structural change
         // (expand/collapse or mutation), so drop it; `effective_paste_slot` then
         // falls back to `After(cursor)` near the (re-clamped) cursor.
         if self.clipboard.is_some() {
@@ -246,13 +266,53 @@ impl App {
     pub fn visible_keys(&self) -> Vec<String> {
         self.rows.iter().map(|r| r.key.clone()).collect()
     }
+
+    /// Ordered paths of the currently visible rows — the semantic sequence the
+    /// navigation/selection logic reads (range-extend, paste-slot ordering). §5:
+    /// CORE — becomes the path projection of `Session::visible_rows()`.
+    pub fn visible_paths(&self) -> Vec<Path> {
+        self.rows.iter().map(|r| r.path.clone()).collect()
+    }
+
+    /// The RowSnapshot the cursor points at, located by path. `None` when the
+    /// cursor's path isn't currently visible (briefly, mid-rebuild). §5: HOST —
+    /// resolves the path identity against the host's render rows.
+    pub fn cursor_row(&self) -> Option<&RowSnapshot> {
+        self.rows.iter().find(|r| r.path == self.cursor)
+    }
+
+    /// Visible-row index of the cursor path, for the ratatui highlight/viewport
+    /// only. This is the **sole** index↔path bridge on the read side; the state
+    /// logic never indexes `rows` directly. §5: HOST — pure presentation mapping.
+    pub fn cursor_row_index(&self) -> Option<usize> {
+        self.rows.iter().position(|r| r.path == self.cursor)
+    }
+
+    /// Test-only convenience: place the cursor on the visible row at index `i`
+    /// (the §3 index→path bridge the pre-reshape tests used implicitly via
+    /// `app.cursor = i`). Panics if `i` is out of range, matching the old direct
+    /// index assignment.
+    #[cfg(test)]
+    pub(crate) fn select_row(&mut self, i: usize) {
+        self.cursor = self.rows[i].path.clone();
+    }
+
+    /// Test-only: the path of the visible row at index `i` (for building
+    /// path-keyed `PasteSlot`s / selection paths the pre-§3 tests expressed as
+    /// row indices). Panics if `i` is out of range.
+    #[cfg(test)]
+    pub(crate) fn row_path(&self, i: usize) -> Path {
+        self.rows[i].path.clone()
+    }
+
     pub fn cursor_down(&mut self) {
         if self.clipboard.is_some() {
             self.move_paste_slot(1);
             return;
         }
-        if self.cursor + 1 < self.rows.len() {
-            self.cursor += 1;
+        let idx = self.cursor_row_index().unwrap_or(0);
+        if idx + 1 < self.rows.len() {
+            self.cursor = self.rows[idx + 1].path.clone();
         }
     }
     pub fn cursor_up(&mut self) {
@@ -260,13 +320,20 @@ impl App {
             self.move_paste_slot(-1);
             return;
         }
-        self.cursor = self.cursor.saturating_sub(1);
+        let idx = self.cursor_row_index().unwrap_or(0);
+        if idx > 0 {
+            self.cursor = self.rows[idx - 1].path.clone();
+        }
     }
     pub fn toggle_expand(&mut self) {
-        if let Some(r) = self.rows.get(self.cursor) {
-            if r.is_branch && !self.expanded.remove(&r.path) {
-                self.expanded.insert(r.path.clone());
-            }
+        // Clone out of the row borrow before mutating `self.expanded` (the helper
+        // borrows all of `self`, unlike the old direct `rows[cursor]` field access).
+        let Some((is_branch, path)) = self.cursor_row().map(|r| (r.is_branch, r.path.clone()))
+        else {
+            return;
+        };
+        if is_branch && !self.expanded.remove(&path) {
+            self.expanded.insert(path);
         }
     }
     pub fn collapse_all(&mut self) {
@@ -293,7 +360,7 @@ impl App {
     /// press opens the shallowest not-yet-expanded level within that subtree,
     /// until it is fully open. No-op on a leaf/comment or when already full.
     pub fn expand_level(&mut self) {
-        let base = match self.rows.get(self.cursor) {
+        let base = match self.cursor_row() {
             Some(r) if r.is_branch => r.path.clone(),
             _ => return,
         };
@@ -320,19 +387,19 @@ impl App {
             self.expanded.insert(p);
         }
         self.rebuild_rows();
-        if let Some(i) = self.rows.iter().position(|r| r.path == base) {
-            self.cursor = i;
-        }
+        // `base` is still visible (it's the branch we just opened under), so the
+        // cursor lands on it directly.
+        self.cursor = base;
     }
     /// `2` — collapse one level and climb. An open branch under the cursor
     /// collapses in place; otherwise the cursor moves up to its parent branch
     /// and collapses that. Repeated presses ascend the tree.
     pub fn collapse_level(&mut self) {
-        let path = match self.rows.get(self.cursor) {
-            Some(r) => r.path.clone(),
+        let (path, is_branch) = match self.cursor_row() {
+            Some(r) => (r.path.clone(), r.is_branch),
             None => return,
         };
-        let is_open_branch = self.rows[self.cursor].is_branch && self.expanded.contains(&path);
+        let is_open_branch = is_branch && self.expanded.contains(&path);
         let target = if is_open_branch {
             path
         } else if path.is_empty() {
@@ -342,9 +409,8 @@ impl App {
         };
         self.expanded.remove(&target);
         self.rebuild_rows();
-        if let Some(i) = self.rows.iter().position(|r| r.path == target) {
-            self.cursor = i;
-        }
+        // `target` (the collapsed branch / parent) is still visible.
+        self.cursor = target;
     }
     pub fn page_up(&mut self, page_size: usize) {
         let step = page_size.max(1);
@@ -352,7 +418,10 @@ impl App {
             self.move_paste_slot(-(step as isize));
             return;
         }
-        self.cursor = self.cursor.saturating_sub(step);
+        let idx = self.cursor_row_index().unwrap_or(0).saturating_sub(step);
+        if let Some(r) = self.rows.get(idx) {
+            self.cursor = r.path.clone();
+        }
     }
     pub fn page_down(&mut self, page_size: usize) {
         let step = page_size.max(1);
@@ -361,21 +430,28 @@ impl App {
             return;
         }
         let max = self.rows.len().saturating_sub(1);
-        self.cursor = (self.cursor + step).min(max);
+        let idx = (self.cursor_row_index().unwrap_or(0) + step).min(max);
+        if let Some(r) = self.rows.get(idx) {
+            self.cursor = r.path.clone();
+        }
     }
     pub fn cursor_home(&mut self) {
         if self.clipboard.is_some() {
             self.move_paste_slot(isize::MIN / 2);
             return;
         }
-        self.cursor = 0;
+        if let Some(r) = self.rows.first() {
+            self.cursor = r.path.clone();
+        }
     }
     pub fn cursor_end(&mut self) {
         if self.clipboard.is_some() {
             self.move_paste_slot(isize::MAX / 2);
             return;
         }
-        self.cursor = self.rows.len().saturating_sub(1);
+        if let Some(r) = self.rows.last() {
+            self.cursor = r.path.clone();
+        }
     }
 
     // ---- Paste-mode insertion slots (line/branch targeting) ----
@@ -385,11 +461,11 @@ impl App {
     /// `After` (line below it); each leaf contributes just an `After`.
     pub fn paste_slots(&self) -> Vec<PasteSlot> {
         let mut slots = Vec::with_capacity(self.rows.len() * 2);
-        for (i, row) in self.rows.iter().enumerate() {
+        for row in self.rows.iter() {
             if row.is_branch {
-                slots.push(PasteSlot::Into(i));
+                slots.push(PasteSlot::Into(row.path.clone()));
             }
-            slots.push(PasteSlot::After(i));
+            slots.push(PasteSlot::After(row.path.clone()));
         }
         slots
     }
@@ -398,7 +474,9 @@ impl App {
     /// a paste right after copy/cut lands exactly where the pre-line-paste cursor
     /// would have (`resolve_target` parity).
     pub fn effective_paste_slot(&self) -> PasteSlot {
-        self.paste_slot.unwrap_or(PasteSlot::After(self.cursor))
+        self.paste_slot
+            .clone()
+            .unwrap_or_else(|| PasteSlot::After(self.cursor.clone()))
     }
 
     /// Step the active slot by `delta` through `paste_slots`, clamped to range, and
@@ -412,19 +490,19 @@ impl App {
         let idx = slots.iter().position(|s| *s == cur).unwrap_or(0) as isize;
         let max = slots.len() as isize - 1;
         let next = (idx + delta).clamp(0, max) as usize;
-        let slot = slots[next];
-        self.paste_slot = Some(slot);
-        self.cursor = match slot {
-            PasteSlot::Into(i) | PasteSlot::After(i) => i,
+        let slot = slots[next].clone();
+        self.cursor = match &slot {
+            PasteSlot::Into(p) | PasteSlot::After(p) => p.clone(),
         };
+        self.paste_slot = Some(slot);
     }
 
-    /// Resolve a paste slot to a concrete insertion `Target` (the row index is
+    /// Resolve a paste slot to a concrete insertion `Target` (the path is
     /// re-checked against the current rows; `None` if it is stale).
     fn slot_target(&self, slot: PasteSlot) -> Option<Target> {
         match slot {
-            PasteSlot::Into(i) => {
-                let row = self.rows.get(i)?;
+            PasteSlot::Into(p) => {
+                let row = self.rows.iter().find(|r| r.path == p)?;
                 let index = self
                     .tree
                     .node_at(&row.path)
@@ -435,12 +513,13 @@ impl App {
                     index,
                 })
             }
-            PasteSlot::After(i) => {
-                let row = self.rows.get(i)?;
+            PasteSlot::After(p) => {
+                let row = self.rows.iter().find(|r| r.path == p)?;
                 let expanded = self.expanded.contains(&row.path);
                 let sibling_index = self.true_sibling_index(&row.path);
                 Some(crate::tui::insertion::resolve_target(
-                    row,
+                    &row.path,
+                    row.is_branch,
                     expanded,
                     sibling_index,
                 ))
@@ -573,7 +652,7 @@ impl App {
     }
 
     pub fn open_kind_switch(&mut self) {
-        let Some(row) = self.rows.get(self.cursor) else {
+        let Some(row) = self.cursor_row() else {
             return;
         };
         let path = row.path.clone();
@@ -636,7 +715,7 @@ impl App {
 
     /// `C` — open the document-conversion flow. Only valid on the Root/file node.
     pub fn open_convert(&mut self) {
-        let Some(row) = self.rows.get(self.cursor) else {
+        let Some(row) = self.cursor_row() else {
             return;
         };
         if !row.path.is_empty() {
@@ -943,7 +1022,7 @@ impl App {
     /// Open the read-only detail popup for the cursor node. Leaves show
     /// type/format/value; branches show their kind and child count.
     pub fn open_detail(&mut self) {
-        let row = match self.rows.get(self.cursor) {
+        let row = match self.cursor_row() {
             Some(r) => r.clone(),
             None => return,
         };
@@ -1055,7 +1134,7 @@ impl App {
         if self.clipboard.is_some() {
             return; // clipboard mode: selection locked
         }
-        self.selection.toggle(self.cursor);
+        self.selection.toggle(self.cursor.clone());
     }
 
     /// Extend range selection upward (Shift+Up). A fresh shift run (the previous
@@ -1065,11 +1144,14 @@ impl App {
             return; // clipboard mode: use plain cursor movement instead
         }
         if !self.last_action_was_shift_select {
-            self.selection.begin_round(self.cursor);
+            self.selection.begin_round(self.cursor.clone());
         }
-        if self.cursor > 0 {
-            self.cursor -= 1;
-            self.selection.extend_round_to(self.cursor);
+        let idx = self.cursor_row_index().unwrap_or(0);
+        if idx > 0 {
+            self.cursor = self.rows[idx - 1].path.clone();
+            let visible = self.visible_paths();
+            let to = self.cursor.clone();
+            self.selection.extend_round_to(&visible, &to);
         }
         self.last_action_was_shift_select = true;
     }
@@ -1080,11 +1162,14 @@ impl App {
             return; // clipboard mode: use plain cursor movement instead
         }
         if !self.last_action_was_shift_select {
-            self.selection.begin_round(self.cursor);
+            self.selection.begin_round(self.cursor.clone());
         }
-        if self.cursor + 1 < self.rows.len() {
-            self.cursor += 1;
-            self.selection.extend_round_to(self.cursor);
+        let idx = self.cursor_row_index().unwrap_or(0);
+        if idx + 1 < self.rows.len() {
+            self.cursor = self.rows[idx + 1].path.clone();
+            let visible = self.visible_paths();
+            let to = self.cursor.clone();
+            self.selection.extend_round_to(&visible, &to);
         }
         self.last_action_was_shift_select = true;
     }
@@ -1093,16 +1178,12 @@ impl App {
     pub fn selected_paths(&self) -> Vec<Path> {
         if self.selection.is_empty() {
             return self
-                .rows
-                .get(self.cursor)
+                .cursor_row()
                 .map(|r| vec![r.path.clone()])
                 .unwrap_or_default();
         }
-        let paths: Vec<Path> = self
-            .selection
-            .iter()
-            .filter_map(|i| self.rows.get(i).map(|r| r.path.clone()))
-            .collect();
+        // The selection is keyed by path directly (§3) — no row-index lookup.
+        let paths: Vec<Path> = self.selection.iter().collect();
         crate::tui::selection::normalize(paths)
     }
 
@@ -1110,8 +1191,7 @@ impl App {
     /// comment). Such nodes may be copied but must not be edited, deleted, cut,
     /// or remarked.
     fn cursor_is_read_only(&self) -> bool {
-        self.rows
-            .get(self.cursor)
+        self.cursor_row()
             .and_then(|r| self.tree.node_at(&r.path))
             .map(|n| n.read_only)
             .unwrap_or(false)
@@ -1124,7 +1204,7 @@ impl App {
             self.status = Some("read-only node (block comment)".into());
             return;
         }
-        let cursor_row = match self.rows.get(self.cursor) {
+        let cursor_row = match self.cursor_row() {
             Some(r) => r.clone(),
             None => return,
         };
@@ -1285,7 +1365,7 @@ impl App {
     /// Multiline strings are also routed to $EDITOR: their repr carries real
     /// newlines the single-line inline editor cannot represent.
     pub fn edit_target_kind(&self) -> EditKind {
-        let path = match self.rows.get(self.cursor) {
+        let path = match self.cursor_row() {
             Some(r) => &r.path,
             None => return EditKind::External,
         };
@@ -1411,7 +1491,7 @@ impl App {
     /// Enter the inline editor for the cursor scalar, pre-filled with its value
     /// repr (quotes/base prefix included, so the user edits the literal form).
     pub fn begin_inline_edit(&mut self) {
-        let row = match self.rows.get(self.cursor) {
+        let row = match self.cursor_row() {
             Some(r) => r,
             None => return,
         };
@@ -1480,7 +1560,7 @@ impl App {
     /// including [T/D] synthetic tables, [T/S] scope tables, and [A/T] groups.
     /// Skips the value Replace step on commit (rename-only).
     pub fn begin_inline_rename(&mut self) {
-        let row = match self.rows.get(self.cursor) {
+        let row = match self.cursor_row() {
             Some(r) => r,
             None => return,
         };
@@ -1637,10 +1717,8 @@ impl App {
                 self.tree = doc.project();
             }
         }
+        // `rebuild_rows` re-snaps the cursor when its path has vanished.
         self.rebuild_rows();
-        if self.cursor >= self.rows.len() {
-            self.cursor = self.rows.len().saturating_sub(1);
-        }
     }
 
     /// Commit the inline edit. First apply a key rename if the Name field changed
@@ -1760,8 +1838,7 @@ impl App {
                 // deferred whole, so `n` leaves the document untouched. JSON has no
                 // dotted keys, so a rename never changes type — skip the check.
                 let old_label = self
-                    .rows
-                    .get(self.cursor)
+                    .cursor_row()
                     .map(|r| r.type_label.clone())
                     .unwrap_or_default();
                 let new_label = self
@@ -1836,8 +1913,7 @@ impl App {
             None => (format!("{frag_key} = {value_str}\n"), String::new()),
         };
         let old_label = self
-            .rows
-            .get(self.cursor)
+            .cursor_row()
             .map(|r| r.type_label.clone())
             .unwrap_or_default();
         if new_label != old_label {
@@ -1887,7 +1963,7 @@ impl App {
     /// its least-significant digit, preserving the written format. No-op for
     /// strings, datetimes, and anything not an inline-editable scalar.
     pub fn nudge(&mut self, delta: i64) {
-        let path = match self.rows.get(self.cursor) {
+        let path = match self.cursor_row() {
             Some(r) => r.path.clone(),
             None => return,
         };
@@ -1957,7 +2033,7 @@ impl App {
         if self.doc.is_none() {
             return;
         }
-        let cursor_row = match self.rows.get(self.cursor).cloned() {
+        let cursor_row = match self.cursor_row().cloned() {
             Some(r) => r,
             None => return,
         };
@@ -2084,8 +2160,8 @@ impl App {
             Some(k) => new_path.push(Seg::Key(k.clone())),
             None => new_path.push(Seg::Index(target.index)),
         }
-        if let Some(idx) = self.rows.iter().position(|r| r.path == new_path) {
-            self.cursor = idx;
+        if self.rows.iter().any(|r| r.path == new_path) {
+            self.cursor = new_path;
             if inline {
                 self.begin_inline_edit();
                 // Flag the session so Esc rolls the just-inserted seed back.
@@ -2122,8 +2198,8 @@ impl App {
         }
         let mut new_path = target.parent.clone();
         new_path.push(Seg::Index(target.index));
-        if let Some(idx) = self.rows.iter().position(|r| r.path == new_path) {
-            self.cursor = idx;
+        if self.rows.iter().any(|r| r.path == new_path) {
+            self.cursor = new_path;
             self.status = Some("added comment — edit with e".into());
         }
     }
@@ -2625,7 +2701,7 @@ impl App {
             self.status = Some("read-only node (block comment)".into());
             return;
         }
-        let path = match self.rows.get(self.cursor) {
+        let path = match self.cursor_row() {
             Some(r) => r.path.clone(),
             None => return,
         };
@@ -2796,7 +2872,7 @@ impl App {
                         return PromptOutcome::Consumed;
                     }
                 };
-                let cursor_row = match self.rows.get(self.cursor) {
+                let cursor_row = match self.cursor_row() {
                     Some(r) => r.clone(),
                     None => {
                         self.mode = Mode::Normal;
@@ -2805,8 +2881,12 @@ impl App {
                 };
                 let expanded = self.expanded.contains(&cursor_row.path);
                 let sibling_index = self.true_sibling_index(&cursor_row.path);
-                let target =
-                    crate::tui::insertion::resolve_target(&cursor_row, expanded, sibling_index);
+                let target = crate::tui::insertion::resolve_target(
+                    &cursor_row.path,
+                    cursor_row.is_branch,
+                    expanded,
+                    sibling_index,
+                );
                 self.mode = Mode::Normal;
                 self.do_paste(
                     Clipboard {
@@ -3204,7 +3284,11 @@ mod tests {
         b.path = vec![Seg::Key("b".into())];
         let mut root = Node::branch("f.toml", NodeKind::Root);
         root.children = vec![a, b];
-        App::from_tree(NodeTree { root })
+        let mut app = App::from_tree(NodeTree { root });
+        // Populate the render rows so path-keyed `select_row`/`row_path` resolve
+        // (pre-§3 these tests set `app.cursor = 1` directly on empty rows).
+        app.rebuild_rows();
+        app
     }
 
     /// root > [port (bare decimal int), host (bare basic string)].
@@ -3420,7 +3504,7 @@ mod tests {
     fn selection_ops_are_blocked_while_clipboard_active() {
         let mut app = sample();
         // Move cursor to a leaf so we have something selectable.
-        app.cursor = 1;
+        app.select_row(1);
         // Load a clipboard (simulates copy).
         app.clipboard = Some(Clipboard {
             fragments: vec!["x = 1\n".into()],
@@ -3472,7 +3556,7 @@ mod tests {
         app.collapse_all();
         app.rebuild_rows();
         assert_eq!(below(&app), vec!["a"]);
-        app.cursor = app.visible_keys().iter().position(|k| k == "a").unwrap();
+        app.select_row(app.visible_keys().iter().position(|k| k == "a").unwrap());
         app.expand_level();
         assert_eq!(below(&app), vec!["a", "p", "b"]);
         app.expand_level();
@@ -3483,7 +3567,7 @@ mod tests {
         let before = below(&app);
         app.expand_level();
         assert_eq!(below(&app), before);
-        assert_eq!(app.rows[app.cursor].key, "a");
+        assert_eq!(app.cursor_row().unwrap().key, "a");
     }
 
     #[test]
@@ -3492,19 +3576,19 @@ mod tests {
         let below = |app: &App| app.visible_keys()[1..].to_vec();
         app.collapse_all();
         app.rebuild_rows();
-        app.cursor = app.visible_keys().iter().position(|k| k == "a").unwrap();
+        app.select_row(app.visible_keys().iter().position(|k| k == "a").unwrap());
         app.expand_level();
         assert_eq!(below(&app), vec!["a", "p", "b"]);
         // Cursor on the open branch `a` -> collapse in place, cursor stays.
         app.collapse_level();
         assert_eq!(below(&app), vec!["a"]);
-        assert_eq!(app.rows[app.cursor].key, "a");
+        assert_eq!(app.cursor_row().unwrap().key, "a");
         // Reopen, drop cursor on leaf `p` -> collapse ascends to parent `a`.
         app.expand_level();
-        app.cursor = app.visible_keys().iter().position(|k| k == "p").unwrap();
+        app.select_row(app.visible_keys().iter().position(|k| k == "p").unwrap());
         app.collapse_level();
         assert_eq!(below(&app), vec!["a"]);
-        assert_eq!(app.rows[app.cursor].key, "a");
+        assert_eq!(app.cursor_row().unwrap().key, "a");
     }
 
     #[test]
@@ -3513,13 +3597,18 @@ mod tests {
         let mut app = app_with("a = 1\nb = 2\nc = 3\nd = 4\ne = 5\n");
         app.rebuild_rows();
         // rows: f.toml(0) a(1) b(2) c(3) d(4) e(5)
-        app.cursor = 1;
+        app.select_row(1);
         app.extend_select_down(); // round 1 -> {1,2}
                                   // a non-shift key (handled in the event loop) resets the flag:
         app.last_action_was_shift_select = false;
-        app.cursor = 4;
+        app.select_row(4);
         app.extend_select_down(); // round 2 from a fresh anchor -> {4,5}
-        let sel: HashSet<usize> = app.selection.iter().collect();
+                                  // Selection is path-keyed (§3); map back to row indices for the assertion.
+        let sel: HashSet<usize> = app
+            .selection
+            .iter()
+            .filter_map(|p| app.rows.iter().position(|r| r.path == p))
+            .collect();
         assert_eq!(
             sel,
             HashSet::from([1, 2, 4, 5]),
@@ -3573,7 +3662,7 @@ mod tests {
     #[test]
     fn kind_switch_converts_scalar_via_popup() {
         let mut app = app_with("a = \"42\"\nb = 1\n");
-        app.cursor = app.rows.iter().position(|r| r.key == "a").unwrap();
+        app.select_row(app.rows.iter().position(|r| r.key == "a").unwrap());
         app.open_kind_switch();
         let Mode::KindSwitch(st) = &app.mode else {
             panic!("popup should be open");
@@ -3590,13 +3679,13 @@ mod tests {
     fn convert_flow_opens_only_on_root() {
         let mut app = app_with("a = 1\n");
         // On a non-root node it refuses.
-        app.cursor = app.rows.iter().position(|r| r.key == "a").unwrap();
+        app.select_row(app.rows.iter().position(|r| r.key == "a").unwrap());
         app.open_convert();
         assert!(matches!(app.mode, Mode::Normal));
         assert!(app.error.as_deref().unwrap_or("").contains("root"));
         // On the root node it opens with the other two formats offered.
         app.error = None;
-        app.cursor = app.rows.iter().position(|r| r.path.is_empty()).unwrap();
+        app.select_row(app.rows.iter().position(|r| r.path.is_empty()).unwrap());
         app.open_convert();
         let Mode::Convert(st) = &app.mode else {
             panic!("convert flow should be open");
@@ -3612,7 +3701,7 @@ mod tests {
         let mut app = app_with("a = 1\nb = \"x\"\n");
         let out = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
         app.source_path = Some(out.path().to_path_buf());
-        app.cursor = app.rows.iter().position(|r| r.path.is_empty()).unwrap();
+        app.select_row(app.rows.iter().position(|r| r.path.is_empty()).unwrap());
         app.open_convert();
         // Pick JSON.
         if let Mode::Convert(st) = &mut app.mode {
@@ -3645,7 +3734,7 @@ mod tests {
     fn convert_flow_lossy_requires_confirm() {
         let mut app = app_with("n = 0xFF\n");
         let out = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
-        app.cursor = app.rows.iter().position(|r| r.path.is_empty()).unwrap();
+        app.select_row(app.rows.iter().position(|r| r.path.is_empty()).unwrap());
         app.open_convert();
         if let Mode::Convert(st) = &mut app.mode {
             st.cursor = st
@@ -3676,7 +3765,7 @@ mod tests {
     #[test]
     fn kind_switch_rejects_bool_scalar() {
         let mut app = app_with("a = true\n");
-        app.cursor = app.rows.iter().position(|r| r.key == "a").unwrap();
+        app.select_row(app.rows.iter().position(|r| r.key == "a").unwrap());
         app.open_kind_switch();
         assert!(matches!(app.mode, Mode::Normal), "popup must not open");
         assert!(app.error.as_deref().unwrap_or("").contains("cannot"));
@@ -3688,8 +3777,10 @@ mod tests {
         app.cursor = app
             .rows
             .iter()
-            .position(|r| r.key.starts_with('#'))
-            .unwrap();
+            .find(|r| r.key.starts_with('#'))
+            .unwrap()
+            .path
+            .clone();
         app.open_kind_switch();
         assert!(matches!(app.mode, Mode::Normal), "popup must not open");
         assert!(app.error.as_deref().unwrap_or("").contains("cannot"));
@@ -3705,10 +3796,16 @@ mod tests {
         }
         app.rebuild_rows();
         let ai = app.rows.iter().position(|r| r.key == "a").unwrap();
-        app.cursor = ai;
+        app.select_row(ai);
         app.cut_selected();
-        let di = app.rows.iter().position(|r| r.key == "dest").unwrap();
-        app.paste_slot = Some(crate::tui::app::PasteSlot::Into(di));
+        let di = app
+            .rows
+            .iter()
+            .find(|r| r.key == "dest")
+            .unwrap()
+            .path
+            .clone();
+        app.paste_slot = Some(crate::tui::app::PasteSlot::Into(di.clone()));
         app.cursor = di;
         app.paste();
         assert_eq!(
@@ -3773,7 +3870,7 @@ mod tests {
         let mut app = app_with("# old\nx = 1\n");
         app.expand_all();
         app.rebuild_rows();
-        app.cursor = 1; // the comment node
+        app.select_row(1); // the comment node
         assert_eq!(app.edit_target_kind(), EditKind::Inline);
         app.begin_inline_edit();
         let e = match &app.mode {
@@ -3809,7 +3906,7 @@ mod tests {
         app.expand_all();
         app.rebuild_rows();
         let pos = app.rows.iter().position(|r| r.key == "# test").unwrap();
-        app.cursor = pos;
+        app.select_row(pos);
         assert_eq!(app.edit_target_kind(), EditKind::Inline);
         app.begin_inline_edit();
         if let Mode::Edit(ref mut e) = app.mode {
@@ -3835,7 +3932,7 @@ mod tests {
         app.expand_all();
         app.rebuild_rows();
         let pos = app.rows.iter().position(|r| r.key == "#123").unwrap();
-        app.cursor = pos;
+        app.select_row(pos);
         assert_eq!(app.edit_target_kind(), EditKind::Inline);
         app.begin_inline_edit();
         if let Mode::Edit(ref mut e) = app.mode {
@@ -3854,7 +3951,7 @@ mod tests {
         let mut app = app_with("# a\n# b\nx = 1\n");
         app.expand_all();
         app.rebuild_rows();
-        app.cursor = 1; // merged multi-line comment node
+        app.select_row(1); // merged multi-line comment node
         assert_eq!(app.edit_target_kind(), EditKind::External);
     }
 
@@ -3864,7 +3961,7 @@ mod tests {
         let before = app.doc.as_ref().unwrap().serialize();
         app.expand_all();
         app.rebuild_rows();
-        app.cursor = 1;
+        app.select_row(1);
         app.begin_inline_edit();
         if let Mode::Edit(ref mut e) = app.mode {
             e.buffer = "not a comment".into();
@@ -3969,7 +4066,7 @@ mod tests {
     fn cut_then_paste_moves_node() {
         let mut app = app_with("a = 1\n[dest]\n");
         // cursor on `a` (row 1, after root)
-        app.cursor = 1;
+        app.select_row(1);
         // cut
         app.cut_selected();
         assert!(app.clipboard.is_some());
@@ -3984,7 +4081,7 @@ mod tests {
         app.expand_all();
         app.rebuild_rows();
         let dest_idx = app.rows.iter().position(|r| r.key == "dest").unwrap();
-        app.cursor = dest_idx;
+        app.select_row(dest_idx);
 
         // paste
         app.paste();
@@ -4001,7 +4098,7 @@ mod tests {
     #[test]
     fn delete_selected_removes_node() {
         let mut app = app_with("a = 1\nb = 2\n");
-        app.cursor = 1; // on `a`
+        app.select_row(1); // on `a`
         app.delete_selected();
         let s = app.doc.as_ref().unwrap().serialize();
         assert!(!s.contains("a = 1"));
@@ -4011,7 +4108,7 @@ mod tests {
     #[test]
     fn undo_restores_after_delete() {
         let mut app = app_with("a = 1\n");
-        app.cursor = 1;
+        app.select_row(1);
         app.delete_selected();
         assert!(!app.doc.as_ref().unwrap().serialize().contains("a = 1"));
         app.undo();
@@ -4024,7 +4121,7 @@ mod tests {
     #[test]
     fn redo_reapplies_after_undo() {
         let mut app = app_with("a = 1\n");
-        app.cursor = 1;
+        app.select_row(1);
         app.delete_selected();
         app.undo();
         assert!(app.doc.as_ref().unwrap().serialize().contains("a = 1"));
@@ -4038,7 +4135,7 @@ mod tests {
     #[test]
     fn remark_toggles_comment() {
         let mut app = app_with("port = 8080\n");
-        app.cursor = 1; // on port
+        app.select_row(1); // on port
         app.remark();
         let s = app.doc.as_ref().unwrap().serialize();
         assert!(
@@ -4060,7 +4157,7 @@ mod tests {
         app.expand_level();
         app.rebuild_rows();
         let ai = app.rows.iter().position(|r| r.key == "a").unwrap();
-        app.cursor = ai;
+        app.select_row(ai);
 
         // Remark on a live node in a pure .json must show the JSONC-upgrade prompt.
         app.remark();
@@ -4096,7 +4193,7 @@ mod tests {
         // hold [frag_b] (the remaining unprocessed fragment), not [frag_a, frag_b].
         let mut app = app_with("b = 99\n");
         app.rebuild_rows();
-        app.cursor = 0; // root
+        app.select_row(0); // root
         let target = crate::model::document::Target {
             parent: vec![],
             index: 0,
@@ -4246,7 +4343,7 @@ mod tests {
             "filter (and its highlight) survives detail"
         );
         // Inline edit: cancel returns to the filtered selection too.
-        app.cursor = app.rows.iter().position(|r| r.key == "port").unwrap();
+        app.select_row(app.rows.iter().position(|r| r.key == "port").unwrap());
         app.begin_inline_edit();
         assert!(matches!(app.mode, Mode::Edit(_)));
         app.edit_cancel();
@@ -4258,7 +4355,7 @@ mod tests {
     fn edit_delete_removes_char_at_cursor() {
         let mut app = app_with("port = 8080\n");
         app.rebuild_rows();
-        app.cursor = app.rows.iter().position(|r| r.key == "port").unwrap();
+        app.select_row(app.rows.iter().position(|r| r.key == "port").unwrap());
         app.begin_inline_edit();
         app.edit_cursor_home(); // caret before "8080"
         app.edit_delete(); // remove the '8'
@@ -4380,25 +4477,25 @@ mod tests {
         app.expand_all();
         app.rebuild_rows();
         // scalar directly under Root → inline
-        app.cursor = idx_of(&app, "port");
+        app.select_row(idx_of(&app, "port"));
         assert_eq!(app.edit_target_kind(), EditKind::Inline);
         // scalar directly under a [table] → inline
-        app.cursor = idx_of(&app, "host");
+        app.select_row(idx_of(&app, "host"));
         assert_eq!(app.edit_target_kind(), EditKind::Inline);
         // a [table] branch → external
-        app.cursor = idx_of(&app, "server");
+        app.select_row(idx_of(&app, "server"));
         assert_eq!(app.edit_target_kind(), EditKind::External);
         // a single-line array / inline table → inline (edited as its one-line repr)
-        app.cursor = idx_of(&app, "arr");
+        app.select_row(idx_of(&app, "arr"));
         assert_eq!(app.edit_target_kind(), EditKind::Inline);
-        app.cursor = idx_of(&app, "pt");
+        app.select_row(idx_of(&app, "pt"));
         assert_eq!(app.edit_target_kind(), EditKind::Inline);
         // scalar element directly in a top-level array → inline
-        app.cursor = idx_of(&app, "[0]");
+        app.select_row(idx_of(&app, "[0]"));
         assert_eq!(app.edit_target_kind(), EditKind::Inline);
         // scalar member of an inline table → inline (value Replace + key Rename
         // both address it via an all-`Key` path)
-        app.cursor = idx_of(&app, "y");
+        app.select_row(idx_of(&app, "y"));
         assert_eq!(app.edit_target_kind(), EditKind::Inline);
     }
 
@@ -4422,9 +4519,9 @@ mod tests {
         app.rebuild_rows();
         let p_arr = vec![Seg::Key("aa".into()), Seg::Index(0)];
         let p_inl = vec![Seg::Key("ai".into()), Seg::Index(0)];
-        app.cursor = app.rows.iter().position(|r| r.path == p_arr).unwrap();
+        app.select_row(app.rows.iter().position(|r| r.path == p_arr).unwrap());
         assert_eq!(app.edit_target_kind(), EditKind::Inline);
-        app.cursor = app.rows.iter().position(|r| r.path == p_inl).unwrap();
+        app.select_row(app.rows.iter().position(|r| r.path == p_inl).unwrap());
         assert_eq!(app.edit_target_kind(), EditKind::Inline);
     }
 
@@ -4434,10 +4531,10 @@ mod tests {
         app.expand_all();
         app.rebuild_rows();
         // multiline string scalar → external (inline editor is single-line)
-        app.cursor = idx_of(&app, "ml");
+        app.select_row(idx_of(&app, "ml"));
         assert_eq!(app.edit_target_kind(), EditKind::External);
         // single-line string scalar → inline (control)
-        app.cursor = idx_of(&app, "single");
+        app.select_row(idx_of(&app, "single"));
         assert_eq!(app.edit_target_kind(), EditKind::Inline);
     }
 
@@ -4449,7 +4546,7 @@ mod tests {
         let mut app = app_with("arr = [\n  \"first\",\n  \"second\",\n]\n");
         app.expand_all();
         app.rebuild_rows();
-        app.cursor = idx_of(&app, "[0]");
+        app.select_row(idx_of(&app, "[0]"));
         assert_eq!(app.edit_target_kind(), EditKind::Inline);
     }
 
@@ -4465,7 +4562,7 @@ mod tests {
             .iter()
             .position(|r| r.value.as_deref() == Some("3"))
             .unwrap();
-        app.cursor = pos;
+        app.select_row(pos);
         assert_eq!(app.edit_target_kind(), EditKind::Inline);
     }
 
@@ -4504,7 +4601,7 @@ mod tests {
         app.expand_all();
         app.rebuild_rows();
         let pos = app.rows.iter().position(|r| r.key == "sku").unwrap();
-        app.cursor = pos;
+        app.select_row(pos);
         assert_eq!(app.edit_target_kind(), EditKind::Inline);
     }
 
@@ -4517,7 +4614,7 @@ mod tests {
         app.expand_all();
         app.rebuild_rows();
         let pos = app.rows.iter().position(|r| r.key == "a").unwrap();
-        app.cursor = pos;
+        app.select_row(pos);
         assert_eq!(app.edit_target_kind(), EditKind::Inline);
     }
 
@@ -4583,7 +4680,7 @@ mod tests {
     #[test]
     fn nudge_writes_back_through_replace() {
         let mut app = app_with("port = 8080\n");
-        app.cursor = 1; // on port
+        app.select_row(1); // on port
         app.nudge(1);
         assert!(app
             .doc
@@ -4602,7 +4699,7 @@ mod tests {
         app.edit_cancel();
         assert!(app.pending_trailing.is_none());
         // A subsequent nudge writes only the value, no stray comment.
-        app.cursor = 1;
+        app.select_row(1);
         app.nudge(1);
         let out = app.doc.as_ref().unwrap().serialize();
         assert!(
@@ -4614,7 +4711,7 @@ mod tests {
     #[test]
     fn inline_commit_same_type_applies_replace() {
         let mut app = app_with("port = 8080\n");
-        app.cursor = 1;
+        app.select_row(1);
         app.begin_inline_edit();
         for _ in 0..4 {
             app.edit_backspace();
@@ -4636,7 +4733,7 @@ mod tests {
     fn inline_tab_edits_name_and_renames_key_on_commit() {
         use crate::tui::state::EditField;
         let mut app = app_with("port = 8080\n");
-        app.cursor = 1;
+        app.select_row(1);
         app.begin_inline_edit();
         // Tab switches to the Name field (active buffer becomes the key "port").
         app.edit_toggle_field();
@@ -4660,7 +4757,7 @@ mod tests {
         // rename, turning it into a `[T/D]` table (issue 4).
         use crate::tui::state::EditField;
         let mut app = app_with("foo = 1\n");
-        app.cursor = 1;
+        app.select_row(1);
         app.begin_inline_edit();
         app.edit_toggle_field();
         assert!(matches!(&app.mode, Mode::Edit(e) if e.field == EditField::Name));
@@ -4680,7 +4777,7 @@ mod tests {
     #[test]
     fn inline_rename_to_dotted_cancel_leaves_doc_untouched() {
         let mut app = app_with("foo = 1\n");
-        app.cursor = 1;
+        app.select_row(1);
         app.begin_inline_edit();
         app.edit_toggle_field();
         for c in ".x".chars() {
@@ -4697,7 +4794,7 @@ mod tests {
         let mut app = app_with("arr = [1, 2]\n");
         app.expand_all();
         app.rebuild_rows();
-        app.cursor = idx_of(&app, "[0]");
+        app.select_row(idx_of(&app, "[0]"));
         app.begin_inline_edit();
         app.edit_toggle_field(); // array element has no name → stays on Value
         assert!(matches!(&app.mode, Mode::Edit(e) if e.field == EditField::Value));
@@ -4706,7 +4803,7 @@ mod tests {
     #[test]
     fn inline_commit_type_change_enters_prompt_then_confirms() {
         let mut app = app_with("port = 8080\n");
-        app.cursor = 1;
+        app.select_row(1);
         app.begin_inline_edit();
         for _ in 0..4 {
             app.edit_backspace();
@@ -4734,7 +4831,7 @@ mod tests {
     fn inline_commit_invalid_toml_keeps_editor_open() {
         let mut app = app_with("port = 8080\n");
         let before = app.doc.as_ref().unwrap().serialize();
-        app.cursor = 1;
+        app.select_row(1);
         app.begin_inline_edit();
         for _ in 0..4 {
             app.edit_backspace();
@@ -4771,7 +4868,7 @@ mod tests {
     #[test]
     fn inline_editor_home_end_move_cursor() {
         let mut app = app_with("port = 8080\n");
-        app.cursor = 1;
+        app.select_row(1);
         app.begin_inline_edit();
         // buffer is "8080", cursor starts at end (4)
         app.edit_cursor_home();
@@ -4791,7 +4888,7 @@ mod tests {
     #[test]
     fn add_node_inserts_empty_string_and_enters_edit() {
         let mut app = app_with("a = 1\n");
-        app.cursor = 1; // on a
+        app.select_row(1); // on a
         app.add_node();
         assert!(
             matches!(app.mode, Mode::Edit(_)),
@@ -4813,7 +4910,7 @@ mod tests {
         // idea 3 / idea 5: `a` on a collapsed `[t]` adds a sibling `[placeholder]`
         // (a scalar there would be captured by `[t]`), no inline edit.
         let mut app = app_with("[t]\nx = 1\n");
-        app.cursor = app.rows.iter().position(|r| r.key == "t").unwrap(); // collapsed
+        app.select_row(app.rows.iter().position(|r| r.key == "t").unwrap()); // collapsed
         app.add_node();
         assert!(
             !matches!(app.mode, Mode::Edit(_)),
@@ -4831,7 +4928,7 @@ mod tests {
         // table — an empty `[placeholder]` scope table, no inline edit.
         // `[T/D]` tables start collapsed, so `a` is a collapsed branch.
         let mut app = app_with("a.b = 1\n");
-        app.cursor = app.rows.iter().position(|r| r.key == "a").unwrap();
+        app.select_row(app.rows.iter().position(|r| r.key == "a").unwrap());
         app.add_node();
         assert!(!matches!(app.mode, Mode::Edit(_)), "table add: no inline");
         let s = app.doc.as_ref().unwrap().serialize();
@@ -4843,7 +4940,7 @@ mod tests {
         // Same-kind model: `a` on a collapsed array adds an empty array sibling
         // right after it in the same scope — no stray scalar two rows up.
         let mut app = app_with("nums = [1, 2]\nname = \"x\"\n");
-        app.cursor = app.rows.iter().position(|r| r.key == "nums").unwrap();
+        app.select_row(app.rows.iter().position(|r| r.key == "nums").unwrap());
         app.add_node();
         assert!(!matches!(app.mode, Mode::Edit(_)), "array add: no inline");
         let s = app.doc.as_ref().unwrap().serialize();
@@ -4860,8 +4957,10 @@ mod tests {
         app.cursor = app
             .rows
             .iter()
-            .position(|r| r.path == vec![Seg::Key("nums".into()), Seg::Index(0)])
-            .unwrap();
+            .find(|r| r.path == vec![Seg::Key("nums".into()), Seg::Index(0)])
+            .unwrap()
+            .path
+            .clone();
         app.add_node();
         assert!(matches!(app.mode, Mode::Edit(_)), "scalar element: inline");
         assert_eq!(
@@ -4875,7 +4974,7 @@ mod tests {
         // Item 2a: `a` opens the inline editor on a seed; Esc removes the seed and
         // leaves the document (and undo history) exactly as before the add.
         let mut app = app_with("a = 1\nb = 2\n");
-        app.cursor = app.rows.iter().position(|r| r.key == "a").unwrap();
+        app.select_row(app.rows.iter().position(|r| r.key == "a").unwrap());
         app.add_node();
         assert!(matches!(app.mode, Mode::Edit(_)));
         assert_eq!(
@@ -4895,7 +4994,7 @@ mod tests {
         // A cancelled edit of an *existing* node leaves it intact (created_on_add
         // is false), so the rollback path must not fire.
         let mut app = app_with("a = 1\nb = 2\n");
-        app.cursor = app.rows.iter().position(|r| r.key == "a").unwrap();
+        app.select_row(app.rows.iter().position(|r| r.key == "a").unwrap());
         app.begin_inline_edit();
         app.edit_cancel();
         assert_eq!(app.doc.as_ref().unwrap().serialize(), "a = 1\nb = 2\n");
@@ -4906,7 +5005,7 @@ mod tests {
         // `a` on a scalar leaf adds an empty-string scalar sibling immediately
         // after it (inline edit), in the same scope.
         let mut app = app_with("a = 1\nb = 2\n");
-        app.cursor = app.rows.iter().position(|r| r.key == "a").unwrap();
+        app.select_row(app.rows.iter().position(|r| r.key == "a").unwrap());
         app.add_node();
         assert!(matches!(app.mode, Mode::Edit(_)), "scalar add opens inline");
         assert_eq!(
@@ -4921,7 +5020,7 @@ mod tests {
         let mut app = app_with("[t]\nx = 1\n");
         app.expanded.insert(vec![Seg::Key("t".into())]);
         app.rebuild_rows();
-        app.cursor = app.rows.iter().position(|r| r.key == "t").unwrap();
+        app.select_row(app.rows.iter().position(|r| r.key == "t").unwrap());
         app.add_node();
         assert!(matches!(app.mode, Mode::Edit(_)), "scalar add opens inline");
         assert_eq!(
@@ -4934,7 +5033,7 @@ mod tests {
     fn add_root_scalar_lands_before_first_table() {
         // D5 clamp: `a` on the root appends a scalar, clamped to before `[t]`.
         let mut app = app_with("a = 1\n[t]\nx = 1\n");
-        app.cursor = 0; // root
+        app.select_row(0); // root
         app.add_node();
         assert_eq!(
             app.doc.as_ref().unwrap().serialize(),
@@ -4947,7 +5046,7 @@ mod tests {
         let mut app = app_with("[server]\nhost = \"h\"\nport = 8080\n");
         app.expand_all();
         app.rebuild_rows();
-        app.cursor = app.rows.iter().position(|r| r.key == "server").unwrap();
+        app.select_row(app.rows.iter().position(|r| r.key == "server").unwrap());
         app.toggle_detail();
         assert!(matches!(app.mode, Mode::Detail));
         let d = app.detail_text.clone().unwrap();
@@ -4976,13 +5075,13 @@ mod tests {
         let mut app = app_with("pt = { x = 1 }\n[srv]\nport = 8080\n");
         app.expand_all();
         app.rebuild_rows();
-        app.cursor = app.rows.iter().position(|r| r.key == "pt").unwrap();
+        app.select_row(app.rows.iter().position(|r| r.key == "pt").unwrap());
         app.open_detail();
         let d = app.detail_text.clone().unwrap();
         assert!(d.contains("Format:") && d.contains("inline"), "inline: {d}");
 
         app.exit_detail();
-        app.cursor = app.rows.iter().position(|r| r.key == "srv").unwrap();
+        app.select_row(app.rows.iter().position(|r| r.key == "srv").unwrap());
         app.open_detail();
         let d = app.detail_text.clone().unwrap();
         assert!(
@@ -4994,7 +5093,7 @@ mod tests {
     #[test]
     fn detail_scroll_clamps_to_range() {
         let mut app = app_with("port = 8080\n");
-        app.cursor = 1;
+        app.select_row(1);
         app.open_detail();
         assert_eq!(app.detail_scroll, 0, "opens at top");
         app.detail_scroll_by(-1, 5);
@@ -5010,7 +5109,7 @@ mod tests {
     #[test]
     fn detail_view_shows_type_and_value() {
         let mut app = app_with("port = 8080\n");
-        app.cursor = 1; // on port (row 0 is root)
+        app.select_row(1); // on port (row 0 is root)
         app.open_detail();
         let detail = app.detail_text.as_ref().expect("detail should be set");
         assert!(
@@ -5030,7 +5129,7 @@ mod tests {
     #[test]
     fn detail_view_shows_comment_type_and_full_text() {
         let mut app = app_with("# one\n# two\na = 1\n");
-        app.cursor = 1; // on the merged comment node (row 0 is root)
+        app.select_row(1); // on the merged comment node (row 0 is root)
         app.open_detail();
         let detail = app.detail_text.as_ref().expect("detail should be set");
         assert!(
@@ -5049,7 +5148,7 @@ mod tests {
         // Expand the array branch so its elements are flattened into rows.
         app.expanded.insert(vec![Seg::Key("hosts".into())]);
         app.rebuild_rows();
-        app.cursor = 3; // hosts[1] = "b" (root=0, hosts=1, [0]=2, [1]=3)
+        app.select_row(3); // hosts[1] = "b" (root=0, hosts=1, [0]=2, [1]=3)
         app.open_detail();
         let detail = app.detail_text.as_ref().expect("detail should be set");
         assert!(
@@ -5061,9 +5160,9 @@ mod tests {
     #[test]
     fn esc_from_clipboard_with_selection_clears_clipboard_first() {
         let mut app = sample();
-        app.cursor = 1;
+        app.select_row(1);
         // Simulate: user selected row 1 then pressed 'c'
-        app.selection.toggle(1);
+        app.selection.toggle(app.row_path(1));
         app.clipboard = Some(Clipboard {
             fragments: vec!["x = 1\n".into()],
             cut: false,
@@ -5104,12 +5203,12 @@ mod tests {
         assert_eq!(
             app.paste_slots(),
             vec![
-                PasteSlot::Into(0),
-                PasteSlot::After(0),
-                PasteSlot::After(1),
-                PasteSlot::Into(2),
-                PasteSlot::After(2),
-                PasteSlot::After(3),
+                PasteSlot::Into(app.row_path(0)),
+                PasteSlot::After(app.row_path(0)),
+                PasteSlot::After(app.row_path(1)),
+                PasteSlot::Into(app.row_path(2)),
+                PasteSlot::After(app.row_path(2)),
+                PasteSlot::After(app.row_path(3)),
             ]
         );
     }
@@ -5117,8 +5216,11 @@ mod tests {
     #[test]
     fn default_paste_slot_is_after_cursor() {
         let mut app = app_with("a = 1\nb = 2\n");
-        app.cursor = 1;
-        assert_eq!(app.effective_paste_slot(), PasteSlot::After(1));
+        app.select_row(1);
+        assert_eq!(
+            app.effective_paste_slot(),
+            PasteSlot::After(app.row_path(1))
+        );
     }
 
     #[test]
@@ -5127,7 +5229,7 @@ mod tests {
         app.expanded.insert(vec![Seg::Key("t".into())]);
         app.rebuild_rows();
         // rows: 0 root, 1 [t], 2 t.x, 3 t.y
-        let target = app.slot_target(PasteSlot::Into(1)).unwrap();
+        let target = app.slot_target(PasteSlot::Into(app.row_path(1))).unwrap();
         assert_eq!(target.parent, vec![Seg::Key("t".into())]);
         assert_eq!(target.index, 2, "append after both existing children");
     }
@@ -5136,18 +5238,23 @@ mod tests {
     fn paste_navigation_steps_slots_and_syncs_cursor() {
         let mut app = app_with("a = 1\nb = 2\n");
         // rows: 0 root, 1 a, 2 b → slots [Into(0),After(0),After(1),After(2)]
-        app.cursor = 0;
+        app.select_row(0);
+        let (p0, p1) = (app.row_path(0), app.row_path(1));
         app.clipboard = Some(Clipboard {
             fragments: vec!["c = 3\n".into()],
             cut: false,
             sources: vec![vec![Seg::Key("a".into())]],
         });
-        assert_eq!(app.effective_paste_slot(), PasteSlot::After(0));
+        assert_eq!(app.effective_paste_slot(), PasteSlot::After(p0.clone()));
         app.cursor_down();
-        assert_eq!(app.effective_paste_slot(), PasteSlot::After(1));
-        assert_eq!(app.cursor, 1, "cursor follows the slot's row");
+        assert_eq!(app.effective_paste_slot(), PasteSlot::After(p1.clone()));
+        assert_eq!(
+            app.cursor_row_index(),
+            Some(1),
+            "cursor follows the slot's row"
+        );
         app.cursor_up();
-        assert_eq!(app.effective_paste_slot(), PasteSlot::After(0));
+        assert_eq!(app.effective_paste_slot(), PasteSlot::After(p0));
     }
 
     #[test]
@@ -5156,13 +5263,13 @@ mod tests {
         // not as a top-level sibling.
         let mut app = app_with("[t]\nx = 1\n");
         // rows: 0 root, 1 [t] (collapsed by default)
-        app.cursor = 1;
+        app.select_row(1);
         app.clipboard = Some(Clipboard {
             fragments: vec!["y = 9\n".into()],
             cut: false,
             sources: vec![vec![Seg::Key("y".into())]],
         });
-        app.paste_slot = Some(PasteSlot::Into(1));
+        app.paste_slot = Some(PasteSlot::Into(app.row_path(1)));
         app.paste();
         assert!(app.status.is_none(), "unexpected status: {:?}", app.status);
         let s = app.doc.as_ref().unwrap().serialize();
@@ -5184,7 +5291,7 @@ mod tests {
             sources: vec![vec![Seg::Key("a".into())]],
         });
         // Aim the slot at "after [t]" (root append, past the header).
-        app.paste_slot = Some(PasteSlot::After(2));
+        app.paste_slot = Some(PasteSlot::After(app.row_path(2)));
         app.paste();
         assert!(
             app.clipboard.is_some(),
@@ -5207,9 +5314,15 @@ mod tests {
         // #6e: a cut comment can be moved into a multiline array (append slot).
         let mut app = app_with("# top\narr = [\n  1,\n  2,\n]\n");
         let crow = comment_row(&app);
-        app.cursor = crow;
+        app.select_row(crow);
         app.cut_selected();
-        let arow = app.rows.iter().position(|r| r.key == "arr").unwrap();
+        let arow = app
+            .rows
+            .iter()
+            .find(|r| r.key == "arr")
+            .unwrap()
+            .path
+            .clone();
         app.paste_slot = Some(PasteSlot::Into(arow));
         app.paste();
         assert!(app.status.is_none(), "unexpected status: {:?}", app.status);
@@ -5223,10 +5336,16 @@ mod tests {
         // the ArrayUpgrade y/n prompt, non-destructively (clipboard + doc intact).
         let mut app = app_with("# note\narr = [1]\n");
         let crow = comment_row(&app);
-        app.cursor = crow;
+        app.select_row(crow);
         app.cut_selected();
-        let arow = app.rows.iter().position(|r| r.key == "arr").unwrap();
-        app.paste_slot = Some(PasteSlot::Into(arow));
+        let arow = app
+            .rows
+            .iter()
+            .find(|r| r.key == "arr")
+            .unwrap()
+            .path
+            .clone();
+        app.paste_slot = Some(PasteSlot::Into(arow.clone()));
         app.paste();
         assert!(
             matches!(app.mode, Mode::Prompt(PromptKind::ArrayUpgrade { .. })),
@@ -5268,7 +5387,7 @@ mod tests {
         // C2 / key+: pasting a bare element value into a Table/Root synthesizes a
         // `placeholder` key instead of erroring.
         let mut app = app_with("a = 1\n");
-        app.cursor = 0; // root
+        app.select_row(0); // root
         app.clipboard = Some(Clipboard {
             fragments: vec!["42\n".into()],
             cut: false,
@@ -5284,10 +5403,10 @@ mod tests {
     fn cut_paste_same_scope_moves_without_collision() {
         let mut app = app_with("a = 1\nb = 2\n");
         app.rebuild_rows();
-        app.cursor = 1; // on `a`
+        app.select_row(1); // on `a`
         app.cut_selected();
         assert!(app.clipboard.is_some());
-        app.cursor = 2; // on `b`
+        app.select_row(2); // on `b`
         app.paste();
         assert!(
             matches!(app.mode, Mode::Normal),
@@ -5307,7 +5426,7 @@ mod tests {
         let mut app = app_with("# note\na = 1\nb = 2\n");
         app.rebuild_rows();
         let cpos = comment_row(&app);
-        app.cursor = cpos;
+        app.select_row(cpos);
         app.copy_selected();
         assert!(app.clipboard.is_some());
         let bpos = app
@@ -5315,7 +5434,7 @@ mod tests {
             .iter()
             .position(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k == "b"))
             .unwrap();
-        app.cursor = bpos;
+        app.select_row(bpos);
         app.paste();
         let out = app.doc.as_ref().unwrap().serialize();
         assert_eq!(
@@ -5330,14 +5449,14 @@ mod tests {
         let mut app = app_with("# note\na = 1\nb = 2\n");
         app.rebuild_rows();
         let cpos = comment_row(&app);
-        app.cursor = cpos;
+        app.select_row(cpos);
         app.cut_selected();
         let bpos = app
             .rows
             .iter()
             .position(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k == "b"))
             .unwrap();
-        app.cursor = bpos;
+        app.select_row(bpos);
         app.paste();
         let out = app.doc.as_ref().unwrap().serialize();
         assert_eq!(
@@ -5398,10 +5517,12 @@ mod tests {
         app.cursor = app
             .rows
             .iter()
-            .position(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k == "x"))
-            .unwrap();
+            .find(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k == "x"))
+            .unwrap()
+            .path
+            .clone();
         app.cut_selected();
-        app.cursor = comment_row(&app);
+        app.select_row(comment_row(&app));
         app.paste();
         assert_eq!(
             app.doc.as_ref().unwrap().serialize(),
@@ -5415,13 +5536,15 @@ mod tests {
         // lose it.
         let mut app = app_with("# note\na = 1\nb = 2\nc = 3\n");
         app.rebuild_rows();
-        app.cursor = comment_row(&app);
+        app.select_row(comment_row(&app));
         app.cut_selected();
         app.cursor = app
             .rows
             .iter()
-            .position(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k == "c"))
-            .unwrap();
+            .find(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k == "c"))
+            .unwrap()
+            .path
+            .clone();
         app.paste();
         let out = app.doc.as_ref().unwrap().serialize();
         assert_eq!(
@@ -5442,13 +5565,15 @@ mod tests {
         // one slot too far down (the +1 overshoot bug).
         let mut app = app_with("# c\na = 1\nb = 2\n");
         app.rebuild_rows();
-        app.cursor = comment_row(&app);
+        app.select_row(comment_row(&app));
         app.cut_selected();
         app.cursor = app
             .rows
             .iter()
-            .position(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k == "a"))
-            .unwrap();
+            .find(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k == "a"))
+            .unwrap()
+            .path
+            .clone();
         app.paste();
         assert_eq!(app.doc.as_ref().unwrap().serialize(), "a = 1\n# c\nb = 2\n");
     }
@@ -5457,13 +5582,15 @@ mod tests {
     fn cut_comment_moves_down_without_overshoot_jsonc() {
         let mut app = app_with_jsonc("{\n  // c\n  \"a\": 1,\n  \"b\": 2\n}\n");
         app.rebuild_rows();
-        app.cursor = comment_row(&app);
+        app.select_row(comment_row(&app));
         app.cut_selected();
         app.cursor = app
             .rows
             .iter()
-            .position(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k == "a"))
-            .unwrap();
+            .find(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k == "a"))
+            .unwrap()
+            .path
+            .clone();
         app.paste();
         assert_eq!(
             app.doc.as_ref().unwrap().serialize(),
@@ -5475,13 +5602,15 @@ mod tests {
     fn cut_comment_moves_down_without_overshoot_yaml() {
         let mut app = app_with_yaml("# c\na: 1\nb: 2\n");
         app.rebuild_rows();
-        app.cursor = comment_row(&app);
+        app.select_row(comment_row(&app));
         app.cut_selected();
         app.cursor = app
             .rows
             .iter()
-            .position(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k == "a"))
-            .unwrap();
+            .find(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k == "a"))
+            .unwrap()
+            .path
+            .clone();
         app.paste();
         assert_eq!(app.doc.as_ref().unwrap().serialize(), "a: 1\n# c\nb: 2\n");
     }
@@ -5496,13 +5625,15 @@ mod tests {
             "# 1\n# 2\n# 3\nempty_string: \"\"\nmultiline_literal: \"multiline\"\ndecimal: 42\n",
         );
         app.rebuild_rows();
-        app.cursor = comment_row(&app);
+        app.select_row(comment_row(&app));
         app.cut_selected();
         app.cursor = app
             .rows
             .iter()
-            .position(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k == "multiline_literal"))
-            .unwrap();
+            .find(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k == "multiline_literal"))
+            .unwrap()
+            .path
+            .clone();
         app.paste();
         assert_eq!(
             app.doc.as_ref().unwrap().serialize(),
@@ -5518,13 +5649,15 @@ mod tests {
             "# 1\n# 2\n# 3\nempty_string: \"\"\nmultiline_literal: \"multiline\"\ndecimal: 42\n",
         );
         app.rebuild_rows();
-        app.cursor = comment_row(&app);
+        app.select_row(comment_row(&app));
         app.copy_selected();
         app.cursor = app
             .rows
             .iter()
-            .position(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k == "multiline_literal"))
-            .unwrap();
+            .find(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k == "multiline_literal"))
+            .unwrap()
+            .path
+            .clone();
         app.paste();
         assert_eq!(
             app.doc.as_ref().unwrap().serialize(),
@@ -5562,8 +5695,10 @@ mod tests {
         app.cursor = app
             .rows
             .iter()
-            .position(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k == "y"))
-            .unwrap();
+            .find(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k == "y"))
+            .unwrap()
+            .path
+            .clone();
         app.paste();
         let out = app.doc.as_ref().unwrap().serialize();
         // Each comment now appears twice; the pasted pair keeps A before B.
@@ -5616,8 +5751,10 @@ mod tests {
         app.cursor = app
             .rows
             .iter()
-            .position(|r| r.key == key)
-            .unwrap_or_else(|| panic!("row {key:?} not found"));
+            .find(|r| r.key == key)
+            .unwrap_or_else(|| panic!("row {key:?} not found"))
+            .path
+            .clone();
     }
 
     #[test]
@@ -5659,8 +5796,10 @@ mod tests {
         app.cursor = app
             .rows
             .iter()
-            .position(|r| r.path == vec![Seg::Key("arr".into()), Seg::Index(0)])
-            .unwrap();
+            .find(|r| r.path == vec![Seg::Key("arr".into()), Seg::Index(0)])
+            .unwrap()
+            .path
+            .clone();
         assert_eq!(app.edit_target_kind(), EditKind::Inline);
         // The editor seeds the buffer as `value  # comment`; editing the value while
         // keeping the comment must preserve it on commit.
@@ -5691,8 +5830,10 @@ mod tests {
         app.cursor = app
             .rows
             .iter()
-            .position(|r| r.path == vec![Seg::Key("arr".into()), Seg::Index(0)])
-            .unwrap();
+            .find(|r| r.path == vec![Seg::Key("arr".into()), Seg::Index(0)])
+            .unwrap()
+            .path
+            .clone();
         assert_eq!(app.edit_target_kind(), EditKind::Inline);
         // And the one-liner edit applies through Replace.
         inline_set_value(&mut app, "{ \"a\": 1 }");
@@ -5756,10 +5897,10 @@ mod tests {
             .iter()
             .position(|r| r.key == "name")
             .expect("name row visible");
-        app.cursor = name_row;
+        app.select_row(name_row);
         assert_eq!(app.edit_target_kind(), EditKind::Inline);
         let port_row = app.rows.iter().position(|r| r.key == "port").unwrap();
-        app.cursor = port_row;
+        app.select_row(port_row);
         assert_eq!(app.edit_target_kind(), EditKind::Inline);
         // And the edit actually applies through Replace.
         inline_set_value(&mut app, "9090");
@@ -5859,8 +6000,10 @@ mod tests {
         app.cursor = app
             .rows
             .iter()
-            .position(|r| r.path == p)
-            .expect("vals[0] visible");
+            .find(|r| r.path == p)
+            .expect("vals[0] visible")
+            .path
+            .clone();
         assert_eq!(
             app.edit_target_kind(),
             EditKind::Inline,
@@ -5891,8 +6034,10 @@ mod tests {
         app.cursor = app
             .rows
             .iter()
-            .position(|r| r.path == p)
-            .expect("vals[0] visible");
+            .find(|r| r.path == p)
+            .expect("vals[0] visible")
+            .path
+            .clone();
         assert_eq!(app.edit_target_kind(), EditKind::Inline);
         inline_set_value(&mut app, "999");
         assert_eq!(
@@ -6015,7 +6160,7 @@ mod tests {
             .iter()
             .position(|r| r.path == vec![Seg::Key("arr".into()), Seg::Index(0)])
             .expect("arr[0] visible");
-        app.cursor = row;
+        app.select_row(row);
         assert_eq!(app.edit_target_kind(), EditKind::Inline);
         inline_set_value(&mut app, "1  // first");
         assert!(matches!(app.mode, Mode::Normal), "should commit");
@@ -6037,7 +6182,7 @@ mod tests {
             .iter()
             .position(|r| r.path == vec![Seg::Key("arr".into()), Seg::Index(0)])
             .expect("arr[0] visible");
-        app.cursor = row;
+        app.select_row(row);
         let before = app.doc.as_ref().unwrap().serialize();
         inline_set_value(&mut app, "1  // nope");
         assert!(matches!(app.mode, Mode::Edit(_)), "stays in editor");
@@ -6058,7 +6203,7 @@ mod tests {
         // The ←/→ value nudge must keep a YAML trailing comment (YAML Replace drops
         // it, so the nudge re-asserts it like the editor does).
         let mut app = app_with_yaml("port: 8081  # bind\n");
-        app.cursor = app.rows.iter().position(|r| r.key == "port").unwrap();
+        app.select_row(app.rows.iter().position(|r| r.key == "port").unwrap());
         app.nudge(1);
         assert_eq!(
             app.doc.as_ref().unwrap().serialize(),
@@ -6071,7 +6216,7 @@ mod tests {
         // ④ YAML Replace swaps the whole entry (dropping the comment); the editor
         // must re-assert the unchanged comment so it survives a value-only edit.
         let mut app = app_with_yaml("host: x  # bind\n");
-        app.cursor = app.rows.iter().position(|r| r.key == "host").unwrap();
+        app.select_row(app.rows.iter().position(|r| r.key == "host").unwrap());
         // Edit only the value; keep the comment text the same.
         inline_set_value(&mut app, "y  # bind");
         assert!(matches!(app.mode, Mode::Normal), "should commit cleanly");
@@ -6089,7 +6234,7 @@ mod tests {
             .iter()
             .position(|r| r.key.contains("/* ro */"))
             .expect("block comment row not found");
-        app.cursor = ci;
+        app.select_row(ci);
         // Verify the node is read_only before mutating.
         assert!(app.cursor_is_read_only(), "block comment must be read_only");
         app.delete_selected();
@@ -6115,7 +6260,7 @@ mod tests {
             .iter()
             .position(|r| r.key.contains("/* ro */"))
             .expect("block comment row not found");
-        app.cursor = ci;
+        app.select_row(ci);
         app.edit_node();
         assert!(
             app.status.as_deref().unwrap_or("").contains("read-only"),
@@ -6134,7 +6279,7 @@ mod tests {
             .iter()
             .position(|r| r.key.contains("/* ro */"))
             .expect("block comment row not found");
-        app.cursor = ci;
+        app.select_row(ci);
         app.cut_selected();
         assert!(
             app.status.as_deref().unwrap_or("").contains("read-only"),
@@ -6157,7 +6302,7 @@ mod tests {
             .iter()
             .position(|r| r.key.contains("/* ro */"))
             .expect("block comment row not found");
-        app.cursor = ci;
+        app.select_row(ci);
         app.remark();
         assert!(
             app.status.as_deref().unwrap_or("").contains("read-only"),
@@ -6181,7 +6326,7 @@ mod tests {
             .iter()
             .position(|r| r.key.contains("/* ro */"))
             .expect("block comment row not found");
-        app.cursor = ci;
+        app.select_row(ci);
         assert!(app.cursor_is_read_only(), "block comment must be read_only");
         app.copy_selected();
         assert!(
@@ -6204,7 +6349,7 @@ mod tests {
             .iter()
             .position(|r| r.key == "tags")
             .expect("tags row not found");
-        app.cursor = ci;
+        app.select_row(ci);
         app.begin_inline_edit();
         // Clear the value buffer and type a new JSON string literal `"b"`.
         if let Mode::Edit(ref mut e) = app.mode {
@@ -6243,7 +6388,7 @@ mod tests {
             .iter()
             .position(|r| r.key == "port")
             .expect("port row not found");
-        app.cursor = ci;
+        app.select_row(ci);
         app.nudge(1);
         assert!(app.error.is_none(), "unexpected error: {:?}", app.error);
         assert!(

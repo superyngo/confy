@@ -8,7 +8,7 @@ This file is the durable companion to the doc set: `CONTEXT.md` (model glossary)
 `BEHAVIOR_MATRIX.md` (nested behavior), `TUI.md` (ratatui mechanics). It records *what moves
 where and why*; the eventual `WEBUI.md` will document the shared Web UI against this contract.
 
-> **Status (2026-06-17).** Slices 1 **and 2** landed. Slice 1: the §1 workspace split
+> **Status (2026-06-17).** Slices 1, 2 **and 3** landed. Slice 1: the §1 workspace split
 > (`confy-core` + `confy-tui`) and the §2 **A1** (`from_str` / `AnyDocument::from_str_as`) and
 > **A3** (tempfile-free conversion reparse-net) fixes. Slice 2: §2 **A2/A4/A5** + the §7 gate —
 > `confy-core` is now **fully filesystem-free at runtime**. `ConfigDocument::load`, every backend's
@@ -16,9 +16,17 @@ where and why*; the eventual `WEBUI.md` will document the shared Web UI against 
 > remains a host-set display label via `set_filename`). The host owns I/O: `confy_tui::load_document`
 > (read → `from_str_as` → label → `.jsonc` enable) and `App::save` (`serialize` → `fs::write` to
 > `App::source_path`). The §7 boundary gate (`crates/confy-core/tests/no_fs_gate.rs`) enforces it,
-> and `tempfile` is no longer a `confy-core` dependency. The binary still builds as `confy`; the full
-> suite passes. **Not yet done:** the §3 cursor reshape and the §5 state-machine lift are untouched —
-> that is the next slice.
+> and `tempfile` is no longer a `confy-core` dependency.
+>
+> Slice 3: the §3 **identity reshape** — `App.cursor` is now a `Path` (was a row `usize`),
+> `Selection` and `PasteSlot` are re-keyed to `Path`, and the navigation/selection logic reads the
+> ordered `visible_paths()` instead of indexing `rows`. The **sole** index↔path bridge lives in the
+> UI (`cursor_row_index` for the ratatui highlight; `ViewRow`-style `RowSnapshot` carries its path).
+> `insertion::resolve_target` now takes `(path, is_branch, …)` instead of a `&RowSnapshot`, decoupling
+> it from the host row type. Touched methods carry `§5: CORE/HOST/SPLIT` seam comments marking where
+> they go in the state-machine lift. The binary still builds as `confy`; the full suite passes
+> (415 core-unit + 190 tui + 26 integration). **Not yet done:** the §5 state-machine lift (Session +
+> Host trait + Intent/dispatch) — that is the next slice; §3 left the code positioned for it.
 
 ---
 

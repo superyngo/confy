@@ -22,10 +22,15 @@ pub fn normalize(mut paths: Vec<Path>) -> Vec<Path> {
 /// round is folded into `committed`, so successive rounds *union* together —
 /// separate runs stay separate, overlapping runs merge. `s` toggles a single row
 /// straight into `committed`. The live selection is `committed ∪ round`.
+///
+/// §5: CORE — pure selection state, no UI/terminal coupling. Re-keyed from the
+/// pre-reshape row-`usize` to `Path` (§3): selection identity is now a node path,
+/// so `extend_round_to` takes the *ordered visible path slice* to fill a range
+/// (paths aren't a contiguous integer interval the way row indices were).
 pub struct Selection {
-    committed: std::collections::HashSet<usize>,
-    round: std::collections::HashSet<usize>,
-    anchor: Option<usize>,
+    committed: std::collections::HashSet<Path>,
+    round: std::collections::HashSet<Path>,
+    anchor: Option<Path>,
 }
 
 impl Default for Selection {
@@ -44,12 +49,12 @@ impl Selection {
     }
 
     /// Iterate the live selection (committed rows plus the in-progress round).
-    pub fn iter(&self) -> impl Iterator<Item = usize> + '_ {
-        self.committed.union(&self.round).copied()
+    pub fn iter(&self) -> impl Iterator<Item = Path> + '_ {
+        self.committed.union(&self.round).cloned()
     }
 
-    pub fn contains(&self, idx: usize) -> bool {
-        self.committed.contains(&idx) || self.round.contains(&idx)
+    pub fn contains(&self, path: &Path) -> bool {
+        self.committed.contains(path) || self.round.contains(path)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -58,50 +63,59 @@ impl Selection {
 
     /// Fold the current round into the committed set and forget the anchor.
     fn commit_round(&mut self) {
-        for i in self.round.drain() {
-            self.committed.insert(i);
+        for p in self.round.drain() {
+            self.committed.insert(p);
         }
         self.anchor = None;
     }
 
     /// Toggle a single row (bound to `s`): finalize any open round, then flip the
     /// row in the committed set.
-    pub fn toggle(&mut self, idx: usize) {
+    pub fn toggle(&mut self, path: Path) {
         self.commit_round();
-        if !self.committed.remove(&idx) {
-            self.committed.insert(idx);
+        if !self.committed.remove(&path) {
+            self.committed.insert(path);
         }
     }
 
     /// Start a fresh shift round anchored at `anchor`, folding the previous round
     /// into the committed set first so rounds union rather than replace.
-    pub fn begin_round(&mut self, anchor: usize) {
+    pub fn begin_round(&mut self, anchor: Path) {
         self.commit_round();
-        self.anchor = Some(anchor);
+        self.anchor = Some(anchor.clone());
         self.round.insert(anchor);
     }
 
-    /// Set the current round to exactly anchor..=`to`, inclusive. This replaces
-    /// (not unions into) the round, so shrinking it with the opposite arrow
-    /// deselects the rows left behind — while committed rounds are untouched.
-    pub fn extend_round_to(&mut self, to: usize) {
-        let anchor = match self.anchor {
+    /// Set the current round to exactly the ordered visible slice between the
+    /// anchor and `to`, inclusive. This replaces (not unions into) the round, so
+    /// shrinking it with the opposite arrow deselects the rows left behind — while
+    /// committed rounds are untouched. `visible` is the ordered visible-path
+    /// sequence (the §3 analogue of the old contiguous integer interval); a path
+    /// missing from it (a stale anchor after a rebuild) collapses the round to `to`.
+    pub fn extend_round_to(&mut self, visible: &[Path], to: &Path) {
+        let anchor = match self.anchor.clone() {
             Some(a) => a,
             None => {
-                self.anchor = Some(to);
+                self.anchor = Some(to.clone());
                 self.round.clear();
-                self.round.insert(to);
+                self.round.insert(to.clone());
                 return;
             }
         };
+        let ai = visible.iter().position(|p| p == &anchor);
+        let ti = visible.iter().position(|p| p == to);
         self.round.clear();
-        let (lo, hi) = if anchor <= to {
-            (anchor, to)
-        } else {
-            (to, anchor)
-        };
-        for i in lo..=hi {
-            self.round.insert(i);
+        match (ai, ti) {
+            (Some(ai), Some(ti)) => {
+                let (lo, hi) = if ai <= ti { (ai, ti) } else { (ti, ai) };
+                for p in &visible[lo..=hi] {
+                    self.round.insert(p.clone());
+                }
+            }
+            // Anchor or target not currently visible: fall back to just `to`.
+            _ => {
+                self.round.insert(to.clone());
+            }
         }
     }
 
@@ -117,55 +131,71 @@ mod tests {
     use super::*;
     use crate::model::node::Seg;
 
-    fn selected(sel: &Selection) -> std::collections::HashSet<usize> {
+    fn selected(sel: &Selection) -> std::collections::HashSet<Path> {
         sel.iter().collect()
+    }
+
+    /// Synthetic visible-path list: row `i` is the single-segment path `[Key("i")]`,
+    /// so an integer row maps to a stable path. `vis(n)` is rows `0..n`.
+    fn p(i: usize) -> Path {
+        vec![Seg::Key(i.to_string())]
+    }
+    fn vis(n: usize) -> Vec<Path> {
+        (0..n).map(p).collect()
     }
 
     #[test]
     fn round_replaces_range_while_extending() {
         use std::collections::HashSet;
+        let v = vis(8);
         let mut sel = Selection::new();
-        sel.begin_round(3);
-        sel.extend_round_to(6); // round 3..=6
-        assert_eq!(selected(&sel), HashSet::from([3, 4, 5, 6]));
-        sel.extend_round_to(4); // shrink within the same round
-        assert_eq!(selected(&sel), HashSet::from([3, 4]));
+        sel.begin_round(p(3));
+        sel.extend_round_to(&v, &p(6)); // round 3..=6
+        assert_eq!(selected(&sel), HashSet::from([p(3), p(4), p(5), p(6)]));
+        sel.extend_round_to(&v, &p(4)); // shrink within the same round
+        assert_eq!(selected(&sel), HashSet::from([p(3), p(4)]));
     }
 
     #[test]
     fn separate_rounds_union_not_extend() {
         use std::collections::HashSet;
+        let v = vis(8);
         let mut sel = Selection::new();
         // round 1: rows 1..=2
-        sel.begin_round(1);
-        sel.extend_round_to(2);
+        sel.begin_round(p(1));
+        sel.extend_round_to(&v, &p(2));
         // a new round starting at row 5 must NOT extend from round-1's anchor.
-        sel.begin_round(5);
-        sel.extend_round_to(6);
-        assert_eq!(selected(&sel), HashSet::from([1, 2, 5, 6]));
+        sel.begin_round(p(5));
+        sel.extend_round_to(&v, &p(6));
+        assert_eq!(selected(&sel), HashSet::from([p(1), p(2), p(5), p(6)]));
     }
 
     #[test]
     fn overlapping_rounds_merge() {
         use std::collections::HashSet;
+        let v = vis(8);
         let mut sel = Selection::new();
-        sel.begin_round(1);
-        sel.extend_round_to(3); // {1,2,3}
-        sel.begin_round(3);
-        sel.extend_round_to(5); // {3,4,5} unions -> {1..5}
-        assert_eq!(selected(&sel), HashSet::from([1, 2, 3, 4, 5]));
+        sel.begin_round(p(1));
+        sel.extend_round_to(&v, &p(3)); // {1,2,3}
+        sel.begin_round(p(3));
+        sel.extend_round_to(&v, &p(5)); // {3,4,5} unions -> {1..5}
+        assert_eq!(
+            selected(&sel),
+            HashSet::from([p(1), p(2), p(3), p(4), p(5)])
+        );
     }
 
     #[test]
     fn toggle_finalizes_round_then_flips_row() {
         use std::collections::HashSet;
+        let v = vis(8);
         let mut sel = Selection::new();
-        sel.begin_round(1);
-        sel.extend_round_to(2); // {1,2}
-        sel.toggle(5); // commit round, add 5
-        assert_eq!(selected(&sel), HashSet::from([1, 2, 5]));
-        sel.toggle(1); // remove 1
-        assert_eq!(selected(&sel), HashSet::from([2, 5]));
+        sel.begin_round(p(1));
+        sel.extend_round_to(&v, &p(2)); // {1,2}
+        sel.toggle(p(5)); // commit round, add 5
+        assert_eq!(selected(&sel), HashSet::from([p(1), p(2), p(5)]));
+        sel.toggle(p(1)); // remove 1
+        assert_eq!(selected(&sel), HashSet::from([p(2), p(5)]));
     }
 
     #[test]

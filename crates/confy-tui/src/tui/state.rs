@@ -135,17 +135,18 @@ pub struct EditState {
     pub created_on_add: bool,
 }
 
-/// Where a paste lands in the tree, addressed against a *visible-row index*.
-/// In paste mode `↑/↓` step through a merged sequence of these slots: an
-/// `After(i)` reads as a green line *below* row `i` (insert as a sibling after
-/// it, into that row's container); an `Into(i)` reads as the whole branch row
-/// `i` turning green (append as its **last** child, regardless of open/closed).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Where a paste lands in the tree, addressed by the *node path* of a visible
+/// row (§3: was a visible-row `usize`). In paste mode `↑/↓` step through a merged
+/// sequence of these slots: an `After(path)` reads as a green line *below* that
+/// row (insert as a sibling after it, into that row's container); an `Into(path)`
+/// reads as the whole branch row turning green (append as its **last** child,
+/// regardless of open/closed).
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PasteSlot {
-    /// Append as the last child of the branch at visible-row index `i`.
-    Into(usize),
-    /// Insert as a sibling immediately after the node at visible-row index `i`.
-    After(usize),
+    /// Append as the last child of the branch at this path.
+    Into(Path),
+    /// Insert as a sibling immediately after the node at this path.
+    After(Path),
 }
 
 /// Clipboard holding serialized TOML fragments for copy/cut/paste (§6 x/c/v).
