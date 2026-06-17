@@ -16,3 +16,4 @@ anyhow.workspace = true
 thiserror.workspace = true
 taplo.workspace = true
 rowan.workspace = true
+fuzzy-matcher.workspace = true

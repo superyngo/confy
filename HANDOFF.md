@@ -5,7 +5,7 @@ what's next" pointer; delete or rewrite it when the port is done.
 
 ## Where we are (2026-06-17)
 
-- Branch **`port/slice-3-path-cursor`** (off `port/slice-2-fs-boundary`). Tree clean. Not pushed.
+- Branch **`port/slice-4-session-lift`** (off `port/slice-3-path-cursor`). Tree clean. Not pushed.
 - **Slice 1 DONE:** PORTING.md §1 (workspace split) + §2 **A1** (`from_str`) + **A3** (tempfile-free
   conversion reparse-net).
 - **Slice 2 DONE:** PORTING.md §2 **A2/A4/A5** + the §7 gate. `confy-core` is now **fully
@@ -17,24 +17,31 @@ what's next" pointer; delete or rewrite it when the port is done.
   `Selection`/`PasteSlot` re-keyed to `Path`; nav/selection/paste read `App::visible_paths()` +
   `cursor_row()` instead of indexing `rows`. The **only** index↔path bridge is `cursor_row_index()`
   (ratatui highlight/viewport + footer). `insertion::resolve_target` now takes `(path, is_branch, …)`,
-  not a `&RowSnapshot`. Touched methods carry `§5: CORE/HOST/SPLIT` seam comments. 415 core-unit +
-  190 tui + 26 integration tests pass; clippy `-D warnings` + `fmt --check` clean; real-binary
-  `confy convert` smoke-tested. (TUI itself not pty-driven — behavior parity is the 190-test app.rs
-  suite.)
-- Layout: `crates/confy-core/` (pure model) + `crates/confy-tui/` (ratatui TUI + CLI, binary `confy`).
-  `confy-tui/src/lib.rs` does `pub use confy_core::model;` so UI modules keep `crate::model::…` paths.
+  not a `&RowSnapshot`. Touched methods carry `§5: CORE/HOST/SPLIT` seam comments.
+- **Slice 4 DONE:** PORTING.md §5 Phases A–C. `confy-core/session/` now contains the complete
+  `Session` struct with all CORE fields and every CORE operation. New types: `Intent` enum, `Host`
+  trait, `Update` struct, `PendingCommit`, `EditKind`. `Session::visible_rows() -> Vec<ViewRow>` is
+  a pure on-demand computation. `crates/confy-core/tests/session_headless.rs` (13 tests, §7 exit
+  gate #4) passes across TOML/JSON/YAML. Full suite: 438 core-unit + 167 tui + 26 integration +
+  13 session-headless. `App.rs` is **unchanged** (Phase D deferred to Slice 5).
+- Layout: `crates/confy-core/` (pure model + session) + `crates/confy-tui/` (ratatui TUI + CLI,
+  binary `confy`). `confy-tui/src/lib.rs` does `pub use confy_core::model;` so UI modules keep
+  `crate::model::…` paths.
 
-## Next task: PORTING.md §5 (state-machine lift)
+## Next task: Slice 5 — PORTING.md §5 Phase D + Phase E
 
-The fs boundary (§2) and the cursor identity (§3) are done. The remaining big slice is §5 — lift
-the `app.rs` state machine into `confy-core` as a `Session` (owns the doc + `cursor: Path` +
-`expanded`/`selection`/`mode`/`history`), expose `visible_rows()`/`dispatch(Intent, &dyn Host)`,
-and route the `$EDITOR`/multi-line path through a `Host::edit_text` capability. §3 already shaped
-the code for this: nav/selection logic is path-based and index-free, `visible_paths()` is the
-`visible_rows()` precursor, and the `§5: CORE/HOST/SPLIT` seam comments in `app.rs`/`selection.rs`/
-`insertion.rs` mark each method's destination. See `PORTING.md` §4–§6 (`Host` trait, portability
-map, `Session`/`Intent`/`ViewRow`/`Update` sketch, Stage-1 exit gates). Big, invasive — scope it
-on its own.
+**Phase D — thin App wrapper:**
+- Rewrite `App` struct to hold `pub session: Session` + HOST-only fields (`rows`, `source_path`,
+  `detail_scroll`, `help_scroll`, `table_offset`).
+- All App public methods become 1-line wrappers delegating to `self.session.*`.
+- Update ~70+ test field accesses from `app.field` to `app.session.field` (cursor, mode, selection,
+  clipboard, doc, error, status, filter, expanded, etc.) — Rust doesn't forward field access
+  through Deref, so every direct field touch in `app.rs` tests must be updated.
+- Implement `App: Host` for the `$EDITOR` path.
+
+**Phase E — serde + fake-Host tests:**
+- Serde round-trip tests for `Intent`/`ViewRow`/`Update`/`Mutation` (§7 exit gate #3).
+- Fake-Host `$EDITOR` path integration test (§7 exit gate #5).
 
 ## Gotchas / don't re-derive these
 
@@ -51,6 +58,11 @@ on its own.
 - **Never drive the TUI via pty / long-lived background bash** (it needs a terminal); the user tests
   the TUI manually. Verify the *binary* via the `confy convert` subcommand and the `convert_cli`
   integration test, and the *model* via unit tests.
+- `Session::convert_pick_format` takes `default_stem: Option<String>` (not `source_path`) because
+  Session is fs-free; the host passes the stem derived from `source_path`.
+- `Session::convert_run` / `convert_confirm` return `Update` with `convert_write: Some((path, text))`
+  — the host performs the actual `fs::write`, not Session.
+- `handle_prompt_key` returns `bool` (`true` = quit) — the host event loop exits when `true`.
 - `git mv` keeps history as renames — use it for any further moves.
 
 ## Verify (run before committing the next slice)

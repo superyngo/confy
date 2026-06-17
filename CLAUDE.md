@@ -175,7 +175,7 @@ modules keep their `crate::model::…` paths.
 
 ```
 crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runtime deps
-  lib.rs           `pub mod model;`
+  lib.rs           `pub mod model; pub mod session;`
   model/
     mod.rs         re-exports
     node.rs        Seg, ScalarType, Format, NodeKind, Node, NodeTree (+ node_at lookup)
@@ -200,8 +200,24 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
       doc.rs       YamlDocument: from_str/serialize/apply (atomic commit + validate_semantics)
       project.rs   GreenTree → NodeTree projection (# comments real nodes; opaque read-only nodes; golden tests)
       edit.rs      rowan splice helpers: reindent engine + one fn per Mutation variant; opaque guard
-crates/confy-core/tests/  roundtrip*.rs / yaml_scratch.rs integration + fixtures/ (parse/edit/serialize, diff)
-                          + no_fs_gate.rs (§7 boundary gate: core runtime has no fs/process/env/terminal deps)
+  session/         §5 state-machine lift (Slice 4) — the complete headless Session
+    mod.rs         re-exports
+    host.rs        Host trait (edit_text callback) + EditTextOutcome
+    intent.rs      Intent enum — every key-mapped action the TUI can dispatch
+    session.rs     Session struct (all CORE state + methods): visible_rows/compute_rows, navigation,
+                   filter/type-filter, kind-switch, convert (no fs), edit routing, inline-edit,
+                   mutations (apply_replace/insert/delete/copy/cut/paste/remark/undo/redo/nudge),
+                   escape, prompt-key dispatch, quit flow; plus free fns: node_type_label,
+                   format_label, nudge_scalar
+    state.rs       Mode, PendingCommit, EditKind, EditState, History, Clipboard, PasteSlot, FilterLayer, …
+    selection.rs   Selection (path-keyed multi-select + range rounds)
+    search.rs      fuzzy_match / fuzzy_indices / haystack
+    insertion.rs   resolve_target (pure insertion-target logic)
+    type_filter.rs TypeFilter, TypeToken, layout/nav helpers
+    view.rs        ViewRow (pure view row, no type_tag), Update (rows_dirty, status, error, quit,
+                   external_edit, convert_write)
+crates/confy-core/tests/  roundtrip*.rs / yaml_scratch.rs + fixtures/ + no_fs_gate.rs (§7 gate)
+                          + session_headless.rs (§7 gate #4: headless Session scripted tests)
 
 crates/confy-tui/src/    ratatui TUI + CLI; depends on confy-core, `pub use confy_core::model`
   main.rs          bin `confy`: parse args, load via load_document, run TUI
@@ -209,13 +225,14 @@ crates/confy-tui/src/    ratatui TUI + CLI; depends on confy-core, `pub use conf
   cli.rs           clap args: default `confy <file> [--format]` (TUI) + `confy convert <in> <out>` subcommand
   tui/
     mod.rs         re-exports; run() entry point + event loop (run_event_loop)
-    app.rs         App state + operation handlers (event loop dispatches keys to these); App::save = serialize → fs::write to source_path
-    state.rs       Mode (incl. Edit), Clipboard, EditState, undo/redo stacks
+    app.rs         App state (all CORE+HOST fields) + all operation handlers; App::save = serialize → fs::write
+                   NOTE: thin-wrapper migration (Phase D) is pending — App fields will move to session: Session
+    state.rs       thin re-export of confy_core::session::state
     keys.rs        KeyAction mapping + help text
-    insertion.rs   §6.1 insertion-target resolution from cursor
-    selection.rs   multi-select + range select + §6.2 normalization
-    search.rs      fuzzy filter state + haystack builder
-    type_filter.rs type-filter (`f`) facets: TypeToken/classify, TypeFilter predicate, popup layout+nav
+    insertion.rs   thin re-export of confy_core::session::insertion
+    selection.rs   thin re-export of confy_core::session::selection
+    search.rs      thin re-export of confy_core::session::search
+    type_filter.rs thin re-export of confy_core::session::type_filter
     editor.rs      $EDITOR integration (external edit for nested array/table)
     ui.rs          ratatui rendering: title bar + NAME/TYPE/VALUE column header + tree Table, detail popup, help, prompts
 crates/confy-tui/tests/   convert_cli.rs integration: `confy convert` happy/lossy/abort paths, source-unchanged

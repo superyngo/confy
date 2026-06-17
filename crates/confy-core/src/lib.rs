@@ -4,3 +4,4 @@
 //! `PORTING.md` at the repo root for the extraction plan.
 
 pub mod model;
+pub mod session;
