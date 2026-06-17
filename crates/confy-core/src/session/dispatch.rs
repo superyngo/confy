@@ -12,9 +12,10 @@ use crate::model::document::ConfigDocument;
 use crate::model::node::NodeKind;
 use crate::session::intent::Intent;
 use crate::session::state::{EditKind, KindSwitchState, Mode, PendingExternalEdit, PromptKind};
+use crate::session::type_filter::{layout, LayoutRow};
 use crate::session::view::{
     ConvertView, EditView, ExternalEdit, ExternalEditKind, KindOptionView, ModeView, PromptView,
-    SessionSnapshot,
+    SessionSnapshot, TypeFilterCellView, TypeFilterRow, TypeFilterView,
 };
 
 impl super::Session {
@@ -228,6 +229,11 @@ impl super::Session {
             detail_text: self.detail_text.clone(),
             external_edit: self.external_edit_view(),
             convert_write: None,
+            clipboard_count: self
+                .clipboard
+                .as_ref()
+                .map(|c| c.fragments.len())
+                .filter(|n| *n > 0),
             quit: false,
         }
     }
@@ -280,7 +286,7 @@ impl super::Session {
                 cursor: self.filter_cursor,
             },
             Mode::FilterResults => ModeView::FilterResults,
-            Mode::TypeFilter => ModeView::TypeFilter,
+            Mode::TypeFilter => ModeView::TypeFilter(self.type_filter_view()),
             Mode::KindSwitch(KindSwitchState {
                 cursor, options, ..
             }) => ModeView::KindSwitch {
@@ -313,6 +319,43 @@ impl super::Session {
                 is_comment: e.is_comment,
                 rename_only: e.rename_only,
             }),
+        }
+    }
+
+    /// Build the `f` type-filter facet grid from the authoritative `layout` +
+    /// the live filter state. The host renders this verbatim — it never
+    /// re-derives the per-format facet set (PORTING §5 type_filter SPLIT).
+    fn type_filter_view(&self) -> TypeFilterView {
+        let fmt = self.doc_format();
+        let tf = &self.type_filter;
+        let mut rows = Vec::new();
+        // `nav_rows` indexing matches `tf.row`, so we track the cell-row index
+        // separately to mark the cursor cell within the flattened layout.
+        let mut cell_row_idx = 0usize;
+        for lr in layout(fmt) {
+            match lr {
+                LayoutRow::Header(h) => rows.push(TypeFilterRow::Header(h.to_string())),
+                LayoutRow::Cells(cells) => {
+                    let is_cursor_row = cell_row_idx == tf.row;
+                    let views: Vec<TypeFilterCellView> = cells
+                        .iter()
+                        .enumerate()
+                        .map(|(col, cell)| TypeFilterCellView {
+                            label: cell.label().to_string(),
+                            state: tf.cell_state(*cell),
+                            is_cursor: is_cursor_row && col == tf.col,
+                        })
+                        .collect();
+                    rows.push(TypeFilterRow::Cells(views));
+                    cell_row_idx += 1;
+                }
+            }
+        }
+        TypeFilterView {
+            rows,
+            cursor_row: tf.row,
+            cursor_col: tf.col,
+            active: tf.is_active(),
         }
     }
 

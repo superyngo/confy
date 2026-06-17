@@ -216,8 +216,9 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
     insertion.rs   resolve_target (pure insertion-target logic)
     type_filter.rs TypeFilter, TypeToken, layout/nav helpers
     view.rs        ViewRow (pure view row, no type_tag), Update (rows_dirty, …) +
-                   Stage-2 full-state transport: SessionSnapshot, ModeView, EditView, ConvertView,
-                   KindOptionView, PromptView, ExternalEdit/ExternalEditKind (the WASM wire contract)
+                   Stage-2 full-state transport: SessionSnapshot (+clipboard_count), ModeView,
+                   EditView, ConvertView, KindOptionView, PromptView, ExternalEdit/ExternalEditKind,
+                   TypeFilterView/TypeFilterRow/TypeFilterCellView (the WASM wire contract)
     dispatch.rs    Stage-2 command channel: Session::dispatch(Intent) -> SessionSnapshot
                    (mode-dependent Intent→method routing; the only entry point the Web UI uses)
 crates/confy-core/tests/  roundtrip*.rs / yaml_scratch.rs + fixtures/ + no_fs_gate.rs (§7 gate)
@@ -227,14 +228,17 @@ crates/confy-core/tests/  roundtrip*.rs / yaml_scratch.rs + fixtures/ + no_fs_ga
 crates/confy-ffi/         Stage-2 WASM wrapper over confy-core (wasm-bindgen + serde-wasm-bindgen)
   src/lib.rs     ConfySession: from_text/dispatch/snapshot/serialize/visible_rows/kind_options
                  (the JS-facing handle; serde-wasm-bindgen marshals Intent/SessionSnapshot)
-  functional_smoke.mjs     node verification of the Intent→snapshot contract (25 checks)
+  functional_smoke.mjs     node verification of the Intent→snapshot contract (36 checks)
   (build: `wasm-pack build --target web`; getrandom wasm_js for the ahash-via-taplo chain)
 
 web/                       TypeScript integration + functional Web UI (see WEBUI.md)
   types.ts       hand-written mirror of the confy-core serde contract (Intent/SessionSnapshot/…)
   confy.ts       typed wrapper around the wasm ConfySession (load + Session class)
-  ui.ts          DOM render of SessionSnapshot + keyboard→Intent map (mirrors tui/keys.rs)
-  index.html / style.css / build.mjs (esbuild) / serve.mjs (dev server)
+  fs.ts          File System Access API open/save-in-place + download fallback (host-owned I/O)
+  ui.ts          DOM render of SessionSnapshot + keyboard→Intent map (mirrors tui/keys.rs);
+                 tree render (selected highlight, value-type coloring), type-filter facet grid,
+                 theme toggle, FS open/save, external-edit modal
+  index.html / style.css (dark+light themes via :root[data-theme]) / build.mjs (esbuild) / serve.mjs
 
 crates/confy-tui/src/    ratatui TUI + CLI; depends on confy-core, `pub use confy_core::model`
   main.rs          bin `confy`: parse args, load via load_document, run TUI

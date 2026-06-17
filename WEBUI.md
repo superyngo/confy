@@ -51,8 +51,7 @@ hand-maintained field-by-field marshalling.
 | `isDirty` | `() => boolean` | |
 | `docFormat` | `() => DocFormat` | |
 | `kindOptions` | `(path: Seg[]) => KindOption[]` | per-node convertible kinds (drives the `K` popup). |
-| `typeFilterFacets` | `() => TypeFilterFacets` | facet model for the `f` popup (no geometry). |
-| `fuzzyMatch` | `(query, hay) => number \| undefined` | host-side highlight uses the returned score; positions computed in TS. |
+| `externalEdit` | `() => { initial, kind } \| undefined` | the current external-edit request, if any (§8.2). |
 
 `external_edit` in the snapshot is the async handshake (§8.2): the UI opens its
 multi-line modal with `initial`, awaits the result, and re-dispatches
@@ -69,13 +68,17 @@ shapes round-trip). Key types:
   kind-switch, convert, edit, mutations, undo/redo, lifecycle). The UI maps a DOM
   keyboard event to one `Intent`.
 - **`SessionSnapshot`** — full renderable state: `mode: ModeView`, `rows: ViewRow[]`,
-  `cursor: Seg[]`, `status`/`error`, `detailText`, `externalEdit`, `convertWrite`,
-  `quit`, `docFormat`, `isDirty`.
+  `cursor: Seg[]`, `status`/`error`, `detail_text`, `external_edit`, `convert_write`,
+  `clipboard_count`, `quit`, `doc_format`, `is_dirty`.
 - **`ModeView`** — a serializable projection of `Mode` + the modal edit surfaces:
-  `Normal | Prompt | Filter {text,cursor} | FilterResults | TypeFilter | KindSwitch
-  {cursor,options} | Convert {…} | Detail | Help | Edit {field,buffer,cursor,…}`.
-  This is the UI's only view of internal state; heavy internals (`History`,
-  `Clipboard`) never cross.
+  `Normal | Prompt | Filter {text,cursor} | FilterResults | TypeFilter {…grid…} |
+  KindSwitch {cursor,options} | Convert {…} | Detail | Help | Edit
+  {field,buffer,cursor,…}`. This is the UI's only view of internal state; heavy
+  internals (`History`, `Clipboard` — except its `clipboard_count`) never cross.
+- **`TypeFilterView`** — the `f` popup grid, projected from core so the host never
+  re-derives the per-format facet set: `rows: (Header | Cells[…])[]`, `cursor_row`,
+  `cursor_col`, `active`. Each cell carries `label`, tri-state `state`
+  (`On`/`Partial`/`Off`), and `is_cursor`.
 - **`ViewRow`** — one visible tree row (`path`, `depth`, `isBranch`, `key`, `value`,
   `scalarType`, `format`, `trailingComment`, `readOnly`, `selected`, `isCursor`).
 - **`Seg`** = `{ Key: string } | { Index: number }`; **`Path`** = `Seg[]`.
@@ -107,8 +110,23 @@ shapes round-trip). Key types:
 - **External edit modal.** When `snapshot.externalEdit` is set, a `<textarea>` modal
   opens with `initial`; on submit the UI dispatches `ApplyReplace`/`ApplyEditComment`
   with the path from the request and the edited text.
-- **Save = download.** On `Intent.Save`, the UI calls `serialize()` and triggers a
-  browser download (the core marks the doc saved).
+- **Type-filter facet grid.** `f` opens the `TypeFilter` popup; the UI renders the
+  projected grid (`TypeFilterView`) directly — headers + tri-state cells with the
+  cursor highlighted. `←/→/↑/↓` move, `Space` toggles, `Enter` applies, `Esc` cancels.
+  The facet set itself is authoritative in core (`session/type_filter::layout`); the
+  host only lays out the cells it is handed.
+- **File I/O — File System Access API with download fallback.** All file I/O is
+  host-owned (`web/fs.ts`); core `Intent::Save` only clears the dirty flag. Save
+  precedence: (1) write in place to the open `FileSystemFileHandle`; (2) if the API is
+  available but no handle is held, `showSaveFilePicker` Save-As (and the handle is
+  kept so subsequent saves are in place); (3) download (Firefox/Safari/older
+  browsers). `Ctrl-o` / Open opens a real file via `showOpenFilePicker`; the Load
+  button (paste-into-textarea) is the always-available fallback. The "Open…" button is
+  hidden on browsers without the API. Convert output routes through Save-As when
+  available, else download. The capability is detected once at boot and isolated
+  behind `web/fs.ts`; no editor logic depends on it.
+- **Theme.** A dark/light toggle (titlebar `☾`/`☀`) flips `:root[data-theme]`; CSS
+  variables carry both palettes and the choice persists in `localStorage`.
 
 ## Future structured-diff evolution
 

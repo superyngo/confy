@@ -1,6 +1,7 @@
 use crate::model::document::{DocFormat, KindTarget};
 use crate::model::node::{Format, Path, ScalarType};
 use crate::session::state::{ConvertStep, EditField};
+use crate::session::type_filter::CheckState;
 use serde::{Deserialize, Serialize};
 
 /// One visible row in the tree — the view model both the TUI and Web UI render.
@@ -90,8 +91,10 @@ pub enum ModeView {
     },
     /// Browsing the locked-in filtered result list.
     FilterResults,
-    /// The `f` type-filter popup is open.
-    TypeFilter,
+    /// The `f` type-filter popup is open. Carries the full facet grid (headers +
+    /// cells with tri-state checks + the cursor cell) so the host renders the
+    /// popup without duplicating `type_filter::layout` (PORTING §5 type_filter SPLIT).
+    TypeFilter(TypeFilterView),
     /// The `K` kind-switch popup is open.
     KindSwitch {
         cursor: usize,
@@ -141,6 +144,31 @@ pub struct ConvertView {
     pub warnings: Vec<String>,
 }
 
+/// One row of the `f` type-filter facet grid.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum TypeFilterRow {
+    Header(String),
+    Cells(Vec<TypeFilterCellView>),
+}
+
+/// One facet cell: label + tri-state + whether the cursor is on it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TypeFilterCellView {
+    pub label: String,
+    pub state: CheckState,
+    pub is_cursor: bool,
+}
+
+/// The `f` type-filter popup surface: the per-format facet grid plus the cursor
+/// cell and whether any facet is currently active (non-empty filter).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TypeFilterView {
+    pub rows: Vec<TypeFilterRow>,
+    pub cursor_row: usize,
+    pub cursor_col: usize,
+    pub active: bool,
+}
+
 /// Which kind of external edit the host's async modal should perform.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ExternalEditKind {
@@ -175,6 +203,9 @@ pub struct SessionSnapshot {
     pub external_edit: Option<ExternalEdit>,
     /// Set when the core needs the host to write a converted file (fs-free).
     pub convert_write: Option<(String, String)>,
+    /// Number of captured fragments in the live clipboard (`None` = empty).
+    /// Surfaces real application state the UI shows as a "clipboard: N" hint.
+    pub clipboard_count: Option<usize>,
     /// The user confirmed quit — the host should exit.
     pub quit: bool,
 }

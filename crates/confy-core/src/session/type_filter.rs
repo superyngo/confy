@@ -1,5 +1,6 @@
 use crate::model::document::DocFormat;
 use crate::model::node::{Format, KeySign, NodeKind, ScalarType};
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -308,7 +309,7 @@ pub fn nav_rows(format: DocFormat) -> Vec<Vec<Cell>> {
         .collect()
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CheckState {
     On,
     Partial,

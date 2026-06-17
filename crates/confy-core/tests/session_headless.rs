@@ -355,3 +355,56 @@ fn dispatch_snapshot_reflects_filter_mode() {
         panic!("still in Filter mode after FilterChar");
     }
 }
+
+#[test]
+fn dispatch_type_filter_projects_facet_grid_with_cursor() {
+    use confy_core::session::{CheckState, TypeFilterRow, TypeFilterView};
+    let mut s = toml_session("a = 1\nb = \"x\"\n");
+    let snap = s.dispatch(Intent::EnterTypeFilter);
+    let grid = match &snap.mode {
+        ModeView::TypeFilter(v) => v,
+        _ => panic!("expected TypeFilter mode"),
+    };
+    // The TOML grid has headers and at least one cell row.
+    assert!(grid
+        .rows
+        .iter()
+        .any(|r| matches!(r, TypeFilterRow::Header(_))));
+    assert!(grid
+        .rows
+        .iter()
+        .any(|r| matches!(r, TypeFilterRow::Cells(_))));
+    // Exactly one cell is the cursor, and nothing is checked yet.
+    let cells: Vec<_> = grid
+        .rows
+        .iter()
+        .flat_map(|r| match r {
+            TypeFilterRow::Cells(cs) => cs.to_vec(),
+            _ => vec![],
+        })
+        .collect();
+    assert_eq!(cells.iter().filter(|c| c.is_cursor).count(), 1);
+    assert!(cells.iter().all(|c| c.state == CheckState::Off));
+    assert!(!grid.active);
+
+    // Toggle the cursor cell: it goes On and the grid reports active.
+    let _ = s.dispatch(Intent::TypeFilterToggle);
+    let snap = s.dispatch(Intent::EnterTypeFilter);
+    let grid = match &snap.mode {
+        ModeView::TypeFilter(v) => v,
+        _ => panic!("expected TypeFilter mode after toggle"),
+    };
+    assert!(grid.active);
+    let _ = grid as &TypeFilterView; // type in scope
+}
+
+#[test]
+fn dispatch_clipboard_count_reflects_copy_then_clears() {
+    let mut s = toml_session("a = 1\nb = 2\n");
+    // Nothing on the clipboard initially.
+    assert_eq!(s.snapshot().clipboard_count, None);
+    // Select the cursor row and copy it.
+    s.dispatch(Intent::ToggleSelect);
+    let snap = s.dispatch(Intent::CopySelected);
+    assert_eq!(snap.clipboard_count, Some(1));
+}

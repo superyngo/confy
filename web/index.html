@@ -12,8 +12,10 @@
       <span id="format" class="badge"></span>
       <span id="dirty" class="badge dirty hidden">*</span>
       <span class="spacer"></span>
+      <button id="open-btn">Open…</button>
       <button id="load-btn">Load</button>
-      <button id="save-btn">Save (download)</button>
+      <button id="save-btn">Save…</button>
+      <button id="theme-btn" title="Toggle theme">☾</button>
     </header>
 
     <main id="main">
@@ -24,8 +26,10 @@
     <footer id="statusbar">
       <span id="status"></span>
       <span id="error"></span>
+      <span id="selection" class="badge hidden"></span>
+      <span id="clipboard" class="badge hidden"></span>
       <span class="spacer"></span>
-      <span id="hint">j/k move · Enter toggle/edit · e edit · a add · d delete · / filter · ? help · Ctrl-s save · q quit</span>
+      <span id="hint">j/k move · Enter toggle/edit · e edit · a add · d delete · / filter · ? help · Ctrl-s save · Ctrl-o open · q quit</span>
     </footer>
 
     <!-- Load modal: paste/upload source text -->

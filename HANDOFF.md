@@ -78,13 +78,14 @@ This file is the "where we are / what's next" pointer; delete or rewrite it when
 
 ## Open items / next (not started)
 
-- The Web UI is a minimal functional path (load/navigate/edit/save/filter/popups). Polish: full
-  type-filter facet grid, multi-select/paste UX, real file open (File System Access API), a richer
-  theme. None blocks the contract.
-- Structured row diff (§8.3 G2): not built; `SessionSnapshot.rows` are already `Path`-keyed so a
-  future diff is additive. `Update` (Phase E) is the natural delta carrier if needed.
-- `convert_write`/`Save` host hooks: the web UI downloads; a real "save in place" needs the File
-  System Access API or server upload.
+- The Web UI now covers the functional path end-to-end: real open/save-in-place (File System
+  Access API + download fallback, `web/fs.ts`), dark/light theme, multi-select highlight +
+  `clipboard_count` footer signal, and the projected `TypeFilterView` facet grid. Remaining
+  polish is cosmetic (e.g. richer facet grid styling, keyboard shortcuts reference page) — none
+  blocks the contract.
+- Structured row diff (§8.3 G2): intentionally deferred (no demonstrated perf need; rows are
+  already `Path`-keyed so it's additive when warranted). `Update` (Phase E) is the natural delta
+  carrier.
 
 ## Gotchas / don't re-derive these
 

@@ -78,12 +78,32 @@ export interface ConvertView {
   warnings: string[];
 }
 
+// ---- Type-filter facet grid (session::view::TypeFilterView) ----
+export type CheckState = "On" | "Partial" | "Off";
+
+export interface TypeFilterCellView {
+  label: string;
+  state: CheckState;
+  is_cursor: boolean;
+}
+
+export type TypeFilterRow =
+  | { Header: string }
+  | { Cells: TypeFilterCellView[] };
+
+export interface TypeFilterView {
+  rows: TypeFilterRow[];
+  cursor_row: number;
+  cursor_col: number;
+  active: boolean;
+}
+
 export type ModeView =
   | "Normal"
   | { Prompt: { kind: PromptView } }
   | { Filter: { text: string; cursor: number } }
   | "FilterResults"
-  | "TypeFilter"
+  | { TypeFilter: TypeFilterView }
   | { KindSwitch: { cursor: number; options: KindOptionView[] } }
   | { Convert: ConvertView }
   | "Detail"
@@ -113,6 +133,7 @@ export interface SessionSnapshot {
   detail_text: string | undefined;
   external_edit: ExternalEdit | undefined;
   convert_write: [string, string] | undefined; // [output_path, text]
+  clipboard_count: number | undefined; // Some(n) when the clipboard holds n fragments
   quit: boolean;
 }
 

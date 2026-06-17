@@ -9,7 +9,7 @@ This file is the durable companion to the doc set: `CONTEXT.md` (model glossary)
 (WASM FFI + Web UI). It records *what moves where and why*.
 
 > **Status (2026-06-18).** Stage 1 (headless core) complete; **Stage 2 (WASM FFI +
-> Web UI) landed.** All exit gates pass.
+> Web UI) landed**, plus a Web-UI follow-up (save-in-place, theme, facet grid).
 >
 > Slice 1: §1 workspace split (`confy-core` + `confy-tui`) and §2 **A1/A3** fixes.
 > Slice 2: §2 **A2/A4/A5** + §7 fs-gate — `confy-core` is fully filesystem-free at runtime.
@@ -23,8 +23,12 @@ This file is the durable companion to the doc set: `CONTEXT.md` (model glossary)
 > transport + async external-edit signal + a functional TypeScript Web UI (`web/`, `WEBUI.md`).
 > Rich serde on `Node`/`NodeTree`/`KeySign`/`DocFormat`/modal-state enums. The §8 design
 > items (rich serde, async host, full-state transport) are resolved in §8 below.
+> **Stage 2 follow-up:** Web UI save-in-place (File System Access API + download fallback,
+> all host-owned in `web/fs.ts`), dark/light theme, `SessionSnapshot.clipboard_count`
+> (structured clipboard state), and the projected `TypeFilterView` facet grid
+> (`ModeView::TypeFilter` now carries the grid so the host never re-derives layout).
 >
-> Full suite: 660 tests pass, clippy/fmt clean. The `confy` TUI binary still builds and runs
+> Full suite: 662 tests pass, clippy/fmt clean. The `confy` TUI binary still builds and runs
 > unchanged; the wasm crate builds to `wasm32-unknown-unknown` (`wasm-pack build --target web`).
 
 ---

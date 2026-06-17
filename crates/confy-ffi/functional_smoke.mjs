@@ -114,5 +114,31 @@ const snap4 = s4.snapshot();
 check("JSON loads, format=Json", snap4.doc_format === "Json");
 check("JSON root has children", snap4.rows.length >= 2);
 
+// ---- 11. Type-filter facet grid projects from core ----
+const s5 = new ConfySession('a = 1\nb = "x"\n', "toml");
+let snap5 = s5.dispatch(unit("EnterTypeFilter"));
+const tf = typeof snap5.mode === "object" && "TypeFilter" in snap5.mode ? snap5.mode.TypeFilter : null;
+check("TypeFilter mode carries grid", tf !== null && Array.isArray(tf.rows));
+if (tf) {
+  const hasHeader = tf.rows.some(r => "Header" in r);
+  const cells = tf.rows.flatMap(r => ("Cells" in r ? r.Cells : []));
+  check("grid has headers + cells", hasHeader && cells.length > 0);
+  check("exactly one cursor cell", cells.filter(c => c.is_cursor).length === 1);
+  check("grid starts inactive", tf.active === false);
+  // Toggle the cursor cell, reopen, expect active + one On cell.
+  s5.dispatch(unit("TypeFilterToggle"));
+  snap5 = s5.dispatch(unit("EnterTypeFilter"));
+  const tf2 = "TypeFilter" in snap5.mode ? snap5.mode.TypeFilter : null;
+  check("grid active after toggle", tf2 && tf2.active === true);
+  check("a cell went On", tf2 && tf2.rows.flatMap(r => ("Cells" in r ? r.Cells : [])).some(c => c.state === "On"));
+}
+
+// ---- 12. clipboard_count reflects copy ----
+const s6 = new ConfySession("a = 1\nb = 2\n", "toml");
+check("clipboard empty initially", isNull(s6.snapshot().clipboard_count));
+s6.dispatch(unit("ToggleSelect"));
+const snap6 = s6.dispatch(unit("CopySelected"));
+check("clipboard_count set after copy", snap6.clipboard_count === 1, String(snap6.clipboard_count));
+
 console.log(failures === 0 ? "\nALL FUNCTIONAL CHECKS PASSED" : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);
