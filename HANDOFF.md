@@ -1,12 +1,21 @@
 # HANDOFF — confy headless-core port
 
-Compact context-recovery note. Full design: **`PORTING.md`**. This file is the "where we are /
-what's next" pointer; delete or rewrite it when the port is done.
+Compact context-recovery note. Full design: **`PORTING.md`**; WASM/Web contract: **`WEBUI.md`**.
+This file is the "where we are / what's next" pointer; delete or rewrite it when the port is done.
 
 ## Where we are (2026-06-18)
 
-- Branch **`port/slice-4-session-lift`** (off `port/slice-3-path-cursor`). Tree clean. Not pushed.
-  Latest commit: `afd1c6c` (Slice 5 Phase D); Phase E changes are staged/uncommitted.
+- Branch **`port/slice-4-session-lift`** (off `port/slice-3-path-cursor`). Not pushed.
+- **Stage 1 (headless core) COMPLETE** — Slices 1–5 (Phases A–E), all §7 exit gates pass.
+- **Stage 2 (WASM FFI + Web UI) DONE:** new `confy-ffi` crate (`wasm-bindgen` +
+  `serde-wasm-bindgen`) + `Session::dispatch(Intent) -> SessionSnapshot` (the single command
+  channel, `crates/confy-core/src/session/dispatch.rs`) + full-state `SessionSnapshot` transport
+  + async external-edit signal (§8.2: snapshot carries `external_edit`; JS host opens a modal,
+  re-dispatches `ApplyReplace`/`ApplyEditComment`) + a functional TypeScript Web UI in `web/`.
+  §8 open items resolved (rich serde on `Node`/`NodeTree`/`KeySign`/`DocFormat`/modal enums;
+  async-by-signal not via the `Host` trait; full-state snapshot, no diff yet). 660 tests pass,
+  clippy/fmt clean; `wasm-pack build --target web` succeeds; `crates/confy-ffi/functional_smoke.mjs`
+  is a 25-check node verification of the contract.
 - **Slice 1 DONE:** PORTING.md §1 (workspace split) + §2 **A1** (`from_str`) + **A3** (tempfile-free
   conversion reparse-net).
 - **Slice 2 DONE:** PORTING.md §2 **A2/A4/A5** + the §7 gate. `confy-core` is now **fully
@@ -43,14 +52,39 @@ what's next" pointer; delete or rewrite it when the port is done.
   binary `confy`). `confy-tui/src/lib.rs` does `pub use confy_core::model;` so UI modules keep
   `crate::model::…` paths.
 
-## Next stage: Stage 2 — WASM + Web UI
+## Stage 2 architecture (WASM + Web UI) — DONE
 
-Stage 1's exit gates are all green. The next work (not started) is the Stage-2 surface sketched in
-PORTING.md §1/§8: a `confy-ffi` crate wrapping `confy-core` for WASM (`wasm-bindgen` +
-`serde-wasm-bindgen` over the now-serializable `Intent`/`ViewRow`/`Update`), then a Web UI in
-TypeScript. The serde derives from Phase E are the contract that crosses that boundary. PORTING.md
-§8 still lists three open design items (Node/NodeTree/ScalarType/Format serde for richer views;
-`Host::edit_text` sync-vs-async shape; whether `Update` carries a structured row diff).
+- **`confy-ffi`** (`crates/confy-ffi/`): `wasm-bindgen` cdylib. `ConfySession` is the JS-facing
+  handle: `from_text(text, format)` ctor, then `dispatch(intent) -> SessionSnapshot` (the one
+  command channel), `snapshot`, `visible_rows`, `serialize`, `is_dirty`, `doc_format`,
+  `kind_options`. `serde-wasm-bindgen` marshals everything — adding a Rust field is the only change.
+  Build: `cd crates/confy-ffi && wasm-pack build --target web`. `getrandom` `wasm_js` feature is on
+  (ahash-via-taplo needs it on wasm32); `wasm-opt = false` (the bundled binary trips on current
+  LLVM output; the workspace release profile already does LTO + opt-level z).
+- **`Session::dispatch`** (`crates/confy-core/src/session/dispatch.rs`): mirrors the TUI event
+  loop's mode-dependent routing as a direct Intent→method map. Returns a full `SessionSnapshot`.
+  The TUI is unchanged — it still calls Session methods directly; dispatch is the new WASM contract,
+  tested headlessly in `session_headless.rs` (9 dispatch tests).
+- **Async external edit (§8.2):** WASM does NOT use the sync `Host` trait. `dispatch(BeginEdit)`
+  on an external target sets `pending_external_edit` (new `PendingExternalEdit` field on Session:
+  `path`/`wrap_element`/`is_comment`) and the snapshot carries `external_edit = {initial, kind}`;
+  the JS host opens its async modal, then re-dispatches `ApplyReplace`/`ApplyEditComment`. Sync TUI
+  `Host::edit_text` is untouched; the §7 gate-#5 fake-Host test still covers that path.
+- **`web/`:** `types.ts` (hand-written serde-contract mirror), `confy.ts` (typed wrapper),
+  `ui.ts` (DOM render + keyboard→Intent), `index.html`/`style.css`, `build.mjs` (esbuild),
+  `serve.mjs` (dev server). `npm run build` copies `pkg/` into `web/pkg/` so the dir is
+  self-contained. serde-wasm-bindgen emits `undefined` (not `null`) for `Option::None` — types use
+  `T | undefined`; UI checks use truthiness/`??`.
+
+## Open items / next (not started)
+
+- The Web UI is a minimal functional path (load/navigate/edit/save/filter/popups). Polish: full
+  type-filter facet grid, multi-select/paste UX, real file open (File System Access API), a richer
+  theme. None blocks the contract.
+- Structured row diff (§8.3 G2): not built; `SessionSnapshot.rows` are already `Path`-keyed so a
+  future diff is additive. `Update` (Phase E) is the natural delta carrier if needed.
+- `convert_write`/`Save` host hooks: the web UI downloads; a real "save in place" needs the File
+  System Access API or server upload.
 
 ## Gotchas / don't re-derive these
 

@@ -209,16 +209,32 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
                    mutations (apply_replace/insert/delete/copy/cut/paste/remark/undo/redo/nudge),
                    escape, prompt-key dispatch, quit flow; plus free fns: node_type_label,
                    format_label, nudge_scalar
-    state.rs       Mode, PendingCommit, EditKind, EditState, History, Clipboard, PasteSlot, FilterLayer, …
+    state.rs       Mode, PendingCommit, PendingExternalEdit, EditKind, EditState, History,
+                   Clipboard, PasteSlot, FilterLayer, …
     selection.rs   Selection (path-keyed multi-select + range rounds)
     search.rs      fuzzy_match / fuzzy_indices / haystack
     insertion.rs   resolve_target (pure insertion-target logic)
     type_filter.rs TypeFilter, TypeToken, layout/nav helpers
-    view.rs        ViewRow (pure view row, no type_tag), Update (rows_dirty, status, error, quit,
-                   external_edit, convert_write)
+    view.rs        ViewRow (pure view row, no type_tag), Update (rows_dirty, …) +
+                   Stage-2 full-state transport: SessionSnapshot, ModeView, EditView, ConvertView,
+                   KindOptionView, PromptView, ExternalEdit/ExternalEditKind (the WASM wire contract)
+    dispatch.rs    Stage-2 command channel: Session::dispatch(Intent) -> SessionSnapshot
+                   (mode-dependent Intent→method routing; the only entry point the Web UI uses)
 crates/confy-core/tests/  roundtrip*.rs / yaml_scratch.rs + fixtures/ + no_fs_gate.rs (§7 gate)
                           + session_headless.rs (§7 gate #4: headless Session scripted tests;
-                          §7 gate #5: fake-Host `$EDITOR` flow) + serde_roundtrip.rs (§7 gate #3)
+                          §7 gate #5: fake-Host `$EDITOR` flow; + dispatch() tests) + serde_roundtrip.rs (§7 gate #3)
+
+crates/confy-ffi/         Stage-2 WASM wrapper over confy-core (wasm-bindgen + serde-wasm-bindgen)
+  src/lib.rs     ConfySession: from_text/dispatch/snapshot/serialize/visible_rows/kind_options
+                 (the JS-facing handle; serde-wasm-bindgen marshals Intent/SessionSnapshot)
+  functional_smoke.mjs     node verification of the Intent→snapshot contract (25 checks)
+  (build: `wasm-pack build --target web`; getrandom wasm_js for the ahash-via-taplo chain)
+
+web/                       TypeScript integration + functional Web UI (see WEBUI.md)
+  types.ts       hand-written mirror of the confy-core serde contract (Intent/SessionSnapshot/…)
+  confy.ts       typed wrapper around the wasm ConfySession (load + Session class)
+  ui.ts          DOM render of SessionSnapshot + keyboard→Intent map (mirrors tui/keys.rs)
+  index.html / style.css / build.mjs (esbuild) / serve.mjs (dev server)
 
 crates/confy-tui/src/    ratatui TUI + CLI; depends on confy-core, `pub use confy_core::model`
   main.rs          bin `confy`: parse args, load via load_document, run TUI
@@ -226,8 +242,8 @@ crates/confy-tui/src/    ratatui TUI + CLI; depends on confy-core, `pub use conf
   cli.rs           clap args: default `confy <file> [--format]` (TUI) + `confy convert <in> <out>` subcommand
   tui/
     mod.rs         re-exports; run() entry point + event loop (run_event_loop)
-    app.rs         App state (all CORE+HOST fields) + all operation handlers; App::save = serialize → fs::write
-                   NOTE: thin-wrapper migration (Phase D) is pending — App fields will move to session: Session
+    app.rs         App = thin Host wrapper: `pub session: Session` + 5 HOST-only fields
+                   (rows/source_path/detail_scroll/help_scroll/table_offset); App::save = serialize → fs::write
     state.rs       thin re-export of confy_core::session::state
     keys.rs        KeyAction mapping + help text
     insertion.rs   thin re-export of confy_core::session::insertion

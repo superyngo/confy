@@ -1,5 +1,6 @@
 use crate::model::document::{DocFormat, KindTarget, Target};
 use crate::model::node::Path;
+use serde::{Deserialize, Serialize};
 
 /// The action a TypeChange confirmation (`y`) applies.
 pub enum PendingCommit {
@@ -10,7 +11,7 @@ pub enum PendingCommit {
 }
 
 /// How `e` should edit the cursor node.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EditKind {
     Inline,
     External,
@@ -18,10 +19,25 @@ pub enum EditKind {
 
 /// Which filter layer was most recently (re)applied. Esc in FilterResults peels
 /// this layer first so two active filters come off one at a time.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FilterLayer {
     Text,
     Type,
+}
+
+/// In-flight async external edit (PORTING §8.2). Set when `dispatch` routes an
+/// edit to the external path; consumed by the follow-up `ApplyReplace` /
+/// `ApplyEditComment` intent. The host only ever sees the `initial` text and
+/// returns edited text — this struct remembers the resolution the core needs.
+#[derive(Clone, Debug)]
+pub struct PendingExternalEdit {
+    pub path: Path,
+    /// True when the edited text is a bare value that must be re-wrapped via
+    /// `scalar_fragment(None, …)` (the array-element form). Mirrors App::edit_node.
+    pub wrap_element: bool,
+    /// True when this is a standalone-comment edit (`apply_edit_comment`), not a
+    /// value replace.
+    pub is_comment: bool,
 }
 
 /// The editing mode the session is in.
@@ -55,7 +71,7 @@ pub struct ConvertState {
     pub text: String,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConvertStep {
     Format,
     Path,
@@ -91,7 +107,7 @@ pub enum PendingComment {
     Remark { path: Path },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EditField {
     Value,
     Name,

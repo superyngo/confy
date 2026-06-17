@@ -139,7 +139,7 @@ pub struct ConvertAbort(pub String);
 /// Which config syntax a document speaks. Backends report it via
 /// [`ConfigDocument::format`]; the TUI uses it for the title bar, help text
 /// and comment validation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DocFormat {
     Toml,
     Json,

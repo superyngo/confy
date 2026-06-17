@@ -73,7 +73,7 @@ pub enum Format {
 /// (array elements, comments, AoT entries, Root). Derived read-only during
 /// projection, like `Format`. A dotted-key entry (`a.b.c = 1`) collapses into
 /// one node, which is `Dotted`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum KeySign {
     Bare,
     Quoted,
@@ -81,7 +81,7 @@ pub enum KeySign {
     None,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum NodeKind {
     Root,
     Table,
@@ -92,7 +92,7 @@ pub enum NodeKind {
     Comment(String),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Node {
     pub key: String,
     pub path: Path,
@@ -171,7 +171,7 @@ impl Node {
 }
 
 /// The projected tree, rooted at the filename Node.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct NodeTree {
     pub root: Node,
 }

@@ -12,3 +12,11 @@ Cargo.lock
 
 # editor/agent scratch backups
 *.bak
+
+# WASM / Web UI build artifacts
+crates/confy-ffi/pkg/
+web/pkg/
+web/ui.js
+web/ui.js.map
+web/node_modules/
+**/.DS_Store

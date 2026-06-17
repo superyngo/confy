@@ -5,25 +5,27 @@ Design record for refactoring confy from a single TUI binary into a **Headless C
 all sharing one Web UI compiled against the core via WebAssembly.
 
 This file is the durable companion to the doc set: `CONTEXT.md` (model glossary),
-`BEHAVIOR_MATRIX.md` (nested behavior), `TUI.md` (ratatui mechanics). It records *what moves
-where and why*; the eventual `WEBUI.md` will document the shared Web UI against this contract.
+`BEHAVIOR_MATRIX.md` (nested behavior), `TUI.md` (ratatui mechanics), `WEBUI.md`
+(WASM FFI + Web UI). It records *what moves where and why*.
 
-> **Status (2026-06-18).** Slices 1–5 (Phases A–E) landed — all Stage-1 exit gates pass.
+> **Status (2026-06-18).** Stage 1 (headless core) complete; **Stage 2 (WASM FFI +
+> Web UI) landed.** All exit gates pass.
 >
 > Slice 1: §1 workspace split (`confy-core` + `confy-tui`) and §2 **A1/A3** fixes.
 > Slice 2: §2 **A2/A4/A5** + §7 fs-gate — `confy-core` is fully filesystem-free at runtime.
 > Slice 3: §3 cursor reshape — `App.cursor` is now a `Path`, selection/paste are Path-keyed.
 > Slice 4: §5 Phases A–C — complete `Session` struct in `confy-core/session/` with all CORE
-> fields and every CORE operation; `Intent` enum; `Host` trait; `ViewRow`/`Update`; 13 headless tests.
-> Slice 5 Phase D: `App` rewritten as a thin Host wrapper (`pub session: Session` + 5 HOST-only
-> fields; every CORE method a 1-line delegate; `RowSnapshot` = `ViewRow` + ratatui presentation).
-> Slice 5 Phase E (§7 gates #3 and #5): `Intent`/`ViewRow`/`Update`/`Mutation` (+ leaf types)
-> derive `Serialize`/`Deserialize` and round-trip via `serde_json` (`tests/serde_roundtrip.rs`);
-> a fake `Host` exercises the `$EDITOR`/multi-line path headlessly (`session_headless.rs`).
+> fields and every CORE operation; `Intent` enum; `Host` trait; `ViewRow`/`Update`.
+> Slice 5 Phase D: `App` rewritten as a thin Host wrapper.
+> Slice 5 Phase E (§7 gates #3 and #5): serde derives + fake-`Host` headless tests.
+> **Stage 2 (§8):** `confy-ffi` WASM crate (`wasm-bindgen` + `serde-wasm-bindgen`) +
+> `Session::dispatch(Intent) -> SessionSnapshot` command channel + full-state snapshot
+> transport + async external-edit signal + a functional TypeScript Web UI (`web/`, `WEBUI.md`).
+> Rich serde on `Node`/`NodeTree`/`KeySign`/`DocFormat`/modal-state enums. The §8 design
+> items (rich serde, async host, full-state transport) are resolved in §8 below.
 >
-> Full suite: 438 core-unit + 167 tui + 26 integration + 15 session-headless + 5 serde-roundtrip;
-> clippy/fmt clean. The binary still builds and runs as `confy`. Stage 1 (the headless core) is
-> complete; the next stage is the WASM/`confy-ffi` wrapper + the Web UI.
+> Full suite: 660 tests pass, clippy/fmt clean. The `confy` TUI binary still builds and runs
+> unchanged; the wasm crate builds to `wasm32-unknown-unknown` (`wasm-pack build --target web`).
 
 ---
 
@@ -266,10 +268,64 @@ boundary. No editor logic lives in either UI.
 
 ---
 
-## 8. Open items for the next session
+## 8. Open items for the next session — RESOLVED (2026-06-18, Stage 2)
 
-- Confirm `Node`/`NodeTree`/`ScalarType`/`Format` derive (or can derive) `Serialize` for `ViewRow`.
-- Decide `Host::edit_text` shape: sync for TUI vs. `async`/future for web — likely an associated
-  outcome type so the core stays runtime-agnostic.
-- Decide whether `Update` carries a structured row **diff** (R2) now or starts with `rows_dirty`
-  + full re-pull and adds diffing at Gateway G2 once latency is measured.
+The three open items are decided as follows. Rationale: optimize for correctness,
+simplicity, and API stability over premature transport optimization; keep the FFI
+boundary explicit; treat browser/editor integration as asynchronous from the start.
+
+### 8.1 Rich serde for `Node` / `NodeTree` — YES
+
+`Node`, `NodeKind`, `NodeTree`, and `KeySign` now derive `Serialize`/`Deserialize`
+(alongside the Phase-E leaf types `Seg`/`ScalarType`/`Format`/`KindTarget`/`Target`/
+`OnCollision`). The Web UI can pull the full projected tree for richer views
+(type-filter facets, kind options, context menus) without a second projection.
+`ViewRow` remains the **primary** transport for the visible tree; the full `NodeTree`
+is an on-demand secondary surface (`Session::tree` is already `pub`).
+
+### 8.2 `Host::edit_text` — async-by-signal, NOT via the trait, for WASM
+
+The sync `Host` trait stays as-is for the TUI (it spawns `$EDITOR` synchronously and
+that is correct for a terminal). **WASM does not route through `Host` at all.**
+Instead `dispatch` returns the external-edit request **as a signal** in the snapshot
+(`external_edit: { initial, kind }`) when an edit intent resolves to the
+external/multi-line path; the JS host opens its own async modal (`Promise`-based),
+then re-dispatches `Intent::ApplyReplace { path, text }` (or `ApplyEditComment`)
+with the result. Session remembers the resolved edit target (path + `wrap_element`
+flag + comment-vs-value) in a small `pending_external_edit` field between the two
+dispatches, so the host's only job is "show text → return text." This makes editor
+integration natively async on the web with zero blocking and leaves the TUI `Host`
+untouched. The §7 gate-#5 fake-`Host` test continues to exercise the synchronous
+composition path.
+
+### 8.3 `Update` transport — full-state snapshot, no diff (for now)
+
+The initial Web implementation uses **full-state transport**: `dispatch(intent)`
+returns a `SessionSnapshot` carrying the complete renderable state — every visible
+`ViewRow`, the current `ModeView` (mode + modal edit surfaces), cursor path,
+status/error, detail text, external-edit request, convert-write request, quit flag,
+doc format, and dirty bit. The UI re-renders the whole tree from the snapshot each
+interaction. **No structured row diff.** Rationale: simplicity and correctness first;
+the tree is small (config files), full re-render is cheap, and a diff can be layered
+on at Gateway G2 (`rows_dirty` is the natural hook) if latency ever warrants it. No
+complexity is added now solely to support a future diff.
+
+### 8.4 Single command channel — `Session::dispatch(Intent) -> SessionSnapshot`
+
+Stage 2 introduces the one entry point sketched in §6: `dispatch`. It encodes the
+mode-dependent routing currently living in the TUI event loop
+(Prompt/Filter/FilterResults/Detail/Edit/Help/TypeFilter/KindSwitch/Convert/Normal)
+and is the **only** command channel the Web UI uses — it serializes one `Intent` and
+gets back one `SessionSnapshot`. The TUI event loop is unchanged (it still calls
+`Session` methods directly); `dispatch` is the new WASM contract, independently
+unit-tested headlessly across TOML/JSON/YAML. Intent variants `BeginInlineEdit` and
+`BeginInlineRename` were renamed to `BeginEdit` / `BeginRename` for contract clarity
+(they are the smart `e` / rename entry points that route inline-vs-external).
+
+### 8.5 What stays host-owned
+
+File I/O (load/save, the convert write), the terminal/viewport, and all DOM scrolling
+are host-owned — exactly as §4 prescribes. `Intent::Save` marks the doc saved and
+reports dirty=false; the host calls `serialize()` separately to obtain the bytes to
+write/download. Detail/Help scroll intents are no-ops in `dispatch` (core holds no
+scroll state); the Web UI scrolls the DOM natively.

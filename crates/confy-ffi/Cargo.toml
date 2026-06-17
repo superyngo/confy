@@ -1,0 +1,28 @@
+[package]
+name = "confy-ffi"
+description = "WebAssembly FFI wrapper over confy-core (wasm-bindgen + serde-wasm-bindgen)"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "confy_ffi"
+path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[package.metadata.wasm-pack.profile.release]
+# The bundled wasm-opt trips on current LLVM output; the release wasm is already
+# LTO + opt-level='z' from the workspace profile, so skip the extra pass.
+wasm-opt = false
+
+[dependencies]
+confy-core.workspace = true
+wasm-bindgen.workspace = true
+js-sys.workspace = true
+serde-wasm-bindgen.workspace = true
+serde.workspace = true
+# ahash (via taplo) pulls getrandom; on wasm32-unknown-unknown the JS backend
+# must be enabled so it compiles in a browser/WASM host.
+getrandom = { version = "0.3", features = ["wasm_js"] }

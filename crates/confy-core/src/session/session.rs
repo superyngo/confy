@@ -7,7 +7,7 @@ use crate::session::search::{fuzzy_match, haystack};
 use crate::session::selection::Selection;
 use crate::session::state::{
     Clipboard, EditField, EditKind, EditState, FilterLayer, History, KindSwitchState, Mode,
-    PasteSlot, PendingComment, PendingCommit, PromptKind,
+    PasteSlot, PendingComment, PendingCommit, PendingExternalEdit, PromptKind,
 };
 use crate::session::type_filter::TypeFilter;
 use crate::session::view::{Update, ViewRow};
@@ -36,6 +36,9 @@ pub struct Session {
     pub detail_text: Option<String>,
     pub pending_edit: Option<(EditState, PendingCommit)>,
     pub pending_trailing: Option<Option<String>>,
+    /// In-flight async external edit (WASM §8.2); `None` except between the
+    /// `BeginEdit` that routes external and the resolving `ApplyReplace`/`ApplyEditComment`.
+    pub pending_external_edit: Option<PendingExternalEdit>,
 }
 
 impl Session {
@@ -66,6 +69,7 @@ impl Session {
             detail_text: None,
             pending_edit: None,
             pending_trailing: None,
+            pending_external_edit: None,
         };
         s.expanded.insert(Vec::new());
         s
@@ -96,6 +100,7 @@ impl Session {
             detail_text: None,
             pending_edit: None,
             pending_trailing: None,
+            pending_external_edit: None,
         }
     }
 

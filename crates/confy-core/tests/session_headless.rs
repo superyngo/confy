@@ -3,7 +3,7 @@
 use confy_core::model::any_doc::AnyDocument;
 use confy_core::model::document::{ConfigDocument, DocFormat};
 use confy_core::model::node::Seg;
-use confy_core::session::{EditKind, EditTextOutcome, Host, Mode, Session};
+use confy_core::session::{EditKind, EditTextOutcome, Host, Intent, Mode, ModeView, Session};
 
 fn toml_session(src: &str) -> Session {
     let doc = AnyDocument::from_str_as(src, DocFormat::Toml).unwrap();
@@ -234,4 +234,124 @@ fn fake_host_cancelled_edit_leaves_doc_untouched() {
     // Host cancelled — core never receives an apply, so the doc is unchanged.
     let text = s.serialize().unwrap();
     assert!(text.contains("line1"), "doc untouched on cancel: {text}");
+}
+
+// ---- dispatch(): the WASM command channel (Stage 2, PORTING §8.4) ----
+
+#[test]
+fn dispatch_navigation_updates_cursor_in_snapshot() {
+    let mut s = toml_session("a = 1\nb = 2\n");
+    let snap = s.dispatch(Intent::CursorDown);
+    assert_eq!(snap.cursor, vec![Seg::Key("a".into())]);
+    // The cursor row is flagged in the snapshot's rows (full-state transport).
+    let cursor_row = snap.rows.iter().find(|r| r.is_cursor).unwrap();
+    assert_eq!(cursor_row.key.as_str(), "a");
+    assert!(matches!(snap.mode, ModeView::Normal));
+}
+
+#[test]
+fn dispatch_toggle_expand_branch_then_collapse() {
+    let mut s = toml_session("[a]\nx = 1\n");
+    s.dispatch(Intent::CursorDown); // onto branch 'a'
+    let snap = s.dispatch(Intent::ToggleExpand);
+    // root + a + x once expanded
+    assert_eq!(snap.rows.len(), 3);
+    let snap = s.dispatch(Intent::CollapseAll);
+    assert_eq!(snap.rows.len(), 2);
+}
+
+#[test]
+fn dispatch_edit_inline_scalar_uses_inline_mode() {
+    let mut s = toml_session("a = 1\n");
+    s.dispatch(Intent::CursorDown); // onto 'a'
+    let snap = s.dispatch(Intent::BeginEdit);
+    // Single-line scalar routes inline, not external.
+    assert!(
+        snap.external_edit.is_none(),
+        "scalar should route inline, not external"
+    );
+    assert!(matches!(snap.mode, ModeView::Edit(_)));
+}
+
+#[test]
+fn dispatch_multiline_edit_signals_external_edit_then_applies() {
+    // The async-host handshake (PORTING §8.2): BeginEdit on a multi-line scalar
+    // returns external_edit in the snapshot; the host returns text via
+    // ApplyReplace, which resolves the pending edit.
+    let mut s = toml_session("notes = \"\"\"\nline1\n\"\"\"\n");
+    s.dispatch(Intent::CursorDown); // onto 'notes'
+    let snap = s.dispatch(Intent::BeginEdit);
+    let ext = snap.external_edit.expect("multiline routes external");
+    assert!(ext.initial.contains("line1"));
+    let path = match ext.kind {
+        confy_core::session::ExternalEditKind::Value { path } => path,
+        other => panic!("expected Value, got {other:?}"),
+    };
+    // Host edits (async modal) and returns the new fragment.
+    let edited = "notes = \"\"\"\nEDITED\n\"\"\"\n".to_string();
+    let snap = s.dispatch(Intent::ApplyReplace {
+        path: path.clone(),
+        text: edited,
+    });
+    assert!(snap.error.is_none(), "apply should succeed");
+    assert!(snap.external_edit.is_none(), "pending cleared after apply");
+    let text = s.serialize().unwrap();
+    assert!(text.contains("EDITED"), "doc reflects edit: {text}");
+    assert!(!text.contains("line1"));
+}
+
+#[test]
+fn dispatch_nudge_increments_scalar_via_snapshot() {
+    let mut s = toml_session("a = 1\n");
+    s.dispatch(Intent::CursorDown);
+    let snap = s.dispatch(Intent::Nudge(1));
+    let row = snap.rows.iter().find(|r| r.key == "a").unwrap();
+    assert_eq!(row.value.as_deref(), Some("2"));
+    assert!(snap.is_dirty, "nudge marks the doc dirty");
+}
+
+#[test]
+fn dispatch_save_clears_dirty_flag() {
+    let mut s = toml_session("a = 1\n");
+    s.dispatch(Intent::CursorDown);
+    s.dispatch(Intent::Nudge(1));
+    assert!(s.is_dirty());
+    let snap = s.dispatch(Intent::Save);
+    assert!(!snap.is_dirty, "Save clears dirty");
+    assert_eq!(snap.status.as_deref(), Some("Saved"));
+    // The host obtains bytes separately via serialize(); core stays fs-free.
+    assert_eq!(s.serialize().unwrap(), "a = 2\n");
+}
+
+#[test]
+fn dispatch_quit_clean_returns_quit_flag() {
+    let mut s = toml_session("a = 1\n");
+    let snap = s.dispatch(Intent::QuitRequested);
+    assert!(snap.quit, "clean doc quits immediately");
+}
+
+#[test]
+fn dispatch_quit_dirty_enters_prompt_not_quit() {
+    let mut s = toml_session("a = 1\n");
+    s.dispatch(Intent::CursorDown);
+    s.dispatch(Intent::Nudge(1));
+    let snap = s.dispatch(Intent::QuitRequested);
+    assert!(!snap.quit, "dirty doc does not quit yet");
+    assert!(matches!(snap.mode, ModeView::Prompt { .. }));
+    // Confirm 'n' stays; confirm 'y' quits.
+    let snap = s.dispatch(Intent::PromptKey('y'));
+    assert!(snap.quit, "y confirms quit");
+}
+
+#[test]
+fn dispatch_snapshot_reflects_filter_mode() {
+    let mut s = toml_session("a = 1\nbb = 2\n");
+    let snap = s.dispatch(Intent::EnterFilter);
+    assert!(matches!(snap.mode, ModeView::Filter { .. }));
+    let snap = s.dispatch(Intent::FilterChar('b'));
+    if let ModeView::Filter { text, .. } = &snap.mode {
+        assert_eq!(text, "b");
+    } else {
+        panic!("still in Filter mode after FilterChar");
+    }
 }

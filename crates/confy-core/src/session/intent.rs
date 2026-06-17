@@ -77,8 +77,8 @@ pub enum Intent {
     HelpSetScroll(u16),
 
     // ---- Inline edit ----
-    BeginInlineEdit,
-    BeginInlineRename,
+    BeginEdit,
+    BeginRename,
     EditToggleField,
     EditClampScroll(usize),
     EditChar(char),

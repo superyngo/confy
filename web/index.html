@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>confy — web</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header id="titlebar">
+      <span id="title">confy</span>
+      <span id="format" class="badge"></span>
+      <span id="dirty" class="badge dirty hidden">*</span>
+      <span class="spacer"></span>
+      <button id="load-btn">Load</button>
+      <button id="save-btn">Save (download)</button>
+    </header>
+
+    <main id="main">
+      <pre id="tree" tabindex="0"></pre>
+      <aside id="overlay" class="hidden"></aside>
+    </main>
+
+    <footer id="statusbar">
+      <span id="status"></span>
+      <span id="error"></span>
+      <span class="spacer"></span>
+      <span id="hint">j/k move · Enter toggle/edit · e edit · a add · d delete · / filter · ? help · Ctrl-s save · q quit</span>
+    </footer>
+
+    <!-- Load modal: paste/upload source text -->
+    <div id="load-modal" class="modal hidden">
+      <div class="modal-box">
+        <h3>Open document</h3>
+        <select id="load-format">
+          <option value="toml">TOML</option>
+          <option value="json">JSON / JSONC</option>
+          <option value="yaml">YAML</option>
+        </select>
+        <textarea id="load-text" rows="16" cols="72"></textarea>
+        <div class="modal-actions">
+          <button id="load-confirm">Open</button>
+          <button id="load-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- External-edit modal (§8.2 async handshake) -->
+    <div id="ext-modal" class="modal hidden">
+      <div class="modal-box">
+        <h3>Edit</h3>
+        <textarea id="ext-text" rows="16" cols="72"></textarea>
+        <div class="modal-actions">
+          <button id="ext-confirm">Apply</button>
+          <button id="ext-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="./ui.ts"></script>
+  </body>
+</html>

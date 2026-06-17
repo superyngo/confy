@@ -1,0 +1,17 @@
+{
+  "name": "confy-web",
+  "private": true,
+  "version": "0.7.0",
+  "type": "module",
+  "description": "Web UI for confy (drives the wasm core via the Session command channel)",
+  "scripts": {
+    "build": "node build.mjs",
+    "build:bundle": "esbuild ui.ts --bundle --outfile=ui.js --format=esm --target=es2022 --sourcemap",
+    "typecheck": "tsc --noEmit",
+    "serve": "node serve.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "typescript": "^5.6.0"
+  }
+}
