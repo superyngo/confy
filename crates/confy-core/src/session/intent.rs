@@ -1,7 +1,9 @@
+use serde::{Deserialize, Serialize};
+
 /// Every user-facing action the TUI can dispatch to the Session.
 /// The event loop translates raw key events to `Intent` values; the Session
 /// drives all state changes from there.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Intent {
     // ---- Navigation ----
     CursorDown,

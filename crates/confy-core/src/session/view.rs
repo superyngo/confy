@@ -1,8 +1,9 @@
 use crate::model::node::{Format, Path, ScalarType};
+use serde::{Deserialize, Serialize};
 
 /// One visible row in the tree — the view model both the TUI and Web UI render.
 /// The host adds presentation-only fields (type_tag fixed-pitch label, column padding).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ViewRow {
     pub path: Path,
     pub depth: usize,
@@ -23,7 +24,7 @@ pub struct ViewRow {
 
 /// What the session changed after a [`super::intent::Intent`] was dispatched.
 /// The UI uses this to decide what to re-render.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Update {
     /// `visible_rows()` changed — re-pull and redraw the tree.
     pub rows_dirty: bool,

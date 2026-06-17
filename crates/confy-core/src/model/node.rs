@@ -1,5 +1,7 @@
+use serde::{Deserialize, Serialize};
+
 /// One segment of a path from Root to a Node.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Seg {
     Key(String),
     Index(usize),
@@ -7,7 +9,7 @@ pub enum Seg {
 
 pub type Path = Vec<Seg>;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ScalarType {
     String,
     Integer,
@@ -25,7 +27,7 @@ pub enum ScalarType {
 /// format-toggle feature (§future) is the write-side counterpart. Nodes with a
 /// single possible style (bool, datetimes, Root, AoT groups/entries, comments)
 /// are `Plain`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Format {
     /// Single writing style (bool, datetimes, Root, AoT, comments).
     Plain,

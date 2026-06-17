@@ -1,4 +1,5 @@
 use crate::model::node::{NodeKind, NodeTree, Path};
+use serde::{Deserialize, Serialize};
 
 pub trait ConfigDocument: Sized {
     fn project(&self) -> NodeTree;
@@ -157,20 +158,20 @@ impl DocFormat {
 }
 
 /// Where an insert/move lands: insert as a child of `parent` at `index`.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Target {
     pub parent: Path,
     pub index: usize,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum OnCollision {
     Overwrite,
     Rename, // append _2, _3, ...
     Cancel,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Mutation {
     Delete {
         path: Path,
@@ -235,7 +236,7 @@ pub enum Mutation {
 }
 
 /// The target of a [`Mutation::ConvertKind`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum KindTarget {
     StringBasic,
     StringLiteral,

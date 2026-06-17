@@ -17,3 +17,7 @@ thiserror.workspace = true
 taplo.workspace = true
 rowan.workspace = true
 fuzzy-matcher.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

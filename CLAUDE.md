@@ -217,7 +217,8 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
     view.rs        ViewRow (pure view row, no type_tag), Update (rows_dirty, status, error, quit,
                    external_edit, convert_write)
 crates/confy-core/tests/  roundtrip*.rs / yaml_scratch.rs + fixtures/ + no_fs_gate.rs (§7 gate)
-                          + session_headless.rs (§7 gate #4: headless Session scripted tests)
+                          + session_headless.rs (§7 gate #4: headless Session scripted tests;
+                          §7 gate #5: fake-Host `$EDITOR` flow) + serde_roundtrip.rs (§7 gate #3)
 
 crates/confy-tui/src/    ratatui TUI + CLI; depends on confy-core, `pub use confy_core::model`
   main.rs          bin `confy`: parse args, load via load_document, run TUI

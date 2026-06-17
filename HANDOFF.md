@@ -6,7 +6,7 @@ what's next" pointer; delete or rewrite it when the port is done.
 ## Where we are (2026-06-18)
 
 - Branch **`port/slice-4-session-lift`** (off `port/slice-3-path-cursor`). Tree clean. Not pushed.
-  Latest commit: `afd1c6c` (Slice 5 Phase D).
+  Latest commit: `afd1c6c` (Slice 5 Phase D); Phase E changes are staged/uncommitted.
 - **Slice 1 DONE:** PORTING.md §1 (workspace split) + §2 **A1** (`from_str`) + **A3** (tempfile-free
   conversion reparse-net).
 - **Slice 2 DONE:** PORTING.md §2 **A2/A4/A5** + the §7 gate. `confy-core` is now **fully
@@ -22,38 +22,35 @@ what's next" pointer; delete or rewrite it when the port is done.
 - **Slice 4 DONE:** PORTING.md §5 Phases A–C. `confy-core/session/` now contains the complete
   `Session` struct with all CORE fields and every CORE operation. New types: `Intent` enum, `Host`
   trait, `Update` struct, `PendingCommit`, `EditKind`. `Session::visible_rows() -> Vec<ViewRow>` is
-  a pure on-demand computation. `crates/confy-core/tests/session_headless.rs` (13 tests, §7 exit
-  gate #4) passes across TOML/JSON/YAML.
+  a pure on-demand computation. `crates/confy-core/tests/session_headless.rs` (now 15 tests,
+  §7 exit gate #4) passes across TOML/JSON/YAML.
 - **Slice 5 Phase D DONE:** `App` rewritten as thin Host wrapper. `App` holds `pub session: Session`
   + 5 HOST-only fields (`rows: Vec<RowSnapshot>`, `source_path`, `detail_scroll`, `help_scroll`,
   `table_offset`). Every CORE method is a 1-line delegate to `self.session.*`. `RowSnapshot` (HOST
   view model for ratatui) adds `type_label`/`type_tag`/`scalar_type` on top of `ViewRow`.
   `rebuild_rows()` calls `session.compute_rows()` then maps `ViewRow→RowSnapshot` by looking up
   `NodeKind` from `session.tree`. HOST-split methods (`edit_node`, `save`, `convert_write`) stay on
-  `App` and do all filesystem I/O. All ~444 test field accesses updated (`app.cursor` →
-  `app.session.cursor`, etc.). `selection.clear()` removed from `compute_rows()` (selection is
-  path-keyed and survives structural changes). Free functions cleaned: removed `char_byte_idx`,
-  `unique_key`, `project_first_label`; marked `clamp_scroll`/`nudge_scalar`/etc. `#[cfg(test)]`.
-  Full suite: 438 core-unit + 167 tui + 26 integration + 13 session-headless; clippy/fmt clean.
+  `App` and do all filesystem I/O. Committed as `afd1c6c`.
+- **Slice 5 Phase E DONE (§7 exit gates #3 and #5):** `Intent`/`ViewRow`/`Update`/`Mutation` (+ leaf
+  types `Seg`/`ScalarType`/`Format`/`KindTarget`/`Target`/`OnCollision`) derive
+  `Serialize`/`Deserialize`. `serde` is a new unconditional `confy-core` runtime dep;
+  `serde_json` is a `confy-core` dev-dep only. `tests/serde_roundtrip.rs` (5 tests) round-trips
+  each via `serde_json::Value` (no `PartialEq` added to domain types). `session_headless.rs` gains
+  two fake-`Host` tests driving the `$EDITOR`/multiline path headlessly (no spawn, no terminal).
+  Full suite: 438 core-unit + 167 tui + 26 integration + 15 session-headless + 5 serde-roundtrip;
+  clippy/fmt clean. **Stage 1 (headless core) is complete.**
 - Layout: `crates/confy-core/` (pure model + session) + `crates/confy-tui/` (ratatui TUI + CLI,
   binary `confy`). `confy-tui/src/lib.rs` does `pub use confy_core::model;` so UI modules keep
   `crate::model::…` paths.
 
-## Next task: Slice 5 Phase E — serde + fake-Host tests
+## Next stage: Stage 2 — WASM + Web UI
 
-**Phase E (§7 exit gates #3 and #5):**
-- **Serde round-trip tests** for `Intent`/`ViewRow`/`Update`/`Mutation` (§7 exit gate #3). Add
-  `#[derive(Serialize, Deserialize)]` to these types in `confy-core` and write round-trip tests
-  that serialize → deserialize → assert equality. This is preparation for the WASM/web-UI port
-  (serde for JS interop via `serde-wasm-bindgen` or similar). The types are in:
-  - `Intent` enum — `crates/confy-core/src/session/intent.rs`
-  - `ViewRow` struct — `crates/confy-core/src/session/view.rs`
-  - `Update` struct — `crates/confy-core/src/session/view.rs`
-  - `Mutation` enum — `crates/confy-core/src/model/document.rs`
-- **Fake-Host `$EDITOR` integration test** (§7 exit gate #5). Write a test that uses a fake/mock
-  `Host` implementation (implementing the `Host` trait's `edit_text` callback) to exercise the
-  `$EDITOR`/multiline path headlessly — no real editor process spawned. Likely goes in
-  `crates/confy-core/tests/` alongside `session_headless.rs`.
+Stage 1's exit gates are all green. The next work (not started) is the Stage-2 surface sketched in
+PORTING.md §1/§8: a `confy-ffi` crate wrapping `confy-core` for WASM (`wasm-bindgen` +
+`serde-wasm-bindgen` over the now-serializable `Intent`/`ViewRow`/`Update`), then a Web UI in
+TypeScript. The serde derives from Phase E are the contract that crosses that boundary. PORTING.md
+§8 still lists three open design items (Node/NodeTree/ScalarType/Format serde for richer views;
+`Host::edit_text` sync-vs-async shape; whether `Update` carries a structured row diff).
 
 ## Gotchas / don't re-derive these
 

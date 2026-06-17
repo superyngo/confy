@@ -16,6 +16,8 @@ taplo = "0.14"            # lossless rowan CST backend (comments as real nodes)
 rowan = "=0.15.18"        # lossless hand-rolled JSON/JSONC CST (same version taplo uses)
 tempfile = "3"
 fuzzy-matcher = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [profile.release]
 opt-level = 'z'
