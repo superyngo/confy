@@ -246,6 +246,12 @@ Notes:
   it lands as nodes (dotted re-prefix, per-leaf collision) and into another group/array it joins
   into one `[[entry]]`/`{ … }` element. A nested `[[…]]` sub-group has no dotted form: move →
   `Unsupported`, copy → full-section capture.
+- Moving a **`[T/S]` scope table** into another scope re-prefixes every header with the
+  destination path (`prefix_section_headers`: `[a]`/`[a.sub]` into `[b]` → `[b.a]`/`[b.a.sub]`);
+  capture is scope-relative via `strip_section_header_prefix` (a nested `[a.sub]` cut into `[b]`
+  becomes `[b.sub]`). A `[T/D]` table moved into an inline table flattens its members to inline
+  dotted keys. **Illegal table moves**: a `[table]` section into an inline table, or nested under
+  a *pure* `[T/D]` (both checked in `insert`).
 
 ## `e` block-edit behavior (tables)
 
