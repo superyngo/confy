@@ -127,16 +127,10 @@ inline editor (see below). `Replace` with an **empty path** targets the whole do
 `E` on the root/file node): it reparses the edited text as a full document, rejecting invalid
 TOML as `Fragment` (doc untouched). `Replace` on an AoT-entry path (`product[0]`) rewrites only
 that `[[product]]` entry; sibling entries and between-entry comments stay intact. `Insert`
-adapts the fragment to the destination (`parse_fragment_adapted`): a **keyless** bare value dropped
-into an array becomes the element as-is while a **keyed** fragment is wrapped as a `{ key = value }`
-inline-table element to preserve its key (a keyed inline table nests; `wrap_keyed_as_inline_element`),
-a bare value inserted into a table gets a synthesized
-`placeholder` key (auto-renamed on collision), and a `[table]`/`[[aot]]` fragment cannot become an array
-element (rejected as `Illegal`); a header-vs-leaf **partition check** keeps an insert from being captured by a following
-`[table]` header — for a *table* destination the index is **clamped to the nearest legal slot**
-(an entry lands at the end of the entry run, a section at the start of the section run), so the
-paste "Into" slot (append) never fails on position; only a Root-level out-of-partition insert
-still reports `Illegal`. Inserting a keyed entry **into an inline table** routes to `inline_table_insert`,
+adapts the fragment to the destination (`parse_fragment_adapted`); the forming/clamp rules
+(keyless-vs-keyed, `placeholder` synthesis, `[table]`/`[[aot]]`→array rejection, header/leaf
+partition clamp) mirror CONTEXT.md's *Insert / move legality* table. Inserting a keyed entry
+**into an inline table** routes to `inline_table_insert`,
 which rebuilds the `{ … }` from its members' verbatim source with normalized `, ` separators
 (taplo bakes the closing brace's leading space into the last entry, so token surgery is brittle) —
 the new entry lands at the target slot (front/middle/append), a duplicate key is a `Collision`, and
@@ -241,26 +235,12 @@ tags `[opaq ]` whatever the underlying kind. The detail popup keeps word labels 
 includes positional indices, e.g. `a.b[2].c`), and `node_type_label`
 still drives the inline editor's type-change comparison.
 
-**Editing.** `e` dispatches via `edit_target_kind`. **Inline** (`Mode::Edit`): a single-line
-scalar that `Replace` can address — for TOML/JSON keyed under a Table/Root/inline table, no
-plain-`Array` ancestor **unless the immediate parent is an inline container** (an inline table, or a
-JSON inline object — `NodeKind::Table` + `Format::Inline`), because a single-line member of a
-`[T/I]` element of an `[A/M]` array (`x = [{ a = 1 }]` → `x[0].a`) **is** `Replace`-addressable: the
-projection indexes the member as a `Target::Entry`/`Member`, and the splice rebuilds the `{ … }` in
-place (`inline_table_insert` accepts a `Target::ArrayElement` inline table for inserts too). An AoT
-ancestor is also fine (`product[0].sku`). Also inline: a single-line array / inline table / **JSON
-inline object** edited as its one-line repr (its EOL comment, attached by taplo to the ENTRY not the
-VALUE, is recovered by `entry_trailing_comment` so an inline edit preserves it). An array element on
-a `Key+ Index*` path (incl. array-of-arrays). **YAML** addresses every
-block-seq element and nested key individually (`resolve` descends `Index`→`Key`), so the
-array-ancestor restriction is lifted there — `plugins[1].name` / `plugins[3]` edit inline, and a
-non-inline node that stays `$EDITOR` (a block-map element) captures just *that* element, not the
-whole sequence (`edit_node` skips the array truncation for YAML; `Replace` on a `Target::Element`
-accepts the `- `-prefixed element fragment). YAML literal `|` / folded `>` block scalars route to
-`$EDITOR`. Also inline: a single-line array/inline table
-(edited as its one-line repr), and a single-line comment (raw `#` text, routed to `EditComment`).
-**`$EDITOR`**: everything else — multiline strings/arrays, merged multi-line comments, tables,
-AoT entries, the Root, and any `E`. The inline editor edits one field at a time: **`Tab` toggles
+**Editing.** `e` dispatches via `edit_target_kind`. The **inline-vs-`$EDITOR` boundary** is
+governed by BEHAVIOR_MATRIX §6 (universal single-line-scalar inline editing across all scopes;
+single-line arrays/inline tables/JSON objects edited as their one-line repr, EOL comment
+preserved via `entry_trailing_comment`; the YAML array-ancestor lift where `plugins[1].name` /
+`plugins[3]` edit inline and `edit_node` skips array truncation; literal `|`/folded `>` and
+everything multiline → `$EDITOR`). The inline editor edits one field at a time: **`Tab` toggles
 between Value (default) and Name**; committing a changed Name applies `Mutation::Rename` first,
 then the value `Replace` (Tab is disabled for array elements and comments, which have no key).
 Commit detects a **type change** via the backend's `value_kind(value)` (which parses+projects the
@@ -310,14 +290,12 @@ are **all inline tables** converts to an `[[…]]` group (`convert_array_to_aot`
 `KindTarget::ArrayOfTables`; rejected when an entry follows before the next header — the
 sections would capture it). AoT entries, Root and comments don't convert.
 
-**Comments are first-class nodes.** A standalone comment line is a real node in document order —
-navigable, selectable, movable, deletable like any other Node; *moving or copying another node
-never drags a comment along*, and there is no decor-sweep machinery. Consecutive `#` lines
-project as a *single* multi-line Comment node (a blank or non-`#` line breaks the group). A
-comment node carries its text as its `value`, so the VALUE column and detail popup show it;
-multi-line cell values (merged comments, multiline strings) are collapsed to a one-line preview
-(first line + ` …`) by `cell_preview` in `ui.rs`. An end-of-line comment on a value is **not** a
-node — it is that node's `trailing_comment` decoration and travels with it. A trailing comment
+**Comments are first-class nodes** (concepts in CONTEXT.md: *Comment*, *Trailing comment* —
+standalone `#` lines merge into one node and are never dragged by an adjacent node's move; a
+trailing comment is value-attached decoration). A comment node carries its text as its `value`,
+so the VALUE column and detail popup show it; multi-line cell values (merged comments, multiline
+strings) are collapsed to a one-line preview (first line + ` …`) by `cell_preview` in `ui.rs`.
+A trailing comment
 is **shown in-row** (dimmed, after the value, in the VALUE cell — `value_cell` in `ui.rs`) and is
 **edited inline together with the value**: `begin_inline_edit` seeds the Value buffer as
 `value  # comment`, and `edit_commit` splits it back via `ConfigDocument::split_value_comment`
@@ -413,16 +391,10 @@ collision-retry path). `do_paste` pairs each fragment with its source path and s
 **comment** entries (identified by `NodeKind::Comment`, not by the path). Nodes: **cut** routes
 through the atomic `Mutation::Move` (delete-before-reinsert on a scratch tree, committed only on
 success) so a same-scope reposition is a move, not a `Key already exists` collision; **copy** uses the
-per-fragment `Mutation::Insert` loop. **Moving or copying an array element out** is supported: into
-another array it stays a bare element; into a table/root/`[A/T]` an **inline table** (`{ k = v, … }`)
-unpacks into its member entries (`unpack_inline_table` — the inverse of `wrap_keyed_as_inline_element`;
-each entry per-leaf collision-checked; the copy path unpacks in `insert` right after
-`parse_fragment_adapted`, matching the cut path in `move_nodes`), while a bare value gets a
-synthesized `placeholder` key, then `insert`
-applies the destination format (dotted prefix, …). Dually, **multiple keyed nodes pasted into an
-array or `[A/T]` group are joined** (`joinable_entry`, in `move_nodes` for cut and `do_paste` for
-copy) and pack into ONE `{ a = 1, b = 2 }` element / `[[…]]` entry; a multi-entry fragment into an
-array packs the same way via `wrap_keyed_as_inline_element`. Comments: a Comment node's fragment is its raw `# …` text, pasted
+per-fragment `Mutation::Insert` loop. **Moving or copying an array element out**, and **multiple
+keyed nodes joined into one array/`[A/T]` element**, follow the forming rules in CONTEXT.md's
+*Insert / move legality* table (helpers: `unpack_inline_table`/`wrap_keyed_as_inline_element`,
+`joinable_entry`, in `move_nodes`/`do_paste`/`insert`). Comments: a Comment node's fragment is its raw `# …` text, pasted
 via `Mutation::InsertComment` (validates every line starts with `#`, splices the block in at the target
 child index, never collides); a cut deletes the source comment first, then inserts. A comment into a
 **single-line array** is no longer rejected: `InsertComment` upgrades the array to multiline (one

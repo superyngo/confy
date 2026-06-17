@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Docs
+- Trimmed pure-duplicate prose from `CLAUDE.md` (492 → 464 lines): the `Insert` forming/clamp rules, the inline-vs-`$EDITOR` boundary setup, the array-element/multi-keyed paste forming, and the comments concept sentences now point to the `CONTEXT.md` *Insert / move legality* table and `BEHAVIOR_MATRIX.md` §6 instead of restating them. Operation-semantic mechanics (commit/rollback, paste state machine, kind-switch rules, inline-dotted machinery) are retained verbatim — a coverage-check subagent confirmed the target docs are glossary/matrix-oriented and never carried those. (2026-06-17)
+- `CONTEXT.md`: reconciled an AoT-source discrepancy — the *Insert / move legality* table marked `[A/T]` sources ⏸ "not supported yet", but an AoT ***entry*** (`product[0]`) move/copy actually works (only a whole-***group*** Move is `Unsupported`). The ⏸ cells now read "group move `Unsupported`" and the note distinguishes group vs entry (entry splits into member fragments via `aot_entry_member_fragments`; a nested `[[…]]` sub-group move → `Unsupported`, copy → full capture). (2026-06-17)
+
 ## [v0.7.0] - 2026-06-17
 
 ### Fixed

@@ -76,6 +76,21 @@ member lines and **consolidates** them at the first position; `d` deletes all me
 plain key to a dotted one (`foo` → `foo.x`) converts the scalar into a `[T/D]` table.
 Whole-table move/copy fans out over the member lines.
 
+A dotted key **inside an inline table** (`t = { x.y = 1, x.z = 2 }`) decomposes the same way, but
+ops on the synthetic `[T/D]` route through the **inline machinery**, never the flat-ROOT splices
+(`inline_ancestor_len` guards the path): insert/add re-prefixes the key scope-relative (`q = 9` into
+`t.x` → member `x.q = 9`) and lands via `inline_table_insert` with the projected index translated to
+a raw member slot (`inline_raw_member_index`); collision is exact full path (a shared prefix merges);
+`Delete` and move/copy fan out over the member entries (`inline_member_entries`); the block edit
+consolidates at the first member (`replace_inline_dotted_table`, single-line entries only); comments
+are rejected (`{ … }` holds none). **Comments are never inside a `[T/D]` table**: a comment adjacent
+to a dotted member is an independent scope-level node (stays put on table move/copy/delete and the
+consolidating edit), and `InsertComment` targeting a `[T/D]` re-routes to the scope level — landing
+directly above the table's first member, never rejected, never bound. `dotted_member_entries` counts
+only **flat-ROOT** entries — an entry nested inside an inline-table/array *value* belongs to that
+value, not the table, so its interior is never pulled out as a stray top-level line. Dotted *headers*
+(`[x.a]` with no `[x]`) still project as a real nested `Scope` branch.
+
 **Mixed table**:
 A table defined by dotted members *and* header sub-sections (the TOML-spec `fruit.apple`
 pattern: `apple.color = …` under `[fruit]`, plus `[fruit.apple.texture]`). The spec forbids
@@ -205,7 +220,7 @@ KIND-column vocabulary (`[T/S]` scope table, `[T/D]` dotted table, `[T/I]` inlin
 | **array element** | single-key `{k=v}` → `k = v`; else `placeholder = …` | (same, then prefix) | (same, then member) | ✅ stays a bare element |
 | **bare value** (no key) | ✅ `placeholder = …` | ✅ `placeholder` then prefix | ✅ `placeholder` member | ✅ stays a bare element |
 | **comment** | ✅ | ✅ | ❌ inline tables hold no comments | ✅ (single-line array upgrades to multiline first) |
-| **`[A/T]`** array-of-tables | ⏸ not supported yet | ⏸ | ⏸ | ❌ |
+| **`[A/T]` group** (whole group) | ⏸ group move `Unsupported` | ⏸ | ⏸ | ❌ |
 
 Notes:
 - "prefix" = the destination's dotted-ancestor path is prepended so the moved Node merges into the
@@ -225,8 +240,12 @@ Notes:
   out-of-partition insert still reports `Illegal`.
 - A **`[T/D]` inside a `[T/I]`** (decomposed inline dotted keys) moves/copies like any `[T/D]`:
   fan-out over its `{ … }` member entries, captured scope-relative.
-- ⏸ = array-of-tables sources are deferred to a later round (they currently report an error rather
-  than moving).
+- ⏸ = an **AoT *group*** as a whole-group source is `Unsupported` for move (and degrades for
+  copy). An AoT ***entry*** (`product[0]`) move/copy **works** — it splits into member fragments
+  (`aot_entry_member_fragments`, sub-sections flattened to dotted entries), so into a table/root
+  it lands as nodes (dotted re-prefix, per-leaf collision) and into another group/array it joins
+  into one `[[entry]]`/`{ … }` element. A nested `[[…]]` sub-group has no dotted form: move →
+  `Unsupported`, copy → full-section capture.
 
 ## `e` block-edit behavior (tables)
 
@@ -245,6 +264,43 @@ row you edited is where the result appears.
 A consolidating rewrite (2+ spans) validates the returned block: every header must stay inside
 the table's subtree and the block must start with a `[header]` line, else `Illegal` and the
 document is untouched. A single-span (contiguous) edit keeps the old unchecked-splice freedom.
+
+## Mutation mechanics
+
+Per-variant behaviour of the closed `Mutation` set (the model layer's only document operations).
+Each variant is a rowan green-tree splice with newline/indent normalization; **every mutation is
+atomic** (edited on a `clone_for_update` copy, committed only on success, then
+`validate_semantics`-checked). KIND tags are the KIND-column vocabulary.
+
+| Variant | Behaviour |
+|---|---|
+| **Insert** | Adapts the fragment to the destination — forming/clamp rules are the *Insert / move legality* table. A keyed entry into a `[T/I]` inline table rebuilds the `{ … }` from members' verbatim source with normalized `, ` separators (front/middle/append; dup key = `Collision`; empty `{}` → `{ k = v }`). Keyed fragments into an `[A/T]` *group* synthesize one new `[[…]]` entry at the slot (`aot_group_insert`; multiple pasted nodes join via `joinable_entry` and pack into ONE entry; in-set dup keys follow on-rename/collision; a section fragment = `Illegal`). |
+| **Delete** | Removes the node's full extent. An `[A/T]` entry takes its own section **plus** its sub-sections (`aot_entry_end`). A `[T/D]` table fans out to every member line. |
+| **Replace** | Empty path = **whole-document reparse** (rejects invalid as `Fragment`; doc untouched) — the `$EDITOR`/root rewrite path. An `[A/T]`-entry path (`product[0]`) rewrites only that `[[…]]` entry; sibling entries and between-entry comments stay intact. |
+| **Rename** | Swaps **only the key token in place** (position-preserving, collision-checked). Rewrites the **whole** key for a dotted rename (`foo` → `foo.x` converts the scalar into a `[T/D]` table). No separate user action — driven by the UI's rename flow. |
+| **Move** | Atomic: delete-before-reinsert on a scratch tree, committed only on success, so a same-scope reposition is a move, not a `Key already exists` collision. An `[A/T]` *entry* moved/copied out splits into member fragments (`aot_entry_member_fragments` — body lines verbatim, one fragment each, **sub-sections flattened to dotted**: `[fruit.physical]` `color` → `physical.color`); into a table/root the members land as nodes, into another group/array they join into ONE `[[entry]]`/`{ … }` element. A whole-`[A/T]`-*group* Move degrades to `Unsupported`. A nested `[[…]]` sub-group has no dotted form: Move → `Unsupported`, Copy → full-section capture. |
+| **Remark / EditComment / InsertComment** | Comments are first-class — see *Comment* / *Trailing comment*. |
+
+**Known rough edge:** multiline-array element insert/delete spacing is not yet byte-perfect.
+
+## Kind switch (`K`) rules
+
+`Mutation::ConvertKind { path, target }` rewrites a node's kind/notation **in place**; targets come
+from `ConfigDocument::kind_options(path)` so the UI never hard-codes a backend's notations. KIND tags
+are the KIND-column vocabulary.
+
+| Node | Convertible between | Rejects as `Illegal` |
+|---|---|---|
+| **string** | basic / literal / multiline / multiline-literal (content decoded then re-encoded) | a `'` in a literal form; `'''` in a multiline literal; a real newline in a single-line literal (single-line *basic* escapes newlines as `\n`, so mstr→str is lossless) |
+| **integer** | dec / hex / oct / bin (`_` separators parse) | negatives have no prefixed form |
+| **float** | plain ↔ exponent (exponent re-rendered from the parsed `f64`) | — |
+| **bool / datetime / `inf` / `nan`** | (one notation — don't convert) | — |
+| **array** | inline ↔ multiline | collapse rejects held comments or multi-line elements |
+| **table** | `[T/I]` / `[T/D]` / `[T/S]` | a `[T/S]` target violating the D5 capture rule (mid-entry `[t]`, or a section preceded by a foreign header); an inline target holding comments. A nested `[s.t]` converts relative to its parent's capture. |
+| **`[A/T]` group ↔ array** | group → inline/multiline array of inline tables (`convert_aot_to_array`: contiguous span, plain single-line entry bodies, no sub-sections/comments, replacement `key = […]` not captured by a foreign header); a keyed flat-ROOT array of **all** inline tables → `[[…]]` group (`convert_array_to_aot`) | array→group rejected when an entry follows before the next header (the sections would capture it) |
+| **AoT entry / Root / comment** | (don't convert) | — |
+
+Scalars switch **within their own type, never across types**.
 
 ## Nested behavior matrix
 
