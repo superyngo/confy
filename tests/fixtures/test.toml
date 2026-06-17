@@ -1,6 +1,6 @@
-# test.toml — every ScalarType in every Format, plus all container kinds.
-# Mirrors src/model/node.rs (ScalarType, Format) and project.rs::detect_format.
-# ── String (ScalarType::String) ──────────────────────────────────────────────
+# 1
+# 2
+# 3
 multiline_basic = "multiline basic line 1\nline 2 with \"quotes\" and trailing backslash \\\njoined onto line 3\n"
 literal_string = "C:\\Users\\no\\escapes\\here"
 multiline_literal = "multiline literal line 1\nline 2 — backslashes \\n stay literal\n"

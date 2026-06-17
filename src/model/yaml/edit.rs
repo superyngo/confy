@@ -451,10 +451,7 @@ fn delete(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
             delete_node(&entry);
             Ok(())
         }
-        Target::Comment(tok) => {
-            delete_comment_token(&tok);
-            Ok(())
-        }
+        Target::Comment(tok) => delete_comment_block(tree, &tok),
         Target::Opaque(node) => {
             // Root-level opaque nodes: block.
             let _ = node;
@@ -484,46 +481,25 @@ fn delete_node(node: &SyntaxNode) {
     parent.splice_children(node_idx..node_idx + 1, vec![]);
 }
 
-/// Delete a standalone COMMENT token and its associated NEWLINE.
-/// COMMENT tokens are free children at the MAPPING / SEQUENCE / ROOT level.
-/// Layout: …NEWLINE? INDENT? COMMENT NEWLINE…
-/// We remove: optional preceding INDENT, the COMMENT, and the following NEWLINE.
-fn delete_comment_token(tok: &crate::model::yaml::syntax::SyntaxToken) {
-    let parent = tok.parent().expect("parent");
-    let children: Vec<_> = parent.children_with_tokens().collect();
-    let n = children.len();
-
-    // Find the comment token's index.
-    let tok_idx = children
-        .iter()
-        .position(|c| match c {
-            rowan::NodeOrToken::Token(t) => t == tok,
-            _ => false,
-        })
-        .expect("token is child of parent");
-
-    let mut start = tok_idx;
-    let mut end = tok_idx + 1;
-
-    // Eat the following NEWLINE.
-    if end < n {
-        if let rowan::NodeOrToken::Token(t) = &children[end] {
-            if t.kind() == SyntaxKind::NEWLINE {
-                end += 1;
-            }
-        }
-    }
-
-    // Eat a preceding INDENT (leading whitespace of this comment's line).
-    if start > 0 {
-        if let rowan::NodeOrToken::Token(t) = &children[start - 1] {
-            if t.kind() == SyntaxKind::INDENT {
-                start -= 1;
-            }
-        }
-    }
-
-    parent.splice_children(start..end, vec![]);
+/// Delete the **whole** standalone comment block beginning at `first` (a merged
+/// multi-line `#` block projects as ONE Comment node, so deleting it must remove
+/// every consecutive `#` line, not just the first). Uses `comment_block_bounds`
+/// (the same span `splice_comment_block` edits) and a whole-document reparse so a
+/// ROOT-level comment beside the top MAPPING/SEQUENCE is removed without dropping
+/// the body.
+fn delete_comment_block(
+    tree: &SyntaxNode,
+    first: &crate::model::yaml::syntax::SyntaxToken,
+) -> Result<(), MutateError> {
+    let (start, end, _) = comment_block_bounds(first);
+    let full = tree.to_string();
+    let new_doc = format!("{}{}", &full[..start], &full[end..]);
+    let new_green = crate::model::yaml::parse::parse(&new_doc).map_err(MutateError::Illegal)?;
+    let new_root = SyntaxNode::new_root(new_green).clone_for_update();
+    let n = tree.children_with_tokens().count();
+    let new_children: Vec<_> = new_root.children_with_tokens().collect();
+    tree.splice_children(0..n, new_children);
+    Ok(())
 }
 
 // ── 5e: Insert ────────────────────────────────────────────────────────────────
@@ -587,6 +563,55 @@ fn child_collection(entry: &SyntaxNode) -> Option<SyntaxNode> {
             .find(|v| matches!(v.kind(), SyntaxKind::FLOW_MAP | SyntaxKind::FLOW_SEQ)),
         _ => None,
     })
+}
+
+/// Offset between a *projection* slot index for `parent_path` and the edit
+/// container's own slot space. For a **top-level** mapping/sequence the projection
+/// flattens the container's children up into ROOT *and* lists ROOT-level comment
+/// blocks (leading `#` lines, before the container) as root children — but those
+/// comments live outside the container (`find_container` returns the inner
+/// MAPPING/SEQUENCE), so the container's slot list (`collect_items`) excludes them.
+/// The returned count is how many leading ROOT-level comment **blocks** precede the
+/// container; a caller subtracts it to turn a projection index into a container
+/// index. Always 0 for a non-root container (its projected children are its slots).
+fn root_prefix_offset(tree: &SyntaxNode, parent_path: &[Seg]) -> usize {
+    if !parent_path.is_empty() {
+        return 0;
+    }
+    // Count merged comment blocks among ROOT's direct children that appear before
+    // the first MAPPING/SEQUENCE node (mirrors the projection's `#`-block merging:
+    // consecutive `#` lines are one block; a blank line — 2 newlines — splits).
+    let mut blocks = 0usize;
+    let mut in_block = false;
+    let mut newlines = 0u32;
+    for child in tree.children_with_tokens() {
+        match child {
+            rowan::NodeOrToken::Node(n)
+                if matches!(n.kind(), SyntaxKind::MAPPING | SyntaxKind::SEQUENCE) =>
+            {
+                break;
+            }
+            rowan::NodeOrToken::Token(t) => match t.kind() {
+                SyntaxKind::COMMENT => {
+                    if !in_block {
+                        blocks += 1;
+                        in_block = true;
+                    }
+                    newlines = 0;
+                }
+                SyntaxKind::NEWLINE => {
+                    newlines += 1;
+                    if newlines >= 2 {
+                        in_block = false;
+                    }
+                }
+                SyntaxKind::WHITESPACE | SyntaxKind::INDENT => {}
+                _ => in_block = false,
+            },
+            _ => {}
+        }
+    }
+    blocks
 }
 
 /// The ordered "slot elements" of a MAPPING or SEQUENCE: each MAP_ENTRY/SEQ_ENTRY
@@ -846,8 +871,10 @@ fn insert(
         }
     }
 
-    // Insert at the clamped index.
-    let idx = target.index.min(items.len());
+    // Translate the projection index to container-local (drops leading ROOT-level
+    // comment blocks the projection lists but the container excludes), then clamp.
+    let offset = root_prefix_offset(tree, &target.parent);
+    let idx = target.index.saturating_sub(offset).min(items.len());
     items.insert(idx, final_item);
 
     // Rebuild and splice.
@@ -1339,7 +1366,8 @@ fn insert_comment(tree: &SyntaxNode, target: &MutTarget, text: &str) -> Result<(
         dest_indent,
     ));
 
-    let idx = target.index.min(items.len());
+    let offset = root_prefix_offset(tree, &target.parent);
+    let idx = target.index.saturating_sub(offset).min(items.len());
     items.insert(idx, reindented);
     rebuild_and_splice(tree, &container, &items)
 }
@@ -1382,6 +1410,31 @@ fn move_nodes(
         })
         .collect::<Result<_, _>>()?;
 
+    // ── 2a. Pre-deletion shift: count same-container sources before target ───
+    // `target.index` is a *pre-deletion* ordinal in the parent's *full* child
+    // sequence (comments included — the space the TUI's `true_sibling_index`
+    // uses). Every source in that same container at a lower ordinal shifts the
+    // surviving slots up by one on deletion, so the insert index drops by that
+    // many. Covers keyed *and* positional sources (a keyed node moved down past a
+    // trailing comment was previously left unadjusted, overshooting the comment).
+    let shift = {
+        let proj = crate::model::yaml::project::project(tree, "");
+        crate::model::node::NodeTree::node_at(&proj, &target.parent)
+            .map(|parent| {
+                sources
+                    .iter()
+                    .filter(|s| {
+                        parent
+                            .children
+                            .iter()
+                            .position(|c| &c.path == *s)
+                            .is_some_and(|ord| ord < target.index)
+                    })
+                    .count()
+            })
+            .unwrap_or(0)
+    };
+
     // ── 2. Delete sources back-to-front ─────────────────────────────────────
     // Later/higher-index sources first so earlier sources' indices stay valid.
     let mut delete_indices: Vec<usize> = (0..sources.len()).collect();
@@ -1394,22 +1447,7 @@ fn move_nodes(
     }
 
     // ── 3. Effective insertion index ────────────────────────────────────────
-    // `target.index` is a *pre-deletion* ordinal (the TUI's `true_sibling_index`
-    // + 1, taken on the full tree before the move). For each same-container
-    // source deleted at a *lower* index, the surviving slots shift down by one,
-    // so decrement the insert position to keep it at the intended ordinal —
-    // mirroring `json::move_nodes`. Key-keyed same-container sources are handled
-    // by `insert`'s `target.index.min(len)` clamp, so they need no adjustment.
-    let mut effective_index = target.index;
-    for path in sources.iter() {
-        if path.len() == target.parent.len() + 1 && path.starts_with(target.parent.as_slice()) {
-            if let Seg::Index(i) = &path[target.parent.len()] {
-                if *i < target.index && effective_index > 0 {
-                    effective_index -= 1;
-                }
-            }
-        }
-    }
+    let effective_index = target.index - shift.min(target.index);
 
     // ── 4. Insert each captured fragment at the effective target ─────────────
     for (i, frag) in captured.iter().enumerate() {
@@ -2300,6 +2338,51 @@ mod tests {
     use crate::model::document::{MutateError, Mutation, OnCollision};
     use crate::model::node::Seg;
 
+    #[test]
+    fn move_node_past_root_leading_comment_lands_at_projection_slot() {
+        // A leading ROOT-level `#` comment is projected as a root child but lives
+        // OUTSIDE the top mapping, so the projection index space is one ahead of
+        // the mapping's slot space. Moving `multiline_literal` (proj 1) to just
+        // before the inter-entry `# section` (proj index 3) must land it there,
+        // not after the comment (the offset must be applied).
+        let src = "# 1\nmultiline_literal: \"x\"\nempty_string: \"\"\n# section\ndecimal: 42\n";
+        let t = SyntaxNode::new_root(crate::model::yaml::parse::parse(src).unwrap());
+        let out = super::apply(
+            &t,
+            Mutation::Move {
+                sources: vec![vec![Seg::Key("multiline_literal".into())]],
+                target: crate::model::document::Target {
+                    parent: vec![],
+                    index: 3,
+                },
+                on_collision: OnCollision::Cancel,
+            },
+        )
+        .unwrap()
+        .to_string();
+        assert_eq!(
+            out,
+            "# 1\nempty_string: \"\"\nmultiline_literal: \"x\"\n# section\ndecimal: 42\n"
+        );
+    }
+
+    #[test]
+    fn delete_removes_whole_merged_comment_block() {
+        // A merged multi-line `#` block is ONE node — deleting it removes every
+        // line, not just the first.
+        let src = "# 1\n# 2\n# 3\nk: 1\n";
+        let t = SyntaxNode::new_root(crate::model::yaml::parse::parse(src).unwrap());
+        let out = super::apply(
+            &t,
+            Mutation::Delete {
+                path: vec![Seg::Index(0)],
+            },
+        )
+        .unwrap()
+        .to_string();
+        assert_eq!(out, "k: 1\n");
+    }
+
     // ── Indent engine tests ───────────────────────────────────────────────────
 
     #[test]
@@ -2973,6 +3056,26 @@ mod tests {
         )
         .expect("move block entry between mappings");
         assert_eq!(out, "a:\nb:\n  y: 2\n  x: 1\n");
+    }
+
+    #[test]
+    fn move_entry_down_before_trailing_comment() {
+        // `a` moved to just after `b` must land BEFORE the trailing `# c`
+        // comment (slot index 2), not after it.
+        let src = "a: 1\nb: 2\n# c\n";
+        let out = apply_str(
+            src,
+            Mutation::Move {
+                sources: vec![vec![Seg::Key("a".into())]],
+                target: crate::model::document::Target {
+                    parent: vec![],
+                    index: 2,
+                },
+                on_collision: OnCollision::Cancel,
+            },
+        )
+        .expect("move entry before trailing comment");
+        assert_eq!(out, "b: 2\na: 1\n# c\n");
     }
 
     #[test]

@@ -55,7 +55,7 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, JsonIndex)
 /// brace/bracket, or the token is first in the sequence (no preceding sibling).
 /// If it comes right after a value token / COMMA with only WHITESPACE between,
 /// it is a trailing comment (already captured on the member/element's node).
-fn is_standalone_line_comment(tok: &SyntaxToken) -> bool {
+pub(crate) fn is_standalone_line_comment(tok: &SyntaxToken) -> bool {
     // Walk backwards through sibling tokens in the parent.
     let mut prev = tok.prev_sibling_or_token();
     while let Some(p) = prev {

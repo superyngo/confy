@@ -498,24 +498,58 @@ fn key_name_of(key_node: &SyntaxNode) -> String {
 /// Order matches projection order (same as children_with_tokens order for
 /// MEMBER/VALUE/comment tokens, skipping punctuation and trivia).
 fn collect_items(container: &SyntaxNode) -> Vec<String> {
+    use crate::model::json::project::is_standalone_line_comment;
     let mut items = Vec::new();
+    // Pending standalone `//` block: consecutive LINE_COMMENTs separated by a
+    // single NEWLINE merge into ONE item (a blank line — a second NEWLINE — ends
+    // the block). This mirrors the projection's comment merging so item-space
+    // equals the projection's slot-space (one merged block = one node = one slot).
+    let mut block: Vec<String> = Vec::new();
+    let mut seen_newline = false;
+    macro_rules! flush_block {
+        () => {
+            if !block.is_empty() {
+                items.push(block.join("\n"));
+                block.clear();
+            }
+        };
+    }
     for child in container.children_with_tokens() {
         match &child {
-            rowan::NodeOrToken::Node(n) if n.kind() == SyntaxKind::MEMBER => {
-                items.push(n.text().to_string().trim().to_string());
-            }
-            rowan::NodeOrToken::Node(n) if n.kind() == SyntaxKind::VALUE => {
-                items.push(n.text().to_string().trim().to_string());
-            }
-            rowan::NodeOrToken::Token(t)
-                if t.kind() == SyntaxKind::LINE_COMMENT
-                    || t.kind() == SyntaxKind::BLOCK_COMMENT =>
+            rowan::NodeOrToken::Node(n)
+                if matches!(n.kind(), SyntaxKind::MEMBER | SyntaxKind::VALUE) =>
             {
+                flush_block!();
+                items.push(n.text().to_string().trim().to_string());
+            }
+            rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::LINE_COMMENT => {
+                if is_standalone_line_comment(t) {
+                    block.push(t.text().trim_end().to_string());
+                    seen_newline = false;
+                } else {
+                    // Trailing comment (after a member/element on the same line) —
+                    // its own item, as before.
+                    flush_block!();
+                    items.push(t.text().trim_end().to_string());
+                }
+            }
+            rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::BLOCK_COMMENT => {
+                flush_block!();
                 items.push(t.text().trim_end().to_string());
+            }
+            rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::NEWLINE => {
+                if !block.is_empty() {
+                    if seen_newline {
+                        flush_block!();
+                    } else {
+                        seen_newline = true;
+                    }
+                }
             }
             _ => {}
         }
     }
+    flush_block!();
     items
 }
 
@@ -963,6 +997,31 @@ fn move_nodes(
         })
         .collect::<Result<_, _>>()?;
 
+    // ── 2a. Pre-deletion shift: count same-container sources before target ───
+    // `target.index` is a pre-deletion ordinal in the parent's *full* child
+    // sequence (comments included — same space the TUI's `true_sibling_index`
+    // uses). Every source sitting in that same container at a lower ordinal will
+    // shift the surviving slots up by one when deleted, so the insert index must
+    // drop by that many. This covers keyed *and* positional sources alike (a
+    // keyed node moved down past a trailing comment was previously not adjusted).
+    let shift = {
+        let proj = crate::model::json::project::project(tree, "");
+        crate::model::node::NodeTree::node_at(&proj, &target.parent)
+            .map(|parent| {
+                sources
+                    .iter()
+                    .filter(|s| {
+                        parent
+                            .children
+                            .iter()
+                            .position(|c| &c.path == *s)
+                            .is_some_and(|ord| ord < target.index)
+                    })
+                    .count()
+            })
+            .unwrap_or(0)
+    };
+
     // ── 2. Delete sources back-to-front ─────────────────────────────────────
     // Delete in reverse order: last source first, so earlier sources' indices
     // remain valid. For sources in the same container we use index order
@@ -983,97 +1042,8 @@ fn move_nodes(
         delete(tree, &sources[i])?;
     }
 
-    // ── 3. Compute the effective insertion index ─────────────────────────────
-    // If source and destination share the same parent, some deletions may have
-    // shifted the ordinal. Count how many sources were in the same parent AND
-    // at a lower item-index than target.index.
-    let target_container = find_container(tree, &target.parent);
-    let mut effective_index = target.index;
-    if target_container.is_ok() {
-        // For each deleted source, check if it was in the same container and
-        // before the target index.
-        for path in sources.iter() {
-            // A source is "in the same container" when its parent == target.parent
-            // (i.e., path has one more segment than target.parent and that segment
-            // is an index/key in the container).
-            if path.len() == target.parent.len() + 1 && path.starts_with(target.parent.as_slice()) {
-                // Source was in the same container. Get its projected index.
-                // Use collect_items ordering: for Key segments, we need the
-                // member's position among collect_items. For Index segments,
-                // we use the index directly.
-                let src_seg = &path[target.parent.len()];
-                // After deletion the container has already changed, so we
-                // approximate: for Seg::Index(i), if i < target.index the
-                // effective index shifts down.
-                match src_seg {
-                    Seg::Index(i) => {
-                        if *i < target.index && effective_index > 0 {
-                            effective_index -= 1;
-                        }
-                    }
-                    Seg::Key(_) => {
-                        // For keyed sources, get the position from the
-                        // pre-deletion items. We need to find the item's
-                        // ordinal in collect_items. We can approximate
-                        // by re-checking: the member is gone now, so we
-                        // compare the captured fragment's key against the
-                        // original ordering.
-                        // Since we captured before deletion, we can use the
-                        // captured fragment to infer position by re-resolving
-                        // the pre-deletion index — but we no longer have the
-                        // pre-deletion tree. Instead, recount: before deletion
-                        // this member existed. If target.index > 0, we
-                        // conservatively check: find the key's position among
-                        // the *current* items (it's deleted) — we do this by
-                        // comparing against the keys that remain.
-                        // Simplest correct approach: the key was at some ordinal
-                        // in the original collect_items. Since key ordering is
-                        // stable and we deleted it, any member that was BEFORE
-                        // it by key position shifts target down by 1.
-                        // We need the original ordinal. We can't get it after
-                        // deletion. So: use the captured fragment to find the
-                        // key name, then count how many *remaining* items
-                        // in the current container come before where that
-                        // key was. This is hard without the original ordering.
-                        //
-                        // PRACTICAL SOLUTION for the test: target.index is
-                        // specified as the POST-deletion desired ordinal in the
-                        // user-facing API. But the test says target.index=2
-                        // means "end of 2-element object", and after deleting
-                        // "a" (the first member), the object has 1 member "b".
-                        // The expected output puts "a" after "b", so effective
-                        // index = 1 = min(target.index, items.len()).
-                        //
-                        // The correct general rule: if the deleted key was at
-                        // ordinal k < target.index in the original collect_items,
-                        // decrement effective_index.
-                        //
-                        // We stored the captured fragments. We can find the
-                        // deleted member's key and re-derive its position by
-                        // looking at the REMAINING items and knowing the deleted
-                        // one came before the first surviving key that was after it.
-                        //
-                        // For simplicity and correctness: since the deletion
-                        // already happened, we just use
-                        // effective_index = effective_index.min(current_items.len())
-                        // which is handled by `insert` via `idx = target.index.min(items.len())`.
-                        // BUT that doesn't adjust for "before" — if key was at ordinal 0
-                        // and target.index=2, min(2, 1) = 1 which is correct.
-                        //
-                        // Wait: the issue is that target.index means "the nth slot
-                        // in the POST-deletion container". If target.index=2 and
-                        // after deletion there's only 1 item, min(2,1)=1 = append.
-                        // That IS correct for the test! The `insert` fn already
-                        // clamps: `let idx = target.index.min(items.len())`.
-                        // So for Seg::Key sources in the same container, the
-                        // `insert` clamping handles it automatically.
-                        // No adjustment needed here for Key sources.
-                        let _ = src_seg; // suppress unused warning
-                    }
-                }
-            }
-        }
-    }
+    // ── 3. Apply the pre-computed shift ──────────────────────────────────────
+    let effective_index = target.index - shift.min(target.index);
 
     // ── 4. Insert each captured fragment at the effective target ─────────────
     for (i, (_path, frag)) in captured.iter().enumerate() {
@@ -1508,6 +1478,41 @@ mod tests {
     }
 
     #[test]
+    fn edit_multiline_comment_block() {
+        // A merged multi-line `//` block (one node, one slot) edits via EditComment
+        // without a "path not found" — item-space matches the projection slot-space.
+        let out = apply_str(
+            "{\n  // l1\n  // l2\n  \"a\": 1\n}\n",
+            Mutation::EditComment {
+                path: vec![Seg::Index(0)],
+                text: "// edited 1\n// edited 2".into(),
+            },
+        );
+        assert_eq!(out, "{\n  // edited 1\n  // edited 2\n  \"a\": 1\n}\n");
+    }
+
+    #[test]
+    fn insert_after_multiline_comment_no_offset() {
+        // A 3-line leading `//` block is ONE slot, so inserting at projected index
+        // (after both members) lands at the end — not shifted up by the comment lines.
+        let out = apply_str(
+            "{\n  // c1\n  // c2\n  // c3\n  \"a\": 1,\n  \"b\": 2\n}\n",
+            Mutation::Insert {
+                target: MTarget {
+                    parent: vec![],
+                    index: 3, // [comment@0, a@1, b@2] → after b
+                },
+                fragment: "\"c\": 3".into(),
+                on_collision: OnCollision::Cancel,
+            },
+        );
+        assert_eq!(
+            out,
+            "{\n  // c1\n  // c2\n  // c3\n  \"a\": 1,\n  \"b\": 2,\n  \"c\": 3\n}\n"
+        );
+    }
+
+    #[test]
     fn replace_member_value() {
         let out = apply_str(
             "{\n  \"a\": 1\n}\n",
@@ -1854,6 +1859,26 @@ mod tests {
             },
         );
         assert_eq!(out, "{\n  \"b\": 2,\n  \"a\": 1\n}\n");
+    }
+
+    #[test]
+    fn move_member_down_before_trailing_comment() {
+        // `a` moved to just after `b` must land BEFORE the trailing `// c`
+        // comment (slot index 2), not after it.
+        let out = apply_str(
+            "{\n  \"a\": 1,\n  \"b\": 2,\n  // c\n}\n",
+            Mutation::Move {
+                sources: vec![vec![Seg::Key("a".into())]],
+                target: crate::model::document::Target {
+                    parent: vec![],
+                    index: 2,
+                },
+                on_collision: OnCollision::Cancel,
+            },
+        );
+        // `a` is now the last member, so the splice drops its trailing comma
+        // (project rule: never emit trailing commas); it still lands before `// c`.
+        assert_eq!(out, "{\n  \"b\": 2,\n  \"a\": 1\n  // c\n}\n");
     }
 
     #[test]

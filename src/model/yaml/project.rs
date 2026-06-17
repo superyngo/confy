@@ -338,6 +338,14 @@ fn walk_sequence(
 /// A COMMENT token is standalone iff the nearest preceding non-WHITESPACE/INDENT
 /// sibling token is a NEWLINE or doesn't exist (start of container).
 /// If it comes right after a value token with only WHITESPACE between, it's trailing.
+///
+/// A subtlety: a scalar/block entry swallows its line's terminating NEWLINE *inside*
+/// its MAP_ENTRY/SEQ_ENTRY node (via `bump_trailing`), so a comment on the very next
+/// line (no blank line between) has that entry node — not a NEWLINE token — as its
+/// previous sibling. Such a comment is still standalone. We disambiguate by looking
+/// at the previous entry's last token: if it is a NEWLINE the comment is on a fresh
+/// line (standalone); if the entry ends on a value token — e.g. a flow `}`/`]`, whose
+/// same-line trailing comment is *not* pulled inside — the comment is trailing.
 fn is_standalone_comment(tok: &SyntaxToken) -> bool {
     let mut prev = tok.prev_sibling_or_token();
     while let Some(p) = prev {
@@ -349,7 +357,11 @@ fn is_standalone_comment(tok: &SyntaxToken) -> bool {
                 SyntaxKind::NEWLINE => return true,
                 _ => return false,
             },
-            NodeOrToken::Node(_) => return false,
+            NodeOrToken::Node(n) => {
+                return n
+                    .last_token()
+                    .is_some_and(|t| t.kind() == SyntaxKind::NEWLINE)
+            }
         }
     }
     true // first token in container
@@ -1152,6 +1164,38 @@ mod tests {
         assert_eq!(t.root.children[0].value.as_deref(), Some("# a\n# b"));
         let k = t.root.children.iter().find(|c| c.key == "k").unwrap();
         assert_eq!(k.trailing_comment.as_deref(), Some("# tail"));
+    }
+
+    #[test]
+    fn comment_between_entries_without_blank_line() {
+        // A comment immediately after an entry (no blank line before it) is still
+        // standalone: the previous entry swallowed the line's terminating NEWLINE,
+        // so the comment's previous sibling is the MAP_ENTRY node, not a NEWLINE.
+        // Regression: this comment used to be dropped from the projection.
+        let t = tree("a: 1\n# mid\nb: 2\n");
+        let comments: Vec<_> = t
+            .root
+            .children
+            .iter()
+            .filter(|c| matches!(c.kind, NodeKind::Comment(_)))
+            .collect();
+        assert_eq!(comments.len(), 1);
+        assert_eq!(comments[0].value.as_deref(), Some("# mid"));
+    }
+
+    #[test]
+    fn comment_after_double_quoted_value_no_blank_line() {
+        // The reported case: a standalone `#` line right after a double-quoted
+        // value (no blank line) must still project.
+        let t = tree("ml: \"a — b\\n\"\n# ── section ──\ndec: 42\n");
+        let comments: Vec<_> = t
+            .root
+            .children
+            .iter()
+            .filter(|c| matches!(c.kind, NodeKind::Comment(_)))
+            .collect();
+        assert_eq!(comments.len(), 1);
+        assert_eq!(comments[0].value.as_deref(), Some("# ── section ──"));
     }
 
     #[test]

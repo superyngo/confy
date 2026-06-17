@@ -3492,18 +3492,31 @@ fn move_nodes(
     };
 
     // Resolve a stable anchor — the first child at/after the target index that is
-    // not itself a source — to insert before (its keyed path is stable across the
-    // source removals); `None` means append.
+    // not itself a source *and not a comment* (a comment's positional path is not
+    // stable across the source removals, so it can't be relocated by path) — to
+    // insert before; its keyed path is stable. `None` means append.
+    //
+    // Because the anchor skips comment slots, comments sitting between
+    // `target.index` and the anchor would otherwise be jumped over (the insert
+    // landing *after* a trailing comment instead of at the requested slot). Count
+    // those non-source comment slots as `gap` and subtract it from the relocated
+    // anchor position so the insert lands at the intended ordinal.
     let parent = node_at(&proj.root, &target.parent).ok_or(MutateError::NotFound)?;
-    let anchor_path: Option<Vec<Seg>> = parent
+    let anchor_orig = parent
         .children
         .iter()
+        .enumerate()
         .skip(target.index)
-        .find(|c| {
+        .find(|(_, c)| {
             !matches!(c.kind, crate::model::node::NodeKind::Comment(_))
                 && !sources.contains(&c.path)
-        })
-        .map(|c| c.path.clone());
+        });
+    let anchor_path: Option<Vec<Seg>> = anchor_orig.map(|(_, c)| c.path.clone());
+    let anchor_end = anchor_orig.map_or(parent.children.len(), |(i, _)| i);
+    let gap = parent.children[target.index.min(parent.children.len())..anchor_end]
+        .iter()
+        .filter(|c| !sources.contains(&c.path))
+        .count();
 
     // Delete sources (longest path first keeps shallower paths valid).
     let mut ordered: Vec<&Vec<Seg>> = sources.iter().collect();
@@ -3517,14 +3530,15 @@ fn move_nodes(
         let index = {
             let (proj2, _) = walk(tree, "");
             let parent2 = node_at(&proj2.root, &target.parent).ok_or(MutateError::NotFound)?;
-            match &anchor_path {
+            let base = match &anchor_path {
                 Some(ap) => parent2
                     .children
                     .iter()
                     .position(|c| &c.path == ap)
                     .unwrap_or(parent2.children.len()),
                 None => parent2.children.len(),
-            }
+            };
+            base - gap.min(base)
         };
         insert(
             tree,
@@ -6023,6 +6037,23 @@ mod tests {
         })
         .unwrap();
         assert_eq!(d.serialize(), "# header\ny = 2\nx = 1\n");
+    }
+
+    #[test]
+    fn move_node_down_before_trailing_comment() {
+        // Moving `a` to just after `b` (the comment occupies the slot at index 2)
+        // must land it BEFORE the trailing comment, not after it.
+        let mut d = doc("a = 1\nb = 2\n# c\n");
+        d.apply(Mutation::Move {
+            sources: vec![vec![Seg::Key("a".into())]],
+            target: InsTarget {
+                parent: vec![],
+                index: 2,
+            },
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "b = 2\na = 1\n# c\n");
     }
 
     #[test]

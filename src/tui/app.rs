@@ -2504,10 +2504,51 @@ impl App {
         // Each `InsertComment` *prepends* its block at the target slot, so to keep
         // multiple pasted comments in their original order we apply them last-first.
         // `oi` is the original index (high→low); restore slices stay in original order.
+        //
+        // `target.index` is a *pre-deletion* ordinal in the parent's full child
+        // sequence. On a CUT, sources sitting *before* it are deleted before the
+        // insert, shifting the surviving slots up — so the insert index must drop by
+        // the count of already-deleted same-parent sources below the target, or the
+        // comment overshoots (lands one slot too far down). `self.tree` is still the
+        // pre-paste projection here (refreshed only by `on_mutation_success` at the
+        // end), so it gives the original ordinals. (Copy deletes nothing ⇒ no shift.)
+        // Re-inserted comments stack *at* the slot, never before it, so they don't
+        // count.
+        let orig_ord = |p: &Path| -> Option<usize> {
+            self.tree
+                .node_at(&target.parent)
+                .and_then(|par| par.children.iter().position(|c| &c.path == p))
+        };
+        // Nodes were already removed by the Move above (cut only); count those below.
+        let node_shift = if is_cut {
+            node_entries
+                .iter()
+                .filter(|(_, s)| orig_ord(s).is_some_and(|o| o < target.index))
+                .count()
+        } else {
+            0
+        };
+        // Comment source ordinals (computed before any comment deletion).
+        let comment_ords: Vec<Option<usize>> =
+            comment_entries.iter().map(|(_, s)| orig_ord(s)).collect();
         let n_comments = comment_entries.len();
         for rev in 0..n_comments {
             let oi = n_comments - 1 - rev;
             let (frag, src) = &comment_entries[oi];
+            // Comments processed so far (indices `oi..`) have had their sources
+            // deleted; add those sitting below the target to the shift.
+            let comment_shift = if is_cut {
+                comment_ords[oi..]
+                    .iter()
+                    .filter(|o| o.is_some_and(|o| o < target.index))
+                    .count()
+            } else {
+                0
+            };
+            let ctarget = Target {
+                parent: target.parent.clone(),
+                index: target.index.saturating_sub(node_shift + comment_shift),
+            };
             if is_cut {
                 // Delete the source first so an identical-text comment elsewhere
                 // isn't removed by the text-matching delete sweep after insert.
@@ -2524,7 +2565,7 @@ impl App {
             }
             let doc = self.doc.as_mut().unwrap();
             if let Err(e) = doc.apply(Mutation::InsertComment {
-                target: target.clone(),
+                target: ctarget.clone(),
                 text: frag.clone(),
             }) {
                 // For cut, `oi`'s source was already deleted, so only lower indices
@@ -5389,6 +5430,103 @@ mod tests {
         assert!(
             out.find("# note").unwrap() > out.find("b = 2").unwrap(),
             "comment should have moved down near c:\n{out}"
+        );
+    }
+
+    #[test]
+    fn cut_comment_moves_down_without_overshoot() {
+        // Regression: a comment cut from *above* the cursor and pasted lands right
+        // after the cursor — deleting the source (above) must not shift the insert
+        // one slot too far down (the +1 overshoot bug).
+        let mut app = app_with("# c\na = 1\nb = 2\n");
+        app.rebuild_rows();
+        app.cursor = comment_row(&app);
+        app.cut_selected();
+        app.cursor = app
+            .rows
+            .iter()
+            .position(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k == "a"))
+            .unwrap();
+        app.paste();
+        assert_eq!(app.doc.as_ref().unwrap().serialize(), "a = 1\n# c\nb = 2\n");
+    }
+
+    #[test]
+    fn cut_comment_moves_down_without_overshoot_jsonc() {
+        let mut app = app_with_jsonc("{\n  // c\n  \"a\": 1,\n  \"b\": 2\n}\n");
+        app.rebuild_rows();
+        app.cursor = comment_row(&app);
+        app.cut_selected();
+        app.cursor = app
+            .rows
+            .iter()
+            .position(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k == "a"))
+            .unwrap();
+        app.paste();
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            "{\n  \"a\": 1,\n  // c\n  \"b\": 2\n}\n"
+        );
+    }
+
+    #[test]
+    fn cut_comment_moves_down_without_overshoot_yaml() {
+        let mut app = app_with_yaml("# c\na: 1\nb: 2\n");
+        app.rebuild_rows();
+        app.cursor = comment_row(&app);
+        app.cut_selected();
+        app.cursor = app
+            .rows
+            .iter()
+            .position(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k == "a"))
+            .unwrap();
+        app.paste();
+        assert_eq!(app.doc.as_ref().unwrap().serialize(), "a: 1\n# c\nb: 2\n");
+    }
+
+    #[test]
+    fn yaml_cut_multiline_comment_block_moves_whole_block() {
+        // Cutting a merged 3-line `#` block from the top and pasting after
+        // `multiline_literal` moves the WHOLE block (not just `# 1`) to the new
+        // slot and leaves `decimal: 42` intact (no value corruption, no
+        // `placeholder:` wrapping).
+        let mut app = app_with_yaml(
+            "# 1\n# 2\n# 3\nempty_string: \"\"\nmultiline_literal: \"multiline\"\ndecimal: 42\n",
+        );
+        app.rebuild_rows();
+        app.cursor = comment_row(&app);
+        app.cut_selected();
+        app.cursor = app
+            .rows
+            .iter()
+            .position(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k == "multiline_literal"))
+            .unwrap();
+        app.paste();
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            "empty_string: \"\"\nmultiline_literal: \"multiline\"\n# 1\n# 2\n# 3\ndecimal: 42\n"
+        );
+    }
+
+    #[test]
+    fn yaml_copy_multiline_comment_block_lands_at_target() {
+        // Copying the 3-line block and pasting after `multiline_literal` keeps the
+        // original at the top and lands the copy right after `multiline_literal`.
+        let mut app = app_with_yaml(
+            "# 1\n# 2\n# 3\nempty_string: \"\"\nmultiline_literal: \"multiline\"\ndecimal: 42\n",
+        );
+        app.rebuild_rows();
+        app.cursor = comment_row(&app);
+        app.copy_selected();
+        app.cursor = app
+            .rows
+            .iter()
+            .position(|r| matches!(r.path.last(), Some(Seg::Key(k)) if k == "multiline_literal"))
+            .unwrap();
+        app.paste();
+        assert_eq!(
+            app.doc.as_ref().unwrap().serialize(),
+            "# 1\n# 2\n# 3\nempty_string: \"\"\nmultiline_literal: \"multiline\"\n# 1\n# 2\n# 3\ndecimal: 42\n"
         );
     }
 
