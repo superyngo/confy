@@ -1,46 +1,22 @@
 //! `JsonDocument` — the lossless JSON/JSONC backend (mirrors `cst_doc.rs`).
 
-use std::path::{Path, PathBuf};
-
-use anyhow::Context;
-
 use crate::model::document::{ConfigDocument, DocFormat, KindTarget, MutateError, Mutation};
 use crate::model::json::syntax::SyntaxNode;
 use crate::model::node::{NodeKind, NodeTree, Seg};
 
 pub struct JsonDocument {
     pub(crate) syntax: SyntaxNode,
-    pub(crate) path: PathBuf,
     pub(crate) original: String,
+    /// Display label for the projection root (host sets it from the source path).
     pub(crate) filename: String,
     /// True once authored comments are legal: the file already contained a `//`
-    /// or `/* */` at load, OR the extension is `.jsonc`, OR the user accepted the
-    /// JSONC upgrade this session. A pure `.json` with no comments starts false.
+    /// or `/* */` at load, OR the host enabled it for a `.jsonc` extension, OR the
+    /// user accepted the JSONC upgrade this session. A pure `.json` with no
+    /// comments starts false.
     pub(crate) comments_enabled: bool,
 }
 
 impl ConfigDocument for JsonDocument {
-    fn load(path: &Path) -> anyhow::Result<Self> {
-        let original =
-            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-        let mut doc = Self::from_str(&original)
-            .with_context(|| format!("parsing {} as JSON", path.display()))?;
-        doc.path = path.to_path_buf();
-        doc.filename = path
-            .file_name()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_else(|| path.display().to_string());
-        // A `.jsonc` extension enables authored comments even when the file holds
-        // none yet; `from_str` only sees content, so OR the extension in here.
-        let is_jsonc_ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e.eq_ignore_ascii_case("jsonc"))
-            .unwrap_or(false);
-        doc.comments_enabled |= is_jsonc_ext;
-        Ok(doc)
-    }
-
     fn project(&self) -> NodeTree {
         crate::model::json::project::project(&self.syntax, &self.filename)
     }
@@ -145,8 +121,10 @@ pub(crate) fn split_value_comment(buffer: &str) -> (String, Option<String>) {
 
 impl JsonDocument {
     /// Parse a document from in-memory text (no file system). `comments_enabled`
-    /// is derived from content only (a `//` or `/* */` present); `load` additionally
-    /// OR's the `.jsonc` extension. The document starts with an empty `path`.
+    /// is derived from content only (a `//` or `/* */` present); the host OR's the
+    /// `.jsonc` extension in via [`enable_comments`](Self::enable_comments). The
+    /// projection root label (`filename`) starts empty; the host sets it via
+    /// [`set_filename`](Self::set_filename).
     #[allow(clippy::should_implement_trait)] // named per PORTING.md; see cst_doc.rs
     pub fn from_str(text: &str) -> anyhow::Result<Self> {
         let green = crate::model::json::parse::parse(text)
@@ -154,15 +132,15 @@ impl JsonDocument {
         let comments_enabled = text.contains("//") || text.contains("/*");
         Ok(JsonDocument {
             syntax: SyntaxNode::new_root(green),
-            path: PathBuf::new(),
             original: text.to_string(),
             filename: String::new(),
             comments_enabled,
         })
     }
 
-    pub fn save(&self) -> std::io::Result<()> {
-        std::fs::write(&self.path, self.serialize())
+    /// Set the projection root's display label (host derives it from the source path).
+    pub fn set_filename(&mut self, name: String) {
+        self.filename = name;
     }
 
     pub fn mark_saved(&mut self) {
@@ -217,14 +195,15 @@ pub(crate) fn kind_options(tree: &NodeTree, path: &[Seg]) -> Vec<(String, KindTa
 mod tests {
     use super::*;
     use crate::model::document::{ConfigDocument, DocFormat};
-    use std::io::Write;
 
-    /// Create a temp file with the given extension, write `s`, load it. The
-    /// NamedTempFile drops at end of this fn — fine, load already read everything.
+    /// Parse `s`, mimicking the host's `.jsonc`-extension comment-enable so the
+    /// extension-driven tests still exercise that path without touching the fs.
     fn json_from_str(ext: &str, s: &str) -> JsonDocument {
-        let mut f = tempfile::Builder::new().suffix(ext).tempfile().unwrap();
-        f.write_all(s.as_bytes()).unwrap();
-        JsonDocument::load(f.path()).unwrap()
+        let mut doc = JsonDocument::from_str(s).unwrap();
+        if ext.eq_ignore_ascii_case(".jsonc") {
+            doc.enable_comments();
+        }
+        doc
     }
 
     #[test]
@@ -324,10 +303,8 @@ mod tests {
     }
 
     #[test]
-    fn load_rejects_invalid() {
-        let mut f = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
-        f.write_all(b"{ \"a\": }").unwrap();
-        assert!(JsonDocument::load(f.path()).is_err());
+    fn from_str_rejects_invalid() {
+        assert!(JsonDocument::from_str("{ \"a\": }").is_err());
     }
 
     #[test]

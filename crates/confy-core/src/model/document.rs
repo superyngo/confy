@@ -1,8 +1,6 @@
 use crate::model::node::{NodeKind, NodeTree, Path};
-use std::path::Path as FsPath;
 
 pub trait ConfigDocument: Sized {
-    fn load(path: &FsPath) -> anyhow::Result<Self>;
     fn project(&self) -> NodeTree;
     fn serialize(&self) -> String;
     fn is_dirty(&self) -> bool;

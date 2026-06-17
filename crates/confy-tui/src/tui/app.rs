@@ -2666,8 +2666,17 @@ impl App {
         }
     }
 
-    /// `w`/`Ctrl+s` — save current document to its path.
+    /// `w`/`Ctrl+s` — serialize the document and write it to its source path.
+    /// The filesystem write lives in the host (the core is fs-free); the document
+    /// only produces the bytes via `serialize()`.
     pub fn save(&mut self) {
+        let path = match self.source_path.clone() {
+            Some(p) => p,
+            None => {
+                self.error = Some("no save path set".into());
+                return;
+            }
+        };
         let doc = match self.doc.as_mut() {
             Some(d) => d,
             None => return,
@@ -2676,7 +2685,8 @@ impl App {
             self.status = Some("no changes to save".into());
             return;
         }
-        match doc.save() {
+        let text = doc.serialize();
+        match std::fs::write(&path, text) {
             Ok(()) => {
                 doc.mark_saved();
                 self.status = Some("Saved".into());
@@ -3554,12 +3564,8 @@ mod tests {
     // --- e/n apply-path tests (post-editor logic, no $EDITOR spawned) ---
 
     fn app_with(src: &str) -> App {
-        use crate::model::document::ConfigDocument;
-        use std::io::Write;
-        let mut f = tempfile::NamedTempFile::new().unwrap();
-        f.write_all(src.as_bytes()).unwrap();
         let doc = crate::model::any_doc::AnyDocument::Toml(
-            crate::model::cst_doc::CstDocument::load(f.path()).unwrap(),
+            crate::model::cst_doc::CstDocument::from_str(src).unwrap(),
         );
         App::new(doc)
     }
@@ -4043,12 +4049,8 @@ mod tests {
 
     #[test]
     fn pure_json_remark_prompts_then_upgrades() {
-        use crate::model::document::ConfigDocument;
-        use std::io::Write;
-        let mut f = tempfile::NamedTempFile::with_suffix(".json").unwrap();
-        f.write_all(b"{\n  \"a\": 1\n}\n").unwrap();
-        let doc = crate::model::any_doc::AnyDocument::load_as(
-            f.path(),
+        let doc = crate::model::any_doc::AnyDocument::from_str_as(
+            "{\n  \"a\": 1\n}\n",
             crate::model::document::DocFormat::Json,
         )
         .unwrap();
@@ -4303,15 +4305,15 @@ mod tests {
 
     #[test]
     fn save_writes_to_file_and_resets_dirty() {
-        use std::io::Write;
-        let mut f = tempfile::NamedTempFile::new().unwrap();
-        f.write_all(b"port = 8080\n").unwrap();
+        // Keep the NamedTempFile alive so the path isn't deleted.
+        let f = tempfile::NamedTempFile::new().unwrap();
         let path = f.path().to_path_buf();
-        // Keep the NamedTempFile alive so the path isn't deleted
         let doc = crate::model::any_doc::AnyDocument::Toml(
-            crate::model::cst_doc::CstDocument::load(&path).unwrap(),
+            crate::model::cst_doc::CstDocument::from_str("port = 8080\n").unwrap(),
         );
         let mut app = App::new(doc);
+        // The host owns the save target: the path the TUI loaded from.
+        app.source_path = Some(path.clone());
         // Mutate to make dirty
         app.apply_replace(vec![Seg::Key("port".into())], "port = 9090\n".into());
         assert!(
@@ -5578,29 +5580,31 @@ mod tests {
     // --- Task 19: read-only guards for block-comment nodes ---
 
     fn app_with_jsonc(src: &str) -> App {
-        use std::io::Write;
-        let mut f = tempfile::Builder::new()
-            .suffix(".jsonc")
-            .tempfile()
-            .unwrap();
-        f.write_all(src.as_bytes()).unwrap();
-        let doc = crate::model::any_doc::AnyDocument::load(f.path()).unwrap();
+        // Mimic the host's `.jsonc`-extension comment-enable.
+        let mut doc = crate::model::any_doc::AnyDocument::from_str_as(
+            src,
+            crate::model::document::DocFormat::Json,
+        )
+        .unwrap();
+        doc.enable_comments();
         App::new(doc)
     }
 
     fn app_with_yaml(src: &str) -> App {
-        use std::io::Write;
-        let mut f = tempfile::Builder::new().suffix(".yaml").tempfile().unwrap();
-        f.write_all(src.as_bytes()).unwrap();
-        let doc = crate::model::any_doc::AnyDocument::load(f.path()).unwrap();
+        let doc = crate::model::any_doc::AnyDocument::from_str_as(
+            src,
+            crate::model::document::DocFormat::Yaml,
+        )
+        .unwrap();
         App::new(doc)
     }
 
     fn app_with_json(src: &str) -> App {
-        use std::io::Write;
-        let mut f = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
-        f.write_all(src.as_bytes()).unwrap();
-        let doc = crate::model::any_doc::AnyDocument::load(f.path()).unwrap();
+        let doc = crate::model::any_doc::AnyDocument::from_str_as(
+            src,
+            crate::model::document::DocFormat::Json,
+        )
+        .unwrap();
         App::new(doc)
     }
 

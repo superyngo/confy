@@ -761,12 +761,9 @@ impl Node {
 mod tests {
     use super::*;
     use crate::model::document::ConfigDocument;
-    use std::io::Write;
 
     fn cst_tree(src: &str) -> NodeTree {
-        let mut f = tempfile::NamedTempFile::new().unwrap();
-        f.write_all(src.as_bytes()).unwrap();
-        crate::model::cst_doc::CstDocument::load(f.path())
+        crate::model::cst_doc::CstDocument::from_str(src)
             .unwrap()
             .project()
     }
@@ -1130,9 +1127,7 @@ Array key="ml" sign=Bare val=None fmt=Multiline trail=None
             }
         }
         let src = std::fs::read_to_string("tests/fixtures/test.toml").unwrap();
-        let mut f = tempfile::NamedTempFile::new().unwrap();
-        f.write_all(src.as_bytes()).unwrap();
-        let doc = crate::model::cst_doc::CstDocument::load(f.path()).unwrap();
+        let doc = crate::model::cst_doc::CstDocument::from_str(&src).unwrap();
         let (tree, idx) = walk(&doc.syntax, "test.toml");
         let mut paths = Vec::new();
         collect(&tree.root, &mut paths);

@@ -4127,12 +4127,9 @@ fn is_scalar_kind(k: SyntaxKind) -> bool {
 mod tests {
     use super::*;
     use crate::model::document::ConfigDocument;
-    use std::io::Write;
 
     fn doc(src: &str) -> crate::model::cst_doc::CstDocument {
-        let mut f = tempfile::NamedTempFile::new().unwrap();
-        f.write_all(src.as_bytes()).unwrap();
-        crate::model::cst_doc::CstDocument::load(f.path()).unwrap()
+        crate::model::cst_doc::CstDocument::from_str(src).unwrap()
     }
 
     #[test]

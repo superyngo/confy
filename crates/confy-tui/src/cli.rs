@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
 
-use crate::model::any_doc::{detect_format, AnyDocument};
+use crate::model::any_doc::detect_format;
 use crate::model::document::DocFormat;
 
 #[derive(Parser)]
@@ -88,7 +88,7 @@ fn run_convert(
     let from_fmt = resolve_format(from, input)?;
     let to_fmt = resolve_format(to, output)?;
 
-    let doc = AnyDocument::load_as(input, from_fmt)
+    let doc = crate::load_document(input, from_fmt)
         .map_err(|e| anyhow::anyhow!("failed to load {}: {e}", input.display()))?;
 
     let result = match crate::model::convert::convert(&doc, to_fmt) {

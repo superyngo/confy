@@ -16,7 +16,7 @@ use crossterm::{
 use std::path::Path;
 
 pub fn run(path: &Path, format: crate::model::document::DocFormat) -> Result<()> {
-    let doc = crate::model::any_doc::AnyDocument::load_as(path, format)?;
+    let doc = crate::load_document(path, format)?;
     let mut app = app::App::new(doc);
     app.source_path = Some(path.to_path_buf());
 

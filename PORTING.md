@@ -8,12 +8,17 @@ This file is the durable companion to the doc set: `CONTEXT.md` (model glossary)
 `BEHAVIOR_MATRIX.md` (nested behavior), `TUI.md` (ratatui mechanics). It records *what moves
 where and why*; the eventual `WEBUI.md` will document the shared Web UI against this contract.
 
-> **Status (2026-06-17).** Slice 1 landed: the §1 workspace split (`confy-core` + `confy-tui`)
-> and the §2 **A1** (`from_str` / `AnyDocument::from_str_as`) and **A3** (tempfile-free conversion
-> reparse-net) fixes. The binary still builds as `confy`; the full suite passes. **Not yet done:**
-> §2 **A2/A4/A5** (sever `load`/`save` file I/O from the core, drop the `path` field) and the
-> §7 strict "no `std::fs` in `confy-core`" gate — `load`/`save` still use `fs`. That is the next
-> slice. The §3 cursor reshape and the §5 state-machine lift are untouched.
+> **Status (2026-06-17).** Slices 1 **and 2** landed. Slice 1: the §1 workspace split
+> (`confy-core` + `confy-tui`) and the §2 **A1** (`from_str` / `AnyDocument::from_str_as`) and
+> **A3** (tempfile-free conversion reparse-net) fixes. Slice 2: §2 **A2/A4/A5** + the §7 gate —
+> `confy-core` is now **fully filesystem-free at runtime**. `ConfigDocument::load`, every backend's
+> `load`/`save`, and `AnyDocument::load_as`/`save` are gone; the `path` field is dropped (`filename`
+> remains a host-set display label via `set_filename`). The host owns I/O: `confy_tui::load_document`
+> (read → `from_str_as` → label → `.jsonc` enable) and `App::save` (`serialize` → `fs::write` to
+> `App::source_path`). The §7 boundary gate (`crates/confy-core/tests/no_fs_gate.rs`) enforces it,
+> and `tempfile` is no longer a `confy-core` dependency. The binary still builds as `confy`; the full
+> suite passes. **Not yet done:** the §3 cursor reshape and the §5 state-machine lift are untouched —
+> that is the next slice.
 
 ---
 

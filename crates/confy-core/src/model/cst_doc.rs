@@ -12,9 +12,6 @@
 //! ported; `CstDocument` is **not** wired into the TUI until it reaches parity with
 //! `TomlDocument` (Phase 5).
 
-use std::path::{Path, PathBuf};
-
-use anyhow::Context;
 use taplo::syntax::SyntaxNode;
 
 use crate::model::document::{ConfigDocument, DocFormat, KindTarget, MutateError, Mutation};
@@ -23,27 +20,13 @@ use crate::model::node::{Format, NodeKind, NodeTree, Seg};
 pub struct CstDocument {
     /// The rowan syntax tree root — the single source of truth.
     pub(crate) syntax: SyntaxNode,
-    /// Read in Phase 5 (TUI wiring) as the save target.
-    #[allow(dead_code)]
-    pub(crate) path: PathBuf,
     pub(crate) original: String,
+    /// Display label for the projection root (the host sets it from the source
+    /// path on load); not a filesystem handle.
     pub(crate) filename: String,
 }
 
 impl ConfigDocument for CstDocument {
-    fn load(path: &Path) -> anyhow::Result<Self> {
-        let original =
-            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-        let mut doc = Self::from_str(&original)
-            .with_context(|| format!("parsing {} as TOML", path.display()))?;
-        doc.path = path.to_path_buf();
-        doc.filename = path
-            .file_name()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_else(|| path.display().to_string());
-        Ok(doc)
-    }
-
     fn project(&self) -> NodeTree {
         crate::model::cst_project::project(&self.syntax, &self.filename)
     }
@@ -267,10 +250,10 @@ pub(crate) fn split_value_comment(buffer: &str) -> (String, Option<String>) {
 }
 
 impl CstDocument {
-    /// Parse a document from in-memory text (no file system). The headless
-    /// constructor used by WASM/web hosts and the conversion reparse-net; `load`
-    /// is this plus a `fs::read` and the source `path`/`filename`. The document
-    /// starts with an empty `path` (the host owns the save target).
+    /// Parse a document from in-memory text (no file system). The sole headless
+    /// constructor: WASM/web hosts, the TUI loader, and the conversion reparse-net
+    /// all read the bytes themselves and call this. The projection root label
+    /// (`filename`) starts empty; the host sets it via [`set_filename`](Self::set_filename).
     // Named `from_str` per PORTING.md so it reads `CstDocument::from_str(text)`
     // without importing `FromStr`; a real `FromStr` impl is a poor fit (anyhow
     // error, JSON's content-derived state on the sibling backend).
@@ -282,15 +265,15 @@ impl CstDocument {
         }
         Ok(CstDocument {
             syntax: parse.into_syntax(),
-            path: PathBuf::new(),
             original: text.to_string(),
             filename: String::new(),
         })
     }
 
-    /// Write the current document to its source path.
-    pub fn save(&self) -> std::io::Result<()> {
-        std::fs::write(&self.path, self.serialize())
+    /// Set the projection root's display label (the host derives it from the
+    /// source path). Purely cosmetic — the core never touches the filesystem.
+    pub fn set_filename(&mut self, name: String) {
+        self.filename = name;
     }
 
     /// Reset the dirty baseline so `is_dirty()` returns false.
@@ -313,15 +296,13 @@ impl CstDocument {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
+    use std::path::{Path, PathBuf};
 
     fn cst_from_str(s: &str) -> CstDocument {
-        let mut f = tempfile::NamedTempFile::new().unwrap();
-        f.write_all(s.as_bytes()).unwrap();
-        CstDocument::load(f.path()).unwrap()
+        CstDocument::from_str(s).unwrap()
     }
 
-    /// The Phase 1 contract: load → serialize is byte-identical for every fixture
+    /// The Phase 1 contract: parse → serialize is byte-identical for every fixture
     /// and the project's own `test.toml`. This is the go/no-go gate for the backend.
     #[test]
     fn roundtrip_is_byte_identical() {
@@ -338,7 +319,7 @@ mod tests {
         }
         for f in &files {
             let text = std::fs::read_to_string(f).unwrap();
-            let doc = CstDocument::load(f).unwrap();
+            let doc = CstDocument::from_str(&text).unwrap();
             assert_eq!(
                 doc.serialize(),
                 text,
@@ -412,10 +393,8 @@ mod tests {
     }
 
     #[test]
-    fn load_rejects_invalid_toml() {
-        let mut f = tempfile::NamedTempFile::new().unwrap();
-        f.write_all(b"this is = = not toml").unwrap();
-        assert!(CstDocument::load(f.path()).is_err());
+    fn from_str_rejects_invalid_toml() {
+        assert!(CstDocument::from_str("this is = = not toml").is_err());
     }
 
     #[test]

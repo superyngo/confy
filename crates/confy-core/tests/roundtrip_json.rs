@@ -13,7 +13,7 @@ fn json_fixtures_roundtrip_byte_identical() {
             continue;
         }
         let text = std::fs::read_to_string(&p).unwrap();
-        let doc = JsonDocument::load(&p).unwrap();
+        let doc = JsonDocument::from_str(&text).unwrap();
         assert_eq!(doc.serialize(), text, "roundtrip mismatch for {p:?}");
         checked += 1;
     }
@@ -28,8 +28,8 @@ fn mutation_then_reparse_is_lossless() {
     use confy_core::model::document::Mutation;
     use confy_core::model::node::Seg;
 
-    let p = Path::new("tests/fixtures/sample.json");
-    let mut doc = JsonDocument::load(p).unwrap();
+    let text = std::fs::read_to_string("tests/fixtures/sample.json").unwrap();
+    let mut doc = JsonDocument::from_str(&text).unwrap();
     // replace a scalar value
     doc.apply(Mutation::Replace {
         path: vec![Seg::Key("version".into())],
@@ -41,11 +41,9 @@ fn mutation_then_reparse_is_lossless() {
         after.contains("\"version\": 6"),
         "version not updated in:\n{after}"
     );
-    // re-load the serialized text and serialize again — must be stable (lossless apply)
-    let tmp = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
-    std::fs::write(tmp.path(), &after).unwrap();
-    let doc2 = JsonDocument::load(tmp.path()).unwrap();
-    assert_eq!(doc2.serialize(), after, "reload of mutated doc not stable");
+    // re-parse the serialized text and serialize again — must be stable (lossless apply)
+    let doc2 = JsonDocument::from_str(&after).unwrap();
+    assert_eq!(doc2.serialize(), after, "reparse of mutated doc not stable");
     // everything ELSE in the file is unchanged
     assert!(
         after.contains("\"host\": \"localhost\""),
@@ -62,8 +60,8 @@ fn delete_preserves_unrelated_comment() {
     use confy_core::model::document::Mutation;
     use confy_core::model::node::Seg;
 
-    let p = Path::new("tests/fixtures/comments.jsonc");
-    let mut doc = JsonDocument::load(p).unwrap();
+    let text = std::fs::read_to_string("tests/fixtures/comments.jsonc").unwrap();
+    let mut doc = JsonDocument::from_str(&text).unwrap();
     // delete top-level member "a"; the header comments and block comment must remain
     doc.apply(Mutation::Delete {
         path: vec![Seg::Key("a".into())],

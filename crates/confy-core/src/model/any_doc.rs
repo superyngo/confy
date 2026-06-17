@@ -35,18 +35,10 @@ macro_rules! delegate {
 }
 
 impl AnyDocument {
-    /// Load `path` as `format` (caller resolved detection/override).
-    pub fn load_as(path: &FsPath, format: DocFormat) -> anyhow::Result<Self> {
-        match format {
-            DocFormat::Toml => Ok(Self::Toml(CstDocument::load(path)?)),
-            DocFormat::Json => Ok(Self::Json(JsonDocument::load(path)?)),
-            DocFormat::Yaml => Ok(Self::Yaml(YamlDocument::load(path)?)),
-        }
-    }
-
-    /// Parse `text` as `format` from memory — the file-system-free counterpart of
-    /// [`load_as`](Self::load_as), used by the conversion reparse-net and future
-    /// WASM/web hosts.
+    /// Parse `text` as `format` from memory — the sole, file-system-free
+    /// constructor. The host reads the bytes and resolves `format` (extension or
+    /// override), then calls this; the conversion reparse-net and future WASM/web
+    /// hosts use it directly.
     pub fn from_str_as(text: &str, format: DocFormat) -> anyhow::Result<Self> {
         match format {
             DocFormat::Toml => Ok(Self::Toml(CstDocument::from_str(text)?)),
@@ -55,9 +47,10 @@ impl AnyDocument {
         }
     }
 
-    /// Write the current document to its source path.
-    pub fn save(&self) -> std::io::Result<()> {
-        delegate!(self, d => d.save())
+    /// Set the projection root's display label (the host derives it from the
+    /// source path on load).
+    pub fn set_filename(&mut self, name: String) {
+        delegate!(self, d => d.set_filename(name))
     }
 
     /// Reset the dirty baseline so `is_dirty()` returns false.
@@ -79,11 +72,6 @@ impl AnyDocument {
 }
 
 impl ConfigDocument for AnyDocument {
-    fn load(path: &FsPath) -> anyhow::Result<Self> {
-        let fmt = detect_format(path)
-            .ok_or_else(|| anyhow::anyhow!("unrecognized config format: {}", path.display()))?;
-        Self::load_as(path, fmt)
-    }
     fn project(&self) -> NodeTree {
         delegate!(self, d => d.project())
     }
@@ -157,35 +145,29 @@ mod tests {
 
     #[test]
     fn any_document_delegates_to_toml() {
-        let f = tempfile::NamedTempFile::with_suffix(".toml").unwrap();
-        std::fs::write(f.path(), "a = 1\n").unwrap();
-        let doc = AnyDocument::load(f.path()).unwrap();
+        let doc = AnyDocument::from_str_as("a = 1\n", DocFormat::Toml).unwrap();
         assert_eq!(doc.format(), DocFormat::Toml);
         assert_eq!(doc.serialize(), "a = 1\n");
         assert!(!doc.is_dirty());
     }
 
     #[test]
-    fn load_rejects_unknown_extension() {
-        let f = tempfile::NamedTempFile::with_suffix(".ini").unwrap();
-        std::fs::write(f.path(), "a = 1\n").unwrap();
-        assert!(AnyDocument::load(f.path()).is_err());
+    fn detect_format_rejects_unknown_extension() {
+        // The host resolves the format from the extension before calling
+        // `from_str_as`; an unrecognized extension is rejected here.
+        assert_eq!(detect_format(FsPath::new("x.ini")), None);
     }
 
     #[test]
     fn any_document_loads_json() {
-        let f = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
-        std::fs::write(f.path(), "{ \"a\": 1 }\n").unwrap();
-        let doc = AnyDocument::load(f.path()).unwrap();
+        let doc = AnyDocument::from_str_as("{ \"a\": 1 }\n", DocFormat::Json).unwrap();
         assert_eq!(doc.format(), DocFormat::Json);
         assert_eq!(doc.serialize(), "{ \"a\": 1 }\n");
     }
 
     #[test]
     fn any_document_loads_yaml() {
-        let f = tempfile::Builder::new().suffix(".yaml").tempfile().unwrap();
-        std::fs::write(f.path(), "a: 1\n").unwrap();
-        let doc = AnyDocument::load(f.path()).unwrap();
+        let doc = AnyDocument::from_str_as("a: 1\n", DocFormat::Yaml).unwrap();
         assert_eq!(doc.format(), DocFormat::Yaml);
         assert_eq!(doc.serialize(), "a: 1\n");
     }

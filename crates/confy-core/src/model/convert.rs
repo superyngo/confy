@@ -1102,14 +1102,7 @@ mod tests {
     use crate::model::document::ConfigDocument;
 
     fn load(src: &str, fmt: DocFormat) -> AnyDocument {
-        let suffix = match fmt {
-            DocFormat::Toml => ".toml",
-            DocFormat::Json => ".json",
-            DocFormat::Yaml => ".yaml",
-        };
-        let f = tempfile::Builder::new().suffix(suffix).tempfile().unwrap();
-        std::fs::write(f.path(), src).unwrap();
-        AnyDocument::load_as(f.path(), fmt).unwrap()
+        AnyDocument::from_str_as(src, fmt).unwrap()
     }
 
     fn convert_str(src: &str, from: DocFormat, to: DocFormat) -> ConvertResult {

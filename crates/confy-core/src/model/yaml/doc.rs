@@ -1,34 +1,17 @@
 //! `YamlDocument` — the lossless YAML-subset backend (mirrors `json/doc.rs`).
 
-use std::path::{Path, PathBuf};
-
-use anyhow::Context;
-
 use crate::model::document::{ConfigDocument, DocFormat, KindTarget, MutateError, Mutation};
 use crate::model::node::{NodeKind, NodeTree, Seg};
 use crate::model::yaml::syntax::SyntaxNode;
 
 pub struct YamlDocument {
     pub(crate) syntax: SyntaxNode,
-    pub(crate) path: PathBuf,
     pub(crate) original: String,
+    /// Display label for the projection root (host sets it from the source path).
     pub(crate) filename: String,
 }
 
 impl ConfigDocument for YamlDocument {
-    fn load(path: &Path) -> anyhow::Result<Self> {
-        let original =
-            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-        let mut doc = Self::from_str(&original)
-            .with_context(|| format!("parsing {} as YAML", path.display()))?;
-        doc.path = path.to_path_buf();
-        doc.filename = path
-            .file_name()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_else(|| path.display().to_string());
-        Ok(doc)
-    }
-
     fn project(&self) -> NodeTree {
         crate::model::yaml::project::project(&self.syntax, &self.filename)
     }
@@ -147,22 +130,23 @@ pub(crate) fn split_value_comment(buffer: &str) -> (String, Option<String>) {
 }
 
 impl YamlDocument {
-    /// Parse a document from in-memory text (no file system). The document starts
-    /// with an empty `path` (the host owns the save target).
+    /// Parse a document from in-memory text (no file system). The projection root
+    /// label (`filename`) starts empty; the host sets it via
+    /// [`set_filename`](Self::set_filename).
     #[allow(clippy::should_implement_trait)] // named per PORTING.md; see cst_doc.rs
     pub fn from_str(text: &str) -> anyhow::Result<Self> {
         let green = crate::model::yaml::parse::parse(text)
             .map_err(|e| anyhow::anyhow!("parsing YAML: {e}"))?;
         Ok(YamlDocument {
             syntax: SyntaxNode::new_root(green),
-            path: PathBuf::new(),
             original: text.to_string(),
             filename: String::new(),
         })
     }
 
-    pub fn save(&self) -> std::io::Result<()> {
-        std::fs::write(&self.path, self.serialize())
+    /// Set the projection root's display label (host derives it from the source path).
+    pub fn set_filename(&mut self, name: String) {
+        self.filename = name;
     }
 
     pub fn mark_saved(&mut self) {
@@ -258,13 +242,10 @@ fn inside_inline_collection(tree: &NodeTree, path: &[Seg]) -> bool {
 mod tests {
     use super::*;
     use crate::model::document::{ConfigDocument, DocFormat};
-    use std::io::Write;
 
-    /// Create a temp file with the given extension, write `s`, load it.
-    fn yaml_from_str(ext: &str, s: &str) -> YamlDocument {
-        let mut f = tempfile::Builder::new().suffix(ext).tempfile().unwrap();
-        f.write_all(s.as_bytes()).unwrap();
-        YamlDocument::load(f.path()).unwrap()
+    /// Parse `s` (the extension is irrelevant for YAML; kept for call-site parity).
+    fn yaml_from_str(_ext: &str, s: &str) -> YamlDocument {
+        YamlDocument::from_str(s).unwrap()
     }
 
     #[test]
@@ -279,10 +260,8 @@ mod tests {
     }
 
     #[test]
-    fn load_rejects_multi_doc() {
-        let mut f = tempfile::Builder::new().suffix(".yaml").tempfile().unwrap();
-        f.write_all(b"---\na: 1\n---\nb: 2\n").unwrap();
-        assert!(YamlDocument::load(f.path()).is_err());
+    fn from_str_rejects_multi_doc() {
+        assert!(YamlDocument::from_str("---\na: 1\n---\nb: 2\n").is_err());
     }
 
     #[test]

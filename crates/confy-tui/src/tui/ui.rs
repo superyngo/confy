@@ -818,11 +818,9 @@ fn centered_rect(percent_x: u16, height: u16, r: Rect) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::document::ConfigDocument;
     use crate::tui::app::App;
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
-    use std::io::Write;
 
     #[test]
     fn highlight_spans_marks_matched_chars() {
@@ -846,10 +844,8 @@ mod tests {
 
     /// Render a real document to a TestBackend and return the buffer as text lines.
     fn render(src: &str, w: u16, h: u16) -> Vec<String> {
-        let mut f = tempfile::NamedTempFile::new().unwrap();
-        f.write_all(src.as_bytes()).unwrap();
         let doc = crate::model::any_doc::AnyDocument::Toml(
-            crate::model::cst_doc::CstDocument::load(f.path()).unwrap(),
+            crate::model::cst_doc::CstDocument::from_str(src).unwrap(),
         );
         let app = App::new(doc);
         let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
@@ -868,10 +864,8 @@ mod tests {
 
     #[test]
     fn type_filter_popup_renders_with_checkboxes() {
-        let mut f = tempfile::NamedTempFile::new().unwrap();
-        f.write_all(b"port = 8080\n").unwrap();
         let doc = crate::model::any_doc::AnyDocument::Toml(
-            crate::model::cst_doc::CstDocument::load(f.path()).unwrap(),
+            crate::model::cst_doc::CstDocument::from_str("port = 8080\n").unwrap(),
         );
         let mut app = App::new(doc);
         app.enter_type_filter();
@@ -903,10 +897,8 @@ mod tests {
 
     #[test]
     fn type_filter_popup_scrolls_to_keep_cursor_visible() {
-        let mut f = tempfile::NamedTempFile::new().unwrap();
-        f.write_all(b"port = 8080\n").unwrap();
         let doc = crate::model::any_doc::AnyDocument::Toml(
-            crate::model::cst_doc::CstDocument::load(f.path()).unwrap(),
+            crate::model::cst_doc::CstDocument::from_str("port = 8080\n").unwrap(),
         );
         let mut app = App::new(doc);
         app.enter_type_filter();
@@ -931,10 +923,8 @@ mod tests {
 
     #[test]
     fn inline_editor_renders_buffer_in_value_column() {
-        let mut f = tempfile::NamedTempFile::new().unwrap();
-        f.write_all(b"port = 8080\n").unwrap();
         let doc = crate::model::any_doc::AnyDocument::Toml(
-            crate::model::cst_doc::CstDocument::load(f.path()).unwrap(),
+            crate::model::cst_doc::CstDocument::from_str("port = 8080\n").unwrap(),
         );
         let mut app = App::new(doc);
         app.cursor = 1; // on port
@@ -970,10 +960,8 @@ mod tests {
 
     #[test]
     fn inline_commit_error_is_shown_in_status() {
-        let mut f = tempfile::NamedTempFile::new().unwrap();
-        f.write_all(b"port = 8080\n").unwrap();
         let doc = crate::model::any_doc::AnyDocument::Toml(
-            crate::model::cst_doc::CstDocument::load(f.path()).unwrap(),
+            crate::model::cst_doc::CstDocument::from_str("port = 8080\n").unwrap(),
         );
         let mut app = App::new(doc);
         app.cursor = 1;
@@ -1021,12 +1009,9 @@ mod tests {
 
     #[test]
     fn detail_popup_scrolls_long_value() {
-        let mut f = tempfile::NamedTempFile::new().unwrap();
         let long = "x".repeat(400);
-        f.write_all(format!("blob = \"{long}\"\n").as_bytes())
-            .unwrap();
         let doc = crate::model::any_doc::AnyDocument::Toml(
-            crate::model::cst_doc::CstDocument::load(f.path()).unwrap(),
+            crate::model::cst_doc::CstDocument::from_str(&format!("blob = \"{long}\"\n")).unwrap(),
         );
         let mut app = App::new(doc);
         app.cursor = 1; // on blob
@@ -1089,10 +1074,8 @@ mod tests {
 
     /// Render with all branches expanded, returning the joined buffer text.
     fn render_expanded(src: &str, w: u16, h: u16) -> String {
-        let mut f = tempfile::NamedTempFile::new().unwrap();
-        f.write_all(src.as_bytes()).unwrap();
         let doc = crate::model::any_doc::AnyDocument::Toml(
-            crate::model::cst_doc::CstDocument::load(f.path()).unwrap(),
+            crate::model::cst_doc::CstDocument::from_str(src).unwrap(),
         );
         let mut app = App::new(doc);
         app.expand_all();

@@ -19,16 +19,7 @@ fn dump(n: &confy_core::model::node::Node, depth: usize) {
 }
 
 fn load_str(src: &str) -> anyhow::Result<YamlDocument> {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static N: AtomicU64 = AtomicU64::new(0);
-    let dir = std::env::temp_dir();
-    let p = dir.join(format!(
-        "scratch_{}_{}.yaml",
-        std::process::id(),
-        N.fetch_add(1, Ordering::Relaxed)
-    ));
-    std::fs::write(&p, src).unwrap();
-    YamlDocument::load(&p)
+    YamlDocument::from_str(src)
 }
 
 #[test]
