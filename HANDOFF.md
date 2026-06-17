@@ -3,9 +3,10 @@
 Compact context-recovery note. Full design: **`PORTING.md`**. This file is the "where we are /
 what's next" pointer; delete or rewrite it when the port is done.
 
-## Where we are (2026-06-17)
+## Where we are (2026-06-18)
 
 - Branch **`port/slice-4-session-lift`** (off `port/slice-3-path-cursor`). Tree clean. Not pushed.
+  Latest commit: `afd1c6c` (Slice 5 Phase D).
 - **Slice 1 DONE:** PORTING.md §1 (workspace split) + §2 **A1** (`from_str`) + **A3** (tempfile-free
   conversion reparse-net).
 - **Slice 2 DONE:** PORTING.md §2 **A2/A4/A5** + the §7 gate. `confy-core` is now **fully
@@ -17,31 +18,42 @@ what's next" pointer; delete or rewrite it when the port is done.
   `Selection`/`PasteSlot` re-keyed to `Path`; nav/selection/paste read `App::visible_paths()` +
   `cursor_row()` instead of indexing `rows`. The **only** index↔path bridge is `cursor_row_index()`
   (ratatui highlight/viewport + footer). `insertion::resolve_target` now takes `(path, is_branch, …)`,
-  not a `&RowSnapshot`. Touched methods carry `§5: CORE/HOST/SPLIT` seam comments.
+  not a `&RowSnapshot`.
 - **Slice 4 DONE:** PORTING.md §5 Phases A–C. `confy-core/session/` now contains the complete
   `Session` struct with all CORE fields and every CORE operation. New types: `Intent` enum, `Host`
   trait, `Update` struct, `PendingCommit`, `EditKind`. `Session::visible_rows() -> Vec<ViewRow>` is
   a pure on-demand computation. `crates/confy-core/tests/session_headless.rs` (13 tests, §7 exit
-  gate #4) passes across TOML/JSON/YAML. Full suite: 438 core-unit + 167 tui + 26 integration +
-  13 session-headless. `App.rs` is **unchanged** (Phase D deferred to Slice 5).
+  gate #4) passes across TOML/JSON/YAML.
+- **Slice 5 Phase D DONE:** `App` rewritten as thin Host wrapper. `App` holds `pub session: Session`
+  + 5 HOST-only fields (`rows: Vec<RowSnapshot>`, `source_path`, `detail_scroll`, `help_scroll`,
+  `table_offset`). Every CORE method is a 1-line delegate to `self.session.*`. `RowSnapshot` (HOST
+  view model for ratatui) adds `type_label`/`type_tag`/`scalar_type` on top of `ViewRow`.
+  `rebuild_rows()` calls `session.compute_rows()` then maps `ViewRow→RowSnapshot` by looking up
+  `NodeKind` from `session.tree`. HOST-split methods (`edit_node`, `save`, `convert_write`) stay on
+  `App` and do all filesystem I/O. All ~444 test field accesses updated (`app.cursor` →
+  `app.session.cursor`, etc.). `selection.clear()` removed from `compute_rows()` (selection is
+  path-keyed and survives structural changes). Free functions cleaned: removed `char_byte_idx`,
+  `unique_key`, `project_first_label`; marked `clamp_scroll`/`nudge_scalar`/etc. `#[cfg(test)]`.
+  Full suite: 438 core-unit + 167 tui + 26 integration + 13 session-headless; clippy/fmt clean.
 - Layout: `crates/confy-core/` (pure model + session) + `crates/confy-tui/` (ratatui TUI + CLI,
   binary `confy`). `confy-tui/src/lib.rs` does `pub use confy_core::model;` so UI modules keep
   `crate::model::…` paths.
 
-## Next task: Slice 5 — PORTING.md §5 Phase D + Phase E
+## Next task: Slice 5 Phase E — serde + fake-Host tests
 
-**Phase D — thin App wrapper:**
-- Rewrite `App` struct to hold `pub session: Session` + HOST-only fields (`rows`, `source_path`,
-  `detail_scroll`, `help_scroll`, `table_offset`).
-- All App public methods become 1-line wrappers delegating to `self.session.*`.
-- Update ~70+ test field accesses from `app.field` to `app.session.field` (cursor, mode, selection,
-  clipboard, doc, error, status, filter, expanded, etc.) — Rust doesn't forward field access
-  through Deref, so every direct field touch in `app.rs` tests must be updated.
-- Implement `App: Host` for the `$EDITOR` path.
-
-**Phase E — serde + fake-Host tests:**
-- Serde round-trip tests for `Intent`/`ViewRow`/`Update`/`Mutation` (§7 exit gate #3).
-- Fake-Host `$EDITOR` path integration test (§7 exit gate #5).
+**Phase E (§7 exit gates #3 and #5):**
+- **Serde round-trip tests** for `Intent`/`ViewRow`/`Update`/`Mutation` (§7 exit gate #3). Add
+  `#[derive(Serialize, Deserialize)]` to these types in `confy-core` and write round-trip tests
+  that serialize → deserialize → assert equality. This is preparation for the WASM/web-UI port
+  (serde for JS interop via `serde-wasm-bindgen` or similar). The types are in:
+  - `Intent` enum — `crates/confy-core/src/session/intent.rs`
+  - `ViewRow` struct — `crates/confy-core/src/session/view.rs`
+  - `Update` struct — `crates/confy-core/src/session/view.rs`
+  - `Mutation` enum — `crates/confy-core/src/model/document.rs`
+- **Fake-Host `$EDITOR` integration test** (§7 exit gate #5). Write a test that uses a fake/mock
+  `Host` implementation (implementing the `Host` trait's `edit_text` callback) to exercise the
+  `$EDITOR`/multiline path headlessly — no real editor process spawned. Likely goes in
+  `crates/confy-core/tests/` alongside `session_headless.rs`.
 
 ## Gotchas / don't re-derive these
 
@@ -53,8 +65,11 @@ what's next" pointer; delete or rewrite it when the port is done.
 - The §7 gate (`no_fs_gate.rs`) scans each core `src/**.rs` file **up to its `#[cfg(test)]` module**
   (the one-trailing-test-module-per-file convention), so unit tests may still read fixtures while
   runtime code stays fs-free. New core files must follow that convention or the gate won't skip tests.
-- Cross-crate visibility: the split already surfaced `cst_edit::joinable_entry` (now `pub`). Further
-  lifts may surface more `pub(crate)` items the TUI used — widen to `pub` as they appear.
+  Adding `serde::{Serialize, Deserialize}` derives to core types is fine — `serde` is a no-op derive
+  with no runtime fs/process/env use.
+- Cross-crate visibility: the split already surfaced `cst_edit::joinable_entry` (now `pub`) and
+  `Session::{slot_target, no_array_ancestor}` (now `pub`). Further lifts may surface more
+  `pub(crate)` items the TUI used — widen to `pub` as they appear.
 - **Never drive the TUI via pty / long-lived background bash** (it needs a terminal); the user tests
   the TUI manually. Verify the *binary* via the `confy convert` subcommand and the `convert_cli`
   integration test, and the *model* via unit tests.
@@ -64,6 +79,27 @@ what's next" pointer; delete or rewrite it when the port is done.
   — the host performs the actual `fs::write`, not Session.
 - `handle_prompt_key` returns `bool` (`true` = quit) — the host event loop exits when `true`.
 - `git mv` keeps history as renames — use it for any further moves.
+
+## Phase D implementation specifics (reference for Phase E)
+
+- **`App` struct:** `pub session: Session`, `pub rows: Vec<RowSnapshot>`, `pub source_path:
+  Option<PathBuf>`, `pub detail_scroll: u16`, `pub help_scroll: u16`, `pub table_offset: Cell<usize>`.
+- **`rebuild_rows()`:** calls `self.session.compute_rows()` (stateful — snaps cursor, clears
+  paste_slot/selection), maps each `ViewRow` to `RowSnapshot` by looking up `NodeKind` from
+  `self.session.tree.node_at(&vr.path)` for `type_tag`/`type_label`.
+- **Delegates vs delegates+rebuild:** Methods that were calling `on_mutation_success` in the old
+  code → need `self.rebuild_rows()` after delegating (filter methods, mutations, expand/collapse
+  level, kind_switch_commit, edit_commit, escape, undo, redo). Simple navigation (cursor up/down,
+  toggle_expand, etc.) → plain delegates.
+- **`edit_node` is SPLIT:** App keeps it as a HOST method — calls `session.edit_target_kind()`,
+  `session.no_array_ancestor()`, `session.external_edit_path()`, spawns `editor::edit_text()`, then
+  calls `session.apply_replace()` or `session.apply_edit_comment()`.
+- **`convert_write` resting mode:** Inlined — `if self.session.filtered_paths.is_some() {
+  Mode::FilterResults } else { Mode::Normal }`.
+- **`RowSnapshot` fields:** `key`, `path`, `depth`, `is_branch`, `value: Option<String>`,
+  `scalar_type: Option<String>`, `type_label`, `type_tag`, `format: Format`,
+  `trailing_comment: Option<String>`. Note: `scalar_type` and `format` are stored on the HOST
+  `RowSnapshot`, NOT on the CORE `ViewRow` (which has `scalar_type: Option<ScalarType>` only).
 
 ## Verify (run before committing the next slice)
 
