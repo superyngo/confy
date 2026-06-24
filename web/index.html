@@ -13,20 +13,20 @@
     <!-- ===== toolbar ===== -->
     <header class="toolbar">
       <div class="brand">
-        <span class="logo">cy</span><span class="label-hide" id="title">confy</span>
+        <span class="logo">cy</span><span class="doc-name" id="title">confy</span>
       </div>
       <button class="fmt-pill" id="fmtPill" title="document format">TOML</button>
       <span class="dirty-dot" title="unsaved changes"></span>
       <span class="spacer"></span>
-      <button class="tbtn" id="btnOpen">
+      <button class="tbtn" id="btnOpen" title="Open file (Ctrl-o)">
         <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v10H3z"/></svg>
         <span class="label-hide">Open</span>
       </button>
-      <button class="tbtn primary" id="btnSave">
+      <button class="tbtn primary" id="btnSave" title="Save (Ctrl-s)">
         <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v6h7"/></svg>
         <span class="label-hide">Save</span>
       </button>
-      <button class="tbtn" id="btnConvert">
+      <button class="tbtn" id="btnConvert" title="Convert format (C)">
         <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h13l-3-3M20 17H7l3 3"/></svg>
         <span class="label-hide">Convert</span>
       </button>
@@ -59,7 +59,7 @@
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6 6 18"/></svg>
         </button>
       </div>
-      <button class="tbtn" id="btnTypeFilter">
+      <button class="tbtn" id="btnTypeFilter" title="Type filter (f)">
         <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></svg>
         <span class="label-hide">Type filter</span>
       </button>
@@ -102,11 +102,6 @@
     <footer class="footer">
       <span class="status" id="status">ready</span>
       <span class="status err hidden" id="error"></span>
-      <span class="hint">
-        <kbd>click</kbd> select · <kbd>⇧click</kbd> range ·
-        <kbd>⌘click</kbd> multi · <kbd>drag</kbd> marquee/move ·
-        <kbd>right-click</kbd> menu
-      </span>
       <span class="badge" id="selBadge">none selected</span>
       <span class="badge" id="clipBadge">clipboard 0</span>
     </footer>

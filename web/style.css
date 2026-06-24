@@ -402,11 +402,12 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
   user-select: text; cursor: text; outline: none;
 }
 
-/* Clipboard source rows — distinct from the selection box (filled --sel). A
-   dashed ring marks "captured"; copy is accent-tinted, cut is dimmed/amber so
-   the three states (selected / copied / cut) read apart. */
-.row.clip-copy { box-shadow: inset 0 0 0 1px var(--accent); border-radius: 6px; }
-.row.clip-cut { box-shadow: inset 0 0 0 1px var(--t-date); border-radius: 6px; opacity: .6; }
+/* Clipboard source rows — distinct from the selection box (filled --sel + solid
+   --sel-edge ring). A *dashed* ring in a different hue marks "captured" so it
+   reads apart even when the row is also selected: copy = green-string dashed,
+   cut = purple-date dashed + dimmed + strike. */
+.row.clip-copy { outline: 1.5px dashed var(--t-string); outline-offset: -3px; border-radius: 6px; }
+.row.clip-cut { outline: 1.5px dashed var(--t-date); outline-offset: -3px; border-radius: 6px; opacity: .6; }
 .row.clip-cut .key, .row.clip-cut .val { text-decoration: line-through; text-decoration-thickness: 1px; }
 
 /* Type-filter popup header: title row + a `×` clear button (replaces the old
@@ -417,3 +418,24 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
   color: var(--faint); font-size: 13px; line-height: 1; cursor: pointer;
 }
 .tf-clear:hover { background: var(--border); color: var(--fg); }
+
+/* Filename chip in the brand — always visible (the design's brand text used the
+   generic .label-hide, which display:none'd it under 920px; we repurposed it for
+   the real filename, so it must survive narrow widths). Truncates gracefully and
+   exposes the full name via the title tooltip. */
+.brand .doc-name {
+  max-width: min(38vw, 220px); overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; color: var(--muted); font-weight: 600;
+}
+
+/* Footer warning/error gets its own full-width line and wraps, so a long message
+   reads in full at any width (the design clipped it with nowrap+ellipsis). It is
+   emphasized as a tinted pill in the warning hue so it stands apart from status. */
+.footer { flex-wrap: wrap; }
+.footer .status.err {
+  flex-basis: 100%; white-space: normal; overflow: visible;
+  color: var(--t-bool); font-weight: 600;
+  background: color-mix(in oklch, var(--t-bool) 14%, transparent);
+  border: 1px solid color-mix(in oklch, var(--t-bool) 35%, transparent);
+  border-radius: 7px; padding: 3px 9px;
+}

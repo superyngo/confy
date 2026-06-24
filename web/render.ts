@@ -54,7 +54,7 @@ export function valueTypeClass(r: ViewRow): string {
 }
 
 // --- inline SVGs (mirrors the design's IC table) ---
-const IC_CARET =
+export const IC_CARET =
   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>`;
 const IC_CHEV =
   `<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>`;

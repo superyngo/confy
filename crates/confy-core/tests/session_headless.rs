@@ -336,6 +336,21 @@ fn dispatch_edit_inline_scalar_uses_inline_mode() {
 }
 
 #[test]
+fn dispatch_edit_inline_table_routes_external() {
+    // Web-only `dispatch` routes *every* container to the external popup editor
+    // (a branch row has no value cell, so an inline one-line repr is uneditable
+    // in the pointer UI). An inline table that the TUI would edit inline must
+    // signal external_edit here.
+    let mut s = toml_session("a = { x = 1 }\n");
+    s.dispatch(Intent::CursorDown); // onto 'a' (the inline table)
+    let snap = s.dispatch(Intent::BeginEdit);
+    assert!(
+        snap.external_edit.is_some(),
+        "inline table should route to the external popup editor"
+    );
+}
+
+#[test]
 fn dispatch_multiline_edit_signals_external_edit_then_applies() {
     // The async-host handshake (PORTING §8.2): BeginEdit on a multi-line scalar
     // returns external_edit in the snapshot; the host returns text via

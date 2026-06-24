@@ -15,7 +15,7 @@ import {
   writeFile,
   type FsHandle,
 } from "./fs.js";
-import { currentKindLabel, escapeHtml, renderTree } from "./render.js";
+import { currentKindLabel, escapeHtml, IC_CARET, renderTree } from "./render.js";
 import { resolveClick, rowsInRect, setAnchor } from "./select.js";
 import { installDnd } from "./dnd.js";
 import type {
@@ -152,6 +152,7 @@ function render() {
   document.body.classList.toggle("dirty", snap.is_dirty);
   document.body.classList.toggle("paste-mode", (snap.clipboard_count ?? 0) > 0);
   titleEl.textContent = fileName ?? "confy";
+  titleEl.title = fileName ?? ""; // full name on hover when the chip truncates
   setStatus(snap.status, snap.error ?? "");
 
   renderRawOrTree();
@@ -431,8 +432,10 @@ function onKey(ev: KeyboardEvent) {
     case "G": case "End": return navSelect("CursorEnd");
     case "Enter": return send("ToggleExpand");
     case " ": return send("ToggleDetail");
-    case "e": return send("BeginEdit");
-    case "a": return send("AddNode");
+    // preventDefault: these open a text editor synchronously (inline input or the
+    // external modal); without it the triggering keystroke leaks into the field.
+    case "e": ev.preventDefault(); return send("BeginEdit");
+    case "a": ev.preventDefault(); return send("AddNode");
     case "d": case "Delete": return send("DeleteSelected");
     case "c": return send("CopySelected");
     case "x": return send("CutSelected");
@@ -490,15 +493,25 @@ function openExternalEdit(ext: { initial: string; kind: unknown }) {
     modal.classList.add("hidden");
     confirm.onclick = null;
     cancel.onclick = null;
+    txt.onkeydown = null;
   };
   confirm.onclick = () => {
     close();
     if (kind.Value) send({ ApplyReplace: { path: path as never, text: txt.value } });
     else send({ ApplyEditComment: { path: path as never, text: txt.value } });
   };
-  cancel.onclick = () => {
+  const doCancel = () => {
     close();
     send("Escape"); // peel the pending edit
+  };
+  cancel.onclick = doCancel;
+  // Esc cancels/closes the modal (Enter stays free for newlines in the editor).
+  txt.onkeydown = (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      doCancel();
+    }
   };
 }
 
@@ -765,13 +778,16 @@ function openKindMenuAt(path: Path, x: number, y: number) {
   const key = JSON.stringify(path);
   const row = snap!.rows.find((r) => JSON.stringify(r.path) === key);
   const cur = row
-    ? `<button class="menu-item" disabled>Current: ${escapeHtml(currentKindLabel(row))}</button><div class="menu-sep"></div>`
+    ? `<button class="menu-item" disabled><span class="ic">${IC_CARET}</span>Current: ${escapeHtml(currentKindLabel(row))}</button><div class="menu-sep"></div>`
     : "";
   menu.innerHTML =
     `<div class="menu-label">Convert kind</div>` +
     cur +
     opts
-      .map((o, i) => `<button class="menu-item" data-i="${i}">${escapeHtml(o.label)}</button>`)
+      .map(
+        (o, i) =>
+          `<button class="menu-item" data-i="${i}"><span class="ic">${IC_CARET}</span>${escapeHtml(o.label)}</button>`,
+      )
       .join("");
   placePopAt(menu, x, y); // calls closePops() first, which clears kindMenuPath
   kindMenuPath = key;
@@ -1059,6 +1075,11 @@ s              toggle select · 0 collapse-all · 9 expand-all
 /              filter · f type-filter · K kind-switch · C convert
 i              detail popup · ? this help · Ctrl-s save · Ctrl-o open
 q              quit (prompts if dirty)
+
+── pointer ──────────────────────────────────────
+click          select          ⇧click   range-select
+⌘click         multi-select    drag     marquee / move
+right-click    context menu
 
 Open (Ctrl-o) and in-place Save need the File System Access API
 (Chrome/Edge). Other browsers fall back to the paste-load / download path.`;

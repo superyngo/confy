@@ -139,10 +139,27 @@ impl super::Session {
 
             // ---- Inline edit ----
             Intent::BeginEdit => {
-                // Smart `e`: inline when the target is inline-editable, else the
-                // async external path (§8.2) — sets `pending_external_edit` and the
-                // snapshot carries `external_edit`.
-                if self.edit_target_kind() == EditKind::Inline {
+                // Smart `e`: scalars/comments edit inline; **container nodes always
+                // open the external popup editor** in the Web UI. A branch row has no
+                // value cell, so an inline one-line repr (inline table/array) is
+                // uneditable in the pointer UI — routing every container to the modal
+                // makes all branches editable uniformly. (Web-only: the TUI calls
+                // `edit_target_kind`/`begin_inline_edit` directly, so BEHAVIOR_MATRIX
+                // §6 inline-table editing there is untouched.)
+                let is_branch = self
+                    .cursor_row_path()
+                    .and_then(|p| self.tree.node_at(&p).map(|n| n.kind.clone()))
+                    .map(|k| {
+                        matches!(
+                            k,
+                            NodeKind::Table
+                                | NodeKind::InlineTable
+                                | NodeKind::Array
+                                | NodeKind::ArrayOfTables
+                        )
+                    })
+                    .unwrap_or(false);
+                if !is_branch && self.edit_target_kind() == EditKind::Inline {
                     self.begin_inline_edit();
                 } else {
                     self.begin_external_edit();
