@@ -363,6 +363,23 @@ fn dispatch_multiline_edit_signals_external_edit_then_applies() {
 }
 
 #[test]
+fn dispatch_escape_cancels_pending_external_edit() {
+    // The host's multi-line editor Cancel sends Escape; it must discard the
+    // pending external edit so the snapshot stops requesting the modal (else the
+    // Web UI reopens it forever — the "Cancel does nothing" bug).
+    let mut s = toml_session("notes = \"\"\"\nline1\n\"\"\"\n");
+    s.dispatch(Intent::CursorDown); // onto 'notes'
+    let snap = s.dispatch(Intent::BeginEdit);
+    assert!(snap.external_edit.is_some(), "multiline routes external");
+    let snap = s.dispatch(Intent::Escape);
+    assert!(
+        snap.external_edit.is_none(),
+        "Escape clears the pending external edit"
+    );
+    assert!(!s.is_dirty(), "cancel leaves the document untouched");
+}
+
+#[test]
 fn dispatch_nudge_increments_scalar_via_snapshot() {
     let mut s = toml_session("a = 1\n");
     s.dispatch(Intent::CursorDown);
@@ -465,10 +482,35 @@ fn dispatch_clipboard_count_reflects_copy_then_clears() {
     let mut s = toml_session("a = 1\nb = 2\n");
     // Nothing on the clipboard initially.
     assert_eq!(s.snapshot().clipboard_count, None);
-    // Select the cursor row and copy it.
+    // Select the 'a' row and copy it.
+    s.dispatch(Intent::CursorDown);
     s.dispatch(Intent::ToggleSelect);
     let snap = s.dispatch(Intent::CopySelected);
     assert_eq!(snap.clipboard_count, Some(1));
+    // Copy (not cut) exposes the source path so the UI can mark it.
+    assert!(!snap.clipboard_cut, "copy is not a cut");
+    assert_eq!(snap.clipboard_paths, vec![vec![Seg::Key("a".into())]]);
+}
+
+#[test]
+fn dispatch_clipboard_cut_flag_and_exit_type_filter() {
+    let mut s = toml_session("a = 1\nb = 2\n");
+    s.dispatch(Intent::ToggleSelect);
+    let snap = s.dispatch(Intent::CutSelected);
+    assert!(snap.clipboard_cut, "cut sets the cut flag");
+    assert_eq!(snap.clipboard_paths.len(), 1);
+
+    // ExitTypeFilter (the `×`/Esc path) clears facets *and* closes the popup.
+    s.dispatch(Intent::EnterTypeFilter);
+    s.dispatch(Intent::TypeFilterToggle);
+    let snap = s.dispatch(Intent::ExitTypeFilter);
+    assert!(
+        !matches!(
+            snap.mode,
+            confy_core::session::view::ModeView::TypeFilter(_)
+        ),
+        "exit closes the popup"
+    );
 }
 
 // ---- Pointer selection (SetSelection) ----

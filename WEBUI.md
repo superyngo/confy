@@ -26,13 +26,20 @@ Stage-2 transport decisions).
                   └────────────────┬─────────────────┘
                                    │
                   ┌────────────────┴─────────────────┐
-                  │            Web UI (DOM)           │   tree render +
-                  │   index.html / ui.ts / style.css  │   keyboard → Intent
+                  │       Web UI (DOM, web-native)    │   render.ts tree +
+                  │  index.html / ui.ts / render.ts / │   select.ts pointer +
+                  │  select.ts / dnd.ts / style.css   │   dnd.ts drag → Intent
                   └──────────────────────────────────┘
 ```
 
-One command channel: the UI serializes an `Intent`, calls `ConfySession.dispatch`,
-and re-renders from the returned `SessionSnapshot`. No editor logic lives in the UI.
+One command channel: every gesture (keyboard **or pointer**) becomes one `Intent`, the
+UI calls `ConfySession.dispatch`, and re-renders the whole DOM from the returned
+`SessionSnapshot`. No editor logic lives in the UI — it is stateless w.r.t. editing.
+
+The UI is a **web-native** port of `design_index_model.html` (a visual/UX mockup); the
+mockup's self-contained JS model is discarded — `confy-core`'s `Session` is the single
+source of truth. `style.css` is the design's `<style>` block **verbatim** plus a fenced
+app-only appendix, so the visual layer cannot drift from the design.
 
 ## FFI API surface (`confy-ffi`)
 
@@ -64,9 +71,15 @@ hand-written `types.ts` is the canonical reference for the UI; it is kept in syn
 the Rust derives by the `serde_roundtrip` + `dispatch` native tests (they assert the
 shapes round-trip). Key types:
 
-- **`Intent`** — every key-mapped action (navigation, selection, filter, type-filter,
-  kind-switch, convert, edit, mutations, undo/redo, lifecycle). The UI maps a DOM
-  keyboard event to one `Intent`.
+- **`Intent`** — every action (navigation, selection, filter, type-filter, kind-switch,
+  convert, edit, mutations, undo/redo, lifecycle). The UI maps a DOM keyboard event **or
+  pointer gesture** to one `Intent`. The web-native UI adds a set of purely-additive
+  **batch intents** that take a whole value at once (the pointer analogue of the
+  incremental keyboard intents), each reusing existing core machinery and needing no FFI
+  plumbing: `SetCursor(Path)`, `SetSelection {paths}`, `MoveSelectionTo {sources,target,
+  index}` (drag-reparent — a one-shot cut→paste reusing `Mutation::Move`),
+  `CommitEdit {value?,name?}`, `CommitKind {path,target}`, `SetFilter(String)`,
+  `SetConvertFormat(DocFormat)`, `SetConvertPath(String)`.
 - **`SessionSnapshot`** — full renderable state: `mode: ModeView`, `rows: ViewRow[]`,
   `cursor: Seg[]`, `status`/`error`, `detail_text`, `external_edit`, `convert_write`,
   `clipboard_count`, `quit`, `doc_format`, `is_dirty`.
@@ -79,8 +92,10 @@ shapes round-trip). Key types:
   re-derives the per-format facet set: `rows: (Header | Cells[…])[]`, `cursor_row`,
   `cursor_col`, `active`. Each cell carries `label`, tri-state `state`
   (`On`/`Partial`/`Off`), and `is_cursor`.
-- **`ViewRow`** — one visible tree row (`path`, `depth`, `isBranch`, `key`, `value`,
-  `scalarType`, `format`, `trailingComment`, `readOnly`, `selected`, `isCursor`).
+- **`ViewRow`** — one visible tree row (`path`, `depth`, `is_branch`, `key`, `value`,
+  `scalar_type`, `format`, `type_label`, `child_count`, `trailing_comment`, `read_only`,
+  `selected`, `is_cursor`). `type_label` (the core node-kind label) and `child_count` let
+  the web render the true container kind + item count instead of guessing from `is_branch`.
 - **`Seg`** = `{ Key: string } | { Index: number }`; **`Path`** = `Seg[]`.
 
 ## Serialization format decisions
@@ -98,23 +113,55 @@ shapes round-trip). Key types:
 ## Web UI architecture
 
 - **Stateless render.** The UI keeps no editor state of its own; it holds the latest
-  `SessionSnapshot` and renders the DOM from it. Every interaction is `dispatch`.
-- **Keyboard → Intent.** A single `keydown` handler maps keys to `Intent` (mirrors the
-  TUI `keys.rs` map: `j/k` cursor, `Enter` toggle/edit, `e` edit, `a/d/c/x/v/r`,
-  `z/y`, `/`, `f`, `K`, `C`, `?`, Esc). The current `ModeView` decides which keys are
-  live (e.g. in `Filter`, printable chars become `FilterKey`).
-- **Modal surfaces.** Each `ModeView` variant renders its surface: a tree (Normal),
-  a filter input (Filter), a checkbox grid (TypeFilter), a kind list (KindSwitch), a
-  convert wizard (Convert), a detail popup (Detail), a help overlay (Help), an inline
-  editor row (Edit), a yes/no prompt (Prompt).
-- **External edit modal.** When `snapshot.externalEdit` is set, a `<textarea>` modal
-  opens with `initial`; on submit the UI dispatches `ApplyReplace`/`ApplyEditComment`
-  with the path from the request and the edited text.
-- **Type-filter facet grid.** `f` opens the `TypeFilter` popup; the UI renders the
-  projected grid (`TypeFilterView`) directly — headers + tri-state cells with the
-  cursor highlighted. `←/→/↑/↓` move, `Space` toggles, `Enter` applies, `Esc` cancels.
-  The facet set itself is authoritative in core (`session/type_filter::layout`); the
-  host only lays out the cells it is handed.
+  `SessionSnapshot` and renders the DOM from it. Every interaction is `dispatch`. The one
+  non-editor UI-local bit of state is the **Tree|Raw view toggle** (see below).
+- **Row anatomy (`render.ts`).** A pure `SessionSnapshot → DOM` function draws the design's
+  web-native row: drag grip, rotating disclosure caret, key (or faint `[i]` for positional
+  elements) / `=` / value (value-type colored) or item count, a per-row **kind badge**
+  (friendly label + notation suffix + chevron — `table·scope`/`table·dotted`/`array·multi`,
+  YAML `·block`/`·flow`, scalar `·"…"`/`·0x`/`·1e`/…), comment/trailing decoration, and
+  hover `＋`/`⋮` action buttons. Each row carries `data-path` (attribute-safe JSON) so the
+  pointer layer maps a click back to a node without re-deriving structure.
+- **Pointer selection (`select.ts`).** Pure logic resolving a click into the next full
+  selection set → `SetSelection`: plain click = that row; ⇧-click = contiguous range from
+  an anchor, **unioned onto a base snapshot** so earlier segments survive (segmented
+  multi-select); ⌘/Ctrl-click = toggle without clearing (and re-anchor). A marquee
+  rubber-band selects every row it intersects. The clicked end is kept last so core's
+  cursor follows it. Plain `j/k`/arrow nav collapses the selection onto the new cursor.
+- **Drag-reparent (`dnd.ts`).** HTML5 grip drag → `MoveSelectionTo`: `dragover` computes
+  whether the pointer is over a branch's middle (drop **into** it, `.drag-over-into`) or a
+  gap (drop before/after a sibling, shown by a horizontal `#dropLine`); a self-subtree drop
+  is rejected. Sibling index is the child's visible position (== core's full-child index);
+  core's `Move` self-adjusts for removed earlier siblings, so feed original indices.
+- **Inline edit / kind / context.** Clicking a value → a live `<input>` (seeded from the
+  edit buffer, Enter/blur → `CommitEdit`); a key → a rename input; the kind badge → a
+  popover built from `kindOptions(path)` → `CommitKind`; `＋` → `AddNode`; `⋮`/right-click →
+  a context menu. All popovers share one synchronous closer (a single outside-click
+  listener) and are scoped per popover so they don't open/close together.
+- **Native modal widgets replace the keyboard overlay.** The always-visible **search box**
+  owns the filter text (debounced `input` → `SetFilter`, `/` focuses it — no `Mode::Filter`
+  is ever entered; search now matches **scalar values**, not just keys/paths/comments). `f`
+  renders the `TypeFilterView` grid into the native `#tfPop` popover (tri-state cells; cell
+  click = `TypeFilterMove`+`TypeFilterToggle`; Apply/Cancel). `C` opens the native `#convDlg`
+  `<dialog>` (`SetConvertFormat`/`SetConvertPath` → `ConvertRun`→`ConvertConfirm`; a lossy
+  convert is a non-fatal warning + second confirm, not a failure). `Detail` is a slide-in
+  aside. The keyboard `#overlay` now serves **only** Help / Prompt / KindSwitch. The
+  body-keydown accelerator guard skips `INPUT`/`TEXTAREA`/`SELECT` so typing in a widget
+  isn't routed as navigation.
+- **Tree | Raw view.** A segmented toggle flips the main pane between the interactive tree
+  and a **read-only** `<pre>` of `session.serialize()` — the live document (unsaved edits
+  included), re-serialized on every render so it never drifts. Read-only first: no in-Raw
+  editing, so Save still serializes from the Session (always valid); an editable Raw tab +
+  save-time format guard is a later step.
+- **Paste mode.** While the clipboard holds a cut/copy the selection is frozen, so a row
+  click moves the **cursor** (= the `After(cursor)` paste target) via `SetCursor`, and a
+  `body.paste-mode` class marks the cursor row as a visible "▸ paste here" target.
+- **Help.** The `?` overlay appends a **per-format KIND legend** (`KIND_LEGEND`, keyed by
+  `doc_format`, ported from the TUI's per-backend help) explaining each container/scalar
+  label·notation for the open file's format.
+- **External edit modal.** When `snapshot.externalEdit` is set, a `<textarea>` modal opens
+  with `initial`; on submit the UI dispatches `ApplyReplace`/`ApplyEditComment` with the
+  request's path and the edited text.
 - **File I/O — File System Access API with download fallback.** All file I/O is
   host-owned (`web/fs.ts`); core `Intent::Save` only clears the dirty flag. Save
   precedence: (1) write in place to the open `FileSystemFileHandle`; (2) if the API is

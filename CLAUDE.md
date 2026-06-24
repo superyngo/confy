@@ -231,14 +231,26 @@ crates/confy-ffi/         Stage-2 WASM wrapper over confy-core (wasm-bindgen + s
   functional_smoke.mjs     node verification of the Intent→snapshot contract (36 checks)
   (build: `wasm-pack build --target web`; getrandom wasm_js for the ahash-via-taplo chain)
 
-web/                       TypeScript integration + functional Web UI (see WEBUI.md)
+web/                       TypeScript integration + **web-native** UI (see WEBUI.md) — a
+                           pointer-first port of `design_index_model.html`, Session-driven
   types.ts       hand-written mirror of the confy-core serde contract (Intent/SessionSnapshot/…)
-  confy.ts       typed wrapper around the wasm ConfySession (load + Session class)
+  confy.ts       typed wrapper around the wasm ConfySession (load + Session class; `kindOptions`)
   fs.ts          File System Access API open/save-in-place + download fallback (host-owned I/O)
-  ui.ts          DOM render of SessionSnapshot + keyboard→Intent map (mirrors tui/keys.rs);
-                 tree render (selected highlight, value-type coloring), type-filter facet grid,
-                 theme toggle, FS open/save, external-edit modal
-  index.html / style.css (dark+light themes via :root[data-theme]) / build.mjs (esbuild) / serve.mjs
+  render.ts      pure `SessionSnapshot → DOM` tree: web-native row anatomy (drag grip, rotating
+                 caret, key/`—`/value value-type-colored, item count, **kind badge** =
+                 label+notation suffix+chevron, comment/trailing, hover ＋/⋮ actions);
+                 container & scalar notation suffixes, `escapeAttr` for `data-path`
+  select.ts      pure pointer-selection logic → `SetSelection`/`SetCursor`: plain/⇧-range/
+                 ⌘-toggle clicks (segmented additive range via an anchor+base snapshot) + marquee
+  dnd.ts         HTML5 grip drag-reparent → `MoveSelectionTo`: into-branch vs before/after sibling
+                 (`#dropLine`), self-subtree drop rejected
+  ui.ts          orchestrator: holds the latest snapshot, renders via render.ts + the modal
+                 surfaces (detail aside, native search box, `#tfPop` type-filter grid, `#convDlg`
+                 convert dialog, `#overlay` for Help/Prompt/KindSwitch only), Tree|Raw read-only
+                 view toggle (`session.serialize()`), keyboard→Intent map (mirrors tui/keys.rs),
+                 theme toggle, FS open/save, external-edit modal, paste-mode cursor target
+  index.html / style.css (design `<style>` **verbatim** + a fenced app-only appendix; dark+light
+                 via :root[data-theme]) / build.mjs (esbuild) / serve.mjs
 
 crates/confy-tui/src/    ratatui TUI + CLI; depends on confy-core, `pub use confy_core::model`
   main.rs          bin `confy`: parse args, load via load_document, run TUI

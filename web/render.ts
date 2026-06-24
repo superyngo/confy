@@ -117,18 +117,30 @@ const CONTAINER_NOTE: Record<string, string> = {
   Flow: "flow", // YAML flow map/seq
 };
 
+// The bare notation glyph for a row (no markup), or "" when the type label is
+// already complete. Shared by the kind badge and the popup's "current" header.
+function notationGlyph(r: ViewRow): string {
+  if (r.is_branch) return CONTAINER_NOTE[r.format] ?? "";
+  const s = NOTATION_SHORT[r.format];
+  if (s) return s;
+  // A plain float shares `Format::Plain` with bool/datetime/null (each a
+  // single-style scalar), so it can't be keyed by format alone — resolve it by
+  // scalar type. The single-style scalars stay bare (the type label is complete).
+  if (r.scalar_type === "Float" && r.format === "Plain") return "dec";
+  return "";
+}
+
 function notationSuffix(r: ViewRow): string {
-  let s: string | undefined;
-  if (r.is_branch) {
-    s = CONTAINER_NOTE[r.format];
-  } else {
-    s = NOTATION_SHORT[r.format];
-    // A plain float shares `Format::Plain` with bool/datetime/null (each a
-    // single-style scalar), so it can't be keyed by format alone — resolve it by
-    // scalar type. The single-style scalars stay bare (the type label is complete).
-    if (!s && r.scalar_type === "Float" && r.format === "Plain") s = "dec";
-  }
+  const s = notationGlyph(r);
   return s ? `<span class="kind-note">·${escapeHtml(s)}</span>` : "";
+}
+
+// Plain-text "label · notation" for the kind popup's disabled "Current:" header
+// (design's `目前：…` row). Suppresses a notation that just repeats the label.
+export function currentKindLabel(r: ViewRow): string {
+  const label = KIND_SHORT[r.type_label] ?? r.type_label;
+  const note = CONTAINER_NOTE[r.format] === label ? "" : notationGlyph(r);
+  return note ? `${label} · ${note}` : label;
 }
 
 // The disclosure caret as an inline SVG (rotated 90° via `.row.open > .caret`).
@@ -171,6 +183,7 @@ function renderRow(
   idx: number,
   rows: ViewRow[],
   edit: EditView | null,
+  clip: "" | " clip-copy" | " clip-cut",
 ): string {
   const pathAttr = escapeAttr(JSON.stringify(r.path));
   const comment = isCommentRow(r);
@@ -178,7 +191,7 @@ function renderRow(
   const cls =
     `row${r.is_branch ? " branch" : ""}${expanded ? " open" : ""}` +
     `${r.is_cursor ? " cursor" : ""}${r.selected ? " selected" : ""}` +
-    `${r.read_only ? " readonly" : ""}${comment ? " comment-row" : ""}`;
+    `${r.read_only ? " readonly" : ""}${comment ? " comment-row" : ""}${clip}`;
   let s = `<div class="${cls}" data-path="${pathAttr}" data-index="${idx}">`;
   // Indentation: a single spacer whose width scales with depth (the design's
   // `indent.style.width = depth*22`). The synthetic root (depth 0) is not drawn,
@@ -237,10 +250,26 @@ export function renderTree(
   edit: EditView | null,
 ): void {
   const rows = snap.rows;
+  // Clipboard source rows get a distinct class (copy vs cut) so they read
+  // differently from the selection box.
+  const clipKeys = new Set(snap.clipboard_paths.map((p) => JSON.stringify(p)));
+  const clipCls: " clip-copy" | " clip-cut" = snap.clipboard_cut
+    ? " clip-cut"
+    : " clip-copy";
   // The synthetic root (empty path) is not rendered; `idx` stays the real
   // `snap.rows` index so a click maps back to the right node.
   treeEl.innerHTML = rows
-    .map((r, idx) => (r.path.length === 0 ? "" : renderRow(r, idx, rows, edit)))
+    .map((r, idx) =>
+      r.path.length === 0
+        ? ""
+        : renderRow(
+            r,
+            idx,
+            rows,
+            edit,
+            clipKeys.has(JSON.stringify(r.path)) ? clipCls : "",
+          ),
+    )
     .join("");
   const cur = treeEl.querySelector(".row.cursor") as HTMLElement | null;
   cur?.scrollIntoView({ block: "nearest" });

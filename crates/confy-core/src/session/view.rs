@@ -213,6 +213,12 @@ pub struct SessionSnapshot {
     /// Number of captured fragments in the live clipboard (`None` = empty).
     /// Surfaces real application state the UI shows as a "clipboard: N" hint.
     pub clipboard_count: Option<usize>,
+    /// True when the clipboard holds a *cut* (move) rather than a *copy*, so the
+    /// UI can style cut source rows distinctly from copied ones.
+    pub clipboard_cut: bool,
+    /// The source node paths captured in the clipboard, so the UI can mark those
+    /// rows (distinct from the selection box).
+    pub clipboard_paths: Vec<Path>,
     /// The user confirmed quit — the host should exit.
     pub quit: bool,
 }

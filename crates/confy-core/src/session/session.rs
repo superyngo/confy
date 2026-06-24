@@ -2377,6 +2377,12 @@ impl Session {
 
     pub fn escape(&mut self) {
         self.error = None;
+        // A pending async external edit (§8.2) lives outside `Mode` — Esc/Cancel
+        // from the host's multi-line editor must discard it, else the snapshot's
+        // `external_edit` stays set and the host reopens the modal forever.
+        if self.pending_external_edit.take().is_some() {
+            return;
+        }
         match &self.mode {
             Mode::Prompt(_) => {
                 self.mode = Mode::Normal;

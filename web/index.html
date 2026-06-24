@@ -111,6 +111,9 @@
       <span class="badge" id="clipBadge">clipboard 0</span>
     </footer>
 
+    <!-- Native open fallback (no FS Access API): hidden file input. -->
+    <input id="fileInput" type="file" accept=".toml,.json,.jsonc,.yaml,.yml" hidden />
+
     <!-- ===== popovers (wired in later phases) ===== -->
     <div class="pop" id="ctxMenu"></div>
     <div class="pop" id="kindMenu"></div>

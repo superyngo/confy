@@ -139,6 +139,8 @@ export interface SessionSnapshot {
   external_edit: ExternalEdit | undefined;
   convert_write: [string, string] | undefined; // [output_path, text]
   clipboard_count: number | undefined; // Some(n) when the clipboard holds n fragments
+  clipboard_cut: boolean; // true = cut (move); false = copy
+  clipboard_paths: Path[]; // source node paths captured in the clipboard
   quit: boolean;
 }
 

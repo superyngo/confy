@@ -15,7 +15,7 @@ import {
   writeFile,
   type FsHandle,
 } from "./fs.js";
-import { escapeHtml, renderTree } from "./render.js";
+import { currentKindLabel, escapeHtml, renderTree } from "./render.js";
 import { resolveClick, rowsInRect, setAnchor } from "./select.js";
 import { installDnd } from "./dnd.js";
 import type {
@@ -258,7 +258,11 @@ function renderTypeFilterPop() {
   const grid = (snap!.mode as { TypeFilter: TypeFilterView }).TypeFilter;
   const inner = $("tfInner");
   let cellRow = -1;
-  let html = `<div class="menu-label">Type filter${grid.active ? " <span class='tf-active'>· active</span>" : ""}</div>`;
+  // Header carries the live-active hint and a `×` clear button (no Apply/Cancel —
+  // toggles filter live and persist when the popup closes).
+  let html =
+    `<div class="tf-head"><span class="menu-label">Type filter${grid.active ? " <span class='tf-active'>· active</span>" : ""}</span>` +
+    `<button class="tf-clear" data-tf="clear" title="clear type filter">✕</button></div>`;
   for (const row of grid.rows) {
     if (isHeader(row)) {
       html += `<div class="menu-label">${escapeHtml(row.Header)}</div>`;
@@ -274,9 +278,6 @@ function renderTypeFilterPop() {
       ).join("") +
       `</div>`;
   }
-  html +=
-    `<div class="tf-foot"><button class="tbtn" data-tf="cancel">Cancel</button>` +
-    `<button class="tbtn primary" data-tf="apply">Apply</button></div>`;
   inner.innerHTML = html;
   inner.querySelectorAll<HTMLElement>("[data-r]").forEach((b) => {
     b.onclick = () => {
@@ -286,9 +287,9 @@ function renderTypeFilterPop() {
       send("TypeFilterToggle");
     };
   });
-  (inner.querySelector('[data-tf="apply"]') as HTMLElement).onclick = () =>
-    send("CommitTypeFilter");
-  (inner.querySelector('[data-tf="cancel"]') as HTMLElement).onclick = () =>
+  // × clears the filter *and* closes the popup; clicking outside closes it
+  // keeping the filter (wired in bindGlobal).
+  (inner.querySelector('[data-tf="clear"]') as HTMLElement).onclick = () =>
     send("ExitTypeFilter");
   if (!pop.classList.contains("open")) {
     const r = $("btnTypeFilter").getBoundingClientRect();
@@ -578,7 +579,9 @@ async function doConvertWrite(path: string, text: string) {
   downloadText(baseName, text);
 }
 
-// Open: real file picker where the FS Access API exists, else the paste modal.
+// Open: the FS Access API picker where available (keeps a handle for in-place
+// save), else a native `<input type=file>` — file reading works in every
+// browser, so the paste modal is no longer needed.
 async function doOpen() {
   if (FS_AVAILABLE) {
     const opened = await pickOpenFile();
@@ -588,7 +591,22 @@ async function doOpen() {
     tree.focus();
     return;
   }
-  $("load-modal").classList.remove("hidden");
+  openViaFileInput();
+}
+
+// Native file-picker fallback (no FS Access API): read the chosen file's text
+// and name. No on-disk handle, so a later Save falls back to Save As / download.
+function openViaFileInput() {
+  const input = $<HTMLInputElement>("fileInput");
+  input.value = ""; // allow re-opening the same file
+  input.onchange = async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    const text = await file.text();
+    openText(text, formatFromName(file.name), null, file.name);
+    tree.focus();
+  };
+  input.click();
 }
 
 function formatFromName(name: string): "toml" | "json" | "yaml" {
@@ -628,9 +646,14 @@ function onTreeClick(ev: MouseEvent) {
     send({ SetCursor: path });
     return openCtxMenuAt(path, r.left, r.bottom + 4);
   }
-  // Kind badge → kind-conversion popover.
+  // Kind badge → toggle the kind-conversion popover (second click on the same
+  // badge closes it).
   const kindEl = target.closest("[data-kind]") as HTMLElement | null;
   if (kindEl) {
+    const pathKey = JSON.stringify(path);
+    if ($("kindMenu").classList.contains("open") && kindMenuPath === pathKey) {
+      return closePops();
+    }
     const r = kindEl.getBoundingClientRect(); // capture before the re-render
     send({ SetCursor: path });
     return openKindMenuAt(path, r.left, r.bottom + 4);
@@ -700,8 +723,12 @@ function clickMenus(): HTMLElement[] {
 // accumulate (a stale one fires on the reopening click and flashes the menu shut
 // — the "must click elsewhere first to reopen" bug).
 let popCloser: ((e: MouseEvent) => void) | null = null;
+// The path the kind menu is currently open for, so a second click on the same
+// badge toggles it shut (rather than reopening).
+let kindMenuPath: string | null = null;
 function closePops() {
   for (const m of clickMenus()) m.classList.remove("open");
+  kindMenuPath = null;
   if (popCloser) {
     document.removeEventListener("click", popCloser);
     popCloser = null;
@@ -733,12 +760,21 @@ function openKindMenuAt(path: Path, x: number, y: number) {
     return;
   }
   const menu = $("kindMenu");
+  // Disabled "Current: …" header (design's `目前：…` row) so the popup shows the
+  // node's present kind/notation before listing the alternatives.
+  const key = JSON.stringify(path);
+  const row = snap!.rows.find((r) => JSON.stringify(r.path) === key);
+  const cur = row
+    ? `<button class="menu-item" disabled>Current: ${escapeHtml(currentKindLabel(row))}</button><div class="menu-sep"></div>`
+    : "";
   menu.innerHTML =
     `<div class="menu-label">Convert kind</div>` +
+    cur +
     opts
       .map((o, i) => `<button class="menu-item" data-i="${i}">${escapeHtml(o.label)}</button>`)
       .join("");
-  placePopAt(menu, x, y);
+  placePopAt(menu, x, y); // calls closePops() first, which clears kindMenuPath
+  kindMenuPath = key;
   menu.querySelectorAll<HTMLElement>("[data-i]").forEach((b) => {
     const i = Number(b.dataset.i);
     b.onclick = () => {
@@ -788,15 +824,34 @@ function openCtxMenuAt(path: Path, x: number, y: number) {
 // `SetFilter` (debounced) on every keystroke. No `Mode::Filter` is entered.
 function bindSearch() {
   const box = $<HTMLInputElement>("search");
+  const wrap = $("searchWrap");
   box.disabled = false;
   let timer = 0;
+  // The design's `.search.has-val .clear` reveals the × only when there's text.
+  const syncClear = () => wrap.classList.toggle("has-val", box.value !== "");
+  const clear = () => {
+    box.value = "";
+    syncClear();
+    send({ SetFilter: "" });
+  };
   box.addEventListener("input", () => {
+    syncClear();
     clearTimeout(timer);
     timer = window.setTimeout(() => send({ SetFilter: box.value }), 80);
   });
+  // Esc clears the query when there's text; when already empty it drops focus
+  // back to the tree.
+  box.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    e.stopPropagation();
+    if (box.value !== "") clear();
+    else {
+      box.blur();
+      tree.focus();
+    }
+  });
   $("searchClear").addEventListener("click", () => {
-    box.value = "";
-    send({ SetFilter: "" });
+    clear();
     box.focus();
   });
 }
@@ -848,6 +903,18 @@ function bindGlobal() {
       closePops();
     }
   });
+  // A press outside the type-filter popup (and not on its toolbar button) closes
+  // it, keeping the filter applied (CommitTypeFilter). Uses `mousedown`, not
+  // `click`: toggling a facet cell re-renders `#tfInner` inside the cell's own
+  // click handler, detaching `ev.target` — a later `click` would then see an
+  // orphaned node (`closest("#tfPop")` → null) and wrongly close the popup.
+  // `mousedown` fires before that re-render, so the target is still attached.
+  document.addEventListener("mousedown", (ev) => {
+    if (!snap || modeTag(snap.mode) !== "TypeFilter") return;
+    const t = ev.target as HTMLElement;
+    if (t.closest("#tfPop") || t.closest("#btnTypeFilter")) return;
+    send("CommitTypeFilter");
+  });
   tree.focus();
   document.body.addEventListener("keydown", (ev) => {
     if (document.activeElement !== tree && noModalOpen()) {
@@ -870,7 +937,10 @@ function bindGlobal() {
   $("btnRedo").addEventListener("click", () => send("Redo"));
   $("btnExpandAll").addEventListener("click", () => send("ExpandAll"));
   $("btnCollapseAll").addEventListener("click", () => send("CollapseAll"));
-  $("btnTypeFilter").addEventListener("click", () => send("EnterTypeFilter"));
+  $("btnTypeFilter").addEventListener("click", () =>
+    // Toggle: open the popup, or close it keeping the filter applied.
+    send(snap && modeTag(snap.mode) === "TypeFilter" ? "CommitTypeFilter" : "EnterTypeFilter"),
+  );
   $("btnViewTree").addEventListener("click", () => setView(false));
   $("btnViewRaw").addEventListener("click", () => setView(true));
 

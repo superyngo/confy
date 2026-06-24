@@ -248,6 +248,12 @@ impl super::Session {
                 .as_ref()
                 .map(|c| c.fragments.len())
                 .filter(|n| *n > 0),
+            clipboard_cut: self.clipboard.as_ref().map(|c| c.cut).unwrap_or(false),
+            clipboard_paths: self
+                .clipboard
+                .as_ref()
+                .map(|c| c.sources.clone())
+                .unwrap_or_default(),
             quit: false,
         }
     }
