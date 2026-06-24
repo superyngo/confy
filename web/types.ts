@@ -13,13 +13,17 @@ export type Seg = { Key: string } | { Index: number };
 export type Path = Seg[];
 
 // ---- Leaf model types (mirror model::node / model::document) ----
+// Mirrors confy-core `model::node::ScalarType` (serde external-tag = variant name).
 export type ScalarType =
   | "String"
   | "Integer"
   | "Float"
-  | "Boolean"
-  | "Datetime"
-  | "Null";
+  | "Bool"
+  | "Null"
+  | "OffsetDatetime"
+  | "LocalDatetime"
+  | "LocalDate"
+  | "LocalTime";
 
 // The full Format enum (TOML+JSON+YAML). Unknown strings are tolerated.
 export type Format = string;

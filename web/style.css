@@ -439,3 +439,8 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
   border: 1px solid color-mix(in oklch, var(--t-bool) 35%, transparent);
   border-radius: 7px; padding: 3px 9px;
 }
+
+/* Comment rows: only the first line shows in the tree (full text in detail);
+   `…` marks continuation. The inline comment editor gets extra room. */
+.comment-more { font-style: normal; opacity: .7; }
+.comment-input { min-width: 240px; font-style: normal; }

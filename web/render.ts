@@ -42,11 +42,14 @@ export function valueTypeClass(r: ViewRow): string {
     case "Integer":
     case "Float":
       return "t-number";
-    case "Boolean":
+    case "Bool":
       return "t-bool";
     case "Null":
       return "t-null";
-    case "Datetime":
+    case "OffsetDatetime":
+    case "LocalDatetime":
+    case "LocalDate":
+    case "LocalTime":
       return "t-date";
     default:
       return "";
@@ -206,7 +209,20 @@ function renderRow(
   s += `<button class="caret${r.is_branch ? "" : " leaf"}" data-caret="1">${IC_CARET}</button>`;
 
   if (comment) {
-    s += `<span class="comment mono" data-edit="comment">${escapeHtml(r.value ?? "")}</span>`;
+    if (edit && r.is_cursor && edit.field === "Value") {
+      // Single-line comment → inline editor (multi-line routes to the popup).
+      s += `<input class="cell-input mono comment-input" data-editing="comment" value="${escapeAttr(edit.buffer)}" />`;
+    } else {
+      // Show only the first line in the row; the full multi-line text lives in
+      // the detail panel (i). A trailing `…` marks a comment that continues.
+      const full = r.value ?? "";
+      const nl = full.search(/\r?\n/);
+      const head = nl === -1 ? full : full.slice(0, nl);
+      const more = nl !== -1;
+      s +=
+        `<span class="comment mono" data-edit="comment"${more ? ' title="multi-line comment — press i for full text"' : ""}>` +
+        `${escapeHtml(head)}${more ? '<span class="comment-more"> …</span>' : ""}</span>`;
+    }
   } else {
     // Key. Positional array/AoT elements are keyless; core gives them the index
     // label "[0]"/"[1]" which we keep (informative) but render faintly. A keyed

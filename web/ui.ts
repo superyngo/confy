@@ -641,7 +641,11 @@ function onTreeClick(ev: MouseEvent) {
   // Clicks inside the live edit input are handled by the input itself.
   if (target.closest("[data-editing]")) return;
   const rowEl = target.closest(".row") as HTMLElement | null;
-  if (!rowEl) return;
+  if (!rowEl) {
+    // Click on empty tree space clears the multi-select (cursor stays put).
+    if (snap.rows.some((r) => r.selected)) send({ SetSelection: { paths: [] } });
+    return;
+  }
   const raw = rowEl.dataset.path;
   if (raw === undefined) return;
   const path = JSON.parse(raw) as Path;
