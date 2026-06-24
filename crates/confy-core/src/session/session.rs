@@ -127,6 +127,8 @@ impl Session {
                     value: r.node.value.clone(),
                     scalar_type,
                     format: r.node.format,
+                    type_label: node_type_label_str(&r.node.kind).to_string(),
+                    child_count: r.node.children.len(),
                     trailing_comment: r.node.trailing_comment.clone(),
                     read_only: r.node.read_only,
                     selected: self.selection.contains(&r.node.path),
@@ -180,6 +182,14 @@ impl Session {
         self.visible_rows()
             .iter()
             .position(|r| r.path == self.cursor)
+    }
+
+    /// Place the cursor on a visible row by path (pointer analogue of
+    /// `select_row`). No-op if the path is not currently visible.
+    pub fn set_cursor(&mut self, path: Path) {
+        if self.visible_paths().contains(&path) {
+            self.cursor = path;
+        }
     }
 
     // ---- Navigation ----
@@ -511,6 +521,24 @@ impl Session {
         self.filter_cursor = self.filter.chars().count();
     }
 
+    /// Set the whole filter text at once (Web UI live-search `<input>`) and
+    /// recompute, instead of replaying `FilterChar`. Non-empty text lands in
+    /// `FilterResults`; clearing it drops to the resting mode (still
+    /// `FilterResults` if a type filter is narrowing the tree).
+    pub fn set_filter(&mut self, text: String) {
+        self.filter = text;
+        self.filter_cursor = self.filter.chars().count();
+        self.recompute_filter();
+        if self.filter.is_empty() {
+            self.last_filter_applied = self.type_filter.is_active().then_some(FilterLayer::Type);
+            self.mode = self.resting_mode();
+        } else {
+            self.last_filter = self.filter.clone();
+            self.last_filter_applied = Some(FilterLayer::Text);
+            self.mode = Mode::FilterResults;
+        }
+    }
+
     pub fn recompute_filter(&mut self) {
         if self.filter.is_empty() && !self.type_filter.is_active() {
             self.filtered_paths = None;
@@ -539,7 +567,13 @@ impl Session {
                 NodeKind::Comment(c) => Some(c.as_str()),
                 _ => None,
             };
-            let h = haystack(&path_keys, None, comment_text);
+            // A scalar leaf's value is part of the haystack so a search matches
+            // values, not just keys/paths/comments.
+            let leaf_value = match &n.kind {
+                NodeKind::Scalar(_) => n.value.as_deref(),
+                _ => None,
+            };
+            let h = haystack(&path_keys, leaf_value, comment_text);
             let text_ok = fuzzy_match(&h, needle);
             let type_ok = type_filter.matches(n.key_sign, &n.kind, n.format, doc, n.read_only);
             if text_ok && type_ok {
@@ -672,6 +706,24 @@ impl Session {
         self.status = None;
     }
 
+    /// One-shot kind switch for the Web UI (`Intent::CommitKind`): apply
+    /// `ConvertKind` directly from an explicit `(path, target)` — the pointer
+    /// analogue of `open_kind_switch` + `kind_switch_commit`, with no popup dance.
+    /// `target` must come from `kind_options(path)`.
+    pub fn commit_kind(&mut self, path: Path, target: crate::model::document::KindTarget) {
+        self.mode = self.resting_mode();
+        let Some(doc) = self.doc.as_mut() else {
+            return;
+        };
+        match doc.apply(Mutation::ConvertKind { path, target }) {
+            Ok(()) => {
+                self.on_mutation_success();
+                self.status = Some("converted".into());
+            }
+            Err(e) => self.error = Some(format!("kind switch: {e}")),
+        }
+    }
+
     // ---- Document conversion (C) — pure orchestration; host does the fs write ----
 
     pub fn open_convert(&mut self) {
@@ -781,6 +833,35 @@ impl Session {
     pub fn convert_path_end(&mut self) {
         if let Mode::Convert(st) = &mut self.mode {
             st.path_cursor = st.path.chars().count();
+        }
+    }
+
+    /// Web UI: pick the convert target by value (a `<select>`) rather than by
+    /// cursor, and reseed the output path's extension. Mirrors
+    /// `convert_pick_format` minus the host-supplied stem.
+    pub fn set_convert_format(&mut self, fmt: DocFormat) {
+        if let Mode::Convert(st) = &mut self.mode {
+            if let Some(i) = st.options.iter().position(|f| *f == fmt) {
+                st.cursor = i;
+            }
+            st.target = fmt;
+            let ext = match fmt {
+                DocFormat::Toml => "toml",
+                DocFormat::Json => "json",
+                DocFormat::Yaml => "yaml",
+            };
+            st.path = format!("out.{ext}");
+            st.path_cursor = st.path.chars().count();
+            st.step = crate::session::state::ConvertStep::Path;
+        }
+    }
+
+    /// Web UI: set the whole output path at once (an `<input>`), instead of
+    /// replaying `ConvertPathChar`.
+    pub fn set_convert_path(&mut self, path: String) {
+        if let Mode::Convert(st) = &mut self.mode {
+            st.path_cursor = path.chars().count();
+            st.path = path;
         }
     }
 
@@ -928,6 +1009,25 @@ impl Session {
             return;
         }
         self.selection.toggle(self.cursor.clone());
+    }
+
+    /// Pointer analogue of the keyboard selection keys: replace the whole
+    /// selection with `paths` (the Web UI resolves click / ⇧-range / ⌘-toggle /
+    /// marquee into a final set). Paths not currently visible are dropped, the
+    /// set is normalized (a selected descendant of a selected ancestor is
+    /// folded away, §6.2), and the cursor follows the focal (last) path.
+    pub fn set_selection(&mut self, paths: Vec<Path>) {
+        if self.clipboard.is_some() {
+            return;
+        }
+        let visible = self.visible_paths();
+        let kept: Vec<Path> = paths.into_iter().filter(|p| visible.contains(p)).collect();
+        if let Some(focal) = kept.last() {
+            self.cursor = focal.clone();
+        }
+        self.selection
+            .set_all(crate::session::selection::normalize(kept));
+        self.last_action_was_shift_select = false;
     }
 
     pub fn extend_select_up(&mut self) {
@@ -1297,6 +1397,29 @@ impl Session {
                 self.tree = doc.project();
             }
         }
+    }
+
+    /// One-shot inline edit commit for the Web UI (`Intent::CommitEdit`): the
+    /// pointer analogue of `begin_inline_edit` → type → `edit_commit`. Seeds a
+    /// fresh `Mode::Edit` from the cursor row, overwrites the value/name buffers
+    /// with the host-supplied text (`None` = keep current), then runs the full
+    /// `edit_commit` — so type-change / collision / trailing-comment prompts all
+    /// still fire. Inline path only (the host routes multiline/opaque through the
+    /// external-edit handshake).
+    pub fn commit_edit(&mut self, value: Option<String>, name: Option<String>) {
+        self.begin_inline_edit();
+        let Mode::Edit(ref mut e) = self.mode else {
+            return;
+        };
+        if let Some(v) = value {
+            e.cursor = v.chars().count();
+            e.buffer = v;
+        }
+        if let Some(n) = name {
+            e.other_cursor = n.chars().count();
+            e.other_buffer = n;
+        }
+        self.edit_commit();
     }
 
     pub fn edit_commit(&mut self) {
@@ -1907,6 +2030,43 @@ impl Session {
             }
         };
         self.do_paste(cb, target, OnCollision::Cancel, false);
+    }
+
+    /// Drag-reparent (Web UI): move `sources` into `target` at child `index`.
+    /// Implemented as a one-shot cut→paste so it reuses `do_paste`'s entire
+    /// collision / illegal-destination / array-upgrade machinery (a real
+    /// `Mutation::Move` under the hood). A drop onto a source or into its own
+    /// subtree is rejected; the document is untouched on any failure.
+    pub fn move_selection_to(&mut self, sources: Vec<Path>, target: Path, index: usize) {
+        if self.doc.is_none() {
+            return;
+        }
+        let sources = crate::session::selection::normalize(sources);
+        if sources.is_empty() {
+            return;
+        }
+        if sources
+            .iter()
+            .any(|s| target == *s || (target.len() > s.len() && target.starts_with(s)))
+        {
+            self.error = Some("can't move a node into itself".into());
+            return;
+        }
+        let doc = self.doc.as_ref().unwrap();
+        let fragments: Vec<String> = sources
+            .iter()
+            .map(|p| doc.serialize_fragment_relative(p))
+            .collect();
+        let cb = Clipboard {
+            fragments,
+            cut: true,
+            sources,
+        };
+        let tgt = Target {
+            parent: target,
+            index,
+        };
+        self.do_paste(cb, tgt, OnCollision::Cancel, false);
     }
 
     pub fn do_paste(

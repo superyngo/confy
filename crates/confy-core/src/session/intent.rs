@@ -18,6 +18,41 @@ pub enum Intent {
     ExpandLevel,
     CollapseLevel,
 
+    // ---- Pointer (Web UI) ----
+    /// Place the cursor on a visible row by path (pointer analogue of the
+    /// navigation intents). Ignored if the path is not currently visible.
+    SetCursor(crate::model::node::Path),
+    /// One-shot inline edit commit (pointer analogue of the `BeginEdit` →
+    /// type → `EditCommit` keyboard flow). `value` replaces the scalar/comment
+    /// text, `name` renames the key; `None` keeps the current one. Reuses the
+    /// full `edit_commit` machinery (type-change / collision / trailing prompts).
+    CommitEdit {
+        value: Option<String>,
+        name: Option<String>,
+    },
+    /// One-shot kind switch (pointer analogue of `OpenKindSwitch` →
+    /// `KindSwitchCommit`). `target` is a `KindTarget` from `kind_options(path)`.
+    CommitKind {
+        path: crate::model::node::Path,
+        target: crate::model::document::KindTarget,
+    },
+    /// Replace the whole selection with `paths` (pointer analogue of the
+    /// keyboard selection keys). The Web UI resolves a click / ⇧-range /
+    /// ⌘-toggle / marquee gesture into a final set; non-visible paths are
+    /// dropped and the cursor follows the focal (last) path.
+    SetSelection {
+        paths: Vec<crate::model::node::Path>,
+    },
+    /// Drag-reparent (Web UI): move `sources` into `target` at child `index`.
+    /// A one-shot cut→paste reusing the full collision / illegal-destination /
+    /// array-upgrade machinery; a drop onto a source or into its own subtree is
+    /// rejected and the document is left untouched.
+    MoveSelectionTo {
+        sources: Vec<crate::model::node::Path>,
+        target: crate::model::node::Path,
+        index: usize,
+    },
+
     // ---- Selection ----
     ToggleSelect,
     ExtendSelectUp,
@@ -28,6 +63,9 @@ pub enum Intent {
     CommitFilter,
     ExitFilter,
     ExitFilterResults,
+    /// Set the whole filter text at once (Web UI live-search `<input>`).
+    /// Non-empty → `FilterResults`; empty drops back to the resting mode.
+    SetFilter(String),
     FilterChar(char),
     FilterBackspace,
     FilterDelete,
@@ -53,6 +91,10 @@ pub enum Intent {
     OpenConvert,
     ConvertMove(i32),
     ConvertPickFormat,
+    /// Web UI: pick the convert target format by value (a `<select>`).
+    SetConvertFormat(crate::model::document::DocFormat),
+    /// Web UI: set the whole output path at once (an `<input>`).
+    SetConvertPath(String),
     ConvertPathChar(char),
     ConvertPathBackspace,
     ConvertPathDelete,

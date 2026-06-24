@@ -36,6 +36,11 @@ export interface ViewRow {
   value: string | undefined;
   scalar_type: ScalarType | undefined;
   format: Format;
+  // Node-kind label ("table"/"array"/"inline"/"array-of-tables"/"string"/…)
+  // for the per-row kind badge.
+  type_label: string;
+  // Immediate child count (drives the branch item-count badge; 0 for scalars).
+  child_count: number;
   trailing_comment: string | undefined;
   read_only: boolean;
   selected: boolean;
@@ -145,10 +150,17 @@ export type Intent =
   | "CursorDown" | "CursorUp" | "CursorHome" | "CursorEnd"
   | { PageUp: number } | { PageDown: number }
   | "ToggleExpand" | "CollapseAll" | "ExpandAll" | "ExpandLevel" | "CollapseLevel"
+  // Pointer (Web UI)
+  | { SetCursor: Path }
+  | { CommitEdit: { value: string | null; name: string | null } }
+  | { CommitKind: { path: Path; target: string } }
+  | { SetSelection: { paths: Path[] } }
+  | { MoveSelectionTo: { sources: Path[]; target: Path; index: number } }
   // Selection
   | "ToggleSelect" | "ExtendSelectUp" | "ExtendSelectDown"
   // Filter
   | "EnterFilter" | "CommitFilter" | "ExitFilter" | "ExitFilterResults"
+  | { SetFilter: string }
   | { FilterChar: string }
   | "FilterBackspace" | "FilterDelete"
   | "FilterCursorLeft" | "FilterCursorRight" | "FilterCursorHome" | "FilterCursorEnd"
@@ -160,6 +172,8 @@ export type Intent =
   | "OpenKindSwitch" | { KindSwitchMove: number } | "KindSwitchCommit" | "ExitKindSwitch"
   // Convert
   | "OpenConvert" | { ConvertMove: number } | "ConvertPickFormat"
+  | { SetConvertFormat: DocFormat }
+  | { SetConvertPath: string }
   | { ConvertPathChar: string }
   | "ConvertPathBackspace" | "ConvertPathDelete"
   | "ConvertPathLeft" | "ConvertPathRight" | "ConvertPathHome" | "ConvertPathEnd"

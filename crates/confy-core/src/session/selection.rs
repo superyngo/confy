@@ -106,6 +106,16 @@ impl Selection {
         self.round.clear();
         self.anchor = None;
     }
+
+    /// Replace the entire selection with `paths` (pointer analogue: the Web UI
+    /// computes the full desired set from a click / ⇧-range / ⌘-toggle / marquee
+    /// gesture and hands it over wholesale). Folds everything into `committed` so
+    /// a later keyboard shift-round unions against it like any other round.
+    pub fn set_all(&mut self, paths: impl IntoIterator<Item = Path>) {
+        self.committed = paths.into_iter().collect();
+        self.round.clear();
+        self.anchor = None;
+    }
 }
 
 #[cfg(test)]

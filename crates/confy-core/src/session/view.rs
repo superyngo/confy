@@ -16,6 +16,13 @@ pub struct ViewRow {
     pub value: Option<String>,
     pub scalar_type: Option<ScalarType>,
     pub format: Format,
+    /// Node-kind label (`table`/`array`/`inline`/`array-of-tables`/`string`/…)
+    /// so the Web UI can render the per-row kind badge without re-deriving the
+    /// container kind (which `is_branch` alone can't distinguish).
+    pub type_label: String,
+    /// Immediate child count — drives the branch row's "N" item-count badge
+    /// (meaningful for branches; 0 for scalars/comments).
+    pub child_count: usize,
     pub trailing_comment: Option<String>,
     /// True for YAML opaque nodes and JSON block comments (read-only in the UI).
     pub read_only: bool,

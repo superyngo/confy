@@ -1899,22 +1899,23 @@ mod tests {
         assert!(matches!(app.session.mode, Mode::Normal));
     }
 
-    // --- Blocker 1: filter must match by scalar VALUE ---
+    // --- Filter must match by scalar VALUE (Batch 1 #1) ---
 
     #[test]
-    fn filter_matches_key_not_value() {
+    fn filter_matches_value() {
         let mut app = app_with("port = 8080\nhost = \"localhost\"\n");
         app.expand_all();
         app.rebuild_rows();
-        // A scalar's value (`8080`) is never searched.
+        // A scalar's value (`8080`) is part of the haystack, so searching the
+        // value surfaces the node it belongs to.
         app.enter_filter();
         for c in "8080".chars() {
             app.filter_char(c);
         }
         let keys = app.visible_keys();
         assert!(
-            !keys.iter().any(|k| k == "port"),
-            "value 8080 must not match the key `port`, got: {keys:?}"
+            keys.iter().any(|k| k == "port"),
+            "value 8080 must match the `port` node, got: {keys:?}"
         );
         // The key itself still matches; non-matching siblings are hidden.
         app.exit_filter();

@@ -37,6 +37,7 @@ fn sample_path() -> Path {
 fn intent_roundtrips() {
     let variants: Vec<Intent> = vec![
         Intent::CursorDown,
+        Intent::SetCursor(sample_path()),
         Intent::PageDown(12),
         Intent::FilterChar('x'),
         Intent::TypeFilterMove(1, -1),
@@ -54,6 +55,29 @@ fn intent_roundtrips() {
             text: "# hi\n".into(),
         },
         Intent::PromptKey('y'),
+        Intent::CommitEdit {
+            value: Some("42".into()),
+            name: None,
+        },
+        Intent::CommitEdit {
+            value: None,
+            name: Some("renamed".into()),
+        },
+        Intent::CommitKind {
+            path: sample_path(),
+            target: confy_core::model::document::KindTarget::IntHex,
+        },
+        Intent::SetSelection {
+            paths: vec![sample_path(), vec![Seg::Index(0)]],
+        },
+        Intent::MoveSelectionTo {
+            sources: vec![sample_path()],
+            target: vec![Seg::Key("dest".into())],
+            index: 2,
+        },
+        Intent::SetFilter("needle".into()),
+        Intent::SetConvertFormat(confy_core::model::document::DocFormat::Json),
+        Intent::SetConvertPath("out.json".into()),
     ];
     for v in &variants {
         assert_roundtrip(v);
@@ -70,6 +94,8 @@ fn view_row_roundtrips() {
         value: Some("\"x\"".into()),
         scalar_type: Some(ScalarType::String),
         format: Format::BasicString,
+        type_label: "string".into(),
+        child_count: 0,
         trailing_comment: Some("# bind".into()),
         read_only: false,
         selected: true,
@@ -85,6 +111,8 @@ fn view_row_roundtrips() {
         value: None,
         scalar_type: None,
         format: Format::Multiline,
+        type_label: "array".into(),
+        child_count: 2,
         trailing_comment: None,
         read_only: true,
         selected: false,

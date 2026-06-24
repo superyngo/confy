@@ -1,38 +1,161 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html lang="en" data-theme="dark">
   <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>confy — web</title>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>confy — config tree editor</title>
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
-    <header id="titlebar">
-      <span id="title">confy</span>
-      <span id="format" class="badge"></span>
-      <span id="dirty" class="badge dirty hidden">*</span>
+    <!-- ===== toolbar ===== -->
+    <header class="toolbar">
+      <div class="brand">
+        <span class="logo">cy</span><span class="label-hide" id="title">confy</span>
+      </div>
+      <button class="fmt-pill" id="fmtPill" title="document format">TOML</button>
+      <span class="dirty-dot" title="unsaved changes"></span>
       <span class="spacer"></span>
-      <button id="open-btn">Open…</button>
-      <button id="load-btn">Load</button>
-      <button id="save-btn">Save…</button>
-      <button id="theme-btn" title="Toggle theme">☾</button>
+      <button class="tbtn" id="btnOpen">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v10H3z"/></svg>
+        <span class="label-hide">Open</span>
+      </button>
+      <button class="tbtn primary" id="btnSave">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v6h7"/></svg>
+        <span class="label-hide">Save</span>
+      </button>
+      <button class="tbtn" id="btnConvert">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h13l-3-3M20 17H7l3 3"/></svg>
+        <span class="label-hide">Convert</span>
+      </button>
+      <div class="tgroup">
+        <button class="icon-btn" id="btnUndo" title="Undo (z)">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 7L4 12l5 5"/><path d="M4 12h11a5 5 0 0 1 0 10h-3"/></svg>
+        </button>
+        <button class="icon-btn" id="btnRedo" title="Redo (y)">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 7l5 5-5 5"/><path d="M20 12H9a5 5 0 0 0 0 10h3"/></svg>
+        </button>
+        <button class="icon-btn" id="btnTheme" title="Toggle theme">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg>
+        </button>
+      </div>
     </header>
 
-    <main id="main">
-      <pre id="tree" tabindex="0"></pre>
-      <aside id="overlay" class="hidden"></aside>
-    </main>
+    <!-- ===== filter row ===== -->
+    <div class="filterbar">
+      <div class="search" id="searchWrap">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <input
+          id="search"
+          type="search"
+          placeholder="search keys or values…  ( / to focus )"
+          autocomplete="off"
+          spellcheck="false"
+          disabled
+        />
+        <button class="clear" id="searchClear" title="clear">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+      <button class="tbtn" id="btnTypeFilter">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></svg>
+        <span class="label-hide">Type filter</span>
+      </button>
+      <div class="tgroup">
+        <button class="icon-btn" id="btnExpandAll" title="Expand all">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 10l5 5 5-5"/><path d="M7 4l5 5 5-5"/></svg>
+        </button>
+        <button class="icon-btn" id="btnCollapseAll" title="Collapse all">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 14l5-5 5 5"/><path d="M7 20l5-5 5 5"/></svg>
+        </button>
+      </div>
+      <div class="tgroup" id="viewTabs">
+        <button class="tbtn viewtab active" id="btnViewTree" title="Tree view">Tree</button>
+        <button class="tbtn viewtab" id="btnViewRaw" title="Raw text (read-only)">Raw</button>
+      </div>
+    </div>
 
-    <footer id="statusbar">
-      <span id="status"></span>
-      <span id="error"></span>
-      <span id="selection" class="badge hidden"></span>
-      <span id="clipboard" class="badge hidden"></span>
-      <span class="spacer"></span>
-      <span id="hint">j/k move · Enter toggle/edit · e edit · a add · d delete · / filter · ? help · Ctrl-s save · Ctrl-o open · q quit</span>
+    <!-- ===== main ===== -->
+    <div class="main">
+      <div class="tree-wrap" id="treeWrap">
+        <div id="tree" tabindex="0"></div>
+        <pre id="raw" class="raw-view mono hidden" tabindex="0" aria-readonly="true"></pre>
+        <div class="marquee" id="marquee"></div>
+        <div class="drop-line" id="dropLine"></div>
+      </div>
+      <aside class="detail" id="detail">
+        <div class="detail-head">
+          <h3 id="detailTitle">Node detail</h3>
+          <button class="icon-btn" id="detailClose" title="close">
+            <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6 6 18"/></svg>
+          </button>
+        </div>
+        <div class="detail-body" id="detailBody"></div>
+      </aside>
+      <!-- Fallback overlay for modes not yet redesigned (keyboard-driven). -->
+      <aside id="overlay" class="hidden"></aside>
+    </div>
+
+    <!-- ===== footer ===== -->
+    <footer class="footer">
+      <span class="status" id="status">ready</span>
+      <span class="status err hidden" id="error"></span>
+      <span class="hint">
+        <kbd>click</kbd> select · <kbd>⇧click</kbd> range ·
+        <kbd>⌘click</kbd> multi · <kbd>drag</kbd> marquee/move ·
+        <kbd>right-click</kbd> menu
+      </span>
+      <span class="badge" id="selBadge">none selected</span>
+      <span class="badge" id="clipBadge">clipboard 0</span>
     </footer>
 
-    <!-- Load modal: paste/upload source text -->
+    <!-- ===== popovers (wired in later phases) ===== -->
+    <div class="pop" id="ctxMenu"></div>
+    <div class="pop" id="kindMenu"></div>
+    <div class="pop" id="tfPop"><div class="tf" id="tfInner"></div></div>
+
+    <!-- ===== convert dialog (wired in Phase 4) ===== -->
+    <dialog id="convDlg">
+      <div class="dlg-head">
+        <h3>Convert document format</h3>
+        <p>Lower the whole tree to another format and save a copy.</p>
+      </div>
+      <div class="dlg-body">
+        <div class="field">
+          <label for="convFmt">Target format</label>
+          <select id="convFmt">
+            <option value="Toml">TOML</option>
+            <option value="Json">JSON</option>
+            <option value="Yaml">YAML</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="convPath">Output path</label>
+          <input id="convPath" type="text" value="config.json" />
+        </div>
+        <div class="warns hide" id="convWarns"></div>
+      </div>
+      <div class="dlg-foot">
+        <button class="tbtn" id="convCancel">Cancel</button>
+        <button class="tbtn primary" id="convRun">Convert &amp; save</button>
+      </div>
+    </dialog>
+
+    <!-- ===== external-edit modal (§8.2 async handshake) ===== -->
+    <div id="ext-modal" class="modal hidden">
+      <div class="modal-box">
+        <h3>Edit</h3>
+        <textarea id="ext-text" rows="16" cols="72"></textarea>
+        <div class="modal-actions">
+          <button id="ext-confirm">Apply</button>
+          <button id="ext-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== load modal: paste source text (Open fallback w/o FS API) ===== -->
     <div id="load-modal" class="modal hidden">
       <div class="modal-box">
         <h3>Open document</h3>
@@ -49,18 +172,6 @@
       </div>
     </div>
 
-    <!-- External-edit modal (§8.2 async handshake) -->
-    <div id="ext-modal" class="modal hidden">
-      <div class="modal-box">
-        <h3>Edit</h3>
-        <textarea id="ext-text" rows="16" cols="72"></textarea>
-        <div class="modal-actions">
-          <button id="ext-confirm">Apply</button>
-          <button id="ext-cancel">Cancel</button>
-        </div>
-      </div>
-    </div>
-
-    <script type="module" src="./ui.ts"></script>
+    <script type="module" src="./ui.js"></script>
   </body>
 </html>

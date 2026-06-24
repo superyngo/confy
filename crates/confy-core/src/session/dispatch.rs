@@ -64,6 +64,17 @@ impl super::Session {
             Intent::ExpandLevel => self.expand_level(),
             Intent::CollapseLevel => self.collapse_level(),
 
+            // ---- Pointer (Web UI) ----
+            Intent::SetCursor(path) => self.set_cursor(path),
+            Intent::CommitEdit { value, name } => self.commit_edit(value, name),
+            Intent::CommitKind { path, target } => self.commit_kind(path, target),
+            Intent::SetSelection { paths } => self.set_selection(paths),
+            Intent::MoveSelectionTo {
+                sources,
+                target,
+                index,
+            } => self.move_selection_to(sources, target, index),
+
             // ---- Selection ----
             Intent::ToggleSelect => self.toggle_select(),
             Intent::ExtendSelectUp => self.extend_select_up(),
@@ -74,6 +85,7 @@ impl super::Session {
             Intent::CommitFilter => self.commit_filter(),
             Intent::ExitFilter => self.exit_filter(),
             Intent::ExitFilterResults => self.exit_filter_results(),
+            Intent::SetFilter(text) => self.set_filter(text),
             Intent::FilterChar(c) => self.filter_char(c),
             Intent::FilterBackspace => self.filter_backspace(),
             Intent::FilterDelete => self.filter_delete(),
@@ -101,6 +113,8 @@ impl super::Session {
             // The session is fs-free; the host owns the source path/stem. `None`
             // seeds `out.<ext>`; the user edits the path in the Path step.
             Intent::ConvertPickFormat => self.convert_pick_format(None),
+            Intent::SetConvertFormat(fmt) => self.set_convert_format(fmt),
+            Intent::SetConvertPath(path) => self.set_convert_path(path),
             Intent::ConvertPathChar(c) => self.convert_path_char(c),
             Intent::ConvertPathBackspace => self.convert_path_backspace(),
             Intent::ConvertPathDelete => self.convert_path_delete(),

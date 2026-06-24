@@ -250,6 +250,21 @@ fn dispatch_navigation_updates_cursor_in_snapshot() {
 }
 
 #[test]
+fn dispatch_set_cursor_moves_cursor_by_path() {
+    let mut s = toml_session("a = 1\nb = 2\nc = 3\n");
+    // Row 0 is the root; 'c' is the third leaf.
+    let target = s.visible_paths()[3].clone();
+    let snap = s.dispatch(Intent::SetCursor(target.clone()));
+    assert_eq!(snap.cursor, target);
+    let cursor_row = snap.rows.iter().find(|r| r.is_cursor).unwrap();
+    assert_eq!(cursor_row.key.as_str(), "c");
+
+    // An out-of-tree path is ignored (cursor unchanged).
+    let snap = s.dispatch(Intent::SetCursor(vec![Seg::Key("nope".into())]));
+    assert_eq!(snap.cursor, target);
+}
+
+#[test]
 fn dispatch_toggle_expand_branch_then_collapse() {
     let mut s = toml_session("[a]\nx = 1\n");
     s.dispatch(Intent::CursorDown); // onto branch 'a'
@@ -258,6 +273,53 @@ fn dispatch_toggle_expand_branch_then_collapse() {
     assert_eq!(snap.rows.len(), 3);
     let snap = s.dispatch(Intent::CollapseAll);
     assert_eq!(snap.rows.len(), 2);
+}
+
+#[test]
+fn dispatch_commit_edit_replaces_value() {
+    let mut s = toml_session("a = 1\nb = 2\n");
+    let a = s.visible_paths()[1].clone();
+    s.dispatch(Intent::SetCursor(a));
+    let snap = s.dispatch(Intent::CommitEdit {
+        value: Some("42".into()),
+        name: None,
+    });
+    assert!(matches!(snap.mode, ModeView::Normal));
+    assert!(s.serialize().unwrap().contains("a = 42"), "value replaced");
+    assert!(s.serialize().unwrap().contains("b = 2"), "sibling intact");
+}
+
+#[test]
+fn dispatch_commit_edit_renames_key() {
+    let mut s = toml_session("a = 1\n");
+    let a = s.visible_paths()[1].clone();
+    s.dispatch(Intent::SetCursor(a));
+    s.dispatch(Intent::CommitEdit {
+        value: None,
+        name: Some("renamed".into()),
+    });
+    let text = s.serialize().unwrap();
+    assert!(
+        text.contains("renamed = 1"),
+        "key renamed, value kept: {text}"
+    );
+    assert!(!text.contains("a = 1"), "old key gone");
+}
+
+#[test]
+fn dispatch_commit_kind_switches_integer_radix() {
+    let mut s = toml_session("n = 255\n");
+    let n = s.visible_paths()[1].clone();
+    let snap = s.dispatch(Intent::CommitKind {
+        path: n,
+        target: confy_core::model::document::KindTarget::IntHex,
+    });
+    assert!(matches!(snap.mode, ModeView::Normal));
+    assert!(
+        s.serialize().unwrap().contains("0xff"),
+        "255 → hex 0xff: {}",
+        s.serialize().unwrap()
+    );
 }
 
 #[test]
@@ -407,4 +469,167 @@ fn dispatch_clipboard_count_reflects_copy_then_clears() {
     s.dispatch(Intent::ToggleSelect);
     let snap = s.dispatch(Intent::CopySelected);
     assert_eq!(snap.clipboard_count, Some(1));
+}
+
+// ---- Pointer selection (SetSelection) ----
+
+#[test]
+fn dispatch_set_selection_replaces_and_follows_focal() {
+    let mut s = toml_session("a = 1\nb = 2\nc = 3\n");
+    let pa = vec![Seg::Key("a".into())];
+    let pc = vec![Seg::Key("c".into())];
+    let snap = s.dispatch(Intent::SetSelection {
+        paths: vec![pa, pc],
+    });
+    let sel: Vec<String> = snap
+        .rows
+        .iter()
+        .filter(|r| r.selected)
+        .map(|r| r.key.clone())
+        .collect();
+    assert_eq!(sel, vec!["a".to_string(), "c".to_string()]);
+    // Cursor follows the focal (last) path.
+    assert_eq!(snap.rows.iter().find(|r| r.is_cursor).unwrap().key, "c");
+    // A fresh SetSelection replaces rather than unions.
+    let snap = s.dispatch(Intent::SetSelection {
+        paths: vec![vec![Seg::Key("b".into())]],
+    });
+    let sel: Vec<String> = snap
+        .rows
+        .iter()
+        .filter(|r| r.selected)
+        .map(|r| r.key.clone())
+        .collect();
+    assert_eq!(sel, vec!["b".to_string()]);
+}
+
+#[test]
+fn dispatch_set_selection_drops_nonvisible_paths() {
+    let mut s = toml_session("a = 1\nb = 2\n");
+    let snap = s.dispatch(Intent::SetSelection {
+        paths: vec![vec![Seg::Key("a".into())], vec![Seg::Key("nope".into())]],
+    });
+    let sel: Vec<String> = snap
+        .rows
+        .iter()
+        .filter(|r| r.selected)
+        .map(|r| r.key.clone())
+        .collect();
+    assert_eq!(sel, vec!["a".to_string()]);
+}
+
+// ---- Pointer drag-reparent (MoveSelectionTo) ----
+
+#[test]
+fn dispatch_move_selection_reparents_node() {
+    let mut s = toml_session("a = 1\n[t]\nx = 2\n");
+    let snap = s.dispatch(Intent::MoveSelectionTo {
+        sources: vec![vec![Seg::Key("a".into())]],
+        target: vec![Seg::Key("t".into())],
+        index: 0,
+    });
+    assert!(
+        snap.error.is_none(),
+        "move should succeed: {:?}",
+        snap.error
+    );
+    let text = s.serialize().unwrap();
+    let t_at = text.find("[t]").unwrap();
+    let a_at = text.find("a = 1").unwrap();
+    assert!(a_at > t_at, "'a' reparented under [t]:\n{text}");
+}
+
+#[test]
+fn dispatch_move_selection_rejects_drop_into_own_subtree() {
+    let mut s = toml_session("[t]\nx = 2\n");
+    let before = s.serialize().unwrap();
+    let snap = s.dispatch(Intent::MoveSelectionTo {
+        sources: vec![vec![Seg::Key("t".into())]],
+        target: vec![Seg::Key("t".into()), Seg::Key("x".into())],
+        index: 0,
+    });
+    assert!(
+        snap.error.is_some(),
+        "drop into own subtree must be rejected"
+    );
+    assert_eq!(s.serialize().unwrap(), before, "document untouched");
+}
+
+#[test]
+fn dispatch_move_selection_reorders_within_parent() {
+    // Move 'a' to AFTER 'b' (b is sibling index 1, so "after" = original index 2).
+    // Core adjusts for the removed earlier sibling → b, a, c.
+    let mut s = toml_session("a = 1\nb = 2\nc = 3\n");
+    s.dispatch(Intent::MoveSelectionTo {
+        sources: vec![vec![Seg::Key("a".into())]],
+        target: vec![],
+        index: 2,
+    });
+    let t = s.serialize().unwrap();
+    assert!(
+        t.find("b = 2").unwrap() < t.find("a = 1").unwrap()
+            && t.find("a = 1").unwrap() < t.find("c = 3").unwrap(),
+        "reordered to b, a, c:\n{t}"
+    );
+}
+
+// ---- Pointer filter (SetFilter) ----
+
+#[test]
+fn dispatch_set_filter_narrows_then_clears() {
+    let mut s = toml_session("alpha = 1\nbeta = 2\n");
+    let snap = s.dispatch(Intent::SetFilter("alph".into()));
+    assert!(matches!(snap.mode, ModeView::FilterResults));
+    let k: Vec<String> = snap.rows.iter().map(|r| r.key.clone()).collect();
+    assert!(k.iter().any(|x| x == "alpha"));
+    assert!(!k.iter().any(|x| x == "beta"), "beta filtered out: {k:?}");
+    // Clearing restores all rows and drops back to Normal.
+    let snap = s.dispatch(Intent::SetFilter(String::new()));
+    assert!(matches!(snap.mode, ModeView::Normal));
+    let k: Vec<String> = snap.rows.iter().map(|r| r.key.clone()).collect();
+    assert!(k.iter().any(|x| x == "beta"), "beta back: {k:?}");
+}
+
+#[test]
+fn dispatch_set_filter_matches_value_not_just_key() {
+    let mut s = toml_session("host = \"localhost\"\nport = 8080\n");
+    // "localhost" lives only in a value, not a key — the filter must still find it.
+    let snap = s.dispatch(Intent::SetFilter("localhost".into()));
+    assert!(matches!(snap.mode, ModeView::FilterResults));
+    let k: Vec<String> = snap.rows.iter().map(|r| r.key.clone()).collect();
+    assert!(
+        k.iter().any(|x| x == "host"),
+        "host kept by value match: {k:?}"
+    );
+    assert!(!k.iter().any(|x| x == "port"), "port filtered out: {k:?}");
+}
+
+// ---- Pointer convert (SetConvertFormat / SetConvertPath) ----
+
+#[test]
+fn dispatch_set_convert_format_seeds_path() {
+    let mut s = toml_session("a = 1\n");
+    s.dispatch(Intent::SetCursor(vec![]));
+    s.dispatch(Intent::OpenConvert);
+    let snap = s.dispatch(Intent::SetConvertFormat(DocFormat::Json));
+    match snap.mode {
+        ModeView::Convert(cv) => {
+            assert_eq!(cv.target, DocFormat::Json);
+            assert!(cv.path.ends_with(".json"), "path seeded: {}", cv.path);
+        }
+        m => panic!("expected Convert mode, got {m:?}"),
+    }
+}
+
+#[test]
+fn dispatch_set_convert_path_then_run_writes() {
+    let mut s = toml_session("a = 1\n");
+    s.dispatch(Intent::SetCursor(vec![]));
+    s.dispatch(Intent::OpenConvert);
+    s.dispatch(Intent::SetConvertFormat(DocFormat::Json));
+    s.dispatch(Intent::SetConvertPath("custom.json".into()));
+    let snap = s.dispatch(Intent::ConvertRun);
+    let (path, text) = snap.convert_write.expect("convert produced a write");
+    assert_eq!(path, "custom.json");
+    assert!(text.contains("\"a\""), "json output:\n{text}");
 }

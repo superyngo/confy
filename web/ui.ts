@@ -1,6 +1,10 @@
 // confy Web UI — a pure render of the `SessionSnapshot` + a stream of `Intent`s
 // back. No editor logic lives here (PORTING §8.4; WEBUI.md). Drives the wasm
-// `Session` via the typed `web/confy.ts` wrapper.
+// `Session` via the typed `web/confy.ts` wrapper. This module is the
+// orchestrator: boot/load, the new web-native chrome (toolbar / filter row /
+// footer), `send(Intent)`, and the external-edit handshake. Tree rendering lives
+// in `web/render.ts`; mode overlays not yet ported to dedicated chrome keep the
+// keyboard-driven `#overlay` fallback.
 import { load, Session } from "./confy.js";
 import {
   downloadText,
@@ -11,13 +15,18 @@ import {
   writeFile,
   type FsHandle,
 } from "./fs.js";
+import { escapeHtml, renderTree } from "./render.js";
+import { resolveClick, rowsInRect, setAnchor } from "./select.js";
+import { installDnd } from "./dnd.js";
 import type {
+  ConvertView,
+  DocFormat,
   Intent,
   ModeView,
+  Path,
   SessionSnapshot,
-  TypeFilterCellView,
   TypeFilterRow,
-  ViewRow,
+  TypeFilterView,
 } from "./types.js";
 
 const SAMPLE = `[server]
@@ -37,6 +46,9 @@ line
 
 let session: Session | null = null;
 let snap: SessionSnapshot | null = null;
+// Set by a completed marquee drag so the trailing `click` doesn't also fire a
+// single-row selection (mouseup → click ordering).
+let suppressClick = false;
 
 // Host-owned file state. `fileHandle` is non-null only when the doc is backed
 // by a real on-disk file opened/saved through the File System Access API.
@@ -47,18 +59,20 @@ let fileName: string | null = null;
 function $<T extends HTMLElement = HTMLElement>(id: string): T {
   return document.getElementById(id) as T;
 }
-const tree = $<HTMLPreElement>("tree");
+const tree = $<HTMLDivElement>("tree");
 const overlay = $("overlay");
+// Tree vs read-only Raw text view (#12, read-only first). The Session stays the
+// single source of truth; Raw is just `session.serialize()` rendered live.
+let rawView = false;
 const statusEl = $("status");
 const errorEl = $("error");
-const formatEl = $("format");
-const dirtyEl = $("dirty");
+const fmtPill = $("fmtPill");
 const titleEl = $("title");
-const selectionEl = $("selection");
-const clipboardEl = $("clipboard");
-const themeBtn = $<HTMLButtonElement>("theme-btn");
-const openBtn = $<HTMLButtonElement>("open-btn");
-const saveBtn = $<HTMLButtonElement>("save-btn");
+const selBadge = $("selBadge");
+const clipBadge = $("clipBadge");
+const themeBtn = $<HTMLButtonElement>("btnTheme");
+const openBtn = $<HTMLButtonElement>("btnOpen");
+const saveBtn = $<HTMLButtonElement>("btnSave");
 const FS_AVAILABLE = fsAccessAvailable();
 
 // ---- bootstrap ----
@@ -66,8 +80,6 @@ async function main() {
   initTheme();
   const wasmUrl = new URL("./pkg/confy_ffi_bg.wasm", import.meta.url);
   await load(wasmUrl);
-  // Hide the FS-only "Open file…" button on browsers without the API.
-  if (!FS_AVAILABLE) openBtn.classList.add("hidden");
   updateSaveLabel();
   openText(SAMPLE, "toml");
   bindGlobal();
@@ -96,12 +108,10 @@ function openText(
 type Theme = "dark" | "light";
 function initTheme() {
   const stored = localStorage.getItem("confy-theme");
-  const theme: Theme = stored === "light" ? "light" : "dark";
-  applyTheme(theme);
+  applyTheme(stored === "light" ? "light" : "dark");
 }
 function applyTheme(theme: Theme) {
   document.documentElement.dataset.theme = theme;
-  themeBtn.textContent = theme === "dark" ? "☀" : "☾";
 }
 function toggleTheme() {
   const cur: Theme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
@@ -110,15 +120,45 @@ function toggleTheme() {
   applyTheme(next);
 }
 
+// Switch between the interactive tree and the read-only serialized text. Raw is
+// a *view* of the same document — no editing — so it just re-renders.
+function setView(raw: boolean) {
+  rawView = raw;
+  $("btnViewTree").classList.toggle("active", !raw);
+  $("btnViewRaw").classList.toggle("active", raw);
+  render();
+}
+
+// Render whichever view is active. Raw shows `session.serialize()` (the live
+// document, including unsaved edits) read-only; the tree is hidden but kept so
+// toggling back is instant.
+function renderRawOrTree() {
+  const rawEl = $("raw");
+  if (rawView) {
+    rawEl.textContent = session!.serialize();
+    rawEl.classList.remove("hidden");
+    tree.classList.add("hidden");
+  } else {
+    rawEl.classList.add("hidden");
+    tree.classList.remove("hidden");
+    renderTree(tree, snap!, getEdit());
+  }
+}
+
 // ---- render ----
 function render() {
   if (!snap || !session) return;
-  formatEl.textContent = snap.doc_format;
-  dirtyEl.classList.toggle("hidden", !snap.is_dirty);
+  fmtPill.textContent = snap.doc_format.toUpperCase();
+  document.body.classList.toggle("dirty", snap.is_dirty);
+  document.body.classList.toggle("paste-mode", (snap.clipboard_count ?? 0) > 0);
   titleEl.textContent = fileName ?? "confy";
   setStatus(snap.status, snap.error ?? "");
 
-  renderTree();
+  renderRawOrTree();
+  focusInlineEdit();
+  renderDetailPanel();
+  renderTypeFilterPop();
+  renderConvertDialog();
   renderOverlay();
   renderFooter();
   updateSaveLabel();
@@ -130,72 +170,12 @@ function render() {
 }
 
 function updateSaveLabel() {
-  // The button advertises the actual save path: in-place / save-as / download.
-  const hasHandle = fileHandle !== null;
-  saveBtn.textContent = hasHandle
-    ? "Save"
+  // The button advertises the actual save path via its tooltip.
+  saveBtn.title = fileHandle
+    ? "Save in place"
     : FS_AVAILABLE
-      ? "Save…"
+      ? "Save as…"
       : "Save (download)";
-}
-
-function renderTree() {
-  const rows = snap!.rows;
-  const edit = getEdit();
-
-  const lines: string[] = [];
-  for (const r of rows) {
-    const indent = "  ".repeat(r.depth);
-    const marker = r.is_cursor ? "▶ " : r.selected ? "◉ " : "  ";
-    const branch = r.is_branch ? (isExpanded(r) ? "▾ " : "▸ ") : "";
-    const cls = `row${r.is_cursor ? " cursor" : ""}${r.selected ? " selected" : ""}${r.read_only ? " readonly" : ""}`;
-    let line = `<div class="${cls}">`;
-    line += `<span class="marker">${marker}</span>`;
-    line += `<span class="depth">${escapeHtml(indent)}</span>`;
-    line += `<span class="branch-mark">${branch}</span>`;
-    if (r.key) {
-      line += `<span class="key">${escapeHtml(r.key)}</span>`;
-      if (!r.is_branch) line += `<span class="val"> = ${renderValue(r, edit)}</span>`;
-    } else if (!r.is_branch) {
-      line += `<span class="val">${renderValue(r, edit)}</span>`;
-    }
-    if (r.trailing_comment) {
-      line += ` <span class="comment">${escapeHtml(r.trailing_comment)}</span>`;
-    }
-    line += `</div>`;
-    lines.push(line);
-  }
-  tree.innerHTML = lines.join("\n");
-  const cur = tree.querySelector(".row.cursor") as HTMLElement | null;
-  cur?.scrollIntoView({ block: "nearest" });
-}
-
-function valueTypeClass(r: ViewRow): string {
-  switch (r.scalar_type) {
-    case "String":
-      return "v-str";
-    case "Integer":
-      return "v-int";
-    case "Float":
-      return "v-float";
-    case "Boolean":
-      return "v-bool";
-    case "Null":
-      return "v-null";
-    case "Datetime":
-      return "v-date";
-    default:
-      return "";
-  }
-}
-
-function renderValue(r: ViewRow, edit: ReturnType<typeof getEdit>): string {
-  if (edit && r.is_cursor && edit.field === "Value") {
-    return `<span class="edit-cell">${escapeHtml(edit.buffer)}</span>`;
-  }
-  const vcls = valueTypeClass(r);
-  const raw = escapeHtml(r.value ?? "");
-  return vcls ? `<span class="${vcls}">${raw}</span>` : raw;
 }
 
 function getEdit() {
@@ -204,42 +184,44 @@ function getEdit() {
     : null;
 }
 
-// Expand state is inferred from rendered rows: a branch is expanded iff a
-// later row sits at depth+1 under it.
-function isExpanded(r: ViewRow): boolean {
-  const rows = snap!.rows;
-  const idx = rows.indexOf(r);
-  for (let i = idx + 1; i < rows.length; i++) {
-    if (rows[i].depth <= r.depth) break;
-    return true;
-  }
-  return false;
-}
-
 function modeTag(m: ModeView): string {
   return typeof m === "string" ? m : Object.keys(m)[0];
 }
 
+// The detail aside (design slide-in panel) mirrors the `Detail` mode: it shows
+// `detail_text` and slides in via `.detail.open`, replacing the keyboard
+// fallback overlay for this mode.
+function renderDetailPanel() {
+  const panel = $("detail");
+  if (modeTag(snap!.mode) === "Detail") {
+    $("detailBody").innerHTML = `<pre class="mono">${escapeHtml(snap!.detail_text ?? "")}</pre>`;
+    panel.classList.add("open");
+  } else {
+    panel.classList.remove("open");
+  }
+}
+
+// The `#overlay` keyboard fallback now serves only Help, Prompt, and the `K`
+// kind-switch mode. Filter → native search box; TypeFilter → `#tfPop` popover;
+// Convert → `#convDlg` dialog (all rendered by their own functions below).
 function renderOverlay() {
   const m = snap!.mode;
   const tag = modeTag(m);
-  if (tag === "Normal" || tag === "FilterResults" || tag === "Edit") {
+  if (tag === "Help" || tag === "Prompt" || tag === "KindSwitch") {
+    overlay.classList.remove("hidden");
+  } else {
     overlay.classList.add("hidden");
     return;
   }
-  overlay.classList.remove("hidden");
-  if (tag === "Detail") {
-    overlay.innerHTML = `<h3>Detail</h3><pre>${escapeHtml(snap!.detail_text ?? "")}</pre>`;
-  } else if (tag === "Help") {
-    overlay.innerHTML = `<h3>Help</h3><pre>${escapeHtml(HELP_TEXT)}</pre>`;
+  if (tag === "Help") {
+    // The KIND legend differs per backend (mirrors the TUI's per-format help in
+    // crates/confy-tui/src/tui/keys.rs): TOML has dotted/AoT/radix rows, JSON
+    // drops them and adds null/exponent, YAML adds block/flow + opaque + styles.
+    const legend = KIND_LEGEND[snap!.doc_format] ?? "";
+    overlay.innerHTML = `<h3>Help</h3><pre>${escapeHtml(HELP_TEXT + "\n" + legend)}</pre>`;
   } else if (tag === "Prompt") {
     overlay.innerHTML = `<h3>${escapeHtml(snap!.status ?? "confirm")}</h3>
         <div class="opt">y / Enter = yes</div><div class="opt">n / Esc = no</div>`;
-  } else if (tag === "Filter") {
-    const f = (m as { Filter: { text: string; cursor: number } }).Filter;
-    overlay.innerHTML = `<h3>Filter</h3>
-        <div class="edit-cell">${escapeHtml(f.text.slice(0, f.cursor))}|${escapeHtml(f.text.slice(f.cursor))}</div>
-        <div>Enter to commit · Esc to clear</div>`;
   } else if (tag === "KindSwitch") {
     const ks = (m as { KindSwitch: { cursor: number; options: { label: string }[] } })
       .KindSwitch;
@@ -251,58 +233,116 @@ function renderOverlay() {
             `<div class="opt${i === ks.cursor ? " sel" : ""}">${escapeHtml(o.label)}</div>`,
         )
         .join("");
-  } else if (tag === "Convert") {
-    const cv = (m as { Convert: { step: string; path: string; warnings: string[] } })
-      .Convert;
-    overlay.innerHTML = `<h3>Convert (${escapeHtml(cv.step)})</h3>
-        <pre>path: ${escapeHtml(cv.path)}</pre>
-        ${cv.warnings.length ? `<pre>${escapeHtml(cv.warnings.join("\n"))}</pre>` : ""}
-        <div>↑/↓ pick · Enter next · Esc cancel</div>`;
-  } else if (tag === "TypeFilter") {
-    renderTypeFilter((m as { TypeFilter: import("./types.js").TypeFilterView }).TypeFilter);
-  } else {
-    overlay.classList.add("hidden");
   }
 }
 
-function checkGlyph(state: import("./types.js").CheckState): string {
-  return state === "On" ? "[✓]" : state === "Partial" ? "[~]" : "[ ]";
-}
-
-function renderTypeFilter(grid: import("./types.js").TypeFilterView) {
-  const body = grid.rows
-    .map((row) => {
-      if (isHeader(row)) {
-        return `<div class="tf-header">${escapeHtml(row.Header)}</div>`;
-      }
-      const cells = row.Cells.map((c) =>
-        renderTypeCell(c),
-      ).join("");
-      return `<div class="tf-row">${cells}</div>`;
-    })
-    .join("");
-  overlay.innerHTML =
-    `<h3>Type filter${grid.active ? " <span class='tf-active'>active</span>" : ""}</h3>` +
-    `<div class="tf-grid">${body}</div>` +
-    `<div class="tf-hint">↑↓←→ move · Space toggle · Enter apply · Esc cancel</div>`;
-}
-
-function renderTypeCell(c: TypeFilterCellView): string {
-  const cls = `tf-cell${c.is_cursor ? " cursor" : ""} tf-${c.state.toLowerCase()}`;
-  return `<span class="${cls}">${checkGlyph(c.state)} ${escapeHtml(c.label)}</span>`;
-}
+// The check glyph inside a facet cell's `.box` (design markup; CSS reveals it
+// only for `data-state="On"`).
+const TF_CHECK = `<span class="box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5 9-11"/></svg></span>`;
 
 function isHeader(row: TypeFilterRow): row is { Header: string } {
   return "Header" in row;
 }
 
+// The `f` type-filter facet grid as a native popover (`#tfPop`/`#tfInner`). Each
+// cell is a button: clicking it moves the core cursor to that cell
+// (`TypeFilterMove` delta) and toggles it. Apply commits, Cancel exits. The
+// popover stays open across re-renders while `Mode::TypeFilter` is active; the
+// keyboard path (onKey) still drives the same mode for accessibility.
+function renderTypeFilterPop() {
+  const pop = $("tfPop");
+  if (modeTag(snap!.mode) !== "TypeFilter") {
+    pop.classList.remove("open");
+    return;
+  }
+  const grid = (snap!.mode as { TypeFilter: TypeFilterView }).TypeFilter;
+  const inner = $("tfInner");
+  let cellRow = -1;
+  let html = `<div class="menu-label">Type filter${grid.active ? " <span class='tf-active'>· active</span>" : ""}</div>`;
+  for (const row of grid.rows) {
+    if (isHeader(row)) {
+      html += `<div class="menu-label">${escapeHtml(row.Header)}</div>`;
+      continue;
+    }
+    cellRow++;
+    html +=
+      `<div class="tf-grid">` +
+      row.Cells.map(
+        (c, col) =>
+          `<button class="tf-cell${c.is_cursor ? " cursor" : ""}" data-state="${c.state}" data-r="${cellRow}" data-c="${col}">` +
+          `${TF_CHECK}${escapeHtml(c.label)}</button>`,
+      ).join("") +
+      `</div>`;
+  }
+  html +=
+    `<div class="tf-foot"><button class="tbtn" data-tf="cancel">Cancel</button>` +
+    `<button class="tbtn primary" data-tf="apply">Apply</button></div>`;
+  inner.innerHTML = html;
+  inner.querySelectorAll<HTMLElement>("[data-r]").forEach((b) => {
+    b.onclick = () => {
+      const dr = Number(b.dataset.r) - grid.cursor_row;
+      const dc = Number(b.dataset.c) - grid.cursor_col;
+      if (dr || dc) send({ TypeFilterMove: [dr, dc] });
+      send("TypeFilterToggle");
+    };
+  });
+  (inner.querySelector('[data-tf="apply"]') as HTMLElement).onclick = () =>
+    send("CommitTypeFilter");
+  (inner.querySelector('[data-tf="cancel"]') as HTMLElement).onclick = () =>
+    send("ExitTypeFilter");
+  if (!pop.classList.contains("open")) {
+    const r = $("btnTypeFilter").getBoundingClientRect();
+    pop.style.left = `${Math.max(6, Math.min(r.left, window.innerWidth - 260))}px`;
+    pop.style.top = `${r.bottom + 4}px`;
+    pop.classList.add("open");
+  }
+}
+
+// The convert flow as a native `<dialog>`: a format `<select>`, an output-path
+// `<input>`, and a warnings list. Open while `Mode::Convert`, closed otherwise.
+// Format/path edits dispatch `SetConvertFormat`/`SetConvertPath`; the action
+// button runs `ConvertRun` (or `ConvertConfirm` once warnings are shown).
+function renderConvertDialog() {
+  const dlg = $<HTMLDialogElement>("convDlg");
+  if (modeTag(snap!.mode) !== "Convert") {
+    if (dlg.open) dlg.close();
+    return;
+  }
+  const cv = (snap!.mode as { Convert: ConvertView }).Convert;
+  const sel = $<HTMLSelectElement>("convFmt");
+  const path = $<HTMLInputElement>("convPath");
+  const warns = $("convWarns");
+  const run = $("convRun");
+  if (!dlg.open) {
+    // Core lists only the legal targets (current format excluded).
+    sel.innerHTML = cv.options
+      .map((f) => `<option value="${f}">${f.toUpperCase()}</option>`)
+      .join("");
+    sel.value = cv.target;
+    path.value = cv.path;
+    dlg.showModal();
+  } else {
+    if (sel.value !== cv.target) sel.value = cv.target;
+    // Don't clobber the box while the user is typing the path.
+    if (document.activeElement !== path) path.value = cv.path;
+  }
+  const hasWarn = cv.warnings.length > 0;
+  warns.innerHTML = hasWarn
+    ? `<strong>Lossy conversion</strong><div class="warns-note">These styles will be normalized; the output is still valid ${snap!.doc_format === cv.target ? "" : cv.target.toUpperCase()}. Review and confirm to save.</div>` +
+      `<ul>${cv.warnings.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul>`
+    : "";
+  warns.classList.toggle("hide", !hasWarn);
+  run.textContent = cv.step === "Confirm" ? "Confirm & save" : "Convert & save";
+}
+
 function renderFooter() {
+  // Badges stay visible (design resting state); only text + `on` accent change.
   const n = snap!.rows.filter((r) => r.selected).length;
-  selectionEl.textContent = n > 0 ? `${n} selected` : "";
-  selectionEl.classList.toggle("hidden", n === 0);
-  const cc = snap!.clipboard_count;
-  clipboardEl.textContent = cc ? `clipboard: ${cc}` : "";
-  clipboardEl.classList.toggle("hidden", !cc);
+  selBadge.textContent = n === 0 ? "none selected" : `${n} selected`;
+  selBadge.classList.toggle("on", n > 0);
+  const cc = snap!.clipboard_count ?? 0;
+  clipBadge.textContent = `clipboard ${cc}`;
+  clipBadge.classList.toggle("on", cc > 0);
 }
 
 // ---- keyboard → Intent (mirrors tui/keys.rs) ----
@@ -312,13 +352,6 @@ function onKey(ev: KeyboardEvent) {
   if (!document.getElementById("load-modal")!.classList.contains("hidden")) return;
 
   const m = snap.mode;
-  if (typeof m === "object" && "Filter" in m) {
-    if (ev.key === "Enter") return send("CommitFilter");
-    if (ev.key === "Escape") return send("Escape");
-    if (ev.key === "Backspace") return send("FilterBackspace");
-    if (ev.key.length === 1) return send({ FilterChar: ev.key });
-    return;
-  }
   if (typeof m === "object" && "Edit" in m) {
     if (ev.key === "Enter") return send("EditCommit");
     if (ev.key === "Escape") return send("EditCancel");
@@ -383,17 +416,23 @@ function onKey(ev: KeyboardEvent) {
   }
   if (ctrl && ev.key === "o") {
     ev.preventDefault();
-    return void doOpenFs();
+    return void doOpen();
+  }
+  // ⇧+↑/↓ extends the multi-select range (cursor and selection move together).
+  if (ev.shiftKey && (ev.key === "ArrowUp" || ev.key === "ArrowDown")) {
+    ev.preventDefault();
+    return send(ev.key === "ArrowUp" ? "ExtendSelectUp" : "ExtendSelectDown");
   }
   switch (ev.key) {
-    case "j": case "ArrowDown": return send("CursorDown");
-    case "k": case "ArrowUp": return send("CursorUp");
-    case "g": case "Home": return send("CursorHome");
-    case "G": case "End": return send("CursorEnd");
-    case "Enter": case " ": return send("ToggleExpand");
+    case "j": case "ArrowDown": return navSelect("CursorDown");
+    case "k": case "ArrowUp": return navSelect("CursorUp");
+    case "g": case "Home": return navSelect("CursorHome");
+    case "G": case "End": return navSelect("CursorEnd");
+    case "Enter": return send("ToggleExpand");
+    case " ": return send("ToggleDetail");
     case "e": return send("BeginEdit");
     case "a": return send("AddNode");
-    case "d": return send("DeleteSelected");
+    case "d": case "Delete": return send("DeleteSelected");
     case "c": return send("CopySelected");
     case "x": return send("CutSelected");
     case "v": return send("Paste");
@@ -407,7 +446,7 @@ function onKey(ev: KeyboardEvent) {
     case "9": return send("ExpandAll");
     case "+": case "ArrowRight": return send({ Nudge: 1 });
     case "-": case "ArrowLeft": return send({ Nudge: -1 });
-    case "/": return send("EnterFilter");
+    case "/": ev.preventDefault(); return $("search").focus();
     case "f": return send("EnterTypeFilter");
     case "K": return send("OpenKindSwitch");
     case "C": return send("OpenConvert");
@@ -422,6 +461,17 @@ function send(i: Intent) {
   if (!session) return;
   snap = session.dispatch(i);
   render();
+}
+
+// Plain cursor navigation that also collapses the selection onto the new cursor
+// row, so the selected highlight (and what d/c/x act on) never decouples from
+// the cursor bar. Skipped in paste mode, where arrows move the insertion slot
+// and the selection is frozen.
+function navSelect(i: Intent) {
+  send(i);
+  if (snap && (snap.clipboard_count ?? 0) === 0) {
+    send({ SetSelection: { paths: [snap.cursor] } });
+  }
 }
 
 // ---- external-edit async handshake (§8.2) ----
@@ -528,13 +578,17 @@ async function doConvertWrite(path: string, text: string) {
   downloadText(baseName, text);
 }
 
-async function doOpenFs() {
-  if (!FS_AVAILABLE) return;
-  const opened = await pickOpenFile();
-  if (!opened) return;
-  const fmt = formatFromName(opened.name);
-  openText(opened.text, fmt, opened.handle, opened.name);
-  tree.focus();
+// Open: real file picker where the FS Access API exists, else the paste modal.
+async function doOpen() {
+  if (FS_AVAILABLE) {
+    const opened = await pickOpenFile();
+    if (!opened) return;
+    const fmt = formatFromName(opened.name);
+    openText(opened.text, fmt, opened.handle, opened.name);
+    tree.focus();
+    return;
+  }
+  $("load-modal").classList.remove("hidden");
 }
 
 function formatFromName(name: string): "toml" | "json" | "yaml" {
@@ -545,23 +599,281 @@ function formatFromName(name: string): "toml" | "json" | "yaml" {
       : "toml";
 }
 
+// ---- pointer: click routing for every row affordance ----
+function onTreeClick(ev: MouseEvent) {
+  if (!session || !snap) return;
+  if (suppressClick) {
+    suppressClick = false;
+    return;
+  }
+  const target = ev.target as HTMLElement;
+  // Clicks inside the live edit input are handled by the input itself.
+  if (target.closest("[data-editing]")) return;
+  const rowEl = target.closest(".row") as HTMLElement | null;
+  if (!rowEl) return;
+  const raw = rowEl.dataset.path;
+  if (raw === undefined) return;
+  const path = JSON.parse(raw) as Path;
+
+  // Hover action buttons.
+  if (target.closest('[data-act="add"]')) {
+    send({ SetCursor: path });
+    return send("AddNode");
+  }
+  if (target.closest('[data-act="menu"]')) {
+    // Read the anchor rect BEFORE SetCursor re-renders the tree — `render()`
+    // rebuilds `tree.innerHTML`, detaching this button, and a detached node's
+    // `getBoundingClientRect()` is all-zeros (popup would jump to 0,0).
+    const r = (target.closest("button") as HTMLElement).getBoundingClientRect();
+    send({ SetCursor: path });
+    return openCtxMenuAt(path, r.left, r.bottom + 4);
+  }
+  // Kind badge → kind-conversion popover.
+  const kindEl = target.closest("[data-kind]") as HTMLElement | null;
+  if (kindEl) {
+    const r = kindEl.getBoundingClientRect(); // capture before the re-render
+    send({ SetCursor: path });
+    return openKindMenuAt(path, r.left, r.bottom + 4);
+  }
+  // Caret → toggle expand without editing.
+  if (target.closest("[data-caret]")) {
+    send({ SetCursor: path });
+    return send("ToggleExpand");
+  }
+  // Editable cells: key → rename, value/comment/trailing → edit.
+  const editEl = target.closest("[data-edit]") as HTMLElement | null;
+  if (editEl) {
+    send({ SetCursor: path });
+    return send(editEl.dataset.edit === "key" ? "BeginRename" : "BeginEdit");
+  }
+  // In paste mode the clipboard freezes the selection, so a click can't reselect
+  // — it moves the cursor, which is the paste destination (`After(cursor)`), and
+  // `body.paste-mode` styling makes that target visible.
+  if ((snap.clipboard_count ?? 0) > 0) {
+    return send({ SetCursor: path });
+  }
+  // Plain row-body click → selection gesture (plain / ⇧range / ⌘toggle). Core
+  // moves the cursor to the focal path; expand stays on the caret (design).
+  send({ SetSelection: { paths: resolveClick(snap, path, ev) } });
+}
+
+// Focus the live edit `<input>` (rendered by render.ts in Edit mode) and commit
+// on Enter/blur via `CommitEdit`, cancel on Escape. Native text entry — the
+// modal `EditChar` keyboard path is bypassed for the pointer UI.
+function focusInlineEdit() {
+  const edit = getEdit();
+  if (!edit) return;
+  const input = tree.querySelector("input[data-editing]") as HTMLInputElement | null;
+  if (!input || document.activeElement === input) return;
+  input.focus();
+  const n = input.value.length;
+  input.setSelectionRange(n, n);
+  let done = false;
+  const finish = (commit: boolean) => {
+    if (done) return;
+    done = true;
+    if (!commit) return send("EditCancel");
+    if (edit.field === "Value") send({ CommitEdit: { value: input.value, name: null } });
+    else send({ CommitEdit: { value: null, name: input.value } });
+  };
+  input.onkeydown = (e) => {
+    e.stopPropagation(); // native typing; don't leak to the global key handler
+    if (e.key === "Enter") {
+      e.preventDefault();
+      finish(true);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      finish(false);
+    }
+  };
+  input.onblur = () => finish(true);
+}
+
+// ---- popovers: kind switch + context menu ----
+// Only the click-driven menus live here; the type-filter `#tfPop` is mode-driven
+// and managed solely by `renderTypeFilterPop`, so these never touch it (else the
+// two would open/close together).
+function clickMenus(): HTMLElement[] {
+  return [$("kindMenu"), $("ctxMenu")];
+}
+// One shared outside-click closer; closing always removes it so listeners never
+// accumulate (a stale one fires on the reopening click and flashes the menu shut
+// — the "must click elsewhere first to reopen" bug).
+let popCloser: ((e: MouseEvent) => void) | null = null;
+function closePops() {
+  for (const m of clickMenus()) m.classList.remove("open");
+  if (popCloser) {
+    document.removeEventListener("click", popCloser);
+    popCloser = null;
+  }
+}
+function anyClickMenuOpen(): boolean {
+  return clickMenus().some((m) => m.classList.contains("open"));
+}
+function placePopAt(pop: HTMLElement, x: number, y: number) {
+  // Synchronously close any other click-menu and drop its stale closer *before*
+  // opening, so the reopening click can't immediately re-close the new menu.
+  closePops();
+  pop.style.left = `${Math.max(6, Math.min(x, window.innerWidth - 220))}px`;
+  pop.style.top = `${Math.min(y, window.innerHeight - 40)}px`;
+  pop.classList.add("open");
+  // Defer registering the outside-click closer so this very click doesn't trip it.
+  setTimeout(() => {
+    popCloser = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement).closest(".pop")) closePops();
+    };
+    document.addEventListener("click", popCloser);
+  }, 0);
+}
+
+function openKindMenuAt(path: Path, x: number, y: number) {
+  const opts = session!.kindOptions(path);
+  if (!opts.length) {
+    setStatus("no kind conversions for this node", "");
+    return;
+  }
+  const menu = $("kindMenu");
+  menu.innerHTML =
+    `<div class="menu-label">Convert kind</div>` +
+    opts
+      .map((o, i) => `<button class="menu-item" data-i="${i}">${escapeHtml(o.label)}</button>`)
+      .join("");
+  placePopAt(menu, x, y);
+  menu.querySelectorAll<HTMLElement>("[data-i]").forEach((b) => {
+    const i = Number(b.dataset.i);
+    b.onclick = () => {
+      closePops();
+      send({ CommitKind: { path, target: opts[i].target } });
+    };
+  });
+}
+
+function buildCtxMenu(path: Path): HTMLElement {
+  const key = JSON.stringify(path);
+  const row = snap!.rows.find((r) => JSON.stringify(r.path) === key);
+  const cc = snap!.clipboard_count ?? 0;
+  const items: Array<[string, Intent, boolean]> = [
+    ["Edit", "BeginEdit", true],
+    ["Add child", "AddNode", !!row?.is_branch],
+    ["Copy", "CopySelected", true],
+    ["Cut", "CutSelected", true],
+    ["Paste", "Paste", cc > 0],
+    ["Delete", "DeleteSelected", true],
+    ["Toggle comment", "Remark", true],
+    ["Detail", "ToggleDetail", true],
+    ["Undo", "Undo", true],
+    ["Redo", "Redo", true],
+  ];
+  const menu = $("ctxMenu");
+  menu.innerHTML = items
+    .map(
+      ([label, , enabled], i) =>
+        `<button class="menu-item" data-i="${i}"${enabled ? "" : " disabled"}>${escapeHtml(label)}</button>`,
+    )
+    .join("");
+  menu.querySelectorAll<HTMLElement>("[data-i]:not([disabled])").forEach((b) => {
+    const i = Number(b.dataset.i);
+    b.onclick = () => {
+      closePops();
+      send(items[i][1]);
+    };
+  });
+  return menu;
+}
+function openCtxMenuAt(path: Path, x: number, y: number) {
+  placePopAt(buildCtxMenu(path), x, y);
+}
+
+// Live search: the always-visible box owns the filter text and dispatches
+// `SetFilter` (debounced) on every keystroke. No `Mode::Filter` is entered.
+function bindSearch() {
+  const box = $<HTMLInputElement>("search");
+  box.disabled = false;
+  let timer = 0;
+  box.addEventListener("input", () => {
+    clearTimeout(timer);
+    timer = window.setTimeout(() => send({ SetFilter: box.value }), 80);
+  });
+  $("searchClear").addEventListener("click", () => {
+    box.value = "";
+    send({ SetFilter: "" });
+    box.focus();
+  });
+}
+
+// Open the convert dialog from the root node. `open_convert` requires the cursor
+// on the root and leaves `target` = the current format (which is excluded from
+// the options); seed the first legal target so the dialog opens consistent.
+function openConvert() {
+  send({ SetCursor: [] });
+  send("OpenConvert");
+  const m = snap?.mode;
+  if (typeof m === "object" && "Convert" in m && m.Convert.options.length) {
+    send({ SetConvertFormat: m.Convert.options[0] });
+  }
+}
+
+function bindConvertDialog() {
+  $<HTMLSelectElement>("convFmt").addEventListener("change", (e) =>
+    send({ SetConvertFormat: (e.target as HTMLSelectElement).value as DocFormat }),
+  );
+  $<HTMLInputElement>("convPath").addEventListener("input", (e) =>
+    send({ SetConvertPath: (e.target as HTMLInputElement).value }),
+  );
+  $("convRun").addEventListener("click", () => {
+    const m = snap!.mode;
+    const step = typeof m === "object" && "Convert" in m ? m.Convert.step : "Path";
+    send(step === "Confirm" ? "ConvertConfirm" : "ConvertRun");
+  });
+  $("convCancel").addEventListener("click", () => send("ExitConvert"));
+  // Native dialog Esc → leave Convert mode (render then closes the dialog).
+  $<HTMLDialogElement>("convDlg").addEventListener("cancel", (e) => {
+    e.preventDefault();
+    send("ExitConvert");
+  });
+}
+
 function bindGlobal() {
   tree.addEventListener("keydown", onKey);
+  tree.addEventListener("click", onTreeClick);
+  tree.addEventListener("contextmenu", onTreeContext);
+  installMarquee();
+  installDnd(tree, () => snap, send);
+  $("detailClose").addEventListener("click", () => send("ExitDetail"));
+  // Escape closes an open click-menu before anything else handles it (the
+  // mode-driven #tfPop is closed by its own ExitTypeFilter path instead).
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape" && anyClickMenuOpen()) {
+      ev.stopPropagation();
+      closePops();
+    }
+  });
   tree.focus();
   document.body.addEventListener("keydown", (ev) => {
     if (document.activeElement !== tree && noModalOpen()) {
-      if ((document.activeElement as HTMLElement)?.tagName === "BUTTON") return;
+      // Don't hijack text entry / native form widgets (search box, convert
+      // dialog inputs) — they own their own keys. A focused BUTTON must NOT be
+      // guarded, or every shortcut dies after clicking a toolbar/row button.
+      const tag = (document.activeElement as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       onKey(ev);
     }
   });
 
-  openBtn.addEventListener("click", () => void doOpenFs());
+  bindSearch();
+  bindConvertDialog();
+  openBtn.addEventListener("click", () => void doOpen());
   saveBtn.addEventListener("click", () => void doSave());
   themeBtn.addEventListener("click", toggleTheme);
+  $("btnConvert").addEventListener("click", openConvert);
+  $("btnUndo").addEventListener("click", () => send("Undo"));
+  $("btnRedo").addEventListener("click", () => send("Redo"));
+  $("btnExpandAll").addEventListener("click", () => send("ExpandAll"));
+  $("btnCollapseAll").addEventListener("click", () => send("CollapseAll"));
+  $("btnTypeFilter").addEventListener("click", () => send("EnterTypeFilter"));
+  $("btnViewTree").addEventListener("click", () => setView(false));
+  $("btnViewRaw").addEventListener("click", () => setView(true));
 
-  $("load-btn").addEventListener("click", () => {
-    $("load-modal").classList.remove("hidden");
-  });
   $("load-confirm").addEventListener("click", () => {
     const fmt = ($("load-format") as HTMLSelectElement).value as
       | "toml" | "json" | "yaml";
@@ -575,6 +887,80 @@ function bindGlobal() {
   });
 }
 
+// Marquee (rubber-band) selection: drag over empty tree space (or a row body)
+// to rubber-band a rectangle and select the rows it touches. ⇧/⌘/Ctrl unions
+// with the current selection; a plain drag replaces it. A non-moving press is
+// left to `onTreeClick` (single-row select); a real drag suppresses that click.
+function installMarquee() {
+  const wrap = $("treeWrap");
+  const box = $("marquee");
+  let sx = 0,
+    sy = 0,
+    active = false,
+    moved = false,
+    additive = false;
+  wrap.addEventListener("mousedown", (ev) => {
+    if (ev.button !== 0) return;
+    // Don't hijack grips (native drag), buttons, inputs, or open popovers.
+    if ((ev.target as HTMLElement).closest("[data-grip],button,input,.pop")) return;
+    sx = ev.clientX;
+    sy = ev.clientY;
+    active = true;
+    moved = false;
+    additive = ev.ctrlKey || ev.metaKey || ev.shiftKey;
+  });
+  window.addEventListener("mousemove", (ev) => {
+    if (!active) return;
+    const dx = ev.clientX - sx;
+    const dy = ev.clientY - sy;
+    if (!moved && Math.hypot(dx, dy) < 4) return; // tolerance: a click, not a drag
+    moved = true;
+    const wr = wrap.getBoundingClientRect();
+    box.style.left = `${Math.min(sx, ev.clientX) - wr.left + wrap.scrollLeft}px`;
+    box.style.top = `${Math.min(sy, ev.clientY) - wr.top + wrap.scrollTop}px`;
+    box.style.width = `${Math.abs(dx)}px`;
+    box.style.height = `${Math.abs(dy)}px`;
+    box.style.display = "block";
+  });
+  window.addEventListener("mouseup", (ev) => {
+    if (!active) return;
+    active = false;
+    if (!moved || !snap) return;
+    box.style.display = "none";
+    const rect = new DOMRect(
+      Math.min(sx, ev.clientX),
+      Math.min(sy, ev.clientY),
+      Math.abs(ev.clientX - sx),
+      Math.abs(ev.clientY - sy),
+    );
+    const hit = rowsInRect(tree, rect);
+    let paths = hit;
+    if (additive) {
+      const byKey = new Map<string, Path>();
+      for (const r of snap.rows.filter((r) => r.selected)) byKey.set(JSON.stringify(r.path), r.path);
+      for (const p of hit) byKey.set(JSON.stringify(p), p);
+      paths = [...byKey.values()];
+    }
+    suppressClick = true;
+    // Safety net: if the trailing `click` doesn't reach `onTreeClick` (mouseup
+    // over the wrap, not a row), clear the flag so the next real click works.
+    setTimeout(() => (suppressClick = false), 0);
+    // The marquee result becomes the base a following shift-range unions onto.
+    setAnchor(hit.length ? hit[hit.length - 1] : null, paths);
+    send({ SetSelection: { paths } });
+  });
+}
+
+function onTreeContext(ev: MouseEvent) {
+  if (!session || !snap) return;
+  const rowEl = (ev.target as HTMLElement).closest(".row") as HTMLElement | null;
+  if (!rowEl || rowEl.dataset.path === undefined) return;
+  ev.preventDefault();
+  const path = JSON.parse(rowEl.dataset.path) as Path;
+  send({ SetCursor: path });
+  openCtxMenuAt(path, ev.clientX, ev.clientY);
+}
+
 function noModalOpen(): boolean {
   return (
     document.getElementById("ext-modal")!.classList.contains("hidden") &&
@@ -585,14 +971,9 @@ function noModalOpen(): boolean {
 // ---- utils ----
 function setStatus(status: string | undefined, error: string | undefined) {
   statusEl.textContent = status ?? "";
-  errorEl.textContent = error ?? "";
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  const err = error ?? "";
+  errorEl.textContent = err;
+  errorEl.classList.toggle("hidden", err === "");
 }
 
 const HELP_TEXT = `confy web — keys
@@ -610,6 +991,55 @@ i              detail popup · ? this help · Ctrl-s save · Ctrl-o open
 q              quit (prompts if dirty)
 
 Open (Ctrl-o) and in-place Save need the File System Access API
-(Chrome/Edge). Other browsers fall back to the Load/Save-download buttons.`;
+(Chrome/Edge). Other browsers fall back to the paste-load / download path.`;
+
+// Per-format KIND legend appended to the Help overlay, keyed by `doc_format`
+// (ported from the TUI's TOML_HELP/JSON_HELP/YAML_HELP KIND column). The kind
+// badge shows the friendly label + notation suffix; this explains what each
+// notation means for the open file's backend.
+const KIND_LEGEND: Record<string, string> = {
+  Toml: `── KIND badge (TOML) ──────────────────────────────
+Containers (label·notation):
+  table·scope    standard [header] table
+  table·dotted   dotted-key table (a.b.c = …)
+  inline         inline table { … }
+  array·inline   inline array        array·multi  multiline array
+  AoT            array-of-tables  [[…]]
+
+Scalars (label·notation):
+  str            basic string        str·"…"  (quoted)
+  str·'…'        literal string
+  str·"""        multiline basic     str·'''  multiline literal
+  int            decimal integer
+  int·0x int·0o int·0b   hex / octal / binary
+  float / float·dec      float        float·1e  exponent
+  float·inf float·nan    infinity / NaN
+  bool · date · time · null`,
+  Json: `── KIND badge (JSON / JSONC) ──────────────────────
+Containers (label·notation):
+  table          object { … }        table·multi  multiline object
+  inline         inline object
+  array·inline   inline array        array·multi  multiline array
+
+Scalars (label·notation):
+  str            string              null
+  int            integer
+  float          float               float·1e  exponent
+  bool`,
+  Yaml: `── KIND badge (YAML) ──────────────────────────────
+Containers (label·notation):
+  table·block    block mapping       table·flow  flow mapping { … }
+  array·block    block sequence      array·flow  flow sequence [ … ]
+  (opaque nodes — anchors/aliases/merge/tags — are read-only)
+
+Scalars (label·notation):
+  str            plain string        str·'…'  single-quoted
+  str·"…"        double-quoted       str·|    literal block
+  str·>          folded block
+  int            decimal integer     int·0x int·0o  hex / octal
+  float          float               float·1e  exponent
+  float·inf float·nan    infinity / NaN
+  bool · null`,
+};
 
 main().catch((e) => setStatus("", String(e)));
