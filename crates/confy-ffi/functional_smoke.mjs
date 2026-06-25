@@ -233,5 +233,32 @@ check("ConvertRun writes to the chosen path", snap13.convert_write && snap13.con
 check("converted JSON text contains \"a\"", snap13.convert_write && snap13.convert_write[1].includes('"a"'),
   snap13.convert_write && snap13.convert_write[1]);
 
+// ---- 19. AddChild / AddSibling force child-vs-sibling on a collapsed branch ----
+const s14 = new ConfySession(`[server]\nhost = "localhost"\n`, "toml");
+s14.dispatch(tuple("SetCursor", [{ Key: "server" }])); // collapsed [server]
+const snap14a = s14.dispatch(unit("AddChild"));
+check("AddChild nests under collapsed branch", snap14a.cursor.length === 2 && snap14a.cursor[0]?.Key === "server",
+  JSON.stringify(snap14a.cursor));
+const s15 = new ConfySession(`[server]\nhost = "localhost"\n`, "toml");
+s15.dispatch(tuple("SetCursor", [{ Key: "server" }]));
+const snap15a = s15.dispatch(unit("AddSibling"));
+check("AddSibling stays a root sibling off collapsed branch", snap15a.cursor.length === 1 && snap15a.cursor[0]?.Key !== "server",
+  JSON.stringify(snap15a.cursor));
+
+// ---- 20. Paste retargets selection onto the pasted node (source deselected) ----
+const s16 = new ConfySession(`[t1]\nx = 1\n[t2]\ny = 2\n`, "toml");
+s16.dispatch(unit("ExpandAll"));
+s16.dispatch(tuple("SetSelection", { paths: [[{ Key: "t1" }, { Key: "x" }]] }));
+s16.dispatch(unit("CopySelected"));
+s16.dispatch(tuple("SetCursor", [{ Key: "t2" }, { Key: "y" }]));
+const snap16 = s16.dispatch(unit("Paste"));
+const selRows16 = snap16.rows.filter((r) => r.selected).map((r) => r.path);
+check("Paste selects exactly the pasted node",
+  selRows16.length === 1 && selRows16[0]?.[0]?.Key === "t2" && selRows16[0]?.[1]?.Key === "x",
+  JSON.stringify(selRows16));
+check("Paste moves cursor onto the pasted node",
+  snap16.cursor.length === 2 && snap16.cursor[0]?.Key === "t2" && snap16.cursor[1]?.Key === "x",
+  JSON.stringify(snap16.cursor));
+
 console.log(failures === 0 ? "\nALL FUNCTIONAL CHECKS PASSED" : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

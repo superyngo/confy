@@ -29,20 +29,93 @@ import type {
   TypeFilterView,
 } from "./types.js";
 
-const SAMPLE = `[server]
-host = "localhost"
-port = 8080
-enabled = true
+// Built-in demo doc — a self-describing intro to confy. All three carry the
+// *same* tree (identical keys/values/comments); only the dialect's notation and
+// comment marker differ, so cycling the header pill shows one config wearing
+// three outfits. The pill cycles these while the doc is the unsaved sample (see
+// `sampleMode`); opening or saving a real file leaves sample mode and freezes it.
+const SAMPLES: Record<"toml" | "json" | "yaml", string> = {
+  toml: `# 👋 Welcome to confy — a lossless editor for TOML · JSON · YAML
+# Click a row to select · drag the ⠿ grip to reparent · ⌘S to save
 
-[plugins]
-names = ["auth", "metrics"]
+[about]
+name = "confy"
+pitch = "Three config dialects, one tidy tree 🌳"
+version = "0.7.0"
+lossless = true    # untouched bytes round-trip byte-for-byte
 
-# A multiline note
-notes = """
-multi
-line
-"""
-`;
+[basics]
+select = ["click = one", "shift-click = range", "cmd-click = toggle"]
+add_child = "hover a branch, hit the ＋"
+undo_redo = "z and y — we all fat-finger 🙃"
+
+[formats]
+toml = "tables, dotted keys, datetimes"
+json = "// comments quietly upgrade it to JSONC"
+yaml = "block + flow, plain-where-safe"
+
+[fun]
+emoji_welcome = true
+brackets_collected = ["{ }", "[ ]", "< >"]
+coffees_per_config = 3
+`,
+  json: `// 👋 Welcome to confy — a lossless editor for TOML · JSON · YAML
+// Click a row to select · drag the ⠿ grip to reparent · ⌘S to save
+{
+  "about": {
+    "name": "confy",
+    "pitch": "Three config dialects, one tidy tree 🌳",
+    "version": "0.7.0",
+    "lossless": true    // untouched bytes round-trip byte-for-byte
+  },
+  "basics": {
+    "select": ["click = one", "shift-click = range", "cmd-click = toggle"],
+    "add_child": "hover a branch, hit the ＋",
+    "undo_redo": "z and y — we all fat-finger 🙃"
+  },
+  "formats": {
+    "toml": "tables, dotted keys, datetimes",
+    "json": "// comments quietly upgrade it to JSONC",
+    "yaml": "block + flow, plain-where-safe"
+  },
+  "fun": {
+    "emoji_welcome": true,
+    "brackets_collected": ["{ }", "[ ]", "< >"],
+    "coffees_per_config": 3
+  }
+}
+`,
+  yaml: `# 👋 Welcome to confy — a lossless editor for TOML · JSON · YAML
+# Click a row to select · drag the ⠿ grip to reparent · ⌘S to save
+
+about:
+  name: confy
+  pitch: Three config dialects, one tidy tree 🌳
+  version: "0.7.0"
+  lossless: true    # untouched bytes round-trip byte-for-byte
+
+basics:
+  select: ["click = one", "shift-click = range", "cmd-click = toggle"]
+  add_child: hover a branch, hit the ＋
+  undo_redo: z and y — we all fat-finger 🙃
+
+formats:
+  toml: tables, dotted keys, datetimes
+  json: "// comments quietly upgrade it to JSONC"
+  yaml: block + flow, plain-where-safe
+
+fun:
+  emoji_welcome: true
+  brackets_collected: ["{ }", "[ ]", "< >"]
+  coffees_per_config: 3
+`,
+};
+// Pill-cycle order.
+const SAMPLE_ORDER: Array<"toml" | "json" | "yaml"> = ["toml", "json", "yaml"];
+// True while the open doc is the built-in sample (no backing file) — enables the
+// format pill toggle.
+let sampleMode = false;
+let sampleFormat: "toml" | "json" | "yaml" = "toml";
 
 let session: Session | null = null;
 let snap: SessionSnapshot | null = null;
@@ -81,8 +154,21 @@ async function main() {
   const wasmUrl = new URL("./pkg/confy_ffi_bg.wasm", import.meta.url);
   await load(wasmUrl);
   updateSaveLabel();
-  openText(SAMPLE, "toml");
+  loadSample("toml");
   bindGlobal();
+}
+
+// Load the built-in sample in `format`, entering sample mode (pill toggle on).
+function loadSample(format: "toml" | "json" | "yaml") {
+  sampleFormat = format;
+  openText(SAMPLES[format], format, null, "sample", true);
+}
+
+// Cycle the sample doc to the next backend (pill click while in sample mode).
+function cycleSampleFormat() {
+  if (!sampleMode) return;
+  const next = SAMPLE_ORDER[(SAMPLE_ORDER.indexOf(sampleFormat) + 1) % SAMPLE_ORDER.length];
+  loadSample(next);
 }
 
 function openText(
@@ -90,6 +176,7 @@ function openText(
   format: "toml" | "json" | "yaml" | "yml",
   handle: FsHandle | null = null,
   name: string | null = null,
+  asSample = false,
 ) {
   session?.free();
   try {
@@ -100,6 +187,7 @@ function openText(
   }
   fileHandle = handle;
   fileName = name;
+  sampleMode = asSample;
   snap = session.snapshot();
   render();
 }
@@ -149,6 +237,8 @@ function renderRawOrTree() {
 function render() {
   if (!snap || !session) return;
   fmtPill.textContent = snap.doc_format.toUpperCase();
+  fmtPill.classList.toggle("toggleable", sampleMode);
+  fmtPill.title = sampleMode ? "Sample — click to switch format" : "document format";
   document.body.classList.toggle("dirty", snap.is_dirty);
   document.body.classList.toggle("paste-mode", (snap.clipboard_count ?? 0) > 0);
   titleEl.textContent = fileName ?? "confy";
@@ -543,6 +633,7 @@ async function doSave() {
         await writeFile(handle, text);
         fileHandle = handle;
         fileName = await deriveName(handle, fmt);
+        sampleMode = false; // now backed by a real file → freeze the format pill
         send("Save");
         setStatus("Saved", "");
         render();
@@ -652,8 +743,10 @@ function onTreeClick(ev: MouseEvent) {
 
   // Hover action buttons.
   if (target.closest('[data-act="add"]')) {
+    // The `＋` is branch-only and always adds a *child* (unlike the TUI `a`,
+    // which appends a sibling when the branch is collapsed).
     send({ SetCursor: path });
-    return send("AddNode");
+    return send("AddChild");
   }
   if (target.closest('[data-act="menu"]')) {
     // Read the anchor rect BEFORE SetCursor re-renders the tree — `render()`
@@ -759,8 +852,13 @@ function placePopAt(pop: HTMLElement, x: number, y: number) {
   // opening, so the reopening click can't immediately re-close the new menu.
   closePops();
   pop.style.left = `${Math.max(6, Math.min(x, window.innerWidth - 220))}px`;
-  pop.style.top = `${Math.min(y, window.innerHeight - 40)}px`;
+  // Reveal first so the menu has a measurable height, then clamp `top` so a menu
+  // opened near the bottom of the viewport slides up to stay fully visible
+  // rather than spilling below the fold.
+  pop.style.top = "0px";
   pop.classList.add("open");
+  const h = pop.offsetHeight;
+  pop.style.top = `${Math.max(8, Math.min(y, window.innerHeight - h - 8))}px`;
   // Defer registering the outside-click closer so this very click doesn't trip it.
   setTimeout(() => {
     popCloser = (e: MouseEvent) => {
@@ -810,7 +908,8 @@ function buildCtxMenu(path: Path): HTMLElement {
   const cc = snap!.clipboard_count ?? 0;
   const items: Array<[string, Intent, boolean]> = [
     ["Edit", "BeginEdit", true],
-    ["Add child", "AddNode", !!row?.is_branch],
+    ["Add child", "AddChild", !!row?.is_branch],
+    ["Append sibling", "AddSibling", path.length > 0],
     ["Copy", "CopySelected", true],
     ["Cut", "CutSelected", true],
     ["Paste", "Paste", cc > 0],
@@ -951,6 +1050,7 @@ function bindGlobal() {
   bindConvertDialog();
   openBtn.addEventListener("click", () => void doOpen());
   saveBtn.addEventListener("click", () => void doSave());
+  fmtPill.addEventListener("click", cycleSampleFormat); // no-op unless in sample mode
   themeBtn.addEventListener("click", toggleTheme);
   $("btnConvert").addEventListener("click", openConvert);
   $("btnUndo").addEventListener("click", () => send("Undo"));

@@ -148,6 +148,10 @@ pub enum Intent {
     // ---- Mutations ----
     Nudge(i64),
     AddNode,
+    /// Force a child insertion regardless of the cursor's expand state (Web `+`).
+    AddChild,
+    /// Force a sibling insertion regardless of the cursor's expand state (Web menu).
+    AddSibling,
     DeleteSelected,
     CopySelected,
     CutSelected,

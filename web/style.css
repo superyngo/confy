@@ -444,3 +444,9 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
    `…` marks continuation. The inline comment editor gets extra room. */
 .comment-more { font-style: normal; opacity: .7; }
 .comment-input { min-width: 240px; font-style: normal; }
+
+/* The format pill is interactive only for the built-in sample (cycles backends);
+   for a loaded file it's a static label. `.toggleable` carries the affordance. */
+.fmt-pill:not(.toggleable) { cursor: default; }
+.fmt-pill.toggleable { border-color: var(--sel-edge); color: var(--fg); }
+.fmt-pill.toggleable:hover { background: var(--accent-soft); }

@@ -351,6 +351,30 @@ fn dispatch_edit_inline_table_routes_external() {
 }
 
 #[test]
+fn dispatch_add_child_forces_child_into_collapsed_branch() {
+    // Web `+` / "Add child": a collapsed branch still receives a child. (The TUI
+    // `a`/AddNode would append a root sibling here, because the branch is closed.)
+    let mut s = toml_session("[server]\nhost = \"localhost\"\n");
+    let snap = s.dispatch(Intent::CursorDown); // onto 'server' (collapsed)
+    assert_eq!(snap.cursor.len(), 1, "cursor on the [server] table");
+    let snap = s.dispatch(Intent::AddChild);
+    // The new node is nested *inside* server (path depth 2), not a root sibling.
+    assert_eq!(snap.cursor.len(), 2, "new node nested under server");
+    assert_eq!(snap.cursor[0], Seg::Key("server".into()));
+}
+
+#[test]
+fn dispatch_add_sibling_forces_sibling_off_collapsed_branch() {
+    // Web "Append sibling": always a sibling, even on a collapsed branch.
+    let mut s = toml_session("[server]\nhost = \"localhost\"\n");
+    s.dispatch(Intent::CursorDown); // onto 'server'
+    let snap = s.dispatch(Intent::AddSibling);
+    // The new placeholder is a root-level sibling (path depth 1), not a child.
+    assert_eq!(snap.cursor.len(), 1, "new node is a root sibling");
+    assert_ne!(snap.cursor[0], Seg::Key("server".into()));
+}
+
+#[test]
 fn dispatch_multiline_edit_signals_external_edit_then_applies() {
     // The async-host handshake (PORTING §8.2): BeginEdit on a multi-line scalar
     // returns external_edit in the snapshot; the host returns text via
@@ -525,6 +549,41 @@ fn dispatch_clipboard_cut_flag_and_exit_type_filter() {
             confy_core::session::view::ModeView::TypeFilter(_)
         ),
         "exit closes the popup"
+    );
+}
+
+#[test]
+fn dispatch_paste_retargets_selection_to_pasted_node() {
+    // Copy t1.x, then paste it after t2.y (a different table → no collision). The
+    // source selection on t1.x is dropped; the freshly-pasted t2.x becomes the
+    // cursor and the sole selection.
+    let mut s = toml_session("[t1]\nx = 1\n[t2]\ny = 2\n");
+    s.dispatch(Intent::ExpandAll);
+    // Navigate onto t1.x (root → t1 → x).
+    s.dispatch(Intent::CursorDown); // t1
+    s.dispatch(Intent::CursorDown); // x
+    s.dispatch(Intent::ToggleSelect); // select t1.x
+    s.dispatch(Intent::CopySelected);
+    s.dispatch(Intent::CursorDown); // t2
+    s.dispatch(Intent::CursorDown); // y
+    let snap = s.dispatch(Intent::Paste);
+    let cursor = snap.rows.iter().find(|r| r.is_cursor).unwrap();
+    assert_eq!(cursor.key, "x", "cursor moved onto the pasted node");
+    assert_eq!(
+        cursor.path,
+        vec![Seg::Key("t2".into()), Seg::Key("x".into())],
+        "pasted node lives under t2, not t1"
+    );
+    let selected: Vec<Vec<Seg>> = snap
+        .rows
+        .iter()
+        .filter(|r| r.selected)
+        .map(|r| r.path.clone())
+        .collect();
+    assert_eq!(
+        selected,
+        vec![vec![Seg::Key("t2".into()), Seg::Key("x".into())]],
+        "only the pasted node is selected; source t1.x is deselected"
     );
 }
 

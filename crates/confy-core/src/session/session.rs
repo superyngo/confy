@@ -1732,7 +1732,24 @@ impl Session {
 
     // ---- Add node ----
 
+    /// `a` add: child-vs-sibling chosen from the cursor's expand state (TUI parity).
     pub fn add_node(&mut self) {
+        self.add_node_impl(None);
+    }
+
+    /// Force a child insertion (Web `+` / "Add child"): always append into the
+    /// cursor branch regardless of its expand state.
+    pub fn add_child(&mut self) {
+        self.add_node_impl(Some(true));
+    }
+
+    /// Force a sibling insertion (Web "Append sibling"): always insert after the
+    /// cursor regardless of its expand state.
+    pub fn add_sibling(&mut self) {
+        self.add_node_impl(Some(false));
+    }
+
+    fn add_node_impl(&mut self, force_append: Option<bool>) {
         if self.doc.is_none() {
             return;
         }
@@ -1742,7 +1759,10 @@ impl Session {
             None => return,
         };
         let expanded = self.expanded.contains(&cursor_row.path);
-        let is_append = cursor_row.path.is_empty() || (cursor_row.is_branch && expanded);
+        let is_append = match force_append {
+            Some(b) => b,
+            None => cursor_row.path.is_empty() || (cursor_row.is_branch && expanded),
+        };
         let cursor_kind = self.tree.node_at(&cursor_row.path).map(|n| n.kind.clone());
         let mut target = if is_append {
             let n = self
@@ -2284,6 +2304,25 @@ impl Session {
             }
         }
         self.on_mutation_success();
+        // Drop the source selection and move both cursor and selection onto the
+        // freshly-pasted node(s), which land contiguously from `target.index` in
+        // the destination parent's rebuilt child sequence.
+        let pasted = node_entries.len() + comment_entries.len();
+        if let Some(parent) = self.tree.node_at(&target.parent) {
+            let n = parent.children.len();
+            if pasted > 0 && n > 0 {
+                let start = target.index.min(n - 1);
+                let end = (start + pasted).min(n);
+                let paths: Vec<Path> = parent.children[start..end]
+                    .iter()
+                    .map(|c| c.path.clone())
+                    .collect();
+                if let Some(first) = paths.first().cloned() {
+                    self.selection.set_all(paths);
+                    self.cursor = first;
+                }
+            }
+        }
     }
 
     pub fn remark(&mut self) {

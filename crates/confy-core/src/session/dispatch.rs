@@ -205,6 +205,8 @@ impl super::Session {
             // ---- Mutations ----
             Intent::Nudge(d) => self.nudge(d),
             Intent::AddNode => self.add_node(),
+            Intent::AddChild => self.add_child(),
+            Intent::AddSibling => self.add_sibling(),
             Intent::DeleteSelected => self.delete_selected(),
             Intent::CopySelected => self.copy_selected(),
             Intent::CutSelected => self.cut_selected(),

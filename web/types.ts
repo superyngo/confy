@@ -199,7 +199,7 @@ export type Intent =
   | { ApplyEditComment: { path: Path; text: string } }
   // Mutations
   | { Nudge: number }
-  | "AddNode" | "DeleteSelected" | "CopySelected" | "CutSelected" | "Paste" | "Remark"
+  | "AddNode" | "AddChild" | "AddSibling" | "DeleteSelected" | "CopySelected" | "CutSelected" | "Paste" | "Remark"
   // Undo / Redo
   | "Undo" | "Redo"
   // Lifecycle
