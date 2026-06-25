@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.9.0] - 2026-06-25
+
 ### Fixed
 - **AddSibling Escape cancellation for container nodes:** pressing Escape after "Append sibling" on a branch node (table/array) now removes the just-added container sibling — matching AddChild's existing behaviour. Previously, container siblings did not enter Edit mode, so the `created_on_add` cancellation mechanism never fired. The fix enters rename Edit mode after inserting a keyed container sibling. (2026-06-25)
 - **Comment append-sibling now enters the inline editor with Escape-cancel:** appending a sibling to a comment node (TUI `a` / web "Append sibling") now inserts a *separate* single-line comment (blank-line separated, so it no longer silently merges into the adjacent comment as an invisible extra line) and immediately opens it in the inline editor; pressing Escape removes the just-added comment (and its blank separator) via the `created_on_add` → `History::cancel_last` path, matching scalar/container add. The JSON/JSONC and YAML `insert_comment` validators were relaxed to allow a blank line in the comment fragment (TOML already did). All three backends covered by headless `dispatch` tests. (2026-06-25)
