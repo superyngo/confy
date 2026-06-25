@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Web UX: dynamic sample version, toggleable menus, universal Esc (web-only):** three polish items, no core/WASM change. (1) **Built-in sample `about.version` is now build-stamped** — `web/build.mjs` reads `version` from the workspace `Cargo.toml` and injects it via esbuild `define: __APP_VERSION__`, which the three sample docs interpolate, so the demo tracks the real release instead of a stale `0.7.0` literal (falls back to `"dev"` when the bundle is loaded without the define). (2) **All menu buttons toggle** — the `⋯` More button and the per-row `⋮` context menu now close on a second click (mirroring the already-toggling type-filter button and kind badge); a new `ctxMenuPath` tracker drives the row-menu toggle. (3) **Every popup supports Esc** — added an Esc-to-close handler for the load-modal (the one surface that lacked it; all other menus/dialogs/overlays/editor already cancelled on Esc). Web typecheck + esbuild bundle clean. (2026-06-25)
+
 ## [v0.9.0] - 2026-06-25
 
 ### Fixed

@@ -147,7 +147,13 @@ shapes round-trip). Key types:
   edit buffer, Enter/blur → `CommitEdit`); a key → a rename input; the kind badge → a
   popover built from `kindOptions(path)` → `CommitKind`; `＋` → `AddNode`; `⋮`/right-click →
   a context menu. All popovers share one synchronous closer (a single outside-click
-  listener) and are scoped per popover so they don't open/close together. A **comment row's
+  listener) and are scoped per popover so they don't open/close together. **Every menu
+  button toggles** — a second click on the `⋯` More button (tracked by `.open`) or the
+  per-row `⋮` (tracked by `ctxMenuPath`, the ctx-menu analogue of `kindMenuPath`) closes
+  the menu, matching the already-toggling type-filter button and kind badge. **Every popup
+  closes on Esc** — the click-menus via `anyClickMenuOpen`, `#tfPop`/overlay/`#convDlg`/
+  inline editor/external-edit modal each in their own path, and the load-modal via its own
+  keydown handler (it early-returns from `onKey`, so it needs one). A **comment row's
   click target is the text only** (`.comment-row .comment` is `flex:0 1 auto` — no grow — so
   the empty space past the text no longer opens the editor; shrink is retained for the
   narrow-width ellipsis). **"Append sibling" on a comment** (context menu / `AddSibling`)

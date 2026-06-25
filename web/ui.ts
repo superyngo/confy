@@ -29,6 +29,12 @@ import type {
   TypeFilterView,
 } from "./types.js";
 
+// Workspace version stamped in at build time (see `build.mjs` `define`); falls
+// back to "dev" when the bundle is loaded without that define (e.g. raw serve).
+declare const __APP_VERSION__: string;
+const APP_VERSION =
+  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "dev";
+
 // Built-in demo doc — a self-describing intro to confy. All three carry the
 // *same* tree (identical keys/values/comments); only the dialect's notation and
 // comment marker differ, so cycling the header pill shows one config wearing
@@ -41,7 +47,7 @@ const SAMPLES: Record<"toml" | "json" | "yaml", string> = {
 [about]
 name = "confy"
 pitch = "Three config dialects, one tidy tree 🌳"
-version = "0.7.0"
+version = "${APP_VERSION}"
 lossless = true    # untouched bytes round-trip byte-for-byte
 
 [basics]
@@ -65,7 +71,7 @@ coffees_per_config = 3
   "about": {
     "name": "confy",
     "pitch": "Three config dialects, one tidy tree 🌳",
-    "version": "0.7.0",
+    "version": "${APP_VERSION}",
     "lossless": true    // untouched bytes round-trip byte-for-byte
   },
   "basics": {
@@ -91,7 +97,7 @@ coffees_per_config = 3
 about:
   name: confy
   pitch: Three config dialects, one tidy tree 🌳
-  version: "0.7.0"
+  version: "${APP_VERSION}"
   lossless: true    # untouched bytes round-trip byte-for-byte
 
 basics:
@@ -778,12 +784,19 @@ function onTreeClick(ev: MouseEvent) {
     return send("AddChild");
   }
   if (target.closest('[data-act="menu"]')) {
+    // Toggle: a second click on the same row's ⋮ closes the menu.
+    const pathKey = JSON.stringify(path);
+    if ($("ctxMenu").classList.contains("open") && ctxMenuPath === pathKey) {
+      return closePops();
+    }
     // Read the anchor rect BEFORE SetCursor re-renders the tree — `render()`
     // rebuilds `tree.innerHTML`, detaching this button, and a detached node's
     // `getBoundingClientRect()` is all-zeros (popup would jump to 0,0).
     const r = (target.closest("button") as HTMLElement).getBoundingClientRect();
     selectForMenu(path);
-    return openCtxMenuAt(path, r.left, r.bottom + 4);
+    openCtxMenuAt(path, r.left, r.bottom + 4); // calls closePops(), clearing ctxMenuPath
+    ctxMenuPath = pathKey;
+    return;
   }
   // Kind badge → toggle the kind-conversion popover (second click on the same
   // badge closes it).
@@ -974,9 +987,13 @@ let popCloser: ((e: MouseEvent) => void) | null = null;
 // The path the kind menu is currently open for, so a second click on the same
 // badge toggles it shut (rather than reopening).
 let kindMenuPath: string | null = null;
+// Same idea for the per-row ⋮ context menu: a second click on the same row's ⋮
+// closes it.
+let ctxMenuPath: string | null = null;
 function closePops() {
   for (const m of clickMenus()) m.classList.remove("open");
   kindMenuPath = null;
+  ctxMenuPath = null;
   if (popCloser) {
     document.removeEventListener("click", popCloser);
     popCloser = null;
@@ -1275,6 +1292,8 @@ function bindGlobal() {
   fmtPill.addEventListener("click", cycleSampleFormat); // no-op unless in sample mode
   themeBtn.addEventListener("click", toggleTheme);
   $("btnMore").addEventListener("click", (e) => {
+    // Toggle: a second click on ⋯ while its menu is open closes it.
+    if ($("moreMenu").classList.contains("open")) return closePops();
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     placePopAt(buildMoreMenu(), r.right - 200, r.bottom + 4);
   });
@@ -1297,8 +1316,18 @@ function bindGlobal() {
     openText(text, fmt);
     tree.focus();
   });
-  $("load-cancel").addEventListener("click", () => {
+  const closeLoadModal = () => {
     $("load-modal").classList.add("hidden");
+    tree.focus();
+  };
+  $("load-cancel").addEventListener("click", closeLoadModal);
+  // Esc closes the load modal (onKey early-returns while it's open, so it needs
+  // its own handler — mirrors the external-edit modal's Esc-to-cancel).
+  $("load-modal").addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    e.preventDefault();
+    e.stopPropagation();
+    closeLoadModal();
   });
 }
 
