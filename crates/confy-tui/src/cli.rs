@@ -58,6 +58,44 @@ fn resolve_format(override_str: Option<&str>, path: &Path) -> Result<DocFormat> 
     }
 }
 
+/// A minimal valid empty document for `format` — the seed written when the user
+/// asks to create a not-yet-existing file. TOML/YAML accept an empty document;
+/// JSON needs an empty object.
+fn seed_for(format: DocFormat) -> &'static str {
+    match format {
+        DocFormat::Toml => "",
+        DocFormat::Json => "{}\n",
+        DocFormat::Yaml => "",
+    }
+}
+
+/// `confy <file>` where `<file>` doesn't exist yet: confirm on the terminal, then
+/// create it with a minimal valid seed for the extension-derived format so the
+/// normal load path can open it. Declining (or a non-interactive stdin) aborts
+/// without touching the filesystem.
+fn create_missing_file(file: &Path, fmt: DocFormat) -> Result<()> {
+    if !std::io::stdin().is_terminal() {
+        anyhow::bail!(
+            "{} does not exist (run in a terminal to create it, or create it first)",
+            file.display()
+        );
+    }
+    eprint!(
+        "{} does not exist. Create it as {}? [y/N] ",
+        file.display(),
+        fmt.name()
+    );
+    std::io::stderr().flush().ok();
+    let mut answer = String::new();
+    std::io::stdin().read_line(&mut answer)?;
+    if !matches!(answer.trim(), "y" | "Y" | "yes") {
+        anyhow::bail!("cancelled (no file created)");
+    }
+    std::fs::write(file, seed_for(fmt))
+        .map_err(|e| anyhow::anyhow!("failed to create {}: {e}", file.display()))?;
+    Ok(())
+}
+
 pub fn run() -> Result<()> {
     let args = Args::parse();
     match args.command {
@@ -73,6 +111,9 @@ pub fn run() -> Result<()> {
                 anyhow::anyhow!("no file given (try `confy <file>` or `confy convert <in> <out>`)")
             })?;
             let fmt = resolve_format(args.format.as_deref(), &file)?;
+            if !file.exists() {
+                create_missing_file(&file, fmt)?;
+            }
             crate::tui::run(&file, fmt)
         }
     }
@@ -133,6 +174,26 @@ fn run_convert(
 mod tests {
     use crate::model::any_doc::detect_format;
     use crate::model::document::DocFormat;
+
+    #[test]
+    fn seed_for_each_format_round_trips() {
+        use crate::model::any_doc::AnyDocument;
+        use crate::model::document::ConfigDocument;
+        for fmt in [DocFormat::Toml, DocFormat::Json, DocFormat::Yaml] {
+            let seed = super::seed_for(fmt);
+            let doc = AnyDocument::from_str_as(seed, fmt)
+                .unwrap_or_else(|e| panic!("{fmt:?} seed must parse: {e}"));
+            // The seed is an empty document: it has no keyed children.
+            assert!(
+                doc.project()
+                    .root
+                    .children
+                    .iter()
+                    .all(|c| matches!(c.kind, crate::model::node::NodeKind::Comment(_))),
+                "{fmt:?} seed should be empty"
+            );
+        }
+    }
 
     #[test]
     fn detects_known_formats() {

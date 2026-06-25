@@ -773,9 +773,12 @@ function onTreeClick(ev: MouseEvent) {
     send({ SetCursor: path });
     return send("ToggleExpand");
   }
-  // Editable cells: key → rename, value/comment/trailing → edit.
+  // Editable cells: key → rename, value/comment-node → inline edit, trailing
+  // comment → its own separate editor (web-native; the TUI bundles it with the
+  // value, but the web edits it independently).
   const editEl = target.closest("[data-edit]") as HTMLElement | null;
   if (editEl) {
+    if (editEl.dataset.edit === "note") return beginTrailingEdit(rowEl, path);
     send({ SetCursor: path });
     return send(editEl.dataset.edit === "key" ? "BeginRename" : "BeginEdit");
   }
@@ -806,8 +809,81 @@ function focusInlineEdit() {
     if (done) return;
     done = true;
     if (!commit) return send("EditCancel");
-    if (edit.field === "Value") send({ CommitEdit: { value: input.value, name: null } });
-    else send({ CommitEdit: { value: null, name: input.value } });
+    if (edit.field === "Value") {
+      // The value `<input>` holds the value only (the trailing comment is edited
+      // in its own cell). Re-attach the unchanged comment so a value edit never
+      // drops it — core bundles `value␠␠# comment` and re-splits on commit.
+      const r = snap?.rows.find(
+        (row) => JSON.stringify(row.path) === JSON.stringify(snap!.cursor),
+      );
+      const tc = edit.is_comment ? undefined : r?.trailing_comment;
+      const value = tc ? `${input.value}  ${tc}` : input.value;
+      send({ CommitEdit: { value, name: null } });
+    } else send({ CommitEdit: { value: null, name: input.value } });
+  };
+  input.onkeydown = (e) => {
+    e.stopPropagation(); // native typing; don't leak to the global key handler
+    if (e.key === "Enter") {
+      e.preventDefault();
+      finish(true);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      finish(false);
+    }
+  };
+  input.onblur = () => finish(true);
+}
+
+// The rendered `.row` element for a path (the menu reopens against a still-live
+// DOM after `closePops`, so we look it up rather than threading the element).
+function rowElByPath(path: Path): HTMLElement | null {
+  const key = JSON.stringify(path);
+  return (
+    Array.from(tree.querySelectorAll<HTMLElement>(".row")).find(
+      (el) => el.dataset.path === key,
+    ) ?? null
+  );
+}
+
+// Line-comment leader for the current document (TOML/YAML `#`, JSON/JSONC `//`).
+function commentPrefix(): string {
+  return snap?.doc_format === "Json" ? "//" : "#";
+}
+
+// Edit (or append, when the row has none yet) a node's **trailing** inline
+// comment in its own small `<input>`, separate from the value cell. A transient
+// web-local affordance: it lives in the DOM only until commit/cancel (no core
+// edit-mode), so opening it issues no `send()` and survives until the user is
+// done. Enter/blur → `SetTrailing` (empty clears); Escape restores via re-render.
+function beginTrailingEdit(rowEl: HTMLElement, path: Path) {
+  if (!snap) return;
+  const row = snap.rows.find((r) => JSON.stringify(r.path) === JSON.stringify(path));
+  const input = document.createElement("input");
+  input.className = "cell-input mono comment-input";
+  input.dataset.editing = "trailing";
+  input.value = row?.trailing_comment ?? "";
+  input.placeholder = `${commentPrefix()} comment`;
+  const note = rowEl.querySelector('[data-edit="note"]');
+  const actions = rowEl.querySelector(".row-actions");
+  if (note) note.replaceWith(input);
+  else if (actions) rowEl.insertBefore(input, actions);
+  else rowEl.appendChild(input);
+  input.focus();
+  const n = input.value.length;
+  input.setSelectionRange(n, n);
+  let done = false;
+  const finish = (commit: boolean) => {
+    if (done) return;
+    done = true;
+    if (!commit) return render(); // restore the original row DOM
+    const text = input.value.trim();
+    let comment: string | null;
+    if (text === "") comment = null;
+    else {
+      const pfx = commentPrefix();
+      comment = text.startsWith(pfx) ? text : `${pfx} ${text}`;
+    }
+    send({ SetTrailing: { path, comment } });
   };
   input.onkeydown = (e) => {
     e.stopPropagation(); // native typing; don't leak to the global key handler
@@ -902,11 +978,24 @@ function openKindMenuAt(path: Path, x: number, y: number) {
   });
 }
 
+// A menu row's action: a plain Intent to `send`, or a custom callback (for the
+// web-local trailing-comment editor, which isn't a one-shot Intent).
+type CtxAction = Intent | (() => void);
+
 function buildCtxMenu(path: Path): HTMLElement {
   const key = JSON.stringify(path);
   const row = snap!.rows.find((r) => JSON.stringify(r.path) === key);
   const cc = snap!.clipboard_count ?? 0;
-  const items: Array<[string, Intent, boolean]> = [
+  const isComment = row?.type_label === "comment";
+  // "Append comment" attaches a *new* trailing comment; once a row has one you
+  // edit it by clicking it (so the item is offered only when there is none).
+  const canAppend =
+    !!row && !isComment && !row.read_only && !row.trailing_comment;
+  const appendComment = () => {
+    const el = rowElByPath(path);
+    if (el) beginTrailingEdit(el, path);
+  };
+  const items: Array<[string, CtxAction, boolean]> = [
     ["Edit", "BeginEdit", true],
     ["Add child", "AddChild", !!row?.is_branch],
     ["Append sibling", "AddSibling", path.length > 0],
@@ -915,9 +1004,8 @@ function buildCtxMenu(path: Path): HTMLElement {
     ["Paste", "Paste", cc > 0],
     ["Delete", "DeleteSelected", true],
     ["Toggle comment", "Remark", true],
+    ["Append comment", appendComment, canAppend],
     ["Detail", "ToggleDetail", true],
-    ["Undo", "Undo", true],
-    ["Redo", "Redo", true],
   ];
   const menu = $("ctxMenu");
   menu.innerHTML = items
@@ -930,7 +1018,9 @@ function buildCtxMenu(path: Path): HTMLElement {
     const i = Number(b.dataset.i);
     b.onclick = () => {
       closePops();
-      send(items[i][1]);
+      const action = items[i][1];
+      if (typeof action === "function") action();
+      else send(action);
     };
   });
   return menu;

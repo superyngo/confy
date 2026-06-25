@@ -1659,6 +1659,22 @@ impl Session {
         }
     }
 
+    /// Set/change/clear a node's trailing inline comment (Web `SetTrailing`:
+    /// the separate comment cell + "Append comment"). Atomic + semantically
+    /// validated by `Mutation::SetTrailingComment`; an unsupported target
+    /// (inline collection, …) leaves the document untouched and reports the
+    /// error as a status message.
+    pub fn set_trailing_comment(&mut self, path: Path, comment: Option<String>) {
+        let doc = match self.doc.as_mut() {
+            Some(d) => d,
+            None => return,
+        };
+        match doc.apply(Mutation::SetTrailingComment { path, comment }) {
+            Ok(()) => self.on_mutation_success(),
+            Err(e) => self.error = Some(format!("comment update failed: {e}")),
+        }
+    }
+
     pub fn apply_edit_comment(&mut self, path: Path, text: String) {
         let doc = match self.doc.as_mut() {
             Some(d) => d,

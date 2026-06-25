@@ -587,6 +587,40 @@ fn dispatch_paste_retargets_selection_to_pasted_node() {
     );
 }
 
+#[test]
+fn dispatch_set_trailing_on_scalar_and_branch() {
+    // Web `SetTrailing`: set/clear a node's trailing inline comment, on a leaf
+    // scalar and on a branch (TOML `[section]` header).
+    let mut s = toml_session("[srv]\nport = 8080\n");
+    s.dispatch(Intent::ExpandAll);
+    // scalar
+    let snap = s.dispatch(Intent::SetTrailing {
+        path: vec![Seg::Key("srv".into()), Seg::Key("port".into())],
+        comment: Some("# http".into()),
+    });
+    let port = snap
+        .rows
+        .iter()
+        .find(|r| r.key == "port")
+        .expect("port row");
+    assert_eq!(port.trailing_comment.as_deref(), Some("# http"));
+    // branch header
+    let snap = s.dispatch(Intent::SetTrailing {
+        path: vec![Seg::Key("srv".into())],
+        comment: Some("# the server".into()),
+    });
+    let srv = snap.rows.iter().find(|r| r.key == "srv").expect("srv row");
+    assert_eq!(srv.trailing_comment.as_deref(), Some("# the server"));
+    assert!(s.serialize().unwrap().contains("[srv]  # the server"));
+    // clear the branch comment again
+    let snap = s.dispatch(Intent::SetTrailing {
+        path: vec![Seg::Key("srv".into())],
+        comment: None,
+    });
+    let srv = snap.rows.iter().find(|r| r.key == "srv").expect("srv row");
+    assert_eq!(srv.trailing_comment, None);
+}
+
 // ---- Pointer selection (SetSelection) ----
 
 #[test]

@@ -107,6 +107,13 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
                     ensure_table_path(&mut root, &parent, &signs);
                     flush_comments(&mut root, &parent, pending, &mut idx);
                     ensure_table_path(&mut root, &path, &signs);
+                    // A `[section]  # c` header carries its EOL comment as the
+                    // table node's trailing comment (editable via SetTrailingComment).
+                    if let Some(tc) = entry_trailing_comment(&n) {
+                        if let Some(node) = node_at_mut(&mut root, &path) {
+                            node.trailing_comment = Some(tc);
+                        }
+                    }
                     idx.push((path.clone(), Target::Header(n.clone())));
                     current = path;
                 }
@@ -155,7 +162,8 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
                         value: None,
                         format: Format::Plain,
                         key_sign: KeySign::None,
-                        trailing_comment: None,
+                        // A `[[b]]  # c` header's EOL comment rides on the AoT entry.
+                        trailing_comment: entry_trailing_comment(&n),
                         read_only: false,
                     });
                     idx.push((entry_path.clone(), Target::AotEntry(n.clone())));

@@ -1478,6 +1478,32 @@ mod tests {
     }
 
     #[test]
+    fn set_trailing_comment_on_object_branch() {
+        // A branch (object member) carries its trailing comment after the closing
+        // brace; the splice keeps a following comma, just like a scalar member.
+        let set = |c: Option<&str>| Mutation::SetTrailingComment {
+            path: vec![Seg::Key("srv".into())],
+            comment: c.map(str::to_string),
+        };
+        // add to a non-final object member (comma preserved)
+        assert_eq!(
+            apply_str(
+                "{\n  \"srv\": {\n    \"x\": 1\n  },\n  \"z\": 2\n}\n",
+                set(Some("// the server"))
+            ),
+            "{\n  \"srv\": {\n    \"x\": 1\n  },  // the server\n  \"z\": 2\n}\n"
+        );
+        // clear it again
+        assert_eq!(
+            apply_str(
+                "{\n  \"srv\": {\n    \"x\": 1\n  },  // the server\n  \"z\": 2\n}\n",
+                set(None)
+            ),
+            "{\n  \"srv\": {\n    \"x\": 1\n  },\n  \"z\": 2\n}\n"
+        );
+    }
+
+    #[test]
     fn edit_multiline_comment_block() {
         // A merged multi-line `//` block (one node, one slot) edits via EditComment
         // without a "path not found" — item-space matches the projection slot-space.

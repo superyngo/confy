@@ -43,6 +43,15 @@ pub enum Intent {
     SetSelection {
         paths: Vec<crate::model::node::Path>,
     },
+    /// Set, change, or clear the **trailing inline comment** of the node at
+    /// `path` (Web UI: the separate comment cell + the "Append comment" menu).
+    /// `Some(text)` sets/changes it (text carries its own `#`/`//` prefix),
+    /// `None` clears it. Reuses `Mutation::SetTrailingComment`, so unsupported
+    /// targets (inline collections, …) reject with the document untouched.
+    SetTrailing {
+        path: crate::model::node::Path,
+        comment: Option<String>,
+    },
     /// Drag-reparent (Web UI): move `sources` into `target` at child `index`.
     /// A one-shot cut→paste reusing the full collision / illegal-destination /
     /// array-upgrade machinery; a drop onto a source or into its own subtree is

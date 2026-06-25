@@ -260,5 +260,25 @@ check("Paste moves cursor onto the pasted node",
   snap16.cursor.length === 2 && snap16.cursor[0]?.Key === "t2" && snap16.cursor[1]?.Key === "x",
   JSON.stringify(snap16.cursor));
 
+// ---- 21. SetTrailing: set a node's trailing comment, incl. a branch (Web UI) ----
+const s17 = new ConfySession(`[srv]\nport = 8080\n`, "toml");
+s17.dispatch(unit("ExpandAll"));
+const snap17a = s17.dispatch(tuple("SetTrailing", {
+  path: [{ Key: "srv" }, { Key: "port" }],
+  comment: "# http",
+}));
+check("SetTrailing sets a scalar trailing comment",
+  snap17a.rows.find((r) => r.key === "port")?.trailing_comment === "# http",
+  JSON.stringify(snap17a.rows.find((r) => r.key === "port")?.trailing_comment));
+const snap17b = s17.dispatch(tuple("SetTrailing", {
+  path: [{ Key: "srv" }],
+  comment: "# the server",
+}));
+check("SetTrailing sets a branch trailing comment",
+  snap17b.rows.find((r) => r.key === "srv")?.trailing_comment === "# the server",
+  s17.serialize());
+check("SetTrailing branch comment lands after the header",
+  s17.serialize().includes("[srv]  # the server"), s17.serialize());
+
 console.log(failures === 0 ? "\nALL FUNCTIONAL CHECKS PASSED" : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

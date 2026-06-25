@@ -155,9 +155,22 @@ function isExpanded(rows: ViewRow[], idx: number): boolean {
 
 // When the cursor row is in `Value` edit mode, the value cell becomes a live
 // `<input>` (ui.ts focuses it and commits on Enter/blur via `CommitEdit`).
+// Core bundles a scalar's trailing comment into the inline-edit buffer as
+// `value␠␠# comment` (so the TUI edits both at once). The web edits the comment
+// *separately* (a dedicated comment cell), so the value `<input>` is seeded with
+// the value portion only — strip the `␠␠<trailing>` suffix core appended. ui.ts
+// re-appends the unchanged comment on commit so a value edit never drops it.
+function valueEditSeed(r: ViewRow, buffer: string): string {
+  const tc = r.trailing_comment;
+  if (tc && buffer.endsWith(tc)) {
+    return buffer.slice(0, buffer.length - tc.length).replace(/\s+$/, "");
+  }
+  return buffer;
+}
+
 function renderValue(r: ViewRow, edit: EditView | null): string {
   if (edit && r.is_cursor && edit.field === "Value") {
-    return `<input class="cell-input mono" data-editing="value" value="${escapeAttr(edit.buffer)}" />`;
+    return `<input class="cell-input mono" data-editing="value" value="${escapeAttr(valueEditSeed(r, edit.buffer))}" />`;
   }
   // Collapse newlines so a multiline value stays on one row (it would otherwise
   // break the flexbox and push the kind badge off, making it unclickable). The

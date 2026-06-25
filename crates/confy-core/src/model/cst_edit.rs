@@ -933,6 +933,12 @@ fn set_trailing_comment(
         .find(|(p, _)| p == path)
         .map(|(_, t)| t.clone())
         .ok_or(MutateError::NotFound)?;
+    // A `[section]` / `[[aot]]` header: the EOL comment sits after the closing
+    // `]`, inside the header node (the NEWLINE is the header's sibling). Splice
+    // there rather than through a VALUE.
+    if let Target::Header(h) | Target::AotEntry(h) = &target {
+        return set_header_trailing_comment(tree, h, comment);
+    }
     let value = match target {
         Target::Entry(entry) => entry
             .children()
@@ -965,6 +971,31 @@ fn set_trailing_comment(
         .find('\n')
         .map(|i| cut_start + i)
         .unwrap_or(full.len());
+    let tail = match comment {
+        Some(c) => format!("  {}", c.trim()),
+        None => String::new(),
+    };
+    let new_text = format!("{}{}{}", &full[..cut_start], tail, &full[cut_end..]);
+    reparse_document(&new_text)
+}
+
+/// Set/change/clear the EOL comment of a `[section]` / `[[aot]]` header. The
+/// comment lives after the closing bracket(s), inside the header node; the splice
+/// rewrites from the last `]` to the header node's end (the NEWLINE is outside it).
+fn set_header_trailing_comment(
+    tree: &SyntaxNode,
+    header: &SyntaxNode,
+    comment: Option<&str>,
+) -> Result<SyntaxNode, MutateError> {
+    let last_bracket = header
+        .children_with_tokens()
+        .filter_map(|c| c.into_token())
+        .filter(|t| t.kind() == SyntaxKind::BRACKET_END)
+        .last()
+        .ok_or(MutateError::Unsupported)?;
+    let cut_start: usize = last_bracket.text_range().end().into();
+    let cut_end: usize = header.text_range().end().into();
+    let full = tree.to_string();
     let tail = match comment {
         Some(c) => format!("  {}", c.trim()),
         None => String::new(),
@@ -4154,6 +4185,45 @@ mod tests {
         let mut d = doc("port = \"a # b\"\n");
         d.apply(set(Some("# note"))).unwrap();
         assert_eq!(d.serialize(), "port = \"a # b\"  # note\n");
+    }
+
+    #[test]
+    fn set_trailing_comment_on_table_and_aot_headers() {
+        use crate::model::node::NodeKind;
+        // [section] header: add / change / clear after the closing bracket.
+        let set = |path: Vec<Seg>, c: Option<&str>| Mutation::SetTrailingComment {
+            path,
+            comment: c.map(str::to_string),
+        };
+        let mut d = doc("[srv]\nx = 1\n");
+        d.apply(set(vec![Seg::Key("srv".into())], Some("# the server")))
+            .unwrap();
+        assert_eq!(d.serialize(), "[srv]  # the server\nx = 1\n");
+        // it also projects onto the table node
+        let tree = d.project();
+        let srv = &tree.root.children[0];
+        assert!(matches!(srv.kind, NodeKind::Table));
+        assert_eq!(srv.trailing_comment.as_deref(), Some("# the server"));
+        // change + clear
+        d.apply(set(vec![Seg::Key("srv".into())], Some("# renamed")))
+            .unwrap();
+        assert_eq!(d.serialize(), "[srv]  # renamed\nx = 1\n");
+        d.apply(set(vec![Seg::Key("srv".into())], None)).unwrap();
+        assert_eq!(d.serialize(), "[srv]\nx = 1\n");
+
+        // [[aot]] header: comment rides on the entry, after `]]`.
+        let mut d = doc("[[item]]\nn = 1\n[[item]]\nn = 2\n");
+        let entry0 = vec![Seg::Key("item".into()), Seg::Index(0)];
+        d.apply(set(entry0.clone(), Some("# first"))).unwrap();
+        assert_eq!(d.serialize(), "[[item]]  # first\nn = 1\n[[item]]\nn = 2\n");
+        let tree = d.project();
+        let item = &tree.root.children[0];
+        assert_eq!(
+            item.children[0].trailing_comment.as_deref(),
+            Some("# first")
+        );
+        d.apply(set(entry0, None)).unwrap();
+        assert_eq!(d.serialize(), "[[item]]\nn = 1\n[[item]]\nn = 2\n");
     }
 
     #[test]

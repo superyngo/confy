@@ -2283,15 +2283,56 @@ fn set_trailing_comment(
             )
         })
         .ok_or(MutateError::Unsupported)?;
-    // A multi-line value (block collection / block scalar) has no single EOL slot.
     let value_text = value.text().to_string();
     if value_text.contains('\n') {
+        // A block-collection value (`key:\n  …`) keeps its comment on the entry's
+        // own first line, after `key:`, before the newline that begins the block —
+        // so a branch (nested map/seq) is editable. A multi-line block *scalar*
+        // (`|` / `>`) has no such slot, and a block value reached through a
+        // SEQ_ENTRY (`- key: v`) shares its dash line with content, so both reject.
+        if entry.kind() == SyntaxKind::MAP_ENTRY
+            && matches!(value.kind(), SyntaxKind::MAPPING | SyntaxKind::SEQUENCE)
+        {
+            return set_block_entry_trailing(tree, &entry, comment);
+        }
         return Err(MutateError::Unsupported);
     }
     // The VALUE node may swallow the spaces before an existing comment; cut at the
     // value's last non-whitespace byte so we don't accumulate separator spaces.
     let value_start: usize = value.text_range().start().into();
     let cut_start = value_start + value_text.trim_end().len();
+    let full = tree.to_string();
+    let cut_end = full[cut_start..]
+        .find('\n')
+        .map(|i| cut_start + i)
+        .unwrap_or(full.len());
+    let tail = match comment {
+        Some(c) => format!("  {}", c.trim()),
+        None => String::new(),
+    };
+    let new_text = format!("{}{}{}", &full[..cut_start], tail, &full[cut_end..]);
+    let green = crate::model::yaml::parse::parse(&new_text).map_err(MutateError::Fragment)?;
+    let new_root = SyntaxNode::new_root(green).clone_for_update();
+    let n = tree.children_with_tokens().count();
+    let children: Vec<_> = new_root.children_with_tokens().collect();
+    tree.splice_children(0..n, children);
+    Ok(())
+}
+
+/// Set/change/clear the EOL comment of a block-map parent entry (`key:  # c`).
+/// The comment slot is between the entry's `:` and the newline that starts the
+/// nested block; the splice rewrites that span and reparses in place.
+fn set_block_entry_trailing(
+    tree: &SyntaxNode,
+    entry: &SyntaxNode,
+    comment: Option<&str>,
+) -> Result<(), MutateError> {
+    let colon = entry
+        .children_with_tokens()
+        .filter_map(|c| c.into_token())
+        .find(|t| t.kind() == SyntaxKind::COLON)
+        .ok_or(MutateError::Unsupported)?;
+    let cut_start: usize = colon.text_range().end().into();
     let full = tree.to_string();
     let cut_end = full[cut_start..]
         .find('\n')
@@ -3284,11 +3325,51 @@ mod tests {
     }
 
     #[test]
-    fn set_trailing_comment_rejects_block_value() {
+    fn set_trailing_comment_on_block_map_parent() {
+        // A branch (block-map parent key) gains/changes/clears a trailing comment
+        // on its own `key:` line, leaving the nested block untouched.
+        let set = |src: &str, c: Option<&str>| {
+            apply_str(
+                src,
+                Mutation::SetTrailingComment {
+                    path: vec![Seg::Key("host".into())],
+                    comment: c.map(str::to_string),
+                },
+            )
+        };
+        assert_eq!(
+            set("host:\n  x: 1\n", Some("# the host")).unwrap(),
+            "host:  # the host\n  x: 1\n"
+        );
+        assert_eq!(
+            set("host:  # old\n  x: 1\n", Some("# new")).unwrap(),
+            "host:  # new\n  x: 1\n"
+        );
+        assert_eq!(
+            set("host:  # old\n  x: 1\n", None).unwrap(),
+            "host:\n  x: 1\n"
+        );
+        // A block sequence parent works too.
+        assert_eq!(
+            apply_str(
+                "host:\n  - a\n",
+                Mutation::SetTrailingComment {
+                    path: vec![Seg::Key("host".into())],
+                    comment: Some("# list".into()),
+                },
+            )
+            .unwrap(),
+            "host:  # list\n  - a\n"
+        );
+    }
+
+    #[test]
+    fn set_trailing_comment_rejects_block_scalar() {
+        // A multi-line block scalar (`|`) has no first-line comment slot.
         let r = apply_str(
-            "host:\n  x: 1\n",
+            "doc: |\n  hello\n  world\n",
             Mutation::SetTrailingComment {
-                path: vec![Seg::Key("host".into())],
+                path: vec![Seg::Key("doc".into())],
                 comment: Some("# c".into()),
             },
         );

@@ -76,14 +76,23 @@ fn edit_value_cell(e: &EditState, width: usize) -> Cell<'static> {
 fn value_cell(row: &crate::tui::app::RowSnapshot) -> Cell<'static> {
     let preview = cell_preview(row.value.as_deref().unwrap_or(""));
     match &row.trailing_comment {
-        Some(tc) => Cell::from(Line::from(vec![
-            Span::raw(preview),
-            Span::raw("  "),
-            Span::styled(
+        // A branch (`[section]  # c`, `key:  # c`) has no value preview, so the
+        // comment leads the VALUE cell with no separator; a scalar keeps the gap.
+        Some(tc) => {
+            let comment = Span::styled(
                 cell_preview(tc),
                 Style::default().add_modifier(Modifier::DIM),
-            ),
-        ])),
+            );
+            if preview.is_empty() {
+                Cell::from(Line::from(comment))
+            } else {
+                Cell::from(Line::from(vec![
+                    Span::raw(preview),
+                    Span::raw("  "),
+                    comment,
+                ]))
+            }
+        }
         None => Cell::from(preview),
     }
 }

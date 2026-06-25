@@ -69,6 +69,7 @@ impl super::Session {
             Intent::CommitEdit { value, name } => self.commit_edit(value, name),
             Intent::CommitKind { path, target } => self.commit_kind(path, target),
             Intent::SetSelection { paths } => self.set_selection(paths),
+            Intent::SetTrailing { path, comment } => self.set_trailing_comment(path, comment),
             Intent::MoveSelectionTo {
                 sources,
                 target,
