@@ -147,7 +147,12 @@ shapes round-trip). Key types:
   edit buffer, Enter/blur → `CommitEdit`); a key → a rename input; the kind badge → a
   popover built from `kindOptions(path)` → `CommitKind`; `＋` → `AddNode`; `⋮`/right-click →
   a context menu. All popovers share one synchronous closer (a single outside-click
-  listener) and are scoped per popover so they don't open/close together.
+  listener) and are scoped per popover so they don't open/close together. A **comment row's
+  click target is the text only** (`.comment-row .comment` is `flex:0 1 auto` — no grow — so
+  the empty space past the text no longer opens the editor; shrink is retained for the
+  narrow-width ellipsis). **"Append sibling" on a comment** (context menu / `AddSibling`)
+  inserts a *separate* single-line comment and opens it in the inline editor; **Esc removes
+  it** — the core `add_comment_sibling` path (blank-separated node + `created_on_add`).
 - **Native modal widgets replace the keyboard overlay.** The always-visible **search box**
   owns the filter text (debounced `input` → `SetFilter`, `/` focuses it — no `Mode::Filter`
   is ever entered; search now matches **scalar values**, not just keys/paths/comments). `f`

@@ -1882,6 +1882,15 @@ impl Session {
                 if let Mode::Edit(e) = &mut self.mode {
                     e.created_on_add = true;
                 }
+            } else if key.is_some() {
+                // Container sibling with a key: enter rename mode so the user
+                // can immediately rename the placeholder key and, crucially,
+                // pressing Escape triggers `edit_cancel → cancel_added_node`,
+                // removing the just-inserted container (same UX as AddChild).
+                self.begin_inline_rename();
+                if let Mode::Edit(e) = &mut self.mode {
+                    e.created_on_add = true;
+                }
             } else {
                 self.status = Some("added placeholder node — rename with e".into());
             }
@@ -1897,7 +1906,10 @@ impl Session {
             self.status = Some("comments not supported here".into());
             return;
         }
-        let text = format!("{} ", doc.comment_prefix());
+        // A leading blank line keeps the new comment a *separate* single-line node
+        // instead of merging into the adjacent comment (consecutive `#` lines
+        // project as one node; a blank splits them).
+        let text = format!("\n{} ", doc.comment_prefix());
         match doc.apply(Mutation::InsertComment {
             target: target.clone(),
             text,
@@ -1913,7 +1925,13 @@ impl Session {
         let rows = self.visible_rows();
         if rows.iter().any(|r| r.path == new_path) {
             self.cursor = new_path;
-            self.status = Some("added comment — edit with e".into());
+            // Enter the inline editor on the fresh comment so the user types
+            // immediately; `created_on_add` makes Esc remove it (and its
+            // blank-line separator) via History::cancel_last, matching scalar add.
+            self.begin_inline_edit();
+            if let Mode::Edit(e) = &mut self.mode {
+                e.created_on_add = true;
+            }
         }
     }
 

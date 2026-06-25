@@ -52,15 +52,18 @@ header/value line — an adjacent standalone comment is an independent node and 
 the fragment. TOML has no null, so there is no clear-value operation. **`a` (add)** adds a
 **next sibling of the cursor's own kind** in the cursor's scope — a scalar (empty string, opened
 in the inline editor) beside a scalar, an empty container beside a container (`[]`/`{}`, or a TOML
-`[table]`/`[[aot]]` header, named `placeholder`), and another standalone comment beside a comment;
+`[table]`/`[[aot]]` header, named `placeholder`), and another standalone comment beside a comment
+(blank-line separated so it stays a **distinct** single-line node instead of merging into the
+neighbour, and opened in the inline editor — same as a scalar);
 the **root or an expanded branch** appends an empty scalar as its last child. Container/scalar seeds
 go through the backend's `scalar_fragment` (no hard-coded notation), **except an array/seq element
 seed**, which uses `array_element_fragment` so it is a **bare keyless** element in every backend
 (TOML included — previously TOML seeded a `{ __elem__ = "" }` inline table). A scalar appended into a
 branch is still clamped to the leading region (before any `[table]`/`[[aot]]`) so it stays legal (D5).
-A scalar add opens the inline editor on the seed; pressing **Esc** there (`edit_cancel` with
-`EditState.created_on_add`) rolls the insert back via `History::cancel_last` — no node, no undo/redo
-crumb — so a mistaken `a` is undone in one keystroke.
+A scalar **or comment** add opens the inline editor on the seed; pressing **Esc** there
+(`edit_cancel` with `EditState.created_on_add`) rolls the insert back via `History::cancel_last`
+— no node (for a comment, the blank separator goes too), no undo/redo crumb — so a mistaken `a`
+is undone in one keystroke.
 
 ## Comments (TUI)
 

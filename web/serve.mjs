@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
 const PORT = Number(process.env.PORT ?? 8080);
+const HOST = process.env.HOST ?? "0.0.0.0";
 const MIME = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -38,6 +39,6 @@ createServer(async (req, res) => {
   } catch {
     res.writeHead(404).end("not found");
   }
-}).listen(PORT, () => {
-  console.log(`confy web on http://localhost:${PORT}`);
+}).listen(PORT, HOST, () => {
+  console.log(`confy web on http://${HOST}:${PORT}`);
 });

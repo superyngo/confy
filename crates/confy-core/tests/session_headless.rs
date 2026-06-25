@@ -783,3 +783,90 @@ fn dispatch_set_convert_path_then_run_writes() {
     assert_eq!(path, "custom.json");
     assert!(text.contains("\"a\""), "json output:\n{text}");
 }
+
+// ── comment append-sibling: enter inline editor + Esc-cancel (separate node) ──
+
+#[test]
+fn add_comment_sibling_enters_inline_edit_and_separates() {
+    let mut s = toml_session("# first\nkey = 1\n");
+    s.dispatch(Intent::SetCursor(vec![Seg::Index(0)]));
+    let snap = s.dispatch(Intent::AddSibling);
+    // A fresh, *separate* single-line comment node opens in the inline editor.
+    assert!(
+        matches!(snap.mode, ModeView::Edit(ref e) if e.is_comment && !e.buffer.contains('\n')),
+        "expected inline comment edit, got {:?}",
+        snap.mode
+    );
+    assert_eq!(snap.cursor, vec![Seg::Index(1)]);
+    let text = s.serialize().unwrap();
+    assert_eq!(
+        text, "# first\n\n# \nkey = 1\n",
+        "blank-separated new comment"
+    );
+}
+
+#[test]
+fn add_comment_sibling_commit_keeps_it() {
+    let mut s = toml_session("# first\nkey = 1\n");
+    s.dispatch(Intent::SetCursor(vec![Seg::Index(0)]));
+    s.dispatch(Intent::AddSibling);
+    s.dispatch(Intent::CommitEdit {
+        value: Some("# hello".into()),
+        name: None,
+    });
+    assert_eq!(s.serialize().unwrap(), "# first\n\n# hello\nkey = 1\n");
+}
+
+#[test]
+fn add_comment_sibling_escape_removes_it() {
+    let src = "# first\nkey = 1\n";
+    let mut s = toml_session(src);
+    s.dispatch(Intent::SetCursor(vec![Seg::Index(0)]));
+    s.dispatch(Intent::AddSibling);
+    let snap = s.dispatch(Intent::Escape);
+    assert!(matches!(snap.mode, ModeView::Normal));
+    assert_eq!(
+        s.serialize().unwrap(),
+        src,
+        "Esc reverts the inserted comment"
+    );
+}
+
+#[test]
+fn add_comment_sibling_yaml() {
+    let doc = AnyDocument::from_str_as("# c\na: 1\n", DocFormat::Yaml).unwrap();
+    let mut s = Session::new(doc);
+    s.dispatch(Intent::SetCursor(vec![Seg::Index(0)]));
+    let snap = s.dispatch(Intent::AddSibling);
+    assert!(matches!(snap.mode, ModeView::Edit(ref e) if e.is_comment));
+    assert_eq!(s.serialize().unwrap(), "# c\n\n# \na: 1\n");
+    // Esc reverts.
+    s.dispatch(Intent::Escape);
+    assert_eq!(s.serialize().unwrap(), "# c\na: 1\n");
+}
+
+#[test]
+fn add_comment_sibling_jsonc() {
+    // The `//` line auto-upgrades the JSON doc to JSONC.
+    let doc = AnyDocument::from_str_as("{\n  // c\n  \"a\": 1\n}\n", DocFormat::Json).unwrap();
+    let mut s = Session::new(doc);
+    let cpath = s
+        .visible_rows()
+        .iter()
+        .find(|r| r.key.starts_with("//"))
+        .map(|r| r.path.clone())
+        .expect("comment row");
+    s.dispatch(Intent::SetCursor(cpath));
+    let snap = s.dispatch(Intent::AddSibling);
+    assert!(matches!(snap.mode, ModeView::Edit(ref e) if e.is_comment));
+    // Two distinct comment rows now (separate nodes, not merged).
+    let comment_rows = s
+        .visible_rows()
+        .iter()
+        .filter(|r| r.key.starts_with("//"))
+        .count();
+    assert_eq!(comment_rows, 2);
+    // Esc reverts to the original document.
+    s.dispatch(Intent::Escape);
+    assert_eq!(s.serialize().unwrap(), "{\n  // c\n  \"a\": 1\n}\n");
+}

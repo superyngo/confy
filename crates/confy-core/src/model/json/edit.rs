@@ -949,9 +949,11 @@ fn edit_comment(tree: &SyntaxNode, path: &[Seg], text: &str) -> Result<(), Mutat
 }
 
 fn insert_comment(tree: &SyntaxNode, target: &MutTarget, text: &str) -> Result<(), MutateError> {
-    // Validate: every line must start with "//".
+    // Validate: every non-blank line must start with "//". A blank line is
+    // allowed so a fragment can carry a separator (used to keep an inserted
+    // comment a distinct node, not merged into a neighbour).
     for line in text.lines() {
-        if !line.trim_start().starts_with("//") {
+        if !line.trim().is_empty() && !line.trim_start().starts_with("//") {
             return Err(MutateError::Fragment(
                 "every line of a comment must start with //".into(),
             ));

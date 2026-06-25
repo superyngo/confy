@@ -2584,14 +2584,16 @@ mod tests {
 
     #[test]
     fn add_on_collapsed_table_adds_sibling_table() {
+        use crate::tui::state::EditField;
         // idea 3 / idea 5: `a` on a collapsed `[t]` adds a sibling `[placeholder]`
-        // (a scalar there would be captured by `[t]`), no inline edit.
+        // (a scalar there would be captured by `[t]`). A keyed container sibling
+        // opens in rename Edit mode so Esc cancels the just-added node.
         let mut app = app_with("[t]\nx = 1\n");
         app.select_row(app.rows.iter().position(|r| r.key == "t").unwrap()); // collapsed
         app.add_node();
         assert!(
-            !matches!(app.session.mode, Mode::Edit(_)),
-            "structured add: no inline"
+            matches!(&app.session.mode, Mode::Edit(e) if e.field == EditField::Name),
+            "structured add: rename edit"
         );
         let s = app.session.doc.as_ref().unwrap().serialize();
         assert!(s.contains("[placeholder]"), "serialize: {s:?}");
@@ -2601,15 +2603,16 @@ mod tests {
 
     #[test]
     fn add_on_collapsed_dotted_table_adds_table_sibling() {
+        use crate::tui::state::EditField;
         // Same-kind model: `a` on a `[T/D]` table (a Table node) adds a sibling
-        // table — an empty `[placeholder]` scope table, no inline edit.
+        // table — an empty `[placeholder]` scope table, in rename Edit mode.
         // `[T/D]` tables start collapsed, so `a` is a collapsed branch.
         let mut app = app_with("a.b = 1\n");
         app.select_row(app.rows.iter().position(|r| r.key == "a").unwrap());
         app.add_node();
         assert!(
-            !matches!(app.session.mode, Mode::Edit(_)),
-            "table add: no inline"
+            matches!(&app.session.mode, Mode::Edit(e) if e.field == EditField::Name),
+            "table add: rename edit"
         );
         let s = app.session.doc.as_ref().unwrap().serialize();
         assert!(s.contains("[placeholder]"), "serialize: {s:?}");
@@ -2617,14 +2620,16 @@ mod tests {
 
     #[test]
     fn add_on_collapsed_array_adds_array_sibling() {
+        use crate::tui::state::EditField;
         // Same-kind model: `a` on a collapsed array adds an empty array sibling
-        // right after it in the same scope — no stray scalar two rows up.
+        // right after it in the same scope — no stray scalar two rows up. The
+        // keyed sibling opens in rename Edit mode (Esc cancels).
         let mut app = app_with("nums = [1, 2]\nname = \"x\"\n");
         app.select_row(app.rows.iter().position(|r| r.key == "nums").unwrap());
         app.add_node();
         assert!(
-            !matches!(app.session.mode, Mode::Edit(_)),
-            "array add: no inline"
+            matches!(&app.session.mode, Mode::Edit(e) if e.field == EditField::Name),
+            "array add: rename edit"
         );
         let s = app.session.doc.as_ref().unwrap().serialize();
         assert_eq!(s, "nums = [1, 2]\nplaceholder = []\nname = \"x\"\n");

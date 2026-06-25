@@ -280,5 +280,20 @@ check("SetTrailing sets a branch trailing comment",
 check("SetTrailing branch comment lands after the header",
   s17.serialize().includes("[srv]  # the server"), s17.serialize());
 
+// ---- 22. Comment append-sibling enters inline edit (the web inline-editor path) ----
+const s18 = new ConfySession(`# first\nkey = 1\n`, "toml");
+s18.dispatch(tuple("SetCursor", [{ Index: 0 }]));
+const snap18 = s18.dispatch(unit("AddSibling"));
+const edit18 = typeof snap18.mode === "object" ? snap18.mode.Edit : null;
+check("Comment AddSibling enters inline comment edit",
+  !!edit18 && edit18.is_comment === true && edit18.field === "Value",
+  JSON.stringify(snap18.mode));
+check("Comment AddSibling separates into a distinct node (blank line)",
+  s18.serialize() === "# first\n\n# \nkey = 1\n", JSON.stringify(s18.serialize()));
+const snap18b = s18.dispatch(unit("EditCancel"));
+check("Esc after comment AddSibling removes the new comment",
+  s18.serialize() === "# first\nkey = 1\n" && snap18b.mode === "Normal",
+  JSON.stringify(s18.serialize()));
+
 console.log(failures === 0 ? "\nALL FUNCTIONAL CHECKS PASSED" : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);
