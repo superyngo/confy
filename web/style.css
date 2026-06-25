@@ -160,14 +160,14 @@ button{font-family:inherit;color:inherit;cursor:pointer}
 
 .key{
   font-family:var(--mono);font-size:13px;font-weight:600;color:var(--fg);
-  padding:3px 4px;border-radius:5px;white-space:nowrap;max-width:38vw;overflow:hidden;text-overflow:ellipsis;
+  padding:3px 4px;border-radius:5px;white-space:nowrap;max-width:38vw;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;
 }
 .row.branch .key{color:var(--t-branch);font-weight:700}
 .key:hover{background:color-mix(in oklch,var(--accent-soft) 70%,transparent)}
 .eq{color:var(--faint);font-family:var(--mono);margin:0 8px;flex:0 0 auto}
 .val{
   font-family:var(--mono);font-size:13px;padding:3px 6px;border-radius:5px;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46vw;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46vw;min-width:0;
 }
 .val:hover{background:color-mix(in oklch,var(--accent-soft) 70%,transparent);cursor:text}
 .val.t-string{color:var(--t-string)}
@@ -176,9 +176,9 @@ button{font-family:inherit;color:inherit;cursor:pointer}
 .val.t-date{color:var(--t-date)}
 .val.t-null{color:var(--t-null);font-style:italic}
 .count{font-family:var(--mono);font-size:11.5px;color:var(--faint);margin-left:6px}
-.comment{font-family:var(--mono);font-size:12px;color:var(--faint);font-style:italic;margin-left:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.comment{font-family:var(--mono);font-size:12px;color:var(--faint);font-style:italic;margin-left:10px;white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .comment-row .key,.comment-row .eq{display:none}
-.comment-row .comment{margin-left:0}
+.comment-row .comment{margin-left:0;flex:1 1 auto}
 
 .kind{
   flex:0 0 auto;margin-left:8px;font-family:var(--mono);font-size:10.5px;font-weight:600;
@@ -330,11 +330,12 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
   .eq{margin:0 5px}
   .row-actions{opacity:1}            /* 觸控：動作鈕常駐 */
   .drag-handle{opacity:.5}
-  .row{flex-wrap:wrap}
+  /* Rows stay single-line at every width: long key/value/comment cells compress
+     with an ellipsis (min-width:0 on each) instead of wrapping onto a new line or
+     vanishing. Full text remains in the detail panel (i). */
   .val{max-width:62vw}
   .detail{width:100vw}
   .hint{display:none}
-  .comment{display:none}
 }
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 

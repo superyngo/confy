@@ -536,7 +536,7 @@ function onKey(ev: KeyboardEvent) {
     case "k": case "ArrowUp": return navSelect("CursorUp");
     case "g": case "Home": return navSelect("CursorHome");
     case "G": case "End": return navSelect("CursorEnd");
-    case "Enter": return send("ToggleExpand");
+    case "Enter": return toggleSelectedBranches();
     case " ": return send("ToggleDetail");
     // preventDefault: these open a text editor synchronously (inline input or the
     // external modal); without it the triggering keystroke leaks into the field.
@@ -571,6 +571,19 @@ function send(i: Intent) {
   if (!session) return;
   snap = session.dispatch(i);
   render();
+}
+
+// With a multi-selection, Enter toggles every selected branch (each independently,
+// like the per-row caret); a single/zero selection keeps the plain cursor toggle.
+function toggleSelectedBranches() {
+  const branches = snap?.rows.filter((r) => r.selected && r.is_branch) ?? [];
+  if (branches.length <= 1) return send("ToggleExpand");
+  const keep = snap!.rows.filter((r) => r.selected).map((r) => r.path);
+  for (const r of branches) {
+    send({ SetCursor: r.path });
+    send("ToggleExpand");
+  }
+  send({ SetSelection: { paths: keep } }); // restore the multi-selection
 }
 
 // Plain cursor navigation that also collapses the selection onto the new cursor

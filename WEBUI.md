@@ -132,6 +132,9 @@ shapes round-trip). Key types:
   clicks on the same path — native `dblclick` is unreliable after the first click
   re-renders) toggles: a branch expands/collapses, a boolean leaf flips its value. Only
   empty-space clicks reach it (key→rename, value→edit, caret→expand all return first).
+  With a **multi-selection**, `Enter` toggles every selected branch independently (cursor-walks
+  the selected branch rows dispatching `ToggleExpand`, then restores the selection); a single
+  selection keeps the plain cursor toggle.
   Navigation keys (`←→↑↓`, Home/End, Space) `preventDefault` so the browser's native
   arrow-scroll can't drag the off-canvas detail panel into view (`.main` is also
   `overflow:hidden` as a backstop).
@@ -193,6 +196,11 @@ shapes round-trip). Key types:
   staged media queries (Tree/Raw ≤600px, Expand/Collapse ≤500px, Undo/Redo/Theme ≤440px);
   the More popup always lists the full action set. The search box has `min-width:96px` (well
   below its content size) so it yields space to those buttons before they collapse.
+  **Rows stay single-line at every width:** they never wrap or hide cells — long key/value/
+  comment compress with an ellipsis (`min-width:0` lets `text-overflow:ellipsis` fire inside
+  the flex row). The **value compresses first**; the **key keeps its full width**
+  (`.key{flex-shrink:0}`, truncating only past its `max-width:38vw` cap). Full text remains in
+  the detail panel (`i`).
 
 ## Future structured-diff evolution
 
