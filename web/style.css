@@ -105,13 +105,17 @@ button{font-family:inherit;color:inherit;cursor:pointer}
 .icon-btn:disabled{opacity:.35;cursor:not-allowed}
 .icon-btn .ic{width:16px;height:16px}
 .tgroup{display:flex;gap:6px}
+.more-btn{display:none;padding:0 10px}
 
 /* ---------- filter row ---------- */
 .filterbar{
   display:flex;align-items:center;gap:10px;padding:8px 12px;
   background:var(--surface);border-bottom:1px solid var(--border);flex:0 0 auto;
 }
-.search{position:relative;flex:1;max-width:520px}
+/* min-width:96px (well below the input's ~170px min-content) lets the search box
+   yield space to the right-side action buttons as the window narrows, so they
+   stay on one line longer instead of collapsing into ⋯ prematurely. */
+.search{position:relative;flex:1;min-width:96px}
 .search .ic{position:absolute;left:10px;top:50%;transform:translateY(-50%);width:16px;height:16px;color:var(--faint);pointer-events:none}
 .search input{
   width:100%;height:34px;padding:0 32px 0 34px;border-radius:9px;
@@ -125,7 +129,9 @@ button{font-family:inherit;color:inherit;cursor:pointer}
 .search .clear:hover{background:var(--border);color:var(--fg)}
 
 /* ---------- main / tree ---------- */
-.main{flex:1;min-height:0;display:flex;position:relative}
+/* overflow:hidden clips the off-canvas detail panel (translateX(100%)) so it
+   can never be scrolled into view; the tree-wrap owns its own scrolling. */
+.main{flex:1;min-height:0;display:flex;position:relative;overflow:hidden}
 .tree-wrap{flex:1;min-width:0;overflow:auto;position:relative;padding:6px 4px 80px}
 #tree{position:relative;user-select:none}
 .marquee{position:absolute;border:1px solid var(--sel-edge);background:var(--marquee);
@@ -303,14 +309,23 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
   .label-hide{display:none}
   .tbtn{padding:0 10px}
 }
+/* Narrow: instead of one cliff that dumps everything into "⋯ More" (and instead
+   of wrapping), fold the right-side action groups into the More popup one step
+   at a time, right→left, as width shrinks. #btnMore appears at the first step
+   and always lists the full action set (a harmless superset). */
+@media (max-width:600px){
+  #btnMore{display:inline-flex}
+  #viewTabs{display:none}            /* step 1: Tree/Raw tabs */
+}
+@media (max-width:500px){
+  #navGroup{display:none}            /* step 2: Expand/Collapse */
+}
+@media (max-width:440px){
+  #editGroup{display:none}           /* step 3: Undo/Redo/Theme */
+}
 @media (max-width:680px){
   :root{--row-h:38px;--indent:16px}
   body{font-size:14px}
-  .toolbar{flex-wrap:wrap;gap:8px}
-  .brand{order:0}
-  .toolbar .tgroup{order:3}
-  .filterbar{flex-wrap:wrap}
-  .search{max-width:none}
   .kind{margin-left:6px}
   .eq{margin:0 5px}
   .row-actions{opacity:1}            /* 觸控：動作鈕常駐 */

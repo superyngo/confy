@@ -261,12 +261,14 @@ function render() {
 }
 
 function updateSaveLabel() {
-  // The button advertises the actual save path via its tooltip.
-  saveBtn.title = fileHandle
-    ? "Save in place"
+  // The button opens the Save / Convert panel; ⌘S is the instant in-place path,
+  // so the tooltip advertises what that fast key actually does.
+  const inPlace = fileHandle
+    ? "⌘S saves in place"
     : FS_AVAILABLE
-      ? "Save as…"
-      : "Save (download)";
+      ? "⌘S = Save as…"
+      : "⌘S = download";
+  saveBtn.title = `Save / Convert…  (${inPlace})`;
 }
 
 function getEdit() {
@@ -405,9 +407,11 @@ function renderConvertDialog() {
   const path = $<HTMLInputElement>("convPath");
   const warns = $("convWarns");
   const run = $("convRun");
+  // Unified "Save / Convert" panel: the current format leads the list (default)
+  // so picking it is a plain save-as; the other two are cross-format converts.
+  const all = [snap!.doc_format, ...cv.options];
   if (!dlg.open) {
-    // Core lists only the legal targets (current format excluded).
-    sel.innerHTML = cv.options
+    sel.innerHTML = all
       .map((f) => `<option value="${f}">${f.toUpperCase()}</option>`)
       .join("");
     sel.value = cv.target;
@@ -418,13 +422,19 @@ function renderConvertDialog() {
     // Don't clobber the box while the user is typing the path.
     if (document.activeElement !== path) path.value = cv.path;
   }
-  const hasWarn = cv.warnings.length > 0;
+  // Same format → faithful save (no loss); only a cross-format convert warns.
+  const crossFmt = cv.target !== snap!.doc_format;
+  const hasWarn = crossFmt && cv.warnings.length > 0;
   warns.innerHTML = hasWarn
-    ? `<strong>Lossy conversion</strong><div class="warns-note">These styles will be normalized; the output is still valid ${snap!.doc_format === cv.target ? "" : cv.target.toUpperCase()}. Review and confirm to save.</div>` +
+    ? `<strong>Lossy conversion</strong><div class="warns-note">These styles will be normalized; the output is still valid ${cv.target.toUpperCase()}. Review and confirm to save.</div>` +
       `<ul>${cv.warnings.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul>`
     : "";
   warns.classList.toggle("hide", !hasWarn);
-  run.textContent = cv.step === "Confirm" ? "Confirm & save" : "Convert & save";
+  run.textContent = !crossFmt
+    ? "Save copy"
+    : cv.step === "Confirm"
+      ? "Confirm & save"
+      : "Convert & save";
 }
 
 function renderFooter() {
@@ -470,7 +480,7 @@ function onKey(ev: KeyboardEvent) {
       if (ev.key === "ArrowDown") return send({ ConvertMove: 1 });
       if (ev.key === "Enter") return send("ConvertPickFormat");
     } else if (step === "Path") {
-      if (ev.key === "Enter") return send("ConvertRun");
+      if (ev.key === "Enter") return runSaveConvert();
       if (ev.key === "Backspace") return send("ConvertPathBackspace");
       if (ev.key.length === 1) return send({ ConvertPathChar: ev.key });
     } else if (step === "Confirm") {
@@ -514,6 +524,12 @@ function onKey(ev: KeyboardEvent) {
   if (ev.shiftKey && (ev.key === "ArrowUp" || ev.key === "ArrowDown")) {
     ev.preventDefault();
     return send(ev.key === "ArrowUp" ? "ExtendSelectUp" : "ExtendSelectDown");
+  }
+  // Arrows / Home / End / Space natively scroll the focused container; we own
+  // them as navigation (cursor scroll-into-view keeps the row visible). Without
+  // this, ←/→ horizontally scroll the off-canvas detail panel into view.
+  if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", " "].includes(ev.key)) {
+    ev.preventDefault();
   }
   switch (ev.key) {
     case "j": case "ArrowDown": return navSelect("CursorDown");
@@ -753,7 +769,7 @@ function onTreeClick(ev: MouseEvent) {
     // rebuilds `tree.innerHTML`, detaching this button, and a detached node's
     // `getBoundingClientRect()` is all-zeros (popup would jump to 0,0).
     const r = (target.closest("button") as HTMLElement).getBoundingClientRect();
-    send({ SetCursor: path });
+    selectForMenu(path);
     return openCtxMenuAt(path, r.left, r.bottom + 4);
   }
   // Kind badge → toggle the kind-conversion popover (second click on the same
@@ -790,7 +806,40 @@ function onTreeClick(ev: MouseEvent) {
   }
   // Plain row-body click → selection gesture (plain / ⇧range / ⌘toggle). Core
   // moves the cursor to the focal path; expand stays on the caret (design).
+  // Manual double-click detection: a second *plain* click on the same path's
+  // empty area within 350ms toggles the row (branch expand / boolean value).
+  // Native `dblclick` is unreliable here (the first click re-renders/scrolls the
+  // row), so we time it ourselves — and only empty-space clicks reach this far.
+  const key = JSON.stringify(path);
+  const plain = !ev.shiftKey && !ev.ctrlKey && !ev.metaKey;
+  if (plain && lastBodyClick && lastBodyClick.key === key && Date.now() - lastBodyClick.t < 350) {
+    lastBodyClick = null;
+    return toggleRow(path);
+  }
+  lastBodyClick = plain ? { key, t: Date.now() } : null;
   send({ SetSelection: { paths: resolveClick(snap, path, ev) } });
+}
+// Last plain empty-area body click (path + time) for manual double-click detect.
+let lastBodyClick: { key: string; t: number } | null = null;
+
+// Double-click on a row's *empty* area (detected manually in `onTreeClick`, see
+// `lastBodyClick`): a branch toggles expand/collapse, a boolean leaf toggles its
+// value true↔false. Only plain empty-space body clicks reach this — key/value/
+// caret/etc. are handled (and return) earlier in `onTreeClick`.
+function toggleRow(path: Path) {
+  const key = JSON.stringify(path);
+  const row = snap?.rows.find((r) => JSON.stringify(r.path) === key);
+  if (!row) return;
+  if (row.is_branch) {
+    send({ SetCursor: path });
+    return send("ToggleExpand");
+  }
+  if (row.scalar_type === "Bool" && !row.read_only) {
+    const next = (row.value ?? "").trim().toLowerCase() === "true" ? "false" : "true";
+    const tc = row.trailing_comment;
+    send({ SetCursor: path });
+    send({ CommitEdit: { value: tc ? `${next}  ${tc}` : next, name: null } });
+  }
 }
 
 // Focus the live edit `<input>` (rendered by render.ts in Edit mode) and commit
@@ -903,7 +952,7 @@ function beginTrailingEdit(rowEl: HTMLElement, path: Path) {
 // and managed solely by `renderTypeFilterPop`, so these never touch it (else the
 // two would open/close together).
 function clickMenus(): HTMLElement[] {
-  return [$("kindMenu"), $("ctxMenu")];
+  return [$("kindMenu"), $("ctxMenu"), $("moreMenu")];
 }
 // One shared outside-click closer; closing always removes it so listeners never
 // accumulate (a stale one fires on the reopening click and flashes the menu shut
@@ -1029,6 +1078,36 @@ function openCtxMenuAt(path: Path, x: number, y: number) {
   placePopAt(buildCtxMenu(path), x, y);
 }
 
+// The "⋯ More" overflow menu (shown only under the narrow breakpoint): the same
+// secondary actions the CSS hides from the toolbar / filter row, as a popup.
+function buildMoreMenu(): HTMLElement {
+  const items: Array<[string, () => void]> = [
+    ["Save / Convert…", openSaveConvert],
+    ["Undo", () => send("Undo")],
+    ["Redo", () => send("Redo")],
+    ["Toggle theme", toggleTheme],
+    ["Expand all", () => send("ExpandAll")],
+    ["Collapse all", () => send("CollapseAll")],
+    ["Tree view", () => setView(false)],
+    ["Raw view", () => setView(true)],
+  ];
+  const menu = $("moreMenu");
+  menu.innerHTML = items
+    .map(
+      ([label], i) =>
+        `<button class="menu-item" data-i="${i}">${escapeHtml(label)}</button>`,
+    )
+    .join("");
+  menu.querySelectorAll<HTMLElement>("[data-i]").forEach((b) => {
+    const i = Number(b.dataset.i);
+    b.onclick = () => {
+      closePops();
+      items[i][1]();
+    };
+  });
+  return menu;
+}
+
 // Live search: the always-visible box owns the filter text and dispatches
 // `SetFilter` (debounced) on every keystroke. No `Mode::Filter` is entered.
 function bindSearch() {
@@ -1065,30 +1144,70 @@ function bindSearch() {
   });
 }
 
-// Open the convert dialog from the root node. `open_convert` requires the cursor
-// on the root and leaves `target` = the current format (which is excluded from
-// the options); seed the first legal target so the dialog opens consistent.
-function openConvert() {
+// The open file's stem (no directory, no extension) — the suggested output name.
+function fileStem(): string {
+  const base = (fileName ?? "config").split("/").pop()!;
+  const dot = base.lastIndexOf(".");
+  return dot > 0 ? base.slice(0, dot) : base;
+}
+function extForTag(tag: string): string {
+  return tag === "Json" ? ".json" : tag === "Yaml" ? ".yaml" : ".toml";
+}
+
+// Open the unified "Save / Convert" panel from the root node. `open_convert`
+// leaves `target` = the current format (the panel's default), so the dialog
+// opens on "save in the current format"; seed the output name from the open
+// file's stem (core would otherwise default to "out.<ext>").
+function openSaveConvert() {
   send({ SetCursor: [] });
   send("OpenConvert");
-  const m = snap?.mode;
-  if (typeof m === "object" && "Convert" in m && m.Convert.options.length) {
-    send({ SetConvertFormat: m.Convert.options[0] });
+  send({ SetConvertPath: fileStem() + extForTag(snap?.doc_format ?? "Toml") });
+}
+
+// Run the panel's action: a same-format pick is a faithful save-as of the live
+// document; a cross-format pick drives core's convert (warnings → confirm).
+function runSaveConvert() {
+  const m = snap!.mode;
+  if (typeof m !== "object" || !("Convert" in m)) return;
+  const cv = m.Convert;
+  if (cv.target === snap!.doc_format) return void doSaveAsCopy(cv.path);
+  send(cv.step === "Confirm" ? "ConvertConfirm" : "ConvertRun");
+}
+
+// Faithful "save a copy" of the live document (byte-for-byte `serialize()`),
+// used when the panel's format equals the open format. Like convert, it writes
+// an export copy and does not adopt the handle (the toolbar Save owns in-place).
+async function doSaveAsCopy(path: string) {
+  if (!session) return;
+  const text = session.serialize();
+  const fmt = snap!.doc_format;
+  const baseName = path.split("/").pop() || "confy-export" + extFor(fmt);
+  send("ExitConvert");
+  if (FS_AVAILABLE) {
+    const handle = await pickSaveFile(fmt, baseName);
+    if (!handle) return;
+    try {
+      await writeFile(handle, text);
+      setStatus(`Saved copy → ${(await handle.getFile()).name}`, "");
+    } catch (e) {
+      setStatus("", `save failed: ${String((e as Error).message ?? e)}`);
+    }
+    return;
   }
+  downloadText(baseName, text);
 }
 
 function bindConvertDialog() {
-  $<HTMLSelectElement>("convFmt").addEventListener("change", (e) =>
-    send({ SetConvertFormat: (e.target as HTMLSelectElement).value as DocFormat }),
-  );
+  $<HTMLSelectElement>("convFmt").addEventListener("change", (e) => {
+    const tag = (e.target as HTMLSelectElement).value as DocFormat;
+    send({ SetConvertFormat: tag });
+    // SetConvertFormat reseeds the path to "out.<ext>"; restore the real stem.
+    send({ SetConvertPath: fileStem() + extForTag(tag) });
+  });
   $<HTMLInputElement>("convPath").addEventListener("input", (e) =>
     send({ SetConvertPath: (e.target as HTMLInputElement).value }),
   );
-  $("convRun").addEventListener("click", () => {
-    const m = snap!.mode;
-    const step = typeof m === "object" && "Convert" in m ? m.Convert.step : "Path";
-    send(step === "Confirm" ? "ConvertConfirm" : "ConvertRun");
-  });
+  $("convRun").addEventListener("click", runSaveConvert);
   $("convCancel").addEventListener("click", () => send("ExitConvert"));
   // Native dialog Esc → leave Convert mode (render then closes the dialog).
   $<HTMLDialogElement>("convDlg").addEventListener("cancel", (e) => {
@@ -1139,10 +1258,13 @@ function bindGlobal() {
   bindSearch();
   bindConvertDialog();
   openBtn.addEventListener("click", () => void doOpen());
-  saveBtn.addEventListener("click", () => void doSave());
+  saveBtn.addEventListener("click", openSaveConvert);
   fmtPill.addEventListener("click", cycleSampleFormat); // no-op unless in sample mode
   themeBtn.addEventListener("click", toggleTheme);
-  $("btnConvert").addEventListener("click", openConvert);
+  $("btnMore").addEventListener("click", (e) => {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    placePopAt(buildMoreMenu(), r.right - 200, r.bottom + 4);
+  });
   $("btnUndo").addEventListener("click", () => send("Undo"));
   $("btnRedo").addEventListener("click", () => send("Redo"));
   $("btnExpandAll").addEventListener("click", () => send("ExpandAll"));
@@ -1237,8 +1359,20 @@ function onTreeContext(ev: MouseEvent) {
   if (!rowEl || rowEl.dataset.path === undefined) return;
   ev.preventDefault();
   const path = JSON.parse(rowEl.dataset.path) as Path;
-  send({ SetCursor: path });
+  selectForMenu(path);
   openCtxMenuAt(path, ev.clientX, ev.clientY);
+}
+
+// Align the selection with the row a menu is opening for, so the menu acts on
+// what was clicked — Copy/Cut/Delete operate on the *selection*, so a bare
+// SetCursor would silently target a different (still-selected) node. Standard
+// desktop rule: opening the menu on a row inside the current multi-selection
+// keeps it (act on all); on a row outside it, select just that row.
+function selectForMenu(path: Path) {
+  const key = JSON.stringify(path);
+  const inSel = snap?.rows.some((r) => r.selected && JSON.stringify(r.path) === key);
+  if (inSel) send({ SetCursor: path });
+  else send({ SetSelection: { paths: [path] } });
 }
 
 function noModalOpen(): boolean {

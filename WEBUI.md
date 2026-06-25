@@ -128,6 +128,13 @@ shapes round-trip). Key types:
   multi-select); ⌘/Ctrl-click = toggle without clearing (and re-anchor). A marquee
   rubber-band selects every row it intersects. The clicked end is kept last so core's
   cursor follows it. Plain `j/k`/arrow nav collapses the selection onto the new cursor.
+  A **double-click on a row's empty area** (detected manually by timing two plain body
+  clicks on the same path — native `dblclick` is unreliable after the first click
+  re-renders) toggles: a branch expands/collapses, a boolean leaf flips its value. Only
+  empty-space clicks reach it (key→rename, value→edit, caret→expand all return first).
+  Navigation keys (`←→↑↓`, Home/End, Space) `preventDefault` so the browser's native
+  arrow-scroll can't drag the off-canvas detail panel into view (`.main` is also
+  `overflow:hidden` as a backstop).
 - **Drag-reparent (`dnd.ts`).** HTML5 grip drag → `MoveSelectionTo`: `dragover` computes
   whether the pointer is over a branch's middle (drop **into** it, `.drag-over-into`) or a
   gap (drop before/after a sibling, shown by a horizontal `#dropLine`); a self-subtree drop
@@ -142,9 +149,13 @@ shapes round-trip). Key types:
   owns the filter text (debounced `input` → `SetFilter`, `/` focuses it — no `Mode::Filter`
   is ever entered; search now matches **scalar values**, not just keys/paths/comments). `f`
   renders the `TypeFilterView` grid into the native `#tfPop` popover (tri-state cells; cell
-  click = `TypeFilterMove`+`TypeFilterToggle`; Apply/Cancel). `C` opens the native `#convDlg`
-  `<dialog>` (`SetConvertFormat`/`SetConvertPath` → `ConvertRun`→`ConvertConfirm`; a lossy
-  convert is a non-fatal warning + second confirm, not a failure). `Detail` is a slide-in
+  click = `TypeFilterMove`+`TypeFilterToggle`; Apply/Cancel). The **Save button** (and `C`)
+  opens the native `#convDlg` as one unified **Save / Convert** panel: its format `<select>`
+  defaults to the current format with the filename prefilled from the open file's stem. Same
+  format → a faithful "Save copy" of `serialize()`; a different format → the convert flow
+  (`SetConvertFormat`/`SetConvertPath` → `ConvertRun`→`ConvertConfirm`; a lossy convert is a
+  non-fatal warning + second confirm, not a failure). `⌘S` stays the instant in-place save
+  (the panel is for save-as/convert). `Detail` is a slide-in
   aside. The keyboard `#overlay` now serves **only** Help / Prompt / KindSwitch. The
   body-keydown accelerator guard skips `INPUT`/`TEXTAREA`/`SELECT` so typing in a widget
   isn't routed as navigation.
@@ -163,8 +174,10 @@ shapes round-trip). Key types:
   with `initial`; on submit the UI dispatches `ApplyReplace`/`ApplyEditComment` with the
   request's path and the edited text.
 - **File I/O — File System Access API with download fallback.** All file I/O is
-  host-owned (`web/fs.ts`); core `Intent::Save` only clears the dirty flag. Save
-  precedence: (1) write in place to the open `FileSystemFileHandle`; (2) if the API is
+  host-owned (`web/fs.ts`); core `Intent::Save` only clears the dirty flag. The toolbar
+  **Save** button opens the Save / Convert panel (above); **`⌘S`** is the instant
+  in-place fast path with this precedence: (1) write in place to the open
+  `FileSystemFileHandle`; (2) if the API is
   available but no handle is held, `showSaveFilePicker` Save-As (and the handle is
   kept so subsequent saves are in place); (3) download (Firefox/Safari/older
   browsers). `Ctrl-o` / Open opens a real file via `showOpenFilePicker`; the Load
@@ -174,6 +187,12 @@ shapes round-trip). Key types:
   behind `web/fs.ts`; no editor logic depends on it.
 - **Theme.** A dark/light toggle (titlebar `☾`/`☀`) flips `:root[data-theme]`; CSS
   variables carry both palettes and the choice persists in `localStorage`.
+- **Responsive toolbar.** The toolbar holds a single right-side action button (**Save**,
+  opening the Save / Convert panel — the separate Convert button is gone). As the window
+  narrows, secondary controls fold into a `⋯ More` popup one group at a time, right→left, via
+  staged media queries (Tree/Raw ≤600px, Expand/Collapse ≤500px, Undo/Redo/Theme ≤440px);
+  the More popup always lists the full action set. The search box has `min-width:96px` (well
+  below its content size) so it yields space to those buttons before they collapse.
 
 ## Future structured-diff evolution
 
