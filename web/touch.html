@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <!-- Reverse guard: this is the touch entry. If the visitor explicitly asked
+         for desktop, or arrived on a fine pointer without forcing ?ui=touch,
+         bounce back to the desktop UI so one URL serves both. -->
+    <script>
+      (function () {
+        var p = new URLSearchParams(location.search);
+        var ui = p.get("ui");
+        if (ui === "touch") return;
+        if (ui === "desktop" || !matchMedia("(pointer:coarse)").matches) {
+          location.replace("index.html" + location.search);
+        }
+      })();
+    </script>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>confy — config tree editor</title>
+    <link rel="stylesheet" href="./touch/style.css" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- Native open fallback (no FS Access API). -->
+    <input id="fileInput" type="file" accept=".toml,.json,.jsonc,.yaml,.yml" hidden />
+    <script type="module" src="./touch/app.js"></script>
+  </body>
+</html>

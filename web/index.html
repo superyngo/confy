@@ -1,6 +1,19 @@
 <!doctype html>
 <html lang="en" data-theme="dark">
   <head>
+    <!-- Entry router: coarse-pointer (or ?ui=touch) → dedicated touch UI.
+         ?ui=desktop forces this desktop UI on any device. Runs before anything
+         else so the touch device never paints the desktop chrome first. -->
+    <script>
+      (function () {
+        var p = new URLSearchParams(location.search);
+        var ui = p.get("ui");
+        if (ui === "desktop") return;
+        if (ui === "touch" || matchMedia("(pointer:coarse)").matches) {
+          location.replace("touch.html" + location.search);
+        }
+      })();
+    </script>
     <meta charset="utf-8" />
     <meta
       name="viewport"

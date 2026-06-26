@@ -213,26 +213,65 @@ shapes round-trip). Key types:
   (`.key{flex-shrink:0}`, truncating only past its `max-width:38vw` cap). Full text remains in
   the detail panel (`i`).
 
-## RWD / touch foundation
+## Touch UI (dedicated `web/touch/` module)
 
-**Token layer.** `:root` carries two new tokens that future touch phases will consume:
-- `--hit: 44px` — minimum touch-target size (WCAG 2.5.5 / Apple HIG).
-- `--row-h-touch: 44px` — row height for touch viewports (activated in `pointer:coarse` context).
+The touch experience is **not** the desktop UI with gestures bolted on — that was tried and
+rejected as low-fidelity. Instead `web/touch/` is a **separate, prototype-faithful UI** that
+ports `docs/superpowers/specs/2026-06-26-web-respons-migrate-to-touch-ready.html` verbatim in
+look & gesture, but drives the **same `confy-core` Session** through the shared
+`confy.ts`/`Intent` contract — exactly how the desktop UI relates to the core. The prototype's
+only discarded part is its fake `TREE`/DOM-as-state model; everything mutating goes through
+`session.dispatch(Intent)` + a full re-render from the returned `SessionSnapshot` (stateless,
+like desktop). The two UIs share **only** `confy.ts`, `types.ts`, `fs.ts`, and the Intent
+contract; neither compromises the other.
 
-Desktop defaults (`--row-h:30px`, 32 px icon buttons) are unchanged.
+**Entry selection — one URL, two pages.** `index.html`'s `<head>` runs a tiny router before any
+paint: `?ui=desktop` stays on desktop; `?ui=touch` or `matchMedia('(pointer:coarse)').matches`
+→ `location.replace('touch.html')`. `touch.html` carries the reverse guard (fine pointer without
+`?ui=touch`, or `?ui=desktop`, → back to `index.html`). A two-page redirect (not in-page
+DOM-swap) is used because the desktop `body{display:flex;flex-direction:column}` + `.main{flex:1}`
+assume toolbar/main/footer are direct body children — wrapping them would break layout and force
+edits to the verbatim desktop CSS.
 
-**Capability-gated CSS hooks.** New `@media (pointer:coarse)` and `@media (hover:none)` blocks
-in `style.css` raise `.tbtn`/`.icon-btn` hit areas toward `--hit`, persist `.row-actions`, and
-adjust the `.caret` colour on hover-less devices. These rules are **purely additive**: every
-existing `@media (max-width:…)` rule is byte-for-byte unchanged and a mouse user at any
-viewport width sees zero difference.
+**Files** (`web/touch/`):
+- `touch.html` — minimal shell: reverse-guard redirect, `<link>` to `touch/style.css`, a `#root`
+  mount, the `fileInput` open-fallback, and `<script type=module src=./touch/app.js>`.
+- `touch/style.css` — the prototype's `<style>` block **verbatim**, minus the showcase device-frame
+  rules (`.stage`/`.frames`/`.device`/`.os-status`); two adaptations follow from dropping the
+  frame: `body` fills the viewport (positioned ancestor for `.app`) and `.app` inset goes 46px→0
+  (the space the fake OS status bar occupied). Mirrors the desktop "CSS = design verbatim" rule.
+- `touch/render.ts` — pure `SessionSnapshot → HTML`. Ports the prototype's row anatomy (caret /
+  key / `=` / typed value / count / kind badge / comment / grip / swipe actions) but every row is
+  a real `ViewRow`; flat list (the snapshot is the visible-row projection, so collapsed branches
+  omit descendants — no `.children` nesting), root row skipped, `data-path` attribute-safe.
+- `touch/app.ts` — orchestrator: boots the Session (`load` + `Session.fromText`), generates the
+  shell (ported `appHTML`), renders snapshots, and re-points every gesture to an Intent.
 
-**Inert scaffolding.** Three mount points sit in `index.html` as `.hidden` divs — `#touch-sheet`
-(bottom-sheet overlay), `#touch-fab` (FAB for primary action), `#touch-swipe` (swipe-gesture
-wrapper). `web/ui.ts` registers `initTouchScaffolding()`, gated behind
-`matchMedia('(pointer:coarse)')`, with three early-return stub functions. No live UI or
-interaction change occurs this phase; the stubs and mount points are groundwork for the next
-touch phase.
+**Gesture → Intent map** (all through the stateless dispatch loop):
+- caret tap → `SetCursor` + `ToggleExpand`; row tap → `SetCursor` + `SetSelection` + open Detail.
+- kind badge tap → kind sheet from `session.kindOptions(path)` → `CommitKind {path,target}`.
+- grip drag (ported pointer geometry, before/after/into + `.reorder-line`/`.drop-into`) →
+  `MoveSelectionTo {sources,target,index}` (sibling index = visible position, as in `dnd.ts`;
+  the dragged row's own subtree is excluded from drop candidates by path-prefix).
+- left-swipe row → **Edit** (open Detail), **Dup** (`CopySelected` + `Paste` — a real duplicate;
+  there is no dedicated duplicate Intent), **Delete** (`DeleteSelected`).
+- Detail (bottom sheet `<600px`, persistent side pane `≥600px` via `@container`): key →
+  `CommitEdit {name}`, value → `CommitEdit {value}`, trailing comment → `SetTrailing`, standalone
+  comment node → `ApplyEditComment`; kind button → kind sheet.
+- Menu sheet → `Open`/`OpenConvert`/`Redo`/`ExpandAll`/`CollapseAll` + theme toggle (`fs.ts` for I/O).
+- Type-filter & Convert sheets are built from `snapshot.mode` (`TypeFilterView` / `ConvertView`),
+  never local UI state: chips dispatch `TypeFilterMove`+`TypeFilterToggle`; convert dispatches
+  `SetConvertFormat`/`SetConvertPath`/`ConvertRun`/`ConvertConfirm`, and the resulting
+  `convert_write` snapshot field is written via `fs.ts`.
+- FAB → `AddNode` (parameterless, like the desktop `a` key — the prototype's add-type sheet is
+  dropped; the new node's kind is changed afterwards via the kind badge/detail).
+- search input → debounced `SetFilter`; Tree/Raw tabs are a view toggle (`session.serialize()`).
+- **Read-only / opaque rows** (`ViewRow.read_only`) render without grip/kind/swipe and reject
+  edits — mirroring core. Multi-line value/comment edits route to an external-edit sheet
+  (`ApplyReplace`/`ApplyEditComment`), the same handshake the desktop uses.
+
+`web/build.mjs` emits both bundles: `ui.ts → ui.js` (desktop, unchanged) and `touch/app.ts →
+touch/app.js`.
 
 ## Future structured-diff evolution
 

@@ -17,14 +17,18 @@ await cp(SRC_PKG, DST_PKG, { recursive: true });
 const cargoToml = await readFile(new URL("../Cargo.toml", import.meta.url), "utf8");
 const version = cargoToml.match(/^version\s*=\s*"([^"]+)"/m)?.[1] ?? "dev";
 
-await esbuild.build({
-  entryPoints: ["ui.ts"],
+const esbuildOpts = {
   bundle: true,
-  outfile: "ui.js",
   format: "esm",
   target: "es2022",
   sourcemap: true,
   define: { __APP_VERSION__: JSON.stringify(version) },
-});
+};
 
-console.log("built: ui.js + pkg/");
+// Desktop UI bundle.
+await esbuild.build({ ...esbuildOpts, entryPoints: ["ui.ts"], outfile: "ui.js" });
+
+// Dedicated touch UI bundle (see WEBUI.md § Touch UI).
+await esbuild.build({ ...esbuildOpts, entryPoints: ["touch/app.ts"], outfile: "touch/app.js" });
+
+console.log("built: ui.js + touch/app.js + pkg/");

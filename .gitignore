@@ -18,5 +18,7 @@ crates/confy-ffi/pkg/
 web/pkg/
 web/ui.js
 web/ui.js.map
+web/touch/app.js
+web/touch/app.js.map
 web/node_modules/
 **/.DS_Store

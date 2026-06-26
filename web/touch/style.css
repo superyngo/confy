@@ -1,0 +1,389 @@
+/* ============================================================
+   confy web — touch UI styles.
+   PORTED VERBATIM from the prototype's <style> block
+   (docs/superpowers/specs/2026-06-26-web-respons-migrate-to-touch-ready.html),
+   minus the showcase-only device-frame rules (.stage / .frames / .device /
+   .os-status) — those framed the prototype inside fake phones and have no place
+   in the real app. Two adaptations, both consequences of dropping that frame:
+     · `body` loses the device-frame radial background and instead fills the
+       viewport (it is the positioned ancestor for `.app`).
+     · `.app` inset goes 46px→0 (the 46px reserved space for the fake OS status
+       bar, which we no longer render).
+   Everything else is byte-faithful so the touch visual layer cannot drift.
+   ============================================================ */
+:root[data-theme="light"]{
+  --bg:oklch(98% 0.005 250); --surface:oklch(100% 0 0); --panel:oklch(96.5% 0.005 250);
+  --fg:oklch(22% 0.02 240); --muted:oklch(48% 0.018 240); --faint:oklch(62% 0.015 240);
+  --border:oklch(90% 0.008 240); --border-strong:oklch(82% 0.01 240);
+  --accent:oklch(55% 0.16 250); --accent-soft:oklch(94% 0.04 250);
+  --sel:oklch(93% 0.05 250); --sel-edge:oklch(70% 0.12 250);
+  --t-string:oklch(48% 0.13 150); --t-number:oklch(50% 0.15 250); --t-bool:oklch(52% 0.16 25);
+  --t-date:oklch(50% 0.13 300); --t-null:oklch(60% 0.01 240); --t-branch:oklch(40% 0.04 240);
+  --shadow:0 1px 2px oklch(20% 0.02 240/.08),0 12px 32px oklch(20% 0.02 240/.16);
+  --scrim:oklch(20% 0.02 240/.42);
+}
+:root[data-theme="dark"]{
+  --bg:oklch(20% 0.018 250); --surface:oklch(24% 0.02 250); --panel:oklch(27% 0.022 250);
+  --fg:oklch(94% 0.01 240); --muted:oklch(70% 0.015 240); --faint:oklch(56% 0.015 240);
+  --border:oklch(33% 0.02 250); --border-strong:oklch(44% 0.025 250);
+  --accent:oklch(74% 0.13 250); --accent-soft:oklch(34% 0.06 250);
+  --sel:oklch(34% 0.06 250); --sel-edge:oklch(62% 0.12 250);
+  --t-string:oklch(80% 0.13 150); --t-number:oklch(78% 0.12 250); --t-bool:oklch(78% 0.15 30);
+  --t-date:oklch(78% 0.12 300); --t-null:oklch(62% 0.01 240); --t-branch:oklch(84% 0.03 240);
+  --shadow:0 1px 2px oklch(0% 0 0/.3),0 16px 40px oklch(0% 0 0/.5);
+  --scrim:oklch(0% 0 0/.5);
+}
+:root{
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",system-ui,sans-serif;
+  --mono:"JetBrains Mono","IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  /* 觸控節奏：列高、命中區、間距全部放大 */
+  --row-h:54px; --indent:18px; --hit:44px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:var(--font); color:var(--fg);
+  background:var(--bg);
+  -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
+  overflow:hidden; position:relative;
+}
+button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* ============================================================
+   APP shell — 容器查詢驅動的響應式：手機單欄、折疊/平板雙欄
+   ============================================================ */
+.app{
+  container-type:inline-size;
+  position:absolute; inset:0;
+  display:flex; flex-direction:column; min-height:0;
+  background:var(--bg); color:var(--fg); font-size:15px; line-height:1.5;
+}
+
+/* ---- app bar ---- */
+.appbar{
+  flex:0 0 auto; display:flex; align-items:center; gap:10px;
+  padding:8px 12px env(safe-area-inset-bottom,0) 12px;
+  height:58px; background:var(--surface); border-bottom:1px solid var(--border);
+}
+.brand{display:flex;align-items:center;gap:9px;min-width:0}
+.brand .logo{
+  width:30px;height:30px;border-radius:9px;display:grid;place-items:center;flex:0 0 auto;
+  background:var(--accent);color:oklch(18% 0.02 250);font-family:var(--mono);font-weight:800;font-size:15px;
+}
+.brand .doc{display:flex;flex-direction:column;min-width:0;line-height:1.2}
+.brand .doc .name{font-weight:700;font-size:15px;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.brand .doc .meta{display:flex;align-items:center;gap:6px}
+.fmt-pill{
+  font-family:var(--mono);font-size:10.5px;font-weight:700;letter-spacing:.05em;
+  padding:1px 7px;border:1px solid var(--border-strong);border-radius:999px;
+  color:var(--muted);background:var(--panel);
+}
+.dirty-dot{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.appbar .grow{flex:1}
+/* 觸控命中區 ≥44px */
+.tapbtn{
+  width:var(--hit);height:var(--hit);display:grid;place-items:center;border-radius:12px;
+  color:var(--fg);background:transparent;transition:background .12s;flex:0 0 auto;
+}
+.tapbtn:active{background:var(--accent-soft)}
+.tapbtn .ic{width:22px;height:22px}
+.tapbtn.primary{background:var(--accent);color:oklch(18% 0.02 250)}
+.tapbtn.primary:active{filter:brightness(.94)}
+
+/* ---- 搜尋列 ---- */
+.searchbar{
+  flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:10px 12px;
+  background:var(--surface);border-bottom:1px solid var(--border);
+}
+.search{position:relative;flex:1;min-width:0}
+.search .ic{position:absolute;left:13px;top:50%;transform:translateY(-50%);width:19px;height:19px;color:var(--faint);pointer-events:none}
+.search input{
+  width:100%;height:48px;padding:0 42px 0 42px;border-radius:13px;
+  border:1px solid var(--border-strong);background:var(--panel);color:var(--fg);
+  font-size:16px;font-family:var(--font);/* 16px 防 iOS 聚焦縮放 */
+}
+.search input::placeholder{color:var(--faint)}
+.search .clear{
+  position:absolute;right:7px;top:50%;transform:translateY(-50%);
+  width:34px;height:34px;border-radius:9px;color:var(--faint);display:none;place-items:center;
+}
+.search.has-val .clear{display:grid}
+.search .clear:active{background:var(--border)}
+.filter-btn{
+  width:48px;height:48px;flex:0 0 auto;display:grid;place-items:center;border-radius:13px;
+  background:var(--panel);border:1px solid var(--border-strong);color:var(--fg);position:relative;
+}
+.filter-btn:active{background:var(--accent-soft)}
+.filter-btn .ic{width:20px;height:20px}
+.filter-btn .dot{position:absolute;top:8px;right:8px;width:8px;height:8px;border-radius:50%;background:var(--accent);display:none}
+.filter-btn.on .dot{display:block}
+
+/* ---- 分段控制 Tree / Raw ---- */
+.tabs{
+  flex:0 0 auto;display:flex;gap:4px;margin:10px 12px 4px;padding:4px;
+  background:var(--panel);border:1px solid var(--border);border-radius:13px;
+}
+.tab{
+  flex:1;height:44px;border-radius:10px;font-size:14px;font-weight:600;color:var(--muted);
+  display:grid;place-items:center;
+}
+.tab.active{background:var(--accent);color:oklch(18% 0.02 250)}
+
+/* ============================================================
+   主體：手機=單欄；容器 ≥600px=雙欄（樹 + 常駐詳情）
+   ============================================================ */
+.body{flex:1;min-height:0;display:flex;position:relative}
+.tree-pane{
+  flex:1;min-width:0;overflow:auto;overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
+  padding:6px 8px 120px;scroll-padding-top:8px;
+}
+.tree{position:relative}
+.detail-pane{display:none}
+
+/* ---- 樹列（觸控優化） ---- */
+.children{overflow:hidden}
+.children:not(.open){display:none}
+.row{position:relative;border-radius:13px;overflow:hidden;margin:1px 0}
+.row-main{
+  position:relative;z-index:2;display:flex;align-items:center;gap:2px;
+  min-height:var(--row-h);background:var(--bg);
+  border-radius:13px;padding-right:12px;
+  touch-action:pan-y;/* 允許縱向捲動，橫向交給手勢 */
+  transition:transform .22s cubic-bezier(.2,.8,.2,1),background .12s;
+  will-change:transform;
+}
+.row.selected > .row-main{background:var(--sel);box-shadow:inset 0 0 0 1.5px var(--sel-edge)}
+.row.cut > .row-main{opacity:.45}
+.row-main:active{background:color-mix(in oklch,var(--panel) 70%,transparent)}
+.caret{
+  width:var(--hit);height:var(--hit);flex:0 0 auto;display:grid;place-items:center;
+  color:var(--faint);border-radius:11px;
+}
+.caret svg{width:15px;height:15px;transition:transform .18s}
+.row.open > .row-main > .caret svg{transform:rotate(90deg)}
+.caret.leaf{visibility:hidden;width:14px}
+.key{
+  font-family:var(--mono);font-size:15px;font-weight:600;color:var(--fg);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 0 auto;padding:2px 0;
+}/* 壓縮優先序：key 不縮（盡量完整）< value 次之 < comment 先縮 */
+.row.branch .key{color:var(--t-branch);font-weight:700}
+.key.elem{color:var(--faint)}
+.eq{color:var(--faint);font-family:var(--mono);margin:0 9px;flex:0 0 auto}
+.val{
+  font-family:var(--mono);font-size:14.5px;flex:0 8 auto;min-width:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.val.t-string{color:var(--t-string)} .val.t-number{color:var(--t-number)}
+.val.t-bool{color:var(--t-bool)} .val.t-date{color:var(--t-date)}
+.val.t-null{color:var(--t-null);font-style:italic}
+.count{font-family:var(--mono);font-size:13px;color:var(--faint);margin-left:8px;flex:0 0 auto}
+.kind{
+  flex:0 0 auto;margin-left:10px;font-family:var(--mono);font-size:11px;font-weight:700;
+  letter-spacing:.02em;padding:3px 9px;border-radius:999px;
+  border:1px solid var(--border-strong);background:var(--panel);color:var(--muted);
+}
+.chev-r{margin-left:auto;flex:0 0 auto;color:var(--faint);display:grid;place-items:center;width:26px;height:26px}
+.chev-r svg{width:16px;height:16px}
+
+/* 行末註解（# comment）— 空白時隱藏 */
+.comment{
+  font-family:var(--mono);font-size:12.5px;color:var(--faint);font-style:italic;
+  margin-left:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 400 auto;min-width:0;
+}
+.comment:empty{display:none;margin:0}
+/* leaf：值與註解靠左，型別 pill 推到右側，把手在最後 */
+.row:not(.branch) .row-main > .val{flex:0 8 auto}
+.row:not(.branch) .row-main > .kind{margin-left:auto}
+
+/* 拖移排序把手 + 放置指示線 */
+.drag-handle{
+  width:40px;height:var(--row-h);flex:0 0 auto;display:grid;place-items:center;
+  color:var(--faint);touch-action:none;cursor:grab;border-radius:10px;
+}
+.drag-handle:active{cursor:grabbing;background:var(--accent-soft)}
+.drag-handle svg{width:18px;height:18px;opacity:.55}
+.row.dragging > .row-main{opacity:.45}
+.children.dragging{opacity:.45}
+/* 拖移落點：放入此 branch 內 */
+.row.drop-into > .row-main{
+  background:var(--accent-soft);
+  box-shadow:inset 0 0 0 2px var(--accent);
+}
+.reorder-line{
+  position:absolute;left:6px;right:6px;height:2.5px;background:var(--accent);border-radius:2px;
+  z-index:8;display:none;pointer-events:none;box-shadow:0 0 0 3px var(--accent-soft);
+}
+
+/* ---- 左滑顯示行內動作（手勢） ---- */
+.row-actions{
+  position:absolute;inset:0 0 0 auto;z-index:1;display:flex;align-items:stretch;
+}
+.row-actions button{
+  width:62px;display:grid;place-items:center;gap:3px;color:#fff;font-size:11px;font-weight:600;
+}
+.row-actions .ic{width:20px;height:20px}
+.act-edit{background:oklch(55% 0.13 250)}
+.act-dup{background:oklch(52% 0.12 300)}
+.act-del{background:oklch(55% 0.18 25)}
+.row.swiped > .row-main{transform:translateX(-186px)}
+
+/* ---- FAB ---- */
+.fab{
+  position:absolute;right:18px;bottom:calc(18px + env(safe-area-inset-bottom,0));z-index:40;
+  width:60px;height:60px;border-radius:20px;display:grid;place-items:center;
+  background:var(--accent);color:oklch(18% 0.02 250);
+  box-shadow:0 10px 28px oklch(0% 0 0/.4),0 0 0 1px oklch(80% 0.1 250/.2);
+}
+.fab:active{transform:scale(.95)}
+.fab .ic{width:28px;height:28px}
+
+/* ---- 狀態列 ---- */
+.statusbar{
+  flex:0 0 auto;display:flex;align-items:center;gap:10px;
+  padding:9px 14px calc(9px + env(safe-area-inset-bottom,0));
+  background:var(--surface);border-top:1px solid var(--border);
+  font-size:12.5px;color:var(--muted);
+}
+.statusbar .status{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.badge{font-family:var(--mono);font-size:11.5px;padding:3px 9px;border-radius:999px;background:var(--panel);border:1px solid var(--border)}
+
+/* ---- Raw 視圖 ---- */
+.raw-view{
+  display:none;padding:14px 14px 120px;font-family:var(--mono);font-size:14px;line-height:1.7;
+  white-space:pre;tab-size:2;color:var(--fg);overflow:auto;flex:1;
+}
+.app.raw .tree-pane{display:none}
+.app.raw .raw-view{display:block}
+.app.raw .fab{display:none}
+.raw-view .rk{color:var(--t-branch);font-weight:700}
+.raw-view .rs{color:var(--t-string)} .raw-view .rn{color:var(--t-number)} .raw-view .rb{color:var(--t-bool)}
+
+/* ============================================================
+   底部 sheet（詳情 / 選單 / 型別篩選 / 新增）+ scrim
+   ============================================================ */
+.scrim{
+  position:absolute;inset:0;z-index:45;background:var(--scrim);
+  opacity:0;visibility:hidden;transition:opacity .22s,visibility .22s;
+}
+.scrim.show{opacity:1;visibility:visible}
+.sheet{
+  position:absolute;left:0;right:0;bottom:0;z-index:50;
+  background:var(--surface);border-radius:22px 22px 0 0;
+  border-top:1px solid var(--border-strong);box-shadow:0 -12px 40px oklch(0% 0 0/.4);
+  transform:translateY(100%);transition:transform .26s cubic-bezier(.2,.85,.2,1);
+  max-height:84%;display:flex;flex-direction:column;
+  padding-bottom:env(safe-area-inset-bottom,0);
+  touch-action:none;
+}
+.sheet.open{transform:translateY(0)}
+.sheet .grab{display:flex;justify-content:center;padding:10px 0 4px}
+.sheet .grab::before{content:"";width:42px;height:5px;border-radius:3px;background:var(--border-strong)}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;padding:6px 18px 12px}
+.sheet-head h3{font-size:17px;font-weight:700}
+.sheet-head .close{width:var(--hit);height:var(--hit);display:grid;place-items:center;border-radius:11px;color:var(--muted)}
+.sheet-head .close:active{background:var(--panel)}
+.sheet-body{overflow:auto;padding:0 18px 20px;-webkit-overflow-scrolling:touch}
+
+/* 選單列 */
+.menu-item{
+  display:flex;align-items:center;gap:14px;width:100%;min-height:54px;padding:0 8px;
+  border-radius:12px;font-size:16px;color:var(--fg);text-align:left;
+}
+.menu-item:active{background:var(--accent-soft)}
+.menu-item .ic{width:22px;height:22px;color:var(--muted);flex:0 0 auto}
+.menu-item .sc{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--faint)}
+.menu-item.danger{color:var(--t-bool)} .menu-item.danger .ic{color:var(--t-bool)}
+.menu-sep{height:1px;background:var(--border);margin:6px 4px}
+
+/* 詳情 */
+.detail dl{display:grid;grid-template-columns:auto 1fr;gap:13px 16px;margin:4px 0 16px}
+.detail dt{color:var(--muted);font-size:14px}
+.detail dd{font-family:var(--mono);font-size:14px;word-break:break-all}
+.detail .v-edit,.detail .k-edit,.detail .c-edit{
+  width:100%;height:50px;padding:0 14px;border-radius:13px;font-family:var(--mono);font-size:16px;
+  background:var(--panel);border:1px solid var(--accent);color:var(--fg);margin-bottom:14px;
+}
+.detail .c-edit{border-color:var(--border-strong);font-style:italic}
+.detail .v-edit[disabled]{border-color:var(--border);color:var(--muted);opacity:.7}
+.detail .field-label{font-size:13px;color:var(--muted);margin-bottom:7px;font-weight:600}
+.detail .hint-line{font-size:12px;color:var(--faint);margin:-8px 0 14px;line-height:1.5}
+.detail .kindbtn{width:100%;justify-content:flex-start;gap:10px;margin-bottom:14px}
+.detail .kindbtn .dotc{width:12px;height:12px;border-radius:50%;flex:0 0 auto}
+.detail .preview{
+  background:var(--bg);border:1px solid var(--border);border-radius:13px;padding:12px 14px;
+  font-family:var(--mono);font-size:13px;white-space:pre-wrap;color:var(--fg);max-height:220px;overflow:auto;
+}
+.detail .row-btns{display:flex;gap:10px;margin-top:8px}
+.btn{
+  flex:1;height:50px;border-radius:13px;font-size:15px;font-weight:600;
+  display:grid;place-items:center;background:var(--panel);border:1px solid var(--border-strong);color:var(--fg);
+}
+.btn:active{background:var(--accent-soft)}
+.btn.primary{background:var(--accent);color:oklch(18% 0.02 250);border-color:transparent}
+.btn.danger{color:var(--t-bool);border-color:color-mix(in oklch,var(--t-bool) 40%,transparent)}
+
+/* 型別篩選 chips */
+.chips{display:flex;flex-wrap:wrap;gap:10px;margin:4px 0 10px}
+.chip{
+  display:flex;align-items:center;gap:9px;min-height:48px;padding:0 16px;border-radius:13px;
+  font-family:var(--mono);font-size:14px;font-weight:600;
+  border:1px solid var(--border-strong);background:var(--panel);color:var(--muted);
+}
+.chip .box{width:18px;height:18px;border-radius:5px;border:2px solid var(--faint);display:grid;place-items:center}
+.chip .box svg{width:12px;height:12px;color:oklch(18% 0.02 250);display:none}
+.chip[data-on="1"]{color:var(--fg);border-color:var(--sel-edge);background:var(--accent-soft)}
+.chip[data-on="1"] .box{background:var(--accent);border-color:var(--accent)}
+.chip[data-on="1"] .box svg{display:block}
+.chip[data-on="partial"]{color:var(--fg);border-color:var(--sel-edge)}
+.chip[data-on="partial"] .box{background:var(--faint);border-color:var(--faint)}
+.chip[data-on="partial"] .box svg{display:block}
+
+/* 新增節點型別 */
+.addgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.add-cell{
+  display:flex;align-items:center;gap:12px;min-height:60px;padding:0 16px;border-radius:14px;
+  border:1px solid var(--border-strong);background:var(--panel);font-size:15px;font-weight:600;color:var(--fg);
+}
+.add-cell:active{background:var(--accent-soft)}
+.add-cell .dotc{width:11px;height:11px;border-radius:50%}
+
+/* toast */
+.toast{
+  position:absolute;left:50%;bottom:96px;transform:translate(-50%,12px);z-index:70;
+  background:oklch(30% 0.02 250);color:oklch(95% 0.01 240);border:1px solid var(--border-strong);
+  padding:10px 18px;border-radius:12px;font-size:14px;box-shadow:var(--shadow);
+  opacity:0;visibility:hidden;transition:opacity .2s,transform .2s,visibility .2s;
+}
+.toast.show{opacity:1;visibility:visible;transform:translate(-50%,0)}
+
+/* ============================================================
+   容器查詢：折疊 / 小平板（≥600px）→ 雙欄常駐詳情
+   ============================================================ */
+@container (min-width:600px){
+  .app{font-size:15px}
+  .tree-pane{padding:10px 14px 90px}
+  .detail-pane{
+    display:flex;flex-direction:column;flex:0 0 308px;min-width:0;
+    border-left:1px solid var(--border);background:var(--surface);overflow:auto;
+  }
+  .detail-pane .dp-head{
+    display:flex;align-items:center;justify-content:space-between;padding:16px 18px;
+    border-bottom:1px solid var(--border);
+  }
+  .detail-pane .dp-head h3{font-size:16px;font-weight:700}
+  .detail-pane .dp-body{padding:18px}
+  .detail-pane .dp-empty{padding:40px 22px;text-align:center;color:var(--faint);font-size:14px;line-height:1.7}
+  /* 雙欄時詳情走側欄，停用底部詳情 sheet */
+  .sheet.detail-sheet{display:none}
+  /* 切到原始碼分頁時收起常駐詳情，讓原始碼用滿整個寬度 */
+  .app.raw .detail-pane{display:none}
+  .fab{width:56px;height:56px}
+  .key{font-size:14.5px} .val{font-size:14px}
+  .kind{margin-left:12px}
+}
+@container (max-width:599px){
+  .detail-pane{display:none}
+}
+.hidden{display:none!important}
