@@ -63,10 +63,10 @@
         <span class="label-hide">Type filter</span>
       </button>
       <div class="tgroup" id="navGroup">
-        <button class="icon-btn" id="btnExpandAll" title="Expand all">
+        <button class="icon-btn" id="btnExpandAll" title="Expand all (9)">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 10l5 5 5-5"/><path d="M7 4l5 5 5-5"/></svg>
         </button>
-        <button class="icon-btn" id="btnCollapseAll" title="Collapse all">
+        <button class="icon-btn" id="btnCollapseAll" title="Collapse all (0)">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 14l5-5 5 5"/><path d="M7 20l5-5 5 5"/></svg>
         </button>
       </div>
@@ -171,5 +171,13 @@
     </div>
 
     <script type="module" src="./ui.js"></script>
+
+    <!-- ===== touch scaffolding (inert this phase) ===== -->
+    <!-- Bottom-sheet mount: slides up from bottom on touch devices (future phase). -->
+    <div id="touch-sheet" class="touch-sheet hidden" aria-hidden="true"></div>
+    <!-- FAB slot: floating action button for primary add action on touch (future phase). -->
+    <div id="touch-fab" class="touch-fab hidden" aria-hidden="true"></div>
+    <!-- Swipe-action wrapper: wraps tree rows to enable swipe gestures (future phase). -->
+    <div id="touch-swipe" class="touch-swipe hidden" aria-hidden="true"></div>
   </body>
 </html>

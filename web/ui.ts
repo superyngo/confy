@@ -157,6 +157,7 @@ const FS_AVAILABLE = fsAccessAvailable();
 // ---- bootstrap ----
 async function main() {
   initTheme();
+  initTouchScaffolding();
   const wasmUrl = new URL("./pkg/confy_ffi_bg.wasm", import.meta.url);
   await load(wasmUrl);
   updateSaveLabel();
@@ -1112,12 +1113,12 @@ function openCtxMenuAt(path: Path, x: number, y: number) {
 // secondary actions the CSS hides from the toolbar / filter row, as a popup.
 function buildMoreMenu(): HTMLElement {
   const items: Array<[string, () => void]> = [
-    ["Save / Convert…", openSaveConvert],
-    ["Undo", () => send("Undo")],
-    ["Redo", () => send("Redo")],
+    ["Save / Convert… (Ctrl-s)", openSaveConvert],
+    ["Undo (z)", () => send("Undo")],
+    ["Redo (y)", () => send("Redo")],
     ["Toggle theme", toggleTheme],
-    ["Expand all", () => send("ExpandAll")],
-    ["Collapse all", () => send("CollapseAll")],
+    ["Expand all (9)", () => send("ExpandAll")],
+    ["Collapse all (0)", () => send("CollapseAll")],
     ["Tree view", () => setView(false)],
     ["Raw view", () => setView(true)],
   ];
@@ -1458,6 +1459,26 @@ Open (Ctrl-o) and in-place Save need the File System Access API
 // (ported from the TUI's TOML_HELP/JSON_HELP/YAML_HELP KIND column). The kind
 // badge shows the friendly label + notation suffix; this explains what each
 // notation means for the open file's backend.
+// ---- touch scaffolding stubs (capability-gated, INERT this phase) ----
+// Groundwork for a future touch-first interaction layer: swipe gestures,
+// a bottom-sheet overlay, and a FAB for primary actions. All stubs early-return
+// so no live UI or behavior change occurs for any current user. Wired only on
+// pointer:coarse devices (phones/tablets) to keep the mouse path untouched.
+function initTouchScaffolding() {
+  if (!window.matchMedia("(pointer:coarse)").matches) return;
+  // DISABLED this phase — stubs register no listeners and perform no DOM changes.
+  // Future phases will wire swipe → bottom-sheet open, FAB → AddNode, etc.
+  _touchSwipeStub();
+  _touchSheetStub();
+  _touchFabStub();
+}
+// swipe-action handler stub (future: left-swipe → delete, right-swipe → copy)
+function _touchSwipeStub() { return; }
+// bottom-sheet stub (future: slides up to surface context actions on touch)
+function _touchSheetStub() { return; }
+// FAB stub (future: floating button for AddNode as primary touch action)
+function _touchFabStub() { return; }
+
 const KIND_LEGEND: Record<string, string> = {
   Toml: `── KIND badge (TOML) ──────────────────────────────
 Containers (label·notation):

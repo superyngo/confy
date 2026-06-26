@@ -213,6 +213,27 @@ shapes round-trip). Key types:
   (`.key{flex-shrink:0}`, truncating only past its `max-width:38vw` cap). Full text remains in
   the detail panel (`i`).
 
+## RWD / touch foundation
+
+**Token layer.** `:root` carries two new tokens that future touch phases will consume:
+- `--hit: 44px` — minimum touch-target size (WCAG 2.5.5 / Apple HIG).
+- `--row-h-touch: 44px` — row height for touch viewports (activated in `pointer:coarse` context).
+
+Desktop defaults (`--row-h:30px`, 32 px icon buttons) are unchanged.
+
+**Capability-gated CSS hooks.** New `@media (pointer:coarse)` and `@media (hover:none)` blocks
+in `style.css` raise `.tbtn`/`.icon-btn` hit areas toward `--hit`, persist `.row-actions`, and
+adjust the `.caret` colour on hover-less devices. These rules are **purely additive**: every
+existing `@media (max-width:…)` rule is byte-for-byte unchanged and a mouse user at any
+viewport width sees zero difference.
+
+**Inert scaffolding.** Three mount points sit in `index.html` as `.hidden` divs — `#touch-sheet`
+(bottom-sheet overlay), `#touch-fab` (FAB for primary action), `#touch-swipe` (swipe-gesture
+wrapper). `web/ui.ts` registers `initTouchScaffolding()`, gated behind
+`matchMedia('(pointer:coarse)')`, with three early-return stub functions. No live UI or
+interaction change occurs this phase; the stubs and mount points are groundwork for the next
+touch phase.
+
 ## Future structured-diff evolution
 
 The full-snapshot transport is the G1 baseline. If re-render latency becomes

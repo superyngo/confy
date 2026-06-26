@@ -1,0 +1,1178 @@
+<!doctype html>
+<html lang="zh-Hant" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>confy — 觸控適配原型</title>
+<style>
+/* ============================================================
+   confy web — 小尺寸觸控螢幕 UI/UX 適配原型
+   沿用既有設計：tech / utility（Datadog / GitHub）。一族字體、
+   tabular numerics、tinted 型別 pill、深淺主題切換。OKLCh 色票。
+   本原型在原桌面版基礎上，重構為「觸控優先」版面：
+     · 觸控目標 ≥44px      · 手機版導覽 + 底部動作列 / FAB
+     · 左滑顯示行內動作      · 底部 sheet 下滑關閉
+     · 加大字級 / 行高 / 對比  · 折疊/小平板自動切換雙欄
+   ============================================================ */
+:root[data-theme="light"]{
+  --bg:oklch(98% 0.005 250); --surface:oklch(100% 0 0); --panel:oklch(96.5% 0.005 250);
+  --fg:oklch(22% 0.02 240); --muted:oklch(48% 0.018 240); --faint:oklch(62% 0.015 240);
+  --border:oklch(90% 0.008 240); --border-strong:oklch(82% 0.01 240);
+  --accent:oklch(55% 0.16 250); --accent-soft:oklch(94% 0.04 250);
+  --sel:oklch(93% 0.05 250); --sel-edge:oklch(70% 0.12 250);
+  --t-string:oklch(48% 0.13 150); --t-number:oklch(50% 0.15 250); --t-bool:oklch(52% 0.16 25);
+  --t-date:oklch(50% 0.13 300); --t-null:oklch(60% 0.01 240); --t-branch:oklch(40% 0.04 240);
+  --shadow:0 1px 2px oklch(20% 0.02 240/.08),0 12px 32px oklch(20% 0.02 240/.16);
+  --scrim:oklch(20% 0.02 240/.42);
+}
+:root[data-theme="dark"]{
+  --bg:oklch(20% 0.018 250); --surface:oklch(24% 0.02 250); --panel:oklch(27% 0.022 250);
+  --fg:oklch(94% 0.01 240); --muted:oklch(70% 0.015 240); --faint:oklch(56% 0.015 240);
+  --border:oklch(33% 0.02 250); --border-strong:oklch(44% 0.025 250);
+  --accent:oklch(74% 0.13 250); --accent-soft:oklch(34% 0.06 250);
+  --sel:oklch(34% 0.06 250); --sel-edge:oklch(62% 0.12 250);
+  --t-string:oklch(80% 0.13 150); --t-number:oklch(78% 0.12 250); --t-bool:oklch(78% 0.15 30);
+  --t-date:oklch(78% 0.12 300); --t-null:oklch(62% 0.01 240); --t-branch:oklch(84% 0.03 240);
+  --shadow:0 1px 2px oklch(0% 0 0/.3),0 16px 40px oklch(0% 0 0/.5);
+  --scrim:oklch(0% 0 0/.5);
+}
+:root{
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",system-ui,sans-serif;
+  --mono:"JetBrains Mono","IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  /* 觸控節奏：列高、命中區、間距全部放大 */
+  --row-h:54px; --indent:18px; --hit:44px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:var(--font); color:var(--fg);
+  background:
+    radial-gradient(120% 80% at 50% -10%, oklch(30% 0.03 250) 0%, transparent 60%),
+    oklch(16% 0.015 250);
+  -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
+  min-height:100%;
+}
+button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* ---------- 展示台 ---------- */
+.stage{
+  min-height:100vh; display:flex; flex-direction:column; align-items:center;
+  gap:30px; padding:34px 22px 60px;
+}
+.stage-head{max-width:880px;text-align:center}
+.stage-head .eyebrow{
+  font-family:var(--mono); font-size:12px; letter-spacing:.22em; text-transform:uppercase;
+  color:var(--accent); margin-bottom:10px;
+}
+.stage-head h1{font-size:24px;font-weight:700;letter-spacing:-.01em;color:oklch(96% 0.01 240)}
+.stage-head p{margin-top:8px;font-size:14px;line-height:1.6;color:oklch(72% 0.015 240);max-width:60ch}
+.frames{display:flex;flex-wrap:wrap;gap:46px;justify-content:center;align-items:flex-start}
+.frame-wrap{display:flex;flex-direction:column;align-items:center;gap:14px}
+.frame-cap{font-family:var(--mono);font-size:12px;letter-spacing:.06em;color:oklch(66% 0.015 240)}
+.frame-cap b{color:oklch(88% 0.01 240);font-weight:600}
+
+/* ---------- 裝置外框 ---------- */
+.device{
+  position:relative; background:oklch(8% 0.01 250); border-radius:46px;
+  padding:13px; box-shadow:0 40px 90px oklch(0% 0 0/.55), 0 0 0 1px oklch(40% 0.02 250/.4);
+}
+.device.phone{width:412px}
+.device.fold{width:720px;border-radius:34px}
+.device .screen{
+  position:relative; overflow:hidden; background:var(--bg);
+  border-radius:34px; height:860px;
+}
+.device.fold .screen{border-radius:22px;height:720px}
+
+/* OS 狀態列（裝置外框的一部分，非 app UI） */
+.os-status{
+  position:absolute;inset:0 0 auto 0;height:46px;z-index:60;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 26px;font-family:var(--mono);font-size:13px;font-weight:600;
+  color:var(--fg);pointer-events:none;
+}
+.os-status .ic{width:17px;height:17px}
+.os-status .right{display:flex;align-items:center;gap:7px}
+
+/* ============================================================
+   APP shell — 容器查詢驅動的響應式：手機單欄、折疊/平板雙欄
+   ============================================================ */
+.app{
+  container-type:inline-size;
+  position:absolute; inset:46px 0 0 0;
+  display:flex; flex-direction:column; min-height:0;
+  background:var(--bg); color:var(--fg); font-size:15px; line-height:1.5;
+}
+
+/* ---- app bar ---- */
+.appbar{
+  flex:0 0 auto; display:flex; align-items:center; gap:10px;
+  padding:8px 12px env(safe-area-inset-bottom,0) 12px;
+  height:58px; background:var(--surface); border-bottom:1px solid var(--border);
+}
+.brand{display:flex;align-items:center;gap:9px;min-width:0}
+.brand .logo{
+  width:30px;height:30px;border-radius:9px;display:grid;place-items:center;flex:0 0 auto;
+  background:var(--accent);color:oklch(18% 0.02 250);font-family:var(--mono);font-weight:800;font-size:15px;
+}
+.brand .doc{display:flex;flex-direction:column;min-width:0;line-height:1.2}
+.brand .doc .name{font-weight:700;font-size:15px;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.brand .doc .meta{display:flex;align-items:center;gap:6px}
+.fmt-pill{
+  font-family:var(--mono);font-size:10.5px;font-weight:700;letter-spacing:.05em;
+  padding:1px 7px;border:1px solid var(--border-strong);border-radius:999px;
+  color:var(--muted);background:var(--panel);
+}
+.dirty-dot{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.appbar .grow{flex:1}
+/* 觸控命中區 ≥44px */
+.tapbtn{
+  width:var(--hit);height:var(--hit);display:grid;place-items:center;border-radius:12px;
+  color:var(--fg);background:transparent;transition:background .12s;flex:0 0 auto;
+}
+.tapbtn:active{background:var(--accent-soft)}
+.tapbtn .ic{width:22px;height:22px}
+.tapbtn.primary{background:var(--accent);color:oklch(18% 0.02 250)}
+.tapbtn.primary:active{filter:brightness(.94)}
+
+/* ---- 搜尋列 ---- */
+.searchbar{
+  flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:10px 12px;
+  background:var(--surface);border-bottom:1px solid var(--border);
+}
+.search{position:relative;flex:1;min-width:0}
+.search .ic{position:absolute;left:13px;top:50%;transform:translateY(-50%);width:19px;height:19px;color:var(--faint);pointer-events:none}
+.search input{
+  width:100%;height:48px;padding:0 42px 0 42px;border-radius:13px;
+  border:1px solid var(--border-strong);background:var(--panel);color:var(--fg);
+  font-size:16px;font-family:var(--font);/* 16px 防 iOS 聚焦縮放 */
+}
+.search input::placeholder{color:var(--faint)}
+.search .clear{
+  position:absolute;right:7px;top:50%;transform:translateY(-50%);
+  width:34px;height:34px;border-radius:9px;color:var(--faint);display:none;place-items:center;
+}
+.search.has-val .clear{display:grid}
+.search .clear:active{background:var(--border)}
+.filter-btn{
+  width:48px;height:48px;flex:0 0 auto;display:grid;place-items:center;border-radius:13px;
+  background:var(--panel);border:1px solid var(--border-strong);color:var(--fg);position:relative;
+}
+.filter-btn:active{background:var(--accent-soft)}
+.filter-btn .ic{width:20px;height:20px}
+.filter-btn .dot{position:absolute;top:8px;right:8px;width:8px;height:8px;border-radius:50%;background:var(--accent);display:none}
+.filter-btn.on .dot{display:block}
+
+/* ---- 分段控制 Tree / Raw ---- */
+.tabs{
+  flex:0 0 auto;display:flex;gap:4px;margin:10px 12px 4px;padding:4px;
+  background:var(--panel);border:1px solid var(--border);border-radius:13px;
+}
+.tab{
+  flex:1;height:44px;border-radius:10px;font-size:14px;font-weight:600;color:var(--muted);
+  display:grid;place-items:center;
+}
+.tab.active{background:var(--accent);color:oklch(18% 0.02 250)}
+
+/* ============================================================
+   主體：手機=單欄；容器 ≥600px=雙欄（樹 + 常駐詳情）
+   ============================================================ */
+.body{flex:1;min-height:0;display:flex;position:relative}
+.tree-pane{
+  flex:1;min-width:0;overflow:auto;overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
+  padding:6px 8px 120px;scroll-padding-top:8px;
+}
+.tree{position:relative}
+.detail-pane{display:none}
+
+/* ---- 樹列（觸控優化） ---- */
+.children{overflow:hidden}
+.children:not(.open){display:none}
+.row{position:relative;border-radius:13px;overflow:hidden;margin:1px 0}
+.row-main{
+  position:relative;z-index:2;display:flex;align-items:center;gap:2px;
+  min-height:var(--row-h);background:var(--bg);
+  border-radius:13px;padding-right:12px;
+  touch-action:pan-y;/* 允許縱向捲動，橫向交給手勢 */
+  transition:transform .22s cubic-bezier(.2,.8,.2,1),background .12s;
+  will-change:transform;
+}
+.row.selected > .row-main{background:var(--sel);box-shadow:inset 0 0 0 1.5px var(--sel-edge)}
+.row.cut > .row-main{opacity:.45}
+.row-main:active{background:color-mix(in oklch,var(--panel) 70%,transparent)}
+.caret{
+  width:var(--hit);height:var(--hit);flex:0 0 auto;display:grid;place-items:center;
+  color:var(--faint);border-radius:11px;
+}
+.caret svg{width:15px;height:15px;transition:transform .18s}
+.row.open > .row-main > .caret svg{transform:rotate(90deg)}
+.caret.leaf{visibility:hidden;width:14px}
+.key{
+  font-family:var(--mono);font-size:15px;font-weight:600;color:var(--fg);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 0 auto;padding:2px 0;
+}/* 壓縮優先序：key 不縮（盡量完整）< value 次之 < comment 先縮 */
+.row.branch .key{color:var(--t-branch);font-weight:700}
+.key.elem{color:var(--faint)}
+.eq{color:var(--faint);font-family:var(--mono);margin:0 9px;flex:0 0 auto}
+.val{
+  font-family:var(--mono);font-size:14.5px;flex:0 8 auto;min-width:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.val.t-string{color:var(--t-string)} .val.t-number{color:var(--t-number)}
+.val.t-bool{color:var(--t-bool)} .val.t-date{color:var(--t-date)}
+.val.t-null{color:var(--t-null);font-style:italic}
+.count{font-family:var(--mono);font-size:13px;color:var(--faint);margin-left:8px;flex:0 0 auto}
+.kind{
+  flex:0 0 auto;margin-left:10px;font-family:var(--mono);font-size:11px;font-weight:700;
+  letter-spacing:.02em;padding:3px 9px;border-radius:999px;
+  border:1px solid var(--border-strong);background:var(--panel);color:var(--muted);
+}
+.chev-r{margin-left:auto;flex:0 0 auto;color:var(--faint);display:grid;place-items:center;width:26px;height:26px}
+.chev-r svg{width:16px;height:16px}
+
+/* 行末註解（# comment）— 空白時隱藏 */
+.comment{
+  font-family:var(--mono);font-size:12.5px;color:var(--faint);font-style:italic;
+  margin-left:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 400 auto;min-width:0;
+}
+.comment:empty{display:none;margin:0}
+/* leaf：值與註解靠左，型別 pill 推到右側，把手在最後 */
+.row:not(.branch) .row-main > .val{flex:0 8 auto}
+.row:not(.branch) .row-main > .kind{margin-left:auto}
+
+/* 拖移排序把手 + 放置指示線 */
+.drag-handle{
+  width:40px;height:var(--row-h);flex:0 0 auto;display:grid;place-items:center;
+  color:var(--faint);touch-action:none;cursor:grab;border-radius:10px;
+}
+.drag-handle:active{cursor:grabbing;background:var(--accent-soft)}
+.drag-handle svg{width:18px;height:18px;opacity:.55}
+.row.dragging > .row-main{opacity:.45}
+.children.dragging{opacity:.45}
+/* 拖移落點：放入此 branch 內 */
+.row.drop-into > .row-main{
+  background:var(--accent-soft);
+  box-shadow:inset 0 0 0 2px var(--accent);
+}
+.reorder-line{
+  position:absolute;left:6px;right:6px;height:2.5px;background:var(--accent);border-radius:2px;
+  z-index:8;display:none;pointer-events:none;box-shadow:0 0 0 3px var(--accent-soft);
+}
+
+/* ---- 左滑顯示行內動作（手勢） ---- */
+.row-actions{
+  position:absolute;inset:0 0 0 auto;z-index:1;display:flex;align-items:stretch;
+}
+.row-actions button{
+  width:62px;display:grid;place-items:center;gap:3px;color:#fff;font-size:11px;font-weight:600;
+}
+.row-actions .ic{width:20px;height:20px}
+.act-edit{background:oklch(55% 0.13 250)}
+.act-dup{background:oklch(52% 0.12 300)}
+.act-del{background:oklch(55% 0.18 25)}
+.row.swiped > .row-main{transform:translateX(-186px)}
+
+/* ---- FAB ---- */
+.fab{
+  position:absolute;right:18px;bottom:calc(18px + env(safe-area-inset-bottom,0));z-index:40;
+  width:60px;height:60px;border-radius:20px;display:grid;place-items:center;
+  background:var(--accent);color:oklch(18% 0.02 250);
+  box-shadow:0 10px 28px oklch(0% 0 0/.4),0 0 0 1px oklch(80% 0.1 250/.2);
+}
+.fab:active{transform:scale(.95)}
+.fab .ic{width:28px;height:28px}
+
+/* ---- 狀態列 ---- */
+.statusbar{
+  flex:0 0 auto;display:flex;align-items:center;gap:10px;
+  padding:9px 14px calc(9px + env(safe-area-inset-bottom,0));
+  background:var(--surface);border-top:1px solid var(--border);
+  font-size:12.5px;color:var(--muted);
+}
+.statusbar .status{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.badge{font-family:var(--mono);font-size:11.5px;padding:3px 9px;border-radius:999px;background:var(--panel);border:1px solid var(--border)}
+
+/* ---- Raw 視圖 ---- */
+.raw-view{
+  display:none;padding:14px 14px 120px;font-family:var(--mono);font-size:14px;line-height:1.7;
+  white-space:pre;tab-size:2;color:var(--fg);overflow:auto;flex:1;
+}
+.app.raw .tree-pane{display:none}
+.app.raw .raw-view{display:block}
+.app.raw .fab{display:none}
+.raw-view .rk{color:var(--t-branch);font-weight:700}
+.raw-view .rs{color:var(--t-string)} .raw-view .rn{color:var(--t-number)} .raw-view .rb{color:var(--t-bool)}
+
+/* ============================================================
+   底部 sheet（詳情 / 選單 / 型別篩選 / 新增）+ scrim
+   ============================================================ */
+.scrim{
+  position:absolute;inset:0;z-index:45;background:var(--scrim);
+  opacity:0;visibility:hidden;transition:opacity .22s,visibility .22s;
+}
+.scrim.show{opacity:1;visibility:visible}
+.sheet{
+  position:absolute;left:0;right:0;bottom:0;z-index:50;
+  background:var(--surface);border-radius:22px 22px 0 0;
+  border-top:1px solid var(--border-strong);box-shadow:0 -12px 40px oklch(0% 0 0/.4);
+  transform:translateY(100%);transition:transform .26s cubic-bezier(.2,.85,.2,1);
+  max-height:84%;display:flex;flex-direction:column;
+  padding-bottom:env(safe-area-inset-bottom,0);
+  touch-action:none;
+}
+.sheet.open{transform:translateY(0)}
+.sheet .grab{display:flex;justify-content:center;padding:10px 0 4px}
+.sheet .grab::before{content:"";width:42px;height:5px;border-radius:3px;background:var(--border-strong)}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;padding:6px 18px 12px}
+.sheet-head h3{font-size:17px;font-weight:700}
+.sheet-head .close{width:var(--hit);height:var(--hit);display:grid;place-items:center;border-radius:11px;color:var(--muted)}
+.sheet-head .close:active{background:var(--panel)}
+.sheet-body{overflow:auto;padding:0 18px 20px;-webkit-overflow-scrolling:touch}
+
+/* 選單列 */
+.menu-item{
+  display:flex;align-items:center;gap:14px;width:100%;min-height:54px;padding:0 8px;
+  border-radius:12px;font-size:16px;color:var(--fg);text-align:left;
+}
+.menu-item:active{background:var(--accent-soft)}
+.menu-item .ic{width:22px;height:22px;color:var(--muted);flex:0 0 auto}
+.menu-item .sc{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--faint)}
+.menu-item.danger{color:var(--t-bool)} .menu-item.danger .ic{color:var(--t-bool)}
+.menu-sep{height:1px;background:var(--border);margin:6px 4px}
+
+/* 詳情 */
+.detail dl{display:grid;grid-template-columns:auto 1fr;gap:13px 16px;margin:4px 0 16px}
+.detail dt{color:var(--muted);font-size:14px}
+.detail dd{font-family:var(--mono);font-size:14px;word-break:break-all}
+.detail .v-edit,.detail .k-edit,.detail .c-edit{
+  width:100%;height:50px;padding:0 14px;border-radius:13px;font-family:var(--mono);font-size:16px;
+  background:var(--panel);border:1px solid var(--accent);color:var(--fg);margin-bottom:14px;
+}
+.detail .c-edit{border-color:var(--border-strong);font-style:italic}
+.detail .v-edit[disabled]{border-color:var(--border);color:var(--muted);opacity:.7}
+.detail .field-label{font-size:13px;color:var(--muted);margin-bottom:7px;font-weight:600}
+.detail .hint-line{font-size:12px;color:var(--faint);margin:-8px 0 14px;line-height:1.5}
+.detail .kindbtn{width:100%;justify-content:flex-start;gap:10px;margin-bottom:14px}
+.detail .kindbtn .dotc{width:12px;height:12px;border-radius:50%;flex:0 0 auto}
+.detail .preview{
+  background:var(--bg);border:1px solid var(--border);border-radius:13px;padding:12px 14px;
+  font-family:var(--mono);font-size:13px;white-space:pre-wrap;color:var(--fg);max-height:220px;overflow:auto;
+}
+.detail .row-btns{display:flex;gap:10px;margin-top:8px}
+.btn{
+  flex:1;height:50px;border-radius:13px;font-size:15px;font-weight:600;
+  display:grid;place-items:center;background:var(--panel);border:1px solid var(--border-strong);color:var(--fg);
+}
+.btn:active{background:var(--accent-soft)}
+.btn.primary{background:var(--accent);color:oklch(18% 0.02 250);border-color:transparent}
+.btn.danger{color:var(--t-bool);border-color:color-mix(in oklch,var(--t-bool) 40%,transparent)}
+
+/* 型別篩選 chips */
+.chips{display:flex;flex-wrap:wrap;gap:10px;margin:4px 0 10px}
+.chip{
+  display:flex;align-items:center;gap:9px;min-height:48px;padding:0 16px;border-radius:13px;
+  font-family:var(--mono);font-size:14px;font-weight:600;
+  border:1px solid var(--border-strong);background:var(--panel);color:var(--muted);
+}
+.chip .box{width:18px;height:18px;border-radius:5px;border:2px solid var(--faint);display:grid;place-items:center}
+.chip .box svg{width:12px;height:12px;color:oklch(18% 0.02 250);display:none}
+.chip[data-on="1"]{color:var(--fg);border-color:var(--sel-edge);background:var(--accent-soft)}
+.chip[data-on="1"] .box{background:var(--accent);border-color:var(--accent)}
+.chip[data-on="1"] .box svg{display:block}
+
+/* 新增節點型別 */
+.addgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.add-cell{
+  display:flex;align-items:center;gap:12px;min-height:60px;padding:0 16px;border-radius:14px;
+  border:1px solid var(--border-strong);background:var(--panel);font-size:15px;font-weight:600;color:var(--fg);
+}
+.add-cell:active{background:var(--accent-soft)}
+.add-cell .dotc{width:11px;height:11px;border-radius:50%}
+
+/* toast */
+.toast{
+  position:absolute;left:50%;bottom:96px;transform:translate(-50%,12px);z-index:70;
+  background:oklch(30% 0.02 250);color:oklch(95% 0.01 240);border:1px solid var(--border-strong);
+  padding:10px 18px;border-radius:12px;font-size:14px;box-shadow:var(--shadow);
+  opacity:0;visibility:hidden;transition:opacity .2s,transform .2s,visibility .2s;
+}
+.toast.show{opacity:1;visibility:visible;transform:translate(-50%,0)}
+
+/* ============================================================
+   容器查詢：折疊 / 小平板（≥600px）→ 雙欄常駐詳情
+   ============================================================ */
+@container (min-width:600px){
+  .app{font-size:15px}
+  .tree-pane{padding:10px 14px 90px}
+  .detail-pane{
+    display:flex;flex-direction:column;flex:0 0 308px;min-width:0;
+    border-left:1px solid var(--border);background:var(--surface);overflow:auto;
+  }
+  .detail-pane .dp-head{
+    display:flex;align-items:center;justify-content:space-between;padding:16px 18px;
+    border-bottom:1px solid var(--border);
+  }
+  .detail-pane .dp-head h3{font-size:16px;font-weight:700}
+  .detail-pane .dp-body{padding:18px}
+  .detail-pane .dp-empty{padding:40px 22px;text-align:center;color:var(--faint);font-size:14px;line-height:1.7}
+  /* 雙欄時詳情走側欄，停用底部詳情 sheet */
+  .sheet.detail-sheet{display:none}
+  /* 切到原始碼分頁時收起常駐詳情，讓原始碼用滿整個寬度 */
+  .app.raw .detail-pane{display:none}
+  .fab{width:56px;height:56px}
+  .key{font-size:14.5px} .val{font-size:14px}
+  .kind{margin-left:12px}
+}
+@container (max-width:599px){
+  .detail-pane{display:none}
+}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="stage-head">
+    <div class="eyebrow">confy · 觸控適配原型</div>
+    <h1>設定樹編輯器 — 小尺寸觸控螢幕版</h1>
+    <p>沿用既有 tech / utility 設計與 OKLCh 色票。左滑列顯示動作、底部 sheet 下滑關閉、所有命中區 ≥44px。容器寬度 ≥600px 時自動切換為雙欄常駐詳情。試試：點箭頭展開、點列開詳情、在列上向左滑、點右下＋。</p>
+  </div>
+
+  <div class="frames">
+    <div class="frame-wrap">
+      <div class="device phone"><div class="screen" data-screen="phone"></div></div>
+      <div class="frame-cap"><b>標準手機</b> · 390–430px · 單欄 + 底部 sheet</div>
+    </div>
+    <div class="frame-wrap">
+      <div class="device fold"><div class="screen" data-screen="fold"></div></div>
+      <div class="frame-cap"><b>折疊 / 小平板</b> · 600–744px · 雙欄常駐詳情</div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ---------- icons ---------- */
+  var I={
+    chev:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>',
+    search:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>',
+    filter:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></svg>',
+    save:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v6h7"/></svg>',
+    more:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="12" cy="19" r="1.9"/></svg>',
+    close:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+    plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+    edit:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/></svg>',
+    dup:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg>',
+    del:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>',
+    check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L19 7"/></svg>',
+    undo:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7L4 12l5 5"/><path d="M4 12h11a5 5 0 0 1 0 10h-3"/></svg>',
+    sun:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19"/></svg>',
+    open:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 7h6l2 2h10v10H3z"/></svg>',
+    convert:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 8h11l-3-3M17 16H6l3 3"/></svg>',
+    expand:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10l5 5 5-5M7 4l5 5 5-5"/></svg>',
+    collapse:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 14l5-5 5 5M7 20l5-5 5 5"/></svg>',
+    help:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.4 2.3c-.8.4-1.4 1-1.4 2"/><path d="M12 17h.01"/></svg>',
+    signal:'<svg viewBox="0 0 24 24" fill="currentColor"><rect x="2" y="13" width="3.5" height="8" rx="1"/><rect x="7" y="9" width="3.5" height="12" rx="1"/><rect x="12" y="5" width="3.5" height="16" rx="1"/><rect x="17" y="2" width="3.5" height="19" rx="1" opacity=".4"/></svg>',
+    wifi:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 8.5a15 15 0 0 1 20 0"/><path d="M5 12a10 10 0 0 1 14 0"/><path d="M8.5 15.5a5 5 0 0 1 7 0"/><path d="M12 19h.01"/></svg>',
+    batt:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="7" width="18" height="10" rx="2.5"/><rect x="4" y="9" width="12" height="6" rx="1" fill="currentColor"/><path d="M22 10v4" stroke-width="2" stroke-linecap="round"/></svg>',
+    grip:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>'
+  };
+
+  /* ---------- sample config tree ---------- */
+  var TREE=[
+    {k:"server",branch:true,open:true,children:[
+      {k:"host",v:'"0.0.0.0"',t:"string",c:"監聽所有介面"},
+      {k:"port",v:"8080",t:"number"},
+      {k:"workers",v:"4",t:"number",c:"= CPU 核心數"},
+      {k:"tls",branch:true,open:false,children:[
+        {k:"enabled",v:"true",t:"bool"},
+        {k:"cert",v:'"/etc/confy/cert.pem"',t:"string"},
+      ]},
+    ]},
+    {k:"database",branch:true,open:true,children:[
+      {k:"url",v:'"postgres://localhost/confy"',t:"string"},
+      {k:"pool_size",v:"16",t:"number"},
+      {k:"timeout_ms",v:"3000",t:"number"},
+    ]},
+    {k:"logging",branch:true,open:false,children:[
+      {k:"level",v:'"info"',t:"string"},
+      {k:"format",v:'"json"',t:"string"},
+      {k:"targets",branch:true,array:true,open:false,children:[
+        {k:"0",v:'"stdout"',t:"string",elem:true},
+        {k:"1",v:'"file"',t:"string",elem:true},
+      ]},
+    ]},
+    {k:"features",branch:true,open:false,children:[
+      {k:"beta_ui",v:"false",t:"bool"},
+      {k:"rate_limit",v:"true",t:"bool"},
+    ]},
+  ];
+
+  var TLABEL={string:"字串",number:"數字",bool:"布林",date:"日期","null":"空值",array:"陣列",table:"表"};
+
+  function rowHTML(node,depth,path){
+    var pad=10+depth*18;
+    var isBranch=node.branch;
+    var type=isBranch?(node.array?"array":"table"):node.t;
+    var cm=node.c?("# "+esc(node.c)):"";
+    var html='<div class="row '+(isBranch?'branch':'')+(node.open?' open':'')+'"'+
+      ' data-type="'+type+'" data-key="'+esc(node.k)+'" data-path="'+esc(path)+'"'+
+      ' data-comment="'+esc(node.c||"")+'"'+
+      (isBranch?'':' data-val="'+esc(node.v)+'"')+'>';
+    html+='<div class="row-main" style="padding-left:'+pad+'px">';
+    html+='<button class="caret '+(isBranch?'':'leaf')+'" data-act="caret" aria-label="展開">'+I.chev+'</button>';
+    html+='<span class="key'+(node.elem?' elem':'')+'">'+esc(node.k)+'</span>';
+    if(isBranch){
+      html+='<span class="count">'+node.children.length+'</span>';
+      html+='<span class="kind">'+ (node.array?"array":"table") +'</span>';
+      html+='<span class="comment">'+cm+'</span>';
+      html+='<span class="chev-r">'+I.chev+'</span>';
+    }else{
+      html+='<span class="eq">=</span>';
+      html+='<span class="val t-'+node.t+'">'+esc(node.v)+'</span>';
+      html+='<span class="comment">'+cm+'</span>';
+      html+='<span class="kind">'+node.t+'</span>';
+    }
+    html+='<button class="drag-handle" data-act="grip" aria-label="拖移排序" title="拖移排序">'+I.grip+'</button>';
+    html+='</div>';// row-main
+    // 左滑動作
+    html+='<div class="row-actions">'+
+      '<button class="act-edit" data-act="edit">'+I.edit+'<span>編輯</span></button>'+
+      '<button class="act-dup" data-act="dup">'+I.dup+'<span>複製</span></button>'+
+      '<button class="act-del" data-act="del">'+I.del+'<span>刪除</span></button>'+
+      '</div>';
+    html+='</div>';// row
+    if(isBranch){
+      html+='<div class="children'+(node.open?' open':'')+'">';
+      node.children.forEach(function(c,i){html+=rowHTML(c,depth+1,path+"."+c.k);});
+      html+='</div>';
+    }
+    return html;
+  }
+  function treeHTML(){
+    var h="";
+    TREE.forEach(function(n){h+=rowHTML(n,0,n.k);});
+    return h;
+  }
+  function rawHTML(){
+    var lines=[];
+    function walk(nodes,prefix){
+      nodes.forEach(function(n){
+        if(n.branch){
+          if(!n.array){lines.push('<span class="rk">['+(prefix?prefix+".":"")+n.k+']</span>');}
+          walk(n.children, n.array?prefix:( (prefix?prefix+".":"")+n.k ));
+        }else{
+          var cls=n.t==="string"?"rs":n.t==="number"?"rn":n.t==="bool"?"rb":"";
+          lines.push(esc(n.k)+' = <span class="'+cls+'">'+esc(n.v)+'</span>');
+        }
+      });
+      lines.push("");
+    }
+    walk(TREE,"");
+    return lines.join("\n");
+  }
+  function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
+
+  /* ---------- app shell template ---------- */
+  function appHTML(){
+    return ''
+    +'<div class="app">'
+    +  '<div class="appbar">'
+    +    '<div class="brand"><span class="logo">cy</span>'
+    +      '<span class="doc"><span class="name">config.toml</span>'
+    +        '<span class="meta"><span class="fmt-pill">TOML</span><span class="dirty-dot"></span></span></span></div>'
+    +    '<span class="grow"></span>'
+    +    '<button class="tapbtn" data-act="undo" aria-label="復原">'+I.undo+'</button>'
+    +    '<button class="tapbtn primary" data-act="save" aria-label="儲存">'+I.save+'</button>'
+    +    '<button class="tapbtn" data-act="menu" aria-label="更多">'+I.more+'</button>'
+    +  '</div>'
+    +  '<div class="searchbar">'
+    +    '<div class="search"><span class="ic">'+I.search+'</span>'
+    +      '<input type="search" placeholder="搜尋鍵或值…" autocomplete="off" spellcheck="false" />'
+    +      '<button class="clear" data-act="searchclear" aria-label="清除">'+I.close+'</button></div>'
+    +    '<button class="filter-btn" data-act="filter" aria-label="型別篩選">'+I.filter+'<span class="dot"></span></button>'
+    +  '</div>'
+    +  '<div class="tabs"><button class="tab active" data-tab="tree">樹狀</button><button class="tab" data-tab="raw">原始碼</button></div>'
+    +  '<div class="body">'
+    +    '<div class="tree-pane"><div class="tree">'+treeHTML()+'<div class="reorder-line"></div></div></div>'
+    +    '<pre class="raw-view">'+rawHTML()+'</pre>'
+    +    '<div class="detail-pane"><div class="dp-head"><h3>節點詳情</h3></div>'
+    +      '<div class="dp-body"><div class="dp-empty">點選任一節點<br>即可在此編輯其值與中繼資料</div></div></div>'
+    +  '</div>'
+    +  '<div class="statusbar"><span class="status">就緒 · 11 個鍵</span>'
+    +    '<span class="badge sel-badge">未選取</span><span class="badge">剪貼簿 0</span></div>'
+    +  '<button class="fab" data-act="add" aria-label="新增節點">'+I.plus+'</button>'
+    +  '<div class="toast"></div>'
+    +  '<div class="scrim" data-act="scrim"></div>'
+    +  '<div class="sheet detail-sheet"></div>'
+    +  '<div class="sheet menu-sheet"></div>'
+    +  '<div class="sheet filter-sheet"></div>'
+    +  '<div class="sheet add-sheet"></div>'
+    +  '<div class="sheet kind-sheet"></div>'
+    +'</div>';
+  }
+
+  function osStatus(){
+    return '<div class="os-status"><span>9:41</span><span class="right">'+
+      '<span class="ic">'+I.signal+'</span><span class="ic">'+I.wifi+'</span><span class="ic">'+I.batt+'</span></span></div>';
+  }
+
+  /* ============================================================
+     per-app behaviour (DOM-as-state, 兩個外框各自獨立)
+     ============================================================ */
+  function initApp(app){
+    var tree=app.querySelector(".tree-pane");
+    var treeEl=app.querySelector(".tree");
+    var scrim=app.querySelector(".scrim");
+    var sheets={
+      detail:app.querySelector(".detail-sheet"),
+      menu:app.querySelector(".menu-sheet"),
+      filter:app.querySelector(".filter-sheet"),
+      add:app.querySelector(".add-sheet"),
+      kind:app.querySelector(".kind-sheet")
+    };
+    var dpBody=app.querySelector(".dp-body");
+    var selBadge=app.querySelector(".sel-badge");
+    var searchInput=app.querySelector(".search input");
+    var openSwipe=null, selectedRow=null;
+    var filterState={string:1,number:1,bool:1,array:1,table:1};
+    function markDirty(){app.querySelector(".dirty-dot").style.opacity="1";}
+
+    /* ----- sheets ----- */
+    function openSheet(name){
+      closeSwipe();
+      Object.keys(sheets).forEach(function(k){if(k!==name)sheets[k].classList.remove("open");});
+      scrim.classList.add("show");
+      sheets[name].classList.add("open");
+    }
+    function closeSheets(){
+      scrim.classList.remove("show");
+      Object.keys(sheets).forEach(function(k){sheets[k].classList.remove("open");});
+    }
+
+    /* ----- selection / detail ----- */
+    function isWide(){return app.clientWidth>=600;}
+    function selectRowSilent(row){
+      if(selectedRow)selectedRow.classList.remove("selected");
+      selectedRow=row; row.classList.add("selected");
+      selBadge.textContent=row.getAttribute("data-path");
+    }
+    function selectRow(row){
+      selectRowSilent(row);
+      var k=row.getAttribute("data-key"), path=row.getAttribute("data-path"),
+          type=row.getAttribute("data-type"), val=row.getAttribute("data-val");
+      var body=detailBody(k,path,type,val,row);
+      if(isWide()){ dpBody.innerHTML=body; wireDetail(dpBody,row); }
+      else{
+        sheets.detail.innerHTML=
+          '<div class="grab" data-act="grab"></div>'+
+          '<div class="sheet-head"><h3>'+esc(k)+'</h3><button class="close" data-act="closesheet">'+I.close+'</button></div>'+
+          '<div class="sheet-body detail">'+body+'</div>';
+        wireDetail(sheets.detail,row);
+        openSheet("detail");
+      }
+    }
+    function detailBody(k,path,type,val,row){
+      var isBranch=row.classList.contains("branch");
+      var isElem=row.querySelector(".key").classList.contains("elem");
+      var comment=row.getAttribute("data-comment")||"";
+      var h='<div class="detail">';
+      // 鍵（陣列元素索引不可改名）
+      h+='<div class="field-label">鍵</div>';
+      if(isElem){
+        h+='<input class="v-edit" value="'+esc(k)+'" disabled />';
+        h+='<div class="hint-line">陣列元素的索引由位置決定，請用拖移調整順序</div>';
+      }else{
+        h+='<input class="k-edit" value="'+esc(k)+'" autocomplete="off" spellcheck="false" />';
+      }
+      // 值
+      if(!isBranch){
+        h+='<div class="field-label">值（'+(TLABEL[type]||type)+'）</div>';
+        h+='<input class="v-edit" value='+JSON.stringify(stripq(val))+' />';
+      }
+      // 行末註解
+      h+='<div class="field-label">行末註解</div>';
+      h+='<input class="c-edit" value="'+esc(comment)+'" placeholder="加入註解…" autocomplete="off" spellcheck="false" />';
+      // 型別切換
+      h+='<div class="field-label">型別</div>';
+      h+='<button class="btn kindbtn" data-act="kindswitch"><span class="dotc" style="background:var(--t-'+(isBranch?'branch':type)+')"></span>'+(TLABEL[type]||type)+' · 切換標記</button>';
+      // meta
+      h+='<dl><dt>路徑</dt><dd>'+esc(path)+'</dd>';
+      if(isBranch){h+='<dt>子項</dt><dd>'+row.querySelector(".count").textContent+'</dd>';}
+      h+='</dl>';
+      h+='<div class="row-btns">'+
+         '<button class="btn" data-act="dup">複製</button>'+
+         '<button class="btn danger" data-act="del">刪除</button></div>';
+      h+='</div>';
+      return h;
+    }
+    function wireDetail(c,row){
+      var ke=c.querySelector(".k-edit"),
+          ve=c.querySelector("input.v-edit:not([disabled])"),
+          ce=c.querySelector(".c-edit"),
+          kb=c.querySelector("[data-act=kindswitch]");
+      if(ke)ke.addEventListener("input",function(){
+        var nv=ke.value||"key";
+        row.querySelector(".key").textContent=nv;
+        row.setAttribute("data-key",nv);
+        var hh=c.closest(".sheet")?c.closest(".sheet").querySelector(".sheet-head h3"):null;
+        if(hh)hh.textContent=nv;
+        markDirty();
+      });
+      if(ve)ve.addEventListener("input",function(){
+        var t=row.getAttribute("data-type");
+        var disp=(t==="string")?'"'+ve.value+'"':ve.value;
+        var vEl=row.querySelector(".val"); if(vEl)vEl.textContent=disp;
+        row.setAttribute("data-val",disp);
+        markDirty();
+      });
+      if(ce)ce.addEventListener("input",function(){ setComment(row,ce.value); markDirty(); });
+      if(kb)kb.addEventListener("click",function(){ openKindSheet(row); });
+    }
+    function setComment(row,text){
+      row.setAttribute("data-comment",text||"");
+      var cm=row.querySelector(".row-main > .comment");
+      if(cm)cm.textContent=text?("# "+text):"";
+    }
+    function stripq(v){if(v==null)return "";return v.replace(/^"|"$/g,"");}
+
+    /* ----- 切換型別 / kind 標記 ----- */
+    function openKindSheet(row){
+      selectRowSilent(row);
+      var isBranch=row.classList.contains("branch");
+      var opts=isBranch?[["table","表 / 群組"],["array","陣列"]]
+                       :[["string","字串"],["number","數字"],["bool","布林"],["date","日期"],["null","空值"]];
+      var cur=row.getAttribute("data-type");
+      var cells=opts.map(function(o){
+        var hue=(o[0]==="table"||o[0]==="array")?"branch":o[0];
+        var on=o[0]===cur;
+        return '<button class="add-cell kind-opt'+(on?" on":"")+'" data-kind="'+o[0]+'">'+
+          '<span class="dotc" style="background:var(--t-'+hue+')"></span>'+o[1]+(on?' ·目前':'')+'</button>';
+      }).join("");
+      sheets.kind.innerHTML=
+        '<div class="grab"></div>'+
+        '<div class="sheet-head"><h3>切換型別 — '+esc(row.getAttribute("data-key"))+'</h3>'+
+        '<button class="close" data-act="closesheet">'+I.close+'</button></div>'+
+        '<div class="sheet-body"><div class="addgrid">'+cells+'</div></div>';
+      sheets.kind.querySelectorAll(".kind-opt").forEach(function(b){
+        b.addEventListener("click",function(){ changeKind(row,b.getAttribute("data-kind")); });
+      });
+      openSheet("kind");
+    }
+    function changeKind(row,t){
+      var isBranch=row.classList.contains("branch");
+      row.setAttribute("data-type",t);
+      row.querySelector(".kind").textContent=t;
+      if(!isBranch){
+        var v=row.querySelector(".val"); if(v)v.className="val t-"+t;
+      }
+      markDirty();
+      showToast("型別已改為 "+(TLABEL[t]||t));
+      closeSheets();
+      if(selectedRow===row && isWide()) selectRow(row); // 重繪側欄詳情
+    }
+
+    /* ----- toast ----- */
+    var toast=app.querySelector(".toast"),toastT;
+    function showToast(msg){
+      toast.textContent=msg; toast.classList.add("show");
+      clearTimeout(toastT); toastT=setTimeout(function(){toast.classList.remove("show");},1600);
+    }
+
+    /* ----- swipe-to-reveal ----- */
+    function closeSwipe(){if(openSwipe){openSwipe.classList.remove("swiped");openSwipe=null;}}
+    var sx=0,sy=0,dragRow=null,dragging=false,decided=false,horiz=false;
+
+    /* ----- 拖移排序（同層）----- */
+    var reLine=app.querySelector(".reorder-line");
+    var reordering=false,reRow=null,reKids=null,reStartY=0,reMoved=false,reTarget=null,reMode="before",reInto=null;
+    function childrenOf(row){
+      var nx=row.nextElementSibling;
+      return (row.classList.contains("branch")&&nx&&nx.classList.contains("children"))?nx:null;
+    }
+    function unitBottomRect(row){
+      var k=childrenOf(row);
+      return (k?k:row).getBoundingClientRect().bottom;
+    }
+    function clearInto(){ if(reInto){reInto.classList.remove("drop-into");reInto=null;} }
+    function startReorder(e,row){
+      reordering=true; reMoved=false; reRow=row; reTarget=null; reMode="before";
+      reKids=childrenOf(row);
+      reStartY=e.clientY; closeSwipe();
+      row.classList.add("dragging"); if(reKids)reKids.classList.add("dragging");
+      try{treeEl.setPointerCapture(e.pointerId);}catch(_){}
+    }
+    function onReorderMove(y){
+      if(Math.abs(y-reStartY)<6 && !reMoved){ reLine.style.display="none"; clearInto(); return; }
+      reMoved=true;
+      // 所有可見列（排除被拖列與其子孫）作為落點候選
+      var rows=Array.prototype.filter.call(treeEl.querySelectorAll(".row"),function(r){
+        return r!==reRow && !(reKids&&reKids.contains(r)) && r.offsetHeight>0;
+      });
+      if(!rows.length){ reTarget=null; reLine.style.display="none"; clearInto(); return; }
+      var hit=null,nearest=null,nd=Infinity;
+      for(var i=0;i<rows.length;i++){
+        var rect=rows[i].getBoundingClientRect();
+        if(y>=rect.top && y<=rect.bottom){ hit=rows[i]; break; }
+        var d=(y<rect.top)?(rect.top-y):(y-rect.bottom);
+        if(d<nd){nd=d;nearest=rows[i];}
+      }
+      var decided=false;
+      if(!hit){ hit=nearest; var nr=hit.getBoundingClientRect(); reMode=(y<(nr.top+nr.bottom)/2)?"before":"after"; decided=true; }
+      var hr=hit.getBoundingClientRect();
+      if(!decided){
+        var isBranch=hit.classList.contains("branch");
+        var rel=(y-hr.top)/(hr.height||1);
+        if(isBranch){ reMode=(rel<0.28)?"before":(rel>0.72?"after":"into"); }
+        else { reMode=(rel<0.5)?"before":"after"; }
+      }
+      reTarget=hit;
+      var treeTop=treeEl.getBoundingClientRect().top;
+      if(reMode==="into"){
+        reLine.style.display="none";
+        if(reInto!==hit){ clearInto(); reInto=hit; hit.classList.add("drop-into"); }
+      }else{
+        clearInto();
+        reLine.style.display="block";
+        reLine.style.top=((reMode==="before")?(hr.top-treeTop):(unitBottomRect(hit)-treeTop))+"px";
+      }
+    }
+    function endReorder(){
+      reordering=false; reLine.style.display="none"; clearInto();
+      if(reRow)reRow.classList.remove("dragging"); if(reKids)reKids.classList.remove("dragging");
+      if(reMoved && reTarget && reTarget!==reRow){
+        if(reMode==="into"){
+          var kids=childrenOf(reTarget);
+          if(kids){
+            kids.appendChild(reRow);
+            if(reKids)kids.appendChild(reKids);
+            reTarget.classList.add("open"); kids.classList.add("open");
+          }
+        }else{
+          var parent=reTarget.parentNode, anchor;
+          if(reMode==="before"){ anchor=reTarget; }
+          else{ var k=childrenOf(reTarget); anchor=(k?k:reTarget).nextElementSibling; }
+          parent.insertBefore(reRow,anchor);
+          if(reKids)parent.insertBefore(reKids,reRow.nextElementSibling);
+        }
+        reindent(); recountBranches();
+        markDirty(); showToast(reMode==="into"?("已移入 "+reTarget.getAttribute("data-key")):("已移動 "+reRow.getAttribute("data-key")));
+      }
+      reRow=null; reKids=null; reTarget=null; reMoved=false; reMode="before";
+    }
+    // 重指父層後：依 DOM 巢狀深度重算每列縮排
+    function reindent(){
+      treeEl.querySelectorAll(".row").forEach(function(r){
+        var depth=0,p=r.parentNode;
+        while(p&&p!==treeEl){ if(p.classList&&p.classList.contains("children"))depth++; p=p.parentNode; }
+        var m=r.querySelector(":scope > .row-main");
+        if(m)m.style.paddingLeft=(10+depth*18)+"px";
+      });
+    }
+    // 重算每個 branch 的子項數
+    function recountBranches(){
+      treeEl.querySelectorAll(".row.branch").forEach(function(b){
+        var k=childrenOf(b);
+        var n=k?k.querySelectorAll(":scope > .row").length:0;
+        var cs=b.querySelector(".count"); if(cs)cs.textContent=n;
+      });
+    }
+
+    treeEl.addEventListener("pointerdown",function(e){
+      var grip=e.target.closest(".drag-handle");
+      if(grip){ startReorder(e, grip.closest(".row")); return; }
+      var main=e.target.closest(".row-main"); if(!main)return;
+      dragRow=main.parentElement; sx=e.clientX; sy=e.clientY;
+      dragging=true; decided=false; horiz=false;
+    });
+    treeEl.addEventListener("pointermove",function(e){
+      if(reordering){ e.preventDefault(); onReorderMove(e.clientY); return; }
+      if(!dragging||!dragRow)return;
+      var dx=e.clientX-sx, dy=e.clientY-sy;
+      if(!decided){
+        if(Math.abs(dx)<8&&Math.abs(dy)<8)return;
+        decided=true; horiz=Math.abs(dx)>Math.abs(dy);
+        if(horiz){ if(openSwipe&&openSwipe!==dragRow)closeSwipe(); }
+      }
+      if(!horiz)return;
+      e.preventDefault();
+      var m=dragRow.querySelector(".row-main");
+      m.style.transition="none";// 拖曳期間關閉過場，避免每次 move 都補間
+      var base=dragRow.classList.contains("swiped")?-186:0;
+      var tx=Math.max(-186,Math.min(0,base+dx));
+      m.style.transform="translateX("+tx+"px)";
+    },{passive:false});
+    treeEl.addEventListener("pointerup",function(e){
+      if(reordering){ endReorder(); return; }
+      if(!dragging||!dragRow){dragging=false;return;}
+      var main=dragRow.querySelector(".row-main");
+      var dx=e.clientX-sx, dy=e.clientY-sy;
+      main.style.transition="";// 還原過場，讓貼齊動畫生效
+      main.style.transform="";
+      if(horiz){
+        var willOpen=(dragRow.classList.contains("swiped")?(dx>-60):(dx<-60));
+        if(willOpen){dragRow.classList.add("swiped");openSwipe=dragRow;}
+        else{dragRow.classList.remove("swiped");if(openSwipe===dragRow)openSwipe=null;}
+      }else if(!decided){
+        // 視為點擊
+        handleTap(e.target,dragRow);
+      }
+      dragging=false; dragRow=null;
+    });
+    treeEl.addEventListener("pointercancel",function(){if(reordering){endReorder();return;}if(dragRow){var mm=dragRow.querySelector(".row-main");mm.style.transition="";mm.style.transform="";}dragging=false;dragRow=null;});
+
+    // 左滑露出的行內動作鈕：以 click 處理（不在 row-main 內，pointer 流程不接管）
+    treeEl.addEventListener("click",function(e){
+      var b=e.target.closest(".row-actions [data-act]"); if(!b)return;
+      var row=b.closest(".row"), act=b.getAttribute("data-act");
+      closeSwipe();
+      if(act==="edit")selectRow(row);
+      else if(act==="dup")dupRow(row);
+      else if(act==="del")delRow(row);
+    });
+
+    function handleTap(target,row){
+      if(target.closest(".kind")){ openKindSheet(row); return; }// 點 kind 標記直接切換型別
+      var actBtn=target.closest("[data-act]");
+      if(actBtn){
+        var act=actBtn.getAttribute("data-act");
+        if(act==="grip"){return;}// 拖移把手不觸發點擊
+        if(act==="caret"){toggleRow(row);return;}
+        if(act==="edit"){closeSwipe();selectRow(row);return;}
+        if(act==="dup"){closeSwipe();dupRow(row);return;}
+        if(act==="del"){closeSwipe();delRow(row);return;}
+      }
+      if(openSwipe){closeSwipe();return;}
+      selectRow(row);
+    }
+    function toggleRow(row){
+      if(!row.classList.contains("branch"))return;
+      var open=row.classList.toggle("open");
+      var kids=row.nextElementSibling;
+      if(kids&&kids.classList.contains("children"))kids.classList.toggle("open",open);
+    }
+    function dupRow(row){
+      var clone=row.cloneNode(true);
+      clone.classList.remove("selected","swiped");
+      var kids=row.nextElementSibling;
+      if(row.classList.contains("branch")&&kids&&kids.classList.contains("children")){
+        var kclone=kids.cloneNode(true);
+        row.parentNode.insertBefore(clone,kids.nextSibling);
+        clone.parentNode.insertBefore(kclone,clone.nextSibling);
+      }else{
+        row.parentNode.insertBefore(clone,row.nextSibling);
+      }
+      showToast("已複製 "+row.getAttribute("data-key"));
+    }
+    function delRow(row){
+      var kids=row.nextElementSibling;
+      if(row.classList.contains("branch")&&kids&&kids.classList.contains("children"))kids.remove();
+      var key=row.getAttribute("data-key");
+      row.remove();
+      if(selectedRow===row){selectedRow=null;selBadge.textContent="未選取";if(isWide())dpBody.innerHTML='<div class="dp-empty">點選任一節點<br>即可在此編輯其值與中繼資料</div>';closeSheets();}
+      showToast("已刪除 "+key);
+    }
+
+    /* ----- appbar / footer 動作 ----- */
+    app.addEventListener("click",function(e){
+      var b=e.target.closest("[data-act]"); if(!b)return;
+      if(treeEl.contains(b))return;// 樹列由 pointer 流程處理
+      var act=b.getAttribute("data-act");
+      switch(act){
+        case "menu": openMenuSheet(); break;
+        case "filter": openFilterSheet(); break;
+        case "add": openAddSheet(); break;
+        case "save": app.querySelector(".dirty-dot").style.opacity="0"; showToast("已儲存 config.toml"); break;
+        case "undo": showToast("已復原"); break;
+        case "scrim":
+        case "closesheet": closeSheets(); if(selectedRow&&!isWide()){selectedRow.classList.remove("selected");selectedRow=null;selBadge.textContent="未選取";} break;
+        case "dup": if(selectedRow){closeSheets();dupRow(selectedRow);} break;
+        case "del": if(selectedRow){var r=selectedRow;closeSheets();delRow(r);} break;
+        case "searchclear": searchInput.value="";applySearch();searchInput.parentElement.classList.remove("has-val");break;
+      }
+    });
+
+    /* ----- tabs ----- */
+    app.querySelectorAll(".tab").forEach(function(t){
+      t.addEventListener("click",function(){
+        app.querySelectorAll(".tab").forEach(function(x){x.classList.remove("active");});
+        t.classList.add("active");
+        app.classList.toggle("raw",t.getAttribute("data-tab")==="raw");
+        closeSwipe();
+      });
+    });
+
+    /* ----- search ----- */
+    searchInput.addEventListener("input",function(){
+      this.parentElement.classList.toggle("has-val",!!this.value);
+      applySearch();
+    });
+    function applySearch(){
+      var q=searchInput.value.trim().toLowerCase();
+      treeEl.querySelectorAll(".row").forEach(function(row){
+        if(!q){row.style.display="";return;}
+        var k=row.getAttribute("data-key").toLowerCase();
+        var v=(row.getAttribute("data-val")||"").toLowerCase();
+        var hit=k.indexOf(q)>=0||v.indexOf(q)>=0;
+        // 分支：若任何子孫命中也顯示
+        if(!hit&&row.classList.contains("branch")){
+          var kids=row.nextElementSibling;
+          if(kids)hit=kids.textContent.toLowerCase().indexOf(q)>=0;
+        }
+        row.style.display=hit?"":"none";
+      });
+    }
+
+    /* ----- menu sheet ----- */
+    function openMenuSheet(){
+      sheets.menu.innerHTML=
+        '<div class="grab"></div>'+
+        '<div class="sheet-head"><h3>更多動作</h3><button class="close" data-act="closesheet">'+I.close+'</button></div>'+
+        '<div class="sheet-body">'+
+        mi(I.open,"開啟檔案","Ctrl O","open")+
+        mi(I.convert,"另存 / 轉換格式","","convert")+
+        '<div class="menu-sep"></div>'+
+        mi(I.expand,"全部展開","","expandall")+
+        mi(I.collapse,"全部收合","","collapseall")+
+        '<div class="menu-sep"></div>'+
+        mi(I.sun,"切換淺 / 深色","","theme")+
+        mi(I.help,"鍵盤快速鍵","?","help")+
+        '</div>';
+      sheets.menu.querySelectorAll(".menu-item").forEach(function(it){
+        it.addEventListener("click",function(){menuAction(it.getAttribute("data-mi"));});
+      });
+      openSheet("menu");
+    }
+    function mi(ic,label,sc,id){return '<button class="menu-item" data-mi="'+id+'"><span class="ic">'+ic+'</span>'+label+(sc?'<span class="sc">'+sc+'</span>':'')+'</button>';}
+    function menuAction(id){
+      if(id==="theme"){var r=document.documentElement;r.setAttribute("data-theme",r.getAttribute("data-theme")==="dark"?"light":"dark");}
+      else if(id==="expandall"){treeEl.querySelectorAll(".row.branch").forEach(function(r){r.classList.add("open");var k=r.nextElementSibling;if(k)k.classList.add("open");});}
+      else if(id==="collapseall"){treeEl.querySelectorAll(".row.branch").forEach(function(r){r.classList.remove("open");var k=r.nextElementSibling;if(k)k.classList.remove("open");});}
+      else if(id==="open"){showToast("開啟檔案…");}
+      else if(id==="convert"){showToast("另存 / 轉換…");}
+      else if(id==="help"){showToast("← → 移動 · Enter 編輯 · / 搜尋");}
+      closeSheets();
+    }
+
+    /* ----- filter sheet ----- */
+    function openFilterSheet(){
+      var types=[["string","字串"],["number","數字"],["bool","布林"],["array","陣列"],["table","表"]];
+      var chips=types.map(function(t){
+        return '<button class="chip" data-on="'+filterState[t[0]]+'" data-tf="'+t[0]+'"><span class="box">'+I.check+'</span>'+t[1]+'</button>';
+      }).join("");
+      sheets.filter.innerHTML=
+        '<div class="grab"></div>'+
+        '<div class="sheet-head"><h3>型別篩選</h3><button class="close" data-act="closesheet">'+I.close+'</button></div>'+
+        '<div class="sheet-body"><div class="chips">'+chips+'</div>'+
+        '<div class="row-btns"><button class="btn" data-tf-all>全部顯示</button><button class="btn primary" data-act="closesheet">完成</button></div></div>';
+      sheets.filter.querySelectorAll(".chip").forEach(function(c){
+        c.addEventListener("click",function(){
+          var k=c.getAttribute("data-tf");
+          filterState[k]=filterState[k]?0:1;
+          c.setAttribute("data-on",filterState[k]);
+          applyFilter();
+        });
+      });
+      sheets.filter.querySelector("[data-tf-all]").addEventListener("click",function(){
+        Object.keys(filterState).forEach(function(k){filterState[k]=1;});
+        sheets.filter.querySelectorAll(".chip").forEach(function(c){c.setAttribute("data-on","1");});
+        applyFilter();
+      });
+      openSheet("filter");
+    }
+    function applyFilter(){
+      var anyOff=Object.keys(filterState).some(function(k){return !filterState[k];});
+      app.querySelector(".filter-btn").classList.toggle("on",anyOff);
+      treeEl.querySelectorAll(".row:not(.branch)").forEach(function(row){
+        var t=row.getAttribute("data-type");
+        row.style.display=filterState[t]?"":"none";
+      });
+    }
+
+    /* ----- add sheet ----- */
+    function openAddSheet(){
+      var types=[["string","字串","var(--t-string)"],["number","數字","var(--t-number)"],
+                 ["bool","布林","var(--t-bool)"],["table","表 / 群組","var(--t-branch)"]];
+      var cells=types.map(function(t){
+        return '<button class="add-cell" data-add="'+t[0]+'"><span class="dotc" style="background:'+t[2]+'"></span>'+t[1]+'</button>';
+      }).join("");
+      sheets.add.innerHTML=
+        '<div class="grab"></div>'+
+        '<div class="sheet-head"><h3>新增節點</h3><button class="close" data-act="closesheet">'+I.close+'</button></div>'+
+        '<div class="sheet-body"><div class="addgrid">'+cells+'</div></div>';
+      sheets.add.querySelectorAll(".add-cell").forEach(function(c){
+        c.addEventListener("click",function(){addNode(c.getAttribute("data-add"));});
+      });
+      openSheet("add");
+    }
+    function addNode(t){
+      var defaults={string:'""',number:"0",bool:"true",table:null};
+      var key="new_key";
+      var html;
+      var grip='<button class="drag-handle" data-act="grip" aria-label="拖移排序" title="拖移排序">'+I.grip+'</button>';
+      if(t==="table"){
+        html='<div class="row branch open" data-type="table" data-key="'+key+'" data-path="'+key+'" data-comment="">'+
+          '<div class="row-main" style="padding-left:10px">'+
+          '<button class="caret" data-act="caret">'+I.chev+'</button>'+
+          '<span class="key">'+key+'</span><span class="count">0</span>'+
+          '<span class="kind">table</span><span class="comment"></span><span class="chev-r">'+I.chev+'</span>'+grip+'</div>'+
+          rowActions()+'</div><div class="children open"></div>';
+      }else{
+        html='<div class="row" data-type="'+t+'" data-key="'+key+'" data-val="'+esc(defaults[t])+'" data-path="'+key+'" data-comment="">'+
+          '<div class="row-main" style="padding-left:10px">'+
+          '<button class="caret leaf" data-act="caret">'+I.chev+'</button>'+
+          '<span class="key">'+key+'</span><span class="eq">=</span>'+
+          '<span class="val t-'+t+'">'+esc(defaults[t])+'</span><span class="comment"></span><span class="kind">'+t+'</span>'+grip+'</div>'+
+          rowActions()+'</div>';
+      }
+      treeEl.insertAdjacentHTML("afterbegin",html);
+      tree.scrollTop=0;
+      closeSheets();
+      app.querySelector(".dirty-dot").style.opacity="1";
+      showToast("已新增 "+(TLABEL[t]||t)+" 節點");
+      selectRow(treeEl.querySelector(".row"));
+    }
+    function rowActions(){
+      return '<div class="row-actions">'+
+        '<button class="act-edit" data-act="edit">'+I.edit+'<span>編輯</span></button>'+
+        '<button class="act-dup" data-act="dup">'+I.dup+'<span>複製</span></button>'+
+        '<button class="act-del" data-act="del">'+I.del+'<span>刪除</span></button></div>';
+    }
+
+    /* ----- sheet 下滑關閉（手勢） ----- */
+    Object.keys(sheets).forEach(function(name){
+      var sheet=sheets[name];
+      var sy0=0,dy=0,drag=false;
+      sheet.addEventListener("pointerdown",function(e){
+        if(!e.target.closest(".grab")&&!e.target.closest(".sheet-head"))return;
+        drag=true;sy0=e.clientY;dy=0;sheet.style.transition="none";
+      });
+      sheet.addEventListener("pointermove",function(e){
+        if(!drag)return; dy=Math.max(0,e.clientY-sy0);
+        sheet.style.transform="translateY("+dy+"px)";
+      });
+      function end(){
+        if(!drag)return; drag=false; sheet.style.transition="";
+        sheet.style.transform="";
+        if(dy>90)closeSheets();
+      }
+      sheet.addEventListener("pointerup",end);
+      sheet.addEventListener("pointercancel",end);
+    });
+
+    // 捲動時收起已開的左滑
+    tree.addEventListener("scroll",function(){if(openSwipe)closeSwipe();},{passive:true});
+  }
+
+  /* ---------- mount ---------- */
+  document.querySelectorAll(".screen").forEach(function(screen){
+    screen.innerHTML=osStatus()+appHTML();
+    initApp(screen.querySelector(".app"));
+  });
+})();
+</script>
+</body>
+</html>

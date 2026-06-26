@@ -55,6 +55,9 @@
   --mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --row-h: 30px;
   --indent: 22px;
+  /* 觸控 / RWD 基礎令牌（desktop 預設不改） */
+  --hit: 44px;           /* 最小觸控目標尺寸 (WCAG 2.5.5) */
+  --row-h-touch: 44px;   /* 觸控裝置列高（pointer:coarse 媒體查詢生效） */
 }
 *{box-sizing:border-box}
 html,body{height:100%}
@@ -218,9 +221,9 @@ button{font-family:inherit;color:inherit;cursor:pointer}
 
 /* ---------- detail panel ---------- */
 .detail{
-  flex:0 0 320px;border-left:1px solid var(--border);background:var(--surface);
+  flex:0 0 min(320px,92vw);border-left:1px solid var(--border);background:var(--surface);
   display:flex;flex-direction:column;transform:translateX(100%);transition:transform .22s cubic-bezier(.2,.8,.2,1);
-  position:absolute;right:0;top:0;bottom:0;width:320px;z-index:30;box-shadow:var(--shadow);
+  position:absolute;right:0;top:0;bottom:0;width:min(320px, 92vw);z-index:30;box-shadow:var(--shadow);
 }
 .detail.open{transform:translateX(0)}
 .detail-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border)}
@@ -249,6 +252,7 @@ button{font-family:inherit;color:inherit;cursor:pointer}
 .pop{
   position:fixed;z-index:200;background:var(--surface);border:1px solid var(--border-strong);
   border-radius:10px;box-shadow:var(--shadow);min-width:180px;padding:5px;display:none;
+  max-width: min(280px, 92vw); max-height: calc(100vh - 16px); overflow-y: auto;
 }
 .pop.open{display:block;animation:pop .12s ease}
 @keyframes pop{from{opacity:0;transform:translateY(-4px) scale(.98)}to{opacity:1;transform:none}}
@@ -284,6 +288,7 @@ button{font-family:inherit;color:inherit;cursor:pointer}
 dialog{
   border:1px solid var(--border-strong);border-radius:14px;padding:0;background:var(--surface);
   color:var(--fg);box-shadow:var(--shadow);width:min(460px,92vw);
+  max-height: calc(100vh - 32px); overflow: auto;
 }
 dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
 .dlg-head{padding:18px 20px 4px}
@@ -302,7 +307,17 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
 .warns.hide{display:none}
 .dlg-foot{display:flex;justify-content:flex-end;gap:10px;padding:6px 20px 18px}
 
-/* tablet / mobile */
+/* ── 寬度響應式斷點 ─────────────────────────────────────────
+   斷點速查（max-width）:
+     920px — 平板：收合 detail、隱藏 label-hide
+     680px — 窄版：增大列高、動作鈕常駐（含觸控電話橫向）
+     600px — 折疊 Tree/Raw 頁籤 → ⋯ More
+     500px — 折疊 Expand/Collapse
+     440px — 折疊 Undo/Redo/Theme
+   以下規則**逐字不動**；觸控能力擴充另在 pointer:coarse 區塊。
+   ─────────────────────────────────────────────────────────── */
+
+/* 平板：≤920px */
 @media (max-width:920px){
   .detail{flex-basis:0}
   .val,.key{max-width:none}
@@ -313,16 +328,20 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
    of wrapping), fold the right-side action groups into the More popup one step
    at a time, right→left, as width shrinks. #btnMore appears at the first step
    and always lists the full action set (a harmless superset). */
+/* 窄：≤600px — step 1: 折疊 Tree/Raw 頁籤 */
 @media (max-width:600px){
   #btnMore{display:inline-flex}
   #viewTabs{display:none}            /* step 1: Tree/Raw tabs */
 }
+/* 窄：≤500px — step 2: 折疊 Expand/Collapse */
 @media (max-width:500px){
   #navGroup{display:none}            /* step 2: Expand/Collapse */
 }
+/* 窄：≤440px — step 3: 折疊 Undo/Redo/Theme */
 @media (max-width:440px){
   #editGroup{display:none}           /* step 3: Undo/Redo/Theme */
 }
+/* 窄版 + 觸控電話橫向：≤680px */
 @media (max-width:680px){
   :root{--row-h:38px;--indent:16px}
   body{font-size:14px}
@@ -337,6 +356,31 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
   .detail{width:100vw}
   .hint{display:none}
 }
+
+/* ── 觸控能力掛鉤（能力閘控，視覺純加法）────────────────────
+   pointer:coarse  = 手指/觸控筆輸入（含寬螢幕平板）
+   hover:none      = 無滑鼠懸停（手機 / 觸控板主要輸入）
+   這些規則**只補充**寬度斷點尚未覆蓋的觸控行為（例如寬螢幕觸控裝置）；
+   純滑鼠使用者在任何寬度下均不受影響。
+   ─────────────────────────────────────────────────────────── */
+
+/* 觸控裝置：提高命中區域至 --hit；動作鈕常駐 */
+@media (pointer:coarse){
+  .tbtn{min-height:var(--hit)}
+  .icon-btn{width:var(--hit);height:var(--hit)}
+  .row-actions{opacity:1}            /* 觸控：動作鈕常駐（寬螢幕亦然） */
+  .drag-handle{opacity:.5}
+}
+/* 無懸停裝置：移除懸停相依的 opacity 漸隱（行為補充） */
+@media (hover:none){
+  .caret{color:var(--muted)}        /* 無 hover 時保持可見 */
+}
+
+/* ── 觸控版面鷹架（本階段全部 .hidden / inert）───────────────
+   Bottom-sheet、FAB、Swipe-wrapper 為未來觸控相互動準備的掛載點；
+   display:none 確保本階段對桌面版完全無影響。
+   ─────────────────────────────────────────────────────────── */
+.touch-sheet,.touch-fab,.touch-swipe{display:none}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 
 /* ============================================================
@@ -381,15 +425,17 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
 .paste-mode .row.cursor::after { content: "▸ paste here"; margin-left: auto; align-self: center; font-size: 10px; font-weight: 700; letter-spacing: .04em; color: var(--accent); }
 .paste-mode .row-actions { display: none; }
 
-.modal { position: fixed; inset: 0; background: oklch(15% 0.02 250 / .5); display: flex; align-items: center; justify-content: center; z-index: 100; }
+.modal { position: fixed; inset: 0; background: oklch(15% 0.02 250 / .5); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 16px; }
 .modal-box {
   background: var(--surface); border: 1px solid var(--border-strong); border-radius: 12px;
   padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; box-shadow: var(--shadow);
+  width: min(720px, 92vw); max-height: calc(100vh - 32px); overflow: auto;
 }
 .modal-box h3 { margin: 0; font-size: 15px; }
 .modal-box textarea {
   background: var(--panel); color: var(--fg); border: 1px solid var(--border-strong);
   border-radius: 8px; font-family: var(--mono); font-size: 13px; padding: 8px; resize: vertical;
+  width: 100%; max-width: 100%; box-sizing: border-box; max-height: 60vh;
 }
 .modal-box select {
   background: var(--panel); color: var(--fg); border: 1px solid var(--border-strong);
