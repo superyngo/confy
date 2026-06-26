@@ -46,6 +46,8 @@ export interface ViewRow {
   // Immediate child count (drives the branch item-count badge; 0 for scalars).
   child_count: number;
   trailing_comment: string | undefined;
+  // Key-sign label ("bare"/"quoted"/"dotted"/"none") for the structured "Sign" field.
+  key_sign?: string;
   read_only: boolean;
   selected: boolean;
   is_cursor: boolean;

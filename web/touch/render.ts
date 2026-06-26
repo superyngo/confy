@@ -72,7 +72,7 @@ export function valueTypeClass(r: ViewRow): string {
 
 // A branch is open iff the next visible row is one level deeper (mirrors the
 // desktop `isExpanded`; the snapshot only carries visible rows).
-function isExpanded(rows: ViewRow[], idx: number): boolean {
+export function isExpanded(rows: ViewRow[], idx: number): boolean {
   const next = rows[idx + 1];
   return next !== undefined && next.depth > rows[idx].depth;
 }
@@ -80,13 +80,6 @@ function isExpanded(rows: ViewRow[], idx: number): boolean {
 function containerKind(r: ViewRow): "array" | "table" {
   return /array|seq/i.test(r.type_label) ? "array" : "table";
 }
-
-const SWIPE_ACTIONS =
-  '<div class="row-actions">' +
-  `<button class="act-edit" data-act="edit">${IC.edit}<span>Edit</span></button>` +
-  `<button class="act-dup" data-act="dup">${IC.dup}<span>Dup</span></button>` +
-  `<button class="act-del" data-act="del">${IC.del}<span>Delete</span></button>` +
-  "</div>";
 
 function rowHTML(r: ViewRow, idx: number, rows: ViewRow[]): string {
   const branch = r.is_branch;
@@ -115,7 +108,6 @@ function rowHTML(r: ViewRow, idx: number, rows: ViewRow[]): string {
       h += `<span class="count">${r.child_count}</span>`;
       h += `<span class="kind" data-act="kind">${esc(r.type_label)}</span>`;
       h += `<span class="comment">${r.trailing_comment ? "# " + esc(r.trailing_comment) : ""}</span>`;
-      h += `<span class="chev-r">${IC.chev}</span>`;
     } else {
       h += `<span class="eq">=</span>`;
       h += `<span class="val ${valueTypeClass(r)}">${esc(r.value ?? "")}</span>`;
@@ -127,7 +119,6 @@ function rowHTML(r: ViewRow, idx: number, rows: ViewRow[]): string {
   if (!r.read_only)
     h += `<button class="drag-handle" data-act="grip" aria-label="reorder">${IC.grip}</button>`;
   h += "</div>"; // row-main
-  if (!r.read_only) h += SWIPE_ACTIONS;
   h += "</div>"; // row
   return h;
 }

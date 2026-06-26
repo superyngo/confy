@@ -37,33 +37,42 @@ import {
   extFor,
   type OpenedFile,
 } from "../fs.js";
-import { IC, esc, treeHTML, isComment, isPositional, valueTypeClass, pathEq } from "./render.js";
+import { IC, esc, treeHTML, isExpanded, pathEq } from "./render.js";
+import { panelHTML, wirePanel } from "../panel.js";
 
 type FsHandle = OpenedFile["handle"];
 
-const SAMPLE = `# confy — sample configuration
-[server]
-host = "0.0.0.0"  # listen on all interfaces
-port = 8080
-workers = 4
+// Workspace version stamped by esbuild (see build.mjs `define`); falls back to
+// "dev" when bundled without the define.
+declare const __APP_VERSION__: string;
+const APP_VERSION =
+  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "dev";
 
-[server.tls]
-enabled = true
-cert = "/etc/confy/cert.pem"
+// Built-in welcome sample — identical content to the desktop UI (`web/ui.ts`
+// SAMPLES.toml), so both surfaces boot the same tree.
+const SAMPLE = `# 👋 Welcome to confy — a lossless editor for TOML · JSON · YAML
+# Click a row to select · drag the ⠿ grip to reparent · ⌘S to save
 
-[database]
-url = "postgres://localhost/confy"
-pool_size = 16
-timeout_ms = 3000
+[about]
+name = "confy"
+pitch = "Three config dialects, one tidy tree 🌳"
+version = "${APP_VERSION}"
+lossless = true    # untouched bytes round-trip byte-for-byte
 
-[logging]
-level = "info"
-format = "json"
-targets = ["stdout", "file"]
+[basics]
+select = ["click = one", "shift-click = range", "cmd-click = toggle"]
+add_child = "hover a branch, hit the ＋"
+undo_redo = "z and y — we all fat-finger 🙃"
 
-[features]
-beta_ui = false
-rate_limit = true
+[formats]
+toml = "tables, dotted keys, datetimes"
+json = "// comments quietly upgrade it to JSONC"
+yaml = "block + flow, plain-where-safe"
+
+[fun]
+emoji_welcome = true
+brackets_collected = ["{ }", "[ ]", "< >"]
+coffees_per_config = 3
 `;
 
 const FS_AVAILABLE = fsAccessAvailable();
@@ -74,7 +83,6 @@ let snap: SessionSnapshot | null = null;
 let fileHandle: FsHandle | null = null;
 let fileName: string | null = "config.toml";
 let rawView = false;
-let openSwipeRow: HTMLElement | null = null;
 let searchTimer: number | undefined;
 
 // ---- DOM refs (cached after the shell mounts) ----
@@ -104,6 +112,13 @@ function send(i: Intent) {
   snap = session.dispatch(i);
   render();
 }
+// Dispatch and return the resulting snapshot (the shared panel.ts contract reads
+// `snapshot.error`). `send` already triggered the re-render.
+function sendR(i: Intent): SessionSnapshot {
+  send(i);
+  return snap!;
+}
+const openKindRow = (r: ViewRow) => openKindSheet(r.path);
 function pathOf(row: HTMLElement | null): Path | null {
   return row?.dataset.path ? (JSON.parse(row.dataset.path) as Path) : null;
 }
@@ -148,7 +163,7 @@ function appHTML(): string {
     '<div class="appbar">' +
     '<div class="brand"><span class="logo">cy</span>' +
     '<span class="doc"><span class="name"></span>' +
-    '<span class="meta"><span class="fmt-pill"></span><span class="dirty-dot"></span></span></span></div>' +
+    '<span class="meta"><button class="fmt-pill" data-act="convert" aria-label="save / convert format"></button><span class="dirty-dot"></span></span></span></div>' +
     '<span class="grow"></span>' +
     `<button class="tapbtn" data-act="undo" aria-label="undo">${IC.undo}</button>` +
     `<button class="tapbtn primary" data-act="save" aria-label="save">${IC.save}</button>` +
@@ -164,6 +179,7 @@ function appHTML(): string {
     '<div class="body">' +
     '<div class="tree-pane"><div class="tree"></div></div>' +
     '<pre class="raw-view"></pre>' +
+    '<div class="splitter" data-splitter></div>' +
     '<div class="detail-pane"><div class="dp-head"><h3>Node detail</h3></div>' +
     '<div class="dp-body"><div class="dp-empty">Tap any node<br>to edit its value and metadata here</div></div></div>' +
     "</div>" +
@@ -203,7 +219,6 @@ function toast(msg: string) {
 
 // ---- sheets ----
 function openSheet(name: string) {
-  closeSwipe();
   Object.keys(sheets).forEach((k) => {
     if (k !== name) sheets[k].classList.remove("open");
   });
@@ -237,11 +252,12 @@ function render() {
     app.classList.remove("raw");
   }
 
-  // Persistent side-pane detail (≥600px). Narrow uses the detail sheet on tap.
+  // Persistent side-pane detail (≥600px). Narrow uses the detail sheet on
+  // double-tap. The shared panel.ts renders/wires the body identically to desktop.
   if (isWide() && !rawView) {
     if (cur && cur.path.length) {
-      dpBody.innerHTML = detailHTML(cur);
-      wireDetail(dpBody, cur);
+      dpBody.innerHTML = panelHTML(cur);
+      wirePanel(dpBody, cur, sendR, openKindRow, toast);
     } else {
       dpBody.innerHTML = '<div class="dp-empty">Tap any node<br>to edit its value and metadata here</div>';
     }
@@ -272,113 +288,27 @@ function typeFilterActive(m: ModeView): boolean {
   return filterBtn.classList.contains("on");
 }
 
-// ---- detail (key / value / comment / kind / actions) ----
-function detailHTML(r: ViewRow): string {
-  const branch = r.is_branch;
-  const comment = isComment(r);
-  const elem = isPositional(r);
-  let h = '<div class="detail">';
-
-  if (comment) {
-    h += '<div class="field-label">Comment</div>';
-    h += `<input class="c-edit" data-field="comment-node" value="${esc(r.value ?? "")}" autocomplete="off" spellcheck="false" />`;
-    h += `<dl><dt>Path</dt><dd>${esc(JSON.stringify(r.path))}</dd></dl>`;
-    h += '<div class="row-btns"><button class="btn danger" data-act="del">Delete</button></div></div>';
-    return h;
-  }
-
-  // Key (array-element index is positional, not renamable).
-  h += '<div class="field-label">Key</div>';
-  if (elem) {
-    h += `<input class="v-edit" value="${esc(r.key)}" disabled />`;
-    h += '<div class="hint-line">Array-element index is positional — drag the grip to reorder.</div>';
-  } else if (!r.read_only) {
-    h += `<input class="k-edit" data-field="name" value="${esc(r.key)}" autocomplete="off" spellcheck="false" />`;
-  } else {
-    h += `<input class="v-edit" value="${esc(r.key)}" disabled />`;
-  }
-
-  // Value (scalars only).
-  if (!branch) {
-    h += `<div class="field-label">Value (${esc(r.type_label)})</div>`;
-    h += `<input class="v-edit${r.read_only ? "" : ""}" data-field="value" value="${esc(r.value ?? "")}"${r.read_only ? " disabled" : ""} />`;
-  }
-
-  // Trailing comment.
-  if (!r.read_only) {
-    h += '<div class="field-label">Trailing comment</div>';
-    h += `<input class="c-edit" data-field="trailing" value="${esc(r.trailing_comment ?? "")}" placeholder="add a comment…" autocomplete="off" spellcheck="false" />`;
-  }
-
-  // Kind switch.
-  if (!r.read_only) {
-    const hue = branch ? "branch" : valueTypeClass(r).replace("t-", "") || "branch";
-    h += '<div class="field-label">Kind</div>';
-    h += `<button class="btn kindbtn" data-act="kindswitch"><span class="dotc" style="background:var(--t-${hue})"></span>${esc(r.type_label)} · switch notation</button>`;
-  }
-
-  // Meta + actions.
-  h += `<dl><dt>Path</dt><dd>${esc(JSON.stringify(r.path))}</dd>`;
-  if (branch) h += `<dt>Children</dt><dd>${r.child_count}</dd>`;
-  h += "</dl>";
-  if (!r.read_only) {
-    h +=
-      '<div class="row-btns">' +
-      '<button class="btn" data-act="dup">Duplicate</button>' +
-      '<button class="btn danger" data-act="del">Delete</button></div>';
-  }
-  h += "</div>";
-  return h;
-}
-
-function wireDetail(container: HTMLElement, r: ViewRow) {
-  const path = r.path;
-  const ke = container.querySelector<HTMLInputElement>('[data-field="name"]');
-  const ve = container.querySelector<HTMLInputElement>('[data-field="value"]');
-  const te = container.querySelector<HTMLInputElement>('[data-field="trailing"]');
-  const cn = container.querySelector<HTMLInputElement>('[data-field="comment-node"]');
-  const kb = container.querySelector<HTMLElement>("[data-act=kindswitch]");
-  const commit = (el: HTMLInputElement, fn: () => void) => {
-    el.addEventListener("change", fn);
-    el.addEventListener("keydown", (e) => {
-      if ((e as KeyboardEvent).key === "Enter") el.blur();
-    });
-  };
-  if (ke)
-    commit(ke, () => {
-      send({ SetCursor: path });
-      send({ CommitEdit: { value: null, name: ke.value } });
-    });
-  if (ve)
-    commit(ve, () => {
-      send({ SetCursor: path });
-      send({ CommitEdit: { value: ve.value, name: null } });
-    });
-  if (te)
-    commit(te, () => {
-      send({ SetTrailing: { path, comment: te.value || null } });
-    });
-  if (cn)
-    commit(cn, () => {
-      send({ ApplyEditComment: { path, text: cn.value } });
-    });
-  if (kb) kb.addEventListener("click", () => openKindSheet(path));
-}
-
-function selectNode(path: Path) {
+// ---- selection / detail panel ----
+// Single tap = select only (cursor + selection); the wide-mode side pane
+// reactively shows it. The detail sheet opens on double-tap (openPanel).
+function selectOnly(path: Path) {
   send({ SetCursor: path });
   send({ SetSelection: { paths: [path] } });
+}
+// Double-tap (narrow) opens the bottom-sheet panel. Wide mode keeps the
+// persistent side pane (render() refreshed it), so no sheet is needed.
+function openPanel(path: Path) {
+  selectOnly(path);
   const r = rowFor(path);
   if (!r) return;
   if (!isWide()) {
     sheets.detail.innerHTML =
       '<div class="grab"></div>' +
       `<div class="sheet-head"><h3>${esc(r.key || lastKey(path))}</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
-      `<div class="sheet-body detail-wrap">${detailHTML(r)}</div>`;
-    wireDetail(sheets.detail, r);
+      `<div class="sheet-body detail-wrap">${panelHTML(r)}</div>`;
+    wirePanel(sheets.detail, r, sendR, openKindRow, toast);
     openSheet("detail");
   }
-  // Wide mode: render() already refreshed the side pane.
 }
 
 // ---- kind sheet (from session.kindOptions) ----
@@ -459,25 +389,33 @@ function menuAction(id: string) {
 
 // ---- type-filter sheet (driven by snapshot.mode TypeFilterView) ----
 function renderFilterSheet(grid: TypeFilterView) {
+  // Well-formed grouped markup: each Header opens a group + its `.chips` row;
+  // each Cells row fills it. `cellRow` indexes Cells rows (matches cursor_row).
   let cellRow = -1;
   let chips = "";
+  let groupOpen = false;
   for (const row of grid.rows) {
     if ("Header" in row) {
+      if (groupOpen) chips += "</div>"; // close prior .chips
       chips += `<div class="field-label">${esc(row.Header)}</div><div class="chips">`;
-      // close any prior open chips wrapper handled below by structure
+      groupOpen = true;
       continue;
+    }
+    if (!groupOpen) {
+      chips += '<div class="chips">';
+      groupOpen = true;
     }
     cellRow++;
     chips += row.Cells.map((c, col) => {
       const on = c.state === "On" ? "1" : c.state === "Partial" ? "partial" : "0";
       return `<button class="chip" data-on="${on}" data-r="${cellRow}" data-c="${col}"><span class="box">${IC.check}</span>${esc(c.label)}</button>`;
     }).join("");
-    chips += "</div>";
   }
+  if (groupOpen) chips += "</div>"; // close last .chips
   sheets.filter.innerHTML =
     '<div class="grab"></div>' +
     `<div class="sheet-head"><h3>Type filter</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
-    `<div class="sheet-body">${chips}` +
+    `<div class="sheet-body tf-body">${chips}` +
     '<div class="row-btns"><button class="btn primary" data-act="closesheet">Done</button></div></div>';
   sheets.filter.querySelectorAll<HTMLElement>("[data-r]").forEach((b) => {
     b.addEventListener("click", () => {
@@ -542,20 +480,17 @@ function openExternalEdit(ext: { initial: string; kind: unknown }) {
   };
 }
 
-// ---- swipe-to-reveal + grip reorder + tap (ported pointer flow) ----
-function closeSwipe() {
-  if (openSwipeRow) {
-    openSwipeRow.classList.remove("swiped");
-    openSwipeRow = null;
-  }
-}
-
+// ---- grip reorder + tap (pointer flow; horizontal swipe removed) ----
+// Tap-vs-scroll tracking on a row (grip-drag reorder is handled separately).
 let sx = 0,
   sy = 0,
   dragRow: HTMLElement | null = null,
   dragging = false,
-  decided = false,
-  horiz = false;
+  moved = false;
+// Double-tap detection (item 6): same path within DOUBLE_TAP_MS opens the panel.
+let lastTapKey: string | null = null;
+let lastTapTime = 0;
+const DOUBLE_TAP_MS = 300;
 
 // reorder state
 let reordering = false;
@@ -583,7 +518,6 @@ function startReorder(e: PointerEvent, row: HTMLElement) {
   reSrcPath = pathOf(row);
   reStartY = e.clientY;
   reLine = treeEl.querySelector(".reorder-line");
-  closeSwipe();
   row.classList.add("dragging");
   try {
     treeEl.setPointerCapture(e.pointerId);
@@ -702,61 +636,24 @@ function installTreeGestures() {
     sx = e.clientX;
     sy = e.clientY;
     dragging = true;
-    decided = false;
-    horiz = false;
+    moved = false;
   });
-  treeEl.addEventListener(
-    "pointermove",
-    (e) => {
-      if (reordering) {
-        e.preventDefault();
-        onReorderMove(e.clientY);
-        return;
-      }
-      if (!dragging || !dragRow) return;
-      const dx = e.clientX - sx,
-        dy = e.clientY - sy;
-      if (!decided) {
-        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
-        decided = true;
-        horiz = Math.abs(dx) > Math.abs(dy);
-        if (horiz && openSwipeRow && openSwipeRow !== dragRow) closeSwipe();
-      }
-      if (!horiz) return;
+  treeEl.addEventListener("pointermove", (e) => {
+    if (reordering) {
       e.preventDefault();
-      const m = dragRow.querySelector<HTMLElement>(".row-main")!;
-      m.style.transition = "none";
-      const base = dragRow.classList.contains("swiped") ? -186 : 0;
-      const tx = Math.max(-186, Math.min(0, base + dx));
-      m.style.transform = `translateX(${tx}px)`;
-    },
-    { passive: false },
-  );
+      onReorderMove(e.clientY);
+      return;
+    }
+    if (!dragging || !dragRow) return;
+    // Any meaningful drag (scroll) cancels the pending tap.
+    if (Math.abs(e.clientX - sx) > 8 || Math.abs(e.clientY - sy) > 8) moved = true;
+  });
   treeEl.addEventListener("pointerup", (e) => {
     if (reordering) {
       endReorder();
       return;
     }
-    if (!dragging || !dragRow) {
-      dragging = false;
-      return;
-    }
-    const main = dragRow.querySelector<HTMLElement>(".row-main")!;
-    const dx = e.clientX - sx;
-    main.style.transition = "";
-    main.style.transform = "";
-    if (horiz) {
-      const willOpen = dragRow.classList.contains("swiped") ? dx > -60 : dx < -60;
-      if (willOpen) {
-        dragRow.classList.add("swiped");
-        openSwipeRow = dragRow;
-      } else {
-        dragRow.classList.remove("swiped");
-        if (openSwipeRow === dragRow) openSwipeRow = null;
-      }
-    } else if (!decided) {
-      handleTap(e.target as HTMLElement, dragRow);
-    }
+    if (dragging && dragRow && !moved) handleTap(e.target as HTMLElement, dragRow);
     dragging = false;
     dragRow = null;
   });
@@ -765,47 +662,17 @@ function installTreeGestures() {
       endReorder();
       return;
     }
-    if (dragRow) {
-      const mm = dragRow.querySelector<HTMLElement>(".row-main");
-      if (mm) {
-        mm.style.transition = "";
-        mm.style.transform = "";
-      }
-    }
     dragging = false;
     dragRow = null;
   });
-
-  // Left-swipe action buttons (outside row-main; handled by click).
-  treeEl.addEventListener("click", (e) => {
-    const b = (e.target as HTMLElement).closest<HTMLElement>(".row-actions [data-act]");
-    if (!b) return;
-    const row = b.closest<HTMLElement>(".row")!;
-    const path = pathOf(row);
-    if (!path) return;
-    const act = b.dataset.act;
-    closeSwipe();
-    if (act === "edit") selectNode(path);
-    else if (act === "dup") dupNode(path);
-    else if (act === "del") delNode(path);
-  });
-
-  treePane.addEventListener(
-    "scroll",
-    () => {
-      if (openSwipeRow) closeSwipe();
-    },
-    { passive: true },
-  );
 }
 
+// Single tap = select only; double tap (same row within DOUBLE_TAP_MS) opens the
+// panel. The caret toggles expand; the kind badge now behaves like a normal tap
+// (kind switching lives inside the edit panel).
 function handleTap(target: HTMLElement, row: HTMLElement) {
   const path = pathOf(row);
   if (!path) return;
-  if (target.closest(".kind")) {
-    openKindSheet(path);
-    return;
-  }
   const actBtn = target.closest<HTMLElement>("[data-act]");
   if (actBtn) {
     const act = actBtn.dataset.act;
@@ -816,27 +683,34 @@ function handleTap(target: HTMLElement, row: HTMLElement) {
       return;
     }
   }
-  if (openSwipeRow) {
-    closeSwipe();
-    return;
-  }
-  selectNode(path);
+  const key = JSON.stringify(path);
+  const now = Date.now();
+  const isDouble = key === lastTapKey && now - lastTapTime < DOUBLE_TAP_MS;
+  lastTapKey = key;
+  lastTapTime = now;
+  if (isDouble) openPanel(path);
+  else selectOnly(path);
 }
 
-// ---- node actions ----
-function dupNode(path: Path) {
-  send({ SetCursor: path });
-  send({ SetSelection: { paths: [path] } });
-  send("CopySelected");
-  send("Paste");
-  toast("Duplicated");
-}
-function delNode(path: Path) {
-  send({ SetCursor: path });
-  send({ SetSelection: { paths: [path] } });
-  send("DeleteSelected");
-  if (!isWide()) closeSheets();
-  toast("Deleted");
+// ---- context-aware add (FAB) ----
+// On an expanded branch → AddChild; on a scalar or collapsed branch → AddSibling.
+// No cursor row → fall back to AddNode (the cursor-relative default).
+function addContextual() {
+  if (!snap) return;
+  const idx = snap.rows.findIndex((r) => r.is_cursor);
+  if (idx < 0) {
+    send("AddNode");
+    toast("Node added");
+    return;
+  }
+  const r = snap.rows[idx];
+  if (r.is_branch && isExpanded(snap.rows, idx)) {
+    send("AddChild");
+    toast("Child added");
+  } else {
+    send("AddSibling");
+    toast("Sibling added");
+  }
 }
 
 // ---- theme ----
@@ -960,8 +834,10 @@ function installShellHandlers() {
         send("EnterTypeFilter");
         break;
       case "add":
-        send("AddNode");
-        toast("Node added");
+        addContextual();
+        break;
+      case "convert":
+        send("OpenConvert");
         break;
       case "save":
         void doSave();
@@ -996,7 +872,6 @@ function installShellHandlers() {
       app.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
       t.classList.add("active");
       rawView = t.dataset.tab === "raw";
-      closeSwipe();
       render();
     });
   });
@@ -1038,6 +913,44 @@ function installShellHandlers() {
   });
 }
 
+// ---- tablet splitter (≥600px): drag the divider to resize the detail pane ----
+const DETAIL_W_KEY = "confy-detail-w";
+const DETAIL_W_MIN = 240;
+const DETAIL_W_MAX = 520;
+function restoreDetailWidth() {
+  const v = Number(localStorage.getItem(DETAIL_W_KEY));
+  if (v >= DETAIL_W_MIN && v <= DETAIL_W_MAX) app.style.setProperty("--detail-w", v + "px");
+}
+function installSplitter() {
+  const sp = app.querySelector<HTMLElement>("[data-splitter]");
+  if (!sp) return;
+  let spDrag = false;
+  sp.addEventListener("pointerdown", (e) => {
+    spDrag = true;
+    sp.classList.add("dragging");
+    try {
+      sp.setPointerCapture(e.pointerId);
+    } catch (_) {
+      /* ignore */
+    }
+    e.preventDefault();
+  });
+  sp.addEventListener("pointermove", (e) => {
+    if (!spDrag) return;
+    const w = Math.max(DETAIL_W_MIN, Math.min(DETAIL_W_MAX, app.getBoundingClientRect().right - e.clientX));
+    app.style.setProperty("--detail-w", w + "px");
+  });
+  const end = () => {
+    if (!spDrag) return;
+    spDrag = false;
+    sp.classList.remove("dragging");
+    const cur = parseInt(app.style.getPropertyValue("--detail-w"), 10);
+    if (cur) localStorage.setItem(DETAIL_W_KEY, String(cur));
+  };
+  sp.addEventListener("pointerup", end);
+  sp.addEventListener("pointercancel", end);
+}
+
 // Dismiss whatever sheet is open, committing mode-driven ones so their state
 // persists (type-filter) or unwinds cleanly (convert / external edit).
 function dismissSheets() {
@@ -1074,8 +987,10 @@ async function main() {
   sheets.convert = app.querySelector(".convert-sheet")!;
   sheets.ext = root.querySelector(".ext-sheet")!;
 
+  restoreDetailWidth();
   installTreeGestures();
   installShellHandlers();
+  installSplitter();
 
   const wasmUrl = new URL("../pkg/confy_ffi_bg.wasm", import.meta.url);
   await load(wasmUrl);

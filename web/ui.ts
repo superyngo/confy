@@ -18,6 +18,7 @@ import {
 import { currentKindLabel, escapeHtml, IC_CARET, renderTree } from "./render.js";
 import { resolveClick, rowsInRect, setAnchor } from "./select.js";
 import { installDnd } from "./dnd.js";
+import { panelHTML, wirePanel } from "./panel.js";
 import type {
   ConvertView,
   DocFormat,
@@ -27,6 +28,7 @@ import type {
   SessionSnapshot,
   TypeFilterRow,
   TypeFilterView,
+  ViewRow,
 } from "./types.js";
 
 // Workspace version stamped in at build time (see `build.mjs` `define`); falls
@@ -288,17 +290,48 @@ function modeTag(m: ModeView): string {
   return typeof m === "string" ? m : Object.keys(m)[0];
 }
 
-// The detail aside (design slide-in panel) mirrors the `Detail` mode: it shows
-// `detail_text` and slides in via `.detail.open`, replacing the keyboard
-// fallback overlay for this mode.
+// The detail aside (design slide-in panel) mirrors the `Detail` mode. While open
+// it shows the shared editable node panel (`web/panel.ts`, identical to the touch
+// UI's edit sheet) for the current cursor row, re-rendered from each snapshot so
+// it always tracks the selection. Falls back to the static `detail_text` only
+// when there is no cursor row (e.g. an empty document).
 function renderDetailPanel() {
   const panel = $("detail");
-  if (modeTag(snap!.mode) === "Detail") {
-    $("detailBody").innerHTML = `<pre class="mono">${escapeHtml(snap!.detail_text ?? "")}</pre>`;
-    panel.classList.add("open");
-  } else {
+  if (modeTag(snap!.mode) !== "Detail") {
     panel.classList.remove("open");
+    return;
   }
+  const body = $("detailBody");
+  const cursorRow = snap!.rows.find((r) => r.is_cursor);
+  if (!cursorRow) {
+    body.innerHTML = `<pre class="mono">${escapeHtml(snap!.detail_text ?? "")}</pre>`;
+  } else {
+    body.innerHTML = panelHTML(cursorRow);
+    wirePanel(body, cursorRow, panelSend, openKindForRow, (msg) => setStatus("", msg));
+  }
+  panel.classList.add("open");
+}
+
+// `send` variant for the shared panel: dispatch, re-render, and return the new
+// snapshot so `wirePanel` can read `snapshot.error`. The global `send` returns
+// void (other call sites depend on that), so this is a thin local adapter.
+function panelSend(i: Intent): SessionSnapshot {
+  snap = session!.dispatch(i);
+  render();
+  return snap;
+}
+
+// Open the desktop kind-switch popover for the panel's row, anchored at its Kind
+// button (captured before `SetCursor` re-renders the panel and detaches it).
+function openKindForRow(row: ViewRow) {
+  const btn = $("detailBody").querySelector<HTMLElement>("[data-act=kindswitch]");
+  const r = btn?.getBoundingClientRect();
+  panelSend({ SetCursor: row.path });
+  openKindMenuAt(
+    row.path,
+    r ? r.left : window.innerWidth - 240,
+    r ? r.bottom + 4 : 120,
+  );
 }
 
 // The `#overlay` keyboard fallback now serves only Help, Prompt, and the `K`

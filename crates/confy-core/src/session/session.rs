@@ -130,6 +130,7 @@ impl Session {
                     type_label: node_type_label_str(&r.node.kind).to_string(),
                     child_count: r.node.children.len(),
                     trailing_comment: r.node.trailing_comment.clone(),
+                    key_sign: key_sign_label(r.node.key_sign).to_string(),
                     read_only: r.node.read_only,
                     selected: self.selection.contains(&r.node.path),
                     is_cursor: r.node.path == self.cursor,
@@ -973,12 +974,11 @@ impl Session {
             let fmt_str = format_label(row.format).unwrap_or("plain");
             format!("Path:     {dotted}\nType:     {type_str}\nFormat:   {fmt_str}\nValue:    {val_str}")
         };
-        let sign_str = match self.tree.node_at(&row.path).map(|n| n.key_sign) {
-            Some(KeySign::Bare) => "bare",
-            Some(KeySign::Quoted) => "quoted",
-            Some(KeySign::Dotted) => "dotted",
-            _ => "none",
-        };
+        let sign_str = self
+            .tree
+            .node_at(&row.path)
+            .map(|n| key_sign_label(n.key_sign))
+            .unwrap_or("none");
         detail.push_str(&format!("\nSign:     {sign_str}"));
         if let Some(tc) = &row.trailing_comment {
             detail.push_str(&format!("\nComment:  {tc}"));
@@ -2709,6 +2709,16 @@ pub fn node_type_label(kind: &NodeKind) -> String {
     match kind {
         NodeKind::Scalar(st) => format!("{st:?}").to_lowercase(),
         other => node_type_label_str(other).to_string(),
+    }
+}
+
+/// Label for a node's key sign (`bare`/`quoted`/`dotted`/`none`).
+pub fn key_sign_label(sign: KeySign) -> &'static str {
+    match sign {
+        KeySign::Bare => "bare",
+        KeySign::Quoted => "quoted",
+        KeySign::Dotted => "dotted",
+        KeySign::None => "none",
     }
 }
 

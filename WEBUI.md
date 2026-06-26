@@ -241,37 +241,61 @@ edits to the verbatim desktop CSS.
   frame: `body` fills the viewport (positioned ancestor for `.app`) and `.app` inset goes 46px→0
   (the space the fake OS status bar occupied). Mirrors the desktop "CSS = design verbatim" rule.
 - `touch/render.ts` — pure `SessionSnapshot → HTML`. Ports the prototype's row anatomy (caret /
-  key / `=` / typed value / count / kind badge / comment / grip / swipe actions) but every row is
-  a real `ViewRow`; flat list (the snapshot is the visible-row projection, so collapsed branches
-  omit descendants — no `.children` nesting), root row skipped, `data-path` attribute-safe.
+  key / `=` / typed value / count / kind badge / comment / grip) but every row is a real
+  `ViewRow`; flat list (the snapshot is the visible-row projection, so collapsed branches omit
+  descendants — no `.children` nesting), root row skipped, `data-path` attribute-safe. The
+  prototype's right-side branch `>` chevron and per-row swipe-action drawer are dropped.
 - `touch/app.ts` — orchestrator: boots the Session (`load` + `Session.fromText`), generates the
   shell (ported `appHTML`), renders snapshots, and re-points every gesture to an Intent.
 
 **Gesture → Intent map** (all through the stateless dispatch loop):
-- caret tap → `SetCursor` + `ToggleExpand`; row tap → `SetCursor` + `SetSelection` + open Detail.
-- kind badge tap → kind sheet from `session.kindOptions(path)` → `CommitKind {path,target}`.
+- caret tap → `SetCursor` + `ToggleExpand`. **Single row tap = select only** (`SetCursor` +
+  `SetSelection`, no sheet); **double tap (same path within ~300 ms) = open the edit panel**. The
+  kind badge tap behaves as a normal row tap (select) — kind switching happens only inside the
+  panel.
 - grip drag (ported pointer geometry, before/after/into + `.reorder-line`/`.drop-into`) →
   `MoveSelectionTo {sources,target,index}` (sibling index = visible position, as in `dnd.ts`;
-  the dragged row's own subtree is excluded from drop candidates by path-prefix).
-- left-swipe row → **Edit** (open Detail), **Dup** (`CopySelected` + `Paste` — a real duplicate;
-  there is no dedicated duplicate Intent), **Delete** (`DeleteSelected`).
-- Detail (bottom sheet `<600px`, persistent side pane `≥600px` via `@container`): key →
-  `CommitEdit {name}`, value → `CommitEdit {value}`, trailing comment → `SetTrailing`, standalone
-  comment node → `ApplyEditComment`; kind button → kind sheet.
+  the dragged row's own subtree is excluded from drop candidates by path-prefix). Swipe is gone;
+  reorder is grip-only.
+- **Edit panel** (bottom sheet `<600px`, persistent side pane `≥600px` via `@container`): rendered
+  by the shared `web/panel.ts` (`panelHTML` + `wirePanel`) — the same module the desktop detail
+  aside uses, so both UIs show one locked field order **Key / Value / Trailing comment / Kind /
+  Path / Children / Sign** (Path is the human dotted/bracketed form, e.g. `servers[1].port`; Sign
+  from `ViewRow.key_sign`). Key → `CommitEdit {name}`, value → `CommitEdit {value}`, trailing →
+  `SetTrailing`, comment node → `ApplyEditComment`, kind button → kind sheet, **Delete** →
+  `SetCursor`+`SetSelection`+`DeleteSelected`, **Duplicate** → `CopySelected`+`Paste`. After each
+  dispatch `wirePanel` surfaces `snapshot.error` via the host toast (the panel buttons were dead in
+  the first cut — never wired — so failures are now reported, not silent).
+- on `≥600px` the persistent side pane has a **draggable splitter** between the tree and detail
+  panes: it sets a `--detail-w` flex-basis on `.app` (clamped ~240–520 px) persisted to
+  `localStorage` (`confy-detail-w`); hidden `<600px` and in Raw view.
 - Menu sheet → `Open`/`OpenConvert`/`Redo`/`ExpandAll`/`CollapseAll` + theme toggle (`fs.ts` for I/O).
 - Type-filter & Convert sheets are built from `snapshot.mode` (`TypeFilterView` / `ConvertView`),
   never local UI state: chips dispatch `TypeFilterMove`+`TypeFilterToggle`; convert dispatches
   `SetConvertFormat`/`SetConvertPath`/`ConvertRun`/`ConvertConfirm`, and the resulting
-  `convert_write` snapshot field is written via `fs.ts`.
-- FAB → `AddNode` (parameterless, like the desktop `a` key — the prototype's add-type sheet is
-  dropped; the new node's kind is changed afterwards via the kind badge/detail).
+  `convert_write` snapshot field is written via `fs.ts`. The filter sheet body scrolls
+  (`overflow-y:auto`) with real padding and well-formed grouped chips.
+- **FAB is context-aware** (like the TUI `a`): when the cursor row is an expanded branch → `AddChild`;
+  otherwise (scalar or collapsed branch) → `AddSibling` (falls back to parameterless `AddNode` with
+  no cursor row).
+- the toolbar **format pill** is a button → `OpenConvert`.
 - search input → debounced `SetFilter`; Tree/Raw tabs are a view toggle (`session.serialize()`).
-- **Read-only / opaque rows** (`ViewRow.read_only`) render without grip/kind/swipe and reject
-  edits — mirroring core. Multi-line value/comment edits route to an external-edit sheet
+- **Read-only / opaque rows** (`ViewRow.read_only`) render without grip/kind and reject edits —
+  mirroring core. Multi-line value/comment edits route to an external-edit sheet
   (`ApplyReplace`/`ApplyEditComment`), the same handshake the desktop uses.
+- the initial sample document is the **same welcome sample as the desktop UI** (shared, build-stamped).
 
 `web/build.mjs` emits both bundles: `ui.ts → ui.js` (desktop, unchanged) and `touch/app.ts →
 touch/app.js`.
+
+**Shared edit/detail panel — `web/panel.ts`.** A framework-free module (`panelHTML(row)` +
+`wirePanel(container,row,send,openKind,onError)`) that renders the node edit/detail panel for
+**both** UIs from a `ViewRow`, guaranteeing the field set + order can't drift between touch and
+desktop. On the desktop side the detail `<aside>` (toggled with `i`/Space) now renders this panel
+**reactively** — it tracks the cursor row on every snapshot and is fully editable — instead of the
+old static `detail_text` `<pre>` dump (that flat string is now only the empty-doc fallback). To
+feed the panel's Sign field, core's `ViewRow` gained a `key_sign` field (`"bare"|"quoted"|"dotted"
+|"none"`, the same mapping the TUI detail text uses).
 
 ## Future structured-diff evolution
 

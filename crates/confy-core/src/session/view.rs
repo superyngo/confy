@@ -24,6 +24,9 @@ pub struct ViewRow {
     /// (meaningful for branches; 0 for scalars/comments).
     pub child_count: usize,
     pub trailing_comment: Option<String>,
+    /// Key-sign label (`bare`/`quoted`/`dotted`/`none`) so a structured panel can
+    /// show "Sign" without re-deriving it from the flat detail text.
+    pub key_sign: String,
     /// True for YAML opaque nodes and JSON block comments (read-only in the UI).
     pub read_only: bool,
     /// True when this row's path is in the session's live selection.

@@ -511,4 +511,35 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
    for a loaded file it's a static label. `.toggleable` carries the affordance. */
 .fmt-pill:not(.toggleable) { cursor: default; }
 .fmt-pill.toggleable { border-color: var(--sel-edge); color: var(--fg); }
+
+/* Shared editable node panel (web/panel.ts) inside the desktop detail aside.
+   panel.ts wraps its body in a `<div class="detail">`, which would otherwise
+   inherit the slide-in aside's `.detail` rule (absolute + translateX off-screen)
+   — so first neutralize that, then style the panel's own classes (desktop-sized,
+   tighter than the touch sheet). */
+#detailBody .detail {
+  position: static; transform: none; inset: auto; width: auto; flex: initial;
+  border: 0; background: transparent; box-shadow: none;
+  display: flex; flex-direction: column;
+}
+#detailBody .field-label { font-size: 12px; color: var(--muted); margin-bottom: 5px; font-weight: 600; }
+#detailBody .v-edit, #detailBody .k-edit, #detailBody .c-edit {
+  width: 100%; box-sizing: border-box; height: 34px; padding: 0 10px; border-radius: 8px;
+  font-family: var(--mono); font-size: 13px; color: var(--fg);
+  background: var(--panel); border: 1px solid var(--accent); margin-bottom: 12px;
+}
+#detailBody .c-edit { border-color: var(--border-strong); font-style: italic; }
+#detailBody .v-edit[disabled] { border-color: var(--border); color: var(--muted); opacity: .7; }
+#detailBody .hint-line { font-size: 11.5px; color: var(--faint); margin: -8px 0 12px; line-height: 1.5; }
+#detailBody .kindbtn { width: 100%; justify-content: flex-start; gap: 9px; margin-bottom: 12px; }
+#detailBody .kindbtn .dotc { width: 11px; height: 11px; border-radius: 50%; flex: 0 0 auto; }
+#detailBody .btn {
+  height: 34px; padding: 0 12px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  background: var(--panel); border: 1px solid var(--border-strong); color: var(--fg); cursor: pointer;
+}
+#detailBody .btn:hover { background: var(--accent-soft); border-color: var(--sel-edge); }
+#detailBody .btn.danger { color: var(--t-bool); border-color: color-mix(in oklch, var(--t-bool) 40%, transparent); }
+#detailBody .row-btns { display: flex; gap: 10px; margin-top: 6px; }
+#detailBody .row-btns .btn { flex: 1; }
 .fmt-pill.toggleable:hover { background: var(--accent-soft); }
