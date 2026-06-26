@@ -181,6 +181,12 @@ shapes round-trip). Key types:
 - **Paste mode.** While the clipboard holds a cut/copy the selection is frozen, so a row
   click moves the **cursor** (= the `After(cursor)` paste target) via `SetCursor`, and a
   `body.paste-mode` class marks the cursor row as a visible "▸ paste here" target.
+- **Pointer value gestures.** A **double-click on a row opens the Detail panel** for it
+  (`SetCursor` + `ToggleDetail`); it no longer toggles branch-expand/boolean-value (expand stays
+  on the caret + Enter). **Mouse-wheel over the value cell** (`[data-edit="val"]`) adjusts it in
+  place: a `Bool` toggles true↔false, an `Integer`/`Float` nudges ±1 (`Nudge`, wheel up = +1) —
+  `preventDefault` fires only over an adjustable value so other rows scroll normally. The keyboard
+  `+`/`-` and `←`/`→` Nudge keys are unchanged.
 - **Help.** The `?` overlay appends a **per-format KIND legend** (`KIND_LEGEND`, keyed by
   `doc_format`, ported from the TUI's per-backend help) explaining each container/scalar
   label·notation for the open file's format.
@@ -205,7 +211,8 @@ shapes round-trip). Key types:
   opening the Save / Convert panel — the separate Convert button is gone). As the window
   narrows, secondary controls fold into a `⋯ More` popup one group at a time, right→left, via
   staged media queries (Tree/Raw ≤600px, Expand/Collapse ≤500px, Undo/Redo/Theme ≤440px);
-  the More popup always lists the full action set. The search box has `min-width:96px` (well
+  the More popup lists the folded secondary actions but **not** Save / Convert (that lives only on
+  the always-visible Save button, so it is never duplicated). The search box has `min-width:96px` (well
   below its content size) so it yields space to those buttons before they collapse.
   **Rows stay single-line at every width:** they never wrap or hide cells — long key/value/
   comment compress with an ellipsis (`min-width:0` lets `text-overflow:ellipsis` fire inside
@@ -222,8 +229,13 @@ look & gesture, but drives the **same `confy-core` Session** through the shared
 `confy.ts`/`Intent` contract — exactly how the desktop UI relates to the core. The prototype's
 only discarded part is its fake `TREE`/DOM-as-state model; everything mutating goes through
 `session.dispatch(Intent)` + a full re-render from the returned `SessionSnapshot` (stateless,
-like desktop). The two UIs share **only** `confy.ts`, `types.ts`, `fs.ts`, and the Intent
-contract; neither compromises the other.
+like desktop). Beyond the core (`confy.ts`, `types.ts`, `fs.ts`, the Intent contract), the two
+UIs now share several **single-source UI modules** so look & behavior can't drift: `web/panel.ts`
+(node edit/detail panel), `web/convert-dialog.ts` (the Save / Convert `<dialog>`), and
+`web/typefilter.ts` (the type-filter grid). Each emits desktop's class names; the CSS that styles
+them lives per-page (desktop's verbatim block; touch's app-only appendix). The touch chrome
+(header + search bar) was rebuilt to **mimic desktop's** toolbar/filterbar after the bespoke
+app-bar was judged worse — so the surfaces converge while the tree-body gestures stay touch-first.
 
 **Entry selection — one URL, two pages.** `index.html`'s `<head>` runs a tiny router before any
 paint: `?ui=desktop` stays on desktop; `?ui=touch` or `matchMedia('(pointer:coarse)').matches`
@@ -240,6 +252,10 @@ edits to the verbatim desktop CSS.
   rules (`.stage`/`.frames`/`.device`/`.os-status`); two adaptations follow from dropping the
   frame: `body` fills the viewport (positioned ancestor for `.app`) and `.app` inset goes 46px→0
   (the space the fake OS status bar occupied). Mirrors the desktop "CSS = design verbatim" rule.
+  An **app-only appendix** (below the verbatim block) carries the converged chrome styling: the
+  desktop-shaped toolbar/filterbar, the shared `<dialog>`/`.tf-*` rules, and the one-line
+  `.detail .kindbtn` fix. The prototype rules it superseded (`.appbar`/`.searchbar`/`.tabs`/`.tab`/
+  `.tapbtn`/`.filter-btn`/`.brand .doc`) were removed from the verbatim block as dead code.
 - `touch/render.ts` — pure `SessionSnapshot → HTML`. Ports the prototype's row anatomy (caret /
   key / `=` / typed value / count / kind badge / comment / grip) but every row is a real
   `ViewRow`; flat list (the snapshot is the visible-row projection, so collapsed branches omit
@@ -269,16 +285,21 @@ edits to the verbatim desktop CSS.
 - on `≥600px` the persistent side pane has a **draggable splitter** between the tree and detail
   panes: it sets a `--detail-w` flex-basis on `.app` (clamped ~240–520 px) persisted to
   `localStorage` (`confy-detail-w`); hidden `<600px` and in Raw view.
-- Menu sheet → `Open`/`OpenConvert`/`Redo`/`ExpandAll`/`CollapseAll` + theme toggle (`fs.ts` for I/O).
-- Type-filter & Convert sheets are built from `snapshot.mode` (`TypeFilterView` / `ConvertView`),
-  never local UI state: chips dispatch `TypeFilterMove`+`TypeFilterToggle`; convert dispatches
-  `SetConvertFormat`/`SetConvertPath`/`ConvertRun`/`ConvertConfirm`, and the resulting
-  `convert_write` snapshot field is written via `fs.ts`. The filter sheet body scrolls
-  (`overflow-y:auto`) with real padding and well-formed grouped chips.
+- Menu sheet → `Open`/`Redo`/`ExpandAll`/`CollapseAll` + theme toggle (`fs.ts` for I/O); Save /
+  Convert is **not** here (it lives only on the Save button, so it is never duplicated).
+- **Type filter & Save/Convert use the shared modules** (`web/typefilter.ts` / `web/convert-dialog.ts`),
+  the same code + markup desktop uses: the type-filter grid renders into the filter sheet via
+  `typeFilterHTML`+`wireTypeFilter`; convert is a native `<dialog id="convDlg">` driven by
+  `renderConvertDialog`+`wireConvertDialog` (replacing the old bespoke convert sheet). Both are still
+  driven by `snapshot.mode` (`TypeFilterView` / `ConvertView`); the `convert_write` snapshot field is
+  written via `fs.ts`.
 - **FAB is context-aware** (like the TUI `a`): when the cursor row is an expanded branch → `AddChild`;
   otherwise (scalar or collapsed branch) → `AddSibling` (falls back to parameterless `AddNode` with
   no cursor row).
-- the toolbar **format pill** is a button → `OpenConvert`.
+- the **Save button** opens the shared Save / Convert dialog (`SetCursor []`→`OpenConvert`→seed
+  `SetConvertPath`) — there is no direct-save button (all saves go through the panel). The
+  **format pill** cycles the built-in sample's dialect TOML→JSON→YAML while in sample mode (frozen
+  once a real file is opened/saved), matching desktop — it no longer opens convert.
 - search input → debounced `SetFilter`; Tree/Raw tabs are a view toggle (`session.serialize()`).
 - **Read-only / opaque rows** (`ViewRow.read_only`) render without grip/kind and reject edits —
   mirroring core. Multi-line value/comment edits route to an external-edit sheet

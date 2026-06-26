@@ -19,14 +19,20 @@ import { currentKindLabel, escapeHtml, IC_CARET, renderTree } from "./render.js"
 import { resolveClick, rowsInRect, setAnchor } from "./select.js";
 import { installDnd } from "./dnd.js";
 import { panelHTML, wirePanel } from "./panel.js";
+import { typeFilterHTML, wireTypeFilter } from "./typefilter.js";
+import {
+  type ConvertRefs,
+  extForTag,
+  renderConvertDialog as renderConvertDialogShared,
+  runSaveConvert as runSaveConvertShared,
+  wireConvertDialog,
+} from "./convert-dialog.js";
 import type {
   ConvertView,
-  DocFormat,
   Intent,
   ModeView,
   Path,
   SessionSnapshot,
-  TypeFilterRow,
   TypeFilterView,
   ViewRow,
 } from "./types.js";
@@ -369,19 +375,11 @@ function renderOverlay() {
   }
 }
 
-// The check glyph inside a facet cell's `.box` (design markup; CSS reveals it
-// only for `data-state="On"`).
-const TF_CHECK = `<span class="box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5 9-11"/></svg></span>`;
-
-function isHeader(row: TypeFilterRow): row is { Header: string } {
-  return "Header" in row;
-}
-
-// The `f` type-filter facet grid as a native popover (`#tfPop`/`#tfInner`). Each
-// cell is a button: clicking it moves the core cursor to that cell
-// (`TypeFilterMove` delta) and toggles it. Apply commits, Cancel exits. The
-// popover stays open across re-renders while `Mode::TypeFilter` is active; the
-// keyboard path (onKey) still drives the same mode for accessibility.
+// The `f` type-filter facet grid as a native popover (`#tfPop`/`#tfInner`). The
+// grid HTML + per-cell wiring is shared with the touch UI (`typefilter.ts`);
+// this keeps the popover open/placement logic. The popover stays open across
+// re-renders while `Mode::TypeFilter` is active; the keyboard path (onKey) still
+// drives the same mode for accessibility.
 function renderTypeFilterPop() {
   const pop = $("tfPop");
   if (modeTag(snap!.mode) !== "TypeFilter") {
@@ -390,40 +388,8 @@ function renderTypeFilterPop() {
   }
   const grid = (snap!.mode as { TypeFilter: TypeFilterView }).TypeFilter;
   const inner = $("tfInner");
-  let cellRow = -1;
-  // Header carries the live-active hint and a `×` clear button (no Apply/Cancel —
-  // toggles filter live and persist when the popup closes).
-  let html =
-    `<div class="tf-head"><span class="menu-label">Type filter${grid.active ? " <span class='tf-active'>· active</span>" : ""}</span>` +
-    `<button class="tf-clear" data-tf="clear" title="clear type filter">✕</button></div>`;
-  for (const row of grid.rows) {
-    if (isHeader(row)) {
-      html += `<div class="menu-label">${escapeHtml(row.Header)}</div>`;
-      continue;
-    }
-    cellRow++;
-    html +=
-      `<div class="tf-grid">` +
-      row.Cells.map(
-        (c, col) =>
-          `<button class="tf-cell${c.is_cursor ? " cursor" : ""}" data-state="${c.state}" data-r="${cellRow}" data-c="${col}">` +
-          `${TF_CHECK}${escapeHtml(c.label)}</button>`,
-      ).join("") +
-      `</div>`;
-  }
-  inner.innerHTML = html;
-  inner.querySelectorAll<HTMLElement>("[data-r]").forEach((b) => {
-    b.onclick = () => {
-      const dr = Number(b.dataset.r) - grid.cursor_row;
-      const dc = Number(b.dataset.c) - grid.cursor_col;
-      if (dr || dc) send({ TypeFilterMove: [dr, dc] });
-      send("TypeFilterToggle");
-    };
-  });
-  // × clears the filter *and* closes the popup; clicking outside closes it
-  // keeping the filter (wired in bindGlobal).
-  (inner.querySelector('[data-tf="clear"]') as HTMLElement).onclick = () =>
-    send("ExitTypeFilter");
+  inner.innerHTML = typeFilterHTML(grid);
+  wireTypeFilter(inner, grid, { send });
   if (!pop.classList.contains("open")) {
     const r = $("btnTypeFilter").getBoundingClientRect();
     pop.style.left = `${Math.max(6, Math.min(r.left, window.innerWidth - 260))}px`;
@@ -443,38 +409,20 @@ function renderConvertDialog() {
     return;
   }
   const cv = (snap!.mode as { Convert: ConvertView }).Convert;
-  const sel = $<HTMLSelectElement>("convFmt");
-  const path = $<HTMLInputElement>("convPath");
-  const warns = $("convWarns");
-  const run = $("convRun");
-  // Unified "Save / Convert" panel: the current format leads the list (default)
-  // so picking it is a plain save-as; the other two are cross-format converts.
-  const all = [snap!.doc_format, ...cv.options];
-  if (!dlg.open) {
-    sel.innerHTML = all
-      .map((f) => `<option value="${f}">${f.toUpperCase()}</option>`)
-      .join("");
-    sel.value = cv.target;
-    path.value = cv.path;
-    dlg.showModal();
-  } else {
-    if (sel.value !== cv.target) sel.value = cv.target;
-    // Don't clobber the box while the user is typing the path.
-    if (document.activeElement !== path) path.value = cv.path;
-  }
-  // Same format → faithful save (no loss); only a cross-format convert warns.
-  const crossFmt = cv.target !== snap!.doc_format;
-  const hasWarn = crossFmt && cv.warnings.length > 0;
-  warns.innerHTML = hasWarn
-    ? `<strong>Lossy conversion</strong><div class="warns-note">These styles will be normalized; the output is still valid ${cv.target.toUpperCase()}. Review and confirm to save.</div>` +
-      `<ul>${cv.warnings.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul>`
-    : "";
-  warns.classList.toggle("hide", !hasWarn);
-  run.textContent = !crossFmt
-    ? "Save copy"
-    : cv.step === "Confirm"
-      ? "Confirm & save"
-      : "Convert & save";
+  renderConvertDialogShared(convRefs(), cv, snap!);
+}
+
+// The native convert `<dialog>` and its five children, bundled as the refs the
+// shared convert-dialog module operates on.
+function convRefs(): ConvertRefs {
+  return {
+    dlg: $<HTMLDialogElement>("convDlg"),
+    fmt: $<HTMLSelectElement>("convFmt"),
+    path: $<HTMLInputElement>("convPath"),
+    warns: $("convWarns"),
+    run: $("convRun"),
+    cancel: $("convCancel"),
+  };
 }
 
 function renderFooter() {
@@ -520,7 +468,8 @@ function onKey(ev: KeyboardEvent) {
       if (ev.key === "ArrowDown") return send({ ConvertMove: 1 });
       if (ev.key === "Enter") return send("ConvertPickFormat");
     } else if (step === "Path") {
-      if (ev.key === "Enter") return runSaveConvert();
+      if (ev.key === "Enter")
+        return runSaveConvertShared(snap!, { send, doSaveAsCopy });
       if (ev.key === "Backspace") return send("ConvertPathBackspace");
       if (ev.key.length === 1) return send({ ConvertPathChar: ev.key });
     } else if (step === "Confirm") {
@@ -867,14 +816,18 @@ function onTreeClick(ev: MouseEvent) {
   // Plain row-body click → selection gesture (plain / ⇧range / ⌘toggle). Core
   // moves the cursor to the focal path; expand stays on the caret (design).
   // Manual double-click detection: a second *plain* click on the same path's
-  // empty area within 350ms toggles the row (branch expand / boolean value).
+  // empty area within 350ms opens the Detail panel for that row.
   // Native `dblclick` is unreliable here (the first click re-renders/scrolls the
   // row), so we time it ourselves — and only empty-space clicks reach this far.
   const key = JSON.stringify(path);
   const plain = !ev.shiftKey && !ev.ctrlKey && !ev.metaKey;
   if (plain && lastBodyClick && lastBodyClick.key === key && Date.now() - lastBodyClick.t < 350) {
     lastBodyClick = null;
-    return toggleRow(path);
+    send({ SetCursor: path });
+    // Gate on the mode so a double-click always *opens* the panel (ToggleDetail
+    // would otherwise close it when already open).
+    if (modeTag(snap!.mode) !== "Detail") send("ToggleDetail");
+    return;
   }
   lastBodyClick = plain ? { key, t: Date.now() } : null;
   send({ SetSelection: { paths: resolveClick(snap, path, ev) } });
@@ -882,23 +835,37 @@ function onTreeClick(ev: MouseEvent) {
 // Last plain empty-area body click (path + time) for manual double-click detect.
 let lastBodyClick: { key: string; t: number } | null = null;
 
-// Double-click on a row's *empty* area (detected manually in `onTreeClick`, see
-// `lastBodyClick`): a branch toggles expand/collapse, a boolean leaf toggles its
-// value true↔false. Only plain empty-space body clicks reach this — key/value/
-// caret/etc. are handled (and return) earlier in `onTreeClick`.
-function toggleRow(path: Path) {
+// Toggle a boolean leaf's value true↔false, preserving its trailing comment.
+// Shared by the wheel-over-value handler (and reusable elsewhere).
+function toggleBool(path: Path) {
   const key = JSON.stringify(path);
   const row = snap?.rows.find((r) => JSON.stringify(r.path) === key);
-  if (!row) return;
-  if (row.is_branch) {
-    send({ SetCursor: path });
-    return send("ToggleExpand");
+  if (!row || row.scalar_type !== "Bool" || row.read_only) return;
+  const next = (row.value ?? "").trim().toLowerCase() === "true" ? "false" : "true";
+  const tc = row.trailing_comment;
+  send({ SetCursor: path });
+  send({ CommitEdit: { value: tc ? `${next}  ${tc}` : next, name: null } });
+}
+
+// Mouse-wheel over a row's *value* cell adjusts it (desktop affordance): a bool
+// toggles, a number nudges ±1 (wheel up = +1). Anywhere else (no value cell, a
+// read-only/other-typed value) falls through to normal page scrolling.
+function onTreeWheel(ev: WheelEvent) {
+  const valEl = (ev.target as HTMLElement).closest('[data-edit="val"]');
+  if (!valEl) return;
+  const rowEl = valEl.closest(".row") as HTMLElement | null;
+  if (!rowEl?.dataset.path) return;
+  const path = JSON.parse(rowEl.dataset.path) as Path;
+  const row = snap?.rows.find((r) => JSON.stringify(r.path) === JSON.stringify(path));
+  if (!row || row.read_only) return;
+  if (row.scalar_type === "Bool") {
+    ev.preventDefault();
+    return toggleBool(path);
   }
-  if (row.scalar_type === "Bool" && !row.read_only) {
-    const next = (row.value ?? "").trim().toLowerCase() === "true" ? "false" : "true";
-    const tc = row.trailing_comment;
+  if (row.scalar_type === "Integer" || row.scalar_type === "Float") {
+    ev.preventDefault();
     send({ SetCursor: path });
-    send({ CommitEdit: { value: tc ? `${next}  ${tc}` : next, name: null } });
+    send({ Nudge: ev.deltaY < 0 ? 1 : -1 });
   }
 }
 
@@ -1146,7 +1113,6 @@ function openCtxMenuAt(path: Path, x: number, y: number) {
 // secondary actions the CSS hides from the toolbar / filter row, as a popup.
 function buildMoreMenu(): HTMLElement {
   const items: Array<[string, () => void]> = [
-    ["Save / Convert… (Ctrl-s)", openSaveConvert],
     ["Undo (z)", () => send("Undo")],
     ["Redo (y)", () => send("Redo")],
     ["Toggle theme", toggleTheme],
@@ -1214,10 +1180,6 @@ function fileStem(): string {
   const dot = base.lastIndexOf(".");
   return dot > 0 ? base.slice(0, dot) : base;
 }
-function extForTag(tag: string): string {
-  return tag === "Json" ? ".json" : tag === "Yaml" ? ".yaml" : ".toml";
-}
-
 // Open the unified "Save / Convert" panel from the root node. `open_convert`
 // leaves `target` = the current format (the panel's default), so the dialog
 // opens on "save in the current format"; seed the output name from the open
@@ -1226,16 +1188,6 @@ function openSaveConvert() {
   send({ SetCursor: [] });
   send("OpenConvert");
   send({ SetConvertPath: fileStem() + extForTag(snap?.doc_format ?? "Toml") });
-}
-
-// Run the panel's action: a same-format pick is a faithful save-as of the live
-// document; a cross-format pick drives core's convert (warnings → confirm).
-function runSaveConvert() {
-  const m = snap!.mode;
-  if (typeof m !== "object" || !("Convert" in m)) return;
-  const cv = m.Convert;
-  if (cv.target === snap!.doc_format) return void doSaveAsCopy(cv.path);
-  send(cv.step === "Confirm" ? "ConvertConfirm" : "ConvertRun");
 }
 
 // Faithful "save a copy" of the live document (byte-for-byte `serialize()`),
@@ -1262,21 +1214,11 @@ async function doSaveAsCopy(path: string) {
 }
 
 function bindConvertDialog() {
-  $<HTMLSelectElement>("convFmt").addEventListener("change", (e) => {
-    const tag = (e.target as HTMLSelectElement).value as DocFormat;
-    send({ SetConvertFormat: tag });
-    // SetConvertFormat reseeds the path to "out.<ext>"; restore the real stem.
-    send({ SetConvertPath: fileStem() + extForTag(tag) });
-  });
-  $<HTMLInputElement>("convPath").addEventListener("input", (e) =>
-    send({ SetConvertPath: (e.target as HTMLInputElement).value }),
-  );
-  $("convRun").addEventListener("click", runSaveConvert);
-  $("convCancel").addEventListener("click", () => send("ExitConvert"));
-  // Native dialog Esc → leave Convert mode (render then closes the dialog).
-  $<HTMLDialogElement>("convDlg").addEventListener("cancel", (e) => {
-    e.preventDefault();
-    send("ExitConvert");
+  wireConvertDialog(convRefs(), {
+    send,
+    fileStem,
+    doSaveAsCopy,
+    getSnap: () => snap,
   });
 }
 
@@ -1284,6 +1226,7 @@ function bindGlobal() {
   tree.addEventListener("keydown", onKey);
   tree.addEventListener("click", onTreeClick);
   tree.addEventListener("contextmenu", onTreeContext);
+  tree.addEventListener("wheel", onTreeWheel, { passive: false });
   installMarquee();
   installDnd(tree, () => snap, send);
   $("detailClose").addEventListener("click", () => send("ExitDetail"));

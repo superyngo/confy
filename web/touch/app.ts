@@ -26,7 +26,6 @@ import type {
   ModeView,
   TypeFilterView,
   ConvertView,
-  DocFormat,
 } from "../types.js";
 import {
   fsAccessAvailable,
@@ -39,6 +38,13 @@ import {
 } from "../fs.js";
 import { IC, esc, treeHTML, isExpanded, pathEq } from "./render.js";
 import { panelHTML, wirePanel } from "../panel.js";
+import { typeFilterHTML, wireTypeFilter } from "../typefilter.js";
+import {
+  type ConvertRefs,
+  extForTag,
+  renderConvertDialog as renderConvertDialogShared,
+  wireConvertDialog,
+} from "../convert-dialog.js";
 
 type FsHandle = OpenedFile["handle"];
 
@@ -49,8 +55,13 @@ const APP_VERSION =
   typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "dev";
 
 // Built-in welcome sample — identical content to the desktop UI (`web/ui.ts`
-// SAMPLES.toml), so both surfaces boot the same tree.
-const SAMPLE = `# 👋 Welcome to confy — a lossless editor for TOML · JSON · YAML
+// SAMPLES), so both surfaces boot the same tree. All three carry the *same* tree
+// (identical keys/values/comments); only the dialect's notation and comment
+// marker differ, so cycling the header pill shows one config wearing three
+// outfits. The pill cycles these while the doc is the unsaved sample
+// (`sampleMode`); opening or saving a real file leaves sample mode and freezes it.
+const SAMPLES: Record<"toml" | "json" | "yaml", string> = {
+  toml: `# 👋 Welcome to confy — a lossless editor for TOML · JSON · YAML
 # Click a row to select · drag the ⠿ grip to reparent · ⌘S to save
 
 [about]
@@ -73,7 +84,60 @@ yaml = "block + flow, plain-where-safe"
 emoji_welcome = true
 brackets_collected = ["{ }", "[ ]", "< >"]
 coffees_per_config = 3
-`;
+`,
+  json: `// 👋 Welcome to confy — a lossless editor for TOML · JSON · YAML
+// Click a row to select · drag the ⠿ grip to reparent · ⌘S to save
+{
+  "about": {
+    "name": "confy",
+    "pitch": "Three config dialects, one tidy tree 🌳",
+    "version": "${APP_VERSION}",
+    "lossless": true    // untouched bytes round-trip byte-for-byte
+  },
+  "basics": {
+    "select": ["click = one", "shift-click = range", "cmd-click = toggle"],
+    "add_child": "hover a branch, hit the ＋",
+    "undo_redo": "z and y — we all fat-finger 🙃"
+  },
+  "formats": {
+    "toml": "tables, dotted keys, datetimes",
+    "json": "// comments quietly upgrade it to JSONC",
+    "yaml": "block + flow, plain-where-safe"
+  },
+  "fun": {
+    "emoji_welcome": true,
+    "brackets_collected": ["{ }", "[ ]", "< >"],
+    "coffees_per_config": 3
+  }
+}
+`,
+  yaml: `# 👋 Welcome to confy — a lossless editor for TOML · JSON · YAML
+# Click a row to select · drag the ⠿ grip to reparent · ⌘S to save
+
+about:
+  name: confy
+  pitch: Three config dialects, one tidy tree 🌳
+  version: "${APP_VERSION}"
+  lossless: true    # untouched bytes round-trip byte-for-byte
+
+basics:
+  select: ["click = one", "shift-click = range", "cmd-click = toggle"]
+  add_child: hover a branch, hit the ＋
+  undo_redo: z and y — we all fat-finger 🙃
+
+formats:
+  toml: tables, dotted keys, datetimes
+  json: "// comments quietly upgrade it to JSONC"
+  yaml: block + flow, plain-where-safe
+
+fun:
+  emoji_welcome: true
+  brackets_collected: ["{ }", "[ ]", "< >"]
+  coffees_per_config: 3
+`,
+};
+// Pill-cycle order.
+const SAMPLE_ORDER: Array<"toml" | "json" | "yaml"> = ["toml", "json", "yaml"];
 
 const FS_AVAILABLE = fsAccessAvailable();
 
@@ -81,7 +145,11 @@ const FS_AVAILABLE = fsAccessAvailable();
 let session: Session | null = null;
 let snap: SessionSnapshot | null = null;
 let fileHandle: FsHandle | null = null;
-let fileName: string | null = "config.toml";
+let fileName: string | null = "sample";
+// True while the open doc is the built-in sample (no backing file) — enables the
+// format-pill cycle. Opening or saving a real file leaves sample mode.
+let sampleMode = false;
+let sampleFormat: "toml" | "json" | "yaml" = "toml";
 let rawView = false;
 let searchTimer: number | undefined;
 
@@ -157,25 +225,56 @@ function lastKey(p: Path): string {
 
 // ---- app shell (ported from the prototype's appHTML, minus the OS-status frame
 // and the add-sheet; plus a convert sheet and an external-edit modal) ----
+// Desktop chrome SVGs (copied verbatim from `web/index.html`) so the toolbar /
+// filter row read identically to the desktop UI; they carry `class="ic"` so the
+// ported `.tbtn .ic` / `.icon-btn .ic` rules size them.
+const TIC = {
+  open: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v10H3z"/></svg>',
+  save: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v6h7"/></svg>',
+  undo: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 7L4 12l5 5"/><path d="M4 12h11a5 5 0 0 1 0 10h-3"/></svg>',
+  redo: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 7l5 5-5 5"/><path d="M20 12H9a5 5 0 0 0 0 10h3"/></svg>',
+  theme: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg>',
+  more: '<svg class="ic" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>',
+  search: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>',
+  close: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+  filter: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></svg>',
+  expand: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 10l5 5 5-5"/><path d="M7 4l5 5 5-5"/></svg>',
+  collapse: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 14l5-5 5 5"/><path d="M7 20l5-5 5 5"/></svg>',
+};
+
 function appHTML(): string {
   return (
     '<div class="app">' +
-    '<div class="appbar">' +
-    '<div class="brand"><span class="logo">cy</span>' +
-    '<span class="doc"><span class="name"></span>' +
-    '<span class="meta"><button class="fmt-pill" data-act="convert" aria-label="save / convert format"></button><span class="dirty-dot"></span></span></span></div>' +
-    '<span class="grow"></span>' +
-    `<button class="tapbtn" data-act="undo" aria-label="undo">${IC.undo}</button>` +
-    `<button class="tapbtn primary" data-act="save" aria-label="save">${IC.save}</button>` +
-    `<button class="tapbtn" data-act="menu" aria-label="more">${IC.more}</button>` +
+    // ---- toolbar (mirrors desktop index.html) ----
+    '<header class="toolbar">' +
+    '<div class="brand"><span class="logo">cy</span><span class="doc-name"></span></div>' +
+    '<button class="fmt-pill" data-act="cyclefmt" title="document format"></button>' +
+    '<span class="dirty-dot"></span>' +
+    '<span class="spacer"></span>' +
+    `<button class="tbtn" data-act="open" title="Open file">${TIC.open}<span class="label-hide">Open</span></button>` +
+    `<button class="tbtn primary" data-act="save" title="Save / Convert…">${TIC.save}<span class="label-hide">Save</span></button>` +
+    '<div class="tgroup">' +
+    `<button class="icon-btn" data-act="undo" title="Undo">${TIC.undo}</button>` +
+    `<button class="icon-btn" data-act="redo" title="Redo">${TIC.redo}</button>` +
+    `<button class="icon-btn" data-act="theme" title="Toggle theme">${TIC.theme}</button>` +
     "</div>" +
-    '<div class="searchbar">' +
-    `<div class="search"><span class="ic">${IC.search}</span>` +
+    `<button class="tbtn more-btn" data-act="menu" title="More actions">${TIC.more}</button>` +
+    "</header>" +
+    // ---- filter row (mirrors desktop index.html) ----
+    '<div class="filterbar">' +
+    `<div class="search">${TIC.search}` +
     '<input type="search" placeholder="search keys or values…" autocomplete="off" spellcheck="false" />' +
-    `<button class="clear" data-act="searchclear" aria-label="clear">${IC.close}</button></div>` +
-    `<button class="filter-btn" data-act="filter" aria-label="type filter">${IC.filter}<span class="dot"></span></button>` +
+    `<button class="clear" data-act="searchclear" title="clear">${TIC.close}</button></div>` +
+    `<button class="tbtn tf-btn" data-act="filter" title="Type filter">${TIC.filter}<span class="label-hide">Type filter</span><span class="dot"></span></button>` +
+    '<div class="tgroup">' +
+    `<button class="icon-btn" data-act="expandall" title="Expand all">${TIC.expand}</button>` +
+    `<button class="icon-btn" data-act="collapseall" title="Collapse all">${TIC.collapse}</button>` +
     "</div>" +
-    '<div class="tabs"><button class="tab active" data-tab="tree">Tree</button><button class="tab" data-tab="raw">Raw</button></div>' +
+    '<div class="tgroup viewtabs">' +
+    '<button class="tbtn viewtab active" data-tab="tree" title="Tree view">Tree</button>' +
+    '<button class="tbtn viewtab" data-tab="raw" title="Raw text (read-only)">Raw</button>' +
+    "</div>" +
+    "</div>" +
     '<div class="body">' +
     '<div class="tree-pane"><div class="tree"></div></div>' +
     '<pre class="raw-view"></pre>' +
@@ -192,8 +291,21 @@ function appHTML(): string {
     '<div class="sheet menu-sheet"></div>' +
     '<div class="sheet filter-sheet"></div>' +
     '<div class="sheet kind-sheet"></div>' +
-    '<div class="sheet convert-sheet"></div>' +
     "</div>" +
+    // Save / Convert dialog (shared with desktop via convert-dialog.ts).
+    '<dialog id="convDlg">' +
+    '<div class="dlg-head"><h3>Save / Convert</h3>' +
+    "<p>Save a copy in the current format, or convert the whole tree to another.</p></div>" +
+    '<div class="dlg-body">' +
+    '<div class="field"><label for="convFmt">Format</label>' +
+    '<select id="convFmt"><option value="Toml">TOML</option><option value="Json">JSON</option><option value="Yaml">YAML</option></select></div>' +
+    '<div class="field"><label for="convPath">Output path</label>' +
+    '<input id="convPath" type="text" /></div>' +
+    '<div class="warns hide" id="convWarns"></div>' +
+    "</div>" +
+    '<div class="dlg-foot"><button class="tbtn" id="convCancel">Cancel</button>' +
+    '<button class="tbtn primary" id="convRun">Convert &amp; save</button></div>' +
+    "</dialog>" +
     // external-edit modal (multi-line value / comment; reuses the sheet styling)
     '<div class="scrim ext-scrim" data-act="extcancel"></div>' +
     '<div class="sheet ext-sheet">' +
@@ -237,6 +349,8 @@ function isWide(): boolean {
 function render() {
   if (!snap || !session) return;
   fmtPill.textContent = snap.doc_format.toUpperCase();
+  fmtPill.classList.toggle("toggleable", sampleMode);
+  fmtPill.title = sampleMode ? "Sample — tap to switch format" : "document format";
   docNameEl.textContent = fileName ?? "config";
   dirtyDot.style.opacity = snap.is_dirty ? "1" : "0";
   statusEl.textContent = snap.error ? snap.error : snap.status ?? "ready";
@@ -263,13 +377,15 @@ function render() {
     }
   }
 
-  // Mode-driven sheets.
+  // Mode-driven surfaces: TypeFilter → the shared grid in the filter sheet;
+  // Convert → the shared native dialog (no scrim/sheet).
   const tag = modeTag(snap.mode);
   if (tag === "TypeFilter") renderFilterSheet((snap.mode as { TypeFilter: TypeFilterView }).TypeFilter);
   else sheets.filter.classList.remove("open");
-  if (tag === "Convert") renderConvertSheet((snap.mode as { Convert: ConvertView }).Convert);
-  else sheets.convert.classList.remove("open");
-  if (tag !== "TypeFilter" && tag !== "Convert" && !anySheetOpen()) scrim.classList.remove("show");
+  const dlg = document.getElementById("convDlg") as HTMLDialogElement;
+  if (tag === "Convert") renderConvertDialogShared(convRefs(), (snap.mode as { Convert: ConvertView }).Convert, snap);
+  else if (dlg.open) dlg.close();
+  if (tag !== "TypeFilter" && !anySheetOpen()) scrim.classList.remove("show");
 
   // Active type-filter indicator on the funnel button.
   filterBtn.classList.toggle("on", typeFilterActive(snap.mode));
@@ -351,7 +467,6 @@ function openMenuSheet() {
     `<div class="sheet-head"><h3>More actions</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
     '<div class="sheet-body">' +
     mi(IC.open, "Open file", "", "open") +
-    mi(IC.convert, "Save / Convert format", "", "convert") +
     mi(IC.redo, "Redo", "", "redo") +
     '<div class="menu-sep"></div>' +
     mi(IC.expand, "Expand all", "", "expandall") +
@@ -381,86 +496,34 @@ function menuAction(id: string) {
     case "open":
       closeSheets();
       return void doOpen();
-    case "convert":
-      closeSheets();
-      return send("OpenConvert");
   }
 }
 
 // ---- type-filter sheet (driven by snapshot.mode TypeFilterView) ----
+// The grid markup + per-cell wiring is shared with the desktop UI
+// (`typefilter.ts`); the sheet shell (grab / head / Done) + open-close logic and
+// the funnel `.on` indicator stay here.
 function renderFilterSheet(grid: TypeFilterView) {
-  // Well-formed grouped markup: each Header opens a group + its `.chips` row;
-  // each Cells row fills it. `cellRow` indexes Cells rows (matches cursor_row).
-  let cellRow = -1;
-  let chips = "";
-  let groupOpen = false;
-  for (const row of grid.rows) {
-    if ("Header" in row) {
-      if (groupOpen) chips += "</div>"; // close prior .chips
-      chips += `<div class="field-label">${esc(row.Header)}</div><div class="chips">`;
-      groupOpen = true;
-      continue;
-    }
-    if (!groupOpen) {
-      chips += '<div class="chips">';
-      groupOpen = true;
-    }
-    cellRow++;
-    chips += row.Cells.map((c, col) => {
-      const on = c.state === "On" ? "1" : c.state === "Partial" ? "partial" : "0";
-      return `<button class="chip" data-on="${on}" data-r="${cellRow}" data-c="${col}"><span class="box">${IC.check}</span>${esc(c.label)}</button>`;
-    }).join("");
-  }
-  if (groupOpen) chips += "</div>"; // close last .chips
   sheets.filter.innerHTML =
     '<div class="grab"></div>' +
     `<div class="sheet-head"><h3>Type filter</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
-    `<div class="sheet-body tf-body">${chips}` +
+    `<div class="sheet-body tf-body"><div class="tf">${typeFilterHTML(grid)}</div>` +
     '<div class="row-btns"><button class="btn primary" data-act="closesheet">Done</button></div></div>';
-  sheets.filter.querySelectorAll<HTMLElement>("[data-r]").forEach((b) => {
-    b.addEventListener("click", () => {
-      const dr = Number(b.dataset.r) - grid.cursor_row;
-      const dc = Number(b.dataset.c) - grid.cursor_col;
-      if (dr || dc) send({ TypeFilterMove: [dr, dc] });
-      send("TypeFilterToggle");
-    });
-  });
+  wireTypeFilter(sheets.filter, grid, { send });
   if (!sheets.filter.classList.contains("open")) openSheet("filter");
 }
 
-// ---- convert sheet (driven by snapshot.mode ConvertView) ----
-function renderConvertSheet(cv: ConvertView) {
-  const all: DocFormat[] = [snap!.doc_format, ...cv.options.filter((f) => f !== snap!.doc_format)];
-  const crossFmt = cv.target !== snap!.doc_format;
-  const hasWarn = crossFmt && cv.warnings.length > 0;
-  const fmtBtns = all
-    .map(
-      (f) =>
-        `<button class="add-cell conv-fmt${f === cv.target ? " on" : ""}" data-fmt="${f}"><span class="dotc" style="background:var(--accent)"></span>${f.toUpperCase()}${f === snap!.doc_format ? " (same)" : ""}</button>`,
-    )
-    .join("");
-  const runLabel = !crossFmt ? "Save copy" : cv.step === "Confirm" ? "Confirm & save" : "Convert & save";
-  sheets.convert.innerHTML =
-    '<div class="grab"></div>' +
-    `<div class="sheet-head"><h3>Save / Convert</h3><button class="close" data-act="convcancel">${IC.close}</button></div>` +
-    '<div class="sheet-body">' +
-    `<div class="field-label">Format</div><div class="addgrid">${fmtBtns}</div>` +
-    `<div class="field-label">Output path</div><input class="v-edit conv-path" value="${esc(cv.path)}" autocomplete="off" spellcheck="false" />` +
-    (hasWarn
-      ? `<div class="field-label">Lossy conversion</div><div class="preview">${cv.warnings.map((w) => "• " + esc(w)).join("\n")}</div>`
-      : "") +
-    `<div class="row-btns"><button class="btn" data-act="convcancel">Cancel</button>` +
-    `<button class="btn primary" data-act="convrun">${runLabel}</button></div></div>`;
-  sheets.convert.querySelectorAll<HTMLElement>(".conv-fmt").forEach((b) => {
-    b.addEventListener("click", () => send({ SetConvertFormat: b.dataset.fmt as DocFormat }));
-  });
-  const pathInput = sheets.convert.querySelector<HTMLInputElement>(".conv-path");
-  if (pathInput)
-    pathInput.addEventListener("change", () => send({ SetConvertPath: pathInput.value }));
-  const run = sheets.convert.querySelector<HTMLElement>("[data-act=convrun]");
-  if (run)
-    run.addEventListener("click", () => send(cv.step === "Confirm" ? "ConvertConfirm" : "ConvertRun"));
-  if (!sheets.convert.classList.contains("open")) openSheet("convert");
+// The native Save/Convert `<dialog>` and its five children, bundled as the refs
+// the shared convert-dialog module operates on.
+function convRefs(): ConvertRefs {
+  return {
+    dlg: document.getElementById("convDlg") as HTMLDialogElement,
+    fmt: document.getElementById("convFmt") as HTMLSelectElement,
+    path: document.getElementById("convPath") as HTMLInputElement,
+    warns: document.getElementById("convWarns")!,
+    run: document.getElementById("convRun")!,
+    cancel: document.getElementById("convCancel")!,
+  };
 }
 
 // ---- external edit (multi-line value/comment) ----
@@ -726,8 +789,27 @@ function toggleTheme() {
   document.documentElement.dataset.theme = next;
 }
 
+// ---- sample doc ----
+// Load the built-in sample in `format`, entering sample mode (pill toggle on).
+function loadSample(format: "toml" | "json" | "yaml") {
+  sampleFormat = format;
+  openText(SAMPLES[format], format, null, "sample", true);
+}
+// Cycle the sample doc to the next backend (pill tap while in sample mode).
+function cycleSampleFormat() {
+  if (!sampleMode) return;
+  const next = SAMPLE_ORDER[(SAMPLE_ORDER.indexOf(sampleFormat) + 1) % SAMPLE_ORDER.length];
+  loadSample(next);
+}
+
 // ---- file I/O (host-owned, via fs.ts) ----
-function openText(text: string, format: "toml" | "json" | "yaml" | "yml", handle: FsHandle | null, name: string | null) {
+function openText(
+  text: string,
+  format: "toml" | "json" | "yaml" | "yml",
+  handle: FsHandle | null,
+  name: string | null,
+  asSample = false,
+) {
   session?.free();
   try {
     session = Session.fromText(text, format);
@@ -737,9 +819,10 @@ function openText(text: string, format: "toml" | "json" | "yaml" | "yml", handle
   }
   fileHandle = handle;
   fileName = name;
+  sampleMode = asSample;
   snap = session.snapshot();
   rawView = false;
-  app.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", (t as HTMLElement).dataset.tab === "tree"));
+  app.querySelectorAll(".viewtab").forEach((t) => t.classList.toggle("active", (t as HTMLElement).dataset.tab === "tree"));
   render();
 }
 function formatFromName(name: string): "toml" | "json" | "yaml" {
@@ -766,37 +849,40 @@ async function doOpen() {
   };
   input.click();
 }
-async function doSave() {
+// File stem (no dir, no extension) for seeding the convert dialog's output path.
+function fileStem(): string {
+  const base = (fileName ?? "config").split("/").pop()!;
+  const dot = base.lastIndexOf(".");
+  return dot > 0 ? base.slice(0, dot) : base;
+}
+// Open the unified Save / Convert panel from the root node (mirrors desktop):
+// `OpenConvert` leaves `target` = the current format (a plain save-as default);
+// seed the output name from the open file's stem.
+function openSaveConvert() {
+  send({ SetCursor: [] });
+  send("OpenConvert");
+  send({ SetConvertPath: fileStem() + extForTag(snap?.doc_format ?? "Toml") });
+}
+// Faithful "save a copy" of the live document (byte-for-byte `serialize()`),
+// used when the panel's format equals the open format.
+async function doSaveAsCopy(path: string) {
   if (!session || !snap) return;
   const text = session.serialize();
-  if (fileHandle) {
-    try {
-      await writeFile(fileHandle, text);
-      send("Save");
-      toast("Saved");
-    } catch (e) {
-      statusEl.textContent = `save failed: ${String((e as Error).message ?? e)}`;
-    }
-    return;
-  }
+  const fmt = snap.doc_format;
+  const baseName = path.split("/").pop() || "confy-export" + extFor(fmt);
+  send("ExitConvert");
   if (FS_AVAILABLE) {
-    const fmt = snap.doc_format;
-    const handle = await pickSaveFile(fmt, (fileName ?? "confy-export") + extFor(fmt));
+    const handle = await pickSaveFile(fmt, baseName);
     if (!handle) return;
     try {
       await writeFile(handle, text);
-      fileHandle = handle;
-      fileName = (await handle.getFile()).name;
-      send("Save");
-      toast("Saved");
-      render();
+      toast(`Saved copy → ${(await handle.getFile()).name}`);
     } catch (e) {
       statusEl.textContent = `save failed: ${String((e as Error).message ?? e)}`;
     }
     return;
   }
-  downloadText((fileName ?? "confy-export") + extFor(snap.doc_format), text);
-  send("Save");
+  downloadText(baseName, text);
   toast("Downloaded");
 }
 async function doConvertWrite(path: string, text: string) {
@@ -819,7 +905,7 @@ async function doConvertWrite(path: string, text: string) {
   toast("Converted (downloaded)");
 }
 
-// ---- shell-level click delegation (appbar / footer / scrim / sheets) ----
+// ---- shell-level click delegation (toolbar / footer / scrim / sheets) ----
 function installShellHandlers() {
   app.addEventListener("click", (e) => {
     const b = (e.target as HTMLElement).closest<HTMLElement>("[data-act]");
@@ -836,21 +922,30 @@ function installShellHandlers() {
       case "add":
         addContextual();
         break;
-      case "convert":
-        send("OpenConvert");
+      case "cyclefmt":
+        cycleSampleFormat(); // no-op unless in sample mode
         break;
       case "save":
-        void doSave();
+        openSaveConvert();
         break;
       case "undo":
         send("Undo");
         break;
+      case "redo":
+        send("Redo");
+        break;
+      case "theme":
+        toggleTheme();
+        break;
+      case "expandall":
+        send("ExpandAll");
+        break;
+      case "collapseall":
+        send("CollapseAll");
+        break;
       case "scrim":
       case "closesheet":
         dismissSheets();
-        break;
-      case "convcancel":
-        send("ExitConvert");
         break;
       case "extcancel":
         closeSheets();
@@ -867,9 +962,9 @@ function installShellHandlers() {
   });
 
   // Tabs (Tree / Raw) — a view toggle, not a mutation.
-  app.querySelectorAll<HTMLElement>(".tab").forEach((t) => {
+  app.querySelectorAll<HTMLElement>(".viewtab").forEach((t) => {
     t.addEventListener("click", () => {
-      app.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
+      app.querySelectorAll(".viewtab").forEach((x) => x.classList.remove("active"));
       t.classList.add("active");
       rawView = t.dataset.tab === "raw";
       render();
@@ -951,12 +1046,11 @@ function installSplitter() {
   sp.addEventListener("pointercancel", end);
 }
 
-// Dismiss whatever sheet is open, committing mode-driven ones so their state
-// persists (type-filter) or unwinds cleanly (convert / external edit).
+// Dismiss whatever sheet is open, committing the mode-driven type-filter so its
+// state persists. (Convert is a native dialog now, dismissed by its own buttons.)
 function dismissSheets() {
   const tag = snap ? modeTag(snap.mode) : "Normal";
   if (tag === "TypeFilter") return send("CommitTypeFilter");
-  if (tag === "Convert") return send("ExitConvert");
   closeSheets();
 }
 
@@ -976,27 +1070,25 @@ async function main() {
   clipBadge = app.querySelector(".clip-badge")!;
   searchInput = app.querySelector(".search input")!;
   fmtPill = app.querySelector(".fmt-pill")!;
-  docNameEl = app.querySelector(".brand .name")!;
+  docNameEl = app.querySelector(".brand .doc-name")!;
   dirtyDot = app.querySelector(".dirty-dot")!;
-  filterBtn = app.querySelector(".filter-btn")!;
+  filterBtn = app.querySelector(".tf-btn")!;
   toastEl = app.querySelector(".toast")!;
   sheets.detail = app.querySelector(".detail-sheet")!;
   sheets.menu = app.querySelector(".menu-sheet")!;
   sheets.filter = app.querySelector(".filter-sheet")!;
   sheets.kind = app.querySelector(".kind-sheet")!;
-  sheets.convert = app.querySelector(".convert-sheet")!;
   sheets.ext = root.querySelector(".ext-sheet")!;
 
   restoreDetailWidth();
   installTreeGestures();
   installShellHandlers();
   installSplitter();
+  wireConvertDialog(convRefs(), { send, fileStem, doSaveAsCopy, getSnap: () => snap });
 
   const wasmUrl = new URL("../pkg/confy_ffi_bg.wasm", import.meta.url);
   await load(wasmUrl);
-  session = Session.fromText(SAMPLE, "toml");
-  snap = session.snapshot();
-  render();
+  loadSample("toml");
 }
 
 void main();

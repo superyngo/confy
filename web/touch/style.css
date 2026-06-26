@@ -60,20 +60,12 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none
   background:var(--bg); color:var(--fg); font-size:15px; line-height:1.5;
 }
 
-/* ---- app bar ---- */
-.appbar{
-  flex:0 0 auto; display:flex; align-items:center; gap:10px;
-  padding:6px 12px env(safe-area-inset-bottom,0) 12px;
-  height:48px; background:var(--surface); border-bottom:1px solid var(--border);
-}
+/* ---- brand (toolbar styling lives in the app-only appendix) ---- */
 .brand{display:flex;align-items:center;gap:9px;min-width:0}
 .brand .logo{
   width:30px;height:30px;border-radius:9px;display:grid;place-items:center;flex:0 0 auto;
   background:var(--accent);color:oklch(18% 0.02 250);font-family:var(--mono);font-weight:800;font-size:15px;
 }
-.brand .doc{display:flex;flex-direction:column;min-width:0;line-height:1.2}
-.brand .doc .name{font-weight:700;font-size:15px;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.brand .doc .meta{display:flex;align-items:center;gap:6px}
 .fmt-pill{
   font-family:var(--mono);font-size:10.5px;font-weight:700;letter-spacing:.05em;
   padding:4px 11px;border:1px solid var(--border-strong);border-radius:999px;
@@ -81,22 +73,8 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none
 }
 .fmt-pill:active{background:var(--accent-soft);color:var(--fg)}
 .dirty-dot{width:7px;height:7px;border-radius:50%;background:var(--accent)}
-.appbar .grow{flex:1}
-/* 觸控命中區 ≥44px */
-.tapbtn{
-  width:var(--hit);height:var(--hit);display:grid;place-items:center;border-radius:12px;
-  color:var(--fg);background:transparent;transition:background .12s;flex:0 0 auto;
-}
-.tapbtn:active{background:var(--accent-soft)}
-.tapbtn .ic{width:15px;height:15px}
-.tapbtn.primary{background:var(--accent);color:oklch(18% 0.02 250)}
-.tapbtn.primary:active{filter:brightness(.94)}
 
-/* ---- 搜尋列 ---- */
-.searchbar{
-  flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:8px 12px;
-  background:var(--surface);border-bottom:1px solid var(--border);
-}
+/* ---- search box (bar styling lives in the app-only appendix) ---- */
 .search{position:relative;flex:1;min-width:0}
 .search .ic{position:absolute;left:13px;top:50%;transform:translateY(-50%);width:19px;height:19px;color:var(--faint);pointer-events:none}
 .search input{
@@ -111,25 +89,6 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none
 }
 .search.has-val .clear{display:grid}
 .search .clear:active{background:var(--border)}
-.filter-btn{
-  width:40px;height:40px;flex:0 0 auto;display:grid;place-items:center;border-radius:13px;
-  background:var(--panel);border:1px solid var(--border-strong);color:var(--fg);position:relative;
-}
-.filter-btn:active{background:var(--accent-soft)}
-.filter-btn .ic{width:14px;height:14px}
-.filter-btn .dot{position:absolute;top:8px;right:8px;width:8px;height:8px;border-radius:50%;background:var(--accent);display:none}
-.filter-btn.on .dot{display:block}
-
-/* ---- 分段控制 Tree / Raw ---- */
-.tabs{
-  flex:0 0 auto;display:flex;gap:4px;margin:8px 12px 4px;padding:3px;
-  background:var(--panel);border:1px solid var(--border);border-radius:13px;
-}
-.tab{
-  flex:1;height:36px;border-radius:10px;font-size:14px;font-weight:600;color:var(--muted);
-  display:grid;place-items:center;
-}
-.tab.active{background:var(--accent);color:oklch(18% 0.02 250)}
 
 /* ============================================================
    主體：手機=單欄；容器 ≥600px=雙欄（樹 + 常駐詳情）
@@ -385,3 +344,133 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none
   .splitter{display:none}
 }
 .hidden{display:none!important}
+
+/* ============================================================
+   APP-ONLY APPENDIX (not part of the design verbatim block).
+   Ports the desktop UI's toolbar / filter-row / Save-Convert dialog /
+   type-filter grid chrome (web/style.css + web/index.html) onto the touch
+   page so the two front-ends converge visually, sized up for touch hit areas.
+   The bespoke app-bar rules these replaced (.appbar/.searchbar/.tabs/.tab/.tapbtn/
+   .filter-btn/.brand .doc) were removed from the verbatim block above as dead code.
+   ============================================================ */
+
+/* ---- toolbar (desktop .toolbar, touch-sized) ---- */
+.toolbar{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;row-gap:6px;
+  padding:8px 12px;background:var(--surface);border-bottom:1px solid var(--border);flex:0 0 auto;
+}
+.brand{display:flex;align-items:center;gap:8px;font-weight:700;letter-spacing:-.01em;min-width:0}
+.brand .logo{
+  width:24px;height:24px;border-radius:7px;display:grid;place-items:center;flex:0 0 auto;
+  background:var(--accent);color:oklch(18% 0.02 250);font-family:var(--mono);font-weight:800;font-size:13px;
+}
+.brand .doc-name{
+  max-width:min(40vw,220px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  color:var(--muted);font-weight:600;
+}
+.fmt-pill{
+  font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.04em;flex:0 0 auto;
+  padding:3px 10px;border:1px solid var(--border-strong);border-radius:999px;color:var(--muted);background:var(--panel);
+}
+.fmt-pill:not(.toggleable){cursor:default}
+.fmt-pill.toggleable{border-color:var(--sel-edge);color:var(--fg)}
+.fmt-pill.toggleable:active{background:var(--accent-soft)}
+.dirty-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);opacity:0;transition:opacity .2s;flex:0 0 auto}
+.spacer{flex:1}
+.label-hide{display:none}
+.tbtn{
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;flex:0 0 auto;
+  height:var(--hit);padding:0 14px;background:var(--panel);border:1px solid var(--border-strong);border-radius:11px;
+  font-size:13.5px;font-weight:600;color:var(--fg);white-space:nowrap;transition:background .12s,border-color .12s;
+}
+.tbtn:active{background:var(--accent-soft);border-color:var(--sel-edge)}
+.tbtn.primary{background:var(--accent);color:oklch(18% 0.02 250);border-color:transparent}
+.tbtn.primary:active{filter:brightness(.94)}
+.toolbar .tbtn .ic,.filterbar .tbtn .ic{width:16px;height:16px;display:block}
+.icon-btn{
+  width:var(--hit);height:var(--hit);display:grid;place-items:center;padding:0;flex:0 0 auto;
+  background:var(--panel);border:1px solid var(--border-strong);border-radius:11px;color:var(--fg);
+}
+.icon-btn:active{background:var(--accent-soft);border-color:var(--sel-edge)}
+.icon-btn .ic{width:17px;height:17px}
+.tgroup{display:flex;gap:6px;flex:0 0 auto}
+.more-btn{padding:0 12px}
+
+/* ---- filter row (desktop .filterbar, touch-sized) ---- */
+.filterbar{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;row-gap:6px;
+  padding:8px 12px;background:var(--surface);border-bottom:1px solid var(--border);flex:0 0 auto;
+}
+.filterbar .search{position:relative;flex:1;min-width:120px}
+.filterbar .search .ic{position:absolute;left:13px;top:50%;transform:translateY(-50%);width:18px;height:18px;color:var(--faint);pointer-events:none}
+.filterbar .search input{
+  width:100%;height:var(--hit);padding:0 42px;border-radius:12px;
+  border:1px solid var(--border-strong);background:var(--panel);color:var(--fg);
+  font-size:16px;font-family:var(--font);/* 16px 防 iOS 聚焦縮放 */
+}
+.filterbar .search input::placeholder{color:var(--faint)}
+.filterbar .search .clear{
+  position:absolute;right:8px;top:50%;transform:translateY(-50%);
+  width:32px;height:32px;border-radius:9px;color:var(--faint);display:none;place-items:center;
+}
+.filterbar .search.has-val .clear{display:grid}
+.filterbar .search .clear:active{background:var(--border)}
+.filterbar .search .clear .ic{width:16px;height:16px}
+.tf-btn{position:relative}
+.tf-btn .dot{position:absolute;top:6px;right:6px;width:8px;height:8px;border-radius:50%;background:var(--accent);display:none}
+.tf-btn.on{border-color:var(--sel-edge);background:var(--accent-soft)}
+.tf-btn.on .dot{display:block}
+.viewtab.active{background:var(--accent);color:oklch(18% 0.02 250);border-color:transparent}
+
+/* ---- Save / Convert dialog (desktop #convDlg) ---- */
+dialog#convDlg{
+  border:1px solid var(--border-strong);border-radius:18px;padding:0;background:var(--surface);
+  color:var(--fg);box-shadow:var(--shadow);width:min(460px,92vw);max-height:calc(100vh - 32px);overflow:auto;
+}
+dialog#convDlg::backdrop{background:var(--scrim);backdrop-filter:blur(2px)}
+.dlg-head{padding:18px 20px 4px}
+.dlg-head h3{margin:0;font-size:17px;font-weight:700}
+.dlg-head p{margin:6px 0 0;color:var(--muted);font-size:12.5px}
+.dlg-body{padding:14px 20px}
+.field{margin-bottom:14px}
+.field label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px;font-weight:600}
+.field select,.field input{
+  width:100%;height:46px;padding:0 12px;border-radius:12px;border:1px solid var(--border-strong);
+  background:var(--panel);color:var(--fg);font-family:var(--mono);font-size:16px;
+}
+.warns{
+  background:color-mix(in oklch,var(--t-date) 13%,var(--surface));
+  border:1px solid color-mix(in oklch,var(--t-date) 38%,transparent);
+  border-radius:12px;padding:10px 13px;font-size:13px;color:var(--fg);margin-bottom:14px;
+}
+.warns strong{color:var(--t-date)}
+.warns .warns-note{margin:3px 0 6px;color:var(--muted)}
+.warns ul{margin:4px 0 0;padding-left:18px}
+.warns.hide{display:none}
+.dlg-foot{display:flex;justify-content:flex-end;gap:10px;padding:8px 20px 18px}
+
+/* ---- type-filter grid (shared typefilter.ts; desktop .tf, touch-sized) ---- */
+.tf{padding:2px 0;min-width:0}
+.tf-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:2px}
+.menu-label{font-size:12px;color:var(--faint);padding:8px 2px 4px;font-weight:600;letter-spacing:.03em}
+.tf-active{color:var(--t-string);font-size:11.5px;font-weight:600}
+.tf-clear{width:34px;height:34px;border-radius:9px;color:var(--faint);font-size:16px;line-height:1;display:grid;place-items:center}
+.tf-clear:active{background:var(--border);color:var(--fg)}
+.tf-grid{display:flex;flex-wrap:wrap;gap:10px;margin:2px 0 6px}
+.tf-cell{
+  font-family:var(--mono);font-size:14px;min-height:46px;padding:0 14px;border-radius:12px;
+  border:1px solid var(--border-strong);background:var(--panel);color:var(--muted);display:flex;align-items:center;gap:9px;
+}
+.tf-cell .box{width:18px;height:18px;border-radius:5px;border:2px solid var(--faint);display:grid;place-items:center;flex:0 0 auto}
+.tf-cell .box svg{display:none;width:12px;height:12px;color:oklch(18% 0.02 250)}
+.tf-cell[data-state="On"]{color:var(--fg);border-color:var(--sel-edge);background:var(--accent-soft)}
+.tf-cell[data-state="On"] .box{background:var(--accent);border-color:var(--accent)}
+.tf-cell[data-state="On"] .box svg{display:block}
+.tf-cell[data-state="Partial"]{color:var(--fg);border-color:var(--t-date)}
+.tf-cell[data-state="Partial"] .box{background:var(--t-date);border-color:var(--t-date)}
+.tf-cell[data-state="Partial"] .box svg{display:block}
+.tf-cell.cursor{outline:2px solid var(--accent);outline-offset:1px}
+
+/* ---- item 1: detail kind button stays on ONE line (dot + label) ---- */
+.detail .kindbtn{display:flex;align-items:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.detail .kindbtn .dotc{flex:0 0 auto}
