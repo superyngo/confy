@@ -21,4 +21,5 @@ web/ui.js.map
 web/touch/app.js
 web/touch/app.js.map
 web/node_modules/
+web/dist/
 **/.DS_Store
