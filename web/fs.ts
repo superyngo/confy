@@ -102,9 +102,40 @@ export async function readHandle(handle: FsHandle): Promise<string> {
 
 // ---- Download fallback (always available) ----
 
-/** Trigger a browser download — the universal fallback for save/convert. */
+/** File extension → MIME type, so iOS doesn't coerce the download to `.txt`. */
+function mimeFor(filename: string): string {
+  if (filename.endsWith(".toml")) return "application/toml";
+  if (filename.endsWith(".json")) return "application/json";
+  if (filename.endsWith(".yaml") || filename.endsWith(".yml")) return "application/yaml";
+  return "text/plain";
+}
+
+type Sharer = (data: { files: File[]; title?: string }) => Promise<void>;
+type ShareChecker = (data: { files: File[] }) => boolean;
+
+/**
+ * Trigger a browser download — the universal fallback for save/convert.
+ *
+ * iOS Safari has no FS Access API *and* ignores the `<a download>` filename
+ * (it names the file after the blob UUID and appends `.txt` from the MIME),
+ * so the requested name/extension is lost. The Web Share API preserves both:
+ * the `File`'s name and extension survive into "Save to Files". We prefer it
+ * when the host can share files, else fall back to the anchor download (which
+ * works fine on desktop Firefox/Safari).
+ */
 export function downloadText(filename: string, text: string): void {
-  const blob = new Blob([text], { type: "text/plain" });
+  const type = mimeFor(filename);
+  const nav = navigator as Navigator & {
+    canShare?: ShareChecker;
+    share?: Sharer;
+  };
+  const file = new File([text], filename, { type });
+  if (nav.canShare?.({ files: [file] }) && nav.share) {
+    // Cancellation (AbortError) is a normal user choice — swallow it.
+    nav.share({ files: [file], title: filename }).catch(() => {});
+    return;
+  }
+  const blob = new Blob([text], { type });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
