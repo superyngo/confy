@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.11.0] - 2026-06-27
+
 ### Fixed
 - **fix(core): a comment dropped into a non-last TOML `[table]` now lands inside it.** A standalone
   comment between a table's last entry and the next `[header]` was always projected as the *next*
