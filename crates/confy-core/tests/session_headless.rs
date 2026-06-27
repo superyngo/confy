@@ -814,6 +814,38 @@ fn dispatch_move_selection_down_keeps_selection_on_moved_node() {
     );
 }
 
+#[test]
+fn dispatch_move_comment_down_keeps_selection_on_moved_comment() {
+    // Regression: a DOWNWARD move of a *comment* node shifted the landing slot
+    // up by the removed comment too, but the selection only accounted for node
+    // sources — so the moved comment's next row got selected/cursored.
+    let mut s = toml_session("# note\na = 1\nb = 2\n");
+    // The comment is positional index 0; move it down to after 'b' (index 2).
+    let snap = s.dispatch(Intent::MoveSelectionTo {
+        sources: vec![vec![Seg::Index(0)]],
+        target: vec![],
+        index: 2,
+    });
+    assert!(
+        snap.error.is_none(),
+        "move should succeed: {:?}",
+        snap.error
+    );
+    // Order is now a, # note, b — the comment landed at index 1 (cursor + select).
+    let cur = snap.rows.iter().find(|r| r.is_cursor).unwrap();
+    assert!(
+        cur.key.contains("note"),
+        "cursor stays on the moved comment, not 'b': cursor on {:?}",
+        cur.key
+    );
+    assert!(cur.selected, "the moved comment is selected");
+    let row_b = snap.rows.iter().find(|r| r.key == "b").unwrap();
+    assert!(
+        !row_b.is_cursor && !row_b.selected,
+        "the next row 'b' is neither cursor nor selected"
+    );
+}
+
 // ---- Pointer filter (SetFilter) ----
 
 #[test]
