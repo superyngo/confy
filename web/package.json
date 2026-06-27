@@ -1,7 +1,7 @@
 {
   "name": "confy-web",
   "private": true,
-  "version": "0.10.0",
+  "version": "0.10.1",
   "type": "module",
   "description": "Web UI for confy (drives the wasm core via the Session command channel)",
   "scripts": {

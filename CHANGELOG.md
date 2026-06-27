@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.10.1] - 2026-06-27
+
+### Fixed
+- **fix(core): downward drag-reorder no longer leaves the selection on the next row.** `do_paste`'s
+  post-move selection indexed the rebuilt child sequence with the raw `target.index`; on a
+  same-parent **downward** move the earlier source is removed first, shifting the landing slot up by
+  that count (the Move/Insert mutations already account for it via `node_shift`) — the selection did
+  not, so the moved node's *next* sibling got selected/cursored. Subtract `node_shift` from the
+  selection start. Upward / cross-parent / paste (non-cut) unaffected (`node_shift == 0`). Fixes the
+  Web UI grip drag-reparent and TUI cut-paste (shared core); regression test added. (2026-06-27)
+
 ### Added
 - **Web UI hosted at <https://confy.turkeyang.net/>** via Cloudflare Workers Builds Git
   integration: `web/cf-build.sh` (build command — installs Rust/wasm-pack if absent, builds the
