@@ -1,0 +1,20 @@
+[package]
+name = "confy-tauri"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "confy desktop app (Tauri shell over the web UI; native file I/O)"
+
+[[bin]]
+name = "confy-desktop"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { workspace = true }

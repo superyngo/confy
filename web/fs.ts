@@ -33,9 +33,9 @@ function openPicker(): OpenPicker | null {
   return w.showOpenFilePicker ?? null;
 }
 
-/** True when the host can open/save real files in place (Chromium-based). */
+/** True when the host can open/save real files in place (Tauri or Chromium). */
 export function fsAccessAvailable(): boolean {
-  return savePicker() !== null && openPicker() !== null;
+  return isTauri() || (savePicker() !== null && openPicker() !== null);
 }
 
 const ACCEPT: Record<string, string> = {
@@ -65,8 +65,67 @@ export interface OpenedFile {
   text: string;
 }
 
-/** Open a real file via the FS Access API; returns `null` if the user cancels. */
+// ---- Tauri desktop host ----
+// Inside the Tauri shell (`confy-desktop`) file I/O goes through native Rust
+// commands instead of the browser File System Access API. The absolute path is
+// the durable "handle"; we wrap it in an object that conforms to the `FsHandle`
+// shape (getFile / createWritable, delegating to `invoke`), so the rest of this
+// module — and ui.ts — treats both hosts uniformly with no extra branching.
+interface TauriCore {
+  invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T>;
+}
+function tauriCore(): TauriCore | null {
+  const w = window as unknown as { __TAURI__?: { core?: TauriCore } };
+  return w.__TAURI__?.core ?? null;
+}
+
+/** True when running inside the Tauri desktop shell. */
+export function isTauri(): boolean {
+  return tauriCore() !== null;
+}
+
+interface RustOpenedFile {
+  path: string;
+  name: string;
+  text: string;
+}
+
+// An `FsHandle` backed by a real filesystem path via Tauri commands.
+function tauriHandle(path: string, name: string): FsHandle {
+  const core = tauriCore()!;
+  return {
+    async getFile(): Promise<File> {
+      const text = await core.invoke<string>("read_file_text", { path });
+      return new File([text], name);
+    },
+    async createWritable(): Promise<FsWritable> {
+      return {
+        async write(data: string) {
+          await core.invoke<void>("write_file", { path, contents: data });
+        },
+        async close() {},
+      };
+    },
+  };
+}
+
+/** Open the file passed on the command line, if any (Tauri only). */
+export async function tauriStartupFile(): Promise<OpenedFile | null> {
+  const core = tauriCore();
+  if (!core) return null;
+  const f = await core.invoke<RustOpenedFile | null>("startup_file");
+  if (!f) return null;
+  return { handle: tauriHandle(f.path, f.name), name: f.name, text: f.text };
+}
+
+/** Open a real file via the native dialog (Tauri) or FS Access API; `null` on cancel. */
 export async function pickOpenFile(): Promise<OpenedFile | null> {
+  const core = tauriCore();
+  if (core) {
+    const f = await core.invoke<RustOpenedFile | null>("open_dialog");
+    if (!f) return null;
+    return { handle: tauriHandle(f.path, f.name), name: f.name, text: f.text };
+  }
   const picker = openPicker();
   if (!picker) return null;
   const [handle] = await picker();
@@ -83,6 +142,15 @@ export async function pickSaveFile(
   docFormat: string,
   suggestedName: string,
 ): Promise<FsHandle | null> {
+  const core = tauriCore();
+  if (core) {
+    const path = await core.invoke<string | null>("save_dialog", {
+      suggested: suggestedName,
+    });
+    if (!path) return null;
+    const name = path.split(/[\\/]/).pop() ?? suggestedName;
+    return tauriHandle(path, name);
+  }
   const picker = savePicker();
   if (!picker) return null;
   return picker({ suggestedName, types: acceptFor(docFormat) });

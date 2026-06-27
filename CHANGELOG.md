@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **feat(desktop): Tauri v2 desktop app (`confy-desktop`).** New `crates/confy-tauri` wraps the
+  existing web UI in a native desktop shell (macOS + Windows; Linux not targeted yet). Editing stays
+  in the in-webview wasm `Session` — `dispatch` is synchronous and called from ~100 keyboard handlers,
+  so it is *not* moved across the async IPC boundary (route "B-lite"). The Rust side owns only the
+  part that genuinely needs the desktop: **native file I/O** — real open/save dialogs, in-place writes
+  to an arbitrary path, and opening a file passed on the command line — via 5 `#[tauri::command]`s
+  (`open_dialog`/`save_dialog`/`read_file_text`/`write_file`/`startup_file`) and the dialog plugin.
+  `web/fs.ts` detects Tauri (`window.__TAURI__`) and wraps the file path in an object conforming to
+  the existing `FsHandle` shape, so `ui.ts` is unchanged and the browser File System Access API path
+  is fully preserved. Build with `cargo tauri build` from `crates/confy-tauri` (Windows must be built
+  on a Windows host). (2026-06-27)
+
 ## [v0.11.2] - 2026-06-27
 
 ### Changed

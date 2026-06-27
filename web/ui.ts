@@ -12,6 +12,7 @@ import {
   fsAccessAvailable,
   pickOpenFile,
   pickSaveFile,
+  tauriStartupFile,
   writeFile,
   type FsHandle,
 } from "./fs.js";
@@ -170,7 +171,13 @@ async function main() {
   const wasmUrl = new URL("./pkg/confy_ffi_bg.wasm", import.meta.url);
   await load(wasmUrl);
   updateSaveLabel();
-  loadSample("toml");
+  // Desktop (Tauri): open a file passed on the command line; else the sample.
+  const startup = await tauriStartupFile();
+  if (startup) {
+    openText(startup.text, formatFromName(startup.name), startup.handle, startup.name);
+  } else {
+    loadSample("toml");
+  }
   bindGlobal();
 }
 

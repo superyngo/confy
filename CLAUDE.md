@@ -171,7 +171,8 @@ failure), and InsertComment/ArrayUpgrade paths — TUI.md §*Clipboard / paste*.
 
 Cargo **workspace** (see `PORTING.md`): `confy-core` is the headless model crate; `confy-tui`
 is the ratatui TUI + CLI binary (`confy`) that depends on it and re-exports `model` so its UI
-modules keep their `crate::model::…` paths.
+modules keep their `crate::model::…` paths. `confy-ffi` is the WASM wrapper (Web UI); `confy-tauri`
+is the Tauri v2 desktop shell over that same web UI, adding only native file I/O.
 
 ```
 crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runtime deps
@@ -271,7 +272,27 @@ crates/confy-tui/src/    ratatui TUI + CLI; depends on confy-core, `pub use conf
     editor.rs      $EDITOR integration (external edit for nested array/table)
     ui.rs          ratatui rendering: title bar + NAME/TYPE/VALUE column header + tree Table, detail popup, help, prompts
 crates/confy-tui/tests/   convert_cli.rs integration: `confy convert` happy/lossy/abort paths, source-unchanged
+
+crates/confy-tauri/       desktop app shell (Tauri v2) over the web UI — **native file I/O only**
+  src/main.rs    bin `confy-desktop`: Tauri builder + dialog plugin + 5 `#[tauri::command]`s —
+                 open_dialog / save_dialog / read_file_text / write_file / startup_file (CLI-arg open).
+                 Editing stays in the in-webview wasm Session (dispatch is sync; not moved over IPC);
+                 the Rust side owns only real open/save/read/write so the desktop gets native paths,
+                 in-place save, and CLI-arg open — no download fallback.
+  tauri.conf.json  frontendDist=../../web/dist, beforeBuildCommand=cf-build.sh (via git toplevel),
+                   bundle targets "all", identifier net.turkeyang.confy
+  capabilities/    default.json — core:default + dialog:default for the main window
+  icons/           placeholder brand set (32/128/@2x png + icon.icns/.ico), regen via `cargo tauri icon`
 ```
+
+**Desktop host I/O.** `web/fs.ts` detects Tauri (`window.__TAURI__`) and routes open/save through the
+Rust commands instead of the browser File System Access API. The path string is the durable "handle",
+wrapped in an object that **conforms to the existing `FsHandle` shape** (getFile/createWritable →
+`invoke`), so `ui.ts` (writeFile/readHandle/deriveName/convert) is unchanged. `tauriStartupFile()`
+opens a CLI-arg file at boot. Build a desktop bundle with `cargo tauri build` from `crates/confy-tauri`
+(the workspace `[profile.release]` is aggressive — `lto`+`codegen-units=1`+`opt-level z` — so the
+release bundle is slow; `--debug` is fast for local checks). macOS produces `.app`/`.dmg`; **Windows
+must be built on a Windows host** (the webview is WebView2; no cross-build). Linux is not targeted yet.
 
 `confy-core` is pure and **filesystem-free at runtime** — no TUI/terminal deps, no `fs`/`process`/
 `env`/`tempfile`, fully unit-testable in isolation (enforced by `tests/no_fs_gate.rs`). The sole

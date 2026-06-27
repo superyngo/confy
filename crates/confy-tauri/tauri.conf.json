@@ -1,0 +1,37 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "confy",
+  "identifier": "net.turkeyang.confy",
+  "build": {
+    "beforeBuildCommand": "bash \"$(git rev-parse --show-toplevel)/web/cf-build.sh\"",
+    "beforeDevCommand": "npm --prefix \"$(git rev-parse --show-toplevel)/web\" run serve",
+    "devUrl": "http://localhost:8080",
+    "frontendDist": "../../web/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "confy",
+        "width": 1100,
+        "height": 760,
+        "minWidth": 480,
+        "minHeight": 400
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}
