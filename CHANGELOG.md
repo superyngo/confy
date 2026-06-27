@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Web UI hosted at <https://confy.turkeyang.net/>** via Cloudflare Workers Builds Git
+  integration: `web/cf-build.sh` (build command — installs Rust/wasm-pack if absent, builds the
+  wasm core + TS bundle, assembles a runtime-only `web/dist`) and root `wrangler.toml` (deploy
+  command `npx wrangler deploy` → assets-only Worker `confy` serving `web/dist`). Deploys on every
+  push to `main`; `web/dist` gitignored. README gains a **Web UI / live-demo** section; WEBUI.md
+  gains a **§Deployment**; CLAUDE.md module map notes the deploy files. (2026-06-27)
+
 ## [v0.10.0] - 2026-06-27
 
 ### Fixed

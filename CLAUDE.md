@@ -250,7 +250,9 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
                  view toggle (`session.serialize()`), keyboard→Intent map (mirrors tui/keys.rs),
                  theme toggle, FS open/save, external-edit modal, paste-mode cursor target
   index.html / style.css (design `<style>` **verbatim** + a fenced app-only appendix; dark+light
-                 via :root[data-theme]) / build.mjs (esbuild) / serve.mjs
+                 via :root[data-theme]) / build.mjs (esbuild) / serve.mjs / cf-build.sh
+                 (Cloudflare Workers Builds build command → runtime-only web/dist; deployed with
+                 root `wrangler.toml` to confy.turkeyang.net — see WEBUI.md §Deployment)
 
 crates/confy-tui/src/    ratatui TUI + CLI; depends on confy-core, `pub use confy_core::model`
   main.rs          bin `confy`: parse args, load via load_document, run TUI

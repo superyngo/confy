@@ -29,6 +29,19 @@ holds something the target can't represent (`null` → TOML, or a YAML opaque no
 **The source file is never modified.** The same flow is available inside the TUI on the Root node
 via `C`.
 
+## Web UI
+
+confy also ships a pointer-first **web UI** that drives the same headless core
+(`confy-core`) through a WebAssembly build — full tree editing, kind/format
+switching, conversion, and lossless save, in the browser. There's a dedicated
+touch layout for coarse-pointer devices.
+
+**Live demo: <https://confy.turkeyang.net/>**
+
+Build/run locally: `cd web && npm install && node build.mjs` then `node serve.mjs`
+(see [WEBUI.md](WEBUI.md)). The hosted site is deployed from `web/` via Cloudflare
+Workers Builds (`web/cf-build.sh` + `wrangler.toml`).
+
 ## Format support
 
 | Format | Status | Notes |

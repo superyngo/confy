@@ -350,6 +350,23 @@ old static `detail_text` `<pre>` dump (that flat string is now only the empty-do
 feed the panel's Sign field, core's `ViewRow` gained a `key_sign` field (`"bare"|"quoted"|"dotted"
 |"none"`, the same mapping the TUI detail text uses).
 
+## Deployment
+
+The hosted site is **<https://confy.turkeyang.net/>**, deployed via **Cloudflare
+Workers Builds** Git integration (config lives in the CF dashboard, not in a
+GitHub Actions workflow). The repo carries two deploy files:
+
+- `web/cf-build.sh` — the CF **build command** (`bash web/cf-build.sh`): installs
+  Rust/wasm-pack if absent, runs `wasm-pack build --target web` + `npm install &&
+  node build.mjs`, then assembles a clean runtime-only `web/dist` (html/css/js/map
+  + `pkg/`, no `node_modules`/sources). `web/dist` is gitignored.
+- `wrangler.toml` — the CF **deploy command** (`npx wrangler deploy`) reads it:
+  an assets-only Worker named `confy` serving `web/dist`.
+
+Production branch is `main`; every push to `main` rebuilds and deploys (Git
+integration can't be tag-gated). The custom domain is set in the Worker's
+Settings → Domains & Routes.
+
 ## Future structured-diff evolution
 
 The full-snapshot transport is the G1 baseline. If re-render latency becomes
