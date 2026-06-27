@@ -120,6 +120,10 @@ function rowHTML(r: ViewRow, idx: number, rows: ViewRow[]): string {
   if (!r.read_only)
     h += `<button class="drag-handle" data-act="grip" aria-label="reorder">${IC.grip}</button>`;
   h += "</div>"; // row-main
+  // Swipe-reveal Delete action, hidden behind row-main (revealed by a left-swipe;
+  // omitted on read-only rows, which reject deletes in core).
+  if (!r.read_only)
+    h += `<button class="row-del" data-act="rowdel" tabindex="-1" aria-label="delete">${IC.del}</button>`;
   h += "</div>"; // row
   return h;
 }

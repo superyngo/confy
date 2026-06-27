@@ -502,6 +502,20 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none
   background:var(--accent-soft);box-shadow:inset 0 0 0 1.5px var(--accent);opacity:1;
 }
 
+/* ---- swipe-to-delete: a single Delete action revealed behind a left-swiped row.
+   `.row` already clips (overflow:hidden) and `.row-main` paints over it (z-index:2),
+   so the button is hidden until the row slides left. ---- */
+.row-del{
+  position:absolute;right:0;top:0;bottom:0;z-index:1;width:96px;
+  display:flex;align-items:center;justify-content:center;
+  border:none;border-radius:13px;cursor:pointer;
+  background:var(--t-bool);color:#fff;
+}
+.row-del svg{width:20px;height:20px}
+
+/* ---- single Tree/Raw view toggle (replaces the two tabs) ---- */
+.viewtoggle.active{background:var(--accent);color:oklch(18% 0.02 250);border-color:transparent}
+
 /* ---- responsive chrome collapse (mirrors desktop's right→left fold) ----
    The .app is a `container-type:inline-size` container. The toolbar/filter rows
    stay single-line (nowrap); as the container narrows, the right-side groups fold

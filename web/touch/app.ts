@@ -275,9 +275,9 @@ function appHTML(): string {
     `<button class="icon-btn" data-act="expandall" title="Expand all">${TIC.expand}</button>` +
     `<button class="icon-btn" data-act="collapseall" title="Collapse all">${TIC.collapse}</button>` +
     "</div>" +
+    // Single toggle button (label = the view it switches TO); folds into ⋯.
     '<div class="tgroup viewtabs">' +
-    '<button class="tbtn viewtab active" data-tab="tree" title="Tree view">Tree</button>' +
-    '<button class="tbtn viewtab" data-tab="raw" title="Raw text (read-only)">Raw</button>' +
+    '<button class="tbtn viewtoggle" data-act="toggleview" title="Toggle Tree / Raw view">Raw</button>' +
     "</div>" +
     "</div>" +
     '<div class="body">' +
@@ -345,13 +345,10 @@ function closeSheets() {
 function isWide(): boolean {
   return app.clientWidth >= 600;
 }
-// Tree ↔ Raw view toggle (mirrors the active tab + re-renders). Reused by the
-// view tabs and the folded ⋯ menu items.
+// Tree ↔ Raw view toggle. The button label/active state is reflected in render();
+// reused by the toggle button and the folded ⋯ menu item.
 function setRawView(raw: boolean) {
   rawView = raw;
-  app.querySelectorAll<HTMLElement>(".viewtab").forEach((x) =>
-    x.classList.toggle("active", x.dataset.tab === (raw ? "raw" : "tree")),
-  );
   render();
 }
 
@@ -377,6 +374,12 @@ function render() {
   fabEl.classList.toggle("paste-cut", armed && snap.clipboard_cut);
   fabEl.innerHTML = armed ? PASTE_IC : IC.plus;
   fabEl.setAttribute("aria-label", armed ? "paste" : "add node");
+  // View toggle: label is the view tapping switches TO; `active` while in Raw.
+  const vt = app.querySelector<HTMLElement>(".viewtoggle");
+  if (vt) {
+    vt.textContent = rawView ? "Tree" : "Raw";
+    vt.classList.toggle("active", rawView);
+  }
 
   if (rawView) {
     rawEl.textContent = session.serialize();
@@ -387,6 +390,8 @@ function render() {
     const st = treePane.scrollTop;
     treeEl.innerHTML = treeHTML(snap);
     treePane.scrollTop = st;
+    // The rebuild detaches any swipe-opened row — drop the stale reference.
+    openSwipeMain = null;
     app.classList.remove("raw");
   }
 
@@ -395,7 +400,7 @@ function render() {
   if (isWide() && !rawView) {
     if (cur && cur.path.length) {
       dpBody.innerHTML = panelHTML(cur);
-      wirePanel(dpBody, cur, sendR, openKindRow, toast);
+      wirePanel(dpBody, cur, sendR, openKindRow, toast, afterPanelMutation);
     } else {
       dpBody.innerHTML = '<div class="dp-empty">Tap any node<br>to edit its value and metadata here</div>';
     }
@@ -434,6 +439,13 @@ function selectOnly(path: Path) {
   send({ SetCursor: path });
   send({ SetSelection: { paths: [path] } });
 }
+// After a successful panel Delete / Copy / Cut: confirm via a toast and dismiss
+// the detail sheet (a no-op in wide split-pane mode, which re-tracks the new
+// cursor on the next render).
+function afterPanelMutation(msg: string) {
+  toast(msg);
+  closeSheets();
+}
 // Double-tap (narrow) opens the bottom-sheet panel. Wide mode keeps the
 // persistent side pane (render() refreshed it), so no sheet is needed.
 function openPanel(path: Path) {
@@ -445,7 +457,7 @@ function openPanel(path: Path) {
       '<div class="grab"></div>' +
       `<div class="sheet-head"><h3>${esc(r.key || lastKey(path))}</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
       `<div class="sheet-body detail-wrap">${panelHTML(r)}</div>`;
-    wirePanel(sheets.detail, r, sendR, openKindRow, toast);
+    wirePanel(sheets.detail, r, sendR, openKindRow, toast, afterPanelMutation);
     openSheet("detail");
   }
 }
@@ -494,8 +506,7 @@ const MENU_CANDIDATES: Array<{ sel: string; ic: string; label: string; run: () =
   { sel: '[data-act="theme"]', ic: IC.sun, label: "Toggle light / dark", run: toggleTheme },
   { sel: '[data-act="expandall"]', ic: IC.expand, label: "Expand all", run: () => send("ExpandAll") },
   { sel: '[data-act="collapseall"]', ic: IC.collapse, label: "Collapse all", run: () => send("CollapseAll") },
-  { sel: '[data-tab="tree"]', ic: IC.collapse, label: "Tree view", run: () => setRawView(false) },
-  { sel: '[data-tab="raw"]', ic: IC.open, label: "Raw view", run: () => setRawView(true) },
+  { sel: '[data-act="toggleview"]', ic: IC.open, label: "Toggle Tree / Raw view", run: () => setRawView(!rawView) },
 ];
 // A toolbar control is "folded" (→ belongs in the menu) when it's not laid out
 // (its group is display:none, so offsetParent is null).
@@ -604,6 +615,15 @@ let sx = 0,
 let lastTapKey: string | null = null;
 let lastTapTime = 0;
 const DOUBLE_TAP_MS = 300;
+
+// Swipe-to-delete: a horizontal left-swipe on a row's `.row-main` slides it open
+// to reveal a single Delete action (`.row-del`). One row is open at a time.
+let swiping = false;
+let swipeMain: HTMLElement | null = null;
+let swipeBase = 0;
+let swipeOff = 0;
+let openSwipeMain: HTMLElement | null = null;
+const SWIPE_W = 96;
 
 // reorder state
 let reordering = false;
@@ -743,13 +763,21 @@ function installTreeGestures() {
       if (row) startReorder(e, row);
       return;
     }
-    const main = (e.target as HTMLElement).closest<HTMLElement>(".row-main");
-    if (!main) return;
-    dragRow = main.parentElement as HTMLElement;
+    const t = e.target as HTMLElement;
+    // A tap can land on the visible row-main OR (when already swiped open) on the
+    // revealed `.row-del` behind it — both map to the same row.
+    const main = t.closest<HTMLElement>(".row-main") ?? t.closest<HTMLElement>(".row-del");
+    const rowEl = main?.closest<HTMLElement>(".row");
+    if (!rowEl) return;
+    dragRow = rowEl;
+    // Swipe only when the row carries a Delete action (read-only rows don't).
+    swipeMain = rowEl.querySelector<HTMLElement>(".row-del") ? rowEl.querySelector<HTMLElement>(".row-main") : null;
+    swipeBase = swipeMain && openSwipeMain === swipeMain ? -SWIPE_W : 0;
     sx = e.clientX;
     sy = e.clientY;
     dragging = true;
     moved = false;
+    swiping = false;
   });
   treeEl.addEventListener("pointermove", (e) => {
     if (reordering) {
@@ -758,25 +786,60 @@ function installTreeGestures() {
       return;
     }
     if (!dragging || !dragRow) return;
-    // Any meaningful drag (scroll) cancels the pending tap.
-    if (Math.abs(e.clientX - sx) > 8 || Math.abs(e.clientY - sy) > 8) moved = true;
+    const dx = e.clientX - sx;
+    const dy = e.clientY - sy;
+    // Lock the axis once the gesture is decisive: horizontal → swipe, vertical →
+    // a scroll (which also cancels the pending tap).
+    if (!swiping && !moved) {
+      if (swipeMain && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) {
+        swiping = true;
+        if (openSwipeMain && openSwipeMain !== swipeMain) {
+          openSwipeMain.style.transform = "";
+          openSwipeMain = null;
+        }
+        if (swipeMain) swipeMain.style.transition = "none";
+      } else if (Math.abs(dy) > 8) {
+        moved = true;
+      }
+    }
+    if (swiping && swipeMain) {
+      e.preventDefault();
+      swipeOff = Math.max(-SWIPE_W, Math.min(0, swipeBase + dx));
+      swipeMain.style.transform = `translateX(${swipeOff}px)`;
+    }
   });
   treeEl.addEventListener("pointerup", (e) => {
     if (reordering) {
       endReorder();
       return;
     }
-    if (dragging && dragRow && !moved) handleTap(e.target as HTMLElement, dragRow);
+    if (swiping && swipeMain) {
+      // Snap open / closed past the halfway point (CSS transition animates it).
+      swipeMain.style.transition = "";
+      const open = swipeOff < -SWIPE_W / 2;
+      swipeMain.style.transform = open ? `translateX(${-SWIPE_W}px)` : "";
+      openSwipeMain = open ? swipeMain : null;
+    } else if (dragging && dragRow && !moved) {
+      handleTap(e.target as HTMLElement, dragRow);
+    }
     dragging = false;
     dragRow = null;
+    swiping = false;
+    swipeMain = null;
   });
   treeEl.addEventListener("pointercancel", () => {
     if (reordering) {
       endReorder();
       return;
     }
+    if (swiping && swipeMain) {
+      swipeMain.style.transition = "";
+      swipeMain.style.transform = openSwipeMain === swipeMain ? `translateX(${-SWIPE_W}px)` : "";
+    }
     dragging = false;
     dragRow = null;
+    swiping = false;
+    swipeMain = null;
   });
 }
 
@@ -790,11 +853,27 @@ function handleTap(target: HTMLElement, row: HTMLElement) {
   if (actBtn) {
     const act = actBtn.dataset.act;
     if (act === "grip") return;
+    // Revealed Delete (swipe-to-delete): remove this row, then re-render closes it.
+    if (act === "rowdel") {
+      openSwipeMain = null;
+      send({ SetCursor: path });
+      send({ SetSelection: { paths: [path] } });
+      const after = sendR("DeleteSelected");
+      toast(after.error ?? "Deleted");
+      return;
+    }
     if (act === "caret") {
       send({ SetCursor: path });
       send("ToggleExpand");
       return;
     }
+  }
+  // A tap while a row is swiped open just closes it (no selection change).
+  if (openSwipeMain) {
+    const wasOpen = openSwipeMain;
+    openSwipeMain.style.transform = "";
+    openSwipeMain = null;
+    if (wasOpen === row.querySelector(".row-main")) return;
   }
   const key = JSON.stringify(path);
   const now = Date.now();
@@ -875,7 +954,6 @@ function openText(
   sampleMode = asSample;
   snap = session.snapshot();
   rawView = false;
-  app.querySelectorAll(".viewtab").forEach((t) => t.classList.toggle("active", (t as HTMLElement).dataset.tab === "tree"));
   render();
 }
 function formatFromName(name: string): "toml" | "json" | "yaml" {
@@ -1013,17 +1091,15 @@ function installShellHandlers() {
       case "pastecancel":
         send("Escape"); // clear clipboard / exit paste mode
         break;
+      case "toggleview":
+        setRawView(!rawView);
+        break;
       case "searchclear":
         searchInput.value = "";
         searchInput.parentElement!.classList.remove("has-val");
         send({ SetFilter: "" });
         break;
     }
-  });
-
-  // Tabs (Tree / Raw) — a view toggle, not a mutation.
-  app.querySelectorAll<HTMLElement>(".viewtab").forEach((t) => {
-    t.addEventListener("click", () => setRawView(t.dataset.tab === "raw"));
   });
 
   // Search → debounced SetFilter.

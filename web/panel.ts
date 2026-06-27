@@ -6,8 +6,9 @@
 // Differences from the old per-UI panels (the approved Section B fixes):
 //   · Field order is LOCKED: Key → Value → Trailing comment → Kind → Path →
 //     Children → Sign.
-//   · The Kind button label is ONLY `type_label` — the old "· switch notation"
-//     suffix is dropped (it broke layout).
+//   · The Kind button label is `type_label · «notation glyph»` (e.g.
+//     `string · "…"`, `integer · 0x`, `table · dotted`) — a SHORT glyph, so it
+//     doesn't break layout the way the old verbose "· switch notation" did.
 //   · Path renders the human dotted/bracketed form (e.g. `servers[1].port`),
 //     not `JSON.stringify(path)`.
 //   · A structured "Sign" field exposes `key_sign`.
@@ -41,6 +42,45 @@ function isMultilineValue(r: ViewRow): boolean {
 function isPositional(r: ViewRow): boolean {
   const last = r.path[r.path.length - 1];
   return !!last && "Index" in last;
+}
+
+// Short notation glyph for the Kind button — mirrors render.ts NOTATION_SHORT /
+// CONTAINER_NOTE so the panel surfaces a scalar's string/radix/exponent style and
+// a container's scope/dotted/inline/flow notation. "" when the type label already
+// says it all.
+const NOTATION_SHORT: Record<string, string> = {
+  BasicString: '"…"',
+  Decimal: "dec",
+  Literal: "'…'",
+  MultilineBasic: '"""',
+  MultilineLiteral: "'''",
+  Multiline: '"""',
+  Hex: "0x",
+  Octal: "0o",
+  Binary: "0b",
+  Exponent: "1e",
+  SingleQuoted: "'…'",
+  DoubleQuoted: '"…"',
+  LiteralBlock: "|",
+  Folded: ">",
+  Inf: "inf",
+  Nan: "nan",
+};
+const CONTAINER_NOTE: Record<string, string> = {
+  Scope: "scope",
+  Dotted: "dotted",
+  Inline: "inline",
+  Multiline: "multi",
+  Block: "block",
+  Flow: "flow",
+};
+function kindNotation(r: ViewRow): string {
+  if (r.is_branch) return CONTAINER_NOTE[r.format] ?? "";
+  const s = NOTATION_SHORT[r.format];
+  if (s) return s;
+  // A plain float shares `Format::Plain` with bool/datetime/null; resolve by type.
+  if (r.scalar_type === "Float" && r.format === "Plain") return "dec";
+  return "";
 }
 
 // Value-type hue token (design `--t-*`); branches fall back to "branch".
@@ -92,7 +132,7 @@ export function panelHTML(row: ViewRow): string {
     h += '<div class="field-label">Comment</div>';
     if (!r.read_only && isMultilineValue(r)) {
       const oneLine = (r.value ?? "").replace(/\r?\n/g, " ↵ ") || "(multi-line — tap to edit)";
-      h += `<button class="c-edit v-multiline" data-act="editvalue" style="text-align:left;cursor:pointer">${esc(oneLine)}</button>`;
+      h += `<button class="c-edit v-multiline" data-act="editvalue" style="text-align:left;cursor:pointer;display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(oneLine)}</button>`;
     } else {
       h += `<input class="c-edit" data-field="comment-node" value="${esc(r.value ?? "")}" autocomplete="off" spellcheck="false" />`;
     }
@@ -120,7 +160,7 @@ export function panelHTML(row: ViewRow): string {
     const v = r.value ?? "";
     if (!r.read_only && isMultilineValue(r)) {
       const oneLine = v.replace(/\r?\n/g, " ↵ ") || "(multi-line — tap to edit)";
-      h += `<button class="v-edit v-multiline" data-act="editvalue" style="text-align:left;cursor:pointer">${esc(oneLine)}</button>`;
+      h += `<button class="v-edit v-multiline" data-act="editvalue" style="text-align:left;cursor:pointer;display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(oneLine)}</button>`;
     } else {
       h += `<input class="v-edit" data-field="value" value="${esc(v)}"${r.read_only ? " disabled" : ""} />`;
     }
@@ -132,11 +172,14 @@ export function panelHTML(row: ViewRow): string {
     h += `<input class="c-edit" data-field="trailing" value="${esc(r.trailing_comment ?? "")}" placeholder="add a comment…" autocomplete="off" spellcheck="false" />`;
   }
 
-  // Kind switch — label is ONLY `type_label` (no "· switch notation" suffix).
+  // Kind switch — label is `type_label · «notation glyph»` (the glyph is dropped
+  // when it would merely repeat the label, e.g. an inline table).
   if (!r.read_only) {
     const hue = branch ? "branch" : valueHue(r);
+    const note = kindNotation(r);
+    const noteStr = note && note !== r.type_label ? ` · ${esc(note)}` : "";
     h += '<div class="field-label">Kind</div>';
-    h += `<button class="btn kindbtn" data-act="kindswitch"><span class="dotc" style="background:var(--t-${hue})"></span>${esc(r.type_label)}</button>`;
+    h += `<button class="btn kindbtn" data-act="kindswitch"><span class="dotc" style="background:var(--t-${hue})"></span>${esc(r.type_label)}${noteStr}</button>`;
   }
 
   // Meta: Path (human form) / Children (branches) / Sign.
@@ -162,12 +205,15 @@ export function panelHTML(row: ViewRow): string {
 //  - send(intent): dispatches and returns the new snapshot (we read its error).
 //  - openKind(row): host opens its kind-switch surface (sheet / popover).
 //  - onError(msg): host shows a message (toast/status) when a send errors.
+//  - afterMutation(msg): host confirms + dismisses the panel after a successful
+//    Delete / Copy / Cut (e.g. toast the message and close the detail surface).
 export function wirePanel(
   container: HTMLElement,
   row: ViewRow,
   send: (intent: Intent) => SessionSnapshot,
   openKind: (row: ViewRow) => void,
   onError: (msg: string) => void,
+  afterMutation?: (msg: string) => void,
 ): void {
   const path = row.path;
 
@@ -237,26 +283,18 @@ export function wirePanel(
     });
   if (kb) kb.addEventListener("click", () => openKind(row));
 
-  // Delete: select this row, then DeleteSelected.
-  if (del)
-    del.addEventListener("click", () => {
-      fire({ SetCursor: path });
-      fire({ SetSelection: { paths: [path] } });
-      fire("DeleteSelected");
-    });
-
-  // Copy / Cut: select this row, then arm the clipboard. The host's paste
-  // affordance (FAB / paste-mode click) commits the paste at the new cursor.
-  if (cp)
-    cp.addEventListener("click", () => {
-      fire({ SetCursor: path });
-      fire({ SetSelection: { paths: [path] } });
-      fire("CopySelected");
-    });
-  if (ct)
-    ct.addEventListener("click", () => {
-      fire({ SetCursor: path });
-      fire({ SetSelection: { paths: [path] } });
-      fire("CutSelected");
-    });
+  // Delete / Copy / Cut: select this row, run the action, then — on success —
+  // confirm + dismiss the panel via `afterMutation` (errors still go to onError).
+  const act = (intent: Intent, okMsg: string) => {
+    fire({ SetCursor: path });
+    fire({ SetSelection: { paths: [path] } });
+    const snap = send(intent);
+    if (snap && snap.error) onError(snap.error);
+    else afterMutation?.(okMsg);
+  };
+  if (del) del.addEventListener("click", () => act("DeleteSelected", "Deleted"));
+  // Copy / Cut arm the clipboard; the host's paste affordance (FAB / paste-mode
+  // click) commits the paste at the new cursor.
+  if (cp) cp.addEventListener("click", () => act("CopySelected", "Copied — paste to place it"));
+  if (ct) ct.addEventListener("click", () => act("CutSelected", "Cut — paste to move it"));
 }

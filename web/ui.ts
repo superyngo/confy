@@ -314,7 +314,10 @@ function renderDetailPanel() {
     body.innerHTML = `<pre class="mono">${escapeHtml(snap!.detail_text ?? "")}</pre>`;
   } else {
     body.innerHTML = panelHTML(cursorRow);
-    wirePanel(body, cursorRow, panelSend, openKindForRow, (msg) => setStatus("", msg));
+    wirePanel(body, cursorRow, panelSend, openKindForRow, (msg) => setStatus("", msg), (msg) => {
+      setStatus("", msg);
+      send("ExitDetail");
+    });
   }
   panel.classList.add("open");
 }

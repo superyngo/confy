@@ -188,9 +188,12 @@ shapes round-trip). Key types:
   `preventDefault` fires only over an adjustable value so other rows scroll normally. The keyboard
   `+`/`-` and `←`/`→` Nudge keys are unchanged. The **same wheel-adjust works on the shared
   panel's value field** (`web/panel.ts`), so it applies in the desktop Detail aside and the touch
-  edit sheet too. The shared panel's actions are **Copy / Cut / Delete** (Copy/Cut arm the
-  clipboard; the host's paste affordance commits the paste), and a **multi-line value renders as a
-  button** that opens the host popup editor (`BeginEdit` → external edit) instead of a one-line input.
+  edit sheet too. The shared panel's actions are **Copy / Cut / Delete**; on success each fires the
+  panel's optional `afterMutation` callback so the host **confirms (message) and dismisses** the
+  panel (desktop `ExitDetail`, touch `closeSheets`). A **multi-line value/comment renders as a
+  button** that opens the host popup editor (`BeginEdit` → external edit) instead of a one-line input,
+  and its one-line preview is **truncated to the cell** (ellipsis). The **Kind button shows
+  `type · «notation»`** (a short glyph, dropped when it would just repeat the label).
 - **Help.** The `?` overlay appends a **per-format KIND legend** (`KIND_LEGEND`, keyed by
   `doc_format`, ported from the TUI's per-backend help) explaining each container/scalar
   label·notation for the open file's format.
@@ -267,7 +270,8 @@ edits to the verbatim desktop CSS.
   key / `=` / typed value / count / kind badge / comment / grip) but every row is a real
   `ViewRow`; flat list (the snapshot is the visible-row projection, so collapsed branches omit
   descendants — no `.children` nesting), root row skipped, `data-path` attribute-safe. The
-  prototype's right-side branch `>` chevron and per-row swipe-action drawer are dropped.
+  prototype's right-side branch `>` chevron is dropped. Each non-read-only row carries a hidden
+  `.row-del` button behind `.row-main`, revealed by a **left-swipe-to-delete** gesture (see below).
 - `touch/app.ts` — orchestrator: boots the Session (`load` + `Session.fromText`), generates the
   shell (ported `appHTML`), renders snapshots, and re-points every gesture to an Intent.
 
@@ -313,11 +317,17 @@ edits to the verbatim desktop CSS.
   no cursor row). When the **clipboard is armed** (`clipboard_count > 0`, after panel Copy/Cut) the
   FAB switches to a **paste glyph tinted by copy vs cut** (`clipboard_cut`) and a tap dispatches
   `Paste` at the cursor; tapping the status-bar clipboard badge clears it (`Escape`).
+- **Swipe-to-delete.** A left-swipe on a row's `.row-main` slides it open to reveal a single
+  red Delete action (`.row-del`); one row is open at a time. The pointer flow **locks the axis**
+  (horizontal >8px & > vertical → swipe; vertical → scroll/tap-cancel) so it coexists with grip-drag
+  reorder and list scroll; read-only rows opt out (no `.row-del`). The open row's transform is reset
+  on the next full re-render (the tree `innerHTML` is rebuilt), so a Delete (or any tap) closes it.
 - the **Save button** opens the shared Save / Convert dialog (`SetCursor []`→`OpenConvert`→seed
   `SetConvertPath`) — there is no direct-save button (all saves go through the panel). The
   **format pill** cycles the built-in sample's dialect TOML→JSON→YAML while in sample mode (frozen
   once a real file is opened/saved), matching desktop — it no longer opens convert.
-- search input → debounced `SetFilter`; Tree/Raw tabs are a view toggle (`session.serialize()`).
+- search input → debounced `SetFilter`; a single **Tree/Raw toggle button** (`.viewtoggle`, label =
+  the view it switches to) flips the view (`session.serialize()`) and folds into the `⋯` menu.
 - **Read-only / opaque rows** (`ViewRow.read_only`) render without grip/kind and reject edits —
   mirroring core. Multi-line value/comment edits route to an external-edit **bottom sheet** (in
   `.app`, standard sheet chrome) via `ApplyReplace`/`ApplyEditComment` — the same handshake the
@@ -329,7 +339,7 @@ edits to the verbatim desktop CSS.
 touch/app.js`.
 
 **Shared edit/detail panel — `web/panel.ts`.** A framework-free module (`panelHTML(row)` +
-`wirePanel(container,row,send,openKind,onError)`) that renders the node edit/detail panel for
+`wirePanel(container,row,send,openKind,onError,afterMutation?)`) that renders the node edit/detail panel for
 **both** UIs from a `ViewRow`, guaranteeing the field set + order can't drift between touch and
 desktop. On the desktop side the detail `<aside>` (toggled with `i`/Space) now renders this panel
 **reactively** — it tracks the cursor row on every snapshot and is fully editable — instead of the
