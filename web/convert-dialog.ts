@@ -1,15 +1,26 @@
 // Shared Save/Convert dialog, rendered identically for the desktop and touch
-// UIs. Pure DOM + string HTML over the native `<dialog id="convDlg">` markup
-// (the `#convFmt`/`#convPath`/`#convWarns`/`#convRun`/`#convCancel` children the
-// per-page HTML provides). The host passes element refs and host-owned I/O
+// UIs. Pure DOM + string HTML over the `#convFmt`/`#convPath`/`#convWarns`/
+// `#convRun`/`#convCancel` children the per-page HTML provides. The host passes
+// element refs, a host-owned **surface** (so the markup can live in a native
+// `<dialog>` on desktop or a bottom `.sheet` on touch), and host-owned I/O
 // callbacks (`fileStem`, `doSaveAsCopy`); this module never reaches for the DOM
 // by id or touches `window`.
 import type { ConvertView, DocFormat, Intent, SessionSnapshot } from "./types.js";
 import { escapeHtml } from "./render.js";
 
-// The five `<dialog>` children plus the dialog element itself.
+// Where the convert form is mounted: a native `<dialog>` (desktop) or a bottom
+// `.sheet` (touch). The host supplies open/close/isOpen + a cancel hook (Esc /
+// backdrop / scrim) so this module stays container-agnostic.
+export interface ConvertSurface {
+  isOpen(): boolean;
+  open(): void;
+  close(): void;
+  onCancel(cb: () => void): void;
+}
+
+// The five form children plus the host-owned surface they live in.
 export interface ConvertRefs {
-  dlg: HTMLDialogElement;
+  surface: ConvertSurface;
   fmt: HTMLSelectElement;
   path: HTMLInputElement;
   warns: HTMLElement;
@@ -31,17 +42,17 @@ export function renderConvertDialog(
   cv: ConvertView,
   snap: SessionSnapshot,
 ): void {
-  const { dlg, fmt: sel, path, warns, run } = refs;
+  const { surface, fmt: sel, path, warns, run } = refs;
   // Unified "Save / Convert" panel: the current format leads the list (default)
   // so picking it is a plain save-as; the other two are cross-format converts.
   const all = [snap.doc_format, ...cv.options];
-  if (!dlg.open) {
+  if (!surface.isOpen()) {
     sel.innerHTML = all
       .map((f) => `<option value="${f}">${f.toUpperCase()}</option>`)
       .join("");
     sel.value = cv.target;
     path.value = cv.path;
-    dlg.showModal();
+    surface.open();
   } else {
     if (sel.value !== cv.target) sel.value = cv.target;
     // Don't clobber the box while the user is typing the path.
@@ -105,9 +116,7 @@ export function wireConvertDialog(
     if (snap) runSaveConvert(snap, { send, doSaveAsCopy });
   });
   refs.cancel.addEventListener("click", () => send("ExitConvert"));
-  // Native dialog Esc → leave Convert mode (render then closes the dialog).
-  refs.dlg.addEventListener("cancel", (e) => {
-    e.preventDefault();
-    send("ExitConvert");
-  });
+  // Surface-level cancel (native dialog Esc / sheet scrim) → leave Convert mode
+  // (render then closes the surface).
+  refs.surface.onCancel(() => send("ExitConvert"));
 }

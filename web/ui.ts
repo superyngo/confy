@@ -22,6 +22,7 @@ import { panelHTML, wirePanel } from "./panel.js";
 import { typeFilterHTML, wireTypeFilter } from "./typefilter.js";
 import {
   type ConvertRefs,
+  type ConvertSurface,
   extForTag,
   renderConvertDialog as renderConvertDialogShared,
   runSaveConvert as runSaveConvertShared,
@@ -403,20 +404,36 @@ function renderTypeFilterPop() {
 // Format/path edits dispatch `SetConvertFormat`/`SetConvertPath`; the action
 // button runs `ConvertRun` (or `ConvertConfirm` once warnings are shown).
 function renderConvertDialog() {
-  const dlg = $<HTMLDialogElement>("convDlg");
+  const surface = convSurface();
   if (modeTag(snap!.mode) !== "Convert") {
-    if (dlg.open) dlg.close();
+    if (surface.isOpen()) surface.close();
     return;
   }
   const cv = (snap!.mode as { Convert: ConvertView }).Convert;
   renderConvertDialogShared(convRefs(), cv, snap!);
 }
 
-// The native convert `<dialog>` and its five children, bundled as the refs the
-// shared convert-dialog module operates on.
+// The native convert `<dialog>` wrapped as a `ConvertSurface` (desktop hosts the
+// shared form in a native modal dialog; touch uses a bottom sheet instead).
+function convSurface(): ConvertSurface {
+  const dlg = $<HTMLDialogElement>("convDlg");
+  return {
+    isOpen: () => dlg.open,
+    open: () => dlg.showModal(),
+    close: () => dlg.close(),
+    onCancel: (cb) =>
+      dlg.addEventListener("cancel", (e) => {
+        e.preventDefault();
+        cb();
+      }),
+  };
+}
+
+// The convert form's five children plus the dialog-backed surface, bundled as
+// the refs the shared convert-dialog module operates on.
 function convRefs(): ConvertRefs {
   return {
-    dlg: $<HTMLDialogElement>("convDlg"),
+    surface: convSurface(),
     fmt: $<HTMLSelectElement>("convFmt"),
     path: $<HTMLInputElement>("convPath"),
     warns: $("convWarns"),
@@ -824,9 +841,8 @@ function onTreeClick(ev: MouseEvent) {
   if (plain && lastBodyClick && lastBodyClick.key === key && Date.now() - lastBodyClick.t < 350) {
     lastBodyClick = null;
     send({ SetCursor: path });
-    // Gate on the mode so a double-click always *opens* the panel (ToggleDetail
-    // would otherwise close it when already open).
-    if (modeTag(snap!.mode) !== "Detail") send("ToggleDetail");
+    // Double-click toggles the Detail panel (open if closed, close if open).
+    send("ToggleDetail");
     return;
   }
   lastBodyClick = plain ? { key, t: Date.now() } : null;

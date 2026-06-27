@@ -150,9 +150,11 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none
   margin-left:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 400 auto;min-width:0;
 }
 .comment:empty{display:none;margin:0}
-/* leaf：值與註解靠左，型別 pill 推到右側，把手在最後 */
+/* leaf：值與註解靠左，型別 pill 靠右，拖移把手永遠在最右 */
 .row:not(.branch) .row-main > .val{flex:0 8 auto}
-.row:not(.branch) .row-main > .kind{margin-left:auto}
+/* The grip is flush-right on EVERY row (leaf + branch); the kind pill sits just
+   to its left. (Previously only leaf rows pushed it right.) */
+.row-main > .drag-handle{margin-left:auto}
 
 /* 拖移排序把手 + 放置指示線 */
 .drag-handle{
@@ -422,16 +424,11 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none
 .tf-btn.on .dot{display:block}
 .viewtab.active{background:var(--accent);color:oklch(18% 0.02 250);border-color:transparent}
 
-/* ---- Save / Convert dialog (desktop #convDlg) ---- */
-dialog#convDlg{
-  border:1px solid var(--border-strong);border-radius:18px;padding:0;background:var(--surface);
-  color:var(--fg);box-shadow:var(--shadow);width:min(460px,92vw);max-height:calc(100vh - 32px);overflow:auto;
-}
-dialog#convDlg::backdrop{background:var(--scrim);backdrop-filter:blur(2px)}
-.dlg-head{padding:18px 20px 4px}
-.dlg-head h3{margin:0;font-size:17px;font-weight:700}
-.dlg-head p{margin:6px 0 0;color:var(--muted);font-size:12.5px}
-.dlg-body{padding:14px 20px}
+/* ---- Save / Convert form (shared convert-dialog.ts; hosted in a bottom sheet
+   on touch, so it reuses .sheet/.sheet-body chrome — only the form fields need
+   styling here) ---- */
+.dlg-sub{margin:0 0 14px;color:var(--muted);font-size:13px;line-height:1.5}
+.row-btns{display:flex;gap:10px;margin-top:8px}
 .field{margin-bottom:14px}
 .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px;font-weight:600}
 .field select,.field input{
@@ -447,7 +444,6 @@ dialog#convDlg::backdrop{background:var(--scrim);backdrop-filter:blur(2px)}
 .warns .warns-note{margin:3px 0 6px;color:var(--muted)}
 .warns ul{margin:4px 0 0;padding-left:18px}
 .warns.hide{display:none}
-.dlg-foot{display:flex;justify-content:flex-end;gap:10px;padding:8px 20px 18px}
 
 /* ---- type-filter grid (shared typefilter.ts; desktop .tf, touch-sized) ---- */
 .tf{padding:2px 0;min-width:0}
@@ -471,6 +467,55 @@ dialog#convDlg::backdrop{background:var(--scrim);backdrop-filter:blur(2px)}
 .tf-cell[data-state="Partial"] .box svg{display:block}
 .tf-cell.cursor{outline:2px solid var(--accent);outline-offset:1px}
 
-/* ---- item 1: detail kind button stays on ONE line (dot + label) ---- */
-.detail .kindbtn{display:flex;align-items:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* ---- detail kind button: one line (dot + label), centered ---- */
+.detail .kindbtn{display:flex;align-items:center;justify-content:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .detail .kindbtn .dotc{flex:0 0 auto}
+
+/* ---- touch multi-line editor (the .ext-sheet textarea; touch-native, not the
+   desktop modal). Sized for touch; 16px font prevents iOS focus-zoom. ---- */
+.ext-text{
+  width:100%;min-height:42vh;max-height:56vh;resize:none;padding:12px 14px;border-radius:13px;
+  font-family:var(--mono);font-size:16px;line-height:1.6;tab-size:2;
+  background:var(--panel);border:1px solid var(--accent);color:var(--fg);margin-bottom:14px;
+}
+.ext-text:focus-visible{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+
+/* ---- paste-armed FAB (after Copy/Cut): paste glyph + copy vs cut accent ---- */
+.fab.paste-copy{background:var(--t-string)}
+.fab.paste-cut{background:var(--t-bool)}
+.clip-badge.armed{border-color:var(--sel-edge);color:var(--fg);background:var(--accent-soft)}
+/* ✕ floating just above the paste FAB — clears the clipboard / exits paste mode. */
+.fab-clear{
+  position:absolute;right:24px;z-index:41;display:none;place-items:center;
+  bottom:calc(18px + 44px + 12px + env(safe-area-inset-bottom,0));
+  width:32px;height:32px;border-radius:50%;
+  background:var(--surface);border:1px solid var(--border-strong);color:var(--muted);box-shadow:var(--shadow);
+}
+.fab-clear svg{width:15px;height:15px}
+.fab-clear:active{background:var(--panel)}
+.app.paste-mode .fab-clear{display:grid}
+.app.raw .fab-clear{display:none}
+/* In paste mode the source stays in core's frozen selection — dim it so it no
+   longer reads as the active pick, and highlight the cursor row as the paste target. */
+.app.paste-mode .row.selected > .row-main{background:var(--bg);box-shadow:none;opacity:.55}
+.app.paste-mode .row.cursor > .row-main{
+  background:var(--accent-soft);box-shadow:inset 0 0 0 1.5px var(--accent);opacity:1;
+}
+
+/* ---- responsive chrome collapse (mirrors desktop's right→left fold) ----
+   The .app is a `container-type:inline-size` container. The toolbar/filter rows
+   stay single-line (nowrap); as the container narrows, the right-side groups fold
+   into the ⋯ menu one step at a time (viewtabs → expand/collapse → undo/redo/theme).
+   The ⋯ button is hidden until the first fold step reveals it. */
+.toolbar,.filterbar{flex-wrap:nowrap}
+.more-btn{display:none}
+@container (max-width:720px){
+  .more-btn{display:inline-flex}
+  .viewtabs{display:none}
+}
+@container (max-width:620px){
+  .nav-grp{display:none}
+}
+@container (max-width:520px){
+  .edit-grp{display:none}
+}

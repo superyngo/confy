@@ -30,6 +30,14 @@ function isComment(r: ViewRow): boolean {
   return r.type_label === "comment";
 }
 
+// Whether a scalar value edits through the host's popup editor rather than a
+// one-line input. Mirrors core's `edit_target_kind` scalar rule (multiline string
+// formats route External); the `\n` check is a fallback for any embedded newline.
+const MULTILINE_FORMATS = ["MultilineBasic", "MultilineLiteral", "LiteralBlock", "Folded"];
+function isMultilineValue(r: ViewRow): boolean {
+  return MULTILINE_FORMATS.includes(r.format) || (r.value ?? "").includes("\n");
+}
+
 function isPositional(r: ViewRow): boolean {
   const last = r.path[r.path.length - 1];
   return !!last && "Index" in last;
@@ -77,10 +85,17 @@ export function panelHTML(row: ViewRow): string {
   const elem = isPositional(r);
   let h = '<div class="detail">';
 
-  // Standalone comment node: comment text + path + delete (its own layout).
+  // Standalone comment node: comment text + path + delete (its own layout). A
+  // multi-line comment can't live in a one-line input → render it as a button that
+  // opens the host popup editor (BeginEdit → external edit), same as a value.
   if (comment) {
     h += '<div class="field-label">Comment</div>';
-    h += `<input class="c-edit" data-field="comment-node" value="${esc(r.value ?? "")}" autocomplete="off" spellcheck="false" />`;
+    if (!r.read_only && isMultilineValue(r)) {
+      const oneLine = (r.value ?? "").replace(/\r?\n/g, " ↵ ") || "(multi-line — tap to edit)";
+      h += `<button class="c-edit v-multiline" data-act="editvalue" style="text-align:left;cursor:pointer">${esc(oneLine)}</button>`;
+    } else {
+      h += `<input class="c-edit" data-field="comment-node" value="${esc(r.value ?? "")}" autocomplete="off" spellcheck="false" />`;
+    }
     h += `<dl><dt>Path</dt><dd>${esc(humanPath(r.path))}</dd></dl>`;
     h += '<div class="row-btns"><button class="btn danger" data-act="del">Delete</button></div></div>';
     return h;
@@ -97,10 +112,18 @@ export function panelHTML(row: ViewRow): string {
     h += `<input class="v-edit" value="${esc(r.key)}" disabled />`;
   }
 
-  // Value (scalars only).
+  // Value (scalars only). A multi-line value can't live in a one-line <input>;
+  // render it as a clickable button that opens the host's popup editor (click →
+  // BeginEdit → external_edit), mirroring the tree's multiline routing.
   if (!branch) {
     h += `<div class="field-label">Value (${esc(r.type_label)})</div>`;
-    h += `<input class="v-edit" data-field="value" value="${esc(r.value ?? "")}"${r.read_only ? " disabled" : ""} />`;
+    const v = r.value ?? "";
+    if (!r.read_only && isMultilineValue(r)) {
+      const oneLine = v.replace(/\r?\n/g, " ↵ ") || "(multi-line — tap to edit)";
+      h += `<button class="v-edit v-multiline" data-act="editvalue" style="text-align:left;cursor:pointer">${esc(oneLine)}</button>`;
+    } else {
+      h += `<input class="v-edit" data-field="value" value="${esc(v)}"${r.read_only ? " disabled" : ""} />`;
+    }
   }
 
   // Trailing comment.
@@ -122,11 +145,13 @@ export function panelHTML(row: ViewRow): string {
   h += `<dt>Sign</dt><dd>${esc(r.key_sign ?? "none")}</dd>`;
   h += "</dl>";
 
-  // Actions.
+  // Actions. Copy/Cut arm the clipboard (paste via the host's paste affordance);
+  // Delete removes the node.
   if (!r.read_only) {
     h +=
       '<div class="row-btns">' +
-      '<button class="btn" data-act="dup">Duplicate</button>' +
+      '<button class="btn" data-act="copy">Copy</button>' +
+      '<button class="btn" data-act="cut">Cut</button>' +
       '<button class="btn danger" data-act="del">Delete</button></div>';
   }
   h += "</div>";
@@ -165,17 +190,42 @@ export function wirePanel(
   const cn = container.querySelector<HTMLInputElement>('[data-field="comment-node"]');
   const kb = container.querySelector<HTMLElement>("[data-act=kindswitch]");
   const del = container.querySelector<HTMLElement>("[data-act=del]");
-  const dup = container.querySelector<HTMLElement>("[data-act=dup]");
+  const cp = container.querySelector<HTMLElement>("[data-act=copy]");
+  const ct = container.querySelector<HTMLElement>("[data-act=cut]");
+  const ev = container.querySelector<HTMLElement>("[data-act=editvalue]");
 
   if (ke)
     commit(ke, () => {
       fire({ SetCursor: path });
       fire({ CommitEdit: { value: null, name: ke.value } });
     });
-  if (ve)
+  if (ve) {
     commit(ve, () => {
       fire({ SetCursor: path });
       fire({ CommitEdit: { value: ve.value, name: null } });
+    });
+    // Mouse-wheel over the value field adjusts it (matches the tree gesture): a
+    // bool toggles (trailing comment preserved), a number nudges ±1 (up = +1).
+    const st = row.scalar_type;
+    if (st === "Bool" || st === "Integer" || st === "Float") {
+      ve.addEventListener(
+        "wheel",
+        (e) => {
+          e.preventDefault();
+          // Nudge handles all three (bool toggles, int/float ±1) and — unlike
+          // CommitEdit — keeps the host in Detail mode, so the panel stays open.
+          fire({ SetCursor: path });
+          fire({ Nudge: e.deltaY < 0 ? 1 : -1 });
+        },
+        { passive: false },
+      );
+    }
+  }
+  // Multi-line value button → open the host's popup editor via core's edit flow.
+  if (ev)
+    ev.addEventListener("click", () => {
+      fire({ SetCursor: path });
+      fire("BeginEdit");
     });
   if (te)
     commit(te, () => {
@@ -195,12 +245,18 @@ export function wirePanel(
       fire("DeleteSelected");
     });
 
-  // Duplicate: select this row, copy, then paste (no dedicated duplicate Intent).
-  if (dup)
-    dup.addEventListener("click", () => {
+  // Copy / Cut: select this row, then arm the clipboard. The host's paste
+  // affordance (FAB / paste-mode click) commits the paste at the new cursor.
+  if (cp)
+    cp.addEventListener("click", () => {
       fire({ SetCursor: path });
       fire({ SetSelection: { paths: [path] } });
       fire("CopySelected");
-      fire("Paste");
+    });
+  if (ct)
+    ct.addEventListener("click", () => {
+      fire({ SetCursor: path });
+      fire({ SetSelection: { paths: [path] } });
+      fire("CutSelected");
     });
 }

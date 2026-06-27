@@ -93,6 +93,7 @@ function rowHTML(r: ViewRow, idx: number, rows: ViewRow[]): string {
     (branch ? " branch" : "") +
     (expanded ? " open" : "") +
     (r.selected ? " selected" : "") +
+    (r.is_cursor ? " cursor" : "") +
     (r.read_only ? " readonly" : "");
   let h = `<div class="${cls}" data-type="${esc(String(type))}" data-path="${dataPath}">`;
   h += `<div class="row-main" style="padding-left:${pad}px">`;

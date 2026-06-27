@@ -169,7 +169,12 @@ let docNameEl: HTMLElement;
 let dirtyDot: HTMLElement;
 let filterBtn: HTMLElement;
 let toastEl: HTMLElement;
+let fabEl: HTMLElement;
 const sheets: Record<string, HTMLElement> = {};
+
+// Clipboard glyph for the paste-armed FAB (vs IC.plus when adding).
+const PASTE_IC =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="3" width="8" height="4" rx="1"/><path d="M9 5H6a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-3"/><path d="M12 11v6M9 14l3 3 3-3"/></svg>';
 
 // ---- helpers ----
 function modeTag(m: ModeView): string {
@@ -253,7 +258,7 @@ function appHTML(): string {
     '<span class="spacer"></span>' +
     `<button class="tbtn" data-act="open" title="Open file">${TIC.open}<span class="label-hide">Open</span></button>` +
     `<button class="tbtn primary" data-act="save" title="Save / Convert…">${TIC.save}<span class="label-hide">Save</span></button>` +
-    '<div class="tgroup">' +
+    '<div class="tgroup edit-grp">' +
     `<button class="icon-btn" data-act="undo" title="Undo">${TIC.undo}</button>` +
     `<button class="icon-btn" data-act="redo" title="Redo">${TIC.redo}</button>` +
     `<button class="icon-btn" data-act="theme" title="Toggle theme">${TIC.theme}</button>` +
@@ -266,7 +271,7 @@ function appHTML(): string {
     '<input type="search" placeholder="search keys or values…" autocomplete="off" spellcheck="false" />' +
     `<button class="clear" data-act="searchclear" title="clear">${TIC.close}</button></div>` +
     `<button class="tbtn tf-btn" data-act="filter" title="Type filter">${TIC.filter}<span class="label-hide">Type filter</span><span class="dot"></span></button>` +
-    '<div class="tgroup">' +
+    '<div class="tgroup nav-grp">' +
     `<button class="icon-btn" data-act="expandall" title="Expand all">${TIC.expand}</button>` +
     `<button class="icon-btn" data-act="collapseall" title="Collapse all">${TIC.collapse}</button>` +
     "</div>" +
@@ -285,37 +290,33 @@ function appHTML(): string {
     '<div class="statusbar"><span class="status">ready</span>' +
     '<span class="badge sel-badge">none</span><span class="badge clip-badge">clipboard 0</span></div>' +
     `<button class="fab" data-act="add" aria-label="add node">${IC.plus}</button>` +
+    // Small ✕ floating above the paste FAB — clears the clipboard / exits paste
+    // mode (shown only while armed, via `.app.paste-mode`).
+    `<button class="fab-clear" data-act="pastecancel" aria-label="exit paste mode">${IC.close}</button>` +
     '<div class="toast"></div>' +
     '<div class="scrim" data-act="scrim"></div>' +
     '<div class="sheet detail-sheet"></div>' +
     '<div class="sheet menu-sheet"></div>' +
     '<div class="sheet filter-sheet"></div>' +
     '<div class="sheet kind-sheet"></div>' +
-    "</div>" +
-    // Save / Convert dialog (shared with desktop via convert-dialog.ts).
-    '<dialog id="convDlg">' +
-    '<div class="dlg-head"><h3>Save / Convert</h3>' +
-    "<p>Save a copy in the current format, or convert the whole tree to another.</p></div>" +
-    '<div class="dlg-body">' +
+    // Save / Convert sheet (shared form via convert-dialog.ts, hosted in a bottom
+    // sheet like every other touch panel; the #conv* children match the refs).
+    '<div class="sheet convert-sheet">' +
+    '<div class="grab"></div>' +
+    `<div class="sheet-head"><h3>Save / Convert</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
+    '<div class="sheet-body">' +
+    '<p class="dlg-sub">Save a copy in the current format, or convert the whole tree to another.</p>' +
     '<div class="field"><label for="convFmt">Format</label>' +
     '<select id="convFmt"><option value="Toml">TOML</option><option value="Json">JSON</option><option value="Yaml">YAML</option></select></div>' +
     '<div class="field"><label for="convPath">Output path</label>' +
     '<input id="convPath" type="text" /></div>' +
     '<div class="warns hide" id="convWarns"></div>' +
-    "</div>" +
-    '<div class="dlg-foot"><button class="tbtn" id="convCancel">Cancel</button>' +
-    '<button class="tbtn primary" id="convRun">Convert &amp; save</button></div>' +
-    "</dialog>" +
-    // external-edit modal (multi-line value / comment; reuses the sheet styling)
-    '<div class="scrim ext-scrim" data-act="extcancel"></div>' +
-    '<div class="sheet ext-sheet">' +
-    '<div class="grab"></div>' +
-    '<div class="sheet-head"><h3>Edit</h3><button class="close" data-act="extcancel">' +
-    IC.close +
-    "</button></div>" +
-    '<div class="sheet-body"><textarea class="v-edit ext-text" rows="10" style="height:auto;min-height:160px;resize:vertical"></textarea>' +
-    '<div class="row-btns"><button class="btn" data-act="extcancel">Cancel</button>' +
-    '<button class="btn primary" data-act="extapply">Apply</button></div></div>' +
+    '<div class="row-btns"><button class="btn" id="convCancel">Cancel</button>' +
+    '<button class="btn primary" id="convRun">Convert &amp; save</button></div>' +
+    "</div></div>" +
+    // external-edit sheet (multi-line value / comment) — built on demand by
+    // `openExternalEdit` (a touch-native bottom sheet, NOT the desktop modal).
+    '<div class="sheet ext-sheet"></div>' +
     "</div>"
   );
 }
@@ -344,6 +345,15 @@ function closeSheets() {
 function isWide(): boolean {
   return app.clientWidth >= 600;
 }
+// Tree ↔ Raw view toggle (mirrors the active tab + re-renders). Reused by the
+// view tabs and the folded ⋯ menu items.
+function setRawView(raw: boolean) {
+  rawView = raw;
+  app.querySelectorAll<HTMLElement>(".viewtab").forEach((x) =>
+    x.classList.toggle("active", x.dataset.tab === (raw ? "raw" : "tree")),
+  );
+  render();
+}
 
 // ---- render ----
 function render() {
@@ -356,13 +366,27 @@ function render() {
   statusEl.textContent = snap.error ? snap.error : snap.status ?? "ready";
   const cur = cursorRow();
   selBadge.textContent = cur && cur.path.length ? lastKey(cur.path) : "none";
+  const armed = (snap.clipboard_count ?? 0) > 0;
   clipBadge.textContent = `clipboard ${snap.clipboard_count ?? 0}`;
+  clipBadge.classList.toggle("armed", armed);
+  // Paste mode: the clipboard freezes the source selection — de-emphasize it and
+  // show the cursor row as the live paste target instead (CSS keys off this class).
+  app.classList.toggle("paste-mode", armed);
+  // Paste-armed FAB: paste glyph + copy/cut accent (tap pastes; see "add" case).
+  fabEl.classList.toggle("paste-copy", armed && !snap.clipboard_cut);
+  fabEl.classList.toggle("paste-cut", armed && snap.clipboard_cut);
+  fabEl.innerHTML = armed ? PASTE_IC : IC.plus;
+  fabEl.setAttribute("aria-label", armed ? "paste" : "add node");
 
   if (rawView) {
     rawEl.textContent = session.serialize();
     app.classList.add("raw");
   } else {
+    // Preserve the tree scroll position across the full innerHTML rebuild —
+    // otherwise every tap (re-render) snaps the pane back to the top.
+    const st = treePane.scrollTop;
     treeEl.innerHTML = treeHTML(snap);
+    treePane.scrollTop = st;
     app.classList.remove("raw");
   }
 
@@ -382,9 +406,8 @@ function render() {
   const tag = modeTag(snap.mode);
   if (tag === "TypeFilter") renderFilterSheet((snap.mode as { TypeFilter: TypeFilterView }).TypeFilter);
   else sheets.filter.classList.remove("open");
-  const dlg = document.getElementById("convDlg") as HTMLDialogElement;
   if (tag === "Convert") renderConvertDialogShared(convRefs(), (snap.mode as { Convert: ConvertView }).Convert, snap);
-  else if (dlg.open) dlg.close();
+  else if (sheets.convert.classList.contains("open")) closeSheets();
   if (tag !== "TypeFilter" && !anySheetOpen()) scrim.classList.remove("show");
 
   // Active type-filter indicator on the funnel button.
@@ -461,63 +484,77 @@ function openKindSheet(path: Path) {
 function mi(ic: string, label: string, sc: string, id: string): string {
   return `<button class="menu-item" data-mi="${id}"><span class="ic">${ic}</span>${label}${sc ? `<span class="sc">${sc}</span>` : ""}</button>`;
 }
+// The collapsible toolbar/filter controls, in display order. The ⋯ menu lists
+// only the ones currently folded away (their toolbar control is hidden), so it
+// tracks the responsive breakpoints instead of hardcoding a fixed set. Each item
+// names its toolbar selector + the action to run when picked.
+const MENU_CANDIDATES: Array<{ sel: string; ic: string; label: string; run: () => void }> = [
+  { sel: '[data-act="undo"]', ic: IC.undo, label: "Undo", run: () => send("Undo") },
+  { sel: '[data-act="redo"]', ic: IC.redo, label: "Redo", run: () => send("Redo") },
+  { sel: '[data-act="theme"]', ic: IC.sun, label: "Toggle light / dark", run: toggleTheme },
+  { sel: '[data-act="expandall"]', ic: IC.expand, label: "Expand all", run: () => send("ExpandAll") },
+  { sel: '[data-act="collapseall"]', ic: IC.collapse, label: "Collapse all", run: () => send("CollapseAll") },
+  { sel: '[data-tab="tree"]', ic: IC.collapse, label: "Tree view", run: () => setRawView(false) },
+  { sel: '[data-tab="raw"]', ic: IC.open, label: "Raw view", run: () => setRawView(true) },
+];
+// A toolbar control is "folded" (→ belongs in the menu) when it's not laid out
+// (its group is display:none, so offsetParent is null).
+function isFolded(sel: string): boolean {
+  const el = app.querySelector<HTMLElement>(sel);
+  return !!el && el.offsetParent === null;
+}
 function openMenuSheet() {
+  const folded = MENU_CANDIDATES.filter((c) => isFolded(c.sel));
   sheets.menu.innerHTML =
     '<div class="grab"></div>' +
     `<div class="sheet-head"><h3>More actions</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
     '<div class="sheet-body">' +
-    mi(IC.open, "Open file", "", "open") +
-    mi(IC.redo, "Redo", "", "redo") +
-    '<div class="menu-sep"></div>' +
-    mi(IC.expand, "Expand all", "", "expandall") +
-    mi(IC.collapse, "Collapse all", "", "collapseall") +
-    '<div class="menu-sep"></div>' +
-    mi(IC.sun, "Toggle light / dark", "", "theme") +
+    folded.map((c, i) => mi(c.ic, c.label, "", String(i))).join("") +
     "</div>";
   sheets.menu.querySelectorAll<HTMLElement>(".menu-item").forEach((it) => {
-    it.addEventListener("click", () => menuAction(it.dataset.mi!));
+    it.addEventListener("click", () => {
+      const c = folded[Number(it.dataset.mi)];
+      if (c.run !== toggleTheme) closeSheets();
+      c.run();
+    });
   });
   openSheet("menu");
-}
-function menuAction(id: string) {
-  switch (id) {
-    case "theme":
-      toggleTheme();
-      return; // keep menu open? close for parity
-    case "expandall":
-      closeSheets();
-      return send("ExpandAll");
-    case "collapseall":
-      closeSheets();
-      return send("CollapseAll");
-    case "redo":
-      closeSheets();
-      return send("Redo");
-    case "open":
-      closeSheets();
-      return void doOpen();
-  }
 }
 
 // ---- type-filter sheet (driven by snapshot.mode TypeFilterView) ----
 // The grid markup + per-cell wiring is shared with the desktop UI
-// (`typefilter.ts`); the sheet shell (grab / head / Done) + open-close logic and
-// the funnel `.on` indicator stay here.
+// (`typefilter.ts`); the sheet shell (grab / head) + open-close logic and the
+// funnel `.on` indicator stay here. No "Done" button — the grid toggles live and
+// has its own ✕ clear; the sheet closes via grab / scrim / header ×.
 function renderFilterSheet(grid: TypeFilterView) {
+  // Preserve the body's scroll position — toggling a cell re-renders the whole
+  // sheet, which would otherwise snap a scrolled grid back to the top.
+  const prevBody = sheets.filter.querySelector<HTMLElement>(".sheet-body");
+  const st = prevBody ? prevBody.scrollTop : 0;
   sheets.filter.innerHTML =
     '<div class="grab"></div>' +
     `<div class="sheet-head"><h3>Type filter</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
-    `<div class="sheet-body tf-body"><div class="tf">${typeFilterHTML(grid)}</div>` +
-    '<div class="row-btns"><button class="btn primary" data-act="closesheet">Done</button></div></div>';
+    `<div class="sheet-body tf-body"><div class="tf">${typeFilterHTML(grid)}</div></div>`;
   wireTypeFilter(sheets.filter, grid, { send });
+  const body = sheets.filter.querySelector<HTMLElement>(".sheet-body");
+  if (body) body.scrollTop = st;
   if (!sheets.filter.classList.contains("open")) openSheet("filter");
 }
 
-// The native Save/Convert `<dialog>` and its five children, bundled as the refs
-// the shared convert-dialog module operates on.
+// The Save/Convert form's five children plus a sheet-backed `ConvertSurface`, so
+// the shared convert-dialog module drives a bottom sheet here (vs the desktop
+// `<dialog>`). Dismiss (scrim / grab / ×) routes through `dismissSheets`, which
+// sends `ExitConvert` to peel core's Convert mode.
 function convRefs(): ConvertRefs {
   return {
-    dlg: document.getElementById("convDlg") as HTMLDialogElement,
+    surface: {
+      isOpen: () => sheets.convert.classList.contains("open"),
+      open: () => openSheet("convert"),
+      close: () => closeSheets(),
+      onCancel: () => {
+        /* sheet dismissal is handled by dismissSheets → ExitConvert */
+      },
+    },
     fmt: document.getElementById("convFmt") as HTMLSelectElement,
     path: document.getElementById("convPath") as HTMLInputElement,
     warns: document.getElementById("convWarns")!,
@@ -526,21 +563,34 @@ function convRefs(): ConvertRefs {
   };
 }
 
-// ---- external edit (multi-line value/comment) ----
+// ---- external edit (multi-line value/comment): a dedicated touch bottom sheet
+// (built fresh per session, styled like the other sheets — NOT the desktop modal).
+// Guard: while the sheet is already open for this session, render() re-calls this
+// every snapshot — return early so the textarea/buttons aren't clobbered mid-edit.
 function openExternalEdit(ext: { initial: string; kind: unknown }) {
-  const sheet = sheets.ext;
-  const txt = sheet.querySelector<HTMLTextAreaElement>(".ext-text")!;
-  txt.value = ext.initial;
+  if (sheets.ext.classList.contains("open")) return;
   const kind = ext.kind as { Value?: { path: Path }; Comment?: { path: Path } };
+  const isComment = !!kind.Comment;
   const path = (kind.Value ?? kind.Comment)!.path;
-  openSheet("ext");
-  txt.focus();
-  const apply = sheet.querySelector<HTMLElement>("[data-act=extapply]")!;
-  apply.onclick = () => {
+  const title = isComment ? "Edit comment" : `Edit ${esc(lastKey(path) || "value")}`;
+  sheets.ext.innerHTML =
+    '<div class="grab"></div>' +
+    `<div class="sheet-head"><h3>${title}</h3><button class="close" data-act="extcancel">${IC.close}</button></div>` +
+    '<div class="sheet-body">' +
+    '<textarea class="ext-text" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>' +
+    '<div class="row-btns"><button class="btn" data-act="extcancel">Cancel</button>' +
+    '<button class="btn primary ext-apply">Apply</button></div>' +
+    "</div>";
+  const txt = sheets.ext.querySelector<HTMLTextAreaElement>(".ext-text")!;
+  txt.value = ext.initial;
+  // Apply is wired directly (no data-act) so the shell delegation never double-fires.
+  sheets.ext.querySelector<HTMLElement>(".ext-apply")!.onclick = () => {
     closeSheets();
     if (kind.Value) send({ ApplyReplace: { path, text: txt.value } });
     else send({ ApplyEditComment: { path, text: txt.value } });
   };
+  openSheet("ext");
+  txt.focus();
 }
 
 // ---- grip reorder + tap (pointer flow; horizontal swipe removed) ----
@@ -752,6 +802,9 @@ function handleTap(target: HTMLElement, row: HTMLElement) {
   lastTapKey = key;
   lastTapTime = now;
   if (isDouble) openPanel(path);
+  // In paste mode the clipboard freezes the selection, so a tap only moves the
+  // cursor (= the paste target); `.app.paste-mode .row.cursor` highlights it.
+  else if ((snap?.clipboard_count ?? 0) > 0) send({ SetCursor: path });
   else selectOnly(path);
 }
 
@@ -919,8 +972,14 @@ function installShellHandlers() {
       case "filter":
         send("EnterTypeFilter");
         break;
+      case "open":
+        void doOpen();
+        break;
       case "add":
-        addContextual();
+        // Paste-armed (after Copy/Cut) → the FAB pastes at the cursor; otherwise
+        // it adds a node contextually.
+        if ((snap?.clipboard_count ?? 0) > 0) send("Paste");
+        else addContextual();
         break;
       case "cyclefmt":
         cycleSampleFormat(); // no-op unless in sample mode
@@ -951,8 +1010,9 @@ function installShellHandlers() {
         closeSheets();
         send("Escape");
         break;
-      case "extapply":
-        break; // wired per-open in openExternalEdit
+      case "pastecancel":
+        send("Escape"); // clear clipboard / exit paste mode
+        break;
       case "searchclear":
         searchInput.value = "";
         searchInput.parentElement!.classList.remove("has-val");
@@ -963,12 +1023,7 @@ function installShellHandlers() {
 
   // Tabs (Tree / Raw) — a view toggle, not a mutation.
   app.querySelectorAll<HTMLElement>(".viewtab").forEach((t) => {
-    t.addEventListener("click", () => {
-      app.querySelectorAll(".viewtab").forEach((x) => x.classList.remove("active"));
-      t.classList.add("active");
-      rawView = t.dataset.tab === "raw";
-      render();
-    });
+    t.addEventListener("click", () => setRawView(t.dataset.tab === "raw"));
   });
 
   // Search → debounced SetFilter.
@@ -1046,11 +1101,17 @@ function installSplitter() {
   sp.addEventListener("pointercancel", end);
 }
 
-// Dismiss whatever sheet is open, committing the mode-driven type-filter so its
-// state persists. (Convert is a native dialog now, dismissed by its own buttons.)
+// Dismiss whatever sheet is open. Mode-driven sheets must peel their core mode so
+// the next render() doesn't immediately re-open them: TypeFilter commits, Convert
+// exits, and an open external-edit sheet sends Escape (clears `external_edit`).
 function dismissSheets() {
   const tag = snap ? modeTag(snap.mode) : "Normal";
+  if (sheets.ext.classList.contains("open")) {
+    closeSheets();
+    return send("Escape");
+  }
   if (tag === "TypeFilter") return send("CommitTypeFilter");
+  if (tag === "Convert") return send("ExitConvert");
   closeSheets();
 }
 
@@ -1063,7 +1124,7 @@ async function main() {
   treePane = app.querySelector(".tree-pane")!;
   treeEl = app.querySelector(".tree")!;
   rawEl = app.querySelector(".raw-view")!;
-  scrim = app.querySelector(".scrim:not(.ext-scrim)")!;
+  scrim = app.querySelector(".scrim")!;
   dpBody = app.querySelector(".dp-body")!;
   statusEl = app.querySelector(".status")!;
   selBadge = app.querySelector(".sel-badge")!;
@@ -1074,11 +1135,18 @@ async function main() {
   dirtyDot = app.querySelector(".dirty-dot")!;
   filterBtn = app.querySelector(".tf-btn")!;
   toastEl = app.querySelector(".toast")!;
+  fabEl = app.querySelector(".fab")!;
+  // Tap the clip badge while armed → cancel the copy/cut (clears the clipboard).
+  clipBadge.title = "tap to clear clipboard";
+  clipBadge.addEventListener("click", () => {
+    if ((snap?.clipboard_count ?? 0) > 0) send("Escape");
+  });
   sheets.detail = app.querySelector(".detail-sheet")!;
   sheets.menu = app.querySelector(".menu-sheet")!;
   sheets.filter = app.querySelector(".filter-sheet")!;
   sheets.kind = app.querySelector(".kind-sheet")!;
-  sheets.ext = root.querySelector(".ext-sheet")!;
+  sheets.convert = app.querySelector(".convert-sheet")!;
+  sheets.ext = app.querySelector(".ext-sheet")!;
 
   restoreDetailWidth();
   installTreeGestures();

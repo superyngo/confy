@@ -181,12 +181,16 @@ shapes round-trip). Key types:
 - **Paste mode.** While the clipboard holds a cut/copy the selection is frozen, so a row
   click moves the **cursor** (= the `After(cursor)` paste target) via `SetCursor`, and a
   `body.paste-mode` class marks the cursor row as a visible "▸ paste here" target.
-- **Pointer value gestures.** A **double-click on a row opens the Detail panel** for it
+- **Pointer value gestures.** A **double-click on a row _toggles_ the Detail panel** for it
   (`SetCursor` + `ToggleDetail`); it no longer toggles branch-expand/boolean-value (expand stays
   on the caret + Enter). **Mouse-wheel over the value cell** (`[data-edit="val"]`) adjusts it in
   place: a `Bool` toggles true↔false, an `Integer`/`Float` nudges ±1 (`Nudge`, wheel up = +1) —
   `preventDefault` fires only over an adjustable value so other rows scroll normally. The keyboard
-  `+`/`-` and `←`/`→` Nudge keys are unchanged.
+  `+`/`-` and `←`/`→` Nudge keys are unchanged. The **same wheel-adjust works on the shared
+  panel's value field** (`web/panel.ts`), so it applies in the desktop Detail aside and the touch
+  edit sheet too. The shared panel's actions are **Copy / Cut / Delete** (Copy/Cut arm the
+  clipboard; the host's paste affordance commits the paste), and a **multi-line value renders as a
+  button** that opens the host popup editor (`BeginEdit` → external edit) instead of a one-line input.
 - **Help.** The `?` overlay appends a **per-format KIND legend** (`KIND_LEGEND`, keyed by
   `doc_format`, ported from the TUI's per-backend help) explaining each container/scalar
   label·notation for the open file's format.
@@ -231,8 +235,11 @@ only discarded part is its fake `TREE`/DOM-as-state model; everything mutating g
 `session.dispatch(Intent)` + a full re-render from the returned `SessionSnapshot` (stateless,
 like desktop). Beyond the core (`confy.ts`, `types.ts`, `fs.ts`, the Intent contract), the two
 UIs now share several **single-source UI modules** so look & behavior can't drift: `web/panel.ts`
-(node edit/detail panel), `web/convert-dialog.ts` (the Save / Convert `<dialog>`), and
-`web/typefilter.ts` (the type-filter grid). Each emits desktop's class names; the CSS that styles
+(node edit/detail panel), `web/convert-dialog.ts` (the Save / Convert form), and
+`web/typefilter.ts` (the type-filter grid). `convert-dialog.ts` is **container-agnostic** — it
+operates over a host-supplied `ConvertSurface` (`isOpen/open/close/onCancel`), so desktop hosts the
+form in a native `<dialog>` while touch hosts the **same form in a bottom `.sheet`** (all touch
+panels share one mechanism). Each emits desktop's class names; the CSS that styles
 them lives per-page (desktop's verbatim block; touch's app-only appendix). The touch chrome
 (header + search bar) was rebuilt to **mimic desktop's** toolbar/filterbar after the bespoke
 app-bar was judged worse — so the surfaces converge while the tree-body gestures stay touch-first.
@@ -279,31 +286,43 @@ edits to the verbatim desktop CSS.
   Path / Children / Sign** (Path is the human dotted/bracketed form, e.g. `servers[1].port`; Sign
   from `ViewRow.key_sign`). Key → `CommitEdit {name}`, value → `CommitEdit {value}`, trailing →
   `SetTrailing`, comment node → `ApplyEditComment`, kind button → kind sheet, **Delete** →
-  `SetCursor`+`SetSelection`+`DeleteSelected`, **Duplicate** → `CopySelected`+`Paste`. After each
+  `SetCursor`+`SetSelection`+`DeleteSelected`, **Copy** → `…`+`CopySelected`, **Cut** →
+  `…`+`CutSelected` (Copy/Cut arm the clipboard; the FAB pastes — see below). After each
   dispatch `wirePanel` surfaces `snapshot.error` via the host toast (the panel buttons were dead in
   the first cut — never wired — so failures are now reported, not silent).
 - on `≥600px` the persistent side pane has a **draggable splitter** between the tree and detail
   panes: it sets a `--detail-w` flex-basis on `.app` (clamped ~240–520 px) persisted to
   `localStorage` (`confy-detail-w`); hidden `<600px` and in Raw view.
-- Menu sheet → `Open`/`Redo`/`ExpandAll`/`CollapseAll` + theme toggle (`fs.ts` for I/O); Save /
-  Convert is **not** here (it lives only on the Save button, so it is never duplicated).
+- **Responsive chrome collapse + dynamic menu.** The `.app` is a `container-type:inline-size`
+  container; toolbar/filter buttons stay single-line (`nowrap`) and **fold into the `⋯` menu
+  right→left** via `@container` breakpoints (≤720 viewtabs → ≤620 expand/collapse `.nav-grp` →
+  ≤520 undo/redo/theme `.edit-grp`); the `⋯` button is hidden until the first fold. The **menu
+  sheet is built dynamically** (`MENU_CANDIDATES` + `isFolded` = `offsetParent === null`) from
+  whichever controls are currently folded — not a hardcoded list — so it always mirrors the
+  breakpoints. Open/Save stay visible (never in the menu).
 - **Type filter & Save/Convert use the shared modules** (`web/typefilter.ts` / `web/convert-dialog.ts`),
   the same code + markup desktop uses: the type-filter grid renders into the filter sheet via
-  `typeFilterHTML`+`wireTypeFilter`; convert is a native `<dialog id="convDlg">` driven by
-  `renderConvertDialog`+`wireConvertDialog` (replacing the old bespoke convert sheet). Both are still
-  driven by `snapshot.mode` (`TypeFilterView` / `ConvertView`); the `convert_write` snapshot field is
-  written via `fs.ts`.
+  `typeFilterHTML`+`wireTypeFilter` (no "Done" button — the grid toggles live + has a ✕ clear, and
+  the sheet closes via grab/scrim/header-×); Save/Convert renders the shared form into a
+  **bottom `.sheet`** (not a `<dialog>`) via a sheet-backed `ConvertSurface`. Both are driven by
+  `snapshot.mode` (`TypeFilterView` / `ConvertView`); the `convert_write` snapshot field is written
+  via `fs.ts`. `dismissSheets` peels each mode on close (TypeFilter→`CommitTypeFilter`,
+  Convert→`ExitConvert`, external-edit→`Escape`) so the next render doesn't re-open it.
 - **FAB is context-aware** (like the TUI `a`): when the cursor row is an expanded branch → `AddChild`;
   otherwise (scalar or collapsed branch) → `AddSibling` (falls back to parameterless `AddNode` with
-  no cursor row).
+  no cursor row). When the **clipboard is armed** (`clipboard_count > 0`, after panel Copy/Cut) the
+  FAB switches to a **paste glyph tinted by copy vs cut** (`clipboard_cut`) and a tap dispatches
+  `Paste` at the cursor; tapping the status-bar clipboard badge clears it (`Escape`).
 - the **Save button** opens the shared Save / Convert dialog (`SetCursor []`→`OpenConvert`→seed
   `SetConvertPath`) — there is no direct-save button (all saves go through the panel). The
   **format pill** cycles the built-in sample's dialect TOML→JSON→YAML while in sample mode (frozen
   once a real file is opened/saved), matching desktop — it no longer opens convert.
 - search input → debounced `SetFilter`; Tree/Raw tabs are a view toggle (`session.serialize()`).
 - **Read-only / opaque rows** (`ViewRow.read_only`) render without grip/kind and reject edits —
-  mirroring core. Multi-line value/comment edits route to an external-edit sheet
-  (`ApplyReplace`/`ApplyEditComment`), the same handshake the desktop uses.
+  mirroring core. Multi-line value/comment edits route to an external-edit **bottom sheet** (in
+  `.app`, standard sheet chrome) via `ApplyReplace`/`ApplyEditComment` — the same handshake the
+  desktop uses. Dismissing it (scrim/grab/×/Cancel) sends `Escape` to peel core's pending edit, so
+  the sheet can't re-pop on the next render.
 - the initial sample document is the **same welcome sample as the desktop UI** (shared, build-stamped).
 
 `web/build.mjs` emits both bundles: `ui.ts → ui.js` (desktop, unchanged) and `touch/app.ts →
