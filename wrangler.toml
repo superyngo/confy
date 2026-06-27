@@ -1,0 +1,10 @@
+# Cloudflare Workers static-assets deploy for the confy web UI.
+# Workers Builds runs `bash web/cf-build.sh` (build command) then
+# `npx wrangler deploy` (deploy command), which uploads ./web/dist as
+# static assets. Custom domain (confy.turkeyang.net) is set in the Worker's
+# Settings → Domains & Routes.
+name = "confy"
+compatibility_date = "2025-01-01"
+
+[assets]
+directory = "web/dist"
