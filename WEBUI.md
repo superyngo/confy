@@ -193,7 +193,10 @@ shapes round-trip). Key types:
   panel (desktop `ExitDetail`, touch `closeSheets`). A **multi-line value/comment renders as a
   button** that opens the host popup editor (`BeginEdit` → external edit) instead of a one-line input,
   and its one-line preview is **truncated to the cell** (ellipsis). The **Kind button shows
-  `type · «notation»`** (a short glyph, dropped when it would just repeat the label).
+  `type · «notation»`** (a short glyph, dropped when it would just repeat the label). The panel's
+  commit handlers read the input value **before** dispatching `SetCursor` (which rebuilds the panel
+  DOM and detaches the input), and the separate **trailing-comment cell sends raw text** —
+  `Session::set_trailing_comment` prepends the backend's marker (`#`/`//`) when missing.
 - **Help.** The `?` overlay appends a **per-format KIND legend** (`KIND_LEGEND`, keyed by
   `doc_format`, ported from the TUI's per-backend help) explaining each container/scalar
   label·notation for the open file's format.

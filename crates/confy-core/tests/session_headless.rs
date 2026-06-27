@@ -307,6 +307,58 @@ fn dispatch_commit_edit_renames_key() {
 }
 
 #[test]
+fn dispatch_set_trailing_comment_marks_raw_text() {
+    // The Web panel sends raw text (no marker); the session must prepend the
+    // backend's comment prefix so the result is a valid trailing comment.
+    let mut s = toml_session("a = 1\n");
+    let a = s.visible_paths()[1].clone();
+    let snap = s.dispatch(Intent::SetTrailing {
+        path: a,
+        comment: Some("hello".into()),
+    });
+    assert!(snap.error.is_none(), "no error: {:?}", snap.error);
+    assert_eq!(s.serialize().unwrap(), "a = 1  # hello\n");
+
+    // Already-marked text is left as-is (no double "# #").
+    let mut s = toml_session("a = 1\n");
+    let a = s.visible_paths()[1].clone();
+    s.dispatch(Intent::SetTrailing {
+        path: a,
+        comment: Some("# hi".into()),
+    });
+    assert_eq!(s.serialize().unwrap(), "a = 1  # hi\n");
+}
+
+#[test]
+fn dispatch_set_trailing_comment_json_and_yaml() {
+    // JSONC uses `//`; YAML uses `#` — both normalized from raw text. The leading
+    // `//` comment makes this load as JSONC (comments supported).
+    let doc = AnyDocument::from_str_as("{\n  // c\n  \"a\": 1\n}\n", DocFormat::Json).unwrap();
+    let mut s = Session::new(doc);
+    let a = s.visible_rows().iter().find(|r| r.key == "a").unwrap().path.clone();
+    let snap = s.dispatch(Intent::SetTrailing {
+        path: a,
+        comment: Some("note".into()),
+    });
+    assert!(snap.error.is_none(), "json no error: {:?}", snap.error);
+    assert!(
+        s.serialize().unwrap().contains("// note"),
+        "json: {}",
+        s.serialize().unwrap()
+    );
+
+    let doc = AnyDocument::from_str_as("a: 1\n", DocFormat::Yaml).unwrap();
+    let mut s = Session::new(doc);
+    let a = s.visible_paths()[1].clone();
+    let snap = s.dispatch(Intent::SetTrailing {
+        path: a,
+        comment: Some("note".into()),
+    });
+    assert!(snap.error.is_none(), "yaml no error: {:?}", snap.error);
+    assert_eq!(s.serialize().unwrap(), "a: 1  # note\n");
+}
+
+#[test]
 fn dispatch_commit_kind_switches_integer_radix() {
     let mut s = toml_session("n = 255\n");
     let n = s.visible_paths()[1].clone();

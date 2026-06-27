@@ -137,7 +137,11 @@ export function panelHTML(row: ViewRow): string {
       h += `<input class="c-edit" data-field="comment-node" value="${esc(r.value ?? "")}" autocomplete="off" spellcheck="false" />`;
     }
     h += `<dl><dt>Path</dt><dd>${esc(humanPath(r.path))}</dd></dl>`;
-    h += '<div class="row-btns"><button class="btn danger" data-act="del">Delete</button></div></div>';
+    h +=
+      '<div class="row-btns">' +
+      '<button class="btn" data-act="copy">Copy</button>' +
+      '<button class="btn" data-act="cut">Cut</button>' +
+      '<button class="btn danger" data-act="del">Delete</button></div></div>';
     return h;
   }
 
@@ -240,15 +244,20 @@ export function wirePanel(
   const ct = container.querySelector<HTMLElement>("[data-act=cut]");
   const ev = container.querySelector<HTMLElement>("[data-act=editvalue]");
 
+  // NOTE: read the field value BEFORE the first `fire` — a `SetCursor` dispatch
+  // rebuilds the host panel's innerHTML, detaching this input, so reading
+  // `el.value` afterward is unreliable (the edit silently no-ops).
   if (ke)
     commit(ke, () => {
+      const name = ke.value;
       fire({ SetCursor: path });
-      fire({ CommitEdit: { value: null, name: ke.value } });
+      fire({ CommitEdit: { value: null, name } });
     });
   if (ve) {
     commit(ve, () => {
+      const value = ve.value;
       fire({ SetCursor: path });
-      fire({ CommitEdit: { value: ve.value, name: null } });
+      fire({ CommitEdit: { value, name: null } });
     });
     // Mouse-wheel over the value field adjusts it (matches the tree gesture): a
     // bool toggles (trailing comment preserved), a number nudges ±1 (up = +1).
@@ -281,6 +290,7 @@ export function wirePanel(
     commit(cn, () => {
       fire({ ApplyEditComment: { path, text: cn.value } });
     });
+  // (te/cn read their value inline in the single dispatch — no re-render between.)
   if (kb) kb.addEventListener("click", () => openKind(row));
 
   // Delete / Copy / Cut: select this row, run the action, then — on success —

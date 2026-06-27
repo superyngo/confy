@@ -516,6 +516,14 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none
 /* ---- single Tree/Raw view toggle (replaces the two tabs) ---- */
 .viewtoggle.active{background:var(--accent);color:oklch(18% 0.02 250);border-color:transparent}
 
+/* A long / deeply-indented key may shrink (last, after value then comment) so the
+   row never overflows the right edge — the verbatim `.key` is flex:0 0 auto. */
+.key{flex:0 1 auto;min-width:0}
+
+/* Keep the detail sheet title on one line; a long key ellipsizes (item 4). */
+.sheet-head h3{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sheet-head .close{flex:0 0 auto}
+
 /* ---- responsive chrome collapse (mirrors desktop's right→left fold) ----
    The .app is a `container-type:inline-size` container. The toolbar/filter rows
    stay single-line (nowrap); as the container narrows, the right-side groups fold

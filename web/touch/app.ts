@@ -453,9 +453,13 @@ function openPanel(path: Path) {
   const r = rowFor(path);
   if (!r) return;
   if (!isWide()) {
+    // A comment node fills `key` with the whole (possibly multi-line) comment text,
+    // which would blow up the title — use a fixed label; otherwise the node key.
+    // The `.sheet-head h3` CSS truncates a long key to one line (ellipsis).
+    const title = r.type_label === "comment" ? "Comment" : r.key || lastKey(path);
     sheets.detail.innerHTML =
       '<div class="grab"></div>' +
-      `<div class="sheet-head"><h3>${esc(r.key || lastKey(path))}</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
+      `<div class="sheet-head"><h3>${esc(title)}</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
       `<div class="sheet-body detail-wrap">${panelHTML(r)}</div>`;
     wirePanel(sheets.detail, r, sendR, openKindRow, toast, afterPanelMutation);
     openSheet("detail");

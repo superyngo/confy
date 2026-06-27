@@ -1669,6 +1669,20 @@ impl Session {
             Some(d) => d,
             None => return,
         };
+        // The Web panel sends the raw typed text; `SetTrailingComment` expects the
+        // comment WITH its marker ("# foo" / "// foo"). Normalize: drop empties to a
+        // clear (None), and prepend the backend's marker when it's missing.
+        let prefix = doc.comment_prefix();
+        let comment = comment.and_then(|c| {
+            let t = c.trim();
+            if t.is_empty() {
+                None
+            } else if t.starts_with(prefix) {
+                Some(t.to_string())
+            } else {
+                Some(format!("{prefix} {t}"))
+            }
+        });
         match doc.apply(Mutation::SetTrailingComment { path, comment }) {
             Ok(()) => self.on_mutation_success(),
             Err(e) => self.error = Some(format!("comment update failed: {e}")),
