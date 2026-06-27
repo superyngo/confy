@@ -34,7 +34,13 @@ createServer(async (req, res) => {
       return;
     }
     const buf = await readFile(full);
-    res.writeHead(200, { "content-type": MIME[extname(full)] ?? "application/octet-stream" });
+    res.writeHead(200, {
+      "content-type": MIME[extname(full)] ?? "application/octet-stream",
+      // Dev server: never let the browser cache (esp. the large .wasm, which
+      // Safari/Chrome heuristically cache without revalidating — a stale wasm
+      // makes core fixes look like they "did nothing" after a rebuild).
+      "cache-control": "no-store",
+    });
     res.end(buf);
   } catch {
     res.writeHead(404).end("not found");
