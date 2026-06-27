@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **fix(core): a comment dropped into a non-last TOML `[table]` now lands inside it.** A standalone
+  comment between a table's last entry and the next `[header]` was always projected as the *next*
+  section's leading comment (attached to root), so a touch/desktop drop "into" a collapsed table
+  appeared *after* the branch. Projection now uses a **blank-line rule**: a comment separated from
+  the following header by a blank line trails the preceding table; a comment hugging the header
+  stays its leading comment. The drop/insert path emits that separating blank line when a comment is
+  appended right before an outer header. JSON/YAML were unaffected (explicit `}`/dedent delimiters).
+  Round-trip stays byte-identical (serialize is unchanged); regression + projection tests added.
+  (2026-06-27)
+- **fix(core): keep the selection on a moved *comment* after a downward reorder.** Follow-up to the
+  v0.10.1 node fix: the post-move selection subtracted only the removed node sources, not removed
+  comment sources, so a downward comment move still cursored the next row. Subtract `comment_shift`
+  too. (2026-06-27)
+- **fix(web): iPhone file-open picker no longer greys out `.toml`/`.yaml`.** iOS resolves the
+  `<input accept>` extensions to UTIs and disables those without one; the `accept` filter is dropped
+  so any config file is selectable (parse rejects non-config content). Desktop Chromium uses the FS
+  Access API, unaffected. (2026-06-27)
+- **fix(web): best-effort Web Share + a Firefox-iOS save hint.** `downloadText` now *attempts*
+  `navigator.share({files})` whenever `share` exists — including when `canShare` is absent — and
+  falls back to the anchor download only on a non-cancellation rejection, so the filename/extension
+  survive into "Save to Files" where supported. Firefox iOS exposes no file share *and* WebKit
+  ignores the `<a download>` name (extension comes from the MIME type, and iOS has no UTI for
+  `.toml`/`.yaml`), so a downloaded `.toml`/`.yaml` is extension-less there with no possible fix on
+  the anchor path; the touch UI now shows a one-time toast hinting the user to open the site in
+  Safari (which works via Web Share). (2026-06-27)
+
 ## [v0.10.1] - 2026-06-27
 
 ### Fixed

@@ -106,6 +106,13 @@ Comment whose text happens to be valid TOML; toggling it (see _Remark_) re-parse
 live Node.
 _Avoid_: Disabled entry, ghost node — these were earlier names for the same idea; the canonical
 concept is "a Comment that is valid TOML".
+**Owner near a TOML header (blank-line rule):** a standalone comment between a table's last entry
+and the next `[header]` is ambiguous. The projection decides by the **blank line**: a comment
+*separated* from the following header by a blank line trails the **preceding** scope (a child of
+that table); a comment *hugging* the header (no blank) is the header's **leading** comment (a
+sibling at the header's parent scope). Inserting a comment as a table's last child right before an
+outer header therefore emits a separating blank line so it stays inside. (JSON/YAML have explicit
+`}`/dedent delimiters and need no such rule.)
 
 **Trailing comment**:
 An end-of-line comment that shares a line with a value (`port = 8080  # http`). It is **not** a

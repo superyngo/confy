@@ -24,8 +24,10 @@
   </head>
   <body>
     <div id="root"></div>
-    <!-- Native open fallback (no FS Access API). -->
-    <input id="fileInput" type="file" accept=".toml,.json,.jsonc,.yaml,.yml" hidden />
+    <!-- Native open fallback (no FS Access API). No `accept` filter: iOS greys
+         out `.toml`/`.yaml` (no UTI), blocking valid config files; parse rejects
+         non-config content instead. -->
+    <input id="fileInput" type="file" hidden />
     <script type="module" src="./touch/app.js"></script>
   </body>
 </html>

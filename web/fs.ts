@@ -102,6 +102,17 @@ export async function readHandle(handle: FsHandle): Promise<string> {
 
 // ---- Download fallback (always available) ----
 
+/**
+ * True on Firefox for iOS. It exposes no Web Share for files *and* WebKit
+ * ignores the `<a download>` filename, deriving the extension from the MIME
+ * type instead — and iOS has no UTI for `.toml`/`.yaml`, so those download
+ * extension-less. (`.json` still works; Safari works via Web Share.) The host
+ * uses this to hint the user toward Safari rather than fail silently.
+ */
+export function isFirefoxIos(): boolean {
+  return /FxiOS/.test(navigator.userAgent);
+}
+
 /** File extension → MIME type, so iOS doesn't coerce the download to `.txt`. */
 function mimeFor(filename: string): string {
   if (filename.endsWith(".toml")) return "application/toml";
@@ -122,6 +133,10 @@ type ShareChecker = (data: { files: File[] }) => boolean;
  * the `File`'s name and extension survive into "Save to Files". We prefer it
  * when the host can share files, else fall back to the anchor download (which
  * works fine on desktop Firefox/Safari).
+ *
+ * Firefox iOS doesn't expose `canShare`, so we still *attempt* `share` whenever
+ * it exists (best-effort) and fall back to the anchor only if the share rejects
+ * with a non-cancellation error.
  */
 export function downloadText(filename: string, text: string): void {
   const type = mimeFor(filename);
@@ -130,16 +145,24 @@ export function downloadText(filename: string, text: string): void {
     share?: Sharer;
   };
   const file = new File([text], filename, { type });
-  if (nav.canShare?.({ files: [file] }) && nav.share) {
-    // Cancellation (AbortError) is a normal user choice — swallow it.
-    nav.share({ files: [file], title: filename }).catch(() => {});
+  const anchorDownload = () => {
+    const blob = new Blob([text], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  // Share when supported, or attempt it when `canShare` is simply absent
+  // (Firefox iOS) — the filename/extension survive into "Save to Files".
+  if (nav.share && (!nav.canShare || nav.canShare({ files: [file] }))) {
+    nav.share({ files: [file], title: filename }).catch((err: unknown) => {
+      // User cancellation is a normal choice — don't double up with a download.
+      if (err && (err as { name?: string }).name === "AbortError") return;
+      anchorDownload();
+    });
     return;
   }
-  const blob = new Blob([text], { type });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+  anchorDownload();
 }

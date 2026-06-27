@@ -34,6 +34,7 @@ import {
   writeFile,
   downloadText,
   extFor,
+  isFirefoxIos,
   type OpenedFile,
 } from "../fs.js";
 import { IC, esc, treeHTML, isExpanded, pathEq } from "./render.js";
@@ -323,11 +324,20 @@ function appHTML(): string {
 
 // ---- toast ----
 let toastT: number | undefined;
-function toast(msg: string) {
+function toast(msg: string, ms = 1600) {
   toastEl.textContent = msg;
   toastEl.classList.add("show");
   clearTimeout(toastT);
-  toastT = window.setTimeout(() => toastEl.classList.remove("show"), 1600);
+  toastT = window.setTimeout(() => toastEl.classList.remove("show"), ms);
+}
+
+// Firefox iOS can't name extension-less downloads (.toml/.yaml); show a one-time
+// hint to use Safari rather than leave the user puzzled by the garbage filename.
+function firefoxIosSaveHint(filename: string) {
+  if (!isFirefoxIos() || filename.endsWith(".json")) return;
+  if (localStorage.getItem("confy.fxios-save-hint")) return;
+  localStorage.setItem("confy.fxios-save-hint", "1");
+  toast("Firefox on iOS can't name downloads — open this site in Safari for a proper filename", 5200);
 }
 
 // ---- sheets ----
@@ -1019,6 +1029,7 @@ async function doSaveAsCopy(path: string) {
   }
   downloadText(baseName, text);
   toast("Downloaded");
+  firefoxIosSaveHint(baseName);
 }
 async function doConvertWrite(path: string, text: string) {
   closeSheets();
@@ -1038,6 +1049,7 @@ async function doConvertWrite(path: string, text: string) {
   }
   downloadText(baseName, text);
   toast("Converted (downloaded)");
+  firefoxIosSaveHint(baseName);
 }
 
 // ---- shell-level click delegation (toolbar / footer / scrim / sheets) ----

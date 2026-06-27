@@ -846,6 +846,71 @@ fn dispatch_move_comment_down_keeps_selection_on_moved_comment() {
     );
 }
 
+#[test]
+fn dispatch_move_comment_into_collapsed_table_lands_inside() {
+    // Regression (touch drop-into a closed [table] that is NOT the last table):
+    // the comment must project as a CHILD of the table, not as a root sibling
+    // sitting after it. The "into" drop appends at index = child_count.
+    let mut s = toml_session("# note\n[t]\nx = 2\n[u]\nz = 9\n");
+    let snap = s.dispatch(Intent::MoveSelectionTo {
+        sources: vec![vec![Seg::Index(0)]],
+        target: vec![Seg::Key("t".into())],
+        index: 1, // child_count of [t]
+    });
+    assert!(
+        snap.error.is_none(),
+        "move should succeed: {:?}",
+        snap.error
+    );
+    // The comment is now a child of [t] (path starts with Key("t")), depth 2.
+    s.expand_all();
+    let rows = s.visible_rows();
+    let note = rows
+        .iter()
+        .find(|r| r.key.contains("note"))
+        .expect("comment row visible");
+    assert_eq!(
+        note.path.first(),
+        Some(&Seg::Key("t".into())),
+        "comment is a child of [t], not a root sibling: path={:?}",
+        note.path
+    );
+    assert!(
+        note.depth >= 2,
+        "comment nested under [t]: depth={}",
+        note.depth
+    );
+    // A blank line was inserted so the projection keeps it inside [t].
+    let text = s.serialize().unwrap();
+    assert!(
+        text.contains("x = 2\n# note\n\n[u]"),
+        "blank line separates the trailing comment from [u]:\n{text}"
+    );
+}
+
+#[test]
+fn project_blank_line_decides_comment_owner_before_header() {
+    // A comment separated from the next header by a blank line trails the
+    // preceding table; a comment hugging the header leads the next section.
+    let mut s = toml_session("[t]\nx = 1\n# trailing of t\n\n# leading of u\n[u]\nz = 2\n");
+    s.expand_all();
+    let rows = s.visible_rows();
+    let trailing = rows.iter().find(|r| r.key.contains("trailing")).unwrap();
+    assert_eq!(
+        trailing.path.first(),
+        Some(&Seg::Key("t".into())),
+        "blank-separated comment trails [t]: {:?}",
+        trailing.path
+    );
+    let leading = rows.iter().find(|r| r.key.contains("leading")).unwrap();
+    assert_eq!(
+        leading.path.len(),
+        1,
+        "header-hugging comment stays at root (leads [u]): {:?}",
+        leading.path
+    );
+}
+
 // ---- Pointer filter (SetFilter) ----
 
 #[test]

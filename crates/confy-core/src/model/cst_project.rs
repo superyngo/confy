@@ -76,6 +76,22 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
         }};
     }
 
+    // The block currently accumulating (`lines`) is *adjacent* to the next item —
+    // no blank line separates them. At a header that means a leading comment for
+    // the new section; the already-finalized `blocks` (each followed by a blank
+    // line) instead trail the preceding scope.
+    macro_rules! take_adjacent {
+        () => {{
+            if lines.is_empty() {
+                Vec::new()
+            } else {
+                let block = vec![(lines.join("\n"), first_tok.take().expect("token for block"))];
+                lines.clear();
+                block
+            }
+        }};
+    }
+
     for child in syntax.children_with_tokens() {
         match child {
             NodeOrToken::Token(t) => match t.kind() {
@@ -103,9 +119,14 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
                     let path = header_path(&n);
                     let signs = header_key_signs(&n);
                     let parent = path[..path.len().saturating_sub(1)].to_vec();
-                    let pending = finalize_blocks!();
+                    // Blocks separated from this header by a blank line trail the
+                    // PRECEDING scope (`current`); a block hugging the header (no
+                    // blank) is its leading comment, attached to the header's parent.
+                    let separated = std::mem::take(&mut blocks);
+                    let adjacent = take_adjacent!();
                     ensure_table_path(&mut root, &parent, &signs);
-                    flush_comments(&mut root, &parent, pending, &mut idx);
+                    flush_comments(&mut root, &current, separated, &mut idx);
+                    flush_comments(&mut root, &parent, adjacent, &mut idx);
                     ensure_table_path(&mut root, &path, &signs);
                     // A `[section]  # c` header carries its EOL comment as the
                     // table node's trailing comment (editable via SetTrailingComment).
@@ -125,13 +146,19 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
                         Some(Seg::Key(k)) => k.clone(),
                         _ => continue,
                     };
-                    let pending = finalize_blocks!();
+                    // Same blank-line rule as TABLE_HEADER: blank-separated blocks
+                    // trail the preceding scope; an adjacent block leads the new
+                    // AoT entry (its group when the group already exists, else the
+                    // group's parent).
+                    let separated = std::mem::take(&mut blocks);
+                    let adjacent = take_adjacent!();
                     ensure_table_path(&mut root, &parent, &signs);
                     let exists = node_at(&root, &path).is_some();
+                    flush_comments(&mut root, &current, separated, &mut idx);
                     if exists {
-                        flush_comments(&mut root, &path, pending, &mut idx);
+                        flush_comments(&mut root, &path, adjacent, &mut idx);
                     } else {
-                        flush_comments(&mut root, &parent, pending, &mut idx);
+                        flush_comments(&mut root, &parent, adjacent, &mut idx);
                         let aot = Node {
                             key: aot_key,
                             path: path.clone(),

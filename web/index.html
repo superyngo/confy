@@ -118,8 +118,11 @@
       <span class="badge" id="clipBadge">clipboard 0</span>
     </footer>
 
-    <!-- Native open fallback (no FS Access API): hidden file input. -->
-    <input id="fileInput" type="file" accept=".toml,.json,.jsonc,.yaml,.yml" hidden />
+    <!-- Native open fallback (no FS Access API): hidden file input. No `accept`
+         filter: iOS resolves extensions to UTIs and greys out `.toml`/`.yaml`
+         (which have none), so it would block opening valid config files. confy
+         rejects non-config content on parse instead. -->
+    <input id="fileInput" type="file" hidden />
 
     <!-- ===== popovers (wired in later phases) ===== -->
     <div class="pop" id="ctxMenu"></div>

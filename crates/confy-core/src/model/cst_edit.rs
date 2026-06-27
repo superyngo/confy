@@ -2311,11 +2311,17 @@ fn insert_comment(tree: &SyntaxNode, target: &InsTarget, text: &str) -> Result<(
         None => resolve_insert_at(tree, &proj.root, &idx, target)?,
     };
     // `# …\n` per line, so each comment lands on its own line before the anchor.
-    let frag_text = if text.ends_with('\n') {
+    let mut frag_text = if text.ends_with('\n') {
         text.to_string()
     } else {
         format!("{text}\n")
     };
+    // Appending into a table scope right before an outer header: add a blank line
+    // so the comment trails THIS table (projection's blank-line rule) instead of
+    // becoming the next section's leading comment.
+    if matches!(parent.kind, NodeKind::Table) && next_is_header(tree, at) {
+        frag_text.push('\n');
+    }
     let frag = taplo::parser::parse(&frag_text)
         .into_syntax()
         .clone_for_update();
@@ -4088,6 +4094,19 @@ fn node_at<'a>(root: &'a Node, path: &[Seg]) -> Option<&'a Node> {
         cur = cur.children.iter().find(|c| c.path == path[..=i])?;
     }
     Some(cur)
+}
+
+/// True when the element at `at` is a table or array-of-tables header — i.e. a
+/// comment spliced at `at` would sit immediately before a header with only a
+/// single newline between them (the projection would then read it as that
+/// header's *leading* comment rather than as a member of the current scope).
+fn next_is_header(parent: &SyntaxNode, at: usize) -> bool {
+    let els: Vec<_> = parent.children_with_tokens().collect();
+    matches!(
+        els.get(at),
+        Some(NodeOrToken::Node(n))
+            if matches!(n.kind(), SyntaxKind::TABLE_HEADER | SyntaxKind::TABLE_ARRAY_HEADER)
+    )
 }
 
 /// If the element at `at` is a `NEWLINE`, return `at + 1` (so a splice consumes it),
