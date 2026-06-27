@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.11.2] - 2026-06-27
+
+### Changed
+- chore: version-bump-only release to trigger the Cloudflare Workers Build. No
+  functional changes since v0.11.0; cuts a release commit so a `web/package.json`
+  build-watch-path fires the deploy. (2026-06-27)
+
 ## [v0.11.0] - 2026-06-27
 
 ### Fixed
