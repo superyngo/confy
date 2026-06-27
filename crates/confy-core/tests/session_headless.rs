@@ -335,7 +335,13 @@ fn dispatch_set_trailing_comment_json_and_yaml() {
     // `//` comment makes this load as JSONC (comments supported).
     let doc = AnyDocument::from_str_as("{\n  // c\n  \"a\": 1\n}\n", DocFormat::Json).unwrap();
     let mut s = Session::new(doc);
-    let a = s.visible_rows().iter().find(|r| r.key == "a").unwrap().path.clone();
+    let a = s
+        .visible_rows()
+        .iter()
+        .find(|r| r.key == "a")
+        .unwrap()
+        .path
+        .clone();
     let snap = s.dispatch(Intent::SetTrailing {
         path: a,
         comment: Some("note".into()),
