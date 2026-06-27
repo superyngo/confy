@@ -781,6 +781,39 @@ fn dispatch_move_selection_reorders_within_parent() {
     );
 }
 
+#[test]
+fn dispatch_move_selection_down_keeps_selection_on_moved_node() {
+    // Regression: a same-parent DOWNWARD move shifts the landing slot up by the
+    // removed earlier source, so the post-move selection/cursor must follow the
+    // moved node — not land on the next row.
+    let mut s = toml_session("a = 1\nb = 2\nc = 3\n");
+    let snap = s.dispatch(Intent::MoveSelectionTo {
+        sources: vec![vec![Seg::Key("a".into())]],
+        target: vec![],
+        index: 2, // after 'b' → order becomes b, a, c
+    });
+    assert!(
+        snap.error.is_none(),
+        "move should succeed: {:?}",
+        snap.error
+    );
+    assert_eq!(
+        snap.cursor,
+        vec![Seg::Key("a".into())],
+        "cursor stays on the moved node 'a', not the next row"
+    );
+    let row_a = snap.rows.iter().find(|r| r.key == "a").unwrap();
+    assert!(
+        row_a.is_cursor && row_a.selected,
+        "'a' is cursor + selected"
+    );
+    let row_c = snap.rows.iter().find(|r| r.key == "c").unwrap();
+    assert!(
+        !row_c.is_cursor && !row_c.selected,
+        "the next row 'c' is neither cursor nor selected"
+    );
+}
+
 // ---- Pointer filter (SetFilter) ----
 
 #[test]

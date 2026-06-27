@@ -2353,13 +2353,16 @@ impl Session {
         }
         self.on_mutation_success();
         // Drop the source selection and move both cursor and selection onto the
-        // freshly-pasted node(s), which land contiguously from `target.index` in
-        // the destination parent's rebuilt child sequence.
+        // freshly-pasted node(s). They land contiguously starting at
+        // `target.index - node_shift`: on a same-parent cut, sources that sat
+        // above the target were removed first, shifting the landing slot up by
+        // that count (the Move/Insert mutations already account for it, so the
+        // selection must too — else a downward move selects the next row).
         let pasted = node_entries.len() + comment_entries.len();
         if let Some(parent) = self.tree.node_at(&target.parent) {
             let n = parent.children.len();
             if pasted > 0 && n > 0 {
-                let start = target.index.min(n - 1);
+                let start = target.index.saturating_sub(node_shift).min(n - 1);
                 let end = (start + pasted).min(n);
                 let paths: Vec<Path> = parent.children[start..end]
                     .iter()
