@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **feat(web): open config from URL via `?url=` deep-link.** Appending `?url=<encoded-url>` to
+  the page URL fetches and opens that remote config at boot (priority: Tauri startup file →
+  `?url=` → built-in sample). Format is inferred from the filename extension, falling back to the
+  HTTP `Content-Type` header (default: TOML). No on-disk handle is held, so Save degrades to Save
+  As / download — identical to the file-input path. `fetchUrlFile` (`web/fs.ts`) and
+  `openFromUrl` + `formatFromNameOrType` (`web/ui.ts`) are the new entry points. (2026-06-28)
 - **feat(desktop): Tauri v2 desktop app (`confy-desktop`).** New `crates/confy-tauri` wraps the
   existing web UI in a native desktop shell (macOS + Windows; Linux not targeted yet). Editing stays
   in the in-webview wasm `Session` — `dispatch` is synchronous and called from ~100 keyboard handlers,

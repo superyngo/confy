@@ -29,6 +29,7 @@ import type {
 } from "../types.js";
 import {
   fsAccessAvailable,
+  fetchUrlFile,
   pickOpenFile,
   pickSaveFile,
   writeFile,
@@ -977,6 +978,29 @@ function formatFromName(name: string): "toml" | "json" | "yaml" {
       ? "yaml"
       : "toml";
 }
+// Like formatFromName, but falls back to the HTTP Content-Type when the URL's
+// last path segment has no recognizable extension (defaults to toml).
+function formatFromNameOrType(
+  name: string,
+  contentType: string | null,
+): "toml" | "json" | "yaml" {
+  if (/\.(toml|json|jsonc|ya?ml)$/i.test(name)) return formatFromName(name);
+  const ct = (contentType ?? "").toLowerCase();
+  if (ct.includes("json")) return "json";
+  if (ct.includes("yaml")) return "yaml";
+  if (ct.includes("toml")) return "toml";
+  return "toml";
+}
+// Open a config file fetched from a URL. No on-disk handle, so a later Save
+// falls back to Save As / download (same as the file-input path).
+async function openFromUrl(url: string): Promise<void> {
+  try {
+    const { name, text, contentType } = await fetchUrlFile(url);
+    openText(text, formatFromNameOrType(name, contentType), null, name);
+  } catch (e) {
+    statusEl.textContent = `Open URL failed: ${String((e as Error).message ?? e)}`;
+  }
+}
 async function doOpen() {
   if (FS_AVAILABLE) {
     const opened = await pickOpenFile();
@@ -1248,7 +1272,13 @@ async function main() {
 
   const wasmUrl = new URL("../pkg/confy_ffi_bg.wasm", import.meta.url);
   await load(wasmUrl);
-  loadSample("toml");
+  // ?url= deep-link opens a remote config at boot; else the built-in sample.
+  const urlParam = new URLSearchParams(location.search).get("url");
+  if (urlParam) {
+    await openFromUrl(urlParam);
+  } else {
+    loadSample("toml");
+  }
 }
 
 void main();

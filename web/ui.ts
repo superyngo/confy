@@ -9,6 +9,7 @@ import { load, Session } from "./confy.js";
 import {
   downloadText,
   extFor,
+  fetchUrlFile,
   fsAccessAvailable,
   pickOpenFile,
   pickSaveFile,
@@ -171,10 +172,13 @@ async function main() {
   const wasmUrl = new URL("./pkg/confy_ffi_bg.wasm", import.meta.url);
   await load(wasmUrl);
   updateSaveLabel();
-  // Desktop (Tauri): open a file passed on the command line; else the sample.
+  // Desktop (Tauri): open a file passed on the command line; else ?url= deep-link; else sample.
   const startup = await tauriStartupFile();
+  const urlParam = new URLSearchParams(location.search).get("url");
   if (startup) {
     openText(startup.text, formatFromName(startup.name), startup.handle, startup.name);
+  } else if (urlParam) {
+    await openFromUrl(urlParam, false);
   } else {
     loadSample("toml");
   }
@@ -764,6 +768,33 @@ function formatFromName(name: string): "toml" | "json" | "yaml" {
     : name.endsWith(".yaml") || name.endsWith(".yml")
       ? "yaml"
       : "toml";
+}
+
+// Like formatFromName, but falls back to the HTTP Content-Type when the URL's
+// last path segment has no recognizable extension (defaults to toml).
+function formatFromNameOrType(
+  name: string,
+  contentType: string | null,
+): "toml" | "json" | "yaml" {
+  if (/\.(toml|json|jsonc|ya?ml)$/i.test(name)) return formatFromName(name);
+  const ct = (contentType ?? "").toLowerCase();
+  if (ct.includes("json")) return "json";
+  if (ct.includes("yaml")) return "yaml";
+  if (ct.includes("toml")) return "toml";
+  return "toml";
+}
+
+// Open a config file fetched from a URL. No on-disk handle, so a later Save
+// falls back to Save As / download (same as the file-input path).
+async function openFromUrl(url: string, focus = true): Promise<void> {
+  try {
+    const { name, text, contentType } = await fetchUrlFile(url);
+    const fmt = formatFromNameOrType(name, contentType);
+    openText(text, fmt, null, name);
+    if (focus) tree.focus();
+  } catch (e) {
+    setStatus("", `Open URL failed: ${String((e as Error).message ?? e)}`);
+  }
 }
 
 // ---- pointer: click routing for every row affordance ----

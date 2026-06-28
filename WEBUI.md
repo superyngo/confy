@@ -215,6 +215,13 @@ shapes round-trip). Key types:
   hidden on browsers without the API. Convert output routes through Save-As when
   available, else download. The capability is detected once at boot and isolated
   behind `web/fs.ts`; no editor logic depends on it.
+- **`?url=` deep-link.** Appending `?url=<encoded-url>` to the page URL opens that
+  remote config at boot (priority: Tauri startup file → `?url=` → built-in sample).
+  `fetchUrlFile` in `web/fs.ts` fetches the URL, derives a display name from the last
+  path segment, and infers the format from the filename extension (falling back to the
+  HTTP `Content-Type` header, then defaulting to TOML). The file opens with no on-disk
+  handle, so Save falls back to Save As / download — identical to the file-input path.
+  No CORS proxy is included; the remote server must send permissive CORS headers.
 - **Theme.** A dark/light toggle (titlebar `☾`/`☀`) flips `:root[data-theme]`; CSS
   variables carry both palettes and the choice persists in `localStorage`.
 - **Responsive toolbar.** The toolbar holds a single right-side action button (**Save**,

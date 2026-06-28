@@ -118,6 +118,23 @@ export async function tauriStartupFile(): Promise<OpenedFile | null> {
   return { handle: tauriHandle(f.path, f.name), name: f.name, text: f.text };
 }
 
+/** Fetch a config file's text from a URL. Throws on network/HTTP failure. */
+export async function fetchUrlFile(
+  url: string,
+): Promise<{ name: string; text: string; contentType: string | null }> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+  const text = await res.text();
+  const contentType = res.headers.get("content-type");
+  // Derive a display name from the URL's last path segment (may lack an extension).
+  let name = "config";
+  try {
+    const seg = new URL(url).pathname.split("/").filter(Boolean).pop();
+    if (seg) name = decodeURIComponent(seg);
+  } catch { /* leave default */ }
+  return { name, text, contentType };
+}
+
 /** Open a real file via the native dialog (Tauri) or FS Access API; `null` on cancel. */
 export async function pickOpenFile(): Promise<OpenedFile | null> {
   const core = tauriCore();
