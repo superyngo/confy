@@ -236,7 +236,8 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
                            pointer-first port of `design_index_model.html`, Session-driven
   types.ts       hand-written mirror of the confy-core serde contract (Intent/SessionSnapshot/…)
   confy.ts       typed wrapper around the wasm ConfySession (load + Session class; `kindOptions`)
-  fs.ts          File System Access API open/save-in-place + download fallback (host-owned I/O)
+  fs.ts          File System Access API open/save-in-place + download fallback + `fetchUrlFile`
+                 (open a remote config; `?url=` deep-link & "Open from URL") — host-owned I/O
   render.ts      pure `SessionSnapshot → DOM` tree: web-native row anatomy (drag grip, rotating
                  caret, key/`—`/value value-type-colored, item count, **kind badge** =
                  label+notation suffix+chevron, comment/trailing, hover ＋/⋮ actions);
@@ -249,7 +250,8 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
                  surfaces (detail aside, native search box, `#tfPop` type-filter grid, `#convDlg`
                  convert dialog, `#overlay` for Help/Prompt/KindSwitch only), Tree|Raw read-only
                  view toggle (`session.serialize()`), keyboard→Intent map (mirrors tui/keys.rs),
-                 theme toggle, FS open/save, external-edit modal, paste-mode cursor target
+                 theme toggle, FS open/save, `#url-modal` Open-from-URL, external-edit modal,
+                 paste-mode cursor target
   index.html / style.css (design `<style>` **verbatim** + a fenced app-only appendix; dark+light
                  via :root[data-theme]) / build.mjs (esbuild) / serve.mjs / cf-build.sh
                  (Cloudflare Workers Builds build command → runtime-only web/dist; deployed with
