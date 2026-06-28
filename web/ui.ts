@@ -471,6 +471,7 @@ function onKey(ev: KeyboardEvent) {
   if (!session || !snap) return;
   if (!document.getElementById("ext-modal")!.classList.contains("hidden")) return;
   if (!document.getElementById("load-modal")!.classList.contains("hidden")) return;
+  if (!document.getElementById("url-modal")!.classList.contains("hidden")) return;
 
   const m = snap.mode;
   if (typeof m === "object" && "Edit" in m) {
@@ -795,6 +796,15 @@ async function openFromUrl(url: string, focus = true): Promise<void> {
   } catch (e) {
     setStatus("", `Open URL failed: ${String((e as Error).message ?? e)}`);
   }
+}
+
+// Show the "Open from URL" modal (More ▸ Open from URL). Confirm/Esc are wired
+// in bindGlobal, mirroring the paste-source load modal.
+function openUrlModal() {
+  const input = $<HTMLInputElement>("url-input");
+  input.value = "";
+  $("url-modal").classList.remove("hidden");
+  input.focus();
 }
 
 // ---- pointer: click routing for every row affordance ----
@@ -1177,6 +1187,7 @@ function buildMoreMenu(): HTMLElement {
     ["Collapse all (0)", () => send("CollapseAll")],
     ["Tree view", () => setView(false)],
     ["Raw view", () => setView(true)],
+    ["Open from URL…", openUrlModal],
   ];
   const menu = $("moreMenu");
   menu.innerHTML = items
@@ -1363,6 +1374,28 @@ function bindGlobal() {
     e.stopPropagation();
     closeLoadModal();
   });
+
+  const closeUrlModal = () => {
+    $("url-modal").classList.add("hidden");
+    tree.focus();
+  };
+  $("url-confirm").addEventListener("click", () => {
+    const url = $<HTMLInputElement>("url-input").value.trim();
+    $("url-modal").classList.add("hidden");
+    if (url) void openFromUrl(url);
+  });
+  $("url-cancel").addEventListener("click", closeUrlModal);
+  // Enter confirms, Esc cancels (onKey early-returns while the modal is open).
+  $("url-modal").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      $<HTMLButtonElement>("url-confirm").click();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      closeUrlModal();
+    }
+  });
 }
 
 // Marquee (rubber-band) selection: drag over empty tree space (or a row body)
@@ -1454,7 +1487,8 @@ function selectForMenu(path: Path) {
 function noModalOpen(): boolean {
   return (
     document.getElementById("ext-modal")!.classList.contains("hidden") &&
-    document.getElementById("load-modal")!.classList.contains("hidden")
+    document.getElementById("load-modal")!.classList.contains("hidden") &&
+    document.getElementById("url-modal")!.classList.contains("hidden")
   );
 }
 

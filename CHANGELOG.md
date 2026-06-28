@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   HTTP `Content-Type` header (default: TOML). No on-disk handle is held, so Save degrades to Save
   As / download — identical to the file-input path. `fetchUrlFile` (`web/fs.ts`) and
   `openFromUrl` + `formatFromNameOrType` (`web/ui.ts`) are the new entry points. (2026-06-28)
+- **feat(web): explicit "Open from URL" entry point.** Beyond the `?url=` deep-link, the desktop UI
+  adds an "Open from URL…" item to the ⋯ More menu (opens a `#url-modal`) and the touch UI adds an
+  "Open from URL" row to the More-actions sheet (opens a `.url-sheet`); both feed the same
+  `openFromUrl`. The existing local-file Open button is untouched. (2026-06-28)
 - **feat(desktop): Tauri v2 desktop app (`confy-desktop`).** New `crates/confy-tauri` wraps the
   existing web UI in a native desktop shell (macOS + Windows; Linux not targeted yet). Editing stays
   in the in-webview wasm `Session` — `dispatch` is synchronous and called from ~100 keyboard handlers,

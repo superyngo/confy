@@ -319,6 +319,8 @@ function appHTML(): string {
     // external-edit sheet (multi-line value / comment) — built on demand by
     // `openExternalEdit` (a touch-native bottom sheet, NOT the desktop modal).
     '<div class="sheet ext-sheet"></div>' +
+    // Open-from-URL sheet (More ▸ Open from URL) — built on demand by `openUrlSheet`.
+    '<div class="sheet url-sheet"></div>' +
     "</div>"
   );
 }
@@ -531,15 +533,25 @@ function isFolded(sel: string): boolean {
 }
 function openMenuSheet() {
   const folded = MENU_CANDIDATES.filter((c) => isFolded(c.sel));
+  // Inline link glyph (no IC entry); matches the stroke style of the other icons.
+  const linkIc =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9.5 14.5l5-5"/><path d="M11 6.5l1-1a4 4 0 0 1 5.7 5.7l-1 1"/><path d="M13 17.5l-1 1a4 4 0 0 1-5.7-5.7l1-1"/></svg>';
   sheets.menu.innerHTML =
     '<div class="grab"></div>' +
     `<div class="sheet-head"><h3>More actions</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
     '<div class="sheet-body">' +
     folded.map((c, i) => mi(c.ic, c.label, "", String(i))).join("") +
+    mi(linkIc, "Open from URL", "", "url") +
     "</div>";
   sheets.menu.querySelectorAll<HTMLElement>(".menu-item").forEach((it) => {
     it.addEventListener("click", () => {
-      const c = folded[Number(it.dataset.mi)];
+      const id = it.dataset.mi!;
+      if (id === "url") {
+        closeSheets();
+        openUrlSheet();
+        return;
+      }
+      const c = folded[Number(id)];
       if (c.run !== toggleTheme) closeSheets();
       c.run();
     });
@@ -617,6 +629,36 @@ function openExternalEdit(ext: { initial: string; kind: unknown }) {
   };
   openSheet("ext");
   txt.focus();
+}
+
+// "Open from URL" bottom sheet (More ▸ Open from URL) — fetches a remote config.
+// No on-disk handle, so a later Save falls back to download (like the file path).
+function openUrlSheet() {
+  if (sheets.url.classList.contains("open")) return;
+  sheets.url.innerHTML =
+    '<div class="grab"></div>' +
+    `<div class="sheet-head"><h3>Open from URL</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
+    '<div class="sheet-body">' +
+    '<input class="url-input" type="url" inputmode="url" spellcheck="false" autocomplete="off" autocapitalize="off" placeholder="https://example.com/config.toml" />' +
+    '<div class="row-btns"><button class="btn" data-act="closesheet">Cancel</button>' +
+    '<button class="btn primary url-open">Open</button></div>' +
+    "</div>";
+  const inp = sheets.url.querySelector<HTMLInputElement>(".url-input")!;
+  const go = () => {
+    const url = inp.value.trim();
+    closeSheets();
+    if (url) void openFromUrl(url);
+  };
+  // Open is wired directly (no data-act) so shell delegation never double-fires.
+  sheets.url.querySelector<HTMLElement>(".url-open")!.onclick = go;
+  inp.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      go();
+    }
+  });
+  openSheet("url");
+  inp.focus();
 }
 
 // ---- grip reorder + tap (pointer flow; horizontal swipe removed) ----
@@ -1263,6 +1305,7 @@ async function main() {
   sheets.kind = app.querySelector(".kind-sheet")!;
   sheets.convert = app.querySelector(".convert-sheet")!;
   sheets.ext = app.querySelector(".ext-sheet")!;
+  sheets.url = app.querySelector(".url-sheet")!;
 
   restoreDetailWidth();
   installTreeGestures();

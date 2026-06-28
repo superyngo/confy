@@ -441,6 +441,11 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
   background: var(--panel); color: var(--fg); border: 1px solid var(--border-strong);
   border-radius: 8px; padding: 6px; font-family: var(--mono);
 }
+.modal-box input[type="url"] {
+  background: var(--panel); color: var(--fg); border: 1px solid var(--border-strong);
+  border-radius: 8px; padding: 8px; font-family: var(--mono); font-size: 13px;
+  width: 100%; box-sizing: border-box;
+}
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .modal-actions button {
   height: 32px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--border-strong);

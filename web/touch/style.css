@@ -479,6 +479,11 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none
   background:var(--panel);border:1px solid var(--accent);color:var(--fg);margin-bottom:14px;
 }
 .ext-text:focus-visible{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.url-input{
+  width:100%;box-sizing:border-box;padding:12px 14px;border-radius:13px;margin-bottom:14px;
+  font-family:var(--mono);font-size:16px;background:var(--panel);border:1px solid var(--accent);color:var(--fg);
+}
+.url-input:focus-visible{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
 
 /* ---- paste-armed FAB (after Copy/Cut): paste glyph + copy vs cut accent ---- */
 .fab.paste-copy{background:var(--t-string)}

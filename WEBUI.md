@@ -222,6 +222,9 @@ shapes round-trip). Key types:
   HTTP `Content-Type` header, then defaulting to TOML). The file opens with no on-disk
   handle, so Save falls back to Save As / download — identical to the file-input path.
   No CORS proxy is included; the remote server must send permissive CORS headers.
+  An explicit **"Open from URL"** entry point feeds the same `openFromUrl`: the desktop ⋯ More
+  menu opens a `#url-modal`, the touch More-actions sheet opens a `.url-sheet`. The local-file
+  Open button keeps its meaning (host file picker only).
 - **Theme.** A dark/light toggle (titlebar `☾`/`☀`) flips `:root[data-theme]`; CSS
   variables carry both palettes and the choice persists in `localStorage`.
 - **Responsive toolbar.** The toolbar holds a single right-side action button (**Save**,
