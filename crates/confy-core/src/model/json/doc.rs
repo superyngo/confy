@@ -129,7 +129,15 @@ impl JsonDocument {
     pub fn from_str(text: &str) -> anyhow::Result<Self> {
         let green = crate::model::json::parse::parse(text)
             .map_err(|e| anyhow::anyhow!("parsing JSON: {e}"))?;
-        let comments_enabled = text.contains("//") || text.contains("/*");
+        // Derived from the token stream, not raw text, so a `//` inside a string
+        // value does not count as a comment.
+        let comments_enabled = crate::model::json::parse::lex(text).iter().any(|(k, _)| {
+            matches!(
+                k,
+                crate::model::json::syntax::SyntaxKind::LINE_COMMENT
+                    | crate::model::json::syntax::SyntaxKind::BLOCK_COMMENT
+            )
+        });
         Ok(JsonDocument {
             syntax: SyntaxNode::new_root(green),
             original: text.to_string(),
@@ -232,6 +240,14 @@ mod tests {
     fn existing_comment_enables_support() {
         let doc = json_from_str(".json", "// hi\n{}\n");
         assert!(doc.supports_comments());
+    }
+
+    #[test]
+    fn slashes_inside_string_do_not_enable_comments() {
+        let doc = json_from_str(".json", "{\n  \"url\": \"https://a.com\"\n}\n");
+        assert!(!doc.supports_comments());
+        let doc = json_from_str(".json", "{\n  \"glob\": \"/* not a comment */\"\n}\n");
+        assert!(!doc.supports_comments());
     }
 
     #[test]

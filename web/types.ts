@@ -207,9 +207,3 @@ export type Intent =
   | "Undo" | "Redo"
   // Lifecycle
   | "Escape" | { PromptKey: string } | "QuitRequested" | "Save";
-
-/** Build an `Intent` value. Unit variants are passed as a bare string; tuple/
- *  struct variants as `{ Variant: payload }`. This helper keeps the UI terse. */
-export function intent<T extends Intent>(i: T): T {
-  return i;
-}

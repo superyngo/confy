@@ -5,8 +5,7 @@
 // shift-range `anchor`; the resolved set is handed to core via `SetSelection`,
 // which normalizes it and moves the cursor to the focal (last) path.
 import type { Path, SessionSnapshot } from "./types.js";
-
-const eq = (a: Path, b: Path) => JSON.stringify(a) === JSON.stringify(b);
+import { pathEq as eq } from "./path-utils.js";
 
 function visiblePaths(snap: SessionSnapshot): Path[] {
   return snap.rows.filter((r) => r.path.length > 0).map((r) => r.path);
@@ -31,6 +30,15 @@ let base: Path[] = [];
 export function setAnchor(p: Path | null, keep: Path[] = []): void {
   anchor = p;
   base = keep;
+}
+
+/**
+ * Drop the anchor + base entirely. Called when a new document replaces the
+ * session (openText), so a stale anchor from the previous document can't feed
+ * a shift-range over paths that no longer exist.
+ */
+export function resetAnchor(): void {
+  setAnchor(null);
 }
 
 interface Mods {

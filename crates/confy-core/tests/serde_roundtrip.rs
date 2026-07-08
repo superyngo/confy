@@ -1,9 +1,9 @@
 //! PORTING.md §7 exit gate #3: the types that cross the future WASM boundary
-//! (`Intent`, `ViewRow`, `Update`, `Mutation`) survive a `serde_json` round-trip.
+//! (`Intent`, `ViewRow`, `Mutation`) survive a `serde_json` round-trip.
 //! This rehearses the JS-interop contract before any WASM target exists.
 use confy_core::model::document::{KindTarget, Mutation, OnCollision, Target};
 use confy_core::model::node::{Format, Path, ScalarType, Seg};
-use confy_core::session::{Intent, Update, ViewRow};
+use confy_core::session::{Intent, ViewRow};
 
 fn roundtrip<T>(v: &T) -> T
 where
@@ -121,22 +121,6 @@ fn view_row_roundtrips() {
         is_cursor: true,
     };
     assert_roundtrip(&branch);
-}
-
-#[test]
-fn update_roundtrips() {
-    let u = Update {
-        rows_dirty: true,
-        status: Some("saved".into()),
-        error: Some("bad toml".into()),
-        quit: false,
-        external_edit: Some("initial text\n".into()),
-        convert_write: Some(("out.json".into(), "{}\n".into())),
-    };
-    assert_roundtrip(&u);
-
-    // Default (all-empty) also round-trips.
-    assert_roundtrip(&Update::default());
 }
 
 #[test]

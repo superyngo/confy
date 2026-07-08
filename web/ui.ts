@@ -9,7 +9,6 @@ import { load, Session } from "./confy.js";
 import {
   downloadText,
   extFor,
-  fetchUrlFile,
   fsAccessAvailable,
   pickOpenFile,
   pickSaveFile,
@@ -17,8 +16,27 @@ import {
   writeFile,
   type FsHandle,
 } from "./fs.js";
+import {
+  doConvertWrite,
+  doSaveAsCopy,
+  fileStem,
+  formatFromName,
+  initTheme,
+  openFromUrl,
+  openSaveConvert,
+  replaceSession,
+  toggleTheme,
+  type HostIo,
+} from "./host-io.js";
+import {
+  cycleSampleFormat,
+  inSampleMode,
+  loadSample,
+  setSampleMode,
+  type SampleFormat,
+} from "./samples.js";
 import { currentKindLabel, escapeHtml, IC_CARET, renderTree } from "./render.js";
-import { resolveClick, rowsInRect, setAnchor } from "./select.js";
+import { resolveClick, resetAnchor, rowsInRect, setAnchor } from "./select.js";
 import { installDnd } from "./dnd.js";
 import { panelHTML, wirePanel } from "./panel.js";
 import { typeFilterHTML, wireTypeFilter } from "./typefilter.js";
@@ -32,6 +50,7 @@ import {
 } from "./convert-dialog.js";
 import type {
   ConvertView,
+  ExternalEdit,
   Intent,
   ModeView,
   Path,
@@ -40,99 +59,6 @@ import type {
   ViewRow,
 } from "./types.js";
 
-// Workspace version stamped in at build time (see `build.mjs` `define`); falls
-// back to "dev" when the bundle is loaded without that define (e.g. raw serve).
-declare const __APP_VERSION__: string;
-const APP_VERSION =
-  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "dev";
-
-// Built-in demo doc — a self-describing intro to confy. All three carry the
-// *same* tree (identical keys/values/comments); only the dialect's notation and
-// comment marker differ, so cycling the header pill shows one config wearing
-// three outfits. The pill cycles these while the doc is the unsaved sample (see
-// `sampleMode`); opening or saving a real file leaves sample mode and freezes it.
-const SAMPLES: Record<"toml" | "json" | "yaml", string> = {
-  toml: `# 👋 Welcome to confy — a lossless editor for TOML · JSON · YAML
-# Click a row to select · drag the ⠿ grip to reparent · ⌘S to save
-
-[about]
-name = "confy"
-pitch = "Three config dialects, one tidy tree 🌳"
-version = "${APP_VERSION}"
-lossless = true    # untouched bytes round-trip byte-for-byte
-
-[basics]
-select = ["click = one", "shift-click = range", "cmd-click = toggle"]
-add_child = "hover a branch, hit the ＋"
-undo_redo = "z and y — we all fat-finger 🙃"
-
-[formats]
-toml = "tables, dotted keys, datetimes"
-json = "// comments quietly upgrade it to JSONC"
-yaml = "block + flow, plain-where-safe"
-
-[fun]
-emoji_welcome = true
-brackets_collected = ["{ }", "[ ]", "< >"]
-coffees_per_config = 3
-`,
-  json: `// 👋 Welcome to confy — a lossless editor for TOML · JSON · YAML
-// Click a row to select · drag the ⠿ grip to reparent · ⌘S to save
-{
-  "about": {
-    "name": "confy",
-    "pitch": "Three config dialects, one tidy tree 🌳",
-    "version": "${APP_VERSION}",
-    "lossless": true    // untouched bytes round-trip byte-for-byte
-  },
-  "basics": {
-    "select": ["click = one", "shift-click = range", "cmd-click = toggle"],
-    "add_child": "hover a branch, hit the ＋",
-    "undo_redo": "z and y — we all fat-finger 🙃"
-  },
-  "formats": {
-    "toml": "tables, dotted keys, datetimes",
-    "json": "// comments quietly upgrade it to JSONC",
-    "yaml": "block + flow, plain-where-safe"
-  },
-  "fun": {
-    "emoji_welcome": true,
-    "brackets_collected": ["{ }", "[ ]", "< >"],
-    "coffees_per_config": 3
-  }
-}
-`,
-  yaml: `# 👋 Welcome to confy — a lossless editor for TOML · JSON · YAML
-# Click a row to select · drag the ⠿ grip to reparent · ⌘S to save
-
-about:
-  name: confy
-  pitch: Three config dialects, one tidy tree 🌳
-  version: "${APP_VERSION}"
-  lossless: true    # untouched bytes round-trip byte-for-byte
-
-basics:
-  select: ["click = one", "shift-click = range", "cmd-click = toggle"]
-  add_child: hover a branch, hit the ＋
-  undo_redo: z and y — we all fat-finger 🙃
-
-formats:
-  toml: tables, dotted keys, datetimes
-  json: "// comments quietly upgrade it to JSONC"
-  yaml: block + flow, plain-where-safe
-
-fun:
-  emoji_welcome: true
-  brackets_collected: ["{ }", "[ ]", "< >"]
-  coffees_per_config: 3
-`,
-};
-// Pill-cycle order.
-const SAMPLE_ORDER: Array<"toml" | "json" | "yaml"> = ["toml", "json", "yaml"];
-// True while the open doc is the built-in sample (no backing file) — enables the
-// format pill toggle.
-let sampleMode = false;
-let sampleFormat: "toml" | "json" | "yaml" = "toml";
 
 let session: Session | null = null;
 let snap: SessionSnapshot | null = null;
@@ -147,7 +73,9 @@ let fileName: string | null = null;
 
 // ---- DOM ----
 function $<T extends HTMLElement = HTMLElement>(id: string): T {
-  return document.getElementById(id) as T;
+  const el = document.getElementById(id);
+  if (!el) throw new Error(`missing element #${id}`);
+  return el as T;
 }
 const tree = $<HTMLDivElement>("tree");
 const overlay = $("overlay");
@@ -165,10 +93,21 @@ const openBtn = $<HTMLButtonElement>("btnOpen");
 const saveBtn = $<HTMLButtonElement>("btnSave");
 const FS_AVAILABLE = fsAccessAvailable();
 
+// The host surface the shared I/O flows (host-io.ts) are parameterized on.
+const io: HostIo = {
+  fsAvailable: FS_AVAILABLE,
+  getSnap: () => snap,
+  send,
+  batch,
+  serialize: () => session?.serialize() ?? null,
+  getFileName: () => fileName,
+  ok: (msg) => setStatus(msg, ""),
+  err: (msg) => setStatus("", msg),
+};
+
 // ---- bootstrap ----
 async function main() {
   initTheme();
-  initTouchScaffolding();
   const wasmUrl = new URL("./pkg/confy_ffi_bg.wasm", import.meta.url);
   await load(wasmUrl);
   updateSaveLabel();
@@ -178,24 +117,16 @@ async function main() {
   if (startup) {
     openText(startup.text, formatFromName(startup.name), startup.handle, startup.name);
   } else if (urlParam) {
-    await openFromUrl(urlParam, false);
+    await openFromUrl(io, openText, urlParam);
   } else {
-    loadSample("toml");
+    loadSample("toml", openSample);
   }
   bindGlobal();
 }
 
-// Load the built-in sample in `format`, entering sample mode (pill toggle on).
-function loadSample(format: "toml" | "json" | "yaml") {
-  sampleFormat = format;
-  openText(SAMPLES[format], format, null, "sample", true);
-}
-
-// Cycle the sample doc to the next backend (pill click while in sample mode).
-function cycleSampleFormat() {
-  if (!sampleMode) return;
-  const next = SAMPLE_ORDER[(SAMPLE_ORDER.indexOf(sampleFormat) + 1) % SAMPLE_ORDER.length];
-  loadSample(next);
+// Opener the shared sample helpers (samples.ts) call back into.
+function openSample(text: string, format: SampleFormat) {
+  openText(text, format, null, "sample", true);
 }
 
 function openText(
@@ -205,34 +136,15 @@ function openText(
   name: string | null = null,
   asSample = false,
 ) {
-  session?.free();
-  try {
-    session = Session.fromText(text, format);
-  } catch (e) {
-    setStatus("", String((e as Error).message ?? e));
-    return;
-  }
+  const next = replaceSession(session, text, format, (msg) => setStatus("", msg));
+  if (!next) return;
+  session = next;
   fileHandle = handle;
   fileName = name;
-  sampleMode = asSample;
+  setSampleMode(asSample);
+  resetAnchor(); // a stale shift-range anchor must not survive the document swap
   snap = session.snapshot();
   render();
-}
-
-// ---- theme ----
-type Theme = "dark" | "light";
-function initTheme() {
-  const stored = localStorage.getItem("confy-theme");
-  applyTheme(stored === "light" ? "light" : "dark");
-}
-function applyTheme(theme: Theme) {
-  document.documentElement.dataset.theme = theme;
-}
-function toggleTheme() {
-  const cur: Theme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
-  const next: Theme = cur === "dark" ? "light" : "dark";
-  localStorage.setItem("confy-theme", next);
-  applyTheme(next);
 }
 
 // Switch between the interactive tree and the read-only serialized text. Raw is
@@ -264,8 +176,8 @@ function renderRawOrTree() {
 function render() {
   if (!snap || !session) return;
   fmtPill.textContent = snap.doc_format.toUpperCase();
-  fmtPill.classList.toggle("toggleable", sampleMode);
-  fmtPill.title = sampleMode ? "Sample — click to switch format" : "document format";
+  fmtPill.classList.toggle("toggleable", inSampleMode());
+  fmtPill.title = inSampleMode() ? "Sample — click to switch format" : "document format";
   document.body.classList.toggle("dirty", snap.is_dirty);
   document.body.classList.toggle("paste-mode", (snap.clipboard_count ?? 0) > 0);
   titleEl.textContent = fileName ?? "confy";
@@ -281,7 +193,7 @@ function render() {
   renderFooter();
   updateSaveLabel();
   if (snap.external_edit) openExternalEdit(snap.external_edit);
-  if (snap.convert_write) void doConvertWrite(snap.convert_write[0], snap.convert_write[1]);
+  if (snap.convert_write) void doConvertWrite(io, snap.convert_write[0], snap.convert_write[1]);
   if (snap.quit) {
     setStatus("", "quit (reload to reopen)");
   }
@@ -470,7 +382,6 @@ function renderFooter() {
 function onKey(ev: KeyboardEvent) {
   if (!session || !snap) return;
   if (!document.getElementById("ext-modal")!.classList.contains("hidden")) return;
-  if (!document.getElementById("load-modal")!.classList.contains("hidden")) return;
   if (!document.getElementById("url-modal")!.classList.contains("hidden")) return;
 
   const m = snap.mode;
@@ -501,7 +412,10 @@ function onKey(ev: KeyboardEvent) {
       if (ev.key === "Enter") return send("ConvertPickFormat");
     } else if (step === "Path") {
       if (ev.key === "Enter")
-        return runSaveConvertShared(snap!, { send, doSaveAsCopy });
+        return runSaveConvertShared(snap!, {
+          send,
+          doSaveAsCopy: (path: string) => doSaveAsCopy(io, path),
+        });
       if (ev.key === "Backspace") return send("ConvertPathBackspace");
       if (ev.key.length === 1) return send({ ConvertPathChar: ev.key });
     } else if (step === "Confirm") {
@@ -591,7 +505,36 @@ function onKey(ev: KeyboardEvent) {
 function send(i: Intent) {
   if (!session) return;
   snap = session.dispatch(i);
-  render();
+  if (!batching) render();
+}
+
+// Dispatch every `send` inside `fn` with a single render at the end, so a
+// multi-intent gesture (nav+select, per-branch toggles, save/convert seeding)
+// rebuilds the tree DOM once instead of once per intent.
+let batching = false;
+function batch(fn: () => void) {
+  if (batching) return fn(); // nested batches render at the outermost level
+  batching = true;
+  try {
+    fn();
+  } finally {
+    batching = false;
+    render();
+  }
+}
+
+// Path-keyed lookup into the current snapshot's rows, rebuilt lazily when the
+// snapshot changes (replaces the O(rows) `find` + JSON.stringify per candidate
+// that several hot paths — wheel, bool toggle, menus — used to run).
+let rowMap: Map<string, ViewRow> | null = null;
+let rowMapSnap: SessionSnapshot | null = null;
+function rowAt(path: Path): ViewRow | undefined {
+  if (!snap) return undefined;
+  if (rowMapSnap !== snap || !rowMap) {
+    rowMap = new Map(snap.rows.map((r) => [JSON.stringify(r.path), r]));
+    rowMapSnap = snap;
+  }
+  return rowMap.get(JSON.stringify(path));
 }
 
 // With a multi-selection, Enter toggles every selected branch (each independently,
@@ -683,7 +626,7 @@ async function doSave() {
         await writeFile(handle, text);
         fileHandle = handle;
         fileName = await deriveName(handle, fmt);
-        sampleMode = false; // now backed by a real file → freeze the format pill
+        setSampleMode(false); // now backed by a real file → freeze the format pill
         send("Save");
         setStatus("Saved", "");
         render();
@@ -708,29 +651,6 @@ async function deriveName(handle: FsHandle, fmt: string): Promise<string> {
   } catch {
     return fileName ?? "confy-export" + extFor(fmt);
   }
-}
-
-async function doConvertWrite(path: string, text: string) {
-  // The convert flow always produces a new file. Prefer Save As when the host
-  // supports it, else download.
-  const baseName = path.split("/").pop() ?? "confy-converted";
-  if (FS_AVAILABLE) {
-    const fmt = snap?.doc_format ?? "Toml";
-    const outExt = extFor(path.endsWith(".json") ? "Json" : path.endsWith(".yaml") || path.endsWith(".yml") ? "Yaml" : "Toml");
-    const handle = await pickSaveFile(fmt, baseName.endsWith(outExt) ? baseName : baseName + outExt);
-    if (handle) {
-      try {
-        await writeFile(handle, text);
-        setStatus(`Converted → ${(await handle.getFile()).name}`, "");
-        return;
-      } catch (e) {
-        setStatus("", `convert write failed: ${String((e as Error).message ?? e)}`);
-        return;
-      }
-    }
-    return; // cancelled
-  }
-  downloadText(baseName, text);
 }
 
 // Open: the FS Access API picker where available (keeps a handle for in-place
@@ -761,41 +681,6 @@ function openViaFileInput() {
     tree.focus();
   };
   input.click();
-}
-
-function formatFromName(name: string): "toml" | "json" | "yaml" {
-  return name.endsWith(".json") || name.endsWith(".jsonc")
-    ? "json"
-    : name.endsWith(".yaml") || name.endsWith(".yml")
-      ? "yaml"
-      : "toml";
-}
-
-// Like formatFromName, but falls back to the HTTP Content-Type when the URL's
-// last path segment has no recognizable extension (defaults to toml).
-function formatFromNameOrType(
-  name: string,
-  contentType: string | null,
-): "toml" | "json" | "yaml" {
-  if (/\.(toml|json|jsonc|ya?ml)$/i.test(name)) return formatFromName(name);
-  const ct = (contentType ?? "").toLowerCase();
-  if (ct.includes("json")) return "json";
-  if (ct.includes("yaml")) return "yaml";
-  if (ct.includes("toml")) return "toml";
-  return "toml";
-}
-
-// Open a config file fetched from a URL. No on-disk handle, so a later Save
-// falls back to Save As / download (same as the file-input path).
-async function openFromUrl(url: string, focus = true): Promise<void> {
-  try {
-    const { name, text, contentType } = await fetchUrlFile(url);
-    const fmt = formatFromNameOrType(name, contentType);
-    openText(text, fmt, null, name);
-    if (focus) tree.focus();
-  } catch (e) {
-    setStatus("", `Open URL failed: ${String((e as Error).message ?? e)}`);
-  }
 }
 
 // Show the "Open from URL" modal (More ▸ Open from URL). Confirm/Esc are wired
@@ -1242,50 +1127,11 @@ function bindSearch() {
   });
 }
 
-// The open file's stem (no directory, no extension) — the suggested output name.
-function fileStem(): string {
-  const base = (fileName ?? "config").split("/").pop()!;
-  const dot = base.lastIndexOf(".");
-  return dot > 0 ? base.slice(0, dot) : base;
-}
-// Open the unified "Save / Convert" panel from the root node. `open_convert`
-// leaves `target` = the current format (the panel's default), so the dialog
-// opens on "save in the current format"; seed the output name from the open
-// file's stem (core would otherwise default to "out.<ext>").
-function openSaveConvert() {
-  send({ SetCursor: [] });
-  send("OpenConvert");
-  send({ SetConvertPath: fileStem() + extForTag(snap?.doc_format ?? "Toml") });
-}
-
-// Faithful "save a copy" of the live document (byte-for-byte `serialize()`),
-// used when the panel's format equals the open format. Like convert, it writes
-// an export copy and does not adopt the handle (the toolbar Save owns in-place).
-async function doSaveAsCopy(path: string) {
-  if (!session) return;
-  const text = session.serialize();
-  const fmt = snap!.doc_format;
-  const baseName = path.split("/").pop() || "confy-export" + extFor(fmt);
-  send("ExitConvert");
-  if (FS_AVAILABLE) {
-    const handle = await pickSaveFile(fmt, baseName);
-    if (!handle) return;
-    try {
-      await writeFile(handle, text);
-      setStatus(`Saved copy → ${(await handle.getFile()).name}`, "");
-    } catch (e) {
-      setStatus("", `save failed: ${String((e as Error).message ?? e)}`);
-    }
-    return;
-  }
-  downloadText(baseName, text);
-}
-
 function bindConvertDialog() {
   wireConvertDialog(convRefs(), {
     send,
-    fileStem,
-    doSaveAsCopy,
+    fileStem: () => fileStem(io),
+    doSaveAsCopy: (path: string) => doSaveAsCopy(io, path),
     getSnap: () => snap,
   });
 }
@@ -1333,8 +1179,8 @@ function bindGlobal() {
   bindSearch();
   bindConvertDialog();
   openBtn.addEventListener("click", () => void doOpen());
-  saveBtn.addEventListener("click", openSaveConvert);
-  fmtPill.addEventListener("click", cycleSampleFormat); // no-op unless in sample mode
+  saveBtn.addEventListener("click", () => openSaveConvert(io));
+  fmtPill.addEventListener("click", () => cycleSampleFormat(openSample)); // no-op unless in sample mode
   themeBtn.addEventListener("click", toggleTheme);
   $("btnMore").addEventListener("click", (e) => {
     // Toggle: a second click on ⋯ while its menu is open closes it.
@@ -1353,28 +1199,6 @@ function bindGlobal() {
   $("btnViewTree").addEventListener("click", () => setView(false));
   $("btnViewRaw").addEventListener("click", () => setView(true));
 
-  $("load-confirm").addEventListener("click", () => {
-    const fmt = ($("load-format") as HTMLSelectElement).value as
-      | "toml" | "json" | "yaml";
-    const text = ($("load-text") as HTMLTextAreaElement).value;
-    $("load-modal").classList.add("hidden");
-    openText(text, fmt);
-    tree.focus();
-  });
-  const closeLoadModal = () => {
-    $("load-modal").classList.add("hidden");
-    tree.focus();
-  };
-  $("load-cancel").addEventListener("click", closeLoadModal);
-  // Esc closes the load modal (onKey early-returns while it's open, so it needs
-  // its own handler — mirrors the external-edit modal's Esc-to-cancel).
-  $("load-modal").addEventListener("keydown", (e) => {
-    if (e.key !== "Escape") return;
-    e.preventDefault();
-    e.stopPropagation();
-    closeLoadModal();
-  });
-
   const closeUrlModal = () => {
     $("url-modal").classList.add("hidden");
     tree.focus();
@@ -1382,7 +1206,7 @@ function bindGlobal() {
   $("url-confirm").addEventListener("click", () => {
     const url = $<HTMLInputElement>("url-input").value.trim();
     $("url-modal").classList.add("hidden");
-    if (url) void openFromUrl(url);
+    if (url) void openFromUrl(io, openText, url);
   });
   $("url-cancel").addEventListener("click", closeUrlModal);
   // Enter confirms, Esc cancels (onKey early-returns while the modal is open).
@@ -1487,7 +1311,6 @@ function selectForMenu(path: Path) {
 function noModalOpen(): boolean {
   return (
     document.getElementById("ext-modal")!.classList.contains("hidden") &&
-    document.getElementById("load-modal")!.classList.contains("hidden") &&
     document.getElementById("url-modal")!.classList.contains("hidden")
   );
 }

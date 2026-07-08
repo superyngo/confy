@@ -38,7 +38,8 @@ import {
   isFirefoxIos,
   type OpenedFile,
 } from "../fs.js";
-import { IC, esc, treeHTML, isExpanded, pathEq } from "./render.js";
+import { IC, esc, treeHTML, isExpanded } from "./render.js";
+import { pathEq } from "../path-utils.js";
 import { panelHTML, wirePanel } from "../panel.js";
 import { typeFilterHTML, wireTypeFilter } from "../typefilter.js";
 import {

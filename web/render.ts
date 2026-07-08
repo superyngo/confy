@@ -9,6 +9,12 @@
 // the snapshot and nothing else; the affordances it draws are wired in later
 // phases (kind popover, context menu, drag-reparent).
 import type { EditView, SessionSnapshot, ViewRow } from "./types.js";
+import { escapeHtml } from "./escape.js";
+import { CONTAINER_NOTE, notationGlyph, valueTypeClass } from "./kind-labels.js";
+
+// Re-export so existing importers (ui.ts / typefilter.ts / convert-dialog.ts)
+// keep their entry point; the single quote-safe escaper lives in escape.ts.
+export { escapeHtml } from "./escape.js";
 
 // A positional node (array element / AoT entry) is addressed by `Seg::Index`; it
 // is keyless and renders as the faint "—" placeholder (core hands us a display
@@ -16,44 +22,6 @@ import type { EditView, SessionSnapshot, ViewRow } from "./types.js";
 function isPositional(r: ViewRow): boolean {
   const last = r.path[r.path.length - 1];
   return last !== undefined && "Index" in last;
-}
-
-export function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-// Escape a string for use inside a double-quoted HTML attribute. `escapeHtml`
-// alone leaves `"` intact, which truncates an attribute like
-// `data-path="[{"Key":…}]"` at the first quote — so `dataset.path` came back as
-// `[{` and `JSON.parse` threw, silently killing every row click. We additionally
-// encode `"` so the JSON survives the round-trip through the DOM.
-function escapeAttr(s: string): string {
-  return escapeHtml(s).replace(/"/g, "&quot;");
-}
-
-// Value-type color class (design tokens `--t-*`). Numbers share one hue.
-export function valueTypeClass(r: ViewRow): string {
-  switch (r.scalar_type) {
-    case "String":
-      return "t-string";
-    case "Integer":
-    case "Float":
-      return "t-number";
-    case "Bool":
-      return "t-bool";
-    case "Null":
-      return "t-null";
-    case "OffsetDatetime":
-    case "LocalDatetime":
-    case "LocalDate":
-    case "LocalTime":
-      return "t-date";
-    default:
-      return "";
-  }
 }
 
 // --- inline SVGs (mirrors the design's IC table) ---
@@ -86,52 +54,8 @@ const KIND_SHORT: Record<string, string> = {
   localtime: "time",
 };
 
-// Short notation glyph for a scalar's `Format` (design's NOTATION_SHORT). Plain
-// notations (Basic/Decimal/Plain/Block…) carry no badge suffix.
-const NOTATION_SHORT: Record<string, string> = {
-  BasicString: '"…"',
-  Decimal: "dec",
-  Literal: "'…'",
-  MultilineBasic: '"""',
-  MultilineLiteral: "'''",
-  Multiline: '"""',
-  Hex: "0x",
-  Octal: "0o",
-  Binary: "0b",
-  Exponent: "1e",
-  SingleQuoted: "'…'",
-  DoubleQuoted: '"…"',
-  LiteralBlock: "|",
-  Folded: ">",
-  Inf: "inf",
-  Nan: "nan",
-};
-
-// Short notation glyph for a *container's* `Format` — the TUI's [T/S], [T/D],
-// [A/M] etc. distinctions. A container's notation isn't implied by its type
-// label alone (a TOML table can be a `[header]` scope or a dotted `a.b` table),
-// so we surface it as a suffix just like scalars.
-const CONTAINER_NOTE: Record<string, string> = {
-  Scope: "scope", // TOML standard [header] table
-  Dotted: "dotted", // TOML dotted-key table (a.b.c)
-  Inline: "inline", // TOML inline table / inline array
-  Multiline: "multi", // TOML multiline array
-  Block: "block", // YAML block map/seq
-  Flow: "flow", // YAML flow map/seq
-};
-
-// The bare notation glyph for a row (no markup), or "" when the type label is
-// already complete. Shared by the kind badge and the popup's "current" header.
-function notationGlyph(r: ViewRow): string {
-  if (r.is_branch) return CONTAINER_NOTE[r.format] ?? "";
-  const s = NOTATION_SHORT[r.format];
-  if (s) return s;
-  // A plain float shares `Format::Plain` with bool/datetime/null (each a
-  // single-style scalar), so it can't be keyed by format alone — resolve it by
-  // scalar type. The single-style scalars stay bare (the type label is complete).
-  if (r.scalar_type === "Float" && r.format === "Plain") return "dec";
-  return "";
-}
+// NOTATION_SHORT / CONTAINER_NOTE / notationGlyph / valueTypeClass live in the
+// shared kind-labels.ts (also used by panel.ts and touch/render.ts).
 
 function notationSuffix(r: ViewRow): string {
   const s = notationGlyph(r);
@@ -170,7 +94,7 @@ function valueEditSeed(r: ViewRow, buffer: string): string {
 
 function renderValue(r: ViewRow, edit: EditView | null): string {
   if (edit && r.is_cursor && edit.field === "Value") {
-    return `<input class="cell-input mono" data-editing="value" value="${escapeAttr(valueEditSeed(r, edit.buffer))}" />`;
+    return `<input class="cell-input mono" data-editing="value" value="${escapeHtml(valueEditSeed(r, edit.buffer))}" />`;
   }
   // Collapse newlines so a multiline value stays on one row (it would otherwise
   // break the flexbox and push the kind badge off, making it unclickable). The
@@ -201,7 +125,7 @@ function renderRow(
   edit: EditView | null,
   clip: "" | " clip-copy" | " clip-cut",
 ): string {
-  const pathAttr = escapeAttr(JSON.stringify(r.path));
+  const pathAttr = escapeHtml(JSON.stringify(r.path));
   const comment = isCommentRow(r);
   const expanded = r.is_branch && isExpanded(rows, idx);
   const cls =
@@ -224,7 +148,7 @@ function renderRow(
   if (comment) {
     if (edit && r.is_cursor && edit.field === "Value") {
       // Single-line comment → inline editor (multi-line routes to the popup).
-      s += `<input class="cell-input mono comment-input" data-editing="comment" value="${escapeAttr(edit.buffer)}" />`;
+      s += `<input class="cell-input mono comment-input" data-editing="comment" value="${escapeHtml(edit.buffer)}" />`;
     } else {
       // Show only the first line in the row; the full multi-line text lives in
       // the detail panel (i). A trailing `…` marks a comment that continues.
@@ -243,7 +167,7 @@ function renderRow(
     if (isPositional(r)) {
       s += `<span class="key elem">${escapeHtml(r.key)}</span>`;
     } else if (edit && r.is_cursor && edit.field === "Name") {
-      s += `<input class="cell-input key-input mono" data-editing="name" value="${escapeAttr(edit.buffer)}" />`;
+      s += `<input class="cell-input key-input mono" data-editing="name" value="${escapeHtml(edit.buffer)}" />`;
     } else if (r.key) {
       s += `<span class="key" data-edit="key">${escapeHtml(r.key)}</span>`;
     }

@@ -6,15 +6,15 @@ import init, {
 } from "./pkg/confy_ffi.js";
 import type {
   Intent,
+  KindOptionView,
   Path,
   SessionSnapshot,
   ViewRow,
 } from "./types.js";
 
-export interface KindOption {
-  label: string;
-  target: string;
-}
+// The per-node convertible-kind entry is the serde `KindOptionView` from
+// types.ts; re-exported under this module's traditional name.
+export type KindOption = KindOptionView;
 
 let bootstrapped = false;
 

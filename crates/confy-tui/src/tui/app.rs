@@ -332,15 +332,13 @@ impl App {
         self.session.convert_path_end();
     }
     pub fn convert_run(&mut self) {
-        let update = self.session.convert_run();
-        if let Some((path, text)) = update.convert_write {
+        if let Some((path, text)) = self.session.convert_run() {
             self.convert_write(&path, &text);
         }
         self.rebuild_rows();
     }
     pub fn convert_confirm(&mut self) {
-        let update = self.session.convert_confirm();
-        if let Some((path, text)) = update.convert_write {
+        if let Some((path, text)) = self.session.convert_confirm() {
             self.convert_write(&path, &text);
         }
         self.rebuild_rows();

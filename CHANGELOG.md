@@ -30,6 +30,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is fully preserved. Build with `cargo tauri build` from `crates/confy-tauri` (Windows must be built
   on a Windows host). (2026-06-27)
 
+### Changed
+- **chore: audit-driven optimization pass (partial).** A workspace-wide read-only audit produced a
+  ranked list of correctness/perf/dedup findings; this lands the first, verified subset (build +
+  clippy + `tsc` + web bundle all green, net ~−300 lines). **Correctness:** JSONC comment-capability
+  is now derived from the lexer token stream, not raw `text.contains("//")`, so a `//` inside a JSON
+  string value no longer silently enables comments (A1); a float→float `K` switch to plain notation
+  keeps its `.0` so `1.5e3` renders `1500.0` rather than being reclassified as Integer (B9); JSON
+  remark/edit-comment resolve the target by node identity instead of text equality, so duplicate-text
+  siblings mutate the right node (B10); the Web `dispatch()` now snaps the cursor onto a visible row
+  after a structural change, mirroring the TUI (B11). **Performance:** `NodeTree::node_at` descends
+  segment-by-segment (O(depth)) instead of scanning the whole tree (A2); YAML/JSON `apply` threads a
+  single projection/index instead of re-projecting per lookup (A4). **Cleanup:** dead `Update`
+  transport struct removed; the unreachable Web paste-load modal deleted; shared Web modules
+  extracted (`escape.ts`, `samples.ts`, `host-io.ts`, `path-utils.ts`, `kind-labels.ts`) to
+  de-duplicate the desktop/touch orchestrators; touch trailing comments no longer render a doubled
+  comment marker (B8); the convert Save-As picker now uses the target format's filter (B12).
+  Remaining audit items (session/TUI dedup A5/B15/B17/C7, `SkimMatcherV2` caching B2, YAML
+  `splice_byte_range` dedup B14, and touch-side host-io adoption) are tracked for a follow-up.
+  (2026-07-08)
+
 ## [v0.11.2] - 2026-06-27
 
 ### Changed

@@ -2,7 +2,7 @@ use crate::model::any_doc::AnyDocument;
 use crate::model::document::{
     ConfigDocument, DocFormat, MutateError, Mutation, OnCollision, Target,
 };
-use crate::model::node::{Format, KeySign, NodeKind, NodeTree, Path, ScalarType, Seg};
+use crate::model::node::{Format, KeySign, NodeKind, NodeTree, Path, ScalarType, Seg, VisibleRow};
 use crate::session::search::{fuzzy_match, haystack};
 use crate::session::selection::Selection;
 use crate::session::state::{
@@ -10,7 +10,7 @@ use crate::session::state::{
     PasteSlot, PendingComment, PendingCommit, PendingExternalEdit, PromptKind,
 };
 use crate::session::type_filter::TypeFilter;
-use crate::session::view::{Update, ViewRow};
+use crate::session::view::ViewRow;
 use std::collections::HashSet;
 
 pub struct Session {
@@ -41,37 +41,21 @@ pub struct Session {
     pub pending_external_edit: Option<PendingExternalEdit>,
 }
 
+/// Paste-mode slot navigation step: a relative move or a jump to either edge.
+enum SlotMove {
+    Delta(isize),
+    Home,
+    End,
+}
+
 impl Session {
     /// Construct a Session backed by a real document.
     pub fn new(doc: AnyDocument) -> Self {
         let tree = doc.project();
-        let initial_snapshot = doc.serialize();
-        let history = History::new(initial_snapshot);
-        let mut s = Session {
-            tree,
-            doc: Some(doc),
-            cursor: Vec::new(),
-            expanded: HashSet::new(),
-            selection: Selection::new(),
-            last_action_was_shift_select: false,
-            history: Some(history),
-            status: None,
-            error: None,
-            mode: Mode::Normal,
-            clipboard: None,
-            paste_slot: None,
-            filter: String::new(),
-            filter_cursor: 0,
-            last_filter: String::new(),
-            filtered_paths: None,
-            type_filter: TypeFilter::default(),
-            last_filter_applied: None,
-            detail_text: None,
-            pending_edit: None,
-            pending_trailing: None,
-            pending_external_edit: None,
-        };
-        s.expanded.insert(Vec::new());
+        let history = History::new(doc.serialize());
+        let mut s = Session::from_tree(tree);
+        s.doc = Some(doc);
+        s.history = Some(history);
         s
     }
 
@@ -106,13 +90,25 @@ impl Session {
 
     // ---- Visible rows (pure) ----
 
+    /// Pure: flatten the tree through the expand set and filter — borrowed
+    /// rows, zero clones. Cursor/selection/lookup helpers use this;
+    /// `visible_rows` builds the owned `ViewRow` transport on top of it.
+    fn visible_nodes(&self) -> Vec<VisibleRow<'_>> {
+        let expanded = &self.expanded;
+        let rows = self.tree.flatten(&|p| expanded.contains(p));
+        match &self.filtered_paths {
+            Some(fp) => rows
+                .into_iter()
+                .filter(|r| fp.contains(&r.node.path))
+                .collect(),
+            None => rows,
+        }
+    }
+
     /// Pure: flatten the tree through the expand set and filter, baking in
     /// selection + cursor flags. No side effects.
     pub fn visible_rows(&self) -> Vec<ViewRow> {
-        let expanded = &self.expanded;
-        let rows: Vec<ViewRow> = self
-            .tree
-            .flatten(&|p| expanded.contains(p))
+        self.visible_nodes()
             .into_iter()
             .map(|r| {
                 let scalar_type = match &r.node.kind {
@@ -136,29 +132,23 @@ impl Session {
                     is_cursor: r.node.path == self.cursor,
                 }
             })
-            .collect();
-        if let Some(ref fp) = self.filtered_paths {
-            rows.into_iter().filter(|r| fp.contains(&r.path)).collect()
-        } else {
-            rows
-        }
+            .collect()
     }
 
-    /// Stateful rebuild: compute visible rows, snap cursor, clear stale paste/selection.
+    /// Stateful rebuild: compute visible rows, snap cursor, clear stale paste slot.
     /// Returns the new rows for the host to map to RowSnapshot.
     pub fn compute_rows(&mut self) -> Vec<ViewRow> {
-        let prev_index = {
-            let rows = self.visible_rows();
-            rows.iter().position(|r| r.path == self.cursor)
-        };
         let rows = self.visible_rows();
         // Snap cursor if path is no longer visible.
         if !rows.iter().any(|r| r.path == self.cursor) {
-            let i = prev_index.unwrap_or(0).min(rows.len().saturating_sub(1));
-            self.cursor = rows.get(i).map(|r| r.path.clone()).unwrap_or_default();
+            self.cursor = rows.first().map(|r| r.path.clone()).unwrap_or_default();
         }
-        if self.clipboard.is_some() {
-            self.paste_slot = None;
+        // Drop a paste slot whose row is no longer visible (stale after a
+        // structural change); a still-valid slot survives paste-mode navigation.
+        if let Some(PasteSlot::Into(p) | PasteSlot::After(p)) = &self.paste_slot {
+            if !rows.iter().any(|r| &r.path == p) {
+                self.paste_slot = None;
+            }
         }
         rows
     }
@@ -167,28 +157,35 @@ impl Session {
 
     /// Ordered paths of the currently visible rows.
     pub fn visible_paths(&self) -> Vec<Path> {
-        self.visible_rows().iter().map(|r| r.path.clone()).collect()
+        self.visible_nodes()
+            .iter()
+            .map(|r| r.node.path.clone())
+            .collect()
     }
 
     /// Path the cursor is on, if visible.
     pub fn cursor_row_path(&self) -> Option<Path> {
-        let rows = self.visible_rows();
-        rows.iter()
-            .find(|r| r.path == self.cursor)
-            .map(|r| r.path.clone())
+        self.visible_nodes()
+            .iter()
+            .find(|r| r.node.path == self.cursor)
+            .map(|r| r.node.path.clone())
     }
 
     /// Cursor's visible-row index.
     pub fn cursor_row_index(&self) -> Option<usize> {
-        self.visible_rows()
+        self.visible_nodes()
             .iter()
-            .position(|r| r.path == self.cursor)
+            .position(|r| r.node.path == self.cursor)
     }
 
     /// Place the cursor on a visible row by path (pointer analogue of
     /// `select_row`). No-op if the path is not currently visible.
     pub fn set_cursor(&mut self, path: Path) {
-        if self.visible_paths().contains(&path) {
+        let visible = self
+            .visible_nodes()
+            .iter()
+            .any(|r| r.node.path == path);
+        if visible {
             self.cursor = path;
         }
     }
@@ -197,34 +194,45 @@ impl Session {
 
     pub fn cursor_down(&mut self) {
         if self.clipboard.is_some() {
-            self.move_paste_slot(1);
+            self.move_paste_slot(SlotMove::Delta(1));
             return;
         }
-        let rows = self.visible_rows();
-        let idx = rows.iter().position(|r| r.path == self.cursor).unwrap_or(0);
-        if idx + 1 < rows.len() {
-            self.cursor = rows[idx + 1].path.clone();
+        let rows = self.visible_nodes();
+        let idx = rows
+            .iter()
+            .position(|r| r.node.path == self.cursor)
+            .unwrap_or(0);
+        let next = rows.get(idx + 1).map(|r| r.node.path.clone());
+        if let Some(p) = next {
+            self.cursor = p;
         }
     }
 
     pub fn cursor_up(&mut self) {
         if self.clipboard.is_some() {
-            self.move_paste_slot(-1);
+            self.move_paste_slot(SlotMove::Delta(-1));
             return;
         }
-        let rows = self.visible_rows();
-        let idx = rows.iter().position(|r| r.path == self.cursor).unwrap_or(0);
-        if idx > 0 {
-            self.cursor = rows[idx - 1].path.clone();
+        let rows = self.visible_nodes();
+        let idx = rows
+            .iter()
+            .position(|r| r.node.path == self.cursor)
+            .unwrap_or(0);
+        let prev = idx
+            .checked_sub(1)
+            .and_then(|i| rows.get(i))
+            .map(|r| r.node.path.clone());
+        if let Some(p) = prev {
+            self.cursor = p;
         }
     }
 
     pub fn toggle_expand(&mut self) {
-        let rows = self.visible_rows();
+        let rows = self.visible_nodes();
         let Some((is_branch, path)) = rows
             .iter()
-            .find(|r| r.path == self.cursor)
-            .map(|r| (r.is_branch, r.path.clone()))
+            .find(|r| r.node.path == self.cursor)
+            .map(|r| (r.node.is_branch(), r.node.path.clone()))
         else {
             return;
         };
@@ -253,9 +261,9 @@ impl Session {
     }
 
     pub fn expand_level(&mut self) {
-        let rows = self.visible_rows();
-        let base = match rows.iter().find(|r| r.path == self.cursor) {
-            Some(r) if r.is_branch => r.path.clone(),
+        let rows = self.visible_nodes();
+        let base = match rows.iter().find(|r| r.node.path == self.cursor) {
+            Some(r) if r.node.is_branch() => r.node.path.clone(),
             _ => return,
         };
         let mut branches: Vec<Path> = Vec::new();
@@ -282,9 +290,9 @@ impl Session {
     }
 
     pub fn collapse_level(&mut self) {
-        let rows = self.visible_rows();
-        let (path, is_branch) = match rows.iter().find(|r| r.path == self.cursor) {
-            Some(r) => (r.path.clone(), r.is_branch),
+        let rows = self.visible_nodes();
+        let (path, is_branch) = match rows.iter().find(|r| r.node.path == self.cursor) {
+            Some(r) => (r.node.path.clone(), r.node.is_branch()),
             None => return,
         };
         let is_open_branch = is_branch && self.expanded.contains(&path);
@@ -302,66 +310,76 @@ impl Session {
     pub fn page_up(&mut self, page_size: usize) {
         let step = page_size.max(1);
         if self.clipboard.is_some() {
-            self.move_paste_slot(-(step as isize));
+            self.move_paste_slot(SlotMove::Delta(-(step as isize)));
             return;
         }
-        let rows = self.visible_rows();
+        let rows = self.visible_nodes();
         let idx = rows
             .iter()
-            .position(|r| r.path == self.cursor)
+            .position(|r| r.node.path == self.cursor)
             .unwrap_or(0)
             .saturating_sub(step);
-        if let Some(r) = rows.get(idx) {
-            self.cursor = r.path.clone();
+        let target = rows.get(idx).map(|r| r.node.path.clone());
+        if let Some(p) = target {
+            self.cursor = p;
         }
     }
 
     pub fn page_down(&mut self, page_size: usize) {
         let step = page_size.max(1);
         if self.clipboard.is_some() {
-            self.move_paste_slot(step as isize);
+            self.move_paste_slot(SlotMove::Delta(step as isize));
             return;
         }
-        let rows = self.visible_rows();
+        let rows = self.visible_nodes();
         let max = rows.len().saturating_sub(1);
-        let idx = (rows.iter().position(|r| r.path == self.cursor).unwrap_or(0) + step).min(max);
-        if let Some(r) = rows.get(idx) {
-            self.cursor = r.path.clone();
+        let idx = (rows
+            .iter()
+            .position(|r| r.node.path == self.cursor)
+            .unwrap_or(0)
+            + step)
+            .min(max);
+        let target = rows.get(idx).map(|r| r.node.path.clone());
+        if let Some(p) = target {
+            self.cursor = p;
         }
     }
 
     pub fn cursor_home(&mut self) {
         if self.clipboard.is_some() {
-            self.move_paste_slot(isize::MIN / 2);
+            self.move_paste_slot(SlotMove::Home);
             return;
         }
-        let rows = self.visible_rows();
-        if let Some(r) = rows.first() {
-            self.cursor = r.path.clone();
+        let first = self
+            .visible_nodes()
+            .first()
+            .map(|r| r.node.path.clone());
+        if let Some(p) = first {
+            self.cursor = p;
         }
     }
 
     pub fn cursor_end(&mut self) {
         if self.clipboard.is_some() {
-            self.move_paste_slot(isize::MAX / 2);
+            self.move_paste_slot(SlotMove::End);
             return;
         }
-        let rows = self.visible_rows();
-        if let Some(r) = rows.last() {
-            self.cursor = r.path.clone();
+        let last = self.visible_nodes().last().map(|r| r.node.path.clone());
+        if let Some(p) = last {
+            self.cursor = p;
         }
     }
 
     // ---- Paste-mode insertion slots ----
 
     pub fn paste_slots(&self) -> Vec<PasteSlot> {
-        let rows = self.visible_rows();
+        let rows = self.visible_nodes();
         let mut slots = Vec::with_capacity(rows.len() * 2);
         for row in rows.iter() {
-            if row.is_branch {
-                slots.push(PasteSlot::Into(row.path.clone()));
+            if row.node.is_branch() {
+                slots.push(PasteSlot::Into(row.node.path.clone()));
             }
-            slots.push(PasteSlot::After(row.path.clone()));
+            slots.push(PasteSlot::After(row.node.path.clone()));
         }
         slots
     }
@@ -372,15 +390,21 @@ impl Session {
             .unwrap_or_else(|| PasteSlot::After(self.cursor.clone()))
     }
 
-    fn move_paste_slot(&mut self, delta: isize) {
+    fn move_paste_slot(&mut self, mv: SlotMove) {
         let slots = self.paste_slots();
         if slots.is_empty() {
             return;
         }
-        let cur = self.effective_paste_slot();
-        let idx = slots.iter().position(|s| *s == cur).unwrap_or(0) as isize;
-        let max = slots.len() as isize - 1;
-        let next = (idx + delta).clamp(0, max) as usize;
+        let max = slots.len() - 1;
+        let next = match mv {
+            SlotMove::Home => 0,
+            SlotMove::End => max,
+            SlotMove::Delta(delta) => {
+                let cur = self.effective_paste_slot();
+                let idx = slots.iter().position(|s| *s == cur).unwrap_or(0) as isize;
+                (idx + delta).clamp(0, max as isize) as usize
+            }
+        };
         let slot = slots[next].clone();
         self.cursor = match &slot {
             PasteSlot::Into(p) | PasteSlot::After(p) => p.clone(),
@@ -389,27 +413,22 @@ impl Session {
     }
 
     pub fn slot_target(&self, slot: PasteSlot) -> Option<Target> {
-        let rows = self.visible_rows();
+        let rows = self.visible_nodes();
         match slot {
             PasteSlot::Into(p) => {
-                let row = rows.iter().find(|r| r.path == p)?;
-                let index = self
-                    .tree
-                    .node_at(&row.path)
-                    .map(|n| n.children.len())
-                    .unwrap_or(0);
+                let row = rows.iter().find(|r| r.node.path == p)?;
                 Some(Target {
-                    parent: row.path.clone(),
-                    index,
+                    parent: row.node.path.clone(),
+                    index: row.node.children.len(),
                 })
             }
             PasteSlot::After(p) => {
-                let row = rows.iter().find(|r| r.path == p)?;
-                let expanded = self.expanded.contains(&row.path);
-                let sibling_index = self.true_sibling_index(&row.path);
+                let row = rows.iter().find(|r| r.node.path == p)?;
+                let expanded = self.expanded.contains(&row.node.path);
+                let sibling_index = self.true_sibling_index(&row.node.path);
                 Some(crate::session::insertion::resolve_target(
-                    &row.path,
-                    row.is_branch,
+                    &row.node.path,
+                    row.node.is_branch(),
                     expanded,
                     sibling_index,
                 ))
@@ -650,11 +669,14 @@ impl Session {
     // ---- Kind switch (K) ----
 
     pub fn open_kind_switch(&mut self) {
-        let rows = self.visible_rows();
-        let Some(row) = rows.iter().find(|r| r.path == self.cursor) else {
+        let Some(path) = self
+            .visible_nodes()
+            .iter()
+            .find(|r| r.node.path == self.cursor)
+            .map(|r| r.node.path.clone())
+        else {
             return;
         };
-        let path = row.path.clone();
         let Some(doc) = &self.doc else {
             return;
         };
@@ -728,11 +750,15 @@ impl Session {
     // ---- Document conversion (C) — pure orchestration; host does the fs write ----
 
     pub fn open_convert(&mut self) {
-        let rows = self.visible_rows();
-        let Some(row) = rows.iter().find(|r| r.path == self.cursor) else {
+        let Some(is_root) = self
+            .visible_nodes()
+            .iter()
+            .find(|r| r.node.path == self.cursor)
+            .map(|r| r.node.path.is_empty())
+        else {
             return;
         };
-        if !row.path.is_empty() {
+        if !is_root {
             self.error = Some("convert: move to the root/file node first (key C)".into());
             return;
         }
@@ -773,11 +799,7 @@ impl Session {
                 return;
             };
             st.target = target;
-            let ext = match target {
-                DocFormat::Toml => "toml",
-                DocFormat::Json => "json",
-                DocFormat::Yaml => "yaml",
-            };
+            let ext = default_ext(target);
             st.path = default_stem
                 .map(|stem| format!("{stem}.{ext}"))
                 .unwrap_or_else(|| format!("out.{ext}"));
@@ -846,12 +868,7 @@ impl Session {
                 st.cursor = i;
             }
             st.target = fmt;
-            let ext = match fmt {
-                DocFormat::Toml => "toml",
-                DocFormat::Json => "json",
-                DocFormat::Yaml => "yaml",
-            };
-            st.path = format!("out.{ext}");
+            st.path = format!("out.{}", default_ext(fmt));
             st.path_cursor = st.path.chars().count();
             st.step = crate::session::state::ConvertStep::Path;
         }
@@ -866,52 +883,44 @@ impl Session {
         }
     }
 
-    /// Run the conversion. Returns `Update` with `convert_write` set when a write
-    /// is needed — the host performs the actual `fs::write`.
-    pub fn convert_run(&mut self) -> Update {
+    /// Run the conversion. Returns `Some((output_path, text))` when a write is
+    /// needed — the host performs the actual `fs::write`.
+    pub fn convert_run(&mut self) -> Option<(String, String)> {
         let (target, path) = match &self.mode {
             Mode::Convert(st) => (st.target, st.path.clone()),
-            _ => return Update::default(),
+            _ => return None,
         };
-        let Some(doc) = &self.doc else {
-            return Update::default();
-        };
+        let doc = self.doc.as_ref()?;
         match crate::model::convert::convert(doc, target) {
             Ok(result) => {
                 if result.warnings.is_empty() {
                     self.mode = self.resting_mode();
-                    Update {
-                        convert_write: Some((path, result.text)),
-                        ..Default::default()
-                    }
+                    Some((path, result.text))
                 } else {
                     if let Mode::Convert(st) = &mut self.mode {
                         st.warnings = result.warnings;
                         st.text = result.text;
                         st.step = crate::session::state::ConvertStep::Confirm;
                     }
-                    Update::default()
+                    None
                 }
             }
             Err(abort) => {
                 self.error = Some(format!("conversion aborted: {abort}"));
                 self.mode = self.resting_mode();
-                Update::default()
+                None
             }
         }
     }
 
     /// `y` on the Confirm step: signal the host to write the rendered output.
-    pub fn convert_confirm(&mut self) -> Update {
+    pub fn convert_confirm(&mut self) -> Option<(String, String)> {
         let (path, text) = match &self.mode {
             Mode::Convert(st) => (st.path.clone(), st.text.clone()),
-            _ => return Update::default(),
+            _ => return None,
         };
         self.mode = self.resting_mode();
-        Update {
-            convert_write: Some((path, text)),
-            ..Default::default()
-        }
+        Some((path, text))
     }
 
     pub fn exit_convert(&mut self) {
@@ -930,16 +939,16 @@ impl Session {
     }
 
     pub fn open_detail(&mut self) {
-        let rows = self.visible_rows();
-        let row = match rows.iter().find(|r| r.path == self.cursor) {
-            Some(r) => r.clone(),
+        let rows = self.visible_nodes();
+        let node = match rows.iter().find(|r| r.node.path == self.cursor) {
+            Some(r) => r.node,
             None => return,
         };
-        let dotted = if row.path.is_empty() {
+        let dotted = if node.path.is_empty() {
             "(root)".to_string()
         } else {
             let mut s = String::new();
-            for seg in &row.path {
+            for seg in &node.path {
                 match seg {
                     Seg::Key(k) => {
                         if !s.is_empty() {
@@ -952,35 +961,24 @@ impl Session {
             }
             s
         };
-        let mut detail = if row.is_branch {
-            let node = self.tree.node_at(&row.path);
-            let (type_str, fmt_str) = node
-                .map(|n| branch_type_format(&n.kind))
-                .unwrap_or(("unknown", "-"));
-            let children = node.map(|n| n.children.len()).unwrap_or(0);
+        let mut detail = if node.is_branch() {
+            let (type_str, fmt_str) = branch_type_format(&node.kind);
+            let children = node.children.len();
             format!(
                 "Path:     {dotted}\nType:     {type_str}\nFormat:   {fmt_str}\nChildren: {children}"
             )
         } else {
-            let type_str = row.scalar_type.map(|st| format!("{st:?}").to_lowercase());
-            let type_str = type_str.as_deref().unwrap_or(node_type_label_str(
-                &self
-                    .tree
-                    .node_at(&row.path)
-                    .map(|n| n.kind.clone())
-                    .unwrap_or(NodeKind::Root),
-            ));
-            let val_str = row.value.as_deref().unwrap_or("");
-            let fmt_str = format_label(row.format).unwrap_or("plain");
+            let type_str = match &node.kind {
+                NodeKind::Scalar(st) => format!("{st:?}").to_lowercase(),
+                other => node_type_label_str(other).to_string(),
+            };
+            let val_str = node.value.as_deref().unwrap_or("");
+            let fmt_str = format_label(node.format).unwrap_or("plain");
             format!("Path:     {dotted}\nType:     {type_str}\nFormat:   {fmt_str}\nValue:    {val_str}")
         };
-        let sign_str = self
-            .tree
-            .node_at(&row.path)
-            .map(|n| key_sign_label(n.key_sign))
-            .unwrap_or("none");
+        let sign_str = key_sign_label(node.key_sign);
         detail.push_str(&format!("\nSign:     {sign_str}"));
-        if let Some(tc) = &row.trailing_comment {
+        if let Some(tc) = &node.trailing_comment {
             detail.push_str(&format!("\nComment:  {tc}"));
         }
         self.detail_text = Some(detail);
@@ -2786,6 +2784,15 @@ pub fn format_label(fmt: Format) -> Option<&'static str> {
         Format::BasicString => Some("basic-string"),
         Format::Decimal => Some("decimal"),
         Format::Plain => None,
+    }
+}
+
+/// Default file extension for a convert target format.
+fn default_ext(fmt: DocFormat) -> &'static str {
+    match fmt {
+        DocFormat::Toml => "toml",
+        DocFormat::Json => "json",
+        DocFormat::Yaml => "yaml",
     }
 }
 

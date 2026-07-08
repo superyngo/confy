@@ -8,12 +8,24 @@ use crate::model::node::Seg;
 /// Resolve `path` to its source element using the projection's index.
 pub(crate) fn resolve(syntax: &SyntaxNode, path: &[Seg]) -> Option<Target> {
     let (_, idx) = walk(syntax, "");
-    idx.into_iter().find(|(p, _)| p == path).map(|(_, t)| t)
+    resolve_in(&idx, path)
+}
+
+/// Resolve `path` against a prebuilt projection index (one `walk` shared across
+/// several pre-mutation lookups — stale once the tree has been spliced).
+fn resolve_in(idx: &crate::model::json::project::JsonIndex, path: &[Seg]) -> Option<Target> {
+    idx.iter().find(|(p, _)| p == path).map(|(_, t)| t.clone())
 }
 
 /// Serialize the node at `path` as a standalone fragment.
 pub fn serialize_fragment(syntax: &SyntaxNode, path: &[Seg]) -> String {
-    match resolve(syntax, path) {
+    fragment_of(resolve(syntax, path))
+}
+
+/// The fragment text of a resolved target (shared by `serialize_fragment` and
+/// index-based lookups that already hold a `Target`).
+fn fragment_of(target: Option<Target>) -> String {
+    match target {
         Some(Target::Member(m)) => m.text().to_string().trim().to_string(),
         Some(Target::Element(v)) => v.text().to_string().trim().to_string(),
         Some(Target::Comment(tok)) => comment_block_text(&tok),
@@ -494,10 +506,16 @@ fn key_name_of(key_node: &SyntaxNode) -> String {
     }
 }
 
-/// Collect items (members/elements/comments) as verbatim trimmed strings.
-/// Order matches projection order (same as children_with_tokens order for
-/// MEMBER/VALUE/comment tokens, skipping punctuation and trivia).
-fn collect_items(container: &SyntaxNode) -> Vec<String> {
+/// An item's identity anchor: the MEMBER/VALUE node, or — for a standalone `//`
+/// block — its FIRST LINE_COMMENT token. Used to locate an item by node/token
+/// identity (not text) so duplicate-text siblings resolve correctly.
+type ItemAnchor = rowan::NodeOrToken<SyntaxNode, SyntaxToken>;
+
+/// Collect items (members/elements/comments) as verbatim trimmed strings, each
+/// paired with its identity anchor. Order matches projection order (same as
+/// children_with_tokens order for MEMBER/VALUE/comment tokens, skipping
+/// punctuation and trivia).
+fn collect_items_with_anchors(container: &SyntaxNode) -> Vec<(String, ItemAnchor)> {
     use crate::model::json::project::is_standalone_line_comment;
     let mut items = Vec::new();
     // Pending standalone `//` block: consecutive LINE_COMMENTs separated by a
@@ -505,11 +523,12 @@ fn collect_items(container: &SyntaxNode) -> Vec<String> {
     // the block). This mirrors the projection's comment merging so item-space
     // equals the projection's slot-space (one merged block = one node = one slot).
     let mut block: Vec<String> = Vec::new();
+    let mut block_anchor: Option<ItemAnchor> = None;
     let mut seen_newline = false;
     macro_rules! flush_block {
         () => {
             if !block.is_empty() {
-                items.push(block.join("\n"));
+                items.push((block.join("\n"), block_anchor.take().expect("block anchor")));
                 block.clear();
             }
         };
@@ -520,22 +539,25 @@ fn collect_items(container: &SyntaxNode) -> Vec<String> {
                 if matches!(n.kind(), SyntaxKind::MEMBER | SyntaxKind::VALUE) =>
             {
                 flush_block!();
-                items.push(n.text().to_string().trim().to_string());
+                items.push((n.text().to_string().trim().to_string(), child.clone()));
             }
             rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::LINE_COMMENT => {
                 if is_standalone_line_comment(t) {
+                    if block.is_empty() {
+                        block_anchor = Some(child.clone());
+                    }
                     block.push(t.text().trim_end().to_string());
                     seen_newline = false;
                 } else {
                     // Trailing comment (after a member/element on the same line) —
                     // its own item, as before.
                     flush_block!();
-                    items.push(t.text().trim_end().to_string());
+                    items.push((t.text().trim_end().to_string(), child.clone()));
                 }
             }
             rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::BLOCK_COMMENT => {
                 flush_block!();
-                items.push(t.text().trim_end().to_string());
+                items.push((t.text().trim_end().to_string(), child.clone()));
             }
             rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::NEWLINE => {
                 if !block.is_empty() {
@@ -551,6 +573,14 @@ fn collect_items(container: &SyntaxNode) -> Vec<String> {
     }
     flush_block!();
     items
+}
+
+/// Collect item texts only (see `collect_items_with_anchors`).
+fn collect_items(container: &SyntaxNode) -> Vec<String> {
+    collect_items_with_anchors(container)
+        .into_iter()
+        .map(|(s, _)| s)
+        .collect()
 }
 
 /// Extract key names from all MEMBER children of an OBJECT container.
@@ -823,13 +853,14 @@ fn remark(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
             // Find the container (parent OBJECT or ARRAY node).
             let container = member.parent().expect("member has parent");
 
-            // Find the member's position in collect_items order.
-            let items = collect_items(&container);
+            // Find the member's position in item order, by node identity.
+            let anchored = collect_items_with_anchors(&container);
             let member_text = member.text().to_string().trim().to_string();
-            let member_pos = items
+            let member_pos = anchored
                 .iter()
-                .position(|it| it.trim() == member_text.as_str())
+                .position(|(_, a)| matches!(a, rowan::NodeOrToken::Node(n) if n == &member))
                 .ok_or(MutateError::NotFound)?;
+            let items: Vec<String> = anchored.into_iter().map(|(s, _)| s).collect();
 
             // Build comment text: prefix each line with "// ".
             let commented: String = member_text
@@ -856,13 +887,14 @@ fn remark(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
             // Standalone // block → un-comment and restore as member.
             let container = first_tok.parent().expect("comment has parent");
 
-            let items = collect_items(&container);
-            // Find the item that matches this comment block.
+            let anchored = collect_items_with_anchors(&container);
+            // Find this comment block's item by its first token's identity.
             let block_text = comment_block_text(&first_tok);
-            let comment_pos = items
+            let comment_pos = anchored
                 .iter()
-                .position(|it| it.trim() == block_text.trim())
+                .position(|(_, a)| matches!(a, rowan::NodeOrToken::Token(t) if t == &first_tok))
                 .ok_or(MutateError::NotFound)?;
+            let items: Vec<String> = anchored.into_iter().map(|(s, _)| s).collect();
 
             // Strip "// " (or "//") prefix from each line to recover member text.
             let member_text: String = block_text
@@ -927,12 +959,12 @@ fn edit_comment(tree: &SyntaxNode, path: &[Seg], text: &str) -> Result<(), Mutat
     };
 
     let container = first_tok.parent().expect("comment has parent");
-    let items = collect_items(&container);
-    let block_text = comment_block_text(&first_tok);
-    let comment_pos = items
+    let anchored = collect_items_with_anchors(&container);
+    let comment_pos = anchored
         .iter()
-        .position(|it| it.trim() == block_text.trim())
+        .position(|(_, a)| matches!(a, rowan::NodeOrToken::Token(t) if t == &first_tok))
         .ok_or(MutateError::NotFound)?;
+    let items: Vec<String> = anchored.into_iter().map(|(s, _)| s).collect();
 
     let mut new_items = items.clone();
     new_items[comment_pos] = text.to_string();
@@ -1277,8 +1309,16 @@ fn convert_float(tree: &SyntaxNode, path: &[Seg], target: KindTarget) -> Result<
             format!("{:e}", value)
         }
         KindTarget::FloatPlain => {
-            // Rust's {} on f64 never emits e/E notation — use it directly.
-            format!("{}", value)
+            // Rust's {} on f64 never emits e/E notation, but it drops a whole
+            // float's `.0` (`1500.0` → "1500"), which the projection would
+            // re-read as an Integer — a type change in a float→float convert.
+            // Force a float-recognizable form.
+            let s = format!("{}", value);
+            if s.contains('.') || s.contains('e') || s.contains('E') {
+                s
+            } else {
+                format!("{s}.0")
+            }
         }
         _ => unreachable!(),
     };
@@ -1861,6 +1901,19 @@ mod tests {
     }
 
     #[test]
+    fn edit_comment_duplicate_text_edits_second_block() {
+        // Two identical comment blocks: editing the SECOND must not touch the first.
+        let out = apply_str(
+            "{\n  // dup\n  \"a\": 1,\n  // dup\n  \"b\": 2\n}\n",
+            Mutation::EditComment {
+                path: vec![Seg::Index(2)],
+                text: "// new".into(),
+            },
+        );
+        assert_eq!(out, "{\n  // dup\n  \"a\": 1,\n  // new\n  \"b\": 2\n}\n");
+    }
+
+    #[test]
     fn edit_comment_rejects_non_comment() {
         let t = parse("{\n  // old\n  \"a\": 1\n}\n");
         let r = super::apply(
@@ -1988,7 +2041,7 @@ mod tests {
                 target: KindTarget::FloatPlain,
             },
         );
-        assert_eq!(out, "{ \"f\": 1500 }\n");
+        assert_eq!(out, "{ \"f\": 1500.0 }\n");
     }
 
     #[test]

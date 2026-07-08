@@ -12,9 +12,7 @@
 // is expanded all its direct children — comments included — are visible rows in
 // document order, so their position equals core's full-child-sequence index).
 import type { Intent, Path, SessionSnapshot, ViewRow } from "./types.js";
-
-const eq = (a: Path, b: Path) => JSON.stringify(a) === JSON.stringify(b);
-const parentOf = (p: Path): Path => p.slice(0, -1);
+import { parentOf, pathEq as eq, siblingIndex } from "./path-utils.js";
 
 type DropTarget =
   | { mode: "into"; path: Path }
@@ -36,20 +34,6 @@ export function installDnd(
     row?.dataset.path ? (JSON.parse(row.dataset.path) as Path) : null;
   const rowFor = (snap: SessionSnapshot, p: Path): ViewRow | undefined =>
     snap.rows.find((r) => eq(r.path, p));
-
-  // Index of `p` among the visible rows that share its parent (= core's
-  // full-child-sequence index, since an expanded parent shows all its children).
-  const siblingIndex = (snap: SessionSnapshot, p: Path): number => {
-    const par = parentOf(p);
-    let i = 0;
-    for (const r of snap.rows) {
-      if (r.path.length === p.length && eq(parentOf(r.path), par)) {
-        if (eq(r.path, p)) return i;
-        i++;
-      }
-    }
-    return i;
-  };
 
   const clearOver = () => {
     treeEl.querySelectorAll(".drag-over-into").forEach((el) => el.classList.remove("drag-over-into"));
@@ -121,7 +105,7 @@ export function installDnd(
       const idx = rowFor(snap, tgt.path)?.child_count ?? 0;
       send({ MoveSelectionTo: { sources: src, target: tgt.path, index: idx } });
     } else {
-      const sib = siblingIndex(snap, tgt.path);
+      const sib = siblingIndex(snap.rows, tgt.path);
       send({
         MoveSelectionTo: {
           sources: src,

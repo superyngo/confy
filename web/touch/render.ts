@@ -5,7 +5,12 @@
 // `render.ts`, each row carries an attribute-safe `data-path` so the pointer
 // layer can map a tap back to a node. Stateless: the orchestrator re-renders the
 // whole tree from each snapshot.
-import type { SessionSnapshot, ViewRow, Path } from "../types.js";
+import type { SessionSnapshot, ViewRow } from "../types.js";
+import { escapeHtml as esc } from "../escape.js";
+import { valueTypeClass } from "../kind-labels.js";
+
+// The shared quote-safe escaper, under this module's traditional short name.
+export { esc };
 
 // --- inline SVG icons (ported verbatim from the prototype's `I` table) ---
 export const IC = {
@@ -31,14 +36,6 @@ export const IC = {
   grip: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>',
 };
 
-export function esc(s: string): string {
-  return String(s)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
 export function isComment(r: ViewRow): boolean {
   return r.type_label === "comment";
 }
@@ -46,28 +43,6 @@ export function isComment(r: ViewRow): boolean {
 export function isPositional(r: ViewRow): boolean {
   const last = r.path[r.path.length - 1];
   return !!last && "Index" in last;
-}
-
-// Value-type colour class (design tokens `--t-*`); numbers share one hue.
-export function valueTypeClass(r: ViewRow): string {
-  switch (r.scalar_type) {
-    case "String":
-      return "t-string";
-    case "Integer":
-    case "Float":
-      return "t-number";
-    case "Bool":
-      return "t-bool";
-    case "Null":
-      return "t-null";
-    case "OffsetDatetime":
-    case "LocalDatetime":
-    case "LocalDate":
-    case "LocalTime":
-      return "t-date";
-    default:
-      return "";
-  }
 }
 
 // A branch is open iff the next visible row is one level deeper (mirrors the
@@ -108,11 +83,13 @@ function rowHTML(r: ViewRow, idx: number, rows: ViewRow[]): string {
     if (branch) {
       h += `<span class="count">${r.child_count}</span>`;
       h += `<span class="kind" data-act="kind">${esc(r.type_label)}</span>`;
-      h += `<span class="comment">${r.trailing_comment ? "# " + esc(r.trailing_comment) : ""}</span>`;
+      // Core's `trailing_comment` already carries its marker (`#` / `//`) —
+      // render it raw, exactly like the desktop render.ts.
+      h += `<span class="comment">${esc(r.trailing_comment ?? "")}</span>`;
     } else {
       h += `<span class="eq">=</span>`;
       h += `<span class="val ${valueTypeClass(r)}">${esc(r.value ?? "")}</span>`;
-      h += `<span class="comment">${r.trailing_comment ? "# " + esc(r.trailing_comment) : ""}</span>`;
+      h += `<span class="comment">${esc(r.trailing_comment ?? "")}</span>`;
       if (!r.read_only) h += `<span class="kind" data-act="kind">${esc(r.type_label)}</span>`;
     }
   }
@@ -139,8 +116,4 @@ export function treeHTML(snap: SessionSnapshot): string {
       .map((r, idx) => (r.path.length === 0 ? "" : rowHTML(r, idx, rows)))
       .join("") + '<div class="reorder-line"></div>'
   );
-}
-
-export function pathEq(a: Path, b: Path): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
 }

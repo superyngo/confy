@@ -10,7 +10,7 @@
 
 use crate::model::document::{MutateError, Mutation, OnCollision, Target as MutTarget};
 use crate::model::node::{NodeKind, ScalarType, Seg};
-use crate::model::yaml::project::{entry_key_name, walk, Target};
+use crate::model::yaml::project::{entry_key_name, walk, Target, YamlIndex};
 use crate::model::yaml::syntax::{SyntaxKind, SyntaxNode};
 
 // ── Indent engine ─────────────────────────────────────────────────────────────
@@ -46,7 +46,14 @@ pub(crate) fn reindent(fragment: &str, from: usize, to: usize) -> String {
 /// `Target` nodes are from the same tree as `syntax`.
 pub(crate) fn resolve(syntax: &SyntaxNode, path: &[Seg]) -> Option<Target> {
     let (_, idx) = walk(syntax, "");
-    idx.into_iter().find(|(p, _)| p == path).map(|(_, t)| t)
+    resolve_in(&idx, path)
+}
+
+/// Resolve `path` against a prebuilt projection index (one `walk` shared across
+/// every pre-mutation lookup in `apply` — a fresh `resolve` is only needed after
+/// the tree has been spliced, when the old index is stale).
+pub(crate) fn resolve_in(idx: &YamlIndex, path: &[Seg]) -> Option<Target> {
+    idx.iter().find(|(p, _)| p == path).map(|(_, t)| t.clone())
 }
 
 // ── Opaque guard ──────────────────────────────────────────────────────────────
@@ -56,14 +63,14 @@ pub(crate) fn resolve(syntax: &SyntaxNode, path: &[Seg]) -> Option<Target> {
 ///
 /// Precondition: `path` is non-empty. The root (`[]`) is never opaque and is
 /// guarded out by the caller (`apply`); an empty path here always yields `false`.
-fn is_opaque(syntax: &SyntaxNode, path: &[Seg]) -> bool {
+fn is_opaque(idx: &YamlIndex, path: &[Seg]) -> bool {
     // Check the path itself first.
-    if let Some(Target::Opaque(_)) = resolve(syntax, path) {
+    if let Some(Target::Opaque(_)) = resolve_in(idx, path) {
         return true;
     }
     // Then check every strict prefix (ancestor).
     for len in 1..path.len() {
-        if let Some(Target::Opaque(_)) = resolve(syntax, &path[..len]) {
+        if let Some(Target::Opaque(_)) = resolve_in(idx, &path[..len]) {
             return true;
         }
     }
@@ -82,7 +89,12 @@ fn is_opaque(syntax: &SyntaxNode, path: &[Seg]) -> bool {
 ///   (b) Path → MapEntry: the fragment may be `key: value` (reuse whole entry)
 ///       or a bare value (replace just the value child).
 ///   (c) Path → Element (seq entry): replace the value child of the SEQ_ENTRY.
-fn replace(tree: &SyntaxNode, path: &[Seg], fragment: &str) -> Result<(), MutateError> {
+fn replace(
+    tree: &SyntaxNode,
+    idx: &YamlIndex,
+    path: &[Seg],
+    fragment: &str,
+) -> Result<(), MutateError> {
     if path.is_empty() {
         // Whole-document replace.
         // Reject multi-doc fragments.
@@ -104,7 +116,7 @@ fn replace(tree: &SyntaxNode, path: &[Seg], fragment: &str) -> Result<(), Mutate
         return Ok(());
     }
 
-    match resolve(tree, path).ok_or(MutateError::NotFound)? {
+    match resolve_in(idx, path).ok_or(MutateError::NotFound)? {
         Target::MapEntry(entry) => {
             // An entry whose value is an opaque (out-of-subset) construct is
             // read-only — like Delete, reject before touching the tree.
@@ -419,8 +431,8 @@ fn parse_value_fragment(fragment: &str) -> Result<SyntaxNode, MutateError> {
 /// Each MAP_ENTRY / SEQ_ENTRY node already includes its own NEWLINE token, so
 /// removing the node from its parent MAPPING / SEQUENCE is all we need.
 /// Comment tokens (COMMENT + NEWLINE) are free children of their container.
-fn delete(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
-    match resolve(tree, path).ok_or(MutateError::NotFound)? {
+fn delete(tree: &SyntaxNode, idx: &YamlIndex, path: &[Seg]) -> Result<(), MutateError> {
+    match resolve_in(idx, path).ok_or(MutateError::NotFound)? {
         Target::MapEntry(entry) => {
             // If the entry's value is an opaque node, block mutation.
             if entry_has_opaque_value(&entry) {
@@ -1125,8 +1137,8 @@ fn insert_flow(
     }
 }
 
-fn rename(tree: &SyntaxNode, path: &[Seg], new_key: &str) -> Result<(), MutateError> {
-    let entry = match resolve(tree, path).ok_or(MutateError::NotFound)? {
+fn rename(idx: &YamlIndex, path: &[Seg], new_key: &str) -> Result<(), MutateError> {
+    let entry = match resolve_in(idx, path).ok_or(MutateError::NotFound)? {
         Target::MapEntry(e) => e,
         _ => return Err(MutateError::Illegal("rename requires a key".into())),
     };
@@ -1222,8 +1234,8 @@ fn uncomment(text: &str) -> String {
         .join("\n")
 }
 
-fn remark(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
-    match resolve(tree, path).ok_or(MutateError::NotFound)? {
+fn remark(tree: &SyntaxNode, idx: &YamlIndex, path: &[Seg]) -> Result<(), MutateError> {
+    match resolve_in(idx, path).ok_or(MutateError::NotFound)? {
         Target::MapEntry(entry) | Target::Element(entry) => {
             if entry_has_opaque_value(&entry) {
                 return Err(MutateError::Unsupported);
@@ -1322,7 +1334,12 @@ fn splice_comment_block(
     Ok(())
 }
 
-fn edit_comment(tree: &SyntaxNode, path: &[Seg], text: &str) -> Result<(), MutateError> {
+fn edit_comment(
+    tree: &SyntaxNode,
+    idx: &YamlIndex,
+    path: &[Seg],
+    text: &str,
+) -> Result<(), MutateError> {
     // Validate: every line must start with `#` (after leading whitespace).
     for line in text.lines() {
         if !line.trim_start().starts_with('#') {
@@ -1332,7 +1349,7 @@ fn edit_comment(tree: &SyntaxNode, path: &[Seg], text: &str) -> Result<(), Mutat
         }
     }
 
-    let first_tok = match resolve(tree, path).ok_or(MutateError::NotFound)? {
+    let first_tok = match resolve_in(idx, path).ok_or(MutateError::NotFound)? {
         Target::Comment(t) => t,
         Target::Opaque(_) => return Err(MutateError::Unsupported),
         _ => {
@@ -1377,6 +1394,7 @@ fn insert_comment(tree: &SyntaxNode, target: &MutTarget, text: &str) -> Result<(
 
 fn move_nodes(
     tree: &SyntaxNode,
+    idx: &YamlIndex,
     sources: &[Vec<Seg>],
     target: &MutTarget,
     on_collision: OnCollision,
@@ -1389,7 +1407,7 @@ fn move_nodes(
     // The `apply` dispatcher already rejects a source/target that *is* opaque;
     // additionally reject a source whose VALUE is opaque (mirrors delete/replace).
     for path in sources.iter() {
-        match resolve(tree, path) {
+        match resolve_in(idx, path) {
             Some(Target::MapEntry(entry)) | Some(Target::Element(entry)) => {
                 if entry_has_opaque_value(&entry) {
                     return Err(MutateError::Unsupported);
@@ -1404,7 +1422,7 @@ fn move_nodes(
     let captured: Vec<String> = sources
         .iter()
         .map(|path| {
-            let frag = serialize_fragment(tree, path);
+            let frag = fragment_of(resolve_in(idx, path));
             if frag.is_empty() {
                 Err(MutateError::NotFound)
             } else {
@@ -1446,7 +1464,10 @@ fn move_nodes(
         _ => b.cmp(&a),
     });
     for i in delete_indices {
-        delete(tree, &sources[i])?;
+        // Each delete splices the tree, so the shared pre-mutation index is
+        // stale — re-walk for a fresh one per deletion.
+        let (_, fresh) = walk(tree, "");
+        delete(tree, &fresh, &sources[i])?;
     }
 
     // ── 3. Effective insertion index ────────────────────────────────────────
@@ -1466,19 +1487,20 @@ fn move_nodes(
 
 fn convert_kind(
     tree: &SyntaxNode,
+    idx: &YamlIndex,
     path: &[Seg],
     target: crate::model::document::KindTarget,
 ) -> Result<(), MutateError> {
     use crate::model::document::KindTarget as KT;
     match target {
-        KT::Flow | KT::Block => convert_container(tree, path, target),
+        KT::Flow | KT::Block => convert_container(tree, idx, path, target),
         KT::StringPlain
         | KT::StringSingle
         | KT::StringDouble
         | KT::StringLiteralBlock
-        | KT::StringFolded => convert_string(tree, path, target),
-        KT::IntDecimal | KT::IntHex | KT::IntOctal => convert_int(tree, path, target),
-        KT::FloatPlain | KT::FloatExponent => convert_float(tree, path, target),
+        | KT::StringFolded => convert_string(tree, idx, path, target),
+        KT::IntDecimal | KT::IntHex | KT::IntOctal => convert_int(tree, idx, path, target),
+        KT::FloatPlain | KT::FloatExponent => convert_float(tree, idx, path, target),
         _ => Err(MutateError::Unsupported),
     }
 }
@@ -1501,10 +1523,10 @@ fn first_plain_token(
 }
 
 fn resolve_value_node(
-    tree: &SyntaxNode,
+    idx: &YamlIndex,
     path: &[Seg],
 ) -> Result<(SyntaxNode, SyntaxNode), MutateError> {
-    let entry = match resolve(tree, path).ok_or(MutateError::NotFound)? {
+    let entry = match resolve_in(idx, path).ok_or(MutateError::NotFound)? {
         Target::MapEntry(e) | Target::Element(e) => e,
         _ => return Err(MutateError::Unsupported),
     };
@@ -1557,11 +1579,12 @@ fn splice_value_text(
 
 fn convert_container(
     tree: &SyntaxNode,
+    idx: &YamlIndex,
     path: &[Seg],
     target: crate::model::document::KindTarget,
 ) -> Result<(), MutateError> {
     use crate::model::document::KindTarget as KT;
-    let (entry, value) = resolve_value_node(tree, path)?;
+    let (entry, value) = resolve_value_node(idx, path)?;
 
     // A member sitting *inside* an inline flow collection can't be block-expanded
     // (it would break the one line); reject. The flow collection as a whole is
@@ -1791,11 +1814,12 @@ fn split_top_level_commas(inner: &str) -> Vec<String> {
 
 fn convert_string(
     tree: &SyntaxNode,
+    idx: &YamlIndex,
     path: &[Seg],
     target: crate::model::document::KindTarget,
 ) -> Result<(), MutateError> {
     use crate::model::document::KindTarget as KT;
-    let (entry, value) = resolve_value_node(tree, path)?;
+    let (entry, value) = resolve_value_node(idx, path)?;
     let indent = entry_indent_depth(&entry);
 
     // A literal/folded block scalar is multi-line — illegal for a member inside an
@@ -2041,11 +2065,12 @@ pub(crate) fn decode_double(inner: &str) -> String {
 
 fn convert_int(
     tree: &SyntaxNode,
+    idx: &YamlIndex,
     path: &[Seg],
     target: crate::model::document::KindTarget,
 ) -> Result<(), MutateError> {
     use crate::model::document::KindTarget as KT;
-    let (_, value) = resolve_value_node(tree, path)?;
+    let (_, value) = resolve_value_node(idx, path)?;
     let tok = first_plain_token(&value)?;
     let text = tok.text().trim().to_string();
 
@@ -2091,11 +2116,12 @@ fn convert_int(
 
 fn convert_float(
     tree: &SyntaxNode,
+    idx: &YamlIndex,
     path: &[Seg],
     target: crate::model::document::KindTarget,
 ) -> Result<(), MutateError> {
     use crate::model::document::KindTarget as KT;
-    let (_, value) = resolve_value_node(tree, path)?;
+    let (_, value) = resolve_value_node(idx, path)?;
     let tok = first_plain_token(&value)?;
     let parsed: f64 = tok
         .text()
@@ -2188,7 +2214,13 @@ fn comment_block_text(first: &crate::model::yaml::syntax::SyntaxToken) -> String
 
 /// Serialize the node at `path` as a standalone fragment (for clipboard / `$EDITOR`).
 pub fn serialize_fragment(syntax: &SyntaxNode, path: &[Seg]) -> String {
-    match resolve(syntax, path) {
+    fragment_of(resolve(syntax, path))
+}
+
+/// The fragment text of a resolved target (shared by `serialize_fragment` and
+/// index-based lookups that already hold a `Target`).
+fn fragment_of(target: Option<Target>) -> String {
+    match target {
         Some(Target::MapEntry(entry)) => entry.text().to_string().trim_end().to_string(),
         Some(Target::Element(entry)) => entry.text().to_string().trim_end().to_string(),
         Some(Target::Comment(tok)) => comment_block_text(&tok),
@@ -2222,34 +2254,40 @@ fn mutation_paths(m: &Mutation) -> Vec<&Vec<Seg>> {
 }
 
 pub fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<SyntaxNode, MutateError> {
+    // One projection walk shared by the opaque pre-check and every variant's
+    // initial (pre-mutation) resolve. Built on the clone so `Target`s point into
+    // the tree the splices mutate. Post-splice lookups still re-resolve — the
+    // index is stale once the tree changes.
+    let tree = syntax.clone_for_update();
+    let (_, idx) = walk(&tree, "");
+
     // Opaque pre-check: any target path inside (or equal to) an opaque span → Unsupported.
     for path in mutation_paths(&m) {
-        if !path.is_empty() && is_opaque(syntax, path) {
+        if !path.is_empty() && is_opaque(&idx, path) {
             return Err(MutateError::Unsupported);
         }
     }
 
-    let tree = syntax.clone_for_update();
     match m {
-        Mutation::Replace { path, fragment } => replace(&tree, &path, &fragment)?,
-        Mutation::Delete { path } => delete(&tree, &path)?,
+        Mutation::Replace { path, fragment } => replace(&tree, &idx, &path, &fragment)?,
+        Mutation::Delete { path } => delete(&tree, &idx, &path)?,
         Mutation::Insert {
             target,
             fragment,
             on_collision,
         } => insert(&tree, &target, &fragment, on_collision)?,
-        Mutation::Rename { path, new_key } => rename(&tree, &path, &new_key)?,
-        Mutation::Remark { path } => remark(&tree, &path)?,
-        Mutation::EditComment { path, text } => edit_comment(&tree, &path, &text)?,
+        Mutation::Rename { path, new_key } => rename(&idx, &path, &new_key)?,
+        Mutation::Remark { path } => remark(&tree, &idx, &path)?,
+        Mutation::EditComment { path, text } => edit_comment(&tree, &idx, &path, &text)?,
         Mutation::InsertComment { target, text } => insert_comment(&tree, &target, &text)?,
         Mutation::Move {
             sources,
             target,
             on_collision,
-        } => move_nodes(&tree, &sources, &target, on_collision)?,
-        Mutation::ConvertKind { path, target } => convert_kind(&tree, &path, target)?,
+        } => move_nodes(&tree, &idx, &sources, &target, on_collision)?,
+        Mutation::ConvertKind { path, target } => convert_kind(&tree, &idx, &path, target)?,
         Mutation::SetTrailingComment { path, comment } => {
-            set_trailing_comment(&tree, &path, comment.as_deref())?
+            set_trailing_comment(&tree, &idx, &path, comment.as_deref())?
         }
     }
     validate_semantics(&tree)?;
@@ -2262,13 +2300,14 @@ pub fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<SyntaxNode, MutateError
 /// and reparses. Only a single-line scalar map entry is supported.
 fn set_trailing_comment(
     tree: &SyntaxNode,
+    idx: &YamlIndex,
     path: &[Seg],
     comment: Option<&str>,
 ) -> Result<(), MutateError> {
     // A block MAP_ENTRY or a block SEQ_ENTRY (array element): both hold their value
     // as a child node and end the line the same way. Flow members/elements are
     // single-line inline collections with no per-item EOL slot — rejected upstream.
-    let entry = match resolve(tree, path).ok_or(MutateError::NotFound)? {
+    let entry = match resolve_in(idx, path).ok_or(MutateError::NotFound)? {
         Target::MapEntry(e) if e.kind() == SyntaxKind::MAP_ENTRY => e,
         Target::Element(e) if e.kind() == SyntaxKind::SEQ_ENTRY => e,
         _ => return Err(MutateError::Unsupported),

@@ -35,44 +35,6 @@ pub struct ViewRow {
     pub is_cursor: bool,
 }
 
-/// What the session changed after a [`super::intent::Intent`] was dispatched.
-/// The UI uses this to decide what to re-render.
-#[derive(Debug, Default, Serialize, Deserialize)]
-pub struct Update {
-    /// `visible_rows()` changed — re-pull and redraw the tree.
-    pub rows_dirty: bool,
-    /// A status message to show in the footer (replaces any previous).
-    pub status: Option<String>,
-    /// An error message to show in the footer.
-    pub error: Option<String>,
-    /// The user confirmed quit — the host event loop should exit.
-    pub quit: bool,
-    /// The core needs an external edit: the host should call `Host::edit_text`
-    /// with this initial text, then re-dispatch `Intent::ExternalEditDone(text)`
-    /// (or nothing on cancellation).
-    pub external_edit: Option<String>,
-    /// The core needs the host to write a converted file (fs-free: host does the I/O).
-    /// Contains `(output_path, text)`.
-    pub convert_write: Option<(String, String)>,
-}
-
-impl Update {
-    pub fn dirty() -> Self {
-        Update {
-            rows_dirty: true,
-            ..Default::default()
-        }
-    }
-    pub fn with_status(mut self, s: impl Into<String>) -> Self {
-        self.status = Some(s.into());
-        self
-    }
-    pub fn with_error(mut self, e: impl Into<String>) -> Self {
-        self.error = Some(e.into());
-        self
-    }
-}
-
 // ---- Stage-2 full-state transport (WASM / Web UI) ----
 //
 // `SessionSnapshot` is the full renderable state the Web UI re-renders from after

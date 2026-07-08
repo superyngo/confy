@@ -17,15 +17,8 @@
 //   · Every `send(...)` result is inspected for `SessionSnapshot.error`; a
 //     non-empty error is surfaced via `onError` (no more silent failures).
 import type { ViewRow, Intent, SessionSnapshot, Path } from "./types";
-
-// Self-contained attribute-safe escaper (matches touch render.ts `esc`).
-function esc(s: string): string {
-  return String(s)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
+import { escapeHtml as esc } from "./escape.js";
+import { notationGlyph, valueHue } from "./kind-labels.js";
 
 function isComment(r: ViewRow): boolean {
   return r.type_label === "comment";
@@ -44,66 +37,7 @@ function isPositional(r: ViewRow): boolean {
   return !!last && "Index" in last;
 }
 
-// Short notation glyph for the Kind button — mirrors render.ts NOTATION_SHORT /
-// CONTAINER_NOTE so the panel surfaces a scalar's string/radix/exponent style and
-// a container's scope/dotted/inline/flow notation. "" when the type label already
-// says it all.
-const NOTATION_SHORT: Record<string, string> = {
-  BasicString: '"…"',
-  Decimal: "dec",
-  Literal: "'…'",
-  MultilineBasic: '"""',
-  MultilineLiteral: "'''",
-  Multiline: '"""',
-  Hex: "0x",
-  Octal: "0o",
-  Binary: "0b",
-  Exponent: "1e",
-  SingleQuoted: "'…'",
-  DoubleQuoted: '"…"',
-  LiteralBlock: "|",
-  Folded: ">",
-  Inf: "inf",
-  Nan: "nan",
-};
-const CONTAINER_NOTE: Record<string, string> = {
-  Scope: "scope",
-  Dotted: "dotted",
-  Inline: "inline",
-  Multiline: "multi",
-  Block: "block",
-  Flow: "flow",
-};
-function kindNotation(r: ViewRow): string {
-  if (r.is_branch) return CONTAINER_NOTE[r.format] ?? "";
-  const s = NOTATION_SHORT[r.format];
-  if (s) return s;
-  // A plain float shares `Format::Plain` with bool/datetime/null; resolve by type.
-  if (r.scalar_type === "Float" && r.format === "Plain") return "dec";
-  return "";
-}
-
-// Value-type hue token (design `--t-*`); branches fall back to "branch".
-function valueHue(r: ViewRow): string {
-  switch (r.scalar_type) {
-    case "String":
-      return "string";
-    case "Integer":
-    case "Float":
-      return "number";
-    case "Bool":
-      return "bool";
-    case "Null":
-      return "null";
-    case "OffsetDatetime":
-    case "LocalDatetime":
-    case "LocalDate":
-    case "LocalTime":
-      return "date";
-    default:
-      return "branch";
-  }
-}
+// Kind-notation glyph + value-hue lookups are shared (`kind-labels.ts`).
 
 // Human dotted/bracketed path: `{Key:n}` → `.n` (no leading dot on the first
 // segment), `{Index:i}` → `[i]`. e.g. `server.host`, `servers[1].port`.
@@ -179,8 +113,8 @@ export function panelHTML(row: ViewRow): string {
   // Kind switch — label is `type_label · «notation glyph»` (the glyph is dropped
   // when it would merely repeat the label, e.g. an inline table).
   if (!r.read_only) {
-    const hue = branch ? "branch" : valueHue(r);
-    const note = kindNotation(r);
+    const hue = branch ? "branch" : valueHue(r) || "branch";
+    const note = notationGlyph(r);
     const noteStr = note && note !== r.type_label ? ` · ${esc(note)}` : "";
     h += '<div class="field-label">Kind</div>';
     h += `<button class="btn kindbtn" data-act="kindswitch"><span class="dotc" style="background:var(--t-${hue})"></span>${esc(r.type_label)}${noteStr}</button>`;
@@ -211,6 +145,8 @@ export function panelHTML(row: ViewRow): string {
 //  - onError(msg): host shows a message (toast/status) when a send errors.
 //  - afterMutation(msg): host confirms + dismisses the panel after a successful
 //    Delete / Copy / Cut (e.g. toast the message and close the detail surface).
+//  - batch(fn): optional host batcher — dispatches every send inside `fn` with a
+//    single re-render at the end (perf: multi-intent handlers render once).
 export function wirePanel(
   container: HTMLElement,
   row: ViewRow,
@@ -218,8 +154,10 @@ export function wirePanel(
   openKind: (row: ViewRow) => void,
   onError: (msg: string) => void,
   afterMutation?: (msg: string) => void,
+  batch?: (fn: () => void) => void,
 ): void {
   const path = row.path;
+  const run = batch ?? ((fn: () => void) => fn());
 
   // Dispatch and surface any error the snapshot reports (no silent failures).
   const fire = (intent: Intent): void => {
@@ -250,14 +188,18 @@ export function wirePanel(
   if (ke)
     commit(ke, () => {
       const name = ke.value;
-      fire({ SetCursor: path });
-      fire({ CommitEdit: { value: null, name } });
+      run(() => {
+        fire({ SetCursor: path });
+        fire({ CommitEdit: { value: null, name } });
+      });
     });
   if (ve) {
     commit(ve, () => {
       const value = ve.value;
-      fire({ SetCursor: path });
-      fire({ CommitEdit: { value, name: null } });
+      run(() => {
+        fire({ SetCursor: path });
+        fire({ CommitEdit: { value, name: null } });
+      });
     });
     // Mouse-wheel over the value field adjusts it (matches the tree gesture): a
     // bool toggles (trailing comment preserved), a number nudges ±1 (up = +1).
@@ -269,8 +211,10 @@ export function wirePanel(
           e.preventDefault();
           // Nudge handles all three (bool toggles, int/float ±1) and — unlike
           // CommitEdit — keeps the host in Detail mode, so the panel stays open.
-          fire({ SetCursor: path });
-          fire({ Nudge: e.deltaY < 0 ? 1 : -1 });
+          run(() => {
+            fire({ SetCursor: path });
+            fire({ Nudge: e.deltaY < 0 ? 1 : -1 });
+          });
         },
         { passive: false },
       );
@@ -279,8 +223,10 @@ export function wirePanel(
   // Multi-line value button → open the host's popup editor via core's edit flow.
   if (ev)
     ev.addEventListener("click", () => {
-      fire({ SetCursor: path });
-      fire("BeginEdit");
+      run(() => {
+        fire({ SetCursor: path });
+        fire("BeginEdit");
+      });
     });
   if (te)
     commit(te, () => {
@@ -296,10 +242,13 @@ export function wirePanel(
   // Delete / Copy / Cut: select this row, run the action, then — on success —
   // confirm + dismiss the panel via `afterMutation` (errors still go to onError).
   const act = (intent: Intent, okMsg: string) => {
-    fire({ SetCursor: path });
-    fire({ SetSelection: { paths: [path] } });
-    const snap = send(intent);
-    if (snap && snap.error) onError(snap.error);
+    let out: SessionSnapshot | undefined;
+    run(() => {
+      fire({ SetCursor: path });
+      fire({ SetSelection: { paths: [path] } });
+      out = send(intent);
+    });
+    if (out?.error) onError(out.error);
     else afterMutation?.(okMsg);
   };
   if (del) del.addEventListener("click", () => act("DeleteSelected", "Deleted"));
