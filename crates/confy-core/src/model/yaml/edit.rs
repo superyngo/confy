@@ -1,12 +1,9 @@
-//! YAML mutation helpers (Tasks 5–6).
+//! YAML mutation helpers.
 //!
-//! Sub-task 5a: indent engine (`reindent`), path resolver (`resolve`), opaque
-//! guard (`is_opaque`).
-//! Sub-task 5b: atomic dispatcher (`apply`), `serialize_fragment`, opaque
-//! rejection pre-check.
-//!
-//! Per-variant splice implementations come in Tasks 5c–6; every variant returns
-//! `Err(MutateError::Unsupported)` until then.
+//! The indent engine (`reindent`), path resolver (`resolve`), and opaque guard
+//! (`is_opaque`) feed the atomic dispatcher (`apply`), which routes each
+//! `Mutation` variant to its byte-splice + whole-document reparse (via
+//! `splice_byte_range`). Out-of-subset constructs reject as `Unsupported`.
 
 use crate::model::document::{MutateError, Mutation, OnCollision, Target as MutTarget};
 use crate::model::node::{NodeKind, ScalarType, Seg};
@@ -18,7 +15,6 @@ use crate::model::yaml::syntax::{SyntaxKind, SyntaxNode};
 /// Re-indent every line of `fragment` from `from` leading spaces to `to`.
 /// Literal/folded block-scalar bodies shift with their header (uniform shift of
 /// all lines preserves their *relative* indentation). Blank lines stay blank.
-#[allow(dead_code)] // used by per-variant splice fns in later tasks
 pub(crate) fn reindent(fragment: &str, from: usize, to: usize) -> String {
     let mut out = String::with_capacity(fragment.len());
     for line in fragment.split_inclusive('\n') {
@@ -249,7 +245,18 @@ fn splice_node_span(
     let start: usize = node.text_range().start().into();
     let end: usize = node.text_range().end().into();
     let new_doc = format!("{}{}{}", &whole[..start], new_text, &whole[end..]);
-    let green = crate::model::yaml::parse::parse(&new_doc).map_err(MutateError::Fragment)?;
+    commit_reparse(tree, &new_doc, MutateError::Fragment)
+}
+
+/// Reparse a rebuilt whole-document string and replace `tree`'s children
+/// wholesale — the shared tail of every byte-splice mutation below. `on_err`
+/// maps a parse failure (an invalid *fragment* rebuild vs. an *illegal* edit).
+fn commit_reparse(
+    tree: &SyntaxNode,
+    new_doc: &str,
+    on_err: fn(String) -> MutateError,
+) -> Result<(), MutateError> {
+    let green = crate::model::yaml::parse::parse(new_doc).map_err(on_err)?;
     let new_root = SyntaxNode::new_root(green).clone_for_update();
     let n = tree.children_with_tokens().count();
     let children: Vec<_> = new_root.children_with_tokens().collect();
@@ -506,12 +513,7 @@ fn delete_comment_block(
     let (start, end, _) = comment_block_bounds(first);
     let full = tree.to_string();
     let new_doc = format!("{}{}", &full[..start], &full[end..]);
-    let new_green = crate::model::yaml::parse::parse(&new_doc).map_err(MutateError::Illegal)?;
-    let new_root = SyntaxNode::new_root(new_green).clone_for_update();
-    let n = tree.children_with_tokens().count();
-    let new_children: Vec<_> = new_root.children_with_tokens().collect();
-    tree.splice_children(0..n, new_children);
-    Ok(())
+    commit_reparse(tree, &new_doc, MutateError::Illegal)
 }
 
 // ── 5e: Insert ────────────────────────────────────────────────────────────────
@@ -806,12 +808,7 @@ fn rebuild_and_splice(
     );
 
     // Re-parse the rebuilt document and replace the whole ROOT.
-    let new_green = crate::model::yaml::parse::parse(&new_doc).map_err(MutateError::Illegal)?;
-    let new_root = SyntaxNode::new_root(new_green).clone_for_update();
-    let n = tree.children_with_tokens().count();
-    let new_children: Vec<_> = new_root.children_with_tokens().collect();
-    tree.splice_children(0..n, new_children);
-    Ok(())
+    commit_reparse(tree, &new_doc, MutateError::Illegal)
 }
 
 /// Insert a new member/element into the container at `target`.
@@ -861,7 +858,7 @@ fn insert(
                     OnCollision::Rename => {
                         let mut n = 2usize;
                         loop {
-                            let candidate = format!("{key}{n}");
+                            let candidate = format!("{key}_{n}");
                             if !existing.iter().any(|k| k == &candidate) {
                                 // Rebuild item with renamed key.
                                 let spaces = " ".repeat(dest_indent);
@@ -982,12 +979,7 @@ fn rebuild_flow(
     let start: usize = flow.text_range().start().into();
     let end: usize = flow.text_range().end().into();
     let new_doc = format!("{}{}{}", &full[..start], text, &full[end..]);
-    let green = crate::model::yaml::parse::parse(&new_doc).map_err(MutateError::Illegal)?;
-    let new_root = SyntaxNode::new_root(green).clone_for_update();
-    let n = tree.children_with_tokens().count();
-    let children: Vec<_> = new_root.children_with_tokens().collect();
-    tree.splice_children(0..n, children);
-    Ok(())
+    commit_reparse(tree, &new_doc, MutateError::Illegal)
 }
 
 /// Replace a flow-map member (`FLOW_ENTRY`) with `fragment`, keeping it inline.
@@ -1010,12 +1002,7 @@ fn replace_flow_entry(
     let start: usize = member.text_range().start().into();
     let end: usize = member.text_range().end().into();
     let new_doc = format!("{}{}{}", &full[..start], new_text, &full[end..]);
-    let green = crate::model::yaml::parse::parse(&new_doc).map_err(MutateError::Illegal)?;
-    let new_root = SyntaxNode::new_root(green).clone_for_update();
-    let n = tree.children_with_tokens().count();
-    let children: Vec<_> = new_root.children_with_tokens().collect();
-    tree.splice_children(0..n, children);
-    Ok(())
+    commit_reparse(tree, &new_doc, MutateError::Illegal)
 }
 
 /// Delete a flow-map member by rebuilding the `{…}` without it.
@@ -1110,7 +1097,7 @@ fn insert_flow(
                             .to_string();
                         let mut n = 2usize;
                         let renamed = loop {
-                            let candidate = format!("{key}{n}");
+                            let candidate = format!("{key}_{n}");
                             if !existing.iter().any(|k| k == &candidate) {
                                 break format!("{candidate}: {val}");
                             }
@@ -1326,12 +1313,7 @@ fn splice_comment_block(
     ));
     let full = tree.to_string();
     let new_doc = format!("{}{}{}", &full[..start], body, &full[end..]);
-    let new_green = crate::model::yaml::parse::parse(&new_doc).map_err(MutateError::Illegal)?;
-    let new_root = SyntaxNode::new_root(new_green).clone_for_update();
-    let n = tree.children_with_tokens().count();
-    let new_children: Vec<_> = new_root.children_with_tokens().collect();
-    tree.splice_children(0..n, new_children);
-    Ok(())
+    commit_reparse(tree, &new_doc, MutateError::Illegal)
 }
 
 fn edit_comment(
@@ -1567,12 +1549,7 @@ fn splice_value_text(
     let trailing = if old.ends_with('\n') { "\n" } else { "" };
     let new_value_text = format!("{}{}", new_value_text.trim_end_matches('\n'), trailing);
     let new_doc = format!("{}{}{}", &full[..start], new_value_text, &full[end..]);
-    let green = crate::model::yaml::parse::parse(&new_doc).map_err(MutateError::Illegal)?;
-    let new_root = SyntaxNode::new_root(green).clone_for_update();
-    let n = tree.children_with_tokens().count();
-    let children: Vec<_> = new_root.children_with_tokens().collect();
-    tree.splice_children(0..n, children);
-    Ok(())
+    commit_reparse(tree, &new_doc, MutateError::Illegal)
 }
 
 // ── Block ↔ Flow ────────────────────────────────────────────────────────────
@@ -1709,12 +1686,7 @@ fn splice_entry_text(
     let start: usize = entry.text_range().start().into();
     let end: usize = entry.text_range().end().into();
     let new_doc = format!("{}{}{}", &full[..start], new_entry_text, &full[end..]);
-    let green = crate::model::yaml::parse::parse(&new_doc).map_err(MutateError::Illegal)?;
-    let new_root = SyntaxNode::new_root(green).clone_for_update();
-    let n = tree.children_with_tokens().count();
-    let children: Vec<_> = new_root.children_with_tokens().collect();
-    tree.splice_children(0..n, children);
-    Ok(())
+    commit_reparse(tree, &new_doc, MutateError::Illegal)
 }
 
 /// Build single-line flow members from a block collection's entries.
@@ -2353,12 +2325,7 @@ fn set_trailing_comment(
         None => String::new(),
     };
     let new_text = format!("{}{}{}", &full[..cut_start], tail, &full[cut_end..]);
-    let green = crate::model::yaml::parse::parse(&new_text).map_err(MutateError::Fragment)?;
-    let new_root = SyntaxNode::new_root(green).clone_for_update();
-    let n = tree.children_with_tokens().count();
-    let children: Vec<_> = new_root.children_with_tokens().collect();
-    tree.splice_children(0..n, children);
-    Ok(())
+    commit_reparse(tree, &new_text, MutateError::Fragment)
 }
 
 /// Set/change/clear the EOL comment of a block-map parent entry (`key:  # c`).
@@ -2385,12 +2352,7 @@ fn set_block_entry_trailing(
         None => String::new(),
     };
     let new_text = format!("{}{}{}", &full[..cut_start], tail, &full[cut_end..]);
-    let green = crate::model::yaml::parse::parse(&new_text).map_err(MutateError::Fragment)?;
-    let new_root = SyntaxNode::new_root(green).clone_for_update();
-    let n = tree.children_with_tokens().count();
-    let children: Vec<_> = new_root.children_with_tokens().collect();
-    tree.splice_children(0..n, children);
-    Ok(())
+    commit_reparse(tree, &new_text, MutateError::Fragment)
 }
 
 // ── Test helpers (pub(crate) so later chunk tests can import them) ────────────

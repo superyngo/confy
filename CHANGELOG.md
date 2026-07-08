@@ -31,24 +31,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on a Windows host). (2026-06-27)
 
 ### Changed
-- **chore: audit-driven optimization pass (partial).** A workspace-wide read-only audit produced a
-  ranked list of correctness/perf/dedup findings; this lands the first, verified subset (build +
-  clippy + `tsc` + web bundle all green, net ~−300 lines). **Correctness:** JSONC comment-capability
-  is now derived from the lexer token stream, not raw `text.contains("//")`, so a `//` inside a JSON
-  string value no longer silently enables comments (A1); a float→float `K` switch to plain notation
-  keeps its `.0` so `1.5e3` renders `1500.0` rather than being reclassified as Integer (B9); JSON
-  remark/edit-comment resolve the target by node identity instead of text equality, so duplicate-text
-  siblings mutate the right node (B10); the Web `dispatch()` now snaps the cursor onto a visible row
-  after a structural change, mirroring the TUI (B11). **Performance:** `NodeTree::node_at` descends
-  segment-by-segment (O(depth)) instead of scanning the whole tree (A2); YAML/JSON `apply` threads a
-  single projection/index instead of re-projecting per lookup (A4). **Cleanup:** dead `Update`
-  transport struct removed; the unreachable Web paste-load modal deleted; shared Web modules
-  extracted (`escape.ts`, `samples.ts`, `host-io.ts`, `path-utils.ts`, `kind-labels.ts`) to
-  de-duplicate the desktop/touch orchestrators; touch trailing comments no longer render a doubled
-  comment marker (B8); the convert Save-As picker now uses the target format's filter (B12).
-  Remaining audit items (session/TUI dedup A5/B15/B17/C7, `SkimMatcherV2` caching B2, YAML
-  `splice_byte_range` dedup B14, and touch-side host-io adoption) are tracked for a follow-up.
-  (2026-07-08)
+- **chore: audit-driven optimization pass.** A workspace-wide read-only audit produced a ranked list
+  of correctness/perf/dedup findings; this lands the verified set (build + clippy + `tsc` + web bundle
+  all green). **Correctness:** JSONC comment-capability is now derived from the lexer token stream, not
+  raw `text.contains("//")`, so a `//` inside a JSON string value no longer silently enables comments
+  (A1); a float→float `K` switch to plain notation keeps its `.0` so `1.5e3` renders `1500.0` rather
+  than being reclassified as Integer (B9); JSON remark/edit-comment resolve the target by node identity
+  instead of text equality, so duplicate-text siblings mutate the right node (B10); the Web
+  `dispatch()` now snaps the cursor onto a visible row after a structural change, mirroring the TUI
+  (B11). **Performance:** `NodeTree::node_at` descends segment-by-segment (O(depth)) instead of
+  scanning the whole tree (A2); YAML/JSON `apply` threads a single projection/index instead of
+  re-projecting per lookup (A4); `SkimMatcherV2` is built once via `LazyLock` instead of per fuzzy call
+  (B2); ~30 Session methods use a borrowed `visible_nodes()` instead of cloning the full row vec (B1);
+  the TUI's `rebuild_rows` drops a redundant per-row tree lookup, reusing `ViewRow` fields (B3);
+  `is_dirty()` short-circuits via a `clean` flag instead of serializing the whole document on every
+  snapshot (B5); the inline editor builds ≤3 style spans instead of one per character (I4).
+  **Dedup / cleanup:** dead `Update` transport struct removed; ~170 lines of test-only copies of core
+  helpers deleted from the TUI (their tests moved to core, A5); the TUI's `type_tag` now maps the
+  shared `classify` decision table instead of duplicating it (B15); `copy_selected`/`cut_selected`
+  merged into one `capture_selected` (B17); the YAML byte-splice tail extracted into one
+  `commit_reparse` helper across 10 sites (B14) and the projection's comment accumulator into one
+  `CommentAccumulator` across the three walkers (B16); YAML collision-rename aligned to `{key}_{n}`
+  like TOML/JSON (C5); the unreachable Web paste-load modal deleted; shared Web modules extracted
+  (`escape.ts`, `samples.ts`, `host-io.ts`, `path-utils.ts`, `kind-labels.ts`) to de-duplicate the
+  desktop/touch orchestrators; touch trailing comments no longer render a doubled comment marker (B8);
+  the convert Save-As picker uses the target format's filter (B12); several stale "stub/not-yet-ported"
+  module comments corrected (C2). Deferred as net-negative to force without runtime verification:
+  touch-side `host-io.ts` adoption (untested web UI), and the pure-readability splits of `edit_commit`
+  (C7) / `insert` (Q3). (2026-07-08)
 
 ## [v0.11.2] - 2026-06-27
 

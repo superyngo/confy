@@ -1018,7 +1018,7 @@ impl Session {
         if self.clipboard.is_some() {
             return;
         }
-        let visible = self.visible_paths();
+        let visible: std::collections::HashSet<Path> = self.visible_paths().into_iter().collect();
         let kept: Vec<Path> = paths.into_iter().filter(|p| visible.contains(p)).collect();
         if let Some(focal) = kept.last() {
             self.cursor = focal.clone();
@@ -2011,48 +2011,27 @@ impl Session {
     }
 
     pub fn copy_selected(&mut self) {
-        if let Some(cb) = &mut self.clipboard {
-            if cb.cut {
-                cb.cut = false;
-                let n = cb.fragments.len();
-                self.status = Some(format!("copied {n} node(s) [changed from cut]"));
-            }
-            return;
-        }
-        let paths = self.selected_paths();
-        if paths.is_empty() {
-            return;
-        }
-        let doc = match self.doc.as_ref() {
-            Some(d) => d,
-            None => return,
-        };
-        let mut fragments = Vec::new();
-        for p in &paths {
-            fragments.push(doc.serialize_fragment_relative(p));
-        }
-        self.clipboard = Some(Clipboard {
-            fragments,
-            cut: false,
-            sources: paths,
-        });
-        self.paste_slot = None;
-        self.status = Some(format!(
-            "copied {} node(s)",
-            self.clipboard.as_ref().unwrap().fragments.len()
-        ));
+        self.capture_selected(false);
     }
 
     pub fn cut_selected(&mut self) {
-        if self.cursor_is_read_only() {
+        self.capture_selected(true);
+    }
+
+    /// Shared copy/cut capture. `cut` selects the clipboard mode, the toggle
+    /// message, and (cut only) the read-only guard.
+    fn capture_selected(&mut self, cut: bool) {
+        let verb = if cut { "cut" } else { "copied" };
+        if cut && self.cursor_is_read_only() {
             self.status = Some("read-only node (block comment)".into());
             return;
         }
         if let Some(cb) = &mut self.clipboard {
-            if !cb.cut {
-                cb.cut = true;
+            if cb.cut != cut {
+                cb.cut = cut;
                 let n = cb.fragments.len();
-                self.status = Some(format!("cut {n} node(s) [changed from copy]"));
+                let from = if cut { "copy" } else { "cut" };
+                self.status = Some(format!("{verb} {n} node(s) [changed from {from}]"));
             }
             return;
         }
@@ -2070,12 +2049,12 @@ impl Session {
         }
         self.clipboard = Some(Clipboard {
             fragments,
-            cut: true,
+            cut,
             sources: paths,
         });
         self.paste_slot = None;
         self.status = Some(format!(
-            "cut {} node(s)",
+            "{verb} {} node(s)",
             self.clipboard.as_ref().unwrap().fragments.len()
         ));
     }
@@ -2155,19 +2134,15 @@ impl Session {
         };
         let mut node_entries: Vec<(String, Path)> = Vec::new();
         let mut comment_entries: Vec<(String, Path)> = Vec::new();
-        let mut frags_iter = fragments.into_iter();
-        let mut srcs_iter = sources.into_iter();
-        loop {
-            match frags_iter.next() {
-                None => break,
-                Some(frag) => {
-                    let src = srcs_iter.next().unwrap_or_default();
-                    if is_comment(&src) {
-                        comment_entries.push((frag, src));
-                    } else {
-                        node_entries.push((frag, src));
-                    }
-                }
+        // `sources` may be shorter than `fragments` (e.g. a paste whose source
+        // paths weren't captured); missing entries pad with an empty path.
+        let mut srcs = sources.into_iter();
+        for frag in fragments {
+            let src = srcs.next().unwrap_or_default();
+            if is_comment(&src) {
+                comment_entries.push((frag, src));
+            } else {
+                node_entries.push((frag, src));
             }
         }
         let rebuild =
@@ -2940,5 +2915,85 @@ fn regroup_float(repr: &str) -> String {
             format!("{sign}{}.{}", group_right(int, 3), group_left(frac, 3))
         }
         None => format!("{sign}{}", group_right(body, 3)),
+    }
+}
+
+#[cfg(test)]
+mod helper_tests {
+    use super::*;
+
+    #[test]
+    fn nudge_scalar_steps_each_type_preserving_format() {
+        assert_eq!(
+            nudge_scalar(ScalarType::Integer, Format::Decimal, "41", 1).as_deref(),
+            Some("42")
+        );
+        assert_eq!(
+            nudge_scalar(ScalarType::Integer, Format::Hex, "0xFF", 1).as_deref(),
+            Some("0x100")
+        );
+        assert_eq!(
+            nudge_scalar(ScalarType::Integer, Format::Hex, "0x0a", 1).as_deref(),
+            Some("0xb"),
+            "lowercase hex preserved"
+        );
+        assert_eq!(
+            nudge_scalar(ScalarType::Float, Format::Plain, "1.50", 1).as_deref(),
+            Some("1.51"),
+            "float steps at its displayed precision"
+        );
+        assert_eq!(
+            nudge_scalar(ScalarType::Float, Format::Plain, "1.50", -1).as_deref(),
+            Some("1.49")
+        );
+        assert_eq!(
+            nudge_scalar(ScalarType::Bool, Format::Plain, "true", 1).as_deref(),
+            Some("false")
+        );
+        // strings / datetimes are not nudgeable
+        assert_eq!(
+            nudge_scalar(ScalarType::String, Format::BasicString, "\"hi\"", 1),
+            None
+        );
+    }
+
+    #[test]
+    fn nudge_reapplies_underscore_grouping() {
+        // decimal regroups every 3 from the right
+        assert_eq!(
+            nudge_scalar(ScalarType::Integer, Format::Decimal, "1_000_000", 1).as_deref(),
+            Some("1_000_001")
+        );
+        // hex regroups every 4 (after the 0x prefix)
+        assert_eq!(
+            nudge_scalar(ScalarType::Integer, Format::Hex, "0xDEAD_BEEF", 1).as_deref(),
+            Some("0xDEAD_BEF0")
+        );
+        // float: int part every 3 from right, frac part every 3 from left
+        assert_eq!(
+            nudge_scalar(ScalarType::Float, Format::Plain, "9_224_617.445_991", 1).as_deref(),
+            Some("9_224_617.445_992")
+        );
+        // no underscore in, no underscore out
+        assert_eq!(
+            nudge_scalar(ScalarType::Integer, Format::Decimal, "999", 1).as_deref(),
+            Some("1000")
+        );
+    }
+
+    #[test]
+    fn clamp_scroll_separates_viewport_from_cursor() {
+        // width 10, buffer length 20.
+        // Walk to the right edge: scroll pins the cursor at the right of the window.
+        assert_eq!(clamp_scroll(0, 20, 20, 10), 11);
+        // Moving left from there stays within the window — text does NOT scroll
+        // (this is the bug fix: cursor walks back through the viewport first).
+        assert_eq!(clamp_scroll(11, 19, 20, 10), 11);
+        assert_eq!(clamp_scroll(11, 12, 20, 10), 11);
+        // Only once the cursor reaches the left edge does the text scroll left.
+        assert_eq!(clamp_scroll(11, 11, 20, 10), 11);
+        assert_eq!(clamp_scroll(11, 10, 20, 10), 10);
+        // Cursor near the start keeps the window pinned at 0.
+        assert_eq!(clamp_scroll(0, 3, 20, 10), 0);
     }
 }

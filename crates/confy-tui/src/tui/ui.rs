@@ -113,17 +113,26 @@ fn edit_field_spans(
     let start = scroll.min(len);
     let end = (start + w).min(len);
     let rev = Style::default().add_modifier(Modifier::REVERSED);
-    let mut spans: Vec<Span> = Vec::with_capacity(end - start + 1);
-    for (j, ch) in chars[start..end].iter().enumerate() {
-        let s = ch.to_string();
-        if start + j == cur {
-            spans.push(Span::styled(s, rev));
-        } else {
-            spans.push(Span::raw(s));
+    let take = |a: usize, b: usize| -> String { chars[a..b].iter().collect() };
+    // At most three style runs: text before the caret, the caret cell, text
+    // after — instead of one Span per visible character.
+    let mut spans: Vec<Span> = Vec::with_capacity(3);
+    if (start..end).contains(&cur) {
+        if cur > start {
+            spans.push(Span::raw(take(start, cur)));
         }
-    }
-    if cur == len && cur >= start && cur < start + w {
-        spans.push(Span::styled(" ", rev));
+        spans.push(Span::styled(chars[cur].to_string(), rev));
+        if cur + 1 < end {
+            spans.push(Span::raw(take(cur + 1, end)));
+        }
+    } else {
+        if end > start {
+            spans.push(Span::raw(take(start, end)));
+        }
+        // Caret parked just past the last char (append position).
+        if cur == len && cur >= start && cur < start + w {
+            spans.push(Span::styled(" ", rev));
+        }
     }
     spans
 }

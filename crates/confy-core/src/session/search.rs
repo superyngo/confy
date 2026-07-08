@@ -1,5 +1,11 @@
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
+use std::sync::LazyLock;
+
+/// One shared matcher — `fuzzy_match`/`fuzzy_indices` are called per node per
+/// filter keystroke (and per rendered row while a filter is active), so
+/// rebuilding `SkimMatcherV2::default()` each call was pure churn.
+static MATCHER: LazyLock<SkimMatcherV2> = LazyLock::new(SkimMatcherV2::default);
 
 pub fn haystack(path_keys: &[&str], leaf_value: Option<&str>, comment: Option<&str>) -> String {
     let mut s = path_keys.join(".");
@@ -18,18 +24,14 @@ pub fn fuzzy_match(haystack: &str, needle: &str) -> bool {
     if needle.is_empty() {
         return true;
     }
-    SkimMatcherV2::default()
-        .fuzzy_match(haystack, needle)
-        .is_some()
+    MATCHER.fuzzy_match(haystack, needle).is_some()
 }
 
 pub fn fuzzy_indices(haystack: &str, needle: &str) -> Option<Vec<usize>> {
     if needle.is_empty() {
         return None;
     }
-    SkimMatcherV2::default()
-        .fuzzy_indices(haystack, needle)
-        .map(|(_, idx)| idx)
+    MATCHER.fuzzy_indices(haystack, needle).map(|(_, idx)| idx)
 }
 
 #[cfg(test)]
