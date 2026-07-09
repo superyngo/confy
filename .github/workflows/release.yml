@@ -71,7 +71,7 @@ jobs:
         if: matrix.kind != 'windows'
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --target ${{ matrix.target }} -p confy-tui
 
       # Windows overrides the profile via env to avoid antivirus false positives
       # (no strip, thin LTO, unwind panics, static CRT).
@@ -85,7 +85,7 @@ jobs:
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
           CARGO_PROFILE_RELEASE_PANIC: "unwind"
           RUSTFLAGS: "-C target-feature=+crt-static"
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --target ${{ matrix.target }} -p confy-tui
 
       # Linux/macOS: tar.gz with the bare `confy` binary at the root.
       - name: Package (Linux/macOS)
