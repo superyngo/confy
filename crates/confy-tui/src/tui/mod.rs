@@ -167,9 +167,17 @@ fn run_event_loop(
                 continue;
             }
             // Help overlay: ↑/↓/PgUp/PgDn/Home/End scroll; Esc or ? dismisses.
-            if matches!(app.session.mode, crate::tui::state::Mode::Help) {
+            if matches!(app.session.mode, crate::tui::state::Mode::Help(_)) {
                 use crossterm::event::KeyCode;
-                let help_lines = keys::help_text(app.doc_format()).lines().count() as u16;
+                let active_tab = match app.session.mode {
+                    crate::tui::state::Mode::Help(t) => t,
+                    _ => unreachable!(),
+                };
+                let text = match active_tab {
+                    crate::tui::state::HelpTab::Help => keys::help_text(app.doc_format()),
+                    crate::tui::state::HelpTab::About => crate::tui::state::ABOUT_TEXT,
+                };
+                let help_lines = text.lines().count() as u16;
                 // Approximate visible height: terminal height minus 2 borders.
                 let inner_h = terminal.size()?.height.saturating_sub(2);
                 let max_scroll = help_lines.saturating_sub(inner_h);
@@ -181,6 +189,10 @@ fn run_event_loop(
                     KeyCode::PageUp => app.help_scroll_by(-page, max_scroll),
                     KeyCode::Home => app.help_set_scroll(0),
                     KeyCode::End => app.help_set_scroll(max_scroll),
+                    KeyCode::Tab | KeyCode::BackTab => {
+                        app.session.toggle_help_tab();
+                        app.help_set_scroll(0);
+                    }
                     KeyCode::Esc | KeyCode::Char('?') => app.escape(),
                     _ => {}
                 }

@@ -634,19 +634,33 @@ fn draw_detail_overlay(f: &mut Frame, app: &App) {
 }
 
 fn draw_help_overlay(f: &mut Frame, app: &App) {
-    if !matches!(app.session.mode, Mode::Help) {
+    if !matches!(app.session.mode, Mode::Help(_)) {
         return;
     }
-    let help = keys::help_text(app.doc_format());
-    let line_count = help.lines().count() as u16;
+    let tab = match app.session.mode {
+        Mode::Help(t) => t,
+        _ => unreachable!(),
+    };
+    use crate::tui::state::HelpTab;
+    let (title, text) = match tab {
+        HelpTab::Help => (
+            " Help | About (Tab to switch · ↑/↓ scroll · ? or Esc) ",
+            keys::help_text(app.doc_format()),
+        ),
+        HelpTab::About => (
+            " About | Help (Tab to switch · ↑/↓ scroll · ? or Esc) ",
+            crate::tui::state::ABOUT_TEXT,
+        ),
+    };
+    let line_count = text.lines().count() as u16;
     let height = (line_count + 2).min(f.area().height);
     let area = centered_rect(65, height, f.area());
     f.render_widget(Clear, area);
     let block = Block::default()
-        .title(" Help (↑/↓ scroll · ? or Esc) ")
+        .title(title)
         .borders(Borders::ALL)
         .style(Style::default().bg(Color::Black).fg(Color::White));
-    let paragraph = Paragraph::new(help)
+    let paragraph = Paragraph::new(text)
         .block(block)
         .scroll((app.help_scroll, 0));
     f.render_widget(paragraph, area);
