@@ -123,8 +123,8 @@ impl super::Session {
             Intent::ConvertPathRight => self.convert_path_right(),
             Intent::ConvertPathHome => self.convert_path_home(),
             Intent::ConvertPathEnd => self.convert_path_end(),
-            Intent::ConvertRun => convert_write = self.convert_run().convert_write,
-            Intent::ConvertConfirm => convert_write = self.convert_confirm().convert_write,
+            Intent::ConvertRun => convert_write = self.convert_run(),
+            Intent::ConvertConfirm => convert_write = self.convert_confirm(),
             Intent::ExitConvert => self.exit_convert(),
 
             // ---- Detail popup (i) ----
@@ -243,6 +243,10 @@ impl super::Session {
             }
         }
 
+        // Snap the cursor onto a visible row and drop a stale paste slot after
+        // any structural change (delete/collapse/filter), mirroring the TUI's
+        // `App::rebuild_rows`. `snapshot()` is `&self` and can't do this itself.
+        self.compute_rows();
         let mut snap = self.snapshot();
         snap.convert_write = convert_write;
         snap.quit = quit;

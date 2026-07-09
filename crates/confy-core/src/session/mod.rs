@@ -26,5 +26,5 @@ pub use type_filter::{
 };
 pub use view::{
     ConvertView, EditView, ExternalEdit, ExternalEditKind, KindOptionView, ModeView, PromptView,
-    SessionSnapshot, TypeFilterCellView, TypeFilterRow, TypeFilterView, Update, ViewRow,
+    SessionSnapshot, TypeFilterCellView, TypeFilterRow, TypeFilterView, ViewRow,
 };

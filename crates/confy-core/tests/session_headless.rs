@@ -307,6 +307,156 @@ fn dispatch_commit_edit_renames_key() {
 }
 
 #[test]
+fn dispatch_commit_edit_renames_key_inside_scope_table() {
+    // Regression: a scoped entry's KEY spells only its own segment; the rename
+    // segment index must be end-relative (this errored "path not found").
+    let mut s = toml_session("[server]\nhost = \"x\"\n");
+    s.dispatch(Intent::ExpandAll);
+    s.dispatch(Intent::SetCursor(vec![
+        Seg::Key("server".into()),
+        Seg::Key("host".into()),
+    ]));
+    let snap = s.dispatch(Intent::CommitEdit {
+        value: None,
+        name: Some("hostname".into()),
+    });
+    assert!(
+        snap.status.is_none() && snap.error.is_none(),
+        "clean rename: status={:?} error={:?}",
+        snap.status,
+        snap.error
+    );
+    assert_eq!(s.serialize().unwrap(), "[server]\nhostname = \"x\"\n");
+}
+
+#[test]
+fn dispatch_commit_edit_renames_branch_key() {
+    // Regression: a branch (table) node has no scalar value, so the Web UI's
+    // Detail-panel key rename (`CommitEdit { value: None, name: Some(_) }`)
+    // must skip the value-replace step instead of trying to reparse an empty
+    // value buffer as a scalar (which failed with "invalid value: …").
+    let mut s = toml_session("[server]\nhost = \"x\"\n");
+    s.dispatch(Intent::SetCursor(vec![Seg::Key("server".into())]));
+    let snap = s.dispatch(Intent::CommitEdit {
+        value: None,
+        name: Some("svc".into()),
+    });
+    assert!(
+        snap.status.is_none() && snap.error.is_none(),
+        "clean rename: status={:?} error={:?}",
+        snap.status,
+        snap.error
+    );
+    assert_eq!(s.serialize().unwrap(), "[svc]\nhost = \"x\"\n");
+}
+
+#[test]
+fn dispatch_commit_edit_rename_from_detail_follows_the_node() {
+    // Rename changes the node's path identity — the cursor follows it, so a
+    // Detail-origin rename lands back in Detail on the renamed node.
+    let mut s = toml_session("[server]\nhost = \"x\"\n");
+    s.dispatch(Intent::ExpandAll);
+    s.dispatch(Intent::SetCursor(vec![
+        Seg::Key("server".into()),
+        Seg::Key("host".into()),
+    ]));
+    s.dispatch(Intent::ToggleDetail);
+    let snap = s.dispatch(Intent::CommitEdit {
+        value: None,
+        name: Some("hostname".into()),
+    });
+    assert!(matches!(snap.mode, ModeView::Detail), "back in Detail");
+    assert_eq!(
+        s.cursor,
+        vec![Seg::Key("server".into()), Seg::Key("hostname".into())],
+        "cursor follows the renamed node"
+    );
+}
+
+#[test]
+fn dispatch_commit_edit_from_detail_returns_to_detail() {
+    // A panel-origin (Detail-mode) commit returns to Detail so the host's
+    // panel stays open, instead of dropping to Normal.
+    let mut s = toml_session("a = 1\n");
+    let a = s.visible_paths()[1].clone();
+    s.dispatch(Intent::SetCursor(a));
+    s.dispatch(Intent::ToggleDetail);
+    let snap = s.dispatch(Intent::CommitEdit {
+        value: Some("2".into()),
+        name: None,
+    });
+    assert!(matches!(snap.mode, ModeView::Detail), "back in Detail");
+    assert_eq!(s.serialize().unwrap(), "a = 2\n");
+}
+
+#[test]
+fn dispatch_commit_edit_failure_is_one_shot() {
+    // A retry branch (invalid value) must not leave a dangling Mode::Edit for
+    // the pointer host — it cancels, surfaces the message, and returns to Detail.
+    let mut s = toml_session("a = 1\n");
+    let a = s.visible_paths()[1].clone();
+    s.dispatch(Intent::SetCursor(a));
+    s.dispatch(Intent::ToggleDetail);
+    let snap = s.dispatch(Intent::CommitEdit {
+        value: Some("= not toml =".into()),
+        name: None,
+    });
+    assert!(matches!(snap.mode, ModeView::Detail), "no dangling Edit");
+    assert!(snap.error.is_some(), "failure surfaced as error");
+    assert_eq!(s.serialize().unwrap(), "a = 1\n", "doc untouched");
+}
+
+#[test]
+fn dispatch_commit_edit_type_change_prompt_from_detail() {
+    // Type-changing value commit defers to the TypeChange prompt; both answers
+    // resolve back to Detail (never into Mode::Edit — one-shot host).
+    let mut s = toml_session("a = 1\n");
+    let a = s.visible_paths()[1].clone();
+
+    // 'y' applies and returns to Detail.
+    s.dispatch(Intent::SetCursor(a.clone()));
+    s.dispatch(Intent::ToggleDetail);
+    let snap = s.dispatch(Intent::CommitEdit {
+        value: Some("\"str\"".into()),
+        name: None,
+    });
+    assert!(matches!(snap.mode, ModeView::Prompt { .. }), "prompted");
+    let snap = s.dispatch(Intent::PromptKey('y'));
+    assert!(matches!(snap.mode, ModeView::Detail), "y → back to Detail");
+    assert_eq!(s.serialize().unwrap(), "a = \"str\"\n");
+
+    // 'n' cancels, keeps the doc, and still returns to Detail.
+    let snap = s.dispatch(Intent::CommitEdit {
+        value: Some("true".into()),
+        name: None,
+    });
+    assert!(matches!(snap.mode, ModeView::Prompt { .. }), "prompted");
+    let snap = s.dispatch(Intent::PromptKey('n'));
+    assert!(matches!(snap.mode, ModeView::Detail), "n → back to Detail");
+    assert_eq!(s.serialize().unwrap(), "a = \"str\"\n", "unchanged");
+}
+
+#[test]
+fn dispatch_commit_edit_type_change_prompt_from_normal_stays_editing_free() {
+    // Outside Detail the one-shot rule still applies: 'n' must not restore
+    // Mode::Edit (the pointer host has no live editor to show).
+    let mut s = toml_session("a = 1\n");
+    let a = s.visible_paths()[1].clone();
+    s.dispatch(Intent::SetCursor(a));
+    let snap = s.dispatch(Intent::CommitEdit {
+        value: Some("\"str\"".into()),
+        name: None,
+    });
+    assert!(matches!(snap.mode, ModeView::Prompt { .. }), "prompted");
+    let snap = s.dispatch(Intent::PromptKey('n'));
+    assert!(
+        matches!(snap.mode, ModeView::Normal),
+        "n → Normal, not Edit"
+    );
+    assert_eq!(s.serialize().unwrap(), "a = 1\n", "unchanged");
+}
+
+#[test]
 fn dispatch_set_trailing_comment_marks_raw_text() {
     // The Web panel sends raw text (no marker); the session must prepend the
     // backend's comment prefix so the result is a valid trailing comment.

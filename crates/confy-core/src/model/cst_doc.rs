@@ -7,10 +7,10 @@
 //! node* (not decor glued to the following item) and `serialize()` is a lossless
 //! token concatenation.
 //!
-//! Phase 1 (this file) implements `load`/`serialize` with a byte-identical
-//! round-trip guarantee. `project` (Phase 2) and `apply` (Phase 3) are stubs until
-//! ported; `CstDocument` is **not** wired into the TUI until it reaches parity with
-//! `TomlDocument` (Phase 5).
+//! `load`/`serialize` guarantee a byte-identical round-trip; `project` rebuilds
+//! the NodeTree and `apply` commits mutations atomically. `CstDocument` is the
+//! shipping TOML backend (the original `toml_edit`-based `TomlDocument` was
+//! retired after it reached parity).
 
 use taplo::syntax::SyntaxNode;
 
@@ -21,6 +21,11 @@ pub struct CstDocument {
     /// The rowan syntax tree root — the single source of truth.
     pub(crate) syntax: SyntaxNode,
     pub(crate) original: String,
+    /// True while `syntax` is byte-identical to `original` (fresh load or just
+    /// saved), so `is_dirty` can answer without serializing. Cleared on any
+    /// syntax change; a change back to `original` still falls through to the
+    /// exact text compare, preserving the edit-then-undo-is-clean semantic.
+    pub(crate) clean: bool,
     /// Display label for the projection root (the host sets it from the source
     /// path on load); not a filesystem handle.
     pub(crate) filename: String,
@@ -36,7 +41,7 @@ impl ConfigDocument for CstDocument {
     }
 
     fn is_dirty(&self) -> bool {
-        self.serialize() != self.original
+        !self.clean && self.serialize() != self.original
     }
 
     fn serialize_fragment(&self, path: &[crate::model::node::Seg]) -> String {
@@ -60,6 +65,7 @@ impl ConfigDocument for CstDocument {
         // `clone_for_update` again.
         let new = crate::model::cst_edit::apply(&self.syntax, m)?;
         self.syntax = taplo::parser::parse(&new.to_string()).into_syntax();
+        self.clean = false;
         Ok(())
     }
 
@@ -266,6 +272,7 @@ impl CstDocument {
         Ok(CstDocument {
             syntax: parse.into_syntax(),
             original: text.to_string(),
+            clean: true,
             filename: String::new(),
         })
     }
@@ -279,6 +286,7 @@ impl CstDocument {
     /// Reset the dirty baseline so `is_dirty()` returns false.
     pub fn mark_saved(&mut self) {
         self.original = self.serialize();
+        self.clean = true;
     }
 
     /// Re-parse the document from a serialized snapshot string (undo/redo restore).
@@ -289,6 +297,7 @@ impl CstDocument {
             return Err(MutateError::Fragment(e.to_string()));
         }
         self.syntax = parse.into_syntax();
+        self.clean = false;
         Ok(())
     }
 }
@@ -410,5 +419,23 @@ mod tests {
         let src = "# top\nbasic = \"x\"\n\n# sec\n[srv]\nport = 8080\n";
         let doc = cst_from_str(src);
         assert_eq!(doc.serialize(), src);
+    }
+
+    #[test]
+    fn dirty_flag_falls_back_to_text_compare_after_change_and_undo() {
+        let src = "a = 1\n";
+        let mut doc = cst_from_str(src);
+        assert!(!doc.is_dirty(), "fresh load is clean");
+        // A change makes it dirty and clears the fast-path flag.
+        doc.replace_from_str("a = 2\n").unwrap();
+        assert!(doc.is_dirty());
+        // Changing back to the original text must read clean even though the
+        // flag is now false — the text-compare fallback catches it.
+        doc.replace_from_str(src).unwrap();
+        assert!(!doc.is_dirty(), "undo back to baseline is clean");
+        // mark_saved re-establishes the baseline at the current (edited) text.
+        doc.replace_from_str("a = 3\n").unwrap();
+        doc.mark_saved();
+        assert!(!doc.is_dirty(), "just-saved is clean");
     }
 }

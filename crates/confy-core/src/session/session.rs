@@ -2,7 +2,7 @@ use crate::model::any_doc::AnyDocument;
 use crate::model::document::{
     ConfigDocument, DocFormat, MutateError, Mutation, OnCollision, Target,
 };
-use crate::model::node::{Format, KeySign, NodeKind, NodeTree, Path, ScalarType, Seg};
+use crate::model::node::{Format, KeySign, NodeKind, NodeTree, Path, ScalarType, Seg, VisibleRow};
 use crate::session::search::{fuzzy_match, haystack};
 use crate::session::selection::Selection;
 use crate::session::state::{
@@ -10,7 +10,7 @@ use crate::session::state::{
     PasteSlot, PendingComment, PendingCommit, PendingExternalEdit, PromptKind,
 };
 use crate::session::type_filter::TypeFilter;
-use crate::session::view::{Update, ViewRow};
+use crate::session::view::ViewRow;
 use std::collections::HashSet;
 
 pub struct Session {
@@ -39,39 +39,28 @@ pub struct Session {
     /// In-flight async external edit (WASM §8.2); `None` except between the
     /// `BeginEdit` that routes external and the resolving `ApplyReplace`/`ApplyEditComment`.
     pub pending_external_edit: Option<PendingExternalEdit>,
+    /// Set when a one-shot `commit_edit` (Web `CommitEdit`) deferred to a
+    /// confirmation prompt: `Some(from_detail)`. The prompt resolution must not
+    /// fall back into `Mode::Edit` (the one-shot host has no live editor) and —
+    /// when `true` — returns to `Mode::Detail` so the host's panel stays open.
+    pub prompt_from_commit_edit: Option<bool>,
+}
+
+/// Paste-mode slot navigation step: a relative move or a jump to either edge.
+enum SlotMove {
+    Delta(isize),
+    Home,
+    End,
 }
 
 impl Session {
     /// Construct a Session backed by a real document.
     pub fn new(doc: AnyDocument) -> Self {
         let tree = doc.project();
-        let initial_snapshot = doc.serialize();
-        let history = History::new(initial_snapshot);
-        let mut s = Session {
-            tree,
-            doc: Some(doc),
-            cursor: Vec::new(),
-            expanded: HashSet::new(),
-            selection: Selection::new(),
-            last_action_was_shift_select: false,
-            history: Some(history),
-            status: None,
-            error: None,
-            mode: Mode::Normal,
-            clipboard: None,
-            paste_slot: None,
-            filter: String::new(),
-            filter_cursor: 0,
-            last_filter: String::new(),
-            filtered_paths: None,
-            type_filter: TypeFilter::default(),
-            last_filter_applied: None,
-            detail_text: None,
-            pending_edit: None,
-            pending_trailing: None,
-            pending_external_edit: None,
-        };
-        s.expanded.insert(Vec::new());
+        let history = History::new(doc.serialize());
+        let mut s = Session::from_tree(tree);
+        s.doc = Some(doc);
+        s.history = Some(history);
         s
     }
 
@@ -101,18 +90,31 @@ impl Session {
             pending_edit: None,
             pending_trailing: None,
             pending_external_edit: None,
+            prompt_from_commit_edit: None,
         }
     }
 
     // ---- Visible rows (pure) ----
 
+    /// Pure: flatten the tree through the expand set and filter — borrowed
+    /// rows, zero clones. Cursor/selection/lookup helpers use this;
+    /// `visible_rows` builds the owned `ViewRow` transport on top of it.
+    fn visible_nodes(&self) -> Vec<VisibleRow<'_>> {
+        let expanded = &self.expanded;
+        let rows = self.tree.flatten(&|p| expanded.contains(p));
+        match &self.filtered_paths {
+            Some(fp) => rows
+                .into_iter()
+                .filter(|r| fp.contains(&r.node.path))
+                .collect(),
+            None => rows,
+        }
+    }
+
     /// Pure: flatten the tree through the expand set and filter, baking in
     /// selection + cursor flags. No side effects.
     pub fn visible_rows(&self) -> Vec<ViewRow> {
-        let expanded = &self.expanded;
-        let rows: Vec<ViewRow> = self
-            .tree
-            .flatten(&|p| expanded.contains(p))
+        self.visible_nodes()
             .into_iter()
             .map(|r| {
                 let scalar_type = match &r.node.kind {
@@ -136,29 +138,23 @@ impl Session {
                     is_cursor: r.node.path == self.cursor,
                 }
             })
-            .collect();
-        if let Some(ref fp) = self.filtered_paths {
-            rows.into_iter().filter(|r| fp.contains(&r.path)).collect()
-        } else {
-            rows
-        }
+            .collect()
     }
 
-    /// Stateful rebuild: compute visible rows, snap cursor, clear stale paste/selection.
+    /// Stateful rebuild: compute visible rows, snap cursor, clear stale paste slot.
     /// Returns the new rows for the host to map to RowSnapshot.
     pub fn compute_rows(&mut self) -> Vec<ViewRow> {
-        let prev_index = {
-            let rows = self.visible_rows();
-            rows.iter().position(|r| r.path == self.cursor)
-        };
         let rows = self.visible_rows();
         // Snap cursor if path is no longer visible.
         if !rows.iter().any(|r| r.path == self.cursor) {
-            let i = prev_index.unwrap_or(0).min(rows.len().saturating_sub(1));
-            self.cursor = rows.get(i).map(|r| r.path.clone()).unwrap_or_default();
+            self.cursor = rows.first().map(|r| r.path.clone()).unwrap_or_default();
         }
-        if self.clipboard.is_some() {
-            self.paste_slot = None;
+        // Drop a paste slot whose row is no longer visible (stale after a
+        // structural change); a still-valid slot survives paste-mode navigation.
+        if let Some(PasteSlot::Into(p) | PasteSlot::After(p)) = &self.paste_slot {
+            if !rows.iter().any(|r| &r.path == p) {
+                self.paste_slot = None;
+            }
         }
         rows
     }
@@ -167,28 +163,32 @@ impl Session {
 
     /// Ordered paths of the currently visible rows.
     pub fn visible_paths(&self) -> Vec<Path> {
-        self.visible_rows().iter().map(|r| r.path.clone()).collect()
+        self.visible_nodes()
+            .iter()
+            .map(|r| r.node.path.clone())
+            .collect()
     }
 
     /// Path the cursor is on, if visible.
     pub fn cursor_row_path(&self) -> Option<Path> {
-        let rows = self.visible_rows();
-        rows.iter()
-            .find(|r| r.path == self.cursor)
-            .map(|r| r.path.clone())
+        self.visible_nodes()
+            .iter()
+            .find(|r| r.node.path == self.cursor)
+            .map(|r| r.node.path.clone())
     }
 
     /// Cursor's visible-row index.
     pub fn cursor_row_index(&self) -> Option<usize> {
-        self.visible_rows()
+        self.visible_nodes()
             .iter()
-            .position(|r| r.path == self.cursor)
+            .position(|r| r.node.path == self.cursor)
     }
 
     /// Place the cursor on a visible row by path (pointer analogue of
     /// `select_row`). No-op if the path is not currently visible.
     pub fn set_cursor(&mut self, path: Path) {
-        if self.visible_paths().contains(&path) {
+        let visible = self.visible_nodes().iter().any(|r| r.node.path == path);
+        if visible {
             self.cursor = path;
         }
     }
@@ -197,34 +197,45 @@ impl Session {
 
     pub fn cursor_down(&mut self) {
         if self.clipboard.is_some() {
-            self.move_paste_slot(1);
+            self.move_paste_slot(SlotMove::Delta(1));
             return;
         }
-        let rows = self.visible_rows();
-        let idx = rows.iter().position(|r| r.path == self.cursor).unwrap_or(0);
-        if idx + 1 < rows.len() {
-            self.cursor = rows[idx + 1].path.clone();
+        let rows = self.visible_nodes();
+        let idx = rows
+            .iter()
+            .position(|r| r.node.path == self.cursor)
+            .unwrap_or(0);
+        let next = rows.get(idx + 1).map(|r| r.node.path.clone());
+        if let Some(p) = next {
+            self.cursor = p;
         }
     }
 
     pub fn cursor_up(&mut self) {
         if self.clipboard.is_some() {
-            self.move_paste_slot(-1);
+            self.move_paste_slot(SlotMove::Delta(-1));
             return;
         }
-        let rows = self.visible_rows();
-        let idx = rows.iter().position(|r| r.path == self.cursor).unwrap_or(0);
-        if idx > 0 {
-            self.cursor = rows[idx - 1].path.clone();
+        let rows = self.visible_nodes();
+        let idx = rows
+            .iter()
+            .position(|r| r.node.path == self.cursor)
+            .unwrap_or(0);
+        let prev = idx
+            .checked_sub(1)
+            .and_then(|i| rows.get(i))
+            .map(|r| r.node.path.clone());
+        if let Some(p) = prev {
+            self.cursor = p;
         }
     }
 
     pub fn toggle_expand(&mut self) {
-        let rows = self.visible_rows();
+        let rows = self.visible_nodes();
         let Some((is_branch, path)) = rows
             .iter()
-            .find(|r| r.path == self.cursor)
-            .map(|r| (r.is_branch, r.path.clone()))
+            .find(|r| r.node.path == self.cursor)
+            .map(|r| (r.node.is_branch(), r.node.path.clone()))
         else {
             return;
         };
@@ -253,9 +264,9 @@ impl Session {
     }
 
     pub fn expand_level(&mut self) {
-        let rows = self.visible_rows();
-        let base = match rows.iter().find(|r| r.path == self.cursor) {
-            Some(r) if r.is_branch => r.path.clone(),
+        let rows = self.visible_nodes();
+        let base = match rows.iter().find(|r| r.node.path == self.cursor) {
+            Some(r) if r.node.is_branch() => r.node.path.clone(),
             _ => return,
         };
         let mut branches: Vec<Path> = Vec::new();
@@ -282,9 +293,9 @@ impl Session {
     }
 
     pub fn collapse_level(&mut self) {
-        let rows = self.visible_rows();
-        let (path, is_branch) = match rows.iter().find(|r| r.path == self.cursor) {
-            Some(r) => (r.path.clone(), r.is_branch),
+        let rows = self.visible_nodes();
+        let (path, is_branch) = match rows.iter().find(|r| r.node.path == self.cursor) {
+            Some(r) => (r.node.path.clone(), r.node.is_branch()),
             None => return,
         };
         let is_open_branch = is_branch && self.expanded.contains(&path);
@@ -302,66 +313,73 @@ impl Session {
     pub fn page_up(&mut self, page_size: usize) {
         let step = page_size.max(1);
         if self.clipboard.is_some() {
-            self.move_paste_slot(-(step as isize));
+            self.move_paste_slot(SlotMove::Delta(-(step as isize)));
             return;
         }
-        let rows = self.visible_rows();
+        let rows = self.visible_nodes();
         let idx = rows
             .iter()
-            .position(|r| r.path == self.cursor)
+            .position(|r| r.node.path == self.cursor)
             .unwrap_or(0)
             .saturating_sub(step);
-        if let Some(r) = rows.get(idx) {
-            self.cursor = r.path.clone();
+        let target = rows.get(idx).map(|r| r.node.path.clone());
+        if let Some(p) = target {
+            self.cursor = p;
         }
     }
 
     pub fn page_down(&mut self, page_size: usize) {
         let step = page_size.max(1);
         if self.clipboard.is_some() {
-            self.move_paste_slot(step as isize);
+            self.move_paste_slot(SlotMove::Delta(step as isize));
             return;
         }
-        let rows = self.visible_rows();
+        let rows = self.visible_nodes();
         let max = rows.len().saturating_sub(1);
-        let idx = (rows.iter().position(|r| r.path == self.cursor).unwrap_or(0) + step).min(max);
-        if let Some(r) = rows.get(idx) {
-            self.cursor = r.path.clone();
+        let idx = (rows
+            .iter()
+            .position(|r| r.node.path == self.cursor)
+            .unwrap_or(0)
+            + step)
+            .min(max);
+        let target = rows.get(idx).map(|r| r.node.path.clone());
+        if let Some(p) = target {
+            self.cursor = p;
         }
     }
 
     pub fn cursor_home(&mut self) {
         if self.clipboard.is_some() {
-            self.move_paste_slot(isize::MIN / 2);
+            self.move_paste_slot(SlotMove::Home);
             return;
         }
-        let rows = self.visible_rows();
-        if let Some(r) = rows.first() {
-            self.cursor = r.path.clone();
+        let first = self.visible_nodes().first().map(|r| r.node.path.clone());
+        if let Some(p) = first {
+            self.cursor = p;
         }
     }
 
     pub fn cursor_end(&mut self) {
         if self.clipboard.is_some() {
-            self.move_paste_slot(isize::MAX / 2);
+            self.move_paste_slot(SlotMove::End);
             return;
         }
-        let rows = self.visible_rows();
-        if let Some(r) = rows.last() {
-            self.cursor = r.path.clone();
+        let last = self.visible_nodes().last().map(|r| r.node.path.clone());
+        if let Some(p) = last {
+            self.cursor = p;
         }
     }
 
     // ---- Paste-mode insertion slots ----
 
     pub fn paste_slots(&self) -> Vec<PasteSlot> {
-        let rows = self.visible_rows();
+        let rows = self.visible_nodes();
         let mut slots = Vec::with_capacity(rows.len() * 2);
         for row in rows.iter() {
-            if row.is_branch {
-                slots.push(PasteSlot::Into(row.path.clone()));
+            if row.node.is_branch() {
+                slots.push(PasteSlot::Into(row.node.path.clone()));
             }
-            slots.push(PasteSlot::After(row.path.clone()));
+            slots.push(PasteSlot::After(row.node.path.clone()));
         }
         slots
     }
@@ -372,15 +390,21 @@ impl Session {
             .unwrap_or_else(|| PasteSlot::After(self.cursor.clone()))
     }
 
-    fn move_paste_slot(&mut self, delta: isize) {
+    fn move_paste_slot(&mut self, mv: SlotMove) {
         let slots = self.paste_slots();
         if slots.is_empty() {
             return;
         }
-        let cur = self.effective_paste_slot();
-        let idx = slots.iter().position(|s| *s == cur).unwrap_or(0) as isize;
-        let max = slots.len() as isize - 1;
-        let next = (idx + delta).clamp(0, max) as usize;
+        let max = slots.len() - 1;
+        let next = match mv {
+            SlotMove::Home => 0,
+            SlotMove::End => max,
+            SlotMove::Delta(delta) => {
+                let cur = self.effective_paste_slot();
+                let idx = slots.iter().position(|s| *s == cur).unwrap_or(0) as isize;
+                (idx + delta).clamp(0, max as isize) as usize
+            }
+        };
         let slot = slots[next].clone();
         self.cursor = match &slot {
             PasteSlot::Into(p) | PasteSlot::After(p) => p.clone(),
@@ -389,27 +413,22 @@ impl Session {
     }
 
     pub fn slot_target(&self, slot: PasteSlot) -> Option<Target> {
-        let rows = self.visible_rows();
+        let rows = self.visible_nodes();
         match slot {
             PasteSlot::Into(p) => {
-                let row = rows.iter().find(|r| r.path == p)?;
-                let index = self
-                    .tree
-                    .node_at(&row.path)
-                    .map(|n| n.children.len())
-                    .unwrap_or(0);
+                let row = rows.iter().find(|r| r.node.path == p)?;
                 Some(Target {
-                    parent: row.path.clone(),
-                    index,
+                    parent: row.node.path.clone(),
+                    index: row.node.children.len(),
                 })
             }
             PasteSlot::After(p) => {
-                let row = rows.iter().find(|r| r.path == p)?;
-                let expanded = self.expanded.contains(&row.path);
-                let sibling_index = self.true_sibling_index(&row.path);
+                let row = rows.iter().find(|r| r.node.path == p)?;
+                let expanded = self.expanded.contains(&row.node.path);
+                let sibling_index = self.true_sibling_index(&row.node.path);
                 Some(crate::session::insertion::resolve_target(
-                    &row.path,
-                    row.is_branch,
+                    &row.node.path,
+                    row.node.is_branch(),
                     expanded,
                     sibling_index,
                 ))
@@ -650,11 +669,14 @@ impl Session {
     // ---- Kind switch (K) ----
 
     pub fn open_kind_switch(&mut self) {
-        let rows = self.visible_rows();
-        let Some(row) = rows.iter().find(|r| r.path == self.cursor) else {
+        let Some(path) = self
+            .visible_nodes()
+            .iter()
+            .find(|r| r.node.path == self.cursor)
+            .map(|r| r.node.path.clone())
+        else {
             return;
         };
-        let path = row.path.clone();
         let Some(doc) = &self.doc else {
             return;
         };
@@ -728,11 +750,15 @@ impl Session {
     // ---- Document conversion (C) — pure orchestration; host does the fs write ----
 
     pub fn open_convert(&mut self) {
-        let rows = self.visible_rows();
-        let Some(row) = rows.iter().find(|r| r.path == self.cursor) else {
+        let Some(is_root) = self
+            .visible_nodes()
+            .iter()
+            .find(|r| r.node.path == self.cursor)
+            .map(|r| r.node.path.is_empty())
+        else {
             return;
         };
-        if !row.path.is_empty() {
+        if !is_root {
             self.error = Some("convert: move to the root/file node first (key C)".into());
             return;
         }
@@ -773,11 +799,7 @@ impl Session {
                 return;
             };
             st.target = target;
-            let ext = match target {
-                DocFormat::Toml => "toml",
-                DocFormat::Json => "json",
-                DocFormat::Yaml => "yaml",
-            };
+            let ext = default_ext(target);
             st.path = default_stem
                 .map(|stem| format!("{stem}.{ext}"))
                 .unwrap_or_else(|| format!("out.{ext}"));
@@ -846,12 +868,7 @@ impl Session {
                 st.cursor = i;
             }
             st.target = fmt;
-            let ext = match fmt {
-                DocFormat::Toml => "toml",
-                DocFormat::Json => "json",
-                DocFormat::Yaml => "yaml",
-            };
-            st.path = format!("out.{ext}");
+            st.path = format!("out.{}", default_ext(fmt));
             st.path_cursor = st.path.chars().count();
             st.step = crate::session::state::ConvertStep::Path;
         }
@@ -866,52 +883,44 @@ impl Session {
         }
     }
 
-    /// Run the conversion. Returns `Update` with `convert_write` set when a write
-    /// is needed — the host performs the actual `fs::write`.
-    pub fn convert_run(&mut self) -> Update {
+    /// Run the conversion. Returns `Some((output_path, text))` when a write is
+    /// needed — the host performs the actual `fs::write`.
+    pub fn convert_run(&mut self) -> Option<(String, String)> {
         let (target, path) = match &self.mode {
             Mode::Convert(st) => (st.target, st.path.clone()),
-            _ => return Update::default(),
+            _ => return None,
         };
-        let Some(doc) = &self.doc else {
-            return Update::default();
-        };
+        let doc = self.doc.as_ref()?;
         match crate::model::convert::convert(doc, target) {
             Ok(result) => {
                 if result.warnings.is_empty() {
                     self.mode = self.resting_mode();
-                    Update {
-                        convert_write: Some((path, result.text)),
-                        ..Default::default()
-                    }
+                    Some((path, result.text))
                 } else {
                     if let Mode::Convert(st) = &mut self.mode {
                         st.warnings = result.warnings;
                         st.text = result.text;
                         st.step = crate::session::state::ConvertStep::Confirm;
                     }
-                    Update::default()
+                    None
                 }
             }
             Err(abort) => {
                 self.error = Some(format!("conversion aborted: {abort}"));
                 self.mode = self.resting_mode();
-                Update::default()
+                None
             }
         }
     }
 
     /// `y` on the Confirm step: signal the host to write the rendered output.
-    pub fn convert_confirm(&mut self) -> Update {
+    pub fn convert_confirm(&mut self) -> Option<(String, String)> {
         let (path, text) = match &self.mode {
             Mode::Convert(st) => (st.path.clone(), st.text.clone()),
-            _ => return Update::default(),
+            _ => return None,
         };
         self.mode = self.resting_mode();
-        Update {
-            convert_write: Some((path, text)),
-            ..Default::default()
-        }
+        Some((path, text))
     }
 
     pub fn exit_convert(&mut self) {
@@ -930,16 +939,16 @@ impl Session {
     }
 
     pub fn open_detail(&mut self) {
-        let rows = self.visible_rows();
-        let row = match rows.iter().find(|r| r.path == self.cursor) {
-            Some(r) => r.clone(),
+        let rows = self.visible_nodes();
+        let node = match rows.iter().find(|r| r.node.path == self.cursor) {
+            Some(r) => r.node,
             None => return,
         };
-        let dotted = if row.path.is_empty() {
+        let dotted = if node.path.is_empty() {
             "(root)".to_string()
         } else {
             let mut s = String::new();
-            for seg in &row.path {
+            for seg in &node.path {
                 match seg {
                     Seg::Key(k) => {
                         if !s.is_empty() {
@@ -952,35 +961,24 @@ impl Session {
             }
             s
         };
-        let mut detail = if row.is_branch {
-            let node = self.tree.node_at(&row.path);
-            let (type_str, fmt_str) = node
-                .map(|n| branch_type_format(&n.kind))
-                .unwrap_or(("unknown", "-"));
-            let children = node.map(|n| n.children.len()).unwrap_or(0);
+        let mut detail = if node.is_branch() {
+            let (type_str, fmt_str) = branch_type_format(&node.kind);
+            let children = node.children.len();
             format!(
                 "Path:     {dotted}\nType:     {type_str}\nFormat:   {fmt_str}\nChildren: {children}"
             )
         } else {
-            let type_str = row.scalar_type.map(|st| format!("{st:?}").to_lowercase());
-            let type_str = type_str.as_deref().unwrap_or(node_type_label_str(
-                &self
-                    .tree
-                    .node_at(&row.path)
-                    .map(|n| n.kind.clone())
-                    .unwrap_or(NodeKind::Root),
-            ));
-            let val_str = row.value.as_deref().unwrap_or("");
-            let fmt_str = format_label(row.format).unwrap_or("plain");
+            let type_str = match &node.kind {
+                NodeKind::Scalar(st) => format!("{st:?}").to_lowercase(),
+                other => node_type_label_str(other).to_string(),
+            };
+            let val_str = node.value.as_deref().unwrap_or("");
+            let fmt_str = format_label(node.format).unwrap_or("plain");
             format!("Path:     {dotted}\nType:     {type_str}\nFormat:   {fmt_str}\nValue:    {val_str}")
         };
-        let sign_str = self
-            .tree
-            .node_at(&row.path)
-            .map(|n| key_sign_label(n.key_sign))
-            .unwrap_or("none");
+        let sign_str = key_sign_label(node.key_sign);
         detail.push_str(&format!("\nSign:     {sign_str}"));
-        if let Some(tc) = &row.trailing_comment {
+        if let Some(tc) = &node.trailing_comment {
             detail.push_str(&format!("\nComment:  {tc}"));
         }
         self.detail_text = Some(detail);
@@ -1020,7 +1018,7 @@ impl Session {
         if self.clipboard.is_some() {
             return;
         }
-        let visible = self.visible_paths();
+        let visible: std::collections::HashSet<Path> = self.visible_paths().into_iter().collect();
         let kept: Vec<Path> = paths.into_iter().filter(|p| visible.contains(p)).collect();
         if let Some(focal) = kept.last() {
             self.cursor = focal.clone();
@@ -1381,6 +1379,7 @@ impl Session {
         self.mode = self.resting_mode();
         self.pending_edit = None;
         self.pending_trailing = None;
+        self.prompt_from_commit_edit = None;
         self.status = None;
         if created_on_add {
             self.cancel_added_node();
@@ -1407,6 +1406,7 @@ impl Session {
     /// still fire. Inline path only (the host routes multiline/opaque through the
     /// external-edit handshake).
     pub fn commit_edit(&mut self, value: Option<String>, name: Option<String>) {
+        let from_detail = matches!(self.mode, Mode::Detail);
         self.begin_inline_edit();
         let Mode::Edit(ref mut e) = self.mode else {
             return;
@@ -1419,7 +1419,44 @@ impl Session {
             e.other_cursor = n.chars().count();
             e.other_buffer = n;
         }
+        // A branch node has no scalar value to replace (the panel doesn't even
+        // render a Value field for one) — without this, renaming a branch's key
+        // falls through to the value-replace step with an empty buffer and
+        // fails to parse as a scalar.
+        if self
+            .tree
+            .node_at(&e.path)
+            .map(|n| n.is_branch())
+            .unwrap_or(false)
+        {
+            e.rename_only = true;
+        }
         self.edit_commit();
+        // One-shot epilogue: the pointer host has no live editor to leave open.
+        match &self.mode {
+            // A retry branch (invalid value, rename failure, …) kept the edit —
+            // cancel it and surface the retry message as the error instead.
+            Mode::Edit(_) => {
+                let msg = self.status.take();
+                self.edit_cancel();
+                self.error = msg;
+                if from_detail {
+                    self.open_detail();
+                }
+            }
+            // Deferred to a confirmation prompt — mark it one-shot so the
+            // resolution doesn't fall back into `Mode::Edit` either.
+            Mode::Prompt(_) => {
+                self.prompt_from_commit_edit = Some(from_detail);
+            }
+            // Committed (or cleanly rejected) — a Detail-origin edit returns to
+            // the panel instead of dropping to Normal, so the panel stays open.
+            _ => {
+                if from_detail {
+                    self.open_detail();
+                }
+            }
+        }
     }
 
     pub fn edit_commit(&mut self) {
@@ -1551,8 +1588,14 @@ impl Session {
                 match res {
                     Ok(()) => {
                         self.on_mutation_success();
+                        let old_path = e.path.clone();
                         if let Some(last) = e.path.last_mut() {
                             *last = Seg::Key(new_name.clone());
+                        }
+                        // Keep the cursor on the renamed node (its identity is
+                        // its path) instead of letting it snap to the first row.
+                        if self.cursor == old_path {
+                            self.cursor = e.path.clone();
                         }
                         e.key = new_name.clone();
                         frag_key = new_name;
@@ -1619,6 +1662,7 @@ impl Session {
             return;
         }
         self.on_mutation_success();
+        let old_path = e.path.clone();
         let parent_len = e.path.len() - 1;
         let new_segs: Vec<Seg> = new_name
             .split('.')
@@ -1630,6 +1674,10 @@ impl Session {
         };
         e.path.truncate(parent_len);
         e.path.extend(new_segs);
+        // Keep the cursor on the renamed node (path identity changed).
+        if self.cursor == old_path {
+            self.cursor = e.path.clone();
+        }
         self.apply_replace(e.path, format!("{leaf_key} = {value}\n"));
     }
 
@@ -2013,48 +2061,27 @@ impl Session {
     }
 
     pub fn copy_selected(&mut self) {
-        if let Some(cb) = &mut self.clipboard {
-            if cb.cut {
-                cb.cut = false;
-                let n = cb.fragments.len();
-                self.status = Some(format!("copied {n} node(s) [changed from cut]"));
-            }
-            return;
-        }
-        let paths = self.selected_paths();
-        if paths.is_empty() {
-            return;
-        }
-        let doc = match self.doc.as_ref() {
-            Some(d) => d,
-            None => return,
-        };
-        let mut fragments = Vec::new();
-        for p in &paths {
-            fragments.push(doc.serialize_fragment_relative(p));
-        }
-        self.clipboard = Some(Clipboard {
-            fragments,
-            cut: false,
-            sources: paths,
-        });
-        self.paste_slot = None;
-        self.status = Some(format!(
-            "copied {} node(s)",
-            self.clipboard.as_ref().unwrap().fragments.len()
-        ));
+        self.capture_selected(false);
     }
 
     pub fn cut_selected(&mut self) {
-        if self.cursor_is_read_only() {
+        self.capture_selected(true);
+    }
+
+    /// Shared copy/cut capture. `cut` selects the clipboard mode, the toggle
+    /// message, and (cut only) the read-only guard.
+    fn capture_selected(&mut self, cut: bool) {
+        let verb = if cut { "cut" } else { "copied" };
+        if cut && self.cursor_is_read_only() {
             self.status = Some("read-only node (block comment)".into());
             return;
         }
         if let Some(cb) = &mut self.clipboard {
-            if !cb.cut {
-                cb.cut = true;
+            if cb.cut != cut {
+                cb.cut = cut;
                 let n = cb.fragments.len();
-                self.status = Some(format!("cut {n} node(s) [changed from copy]"));
+                let from = if cut { "copy" } else { "cut" };
+                self.status = Some(format!("{verb} {n} node(s) [changed from {from}]"));
             }
             return;
         }
@@ -2072,12 +2099,12 @@ impl Session {
         }
         self.clipboard = Some(Clipboard {
             fragments,
-            cut: true,
+            cut,
             sources: paths,
         });
         self.paste_slot = None;
         self.status = Some(format!(
-            "cut {} node(s)",
+            "{verb} {} node(s)",
             self.clipboard.as_ref().unwrap().fragments.len()
         ));
     }
@@ -2157,19 +2184,15 @@ impl Session {
         };
         let mut node_entries: Vec<(String, Path)> = Vec::new();
         let mut comment_entries: Vec<(String, Path)> = Vec::new();
-        let mut frags_iter = fragments.into_iter();
-        let mut srcs_iter = sources.into_iter();
-        loop {
-            match frags_iter.next() {
-                None => break,
-                Some(frag) => {
-                    let src = srcs_iter.next().unwrap_or_default();
-                    if is_comment(&src) {
-                        comment_entries.push((frag, src));
-                    } else {
-                        node_entries.push((frag, src));
-                    }
-                }
+        // `sources` may be shorter than `fragments` (e.g. a paste whose source
+        // paths weren't captured); missing entries pad with an empty path.
+        let mut srcs = sources.into_iter();
+        for frag in fragments {
+            let src = srcs.next().unwrap_or_default();
+            if is_comment(&src) {
+                comment_entries.push((frag, src));
+            } else {
+                node_entries.push((frag, src));
             }
         }
         let rebuild =
@@ -2492,6 +2515,10 @@ impl Session {
                 self.clipboard = None;
                 self.pending_edit = None;
                 self.status = None;
+                // Esc on a one-shot (Web panel) prompt returns to the panel.
+                if self.prompt_from_commit_edit.take() == Some(true) {
+                    self.open_detail();
+                }
             }
             Mode::Filter => self.exit_filter(),
             Mode::FilterResults => self.exit_filter_results(),
@@ -2523,6 +2550,10 @@ impl Session {
     pub fn handle_prompt_key(&mut self, c: char) -> bool {
         match &self.mode {
             Mode::Prompt(PromptKind::TypeChange { .. }) => {
+                // A prompt raised by a one-shot Web `CommitEdit` must not fall
+                // back into `Mode::Edit` (that host has no live editor); when it
+                // came from the Detail panel, return there so the panel stays open.
+                let one_shot = self.prompt_from_commit_edit.take();
                 match c {
                     'y' => {
                         if let Some((e, commit)) = self.pending_edit.take() {
@@ -2538,14 +2569,22 @@ impl Session {
                         } else {
                             self.mode = Mode::Normal;
                         }
-                    }
-                    _ => {
-                        if let Some((e, _)) = self.pending_edit.take() {
-                            self.mode = Mode::Edit(e);
-                        } else {
-                            self.mode = Mode::Normal;
+                        if one_shot == Some(true) {
+                            self.open_detail();
                         }
                     }
+                    _ => match (self.pending_edit.take(), one_shot) {
+                        (Some(e_pending), None) => self.mode = Mode::Edit(e_pending.0),
+                        (_, Some(true)) => {
+                            self.status = None;
+                            self.mode = self.resting_mode();
+                            self.open_detail();
+                        }
+                        _ => {
+                            self.status = None;
+                            self.mode = self.resting_mode();
+                        }
+                    },
                 }
                 false // not quit
             }
@@ -2789,6 +2828,15 @@ pub fn format_label(fmt: Format) -> Option<&'static str> {
     }
 }
 
+/// Default file extension for a convert target format.
+fn default_ext(fmt: DocFormat) -> &'static str {
+    match fmt {
+        DocFormat::Toml => "toml",
+        DocFormat::Json => "json",
+        DocFormat::Yaml => "yaml",
+    }
+}
+
 fn char_byte_idx(s: &str, n: usize) -> usize {
     s.char_indices().nth(n).map(|(i, _)| i).unwrap_or(s.len())
 }
@@ -2933,5 +2981,85 @@ fn regroup_float(repr: &str) -> String {
             format!("{sign}{}.{}", group_right(int, 3), group_left(frac, 3))
         }
         None => format!("{sign}{}", group_right(body, 3)),
+    }
+}
+
+#[cfg(test)]
+mod helper_tests {
+    use super::*;
+
+    #[test]
+    fn nudge_scalar_steps_each_type_preserving_format() {
+        assert_eq!(
+            nudge_scalar(ScalarType::Integer, Format::Decimal, "41", 1).as_deref(),
+            Some("42")
+        );
+        assert_eq!(
+            nudge_scalar(ScalarType::Integer, Format::Hex, "0xFF", 1).as_deref(),
+            Some("0x100")
+        );
+        assert_eq!(
+            nudge_scalar(ScalarType::Integer, Format::Hex, "0x0a", 1).as_deref(),
+            Some("0xb"),
+            "lowercase hex preserved"
+        );
+        assert_eq!(
+            nudge_scalar(ScalarType::Float, Format::Plain, "1.50", 1).as_deref(),
+            Some("1.51"),
+            "float steps at its displayed precision"
+        );
+        assert_eq!(
+            nudge_scalar(ScalarType::Float, Format::Plain, "1.50", -1).as_deref(),
+            Some("1.49")
+        );
+        assert_eq!(
+            nudge_scalar(ScalarType::Bool, Format::Plain, "true", 1).as_deref(),
+            Some("false")
+        );
+        // strings / datetimes are not nudgeable
+        assert_eq!(
+            nudge_scalar(ScalarType::String, Format::BasicString, "\"hi\"", 1),
+            None
+        );
+    }
+
+    #[test]
+    fn nudge_reapplies_underscore_grouping() {
+        // decimal regroups every 3 from the right
+        assert_eq!(
+            nudge_scalar(ScalarType::Integer, Format::Decimal, "1_000_000", 1).as_deref(),
+            Some("1_000_001")
+        );
+        // hex regroups every 4 (after the 0x prefix)
+        assert_eq!(
+            nudge_scalar(ScalarType::Integer, Format::Hex, "0xDEAD_BEEF", 1).as_deref(),
+            Some("0xDEAD_BEF0")
+        );
+        // float: int part every 3 from right, frac part every 3 from left
+        assert_eq!(
+            nudge_scalar(ScalarType::Float, Format::Plain, "9_224_617.445_991", 1).as_deref(),
+            Some("9_224_617.445_992")
+        );
+        // no underscore in, no underscore out
+        assert_eq!(
+            nudge_scalar(ScalarType::Integer, Format::Decimal, "999", 1).as_deref(),
+            Some("1000")
+        );
+    }
+
+    #[test]
+    fn clamp_scroll_separates_viewport_from_cursor() {
+        // width 10, buffer length 20.
+        // Walk to the right edge: scroll pins the cursor at the right of the window.
+        assert_eq!(clamp_scroll(0, 20, 20, 10), 11);
+        // Moving left from there stays within the window — text does NOT scroll
+        // (this is the bug fix: cursor walks back through the viewport first).
+        assert_eq!(clamp_scroll(11, 19, 20, 10), 11);
+        assert_eq!(clamp_scroll(11, 12, 20, 10), 11);
+        // Only once the cursor reaches the left edge does the text scroll left.
+        assert_eq!(clamp_scroll(11, 11, 20, 10), 11);
+        assert_eq!(clamp_scroll(11, 10, 20, 10), 10);
+        // Cursor near the start keeps the window pinned at 0.
+        assert_eq!(clamp_scroll(0, 3, 20, 10), 0);
     }
 }

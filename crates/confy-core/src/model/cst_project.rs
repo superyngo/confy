@@ -16,10 +16,7 @@ use taplo::rowan::NodeOrToken;
 use taplo::syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 
 /// The syntax element a projected node was built from, for mutation resolution.
-/// Some variants are consumed by Phase-3 mutations not yet ported (Insert / Delete /
-/// Rename / Move / Remark on tables and array-of-tables).
 #[derive(Clone)]
-#[allow(dead_code)]
 pub(crate) enum Target {
     /// An `ENTRY` node (leaf / array / inline-table / dotted leaf, and inline-table
     /// members).

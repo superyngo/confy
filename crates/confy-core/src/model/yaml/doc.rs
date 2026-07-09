@@ -7,6 +7,11 @@ use crate::model::yaml::syntax::SyntaxNode;
 pub struct YamlDocument {
     pub(crate) syntax: SyntaxNode,
     pub(crate) original: String,
+    /// True while `syntax` is byte-identical to `original` (fresh load or just
+    /// saved), so `is_dirty` can answer without serializing. Cleared on any
+    /// syntax change; a change back to `original` still falls through to the
+    /// exact text compare.
+    pub(crate) clean: bool,
     /// Display label for the projection root (host sets it from the source path).
     pub(crate) filename: String,
 }
@@ -21,7 +26,7 @@ impl ConfigDocument for YamlDocument {
     }
 
     fn is_dirty(&self) -> bool {
-        self.serialize() != self.original
+        !self.clean && self.serialize() != self.original
     }
 
     fn serialize_fragment(&self, path: &[Seg]) -> String {
@@ -37,12 +42,13 @@ impl ConfigDocument for YamlDocument {
     }
 
     fn apply(&mut self, m: Mutation) -> Result<(), MutateError> {
-        // NOTE: edit::apply is a passthrough stub until Tasks 5–6 — mutations
-        // are currently no-ops (the re-parse round-trip below is a no-op too).
+        // `edit::apply` returns the mutated tree (or an error, leaving `self`
+        // untouched); we commit by reparsing its serialization for normalization.
         let new = crate::model::yaml::edit::apply(&self.syntax, m)?;
         let text = new.to_string();
         let green = crate::model::yaml::parse::parse(&text).map_err(MutateError::Fragment)?;
         self.syntax = SyntaxNode::new_root(green);
+        self.clean = false;
         Ok(())
     }
 
@@ -140,6 +146,7 @@ impl YamlDocument {
         Ok(YamlDocument {
             syntax: SyntaxNode::new_root(green),
             original: text.to_string(),
+            clean: true,
             filename: String::new(),
         })
     }
@@ -151,11 +158,13 @@ impl YamlDocument {
 
     pub fn mark_saved(&mut self) {
         self.original = self.serialize();
+        self.clean = true;
     }
 
     pub fn replace_from_str(&mut self, s: &str) -> Result<(), MutateError> {
         let green = crate::model::yaml::parse::parse(s).map_err(MutateError::Fragment)?;
         self.syntax = SyntaxNode::new_root(green);
+        self.clean = false;
         Ok(())
     }
 }
@@ -196,10 +205,21 @@ pub(crate) fn kind_options(tree: &NodeTree, path: &[Seg]) -> Vec<(String, KindTa
                 ),
                 (Format::Folded, "folded >", KindTarget::StringFolded),
             ];
+            // A quoted string inside a flow collection that contains a flow
+            // indicator character (`,{}[]`) can't become Plain — unquoted, that
+            // character would end the scalar mid-flow. `node.value` is the raw
+            // repr (quotes included for a quoted string), so this substring
+            // check covers the decoded content without needing to decode it.
+            let plain_unsafe_in_flow = in_flow
+                && node
+                    .value
+                    .as_deref()
+                    .is_some_and(|v| v.contains([',', '{', '}', '[', ']']));
             all.iter()
                 .filter(|(f, ..)| *f != node.format)
                 // Block scalars are multi-line: not available inside a flow line.
                 .filter(|(f, ..)| !(in_flow && matches!(f, Format::LiteralBlock | Format::Folded)))
+                .filter(|(f, ..)| !(plain_unsafe_in_flow && *f == Format::Plain))
                 .map(|(_, l, t)| (l.to_string(), *t))
                 .collect()
         }

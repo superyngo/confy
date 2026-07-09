@@ -7,7 +7,7 @@ pub use confy_core::session::{EditKind, FilterLayer, PendingCommit};
 use crate::model::document::ConfigDocument;
 #[cfg(test)]
 use crate::model::document::{OnCollision, Target};
-use crate::model::node::{Format, NodeKind, NodeTree, Path, ScalarType};
+use crate::model::node::{Format, NodeKind, NodeTree, Path};
 #[cfg(test)]
 use crate::tui::state::Clipboard;
 use crate::tui::state::{Mode, PasteSlot};
@@ -87,22 +87,15 @@ impl App {
         self.rows = view_rows
             .into_iter()
             .map(|vr| {
-                let kind = self.session.tree.node_at(&vr.path).map(|n| n.kind.clone());
-                let read_only = self
+                // `type_label`/`read_only` already ride on the ViewRow; the tree
+                // lookup is needed only for `type_tag`'s NodeKind.
+                let type_tag = self
                     .session
                     .tree
                     .node_at(&vr.path)
-                    .map(|n| n.read_only)
-                    .unwrap_or(false);
+                    .map(|n| type_tag(&n.kind, vr.format, doc_fmt, n.read_only))
+                    .unwrap_or_default();
                 let scalar_type = vr.scalar_type.map(|st| format!("{st:?}").to_lowercase());
-                let (type_label, type_tag_str) = if let Some(ref k) = kind {
-                    (
-                        node_type_label(k),
-                        type_tag(k, vr.format, doc_fmt, read_only),
-                    )
-                } else {
-                    (String::new(), String::new())
-                };
                 RowSnapshot {
                     key: vr.key,
                     path: vr.path,
@@ -110,8 +103,8 @@ impl App {
                     is_branch: vr.is_branch,
                     value: vr.value,
                     scalar_type,
-                    type_label,
-                    type_tag: type_tag_str,
+                    type_label: vr.type_label,
+                    type_tag,
                     format: vr.format,
                     trailing_comment: vr.trailing_comment,
                 }
@@ -332,15 +325,13 @@ impl App {
         self.session.convert_path_end();
     }
     pub fn convert_run(&mut self) {
-        let update = self.session.convert_run();
-        if let Some((path, text)) = update.convert_write {
+        if let Some((path, text)) = self.session.convert_run() {
             self.convert_write(&path, &text);
         }
         self.rebuild_rows();
     }
     pub fn convert_confirm(&mut self) {
-        let update = self.session.convert_confirm();
-        if let Some((path, text)) = update.convert_write {
+        if let Some((path, text)) = self.session.convert_confirm() {
             self.convert_write(&path, &text);
         }
         self.rebuild_rows();
@@ -640,208 +631,55 @@ impl App {
     }
 }
 
-/// Minimally adjust a horizontal scroll offset so `cursor` stays within the
-/// `width`-wide window. Only moves when the cursor would leave the window.
-#[cfg(test)]
-fn clamp_scroll(scroll: usize, cursor: usize, len: usize, width: usize) -> usize {
-    let w = width.max(1);
-    let cur = cursor.min(len);
-    let mut s = scroll;
-    if cur < s {
-        s = cur;
-    } else if cur >= s + w {
-        s = cur + 1 - w;
-    }
-    s.min((len + 1).saturating_sub(w))
-}
-
-/// Display type label for a node kind.
-fn node_type_label(kind: &crate::model::node::NodeKind) -> String {
-    use crate::model::node::NodeKind;
-    match kind {
-        NodeKind::Root => String::new(),
-        NodeKind::Table => "table".into(),
-        NodeKind::ArrayOfTables => "array-of-tables".into(),
-        NodeKind::Array => "array".into(),
-        NodeKind::InlineTable => "inline".into(),
-        NodeKind::Scalar(st) => format!("{st:?}").to_lowercase(),
-        NodeKind::Comment(_) => "comment".into(),
-    }
-}
-
-/// Fixed-pitch TYPE-column tag: always 8 columns.
+/// Fixed-pitch TYPE-column tag: always 8 columns. The `(kind, format, doc,
+/// read_only)` decision lives once in `classify`; this only maps its
+/// `TypeToken` to the column glyph, so the tag list can't drift from the
+/// type-filter.
 fn type_tag(
     kind: &NodeKind,
     format: Format,
     doc: crate::model::document::DocFormat,
     read_only: bool,
 ) -> String {
-    use crate::model::document::DocFormat;
-    if read_only && doc == DocFormat::Yaml {
-        return format!("{:<8}", "[opaq ]");
-    }
-    let slot: &str = match kind {
-        NodeKind::Root => "[G]",
-        NodeKind::Comment(_) => "[C]",
-        NodeKind::Array => match (doc, format) {
-            (DocFormat::Yaml, Format::Block) => "[A/B]",
-            (DocFormat::Yaml, _) => "[A/F]",
-            (_, Format::Multiline) => "[A/M]",
-            _ => "[A/I]",
-        },
-        NodeKind::ArrayOfTables => "[A/T]",
-        NodeKind::InlineTable => match doc {
-            DocFormat::Yaml => "[T/F]",
-            _ => "[T/I]",
-        },
-        NodeKind::Table => match (doc, format) {
-            (DocFormat::Yaml, Format::Block) => "[T/B]",
-            (DocFormat::Yaml, _) => "[T/F]",
-            (DocFormat::Json, Format::Multiline) => "[T/M]",
-            (DocFormat::Json, _) => "[T/I]",
-            (_, Format::Dotted) => "[T/D]",
-            (_, Format::Multiline) => "[T/M]",
-            _ => "[T/S]",
-        },
-        NodeKind::Scalar(st) => match (st, format) {
-            (ScalarType::String, Format::MultilineBasic) => "[S:mstr]",
-            (ScalarType::String, Format::Literal) => "[S:lit ]",
-            (ScalarType::String, Format::MultilineLiteral) => "[S:mlit]",
-            (ScalarType::String, Format::SingleQuoted) => "[S:sq  ]",
-            (ScalarType::String, Format::DoubleQuoted) => "[S:dq  ]",
-            (ScalarType::String, Format::LiteralBlock) => "[S:lit ]",
-            (ScalarType::String, Format::Folded) => "[S:fold]",
-            (ScalarType::String, _) => "[S:str ]",
-            (ScalarType::Integer, Format::Hex) => "[I:hex ]",
-            (ScalarType::Integer, Format::Octal) => "[I:oct ]",
-            (ScalarType::Integer, Format::Binary) => "[I:bin ]",
-            (ScalarType::Integer, _) => "[I:dec ]",
-            (ScalarType::Float, Format::Inf) => "[F:inf ]",
-            (ScalarType::Float, Format::Nan) => "[F:nan ]",
-            (ScalarType::Float, Format::Exponent) => "[F:exp ]",
-            (ScalarType::Float, _) => "[F:flt ]",
-            (ScalarType::Bool, _) => "[B:bool]",
-            (ScalarType::Null, _) => "[S:null]",
-            (ScalarType::OffsetDatetime, _) => "[D:odt ]",
-            (ScalarType::LocalDatetime, _) => "[D:ldt ]",
-            (ScalarType::LocalDate, _) => "[D:ldat]",
-            (ScalarType::LocalTime, _) => "[D:ltim]",
-        },
+    use confy_core::session::{classify, TypeToken};
+    let slot: &str = match classify(kind, format, doc, read_only) {
+        TypeToken::Root => "[G]",
+        TypeToken::Comment => "[C]",
+        TypeToken::Opaque => "[opaq ]",
+        TypeToken::SeqBlock => "[A/B]",
+        TypeToken::SeqFlow => "[A/F]",
+        TypeToken::ArrayMultiline => "[A/M]",
+        TypeToken::ArrayInline => "[A/I]",
+        TypeToken::Aot => "[A/T]",
+        TypeToken::MapFlow => "[T/F]",
+        TypeToken::InlineTable => "[T/I]",
+        TypeToken::MapBlock => "[T/B]",
+        TypeToken::TableMultiline => "[T/M]",
+        TypeToken::TableDotted => "[T/D]",
+        TypeToken::TableScope => "[T/S]",
+        TypeToken::StrMBasic => "[S:mstr]",
+        TypeToken::StrLit | TypeToken::StrLiteralBlock => "[S:lit ]",
+        TypeToken::StrMLit => "[S:mlit]",
+        TypeToken::StrSingle => "[S:sq  ]",
+        TypeToken::StrDouble => "[S:dq  ]",
+        TypeToken::StrFolded => "[S:fold]",
+        TypeToken::StrBasic => "[S:str ]",
+        TypeToken::IntHex => "[I:hex ]",
+        TypeToken::IntOct => "[I:oct ]",
+        TypeToken::IntBin => "[I:bin ]",
+        TypeToken::IntDec => "[I:dec ]",
+        TypeToken::FloatInf => "[F:inf ]",
+        TypeToken::FloatNan => "[F:nan ]",
+        TypeToken::FloatExp => "[F:exp ]",
+        TypeToken::FloatPlain => "[F:flt ]",
+        TypeToken::Bool => "[B:bool]",
+        TypeToken::Null => "[S:null]",
+        TypeToken::Odt => "[D:odt ]",
+        TypeToken::Ldt => "[D:ldt ]",
+        TypeToken::LDate => "[D:ldat]",
+        TypeToken::LTime => "[D:ltim]",
     };
     format!("{slot:<8}")
-}
-
-/// Insert `_` every `n` digits counting from the right.
-#[cfg(test)]
-fn group_right(digits: &str, n: usize) -> String {
-    let len = digits.chars().count();
-    let mut out = String::with_capacity(len + len / n);
-    for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (len - i).is_multiple_of(n) {
-            out.push('_');
-        }
-        out.push(c);
-    }
-    out
-}
-
-/// Insert `_` every `n` digits counting from the left.
-#[cfg(test)]
-fn group_left(digits: &str, n: usize) -> String {
-    let mut out = String::with_capacity(digits.len() + digits.len() / n);
-    for (i, c) in digits.chars().enumerate() {
-        if i > 0 && i.is_multiple_of(n) {
-            out.push('_');
-        }
-        out.push(c);
-    }
-    out
-}
-
-/// Re-apply underscore digit grouping to a freshly stepped integer repr.
-#[cfg(test)]
-fn regroup_int(repr: &str, fmt: Format) -> String {
-    match fmt {
-        Format::Hex | Format::Octal | Format::Binary => {
-            let (prefix, digits) = repr.split_at(2);
-            format!("{prefix}{}", group_right(digits, 4))
-        }
-        _ => {
-            let (sign, digits) = repr.strip_prefix('-').map_or(("", repr), |d| ("-", d));
-            format!("{sign}{}", group_right(digits, 3))
-        }
-    }
-}
-
-/// Re-apply underscore grouping to a stepped decimal-float repr.
-#[cfg(test)]
-fn regroup_float(repr: &str) -> String {
-    let (sign, body) = repr.strip_prefix('-').map_or(("", repr), |d| ("-", d));
-    match body.split_once('.') {
-        Some((int, frac)) => format!("{sign}{}.{}", group_right(int, 3), group_left(frac, 3)),
-        None => format!("{sign}{}", group_right(body, 3)),
-    }
-}
-
-/// Step a scalar's repr by `delta` (±1) preserving its written format.
-#[cfg(test)]
-fn nudge_scalar(st: ScalarType, fmt: Format, repr: &str, delta: i64) -> Option<String> {
-    let s = repr.trim();
-    match st {
-        ScalarType::Bool => match s {
-            "true" => Some("false".into()),
-            "false" => Some("true".into()),
-            _ => None,
-        },
-        ScalarType::Integer => {
-            let had_us = s.contains('_');
-            let clean = s.replace('_', "");
-            let out = match fmt {
-                Format::Hex => {
-                    let upper = clean[2..].chars().any(|c| c.is_ascii_uppercase());
-                    let n = i64::from_str_radix(&clean[2..], 16).ok()? + delta;
-                    if upper {
-                        format!("0x{n:X}")
-                    } else {
-                        format!("0x{n:x}")
-                    }
-                }
-                Format::Octal => {
-                    let n = i64::from_str_radix(&clean[2..], 8).ok()? + delta;
-                    format!("0o{n:o}")
-                }
-                Format::Binary => {
-                    let n = i64::from_str_radix(&clean[2..], 2).ok()? + delta;
-                    format!("0b{n:b}")
-                }
-                _ => {
-                    let n = clean.parse::<i64>().ok()? + delta;
-                    n.to_string()
-                }
-            };
-            Some(if had_us { regroup_int(&out, fmt) } else { out })
-        }
-        ScalarType::Float => {
-            let had_us = s.contains('_');
-            let clean = s.replace('_', "");
-            if clean
-                .bytes()
-                .any(|b| matches!(b, b'e' | b'E') || b.is_ascii_alphabetic())
-            {
-                return None;
-            }
-            let places = clean
-                .split_once('.')
-                .map(|(_, frac)| frac.len())
-                .unwrap_or(0);
-            let val = clean.parse::<f64>().ok()?;
-            let step = 10f64.powi(-(places as i32));
-            let next = val + delta as f64 * step;
-            let out = format!("{next:.*}", places);
-            Some(if had_us { regroup_float(&out) } else { out })
-        }
-        _ => None,
-    }
 }
 
 #[cfg(test)]
@@ -2283,65 +2121,6 @@ mod tests {
     }
 
     #[test]
-    fn nudge_scalar_steps_each_type_preserving_format() {
-        assert_eq!(
-            nudge_scalar(ScalarType::Integer, Format::Decimal, "41", 1).as_deref(),
-            Some("42")
-        );
-        assert_eq!(
-            nudge_scalar(ScalarType::Integer, Format::Hex, "0xFF", 1).as_deref(),
-            Some("0x100")
-        );
-        assert_eq!(
-            nudge_scalar(ScalarType::Integer, Format::Hex, "0x0a", 1).as_deref(),
-            Some("0xb"),
-            "lowercase hex preserved"
-        );
-        assert_eq!(
-            nudge_scalar(ScalarType::Float, Format::Plain, "1.50", 1).as_deref(),
-            Some("1.51"),
-            "float steps at its displayed precision"
-        );
-        assert_eq!(
-            nudge_scalar(ScalarType::Float, Format::Plain, "1.50", -1).as_deref(),
-            Some("1.49")
-        );
-        assert_eq!(
-            nudge_scalar(ScalarType::Bool, Format::Plain, "true", 1).as_deref(),
-            Some("false")
-        );
-        // strings / datetimes are not nudgeable
-        assert_eq!(
-            nudge_scalar(ScalarType::String, Format::BasicString, "\"hi\"", 1),
-            None
-        );
-    }
-
-    #[test]
-    fn nudge_reapplies_underscore_grouping() {
-        // decimal regroups every 3 from the right
-        assert_eq!(
-            nudge_scalar(ScalarType::Integer, Format::Decimal, "1_000_000", 1).as_deref(),
-            Some("1_000_001")
-        );
-        // hex regroups every 4 (after the 0x prefix)
-        assert_eq!(
-            nudge_scalar(ScalarType::Integer, Format::Hex, "0xDEAD_BEEF", 1).as_deref(),
-            Some("0xDEAD_BEF0")
-        );
-        // float: int part every 3 from right, frac part every 3 from left
-        assert_eq!(
-            nudge_scalar(ScalarType::Float, Format::Plain, "9_224_617.445_991", 1).as_deref(),
-            Some("9_224_617.445_992")
-        );
-        // no underscore in, no underscore out
-        assert_eq!(
-            nudge_scalar(ScalarType::Integer, Format::Decimal, "999", 1).as_deref(),
-            Some("1000")
-        );
-    }
-
-    #[test]
     fn nudge_writes_back_through_replace() {
         let mut app = app_with("port = 8080\n");
         app.select_row(1); // on port
@@ -2523,22 +2302,6 @@ mod tests {
             before,
             "doc unchanged"
         );
-    }
-
-    #[test]
-    fn clamp_scroll_separates_viewport_from_cursor() {
-        // width 10, buffer length 20.
-        // Walk to the right edge: scroll pins the cursor at the right of the window.
-        assert_eq!(clamp_scroll(0, 20, 20, 10), 11);
-        // Moving left from there stays within the window — text does NOT scroll
-        // (this is the bug fix: cursor walks back through the viewport first).
-        assert_eq!(clamp_scroll(11, 19, 20, 10), 11);
-        assert_eq!(clamp_scroll(11, 12, 20, 10), 11);
-        // Only once the cursor reaches the left edge does the text scroll left.
-        assert_eq!(clamp_scroll(11, 11, 20, 10), 11);
-        assert_eq!(clamp_scroll(11, 10, 20, 10), 10);
-        // Cursor near the start keeps the window pinned at 0.
-        assert_eq!(clamp_scroll(0, 3, 20, 10), 0);
     }
 
     #[test]

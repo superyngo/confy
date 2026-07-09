@@ -7,6 +7,11 @@ use crate::model::node::{NodeKind, NodeTree, Seg};
 pub struct JsonDocument {
     pub(crate) syntax: SyntaxNode,
     pub(crate) original: String,
+    /// True while `syntax` is byte-identical to `original` (fresh load or just
+    /// saved), so `is_dirty` can answer without serializing. Cleared on any
+    /// syntax change; a change back to `original` still falls through to the
+    /// exact text compare.
+    pub(crate) clean: bool,
     /// Display label for the projection root (host sets it from the source path).
     pub(crate) filename: String,
     /// True once authored comments are legal: the file already contained a `//`
@@ -26,7 +31,7 @@ impl ConfigDocument for JsonDocument {
     }
 
     fn is_dirty(&self) -> bool {
-        self.serialize() != self.original
+        !self.clean && self.serialize() != self.original
     }
 
     fn serialize_fragment(&self, path: &[Seg]) -> String {
@@ -46,6 +51,7 @@ impl ConfigDocument for JsonDocument {
         let text = new.to_string();
         let green = crate::model::json::parse::parse(&text).map_err(MutateError::Fragment)?;
         self.syntax = SyntaxNode::new_root(green);
+        self.clean = false;
         Ok(())
     }
 
@@ -129,10 +135,19 @@ impl JsonDocument {
     pub fn from_str(text: &str) -> anyhow::Result<Self> {
         let green = crate::model::json::parse::parse(text)
             .map_err(|e| anyhow::anyhow!("parsing JSON: {e}"))?;
-        let comments_enabled = text.contains("//") || text.contains("/*");
+        // Derived from the token stream, not raw text, so a `//` inside a string
+        // value does not count as a comment.
+        let comments_enabled = crate::model::json::parse::lex(text).iter().any(|(k, _)| {
+            matches!(
+                k,
+                crate::model::json::syntax::SyntaxKind::LINE_COMMENT
+                    | crate::model::json::syntax::SyntaxKind::BLOCK_COMMENT
+            )
+        });
         Ok(JsonDocument {
             syntax: SyntaxNode::new_root(green),
             original: text.to_string(),
+            clean: true,
             filename: String::new(),
             comments_enabled,
         })
@@ -145,11 +160,13 @@ impl JsonDocument {
 
     pub fn mark_saved(&mut self) {
         self.original = self.serialize();
+        self.clean = true;
     }
 
     pub fn replace_from_str(&mut self, s: &str) -> Result<(), MutateError> {
         let green = crate::model::json::parse::parse(s).map_err(MutateError::Fragment)?;
         self.syntax = SyntaxNode::new_root(green);
+        self.clean = false;
         Ok(())
     }
 
@@ -232,6 +249,14 @@ mod tests {
     fn existing_comment_enables_support() {
         let doc = json_from_str(".json", "// hi\n{}\n");
         assert!(doc.supports_comments());
+    }
+
+    #[test]
+    fn slashes_inside_string_do_not_enable_comments() {
+        let doc = json_from_str(".json", "{\n  \"url\": \"https://a.com\"\n}\n");
+        assert!(!doc.supports_comments());
+        let doc = json_from_str(".json", "{\n  \"glob\": \"/* not a comment */\"\n}\n");
+        assert!(!doc.supports_comments());
     }
 
     #[test]

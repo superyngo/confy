@@ -400,6 +400,19 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
 #overlay .opt { cursor: pointer; padding: 2px 8px; border-radius: 6px; }
 #overlay .opt.sel { background: var(--accent-soft); color: var(--fg); }
 #overlay .edit-cell { font-family: var(--mono); background: var(--panel); border: 1px solid var(--accent); padding: 2px 6px; border-radius: 5px; }
+/* Prompt (y/n confirm) answer buttons — same anatomy as the detail panel's
+   .btn row; ≥34px tall so they're comfortable to tap as well as click. */
+#overlay .btn {
+  height: 34px; padding: 0 14px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  background: var(--panel); border: 1px solid var(--border-strong); color: var(--fg); cursor: pointer;
+  white-space: nowrap;
+}
+#overlay .btn:hover { background: var(--accent-soft); border-color: var(--sel-edge); }
+#overlay .btn.primary { background: var(--accent); color: var(--bg); border-color: transparent; }
+#overlay .btn.primary:hover { filter: brightness(1.06); background: var(--accent); }
+#overlay .row-btns { display: flex; gap: 10px; margin-top: 14px; }
+#overlay .row-btns .btn { flex: 1; }
 
 /* Type-filter popover (#tfPop) extras beyond the design's On/Off cell styles:
    the tri-state Partial group state, the keyboard cursor cell, and the active

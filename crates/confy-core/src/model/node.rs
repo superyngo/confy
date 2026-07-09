@@ -207,14 +207,14 @@ impl NodeTree {
     }
 
     /// Find a node by its exact projected path (Root has the empty path).
+    /// Descends segment-by-segment: every child's path is its parent's path
+    /// plus one segment (a projection invariant).
     pub fn node_at(&self, path: &[Seg]) -> Option<&Node> {
-        fn walk<'a>(n: &'a Node, path: &[Seg]) -> Option<&'a Node> {
-            if n.path == path {
-                return Some(n);
-            }
-            n.children.iter().find_map(|c| walk(c, path))
+        let mut cur = &self.root;
+        for i in 0..path.len() {
+            cur = cur.children.iter().find(|c| c.path == path[..=i])?;
         }
-        walk(&self.root, path)
+        Some(cur)
     }
 }
 

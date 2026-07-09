@@ -180,11 +180,6 @@ export async function writeFile(handle: FsHandle, text: string): Promise<void> {
   await w.close();
 }
 
-/** Read a handle's current text (used to resync after an external change). */
-export async function readHandle(handle: FsHandle): Promise<string> {
-  return (await handle.getFile()).text();
-}
-
 // ---- Download fallback (always available) ----
 
 /**

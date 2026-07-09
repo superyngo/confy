@@ -144,7 +144,9 @@ shapes round-trip). Key types:
   is rejected. Sibling index is the child's visible position (== core's full-child index);
   core's `Move` self-adjusts for removed earlier siblings, so feed original indices.
 - **Inline edit / kind / context.** Clicking a value → a live `<input>` (seeded from the
-  edit buffer, Enter/blur → `CommitEdit`); a key → a rename input; the kind badge → a
+  edit buffer, Enter/blur → `CommitEdit`, **sized to its content** — `editWidthCh` seeds a
+  `width:…ch` and an `input` listener grows it while typing, CSS min/max-width clamping);
+  a key → a rename input; the kind badge → a
   popover built from `kindOptions(path)` → `CommitKind`; `＋` → `AddNode`; `⋮`/right-click →
   a context menu. All popovers share one synchronous closer (a single outside-click
   listener) and are scoped per popover so they don't open/close together. **Every menu
@@ -173,6 +175,16 @@ shapes round-trip). Key types:
   aside. The keyboard `#overlay` now serves **only** Help / Prompt / KindSwitch. The
   body-keydown accelerator guard skips `INPUT`/`TEXTAREA`/`SELECT` so typing in a widget
   isn't routed as navigation.
+- **Confirm prompts are buttons** (shared `web/prompt.ts`). `Mode::Prompt` renders per-kind
+  answer buttons (`data-pk` → `PromptKey`): Yes/Cancel pairs for TypeChange / ArrayUpgrade /
+  JsoncUpgrade / ConfirmQuit, and Overwrite / Rename / Cancel for a paste Collision. The
+  question line is `snap.status ?? snap.error` with the TUI's trailing key legend stripped
+  (`promptQuestion`), with per-kind fallbacks for prompts core raises without a status. Desktop
+  keeps the keyboard path (y/n/Enter/Esc, plus o/r for Collision) alongside the buttons; the
+  **touch UI renders a prompt bottom sheet** (`.prompt-sheet`) whose scrim/×/grab dismissal
+  answers `n` — a prompt is always *answered*, never just hidden (peel-on-dismiss). The desktop
+  detail aside stays open underneath a prompt (`renderDetailPanel` leaves `.open` untouched on
+  `Prompt`), and the core returns to `Mode::Detail` when a panel-origin prompt resolves.
 - **Tree | Raw view.** A segmented toggle flips the main pane between the interactive tree
   and a **read-only** `<pre>` of `session.serialize()` — the live document (unsaved edits
   included), re-serialized on every render so it never drifts. Read-only first: no in-Raw
@@ -190,7 +202,16 @@ shapes round-trip). Key types:
   panel's value field** (`web/panel.ts`), so it applies in the desktop Detail aside and the touch
   edit sheet too. The shared panel's actions are **Copy / Cut / Delete**; on success each fires the
   panel's optional `afterMutation` callback so the host **confirms (message) and dismisses** the
-  panel (desktop `ExitDetail`, touch `closeSheets`). A **multi-line value/comment renders as a
+  panel (desktop `ExitDetail`, touch `closeSheets`). Panel **key/value edits are one-shot
+  commits** (`CommitEdit`): success and failure both resolve back to the Detail panel (core
+  `commit_edit` epilogue — no dangling `Mode::Edit`/tree editor; a **branch node's rename is
+  rename-only**, skipping the value-replace step a branch has no scalar value for), and **Esc
+  cancels** any panel input (original text restored, blur-commit swallowed — the browser's own
+  no-change-if-value-unchanged behavior means blur doesn't re-fire a commit, so no extra
+  bookkeeping is needed). Both **Enter and Escape `stopPropagation()`** on a panel input: without
+  it, committing on Enter can synchronously open a confirm prompt (type change, paste collision)
+  whose y/n the host's global keydown handler reads straight off that *same* bubbling Enter,
+  auto-answering before the prompt is ever visible. A **multi-line value/comment renders as a
   button** that opens the host popup editor (`BeginEdit` → external edit) instead of a one-line input,
   and its one-line preview is **truncated to the cell** (ellipsis). The **Kind button shows
   `type · «notation»`** (a short glyph, dropped when it would just repeat the label). The panel's
@@ -292,7 +313,10 @@ edits to the verbatim desktop CSS.
 - caret tap → `SetCursor` + `ToggleExpand`. **Single row tap = select only** (`SetCursor` +
   `SetSelection`, no sheet); **double tap (same path within ~300 ms) = open the edit panel**. The
   kind badge tap behaves as a normal row tap (select) — kind switching happens only inside the
-  panel.
+  panel. A **tap on empty tree space** (the `.tree-pane` padding below the last row — outside
+  the pointer-gesture rows' own bounds, so it needs its own plain `click` listener on
+  `.tree-pane`) clears the multi-select and any error banner, mirroring desktop
+  `onTreeClick`'s empty-area branch.
 - grip drag (ported pointer geometry, before/after/into + `.reorder-line`/`.drop-into`) →
   `MoveSelectionTo {sources,target,index}` (sibling index = visible position, as in `dnd.ts`;
   the dragged row's own subtree is excluded from drop candidates by path-prefix). Swipe is gone;

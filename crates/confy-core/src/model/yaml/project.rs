@@ -20,7 +20,6 @@ use rowan::NodeOrToken;
 
 /// The syntax element a projected node was built from, for mutation resolution.
 #[derive(Clone)]
-#[allow(dead_code)]
 pub(crate) enum Target {
     /// A `MAP_ENTRY` node (`key: value`).
     MapEntry(SyntaxNode),
@@ -92,6 +91,46 @@ fn flush_comment_block(
     comment_lines.clear();
 }
 
+/// The consecutive-`#`-line accumulator shared by the root/mapping/sequence
+/// walkers. Callers feed it standalone COMMENT tokens (`push`) and NEWLINEs
+/// (`newline` — a blank line ends the block), and `flush` before every real
+/// node and at end of container. The only per-container difference is *which*
+/// comments count as standalone, so that guard stays at the call site.
+#[derive(Default)]
+struct CommentAccumulator {
+    lines: Vec<String>,
+    first_tok: Option<SyntaxToken>,
+    seen_newline: bool,
+}
+
+impl CommentAccumulator {
+    /// Accumulate one standalone `#` line into the current block.
+    fn push(&mut self, tok: &SyntaxToken) {
+        if self.lines.is_empty() {
+            self.first_tok = Some(tok.clone());
+        }
+        self.lines.push(tok.text().trim_end().to_string());
+        self.seen_newline = false;
+    }
+
+    /// A NEWLINE: the second consecutive one (a blank line) ends the block; the
+    /// first is only remembered.
+    fn newline(&mut self, parent_path: &[Seg], out: &mut Vec<Node>, idx: &mut YamlIndex) {
+        if !self.lines.is_empty() {
+            if self.seen_newline {
+                self.flush(parent_path, out, idx);
+            } else {
+                self.seen_newline = true;
+            }
+        }
+    }
+
+    /// Emit the merged block (if any) as a Comment node.
+    fn flush(&mut self, parent_path: &[Seg], out: &mut Vec<Node>, idx: &mut YamlIndex) {
+        flush_comment_block(&mut self.lines, &mut self.first_tok, parent_path, out, idx);
+    }
+}
+
 /// Walk the ROOT node. Its direct children may be trivia tokens, comments, and
 /// a single MAPPING or SEQUENCE (or VALUE for scalar root).
 fn walk_root_node(
@@ -100,55 +139,28 @@ fn walk_root_node(
     out: &mut Vec<Node>,
     idx: &mut YamlIndex,
 ) {
-    // Comment accumulator for consecutive `#` lines.
-    let mut comment_lines: Vec<String> = Vec::new();
-    let mut first_comment_tok: Option<SyntaxToken> = None;
-    let mut seen_newline_after_comment = false;
-
-    macro_rules! flush_comments {
-        () => {
-            flush_comment_block(
-                &mut comment_lines,
-                &mut first_comment_tok,
-                parent_path,
-                out,
-                idx,
-            )
-        };
-    }
+    // Comment accumulator for consecutive `#` lines. At root every COMMENT is
+    // standalone (no value can precede it on the same line).
+    let mut acc = CommentAccumulator::default();
 
     for child in root.children_with_tokens() {
         match child {
             NodeOrToken::Token(tok) => match tok.kind() {
-                SyntaxKind::COMMENT => {
-                    if comment_lines.is_empty() {
-                        first_comment_tok = Some(tok.clone());
-                    }
-                    comment_lines.push(tok.text().trim_end().to_string());
-                    seen_newline_after_comment = false;
-                }
-                SyntaxKind::NEWLINE => {
-                    if !comment_lines.is_empty() {
-                        if seen_newline_after_comment {
-                            flush_comments!();
-                        } else {
-                            seen_newline_after_comment = true;
-                        }
-                    }
-                }
+                SyntaxKind::COMMENT => acc.push(&tok),
+                SyntaxKind::NEWLINE => acc.newline(parent_path, out, idx),
                 _ => {} // INDENT, WHITESPACE, DOC_MARKER, etc.
             },
             NodeOrToken::Node(node) => match node.kind() {
                 SyntaxKind::MAPPING => {
-                    flush_comments!();
+                    acc.flush(parent_path, out, idx);
                     walk_mapping(&node, parent_path, out, idx);
                 }
                 SyntaxKind::SEQUENCE => {
-                    flush_comments!();
+                    acc.flush(parent_path, out, idx);
                     walk_sequence(&node, parent_path, out, idx);
                 }
                 SyntaxKind::VALUE => {
-                    flush_comments!();
+                    acc.flush(parent_path, out, idx);
                     // Scalar at root: one keyless leaf.
                     let i = out.len();
                     let mut path = parent_path.to_vec();
@@ -170,7 +182,7 @@ fn walk_root_node(
                     });
                 }
                 SyntaxKind::OPAQUE => {
-                    flush_comments!();
+                    acc.flush(parent_path, out, idx);
                     let i = out.len();
                     let mut path = parent_path.to_vec();
                     path.push(Seg::Index(i));
@@ -193,7 +205,7 @@ fn walk_root_node(
         }
     }
 
-    flush_comments!();
+    acc.flush(parent_path, out, idx);
 }
 
 /// Walk a MAPPING node — emit MAP_ENTRY children and OPAQUE children (merge keys).
@@ -204,53 +216,24 @@ fn walk_mapping(
     out: &mut Vec<Node>,
     idx: &mut YamlIndex,
 ) {
-    let mut comment_lines: Vec<String> = Vec::new();
-    let mut first_comment_tok: Option<SyntaxToken> = None;
-    let mut seen_newline_after_comment = false;
-
-    macro_rules! flush_comments {
-        () => {
-            flush_comment_block(
-                &mut comment_lines,
-                &mut first_comment_tok,
-                parent_path,
-                out,
-                idx,
-            )
-        };
-    }
+    let mut acc = CommentAccumulator::default();
 
     for child in mapping.children_with_tokens() {
         match child {
             NodeOrToken::Token(tok) => match tok.kind() {
-                SyntaxKind::COMMENT => {
-                    if is_standalone_comment(&tok) {
-                        if comment_lines.is_empty() {
-                            first_comment_tok = Some(tok.clone());
-                        }
-                        comment_lines.push(tok.text().trim_end().to_string());
-                        seen_newline_after_comment = false;
-                    }
-                    // trailing comments captured via trailing_comment_of_entry
-                }
-                SyntaxKind::NEWLINE => {
-                    if !comment_lines.is_empty() {
-                        if seen_newline_after_comment {
-                            flush_comments!();
-                        } else {
-                            seen_newline_after_comment = true;
-                        }
-                    }
-                }
+                // trailing comments are captured via trailing_comment_of_entry
+                SyntaxKind::COMMENT if is_standalone_comment(&tok) => acc.push(&tok),
+                SyntaxKind::COMMENT => {}
+                SyntaxKind::NEWLINE => acc.newline(parent_path, out, idx),
                 _ => {}
             },
             NodeOrToken::Node(node) => match node.kind() {
                 SyntaxKind::MAP_ENTRY => {
-                    flush_comments!();
+                    acc.flush(parent_path, out, idx);
                     project_map_entry(&node, parent_path, out, idx);
                 }
                 SyntaxKind::OPAQUE => {
-                    flush_comments!();
+                    acc.flush(parent_path, out, idx);
                     // Merge-key or other opaque entry at mapping level.
                     let i = out.len();
                     let mut path = parent_path.to_vec();
@@ -274,7 +257,7 @@ fn walk_mapping(
         }
     }
 
-    flush_comments!();
+    acc.flush(parent_path, out, idx);
 }
 
 /// Walk a SEQUENCE node — emit SEQ_ENTRY children.
@@ -284,55 +267,26 @@ fn walk_sequence(
     out: &mut Vec<Node>,
     idx: &mut YamlIndex,
 ) {
-    let mut comment_lines: Vec<String> = Vec::new();
-    let mut first_comment_tok: Option<SyntaxToken> = None;
-    let mut seen_newline_after_comment = false;
-
-    macro_rules! flush_comments {
-        () => {
-            flush_comment_block(
-                &mut comment_lines,
-                &mut first_comment_tok,
-                parent_path,
-                out,
-                idx,
-            )
-        };
-    }
+    let mut acc = CommentAccumulator::default();
 
     for child in sequence.children_with_tokens() {
         match child {
             NodeOrToken::Token(tok) => match tok.kind() {
-                SyntaxKind::COMMENT => {
-                    if is_standalone_comment(&tok) {
-                        if comment_lines.is_empty() {
-                            first_comment_tok = Some(tok.clone());
-                        }
-                        comment_lines.push(tok.text().trim_end().to_string());
-                        seen_newline_after_comment = false;
-                    }
-                }
-                SyntaxKind::NEWLINE => {
-                    if !comment_lines.is_empty() {
-                        if seen_newline_after_comment {
-                            flush_comments!();
-                        } else {
-                            seen_newline_after_comment = true;
-                        }
-                    }
-                }
+                SyntaxKind::COMMENT if is_standalone_comment(&tok) => acc.push(&tok),
+                SyntaxKind::COMMENT => {}
+                SyntaxKind::NEWLINE => acc.newline(parent_path, out, idx),
                 _ => {}
             },
             NodeOrToken::Node(node) => {
                 if node.kind() == SyntaxKind::SEQ_ENTRY {
-                    flush_comments!();
+                    acc.flush(parent_path, out, idx);
                     project_seq_entry(&node, parent_path, out, idx);
                 }
             }
         }
     }
 
-    flush_comments!();
+    acc.flush(parent_path, out, idx);
 }
 
 /// A COMMENT token is standalone iff the nearest preceding non-WHITESPACE/INDENT
@@ -931,7 +885,7 @@ fn classify_scalar_token(tok: &SyntaxToken) -> (NodeKind, Format, String) {
 }
 
 /// Core-schema type detection for plain scalars.
-fn classify_plain_scalar(s: &str) -> (NodeKind, Format) {
+pub(crate) fn classify_plain_scalar(s: &str) -> (NodeKind, Format) {
     // Null
     if s == "null" || s == "~" || s == "Null" || s == "NULL" {
         return (NodeKind::Scalar(ScalarType::Null), Format::Plain);
