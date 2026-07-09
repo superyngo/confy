@@ -399,6 +399,9 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
 #overlay pre { font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap; margin: 0; }
 #overlay .opt { cursor: pointer; padding: 2px 8px; border-radius: 6px; }
 #overlay .opt.sel { background: var(--accent-soft); color: var(--fg); }
+#overlay .help-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+#overlay .tab-btn { border: 1px solid var(--border-strong); background: var(--panel); }
+#overlay .tab-btn.sel { background: var(--accent); color: var(--bg); border-color: transparent; }
 #overlay .edit-cell { font-family: var(--mono); background: var(--panel); border: 1px solid var(--accent); padding: 2px 6px; border-radius: 5px; }
 /* Prompt (y/n confirm) answer buttons — same anatomy as the detail panel's
    .btn row; ≥34px tall so they're comfortable to tap as well as click. */

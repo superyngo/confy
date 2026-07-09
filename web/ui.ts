@@ -36,6 +36,7 @@ import {
   type SampleFormat,
 } from "./samples.js";
 import { currentKindLabel, editWidthCh, escapeHtml, IC_CARET, renderTree } from "./render.js";
+import { HELP_TEXT, ABOUT_TEXT, KIND_LEGEND } from "./help-content.js";
 import { resolveClick, resetAnchor, rowsInRect, setAnchor } from "./select.js";
 import { installDnd } from "./dnd.js";
 import { panelHTML, wirePanel } from "./panel.js";
@@ -290,11 +291,18 @@ function renderOverlay() {
     return;
   }
   if (tag === "Help") {
-    // The KIND legend differs per backend (mirrors the TUI's per-format help in
-    // crates/confy-tui/src/tui/keys.rs): TOML has dotted/AoT/radix rows, JSON
-    // drops them and adds null/exponent, YAML adds block/flow + opaque + styles.
+    const activeTab = (m as { Help: { tab: "Help" | "About" } }).Help.tab;
     const legend = KIND_LEGEND[snap!.doc_format] ?? "";
-    overlay.innerHTML = `<h3>Help</h3><pre>${escapeHtml(HELP_TEXT + "\n" + legend)}</pre>`;
+    const body =
+      activeTab === "Help" ? HELP_TEXT + "\n" + legend : ABOUT_TEXT;
+    overlay.innerHTML =
+      `<div class="help-tabs">` +
+      `<button class="opt tab-btn${activeTab === "Help" ? " sel" : ""}" data-tab="Help">Help</button>` +
+      `<button class="opt tab-btn${activeTab === "About" ? " sel" : ""}" data-tab="About">About</button>` +
+      `</div><pre>${escapeHtml(body)}</pre>`;
+    overlay.querySelectorAll<HTMLElement>("[data-tab]").forEach((btn) => {
+      btn.addEventListener("click", () => send("ToggleHelpTab"));
+    });
   } else if (tag === "Prompt") {
     const kind = (m as { Prompt: { kind: PromptView } }).Prompt.kind;
     overlay.innerHTML =
@@ -1232,6 +1240,7 @@ function bindGlobal() {
   saveBtn.addEventListener("click", () => openSaveConvert(io));
   fmtPill.addEventListener("click", () => cycleSampleFormat(openSample)); // no-op unless in sample mode
   themeBtn.addEventListener("click", toggleTheme);
+  $("btnInfo").addEventListener("click", () => send("EnterHelp"));
   $("btnMore").addEventListener("click", (e) => {
     // Toggle: a second click on ⋯ while its menu is open closes it.
     if ($("moreMenu").classList.contains("open")) return closePops();
@@ -1375,32 +1384,6 @@ function setStatus(status: string | undefined, error: string | undefined) {
   errorEl.classList.toggle("hidden", err === "");
 }
 
-const HELP_TEXT = `confy web — keys
-j/k or ↑/↓     move cursor
-Enter/Space    toggle branch / edit leaf / activate
-e              edit (inline or multiline modal)
-a              add node · d delete · c copy · x cut · v paste
-r              remark (toggle node ↔ comment)
-+/- or ←/→     nudge numeric value
-z / y          undo / redo
-s              toggle select · 0 collapse-all · 9 expand-all
-1 / 2          expand / collapse one level
-/              filter · f type-filter · K kind-switch · C convert
-i              detail popup · ? this help · Ctrl-s save · Ctrl-o open
-q              quit (prompts if dirty)
-
-── pointer ──────────────────────────────────────
-click          select          ⇧click   range-select
-⌘click         multi-select    drag     marquee / move
-right-click    context menu
-
-Open (Ctrl-o) and in-place Save need the File System Access API
-(Chrome/Edge). Other browsers fall back to the paste-load / download path.`;
-
-// Per-format KIND legend appended to the Help overlay, keyed by `doc_format`
-// (ported from the TUI's TOML_HELP/JSON_HELP/YAML_HELP KIND column). The kind
-// badge shows the friendly label + notation suffix; this explains what each
-// notation means for the open file's backend.
 // ---- touch scaffolding stubs (capability-gated, INERT this phase) ----
 // Groundwork for a future touch-first interaction layer: swipe gestures,
 // a bottom-sheet overlay, and a FAB for primary actions. All stubs early-return
@@ -1420,50 +1403,5 @@ function _touchSwipeStub() { return; }
 function _touchSheetStub() { return; }
 // FAB stub (future: floating button for AddNode as primary touch action)
 function _touchFabStub() { return; }
-
-const KIND_LEGEND: Record<string, string> = {
-  Toml: `── KIND badge (TOML) ──────────────────────────────
-Containers (label·notation):
-  table·scope    standard [header] table
-  table·dotted   dotted-key table (a.b.c = …)
-  inline         inline table { … }
-  array·inline   inline array        array·multi  multiline array
-  AoT            array-of-tables  [[…]]
-
-Scalars (label·notation):
-  str            basic string        str·"…"  (quoted)
-  str·'…'        literal string
-  str·"""        multiline basic     str·'''  multiline literal
-  int            decimal integer
-  int·0x int·0o int·0b   hex / octal / binary
-  float / float·dec      float        float·1e  exponent
-  float·inf float·nan    infinity / NaN
-  bool · date · time · null`,
-  Json: `── KIND badge (JSON / JSONC) ──────────────────────
-Containers (label·notation):
-  table          object { … }        table·multi  multiline object
-  inline         inline object
-  array·inline   inline array        array·multi  multiline array
-
-Scalars (label·notation):
-  str            string              null
-  int            integer
-  float          float               float·1e  exponent
-  bool`,
-  Yaml: `── KIND badge (YAML) ──────────────────────────────
-Containers (label·notation):
-  table·block    block mapping       table·flow  flow mapping { … }
-  array·block    block sequence      array·flow  flow sequence [ … ]
-  (opaque nodes — anchors/aliases/merge/tags — are read-only)
-
-Scalars (label·notation):
-  str            plain string        str·'…'  single-quoted
-  str·"…"        double-quoted       str·|    literal block
-  str·>          folded block
-  int            decimal integer     int·0x int·0o  hex / octal
-  float          float               float·1e  exponent
-  float·inf float·nan    infinity / NaN
-  bool · null`,
-};
 
 main().catch((e) => setStatus("", String(e)));

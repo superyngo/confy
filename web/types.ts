@@ -118,7 +118,7 @@ export type ModeView =
   | { KindSwitch: { cursor: number; options: KindOptionView[] } }
   | { Convert: ConvertView }
   | "Detail"
-  | "Help"
+  | { Help: { tab: "Help" | "About" } }
   | { Edit: EditView };
 
 // ---- External edit handshake (session::view::ExternalEdit, §8.2) ----
@@ -190,7 +190,7 @@ export type Intent =
   // Detail
   | "ToggleDetail" | "ExitDetail"
   // Help
-  | "EnterHelp" | "ExitHelp"
+  | "EnterHelp" | "ExitHelp" | "ToggleHelpTab"
   // Inline edit
   | "BeginEdit" | "BeginRename" | "EditToggleField"
   | { EditChar: string }
