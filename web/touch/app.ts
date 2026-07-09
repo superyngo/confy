@@ -329,7 +329,7 @@ function appHTML(): string {
     // external-edit sheet (multi-line value / comment) — built on demand by
     // `openExternalEdit` (a touch-native bottom sheet, NOT the desktop modal).
     '<div class="sheet ext-sheet"></div>' +
-    // Open-from-URL sheet (More ▸ Open from URL) — built on demand by `openUrlSheet`.
+    // Open sheet (header Open button) — built on demand by `openOpenSheet`.
     '<div class="sheet url-sheet"></div>' +
     // Confirmation-prompt sheet (`Mode::Prompt` y/n → buttons) — rendered per
     // snapshot by `renderPromptSheet`.
@@ -564,24 +564,15 @@ function isFolded(sel: string): boolean {
 }
 function openMenuSheet() {
   const folded = MENU_CANDIDATES.filter((c) => isFolded(c.sel));
-  // Inline link glyph (no IC entry); matches the stroke style of the other icons.
-  const linkIc =
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9.5 14.5l5-5"/><path d="M11 6.5l1-1a4 4 0 0 1 5.7 5.7l-1 1"/><path d="M13 17.5l-1 1a4 4 0 0 1-5.7-5.7l1-1"/></svg>';
   sheets.menu.innerHTML =
     '<div class="grab"></div>' +
     `<div class="sheet-head"><h3>More actions</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
     '<div class="sheet-body">' +
     folded.map((c, i) => mi(c.ic, c.label, "", String(i))).join("") +
-    mi(linkIc, "Open from URL", "", "url") +
     "</div>";
   sheets.menu.querySelectorAll<HTMLElement>(".menu-item").forEach((it) => {
     it.addEventListener("click", () => {
       const id = it.dataset.mi!;
-      if (id === "url") {
-        closeSheets();
-        openUrlSheet();
-        return;
-      }
       const c = folded[Number(id)];
       if (c.run !== toggleTheme) closeSheets();
       c.run();
@@ -662,14 +653,17 @@ function openExternalEdit(ext: { initial: string; kind: unknown }) {
   txt.focus();
 }
 
-// "Open from URL" bottom sheet (More ▸ Open from URL) — fetches a remote config.
-// No on-disk handle, so a later Save falls back to download (like the file path).
-function openUrlSheet() {
+// "Open" bottom sheet (header Open button) — local-file browse or fetch a
+// remote config by URL. A URL open has no on-disk handle, so a later Save
+// falls back to download (like the file path).
+function openOpenSheet() {
   if (sheets.url.classList.contains("open")) return;
   sheets.url.innerHTML =
     '<div class="grab"></div>' +
-    `<div class="sheet-head"><h3>Open from URL</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
+    `<div class="sheet-head"><h3>Open</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
     '<div class="sheet-body">' +
+    '<button class="btn browse-local">Browse local file…</button>' +
+    '<div class="sheet-divider">or open from URL</div>' +
     '<input class="url-input" type="url" inputmode="url" spellcheck="false" autocomplete="off" autocapitalize="off" placeholder="https://example.com/config.toml" />' +
     '<div class="row-btns"><button class="btn" data-act="closesheet">Cancel</button>' +
     '<button class="btn primary url-open">Open</button></div>' +
@@ -679,6 +673,10 @@ function openUrlSheet() {
     const url = inp.value.trim();
     closeSheets();
     if (url) void openFromUrl(url);
+  };
+  sheets.url.querySelector<HTMLElement>(".browse-local")!.onclick = () => {
+    closeSheets();
+    void doOpen();
   };
   // Open is wired directly (no data-act) so shell delegation never double-fires.
   sheets.url.querySelector<HTMLElement>(".url-open")!.onclick = go;
@@ -1174,7 +1172,7 @@ function installShellHandlers() {
         send("EnterTypeFilter");
         break;
       case "open":
-        void doOpen();
+        openOpenSheet();
         break;
       case "add":
         // Paste-armed (after Copy/Cut) → the FAB pastes at the cursor; otherwise
