@@ -710,9 +710,9 @@ function openViaFileInput() {
   input.click();
 }
 
-// Show the "Open from URL" modal (More ▸ Open from URL). Confirm/Esc are wired
-// in bindGlobal, mirroring the paste-source load modal.
-function openUrlModal() {
+// Show the combined Open modal (local file browse + open from URL). Confirm/Esc
+// are wired in bindGlobal, mirroring the paste-source load modal.
+function openOpenModal() {
   const input = $<HTMLInputElement>("url-input");
   input.value = "";
   $("url-modal").classList.remove("hidden");
@@ -1124,7 +1124,6 @@ function buildMoreMenu(): HTMLElement {
     ["Expand all (9)", () => send("ExpandAll")],
     ["Collapse all (0)", () => send("CollapseAll")],
     ["Toggle Tree / Raw view", () => setRawView(!rawView)],
-    ["Open from URL…", openUrlModal],
   ];
   const menu = $("moreMenu");
   menu.innerHTML = items
@@ -1236,7 +1235,7 @@ function bindGlobal() {
 
   bindSearch();
   bindConvertDialog();
-  openBtn.addEventListener("click", () => void doOpen());
+  openBtn.addEventListener("click", openOpenModal);
   saveBtn.addEventListener("click", () => openSaveConvert(io));
   fmtPill.addEventListener("click", () => cycleSampleFormat(openSample)); // no-op unless in sample mode
   themeBtn.addEventListener("click", toggleTheme);
@@ -1267,6 +1266,10 @@ function bindGlobal() {
     if (url) void openFromUrl(io, openText, url);
   });
   $("url-cancel").addEventListener("click", closeUrlModal);
+  $("url-browse").addEventListener("click", () => {
+    $("url-modal").classList.add("hidden");
+    void doOpen();
+  });
   // Enter confirms, Esc cancels (onKey early-returns while the modal is open).
   $("url-modal").addEventListener("keydown", (e) => {
     if (e.key === "Enter") {

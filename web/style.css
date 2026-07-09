@@ -448,6 +448,13 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
   width: min(720px, 92vw); max-height: calc(100vh - 32px); overflow: auto;
 }
 .modal-box h3 { margin: 0; font-size: 15px; }
+.modal-divider {
+  font-size: 11px; color: var(--muted); text-align: center;
+  display: flex; align-items: center; gap: 8px;
+}
+.modal-divider::before, .modal-divider::after {
+  content: ""; flex: 1; height: 1px; background: var(--border);
+}
 .modal-box textarea {
   background: var(--panel); color: var(--fg); border: 1px solid var(--border-strong);
   border-radius: 8px; font-family: var(--mono); font-size: 13px; padding: 8px; resize: vertical;

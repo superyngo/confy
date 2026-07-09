@@ -173,10 +173,12 @@
       </div>
     </div>
 
-    <!-- ===== URL open modal: fetch a remote config (More ▸ Open from URL) ===== -->
+    <!-- ===== Open modal: local file browse or fetch a remote config ===== -->
     <div id="url-modal" class="modal hidden">
       <div class="modal-box">
-        <h3>Open from URL</h3>
+        <h3>Open</h3>
+        <button id="url-browse" class="tbtn">Browse local file…</button>
+        <div class="modal-divider">or open from URL</div>
         <input id="url-input" type="url" placeholder="https://example.com/config.toml" />
         <div class="modal-actions">
           <button id="url-confirm">Open</button>
