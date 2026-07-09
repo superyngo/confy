@@ -82,6 +82,7 @@ function $<T extends HTMLElement = HTMLElement>(id: string): T {
 }
 const tree = $<HTMLDivElement>("tree");
 const overlay = $("overlay");
+const overlayScrim = $("overlayScrim");
 // Tree vs read-only Raw text view (#12, read-only first). The Session stays the
 // single source of truth; Raw is just `session.serialize()` rendered live.
 let rawView = false;
@@ -286,23 +287,27 @@ function renderOverlay() {
   const tag = modeTag(m);
   if (tag === "Help" || tag === "Prompt" || tag === "KindSwitch") {
     overlay.classList.remove("hidden");
+    overlayScrim.classList.remove("hidden");
   } else {
     overlay.classList.add("hidden");
+    overlayScrim.classList.add("hidden");
     return;
   }
   if (tag === "Help") {
     const activeTab = (m as { Help: { tab: "Help" | "About" } }).Help.tab;
     const body = helpBody(activeTab, snap!.doc_format);
     overlay.innerHTML =
-      `<div class="help-tabs">` +
+      `<div class="overlay-head"><div class="help-tabs">` +
       `<button class="opt tab-btn${activeTab === "Help" ? " sel" : ""}" data-tab="Help">Help</button>` +
       `<button class="opt tab-btn${activeTab === "About" ? " sel" : ""}" data-tab="About">About</button>` +
-      `</div><pre>${escapeHtml(body)}</pre>`;
+      `</div><button class="overlay-close" title="close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>` +
+      `<pre>${escapeHtml(body)}</pre>`;
     overlay.querySelectorAll<HTMLElement>("[data-tab]").forEach((btn) => {
       btn.addEventListener("click", () => {
         if (btn.dataset.tab !== activeTab) send("ToggleHelpTab");
       });
     });
+    overlay.querySelector<HTMLElement>(".overlay-close")!.addEventListener("click", () => send("Escape"));
   } else if (tag === "Prompt") {
     const kind = (m as { Prompt: { kind: PromptView } }).Prompt.kind;
     overlay.innerHTML =
@@ -365,7 +370,13 @@ function convSurface(): ConvertSurface {
   const dlg = $<HTMLDialogElement>("convDlg");
   return {
     isOpen: () => dlg.open,
-    open: () => dlg.showModal(),
+    open: () => {
+      dlg.showModal();
+      // showModal() auto-focuses the first focusable control (the Format
+      // select) by default; move focus to Cancel instead so opening the
+      // dialog doesn't yank focus into a form field.
+      $("convCancel").focus();
+    },
     close: () => dlg.close(),
     onCancel: (cb) =>
       dlg.addEventListener("cancel", (e) => {
@@ -716,7 +727,10 @@ function openOpenModal() {
   const input = $<HTMLInputElement>("url-input");
   input.value = "";
   $("url-modal").classList.remove("hidden");
-  input.focus();
+  // Focus the browse button, not the URL input/select — keeps focus inside the
+  // modal (so Esc/Enter, wired on the modal element, still bubble correctly)
+  // without landing the user in a text field ready to type.
+  $("url-browse").focus();
 }
 
 // ---- pointer: click routing for every row affordance ----
@@ -1114,21 +1128,33 @@ function openCtxMenuAt(path: Path, x: number, y: number) {
   placePopAt(buildCtxMenu(path), x, y);
 }
 
-// The "⋯ More" overflow menu (shown only under the narrow breakpoint): the same
-// secondary actions the CSS hides from the toolbar / filter row, as a popup.
+// A toolbar button is "folded" (→ belongs in the ⋯ menu) when its group is
+// CSS `display:none`'d at the current width, so it isn't laid out (mirrors the
+// touch UI's `isFolded`). Without this check the menu listed every candidate
+// unconditionally — a duplicate of buttons that were still visible in the header.
+function isToolbarFolded(id: string): boolean {
+  const el = document.getElementById(id);
+  return !!el && el.offsetParent === null;
+}
+
+// The "⋯ More" overflow menu (shown only under the narrow breakpoint): only the
+// secondary actions the CSS actually hides from the toolbar / filter row at the
+// current width, as a popup.
 function buildMoreMenu(): HTMLElement {
-  const items: Array<[string, () => void]> = [
-    ["Undo (z)", () => send("Undo")],
-    ["Redo (y)", () => send("Redo")],
-    ["Toggle theme", toggleTheme],
-    ["Expand all (9)", () => send("ExpandAll")],
-    ["Collapse all (0)", () => send("CollapseAll")],
-    ["Toggle Tree / Raw view", () => setRawView(!rawView)],
+  const candidates: Array<[string, string, () => void]> = [
+    ["btnUndo", "Undo (z)", () => send("Undo")],
+    ["btnRedo", "Redo (y)", () => send("Redo")],
+    ["btnTheme", "Toggle theme", toggleTheme],
+    ["btnInfo", "Help / About", () => send("EnterHelp")],
+    ["btnExpandAll", "Expand all (9)", () => send("ExpandAll")],
+    ["btnCollapseAll", "Collapse all (0)", () => send("CollapseAll")],
+    ["btnViewToggle", "Toggle Tree / Raw view", () => setRawView(!rawView)],
   ];
+  const items = candidates.filter(([id]) => isToolbarFolded(id));
   const menu = $("moreMenu");
   menu.innerHTML = items
     .map(
-      ([label], i) =>
+      ([, label], i) =>
         `<button class="menu-item" data-i="${i}">${escapeHtml(label)}</button>`,
     )
     .join("");
@@ -1136,7 +1162,7 @@ function buildMoreMenu(): HTMLElement {
     const i = Number(b.dataset.i);
     b.onclick = () => {
       closePops();
-      items[i][1]();
+      items[i][2]();
     };
   });
   return menu;

@@ -164,6 +164,10 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none
 .drag-handle:active{cursor:grabbing;background:var(--accent-soft)}
 .drag-handle svg{width:18px;height:18px;opacity:.55}
 .row.dragging > .row-main{opacity:.45}
+/* .row-main's opacity above makes its opaque background translucent, which
+   would let the red swipe-to-delete button sitting behind it (z-index:1,
+   .row-del) show through during a grip drag — hide it outright instead. */
+.row.dragging .row-del{visibility:hidden}
 .children.dragging{opacity:.45}
 /* 拖移落點：放入此 branch 內 */
 .row.drop-into > .row-main{
@@ -483,6 +487,22 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none
   width:100%;box-sizing:border-box;padding:12px 14px;border-radius:13px;margin-bottom:14px;
   font-family:var(--mono);font-size:16px;background:var(--panel);border:1px solid var(--accent);color:var(--fg);
 }
+/* ---- "Browse local file" action card (Open sheet) — the .btn base is a plain
+   centered label, too flat for the sheet's primary action; this gives it an
+   icon chip + title/subtitle + trailing chevron like a native picker row. ---- */
+.btn.browse-local{
+  display:flex;align-items:center;gap:14px;height:auto;min-height:64px;
+  padding:10px 16px;text-align:left;border-radius:16px;
+}
+.btn.browse-local .bl-ic{
+  width:42px;height:42px;border-radius:13px;flex:0 0 auto;
+  display:grid;place-items:center;background:var(--accent-soft);color:var(--accent);
+}
+.btn.browse-local .bl-ic svg{width:21px;height:21px}
+.btn.browse-local .bl-text{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
+.btn.browse-local .bl-text strong{font-size:15px;font-weight:700;color:var(--fg)}
+.btn.browse-local .bl-text small{font-size:12.5px;color:var(--muted);font-weight:500}
+.btn.browse-local .bl-chev{width:18px;height:18px;color:var(--faint);flex:0 0 auto}
 .url-input:focus-visible{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
 .sheet-divider {
   font-size: 11px; color: var(--muted); text-align: center;
@@ -536,6 +556,15 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none
 .sheet-head h3{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sheet-head .close{flex:0 0 auto}
 .help-tabs { display: flex; gap: 8px; margin-bottom: 10px; }
+/* Help/About body: wrap long lines instead of scrolling sideways — the sheet
+   already scrolls on the y axis (.sheet-body overflow-y:auto); a bare <pre>'s
+   default white-space:pre forces overflow-x too (any axis other than
+   `visible` makes the other axis compute to `auto`), so this is what actually
+   keeps overflow to y only. overflow-wrap covers tokens with no break point
+   (e.g. a long URL) that pre-wrap alone wouldn't break. */
+.help-body {
+  white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word;
+}
 
 /* ---- responsive chrome collapse (mirrors desktop's right→left fold) ----
    The .app is a `container-type:inline-size` container. The toolbar/filter rows

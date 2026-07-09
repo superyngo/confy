@@ -558,6 +558,7 @@ const MENU_CANDIDATES: Array<{ sel: string; ic: string; label: string; run: () =
   { sel: '[data-act="undo"]', ic: IC.undo, label: "Undo", run: () => send("Undo") },
   { sel: '[data-act="redo"]', ic: IC.redo, label: "Redo", run: () => send("Redo") },
   { sel: '[data-act="theme"]', ic: IC.sun, label: "Toggle light / dark", run: toggleTheme },
+  { sel: '[data-act="info"]', ic: IC.help, label: "Help / About", run: () => send("EnterHelp") },
   { sel: '[data-act="expandall"]', ic: IC.expand, label: "Expand all", run: () => send("ExpandAll") },
   { sel: '[data-act="collapseall"]', ic: IC.collapse, label: "Collapse all", run: () => send("CollapseAll") },
   { sel: '[data-act="toggleview"]', ic: IC.open, label: "Toggle Tree / Raw view", run: () => setRawView(!rawView) },
@@ -656,7 +657,10 @@ function openExternalEdit(ext: { initial: string; kind: unknown }) {
     else send({ ApplyEditComment: { path, text: txt.value } });
   };
   openSheet("ext");
-  txt.focus();
+  // preventScroll: `.app` is position:absolute (scrolls with the page), and
+  // autofocus-triggered scrollIntoView shifts the whole app shell out from
+  // under its bottom-anchored sheets, uncovering the next sheet underneath.
+  txt.focus({ preventScroll: true });
 }
 
 // Help/About bottom sheet (header info button). Mirrors `renderFilterSheet`'s
@@ -679,7 +683,7 @@ function renderHelpSheet() {
     `<button class="btn tab-btn${activeTab === "Help" ? " primary" : ""}" data-tab="Help">Help</button>` +
     `<button class="btn tab-btn${activeTab === "About" ? " primary" : ""}" data-tab="About">About</button>` +
     "</div>" +
-    `<pre>${esc(body)}</pre>` +
+    `<pre class="help-body">${esc(body)}</pre>` +
     "</div>";
   sheets.help.querySelectorAll<HTMLElement>("[data-tab]").forEach((btn) => {
     btn.onclick = () => {
@@ -698,10 +702,14 @@ function openOpenSheet() {
     '<div class="grab"></div>' +
     `<div class="sheet-head"><h3>Open</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
     '<div class="sheet-body">' +
-    '<button class="btn browse-local">Browse local file…</button>' +
+    '<button class="btn browse-local">' +
+    `<span class="bl-ic">${TIC.open}</span>` +
+    '<span class="bl-text"><strong>Browse local file</strong><small>Pick a config from this device</small></span>' +
+    '<svg class="bl-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>' +
+    "</button>" +
     '<div class="sheet-divider">or open from URL</div>' +
     '<input class="url-input" type="url" inputmode="url" spellcheck="false" autocomplete="off" autocapitalize="off" placeholder="https://example.com/config.toml" />' +
-    '<div class="row-btns"><button class="btn" data-act="closesheet">Cancel</button>' +
+    '<div class="row-btns"><button class="btn url-cancel" data-act="closesheet">Cancel</button>' +
     '<button class="btn primary url-open">Open</button></div>' +
     "</div>";
   const inp = sheets.url.querySelector<HTMLInputElement>(".url-input")!;
@@ -723,7 +731,11 @@ function openOpenSheet() {
     }
   });
   openSheet("url");
-  inp.focus();
+  // Explicit focus on Cancel (not the URL input): some browsers (e.g. iOS
+  // Firefox) auto-focus the first form field in a freshly shown sheet on
+  // their own, popping the keyboard uninvited. Claiming focus ourselves
+  // preempts that without landing the user in a text field either.
+  sheets.url.querySelector<HTMLElement>(".url-cancel")!.focus({ preventScroll: true });
 }
 
 // ---- grip reorder + tap (pointer flow; horizontal swipe removed) ----
@@ -1339,7 +1351,8 @@ function installSplitter() {
 
 // Dismiss whatever sheet is open. Mode-driven sheets must peel their core mode so
 // the next render() doesn't immediately re-open them: TypeFilter commits, Convert
-// exits, and an open external-edit sheet sends Escape (clears `external_edit`).
+// exits, Help exits, and an open external-edit sheet sends Escape (clears
+// `external_edit`).
 function dismissSheets() {
   const tag = snap ? modeTag(snap.mode) : "Normal";
   if (sheets.ext.classList.contains("open")) {
@@ -1351,6 +1364,11 @@ function dismissSheets() {
   // A prompt must be *answered*, not hidden — scrim/grab dismissal = "no"
   // (peel-on-dismiss; otherwise core stays stuck in Mode::Prompt).
   if (tag === "Prompt") return send({ PromptKey: "n" });
+  // Same peel-on-dismiss requirement as Prompt/Convert/TypeFilter above: without
+  // this, dismissing the Help sheet only removed its `.open` CSS class while
+  // core stayed in `Mode::Help`, so the very next unrelated render() (e.g. a tap
+  // selecting a different node) saw `tag === "Help"` again and reopened it.
+  if (tag === "Help") return send("ExitHelp");
   closeSheets();
 }
 

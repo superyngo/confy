@@ -111,7 +111,10 @@
     </div>
     <!-- Fallback overlay for modes not yet redesigned (keyboard-driven). Lives
          outside `.main` (which is `overflow:hidden`) so a tall popup is never
-         clipped by it; `position:fixed` centers it on the viewport instead. -->
+         clipped by it; `position:fixed` centers it on the viewport instead.
+         `overlayScrim` dims the background like the Open/Save `.modal`s do;
+         toggled alongside `#overlay` in `renderOverlay()`. -->
+    <div id="overlayScrim" class="hidden"></div>
     <aside id="overlay" class="hidden"></aside>
 
     <!-- ===== footer ===== -->
@@ -167,8 +170,8 @@
         <h3>Edit</h3>
         <textarea id="ext-text" rows="16" cols="72"></textarea>
         <div class="modal-actions">
-          <button id="ext-confirm">Apply</button>
-          <button id="ext-cancel">Cancel</button>
+          <button id="ext-cancel" class="tbtn">Cancel</button>
+          <button id="ext-confirm" class="tbtn primary">Apply</button>
         </div>
       </div>
     </div>
@@ -177,12 +180,16 @@
     <div id="url-modal" class="modal hidden">
       <div class="modal-box">
         <h3>Open</h3>
-        <button id="url-browse" class="tbtn">Browse local file…</button>
+        <button id="url-browse" class="browse-local">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v10H3z"/></svg>
+          <span class="bl-text"><strong>Browse local file</strong><small>Pick a config from this device</small></span>
+          <svg class="bl-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
         <div class="modal-divider">or open from URL</div>
         <input id="url-input" type="url" placeholder="https://example.com/config.toml" />
         <div class="modal-actions">
-          <button id="url-confirm">Open</button>
-          <button id="url-cancel">Cancel</button>
+          <button id="url-cancel" class="tbtn">Cancel</button>
+          <button id="url-confirm" class="tbtn primary">Open</button>
         </div>
       </div>
     </div>
