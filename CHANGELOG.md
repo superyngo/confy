@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.12.0] - 2026-07-09
+
 ### Added
 - **feat(core+tui+web): shared tabbed Help/About panel.** A single `Mode::Help { tab }` (core
   `HelpTab`) backs the TUI's `?` overlay (`Tab` key toggles Help/About) and both Web UIs; the
@@ -16,6 +18,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and touch. (2026-07-09)
 
 ### Fixed
+- **fix(web): touch/desktop Open+Save panel polish and focus/scroll fixes.** Touch: fixed a
+  scroll-jump where opening the Open/Edit sheet's autofocused input triggered a `scrollIntoView`
+  that shifted the whole `.app` shell (`position:absolute`, scrolls with the page), exposing the
+  sheet stacked underneath it — the Open sheet now explicitly focuses Cancel instead of the URL
+  input; hid the swipe-to-delete button during grip-drag reorder (the drag-dim opacity on
+  `.row-main` was letting it show through); wrapped Help/About body text instead of scrolling it
+  horizontally. Desktop + touch: restyled "Browse local file" as an icon+label action card, and
+  matched touch's Open/Save/Edit modal button order and styling on desktop (Cancel first, primary
+  action last and blue-filled); stopped native `showModal()` from autofocusing the Save dialog's
+  Format select. (2026-07-09)
 - **fix(web): tab-click no-ops on the already-active Help/About tab.** Both web UIs wired *both*
   tab buttons to a blind `send("ToggleHelpTab")`, so clicking the already-active tab flipped away
   from it instead of doing nothing; `web/ui.ts` and `web/touch/app.ts` now compare the clicked
