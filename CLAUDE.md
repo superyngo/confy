@@ -216,7 +216,7 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
     search.rs      fuzzy_match / fuzzy_indices / haystack
     insertion.rs   resolve_target (pure insertion-target logic)
     type_filter.rs TypeFilter, TypeToken, layout/nav helpers
-    view.rs        ViewRow (pure view row, no type_tag), Update (rows_dirty, …) +
+    view.rs        ViewRow (pure view row, no type_tag) +
                    Stage-2 full-state transport: SessionSnapshot (+clipboard_count), ModeView,
                    EditView, ConvertView, KindOptionView, PromptView, ExternalEdit/ExternalEditKind,
                    TypeFilterView/TypeFilterRow/TypeFilterCellView (the WASM wire contract)
@@ -246,6 +246,14 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
                  ⌘-toggle clicks (segmented additive range via an anchor+base snapshot) + marquee
   dnd.ts         HTML5 grip drag-reparent → `MoveSelectionTo`: into-branch vs before/after sibling
                  (`#dropLine`), self-subtree drop rejected
+  panel.ts       shared node detail/edit panel (`panelHTML`/`wirePanel`) — one module rendering
+                 the desktop Detail aside AND the touch edit sheet identically (locked field order
+                 Key/Value/Trailing comment/Kind/Path/Children/Sign); a panel input's Enter/Escape
+                 keydown `stopPropagation()`s so a synchronously-opened confirm prompt or the host's
+                 global key handler doesn't re-read the same bubbling event
+  prompt.ts      shared `Mode::Prompt` y/n(/o/r) answer buttons (`promptButtonsHTML`/
+                 `promptQuestion`/`bindPromptClicks`) — desktop renders them in `#overlay`, touch in
+                 a `.prompt-sheet`; both answer via the same `PromptKey` intent
   ui.ts          orchestrator: holds the latest snapshot, renders via render.ts + the modal
                  surfaces (detail aside, native search box, `#tfPop` type-filter grid, `#convDlg`
                  convert dialog, `#overlay` for Help/Prompt/KindSwitch only), Tree|Raw read-only
