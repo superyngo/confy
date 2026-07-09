@@ -44,7 +44,7 @@ import { pathEq } from "../path-utils.js";
 import { panelHTML, wirePanel } from "../panel.js";
 import { bindPromptClicks, promptButtonsHTML, promptQuestion, promptTitle } from "../prompt.js";
 import { typeFilterHTML, wireTypeFilter } from "../typefilter.js";
-import { HELP_TEXT, ABOUT_TEXT, KIND_LEGEND } from "../help-content.js";
+import { helpBody } from "../help-content.js";
 import {
   type ConvertRefs,
   extForTag,
@@ -670,8 +670,7 @@ function renderHelpSheet() {
     return;
   }
   const activeTab = (snap!.mode as { Help: { tab: "Help" | "About" } }).Help.tab;
-  const legend = KIND_LEGEND[snap!.doc_format] ?? "";
-  const body = activeTab === "Help" ? HELP_TEXT + "\n" + legend : ABOUT_TEXT;
+  const body = helpBody(activeTab, snap!.doc_format);
   sheets.help.innerHTML =
     '<div class="grab"></div>' +
     `<div class="sheet-head"><h3>Help / About</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
@@ -683,7 +682,9 @@ function renderHelpSheet() {
     `<pre>${esc(body)}</pre>` +
     "</div>";
   sheets.help.querySelectorAll<HTMLElement>("[data-tab]").forEach((btn) => {
-    btn.onclick = () => send("ToggleHelpTab");
+    btn.onclick = () => {
+      if (btn.dataset.tab !== activeTab) send("ToggleHelpTab");
+    };
   });
   if (!sheets.help.classList.contains("open")) openSheet("help");
 }

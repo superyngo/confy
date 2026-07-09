@@ -7,7 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **feat(core+tui+web): shared tabbed Help/About panel.** A single `Mode::Help { tab }` (core
+  `HelpTab`) backs the TUI's `?` overlay (`Tab` key toggles Help/About) and both Web UIs; the
+  desktop and touch UIs add a header info button that opens the same panel, with tab buttons
+  matching the TUI's toggle. Fixed alongside: the desktop `#overlay` clipping under the header
+  (z-index/positioning) and a unified Open popup (local file + URL, one surface) on both desktop
+  and touch. (2026-07-09)
+
 ### Fixed
+- **fix(web): tab-click no-ops on the already-active Help/About tab.** Both web UIs wired *both*
+  tab buttons to a blind `send("ToggleHelpTab")`, so clicking the already-active tab flipped away
+  from it instead of doing nothing; `web/ui.ts` and `web/touch/app.ts` now compare the clicked
+  button's `data-tab` against the active tab before sending. Body composition for the two surfaces
+  was also hoisted into a shared `helpBody()` in `web/help-content.ts`. (2026-07-09)
 - **fix(web+core): branch-key rename, leftover Esc-cancel flag, touch empty-tap.** Three follow-up
   repairs found in manual testing of the above panel/prompt work (2026-07-09):
   - **Renaming a branch (table) node's key from the Detail panel raised `invalid value: expected

@@ -39,6 +39,13 @@ GitHub:    https://github.com/superyngo/confy`;
 // (ported from the TUI's TOML_HELP/JSON_HELP/YAML_HELP KIND column). The kind
 // badge shows the friendly label + notation suffix; this explains what each
 // notation means for the open file's backend.
+// Shared Help/About body composition, used by both the desktop overlay
+// (`web/ui.ts`) and the touch sheet (`web/touch/app.ts`).
+export function helpBody(tab: "Help" | "About", docFormat: string): string {
+  if (tab === "About") return ABOUT_TEXT;
+  return HELP_TEXT + "\n" + (KIND_LEGEND[docFormat] ?? "");
+}
+
 export const KIND_LEGEND: Record<string, string> = {
   Toml: `── KIND badge (TOML) ──────────────────────────────
 Containers (label·notation):

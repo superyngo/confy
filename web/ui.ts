@@ -36,7 +36,7 @@ import {
   type SampleFormat,
 } from "./samples.js";
 import { currentKindLabel, editWidthCh, escapeHtml, IC_CARET, renderTree } from "./render.js";
-import { HELP_TEXT, ABOUT_TEXT, KIND_LEGEND } from "./help-content.js";
+import { helpBody } from "./help-content.js";
 import { resolveClick, resetAnchor, rowsInRect, setAnchor } from "./select.js";
 import { installDnd } from "./dnd.js";
 import { panelHTML, wirePanel } from "./panel.js";
@@ -292,16 +292,16 @@ function renderOverlay() {
   }
   if (tag === "Help") {
     const activeTab = (m as { Help: { tab: "Help" | "About" } }).Help.tab;
-    const legend = KIND_LEGEND[snap!.doc_format] ?? "";
-    const body =
-      activeTab === "Help" ? HELP_TEXT + "\n" + legend : ABOUT_TEXT;
+    const body = helpBody(activeTab, snap!.doc_format);
     overlay.innerHTML =
       `<div class="help-tabs">` +
       `<button class="opt tab-btn${activeTab === "Help" ? " sel" : ""}" data-tab="Help">Help</button>` +
       `<button class="opt tab-btn${activeTab === "About" ? " sel" : ""}" data-tab="About">About</button>` +
       `</div><pre>${escapeHtml(body)}</pre>`;
     overlay.querySelectorAll<HTMLElement>("[data-tab]").forEach((btn) => {
-      btn.addEventListener("click", () => send("ToggleHelpTab"));
+      btn.addEventListener("click", () => {
+        if (btn.dataset.tab !== activeTab) send("ToggleHelpTab");
+      });
     });
   } else if (tag === "Prompt") {
     const kind = (m as { Prompt: { kind: PromptView } }).Prompt.kind;
