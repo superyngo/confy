@@ -535,6 +535,7 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none
 /* Keep the detail sheet title on one line; a long key ellipsizes (item 4). */
 .sheet-head h3{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sheet-head .close{flex:0 0 auto}
+.help-tabs { display: flex; gap: 8px; margin-bottom: 10px; }
 
 /* ---- responsive chrome collapse (mirrors desktop's right→left fold) ----
    The .app is a `container-type:inline-size` container. The toolbar/filter rows

@@ -44,6 +44,7 @@ import { pathEq } from "../path-utils.js";
 import { panelHTML, wirePanel } from "../panel.js";
 import { bindPromptClicks, promptButtonsHTML, promptQuestion, promptTitle } from "../prompt.js";
 import { typeFilterHTML, wireTypeFilter } from "../typefilter.js";
+import { HELP_TEXT, ABOUT_TEXT, KIND_LEGEND } from "../help-content.js";
 import {
   type ConvertRefs,
   extForTag,
@@ -257,6 +258,7 @@ const TIC = {
   filter: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></svg>',
   expand: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 10l5 5 5-5"/><path d="M7 4l5 5 5-5"/></svg>',
   collapse: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 14l5-5 5 5"/><path d="M7 20l5-5 5 5"/></svg>',
+  info: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.5h.01"/></svg>',
 };
 
 function appHTML(): string {
@@ -274,6 +276,7 @@ function appHTML(): string {
     `<button class="icon-btn" data-act="undo" title="Undo">${TIC.undo}</button>` +
     `<button class="icon-btn" data-act="redo" title="Redo">${TIC.redo}</button>` +
     `<button class="icon-btn" data-act="theme" title="Toggle theme">${TIC.theme}</button>` +
+    `<button class="icon-btn" data-act="info" title="Help / About">${TIC.info}</button>` +
     "</div>" +
     `<button class="tbtn more-btn" data-act="menu" title="More actions">${TIC.more}</button>` +
     "</header>" +
@@ -329,6 +332,8 @@ function appHTML(): string {
     // external-edit sheet (multi-line value / comment) — built on demand by
     // `openExternalEdit` (a touch-native bottom sheet, NOT the desktop modal).
     '<div class="sheet ext-sheet"></div>' +
+    // Help/About sheet (info button) — built on demand by `renderHelpSheet`.
+    '<div class="sheet help-sheet"></div>' +
     // Open sheet (header Open button) — built on demand by `openOpenSheet`.
     '<div class="sheet url-sheet"></div>' +
     // Confirmation-prompt sheet (`Mode::Prompt` y/n → buttons) — rendered per
@@ -443,6 +448,7 @@ function render() {
   // Without this, a `Mode::Prompt` would soft-lock the touch UI (no keyboard).
   if (tag === "Prompt") renderPromptSheet((snap.mode as { Prompt: { kind: PromptView } }).Prompt.kind);
   else sheets.prompt.classList.remove("open");
+  renderHelpSheet();
   if (tag !== "TypeFilter" && !anySheetOpen()) scrim.classList.remove("show");
 
   // Active type-filter indicator on the funnel button.
@@ -651,6 +657,35 @@ function openExternalEdit(ext: { initial: string; kind: unknown }) {
   };
   openSheet("ext");
   txt.focus();
+}
+
+// Help/About bottom sheet (header info button). Mirrors `renderFilterSheet`'s
+// "read from `snap.mode`, re-render every snapshot" pattern (rather than a
+// fire-once `open*Sheet`) since the tab flips via `send("ToggleHelpTab")` and
+// must re-render live.
+function renderHelpSheet() {
+  const tag = modeTag(snap!.mode);
+  if (tag !== "Help") {
+    if (sheets.help.classList.contains("open")) closeSheets();
+    return;
+  }
+  const activeTab = (snap!.mode as { Help: { tab: "Help" | "About" } }).Help.tab;
+  const legend = KIND_LEGEND[snap!.doc_format] ?? "";
+  const body = activeTab === "Help" ? HELP_TEXT + "\n" + legend : ABOUT_TEXT;
+  sheets.help.innerHTML =
+    '<div class="grab"></div>' +
+    `<div class="sheet-head"><h3>Help / About</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
+    '<div class="sheet-body">' +
+    '<div class="help-tabs">' +
+    `<button class="btn tab-btn${activeTab === "Help" ? " primary" : ""}" data-tab="Help">Help</button>` +
+    `<button class="btn tab-btn${activeTab === "About" ? " primary" : ""}" data-tab="About">About</button>` +
+    "</div>" +
+    `<pre>${esc(body)}</pre>` +
+    "</div>";
+  sheets.help.querySelectorAll<HTMLElement>("[data-tab]").forEach((btn) => {
+    btn.onclick = () => send("ToggleHelpTab");
+  });
+  if (!sheets.help.classList.contains("open")) openSheet("help");
 }
 
 // "Open" bottom sheet (header Open button) — local-file browse or fetch a
@@ -1195,6 +1230,9 @@ function installShellHandlers() {
       case "theme":
         toggleTheme();
         break;
+      case "info":
+        send("EnterHelp");
+        break;
       case "expandall":
         send("ExpandAll");
         break;
@@ -1347,6 +1385,7 @@ async function main() {
   sheets.kind = app.querySelector(".kind-sheet")!;
   sheets.convert = app.querySelector(".convert-sheet")!;
   sheets.ext = app.querySelector(".ext-sheet")!;
+  sheets.help = app.querySelector(".help-sheet")!;
   sheets.url = app.querySelector(".url-sheet")!;
   sheets.prompt = app.querySelector(".prompt-sheet")!;
   // Prompt answer buttons (incl. the header ×, data-pk="n") → PromptKey.
