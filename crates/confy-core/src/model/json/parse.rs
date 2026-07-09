@@ -8,7 +8,6 @@ pub(crate) type Lexeme = (SyntaxKind, String);
 /// Parse `src` into a lossless green tree. Returns `Err(message)` on a structural
 /// error or any `ERROR` token. Every byte is preserved, so
 /// `SyntaxNode::new_root(parse(src)?).to_string() == src`.
-#[allow(dead_code)]
 pub(crate) fn parse(src: &str) -> Result<GreenNode, String> {
     let tokens = lex(src);
     let mut p = Parser {

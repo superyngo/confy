@@ -3793,59 +3793,6 @@ fn rename(tree: &SyntaxNode, path: &[Seg], new_key: &str) -> Result<(), MutateEr
     }
 }
 
-/// Rename ALL `[[group]]` headers of the AoT group at `path`.
-/// (Retained as a standalone function for possible future direct use.)
-#[allow(dead_code)]
-fn rename_aot_group(
-    _tree: &SyntaxNode,
-    idx: &CstIndex,
-    proj_root: &Node,
-    path: &[Seg],
-    new_key: &str,
-) -> Result<(), MutateError> {
-    let entry_nodes: Vec<SyntaxNode> = idx
-        .iter()
-        .filter_map(|(p, t)| {
-            if p.len() == path.len() + 1
-                && p[..path.len()] == *path
-                && matches!(p.last(), Some(Seg::Index(_)))
-            {
-                if let Target::AotEntry(n) = t {
-                    Some(n.clone())
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    if entry_nodes.is_empty() {
-        return Err(MutateError::NotFound);
-    }
-
-    if let Some((parent, _)) = find_parent(proj_root, path) {
-        if parent.children.iter().any(|c| {
-            !matches!(c.kind, crate::model::node::NodeKind::Comment(_))
-                && c.path != *path
-                && c.key == new_key
-        }) {
-            return Err(MutateError::Collision(new_key.to_string()));
-        }
-    }
-
-    let seg_pos = path.len().saturating_sub(1);
-    for entry_node in &entry_nodes {
-        let kn = entry_node
-            .children()
-            .find(|c| c.kind() == SyntaxKind::KEY)
-            .ok_or(MutateError::NotFound)?;
-        rename_key_seg_at_pos(kn, seg_pos, new_key)?;
-    }
-    Ok(())
-}
-
 /// Rename the segment at position `path.len()-1` in all flat-ROOT member entries
 /// of the synthetic `[T/D]` table at `path`.
 fn rename_dotted_segment(

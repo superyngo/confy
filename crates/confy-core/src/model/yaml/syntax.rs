@@ -112,5 +112,4 @@ impl rowan::Language for Yaml {
 }
 
 pub type SyntaxNode = rowan::SyntaxNode<Yaml>;
-#[allow(dead_code)]
 pub type SyntaxToken = rowan::SyntaxToken<Yaml>;
