@@ -3,7 +3,9 @@
 use confy_core::model::any_doc::AnyDocument;
 use confy_core::model::document::{ConfigDocument, DocFormat};
 use confy_core::model::node::Seg;
-use confy_core::session::{EditKind, EditTextOutcome, Host, Intent, Mode, ModeView, Session};
+use confy_core::session::{
+    EditKind, EditTextOutcome, HelpTab, Host, Intent, Mode, ModeView, Session,
+};
 
 fn toml_session(src: &str) -> Session {
     let doc = AnyDocument::from_str_as(src, DocFormat::Toml).unwrap();
@@ -1207,4 +1209,45 @@ fn add_comment_sibling_jsonc() {
     // Esc reverts to the original document.
     s.dispatch(Intent::Escape);
     assert_eq!(s.serialize().unwrap(), "{\n  // c\n  \"a\": 1\n}\n");
+}
+
+#[test]
+fn enter_help_defaults_to_help_tab_and_toggle_flips_to_about() {
+    let mut s = toml_session("a = 1\n");
+    s.dispatch(Intent::EnterHelp);
+    assert!(matches!(s.mode, Mode::Help(HelpTab::Help)));
+    s.dispatch(Intent::ToggleHelpTab);
+    assert!(matches!(s.mode, Mode::Help(HelpTab::About)));
+    s.dispatch(Intent::ToggleHelpTab);
+    assert!(matches!(s.mode, Mode::Help(HelpTab::Help)));
+}
+
+#[test]
+fn dispatch_snapshot_carries_help_tab() {
+    let mut s = toml_session("a = 1\n");
+    let snap = s.dispatch(Intent::EnterHelp);
+    assert!(matches!(snap.mode, ModeView::Help { tab: HelpTab::Help }));
+    let snap = s.dispatch(Intent::ToggleHelpTab);
+    assert!(matches!(
+        snap.mode,
+        ModeView::Help {
+            tab: HelpTab::About
+        }
+    ));
+}
+
+#[test]
+fn toggle_help_tab_is_noop_outside_help_mode() {
+    let mut s = toml_session("a = 1\n");
+    s.dispatch(Intent::ToggleHelpTab);
+    assert!(matches!(s.mode, Mode::Normal));
+}
+
+#[test]
+fn escape_exits_help_from_either_tab() {
+    let mut s = toml_session("a = 1\n");
+    s.dispatch(Intent::EnterHelp);
+    s.dispatch(Intent::ToggleHelpTab);
+    s.dispatch(Intent::Escape);
+    assert!(matches!(s.mode, Mode::Normal));
 }

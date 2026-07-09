@@ -55,9 +55,29 @@ pub enum Mode {
     /// The `C` document-conversion flow is open.
     Convert(ConvertState),
     Detail,
-    Help,
+    Help(HelpTab),
     Edit(EditState),
 }
+
+/// Which tab of the shared Help/About panel (`?`) is active.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HelpTab {
+    Help,
+    About,
+}
+
+/// Static About-tab text: author/version/license/repo, shown alongside Help.
+pub const ABOUT_TEXT: &str = concat!(
+    "confy ",
+    env!("CARGO_PKG_VERSION"),
+    "\n",
+    "A cross-platform TUI/Web UI for editing structured configuration files.\n",
+    "\n",
+    "Author:    wen\n",
+    "License:   MIT\n",
+    "Copyright: (c) 2026 wen\n",
+    "GitHub:    https://github.com/superyngo/confy\n",
+);
 
 /// In-flight `C` conversion flow state.
 pub struct ConvertState {

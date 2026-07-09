@@ -1,6 +1,6 @@
 use crate::model::document::{DocFormat, KindTarget};
 use crate::model::node::{Format, Path, ScalarType};
-use crate::session::state::{ConvertStep, EditField};
+use crate::session::state::{ConvertStep, EditField, HelpTab};
 use crate::session::type_filter::CheckState;
 use serde::{Deserialize, Serialize};
 
@@ -76,8 +76,10 @@ pub enum ModeView {
     Convert(ConvertView),
     /// The `i` detail popup is open.
     Detail,
-    /// The `?` help overlay is open.
-    Help,
+    /// The `?` help overlay is open, on tab `tab`.
+    Help {
+        tab: HelpTab,
+    },
     /// The inline editor is active on one row.
     Edit(EditView),
 }

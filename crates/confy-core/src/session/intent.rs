@@ -126,6 +126,9 @@ pub enum Intent {
     ExitHelp,
     HelpScrollBy(i32, u16),
     HelpSetScroll(u16),
+    /// Flip the shared Help/About panel between its two tabs (TUI `Tab` key /
+    /// Web UI tab-button click), while `Mode::Help(_)` is active.
+    ToggleHelpTab,
 
     // ---- Inline edit ----
     BeginEdit,

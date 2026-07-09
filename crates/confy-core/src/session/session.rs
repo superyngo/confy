@@ -6,8 +6,8 @@ use crate::model::node::{Format, KeySign, NodeKind, NodeTree, Path, ScalarType, 
 use crate::session::search::{fuzzy_match, haystack};
 use crate::session::selection::Selection;
 use crate::session::state::{
-    Clipboard, EditField, EditKind, EditState, FilterLayer, History, KindSwitchState, Mode,
-    PasteSlot, PendingComment, PendingCommit, PendingExternalEdit, PromptKind,
+    Clipboard, EditField, EditKind, EditState, FilterLayer, HelpTab, History, KindSwitchState,
+    Mode, PasteSlot, PendingComment, PendingCommit, PendingExternalEdit, PromptKind,
 };
 use crate::session::type_filter::TypeFilter;
 use crate::session::view::ViewRow;
@@ -993,11 +993,20 @@ impl Session {
     // ---- Help ----
 
     pub fn enter_help(&mut self) {
-        self.mode = Mode::Help;
+        self.mode = Mode::Help(HelpTab::Help);
     }
 
     pub fn exit_help(&mut self) {
         self.mode = Mode::Normal;
+    }
+
+    pub fn toggle_help_tab(&mut self) {
+        if let Mode::Help(tab) = &mut self.mode {
+            *tab = match tab {
+                HelpTab::Help => HelpTab::About,
+                HelpTab::About => HelpTab::Help,
+            };
+        }
     }
 
     // ---- Selection ----
@@ -2526,7 +2535,7 @@ impl Session {
             Mode::KindSwitch(_) => self.exit_kind_switch(),
             Mode::Convert(_) => self.exit_convert(),
             Mode::Detail => self.exit_detail(),
-            Mode::Help => self.exit_help(),
+            Mode::Help(_) => self.exit_help(),
             Mode::Edit(_) => self.edit_cancel(),
             Mode::Normal => {
                 if self.clipboard.is_some() {

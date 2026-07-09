@@ -17,8 +17,8 @@ pub use search::{fuzzy_indices, fuzzy_match, haystack};
 pub use selection::{normalize, Selection};
 pub use session::{format_label, node_type_label, node_type_label_str, Session};
 pub use state::{
-    Clipboard, ConvertState, ConvertStep, EditField, EditKind, EditState, FilterLayer, History,
-    KindSwitchState, Mode, PasteSlot, PendingComment, PendingCommit, PendingExternalEdit,
+    Clipboard, ConvertState, ConvertStep, EditField, EditKind, EditState, FilterLayer, HelpTab,
+    History, KindSwitchState, Mode, PasteSlot, PendingComment, PendingCommit, PendingExternalEdit,
     PromptKind,
 };
 pub use type_filter::{

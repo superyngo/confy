@@ -136,6 +136,8 @@ impl super::Session {
             // ---- Help (?) ----
             Intent::EnterHelp => self.enter_help(),
             Intent::ExitHelp => self.exit_help(),
+            Intent::ToggleHelpTab => self.toggle_help_tab(),
+
             Intent::HelpScrollBy(..) | Intent::HelpSetScroll(..) => {}
 
             // ---- Inline edit ----
@@ -353,7 +355,7 @@ impl super::Session {
                 warnings: st.warnings.clone(),
             }),
             Mode::Detail => ModeView::Detail,
-            Mode::Help => ModeView::Help,
+            Mode::Help(tab) => ModeView::Help { tab: *tab },
             Mode::Edit(e) => ModeView::Edit(EditView {
                 field: e.field,
                 buffer: e.buffer.clone(),
