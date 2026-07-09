@@ -24,6 +24,7 @@ import type {
   SessionSnapshot,
   ViewRow,
   ModeView,
+  PromptView,
   TypeFilterView,
   ConvertView,
 } from "../types.js";
@@ -41,6 +42,7 @@ import {
 import { IC, esc, treeHTML, isExpanded } from "./render.js";
 import { pathEq } from "../path-utils.js";
 import { panelHTML, wirePanel } from "../panel.js";
+import { bindPromptClicks, promptButtonsHTML, promptQuestion, promptTitle } from "../prompt.js";
 import { typeFilterHTML, wireTypeFilter } from "../typefilter.js";
 import {
   type ConvertRefs,
@@ -205,6 +207,13 @@ function cursorRow(): ViewRow | undefined {
   return snap?.rows.find((r) => r.is_cursor);
 }
 const parentOf = (p: Path): Path => p.slice(0, -1);
+// Whether `p`'s immediate parent is a single-line container (`Format::Inline`
+// — TOML inline table, JSON single-line object/array, YAML flow map/seq).
+// Mirrors desktop `ui.ts`'s `parentIsInline` (see panel.ts for why).
+function parentIsInline(p: Path): boolean {
+  if (p.length === 0) return false;
+  return rowFor(parentOf(p))?.format === "Inline";
+}
 function startsWith(p: Path, prefix: Path): boolean {
   if (prefix.length > p.length) return false;
   for (let i = 0; i < prefix.length; i++) {
@@ -322,6 +331,9 @@ function appHTML(): string {
     '<div class="sheet ext-sheet"></div>' +
     // Open-from-URL sheet (More ▸ Open from URL) — built on demand by `openUrlSheet`.
     '<div class="sheet url-sheet"></div>' +
+    // Confirmation-prompt sheet (`Mode::Prompt` y/n → buttons) — rendered per
+    // snapshot by `renderPromptSheet`.
+    '<div class="sheet prompt-sheet"></div>' +
     "</div>"
   );
 }
@@ -413,7 +425,7 @@ function render() {
   // double-tap. The shared panel.ts renders/wires the body identically to desktop.
   if (isWide() && !rawView) {
     if (cur && cur.path.length) {
-      dpBody.innerHTML = panelHTML(cur);
+      dpBody.innerHTML = panelHTML(cur, parentIsInline(cur.path));
       wirePanel(dpBody, cur, sendR, openKindRow, toast, afterPanelMutation);
     } else {
       dpBody.innerHTML = '<div class="dp-empty">Tap any node<br>to edit its value and metadata here</div>';
@@ -427,6 +439,10 @@ function render() {
   else sheets.filter.classList.remove("open");
   if (tag === "Convert") renderConvertDialogShared(convRefs(), (snap.mode as { Convert: ConvertView }).Convert, snap);
   else if (sheets.convert.classList.contains("open")) closeSheets();
+  // Confirmation prompt (type change, paste collision, quit, …) → button sheet.
+  // Without this, a `Mode::Prompt` would soft-lock the touch UI (no keyboard).
+  if (tag === "Prompt") renderPromptSheet((snap.mode as { Prompt: { kind: PromptView } }).Prompt.kind);
+  else sheets.prompt.classList.remove("open");
   if (tag !== "TypeFilter" && !anySheetOpen()) scrim.classList.remove("show");
 
   // Active type-filter indicator on the funnel button.
@@ -474,10 +490,24 @@ function openPanel(path: Path) {
     sheets.detail.innerHTML =
       '<div class="grab"></div>' +
       `<div class="sheet-head"><h3>${esc(title)}</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
-      `<div class="sheet-body detail-wrap">${panelHTML(r)}</div>`;
+      `<div class="sheet-body detail-wrap">${panelHTML(r, parentIsInline(r.path))}</div>`;
     wirePanel(sheets.detail, r, sendR, openKindRow, toast, afterPanelMutation);
     openSheet("detail");
   }
+}
+
+// ---- confirmation-prompt sheet (Mode::Prompt) ----
+// The question is `snap.status ?? snap.error` (collision reports via error);
+// the buttons are the shared per-kind set (`prompt.ts`), answered as PromptKey
+// via the delegated listener bound once in main(). The header × carries
+// data-pk="n" so every dismissal answers the prompt (never just hides it).
+function renderPromptSheet(kind: PromptView) {
+  const q = promptQuestion(kind, snap!.status ?? snap!.error ?? undefined);
+  sheets.prompt.innerHTML =
+    '<div class="grab"></div>' +
+    `<div class="sheet-head"><h3>${esc(promptTitle(kind))}</h3><button class="close" data-pk="n">${IC.close}</button></div>` +
+    `<div class="sheet-body"><p class="dlg-sub">${esc(q)}</p>${promptButtonsHTML(kind)}</div>`;
+  if (!sheets.prompt.classList.contains("open")) openSheet("prompt");
 }
 
 // ---- kind sheet (from session.kindOptions) ----
@@ -899,6 +929,16 @@ function installTreeGestures() {
     swiping = false;
     swipeMain = null;
   });
+  // Tap on empty tree space (the `.tree-pane` padding below the last row, or
+  // any gap not covered by a `.row`) clears the multi-select + error banner —
+  // matches desktop `onTreeClick`'s empty-area branch. A plain `click` (not
+  // the pointer flow above) is enough since nothing here needs drag/swipe
+  // tracking, and a tap that hits a `.row` never reaches this listener target.
+  treePane.addEventListener("click", (e) => {
+    if ((e.target as HTMLElement).closest(".row")) return;
+    if (snap?.rows.some((r) => r.selected)) send({ SetSelection: { paths: [] } });
+    if (snap?.error) statusEl.textContent = snap.status ?? "ready";
+  });
 }
 
 // Single tap = select only; double tap (same row within DOUBLE_TAP_MS) opens the
@@ -1271,6 +1311,9 @@ function dismissSheets() {
   }
   if (tag === "TypeFilter") return send("CommitTypeFilter");
   if (tag === "Convert") return send("ExitConvert");
+  // A prompt must be *answered*, not hidden — scrim/grab dismissal = "no"
+  // (peel-on-dismiss; otherwise core stays stuck in Mode::Prompt).
+  if (tag === "Prompt") return send({ PromptKey: "n" });
   closeSheets();
 }
 
@@ -1307,6 +1350,9 @@ async function main() {
   sheets.convert = app.querySelector(".convert-sheet")!;
   sheets.ext = app.querySelector(".ext-sheet")!;
   sheets.url = app.querySelector(".url-sheet")!;
+  sheets.prompt = app.querySelector(".prompt-sheet")!;
+  // Prompt answer buttons (incl. the header ×, data-pk="n") → PromptKey.
+  bindPromptClicks(sheets.prompt, sendR);
 
   restoreDetailWidth();
   installTreeGestures();

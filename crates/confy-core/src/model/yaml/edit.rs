@@ -1616,13 +1616,22 @@ fn convert_container(
     let new_entry_text = if target == KT::Flow {
         // Block → flow: reject comments / block scalars / multi-line members.
         // Scan the whole entry — a standalone comment in the block body attaches
-        // to the outer entry, not the inner collection node.
+        // to the outer entry, not the inner collection node. Checked (and
+        // reported) separately since they're distinct causes.
         if entry
             .descendants_with_tokens()
-            .any(|el| matches!(el.kind(), SyntaxKind::COMMENT | SyntaxKind::BLOCK_SCALAR))
+            .any(|el| el.kind() == SyntaxKind::COMMENT)
         {
             return Err(MutateError::Illegal(
-                "cannot collapse container with comments / block scalars to flow".into(),
+                "cannot collapse container with comments to flow".into(),
+            ));
+        }
+        if entry
+            .descendants_with_tokens()
+            .any(|el| el.kind() == SyntaxKind::BLOCK_SCALAR)
+        {
+            return Err(MutateError::Illegal(
+                "cannot collapse container to flow: a literal (|) or folded (>) block scalar can't be written on one line".into(),
             ));
         }
         let members = flow_members_from_block(&coll, is_map)?;
@@ -1706,6 +1715,27 @@ fn flow_members_from_block(coll: &SyntaxNode, is_map: bool) -> Result<Vec<String
             return Err(MutateError::Illegal(
                 "cannot collapse container with multi-line members to flow".into(),
             ));
+        }
+        // A bare plain-style value that's unsafe inside `{…}`/`[…]` (contains a
+        // flow indicator, e.g. a comma) would silently truncate on reparse and
+        // spawn a bogus sibling key — YAML flow context forbids an unescaped
+        // `,{}[]` in a plain scalar even though block context allows it freely.
+        // Reject the whole conversion rather than silently reformatting the
+        // member to a quoted style behind the user's back; they can quote it
+        // themselves first (`K` on that value → single/double) and retry.
+        if let Some(content) = entry_plain_value(&entry) {
+            if !flow_plain_safe(&content) {
+                return Err(MutateError::Illegal(if is_map {
+                    format!(
+                        "cannot collapse container to flow: \"{}\" is a plain string containing a flow-unsafe character (, {{ }} [ ]) — quote it first",
+                        entry_key_text(&entry)
+                    )
+                } else {
+                    format!(
+                        "cannot collapse container to flow: plain element {content:?} contains a flow-unsafe character (, {{ }} [ ]) — quote it first"
+                    )
+                }));
+            }
         }
         if is_map {
             out.push(trimmed.to_string());
@@ -1807,7 +1837,15 @@ fn convert_string(
 
     let new_value_text = match target {
         KT::StringPlain => {
-            if !plain_safe(&content) {
+            // Inside a flow collection, a flow indicator character (`,{}[]`)
+            // can't survive unquoted anywhere in the scalar — stricter than
+            // block context, which only forbids one when leading.
+            let safe = if node_in_flow(&entry) {
+                flow_plain_safe(&content)
+            } else {
+                plain_safe(&content)
+            };
+            if !safe {
                 return Err(MutateError::Illegal(
                     "content cannot be represented as a plain scalar".into(),
                 ));
@@ -1992,6 +2030,46 @@ fn plain_safe(s: &str) -> bool {
             .map(|n| &n.kind),
         Some(NodeKind::Scalar(ScalarType::String))
     )
+}
+
+/// Whether `s` is safe as an unquoted (plain) *string* scalar **inside a flow
+/// collection** (`{…}`/`[…]`) — `plain_safe` (block context) plus: a flow
+/// indicator character (`,{}[]`) ends a plain scalar wherever it appears, not
+/// just when leading.
+fn flow_plain_safe(s: &str) -> bool {
+    plain_safe(s) && !s.contains([',', '{', '}', '[', ']'])
+}
+
+/// If `entry`'s value is a bare single-line PLAIN scalar that the core schema
+/// classifies as a **string** (not already quoted, not a nested
+/// collection/block scalar, and not a plain int/float/bool/null — those are
+/// always flow-safe as-is and must not be turned into strings by quoting),
+/// return its decoded content. Used by `flow_members_from_block` to detect a
+/// block-plain string value that needs quoting once it's collapsed into a
+/// flow collection.
+fn entry_plain_value(entry: &SyntaxNode) -> Option<String> {
+    let value = entry.children().find(|c| c.kind() == SyntaxKind::VALUE)?;
+    if value.children().any(|c| {
+        matches!(
+            c.kind(),
+            SyntaxKind::MAPPING
+                | SyntaxKind::SEQUENCE
+                | SyntaxKind::FLOW_MAP
+                | SyntaxKind::FLOW_SEQ
+                | SyntaxKind::BLOCK_SCALAR
+        )
+    }) {
+        return None;
+    }
+    let tok = value.descendants_with_tokens().find_map(|el| match el {
+        rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::PLAIN => Some(t),
+        _ => None,
+    })?;
+    let (kind, _) = crate::model::yaml::project::classify_plain_scalar(tok.text().trim());
+    if !matches!(kind, NodeKind::Scalar(ScalarType::String)) {
+        return None; // int/float/bool/null plain scalar — always flow-safe verbatim
+    }
+    decode_string_value(&value).ok()
 }
 
 /// Encode `content` for a double-quoted scalar (escape `"` and `\`, newlines→`\n`).
@@ -3221,6 +3299,147 @@ mod tests {
         )
         .expect("block→flow");
         assert_eq!(out, "a: {x: 1, y: 2}\n");
+    }
+
+    // A plain block-style value containing a flow indicator (`,{}[]`) can't be
+    // silently collapsed into `{…}`/`[…]` — unquoted, YAML's flow grammar
+    // treats the comma as a member separator, which would silently truncate
+    // the value and spawn a bogus sibling key from the remainder on reparse.
+    // Reject the whole conversion instead of quietly reformatting the member
+    // to a quoted style behind the user's back; they quote it first and retry.
+    #[test]
+    fn convert_block_map_to_flow_rejects_plain_value_with_comma() {
+        let err = convert(
+            "about:\n  name: confy\n  pitch: Three dialects, one tree\n",
+            vec![Seg::Key("about".into())],
+            KindTarget::Flow,
+        )
+        .expect_err("block→flow with an unquoted comma must be rejected");
+        assert!(
+            matches!(&err, MutateError::Illegal(msg) if msg.contains("pitch") && msg.contains("quote it first")),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn convert_block_seq_to_flow_rejects_plain_element_with_comma() {
+        let err = convert(
+            "a:\n  - one, two\n  - three\n",
+            vec![Seg::Key("a".into())],
+            KindTarget::Flow,
+        )
+        .expect_err("block seq→flow with an unquoted comma must be rejected");
+        assert!(
+            matches!(&err, MutateError::Illegal(msg) if msg.contains("quote it first")),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn convert_block_map_to_flow_rejects_plain_value_with_braces() {
+        // A leading `{` is real flow-map syntax even in block context (handled
+        // by the existing nested-flow-collection path); this covers a brace
+        // *inside* an otherwise-plain string, which block context allows but
+        // flow context does not.
+        let err = convert(
+            "a:\n  x: has {curly} braces\n",
+            vec![Seg::Key("a".into())],
+            KindTarget::Flow,
+        )
+        .expect_err("block→flow with an unquoted brace must be rejected");
+        assert!(
+            matches!(&err, MutateError::Illegal(msg) if msg.contains("quote it first")),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn convert_block_map_to_flow_leaves_already_quoted_value_untouched() {
+        let out = convert(
+            "about:\n  pitch: \"Three dialects, one tree\"\n  ok: 1\n",
+            vec![Seg::Key("about".into())],
+            KindTarget::Flow,
+        )
+        .expect("block→flow: an already-quoted value doesn't need rejecting");
+        assert_eq!(out, "about: {pitch: \"Three dialects, one tree\", ok: 1}\n");
+    }
+
+    #[test]
+    fn convert_block_to_flow_rejects_literal_block_scalar_with_specific_message() {
+        let err = convert(
+            "a:\n  x: |\n    line1\n    line2\n",
+            vec![Seg::Key("a".into())],
+            KindTarget::Flow,
+        )
+        .expect_err("literal block scalar can't collapse to flow");
+        assert!(
+            matches!(&err, MutateError::Illegal(msg) if msg.contains("literal") && msg.contains("folded")),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn convert_block_to_flow_rejects_folded_block_scalar_with_specific_message() {
+        let err = convert(
+            "a:\n  x: >\n    line1\n    line2\n",
+            vec![Seg::Key("a".into())],
+            KindTarget::Flow,
+        )
+        .expect_err("folded block scalar can't collapse to flow");
+        assert!(
+            matches!(&err, MutateError::Illegal(msg) if msg.contains("literal") && msg.contains("folded")),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn convert_block_to_flow_rejects_comment_with_specific_message() {
+        let err = convert(
+            "a:\n  x: 1\n  # note\n  y: 2\n",
+            vec![Seg::Key("a".into())],
+            KindTarget::Flow,
+        )
+        .expect_err("a comment can't collapse to flow");
+        assert!(
+            matches!(&err, MutateError::Illegal(msg) if msg.contains("comment") && !msg.contains("block scalar")),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    // Item 2: a quoted string *inside* a flow collection that contains a flow
+    // indicator can't become Plain either — same corruption, reached via the
+    // per-scalar `K` switch instead of the container-level Block→Flow switch.
+    #[test]
+    fn convert_string_plain_rejects_flow_member_with_comma() {
+        let err = convert(
+            "about: {pitch: \"Three dialects, one tree\"}\n",
+            vec![Seg::Key("about".into()), Seg::Key("pitch".into())],
+            KindTarget::StringPlain,
+        )
+        .expect_err("flow member with a comma can't become plain");
+        assert!(matches!(err, MutateError::Illegal(_)));
+    }
+
+    #[test]
+    fn kind_options_hides_plain_for_flow_member_with_comma() {
+        use crate::model::document::ConfigDocument;
+        let doc = crate::model::yaml::doc::YamlDocument::from_str(
+            "about: {pitch: \"Three dialects, one tree\", ok: \"fine\"}\n",
+        )
+        .unwrap();
+        let unsafe_opts = doc.kind_options(&[Seg::Key("about".into()), Seg::Key("pitch".into())]);
+        assert!(
+            !unsafe_opts
+                .iter()
+                .any(|(_, t)| *t == KindTarget::StringPlain),
+            "Plain must not be offered for a flow member containing a comma: {unsafe_opts:?}"
+        );
+        // A flow member without a flow-unsafe character still offers Plain.
+        let safe_opts = doc.kind_options(&[Seg::Key("about".into()), Seg::Key("ok".into())]);
+        assert!(
+            safe_opts.iter().any(|(_, t)| *t == KindTarget::StringPlain),
+            "Plain should still be offered for a flow-safe quoted member: {safe_opts:?}"
+        );
     }
 
     #[test]

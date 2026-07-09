@@ -39,6 +39,11 @@ pub struct Session {
     /// In-flight async external edit (WASM §8.2); `None` except between the
     /// `BeginEdit` that routes external and the resolving `ApplyReplace`/`ApplyEditComment`.
     pub pending_external_edit: Option<PendingExternalEdit>,
+    /// Set when a one-shot `commit_edit` (Web `CommitEdit`) deferred to a
+    /// confirmation prompt: `Some(from_detail)`. The prompt resolution must not
+    /// fall back into `Mode::Edit` (the one-shot host has no live editor) and —
+    /// when `true` — returns to `Mode::Detail` so the host's panel stays open.
+    pub prompt_from_commit_edit: Option<bool>,
 }
 
 /// Paste-mode slot navigation step: a relative move or a jump to either edge.
@@ -85,6 +90,7 @@ impl Session {
             pending_edit: None,
             pending_trailing: None,
             pending_external_edit: None,
+            prompt_from_commit_edit: None,
         }
     }
 
@@ -181,10 +187,7 @@ impl Session {
     /// Place the cursor on a visible row by path (pointer analogue of
     /// `select_row`). No-op if the path is not currently visible.
     pub fn set_cursor(&mut self, path: Path) {
-        let visible = self
-            .visible_nodes()
-            .iter()
-            .any(|r| r.node.path == path);
+        let visible = self.visible_nodes().iter().any(|r| r.node.path == path);
         if visible {
             self.cursor = path;
         }
@@ -350,10 +353,7 @@ impl Session {
             self.move_paste_slot(SlotMove::Home);
             return;
         }
-        let first = self
-            .visible_nodes()
-            .first()
-            .map(|r| r.node.path.clone());
+        let first = self.visible_nodes().first().map(|r| r.node.path.clone());
         if let Some(p) = first {
             self.cursor = p;
         }
@@ -1379,6 +1379,7 @@ impl Session {
         self.mode = self.resting_mode();
         self.pending_edit = None;
         self.pending_trailing = None;
+        self.prompt_from_commit_edit = None;
         self.status = None;
         if created_on_add {
             self.cancel_added_node();
@@ -1405,6 +1406,7 @@ impl Session {
     /// still fire. Inline path only (the host routes multiline/opaque through the
     /// external-edit handshake).
     pub fn commit_edit(&mut self, value: Option<String>, name: Option<String>) {
+        let from_detail = matches!(self.mode, Mode::Detail);
         self.begin_inline_edit();
         let Mode::Edit(ref mut e) = self.mode else {
             return;
@@ -1417,7 +1419,44 @@ impl Session {
             e.other_cursor = n.chars().count();
             e.other_buffer = n;
         }
+        // A branch node has no scalar value to replace (the panel doesn't even
+        // render a Value field for one) — without this, renaming a branch's key
+        // falls through to the value-replace step with an empty buffer and
+        // fails to parse as a scalar.
+        if self
+            .tree
+            .node_at(&e.path)
+            .map(|n| n.is_branch())
+            .unwrap_or(false)
+        {
+            e.rename_only = true;
+        }
         self.edit_commit();
+        // One-shot epilogue: the pointer host has no live editor to leave open.
+        match &self.mode {
+            // A retry branch (invalid value, rename failure, …) kept the edit —
+            // cancel it and surface the retry message as the error instead.
+            Mode::Edit(_) => {
+                let msg = self.status.take();
+                self.edit_cancel();
+                self.error = msg;
+                if from_detail {
+                    self.open_detail();
+                }
+            }
+            // Deferred to a confirmation prompt — mark it one-shot so the
+            // resolution doesn't fall back into `Mode::Edit` either.
+            Mode::Prompt(_) => {
+                self.prompt_from_commit_edit = Some(from_detail);
+            }
+            // Committed (or cleanly rejected) — a Detail-origin edit returns to
+            // the panel instead of dropping to Normal, so the panel stays open.
+            _ => {
+                if from_detail {
+                    self.open_detail();
+                }
+            }
+        }
     }
 
     pub fn edit_commit(&mut self) {
@@ -1549,8 +1588,14 @@ impl Session {
                 match res {
                     Ok(()) => {
                         self.on_mutation_success();
+                        let old_path = e.path.clone();
                         if let Some(last) = e.path.last_mut() {
                             *last = Seg::Key(new_name.clone());
+                        }
+                        // Keep the cursor on the renamed node (its identity is
+                        // its path) instead of letting it snap to the first row.
+                        if self.cursor == old_path {
+                            self.cursor = e.path.clone();
                         }
                         e.key = new_name.clone();
                         frag_key = new_name;
@@ -1617,6 +1662,7 @@ impl Session {
             return;
         }
         self.on_mutation_success();
+        let old_path = e.path.clone();
         let parent_len = e.path.len() - 1;
         let new_segs: Vec<Seg> = new_name
             .split('.')
@@ -1628,6 +1674,10 @@ impl Session {
         };
         e.path.truncate(parent_len);
         e.path.extend(new_segs);
+        // Keep the cursor on the renamed node (path identity changed).
+        if self.cursor == old_path {
+            self.cursor = e.path.clone();
+        }
         self.apply_replace(e.path, format!("{leaf_key} = {value}\n"));
     }
 
@@ -2465,6 +2515,10 @@ impl Session {
                 self.clipboard = None;
                 self.pending_edit = None;
                 self.status = None;
+                // Esc on a one-shot (Web panel) prompt returns to the panel.
+                if self.prompt_from_commit_edit.take() == Some(true) {
+                    self.open_detail();
+                }
             }
             Mode::Filter => self.exit_filter(),
             Mode::FilterResults => self.exit_filter_results(),
@@ -2496,6 +2550,10 @@ impl Session {
     pub fn handle_prompt_key(&mut self, c: char) -> bool {
         match &self.mode {
             Mode::Prompt(PromptKind::TypeChange { .. }) => {
+                // A prompt raised by a one-shot Web `CommitEdit` must not fall
+                // back into `Mode::Edit` (that host has no live editor); when it
+                // came from the Detail panel, return there so the panel stays open.
+                let one_shot = self.prompt_from_commit_edit.take();
                 match c {
                     'y' => {
                         if let Some((e, commit)) = self.pending_edit.take() {
@@ -2511,14 +2569,22 @@ impl Session {
                         } else {
                             self.mode = Mode::Normal;
                         }
-                    }
-                    _ => {
-                        if let Some((e, _)) = self.pending_edit.take() {
-                            self.mode = Mode::Edit(e);
-                        } else {
-                            self.mode = Mode::Normal;
+                        if one_shot == Some(true) {
+                            self.open_detail();
                         }
                     }
+                    _ => match (self.pending_edit.take(), one_shot) {
+                        (Some(e_pending), None) => self.mode = Mode::Edit(e_pending.0),
+                        (_, Some(true)) => {
+                            self.status = None;
+                            self.mode = self.resting_mode();
+                            self.open_detail();
+                        }
+                        _ => {
+                            self.status = None;
+                            self.mode = self.resting_mode();
+                        }
+                    },
                 }
                 false // not quit
             }

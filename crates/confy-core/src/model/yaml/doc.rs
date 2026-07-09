@@ -205,10 +205,21 @@ pub(crate) fn kind_options(tree: &NodeTree, path: &[Seg]) -> Vec<(String, KindTa
                 ),
                 (Format::Folded, "folded >", KindTarget::StringFolded),
             ];
+            // A quoted string inside a flow collection that contains a flow
+            // indicator character (`,{}[]`) can't become Plain — unquoted, that
+            // character would end the scalar mid-flow. `node.value` is the raw
+            // repr (quotes included for a quoted string), so this substring
+            // check covers the decoded content without needing to decode it.
+            let plain_unsafe_in_flow = in_flow
+                && node
+                    .value
+                    .as_deref()
+                    .is_some_and(|v| v.contains([',', '{', '}', '[', ']']));
             all.iter()
                 .filter(|(f, ..)| *f != node.format)
                 // Block scalars are multi-line: not available inside a flow line.
                 .filter(|(f, ..)| !(in_flow && matches!(f, Format::LiteralBlock | Format::Folded)))
+                .filter(|(f, ..)| !(plain_unsafe_in_flow && *f == Format::Plain))
                 .map(|(_, l, t)| (l.to_string(), *t))
                 .collect()
         }

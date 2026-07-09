@@ -78,7 +78,12 @@ export function installDnd(
     const vr = rowFor(snap, path);
     const r = row.getBoundingClientRect();
     const rel = (ev.clientY - r.top) / r.height;
-    if (vr?.is_branch && rel > 0.25 && rel < 0.75) {
+    // A single-line container (TOML inline table, JSON single-line object/
+    // array, YAML flow map/seq — `Format::Inline`) can't gain a new child via
+    // move (core rejects it the same way it rejects insert), so the "into"
+    // mid-band affordance is withheld for it; a drop still falls through to
+    // before/after (reordering it as a sibling stays legal).
+    if (vr?.is_branch && vr.format !== "Inline" && rel > 0.25 && rel < 0.75) {
       row.classList.add("drag-over-into");
       target = { mode: "into", path };
     } else {

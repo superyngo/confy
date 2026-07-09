@@ -3666,11 +3666,21 @@ fn rename(tree: &SyntaxNode, path: &[Seg], new_key: &str) -> Result<(), MutateEr
     match maybe_target {
         // Concrete entry/header/AoT entry: rename its last key segment.
         // Also propagate to all sub-scope headers that share the prefix.
-        Some(Target::Entry(n) | Target::Header(n) | Target::AotEntry(n)) => {
+        Some(
+            ref target @ (Target::Entry(ref n) | Target::Header(ref n) | Target::AotEntry(ref n)),
+        ) => {
             let key_node = n
                 .children()
                 .find(|c| c.kind() == SyntaxKind::KEY)
                 .ok_or(MutateError::NotFound)?;
+            // An entry's KEY spells only its own (possibly dotted) tail of the
+            // path — a scoped entry omits its `[section]` prefix — so its token
+            // index is end-relative; header KEYs spell the absolute path.
+            let own_idx = if matches!(target, Target::Entry(_)) {
+                entry_seg_idx(&key_node, path.len(), seg_pos).ok_or(MutateError::NotFound)?
+            } else {
+                header_seg_idx(path, seg_pos)
+            };
 
             // Collision check on the direct parent.
             if let Some((parent, node)) = find_parent(&proj.root, path) {
@@ -3689,15 +3699,16 @@ fn rename(tree: &SyntaxNode, path: &[Seg], new_key: &str) -> Result<(), MutateEr
             }
 
             // Rename this node's key segment (last for own node).
-            rename_key_seg_at_pos(key_node, seg_pos, new_key)?;
+            rename_key_seg_at_pos(key_node, own_idx, new_key)?;
 
             // Rename the same segment in all sub-scope headers.
+            let sub_idx = header_seg_idx(path, seg_pos);
             for sub in &sub_scope_headers {
                 let kn = sub
                     .children()
                     .find(|c| c.kind() == SyntaxKind::KEY)
                     .ok_or(MutateError::NotFound)?;
-                rename_key_seg_at_pos(kn, seg_pos, new_key)?;
+                rename_key_seg_at_pos(kn, sub_idx, new_key)?;
             }
             Ok(())
         }
@@ -3739,12 +3750,13 @@ fn rename(tree: &SyntaxNode, path: &[Seg], new_key: &str) -> Result<(), MutateEr
             }
 
             // Rename each [[group]] entry header.
+            let hdr_idx = header_seg_idx(path, seg_pos);
             for entry_node in &entry_nodes {
                 let kn = entry_node
                     .children()
                     .find(|c| c.kind() == SyntaxKind::KEY)
                     .ok_or(MutateError::NotFound)?;
-                rename_key_seg_at_pos(kn, seg_pos, new_key)?;
+                rename_key_seg_at_pos(kn, hdr_idx, new_key)?;
             }
             // Rename the same segment in nested sub-scope headers.
             for sub in &sub_scope_headers {
@@ -3752,7 +3764,7 @@ fn rename(tree: &SyntaxNode, path: &[Seg], new_key: &str) -> Result<(), MutateEr
                     .children()
                     .find(|c| c.kind() == SyntaxKind::KEY)
                     .ok_or(MutateError::NotFound)?;
-                rename_key_seg_at_pos(kn, seg_pos, new_key)?;
+                rename_key_seg_at_pos(kn, hdr_idx, new_key)?;
             }
             Ok(())
         }
@@ -3762,12 +3774,13 @@ fn rename(tree: &SyntaxNode, path: &[Seg], new_key: &str) -> Result<(), MutateEr
         None => {
             if !sub_scope_headers.is_empty() {
                 // Implicit scope table: rename the segment in all sub-headers.
+                let hdr_idx = header_seg_idx(path, seg_pos);
                 for sub in &sub_scope_headers {
                     let kn = sub
                         .children()
                         .find(|c| c.kind() == SyntaxKind::KEY)
                         .ok_or(MutateError::NotFound)?;
-                    rename_key_seg_at_pos(kn, seg_pos, new_key)?;
+                    rename_key_seg_at_pos(kn, hdr_idx, new_key)?;
                 }
                 Ok(())
             } else {
@@ -3857,13 +3870,45 @@ fn rename_dotted_segment(
     }
 
     for entry_node in &members {
+        // Each member key spells its own tail of the path (a scoped entry omits
+        // its `[section]` prefix) — look its full path up to index end-relative.
+        let owner_len = idx
+            .iter()
+            .find_map(|(p, t)| match t {
+                Target::Entry(n) if n == entry_node => Some(p.len()),
+                _ => None,
+            })
+            .ok_or(MutateError::NotFound)?;
         let key_node = entry_node
             .children()
             .find(|c| c.kind() == SyntaxKind::KEY)
             .ok_or(MutateError::NotFound)?;
-        rename_key_seg_at_pos(key_node, seg_pos, new_seg)?;
+        let at = entry_seg_idx(&key_node, owner_len, seg_pos).ok_or(MutateError::NotFound)?;
+        rename_key_seg_at_pos(key_node, at, new_seg)?;
     }
     Ok(())
+}
+
+/// Token index of the absolute path segment `seg_pos` within an *entry* KEY.
+/// An entry's key spells only the last `k` segments of its own path (a scoped
+/// entry omits its `[section]` prefix), so the index is end-relative. `None`
+/// when `seg_pos` falls outside the segments the key actually spells.
+fn entry_seg_idx(key_node: &SyntaxNode, owner_len: usize, seg_pos: usize) -> Option<usize> {
+    let k = key_node
+        .children_with_tokens()
+        .filter(|c| matches!(c, NodeOrToken::Token(t) if is_key_seg(t.kind())))
+        .count();
+    (seg_pos + k).checked_sub(owner_len).filter(|i| *i < k)
+}
+
+/// Token index of the absolute path segment `seg_pos` within a `[section]` /
+/// `[[group]]` header KEY: headers spell the full path from root with
+/// `Seg::Index` positions (AoT entry slots) dropped.
+fn header_seg_idx(path: &[Seg], seg_pos: usize) -> usize {
+    path[..seg_pos]
+        .iter()
+        .filter(|s| matches!(s, Seg::Key(_)))
+        .count()
 }
 
 /// Replace the key segment at `seg_pos` (0-indexed) in `key_node` with fresh
@@ -4660,6 +4705,74 @@ mod tests {
         })
         .unwrap();
         assert_eq!(d.serialize(), "a.z.c = 1\na.z.d = 2\n");
+    }
+
+    #[test]
+    fn rename_scalar_inside_scope_table() {
+        // A scoped entry's KEY spells only its own segment — the rename index
+        // must be end-relative, not the absolute path position (regression:
+        // this returned NotFound for every key under a `[section]`).
+        let mut d = doc("[server]\nhost = \"x\"\nport = 1\n");
+        d.apply(Mutation::Rename {
+            path: vec![Seg::Key("server".into()), Seg::Key("host".into())],
+            new_key: "hostname".into(),
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "[server]\nhostname = \"x\"\nport = 1\n");
+    }
+
+    #[test]
+    fn rename_dotted_leaf_inside_scope_table() {
+        let mut d = doc("[scope]\na.b = 1\n");
+        d.apply(Mutation::Rename {
+            path: vec![
+                Seg::Key("scope".into()),
+                Seg::Key("a".into()),
+                Seg::Key("b".into()),
+            ],
+            new_key: "z".into(),
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "[scope]\na.z = 1\n");
+    }
+
+    #[test]
+    fn rename_synthetic_dotted_table_inside_scope_table() {
+        // The synthetic `[T/D]` intermediate under a `[section]`: member keys
+        // start at the scope, so their rename index is offset by the scope depth.
+        let mut d = doc("[scope]\na.b = 1\na.c = 2\n");
+        d.apply(Mutation::Rename {
+            path: vec![Seg::Key("scope".into()), Seg::Key("a".into())],
+            new_key: "z".into(),
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "[scope]\nz.b = 1\nz.c = 2\n");
+    }
+
+    #[test]
+    fn rename_sub_table_next_to_aot_group() {
+        // `[grp.sub]` alongside `[[grp]]` projects at `grp.sub` (no Index seg).
+        let mut d = doc("[[grp]]\nn = 1\n[grp.sub]\nx = 1\n");
+        d.apply(Mutation::Rename {
+            path: vec![Seg::Key("grp".into()), Seg::Key("sub".into())],
+            new_key: "zzz".into(),
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "[[grp]]\nn = 1\n[grp.zzz]\nx = 1\n");
+    }
+
+    #[test]
+    fn rename_aot_group_renames_nested_sub_headers_too() {
+        let mut d = doc("[[grp]]\nn = 1\n[grp.sub]\nx = 1\n[[grp]]\nn = 2\n");
+        d.apply(Mutation::Rename {
+            path: vec![Seg::Key("grp".into())],
+            new_key: "g2".into(),
+        })
+        .unwrap();
+        assert_eq!(
+            d.serialize(),
+            "[[g2]]\nn = 1\n[g2.sub]\nx = 1\n[[g2]]\nn = 2\n"
+        );
     }
 
     #[test]

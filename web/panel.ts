@@ -52,7 +52,14 @@ function humanPath(path: Path): string {
 
 // Pure HTML string for the panel body. Field order is LOCKED:
 //   Key → Value → Trailing comment → Kind → Path → Children → Sign
-export function panelHTML(row: ViewRow): string {
+//
+// `parentInline`: true when `row`'s immediate parent is a single-line
+// container (TOML inline table, JSON single-line object/array, YAML flow
+// map/seq — core's `Format::Inline`). Such containers can't hold comments, so
+// the Trailing-comment input is disabled instead of failing on commit. The
+// host computes this from its own `SessionSnapshot.rows` (no parent lookup
+// lives in `ViewRow` itself).
+export function panelHTML(row: ViewRow, parentInline = false): string {
   const r = row;
   const branch = r.is_branch;
   const comment = isComment(r);
@@ -104,10 +111,14 @@ export function panelHTML(row: ViewRow): string {
     }
   }
 
-  // Trailing comment.
+  // Trailing comment. Disabled on a member of an inline/flow container — core
+  // rejects the mutation (comments can't live inside `{…}`/`[…]`).
   if (!r.read_only) {
     h += '<div class="field-label">Trailing comment</div>';
-    h += `<input class="c-edit" data-field="trailing" value="${esc(r.trailing_comment ?? "")}" placeholder="add a comment…" autocomplete="off" spellcheck="false" />`;
+    const disabledAttr = parentInline
+      ? ` disabled title="an inline container's members can't hold comments"`
+      : "";
+    h += `<input class="c-edit" data-field="trailing" value="${esc(r.trailing_comment ?? "")}" placeholder="add a comment…" autocomplete="off" spellcheck="false"${disabledAttr} />`;
   }
 
   // Kind switch — label is `type_label · «notation glyph»` (the glyph is dropped
@@ -165,10 +176,28 @@ export function wirePanel(
     if (snap && snap.error) onError(snap.error);
   };
 
+  // Commit on change (blur / Enter→blur); Esc cancels — restoring the value to
+  // what it was when the input gained focus means the browser's own "change"
+  // comparison sees no difference, so blur() doesn't re-fire a commit.
   const commit = (el: HTMLInputElement, fn: () => void) => {
+    const orig = el.value;
     el.addEventListener("change", fn);
     el.addEventListener("keydown", (e) => {
-      if ((e as KeyboardEvent).key === "Enter") el.blur();
+      const k = (e as KeyboardEvent).key;
+      if (k === "Enter") {
+        // Commit-then-blur can synchronously open a confirm prompt (type
+        // change / collision) whose y/n the desktop `onKey` reads straight
+        // off Enter — without stopping propagation here, this same keydown
+        // bubbles past the now-blurred input (no longer an INPUT, so the
+        // host's "don't hijack text entry" guard no longer applies) and
+        // auto-answers "y" before the prompt is ever visible.
+        e.stopPropagation();
+        el.blur();
+      } else if (k === "Escape") {
+        e.stopPropagation(); // cancel this edit only — don't peel host surfaces
+        el.value = orig;
+        el.blur();
+      }
     });
   };
 
@@ -228,7 +257,7 @@ export function wirePanel(
         fire("BeginEdit");
       });
     });
-  if (te)
+  if (te && !te.disabled)
     commit(te, () => {
       fire({ SetTrailing: { path, comment: te.value || null } });
     });

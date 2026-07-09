@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **fix(web+core): branch-key rename, leftover Esc-cancel flag, touch empty-tap.** Three follow-up
+  repairs found in manual testing of the above panel/prompt work (2026-07-09):
+  - **Renaming a branch (table) node's key from the Detail panel raised `invalid value: expected
+    value (…)`** (`session.rs::commit_edit`): the Web `CommitEdit` path always seeds `Mode::Edit`
+    via `begin_inline_edit` (`rename_only: false`), so after a successful rename it fell through to
+    the value-replace step and tried to reparse the branch's (empty) value buffer as a scalar.
+    `commit_edit` now sets `rename_only` when the cursor is on a branch, matching the TUI's `F2`
+    rename-only path. Regression: `dispatch_commit_edit_renames_branch_key`.
+  - **Esc-cancel on a detail-panel input could swallow the *next* legitimate edit** (`web/panel.ts`
+    `commit`): restoring the input to its focus-time value already suppresses the browser's own
+    `change` event (nothing to commit), so the added `cancelled` bookkeeping was redundant — and
+    wrong, because that flag was only reset *inside* the `change` handler, which Esc's restore never
+    fires. The next real edit's commit landed while `cancelled` was still `true` and got silently
+    dropped, requiring a second attempt. Removed the flag; Esc still restores + blurs, but relies on
+    the native no-change-fires-no-commit behavior instead of tracking it manually.
+  - **Tapping empty tree space on touch did nothing** (`web/touch/app.ts`): desktop's `onTreeClick`
+    clears the multi-select and any error banner when a click misses every `.row`; the touch pointer
+    gesture handlers only ever ran when a `.row` was found, so the equivalent tap (in the
+    `.tree-pane` padding below the last row) was silently ignored. Added a plain `click` listener on
+    `.tree-pane` for the same behavior.
+  - **Desktop type-change confirm popup flashed shut instantly instead of waiting for an answer**
+    (`web/panel.ts` `commit`): the Enter-to-blur keydown handler didn't stop propagation, so after
+    `el.blur()` synchronously committed the edit and opened `Mode::Prompt`, the *same* keydown event
+    kept bubbling — past the input (now blurred, so `ui.ts`'s "don't hijack text entry" INPUT-tag
+    guard on its `document.body` keydown listener no longer matched) — up to the global `onKey`,
+    whose Prompt handling treats Enter as "y". The prompt was answered before the browser ever
+    painted it. Enter now `stopPropagation()`s like Escape already did.
+- **fix(web+core): confirm-prompt buttons, detail-panel edit repairs, dynamic inline-editor width.**
+  Five web-UI repairs, two of which were core bugs (2026-07-08):
+  - **TOML rename under a `[section]` returned "path not found"** (`cst_edit.rs::rename`): the
+    absolute path segment position was used directly as the KEY-token index, but a scoped entry's
+    key spells only its own tail — every rename of a key inside a `[table]` failed (TUI `F2`
+    included). Entry indices are now end-relative and header indices skip `Seg::Index` slots;
+    regression tests cover scoped scalars, scoped dotted leaves/intermediates, and AoT-adjacent
+    sub-headers. The cursor now also *follows* a renamed node instead of snapping to the first row.
+  - **`CommitEdit` is now truly one-shot** (`session.rs::commit_edit`): a retry branch (invalid
+    value, rename failure, …) used to leave a dangling `Mode::Edit` that the desktop web UI rendered
+    as a focused tree inline editor while the detail panel vanished. It now cancels the edit,
+    surfaces the message as `error`, and — when the commit originated from the Detail panel —
+    returns to `Mode::Detail`, so panel edits keep the panel open (type-change prompts resolve back
+    to Detail on both answers via the new `prompt_from_commit_edit` flag; `n` no longer restores
+    `Mode::Edit` for pointer hosts).
+  - **y/n confirm prompts are now buttons** on both web UIs (shared `web/prompt.ts`): the desktop
+    `#overlay` renders per-kind answer buttons (TypeChange/ArrayUpgrade/JsoncUpgrade/ConfirmQuit,
+    plus Overwrite/Rename/Cancel for Collision — previously unreachable by keyboard on web), and
+    the touch UI gains a prompt bottom sheet — before this, `Mode::Prompt` soft-locked the touch UI
+    (no surface, no keyboard), which is why a type-changing value edit "did nothing" on touch.
+    Scrim/× dismissal answers `n` (peel-on-dismiss), never just hides the sheet. The desktop detail
+    panel stays open underneath a prompt.
+  - **Esc now cancels detail-panel inline edits** (key/value/trailing/comment inputs in
+    `web/panel.ts`): restores the original text and swallows the blur-commit; tree inline editors
+    already supported Esc.
+  - **Desktop inline editors size to their content** (`web/render.ts` `editWidthCh` + auto-grow on
+    input in `ui.ts`): value/name/comment inputs open at the text's own `ch` width and grow while
+    typing, still clamped by the existing CSS min/max-width.
+
 ### Added
 - **feat(web): open config from URL via `?url=` deep-link.** Appending `?url=<encoded-url>` to
   the page URL fetches and opens that remote config at boot (priority: Tauri startup file →

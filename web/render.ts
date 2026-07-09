@@ -92,9 +92,18 @@ function valueEditSeed(r: ViewRow, buffer: string): string {
   return buffer;
 }
 
+// Inline-editor width sized to its content, so the editor opens at the text's
+// own length (CSS min/max-width still clamp; ui.ts re-applies the same formula
+// on input so it grows while typing).
+export function editWidthCh(text: string): string {
+  return `${Math.max(6, text.length + 2)}ch`;
+}
+const editWidthStyle = (text: string): string => `width:${editWidthCh(text)}`;
+
 function renderValue(r: ViewRow, edit: EditView | null): string {
   if (edit && r.is_cursor && edit.field === "Value") {
-    return `<input class="cell-input mono" data-editing="value" value="${escapeHtml(valueEditSeed(r, edit.buffer))}" />`;
+    const seed = valueEditSeed(r, edit.buffer);
+    return `<input class="cell-input mono" data-editing="value" style="${editWidthStyle(seed)}" value="${escapeHtml(seed)}" />`;
   }
   // Collapse newlines so a multiline value stays on one row (it would otherwise
   // break the flexbox and push the kind badge off, making it unclickable). The
@@ -148,7 +157,7 @@ function renderRow(
   if (comment) {
     if (edit && r.is_cursor && edit.field === "Value") {
       // Single-line comment → inline editor (multi-line routes to the popup).
-      s += `<input class="cell-input mono comment-input" data-editing="comment" value="${escapeHtml(edit.buffer)}" />`;
+      s += `<input class="cell-input mono comment-input" data-editing="comment" style="${editWidthStyle(edit.buffer)}" value="${escapeHtml(edit.buffer)}" />`;
     } else {
       // Show only the first line in the row; the full multi-line text lives in
       // the detail panel (i). A trailing `…` marks a comment that continues.
@@ -167,7 +176,7 @@ function renderRow(
     if (isPositional(r)) {
       s += `<span class="key elem">${escapeHtml(r.key)}</span>`;
     } else if (edit && r.is_cursor && edit.field === "Name") {
-      s += `<input class="cell-input key-input mono" data-editing="name" value="${escapeHtml(edit.buffer)}" />`;
+      s += `<input class="cell-input key-input mono" data-editing="name" style="${editWidthStyle(edit.buffer)}" value="${escapeHtml(edit.buffer)}" />`;
     } else if (r.key) {
       s += `<span class="key" data-edit="key">${escapeHtml(r.key)}</span>`;
     }

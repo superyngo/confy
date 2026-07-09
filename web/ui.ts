@@ -35,10 +35,11 @@ import {
   setSampleMode,
   type SampleFormat,
 } from "./samples.js";
-import { currentKindLabel, escapeHtml, IC_CARET, renderTree } from "./render.js";
+import { currentKindLabel, editWidthCh, escapeHtml, IC_CARET, renderTree } from "./render.js";
 import { resolveClick, resetAnchor, rowsInRect, setAnchor } from "./select.js";
 import { installDnd } from "./dnd.js";
 import { panelHTML, wirePanel } from "./panel.js";
+import { bindPromptClicks, promptButtonsHTML, promptQuestion } from "./prompt.js";
 import { typeFilterHTML, wireTypeFilter } from "./typefilter.js";
 import {
   type ConvertRefs,
@@ -54,6 +55,7 @@ import type {
   Intent,
   ModeView,
   Path,
+  PromptView,
   SessionSnapshot,
   TypeFilterView,
   ViewRow,
@@ -148,11 +150,14 @@ function openText(
 }
 
 // Switch between the interactive tree and the read-only serialized text. Raw is
-// a *view* of the same document — no editing — so it just re-renders.
-function setView(raw: boolean) {
+// a *view* of the same document — no editing — so it just re-renders. The
+// single toggle button's label is the view tapping/clicking switches TO
+// (mirrors touch/app.ts's `setRawView`); `active` while in Raw.
+function setRawView(raw: boolean) {
   rawView = raw;
-  $("btnViewTree").classList.toggle("active", !raw);
-  $("btnViewRaw").classList.toggle("active", raw);
+  const vt = $("btnViewToggle");
+  vt.textContent = raw ? "Tree" : "Raw";
+  vt.classList.toggle("active", raw);
   render();
 }
 
@@ -227,7 +232,12 @@ function modeTag(m: ModeView): string {
 // when there is no cursor row (e.g. an empty document).
 function renderDetailPanel() {
   const panel = $("detail");
-  if (modeTag(snap!.mode) !== "Detail") {
+  const tag = modeTag(snap!.mode);
+  // A confirmation prompt (e.g. a panel value edit changing the type) floats
+  // above whatever is open — leave the panel exactly as it is; the session
+  // returns to Detail when the prompt resolves.
+  if (tag === "Prompt") return;
+  if (tag !== "Detail") {
     panel.classList.remove("open");
     return;
   }
@@ -236,7 +246,7 @@ function renderDetailPanel() {
   if (!cursorRow) {
     body.innerHTML = `<pre class="mono">${escapeHtml(snap!.detail_text ?? "")}</pre>`;
   } else {
-    body.innerHTML = panelHTML(cursorRow);
+    body.innerHTML = panelHTML(cursorRow, parentIsInline(cursorRow.path));
     wirePanel(body, cursorRow, panelSend, openKindForRow, (msg) => setStatus("", msg), (msg) => {
       setStatus("", msg);
       send("ExitDetail");
@@ -286,8 +296,10 @@ function renderOverlay() {
     const legend = KIND_LEGEND[snap!.doc_format] ?? "";
     overlay.innerHTML = `<h3>Help</h3><pre>${escapeHtml(HELP_TEXT + "\n" + legend)}</pre>`;
   } else if (tag === "Prompt") {
-    overlay.innerHTML = `<h3>${escapeHtml(snap!.status ?? "confirm")}</h3>
-        <div class="opt">y / Enter = yes</div><div class="opt">n / Esc = no</div>`;
+    const kind = (m as { Prompt: { kind: PromptView } }).Prompt.kind;
+    overlay.innerHTML =
+      `<h3>${escapeHtml(promptQuestion(kind, snap!.status ?? snap!.error ?? undefined))}</h3>` +
+      promptButtonsHTML(kind);
   } else if (tag === "KindSwitch") {
     const ks = (m as { KindSwitch: { cursor: number; options: { label: string }[] } })
       .KindSwitch;
@@ -401,6 +413,8 @@ function onKey(ev: KeyboardEvent) {
       return send({ PromptKey: "y" });
     if (ev.key === "n" || ev.key === "N" || ev.key === "Escape")
       return send({ PromptKey: "n" });
+    // Collision offers Overwrite (o) / Rename (r) besides cancel.
+    if (ev.key === "o" || ev.key === "r") return send({ PromptKey: ev.key });
     return;
   }
   if (typeof m === "object" && "Convert" in m) {
@@ -455,6 +469,11 @@ function onKey(ev: KeyboardEvent) {
     ev.preventDefault();
     return void doOpen();
   }
+  // Raw view is read-only serialized text, not the tree — every other key
+  // (arrows/Home/End scrolling, Ctrl+A select-all, Ctrl+C copy, …) is left to
+  // native `<pre>` behavior instead of the tree's single-letter shortcuts
+  // (which would otherwise hijack e.g. Ctrl+A as "a" → AddNode).
+  if (rawView) return;
   // ⇧+↑/↓ extends the multi-select range (cursor and selection move together).
   if (ev.shiftKey && (ev.key === "ArrowUp" || ev.key === "ArrowDown")) {
     ev.preventDefault();
@@ -704,8 +723,10 @@ function onTreeClick(ev: MouseEvent) {
   if (target.closest("[data-editing]")) return;
   const rowEl = target.closest(".row") as HTMLElement | null;
   if (!rowEl) {
-    // Click on empty tree space clears the multi-select (cursor stays put).
+    // Click on empty tree space (including the wrap's blank area below the
+    // last row) clears the multi-select (cursor stays put) and any error banner.
     if (snap.rows.some((r) => r.selected)) send({ SetSelection: { paths: [] } });
+    if (snap.error) setStatus(snap.status, "");
     return;
   }
   const raw = rowEl.dataset.path;
@@ -832,6 +853,10 @@ function focusInlineEdit() {
   input.focus();
   const n = input.value.length;
   input.setSelectionRange(n, n);
+  // Grow with the typed text (render.ts seeded the initial width the same way).
+  input.addEventListener("input", () => {
+    input.style.width = editWidthCh(input.value);
+  });
   let done = false;
   const finish = (commit: boolean) => {
     if (done) return;
@@ -891,6 +916,12 @@ function beginTrailingEdit(rowEl: HTMLElement, path: Path) {
   input.dataset.editing = "trailing";
   input.value = row?.trailing_comment ?? "";
   input.placeholder = `${commentPrefix()} comment`;
+  // Open at the existing comment's own width and grow while typing (same
+  // formula as render.ts's seeded editors; CSS min/max-width clamp).
+  input.style.width = editWidthCh(input.value);
+  input.addEventListener("input", () => {
+    input.style.width = editWidthCh(input.value);
+  });
   const note = rowEl.querySelector('[data-edit="note"]');
   const actions = rowEl.querySelector(".row-actions");
   if (note) note.replaceWith(input);
@@ -1014,6 +1045,19 @@ function openKindMenuAt(path: Path, x: number, y: number) {
 // web-local trailing-comment editor, which isn't a one-shot Intent).
 type CtxAction = Intent | (() => void);
 
+// Whether `path`'s immediate parent is a single-line container (TOML inline
+// table, JSON single-line object/array, YAML flow map/seq — all projected as
+// `Format::Inline` by core). Such containers can't hold comments — core
+// rejects `SetTrailingComment`/`InsertComment` into them — so this gates
+// "Append comment" and the Detail panel's trailing-comment input up front
+// instead of round-tripping to a failed mutation + error banner.
+function parentIsInline(path: Path): boolean {
+  if (!snap || path.length === 0) return false;
+  const parentKey = JSON.stringify(path.slice(0, -1));
+  const parent = snap.rows.find((r) => JSON.stringify(r.path) === parentKey);
+  return parent?.format === "Inline";
+}
+
 function buildCtxMenu(path: Path): HTMLElement {
   const key = JSON.stringify(path);
   const row = snap!.rows.find((r) => JSON.stringify(r.path) === key);
@@ -1021,8 +1065,9 @@ function buildCtxMenu(path: Path): HTMLElement {
   const isComment = row?.type_label === "comment";
   // "Append comment" attaches a *new* trailing comment; once a row has one you
   // edit it by clicking it (so the item is offered only when there is none).
+  // Also unavailable on a member of an inline/flow container (see `parentIsInline`).
   const canAppend =
-    !!row && !isComment && !row.read_only && !row.trailing_comment;
+    !!row && !isComment && !row.read_only && !row.trailing_comment && !parentIsInline(path);
   const appendComment = () => {
     const el = rowElByPath(path);
     if (el) beginTrailingEdit(el, path);
@@ -1070,8 +1115,7 @@ function buildMoreMenu(): HTMLElement {
     ["Toggle theme", toggleTheme],
     ["Expand all (9)", () => send("ExpandAll")],
     ["Collapse all (0)", () => send("CollapseAll")],
-    ["Tree view", () => setView(false)],
-    ["Raw view", () => setView(true)],
+    ["Toggle Tree / Raw view", () => setRawView(!rawView)],
     ["Open from URL…", openUrlModal],
   ];
   const menu = $("moreMenu");
@@ -1138,7 +1182,13 @@ function bindConvertDialog() {
 
 function bindGlobal() {
   tree.addEventListener("keydown", onKey);
-  tree.addEventListener("click", onTreeClick);
+  // Prompt overlay Yes/No/… buttons (renderOverlay rewrites the innerHTML per
+  // render; the delegated listener on the stable #overlay survives).
+  bindPromptClicks(overlay, (i) => send(i));
+  // Bound to the wrap (not `#tree`, which is only as tall as its rows) so a
+  // click on the blank space below the last row also reaches `onTreeClick`'s
+  // "empty area" branch — same wrap `installMarquee`'s mousedown uses.
+  $("treeWrap").addEventListener("click", onTreeClick);
   tree.addEventListener("contextmenu", onTreeContext);
   tree.addEventListener("wheel", onTreeWheel, { passive: false });
   installMarquee();
@@ -1196,8 +1246,7 @@ function bindGlobal() {
     // Toggle: open the popup, or close it keeping the filter applied.
     send(snap && modeTag(snap.mode) === "TypeFilter" ? "CommitTypeFilter" : "EnterTypeFilter"),
   );
-  $("btnViewTree").addEventListener("click", () => setView(false));
-  $("btnViewRaw").addEventListener("click", () => setView(true));
+  $("btnViewToggle").addEventListener("click", () => setRawView(!rawView));
 
   const closeUrlModal = () => {
     $("url-modal").classList.add("hidden");
@@ -1236,6 +1285,9 @@ function installMarquee() {
     additive = false;
   wrap.addEventListener("mousedown", (ev) => {
     if (ev.button !== 0) return;
+    // Raw view is read-only serialized text (`.raw-view` sets user-select:text) —
+    // leave mouse drags entirely to native text selection, not row rubber-banding.
+    if (rawView) return;
     // Don't hijack grips (native drag), buttons, inputs, or open popovers.
     if ((ev.target as HTMLElement).closest("[data-grip],button,input,.pop")) return;
     sx = ev.clientX;

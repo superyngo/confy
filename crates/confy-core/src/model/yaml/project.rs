@@ -885,7 +885,7 @@ fn classify_scalar_token(tok: &SyntaxToken) -> (NodeKind, Format, String) {
 }
 
 /// Core-schema type detection for plain scalars.
-fn classify_plain_scalar(s: &str) -> (NodeKind, Format) {
+pub(crate) fn classify_plain_scalar(s: &str) -> (NodeKind, Format) {
     // Null
     if s == "null" || s == "~" || s == "Null" || s == "NULL" {
         return (NodeKind::Scalar(ScalarType::Null), Format::Plain);
