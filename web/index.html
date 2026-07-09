@@ -105,9 +105,11 @@
         </div>
         <div class="detail-body" id="detailBody"></div>
       </aside>
-      <!-- Fallback overlay for modes not yet redesigned (keyboard-driven). -->
-      <aside id="overlay" class="hidden"></aside>
     </div>
+    <!-- Fallback overlay for modes not yet redesigned (keyboard-driven). Lives
+         outside `.main` (which is `overflow:hidden`) so a tall popup is never
+         clipped by it; `position:fixed` centers it on the viewport instead. -->
+    <aside id="overlay" class="hidden"></aside>
 
     <!-- ===== footer ===== -->
     <footer class="footer">
