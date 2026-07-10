@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.12.3] - 2026-07-10
+
 ### Fixed
 - **fix(ci): CI-built Windows desktop exe showed "localhost refused to connect".** Tauri only
   embeds `frontendDist` when the `custom-protocol` cargo feature is on; `cargo tauri build`
