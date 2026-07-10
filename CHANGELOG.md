@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **feat(ci): release desktop apps — macOS .dmg + Windows portable exe + Store .msix.**
+  `release.yml` gains a `desktop` matrix job: macOS aarch64/x86_64 `.dmg` via `cargo tauri
+  build` (bundle targets narrowed from `"all"` to `["dmg"]`), and Windows x64 as a portable
+  `confy-desktop-windows-x86_64.exe` (frontend embedded at compile time; same AV-friendly
+  profile overrides as the TUI exe) plus an unsigned `.msix` for Microsoft Store submission,
+  packed by the new `crates/confy-tauri/msix/` scaffold (`AppxManifest.xml` with `runFullTrust`
+  + config file-type associations, `pack-msix.ps1` MakeAppx wrapper, `STORE.md` Partner Center
+  guide — identity comes from `MSIX_*` repo variables once registered). A `workflow_dispatch`
+  trigger allows dry runs that build everything without publishing. (2026-07-10)
+
+### Fixed
+- **fix(tauri): macOS save opened the share sheet instead of a native save dialog.**
+  `withGlobalTauri` was never enabled in `tauri.conf.json`, so `window.__TAURI__` was not
+  injected into the webview; `fs.ts`'s `isTauri()` always returned false, and Save fell through
+  to the browser download fallback, whose `navigator.share` path is supported by WKWebView —
+  hence the macOS share sheet. Enabling `withGlobalTauri` restores the intended native
+  save-dialog / in-place-write path. Additionally the `open_dialog`/`save_dialog` commands were
+  sync, so their `blocking_*` dialog calls ran on the main thread and froze the dialog (macOS
+  can't pump the run loop) — they are now `async`, running off the main thread. (2026-07-10)
+
 ## [v0.12.1] - 2026-07-10
 
 ### Fixed

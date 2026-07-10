@@ -42,6 +42,19 @@ Build/run locally: `cd web && npm install && node build.mjs` then `node serve.mj
 (see [WEBUI.md](WEBUI.md)). The hosted site is deployed from `web/` via Cloudflare
 Workers Builds (`web/cf-build.sh` + `wrangler.toml`).
 
+## Desktop app
+
+The same web UI ships as a native desktop app (Tauri shell, `crates/confy-tauri`) with
+native open/save dialogs, in-place writes, and CLI-arg file open. Releases include:
+
+- **macOS**: `confy-desktop-macos-{aarch64,x86_64}.dmg`. Unsigned/un-notarized — on first
+  launch macOS blocks it; right-click → Open (or `xattr -cr /Applications/confy.app`).
+- **Windows**: `confy-desktop-windows-x86_64.exe` — portable, no install (the UI is embedded
+  in the binary; requires the WebView2 runtime, preinstalled on Win11 and near-universal on
+  Win10). Unsigned, so SmartScreen shows an "unknown publisher" warning: More info → Run anyway.
+  A `confy-desktop-windows-x86_64.msix` is also published for Microsoft Store submission
+  (see `crates/confy-tauri/msix/STORE.md`); it is unsigned by design — the Store signs it.
+
 ## Format support
 
 | Format | Status | Notes |

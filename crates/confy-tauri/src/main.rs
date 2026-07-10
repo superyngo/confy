@@ -39,8 +39,12 @@ fn read_opened(path: &Path) -> Result<OpenedFile, String> {
 }
 
 /// Native open dialog → read the chosen file. `None` when the user cancels.
+///
+/// `async` is load-bearing: it moves the command off the main thread, which the
+/// `blocking_*` dialog APIs must not block (on macOS the dialog would appear
+/// frozen — the main run loop can't pump its events).
 #[tauri::command]
-fn open_dialog(app: tauri::AppHandle) -> Option<OpenedFile> {
+async fn open_dialog(app: tauri::AppHandle) -> Option<OpenedFile> {
     let picked = app
         .dialog()
         .file()
@@ -51,8 +55,9 @@ fn open_dialog(app: tauri::AppHandle) -> Option<OpenedFile> {
 }
 
 /// Native save dialog → the chosen destination path. `None` when cancelled.
+/// `async` for the same main-thread reason as [`open_dialog`].
 #[tauri::command]
-fn save_dialog(app: tauri::AppHandle, suggested: String) -> Option<String> {
+async fn save_dialog(app: tauri::AppHandle, suggested: String) -> Option<String> {
     let picked = app
         .dialog()
         .file()
