@@ -29,6 +29,9 @@ jobs:
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
             kind: linux-arm
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            kind: linux-arm-musl
           - target: aarch64-apple-darwin
             os: macos-latest
             kind: macos
@@ -66,12 +69,22 @@ jobs:
         if: matrix.kind == 'linux-arm'
         run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
 
+      # aarch64 musl: Ubuntu has no aarch64-musl gcc package, so build inside
+      # the `cross` Docker image, which ships the full musl cross toolchain.
+      - uses: cargo-bins/cargo-binstall@main
+        if: matrix.kind == 'linux-arm-musl'
+      - name: Build (aarch64 musl via cross)
+        if: matrix.kind == 'linux-arm-musl'
+        run: |
+          cargo binstall -y cross
+          cross build --release --target ${{ matrix.target }} -p confy-tui
+
       # Linux & macOS use the aggressive release profile from Cargo.toml
       # (opt-level "z", fat LTO, strip = true; rustc's `-C strip` works for the
       # cross target too, so no separate cross-strip is needed). The aarch64
       # linker env is ignored by the other (native) targets.
       - name: Build (Linux/macOS)
-        if: matrix.kind != 'windows'
+        if: matrix.kind != 'windows' && matrix.kind != 'linux-arm-musl'
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         run: cargo build --release --target ${{ matrix.target }} -p confy-tui
@@ -124,14 +137,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # No x86_64-apple-darwin desktop build: the Intel runner takes ~33
+          # minutes for the wasm+Tauri release build (vs ~9 for aarch64) and
+          # Apple-silicon Macs run the aarch64 .dmg natively.
           - target: aarch64-apple-darwin
             os: macos-latest
             kind: macos
             arch: aarch64
-          - target: x86_64-apple-darwin
-            os: macos-15-intel
-            kind: macos
-            arch: x86_64
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             kind: windows

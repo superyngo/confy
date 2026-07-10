@@ -290,7 +290,10 @@ crates/confy-tauri/       desktop app shell (Tauri v2) over the web UI — **nat
                  the Rust side owns only real open/save/read/write so the desktop gets native paths,
                  in-place save, and CLI-arg open — no download fallback.
   tauri.conf.json  frontendDist=../../web/dist, beforeBuildCommand=cf-build.sh (via git toplevel),
-                   bundle targets "all", identifier net.turkeyang.confy
+                   bundle targets ["dmg"], identifier net.turkeyang.confy
+  tauri.windows.conf.json  Windows platform override (Tauri v2 auto-merge): empty
+                   before-commands (bash/git rev-parse don't run under the Windows build
+                   shell — build web/dist manually first) + bundle targets ["nsis"]
   capabilities/    default.json — core:default + dialog:default for the main window
   icons/           placeholder brand set (32/128/@2x png + icon.icns/.ico), regen via `cargo tauri icon`
 ```

@@ -36,7 +36,7 @@ import {
   type SampleFormat,
 } from "./samples.js";
 import { currentKindLabel, editWidthCh, escapeHtml, IC_CARET, renderTree } from "./render.js";
-import { helpBody } from "./help-content.js";
+import { helpBodyHTML } from "./help-content.js";
 import { resolveClick, resetAnchor, rowsInRect, setAnchor } from "./select.js";
 import { installDnd } from "./dnd.js";
 import { panelHTML, wirePanel } from "./panel.js";
@@ -298,13 +298,14 @@ function renderOverlay() {
   }
   if (tag === "Help") {
     const activeTab = (m as { Help: { tab: "Help" | "About" } }).Help.tab;
-    const body = helpBody(activeTab, snap!.doc_format);
+    // helpBodyHTML output is pre-escaped HTML (key spans) — insert raw.
+    const body = helpBodyHTML(activeTab, snap!.doc_format);
     overlay.innerHTML =
       `<div class="overlay-head"><div class="help-tabs">` +
       `<button class="opt tab-btn${activeTab === "Help" ? " sel" : ""}" data-tab="Help">Help</button>` +
       `<button class="opt tab-btn${activeTab === "About" ? " sel" : ""}" data-tab="About">About</button>` +
       `</div><button class="overlay-close" title="close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>` +
-      `<pre>${escapeHtml(body)}</pre>`;
+      `<pre>${body}</pre>`;
     overlay.querySelectorAll<HTMLElement>("[data-tab]").forEach((btn) => {
       btn.addEventListener("click", () => {
         if (btn.dataset.tab !== activeTab) send("ToggleHelpTab");

@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **feat(ci): TUI release adds `aarch64-unknown-linux-musl`; drop the Intel-mac desktop build.**
+  The TUI build matrix gains `aarch64-unknown-linux-musl` (fully static ARM Linux binary), built
+  with `cross` since Ubuntu ships no aarch64-musl gcc. The `desktop` matrix drops
+  `x86_64-apple-darwin`: the Intel runner took ~33 minutes for the wasm+Tauri release build vs
+  ~9 for aarch64, and Apple-silicon Macs run the aarch64 `.dmg` natively (the Intel-mac *TUI*
+  binary is still released). (2026-07-10)
+- **feat(tauri): Windows-aware Tauri config via `tauri.windows.conf.json`.**
+  `tauri.conf.json` keeps the cross-platform defaults CI needs (bash `beforeBuildCommand` →
+  `web/cf-build.sh`, bundle target `dmg`); a new platform override `tauri.windows.conf.json`
+  (merged automatically by Tauri v2 on Windows) empties the before-commands (bash +
+  `git rev-parse` don't run under the Windows build shell — build `web/dist` manually first)
+  and bundles `nsis` instead. (2026-07-10)
+
+### Changed
+- **fix(web): About version is now build-stamped, not hand-updated.** `help-content.ts`'s
+  `ABOUT_TEXT` was hardcoded `confy 0.11.2`; it now uses the `__APP_VERSION__` define
+  `build.mjs` already stamps from the root `Cargo.toml` `[workspace.package] version` — the
+  same single source the TUI reads via `env!("CARGO_PKG_VERSION")`. (2026-07-10)
+- **feat(web): Help entries are visually distinct from their descriptions.** The desktop Help
+  overlay and touch help sheet render the key/shortcut column of each help and KIND-legend
+  line in an accent-colored `.help-key` span (section rules dimmed via `.help-sect`) instead
+  of a flat monochrome `<pre>`; column alignment is preserved. `helpBody` → `helpBodyHTML` in
+  `web/help-content.ts`. (2026-07-10)
 - **feat(ci): release desktop apps — macOS .dmg + Windows portable exe + Store .msix.**
   `release.yml` gains a `desktop` matrix job: macOS aarch64/x86_64 `.dmg` via `cargo tauri
   build` (bundle targets narrowed from `"all"` to `["dmg"]`), and Windows x64 as a portable

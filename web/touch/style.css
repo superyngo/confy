@@ -571,6 +571,9 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none
 .help-body {
   white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word;
 }
+/* Help body: key/shortcut column stands out from its description. */
+.help-body .help-key { color: var(--accent); font-weight: 600; }
+.help-body .help-sect { opacity: 0.6; }
 
 /* ---- responsive chrome collapse (mirrors desktop's right→left fold) ----
    The .app is a `container-type:inline-size` container. The toolbar/filter rows

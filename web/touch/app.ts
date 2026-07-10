@@ -58,7 +58,7 @@ import { parentOf, pathEq, siblingIndex } from "../path-utils.js";
 import { panelHTML, wirePanel } from "../panel.js";
 import { bindPromptClicks, promptButtonsHTML, promptQuestion, promptTitle } from "../prompt.js";
 import { typeFilterHTML, wireTypeFilter } from "../typefilter.js";
-import { helpBody } from "../help-content.js";
+import { helpBodyHTML } from "../help-content.js";
 import {
   type ConvertRefs,
   renderConvertDialog as renderConvertDialogShared,
@@ -609,7 +609,8 @@ function renderHelpSheet() {
     return;
   }
   const activeTab = (snap!.mode as { Help: { tab: "Help" | "About" } }).Help.tab;
-  const body = helpBody(activeTab, snap!.doc_format);
+  // helpBodyHTML output is pre-escaped HTML (key spans) — insert raw.
+  const body = helpBodyHTML(activeTab, snap!.doc_format);
   sheets.help.innerHTML =
     '<div class="grab"></div>' +
     `<div class="sheet-head"><h3>Help / About</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
@@ -618,7 +619,7 @@ function renderHelpSheet() {
     `<button class="btn tab-btn${activeTab === "Help" ? " primary" : ""}" data-tab="Help">Help</button>` +
     `<button class="btn tab-btn${activeTab === "About" ? " primary" : ""}" data-tab="About">About</button>` +
     "</div>" +
-    `<pre class="help-body">${esc(body)}</pre>` +
+    `<pre class="help-body">${body}</pre>` +
     "</div>";
   sheets.help.querySelectorAll<HTMLElement>("[data-tab]").forEach((btn) => {
     btn.onclick = () => {
