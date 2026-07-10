@@ -916,6 +916,25 @@ fn dispatch_move_selection_rejects_drop_into_own_subtree() {
 }
 
 #[test]
+fn dispatch_move_selection_failure_does_not_arm_cut_clipboard() {
+    // Regression: a failed drag-move reuses do_paste, whose failure contract
+    // restores the (synthetic, cut:true) clipboard — leaving the UI armed in
+    // paste-cut mode after a bad drop. The drag must not touch the clipboard.
+    let mut s = toml_session("a = 1\nb = 2\n");
+    let snap = s.dispatch(Intent::MoveSelectionTo {
+        sources: vec![vec![Seg::Key("a".into())]],
+        target: vec![Seg::Key("b".into())], // scalar parent → illegal destination
+        index: 0,
+    });
+    assert!(snap.error.is_some(), "move into a scalar must fail");
+    assert!(
+        snap.clipboard_count.is_none(),
+        "failed drag must not arm the clipboard (got cut={})",
+        snap.clipboard_cut
+    );
+}
+
+#[test]
 fn dispatch_move_selection_reorders_within_parent() {
     // Move 'a' to AFTER 'b' (b is sibling index 1, so "after" = original index 2).
     // Core adjusts for the removed earlier sibling → b, a, c.

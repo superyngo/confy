@@ -532,14 +532,23 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
 .row.clip-cut { outline: 1.5px dashed var(--t-date); outline-offset: -3px; border-radius: 6px; opacity: .6; }
 .row.clip-cut .key, .row.clip-cut .val { text-decoration: line-through; text-decoration-thickness: 1px; }
 
-/* Type-filter popup header: title row + a `×` clear button (replaces the old
+/* Type-filter popup header: title row + a `Clear` text button (replaces the old
    Apply/Cancel foot — the filter applies live and persists when the popup closes). */
 .tf-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .tf-clear {
-  width: 22px; height: 22px; border: 0; background: transparent; border-radius: 6px;
-  color: var(--faint); font-size: 13px; line-height: 1; cursor: pointer;
+  height: 22px; padding: 0 8px; border: 0; background: transparent; border-radius: 6px;
+  color: var(--faint); font-size: 12px; font-weight: 600; line-height: 1; cursor: pointer;
 }
 .tf-clear:hover { background: var(--border); color: var(--fg); }
+/* Active type-filter indicator on the toolbar funnel button — same `.on` + dot
+   mechanism as the touch UI, driven by `snapshot.type_filter_active`. */
+#btnTypeFilter { position: relative; }
+#btnTypeFilter .dot {
+  position: absolute; top: 4px; right: 4px; width: 7px; height: 7px;
+  border-radius: 50%; background: var(--accent); display: none;
+}
+#btnTypeFilter.on { border-color: var(--sel-edge); background: var(--accent-soft); }
+#btnTypeFilter.on .dot { display: block; }
 
 /* Filename chip in the brand — always visible (the design's brand text used the
    generic .label-hide, which display:none'd it under 920px; we repurposed it for

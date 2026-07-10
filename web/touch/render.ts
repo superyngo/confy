@@ -7,7 +7,7 @@
 // whole tree from each snapshot.
 import type { SessionSnapshot, ViewRow } from "../types.js";
 import { escapeHtml as esc } from "../escape.js";
-import { valueTypeClass } from "../kind-labels.js";
+import { kindLabelParts, valueTypeClass } from "../kind-labels.js";
 
 // The shared quote-safe escaper, under this module's traditional short name.
 export { esc };
@@ -56,6 +56,13 @@ function containerKind(r: ViewRow): "array" | "table" {
   return /array|seq/i.test(r.type_label) ? "array" : "table";
 }
 
+// The touch kind badge shares the desktop's friendly label + notation note
+// (kind-labels.ts), so both surfaces read `str·"…"` / `table·scope` identically.
+function kindBadgeText(r: ViewRow): string {
+  const { label, note } = kindLabelParts(r);
+  return note ? `${label}·${note}` : label;
+}
+
 function rowHTML(r: ViewRow, idx: number, rows: ViewRow[]): string {
   const branch = r.is_branch;
   const comment = isComment(r);
@@ -82,7 +89,7 @@ function rowHTML(r: ViewRow, idx: number, rows: ViewRow[]): string {
     h += `<span class="key${isPositional(r) ? " elem" : ""}">${esc(r.key)}</span>`;
     if (branch) {
       h += `<span class="count">${r.child_count}</span>`;
-      h += `<span class="kind" data-act="kind">${esc(r.type_label)}</span>`;
+      h += `<span class="kind" data-act="kind">${esc(kindBadgeText(r))}</span>`;
       // Core's `trailing_comment` already carries its marker (`#` / `//`) —
       // render it raw, exactly like the desktop render.ts.
       h += `<span class="comment">${esc(r.trailing_comment ?? "")}</span>`;
@@ -90,7 +97,7 @@ function rowHTML(r: ViewRow, idx: number, rows: ViewRow[]): string {
       h += `<span class="eq">=</span>`;
       h += `<span class="val ${valueTypeClass(r)}">${esc(r.value ?? "")}</span>`;
       h += `<span class="comment">${esc(r.trailing_comment ?? "")}</span>`;
-      if (!r.read_only) h += `<span class="kind" data-act="kind">${esc(r.type_label)}</span>`;
+      if (!r.read_only) h += `<span class="kind" data-act="kind">${esc(kindBadgeText(r))}</span>`;
     }
   }
   // Drag grip (omitted on read-only/opaque rows — they reject moves in core).

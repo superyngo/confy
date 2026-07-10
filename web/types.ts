@@ -147,6 +147,7 @@ export interface SessionSnapshot {
   clipboard_count: number | undefined; // Some(n) when the clipboard holds n fragments
   clipboard_cut: boolean; // true = cut (move); false = copy
   clipboard_paths: Path[]; // source node paths captured in the clipboard
+  type_filter_active: boolean; // a committed type filter is narrowing the rows
   quit: boolean;
 }
 

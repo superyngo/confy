@@ -343,7 +343,8 @@ edits to the verbatim desktop CSS.
   breakpoints. Open/Save stay visible (never in the menu).
 - **Type filter & Save/Convert use the shared modules** (`web/typefilter.ts` / `web/convert-dialog.ts`),
   the same code + markup desktop uses: the type-filter grid renders into the filter sheet via
-  `typeFilterHTML`+`wireTypeFilter` (no "Done" button — the grid toggles live + has a ✕ clear, and
+  `typeFilterHTML`+`wireTypeFilter` (no "Done" button — the grid toggles live + has a `Clear`
+  button, and
   the sheet closes via grab/scrim/header-×); Save/Convert renders the shared form into a
   **bottom `.sheet`** (not a `<dialog>`) via a sheet-backed `ConvertSurface`. Both are driven by
   `snapshot.mode` (`TypeFilterView` / `ConvertView`); the `convert_write` snapshot field is written

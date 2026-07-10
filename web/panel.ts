@@ -118,7 +118,10 @@ export function panelHTML(row: ViewRow, parentInline = false): string {
     const disabledAttr = parentInline
       ? ` disabled title="an inline container's members can't hold comments"`
       : "";
-    h += `<input class="c-edit" data-field="trailing" value="${esc(r.trailing_comment ?? "")}" placeholder="add a comment…" autocomplete="off" spellcheck="false"${disabledAttr} />`;
+    // The placeholder states the reason when disabled — touch has no hover
+    // tooltip, so the title attribute alone wouldn't surface it.
+    const ph = parentInline ? "inline members can't hold comments" : "add a comment…";
+    h += `<input class="c-edit" data-field="trailing" value="${esc(r.trailing_comment ?? "")}" placeholder="${ph}" autocomplete="off" spellcheck="false"${disabledAttr} />`;
   }
 
   // Kind switch — label is `type_label · «notation glyph»` (the glyph is dropped

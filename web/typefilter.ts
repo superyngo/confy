@@ -15,14 +15,14 @@ function isHeader(row: TypeFilterRow): row is { Header: string } {
 }
 
 // Inner HTML for the type-filter popover: a `.tf-head` with the live-active hint
-// and a `×` clear button (no Apply/Cancel — toggles filter live and persists
+// and a `Clear` button (no Apply/Cancel — toggles filter live and persists
 // when the popup closes), `.menu-label` group headers, and `.tf-grid` rows of
 // `.tf-cell` buttons carrying `data-state`/`data-r`/`data-c`.
 export function typeFilterHTML(grid: TypeFilterView): string {
   let cellRow = -1;
   let html =
     `<div class="tf-head"><span class="menu-label">Type filter${grid.active ? " <span class='tf-active'>· active</span>" : ""}</span>` +
-    `<button class="tf-clear" data-tf="clear" title="clear type filter">✕</button></div>`;
+    `<button class="tf-clear" data-tf="clear" title="clear type filter">Clear</button></div>`;
   for (const row of grid.rows) {
     if (isHeader(row)) {
       html += `<div class="menu-label">${escapeHtml(row.Header)}</div>`;
@@ -56,7 +56,7 @@ export function wireTypeFilter(
       send("TypeFilterToggle");
     };
   });
-  // × clears the filter *and* closes the popup; clicking outside closes it
+  // Clear resets the filter *and* closes the popup; clicking outside closes it
   // keeping the filter (wired by the host).
   const clear = container.querySelector('[data-tf="clear"]') as HTMLElement | null;
   if (clear) clear.onclick = () => send("ExitTypeFilter");

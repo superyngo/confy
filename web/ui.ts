@@ -191,6 +191,9 @@ function render() {
   titleEl.title = fileName ?? ""; // full name on hover when the chip truncates
   setStatus(snap.status, snap.error ?? "");
 
+  // Active type-filter indicator on the funnel button (same `.on` + dot
+  // mechanism as the touch UI, driven by the shared snapshot flag).
+  $("btnTypeFilter").classList.toggle("on", snap.type_filter_active);
   renderRawOrTree();
   focusInlineEdit();
   renderDetailPanel();
@@ -1412,25 +1415,5 @@ function setStatus(status: string | undefined, error: string | undefined) {
   errorEl.textContent = err;
   errorEl.classList.toggle("hidden", err === "");
 }
-
-// ---- touch scaffolding stubs (capability-gated, INERT this phase) ----
-// Groundwork for a future touch-first interaction layer: swipe gestures,
-// a bottom-sheet overlay, and a FAB for primary actions. All stubs early-return
-// so no live UI or behavior change occurs for any current user. Wired only on
-// pointer:coarse devices (phones/tablets) to keep the mouse path untouched.
-function initTouchScaffolding() {
-  if (!window.matchMedia("(pointer:coarse)").matches) return;
-  // DISABLED this phase — stubs register no listeners and perform no DOM changes.
-  // Future phases will wire swipe → bottom-sheet open, FAB → AddNode, etc.
-  _touchSwipeStub();
-  _touchSheetStub();
-  _touchFabStub();
-}
-// swipe-action handler stub (future: left-swipe → delete, right-swipe → copy)
-function _touchSwipeStub() { return; }
-// bottom-sheet stub (future: slides up to surface context actions on touch)
-function _touchSheetStub() { return; }
-// FAB stub (future: floating button for AddNode as primary touch action)
-function _touchFabStub() { return; }
 
 main().catch((e) => setStatus("", String(e)));

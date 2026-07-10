@@ -13,6 +13,10 @@ Cargo.lock
 # editor/agent scratch backups
 *.bak
 
+# Local Claude Code config
+.claude/settings.local.json
+.claude/launch.json
+
 # WASM / Web UI build artifacts
 crates/confy-ffi/pkg/
 web/pkg/

@@ -186,6 +186,11 @@ pub struct SessionSnapshot {
     /// The source node paths captured in the clipboard, so the UI can mark those
     /// rows (distinct from the selection box).
     pub clipboard_paths: Vec<Path>,
+    /// True while a committed type filter is narrowing the rows, whatever the
+    /// current mode — lets the UI keep its filter-button state accurate after
+    /// the popup closes (the `TypeFilterView.active` flag only exists while
+    /// `Mode::TypeFilter` is open).
+    pub type_filter_active: bool,
     /// The user confirmed quit — the host should exit.
     pub quit: bool,
 }

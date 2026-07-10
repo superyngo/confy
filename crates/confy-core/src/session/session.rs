@@ -2170,7 +2170,16 @@ impl Session {
             parent: target,
             index,
         };
+        // `do_paste`'s failure contract restores its clipboard — but this one was
+        // synthesized for the drag (cut:true), so a failed drop would leave the UI
+        // armed in paste-cut mode. Restore whatever the user had armed instead,
+        // unless a prompt (collision / array-upgrade) is pending and still needs
+        // the drag fragments to complete.
+        let prev = self.clipboard.take();
         self.do_paste(cb, tgt, OnCollision::Cancel, false);
+        if matches!(self.mode, Mode::Normal) {
+            self.clipboard = prev;
+        }
     }
 
     pub fn do_paste(

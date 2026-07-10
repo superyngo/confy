@@ -1141,6 +1141,17 @@ fn find_value_container(
     }
 }
 
+/// True when the container holds a real `//` or `/* */` comment token —
+/// distinct from a string *value* that merely contains those characters.
+fn container_has_comment(container: &SyntaxNode) -> bool {
+    container.descendants_with_tokens().any(|el| {
+        matches!(
+            el.kind(),
+            SyntaxKind::LINE_COMMENT | SyntaxKind::BLOCK_COMMENT
+        )
+    })
+}
+
 fn convert_array(tree: &SyntaxNode, path: &[Seg], target: KindTarget) -> Result<(), MutateError> {
     let container = find_value_container(tree, path, SyntaxKind::ARRAY)
         .map_err(|_| MutateError::Unsupported)?;
@@ -1158,8 +1169,9 @@ fn convert_array(tree: &SyntaxNode, path: &[Seg], target: KindTarget) -> Result<
         _ => {}
     }
 
-    // For collapse to inline: reject if container source contains // or /*
-    if target == KindTarget::ArrayInline && (src.contains("//") || src.contains("/*")) {
+    // For collapse to inline: reject real comment tokens (a text scan would
+    // false-positive on a string value containing "//" or "/*").
+    if target == KindTarget::ArrayInline && container_has_comment(&container) {
         return Err(MutateError::Illegal(
             "cannot collapse array with comments to inline".into(),
         ));
@@ -1205,8 +1217,9 @@ fn convert_object(tree: &SyntaxNode, path: &[Seg], target: KindTarget) -> Result
         _ => {}
     }
 
-    // For collapse to inline: reject if container source contains // or /*
-    if target == KindTarget::TableInline && (src.contains("//") || src.contains("/*")) {
+    // For collapse to inline: reject real comment tokens (a text scan would
+    // false-positive on a string value containing "//" or "/*").
+    if target == KindTarget::TableInline && container_has_comment(&container) {
         return Err(MutateError::Illegal(
             "cannot collapse object with comments to inline".into(),
         ));
@@ -2055,6 +2068,23 @@ mod tests {
             },
         );
         assert!(matches!(r, Err(MutateError::Illegal(_))));
+    }
+
+    #[test]
+    fn inline_collapse_allows_string_value_containing_comment_chars() {
+        // Regression: the comment guard text-scanned the source, so a string
+        // VALUE containing "//" or "/*" wrongly blocked the collapse.
+        let out = apply_str(
+            "{\n  \"o\": {\n    \"a\": \"// not a comment\",\n    \"b\": \"/* nor this */\"\n  }\n}\n",
+            Mutation::ConvertKind {
+                path: vec![Seg::Key("o".into())],
+                target: KindTarget::TableInline,
+            },
+        );
+        assert_eq!(
+            out,
+            "{\n  \"o\": {\"a\": \"// not a comment\", \"b\": \"/* nor this */\"}\n}\n"
+        );
     }
 
     #[test]

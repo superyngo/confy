@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **fix(core+web): kind-switch and touch swipe polish.** JSON: the collapse-to-inline comment
+  guard text-scanned the container source, so a string *value* containing `//` or `/*` wrongly
+  blocked converting an object/array to inline — it now checks for real comment tokens
+  (regression test added; TOML/YAML already token-checked). Touch: committing a kind switch now
+  toasts the core error (e.g. "an inline table can't keep comments") instead of an unconditional
+  "Kind changed"; the detail panel's disabled trailing-comment input states the reason in its
+  placeholder ("inline members can't hold comments") instead of "add a comment…" (touch has no
+  hover tooltip); and the red swipe-to-delete button is now `visibility:hidden` at rest and only
+  revealed during/after a swipe (`.row.swiping`), eliminating the red slivers that scroll
+  repaints flashed at the rows' rounded corners. (2026-07-10)
+- **fix(core+web): drag/swipe/type-filter polish across desktop and touch.** Touch: pressing a
+  row no longer bleeds the red swipe-to-delete button through the press-tint (the `:active`
+  background was translucent; delete now only appears on an actual left-swipe), and a failed
+  drag-reorder no longer arms the clipboard in paste-**cut** mode (core `move_selection_to` now
+  restores the pre-drag clipboard when `do_paste`'s failure contract would have kept the
+  synthetic cut fragments; regression test added). Type filter: the popup's `✕` is now a clearer
+  `Clear` text button on both surfaces (shared `typefilter.ts`), and a new
+  `SessionSnapshot.type_filter_active` flag drives the toolbar funnel button's active state on
+  both UIs — fixing the touch button staying lit after Clear (its old sticky proxy only updated
+  while the popup was open) and giving desktop the same `.on` + dot indicator as touch.
+  (2026-07-10)
+
+### Changed
+- **chore(web): deduplicate desktop/touch orchestrators into the shared modules.** A web-UI
+  consistency audit found `web/touch/app.ts` re-implementing flows the shared modules already
+  own; it now imports them instead: the host I/O flows (`host-io.ts` — save-copy, convert-write,
+  Save/Convert panel open, open-from-URL, format sniffing, theme) via a touch `HostIo` adapter
+  (toast/status feedback, close-sheets-before-convert, FxiOS download hint), the built-in welcome
+  sample + sample-mode state (`samples.ts`), and `parentOf`/`siblingIndex` (`path-utils.ts`) —
+  ~270 duplicated lines deleted, and touch gains the same batched-dispatch (`batch`) single-render
+  behavior as desktop. The kind-badge label (friendly `KIND_SHORT` name + notation glyph, e.g.
+  `str·"…"`) moved into a shared `kindLabelParts` in `kind-labels.ts`, so the touch tree's kind
+  badge now shows the same label + notation suffix as desktop instead of the raw `type_label`.
+  Also removed `ui.ts`'s never-called inert touch-scaffolding stubs (superseded by the real
+  `web/touch/` UI). As a side effect of adopting the shared `doConvertWrite`, touch's convert
+  Save-As picker now receives the *target* format (desktop behavior) rather than the source
+  format. (2026-07-10)
+
 ## [v0.12.0] - 2026-07-09
 
 ### Added

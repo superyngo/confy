@@ -280,6 +280,7 @@ impl super::Session {
                 .as_ref()
                 .map(|c| c.sources.clone())
                 .unwrap_or_default(),
+            type_filter_active: self.type_filter.is_active(),
             quit: false,
         }
     }

@@ -10,7 +10,7 @@
 // phases (kind popover, context menu, drag-reparent).
 import type { EditView, SessionSnapshot, ViewRow } from "./types.js";
 import { escapeHtml } from "./escape.js";
-import { CONTAINER_NOTE, notationGlyph, valueTypeClass } from "./kind-labels.js";
+import { kindLabelParts, valueTypeClass } from "./kind-labels.js";
 
 // Re-export so existing importers (ui.ts / typefilter.ts / convert-dialog.ts)
 // keep their entry point; the single quote-safe escaper lives in escape.ts.
@@ -36,37 +36,13 @@ const IC_ADD =
 const IC_MORE =
   `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>`;
 
-// Friendly short label for the kind badge (design's KIND_SHORT, keyed by the
-// core `type_label`).
-const KIND_SHORT: Record<string, string> = {
-  table: "table",
-  inline: "inline",
-  array: "array",
-  "array-of-tables": "AoT",
-  string: "str",
-  integer: "int",
-  float: "float",
-  bool: "bool",
-  null: "null",
-  offsetdatetime: "date",
-  localdatetime: "date",
-  localdate: "date",
-  localtime: "time",
-};
-
-// NOTATION_SHORT / CONTAINER_NOTE / notationGlyph / valueTypeClass live in the
-// shared kind-labels.ts (also used by panel.ts and touch/render.ts).
-
-function notationSuffix(r: ViewRow): string {
-  const s = notationGlyph(r);
-  return s ? `<span class="kind-note">·${escapeHtml(s)}</span>` : "";
-}
+// KIND_SHORT / NOTATION_SHORT / CONTAINER_NOTE / kindLabelParts / valueTypeClass
+// live in the shared kind-labels.ts (also used by panel.ts and touch/render.ts).
 
 // Plain-text "label · notation" for the kind popup's disabled "Current:" header
 // (design's `目前：…` row). Suppresses a notation that just repeats the label.
 export function currentKindLabel(r: ViewRow): string {
-  const label = KIND_SHORT[r.type_label] ?? r.type_label;
-  const note = CONTAINER_NOTE[r.format] === label ? "" : notationGlyph(r);
+  const { label, note } = kindLabelParts(r);
   return note ? `${label} · ${note}` : label;
 }
 
@@ -120,10 +96,8 @@ function isCommentRow(r: ViewRow): boolean {
 
 // The per-row kind badge: friendly kind label + notation suffix + chevron.
 function renderKindBadge(r: ViewRow): string {
-  const label = KIND_SHORT[r.type_label] ?? r.type_label;
-  // Suppress a suffix that just repeats the label (an inline table's label is
-  // already "inline", so "inline·inline" is noise).
-  const suffix = CONTAINER_NOTE[r.format] === label ? "" : notationSuffix(r);
+  const { label, note } = kindLabelParts(r);
+  const suffix = note ? `<span class="kind-note">·${escapeHtml(note)}</span>` : "";
   return `<button class="kind" data-kind="1">${escapeHtml(label)}${suffix} ${IC_CHEV}</button>`;
 }
 

@@ -50,6 +50,34 @@ export function notationGlyph(r: ViewRow): string {
   return "";
 }
 
+// Friendly short label for the kind badge (design's KIND_SHORT, keyed by the
+// core `type_label`).
+const KIND_SHORT: Record<string, string> = {
+  table: "table",
+  inline: "inline",
+  array: "array",
+  "array-of-tables": "AoT",
+  string: "str",
+  integer: "int",
+  float: "float",
+  bool: "bool",
+  null: "null",
+  offsetdatetime: "date",
+  localdatetime: "date",
+  localdate: "date",
+  localtime: "time",
+};
+
+// The kind badge's two plain-text pieces: friendly label + notation note (note
+// is "" when it would just repeat the label — an inline table's label is
+// already "inline", so "inline·inline" is noise). One source for the desktop
+// badge, the kind popup's "Current:" header and the touch badge.
+export function kindLabelParts(r: ViewRow): { label: string; note: string } {
+  const label = KIND_SHORT[r.type_label] ?? r.type_label;
+  const note = CONTAINER_NOTE[r.format] === label ? "" : notationGlyph(r);
+  return { label, note };
+}
+
 // Value-type hue token (design `--t-*` without the prefix); "" when unknown.
 export function valueHue(r: ViewRow): string {
   switch (r.scalar_type) {
