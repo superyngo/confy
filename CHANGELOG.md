@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.12.1] - 2026-07-10
+
 ### Fixed
 - **fix(core+web): kind-switch and touch swipe polish.** JSON: the collapse-to-inline comment
   guard text-scanned the container source, so a string *value* containing `//` or `/*` wrongly
