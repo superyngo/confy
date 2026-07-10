@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.12.2] - 2026-07-10
+
 ### Added
 - **feat(ci): TUI release adds `aarch64-unknown-linux-musl`; drop the Intel-mac desktop build.**
   The TUI build matrix gains `aarch64-unknown-linux-musl` (fully static ARM Linux binary), built
