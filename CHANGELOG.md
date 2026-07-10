@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.13.0] - 2026-07-10
+
+### Changed
+- **chore(ci): register Microsoft Store submission identity for the desktop `.msix`.**
+  Partner Center app-name reservation for "confy" was taken; registered the Store listing
+  under a distinct reserved name instead while keeping the on-disk `AppxManifest.xml`
+  `DisplayName` as `confy` (Store package identity is independent of the CLI/repo/domain
+  name — see `crates/confy-tauri/msix/STORE.md`). Set the `MSIX_IDENTITY_NAME`,
+  `MSIX_PUBLISHER`, and `MSIX_PUBLISHER_DISPLAY` GitHub repo variables so the release
+  workflow bakes the real Store identity into the `.msix` instead of the placeholder GUID.
+  (2026-07-10)
+
 ## [v0.12.3] - 2026-07-10
 
 ### Fixed

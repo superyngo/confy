@@ -3,7 +3,7 @@ members = ["crates/confy-core", "crates/confy-ffi", "crates/confy-tui", "crates/
 resolver = "2"
 
 [workspace.package]
-version = "0.12.3"
+version = "0.13.0"
 edition = "2021"
 authors = ["wen"]
 license = "MIT"
