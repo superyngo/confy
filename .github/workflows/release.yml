@@ -59,6 +59,16 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      # Cache ~/.cargo + ./target per matrix target (dep rlibs are reused; the
+      # final fat-LTO link of confy itself can't be cached). GitHub scopes
+      # caches to the creating ref + the default branch, and this workflow only
+      # runs on tags/dispatch — so warm the cache with a workflow_dispatch dry
+      # run on main; caches created on one tag are invisible to the next.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+          cache-on-failure: true
+
       # x86_64 musl builds natively on the GNU runner with musl-tools (no `cross`).
       - name: Install musl tools
         if: matrix.kind == 'linux-musl'
@@ -156,6 +166,13 @@ jobs:
         with:
           targets: ${{ matrix.target }},wasm32-unknown-unknown
 
+      # Same caching as the TUI job; covers both the native Tauri deps and the
+      # wasm32 confy-ffi build (workspace members share the root ./target).
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: desktop-${{ matrix.target }}
+          cache-on-failure: true
+
       # Prebuilt binaries in seconds (cargo install would take ~10 min).
       - uses: cargo-bins/cargo-binstall@main
 
@@ -195,8 +212,11 @@ jobs:
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
           CARGO_PROFILE_RELEASE_PANIC: "unwind"
           RUSTFLAGS: "-C target-feature=+crt-static"
+        # --features custom-protocol embeds web/dist (tauri-cli would enable it
+        # automatically; plain cargo build does not — without it the exe loads
+        # devUrl and shows "localhost refused to connect").
         run: |
-          cargo build --release --target ${{ matrix.target }} -p confy-tauri
+          cargo build --release --target ${{ matrix.target }} -p confy-tauri --features custom-protocol
           cp "target/${{ matrix.target }}/release/confy-desktop.exe" "confy-desktop-windows-${{ matrix.arch }}.exe"
 
       # Unsigned .msix for Store submission; identity comes from repo variables
@@ -250,6 +270,21 @@ jobs:
 
       - name: Annotated tag message → release preamble
         run: git tag -l --format='%(contents)' "${GITHUB_REF_NAME}" > TAG_BODY.md
+
+      # The .dmg is ad-hoc signed, not notarized (no Apple Developer ID), so a
+      # downloaded copy is quarantined and Gatekeeper reports it as "damaged".
+      - name: Append macOS Gatekeeper note
+        run: |
+          cat >> TAG_BODY.md <<'EOF'
+
+          ### macOS note
+          The `.dmg` is not notarized, so macOS reports the app as "damaged".
+          After copying `confy.app` to Applications, clear the quarantine flag:
+
+          ```
+          xattr -cr /Applications/confy.app
+          ```
+          EOF
 
       - uses: softprops/action-gh-release@v2
         with:

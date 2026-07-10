@@ -11,6 +11,14 @@ description = "confy desktop app (Tauri shell over the web UI; native file I/O)"
 name = "confy-desktop"
 path = "src/main.rs"
 
+[features]
+# Embeds web/dist into the binary (tauri-cli enables this automatically on
+# `cargo tauri build`). A plain `cargo build --release` MUST pass
+# `--features custom-protocol`, or the release exe tries to load devUrl
+# (http://localhost:8080) and shows "connection refused". Not a default
+# feature so `cargo tauri dev` keeps using the dev server.
+custom-protocol = ["tauri/custom-protocol"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

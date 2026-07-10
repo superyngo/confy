@@ -302,7 +302,9 @@ crates/confy-tauri/       desktop app shell (Tauri v2) over the web UI — **nat
 Rust commands instead of the browser File System Access API. The path string is the durable "handle",
 wrapped in an object that **conforms to the existing `FsHandle` shape** (getFile/createWritable →
 `invoke`), so `ui.ts` (writeFile/readHandle/deriveName/convert) is unchanged. `tauriStartupFile()`
-opens a CLI-arg file at boot. Build a desktop bundle with `cargo tauri build` from `crates/confy-tauri`
+opens a CLI-arg file at boot. A plain `cargo build -p confy-tauri --release` must add `--features custom-protocol` (embeds
+`web/dist`; without it the exe loads devUrl → "localhost refused"); `cargo tauri build` enables
+it automatically. Build a desktop bundle with `cargo tauri build` from `crates/confy-tauri`
 (the workspace `[profile.release]` is aggressive — `lto`+`codegen-units=1`+`opt-level z` — so the
 release bundle is slow; `--debug` is fast for local checks). macOS produces `.app`/`.dmg`; **Windows
 must be built on a Windows host** (the webview is WebView2; no cross-build). Linux is not targeted yet.

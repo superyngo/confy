@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **fix(ci): CI-built Windows desktop exe showed "localhost refused to connect".** Tauri only
+  embeds `frontendDist` when the `custom-protocol` cargo feature is on; `cargo tauri build`
+  enables it automatically (why local builds worked) but the CI job's plain `cargo build`
+  did not, so the release exe tried to load `devUrl` (`http://localhost:8080`). The feature
+  is now declared in `confy-tauri/Cargo.toml` (non-default, so `cargo tauri dev` keeps the
+  dev server) and passed explicitly in the release workflow. (2026-07-10)
+- **docs(ci): macOS "confy is damaged" is Gatekeeper, not a broken build.** The `.dmg` is
+  ad-hoc signed and not notarized (no Apple Developer ID), so downloaded (quarantined) copies
+  are rejected as "damaged"; local builds run because they carry no quarantine attribute. The
+  release workflow now appends an `xattr -cr /Applications/confy.app` workaround note to every
+  release body. Proper fix (codesign + notarization) needs a paid Apple Developer account.
+  (2026-07-10)
+
+### Added
+- **feat(ci): Rust build caching in the release workflow.** Both the TUI and desktop matrix
+  jobs now use `Swatinem/rust-cache@v2` (per-target keys) to cache `~/.cargo` and the
+  workspace `./target`, so dependency rlibs — the Tauri chain and the wasm32 confy-ffi deps
+  in particular — are reused instead of rebuilt every run. Note: GitHub scopes caches to the
+  creating ref + the default branch, and this workflow only runs on tags/dispatch, so warm
+  the cache with a `workflow_dispatch` dry run on `main` first; the final fat-LTO link of
+  confy itself is inherently uncacheable. (2026-07-10)
+
 ## [v0.12.2] - 2026-07-10
 
 ### Added
