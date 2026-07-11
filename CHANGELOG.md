@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **feat(desktop): enable page-zoom hotkeys in the Tauri window.** `zoomHotkeysEnabled: true`
+  in `tauri.conf.json` — Ctrl/Cmd `+`/`-` and Ctrl+mouse-wheel zoom now work in the desktop
+  app (native WebView2 zoom control on Windows; Tauri's 20%-step polyfill on macOS/Linux).
+  (2026-07-11)
+
 ## [v0.13.0] - 2026-07-10
 
 ### Changed
