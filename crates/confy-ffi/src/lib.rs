@@ -80,6 +80,13 @@ impl ConfySession {
         format_name(self.session.doc_format())
     }
 
+    /// About-tab body text for the session's current language — the single
+    /// source of truth (`confy_core::session::state::about_text`), so the web
+    /// host never hand-mirrors it.
+    pub fn about_text(&self) -> String {
+        confy_core::session::state::about_text(self.session.lang).to_string()
+    }
+
     /// Per-node convertible kinds for the `K` popup.
     pub fn kind_options(&self, path: JsValue) -> Result<JsValue, JsValue> {
         let path: Path = from_value(path).map_err(js_serde_error)?;

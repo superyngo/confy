@@ -11,6 +11,7 @@
 import type { EditView, SessionSnapshot, ViewRow } from "./types.js";
 import { escapeHtml } from "./escape.js";
 import { kindLabelParts, valueTypeClass } from "./kind-labels.js";
+import { t } from "./i18n.js";
 
 // Re-export so existing importers (ui.ts / typefilter.ts / convert-dialog.ts)
 // keep their entry point; the single quote-safe escaper lives in escape.ts.
@@ -155,7 +156,7 @@ function renderRow(
       s += `<span class="key" data-edit="key">${escapeHtml(r.key)}</span>`;
     }
     if (r.is_branch) {
-      s += `<span class="count">${r.child_count} ${r.child_count === 1 ? "item" : "items"}</span>`;
+      s += `<span class="count">${r.child_count} ${r.child_count === 1 ? t("web.render.item.one") : t("web.render.item.many")}</span>`;
     } else {
       const vcls = valueTypeClass(r);
       s += `<span class="eq">=</span>`;
@@ -171,8 +172,8 @@ function renderRow(
 
   // Hover action buttons (＋ add on branches, ⋮ more) — wired in later phases.
   s += `<span class="row-actions">`;
-  if (r.is_branch) s += `<button title="Add child" data-act="add">${IC_ADD}</button>`;
-  s += `<button title="More actions" data-act="menu">${IC_MORE}</button>`;
+  if (r.is_branch) s += `<button title="${t("web.render.addChild.title")}" data-act="add">${IC_ADD}</button>`;
+  s += `<button title="${t("web.render.moreActions.title")}" data-act="menu">${IC_MORE}</button>`;
   s += `</span>`;
 
   s += `</div>`;

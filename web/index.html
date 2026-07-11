@@ -19,7 +19,7 @@
       name="viewport"
       content="width=device-width, initial-scale=1, viewport-fit=cover"
     />
-    <title>confy — config tree editor</title>
+    <title data-i18n="web.app.title">confy — config tree editor</title>
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
@@ -28,32 +28,35 @@
       <div class="brand">
         <span class="logo">cy</span><span class="doc-name" id="title">confy</span>
       </div>
-      <button class="fmt-pill" id="fmtPill" title="document format">TOML</button>
-      <span class="dirty-dot" title="unsaved changes"></span>
+      <button class="fmt-pill" id="fmtPill" data-i18n-title="web.toolbar.fmtPill.title" title="document format">TOML</button>
+      <span class="dirty-dot" data-i18n-title="web.toolbar.dirtyDot.title" title="unsaved changes"></span>
       <span class="spacer"></span>
-      <button class="tbtn" id="btnOpen" title="Open file (Ctrl-o)">
+      <button class="tbtn" id="btnOpen" data-i18n-title="web.toolbar.open.title" title="Open file (Ctrl-o)">
         <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v10H3z"/></svg>
-        <span class="label-hide">Open</span>
+        <span class="label-hide" data-i18n="web.toolbar.open.label">Open</span>
       </button>
-      <button class="tbtn primary" id="btnSave" title="Save (Ctrl-s)">
+      <button class="tbtn primary" id="btnSave" data-i18n-title="web.toolbar.save.title" title="Save (Ctrl-s)">
         <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v6h7"/></svg>
-        <span class="label-hide">Save</span>
+        <span class="label-hide" data-i18n="web.toolbar.save.label">Save</span>
       </button>
       <div class="tgroup" id="editGroup">
-        <button class="icon-btn" id="btnUndo" title="Undo (z)">
+        <button class="icon-btn" id="btnUndo" data-i18n-title="web.toolbar.undo.title" title="Undo (z)">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 7L4 12l5 5"/><path d="M4 12h11a5 5 0 0 1 0 10h-3"/></svg>
         </button>
-        <button class="icon-btn" id="btnRedo" title="Redo (y)">
+        <button class="icon-btn" id="btnRedo" data-i18n-title="web.toolbar.redo.title" title="Redo (y)">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 7l5 5-5 5"/><path d="M20 12H9a5 5 0 0 0 0 10h3"/></svg>
         </button>
-        <button class="icon-btn" id="btnTheme" title="Toggle theme">
+        <button class="icon-btn" id="btnTheme" data-i18n-title="web.toolbar.theme.title" title="Toggle theme">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg>
         </button>
-        <button class="icon-btn" id="btnInfo" title="Help / About (?)">
+        <button class="icon-btn" id="btnLang" data-i18n-title="web.toolbar.lang.title" title="Language">
+          <span id="langLabel">EN</span>
+        </button>
+        <button class="icon-btn" id="btnInfo" data-i18n-title="web.toolbar.info.title" title="Help / About (?)">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.5h.01"/></svg>
         </button>
       </div>
-      <button class="tbtn more-btn" id="btnMore" title="More actions">
+      <button class="tbtn more-btn" id="btnMore" data-i18n-title="web.toolbar.more.title" title="More actions">
         <svg class="ic" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>
       </button>
     </header>
@@ -65,30 +68,31 @@
         <input
           id="search"
           type="search"
+          data-i18n-placeholder="web.search.placeholder"
           placeholder="search keys or values…  ( / to focus )"
           autocomplete="off"
           spellcheck="false"
           disabled
         />
-        <button class="clear" id="searchClear" title="clear">
+        <button class="clear" id="searchClear" data-i18n-title="web.search.clear.title" title="clear">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6 6 18"/></svg>
         </button>
       </div>
-      <button class="tbtn" id="btnTypeFilter" title="Type filter (f)">
+      <button class="tbtn" id="btnTypeFilter" data-i18n-title="web.toolbar.typefilter.title" title="Type filter (f)">
         <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></svg>
-        <span class="label-hide">Type filter</span>
+        <span class="label-hide" data-i18n="web.toolbar.typefilter.label">Type filter</span>
         <span class="dot"></span>
       </button>
       <div class="tgroup" id="navGroup">
-        <button class="icon-btn" id="btnExpandAll" title="Expand all (9)">
+        <button class="icon-btn" id="btnExpandAll" data-i18n-title="web.toolbar.expandAll.title" title="Expand all (9)">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 10l5 5 5-5"/><path d="M7 4l5 5 5-5"/></svg>
         </button>
-        <button class="icon-btn" id="btnCollapseAll" title="Collapse all (0)">
+        <button class="icon-btn" id="btnCollapseAll" data-i18n-title="web.toolbar.collapseAll.title" title="Collapse all (0)">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 14l5-5 5 5"/><path d="M7 20l5-5 5 5"/></svg>
         </button>
       </div>
       <div class="tgroup" id="viewTabs">
-        <button class="tbtn viewtab" id="btnViewToggle" title="Toggle Tree / Raw view">Raw</button>
+        <button class="tbtn viewtab" id="btnViewToggle" data-i18n-title="web.toolbar.viewToggle.title" title="Toggle Tree / Raw view">Raw</button>
       </div>
     </div>
 
@@ -102,8 +106,8 @@
       </div>
       <aside class="detail" id="detail">
         <div class="detail-head">
-          <h3 id="detailTitle">Node detail</h3>
-          <button class="icon-btn" id="detailClose" title="close">
+          <h3 id="detailTitle" data-i18n="web.detail.title">Node detail</h3>
+          <button class="icon-btn" id="detailClose" data-i18n-title="web.detail.close.title" title="close">
             <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6 6 18"/></svg>
           </button>
         </div>
@@ -120,9 +124,9 @@
 
     <!-- ===== footer ===== -->
     <footer class="footer">
-      <span class="status" id="status">ready</span>
+      <span class="status" id="status" data-i18n="web.status.ready">ready</span>
       <span class="status err hidden" id="error"></span>
-      <span class="badge" id="selBadge">none selected</span>
+      <span class="badge" id="selBadge" data-i18n="web.badge.noneSelected">none selected</span>
       <span class="badge" id="clipBadge">clipboard 0</span>
     </footer>
 
@@ -141,12 +145,12 @@
     <!-- ===== convert dialog (wired in Phase 4) ===== -->
     <dialog id="convDlg">
       <div class="dlg-head">
-        <h3>Save / Convert</h3>
-        <p>Save a copy in the current format, or convert the whole tree to another.</p>
+        <h3 data-i18n="web.convert.title">Save / Convert</h3>
+        <p data-i18n="web.convert.subtitle">Save a copy in the current format, or convert the whole tree to another.</p>
       </div>
       <div class="dlg-body">
         <div class="field">
-          <label for="convFmt">Format</label>
+          <label for="convFmt" data-i18n="web.convert.format.label">Format</label>
           <select id="convFmt">
             <option value="Toml">TOML</option>
             <option value="Json">JSON</option>
@@ -154,25 +158,25 @@
           </select>
         </div>
         <div class="field">
-          <label for="convPath">Output path</label>
+          <label for="convPath" data-i18n="web.convert.path.label">Output path</label>
           <input id="convPath" type="text" value="config.json" />
         </div>
         <div class="warns hide" id="convWarns"></div>
       </div>
       <div class="dlg-foot">
-        <button class="tbtn" id="convCancel">Cancel</button>
-        <button class="tbtn primary" id="convRun">Convert &amp; save</button>
+        <button class="tbtn" id="convCancel" data-i18n="web.common.cancel">Cancel</button>
+        <button class="tbtn primary" id="convRun" data-i18n="web.convert.run.convert">Convert &amp; save</button>
       </div>
     </dialog>
 
     <!-- ===== external-edit modal (§8.2 async handshake) ===== -->
     <div id="ext-modal" class="modal hidden">
       <div class="modal-box">
-        <h3>Edit</h3>
+        <h3 data-i18n="web.editModal.title">Edit</h3>
         <textarea id="ext-text" rows="16" cols="72"></textarea>
         <div class="modal-actions">
-          <button id="ext-cancel" class="tbtn">Cancel</button>
-          <button id="ext-confirm" class="tbtn primary">Apply</button>
+          <button id="ext-cancel" class="tbtn" data-i18n="web.common.cancel">Cancel</button>
+          <button id="ext-confirm" class="tbtn primary" data-i18n="web.common.apply">Apply</button>
         </div>
       </div>
     </div>
@@ -180,17 +184,17 @@
     <!-- ===== Open modal: local file browse or fetch a remote config ===== -->
     <div id="url-modal" class="modal hidden">
       <div class="modal-box">
-        <h3>Open</h3>
+        <h3 data-i18n="web.open.title">Open</h3>
         <button id="url-browse" class="browse-local">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v10H3z"/></svg>
-          <span class="bl-text"><strong>Browse local file</strong><small>Pick a config from this device</small></span>
+          <span class="bl-text"><strong data-i18n="web.open.browseLocal.title">Browse local file</strong><small data-i18n="web.open.browseLocal.subtitle">Pick a config from this device</small></span>
           <svg class="bl-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>
         </button>
-        <div class="modal-divider">or open from URL</div>
-        <input id="url-input" type="url" placeholder="https://example.com/config.toml" />
+        <div class="modal-divider" data-i18n="web.open.orUrl">or open from URL</div>
+        <input id="url-input" type="url" data-i18n-placeholder="web.open.urlPlaceholder" placeholder="https://example.com/config.toml" />
         <div class="modal-actions">
-          <button id="url-cancel" class="tbtn">Cancel</button>
-          <button id="url-confirm" class="tbtn primary">Open</button>
+          <button id="url-cancel" class="tbtn" data-i18n="web.common.cancel">Cancel</button>
+          <button id="url-confirm" class="tbtn primary" data-i18n="web.open.confirm">Open</button>
         </div>
       </div>
     </div>

@@ -11,7 +11,8 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": false,
     "allowJs": true,
-    "checkJs": false
+    "checkJs": false,
+    "resolveJsonModule": true
   },
-  "include": ["*.ts", "../crates/confy-ffi/pkg/*.d.ts"]
+  "include": ["*.ts", "touch/*.ts", "../crates/confy-ffi/pkg/*.d.ts", "../i18n/*.json"]
 }

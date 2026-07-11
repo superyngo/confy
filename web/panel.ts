@@ -19,6 +19,7 @@
 import type { ViewRow, Intent, SessionSnapshot, Path } from "./types";
 import { escapeHtml as esc } from "./escape.js";
 import { notationGlyph, valueHue } from "./kind-labels.js";
+import { t, tArgs } from "./i18n.js";
 
 function isComment(r: ViewRow): boolean {
   return r.type_label === "comment";
@@ -70,27 +71,27 @@ export function panelHTML(row: ViewRow, parentInline = false): string {
   // multi-line comment can't live in a one-line input → render it as a button that
   // opens the host popup editor (BeginEdit → external edit), same as a value.
   if (comment) {
-    h += '<div class="field-label">Comment</div>';
+    h += `<div class="field-label">${t("web.panel.field.comment")}</div>`;
     if (!r.read_only && isMultilineValue(r)) {
-      const oneLine = (r.value ?? "").replace(/\r?\n/g, " ↵ ") || "(multi-line — tap to edit)";
+      const oneLine = (r.value ?? "").replace(/\r?\n/g, " ↵ ") || t("web.panel.multilinePlaceholder");
       h += `<button class="c-edit v-multiline" data-act="editvalue" style="text-align:left;cursor:pointer;display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(oneLine)}</button>`;
     } else {
       h += `<input class="c-edit" data-field="comment-node" value="${esc(r.value ?? "")}" autocomplete="off" spellcheck="false" />`;
     }
-    h += `<dl><dt>Path</dt><dd>${esc(humanPath(r.path))}</dd></dl>`;
+    h += `<dl><dt>${t("web.panel.field.path")}</dt><dd>${esc(humanPath(r.path))}</dd></dl>`;
     h +=
       '<div class="row-btns">' +
-      '<button class="btn" data-act="copy">Copy</button>' +
-      '<button class="btn" data-act="cut">Cut</button>' +
-      '<button class="btn danger" data-act="del">Delete</button></div></div>';
+      `<button class="btn" data-act="copy">${t("web.common.copy")}</button>` +
+      `<button class="btn" data-act="cut">${t("web.common.cut")}</button>` +
+      `<button class="btn danger" data-act="del">${t("web.common.delete")}</button></div></div>`;
     return h;
   }
 
   // Key (array-element index is positional, not renamable).
-  h += '<div class="field-label">Key</div>';
+  h += `<div class="field-label">${t("web.panel.field.key")}</div>`;
   if (elem) {
     h += `<input class="v-edit" value="${esc(r.key)}" disabled />`;
-    h += '<div class="hint-line">Array-element index is positional — drag the grip to reorder.</div>';
+    h += `<div class="hint-line">${t("web.panel.hint.positionalKey")}</div>`;
   } else if (!r.read_only) {
     h += `<input class="k-edit" data-field="name" value="${esc(r.key)}" autocomplete="off" spellcheck="false" />`;
   } else {
@@ -101,10 +102,10 @@ export function panelHTML(row: ViewRow, parentInline = false): string {
   // render it as a clickable button that opens the host's popup editor (click →
   // BeginEdit → external_edit), mirroring the tree's multiline routing.
   if (!branch) {
-    h += `<div class="field-label">Value (${esc(r.type_label)})</div>`;
+    h += `<div class="field-label">${esc(tArgs("web.panel.field.value", [r.type_label]))}</div>`;
     const v = r.value ?? "";
     if (!r.read_only && isMultilineValue(r)) {
-      const oneLine = v.replace(/\r?\n/g, " ↵ ") || "(multi-line — tap to edit)";
+      const oneLine = v.replace(/\r?\n/g, " ↵ ") || t("web.panel.multilinePlaceholder");
       h += `<button class="v-edit v-multiline" data-act="editvalue" style="text-align:left;cursor:pointer;display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(oneLine)}</button>`;
     } else {
       h += `<input class="v-edit" data-field="value" value="${esc(v)}"${r.read_only ? " disabled" : ""} />`;
@@ -114,13 +115,13 @@ export function panelHTML(row: ViewRow, parentInline = false): string {
   // Trailing comment. Disabled on a member of an inline/flow container — core
   // rejects the mutation (comments can't live inside `{…}`/`[…]`).
   if (!r.read_only) {
-    h += '<div class="field-label">Trailing comment</div>';
+    h += `<div class="field-label">${t("web.panel.field.trailing")}</div>`;
     const disabledAttr = parentInline
-      ? ` disabled title="an inline container's members can't hold comments"`
+      ? ` disabled title="${t("web.panel.trailing.disabledTitle")}"`
       : "";
     // The placeholder states the reason when disabled — touch has no hover
     // tooltip, so the title attribute alone wouldn't surface it.
-    const ph = parentInline ? "inline members can't hold comments" : "add a comment…";
+    const ph = parentInline ? t("web.panel.trailing.disabledPlaceholder") : t("web.panel.trailing.placeholder");
     h += `<input class="c-edit" data-field="trailing" value="${esc(r.trailing_comment ?? "")}" placeholder="${ph}" autocomplete="off" spellcheck="false"${disabledAttr} />`;
   }
 
@@ -130,14 +131,14 @@ export function panelHTML(row: ViewRow, parentInline = false): string {
     const hue = branch ? "branch" : valueHue(r) || "branch";
     const note = notationGlyph(r);
     const noteStr = note && note !== r.type_label ? ` · ${esc(note)}` : "";
-    h += '<div class="field-label">Kind</div>';
+    h += `<div class="field-label">${t("web.panel.field.kind")}</div>`;
     h += `<button class="btn kindbtn" data-act="kindswitch"><span class="dotc" style="background:var(--t-${hue})"></span>${esc(r.type_label)}${noteStr}</button>`;
   }
 
   // Meta: Path (human form) / Children (branches) / Sign.
-  h += `<dl><dt>Path</dt><dd>${esc(humanPath(r.path))}</dd>`;
-  if (branch) h += `<dt>Children</dt><dd>${r.child_count}</dd>`;
-  h += `<dt>Sign</dt><dd>${esc(r.key_sign ?? "none")}</dd>`;
+  h += `<dl><dt>${t("web.panel.field.path")}</dt><dd>${esc(humanPath(r.path))}</dd>`;
+  if (branch) h += `<dt>${t("web.panel.field.children")}</dt><dd>${r.child_count}</dd>`;
+  h += `<dt>${t("web.panel.field.sign")}</dt><dd>${esc(r.key_sign ?? t("web.panel.sign.none"))}</dd>`;
   h += "</dl>";
 
   // Actions. Copy/Cut arm the clipboard (paste via the host's paste affordance);
@@ -145,9 +146,9 @@ export function panelHTML(row: ViewRow, parentInline = false): string {
   if (!r.read_only) {
     h +=
       '<div class="row-btns">' +
-      '<button class="btn" data-act="copy">Copy</button>' +
-      '<button class="btn" data-act="cut">Cut</button>' +
-      '<button class="btn danger" data-act="del">Delete</button></div>';
+      `<button class="btn" data-act="copy">${t("web.common.copy")}</button>` +
+      `<button class="btn" data-act="cut">${t("web.common.cut")}</button>` +
+      `<button class="btn danger" data-act="del">${t("web.common.delete")}</button></div>`;
   }
   h += "</div>";
   return h;

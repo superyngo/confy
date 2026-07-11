@@ -5,6 +5,7 @@
 // logic; this module only fills the inner HTML and wires the per-cell clicks.
 import type { Intent, TypeFilterRow, TypeFilterView } from "./types.js";
 import { escapeHtml } from "./render.js";
+import { t } from "./i18n.js";
 
 // The check glyph inside a facet cell's `.box` (design markup; CSS reveals it
 // only for `data-state="On"`).
@@ -21,8 +22,8 @@ function isHeader(row: TypeFilterRow): row is { Header: string } {
 export function typeFilterHTML(grid: TypeFilterView): string {
   let cellRow = -1;
   let html =
-    `<div class="tf-head"><span class="menu-label">Type filter${grid.active ? " <span class='tf-active'>· active</span>" : ""}</span>` +
-    `<button class="tf-clear" data-tf="clear" title="clear type filter">Clear</button></div>`;
+    `<div class="tf-head"><span class="menu-label">${t("web.typefilter.label")}${grid.active ? ` <span class='tf-active'>${t("web.typefilter.active")}</span>` : ""}</span>` +
+    `<button class="tf-clear" data-tf="clear" title="${t("web.typefilter.clear.title")}">${t("web.typefilter.clear")}</button></div>`;
   for (const row of grid.rows) {
     if (isHeader(row)) {
       html += `<div class="menu-label">${escapeHtml(row.Header)}</div>`;

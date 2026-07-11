@@ -37,6 +37,7 @@ import {
 } from "./samples.js";
 import { currentKindLabel, editWidthCh, escapeHtml, IC_CARET, renderTree } from "./render.js";
 import { helpBodyHTML } from "./help-content.js";
+import { applyStaticI18n, getLang, setLang, t, tArgs } from "./i18n.js";
 import { resolveClick, resetAnchor, rowsInRect, setAnchor } from "./select.js";
 import { installDnd } from "./dnd.js";
 import { panelHTML, wirePanel } from "./panel.js";
@@ -93,6 +94,8 @@ const titleEl = $("title");
 const selBadge = $("selBadge");
 const clipBadge = $("clipBadge");
 const themeBtn = $<HTMLButtonElement>("btnTheme");
+const langBtn = $<HTMLButtonElement>("btnLang");
+const langLabel = $("langLabel");
 const openBtn = $<HTMLButtonElement>("btnOpen");
 const saveBtn = $<HTMLButtonElement>("btnSave");
 const FS_AVAILABLE = fsAccessAvailable();
@@ -110,8 +113,23 @@ const io: HostIo = {
 };
 
 // ---- bootstrap ----
+// ---- language ----
+function updateLangUI() {
+  langLabel.textContent = getLang() === "zh-TW" ? "繁" : "EN";
+  applyStaticI18n();
+}
+
+function cycleLang() {
+  setLang(getLang() === "zh-TW" ? "en" : "zh-TW");
+  if (session) send({ SetLang: getLang() });
+  updateLangUI();
+  render();
+}
+
 async function main() {
   initTheme();
+  applyStaticI18n();
+  updateLangUI();
   const wasmUrl = new URL("./pkg/confy_ffi_bg.wasm", import.meta.url);
   await load(wasmUrl);
   updateSaveLabel();
@@ -147,7 +165,9 @@ function openText(
   fileName = name;
   setSampleMode(asSample);
   resetAnchor(); // a stale shift-range anchor must not survive the document swap
-  snap = session.snapshot();
+  // A fresh Session always boots at core's default lang (`en`) — sync it to the
+  // selector's persisted choice so status/error/About text match immediately.
+  snap = session.dispatch({ SetLang: getLang() });
   render();
 }
 
@@ -158,7 +178,7 @@ function openText(
 function setRawView(raw: boolean) {
   rawView = raw;
   const vt = $("btnViewToggle");
-  vt.textContent = raw ? "Tree" : "Raw";
+  vt.textContent = raw ? t("web.toolbar.viewToggle.tree") : t("web.toolbar.viewToggle.raw");
   vt.classList.toggle("active", raw);
   render();
 }
@@ -299,12 +319,12 @@ function renderOverlay() {
   if (tag === "Help") {
     const activeTab = (m as { Help: { tab: "Help" | "About" } }).Help.tab;
     // helpBodyHTML output is pre-escaped HTML (key spans) — insert raw.
-    const body = helpBodyHTML(activeTab, snap!.doc_format);
+    const body = helpBodyHTML(activeTab, snap!.doc_format, session!.aboutText());
     overlay.innerHTML =
       `<div class="overlay-head"><div class="help-tabs">` +
-      `<button class="opt tab-btn${activeTab === "Help" ? " sel" : ""}" data-tab="Help">Help</button>` +
-      `<button class="opt tab-btn${activeTab === "About" ? " sel" : ""}" data-tab="About">About</button>` +
-      `</div><button class="overlay-close" title="close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>` +
+      `<button class="opt tab-btn${activeTab === "Help" ? " sel" : ""}" data-tab="Help">${t("web.help.tab.help")}</button>` +
+      `<button class="opt tab-btn${activeTab === "About" ? " sel" : ""}" data-tab="About">${t("web.help.tab.about")}</button>` +
+      `</div><button class="overlay-close" title="${t("web.common.close")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>` +
       `<pre>${body}</pre>`;
     overlay.querySelectorAll<HTMLElement>("[data-tab]").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -410,10 +430,10 @@ function convRefs(): ConvertRefs {
 function renderFooter() {
   // Badges stay visible (design resting state); only text + `on` accent change.
   const n = snap!.rows.filter((r) => r.selected).length;
-  selBadge.textContent = n === 0 ? "none selected" : `${n} selected`;
+  selBadge.textContent = n === 0 ? t("web.badge.noneSelected") : tArgs("web.badge.nSelected", [String(n)]);
   selBadge.classList.toggle("on", n > 0);
   const cc = snap!.clipboard_count ?? 0;
-  clipBadge.textContent = `clipboard ${cc}`;
+  clipBadge.textContent = tArgs("web.badge.clipboard", [String(cc)]);
   clipBadge.classList.toggle("on", cc > 0);
 }
 
@@ -1285,6 +1305,7 @@ function bindGlobal() {
   saveBtn.addEventListener("click", () => openSaveConvert(io));
   fmtPill.addEventListener("click", () => cycleSampleFormat(openSample)); // no-op unless in sample mode
   themeBtn.addEventListener("click", toggleTheme);
+  langBtn.addEventListener("click", cycleLang);
   $("btnInfo").addEventListener("click", () => send("EnterHelp"));
   $("btnMore").addEventListener("click", (e) => {
     // Toggle: a second click on ⋯ while its menu is open closes it.

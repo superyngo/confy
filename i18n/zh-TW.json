@@ -2,5 +2,19 @@
   "core.readonly": "唯讀節點（區塊註解）",
   "core.clipboard.empty": "剪貼簿為空",
   "core.selection.cleared": "已清除選取",
-  "core.save.saved": "已儲存"
+  "core.save.saved": "已儲存",
+
+  "web.toolbar.open.label": "開啟",
+  "web.toolbar.save.label": "儲存",
+  "web.toolbar.theme.title": "切換主題",
+  "web.toolbar.lang.title": "語言",
+  "web.toolbar.info.title": "說明／關於 (?)",
+  "web.common.cancel": "取消",
+  "web.common.apply": "套用",
+  "web.common.copy": "複製",
+  "web.common.cut": "剪下",
+  "web.common.delete": "刪除",
+  "web.status.ready": "就緒",
+  "web.about.language": "語言： {0}",
+  "web.about.storage": "語言偏好儲存在此瀏覽器的本機儲存空間（桌面應用程式：WebView 的持久性儲存）— 沒有檔案路徑可揭露。"
 }

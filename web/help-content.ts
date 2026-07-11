@@ -2,6 +2,7 @@
 // `web/ui.ts`) and the touch edit UI (Task 7). Extracted from `web/ui.ts` so
 // both surfaces render identical copy.
 import { escapeHtml } from "./escape.js";
+import { t, tArgs, getLang } from "./i18n.js";
 export const HELP_TEXT = `confy web — keys
 j/k or ↑/↓     move cursor
 Enter/Space    toggle branch / edit leaf / activate
@@ -23,22 +24,6 @@ right-click    context menu
 
 Open (Ctrl-o) and in-place Save need the File System Access API
 (Chrome/Edge). Other browsers fall back to the paste-load / download path.`;
-
-// Workspace version stamped in at build time by `build.mjs` (`define`) — the
-// same single source (root Cargo.toml `[workspace.package] version`) the TUI
-// reads via env!("CARGO_PKG_VERSION"). Falls back to "dev" when un-bundled.
-declare const __APP_VERSION__: string;
-const APP_VERSION =
-  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "dev";
-
-// About-tab text — mirrors crates/confy-core/src/session/state.rs::ABOUT_TEXT.
-export const ABOUT_TEXT = `confy ${APP_VERSION}
-A cross-platform TUI/Web UI for editing structured configuration files.
-
-Author:    wen
-License:   MIT
-Copyright: (c) 2026 wen
-GitHub:    https://github.com/superyngo/confy`;
 
 // Per-format KIND legend appended to the Help overlay, keyed by `doc_format`
 // (ported from the TUI's TOML_HELP/JSON_HELP/YAML_HELP KIND column). The kind
@@ -70,9 +55,27 @@ function helpLineHTML(line: string): string {
 // Shared Help/About body composition, used by both the desktop overlay
 // (`web/ui.ts`) and the touch sheet (`web/touch/app.ts`). Returns HTML ready
 // to drop inside a <pre> — the caller must NOT escape it again.
-export function helpBodyHTML(tab: "Help" | "About", docFormat: string): string {
+//
+// `aboutText` is the core-catalog body (`ConfySession.about_text()`, mirrors
+// `crates/confy-core/src/session/state.rs::about_text`) — the web layer no
+// longer hand-mirrors it (that was a documented drift hazard). Two host-owned
+// lines are appended, mirroring the TUI's `tui.about.language`/`Config:`
+// disclosure: the active language code, and where the preference is stored
+// (browser localStorage — no filesystem path to disclose on the web/desktop
+// host, unlike the TUI's config file).
+export function helpBodyHTML(
+  tab: "Help" | "About",
+  docFormat: string,
+  aboutText: string,
+): string {
   if (tab === "About") {
-    return escapeHtml(ABOUT_TEXT).replace(
+    const body =
+      aboutText.replace(/\n+$/, "") +
+      "\n\n" +
+      tArgs("web.about.language", [getLang()]) +
+      "\n" +
+      t("web.about.storage");
+    return escapeHtml(body).replace(
       /(https:\/\/\S+)/,
       '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>',
     );

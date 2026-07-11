@@ -7,6 +7,7 @@
 // by id or touches `window`.
 import type { ConvertView, DocFormat, Intent, SessionSnapshot } from "./types.js";
 import { escapeHtml } from "./render.js";
+import { t, tArgs } from "./i18n.js";
 
 // Where the convert form is mounted: a native `<dialog>` (desktop) or a bottom
 // `.sheet` (touch). The host supplies open/close/isOpen + a cancel hook (Esc /
@@ -62,15 +63,15 @@ export function renderConvertDialog(
   const crossFmt = cv.target !== snap.doc_format;
   const hasWarn = crossFmt && cv.warnings.length > 0;
   warns.innerHTML = hasWarn
-    ? `<strong>Lossy conversion</strong><div class="warns-note">These styles will be normalized; the output is still valid ${cv.target.toUpperCase()}. Review and confirm to save.</div>` +
+    ? `<strong>${t("web.convert.warn.title")}</strong><div class="warns-note">${escapeHtml(tArgs("web.convert.warn.note", [cv.target.toUpperCase()]))}</div>` +
       `<ul>${cv.warnings.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul>`
     : "";
   warns.classList.toggle("hide", !hasWarn);
   run.textContent = !crossFmt
-    ? "Save copy"
+    ? t("web.convert.run.save")
     : cv.step === "Confirm"
-      ? "Confirm & save"
-      : "Convert & save";
+      ? t("web.convert.run.confirm")
+      : t("web.convert.run.convert");
 }
 
 // Run the panel's action: a same-format pick is a faithful save-as of the live

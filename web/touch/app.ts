@@ -59,6 +59,7 @@ import { panelHTML, wirePanel } from "../panel.js";
 import { bindPromptClicks, promptButtonsHTML, promptQuestion, promptTitle } from "../prompt.js";
 import { typeFilterHTML, wireTypeFilter } from "../typefilter.js";
 import { helpBodyHTML } from "../help-content.js";
+import { applyStaticI18n, getLang, setLang, t, tArgs } from "../i18n.js";
 import {
   type ConvertRefs,
   renderConvertDialog as renderConvertDialogShared,
@@ -211,39 +212,39 @@ function appHTML(): string {
     '<button class="fmt-pill" data-act="cyclefmt" title="document format"></button>' +
     '<span class="dirty-dot"></span>' +
     '<span class="spacer"></span>' +
-    `<button class="tbtn" data-act="open" title="Open file">${TIC.open}<span class="label-hide">Open</span></button>` +
-    `<button class="tbtn primary" data-act="save" title="Save / Convert…">${TIC.save}<span class="label-hide">Save</span></button>` +
+    `<button class="tbtn" data-act="open" data-i18n-title="web.toolbar.open.title" title="Open file">${TIC.open}<span class="label-hide" data-i18n="web.toolbar.open.label">Open</span></button>` +
+    `<button class="tbtn primary" data-act="save" title="Save / Convert…">${TIC.save}<span class="label-hide" data-i18n="web.toolbar.save.label">Save</span></button>` +
     '<div class="tgroup edit-grp">' +
-    `<button class="icon-btn" data-act="undo" title="Undo">${TIC.undo}</button>` +
-    `<button class="icon-btn" data-act="redo" title="Redo">${TIC.redo}</button>` +
-    `<button class="icon-btn" data-act="theme" title="Toggle theme">${TIC.theme}</button>` +
-    `<button class="icon-btn" data-act="info" title="Help / About">${TIC.info}</button>` +
+    `<button class="icon-btn" data-act="undo" data-i18n-title="web.toolbar.undo.title" title="Undo">${TIC.undo}</button>` +
+    `<button class="icon-btn" data-act="redo" data-i18n-title="web.toolbar.redo.title" title="Redo">${TIC.redo}</button>` +
+    `<button class="icon-btn" data-act="theme" data-i18n-title="web.toolbar.theme.title" title="Toggle theme">${TIC.theme}</button>` +
+    `<button class="icon-btn" data-act="info" data-i18n-title="web.toolbar.info.title" title="Help / About">${TIC.info}</button>` +
     "</div>" +
-    `<button class="tbtn more-btn" data-act="menu" title="More actions">${TIC.more}</button>` +
+    `<button class="tbtn more-btn" data-act="menu" data-i18n-title="web.toolbar.more.title" title="More actions">${TIC.more}</button>` +
     "</header>" +
     // ---- filter row (mirrors desktop index.html) ----
     '<div class="filterbar">' +
     `<div class="search">${TIC.search}` +
-    '<input type="search" placeholder="search keys or values…" autocomplete="off" spellcheck="false" />' +
-    `<button class="clear" data-act="searchclear" title="clear">${TIC.close}</button></div>` +
-    `<button class="tbtn tf-btn" data-act="filter" title="Type filter">${TIC.filter}<span class="label-hide">Type filter</span><span class="dot"></span></button>` +
+    `<input type="search" data-i18n-placeholder="web.search.placeholder" placeholder="search keys or values…" autocomplete="off" spellcheck="false" />` +
+    `<button class="clear" data-act="searchclear" data-i18n-title="web.search.clear.title" title="clear">${TIC.close}</button></div>` +
+    `<button class="tbtn tf-btn" data-act="filter" data-i18n-title="web.toolbar.typefilter.title" title="Type filter">${TIC.filter}<span class="label-hide" data-i18n="web.toolbar.typefilter.label">Type filter</span><span class="dot"></span></button>` +
     '<div class="tgroup nav-grp">' +
-    `<button class="icon-btn" data-act="expandall" title="Expand all">${TIC.expand}</button>` +
-    `<button class="icon-btn" data-act="collapseall" title="Collapse all">${TIC.collapse}</button>` +
+    `<button class="icon-btn" data-act="expandall" data-i18n-title="web.toolbar.expandAll.title" title="Expand all">${TIC.expand}</button>` +
+    `<button class="icon-btn" data-act="collapseall" data-i18n-title="web.toolbar.collapseAll.title" title="Collapse all">${TIC.collapse}</button>` +
     "</div>" +
     // Single toggle button (label = the view it switches TO); folds into ⋯.
     '<div class="tgroup viewtabs">' +
-    '<button class="tbtn viewtoggle" data-act="toggleview" title="Toggle Tree / Raw view">Raw</button>' +
+    '<button class="tbtn viewtoggle" data-act="toggleview" data-i18n-title="web.toolbar.viewToggle.title" title="Toggle Tree / Raw view">Raw</button>' +
     "</div>" +
     "</div>" +
     '<div class="body">' +
     '<div class="tree-pane"><div class="tree"></div></div>' +
     '<pre class="raw-view"></pre>' +
     '<div class="splitter" data-splitter></div>' +
-    '<div class="detail-pane"><div class="dp-head"><h3>Node detail</h3></div>' +
+    `<div class="detail-pane"><div class="dp-head"><h3 data-i18n="web.detail.title">Node detail</h3></div>` +
     '<div class="dp-body"><div class="dp-empty">Tap any node<br>to edit its value and metadata here</div></div></div>' +
     "</div>" +
-    '<div class="statusbar"><span class="status">ready</span>' +
+    `<div class="statusbar"><span class="status" data-i18n="web.status.ready">ready</span>` +
     '<span class="badge sel-badge">none</span><span class="badge clip-badge">clipboard 0</span></div>' +
     `<button class="fab" data-act="add" aria-label="add node">${IC.plus}</button>` +
     // Small ✕ floating above the paste FAB — clears the clipboard / exits paste
@@ -259,16 +260,16 @@ function appHTML(): string {
     // sheet like every other touch panel; the #conv* children match the refs).
     '<div class="sheet convert-sheet">' +
     '<div class="grab"></div>' +
-    `<div class="sheet-head"><h3>Save / Convert</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
+    `<div class="sheet-head"><h3>${t("web.convert.title")}</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
     '<div class="sheet-body">' +
-    '<p class="dlg-sub">Save a copy in the current format, or convert the whole tree to another.</p>' +
-    '<div class="field"><label for="convFmt">Format</label>' +
+    `<p class="dlg-sub">${t("web.convert.subtitle")}</p>` +
+    `<div class="field"><label for="convFmt">${t("web.convert.format.label")}</label>` +
     '<select id="convFmt"><option value="Toml">TOML</option><option value="Json">JSON</option><option value="Yaml">YAML</option></select></div>' +
-    '<div class="field"><label for="convPath">Output path</label>' +
+    `<div class="field"><label for="convPath">${t("web.convert.path.label")}</label>` +
     '<input id="convPath" type="text" /></div>' +
     '<div class="warns hide" id="convWarns"></div>' +
-    '<div class="row-btns"><button class="btn" id="convCancel">Cancel</button>' +
-    '<button class="btn primary" id="convRun">Convert &amp; save</button></div>' +
+    `<div class="row-btns"><button class="btn" id="convCancel">${t("web.common.cancel")}</button>` +
+    `<button class="btn primary" id="convRun">${t("web.convert.run.convert")}</button></div>` +
     "</div></div>" +
     // external-edit sheet (multi-line value / comment) — built on demand by
     // `openExternalEdit` (a touch-native bottom sheet, NOT the desktop modal).
@@ -329,14 +330,14 @@ function render() {
   if (!snap || !session) return;
   fmtPill.textContent = snap.doc_format.toUpperCase();
   fmtPill.classList.toggle("toggleable", inSampleMode());
-  fmtPill.title = inSampleMode() ? "Sample — tap to switch format" : "document format";
+  fmtPill.title = inSampleMode() ? t("web.toolbar.fmtPill.sampleTitle") : t("web.toolbar.fmtPill.title");
   docNameEl.textContent = fileName ?? "config";
   dirtyDot.style.opacity = snap.is_dirty ? "1" : "0";
-  statusEl.textContent = snap.error ? snap.error : snap.status ?? "ready";
+  statusEl.textContent = snap.error ? snap.error : snap.status ?? t("web.status.ready");
   const cur = cursorRow();
-  selBadge.textContent = cur && cur.path.length ? lastKey(cur.path) : "none";
+  selBadge.textContent = cur && cur.path.length ? lastKey(cur.path) : t("web.badge.none");
   const armed = (snap.clipboard_count ?? 0) > 0;
-  clipBadge.textContent = `clipboard ${snap.clipboard_count ?? 0}`;
+  clipBadge.textContent = tArgs("web.badge.clipboard", [String(snap.clipboard_count ?? 0)]);
   clipBadge.classList.toggle("armed", armed);
   // Paste mode: the clipboard freezes the source selection — de-emphasize it and
   // show the cursor row as the live paste target instead (CSS keys off this class).
@@ -468,7 +469,7 @@ function openKindSheet(path: Path) {
     .join("");
   sheets.kind.innerHTML =
     '<div class="grab"></div>' +
-    `<div class="sheet-head"><h3>Switch kind — ${esc(lastKey(path))}</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
+    `<div class="sheet-head"><h3>${esc(tArgs("web.kind.switchTitle", [lastKey(path)]))}</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
     `<div class="sheet-body"><div class="addgrid">${cells}</div></div>`;
   sheets.kind.querySelectorAll<HTMLElement>(".kind-opt").forEach((b) => {
     b.addEventListener("click", () => {
@@ -489,14 +490,14 @@ function mi(ic: string, label: string, sc: string, id: string): string {
 // only the ones currently folded away (their toolbar control is hidden), so it
 // tracks the responsive breakpoints instead of hardcoding a fixed set. Each item
 // names its toolbar selector + the action to run when picked.
-const MENU_CANDIDATES: Array<{ sel: string; ic: string; label: string; run: () => void }> = [
-  { sel: '[data-act="undo"]', ic: IC.undo, label: "Undo", run: () => send("Undo") },
-  { sel: '[data-act="redo"]', ic: IC.redo, label: "Redo", run: () => send("Redo") },
-  { sel: '[data-act="theme"]', ic: IC.sun, label: "Toggle light / dark", run: toggleTheme },
-  { sel: '[data-act="info"]', ic: IC.help, label: "Help / About", run: () => send("EnterHelp") },
-  { sel: '[data-act="expandall"]', ic: IC.expand, label: "Expand all", run: () => send("ExpandAll") },
-  { sel: '[data-act="collapseall"]', ic: IC.collapse, label: "Collapse all", run: () => send("CollapseAll") },
-  { sel: '[data-act="toggleview"]', ic: IC.open, label: "Toggle Tree / Raw view", run: () => setRawView(!rawView) },
+const MENU_CANDIDATES: Array<{ sel: string; ic: string; labelKey: string; run: () => void }> = [
+  { sel: '[data-act="undo"]', ic: IC.undo, labelKey: "web.menu.undo", run: () => send("Undo") },
+  { sel: '[data-act="redo"]', ic: IC.redo, labelKey: "web.menu.redo", run: () => send("Redo") },
+  { sel: '[data-act="theme"]', ic: IC.sun, labelKey: "web.menu.toggleTheme", run: toggleTheme },
+  { sel: '[data-act="info"]', ic: IC.help, labelKey: "web.menu.helpAbout", run: () => send("EnterHelp") },
+  { sel: '[data-act="expandall"]', ic: IC.expand, labelKey: "web.menu.expandAll", run: () => send("ExpandAll") },
+  { sel: '[data-act="collapseall"]', ic: IC.collapse, labelKey: "web.menu.collapseAll", run: () => send("CollapseAll") },
+  { sel: '[data-act="toggleview"]', ic: IC.open, labelKey: "web.menu.toggleView", run: () => setRawView(!rawView) },
 ];
 // A toolbar control is "folded" (→ belongs in the menu) when it's not laid out
 // (its group is display:none, so offsetParent is null).
@@ -504,15 +505,32 @@ function isFolded(sel: string): boolean {
   const el = app.querySelector<HTMLElement>(sel);
   return !!el && el.offsetParent === null;
 }
+// A language toggle: unconditional (not toolbar-folded — there's no dedicated
+// toolbar control on touch; per the all-bottom-sheet convention this control
+// lives only in the ⋯ menu). Cycles en <-> zh-TW, syncs core, re-renders.
+function cycleLang() {
+  setLang(getLang() === "zh-TW" ? "en" : "zh-TW");
+  if (session) send({ SetLang: getLang() });
+  applyStaticI18n(app);
+  render();
+}
+
 function openMenuSheet() {
   const folded = MENU_CANDIDATES.filter((c) => isFolded(c.sel));
+  const langGlyph = '<span class="ic" aria-hidden="true">\u{1F310}</span>';
   sheets.menu.innerHTML =
     '<div class="grab"></div>' +
-    `<div class="sheet-head"><h3>More actions</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
+    `<div class="sheet-head"><h3>${t("web.toolbar.more.title")}</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
     '<div class="sheet-body">' +
-    folded.map((c, i) => mi(c.ic, c.label, "", String(i))).join("") +
+    mi(langGlyph, `${t("web.toolbar.lang.title")} (${getLang() === "zh-TW" ? "繁" : "EN"})`, "", "lang") +
+    folded.map((c, i) => mi(c.ic, t(c.labelKey), "", String(i))).join("") +
     "</div>";
-  sheets.menu.querySelectorAll<HTMLElement>(".menu-item").forEach((it) => {
+  const langItem = sheets.menu.querySelector<HTMLElement>('[data-mi="lang"]');
+  langItem?.addEventListener("click", () => {
+    cycleLang();
+    openMenuSheet(); // re-render the sheet in place so the label updates live
+  });
+  sheets.menu.querySelectorAll<HTMLElement>(".menu-item:not([data-mi='lang'])").forEach((it) => {
     it.addEventListener("click", () => {
       const id = it.dataset.mi!;
       const c = folded[Number(id)];
@@ -535,7 +553,7 @@ function renderFilterSheet(grid: TypeFilterView) {
   const st = prevBody ? prevBody.scrollTop : 0;
   sheets.filter.innerHTML =
     '<div class="grab"></div>' +
-    `<div class="sheet-head"><h3>Type filter</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
+    `<div class="sheet-head"><h3>${t("web.typefilter.label")}</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
     `<div class="sheet-body tf-body"><div class="tf">${typeFilterHTML(grid)}</div></div>`;
   wireTypeFilter(sheets.filter, grid, { send });
   const body = sheets.filter.querySelector<HTMLElement>(".sheet-body");
@@ -574,14 +592,16 @@ function openExternalEdit(ext: { initial: string; kind: unknown }) {
   const kind = ext.kind as { Value?: { path: Path }; Comment?: { path: Path } };
   const isComment = !!kind.Comment;
   const path = (kind.Value ?? kind.Comment)!.path;
-  const title = isComment ? "Edit comment" : `Edit ${esc(lastKey(path) || "value")}`;
+  const title = isComment
+    ? t("web.editModal.editComment")
+    : esc(tArgs("web.editModal.editValue", [lastKey(path) || t("web.editModal.value")]));
   sheets.ext.innerHTML =
     '<div class="grab"></div>' +
     `<div class="sheet-head"><h3>${title}</h3><button class="close" data-act="extcancel">${IC.close}</button></div>` +
     '<div class="sheet-body">' +
     '<textarea class="ext-text" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>' +
-    '<div class="row-btns"><button class="btn" data-act="extcancel">Cancel</button>' +
-    '<button class="btn primary ext-apply">Apply</button></div>' +
+    `<div class="row-btns"><button class="btn" data-act="extcancel">${t("web.common.cancel")}</button>` +
+    `<button class="btn primary ext-apply">${t("web.common.apply")}</button></div>` +
     "</div>";
   const txt = sheets.ext.querySelector<HTMLTextAreaElement>(".ext-text")!;
   txt.value = ext.initial;
@@ -610,14 +630,14 @@ function renderHelpSheet() {
   }
   const activeTab = (snap!.mode as { Help: { tab: "Help" | "About" } }).Help.tab;
   // helpBodyHTML output is pre-escaped HTML (key spans) — insert raw.
-  const body = helpBodyHTML(activeTab, snap!.doc_format);
+  const body = helpBodyHTML(activeTab, snap!.doc_format, session!.aboutText());
   sheets.help.innerHTML =
     '<div class="grab"></div>' +
-    `<div class="sheet-head"><h3>Help / About</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
+    `<div class="sheet-head"><h3>${t("web.help.tab.help")} / ${t("web.help.tab.about")}</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
     '<div class="sheet-body">' +
     '<div class="help-tabs">' +
-    `<button class="btn tab-btn${activeTab === "Help" ? " primary" : ""}" data-tab="Help">Help</button>` +
-    `<button class="btn tab-btn${activeTab === "About" ? " primary" : ""}" data-tab="About">About</button>` +
+    `<button class="btn tab-btn${activeTab === "Help" ? " primary" : ""}" data-tab="Help">${t("web.help.tab.help")}</button>` +
+    `<button class="btn tab-btn${activeTab === "About" ? " primary" : ""}" data-tab="About">${t("web.help.tab.about")}</button>` +
     "</div>" +
     `<pre class="help-body">${body}</pre>` +
     "</div>";
@@ -636,17 +656,17 @@ function openOpenSheet() {
   if (sheets.url.classList.contains("open")) return;
   sheets.url.innerHTML =
     '<div class="grab"></div>' +
-    `<div class="sheet-head"><h3>Open</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
+    `<div class="sheet-head"><h3>${t("web.open.title")}</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
     '<div class="sheet-body">' +
     '<button class="btn browse-local">' +
     `<span class="bl-ic">${TIC.open}</span>` +
-    '<span class="bl-text"><strong>Browse local file</strong><small>Pick a config from this device</small></span>' +
+    `<span class="bl-text"><strong>${t("web.open.browseLocal.title")}</strong><small>${t("web.open.browseLocal.subtitle")}</small></span>` +
     '<svg class="bl-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>' +
     "</button>" +
-    '<div class="sheet-divider">or open from URL</div>' +
-    '<input class="url-input" type="url" inputmode="url" spellcheck="false" autocomplete="off" autocapitalize="off" placeholder="https://example.com/config.toml" />' +
-    '<div class="row-btns"><button class="btn url-cancel" data-act="closesheet">Cancel</button>' +
-    '<button class="btn primary url-open">Open</button></div>' +
+    `<div class="sheet-divider">${t("web.open.orUrl")}</div>` +
+    `<input class="url-input" type="url" inputmode="url" spellcheck="false" autocomplete="off" autocapitalize="off" placeholder="${t("web.open.urlPlaceholder")}" />` +
+    `<div class="row-btns"><button class="btn url-cancel" data-act="closesheet">${t("web.common.cancel")}</button>` +
+    `<button class="btn primary url-open">${t("web.open.confirm")}</button></div>` +
     "</div>";
   const inp = sheets.url.querySelector<HTMLInputElement>(".url-input")!;
   const go = () => {
@@ -947,7 +967,7 @@ function installTreeGestures() {
   treePane.addEventListener("click", (e) => {
     if ((e.target as HTMLElement).closest(".row")) return;
     if (snap?.rows.some((r) => r.selected)) send({ SetSelection: { paths: [] } });
-    if (snap?.error) statusEl.textContent = snap.status ?? "ready";
+    if (snap?.error) statusEl.textContent = snap.status ?? t("web.status.ready");
   });
 }
 
@@ -1036,7 +1056,9 @@ function openText(
   fileHandle = handle;
   fileName = name;
   setSampleMode(asSample);
-  snap = session.snapshot();
+  // A fresh Session always boots at core's default lang (`en`) — sync it to
+  // the selector's persisted choice so status/error/About text match.
+  snap = session.dispatch({ SetLang: getLang() });
   rawView = false;
   render();
 }
@@ -1230,6 +1252,7 @@ async function main() {
   const root = document.getElementById("root")!;
   root.innerHTML = appHTML();
   app = root.querySelector(".app")!;
+  applyStaticI18n(app);
   treePane = app.querySelector(".tree-pane")!;
   treeEl = app.querySelector(".tree")!;
   rawEl = app.querySelector(".raw-view")!;
@@ -1246,7 +1269,7 @@ async function main() {
   toastEl = app.querySelector(".toast")!;
   fabEl = app.querySelector(".fab")!;
   // Tap the clip badge while armed → cancel the copy/cut (clears the clipboard).
-  clipBadge.title = "tap to clear clipboard";
+  clipBadge.title = t("web.badge.clipboard.clearTitle");
   clipBadge.addEventListener("click", () => {
     if ((snap?.clipboard_count ?? 0) > 0) send("Escape");
   });

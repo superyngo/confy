@@ -65,6 +65,11 @@ export class Session {
     return this.raw.doc_format();
   }
 
+  /** About-tab body text for the session's current language (core catalog). */
+  aboutText(): string {
+    return this.raw.about_text();
+  }
+
   kindOptions(path: Path): KindOption[] {
     return this.raw.kind_options(path) as KindOption[];
   }

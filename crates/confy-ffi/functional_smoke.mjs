@@ -310,5 +310,11 @@ check("Save after SetLang no longer says English 'Saved'", savedZh.status !== "S
 const snap19b = s19.dispatch(tuple("SetLang", "not-a-lang"));
 check("SetLang ignores an unknown code", snap19b.lang === "zh-TW", snap19b.lang);
 
+// ---- 24. about_text(): the wasm-exposed accessor web/help-content.ts reads
+// instead of hand-mirroring core's ABOUT_TEXT (Phase 3 of the i18n plan).
+const aboutText = s19.about_text();
+check("about_text() returns the core About body", aboutText.includes("confy"), aboutText);
+check("about_text() mentions the GitHub repo", aboutText.includes("github.com/superyngo/confy"), aboutText);
+
 console.log(failures === 0 ? "\nALL FUNCTIONAL CHECKS PASSED" : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);
