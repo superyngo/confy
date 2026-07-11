@@ -40,6 +40,7 @@ import { helpBodyHTML } from "./help-content.js";
 import { applyStaticI18n, availableLangs, getLang, LANG_DISPLAY_NAMES, setLang, t, tArgs } from "./i18n.js";
 import type { Lang } from "./i18n.js";
 import { resolveClick, resetAnchor, rowsInRect, setAnchor } from "./select.js";
+import { foldedEntries, type ToolbarEntry } from "./toolbar-fold.js";
 import { installDnd } from "./dnd.js";
 import { panelHTML, wirePanel } from "./panel.js";
 import { bindPromptClicks, promptButtonsHTML, promptQuestion } from "./prompt.js";
@@ -1178,32 +1179,45 @@ function isToolbarFolded(id: string): boolean {
   return !!el && el.offsetParent === null;
 }
 
+// The language popup opener, shared by the toolbar `#btnLang` click and the
+// folded ⋯-menu row so both paths open the identical popup (never diverge).
+function openLangMenuNear(el: HTMLElement) {
+  const r = el.getBoundingClientRect();
+  placePopAt(buildLangMenu(), r.left, r.bottom + 4);
+}
+
+// The single source of truth for every toolbar control that can fold into the
+// "⋯ More" menu, in toolbar display order. `key` is the element id
+// `isToolbarFolded` checks; the ⋯ menu is derived from this list via
+// `foldedEntries` rather than a hand-maintained parallel array, so a button
+// added to `#editGroup`/`#navGroup`/`#viewTabs` (marked `data-foldable`) can't
+// silently disappear when its group folds without also getting a menu entry
+// (enforced by `web/toolbar-fold.spec.mjs`).
+const TOOLBAR_ENTRIES: ToolbarEntry[] = [
+  { key: "btnUndo", labelKey: "web.toolbar.undo.title", run: () => send("Undo") },
+  { key: "btnRedo", labelKey: "web.toolbar.redo.title", run: () => send("Redo") },
+  { key: "btnTheme", labelKey: "web.toolbar.theme.title", run: toggleTheme },
+  { key: "btnLang", labelKey: "web.toolbar.lang.title", run: () => openLangMenuNear($("btnMore")) },
+  { key: "btnInfo", labelKey: "web.toolbar.info.title", run: () => send("EnterHelp") },
+  { key: "btnExpandAll", labelKey: "web.toolbar.expandAll.title", run: () => send("ExpandAll") },
+  { key: "btnCollapseAll", labelKey: "web.toolbar.collapseAll.title", run: () => send("CollapseAll") },
+  { key: "btnViewToggle", labelKey: "web.toolbar.viewToggle.title", run: () => setRawView(!rawView) },
+];
+
 // The "⋯ More" overflow menu (shown only under the narrow breakpoint): only the
 // secondary actions the CSS actually hides from the toolbar / filter row at the
 // current width, as a popup.
 function buildMoreMenu(): HTMLElement {
-  const candidates: Array<[string, string, () => void]> = [
-    ["btnUndo", "Undo (z)", () => send("Undo")],
-    ["btnRedo", "Redo (y)", () => send("Redo")],
-    ["btnTheme", "Toggle theme", toggleTheme],
-    ["btnInfo", "Help / About", () => send("EnterHelp")],
-    ["btnExpandAll", "Expand all (9)", () => send("ExpandAll")],
-    ["btnCollapseAll", "Collapse all (0)", () => send("CollapseAll")],
-    ["btnViewToggle", "Toggle Tree / Raw view", () => setRawView(!rawView)],
-  ];
-  const items = candidates.filter(([id]) => isToolbarFolded(id));
+  const items = foldedEntries(TOOLBAR_ENTRIES, isToolbarFolded);
   const menu = $("moreMenu");
   menu.innerHTML = items
-    .map(
-      ([, label], i) =>
-        `<button class="menu-item" data-i="${i}">${escapeHtml(label)}</button>`,
-    )
+    .map((e, i) => `<button class="menu-item" data-i="${i}">${escapeHtml(t(e.labelKey))}</button>`)
     .join("");
   menu.querySelectorAll<HTMLElement>("[data-i]").forEach((b) => {
     const i = Number(b.dataset.i);
     b.onclick = () => {
       closePops();
-      items[i][2]();
+      items[i].run();
     };
   });
   return menu;
@@ -1334,8 +1348,7 @@ function bindGlobal() {
   langBtn.addEventListener("click", (e) => {
     // Toggle: a second click on the language button while its menu is open closes it.
     if ($("langMenu").classList.contains("open")) return closePops();
-    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    placePopAt(buildLangMenu(), r.left, r.bottom + 4);
+    openLangMenuNear(e.currentTarget as HTMLElement);
   });
   $("btnInfo").addEventListener("click", () => send("EnterHelp"));
   $("btnMore").addEventListener("click", (e) => {

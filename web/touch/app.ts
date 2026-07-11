@@ -61,6 +61,7 @@ import { typeFilterHTML, wireTypeFilter } from "../typefilter.js";
 import { helpBodyHTML } from "../help-content.js";
 import { applyStaticI18n, availableLangs, getLang, LANG_DISPLAY_NAMES, setLang, t, tArgs } from "../i18n.js";
 import type { Lang } from "../i18n.js";
+import { foldedEntries, type ToolbarEntry } from "../toolbar-fold.js";
 import {
   type ConvertRefs,
   renderConvertDialog as renderConvertDialogShared,
@@ -216,10 +217,11 @@ function appHTML(): string {
     `<button class="tbtn" data-act="open" data-i18n-title="web.toolbar.open.title" title="Open file">${TIC.open}<span class="label-hide" data-i18n="web.toolbar.open.label">Open</span></button>` +
     `<button class="tbtn primary" data-act="save" title="Save / Convert…">${TIC.save}<span class="label-hide" data-i18n="web.toolbar.save.label">Save</span></button>` +
     '<div class="tgroup edit-grp">' +
-    `<button class="icon-btn" data-act="undo" data-i18n-title="web.toolbar.undo.title" title="Undo">${TIC.undo}</button>` +
-    `<button class="icon-btn" data-act="redo" data-i18n-title="web.toolbar.redo.title" title="Redo">${TIC.redo}</button>` +
-    `<button class="icon-btn" data-act="theme" data-i18n-title="web.toolbar.theme.title" title="Toggle theme">${TIC.theme}</button>` +
-    `<button class="icon-btn" data-act="info" data-i18n-title="web.toolbar.info.title" title="Help / About">${TIC.info}</button>` +
+    `<button class="icon-btn" data-act="undo" data-i18n-title="web.toolbar.undo.title" title="Undo" data-foldable="true">${TIC.undo}</button>` +
+    `<button class="icon-btn" data-act="redo" data-i18n-title="web.toolbar.redo.title" title="Redo" data-foldable="true">${TIC.redo}</button>` +
+    `<button class="icon-btn" data-act="theme" data-i18n-title="web.toolbar.theme.title" title="Toggle theme" data-foldable="true">${TIC.theme}</button>` +
+    `<button class="icon-btn" data-act="lang" data-i18n-title="web.toolbar.lang.title" title="Language" data-foldable="true"><span class="lang-label"></span></button>` +
+    `<button class="icon-btn" data-act="info" data-i18n-title="web.toolbar.info.title" title="Help / About" data-foldable="true">${TIC.info}</button>` +
     "</div>" +
     `<button class="tbtn more-btn" data-act="menu" data-i18n-title="web.toolbar.more.title" title="More actions">${TIC.more}</button>` +
     "</header>" +
@@ -230,12 +232,12 @@ function appHTML(): string {
     `<button class="clear" data-act="searchclear" data-i18n-title="web.search.clear.title" title="clear">${TIC.close}</button></div>` +
     `<button class="tbtn tf-btn" data-act="filter" data-i18n-title="web.toolbar.typefilter.title" title="Type filter">${TIC.filter}<span class="label-hide" data-i18n="web.toolbar.typefilter.label">Type filter</span><span class="dot"></span></button>` +
     '<div class="tgroup nav-grp">' +
-    `<button class="icon-btn" data-act="expandall" data-i18n-title="web.toolbar.expandAll.title" title="Expand all">${TIC.expand}</button>` +
-    `<button class="icon-btn" data-act="collapseall" data-i18n-title="web.toolbar.collapseAll.title" title="Collapse all">${TIC.collapse}</button>` +
+    `<button class="icon-btn" data-act="expandall" data-i18n-title="web.toolbar.expandAll.title" title="Expand all" data-foldable="true">${TIC.expand}</button>` +
+    `<button class="icon-btn" data-act="collapseall" data-i18n-title="web.toolbar.collapseAll.title" title="Collapse all" data-foldable="true">${TIC.collapse}</button>` +
     "</div>" +
     // Single toggle button (label = the view it switches TO); folds into ⋯.
     '<div class="tgroup viewtabs">' +
-    '<button class="tbtn viewtoggle" data-act="toggleview" data-i18n-title="web.toolbar.viewToggle.title" title="Toggle Tree / Raw view">Raw</button>' +
+    '<button class="tbtn viewtoggle" data-act="toggleview" data-i18n-title="web.toolbar.viewToggle.title" title="Toggle Tree / Raw view" data-foldable="true">Raw</button>' +
     "</div>" +
     "</div>" +
     '<div class="body">' +
@@ -349,6 +351,9 @@ function render() {
   fabEl.classList.toggle("paste-cut", armed && snap.clipboard_cut);
   fabEl.innerHTML = armed ? PASTE_IC : IC.plus;
   fabEl.setAttribute("aria-label", armed ? "paste" : "add node");
+  // Toolbar language label — mirrors desktop `#langLabel`.
+  const langLabelEl = app.querySelector<HTMLElement>('[data-act="lang"] .lang-label');
+  if (langLabelEl) langLabelEl.textContent = getLang() === "zh-TW" ? "繁" : "EN";
   // View toggle: label is the view tapping switches TO; `active` while in Raw.
   const vt = app.querySelector<HTMLElement>(".viewtoggle");
   if (vt) {
@@ -490,16 +495,35 @@ function mi(ic: string, label: string, sc: string, id: string): string {
 }
 // The collapsible toolbar/filter controls, in display order. The ⋯ menu lists
 // only the ones currently folded away (their toolbar control is hidden), so it
-// tracks the responsive breakpoints instead of hardcoding a fixed set. Each item
-// names its toolbar selector + the action to run when picked.
-const MENU_CANDIDATES: Array<{ sel: string; ic: string; labelKey: string; run: () => void }> = [
-  { sel: '[data-act="undo"]', ic: IC.undo, labelKey: "web.menu.undo", run: () => send("Undo") },
-  { sel: '[data-act="redo"]', ic: IC.redo, labelKey: "web.menu.redo", run: () => send("Redo") },
-  { sel: '[data-act="theme"]', ic: IC.sun, labelKey: "web.menu.toggleTheme", run: toggleTheme },
-  { sel: '[data-act="info"]', ic: IC.help, labelKey: "web.menu.helpAbout", run: () => send("EnterHelp") },
-  { sel: '[data-act="expandall"]', ic: IC.expand, labelKey: "web.menu.expandAll", run: () => send("ExpandAll") },
-  { sel: '[data-act="collapseall"]', ic: IC.collapse, labelKey: "web.menu.collapseAll", run: () => send("CollapseAll") },
-  { sel: '[data-act="toggleview"]', ic: IC.open, labelKey: "web.menu.toggleView", run: () => setRawView(!rawView) },
+// tracks the responsive breakpoints instead of hardcoding a fixed set. `key` is
+// the `[data-act="…"]` selector `isFolded` checks (shared `ToolbarEntry` type
+// with the desktop UI's `TOOLBAR_ENTRIES`); a button added to `.edit-grp`/
+// `.nav-grp`/`.viewtabs` (marked `data-foldable`) without a matching entry here
+// is caught by `web/toolbar-fold.spec.mjs`.
+const MENU_CANDIDATES: ToolbarEntry[] = [
+  { key: '[data-act="undo"]', icon: IC.undo, labelKey: "web.menu.undo", run: () => send("Undo") },
+  { key: '[data-act="redo"]', icon: IC.redo, labelKey: "web.menu.redo", run: () => send("Redo") },
+  { key: '[data-act="theme"]', icon: IC.sun, labelKey: "web.menu.toggleTheme", run: toggleTheme },
+  {
+    key: '[data-act="lang"]',
+    icon: '<span class="ic" aria-hidden="true">\u{1F310}</span>',
+    labelKey: "web.toolbar.lang.title",
+    run: openLangSheet,
+  },
+  { key: '[data-act="info"]', icon: IC.help, labelKey: "web.menu.helpAbout", run: () => send("EnterHelp") },
+  { key: '[data-act="expandall"]', icon: IC.expand, labelKey: "web.menu.expandAll", run: () => send("ExpandAll") },
+  {
+    key: '[data-act="collapseall"]',
+    icon: IC.collapse,
+    labelKey: "web.menu.collapseAll",
+    run: () => send("CollapseAll"),
+  },
+  {
+    key: '[data-act="toggleview"]',
+    icon: IC.open,
+    labelKey: "web.menu.toggleView",
+    run: () => setRawView(!rawView),
+  },
 ];
 // A toolbar control is "folded" (→ belongs in the menu) when it's not laid out
 // (its group is display:none, so offsetParent is null).
@@ -507,10 +531,7 @@ function isFolded(sel: string): boolean {
   const el = app.querySelector<HTMLElement>(sel);
   return !!el && el.offsetParent === null;
 }
-// Language picker entry: unconditional (not toolbar-folded — there's no
-// dedicated toolbar control on touch; per the all-bottom-sheet convention this
-// control lives only in the ⋯ menu). Applies the chosen language, syncs core,
-// re-renders.
+// Applies the chosen language, syncs core, re-renders.
 function chooseLang(lang: Lang) {
   setLang(lang);
   if (session) send({ SetLang: getLang() });
@@ -545,21 +566,20 @@ function openLangSheet() {
 }
 
 function openMenuSheet() {
-  const folded = MENU_CANDIDATES.filter((c) => isFolded(c.sel));
-  const langGlyph = '<span class="ic" aria-hidden="true">\u{1F310}</span>';
+  const folded = foldedEntries(MENU_CANDIDATES, isFolded);
   sheets.menu.innerHTML =
     '<div class="grab"></div>' +
     `<div class="sheet-head"><h3>${t("web.toolbar.more.title")}</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
     '<div class="sheet-body">' +
-    mi(langGlyph, `${t("web.toolbar.lang.title")} (${getLang() === "zh-TW" ? "繁" : "EN"})`, "", "lang") +
-    folded.map((c, i) => mi(c.ic, t(c.labelKey), "", String(i))).join("") +
+    folded.map((c, i) => mi(c.icon ?? "", t(c.labelKey), "", String(i))).join("") +
     "</div>";
-  const langItem = sheets.menu.querySelector<HTMLElement>('[data-mi="lang"]');
-  langItem?.addEventListener("click", () => openLangSheet());
-  sheets.menu.querySelectorAll<HTMLElement>(".menu-item:not([data-mi='lang'])").forEach((it) => {
+  sheets.menu.querySelectorAll<HTMLElement>(".menu-item").forEach((it) => {
     it.addEventListener("click", () => {
       const id = it.dataset.mi!;
       const c = folded[Number(id)];
+      // Theme toggle intentionally stays open (so you can see the effect); every
+      // other entry — including the lang sheet-to-sheet transition — closes the
+      // ⋯ menu first.
       if (c.run !== toggleTheme) closeSheets();
       c.run();
     });
@@ -1142,6 +1162,9 @@ function installShellHandlers() {
         break;
       case "theme":
         toggleTheme();
+        break;
+      case "lang":
+        openLangSheet();
         break;
       case "info":
         send("EnterHelp");
