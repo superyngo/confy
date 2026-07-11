@@ -182,6 +182,5 @@
   "web.help.title": "confy web — 按鍵",
   "web.help.tab.help": "說明",
   "web.help.tab.about": "關於",
-  "web.about.language": "語言： {0}",
-  "web.about.storage": "語言偏好儲存在此瀏覽器的本機儲存空間（桌面應用程式：WebView 的持久性儲存）— 沒有檔案路徑可揭露。"
+  "web.about.language": "語言： {0}"
 }

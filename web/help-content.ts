@@ -2,7 +2,7 @@
 // `web/ui.ts`) and the touch edit UI (Task 7). Extracted from `web/ui.ts` so
 // both surfaces render identical copy.
 import { escapeHtml } from "./escape.js";
-import { t, tArgs, getLang } from "./i18n.js";
+import { tArgs, getLang } from "./i18n.js";
 export const HELP_TEXT = `confy web — keys
 j/k or ↑/↓     move cursor
 Enter/Space    toggle branch / edit leaf / activate
@@ -20,10 +20,7 @@ q              quit (prompts if dirty)
 ── pointer ──────────────────────────────────────
 click          select          ⇧click   range-select
 ⌘click         multi-select    drag     marquee / move
-right-click    context menu
-
-Open (Ctrl-o) and in-place Save need the File System Access API
-(Chrome/Edge). Other browsers fall back to the paste-load / download path.`;
+right-click    context menu`;
 
 // zh-TW translation of HELP_TEXT (Phase 4). Shortcut key names (j/k, Ctrl-s,
 // …) and mouse-button names stay untranslated — project/platform vocabulary,
@@ -45,10 +42,7 @@ q              離開（若有未儲存變更會提示）
 ── 指標裝置 ──────────────────────────────────────
 click          選取            ⇧click   範圍選取
 ⌘click         多選            drag     套索選取／拖曳移動
-right-click    右鍵選單
-
-開啟（Ctrl-o）與原地儲存需要 File System Access API
-（Chrome/Edge）。其他瀏覽器會改用貼上載入／下載路徑。`;
+right-click    右鍵選單`;
 
 // Per-format KIND legend appended to the Help overlay, keyed by `doc_format`
 // (ported from the TUI's TOML_HELP/JSON_HELP/YAML_HELP KIND column). The kind
@@ -83,11 +77,9 @@ function helpLineHTML(line: string): string {
 //
 // `aboutText` is the core-catalog body (`ConfySession.about_text()`, mirrors
 // `crates/confy-core/src/session/state.rs::about_text`) — the web layer no
-// longer hand-mirrors it (that was a documented drift hazard). Two host-owned
-// lines are appended, mirroring the TUI's `tui.about.language`/`Config:`
-// disclosure: the active language code, and where the preference is stored
-// (browser localStorage — no filesystem path to disclose on the web/desktop
-// host, unlike the TUI's config file).
+// longer hand-mirrors it (that was a documented drift hazard). One host-owned
+// line is appended, mirroring the TUI's `tui.about.language` disclosure: the
+// active language code.
 export function helpBodyHTML(
   tab: "Help" | "About",
   docFormat: string,
@@ -97,9 +89,7 @@ export function helpBodyHTML(
     const body =
       aboutText.replace(/\n+$/, "") +
       "\n\n" +
-      tArgs("web.about.language", [getLang()]) +
-      "\n" +
-      t("web.about.storage");
+      tArgs("web.about.language", [getLang()]);
     return escapeHtml(body).replace(
       /(https:\/\/\S+)/,
       '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>',

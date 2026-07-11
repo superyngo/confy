@@ -181,6 +181,5 @@
   "web.help.title": "confy web — keys",
   "web.help.tab.help": "Help",
   "web.help.tab.about": "About",
-  "web.about.language": "Language: {0}",
-  "web.about.storage": "Preference stored in this browser's local storage (desktop app: the WebView's persistent storage) — no filesystem path to disclose."
+  "web.about.language": "Language: {0}"
 }
