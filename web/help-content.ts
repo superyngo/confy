@@ -100,7 +100,7 @@ export function helpBodyHTML(
     getLang() === "zh-TW"
       ? (KIND_LEGEND_ZH_TW[docFormat] ?? "")
       : (KIND_LEGEND[docFormat] ?? "");
-  return (helpText + "\n" + legend).split("\n").map(helpLineHTML).join("\n");
+  return (helpText + "\n\n" + legend).split("\n").map(helpLineHTML).join("\n");
 }
 
 export const KIND_LEGEND: Record<string, string> = {
