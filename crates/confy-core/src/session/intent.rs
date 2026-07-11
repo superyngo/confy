@@ -179,4 +179,10 @@ pub enum Intent {
     PromptKey(char),
     QuitRequested,
     Save,
+
+    // ---- i18n ----
+    /// Switch the UI language. A string (not the `Lang` enum) to keep the wasm
+    /// wire contract simple; an unrecognized code leaves the current language
+    /// unchanged (never panics).
+    SetLang(String),
 }

@@ -231,15 +231,27 @@ impl super::Session {
                     quit = self.quit_requested();
                 }
             }
+            // ---- i18n ----
+            Intent::SetLang(code) => {
+                if let Ok(lang) = code.parse::<crate::session::i18n::Lang>() {
+                    self.set_lang(lang);
+                }
+                // Unrecognized code: leave the current language unchanged.
+            }
+
             Intent::Save => {
                 // FS-free: the host obtains bytes via `serialize()` and writes/
                 // downloads. Core just clears the dirty flag + reports status.
                 if let Some(d) = self.doc.as_mut() {
                     if d.is_dirty() {
                         d.mark_saved();
-                        self.status = Some("Saved".into());
+                        self.status = Some(
+                            crate::session::i18n::tr(self.lang, "core.save.saved").to_string(),
+                        );
                     } else {
-                        self.status = Some("no changes to save".into());
+                        self.status = Some(
+                            crate::session::i18n::tr(self.lang, "core.save.nothing").to_string(),
+                        );
                     }
                 }
             }
@@ -282,6 +294,7 @@ impl super::Session {
                 .unwrap_or_default(),
             type_filter_active: self.type_filter.is_active(),
             quit: false,
+            lang: self.lang.code().to_string(),
         }
     }
 
@@ -299,7 +312,7 @@ impl super::Session {
             .map(|n| n.read_only)
             .unwrap_or(false)
         {
-            self.status = Some("read-only node (block comment)".into());
+            self.status = Some(crate::session::i18n::tr(self.lang, "core.readonly").to_string());
             return;
         }
         if let Some(node) = self.tree.node_at(&cursor_path) {

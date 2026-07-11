@@ -3,6 +3,7 @@ use crate::model::document::{
     ConfigDocument, DocFormat, MutateError, Mutation, OnCollision, Target,
 };
 use crate::model::node::{Format, KeySign, NodeKind, NodeTree, Path, ScalarType, Seg, VisibleRow};
+use crate::session::i18n::{tr, tr_args, Lang};
 use crate::session::search::{fuzzy_match, haystack};
 use crate::session::selection::Selection;
 use crate::session::state::{
@@ -44,6 +45,9 @@ pub struct Session {
     /// fall back into `Mode::Edit` (the one-shot host has no live editor) and —
     /// when `true` — returns to `Mode::Detail` so the host's panel stays open.
     pub prompt_from_commit_edit: Option<bool>,
+    /// Active UI language (§i18n Phase 1). Drives `tr`/`tr_args` lookups for
+    /// status/error text; default `En`.
+    pub lang: Lang,
 }
 
 /// Paste-mode slot navigation step: a relative move or a jump to either edge.
@@ -91,7 +95,14 @@ impl Session {
             pending_trailing: None,
             pending_external_edit: None,
             prompt_from_commit_edit: None,
+            lang: Lang::default(),
         }
+    }
+
+    /// Switch the active UI language. Subsequent status/error text uses the
+    /// new language's catalog.
+    pub fn set_lang(&mut self, lang: Lang) {
+        self.lang = lang;
     }
 
     // ---- Visible rows (pure) ----
@@ -682,7 +693,7 @@ impl Session {
         };
         let options = doc.kind_options(&path);
         if options.is_empty() {
-            self.error = Some("this node's kind cannot be switched".into());
+            self.error = Some(tr(self.lang, "core.kind-switch.unsupported").to_string());
             return;
         }
         self.mode = Mode::KindSwitch(KindSwitchState {
@@ -718,9 +729,15 @@ impl Session {
         }) {
             Ok(()) => {
                 self.on_mutation_success();
-                self.status = Some(format!("converted to {label}"));
+                self.status = Some(tr_args(self.lang, "core.kind-switch.converted", &[&label]));
             }
-            Err(e) => self.error = Some(format!("kind switch: {e}")),
+            Err(e) => {
+                self.error = Some(tr_args(
+                    self.lang,
+                    "core.kind-switch.error",
+                    &[&e.to_string()],
+                ))
+            }
         }
     }
 
@@ -741,9 +758,15 @@ impl Session {
         match doc.apply(Mutation::ConvertKind { path, target }) {
             Ok(()) => {
                 self.on_mutation_success();
-                self.status = Some("converted".into());
+                self.status = Some(tr(self.lang, "core.kind-switch.converted-generic").to_string());
             }
-            Err(e) => self.error = Some(format!("kind switch: {e}")),
+            Err(e) => {
+                self.error = Some(tr_args(
+                    self.lang,
+                    "core.kind-switch.error",
+                    &[&e.to_string()],
+                ))
+            }
         }
     }
 
@@ -759,7 +782,7 @@ impl Session {
             return;
         };
         if !is_root {
-            self.error = Some("convert: move to the root/file node first (key C)".into());
+            self.error = Some(tr(self.lang, "core.convert.root-only").to_string());
             return;
         }
         let Some(doc) = &self.doc else {
@@ -906,7 +929,11 @@ impl Session {
                 }
             }
             Err(abort) => {
-                self.error = Some(format!("conversion aborted: {abort}"));
+                self.error = Some(tr_args(
+                    self.lang,
+                    "core.convert.aborted",
+                    &[&abort.to_string()],
+                ));
                 self.mode = self.resting_mode();
                 None
             }
@@ -963,10 +990,14 @@ impl Session {
         };
         let mut detail = if node.is_branch() {
             let (type_str, fmt_str) = branch_type_format(&node.kind);
-            let children = node.children.len();
-            format!(
-                "Path:     {dotted}\nType:     {type_str}\nFormat:   {fmt_str}\nChildren: {children}"
-            )
+            let children = node.children.len().to_string();
+            [
+                tr_args(self.lang, "core.detail.path", &[&dotted]),
+                tr_args(self.lang, "core.detail.type", &[type_str]),
+                tr_args(self.lang, "core.detail.format", &[fmt_str]),
+                tr_args(self.lang, "core.detail.children", &[&children]),
+            ]
+            .join("\n")
         } else {
             let type_str = match &node.kind {
                 NodeKind::Scalar(st) => format!("{st:?}").to_lowercase(),
@@ -974,12 +1005,20 @@ impl Session {
             };
             let val_str = node.value.as_deref().unwrap_or("");
             let fmt_str = format_label(node.format).unwrap_or("plain");
-            format!("Path:     {dotted}\nType:     {type_str}\nFormat:   {fmt_str}\nValue:    {val_str}")
+            [
+                tr_args(self.lang, "core.detail.path", &[&dotted]),
+                tr_args(self.lang, "core.detail.type", &[&type_str]),
+                tr_args(self.lang, "core.detail.format", &[fmt_str]),
+                tr_args(self.lang, "core.detail.value", &[val_str]),
+            ]
+            .join("\n")
         };
         let sign_str = key_sign_label(node.key_sign);
-        detail.push_str(&format!("\nSign:     {sign_str}"));
+        detail.push('\n');
+        detail.push_str(&tr_args(self.lang, "core.detail.sign", &[sign_str]));
         if let Some(tc) = &node.trailing_comment {
-            detail.push_str(&format!("\nComment:  {tc}"));
+            detail.push('\n');
+            detail.push_str(&tr_args(self.lang, "core.detail.comment", &[tc]));
         }
         self.detail_text = Some(detail);
         self.mode = Mode::Detail;
@@ -1490,11 +1529,15 @@ impl Session {
             match ok {
                 Ok(()) => self.on_mutation_success(),
                 Err(MutateError::Fragment(msg)) => {
-                    self.status = Some(format!("invalid comment: {msg}"));
+                    self.status = Some(tr_args(self.lang, "core.comment.invalid", &[&msg]));
                     self.mode = Mode::Edit(e);
                 }
                 Err(err) => {
-                    self.status = Some(format!("error: {err}"));
+                    self.status = Some(tr_args(
+                        self.lang,
+                        "core.error.generic",
+                        &[&err.to_string()],
+                    ));
                     self.mode = Mode::Edit(e);
                 }
             }
@@ -1525,10 +1568,7 @@ impl Session {
                     .unwrap_or(false)
             });
             if in_inline {
-                self.status = Some(
-                    "inline collection can't hold a trailing comment — switch to multiline (K) first"
-                        .into(),
-                );
+                self.status = Some(tr(self.lang, "core.trailing.inline-unsupported").to_string());
                 self.mode = Mode::Edit(e);
                 return;
             }
@@ -1551,7 +1591,7 @@ impl Session {
             let new_name = name_str.trim().to_string();
             if new_name != e.key {
                 if new_name.is_empty() {
-                    self.status = Some("key cannot be empty".into());
+                    self.status = Some(tr(self.lang, "core.rename.empty-key").to_string());
                     self.mode = Mode::Edit(e);
                     return;
                 }
@@ -1572,7 +1612,11 @@ impl Session {
                     .flatten();
                 if let Some(new_label) = new_label {
                     if new_label != old_label {
-                        self.status = Some(format!("type {old_label} → {new_label}? y/n"));
+                        self.status = Some(tr_args(
+                            self.lang,
+                            "core.type-change",
+                            &[&old_label, &new_label],
+                        ));
                         self.pending_edit = Some((
                             e,
                             PendingCommit::Rename {
@@ -1610,7 +1654,11 @@ impl Session {
                         frag_key = new_name;
                     }
                     Err(err) => {
-                        self.status = Some(format!("rename failed: {err}"));
+                        self.status = Some(tr_args(
+                            self.lang,
+                            "core.rename.failed",
+                            &[&err.to_string()],
+                        ));
                         self.mode = Mode::Edit(e);
                         return;
                     }
@@ -1630,7 +1678,7 @@ impl Session {
                 match doc.value_kind(&value_str) {
                     Ok(kind) => (fragment, node_type_label_str(&kind).to_string()),
                     Err(msg) => {
-                        self.status = Some(format!("invalid value: {msg}"));
+                        self.status = Some(tr_args(self.lang, "core.value.invalid", &[&msg]));
                         self.mode = Mode::Edit(e);
                         return;
                     }
@@ -1647,7 +1695,11 @@ impl Session {
         )
         .to_string();
         if new_label != old_label {
-            self.status = Some(format!("type {old_label} → {new_label}? y/n"));
+            self.status = Some(tr_args(
+                self.lang,
+                "core.type-change",
+                &[&old_label, &new_label],
+            ));
             self.pending_edit = Some((e, PendingCommit::Replace(fragment)));
             self.mode = Mode::Prompt(PromptKind::TypeChange {
                 from: old_label,
@@ -1667,7 +1719,11 @@ impl Session {
             None => return,
         };
         if let Err(err) = res {
-            self.error = Some(format!("rename failed: {err}"));
+            self.error = Some(tr_args(
+                self.lang,
+                "core.rename.failed",
+                &[&err.to_string()],
+            ));
             return;
         }
         self.on_mutation_success();
@@ -1704,15 +1760,21 @@ impl Session {
             Ok(()) => {
                 if let Some(comment) = trailing {
                     if let Err(e) = doc.apply(Mutation::SetTrailingComment { path, comment }) {
-                        self.error = Some(format!("comment update failed: {e}"));
+                        self.error = Some(tr_args(
+                            self.lang,
+                            "core.trailing.update-failed",
+                            &[&e.to_string()],
+                        ));
                     }
                 }
                 self.on_mutation_success();
             }
             Err(MutateError::Fragment(msg)) => {
-                self.error = Some(format!("invalid {fmt}: {msg}"));
+                self.error = Some(tr_args(self.lang, "core.fragment.invalid", &[fmt, &msg]));
             }
-            Err(e) => self.error = Some(format!("error: {e}")),
+            Err(e) => {
+                self.error = Some(tr_args(self.lang, "core.error.generic", &[&e.to_string()]))
+            }
         }
     }
 
@@ -1742,7 +1804,13 @@ impl Session {
         });
         match doc.apply(Mutation::SetTrailingComment { path, comment }) {
             Ok(()) => self.on_mutation_success(),
-            Err(e) => self.error = Some(format!("comment update failed: {e}")),
+            Err(e) => {
+                self.error = Some(tr_args(
+                    self.lang,
+                    "core.trailing.update-failed",
+                    &[&e.to_string()],
+                ))
+            }
         }
     }
 
@@ -1754,9 +1822,11 @@ impl Session {
         match doc.apply(Mutation::EditComment { path, text }) {
             Ok(()) => self.on_mutation_success(),
             Err(MutateError::Fragment(msg)) => {
-                self.error = Some(format!("invalid comment: {msg}"));
+                self.error = Some(tr_args(self.lang, "core.comment.invalid", &[&msg]));
             }
-            Err(e) => self.error = Some(format!("error: {e}")),
+            Err(e) => {
+                self.error = Some(tr_args(self.lang, "core.error.generic", &[&e.to_string()]))
+            }
         }
     }
 
@@ -1963,7 +2033,7 @@ impl Session {
                     e.created_on_add = true;
                 }
             } else {
-                self.status = Some("added placeholder node — rename with e".into());
+                self.status = Some(tr(self.lang, "core.add.placeholder").to_string());
             }
         }
     }
@@ -1974,7 +2044,7 @@ impl Session {
             None => return,
         };
         if !doc.supports_comments() {
-            self.status = Some("comments not supported here".into());
+            self.status = Some(tr(self.lang, "core.comment.unsupported").to_string());
             return;
         }
         // A leading blank line keeps the new comment a *separate* single-line node
@@ -1987,7 +2057,7 @@ impl Session {
         }) {
             Ok(()) => self.on_mutation_success(),
             Err(e) => {
-                self.error = Some(format!("add error: {e}"));
+                self.error = Some(tr_args(self.lang, "core.add.error", &[&e.to_string()]));
                 return;
             }
         }
@@ -2019,14 +2089,14 @@ impl Session {
         }) {
             Ok(()) => self.on_mutation_success(),
             Err(MutateError::Collision(key)) => {
-                self.error = Some(format!(
-                    "key collision: {key} (rename/overwrite not yet prompted)"
-                ));
+                self.error = Some(tr_args(self.lang, "core.insert.collision", &[&key]));
             }
             Err(MutateError::Fragment(msg)) => {
-                self.error = Some(format!("invalid {fmt}: {msg}"));
+                self.error = Some(tr_args(self.lang, "core.fragment.invalid", &[fmt, &msg]));
             }
-            Err(e) => self.error = Some(format!("error: {e}")),
+            Err(e) => {
+                self.error = Some(tr_args(self.lang, "core.error.generic", &[&e.to_string()]))
+            }
         }
     }
 
@@ -2047,7 +2117,7 @@ impl Session {
 
     pub fn delete_selected(&mut self) {
         if self.cursor_is_read_only() {
-            self.status = Some("read-only node (block comment)".into());
+            self.status = Some(tr(self.lang, "core.readonly").to_string());
             return;
         }
         let paths = self.selected_paths();
@@ -2062,7 +2132,7 @@ impl Session {
         };
         for p in &paths {
             if let Err(e) = doc.apply(Mutation::Delete { path: p.clone() }) {
-                self.error = Some(format!("delete error: {e}"));
+                self.error = Some(tr_args(self.lang, "core.delete.error", &[&e.to_string()]));
                 return;
             }
         }
@@ -2080,17 +2150,20 @@ impl Session {
     /// Shared copy/cut capture. `cut` selects the clipboard mode, the toggle
     /// message, and (cut only) the read-only guard.
     fn capture_selected(&mut self, cut: bool) {
-        let verb = if cut { "cut" } else { "copied" };
         if cut && self.cursor_is_read_only() {
-            self.status = Some("read-only node (block comment)".into());
+            self.status = Some(tr(self.lang, "core.readonly").to_string());
             return;
         }
         if let Some(cb) = &mut self.clipboard {
             if cb.cut != cut {
                 cb.cut = cut;
-                let n = cb.fragments.len();
-                let from = if cut { "copy" } else { "cut" };
-                self.status = Some(format!("{verb} {n} node(s) [changed from {from}]"));
+                let n = cb.fragments.len().to_string();
+                let key = if cut {
+                    "core.clipboard.cut-changed"
+                } else {
+                    "core.clipboard.copied-changed"
+                };
+                self.status = Some(tr_args(self.lang, key, &[&n]));
             }
             return;
         }
@@ -2112,17 +2185,20 @@ impl Session {
             sources: paths,
         });
         self.paste_slot = None;
-        self.status = Some(format!(
-            "{verb} {} node(s)",
-            self.clipboard.as_ref().unwrap().fragments.len()
-        ));
+        let n = self.clipboard.as_ref().unwrap().fragments.len().to_string();
+        let key = if cut {
+            "core.clipboard.cut"
+        } else {
+            "core.clipboard.copied"
+        };
+        self.status = Some(tr_args(self.lang, key, &[&n]));
     }
 
     pub fn paste(&mut self) {
         let cb = match self.clipboard.take() {
             Some(cb) => cb,
             None => {
-                self.status = Some("clipboard empty".into());
+                self.status = Some(tr(self.lang, "core.clipboard.empty").to_string());
                 return;
             }
         };
@@ -2153,7 +2229,7 @@ impl Session {
             .iter()
             .any(|s| target == *s || (target.len() > s.len() && target.starts_with(s)))
         {
-            self.error = Some("can't move a node into itself".into());
+            self.error = Some(tr(self.lang, "core.move.self").to_string());
             return;
         }
         let doc = self.doc.as_ref().unwrap();
@@ -2253,7 +2329,7 @@ impl Session {
                 Dest::Prompt => {
                     self.clipboard = Some(rebuild(is_cut, &node_entries, &comment_entries));
                     self.status =
-                        Some("single-line array — reformat to multiline and insert? y/n".into());
+                        Some(tr(self.lang, "core.paste.array-upgrade-confirm").to_string());
                     self.mode = Mode::Prompt(PromptKind::ArrayUpgrade {
                         target,
                         on_collision,
@@ -2262,9 +2338,7 @@ impl Session {
                 }
                 Dest::Illegal => {
                     self.clipboard = Some(rebuild(is_cut, &node_entries, &comment_entries));
-                    self.error = Some(
-                        "paste error: comments can only go into a table or the document".into(),
-                    );
+                    self.error = Some(tr(self.lang, "core.paste.comment-illegal").to_string());
                     return;
                 }
             }
@@ -2282,13 +2356,14 @@ impl Session {
                     Ok(()) => {}
                     Err(MutateError::Collision(key)) => {
                         self.clipboard = Some(rebuild(is_cut, &node_entries, &comment_entries));
-                        self.error = Some(format!("collision on key '{key}' — o/r/c"));
+                        self.error = Some(tr_args(self.lang, "core.paste.collision", &[&key]));
                         self.mode = Mode::Prompt(PromptKind::Collision { key });
                         return;
                     }
                     Err(e) => {
                         self.clipboard = Some(rebuild(is_cut, &node_entries, &comment_entries));
-                        self.error = Some(format!("paste error: {e}"));
+                        self.error =
+                            Some(tr_args(self.lang, "core.paste.error", &[&e.to_string()]));
                         return;
                     }
                 }
@@ -2326,14 +2401,15 @@ impl Session {
                     Err(MutateError::Collision(key)) => {
                         self.clipboard =
                             Some(rebuild(is_cut, &node_entries[i..], &comment_entries));
-                        self.error = Some(format!("collision on key '{key}' — o/r/c"));
+                        self.error = Some(tr_args(self.lang, "core.paste.collision", &[&key]));
                         self.mode = Mode::Prompt(PromptKind::Collision { key });
                         return;
                     }
                     Err(e) => {
                         self.clipboard =
                             Some(rebuild(is_cut, &node_entries[i..], &comment_entries));
-                        self.error = Some(format!("paste error: {e}"));
+                        self.error =
+                            Some(tr_args(self.lang, "core.paste.error", &[&e.to_string()]));
                         return;
                     }
                 }
@@ -2376,7 +2452,7 @@ impl Session {
                 if let Err(e) = doc.apply(Mutation::Delete { path: src.clone() }) {
                     self.on_mutation_success();
                     self.clipboard = Some(rebuild(is_cut, &[], &comment_entries[..=oi]));
-                    self.error = Some(format!("paste error: {e}"));
+                    self.error = Some(tr_args(self.lang, "core.paste.error", &[&e.to_string()]));
                     return;
                 }
             }
@@ -2388,7 +2464,7 @@ impl Session {
                 let end = if is_cut { oi } else { oi + 1 };
                 self.on_mutation_success();
                 self.clipboard = Some(rebuild(is_cut, &[], &comment_entries[..end]));
-                self.error = Some(format!("paste error: {e}"));
+                self.error = Some(tr_args(self.lang, "core.paste.error", &[&e.to_string()]));
                 return;
             }
         }
@@ -2432,7 +2508,7 @@ impl Session {
 
     pub fn remark(&mut self) {
         if self.cursor_is_read_only() {
-            self.status = Some("read-only node (block comment)".into());
+            self.status = Some(tr(self.lang, "core.readonly").to_string());
             return;
         }
         let rows = self.visible_rows();
@@ -2467,9 +2543,9 @@ impl Session {
         match doc.apply(Mutation::Remark { path }) {
             Ok(()) => self.on_mutation_success(),
             Err(MutateError::Fragment(_)) => {
-                self.status = Some("not valid comment, kept as-is".into());
+                self.status = Some(tr(self.lang, "core.remark.invalid").to_string());
             }
-            Err(e) => self.error = Some(format!("remark error: {e}")),
+            Err(e) => self.error = Some(tr_args(self.lang, "core.remark.error", &[&e.to_string()])),
         }
     }
 
@@ -2479,7 +2555,7 @@ impl Session {
         let snapshot = match self.history.as_mut().and_then(|h| h.undo()) {
             Some(s) => s,
             None => {
-                self.status = Some("nothing to undo".into());
+                self.status = Some(tr(self.lang, "core.undo.empty").to_string());
                 return;
             }
         };
@@ -2492,7 +2568,7 @@ impl Session {
                 self.tree = doc.project();
                 self.status = None;
             }
-            Err(e) => self.error = Some(format!("undo restore error: {e}")),
+            Err(e) => self.error = Some(tr_args(self.lang, "core.undo.error", &[&e.to_string()])),
         }
     }
 
@@ -2500,7 +2576,7 @@ impl Session {
         let snapshot = match self.history.as_mut().and_then(|h| h.redo()) {
             Some(s) => s,
             None => {
-                self.status = Some("nothing to redo".into());
+                self.status = Some(tr(self.lang, "core.redo.empty").to_string());
                 return;
             }
         };
@@ -2513,7 +2589,7 @@ impl Session {
                 self.tree = doc.project();
                 self.status = None;
             }
-            Err(e) => self.error = Some(format!("redo restore error: {e}")),
+            Err(e) => self.error = Some(tr_args(self.lang, "core.redo.error", &[&e.to_string()])),
         }
     }
 
@@ -2550,14 +2626,14 @@ impl Session {
                 if self.clipboard.is_some() {
                     self.clipboard = None;
                     self.status = if !self.selection.is_empty() {
-                        Some("clipboard cleared".into())
+                        Some(tr(self.lang, "core.clipboard.cleared").to_string())
                     } else {
                         None
                     };
                 } else if !self.selection.is_empty() {
                     self.selection.clear();
                     self.last_action_was_shift_select = false;
-                    self.status = Some("selection cleared".into());
+                    self.status = Some(tr(self.lang, "core.selection.cleared").to_string());
                 }
             }
         }
@@ -2658,7 +2734,7 @@ impl Session {
             Mode::Prompt(PromptKind::ArrayUpgrade { .. }) => {
                 if c != 'y' {
                     self.mode = Mode::Normal;
-                    self.status = Some("paste cancelled — clipboard kept".into());
+                    self.status = Some(tr(self.lang, "core.paste.cancelled").to_string());
                     return false;
                 }
                 let (target, oc) = match &self.mode {
@@ -2721,7 +2797,7 @@ impl Session {
         let dirty = self.doc.as_ref().map(|d| d.is_dirty()).unwrap_or(false);
         if dirty {
             self.mode = Mode::Prompt(PromptKind::ConfirmQuit);
-            self.status = Some("unsaved changes — quit? y/n".into());
+            self.status = Some(tr(self.lang, "core.quit.confirm").to_string());
             false
         } else {
             true

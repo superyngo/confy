@@ -149,6 +149,7 @@ export interface SessionSnapshot {
   clipboard_paths: Path[]; // source node paths captured in the clipboard
   type_filter_active: boolean; // a committed type filter is narrowing the rows
   quit: boolean;
+  lang: string; // active UI language code ("en" / "zh-TW")
 }
 
 // ---- Intent (session::intent::Intent) ----
@@ -207,4 +208,6 @@ export type Intent =
   // Undo / Redo
   | "Undo" | "Redo"
   // Lifecycle
-  | "Escape" | { PromptKey: string } | "QuitRequested" | "Save";
+  | "Escape" | { PromptKey: string } | "QuitRequested" | "Save"
+  // i18n
+  | { SetLang: string };

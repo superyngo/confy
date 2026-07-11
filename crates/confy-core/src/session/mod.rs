@@ -1,5 +1,6 @@
 pub mod dispatch;
 pub mod host;
+pub mod i18n;
 pub mod insertion;
 pub mod intent;
 pub mod search;
@@ -11,6 +12,7 @@ pub mod type_filter;
 pub mod view;
 
 pub use host::{EditTextOutcome, Host};
+pub use i18n::{tr, tr_args, Lang};
 pub use insertion::resolve_target;
 pub use intent::Intent;
 pub use search::{fuzzy_indices, fuzzy_match, haystack};

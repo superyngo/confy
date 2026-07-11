@@ -79,6 +79,15 @@ pub const ABOUT_TEXT: &str = concat!(
     "GitHub:    https://github.com/superyngo/confy\n",
 );
 
+/// About-tab text for `lang`. Phase 1: the zh-TW body isn't translated yet
+/// (Phase 4 scope) — it falls back to the same `ABOUT_TEXT`; the plumbing
+/// exists now so hosts can call this uniformly.
+pub fn about_text(lang: crate::session::i18n::Lang) -> &'static str {
+    match lang {
+        crate::session::i18n::Lang::En | crate::session::i18n::Lang::ZhTw => ABOUT_TEXT,
+    }
+}
+
 /// In-flight `C` conversion flow state.
 pub struct ConvertState {
     pub step: ConvertStep,

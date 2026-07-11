@@ -1,0 +1,6 @@
+{
+  "core.readonly": "唯讀節點（區塊註解）",
+  "core.clipboard.empty": "剪貼簿為空",
+  "core.selection.cleared": "已清除選取",
+  "core.save.saved": "已儲存"
+}

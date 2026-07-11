@@ -652,6 +652,37 @@ fn dispatch_save_clears_dirty_flag() {
 }
 
 #[test]
+fn dispatch_set_lang_routes_status_text_through_zh_tw_catalog() {
+    let mut s = toml_session("a = 1\n");
+    s.dispatch(Intent::CursorDown);
+    s.dispatch(Intent::Nudge(1));
+    // Default lang (en): Save reports the English "Saved" status.
+    assert_eq!(s.dispatch(Intent::Save).status.as_deref(), Some("Saved"));
+    // Dirty it again, switch to zh-TW, and confirm the SAME status site now
+    // resolves through the zh-TW catalog end-to-end via dispatch/SetLang.
+    s.dispatch(Intent::Nudge(1));
+    let snap = s.dispatch(Intent::SetLang("zh-TW".into()));
+    assert_eq!(snap.lang, "zh-TW");
+    let snap = s.dispatch(Intent::Save);
+    assert_eq!(
+        snap.status.as_deref(),
+        Some(confy_core::session::tr(
+            confy_core::session::Lang::ZhTw,
+            "core.save.saved"
+        )),
+    );
+    assert_ne!(snap.status.as_deref(), Some("Saved"));
+}
+
+#[test]
+fn dispatch_set_lang_ignores_unknown_code() {
+    let mut s = toml_session("a = 1\n");
+    let snap = s.dispatch(Intent::SetLang("fr".into()));
+    // Unrecognized code leaves the current (default) language unchanged.
+    assert_eq!(snap.lang, "en");
+}
+
+#[test]
 fn dispatch_quit_clean_returns_quit_flag() {
     let mut s = toml_session("a = 1\n");
     let snap = s.dispatch(Intent::QuitRequested);

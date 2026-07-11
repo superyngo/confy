@@ -193,4 +193,6 @@ pub struct SessionSnapshot {
     pub type_filter_active: bool,
     /// The user confirmed quit — the host should exit.
     pub quit: bool,
+    /// Active UI language code (`"en"` / `"zh-TW"`), so hosts stay in sync.
+    pub lang: String,
 }

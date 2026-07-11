@@ -34,6 +34,7 @@ const src = `[server]\nhost = "localhost"\nport = 8080\n`;
 const s = new ConfySession(src, "toml");
 let snap = s.snapshot();
 check("loads TOML, format=Toml", snap.doc_format === "Toml");
+check("default lang is en", snap.lang === "en", snap.lang);
 check("starts in Normal mode", snap.mode === "Normal");
 check("root + server branch visible", snap.rows.length === 2, JSON.stringify(snap.rows.map(r => r.key)));
 
@@ -294,6 +295,20 @@ const snap18b = s18.dispatch(unit("EditCancel"));
 check("Esc after comment AddSibling removes the new comment",
   s18.serialize() === "# first\nkey = 1\n" && snap18b.mode === "Normal",
   JSON.stringify(s18.serialize()));
+
+// ---- 23. i18n: SetLang switches the reported language + status text ----
+const s19 = new ConfySession(`a = 1\n`, "toml");
+s19.dispatch(unit("CursorDown"));
+s19.dispatch(tuple("Nudge", 1));
+const savedEn = s19.dispatch(unit("Save"));
+check("Save reports English status by default", savedEn.status === "Saved", savedEn.status);
+s19.dispatch(tuple("Nudge", 1));
+const snap19 = s19.dispatch(tuple("SetLang", "zh-TW"));
+check("SetLang reports lang=zh-TW", snap19.lang === "zh-TW", snap19.lang);
+const savedZh = s19.dispatch(unit("Save"));
+check("Save after SetLang no longer says English 'Saved'", savedZh.status !== "Saved", savedZh.status);
+const snap19b = s19.dispatch(tuple("SetLang", "not-a-lang"));
+check("SetLang ignores an unknown code", snap19b.lang === "zh-TW", snap19b.lang);
 
 console.log(failures === 0 ? "\nALL FUNCTIONAL CHECKS PASSED" : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);
