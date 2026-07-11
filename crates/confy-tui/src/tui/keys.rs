@@ -37,6 +37,7 @@ pub enum KeyAction {
     Convert,
     Help,
     Rename,
+    LangPicker,
     Noop,
 }
 
@@ -82,166 +83,67 @@ pub fn map_key(key: KeyEvent) -> KeyAction {
         (KeyCode::Char('C'), _) => KeyAction::Convert,
         (KeyCode::Char('?'), _) => KeyAction::Help,
         (KeyCode::F(2), _) => KeyAction::Rename,
+        // Language picker — capital L (verified unbound; lowercase l is unused too,
+        // but the plan calls for the capital to match K/C/E's convention).
+        (KeyCode::Char('L'), _) => KeyAction::LangPicker,
         _ => KeyAction::Noop,
     }
 }
 
 /// Keybinding help text, displayed in the `?` overlay. Format-specific: the
-/// op list and KIND legend differ per backend (Phases 2–3 add their texts).
-pub fn help_text(format: crate::model::document::DocFormat) -> &'static str {
+/// op list and KIND legend differ per backend. Routed through the `tui.*`
+/// catalog (i18n Phase 2) -- `en` text is byte-identical to the old
+/// `&'static str` consts.
+pub fn help_text(
+    format: crate::model::document::DocFormat,
+    lang: confy_core::session::Lang,
+) -> String {
     use crate::model::document::DocFormat;
-    match format {
-        DocFormat::Toml => TOML_HELP,
-        // Until their backends land (load_as bails), these are unreachable;
-        // wire real texts in Phases 2–3.
-        DocFormat::Json => JSON_HELP,
-        DocFormat::Yaml => YAML_HELP,
-    }
+    use confy_core::session::tr;
+    let key = match format {
+        DocFormat::Toml => "tui.help.toml",
+        DocFormat::Json => "tui.help.json",
+        DocFormat::Yaml => "tui.help.yaml",
+    };
+    tr(lang, key).to_string()
 }
-
-const TOML_HELP: &str = "\
- j/k/Arrows  Move cursor       PgUp/PgDn  Page up/down
- Home/End     First/last row    0/9         Collapse/expand all
- 1/2          Expand/collapse one level (subtree / ascend)
- Enter/Space  Expand branch or open leaf detail
- s            Toggle select     Shift+Up/Dn Range select
- i            Detail/info popup (any node)
- e            Edit (inline/$EDITOR)  E       Force $EDITOR
- ←/→          Toggle bool / ±1 number    a   Add node
- d/Del        Delete            x/c/v       Cut/copy/paste
- F2           Rename key (inline, works for all node types)
- r            Remark toggle     z/y         Undo/redo
- K            Kind switch (scalar type / table & array notation)
- C            Convert document to another format (Root node)
- /            Fuzzy filter      f           Type filter (checkbox menu)
- /…Enter      Lock in filtered list   Esc   Clear filter / selection
- w/Ctrl+s     Save              q           Quit
- ?            This help
-
- ── KIND column ──────────────────────────────────────────────────
- Key sign (first 3 chars):
-   (B) bare key   (Q) quoted key   (D) dotted key   (-) no key
-
- Containers:
-   [G]     root/file node
-   [C]     comment node
-   [A/I]   inline array        [A/M]  multiline array
-   [A/T]   array-of-tables     [T/I]  inline table
-   [T/S]   table scope (standard [header])
-   [T/D]   dotted-key table (a.b.c = …)
-
- Scalars  [type:format]:
-   [S:str ] basic string        [S:mstr] multiline basic string
-   [S:lit ] literal string      [S:mlit] multiline literal string
-   [I:dec ] decimal integer     [I:hex ] hex integer
-   [I:oct ] octal integer       [I:bin ] binary integer
-   [F:flt ] float               [F:inf ] infinity  [F:nan ] NaN
-   [B:bool] boolean
-   [D:odt ] offset datetime     [D:ldt ] local datetime
-   [D:ldat] local date          [D:ltim] local time
- ";
-
-const JSON_HELP: &str = "\
- j/k/Arrows  Move cursor       PgUp/PgDn  Page up/down
- Home/End     First/last row    0/9         Collapse/expand all
- 1/2          Expand/collapse one level (subtree / ascend)
- Enter/Space  Expand branch or open leaf detail
- s            Toggle select     Shift+Up/Dn Range select
- i            Detail/info popup (any node)
- e            Edit (inline/$EDITOR)  E       Force $EDITOR
- ←/→          Toggle bool / ±1 number    a   Add node
- d/Del        Delete            x/c/v       Cut/copy/paste
- F2           Rename key (inline, works for all node types)
- r            Remark toggle (comment out with //)   z/y  Undo/redo
- K            Kind switch (object/array inline↔multiline, float plain↔exponent)
- C            Convert document to another format (Root node)
- /            Fuzzy filter      f           Type filter (checkbox menu)
- /…Enter      Lock in filtered list   Esc   Clear filter / selection
- w/Ctrl+s     Save              q           Quit
- ?            This help
-
- ── KIND column ──────────────────────────────────────────────────
- Key sign (first 3 chars):
-   (Q) quoted key   (-) no key
-
- Containers:
-   [G]     root/file node
-   [C]     comment node  (// line editable; /* */ block read-only)
-   [A/I]   inline array        [A/M]  multiline array
-   [T/I]   inline object       [T/M]  multiline object
-
- Scalars  [type:format]:
-   [S:str ] string              [S:null] null
-   [I:dec ] integer
-   [F:flt ] float               [F:exp ] exponent float
-   [B:bool] boolean
- ";
-
-const YAML_HELP: &str = "\
- j/k/Arrows  Move cursor       PgUp/PgDn  Page up/down
- Home/End     First/last row    0/9         Collapse/expand all
- 1/2          Expand/collapse one level (subtree / ascend)
- Enter/Space  Expand branch or open leaf detail
- s            Toggle select     Shift+Up/Dn Range select
- i            Detail/info popup (any node)
- e            Edit (inline/$EDITOR)  E       Force $EDITOR
- ←/→          Toggle bool / ±1 number    a   Add node
- d/Del        Delete            x/c/v       Cut/copy/paste
- F2           Rename key (inline, works for all node types)
- r            Remark toggle (comment out with #)   z/y  Undo/redo
- K            Kind switch (map/seq block↔flow, string style, int radix, float plain↔exp)
- C            Convert document to another format (Root node)
- /            Fuzzy filter      f           Type filter (checkbox menu)
- /…Enter      Lock in filtered list   Esc   Clear filter / selection
- w/Ctrl+s     Save              q           Quit
- ?            This help
-
- ── KIND column ──────────────────────────────────────────────────
- Key sign (first 3 chars):
-   (B) bare key   (Q) quoted key   (-) no key
-
- Containers:
-   [G]     root/file node
-   [C]     comment node
-   [A/B]   block sequence      [A/F]  flow sequence
-   [T/B]   block mapping       [T/F]  flow mapping
-   [opaq ] out-of-subset, read-only (anchors, aliases, merge, tags)
-
- Scalars  [type:format]:
-   [S:str ] plain string        [S:sq  ] single-quoted string
-   [S:dq  ] double-quoted       [S:lit ] literal block (|)
-   [S:fold] folded block (>)
-   [I:dec ] decimal integer     [I:hex ] hex integer
-   [I:oct ] octal integer
-   [F:flt ] float               [F:exp ] exponent float
-   [F:inf ] infinity            [F:nan ] NaN
-   [B:bool] boolean             [S:null] null
- ";
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use confy_core::session::Lang;
 
     #[test]
     fn json_help_differs_from_toml() {
         use crate::model::document::DocFormat;
-        let j = help_text(DocFormat::Json);
+        let j = help_text(DocFormat::Json, Lang::En);
         assert!(j.contains("//"));
         assert!(j.contains("[S:null]"));
         assert!(!j.contains("dotted"));
         assert!(!j.contains("[A/T]"));
-        assert_ne!(j, help_text(DocFormat::Toml));
+        assert_ne!(j, help_text(DocFormat::Toml, Lang::En));
     }
 
     #[test]
     fn yaml_help_differs_from_toml() {
         use crate::model::document::DocFormat;
-        let y = help_text(DocFormat::Yaml);
+        let y = help_text(DocFormat::Yaml, Lang::En);
         assert!(y.contains("[opaq ]"));
         assert!(y.contains("block"));
         assert!(y.contains("flow"));
         assert!(!y.contains("dotted"));
         assert!(!y.contains("[A/T]"));
-        assert_ne!(y, help_text(DocFormat::Toml));
+        assert_ne!(y, help_text(DocFormat::Toml, Lang::En));
+    }
+
+    #[test]
+    fn help_text_falls_back_to_en_for_zh_tw_when_untranslated() {
+        // Phase 4 does the full zh-TW translation pass; Phase 2 only needs the
+        // fallback machinery to hold, so a missing zh-TW help entry resolves
+        // to the English text rather than panicking or going blank.
+        use crate::model::document::DocFormat;
+        let en = help_text(DocFormat::Toml, Lang::En);
+        let zh = help_text(DocFormat::Toml, Lang::ZhTw);
+        assert_eq!(en, zh);
     }
 }

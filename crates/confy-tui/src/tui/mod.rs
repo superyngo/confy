@@ -15,9 +15,14 @@ use crossterm::{
 };
 use std::path::Path;
 
-pub fn run(path: &Path, format: crate::model::document::DocFormat) -> Result<()> {
+pub fn run(
+    path: &Path,
+    format: crate::model::document::DocFormat,
+    lang: confy_core::session::Lang,
+) -> Result<()> {
     let doc = crate::load_document(path, format)?;
     let mut app = app::App::new(doc);
+    app.session.set_lang(lang);
     app.source_path = Some(path.to_path_buf());
 
     // Restore the terminal even if the event loop panics, so a crash never
@@ -174,8 +179,10 @@ fn run_event_loop(
                     _ => unreachable!(),
                 };
                 let text = match active_tab {
-                    crate::tui::state::HelpTab::Help => keys::help_text(app.doc_format()),
-                    crate::tui::state::HelpTab::About => crate::tui::state::ABOUT_TEXT,
+                    crate::tui::state::HelpTab::Help => {
+                        keys::help_text(app.doc_format(), app.session.lang)
+                    }
+                    crate::tui::state::HelpTab::About => app.about_text(),
                 };
                 let help_lines = text.lines().count() as u16;
                 // Approximate visible height: terminal height minus 2 borders.
@@ -212,6 +219,20 @@ fn run_event_loop(
                     KeyCode::Char(' ') => app.type_filter_toggle(),
                     KeyCode::Enter => app.commit_type_filter(),
                     KeyCode::Esc => app.escape(),
+                    _ => {}
+                }
+                continue;
+            }
+            // Language picker (host-side mini-mode, not a core `Mode`): Up/Down
+            // (or j/k) move the selection, Enter applies + persists, Esc cancels.
+            // Modal — other keys swallowed.
+            if app.lang_picker.is_some() {
+                use crossterm::event::KeyCode;
+                match key.code {
+                    KeyCode::Up | KeyCode::Char('k') => app.lang_picker_move(-1),
+                    KeyCode::Down | KeyCode::Char('j') => app.lang_picker_move(1),
+                    KeyCode::Enter => app.lang_picker_commit(),
+                    KeyCode::Esc => app.exit_lang_picker(),
                     _ => {}
                 }
                 continue;
@@ -371,6 +392,7 @@ fn run_event_loop(
                 keys::KeyAction::Convert => app.open_convert(),
                 keys::KeyAction::Help => app.enter_help(),
                 keys::KeyAction::Rename => app.begin_inline_rename(),
+                keys::KeyAction::LangPicker => app.open_lang_picker(),
                 keys::KeyAction::Noop => {}
             }
         }

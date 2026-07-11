@@ -22,6 +22,39 @@ struct Args {
     /// Override format detection (toml, json, jsonc, yaml)
     #[arg(long)]
     format: Option<String>,
+    /// UI language for this session (en, zh-TW). Overrides the saved config
+    /// file but does not write it. Falls back to the config file, then `en`.
+    #[arg(long)]
+    lang: Option<String>,
+}
+
+/// Resolve the active UI language: `--lang` > config file `lang` > default.
+/// An unrecognized `--lang` value warns and falls through to the config file
+/// (never panics).
+fn resolve_lang(cli_lang: Option<&str>) -> confy_core::session::Lang {
+    resolve_lang_with(cli_lang, &crate::config::load_config())
+}
+
+/// Pure precedence logic, split out from `resolve_lang` so tests can supply a
+/// `Config` directly instead of touching the real `~/.config` file.
+fn resolve_lang_with(
+    cli_lang: Option<&str>,
+    cfg: &crate::config::Config,
+) -> confy_core::session::Lang {
+    use confy_core::session::Lang;
+    use std::str::FromStr;
+    if let Some(s) = cli_lang {
+        match Lang::from_str(s) {
+            Ok(l) => return l,
+            Err(()) => eprintln!("warning: unknown --lang '{s}', ignoring"),
+        }
+    }
+    if let Some(s) = cfg.lang.as_deref() {
+        if let Ok(l) = Lang::from_str(s) {
+            return l;
+        }
+    }
+    Lang::default()
 }
 
 #[derive(Subcommand)]
@@ -114,7 +147,8 @@ pub fn run() -> Result<()> {
             if !file.exists() {
                 create_missing_file(&file, fmt)?;
             }
-            crate::tui::run(&file, fmt)
+            let lang = resolve_lang(args.lang.as_deref());
+            crate::tui::run(&file, fmt, lang)
         }
     }
 }
@@ -193,6 +227,46 @@ mod tests {
                 "{fmt:?} seed should be empty"
             );
         }
+    }
+
+    #[test]
+    fn lang_precedence_cli_flag_wins_over_config() {
+        use crate::config::Config;
+        use confy_core::session::Lang;
+        let cfg = Config {
+            lang: Some("zh-TW".into()),
+        };
+        assert_eq!(super::resolve_lang_with(Some("en"), &cfg), Lang::En);
+    }
+
+    #[test]
+    fn lang_precedence_config_wins_over_default() {
+        use crate::config::Config;
+        use confy_core::session::Lang;
+        let cfg = Config {
+            lang: Some("zh-TW".into()),
+        };
+        assert_eq!(super::resolve_lang_with(None, &cfg), Lang::ZhTw);
+    }
+
+    #[test]
+    fn lang_precedence_falls_back_to_default_en() {
+        use crate::config::Config;
+        use confy_core::session::Lang;
+        assert_eq!(super::resolve_lang_with(None, &Config::default()), Lang::En);
+    }
+
+    #[test]
+    fn lang_precedence_invalid_cli_flag_falls_through_to_config() {
+        use crate::config::Config;
+        use confy_core::session::Lang;
+        let cfg = Config {
+            lang: Some("zh-TW".into()),
+        };
+        assert_eq!(
+            super::resolve_lang_with(Some("not-a-lang"), &cfg),
+            Lang::ZhTw
+        );
     }
 
     #[test]

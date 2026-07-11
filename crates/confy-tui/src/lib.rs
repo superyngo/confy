@@ -5,6 +5,7 @@
 pub use confy_core::model;
 
 pub mod cli;
+pub mod config;
 pub mod tui;
 
 use anyhow::Context;

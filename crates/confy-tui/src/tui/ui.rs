@@ -200,7 +200,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         .split(f.area());
 
     draw_title(f, chunks[0], app);
-    draw_column_header(f, chunks[1]);
+    draw_column_header(f, chunks[1], app);
     draw_tree(f, chunks[2], app);
     draw_status(f, chunks[3], app);
     draw_prompt_overlay(f, app);
@@ -209,15 +209,20 @@ pub fn draw(f: &mut Frame, app: &App) {
     draw_type_filter_overlay(f, app);
     draw_kind_switch_overlay(f, app);
     draw_convert_overlay(f, app);
+    draw_lang_picker_overlay(f, app);
 }
 
 fn draw_title(f: &mut Frame, area: Rect, app: &App) {
+    use confy_core::session::tr_args;
+    use unicode_width::UnicodeWidthStr;
     let filename = app.rows.first().map(|r| r.key.as_str()).unwrap_or("");
     let version = format!("v{}", env!("CARGO_PKG_VERSION"));
-    let left = format!("confy — {filename} ");
+    let left = tr_args(app.session.lang, "tui.title", &[filename]);
     let width = area.width as usize;
     // Fill between the left label and the right-aligned version with `─`.
-    let used = left.chars().count() + version.chars().count() + 1;
+    // Display width (not char count) so a CJK translation of `tui.title`
+    // still lands the version flush right.
+    let used = left.width() + version.width() + 1;
     let fill = "─".repeat(width.saturating_sub(used));
     let line = Line::from(vec![
         Span::styled(left, Style::default().add_modifier(Modifier::BOLD)),
@@ -228,14 +233,16 @@ fn draw_title(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(Paragraph::new(line), area);
 }
 
-fn draw_column_header(f: &mut Frame, area: Rect) {
+fn draw_column_header(f: &mut Frame, area: Rect, app: &App) {
+    use confy_core::session::tr;
+    let lang = app.session.lang;
     let header_style = Style::default()
         .fg(Color::Cyan)
         .add_modifier(Modifier::BOLD);
     let row = Row::new([
-        Cell::from("  NAME"),
-        Cell::from("KIND"),
-        Cell::from("VALUE"),
+        Cell::from(tr(lang, "tui.header.name")),
+        Cell::from(tr(lang, "tui.header.kind")),
+        Cell::from(tr(lang, "tui.header.value")),
     ])
     .style(header_style);
     let table = Table::new(
@@ -411,6 +418,7 @@ fn paste_line_row<'a>(row: &RowSnapshot, expanded: bool, width: u16) -> Row<'a> 
 }
 
 fn draw_status(f: &mut Frame, area: Rect, app: &App) {
+    use confy_core::session::tr_args;
     // Error messages always take priority — shown with red background regardless
     // of mode or clipboard state so they are never hidden.
     if !matches!(app.session.mode, Mode::Edit(_)) {
@@ -513,14 +521,23 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
         if n_types > 0 {
             tags.push_str(&format!("[type: {n_types}] "));
         }
+        let lang = app.session.lang;
         let status = if let Some(cb) = &app.session.clipboard {
-            let n = cb.fragments.len();
+            let n = cb.fragments.len().to_string();
             let kind = if cb.cut { "cut" } else { "copied" };
-            format!(" {tags}{n} {kind} — v:paste  c/x:toggle  Esc:discard")
+            tr_args(
+                lang,
+                "tui.status.filter-results-clipboard",
+                &[&tags, &n, kind],
+            )
         } else {
             match &app.session.status {
-                Some(msg) => format!(" {tags}{msg}"),
-                None => format!(" {tags}{pos}/{total} | esc:clear  /:refine  f:type"),
+                Some(msg) => tr_args(lang, "tui.status.filter-results-status", &[&tags, msg]),
+                None => tr_args(
+                    lang,
+                    "tui.status.filter-results-default",
+                    &[&tags, &pos.to_string(), &total.to_string()],
+                ),
             }
         };
         let paragraph =
@@ -530,15 +547,19 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
     }
     // When clipboard is loaded, show a sticky hint in place of the normal hints.
     if let Some(cb) = &app.session.clipboard {
-        let n = cb.fragments.len();
+        let n = cb.fragments.len().to_string();
         let kind = if cb.cut { "cut" } else { "copied" };
-        let text = format!(" {n} node(s) {kind} — v:paste  c/x:toggle  Esc:discard");
+        let text = tr_args(app.session.lang, "tui.status.clipboard", &[&n, kind]);
         let paragraph =
             Paragraph::new(text).style(Style::default().bg(Color::DarkGray).fg(Color::Yellow));
         f.render_widget(paragraph, area);
         return;
     }
-    let mut status = format!(" {pos}/{total} | q:quit ?:help d:x:c:v:r:z/y");
+    let mut status = tr_args(
+        app.session.lang,
+        "tui.status.default",
+        &[&pos.to_string(), &total.to_string()],
+    );
     if let Some(ref msg) = app.session.status {
         status = format!(" {msg}");
     }
@@ -548,24 +569,21 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
 }
 
 fn draw_prompt_overlay(f: &mut Frame, app: &App) {
+    use confy_core::session::{tr, tr_args};
+    let lang = app.session.lang;
     let text = match &app.session.mode {
         Mode::Prompt(PromptKind::Collision { key }) => {
-            format!(
-                " Key '{}' already exists.  o:overwrite  r:rename  c:cancel",
-                key
-            )
+            tr_args(lang, "tui.prompt.collision", &[key])
         }
-        Mode::Prompt(PromptKind::ConfirmQuit) => {
-            " Unsaved changes.  y:quit without saving  n:cancel".into()
-        }
+        Mode::Prompt(PromptKind::ConfirmQuit) => tr(lang, "tui.prompt.confirm-quit").to_string(),
         Mode::Prompt(PromptKind::TypeChange { from, to }) => {
-            format!(" Type will change {from} → {to}.  y:confirm  n:edit")
+            tr_args(lang, "tui.prompt.type-change", &[from, to])
         }
         Mode::Prompt(PromptKind::ArrayUpgrade { .. }) => {
-            " Reformat array to multiline and insert?  y/n".into()
+            tr(lang, "tui.prompt.array-upgrade").to_string()
         }
         Mode::Prompt(PromptKind::JsoncUpgrade { .. }) => {
-            " Introduce a // comment? This makes the file JSONC.  y/n".into()
+            tr(lang, "tui.prompt.jsonc-upgrade").to_string()
         }
         _ => return,
     };
@@ -645,11 +663,11 @@ fn draw_help_overlay(f: &mut Frame, app: &App) {
     let (title, text) = match tab {
         HelpTab::Help => (
             " Help | About (Tab to switch · ↑/↓ scroll · ? or Esc) ",
-            keys::help_text(app.doc_format()),
+            keys::help_text(app.doc_format(), app.session.lang),
         ),
         HelpTab::About => (
             " About | Help (Tab to switch · ↑/↓ scroll · ? or Esc) ",
-            crate::tui::state::ABOUT_TEXT,
+            app.about_text(),
         ),
     };
     let line_count = text.lines().count() as u16;
@@ -737,6 +755,57 @@ fn draw_type_filter_overlay(f: &mut Frame, app: &App) {
         .borders(Borders::ALL)
         .style(Style::default().bg(Color::Black).fg(Color::White));
     f.render_widget(Paragraph::new(lines).block(block).scroll((scroll, 0)), area);
+}
+
+/// Display label for a picker entry, in that language's own script (the
+/// conventional choice — a language name is not itself translated).
+fn lang_label(lang: confy_core::session::Lang) -> &'static str {
+    match lang {
+        confy_core::session::Lang::En => "English (en)",
+        confy_core::session::Lang::ZhTw => "繁體中文 (zh-TW)",
+    }
+}
+
+/// The `L` language-picker popup: a small centered single-select list,
+/// mirroring the `K` kind-switch popup's layout. Host-side state
+/// (`app.lang_picker`), not a core `Mode`.
+fn draw_lang_picker_overlay(f: &mut Frame, app: &App) {
+    use confy_core::session::tr;
+    use unicode_width::UnicodeWidthStr;
+    let Some(st) = &app.lang_picker else {
+        return;
+    };
+    // Column width in display cells (not char count) so a CJK label still
+    // aligns the popup's right edge.
+    let col = crate::tui::app::LANG_OPTIONS
+        .iter()
+        .map(|&l| lang_label(l).width())
+        .max()
+        .unwrap_or(0);
+    let lines: Vec<Line> = crate::tui::app::LANG_OPTIONS
+        .iter()
+        .enumerate()
+        .map(|(i, &lang)| {
+            let marker = if i == st.cursor { "›" } else { " " };
+            let mut style = Style::default();
+            if i == st.cursor {
+                style = style.add_modifier(Modifier::REVERSED);
+            }
+            let label = lang_label(lang);
+            let pad = " ".repeat(col.saturating_sub(label.width()));
+            Line::from(Span::styled(format!(" {marker} {label}{pad}"), style))
+        })
+        .collect();
+    let height = (lines.len() as u16 + 2).min(f.area().height);
+    let area = centered_rect(40, height, f.area());
+    f.render_widget(Clear, area);
+    let title = format!(" {} ", tr(app.session.lang, "tui.lang.picker-title"));
+    let block = Block::default()
+        .title(title)
+        .title_bottom(" ↑↓ move · Enter apply · Esc cancel ")
+        .borders(Borders::ALL)
+        .style(Style::default().bg(Color::Black).fg(Color::White));
+    f.render_widget(Paragraph::new(lines).block(block), area);
 }
 
 /// The `K` kind-switch popup: a small centered single-select list.

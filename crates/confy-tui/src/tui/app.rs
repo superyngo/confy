@@ -24,7 +24,22 @@ pub struct App {
     pub help_scroll: u16,
     /// Persisted vertical scroll offset (top visible row) of the main tree table.
     pub table_offset: Cell<usize>,
+    /// The `L` language picker popup, when open. Host-side mini-mode (not a
+    /// core `Mode` variant) — language choice is a host concern since
+    /// selecting one also writes the config file (§i18n Phase 2).
+    pub lang_picker: Option<LangPickerState>,
 }
+
+/// In-flight `L` language-picker state: just the cursor over `LANG_OPTIONS`.
+pub struct LangPickerState {
+    pub cursor: usize,
+}
+
+/// The languages offered by the picker, in display order.
+pub const LANG_OPTIONS: [confy_core::session::Lang; 2] = [
+    confy_core::session::Lang::En,
+    confy_core::session::Lang::ZhTw,
+];
 
 /// Host-side view model for ratatui: augments ViewRow with fixed-pitch type_tag.
 #[derive(Clone)]
@@ -60,6 +75,7 @@ impl App {
             detail_scroll: 0,
             help_scroll: 0,
             table_offset: Cell::new(0),
+            lang_picker: None,
         };
         app.rebuild_rows();
         app
@@ -75,6 +91,7 @@ impl App {
             detail_scroll: 0,
             help_scroll: 0,
             table_offset: Cell::new(0),
+            lang_picker: None,
         };
         app.rebuild_rows();
         app
@@ -390,6 +407,63 @@ impl App {
     }
     pub fn exit_help(&mut self) {
         self.session.exit_help();
+    }
+
+    /// The About-tab body: the core's translated `about_text(lang)`, plus two
+    /// host-only lines (`Config:`/`Language:`) that must NOT live in the core
+    /// catalog since the config path is filesystem-specific to this host.
+    pub fn about_text(&self) -> String {
+        use confy_core::session::{state::about_text as core_about_text, tr_args};
+        let lang = self.session.lang;
+        let mut s = core_about_text(lang).to_string();
+        s.push('\n');
+        s.push_str(&tr_args(
+            lang,
+            "tui.about.config",
+            &[&crate::config::config_path().display().to_string()],
+        ));
+        s.push('\n');
+        s.push_str(&tr_args(lang, "tui.about.language", &[lang.code()]));
+        s.push('\n');
+        s
+    }
+
+    // ---- Language picker (L) ----
+
+    /// Open the popup with the cursor on the currently active language.
+    pub fn open_lang_picker(&mut self) {
+        let cursor = LANG_OPTIONS
+            .iter()
+            .position(|&l| l == self.session.lang)
+            .unwrap_or(0);
+        self.lang_picker = Some(LangPickerState { cursor });
+    }
+    pub fn lang_picker_move(&mut self, delta: i32) {
+        if let Some(st) = &mut self.lang_picker {
+            let n = LANG_OPTIONS.len() as i32;
+            st.cursor = (st.cursor as i32 + delta).rem_euclid(n) as usize;
+        }
+    }
+    /// Apply the highlighted language: switches the session's live `lang`,
+    /// then best-effort persists it to the config file. A save failure is
+    /// surfaced as a status message, never a crash — the session-level
+    /// switch already succeeded either way.
+    pub fn lang_picker_commit(&mut self) {
+        let Some(st) = self.lang_picker.take() else {
+            return;
+        };
+        let lang = LANG_OPTIONS[st.cursor];
+        self.session.set_lang(lang);
+        let cfg = crate::config::Config {
+            lang: Some(lang.code().to_string()),
+        };
+        self.session.status = Some(match crate::config::save_config(&cfg) {
+            Ok(()) => confy_core::session::tr_args(lang, "tui.lang.saved", &[lang.code()]),
+            Err(e) => confy_core::session::tr_args(lang, "tui.lang.save-failed", &[&e.to_string()]),
+        });
+    }
+    pub fn exit_lang_picker(&mut self) {
+        self.lang_picker = None;
     }
 
     // ---- Selection ----
