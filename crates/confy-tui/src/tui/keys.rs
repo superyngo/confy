@@ -83,9 +83,9 @@ pub fn map_key(key: KeyEvent) -> KeyAction {
         (KeyCode::Char('C'), _) => KeyAction::Convert,
         (KeyCode::Char('?'), _) => KeyAction::Help,
         (KeyCode::F(2), _) => KeyAction::Rename,
-        // Language picker — capital L (verified unbound; lowercase l is unused too,
-        // but the plan calls for the capital to match K/C/E's convention).
-        (KeyCode::Char('L'), _) => KeyAction::LangPicker,
+        // Language picker — lowercase l (verified unbound; no collision with
+        // existing bindings).
+        (KeyCode::Char('l'), _) => KeyAction::LangPicker,
         _ => KeyAction::Noop,
     }
 }

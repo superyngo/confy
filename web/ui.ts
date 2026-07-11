@@ -37,7 +37,8 @@ import {
 } from "./samples.js";
 import { currentKindLabel, editWidthCh, escapeHtml, IC_CARET, renderTree } from "./render.js";
 import { helpBodyHTML } from "./help-content.js";
-import { applyStaticI18n, getLang, setLang, t, tArgs } from "./i18n.js";
+import { applyStaticI18n, availableLangs, getLang, LANG_DISPLAY_NAMES, setLang, t, tArgs } from "./i18n.js";
+import type { Lang } from "./i18n.js";
 import { resolveClick, resetAnchor, rowsInRect, setAnchor } from "./select.js";
 import { installDnd } from "./dnd.js";
 import { panelHTML, wirePanel } from "./panel.js";
@@ -119,8 +120,8 @@ function updateLangUI() {
   applyStaticI18n();
 }
 
-function cycleLang() {
-  setLang(getLang() === "zh-TW" ? "en" : "zh-TW");
+function chooseLang(lang: Lang) {
+  setLang(lang);
   if (session) send({ SetLang: getLang() });
   updateLangUI();
   render();
@@ -1024,7 +1025,7 @@ function beginTrailingEdit(rowEl: HTMLElement, path: Path) {
 // and managed solely by `renderTypeFilterPop`, so these never touch it (else the
 // two would open/close together).
 function clickMenus(): HTMLElement[] {
-  return [$("kindMenu"), $("ctxMenu"), $("moreMenu")];
+  return [$("kindMenu"), $("ctxMenu"), $("moreMenu"), $("langMenu")];
 }
 // One shared outside-click closer; closing always removes it so listeners never
 // accumulate (a stale one fires on the reopening click and flashes the menu shut
@@ -1208,6 +1209,31 @@ function buildMoreMenu(): HTMLElement {
   return menu;
 }
 
+// The language-picker popup (`#langMenu`): same `.pop`/`.menu-item` anatomy as
+// `#moreMenu`/`#kindMenu` — a list of choices, the active one marked `.sel`
+// with a check icon, click applies and closes. Scales to any number of
+// languages (`availableLangs()`), not hardcoded to 2.
+function buildLangMenu(): HTMLElement {
+  const cur = getLang();
+  const menu = $("langMenu");
+  menu.innerHTML =
+    `<div class="menu-label">${escapeHtml(t("web.toolbar.lang.title"))}</div>` +
+    availableLangs()
+      .map((lang) => {
+        const sel = lang === cur;
+        return `<button class="menu-item${sel ? " sel" : ""}" data-lang="${escapeHtml(lang)}"><span class="ic">${sel ? "✓" : ""}</span>${escapeHtml(LANG_DISPLAY_NAMES[lang])}</button>`;
+      })
+      .join("");
+  menu.querySelectorAll<HTMLElement>("[data-lang]").forEach((b) => {
+    const lang = b.dataset.lang as Lang;
+    b.onclick = () => {
+      closePops();
+      chooseLang(lang);
+    };
+  });
+  return menu;
+}
+
 // Live search: the always-visible box owns the filter text and dispatches
 // `SetFilter` (debounced) on every keystroke. No `Mode::Filter` is entered.
 function bindSearch() {
@@ -1305,7 +1331,12 @@ function bindGlobal() {
   saveBtn.addEventListener("click", () => openSaveConvert(io));
   fmtPill.addEventListener("click", () => cycleSampleFormat(openSample)); // no-op unless in sample mode
   themeBtn.addEventListener("click", toggleTheme);
-  langBtn.addEventListener("click", cycleLang);
+  langBtn.addEventListener("click", (e) => {
+    // Toggle: a second click on the language button while its menu is open closes it.
+    if ($("langMenu").classList.contains("open")) return closePops();
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    placePopAt(buildLangMenu(), r.left, r.bottom + 4);
+  });
   $("btnInfo").addEventListener("click", () => send("EnterHelp"));
   $("btnMore").addEventListener("click", (e) => {
     // Toggle: a second click on ⋯ while its menu is open closes it.

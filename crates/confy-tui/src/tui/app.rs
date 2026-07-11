@@ -24,13 +24,13 @@ pub struct App {
     pub help_scroll: u16,
     /// Persisted vertical scroll offset (top visible row) of the main tree table.
     pub table_offset: Cell<usize>,
-    /// The `L` language picker popup, when open. Host-side mini-mode (not a
+    /// The `l` language picker popup, when open. Host-side mini-mode (not a
     /// core `Mode` variant) — language choice is a host concern since
     /// selecting one also writes the config file (§i18n Phase 2).
     pub lang_picker: Option<LangPickerState>,
 }
 
-/// In-flight `L` language-picker state: just the cursor over `LANG_OPTIONS`.
+/// In-flight `l` language-picker state: just the cursor over `LANG_OPTIONS`.
 pub struct LangPickerState {
     pub cursor: usize,
 }
@@ -428,7 +428,7 @@ impl App {
         s
     }
 
-    // ---- Language picker (L) ----
+    // ---- Language picker (l) ----
 
     /// Open the popup with the cursor on the currently active language.
     pub fn open_lang_picker(&mut self) {

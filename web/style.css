@@ -266,6 +266,7 @@ button{font-family:inherit;color:inherit;cursor:pointer}
 .menu-item .sc{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--faint)}
 .menu-item.danger{color:var(--t-bool)}
 .menu-item.danger .ic{color:var(--t-bool)}
+.menu-item.sel{background:var(--accent-soft);font-weight:600}
 .menu-sep{height:1px;background:var(--border);margin:5px 6px}
 .menu-label{font-size:11px;color:var(--faint);padding:6px 10px 3px;font-weight:600;letter-spacing:.03em}
 

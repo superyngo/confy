@@ -15,6 +15,19 @@ const CATALOGS: Record<Lang, Record<string, string>> = {
   "zh-TW": zhTw as Record<string, string>,
 };
 
+// Display name for each language, for the language picker. Keyed the same as
+// `getLang`/`setLang`/`SetLang`; add a language later by adding one entry
+// here (and one catalog file) rather than touching the picker UI.
+export const LANG_DISPLAY_NAMES: Record<Lang, string> = {
+  en: "English",
+  "zh-TW": "繁體中文",
+};
+
+// The languages offered by the picker, in display order.
+export function availableLangs(): Lang[] {
+  return Object.keys(LANG_DISPLAY_NAMES) as Lang[];
+}
+
 const STORAGE_KEY = "confy-lang";
 
 let currentLang: Lang | null = null;

@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     status/error/detail string routes through the catalog.
   - **TUI**: a config file (`~/.config/confy/config.toml`, `%APPDATA%\confy\config.toml` on
     Windows) persists the language choice; `--lang <code>` overrides it for one session; a new
-    `L` key opens a language picker; the About screen discloses the resolved config path and
+    `l` key opens a language picker; the About screen discloses the resolved config path and
     active language.
   - **web/desktop**: `web/i18n.ts` mirrors the catalog fallback chain for TypeScript, persists
     the choice in `localStorage["confy-lang"]`, and adds a language selector next to the theme
@@ -31,6 +31,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in `tauri.conf.json` — Ctrl/Cmd `+`/`-` and Ctrl+mouse-wheel zoom now work in the desktop
   app (native WebView2 zoom control on Windows; Tauri's 20%-step polyfill on macOS/Linux).
   (2026-07-11)
+
+### Fixed
+- **fix(i18n): lowercase `l` for the TUI language picker, add its missing help-text line, and
+  turn the web language toggle into a picker.** Follow-up polish on the i18n rollout above:
+  the TUI keybinding moves from capital `L` to lowercase `l` (no collision; the capital's
+  K/C/E-convention rationale wasn't load-bearing); the `?` help overlay (`tui.help.toml`/
+  `.json`/`.yaml` in both catalogs) gained the language-picker line it was missing since
+  Phase 2; and the web/desktop and touch language controls, which used to cycle blindly
+  between `en`/`zh-TW` on every click, now open an explicit picker listing all languages by
+  display name (`web/i18n.ts`'s new `LANG_DISPLAY_NAMES`/`availableLangs()`) with the active
+  one checked — desktop reuses the existing `.pop`/`.menu-item` click-menu machinery
+  (`#langMenu`, alongside `#kindMenu`/`#moreMenu`), touch adds a dedicated `lang-sheet`
+  mirroring the kind-switch sheet. (2026-07-11)
 
 ## [v0.13.0] - 2026-07-10
 

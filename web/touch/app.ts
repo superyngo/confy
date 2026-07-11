@@ -59,7 +59,8 @@ import { panelHTML, wirePanel } from "../panel.js";
 import { bindPromptClicks, promptButtonsHTML, promptQuestion, promptTitle } from "../prompt.js";
 import { typeFilterHTML, wireTypeFilter } from "../typefilter.js";
 import { helpBodyHTML } from "../help-content.js";
-import { applyStaticI18n, getLang, setLang, t, tArgs } from "../i18n.js";
+import { applyStaticI18n, availableLangs, getLang, LANG_DISPLAY_NAMES, setLang, t, tArgs } from "../i18n.js";
+import type { Lang } from "../i18n.js";
 import {
   type ConvertRefs,
   renderConvertDialog as renderConvertDialogShared,
@@ -256,6 +257,7 @@ function appHTML(): string {
     '<div class="sheet menu-sheet"></div>' +
     '<div class="sheet filter-sheet"></div>' +
     '<div class="sheet kind-sheet"></div>' +
+    '<div class="sheet lang-sheet"></div>' +
     // Save / Convert sheet (shared form via convert-dialog.ts, hosted in a bottom
     // sheet like every other touch panel; the #conv* children match the refs).
     '<div class="sheet convert-sheet">' +
@@ -505,14 +507,41 @@ function isFolded(sel: string): boolean {
   const el = app.querySelector<HTMLElement>(sel);
   return !!el && el.offsetParent === null;
 }
-// A language toggle: unconditional (not toolbar-folded — there's no dedicated
-// toolbar control on touch; per the all-bottom-sheet convention this control
-// lives only in the ⋯ menu). Cycles en <-> zh-TW, syncs core, re-renders.
-function cycleLang() {
-  setLang(getLang() === "zh-TW" ? "en" : "zh-TW");
+// Language picker entry: unconditional (not toolbar-folded — there's no
+// dedicated toolbar control on touch; per the all-bottom-sheet convention this
+// control lives only in the ⋯ menu). Applies the chosen language, syncs core,
+// re-renders.
+function chooseLang(lang: Lang) {
+  setLang(lang);
   if (session) send({ SetLang: getLang() });
   applyStaticI18n(app);
   render();
+}
+
+// The language picker as its own bottom sheet (same anatomy as the kind-switch
+// sheet: a list of choice buttons in `.sheet-body`), opened from the ⋯ menu's
+// language row instead of cycling on tap. Scales to any number of languages
+// (`availableLangs()`); the active one is marked `.sel` with a check icon.
+function openLangSheet() {
+  const cur = getLang();
+  const cells = availableLangs()
+    .map((lang) => {
+      const sel = lang === cur;
+      return `<button class="menu-item${sel ? " sel" : ""}" data-lang="${esc(lang)}"><span class="ic">${sel ? "✓" : ""}</span>${esc(LANG_DISPLAY_NAMES[lang])}</button>`;
+    })
+    .join("");
+  sheets.lang.innerHTML =
+    '<div class="grab"></div>' +
+    `<div class="sheet-head"><h3>${t("web.toolbar.lang.title")}</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
+    `<div class="sheet-body">${cells}</div>`;
+  sheets.lang.querySelectorAll<HTMLElement>("[data-lang]").forEach((b) => {
+    const lang = b.dataset.lang as Lang;
+    b.addEventListener("click", () => {
+      closeSheets();
+      chooseLang(lang);
+    });
+  });
+  openSheet("lang");
 }
 
 function openMenuSheet() {
@@ -526,10 +555,7 @@ function openMenuSheet() {
     folded.map((c, i) => mi(c.ic, t(c.labelKey), "", String(i))).join("") +
     "</div>";
   const langItem = sheets.menu.querySelector<HTMLElement>('[data-mi="lang"]');
-  langItem?.addEventListener("click", () => {
-    cycleLang();
-    openMenuSheet(); // re-render the sheet in place so the label updates live
-  });
+  langItem?.addEventListener("click", () => openLangSheet());
   sheets.menu.querySelectorAll<HTMLElement>(".menu-item:not([data-mi='lang'])").forEach((it) => {
     it.addEventListener("click", () => {
       const id = it.dataset.mi!;
@@ -1277,6 +1303,7 @@ async function main() {
   sheets.menu = app.querySelector(".menu-sheet")!;
   sheets.filter = app.querySelector(".filter-sheet")!;
   sheets.kind = app.querySelector(".kind-sheet")!;
+  sheets.lang = app.querySelector(".lang-sheet")!;
   sheets.convert = app.querySelector(".convert-sheet")!;
   sheets.ext = app.querySelector(".ext-sheet")!;
   sheets.help = app.querySelector(".help-sheet")!;

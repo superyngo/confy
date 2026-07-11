@@ -32,7 +32,7 @@ via `C`.
 ## Language
 
 The TUI, web UI, and desktop app all support English and Traditional Chinese (zh-TW), switchable
-at runtime. In the TUI, press `L` to open the language picker; the choice persists to
+at runtime. In the TUI, press `l` to open the language picker; the choice persists to
 `~/.config/confy/config.toml` (`lang = "zh-TW"`, `%APPDATA%\confy\config.toml` on Windows) and can
 be overridden per-run with `confy --lang zh-TW <file>` (session-only, doesn't touch the config
 file). In the web/desktop UI, use the language selector next to the theme toggle (or the ⋯ menu
@@ -104,7 +104,7 @@ native open/save dialogs, in-place writes, and CLI-arg file open. Releases inclu
 | `r` | Remark (toggle comment-out) |
 | `K` | Kind switch (scalar notation / container style) |
 | `C` | Convert document to another format (Root node) |
-| `L` | Language picker (English / 繁體中文) |
+| `l` | Language picker (English / 繁體中文) |
 | `z` | Undo |
 | `y` | Redo |
 | `/` | Filter (fuzzy search) |
