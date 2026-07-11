@@ -414,6 +414,7 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
 /* Help body: key/shortcut column stands out from its description. */
 #overlay pre .help-key { color: var(--accent); font-weight: 600; }
 #overlay pre .help-sect { opacity: 0.6; }
+#overlay pre a { color: var(--accent); }
 #overlay .opt { cursor: pointer; padding: 2px 8px; border-radius: 6px; }
 #overlay .opt.sel { background: var(--accent-soft); color: var(--fg); }
 #overlay .help-tabs { display: flex; gap: 8px; margin-bottom: 12px; }

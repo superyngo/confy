@@ -312,6 +312,10 @@ function renderOverlay() {
       });
     });
     overlay.querySelector<HTMLElement>(".overlay-close")!.addEventListener("click", () => send("Escape"));
+    // Move focus onto the panel so native scroll/text-select/copy (arrows,
+    // shift-select, Ctrl/Cmd-C) act on the Help/About body instead of the
+    // tree behind it; onKey's Help branch also stops list shortcuts firing.
+    overlay.focus();
   } else if (tag === "Prompt") {
     const kind = (m as { Prompt: { kind: PromptView } }).Prompt.kind;
     overlay.innerHTML =
@@ -480,6 +484,18 @@ function onKey(ev: KeyboardEvent) {
     if (ev.key === "ArrowDown") return send({ KindSwitchMove: 1 });
     if (ev.key === "Enter") return send("KindSwitchCommit");
     if (ev.key === "Escape") return send("ExitKindSwitch");
+    return;
+  }
+  // Help/About panel: pause every tree shortcut (j/k/e/a/d/c/x/v/… would
+  // otherwise still reach the list underneath). Only close/tab-switch are
+  // handled here; every other key is left alone so the browser's native
+  // scroll/text-select/copy on the focused #overlay (see renderOverlay) works.
+  if (modeTag(m) === "Help") {
+    if (ev.key === "Escape" || ev.key === "?") return send("Escape");
+    if (ev.key === "Tab") {
+      ev.preventDefault();
+      return send("ToggleHelpTab");
+    }
     return;
   }
 

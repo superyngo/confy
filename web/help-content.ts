@@ -71,7 +71,12 @@ function helpLineHTML(line: string): string {
 // (`web/ui.ts`) and the touch sheet (`web/touch/app.ts`). Returns HTML ready
 // to drop inside a <pre> — the caller must NOT escape it again.
 export function helpBodyHTML(tab: "Help" | "About", docFormat: string): string {
-  if (tab === "About") return escapeHtml(ABOUT_TEXT);
+  if (tab === "About") {
+    return escapeHtml(ABOUT_TEXT).replace(
+      /(https:\/\/\S+)/,
+      '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>',
+    );
+  }
   return (HELP_TEXT + "\n" + (KIND_LEGEND[docFormat] ?? ""))
     .split("\n")
     .map(helpLineHTML)
