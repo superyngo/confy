@@ -164,8 +164,22 @@ mod tests {
 
     #[test]
     fn tr_falls_back_to_en_for_missing_zh_tw_entry() {
-        // A key present in en but not (yet) in zh-TW must resolve to the en text.
+        // Phase 4 translated every catalog key, so there's no longer a real
+        // key that exercises the fallback path — exercise it directly via a
+        // key that intentionally doesn't exist in either catalog (mirrors
+        // `tr_never_panics_on_missing_key`'s scenario but confirms the
+        // same-result invariant the fallback relies on).
         assert_eq!(
+            tr(Lang::ZhTw, "does.not.exist.either"),
+            tr(Lang::En, "does.not.exist.either")
+        );
+    }
+
+    #[test]
+    fn zh_tw_translates_previously_english_only_key() {
+        // Phase 1-3 left `core.delete.error` on the en fallback; Phase 4's
+        // translation pass gave it a real zh-TW entry.
+        assert_ne!(
             tr(Lang::ZhTw, "core.delete.error"),
             tr(Lang::En, "core.delete.error")
         );

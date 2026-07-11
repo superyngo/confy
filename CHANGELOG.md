@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **feat(i18n): runtime language switching (English + Traditional Chinese) across TUI, web,
+  and desktop.** Four-phase rollout, all now complete:
+  - **core**: `Lang` enum + `tr`/`tr_args` catalog lookup (`crates/confy-core/src/session/
+    i18n.rs`), reading flat `core.*`/`tui.*`/`web.*` keys from root `i18n/en.json` (canonical)
+    and `i18n/zh-TW.json`, en-fallback on any missing key. `Session.lang`, `Intent::SetLang`,
+    and `SessionSnapshot.lang` wire the preference through both hosts; every core-composed
+    status/error/detail string routes through the catalog.
+  - **TUI**: a config file (`~/.config/confy/config.toml`, `%APPDATA%\confy\config.toml` on
+    Windows) persists the language choice; `--lang <code>` overrides it for one session; a new
+    `L` key opens a language picker; the About screen discloses the resolved config path and
+    active language.
+  - **web/desktop**: `web/i18n.ts` mirrors the catalog fallback chain for TypeScript, persists
+    the choice in `localStorage["confy-lang"]`, and adds a language selector next to the theme
+    toggle (desktop) / in the ⋯ menu (touch).
+  - **translation**: a full zh-TW pass over all ~183 catalog keys (previously only a proof-of-
+    concept subset), a real zh-TW About body, and a translated `web/help-content.ts`
+    keyboard-shortcut cheatsheet — canonical project vocabulary (Node/Branch/Leaf/Comment/
+    Remark, KIND tags, format names) is kept in English throughout, per the i18n plan's
+    glossary decision. (2026-07-11)
 - **feat(desktop): enable page-zoom hotkeys in the Tauri window.** `zoomHotkeysEnabled: true`
   in `tauri.conf.json` — Ctrl/Cmd `+`/`-` and Ctrl+mouse-wheel zoom now work in the desktop
   app (native WebView2 zoom control on Windows; Tauri's 20%-step polyfill on macOS/Linux).

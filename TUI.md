@@ -154,6 +154,26 @@ Shift+Arrow after any non-shift key (tracked by `App.last_action_was_shift_selec
 loop) starts a fresh round, folding the old one into `committed` — so runs union (separate or
 overlapping) rather than re-extending the first anchor.
 
+## Language / i18n (TUI)
+
+Language is a host-owned preference layered on top of `confy-core`'s catalog (see root
+`CLAUDE.md` §Architecture *i18n*). Resolution order: `--lang <code>` CLI flag (session-only,
+never written back) > `~/.config/confy/config.toml`'s `lang = "…"` (`crates/confy-tui/src/
+config.rs`; `$XDG_CONFIG_HOME/confy/config.toml` else `~/.config/confy/config.toml` on
+macOS/Linux, `%APPDATA%\confy\config.toml` on Windows via `dirs::config_dir()`) > default `en`.
+A missing/unparsable config file is never an error — it just falls back to defaults.
+
+`L` opens a small host-side popup (`App::open_lang_picker`, same pattern as the kind-switch
+popup) listing the available languages; selecting one dispatches `Intent::SetLang`, calls
+`save_config` (best-effort — a write failure surfaces as a status message via
+`tui.lang.save-failed`, never a crash), and confirms via `tui.lang.saved`. The About screen (`?` →
+About tab) appends two host-only lines after the core's translated `about_text(lang)` body:
+`Config: <path>` (the resolved path, shown even before the file exists) and `Language: <code>` —
+these can't live in the core catalog since the config path is filesystem-specific to this host.
+`tui/keys.rs::help_text(format, lang)` and every prompt/status string in `tui/ui.rs` route through
+the same `tui.*` catalog keys as the rest of the TUI; CJK lines in the `?` cheatsheet and detail
+popup were manually eyeballed for the double-width alignment risk noted in the i18n plan.
+
 ## Clipboard / paste
 
 `copy_selected` (`c`) and `cut_selected` (`x`) load `App.clipboard`

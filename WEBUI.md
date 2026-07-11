@@ -385,6 +385,24 @@ old static `detail_text` `<pre>` dump (that flat string is now only the empty-do
 feed the panel's Sign field, core's `ViewRow` gained a `key_sign` field (`"bare"|"quoted"|"dotted"
 |"none"`, the same mapping the TUI detail text uses).
 
+## Language / i18n (Web)
+
+`web/i18n.ts` imports both root catalog files (`../i18n/en.json`, `../i18n/zh-TW.json` —
+esbuild bundles JSON imports natively) and exposes `t(key)`/`tArgs(key, args)` with the same
+en-fallback chain as core's `tr`/`tr_args`, plus `getLang()`/`setLang()` persisted in
+`localStorage["confy-lang"]` (mirrors the `confy-theme` pattern). First-run default sniffs
+`navigator.language` (`zh*` → `zh-TW`, else `en`). After session load and on every selector
+change, the host sends `{ SetLang: lang }` so core-produced `SessionSnapshot` strings (status,
+errors, detail fields) match; a selector change also re-runs `applyStaticI18n()` to refresh
+`data-i18n`-tagged static DOM strings in `index.html`. The selector lives next to `btnTheme` in
+the desktop toolbar and in the touch ⋯ menu (same shared-module rule as the rest of the
+touch UI — see *Touch UI* above). `web/help-content.ts`'s `HELP_TEXT`/`KIND_LEGEND` cheatsheet
+and `helpBodyHTML`'s About body both branch on `getLang()`; the About body appends
+`web.about.language` and a `web.about.storage` line noting the preference lives in the
+browser's local storage (or the desktop app's WebView persistent storage) rather than a
+filesystem path — unlike the TUI, which discloses a config-file path (see `TUI.md` §*Language
+/ i18n (TUI)*).
+
 ## Deployment
 
 The hosted site is **<https://confy.turkeyang.net/>**, deployed via **Cloudflare

@@ -167,6 +167,24 @@ FilterLayer peel — TUI.md §*Type filter*.
 selection; `c`/`x` toggles; Esc peels), failure contract (`do_paste` restores on every
 failure), and InsertComment/ArrayUpgrade paths — TUI.md §*Clipboard / paste*.
 
+**i18n (internationalization).** The translation catalog lives in `confy-core`, not per-host
+(`crates/confy-core/src/session/i18n.rs`): `Lang` (`En`/`ZhTw`, serde `"en"`/`"zh-TW"`,
+`Default = En`) plus `tr(lang, key)`/`tr_args(lang, key, args)` look up flat `core.*`/`tui.*`/
+`web.*` keys in `include_str!`'d JSON catalogs at the repo root (`i18n/en.json` canonical,
+`i18n/zh-TW.json`), falling back to `en` then the raw key so a missing translation never panics
+or blanks the UI. `Session.lang: Lang` drives every status/error/detail string `Session`
+composes; `Intent::SetLang(String)` (a string, not the enum, to keep the wasm wire contract
+simple) is routed in `dispatch.rs`, and `SessionSnapshot.lang: String` mirrors it back to hosts.
+Each host layers its own strings on top: the TUI's `crates/confy-tui/src/config.rs` persists a
+`lang` preference to `~/.config/confy/config.toml` (`%APPDATA%\confy\config.toml` on Windows),
+exposes `--lang` (session-only override; precedence `--lang` > config file > `en`), and a `L`
+picker (TUI.md §*Language / i18n (TUI)*); `web/i18n.ts` imports both catalog JSON files directly
+(esbuild bundles them), exposes `t()`/`tArgs()` with the identical fallback chain, and persists
+the choice in `localStorage["confy-lang"]` (WEBUI.md §*Language / i18n (Web)*).
+`state.rs::about_text(lang)` gives each host a translated About body (`ABOUT_TEXT`/
+`ABOUT_TEXT_ZH_TW`); the TUI appends host-only `Config:`/`Language:` lines, the web layer
+appends a localStorage disclosure line instead.
+
 ## Module map
 
 Cargo **workspace** (see `PORTING.md`): `confy-core` is the headless model crate; `confy-tui`
@@ -175,6 +193,11 @@ modules keep their `crate::model::…` paths. `confy-ffi` is the WASM wrapper (W
 is the Tauri v2 desktop shell over that same web UI, adding only native file I/O.
 
 ```
+i18n/                     translation catalogs — root i18n/en.json (canonical, en-fallback
+                          source) + i18n/zh-TW.json; flat core.*/tui.*/web.* keys, embedded in
+                          confy-core via include_str! and imported directly by web/i18n.ts
+                          (esbuild bundles JSON)
+
 crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runtime deps
   lib.rs           `pub mod model; pub mod session;`
   model/
@@ -204,6 +227,7 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
   session/         §5 state-machine lift (Slice 4) — the complete headless Session
     mod.rs         re-exports
     host.rs        Host trait (edit_text callback) + EditTextOutcome
+    i18n.rs        Lang enum + tr/tr_args catalog lookup (include_str!'d i18n/*.json, en-fallback)
     intent.rs      Intent enum — every key-mapped action the TUI can dispatch
     session.rs     Session struct (all CORE state + methods): visible_rows/compute_rows, navigation,
                    filter/type-filter, kind-switch, convert (no fs), edit routing, inline-edit,
@@ -242,6 +266,8 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
                  caret, key/`—`/value value-type-colored, item count, **kind badge** =
                  label+notation suffix+chevron, comment/trailing, hover ＋/⋮ actions);
                  container & scalar notation suffixes, `escapeAttr` for `data-path`
+  i18n.ts        catalog wrapper: t()/tArgs() over ../i18n/*.json, en-fallback chain,
+                 getLang()/setLang() persisted in localStorage["confy-lang"]
   select.ts      pure pointer-selection logic → `SetSelection`/`SetCursor`: plain/⇧-range/
                  ⌘-toggle clicks (segmented additive range via an anchor+base snapshot) + marquee
   dnd.ts         HTML5 grip drag-reparent → `MoveSelectionTo`: into-branch vs before/after sibling
@@ -269,6 +295,10 @@ crates/confy-tui/src/    ratatui TUI + CLI; depends on confy-core, `pub use conf
   main.rs          bin `confy`: parse args, load via load_document, run TUI
   lib.rs           `pub use confy_core::model;` + `pub mod cli; pub mod tui;` + `load_document` (the host fs boundary: read → from_str_as → set_filename → .jsonc enable)
   cli.rs           clap args: default `confy <file> [--format]` (TUI) + `confy convert <in> <out>` subcommand
+                   + `--lang <code>` (session-only language override)
+  config.rs        host-owned config file I/O: load_config/save_config for
+                   `~/.config/confy/config.toml` (`%APPDATA%\confy\config.toml` on Windows);
+                   `lang = "…"` today, missing/unparsable file ⇒ defaults, never an error
   tui/
     mod.rs         re-exports; run() entry point + event loop (run_event_loop)
     app.rs         App = thin Host wrapper: `pub session: Session` + 5 HOST-only fields

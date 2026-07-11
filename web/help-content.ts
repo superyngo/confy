@@ -25,6 +25,31 @@ right-click    context menu
 Open (Ctrl-o) and in-place Save need the File System Access API
 (Chrome/Edge). Other browsers fall back to the paste-load / download path.`;
 
+// zh-TW translation of HELP_TEXT (Phase 4). Shortcut key names (j/k, Ctrl-s,
+// …) and mouse-button names stay untranslated — project/platform vocabulary,
+// same rule as the TUI's tui.help.* catalog entries.
+const HELP_TEXT_ZH_TW = `confy web — 按鍵
+j/k 或 ↑/↓     移動游標
+Enter/Space    展開分支／編輯葉節點／啟用
+e              編輯（inline 或多行對話框）
+a              新增節點 · d 刪除 · c 複製 · x 剪下 · v 貼上
+r              remark（節點 ↔ comment 切換）
++/- 或 ←/→     微調數值
+z / y          復原／重做
+s              切換選取 · 0 全部摺疊 · 9 全部展開
+1 / 2          展開／摺疊一層
+/              篩選 · f 類型篩選 · K kind 切換 · C 轉換格式
+i              詳細資訊彈出視窗 · ? 本說明 · Ctrl-s 儲存 · Ctrl-o 開啟
+q              離開（若有未儲存變更會提示）
+
+── 指標裝置 ──────────────────────────────────────
+click          選取            ⇧click   範圍選取
+⌘click         多選            drag     套索選取／拖曳移動
+right-click    右鍵選單
+
+開啟（Ctrl-o）與原地儲存需要 File System Access API
+（Chrome/Edge）。其他瀏覽器會改用貼上載入／下載路徑。`;
+
 // Per-format KIND legend appended to the Help overlay, keyed by `doc_format`
 // (ported from the TUI's TOML_HELP/JSON_HELP/YAML_HELP KIND column). The kind
 // badge shows the friendly label + notation suffix; this explains what each
@@ -80,10 +105,12 @@ export function helpBodyHTML(
       '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>',
     );
   }
-  return (HELP_TEXT + "\n" + (KIND_LEGEND[docFormat] ?? ""))
-    .split("\n")
-    .map(helpLineHTML)
-    .join("\n");
+  const helpText = getLang() === "zh-TW" ? HELP_TEXT_ZH_TW : HELP_TEXT;
+  const legend =
+    getLang() === "zh-TW"
+      ? (KIND_LEGEND_ZH_TW[docFormat] ?? "")
+      : (KIND_LEGEND[docFormat] ?? "");
+  return (helpText + "\n" + legend).split("\n").map(helpLineHTML).join("\n");
 }
 
 export const KIND_LEGEND: Record<string, string> = {
@@ -128,5 +155,54 @@ Scalars (label·notation):
   int            decimal integer     int·0x int·0o  hex / octal
   float          float               float·1e  exponent
   float·inf float·nan    infinity / NaN
+  bool · null`,
+};
+
+// zh-TW translation of KIND_LEGEND (Phase 4). Notation suffixes and the
+// scalar/container labels themselves (table, inline, array, str, int, float,
+// bool, AoT, …) stay untranslated — they're the KIND badge's own vocabulary,
+// same rule as the TUI's KIND column legend.
+const KIND_LEGEND_ZH_TW: Record<string, string> = {
+  Toml: `── KIND 標籤（TOML）──────────────────────────────
+容器（label·notation）：
+  table·scope    標準 [header] table
+  table·dotted   dotted-key table（a.b.c = …）
+  inline         inline table { … }
+  array·inline   inline array        array·multi  multiline array
+  AoT            array-of-tables  [[…]]
+
+純量（label·notation）：
+  str            basic string        str·"…"（quoted）
+  str·'…'        literal string
+  str·"""        multiline basic     str·'''  multiline literal
+  int            decimal integer
+  int·0x int·0o int·0b   hex／octal／binary
+  float / float·dec      float        float·1e  exponent
+  float·inf float·nan    infinity／NaN
+  bool · date · time · null`,
+  Json: `── KIND 標籤（JSON／JSONC）──────────────────────
+容器（label·notation）：
+  table          object { … }        table·multi  multiline object
+  inline         inline object
+  array·inline   inline array        array·multi  multiline array
+
+純量（label·notation）：
+  str            string              null
+  int            integer
+  float          float               float·1e  exponent
+  bool`,
+  Yaml: `── KIND 標籤（YAML）──────────────────────────────
+容器（label·notation）：
+  table·block    block mapping       table·flow  flow mapping { … }
+  array·block    block sequence      array·flow  flow sequence [ … ]
+  （opaque 節點 — anchors／aliases／merge／tags — 唯讀）
+
+純量（label·notation）：
+  str            plain string        str·'…'  single-quoted
+  str·"…"        double-quoted       str·|    literal block
+  str·>          folded block
+  int            decimal integer     int·0x int·0o  hex／octal
+  float          float               float·1e  exponent
+  float·inf float·nan    infinity／NaN
   bool · null`,
 };

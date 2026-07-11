@@ -137,13 +137,16 @@ mod tests {
     }
 
     #[test]
-    fn help_text_falls_back_to_en_for_zh_tw_when_untranslated() {
-        // Phase 4 does the full zh-TW translation pass; Phase 2 only needs the
-        // fallback machinery to hold, so a missing zh-TW help entry resolves
-        // to the English text rather than panicking or going blank.
+    fn help_text_is_translated_for_zh_tw() {
+        // Phase 4 completed the zh-TW help-text translation, so the cheatsheet
+        // now differs from English while KIND tags and shortcut key names
+        // (project vocabulary, deliberately untranslated) still appear in
+        // both.
         use crate::model::document::DocFormat;
         let en = help_text(DocFormat::Toml, Lang::En);
         let zh = help_text(DocFormat::Toml, Lang::ZhTw);
-        assert_eq!(en, zh);
+        assert_ne!(en, zh);
+        assert!(zh.contains("[D:odt ]"));
+        assert!(zh.contains("Ctrl+s"));
     }
 }

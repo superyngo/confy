@@ -79,12 +79,27 @@ pub const ABOUT_TEXT: &str = concat!(
     "GitHub:    https://github.com/superyngo/confy\n",
 );
 
-/// About-tab text for `lang`. Phase 1: the zh-TW body isn't translated yet
-/// (Phase 4 scope) — it falls back to the same `ABOUT_TEXT`; the plumbing
-/// exists now so hosts can call this uniformly.
+/// Static About-tab text, zh-TW body (Phase 4). Kept as its own const —
+/// mirrors `ABOUT_TEXT`'s structure/spacing rather than routing through the
+/// `i18n.rs` catalog, since `about_text(lang)` already expects a per-lang
+/// `&'static str` here and the body isn't parameterized.
+pub const ABOUT_TEXT_ZH_TW: &str = concat!(
+    "confy ",
+    env!("CARGO_PKG_VERSION"),
+    "\n",
+    "跨平台 TUI／Web UI，用於編輯結構化設定檔。\n",
+    "\n",
+    "作者：     wen\n",
+    "授權：     MIT\n",
+    "版權：     (c) 2026 wen\n",
+    "GitHub：   https://github.com/superyngo/confy\n",
+);
+
+/// About-tab text for `lang`.
 pub fn about_text(lang: crate::session::i18n::Lang) -> &'static str {
     match lang {
-        crate::session::i18n::Lang::En | crate::session::i18n::Lang::ZhTw => ABOUT_TEXT,
+        crate::session::i18n::Lang::En => ABOUT_TEXT,
+        crate::session::i18n::Lang::ZhTw => ABOUT_TEXT_ZH_TW,
     }
 }
 
