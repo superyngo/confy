@@ -3,5 +3,9 @@
   "identifier": "default",
   "description": "Core access for the main window. File dialogs run through Rust commands, not the JS dialog API.",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:default"]
+  "permissions": [
+    "core:default",
+    "dialog:default",
+    "core:webview:allow-set-webview-zoom"
+  ]
 }

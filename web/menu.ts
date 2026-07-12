@@ -156,6 +156,16 @@ export interface MenuDeps {
 
 let currentDeps: MenuDeps | null = null;
 let building = false;
+// The constructed Menu is otherwise a local variable inside buildAndSet() —
+// once that function returns, nothing in JS references it, so V8 is free to
+// garbage-collect it at any later point (a big allocation spike, e.g. opening
+// a file, is a classic GC trigger). Its action handlers ride on Tauri
+// resources tied to the JS wrapper's lifetime; GC'ing it tears down those
+// resources (and their click channels) even though the native OS menu bar
+// keeps showing the — now unresponsive — items. Keeping the root referenced
+// here for the module's lifetime prevents that (children stay alive via the
+// Rust-side tree the root owns).
+let installedMenu: MenuHandle | null = null;
 
 // Every menu handler is routed through this: menu-triggered events are
 // unhandled-rejection territory otherwise (Tauri swallows handler errors).
@@ -355,6 +365,7 @@ async function buildAndSet(): Promise<void> {
 
     const menu = await Menu.new({ items: submenus });
     await menu.setAsAppMenu();
+    installedMenu = menu; // keep alive — see the comment on the module-level declaration
   } finally {
     building = false;
   }

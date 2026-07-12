@@ -448,7 +448,19 @@ would intercept the key **before** the webview sees it, breaking native copy/cut
 inside every text input (inline edit, panel fields, search box). Zoom items also get no
 accelerator — `zoomHotkeysEnabled` (`tauri.conf.json`) already owns Cmd+/−/0; the JS-tracked
 zoom factor (`menu.ts`'s module-local `zoom`, `±0.1` steps clamped to `[0.3, 3]`) is a known,
-accepted, not-synced duplicate of that built-in path.
+accepted, not-synced duplicate of that built-in path. `getCurrentWebview().setZoom()` needs
+`core:webview:allow-set-webview-zoom` explicitly in `capabilities/default.json` —
+`core:webview:default` does not include it.
+
+**GC-retention gotcha:** `buildAndSet()` keeps the built root `Menu` in the module-level
+`installedMenu` variable and never lets it go out of scope. Every `Menu`/`Submenu`/`MenuItem`
+JS wrapper is backed by a Tauri resource (including the click-action channel); if nothing in
+JS references the tree after `setAsAppMenu()` returns, V8 is free to garbage-collect it at any
+later point, tearing down those resources while the native OS menu bar keeps showing the —
+now silently unresponsive — items. A large allocation spike (e.g. opening a file and swapping
+in a fresh wasm `Session`) is a classic GC trigger, which is how this first surfaced. Children
+don't need their own persistent JS references — they stay alive via the Rust-side tree the
+root `Menu` resource owns.
 
 **Recent files:** `localStorage["confy-recent"]` (Tauri-only — paths are only meaningful
 there), most-recent-first, cap 8, deduped by path. `fs.ts`'s `OpenedFile`/`FsHandle` both grew

@@ -61,6 +61,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unaffected (`isTauri()` no-ops everywhere). (2026-07-12)
 
 ### Fixed
+- **fix(desktop): native menu items stopped responding after opening a file.** Every
+  `Menu`/`Submenu`/`MenuItem` built in `web/menu.ts`'s `buildAndSet()` was a local variable —
+  once the function returned, nothing in JS referenced them, so V8 could garbage-collect the
+  tree at any later point (a big allocation spike, e.g. opening a file and swapping in a fresh
+  wasm `Session`, is a classic GC trigger). GC'ing the JS wrapper tears down its Tauri
+  resource — including the click-action channel — while the native OS menu bar keeps showing
+  the now-unresponsive item. Fixed by keeping the root `Menu` referenced in a module-level
+  variable for the page's lifetime (children stay alive via the Rust-side tree the root owns).
+  (2026-07-12)
+- **fix(desktop): View > Zoom In/Out/Reset threw "webview.set_webview_zoom not allowed".**
+  `core:webview:default` doesn't include `allow-set-webview-zoom` — added
+  `core:webview:allow-set-webview-zoom` explicitly to `capabilities/default.json`. (2026-07-12)
 - **fix(desktop): macOS native menu bar was completely empty.** The macOS app submenu's
   `PredefinedMenuItem.new({ item: "About" })` sent the bare string `"About"`, but Tauri's Rust
   side models that specific predefined kind as a newtype variant carrying
