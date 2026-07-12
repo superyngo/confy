@@ -71,6 +71,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no visible symptom until a companion fix (same commit) turned the menu module's previously-
   silent failure paths into a surfaced status/console error. (2026-07-12)
 
+### Changed
+- **chore(desktop): macOS app-submenu "About confy" now opens the in-app About overlay** (same
+  `EnterHelp`+`ToggleHelpTab` handler as the Help menu's About item) instead of macOS's native
+  About panel, for one consistent About surface across platforms/content. (2026-07-12)
+
 ## [v0.13.0] - 2026-07-10
 
 ### Changed

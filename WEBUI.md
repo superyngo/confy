@@ -423,9 +423,20 @@ plus node-op items Undo/Redo/Copy/Cut/Paste Node), View (Toggle Theme / Zoom In-
 Language ▸ one `CheckMenuItem` per `availableLangs()`, checked = `getLang()`), Help (Help /
 About — both send `EnterHelp`, About additionally sends `ToggleHelpTab` to flip onto the About
 tab, mirroring `enter_help`/`toggle_help_tab` in `session.rs`). macOS gets a rebuilt app
-submenu (About/Hide/HideOthers/ShowAll/Quit, all `Predefined`) since `setAsAppMenu()` replaces
-the entire default menu bar including Cmd+Q; Windows has no app submenu, so a `Predefined`
-Quit sits at the bottom of File instead (`navigator.platform`/`userAgentData` check).
+submenu ("About confy"/Hide/HideOthers/ShowAll/Quit) since `setAsAppMenu()` replaces the
+entire default menu bar including Cmd+Q; "About confy" is a custom `MenuItem` (not
+`Predefined`) using the same `EnterHelp`+`ToggleHelpTab` handler as the Help menu's About, so
+it opens the in-app About overlay instead of macOS's native About panel — one consistent
+About surface across platforms. Windows has no app submenu, so a `Predefined` Quit sits at
+the bottom of File instead (`navigator.platform`/`userAgentData` check).
+
+**`PredefinedMenuItem.item` gotcha:** every predefined kind is a plain Rust unit variant
+serialized as a bare string (`"Quit"`, `"Hide"`, …) — **except** `About`, which the Rust side
+models as a newtype variant carrying `Option<AboutMetadata>` and must be sent as
+`{ item: { About: null } }`; a bare `"About"` string fails IPC deserialization
+(`invalid type: unit variant, expected newtype variant`). This is moot now that the app
+submenu's About is a custom item rather than `Predefined`, but the gotcha applies to any
+future `PredefinedMenuItem.new({ item: "About" })` call.
 
 **Accelerator policy** (the one dangerous design point): node-op items get **no accelerator
 at all** — the plain-key hint (`c`/`x`/`v`/`z`/`y`) is a label suffix only, e.g. `Copy Node

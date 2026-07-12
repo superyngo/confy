@@ -214,7 +214,16 @@ async function buildAndSet(): Promise<void> {
         await Submenu.new({
           text: "confy",
           items: [
-            await PredefinedMenuItem.new({ item: { About: null } }),
+            // Custom (not Predefined) so "About confy" opens our in-app About
+            // overlay instead of macOS's native About panel — same handler as
+            // the Help menu's About item below.
+            await MenuItem.new({
+              text: `${t("web.help.tab.about")} confy`,
+              action: menuAction(() => {
+                deps.send("EnterHelp");
+                deps.send("ToggleHelpTab");
+              }),
+            }),
             await PredefinedMenuItem.new({ item: "Separator" }),
             await PredefinedMenuItem.new({ item: "Hide" }),
             await PredefinedMenuItem.new({ item: "HideOthers" }),
