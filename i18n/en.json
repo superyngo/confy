@@ -166,6 +166,7 @@
   "web.menu.collapseAll": "Collapse all",
   "web.menu.toggleView": "Toggle Tree / Raw view",
   "web.menu.file": "File",
+  "web.menu.new": "New",
   "web.menu.open": "Open…",
   "web.menu.openRecent": "Open Recent",
   "web.menu.clearRecent": "Clear Recent",

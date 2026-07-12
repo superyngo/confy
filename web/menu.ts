@@ -144,6 +144,7 @@ function zoomReset(): Promise<void> {
 
 // ---- host wiring ----
 export interface MenuDeps {
+  doNew: () => void | Promise<void>;
   doOpen: () => void | Promise<void>;
   doSave: () => void | Promise<void>;
   send: (intent: Intent) => void;
@@ -259,6 +260,7 @@ async function buildAndSet(): Promise<void> {
     const openRecentMenu = await Submenu.new({ text: t("web.menu.openRecent"), items: recentItems });
 
     const fileItems: MenuElement[] = [
+      await MenuItem.new({ text: t("web.menu.new"), accelerator: "CmdOrCtrl+N", action: menuAction(deps.doNew) }),
       await MenuItem.new({ text: t("web.menu.open"), accelerator: "CmdOrCtrl+O", action: menuAction(deps.doOpen) }),
       openRecentMenu,
       await PredefinedMenuItem.new({ item: "Separator" }),

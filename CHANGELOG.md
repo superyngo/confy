@@ -75,6 +75,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **chore(desktop): macOS app-submenu "About confy" now opens the in-app About overlay** (same
   `EnterHelp`+`ToggleHelpTab` handler as the Help menu's About item) instead of macOS's native
   About panel, for one consistent About surface across platforms/content. (2026-07-12)
+- **feat(desktop): File > New (`CmdOrCtrl+N`).** Discards the current document and loads the
+  default built-in toml sample — the same fallback `main()` already takes with no startup file/
+  URL, i.e. equivalent to refreshing the web page. No confirmation prompt, matching a browser
+  refresh's unconditional discard. (2026-07-12)
 
 ## [v0.13.0] - 2026-07-10
 

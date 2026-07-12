@@ -167,6 +167,7 @@
   "web.menu.collapseAll": "全部摺疊",
   "web.menu.toggleView": "切換 Tree／Raw 檢視",
   "web.menu.file": "檔案",
+  "web.menu.new": "新增",
   "web.menu.open": "開啟…",
   "web.menu.openRecent": "開啟最近使用",
   "web.menu.clearRecent": "清除最近使用",

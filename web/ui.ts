@@ -131,6 +131,13 @@ function chooseLang(lang: Lang) {
   void rebuildMenu();
 }
 
+// Menu > File > New: same as reloading the page with no startup file/URL —
+// discard the current doc and load the default (toml) built-in sample. No
+// confirmation, matching a browser refresh's unconditional discard.
+function doNew(): void {
+  loadSample("toml", openSample);
+}
+
 // Menu > File > Open Recent handler: reopen a previously-known Tauri path.
 // Missing file (deleted/moved on disk) drops it from the list with an error.
 async function openRecentPath(path: string): Promise<void> {
@@ -152,6 +159,7 @@ async function main() {
   updateLangUI();
   // Not awaited: menu build is several async IPC round-trips; don't delay wasm load on it.
   void setupAppMenu({
+    doNew,
     doOpen,
     doSave,
     send,

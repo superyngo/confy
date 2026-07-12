@@ -417,7 +417,10 @@ rebuilds and reinstalls it (`setAsAppMenu()`) on language change and after every
 mutation, re-reading labels via `t()`, the recent list, and `getLang()` each time; an in-flight
 flag drops concurrent rebuilds.
 
-**Structure:** File (Open `CmdOrCtrl+O` / Open Recent ▸ dynamic submenu / Save `CmdOrCtrl+S`),
+**Structure:** File (New `CmdOrCtrl+N` — discards the current doc and loads the default toml
+sample, i.e. `loadSample("toml", openSample)`, the same fallback `main()` takes with no
+startup file/URL; no confirmation, matching a browser refresh / Open `CmdOrCtrl+O` / Open
+Recent ▸ dynamic submenu / Save `CmdOrCtrl+S`),
 Edit (native `Predefined` Cut/Copy/Paste/Undo/Redo/SelectAll acting on focused text fields,
 plus node-op items Undo/Redo/Copy/Cut/Paste Node), View (Toggle Theme / Zoom In-Out-Reset /
 Language ▸ one `CheckMenuItem` per `availableLangs()`, checked = `getLang()`), Help (Help /
