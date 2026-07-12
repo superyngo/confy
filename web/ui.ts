@@ -10,12 +10,14 @@ import {
   downloadText,
   extFor,
   fsAccessAvailable,
+  openTauriPath,
   pickOpenFile,
   pickSaveFile,
   tauriStartupFile,
   writeFile,
   type FsHandle,
 } from "./fs.js";
+import { recentAdd, recentRemove, rebuildMenu, setupAppMenu } from "./menu.js";
 import {
   doConvertWrite,
   doSaveAsCopy,
@@ -126,12 +128,38 @@ function chooseLang(lang: Lang) {
   if (session) send({ SetLang: getLang() });
   updateLangUI();
   render();
+  void rebuildMenu();
+}
+
+// Menu > File > Open Recent handler: reopen a previously-known Tauri path.
+// Missing file (deleted/moved on disk) drops it from the list with an error.
+async function openRecentPath(path: string): Promise<void> {
+  const opened = await openTauriPath(path);
+  if (!opened) {
+    recentRemove(path);
+    void rebuildMenu();
+    setStatus("", t("web.menu.recentGone"));
+    return;
+  }
+  openText(opened.text, formatFromName(opened.name), opened.handle, opened.name);
+  recentAdd(path, opened.name);
+  void rebuildMenu();
 }
 
 async function main() {
   initTheme();
   applyStaticI18n();
   updateLangUI();
+  // Not awaited: menu build is several async IPC round-trips; don't delay wasm load on it.
+  void setupAppMenu({
+    doOpen,
+    doSave,
+    send,
+    toggleTheme,
+    chooseLang,
+    openRecentPath,
+    err: (msg) => setStatus("", msg),
+  });
   const wasmUrl = new URL("./pkg/confy_ffi_bg.wasm", import.meta.url);
   await load(wasmUrl);
   updateSaveLabel();
@@ -140,6 +168,10 @@ async function main() {
   const urlParam = new URLSearchParams(location.search).get("url");
   if (startup) {
     openText(startup.text, formatFromName(startup.name), startup.handle, startup.name);
+    if (startup.path) {
+      recentAdd(startup.path, startup.name);
+      void rebuildMenu();
+    }
   } else if (urlParam) {
     await openFromUrl(io, openText, urlParam);
   } else {
@@ -706,6 +738,10 @@ async function doSave() {
         await writeFile(handle, text);
         fileHandle = handle;
         fileName = await deriveName(handle, fmt);
+        if (handle.path) {
+          recentAdd(handle.path, fileName);
+          void rebuildMenu();
+        }
         setSampleMode(false); // now backed by a real file → freeze the format pill
         send("Save");
         setStatus("Saved", "");
@@ -742,6 +778,10 @@ async function doOpen() {
     if (!opened) return;
     const fmt = formatFromName(opened.name);
     openText(opened.text, fmt, opened.handle, opened.name);
+    if (opened.path) {
+      recentAdd(opened.path, opened.name);
+      void rebuildMenu();
+    }
     tree.focus();
     return;
   }

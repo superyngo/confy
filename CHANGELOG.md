@@ -44,6 +44,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one checked — desktop reuses the existing `.pop`/`.menu-item` click-menu machinery
   (`#langMenu`, alongside `#kindMenu`/`#moreMenu`), touch adds a dedicated `lang-sheet`
   mirroring the kind-switch sheet. (2026-07-11)
+- **feat(desktop): native menu bar (File/Edit/View/Help) for the Tauri shell.** New
+  `web/menu.ts` builds the menu via `window.__TAURI__.menu` (`withGlobalTauri`, no new npm
+  dependency) as early as possible in `main()` — before the wasm load — so it's visible during
+  the startup gap and Quit/About (`PredefinedMenuItem`) keep working even if wasm init fails.
+  File gets Open/Open Recent (▸, persisted in `localStorage["confy-recent"]`, cap 8)/Save;
+  Edit mixes native `Predefined` text-field items (Cut/Copy/Paste/Undo/Redo/SelectAll) with
+  node-op items (Copy/Cut/Paste/Undo/Redo Node) that deliberately carry **no accelerator** —
+  binding `CmdOrCtrl+C/X/V/Z/Y` would steal those keys from every text input, so the plain-key
+  hint (`c`/`x`/`v`/`z`/`y`) is just a label suffix and real handling stays in `ui.ts`'s
+  `onKey`; View gets Theme/Zoom (no accelerator either — `zoomHotkeysEnabled` already owns
+  Cmd+/−/0)/Language (checked against `getLang()`); Help gets Help/About (both open the
+  existing in-app overlay). macOS gets a rebuilt app submenu (About/Hide/HideOthers/ShowAll/
+  Quit) since `setAsAppMenu()` replaces the default one entirely; Windows puts a Predefined
+  Quit at the bottom of File instead. Zero `confy-core`/Rust changes — the pure-web build is
+  unaffected (`isTauri()` no-ops everywhere). (2026-07-12)
 
 ## [v0.13.0] - 2026-07-10
 

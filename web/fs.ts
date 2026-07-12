@@ -13,6 +13,8 @@
 export interface FsHandle {
   getFile(): Promise<File>;
   createWritable(): Promise<FsWritable>;
+  /** Absolute path, present only for Tauri-backed handles (desktop recent-files menu). */
+  path?: string;
 }
 export interface FsWritable {
   write(data: string): Promise<void>;
@@ -63,6 +65,8 @@ export interface OpenedFile {
   handle: FsHandle;
   name: string;
   text: string;
+  /** Absolute path, present only for Tauri-backed opens (desktop recent-files menu). */
+  path?: string;
 }
 
 // ---- Tauri desktop host ----
@@ -94,6 +98,7 @@ interface RustOpenedFile {
 function tauriHandle(path: string, name: string): FsHandle {
   const core = tauriCore()!;
   return {
+    path,
     async getFile(): Promise<File> {
       const text = await core.invoke<string>("read_file_text", { path });
       return new File([text], name);
@@ -115,7 +120,22 @@ export async function tauriStartupFile(): Promise<OpenedFile | null> {
   if (!core) return null;
   const f = await core.invoke<RustOpenedFile | null>("startup_file");
   if (!f) return null;
-  return { handle: tauriHandle(f.path, f.name), name: f.name, text: f.text };
+  return { handle: tauriHandle(f.path, f.name), name: f.name, text: f.text, path: f.path };
+}
+
+/** Reopen a previously-known Tauri path (desktop Open Recent menu). `null` if
+ * the file no longer exists or can't be read — the caller drops it from the
+ * recent list. */
+export async function openTauriPath(path: string): Promise<OpenedFile | null> {
+  const core = tauriCore();
+  if (!core) return null;
+  try {
+    const text = await core.invoke<string>("read_file_text", { path });
+    const name = path.split(/[\\/]/).pop() ?? path;
+    return { handle: tauriHandle(path, name), name, text, path };
+  } catch {
+    return null;
+  }
 }
 
 /** Fetch a config file's text from a URL. Throws on network/HTTP failure. */
@@ -141,7 +161,7 @@ export async function pickOpenFile(): Promise<OpenedFile | null> {
   if (core) {
     const f = await core.invoke<RustOpenedFile | null>("open_dialog");
     if (!f) return null;
-    return { handle: tauriHandle(f.path, f.name), name: f.name, text: f.text };
+    return { handle: tauriHandle(f.path, f.name), name: f.name, text: f.text, path: f.path };
   }
   const picker = openPicker();
   if (!picker) return null;

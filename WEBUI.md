@@ -403,6 +403,48 @@ browser's local storage (or the desktop app's WebView persistent storage) rather
 filesystem path — unlike the TUI, which discloses a config-file path (see `TUI.md` §*Language
 / i18n (TUI)*).
 
+## Desktop menu (Tauri)
+
+`web/menu.ts` builds a native File/Edit/View/Help menu bar for the Tauri desktop shell via
+`window.__TAURI__.menu`/`window.__TAURI__.webview` (`withGlobalTauri: true` in
+`tauri.conf.json`, so no `@tauri-apps/api` npm dependency — minimal ambient types follow the
+`fs.ts` `TauriCore` pattern). `setupAppMenu(deps)` is a no-op on the pure web build
+(`isTauri()` guard) and is called from the top of `ui.ts`'s `main()`, **before** `await
+load(wasmUrl)` and **not awaited** — menu construction is several async IPC round-trips and
+must not delay the wasm boot; this also means the menu is visible during the startup gap, and
+Quit/About use `PredefinedMenuItem` so they still work if wasm init fails. `rebuildMenu()`
+rebuilds and reinstalls it (`setAsAppMenu()`) on language change and after every recent-files
+mutation, re-reading labels via `t()`, the recent list, and `getLang()` each time; an in-flight
+flag drops concurrent rebuilds.
+
+**Structure:** File (Open `CmdOrCtrl+O` / Open Recent ▸ dynamic submenu / Save `CmdOrCtrl+S`),
+Edit (native `Predefined` Cut/Copy/Paste/Undo/Redo/SelectAll acting on focused text fields,
+plus node-op items Undo/Redo/Copy/Cut/Paste Node), View (Toggle Theme / Zoom In-Out-Reset /
+Language ▸ one `CheckMenuItem` per `availableLangs()`, checked = `getLang()`), Help (Help /
+About — both send `EnterHelp`, About additionally sends `ToggleHelpTab` to flip onto the About
+tab, mirroring `enter_help`/`toggle_help_tab` in `session.rs`). macOS gets a rebuilt app
+submenu (About/Hide/HideOthers/ShowAll/Quit, all `Predefined`) since `setAsAppMenu()` replaces
+the entire default menu bar including Cmd+Q; Windows has no app submenu, so a `Predefined`
+Quit sits at the bottom of File instead (`navigator.platform`/`userAgentData` check).
+
+**Accelerator policy** (the one dangerous design point): node-op items get **no accelerator
+at all** — the plain-key hint (`c`/`x`/`v`/`z`/`y`) is a label suffix only, e.g. `Copy Node
+(c)`; actual handling stays in `ui.ts`'s `onKey`. Binding `CmdOrCtrl+C/X/V/Z/Y` to a menu item
+would intercept the key **before** the webview sees it, breaking native copy/cut/paste/undo
+inside every text input (inline edit, panel fields, search box). Zoom items also get no
+accelerator — `zoomHotkeysEnabled` (`tauri.conf.json`) already owns Cmd+/−/0; the JS-tracked
+zoom factor (`menu.ts`'s module-local `zoom`, `±0.1` steps clamped to `[0.3, 3]`) is a known,
+accepted, not-synced duplicate of that built-in path.
+
+**Recent files:** `localStorage["confy-recent"]` (Tauri-only — paths are only meaningful
+there), most-recent-first, cap 8, deduped by path. `fs.ts`'s `OpenedFile`/`FsHandle` both grew
+an optional `path` field (populated only on the Tauri branches of `tauriStartupFile`,
+`pickOpenFile`, and `tauriHandle` — so `pickSaveFile`'s returned handle carries it too);
+`ui.ts` calls `recentAdd` + `rebuildMenu()` wherever a Tauri path becomes newly known (startup
+file, Open, Save As), and `openTauriPath(path)` (new `fs.ts` export, `read_file_text` via
+`invoke`) backs the menu's `openRecentPath` handler — a missing/unreadable file calls
+`recentRemove` + `rebuildMenu()` + an error status instead of opening.
+
 ## Deployment
 
 The hosted site is **<https://confy.turkeyang.net/>**, deployed via **Cloudflare

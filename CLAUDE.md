@@ -262,6 +262,8 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
   confy.ts       typed wrapper around the wasm ConfySession (load + Session class; `kindOptions`)
   fs.ts          File System Access API open/save-in-place + download fallback + `fetchUrlFile`
                  (open a remote config; `?url=` deep-link & "Open from URL") — host-owned I/O
+  menu.ts        Tauri native File/Edit/View/Help menu bar (`window.__TAURI__.menu`;
+                 `isTauri()` no-op on the pure web build) — see WEBUI.md §Desktop menu (Tauri)
   render.ts      pure `SessionSnapshot → DOM` tree: web-native row anatomy (drag grip, rotating
                  caret, key/`—`/value value-type-colored, item count, **kind badge** =
                  label+notation suffix+chevron, comment/trailing, hover ＋/⋮ actions);
