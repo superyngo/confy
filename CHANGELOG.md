@@ -60,6 +60,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Quit at the bottom of File instead. Zero `confy-core`/Rust changes — the pure-web build is
   unaffected (`isTauri()` no-ops everywhere). (2026-07-12)
 
+### Fixed
+- **fix(desktop): macOS native menu bar was completely empty.** The macOS app submenu's
+  `PredefinedMenuItem.new({ item: "About" })` sent the bare string `"About"`, but Tauri's Rust
+  side models that specific predefined kind as a newtype variant carrying
+  `Option<AboutMetadata>` — every other kind (`Quit`, `Hide`, …) is a plain unit variant and
+  accepts the bare string, but `About` needs `{ item: { About: null } }`. The bad payload
+  failed to deserialize (`invalid type: unit variant, expected newtype variant`) on the very
+  first item constructed, aborting the whole menu build before `setAsAppMenu()` ever ran — with
+  no visible symptom until a companion fix (same commit) turned the menu module's previously-
+  silent failure paths into a surfaced status/console error. (2026-07-12)
+
 ## [v0.13.0] - 2026-07-10
 
 ### Changed

@@ -42,13 +42,16 @@ type PredefinedItemKind =
   | "Undo"
   | "Redo"
   | "Quit"
-  | "About"
   | "Hide"
   | "HideOthers"
   | "ShowAll"
   | "CloseWindow";
 interface PredefinedMenuItemOptions {
-  item: PredefinedItemKind;
+  // Every other kind is a plain unit variant on the Rust side (bare string);
+  // `About` is a newtype variant carrying `Option<AboutMetadata>` and MUST be
+  // sent as `{ About: null }` — a bare `"About"` string fails to deserialize
+  // ("invalid type: unit variant, expected newtype variant").
+  item: PredefinedItemKind | { About: null };
   text?: string;
 }
 interface SubmenuOptions {
@@ -211,7 +214,7 @@ async function buildAndSet(): Promise<void> {
         await Submenu.new({
           text: "confy",
           items: [
-            await PredefinedMenuItem.new({ item: "About" }),
+            await PredefinedMenuItem.new({ item: { About: null } }),
             await PredefinedMenuItem.new({ item: "Separator" }),
             await PredefinedMenuItem.new({ item: "Hide" }),
             await PredefinedMenuItem.new({ item: "HideOthers" }),
