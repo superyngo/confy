@@ -283,20 +283,21 @@ async function buildAndSet(): Promise<void> {
     }
     submenus.push(await Submenu.new({ text: t("web.menu.file"), items: fileItems }));
 
-    // Edit: native Predefined items act on focused text fields (macOS-only
-    // effect, harmless on Windows); node ops below get NO accelerator.
+    // Edit: node ops only, routed through Session Intents — no native
+    // Predefined items. Real text-field editing (panel inputs, search box)
+    // already gets native OS copy/cut/paste/undo/redo/select-all directly
+    // from the browser/webview regardless of menu contents (those inputs
+    // stop propagation to the tree key handler); a Predefined item here
+    // would just be a second, differently-behaved route to the same keys
+    // (on macOS it targets the focused-responder text action, not the tree,
+    // and on Windows it happened to coincide with the plain-key case below
+    // only because the unmodified keystroke leaked through — see the plan).
+    // Node ops below get NO accelerator so CmdOrCtrl+C/X/V/Z/Y never steal
+    // those keys from a focused text input.
     submenus.push(
       await Submenu.new({
         text: t("web.menu.edit"),
         items: [
-          await PredefinedMenuItem.new({ item: "Undo" }),
-          await PredefinedMenuItem.new({ item: "Redo" }),
-          await PredefinedMenuItem.new({ item: "Separator" }),
-          await PredefinedMenuItem.new({ item: "Cut" }),
-          await PredefinedMenuItem.new({ item: "Copy" }),
-          await PredefinedMenuItem.new({ item: "Paste" }),
-          await PredefinedMenuItem.new({ item: "SelectAll" }),
-          await PredefinedMenuItem.new({ item: "Separator" }),
           await MenuItem.new({ text: `${t("web.menu.undo")} (z)`, action: menuAction(() => deps.send("Undo")) }),
           await MenuItem.new({ text: `${t("web.menu.redo")} (y)`, action: menuAction(() => deps.send("Redo")) }),
           await MenuItem.new({

@@ -570,6 +570,11 @@ function onKey(ev: KeyboardEvent) {
     ev.preventDefault();
     return void doOpen();
   }
+  // Every other Ctrl/Cmd-modified key (Select All, native Edit-menu accelerators,
+  // OS shortcuts, …) is left to the browser/OS — otherwise it falls through to
+  // the modifier-free single-letter tree shortcuts below (e.g. Cmd+A becoming
+  // the plain "a" → AddNode shortcut).
+  if (ctrl) return;
   // Raw view is read-only serialized text, not the tree — every other key
   // (arrows/Home/End scrolling, Ctrl+A select-all, Ctrl+C copy, …) is left to
   // native `<pre>` behavior instead of the tree's single-letter shortcuts
