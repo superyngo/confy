@@ -3,8 +3,9 @@
 **/*.rs.bk
 Cargo.lock
 
-# Planning scratch (agd dispatch output)
+# Planning scratch (agd dispatch output) + its archived snapshots
 /docs/tmp/
+/docs/tmp-archive-*.tar.gz
 
 # OS / editor
 .DS_Store
@@ -12,6 +13,9 @@ Cargo.lock
 
 # editor/agent scratch backups
 *.bak
+
+# Playwright MCP artifacts
+/.playwright-mcp/
 
 # Local Claude Code config
 .claude/settings.local.json

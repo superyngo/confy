@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **chore(docs): retire stale port-era scratch** (2026-07-13). `HANDOFF.md` removed (it froze
+  at the 2026-06-18 port status and self-described as deletable once the port was done — the
+  history stays in git and `PORTING.md`); `docs/tmp/`'s 178 agd dispatch artifacts archived
+  into `docs/tmp-archive-2026-05.tar.gz` (gitignored). New plan:
+  `docs/superpowers/plans/2026-07-13-mobile-m1-android-plan.md` (Mobile M1, Android APK).
+
+### Fixed
+- **fix(web): favicon 404** (2026-07-13). `index.html`/`touch.html` now declare
+  `<link rel="icon">` pointing at the existing `icons/icon-192.png`, so browsers stop
+  requesting the nonexistent `/favicon.ico`.
+
+### Added
+- **feat(web): PWA installability + offline support** (2026-07-12). `web/manifest.webmanifest`
+  (standalone display, 192/512 icons derived from the desktop icon set) + `web/sw.js`, a
+  network-first service worker with cache fallback: fresh deploys are picked up immediately,
+  and the app shell (both UIs + wasm core) is precached on install so the site works offline
+  after the first visit. Registered from `index.html`/`touch.html` on https only — the dev
+  server stays SW-free so its `no-store` caching keeps working. `cf-build.sh` ships the new
+  assets; `serve.mjs` learns the `.webmanifest`/`.png` MIME types.
+
 ## [v0.14.0] - 2026-07-12
 
 ### Added
