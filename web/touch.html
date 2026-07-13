@@ -20,6 +20,18 @@
       content="width=device-width, initial-scale=1, viewport-fit=cover"
     />
     <title>confy — config tree editor</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <meta name="theme-color" content="#16181d" />
+    <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+    <link rel="icon" type="image/png" href="./icons/icon-192.png" />
+    <script>
+      // PWA: register the service worker on the deployed (https) site only —
+      // the dev server stays SW-free so its no-store caching keeps working.
+      if ("serviceWorker" in navigator && location.protocol === "https:")
+        addEventListener("load", function () {
+          navigator.serviceWorker.register("./sw.js");
+        });
+    </script>
     <link rel="stylesheet" href="./touch/style.css" />
   </head>
   <body>

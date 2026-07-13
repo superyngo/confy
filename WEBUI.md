@@ -488,6 +488,25 @@ Production branch is `main`; every push to `main` rebuilds and deploys (Git
 integration can't be tag-gated). The custom domain is set in the Worker's
 Settings → Domains & Routes.
 
+## PWA (installable + offline)
+
+The site is an installable PWA: `web/manifest.webmanifest` (standalone display,
+`web/icons/icon-192.png`/`icon-512.png` derived from `crates/confy-tauri/icons/icon.png`)
+plus `web/sw.js`, registered from both `index.html` and `touch.html` **on https only** —
+the dev server (`serve.mjs`) stays SW-free so its deliberate `no-store` caching keeps
+working, and `sw.js` never interferes with local wasm rebuilds.
+
+`sw.js` is **network-first with cache fallback** for every same-origin GET: a fresh
+deploy is always picked up immediately (matching the push-to-`main` → CF flow, no
+version-stamped cache busting needed), each successful response is copied into the
+`confy-shell-v1` cache, and the cache is served only when the network fails. The app
+shell (both HTML entries, both CSS/JS bundles, `pkg/confy_ffi.js` + the wasm, the
+manifest) is precached on install, so the app works offline after the very first visit.
+Navigation requests match the cache with `ignoreSearch` (the entry-router query strings
+`?ui=` / `?url=` are volatile). `cf-build.sh` copies `manifest.webmanifest`, `sw.js`,
+and `icons/` into `dist`; installed-app launches hit `start_url: "./"` and the normal
+coarse-pointer router bounces to the touch UI.
+
 ## Future structured-diff evolution
 
 The full-snapshot transport is the G1 baseline. If re-render latency becomes

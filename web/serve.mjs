@@ -16,6 +16,8 @@ const MIME = {
   ".ts": "text/plain; charset=utf-8",
   ".wasm": "application/wasm",
   ".json": "application/json; charset=utf-8",
+  ".webmanifest": "application/manifest+json; charset=utf-8",
+  ".png": "image/png",
 };
 
 createServer(async (req, res) => {
