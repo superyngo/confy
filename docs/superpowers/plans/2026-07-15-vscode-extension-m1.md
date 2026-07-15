@@ -6,7 +6,7 @@
 
 **Architecture:** Third host shell (after browser and Tauri). A `CustomEditorProvider` in a new `editors/vscode/` TS package owns file I/O and the VS Code document lifecycle; the webview runs the unmodified `ui.js` bundle plus a small `web/vscode.ts` adapter. The only channel is `postMessage`, typed by a shared `web/vscode-protocol.ts`.
 
-**Tech Stack:** TypeScript, esbuild, `@types/vscode` (engine `^1.85.0`), `@vscode/vsce`. **No Rust/core changes** — the existing `crates/confy-ffi/pkg` wasm build is reused as-is.
+**Tech Stack:** TypeScript, esbuild, `@types/vscode` (engine `^1.85.0`), `@vscode/vsce`. **One additive core change** (grilling decision): `SessionSnapshot.history_len` (Task 0) so the webview can distinguish a history push from a `cancel_last` rollback — everything else in `crates/` is untouched, and the wasm is rebuilt once in Task 0.
 
 **Spec:** `docs/superpowers/specs/2026-07-15-vscode-extension-design.md` (APPROVED). One refinement over the spec: the host→webview `theme` message is replaced by a webview-side `MutationObserver` on VS Code's `body` class stamps (`vscode-dark`/`vscode-light`/…) — same behavior, no extra protocol.
 
@@ -14,7 +14,7 @@
 
 - **esbuild must not run against the `/Volumes/Home/...` repo path** — it deadlocks there. Every esbuild invocation (web bundle AND extension bundle) runs from a scratchpad copy; results are copied back. Exact commands are given in the steps. `npm install`, `tsc`, `vsce`, and `git` are safe on the volume.
 - **Never push or merge the feature branch** without the user's explicit ask. All work happens on local branch `vscode-m1`.
-- **No changes to `crates/`** (Rust core, ffi, tui, tauri) in this plan. If a step seems to need one, stop and ask.
+- **No changes to `crates/` beyond Task 0's additive `history_len` snapshot field** (Rust core, ffi, tui, tauri). If a step seems to need another one, stop and ask. After Task 0's core change, the wasm-pack rebuild + web bundle + `tsc` + `functional_smoke.mjs` completion steps are mandatory (repo rule).
 - Existing web hosts must be unaffected: every `web/` change is gated on the `VSHOST` flag; the pure-browser and Tauri behavior must be byte-identical when `acquireVsCodeApi` is absent.
 - `tsc --noEmit` must stay clean in `web/` and in `editors/vscode/` after every task.
 - After each task, append an `Unreleased Update` entry to `CHANGELOG.md` (timestamp + description matching the commit message) before committing.
@@ -23,8 +23,15 @@
 ## File Structure
 
 ```
+crates/confy-core/src/session/state.rs     MOD  History::depth() accessor (past.len())
+crates/confy-core/src/session/view.rs      MOD  SessionSnapshot.history_len field
+crates/confy-core/src/session/dispatch.rs  MOD  populate history_len in the snapshot builder
+crates/confy-ffi/functional_smoke.mjs      MOD  +2 history_len contract checks
+web/types.ts              MOD  mirror history_len on SessionSnapshot
 web/vscode-protocol.ts    NEW  shared host⇄webview message types (single source of truth)
 web/vscode.ts             NEW  webview-side adapter: acquireVsCodeApi, post/onHostMessage, theme observer
+web/host-io.ts            MOD  ConfigFormat re-export from vscode-protocol.ts; initTheme/toggleTheme storage guards
+web/i18n.ts               MOD  getLang/setLang localStorage guards (boot-path white-screen insurance)
 web/ui.ts                 MOD  VSHOST boot branch, host-message handler, notifyHost, save/undo/convert reroutes
 web/style.css             MOD  appendix rule hiding host-owned chrome under body.host-vscode
 editors/vscode/
@@ -42,16 +49,26 @@ editors/vscode/
 
 ---
 
-### Task 1: Feature branch + shared protocol + webview adapter
+### Task 0: Core `history_len` snapshot field + wasm rebuild
+
+The webview must tell three dispatch outcomes apart to keep VS Code's edit
+stack truthful (grilling Q7/Q8): history **grew** → a real edit (push a VS Code
+entry), **shrank** → `History::cancel_last` rolled the newest entry back
+(add→Esc — the host must neuter its matching entry), **flat** → mirror-only.
+`History.past` is an unbounded `Vec`, so `past.len()` is a cap-free depth
+signal, and the only shrink paths outside host-initiated undo are the two
+`cancel_last` callsites (scalar add-Esc `session.rs:1438`, comment add-Esc
+`session.rs:~2071`).
 
 **Files:**
-- Create: `web/vscode-protocol.ts`
-- Create: `web/vscode.ts`
+- Modify: `crates/confy-core/src/session/state.rs` (History::depth)
+- Modify: `crates/confy-core/src/session/view.rs` (SessionSnapshot field)
+- Modify: `crates/confy-core/src/session/dispatch.rs` (snapshot builder)
+- Modify: `crates/confy-ffi/functional_smoke.mjs` (+2 checks)
+- Modify: `web/types.ts` (mirror field)
 
 **Interfaces:**
-- Produces (used by Tasks 2–5):
-  - `web/vscode-protocol.ts`: `type ConfigFormat = "toml" | "json" | "yaml" | "yml"`, `type HostToWebview`, `type WebviewToHost` (exact definitions below).
-  - `web/vscode.ts`: `isVsCode(): boolean`, `post(msg: WebviewToHost): void`, `onHostMessage(handler: (msg: HostToWebview) => void): void`, `trackVsCodeTheme(): void`.
+- Produces: `SessionSnapshot.history_len: usize` (serde → `history_len: number` in JS), used by Task 2's `notifyHost` depth rule.
 
 - [ ] **Step 1: Create the branch**
 
@@ -60,7 +77,105 @@ cd /Volumes/Home/Users/wen/repos/confy
 git checkout -b vscode-m1
 ```
 
-- [ ] **Step 2: Write `web/vscode-protocol.ts`**
+- [ ] **Step 2: `History::depth()` in `state.rs`**
+
+Next to `current()`:
+
+```rust
+    /// Undoable-entry count (`past.len()`). Hosts that mirror the undo stack
+    /// (VS Code) diff this across dispatches: it grows on a history push and
+    /// shrinks when `cancel_last` rolls the newest entry back (add→Esc).
+    pub fn depth(&self) -> usize {
+        self.past.len()
+    }
+```
+
+- [ ] **Step 3: `SessionSnapshot.history_len` in `view.rs`**
+
+After `lang`:
+
+```rust
+    /// Undo-history depth (`History::depth()`, 0 before the first edit or
+    /// when no document is loaded).
+    pub history_len: usize,
+```
+
+- [ ] **Step 4: Populate it in `dispatch.rs`'s `snapshot()`** (the sole construction site, line ~297):
+
+```rust
+            history_len: self.history.as_ref().map(|h| h.depth()).unwrap_or(0),
+```
+
+- [ ] **Step 5: Rust gates**
+
+```bash
+cd /Volumes/Home/Users/wen/repos/confy
+cargo test && cargo clippy -- -D warnings && cargo fmt --check
+```
+Expected: all green (additive field; sole builder updated in Step 4).
+
+- [ ] **Step 6: Rebuild the wasm + mirror the type**
+
+```bash
+cd /Volumes/Home/Users/wen/repos/confy/crates/confy-ffi && wasm-pack build --target web
+```
+(cargo/wasm-pack are safe on the volume path — only esbuild deadlocks there.)
+
+In `web/types.ts`, add to the `SessionSnapshot` interface (next to `clipboard_count`):
+
+```ts
+  history_len: number; // undo-history depth; VS Code host diffs it (see vscode-protocol.ts)
+```
+
+- [ ] **Step 7: Extend + run the smoke**
+
+In `crates/confy-ffi/functional_smoke.mjs`, alongside an existing mutation
+flow (e.g. the clipboard section's session), add:
+
+```js
+check("history_len 0 on fresh session", s6.snapshot().history_len === 0);
+```
+and after any successful mutation dispatch in that flow:
+```js
+check("history_len grows on mutation", /* post-mutation snap */.history_len === 1);
+```
+
+```bash
+cd /Volumes/Home/Users/wen/repos/confy/crates/confy-ffi && node functional_smoke.mjs
+```
+Expected: all checks pass (36 + 2).
+
+```bash
+cd /Volumes/Home/Users/wen/repos/confy/web && npx tsc --noEmit
+```
+Expected: exit 0.
+
+- [ ] **Step 8: CHANGELOG + commit**
+
+Append to `CHANGELOG.md`:
+`- 2026-07-15 feat(core): expose undo-history depth as SessionSnapshot.history_len (VS Code host edit-stack mirror)`
+
+```bash
+git add crates/confy-core/src/session/state.rs crates/confy-core/src/session/view.rs crates/confy-core/src/session/dispatch.rs crates/confy-ffi/functional_smoke.mjs crates/confy-ffi/pkg web/types.ts CHANGELOG.md
+git commit -m "feat(core): expose undo-history depth as SessionSnapshot.history_len"
+```
+(If `crates/confy-ffi/pkg` is gitignored, drop it from the add — check `git status`.)
+
+---
+
+### Task 1: Shared protocol + webview adapter
+
+**Files:**
+- Create: `web/vscode-protocol.ts`
+- Create: `web/vscode.ts`
+- Modify: `web/host-io.ts` (replace the local `ConfigFormat` definition with a re-export from `vscode-protocol.ts` — single source of truth, type-only change, no behavior)
+
+**Interfaces:**
+- Produces (used by Tasks 2–5):
+  - `web/vscode-protocol.ts`: `type ConfigFormat = "toml" | "json" | "yaml"` (the single definition; `host-io.ts` re-exports it), `type HostToWebview`, `type WebviewToHost` (exact definitions below).
+  - `web/vscode.ts`: `isVsCode(): boolean`, `post(msg: WebviewToHost): void`, `onHostMessage(handler: (msg: HostToWebview) => void): void`, `trackVsCodeTheme(): void`.
+
+- [ ] **Step 2: Write `web/vscode-protocol.ts`** (branch already created in Task 0)
 
 ```ts
 // Message protocol between the VS Code extension host and the confy webview.
@@ -68,7 +183,12 @@ git checkout -b vscode-m1
 // side) so protocol drift is a compile error, not a runtime surprise.
 // Design: docs/superpowers/specs/2026-07-15-vscode-extension-design.md.
 
-export type ConfigFormat = "toml" | "json" | "yaml" | "yml";
+// The single definition of ConfigFormat — web/host-io.ts re-exports this
+// (its old local 3-value union is deleted), so the web layer and the
+// extension host cannot drift. `.yml` folds to "yaml" and `.jsonc` to "json"
+// at the filename→format mapping, exactly as host-io's formatFromName does;
+// the wire never carries "yml".
+export type ConfigFormat = "toml" | "json" | "yaml";
 
 export type HostToWebview =
   | { type: "init"; text: string; name: string; format: ConfigFormat; lang: string }
@@ -87,10 +207,19 @@ export type WebviewToHost =
   | { type: "ready" }
   // A user-initiated mutation: host pushes one VS Code edit entry + refreshes
   // the raw preview. `text` is session.serialize() (cheap token concat).
+  // `dirty` is the Session's own dirty bit; the host derives dirty from its
+  // edit stack and deliberately ignores it — it rides along as a diagnostic
+  // (compare against the tab dot during acceptance) and for future
+  // bidirectional-sync milestones. Grilling decision: keep, not dead weight.
   | { type: "edited"; dirty: boolean; text: string }
   // A host-initiated change landed (undo/redo/revert/save-ok): refresh the
   // preview/dirty mirror but do NOT push an edit entry.
   | { type: "synced"; dirty: boolean; text: string }
+  // The Session rolled back its newest history entry WITHOUT a host undo
+  // (add→Esc via History::cancel_last, detected as a history_len decrease):
+  // mirror text like `synced` AND neuter the newest live VS Code edit entry
+  // so popping it later doesn't undo an older, wrong Session edit.
+  | { type: "edit-cancelled"; dirty: boolean; text: string }
   | { type: "save-response"; id: number; text: string }
   // Webview keyboard/toolbar undo forwards to the host so VS Code's stack
   // stays the single entry point.
@@ -102,6 +231,18 @@ export type WebviewToHost =
   | { type: "convert-save"; suggestedName: string; text: string }
   | { type: "parse-error"; message: string };
 ```
+
+- [ ] **Step 2b: Point `web/host-io.ts` at the shared type**
+
+In `web/host-io.ts`, replace the line
+`export type ConfigFormat = "toml" | "json" | "yaml";` with:
+
+```ts
+export type { ConfigFormat } from "./vscode-protocol.js";
+```
+
+(Every existing importer of `ConfigFormat` from `./host-io.js` keeps working;
+`tsc --noEmit` proves it.)
 
 - [ ] **Step 3: Write `web/vscode.ts`**
 
@@ -175,7 +316,7 @@ Append to `CHANGELOG.md` under `Unreleased Update`:
 `- 2026-07-15 feat(web): add VS Code webview host protocol + adapter modules`
 
 ```bash
-git add web/vscode-protocol.ts web/vscode.ts CHANGELOG.md
+git add web/vscode-protocol.ts web/vscode.ts web/host-io.ts CHANGELOG.md
 git commit -m "feat(web): add VS Code webview host protocol + adapter modules"
 ```
 
@@ -186,10 +327,12 @@ git commit -m "feat(web): add VS Code webview host protocol + adapter modules"
 **Files:**
 - Modify: `web/ui.ts` (imports; `VSHOST` const; `io` flags; `main()` boot branch; host-message handler + `notifyHost` + `hostDispatch` block; `send`/`batch`; `doSave`; undo/redo reroutes at the keydown switch, `toolbarEntries`, and `bindGlobal` listeners; `convert_write` interception in `render()`; `saveCopy` at both `runSaveConvertShared` callsites)
 - Modify: `web/style.css` (app-only appendix)
+- Modify: `web/host-io.ts` (`initTheme`/`toggleTheme` localStorage guards)
+- Modify: `web/i18n.ts` (`getLang`/`setLang` localStorage guards)
 
 **Interfaces:**
 - Consumes: Task 1's `isVsCode`, `post`, `onHostMessage`, `trackVsCodeTheme`, `HostToWebview`.
-- Produces: the webview-side behavior contract Tasks 3–5's host code relies on — posts `ready` on boot; answers `init`/`undo`/`redo`/`revert`/`save-request`/`save-ok`; emits `edited`/`synced`/`save-response`/`request-*`/`convert-save`/`parse-error` exactly as defined in Task 1.
+- Produces: the webview-side behavior contract Tasks 3–5's host code relies on — posts `ready` on boot; answers `init`/`undo`/`redo`/`revert`/`save-request`/`save-ok`; emits `edited`/`synced`/`edit-cancelled`/`save-response`/`request-*`/`convert-save`/`parse-error` exactly as defined in Task 1 (flavor picked by the `history_len` depth rule from Task 0).
 
 - [ ] **Step 1: Add imports and the `VSHOST` flag**
 
@@ -231,6 +374,7 @@ Add after the `batch()` function (line ~661), one self-contained block:
 let hostInitiated = false;
 let lastNotifyText: string | null = null;
 let lastNotifyDirty: boolean | null = null;
+let lastNotifyDepth = 0;
 
 function hostDispatch(i: Intent) {
   hostInitiated = true;
@@ -242,23 +386,46 @@ function hostDispatch(i: Intent) {
 }
 
 // Called after every render outside a batch (and once per batch): posts
-// edited/synced whenever the serialized text or dirty bit actually moved.
-// Navigation-only intents change neither and post nothing.
+// edited/synced/edit-cancelled whenever the serialized text or dirty bit
+// actually moved. Navigation-only intents change neither and post nothing.
+// The history-depth delta (snap.history_len; History.past is unbounded, so
+// no cap artifacts) picks the flavor for user-initiated changes: grew → a
+// real edit push; shrank → History::cancel_last rolled the newest entry back
+// (add→Esc) and the host must neuter its matching stack entry; flat →
+// mirror-only sync (safe default).
 function notifyHost() {
   if (!VSHOST || !session || !snap) return;
   const text = session.serialize();
+  const depth = snap.history_len;
+  const prevDepth = lastNotifyDepth;
+  lastNotifyDepth = depth; // track even when the dedupe below returns early
   if (text === lastNotifyText && snap.is_dirty === lastNotifyDirty) return;
   lastNotifyText = text;
   lastNotifyDirty = snap.is_dirty;
-  post({ type: hostInitiated ? "synced" : "edited", dirty: snap.is_dirty, text });
+  const type = hostInitiated
+    ? "synced"
+    : depth > prevDepth
+      ? "edited"
+      : depth < prevDepth
+        ? "edit-cancelled"
+        : "synced";
+  post({ type, dirty: snap.is_dirty, text });
 }
 
 function handleHostMsg(msg: HostToWebview) {
   switch (msg.type) {
     case "init": {
+      // VS Code's display language is authoritative in this host (same
+      // principle as theme): apply it before openText so its internal
+      // SetLang(getLang()) picks it up. In-session switching still works.
+      setLang(msg.lang === "zh-TW" ? "zh-TW" : "en");
       hostInitiated = true;
       try {
         openText(msg.text, msg.format, null, msg.name);
+        // openText dispatches directly (not via send), so no notification
+        // fires on its own — post the initial `synced` explicitly to seed the
+        // host's preview/text mirror and prime lastNotifyText.
+        notifyHost();
       } finally {
         hostInitiated = false;
       }
@@ -280,6 +447,11 @@ function handleHostMsg(msg: HostToWebview) {
       hostInitiated = true;
       try {
         openText(msg.text, formatFromName(fileName ?? "config.toml"), null, fileName);
+        // Load-bearing, not just symmetry: the host self-updates on revert,
+        // but lastNotifyText here still holds the pre-revert text. Without
+        // this reset, an edit→revert→same-edit sequence would dedupe the next
+        // `edited` and the host would miss it (no undo entry, no dirty).
+        notifyHost();
       } finally {
         hostInitiated = false;
       }
@@ -296,9 +468,11 @@ function handleHostMsg(msg: HostToWebview) {
 }
 ```
 
-`formatFromName` is already imported from `./host-io.js`. Note `openText`
-inside `init` dispatches `SetLang` internally → `send` → `notifyHost` posts an
-initial `synced`, which conveniently seeds the host's preview/text mirror.
+`formatFromName` is already imported from `./host-io.js`, and `setLang` from
+`./i18n.js` (ui.ts:40) — no new imports for either. Note `openText`
+does NOT route through `send()` (it calls `session.dispatch` + `render()`
+directly, ui.ts:224–225), which is why `init` and `revert` above call
+`notifyHost()` explicitly inside the `hostInitiated` window.
 
 - [ ] **Step 3: Hook `notifyHost` into `send` and `batch`**
 
@@ -371,6 +545,18 @@ function doSave(): Promise<void> {
 }
 ```
 
+Guard `doOpen` at the source (first line of its body) — the doc is tab-bound;
+swapping it via the `<input type=file>` fallback while the host still owns the
+original uri would make the next ⌘S write file B's content over file A. This
+one guard covers the ⌘O keydown, the url-modal Browse button, and any future
+caller:
+
+```ts
+async function doOpen() {
+  if (VSHOST) return; // tab-bound document — opening is VS Code's job
+  ...
+```
+
 Add next to it:
 
 ```ts
@@ -389,6 +575,9 @@ function uiRedo() {
 
 Then replace all four direct undo/redo dispatch sites with the helpers:
 - keydown switch (lines ~622–623): `case "z": return uiUndo();` / `case "y": return uiRedo();`
+- also in the keydown switch, gate quit off (tab lifecycle is VS Code's; the
+  Session's quit prompt would duplicate the workbench's close-with-unsaved
+  flow and leave a dead pane): `case "q": if (VSHOST) return; return send("QuitRequested");`
 - `toolbarEntries` (lines ~1213–1214): `run: () => uiUndo()` / `run: () => uiRedo()`
 - `bindGlobal` listeners (lines ~1396–1397): `$("btnUndo").addEventListener("click", () => uiUndo());` / `$("btnRedo").addEventListener("click", () => uiRedo());`
 
@@ -432,6 +621,66 @@ Replace both `runSaveConvertShared`/`wireConvertDialog` callsites' callback
 `doSaveAsCopy: (path: string) => doSaveAsCopy(io, path)` (keydown handler line
 ~532, and the `wireConvertDialog(...)` call further down) with
 `doSaveAsCopy: saveCopy`.
+
+- [ ] **Step 6b: Guard boot-path `localStorage` access**
+
+A sandboxed webview may throw on any `localStorage` access; `initTheme()` is
+the first line of `main()` and `getLang()` runs inside `openText`, so an
+unguarded throw is a white screen before `ready` is even posted — the one
+failure the design must never allow. Guards are behavior-neutral for the
+browser/Tauri hosts (a working localStorage takes the same path), so they are
+NOT VSHOST-gated. Persistence unreliability in webviews is accepted for M1
+(theme comes from the VS Code observer; lang re-arrives on every `init`).
+
+In `web/host-io.ts` (`initTheme`, `toggleTheme`):
+
+```ts
+export function initTheme(): void {
+  let stored: string | null = null;
+  try {
+    stored = localStorage.getItem("confy-theme");
+  } catch {
+    // storage blocked (sandboxed webview) — fall through to the dark default
+  }
+  document.documentElement.dataset.theme = stored === "light" ? "light" : "dark";
+}
+
+export function toggleTheme(): void {
+  const next: Theme =
+    document.documentElement.dataset.theme === "light" ? "dark" : "light";
+  try {
+    localStorage.setItem("confy-theme", next);
+  } catch {
+    // storage blocked — theme still applies for this session
+  }
+  document.documentElement.dataset.theme = next;
+}
+```
+
+In `web/i18n.ts` (`getLang`, `setLang`):
+
+```ts
+export function getLang(): Lang {
+  if (currentLang) return currentLang;
+  let stored: string | null = null;
+  try {
+    stored = localStorage.getItem(STORAGE_KEY);
+  } catch {
+    // storage blocked (sandboxed webview) — detect from navigator instead
+  }
+  currentLang = stored === "zh-TW" || stored === "en" ? stored : detectDefaultLang();
+  return currentLang;
+}
+
+export function setLang(lang: Lang): void {
+  currentLang = lang;
+  try {
+    localStorage.setItem(STORAGE_KEY, lang);
+  } catch {
+    // storage blocked — the in-memory choice still holds for this session
+  }
+}
+```
 
 - [ ] **Step 7: Hide host-owned chrome**
 
@@ -490,7 +739,7 @@ Append to `CHANGELOG.md`:
 `- 2026-07-15 feat(web): VS Code webview host wiring in ui.ts (boot, save/undo/convert reroutes, chrome trim)`
 
 ```bash
-git add web/ui.ts web/style.css CHANGELOG.md
+git add web/ui.ts web/style.css web/host-io.ts web/i18n.ts CHANGELOG.md
 git commit -m "feat(web): VS Code webview host wiring in ui.ts"
 ```
 (`ui.js`/`dist` are build artifacts — do not commit them if gitignored; check `git status` and leave ignored files alone.)
@@ -684,10 +933,12 @@ import * as vscode from "vscode";
 import type { ConfigFormat, HostToWebview, WebviewToHost } from "../../../web/vscode-protocol.js";
 import { RawPreviewProvider } from "./rawPreview.js";
 
+// Mirrors web/host-io.ts's formatFromName (same folding: .jsonc→json,
+// .yml→yaml); duplicated because the extension host must not import web
+// internals, but the return type is the one shared ConfigFormat.
 function formatFromName(name: string): ConfigFormat {
   if (name.endsWith(".json") || name.endsWith(".jsonc")) return "json";
-  if (name.endsWith(".yaml")) return "yaml";
-  if (name.endsWith(".yml")) return "yml";
+  if (name.endsWith(".yaml") || name.endsWith(".yml")) return "yaml";
   return "toml";
 }
 
@@ -700,6 +951,10 @@ export class ConfyDocument implements vscode.CustomDocument {
   // the fallback text if a save races a dead webview.
   latestText: string;
   panel: vscode.WebviewPanel | undefined;
+  // One token per pushed VS Code edit entry; `edit-cancelled` flips the newest
+  // live one so its undo/redo callbacks no-op — the Session already rolled
+  // that edit back via History::cancel_last (see notifyHost's depth rule).
+  readonly editTokens: { cancelled: boolean }[] = [];
 
   constructor(readonly uri: vscode.Uri, text: string) {
     this.latestText = text;
@@ -744,6 +999,13 @@ export class ConfyEditorProvider implements vscode.CustomEditorProvider<ConfyDoc
     panel.onDidChangeViewState(() => {
       if (panel.active) this.activeDocument = document;
     });
+    // A disposed webview throws synchronously on postMessage — clear the
+    // reference so postToWebview's optional chain actually protects the
+    // shutdown path (hot-exit backups race tab teardown).
+    panel.onDidDispose(() => {
+      if (document.panel === panel) document.panel = undefined;
+      if (this.activeDocument === document) this.activeDocument = undefined;
+    });
     panel.webview.onDidReceiveMessage((msg: WebviewToHost) => this.onMessage(document, msg));
   }
 
@@ -765,8 +1027,8 @@ export class ConfyEditorProvider implements vscode.CustomEditorProvider<ConfyDoc
         });
         break;
       }
-      // Task 4: edited / synced / save-response / request-undo / request-redo
-      //         / request-save
+      // Task 4: edited / synced / edit-cancelled / save-response
+      //         / request-undo / request-redo / request-save
       // Task 5: convert-save / parse-error
     }
   }
@@ -890,7 +1152,7 @@ git commit -m "feat(vscode): extension scaffold — custom editor boots the conf
 - Modify: `editors/vscode/src/editorProvider.ts` (fill `onMessage` cases + replace the four lifecycle stubs; add `saveSeq`/`pendingSaves`/`requestText`)
 
 **Interfaces:**
-- Consumes: Task 2's webview behavior (`edited`/`synced`/`save-response`/`request-*` emissions; `undo`/`redo`/`save-request`/`save-ok`/`revert` handling) and Task 3's class skeleton.
+- Consumes: Task 2's webview behavior (`edited`/`synced`/`edit-cancelled`/`save-response`/`request-*` emissions; `undo`/`redo`/`save-request`/`save-ok`/`revert` handling) and Task 3's class skeleton.
 - Produces: fully working save/dirty/undo for Task 5/6; `requestText(document): Promise<{ id: number; text: string }>` (private).
 
 - [ ] **Step 1: Add the save-request plumbing to `ConfyEditorProvider`**
@@ -910,6 +1172,9 @@ Add the private method:
   // (latestText tracks every edited/synced, so it is at most one frame stale).
   private requestText(document: ConfyDocument): Promise<{ id: number; text: string }> {
     const id = ++this.saveSeq;
+    // No live panel (tab already closed, e.g. a shutdown backup): answer from
+    // the mirror immediately instead of eating the 2s timeout.
+    if (!document.panel) return Promise.resolve({ id, text: document.latestText });
     return new Promise((resolve) => {
       this.pendingSaves.set(id, (text) => resolve({ id, text }));
       this.postToWebview(document, { type: "save-request", id });
@@ -929,22 +1194,47 @@ Add the private method:
 Add to the `switch` in `onMessage` (replacing the Task 4 comment):
 
 ```ts
-      case "edited":
+      case "edited": {
         document.latestText = msg.text;
         this.preview.update(document.uri, msg.text);
+        const token = { cancelled: false };
+        document.editTokens.push(token);
         this.changeEmitter.fire({
           document,
           label: "confy edit",
-          undo: () => this.postToWebview(document, { type: "undo" }),
-          redo: () => this.postToWebview(document, { type: "redo" }),
+          undo: () => {
+            if (!token.cancelled) this.postToWebview(document, { type: "undo" });
+          },
+          redo: () => {
+            if (!token.cancelled) this.postToWebview(document, { type: "redo" });
+          },
         });
         break;
+      }
       case "synced":
         // Host-initiated change (undo/redo/revert/save-ok): mirror + preview
         // only — pushing an edit entry here would double-count our own undo.
         document.latestText = msg.text;
         this.preview.update(document.uri, msg.text);
         break;
+      case "edit-cancelled": {
+        // The Session rolled back its newest history entry (add→Esc via
+        // cancel_last). VS Code's stack API can't remove the matching entry,
+        // so neuter it: popping it later must not undo an older, wrong
+        // Session edit. Cancellation always immediately follows its own push
+        // (the add flow is modal), so the newest live token is the target.
+        // Residual wart (documented): the neutered entry still counts toward
+        // the dirty dot until it's popped by one no-op ⌘Z.
+        document.latestText = msg.text;
+        this.preview.update(document.uri, msg.text);
+        for (let i = document.editTokens.length - 1; i >= 0; i--) {
+          if (!document.editTokens[i].cancelled) {
+            document.editTokens[i].cancelled = true;
+            break;
+          }
+        }
+        break;
+      }
       case "save-response": {
         const pending = this.pendingSaves.get(msg.id);
         if (pending) {
@@ -1189,7 +1479,7 @@ Expected: all three present.
 - [ ] **Step 3: Docs**
 
 - `CLAUDE.md` module map: add an `editors/vscode/` block after `crates/tauri-plugin-confy-picker/`, in the same style — one line per file, noting: third host shell; `CustomEditorProvider` + `confy-raw://` preview; `web/vscode-protocol.ts`/`web/vscode.ts` adapter; the save-ok ack; the request-undo single-owner rule; media/ = build-time copy of web/dist; esbuild-from-scratchpad build rule.
-- `WEBUI.md`: add a "VS Code (webview host)" section documenting the `VSHOST` gating in `ui.ts`, hidden chrome (`body.host-vscode`), theme mapping via body-class observer, and the message protocol table (copy from the spec, including the `theme`→observer refinement and the `synced` message).
+- `WEBUI.md`: add a "VS Code (webview host)" section documenting the `VSHOST` gating in `ui.ts`, hidden chrome (`body.host-vscode`), theme mapping via body-class observer, and the message protocol table (copy from the spec, including the `theme`→observer refinement, the `synced` message, and the `edit-cancelled`/`history_len` depth rule + its documented residual wart: a neutered add→Esc entry still counts toward the dirty dot until one no-op ⌘Z pops it). Also document as intended behavior: Revert (and hot-exit restore) rebuilds the Session via `openText`, so expansion/cursor/selection/filter state resets — a view reset alongside an explicit destructive action, not a bug.
 - `CHANGELOG.md`: `- 2026-07-15 feat(vscode): package sideload .vsix + docs (M1)`
 
 - [ ] **Step 4: Commit**
@@ -1201,7 +1491,7 @@ git commit -m "feat(vscode): package sideload .vsix + docs (M1)"
 
 - [ ] **Step 5: Hand the user the acceptance checklist**
 
-Report done and ask the user to run the spec's 7 acceptance criteria against the installed `.vsix` (not F5): reopen-with; dirty dot; ⌘S on-disk write; ⌘Z/⌘⇧Z; live raw preview; close-with-unsaved prompt; one file per backend (TOML/JSON/YAML). Also flag the two known verify-first risks: `localStorage` access inside the webview (theme/lang persistence — if it throws, `initTheme`/`getLang` need a try/catch guard) and `executeCommand("undo")` routing to the active custom editor. Do NOT merge to `main` or flip the spec status to SHIPPED until the user confirms.
+Report done and ask the user to run the spec's 7 acceptance criteria against the installed `.vsix` (not F5): reopen-with; dirty dot; ⌘S on-disk write; ⌘Z/⌘⇧Z; live raw preview; close-with-unsaved prompt; one file per backend (TOML/JSON/YAML). Add an 8th check for the grilling Q8 machinery: edit → `a`-add → Esc → ⌘Z must undo the *first* edit (one extra no-op ⌘Z at the tail and a dirty dot that lingers until it are the documented expected warts). Also flag the known verify-first risk: `executeCommand("undo")` routing to the active custom editor. (The `localStorage` throw risk is already mitigated by Task 2 Step 6b's guards; only persistence quality remains to observe.) Do NOT merge to `main` or flip the spec status to SHIPPED until the user confirms.
 
 ---
 
@@ -1209,4 +1499,6 @@ Report done and ask the user to run the spec's 7 acceptance criteria against the
 
 - Spec coverage: activation/priority (T3 manifest), document ownership + init (T3), save-ok ack (T4), undo single-owner (T2+T4), raw preview (T3+T5), convert via host dialog (T2+T5), parse-error fallback (T2+T5), revert/backup (T4), CSP/wasm (T3 html), retainContextWhenHidden (T3), theme (T1 observer — documented spec refinement), i18n via `vscode.env.language` (T3), chrome trimming (T2), `.vsix` + acceptance (T6). External-change watching, Marketplace, bidirectional sync: out of scope per spec.
 - `synced` message is an addition over the spec's table (the suppression half of its own undo rule) — documented in WEBUI.md in T6.
-- Type consistency: `ConfigFormat` (4-value, includes `"yml"`) matches `Session.fromText`'s accepted strings and `formatFromName`'s outputs on both sides; `requestText` returns `{id, text}` and `save-ok` carries that same `id`.
+- Accepted warts (grilling Q12 — do NOT "fix" these during implementation): media/ ships unused touch/sw/manifest assets; in-app help still lists the VSHOST-gated `q`/⌘O keys; the raw-preview text map never shrinks (one string per closed file); a hot-exit restore shows a dirty tab over a clean Session until the next save.
+- Grilling additions over the spec: `SessionSnapshot.history_len` (Task 0, the one core change) + `edit-cancelled` message + host-side cancellation tokens keep VS Code's edit stack 1:1 with Session history through the add→Esc `cancel_last` flow; `init` applies `msg.lang` via `setLang` (VS Code display language authoritative); boot-path localStorage guards (T2 Step 6b); panel-dispose guards + `requestText` short-circuit (T3/T4).
+- Type consistency: `ConfigFormat` is a single 3-value definition in `vscode-protocol.ts`, re-exported by `host-io.ts` (grilling decision: no `"yml"` on the wire; both `formatFromName`s fold `.yml`→`"yaml"`); `requestText` returns `{id, text}` and `save-ok` carries that same `id`.
