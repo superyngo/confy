@@ -37,6 +37,7 @@ check("loads TOML, format=Toml", snap.doc_format === "Toml");
 check("default lang is en", snap.lang === "en", snap.lang);
 check("starts in Normal mode", snap.mode === "Normal");
 check("root + server branch visible", snap.rows.length === 2, JSON.stringify(snap.rows.map(r => r.key)));
+check("history_len 0 on fresh session", snap.history_len === 0, snap.history_len);
 
 // ---- 2. Navigate into the branch + expand ----
 snap = s.dispatch(unit("CursorDown")); // onto [server]
@@ -60,6 +61,7 @@ snap = s.dispatch(tuple("Nudge", 10));
 const portVal = snap.rows.find(r => r.key === "port").value;
 check("nudge +10 → 8090", portVal === "8090", portVal);
 check("doc now dirty", snap.is_dirty === true);
+check("history_len grows on mutation", snap.history_len === 1, snap.history_len);
 
 // ---- 5. Inline edit: BeginEdit on a single-line scalar routes inline ----
 snap = s.dispatch(unit("BeginEdit"));

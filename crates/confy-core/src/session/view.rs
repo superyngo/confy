@@ -195,4 +195,7 @@ pub struct SessionSnapshot {
     pub quit: bool,
     /// Active UI language code (`"en"` / `"zh-TW"`), so hosts stay in sync.
     pub lang: String,
+    /// Undo-history depth (`History::depth()`, 0 before the first edit or
+    /// when no document is loaded).
+    pub history_len: usize,
 }

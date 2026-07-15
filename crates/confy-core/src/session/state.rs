@@ -225,6 +225,12 @@ impl History {
     pub fn current(&self) -> &str {
         &self.current
     }
+    /// Undoable-entry count (`past.len()`). Hosts that mirror the undo stack
+    /// (VS Code) diff this across dispatches: it grows on a history push and
+    /// shrinks when `cancel_last` rolls the newest entry back (add→Esc).
+    pub fn depth(&self) -> usize {
+        self.past.len()
+    }
 }
 
 #[cfg(test)]

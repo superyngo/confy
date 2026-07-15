@@ -295,6 +295,7 @@ impl super::Session {
             type_filter_active: self.type_filter.is_active(),
             quit: false,
             lang: self.lang.code().to_string(),
+            history_len: self.history.as_ref().map(|h| h.depth()).unwrap_or(0),
         }
     }
 

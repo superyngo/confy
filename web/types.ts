@@ -150,6 +150,7 @@ export interface SessionSnapshot {
   type_filter_active: boolean; // a committed type filter is narrowing the rows
   quit: boolean;
   lang: string; // active UI language code ("en" / "zh-TW")
+  history_len: number; // undo-history depth; VS Code host diffs it (see vscode-protocol.ts)
 }
 
 // ---- Intent (session::intent::Intent) ----
