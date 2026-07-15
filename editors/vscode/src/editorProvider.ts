@@ -178,7 +178,12 @@ export class ConfyEditorProvider implements vscode.CustomEditorProvider<ConfyDoc
       case "request-save":
         void vscode.commands.executeCommand("workbench.action.files.save");
         break;
-      // Task 5: convert-save / parse-error
+      case "convert-save":
+        void this.convertSave(document, msg.suggestedName, msg.text);
+        break;
+      case "parse-error":
+        void this.parseError(document, msg.message);
+        break;
     }
   }
 
@@ -223,8 +228,63 @@ export class ConfyEditorProvider implements vscode.CustomEditorProvider<ConfyDoc
     };
   }
 
-  // Task 5 fills this in.
-  openRawPreview(): void {}
+  // "confy: Open Raw Preview" — open the read-only serialize() mirror beside
+  // the most recently active confy editor. Content updates arrive via
+  // preview.update() on every edited/synced message.
+  openRawPreview(): void {
+    const doc = this.activeDocument;
+    if (!doc) {
+      void vscode.window.showInformationMessage("confy: no active confy editor");
+      return;
+    }
+    this.preview.update(doc.uri, doc.latestText);
+    void vscode.window.showTextDocument(RawPreviewProvider.previewUri(doc.uri), {
+      viewColumn: vscode.ViewColumn.Beside,
+      preserveFocus: true,
+      preview: true,
+    });
+  }
+
+  // Convert (or same-format save-a-copy) output: the destination pick is the
+  // native save dialog — the webview cannot pick paths (spec §UI trimming).
+  // The open document is never touched; offer to open the result in a new
+  // confy tab.
+  private async convertSave(
+    document: ConfyDocument,
+    suggestedName: string,
+    text: string,
+  ): Promise<void> {
+    const target = await vscode.window.showSaveDialog({
+      defaultUri: vscode.Uri.joinPath(document.uri, "..", suggestedName),
+    });
+    if (!target) return;
+    try {
+      await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(text));
+    } catch (e) {
+      void vscode.window.showErrorMessage(`confy: write failed: ${String(e)}`);
+      return;
+    }
+    const action = await vscode.window.showInformationMessage(
+      `confy: saved ${basename(target)}`,
+      "Open with confy",
+    );
+    if (action) {
+      void vscode.commands.executeCommand("vscode.openWith", target, ConfyEditorProvider.viewType);
+    }
+  }
+
+  // Initial text failed to parse in the webview: never white-screen — offer
+  // the default text editor for this uri instead (spec §Error handling).
+  private async parseError(document: ConfyDocument, message: string): Promise<void> {
+    const action = await vscode.window.showErrorMessage(
+      `confy: cannot parse ${basename(document.uri)}: ${message}`,
+      "Open in text editor",
+    );
+    if (action) {
+      document.panel?.dispose();
+      void vscode.commands.executeCommand("vscode.openWith", document.uri, "default");
+    }
+  }
 
   // The webview page is web/dist's index.html verbatim, with: the browser-only
   // inline scripts stripped (touch-redirect entry router + service-worker
