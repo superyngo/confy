@@ -635,3 +635,13 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
 #detailBody .row-btns { display: flex; gap: 10px; margin-top: 6px; }
 #detailBody .row-btns .btn { flex: 1; }
 .fmt-pill.toggleable:hover { background: var(--accent-soft); }
+
+/* VS Code webview host: chrome the extension host owns is hidden — Open and
+   Save-As/Convert destination picks are VS Code dialogs, the theme follows
+   the VS Code theme (web/vscode.ts), and the doc is tab-bound (no Open). The
+   Save button stays: it forwards to the workbench save (request-save). */
+body.host-vscode #btnOpen,
+body.host-vscode #btnSaveAs,
+body.host-vscode #btnTheme {
+  display: none;
+}

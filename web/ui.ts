@@ -14,6 +14,8 @@ import {
   tauriStartupFile,
   type FsHandle,
 } from "./fs.js";
+import { isVsCode, onHostMessage, post, trackVsCodeTheme } from "./vscode.js";
+import type { HostToWebview } from "./vscode-protocol.js";
 import { recentAdd, recentRemove, rebuildMenu, setupAppMenu } from "./menu.js";
 import {
   doConvertWrite,
@@ -103,10 +105,16 @@ const saveBtn = $<HTMLButtonElement>("btnSave");
 const saveAsBtn = $<HTMLButtonElement>("btnSaveAs");
 const FS_AVAILABLE = fsAccessAvailable();
 
+// VS Code webview host (third shell): the extension host owns file I/O and
+// the undo entry point — see web/vscode.ts + editors/vscode/. All VS Code
+// behavior differences below are gated on this flag so the browser and Tauri
+// hosts are untouched when acquireVsCodeApi is absent.
+const VSHOST = isVsCode();
+
 // The host surface the shared I/O flows (host-io.ts) are parameterized on.
 const io: HostIo = {
-  fsAvailable: FS_AVAILABLE,
-  canSaveAs: canSaveAs(),
+  fsAvailable: FS_AVAILABLE && !VSHOST,
+  canSaveAs: canSaveAs() && !VSHOST,
   getSnap: () => snap,
   send,
   batch,
@@ -166,6 +174,10 @@ async function openRecentPath(path: string): Promise<void> {
 
 async function main() {
   initTheme();
+  if (VSHOST) {
+    document.body.classList.add("host-vscode");
+    trackVsCodeTheme();
+  }
   applyStaticI18n();
   updateLangUI();
   // Not awaited: menu build is several async IPC round-trips; don't delay wasm load on it.
@@ -183,6 +195,12 @@ async function main() {
   const wasmUrl = new URL("./pkg/confy_ffi_bg.wasm", import.meta.url);
   await load(wasmUrl);
   updateSaveLabel();
+  if (VSHOST) {
+    onHostMessage(handleHostMsg);
+    post({ type: "ready" });
+    bindGlobal();
+    return;
+  }
   // Desktop (Tauri): open a file passed on the command line; else ?url= deep-link; else sample.
   const startup = await tauriStartupFile();
   const urlParam = new URLSearchParams(location.search).get("url");
@@ -277,7 +295,18 @@ function render() {
   renderFooter();
   updateSaveLabel();
   if (snap.external_edit) openExternalEdit(snap.external_edit);
-  if (snap.convert_write) void doConvertWrite(io, snap.convert_write[0], snap.convert_write[1]);
+  if (snap.convert_write) {
+    if (VSHOST) {
+      const [outPath, outText] = snap.convert_write;
+      post({
+        type: "convert-save",
+        suggestedName: outPath.split("/").pop() || outPath,
+        text: outText,
+      });
+    } else {
+      void doConvertWrite(io, snap.convert_write[0], snap.convert_write[1]);
+    }
+  }
   if (snap.quit) {
     setStatus("", "quit (reload to reopen)");
   }
@@ -529,7 +558,7 @@ function onKey(ev: KeyboardEvent) {
       if (ev.key === "Enter")
         return runSaveConvertShared(snap!, {
           send,
-          doSaveAsCopy: (path: string) => doSaveAsCopy(io, path),
+          doSaveAsCopy: saveCopy,
         });
       if (ev.key === "Backspace") return send("ConvertPathBackspace");
       if (ev.key.length === 1) return send({ ConvertPathChar: ev.key });
@@ -619,8 +648,8 @@ function onKey(ev: KeyboardEvent) {
     case "x": return send("CutSelected");
     case "v": return send("Paste");
     case "r": return send("Remark");
-    case "z": return send("Undo");
-    case "y": return send("Redo");
+    case "z": return uiUndo();
+    case "y": return uiRedo();
     case "s": return send("ToggleSelect");
     case "1": return send("ExpandLevel");
     case "2": return send("CollapseLevel");
@@ -635,14 +664,17 @@ function onKey(ev: KeyboardEvent) {
     case "i": return send("ToggleDetail");
     case "?": return send("EnterHelp");
     case "Escape": return send("Escape");
-    case "q": return send("QuitRequested");
+    case "q": if (VSHOST) return; return send("QuitRequested");
   }
 }
 
 function send(i: Intent) {
   if (!session) return;
   snap = session.dispatch(i);
-  if (!batching) render();
+  if (!batching) {
+    render();
+    notifyHost();
+  }
 }
 
 // Dispatch every `send` inside `fn` with a single render at the end, so a
@@ -657,6 +689,107 @@ function batch(fn: () => void) {
   } finally {
     batching = false;
     render();
+    notifyHost();
+  }
+}
+
+// ---- VS Code host bridge (no-op unless VSHOST) ----
+// `hostInitiated` marks dispatches triggered by a host message (undo/redo/
+// revert/save-ok) so the resulting notification is a `synced` — the host must
+// not push a new VS Code edit entry for a change it initiated itself.
+let hostInitiated = false;
+let lastNotifyText: string | null = null;
+let lastNotifyDirty: boolean | null = null;
+let lastNotifyDepth = 0;
+
+function hostDispatch(i: Intent) {
+  hostInitiated = true;
+  try {
+    send(i);
+  } finally {
+    hostInitiated = false;
+  }
+}
+
+// Called after every render outside a batch (and once per batch): posts
+// edited/synced/edit-cancelled whenever the serialized text or dirty bit
+// actually moved. Navigation-only intents change neither and post nothing.
+// The history-depth delta (snap.history_len; History.past is unbounded, so
+// no cap artifacts) picks the flavor for user-initiated changes: grew → a
+// real edit push; shrank → History::cancel_last rolled the newest entry back
+// (add→Esc) and the host must neuter its matching stack entry; flat →
+// mirror-only sync (safe default).
+function notifyHost() {
+  if (!VSHOST || !session || !snap) return;
+  const text = session.serialize();
+  const depth = snap.history_len;
+  const prevDepth = lastNotifyDepth;
+  lastNotifyDepth = depth; // track even when the dedupe below returns early
+  if (text === lastNotifyText && snap.is_dirty === lastNotifyDirty) return;
+  lastNotifyText = text;
+  lastNotifyDirty = snap.is_dirty;
+  const type = hostInitiated
+    ? "synced"
+    : depth > prevDepth
+      ? "edited"
+      : depth < prevDepth
+        ? "edit-cancelled"
+        : "synced";
+  post({ type, dirty: snap.is_dirty, text });
+}
+
+function handleHostMsg(msg: HostToWebview) {
+  switch (msg.type) {
+    case "init": {
+      // VS Code's display language is authoritative in this host (same
+      // principle as theme): apply it before openText so its internal
+      // SetLang(getLang()) picks it up. In-session switching still works.
+      setLang(msg.lang === "zh-TW" ? "zh-TW" : "en");
+      hostInitiated = true;
+      try {
+        openText(msg.text, msg.format, null, msg.name);
+        // openText dispatches directly (not via send), so no notification
+        // fires on its own — post the initial `synced` explicitly to seed the
+        // host's preview/text mirror and prime lastNotifyText.
+        notifyHost();
+      } finally {
+        hostInitiated = false;
+      }
+      // openText leaves `session` untouched on a parse failure (the error
+      // lands in #error via replaceSession's err callback) — surface it to
+      // the host so it can offer the plain text editor instead.
+      if (!session) {
+        post({ type: "parse-error", message: errorEl.textContent || "parse failed" });
+      }
+      break;
+    }
+    case "undo":
+      hostDispatch("Undo");
+      break;
+    case "redo":
+      hostDispatch("Redo");
+      break;
+    case "revert": {
+      hostInitiated = true;
+      try {
+        openText(msg.text, formatFromName(fileName ?? "config.toml"), null, fileName);
+        // Load-bearing, not just symmetry: the host self-updates on revert,
+        // but lastNotifyText here still holds the pre-revert text. Without
+        // this reset, an edit→revert→same-edit sequence would dedupe the next
+        // `edited` and the host would miss it (no undo entry, no dirty).
+        notifyHost();
+      } finally {
+        hostInitiated = false;
+      }
+      break;
+    }
+    case "save-request":
+      if (session) post({ type: "save-response", id: msg.id, text: session.serialize() });
+      break;
+    case "save-ok":
+      // Only now may the session mark itself clean (spec: save-ok ack).
+      hostDispatch("Save");
+      break;
   }
 }
 
@@ -742,13 +875,45 @@ function openExternalEdit(ext: { initial: string; kind: unknown }) {
 // "Save / Convert…" panel (`openSaveConvert`) is the explicit destination/
 // format-picking flow.
 function doSave(): Promise<void> {
+  // VS Code host: saving is the workbench's job (dirty tracking + save-ok
+  // ack); the webview only requests it.
+  if (VSHOST) {
+    post({ type: "request-save" });
+    return Promise.resolve();
+  }
   return doQuickSave(io);
+}
+
+// Undo/redo single-owner rule (spec §Undo): in the VS Code host these forward
+// to the workbench so its edit stack stays the sole entry point; the Session
+// executes them only via the host's undo/redo callback messages.
+function uiUndo() {
+  if (VSHOST) post({ type: "request-undo" });
+  else send("Undo");
+}
+function uiRedo() {
+  if (VSHOST) post({ type: "request-redo" });
+  else send("Redo");
+}
+
+// Same-format "save a copy" out of the Save/Convert panel. VS Code host: the
+// destination pick is the host's save dialog, same as a convert output.
+function saveCopy(path: string) {
+  if (VSHOST) {
+    const text = session?.serialize();
+    if (text == null) return;
+    send("ExitConvert");
+    post({ type: "convert-save", suggestedName: path.split("/").pop() || path, text });
+    return;
+  }
+  void doSaveAsCopy(io, path);
 }
 
 // Open: the FS Access API picker where available (keeps a handle for in-place
 // save), else a native `<input type=file>` — file reading works in every
 // browser, so the paste modal is no longer needed.
 async function doOpen() {
+  if (VSHOST) return; // tab-bound document — opening is VS Code's job
   if (FS_AVAILABLE) {
     const opened = await pickOpenFile();
     if (!opened) return;
@@ -1210,8 +1375,8 @@ function openLangMenuNear(el: HTMLElement) {
 // silently disappear when its group folds without also getting a menu entry
 // (enforced by `web/toolbar-fold.spec.mjs`).
 const TOOLBAR_ENTRIES: ToolbarEntry[] = [
-  { key: "btnUndo", labelKey: "web.toolbar.undo.title", run: () => send("Undo") },
-  { key: "btnRedo", labelKey: "web.toolbar.redo.title", run: () => send("Redo") },
+  { key: "btnUndo", labelKey: "web.toolbar.undo.title", run: () => uiUndo() },
+  { key: "btnRedo", labelKey: "web.toolbar.redo.title", run: () => uiRedo() },
   { key: "btnTheme", labelKey: "web.toolbar.theme.title", run: toggleTheme },
   { key: "btnLang", labelKey: "web.toolbar.lang.title", run: () => openLangMenuNear($("btnMore")) },
   { key: "btnInfo", labelKey: "web.toolbar.info.title", run: () => send("EnterHelp") },
@@ -1323,7 +1488,7 @@ function bindConvertDialog() {
   wireConvertDialog(convRefs(), {
     send,
     fileStem: () => fileStem(io),
-    doSaveAsCopy: (path: string) => doSaveAsCopy(io, path),
+    doSaveAsCopy: saveCopy,
     getSnap: () => snap,
   });
 }
@@ -1393,8 +1558,8 @@ function bindGlobal() {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     placePopAt(buildMoreMenu(), r.right - 200, r.bottom + 4);
   });
-  $("btnUndo").addEventListener("click", () => send("Undo"));
-  $("btnRedo").addEventListener("click", () => send("Redo"));
+  $("btnUndo").addEventListener("click", () => uiUndo());
+  $("btnRedo").addEventListener("click", () => uiRedo());
   $("btnExpandAll").addEventListener("click", () => send("ExpandAll"));
   $("btnCollapseAll").addEventListener("click", () => send("CollapseAll"));
   $("btnTypeFilter").addEventListener("click", () =>

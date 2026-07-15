@@ -41,14 +41,23 @@ function detectDefaultLang(): Lang {
 
 export function getLang(): Lang {
   if (currentLang) return currentLang;
-  const stored = localStorage.getItem(STORAGE_KEY);
+  let stored: string | null = null;
+  try {
+    stored = localStorage.getItem(STORAGE_KEY);
+  } catch {
+    // storage blocked (sandboxed webview) — detect from navigator instead
+  }
   currentLang = stored === "zh-TW" || stored === "en" ? stored : detectDefaultLang();
   return currentLang;
 }
 
 export function setLang(lang: Lang): void {
   currentLang = lang;
-  localStorage.setItem(STORAGE_KEY, lang);
+  try {
+    localStorage.setItem(STORAGE_KEY, lang);
+  } catch {
+    // storage blocked — the in-memory choice still holds for this session
+  }
 }
 
 // Look up `key` in the active language, falling back to `en`, then the raw

@@ -289,13 +289,22 @@ export async function doConvertWrite(
 type Theme = "dark" | "light";
 
 export function initTheme(): void {
-  const stored = localStorage.getItem("confy-theme");
+  let stored: string | null = null;
+  try {
+    stored = localStorage.getItem("confy-theme");
+  } catch {
+    // storage blocked (sandboxed webview) — fall through to the dark default
+  }
   document.documentElement.dataset.theme = stored === "light" ? "light" : "dark";
 }
 
 export function toggleTheme(): void {
   const next: Theme =
     document.documentElement.dataset.theme === "light" ? "dark" : "light";
-  localStorage.setItem("confy-theme", next);
+  try {
+    localStorage.setItem("confy-theme", next);
+  } catch {
+    // storage blocked — theme still applies for this session
+  }
   document.documentElement.dataset.theme = next;
 }
