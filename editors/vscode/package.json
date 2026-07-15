@@ -1,0 +1,43 @@
+{
+  "name": "confy-vscode",
+  "displayName": "confy",
+  "description": "Structural tree editor for TOML / JSON / JSONC / YAML config files",
+  "version": "0.1.0",
+  "publisher": "superyngo",
+  "private": true,
+  "license": "MIT",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other"],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "confy.editor",
+        "displayName": "confy",
+        "priority": "option",
+        "selector": [
+          { "filenamePattern": "*.toml" },
+          { "filenamePattern": "*.json" },
+          { "filenamePattern": "*.jsonc" },
+          { "filenamePattern": "*.yaml" },
+          { "filenamePattern": "*.yml" }
+        ]
+      }
+    ],
+    "commands": [
+      { "command": "confy.openRawPreview", "title": "confy: Open Raw Preview" }
+    ]
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "check": "tsc --noEmit",
+    "package": "vsce package --allow-missing-repository"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.5.0"
+  }
+}
