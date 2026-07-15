@@ -15,8 +15,9 @@ import { extForTag } from "./convert-dialog.js";
 import { Session } from "./confy.js";
 import { t } from "./i18n.js";
 import type { Intent, SessionSnapshot } from "./types.js";
+import type { ConfigFormat } from "./vscode-protocol.js";
 
-export type ConfigFormat = "toml" | "json" | "yaml";
+export type { ConfigFormat } from "./vscode-protocol.js";
 
 // The differing surface between the two hosts.
 export interface HostIo {
