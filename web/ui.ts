@@ -100,6 +100,7 @@ const langBtn = $<HTMLButtonElement>("btnLang");
 const langLabel = $("langLabel");
 const openBtn = $<HTMLButtonElement>("btnOpen");
 const saveBtn = $<HTMLButtonElement>("btnSave");
+const saveAsBtn = $<HTMLButtonElement>("btnSaveAs");
 const FS_AVAILABLE = fsAccessAvailable();
 
 // The host surface the shared I/O flows (host-io.ts) are parameterized on.
@@ -118,14 +119,12 @@ const io: HostIo = {
   ok: (msg) => setStatus(msg, ""),
   err: (msg) => setStatus("", msg),
   afterSaveAs: (handle, name) => {
-    fileName = name;
     if (handle.path) {
       recentAdd(handle.path, name);
       void rebuildMenu();
     }
-    setSampleMode(false); // now backed by a real file → freeze the format pill
-    render();
   },
+  adoptFile: (text, format, handle, name) => openText(text, format, handle, name),
 };
 
 // ---- bootstrap ----
@@ -174,6 +173,7 @@ async function main() {
     doNew,
     doOpen,
     doSave,
+    openSaveConvert: () => openSaveConvert(io),
     send,
     toggleTheme,
     chooseLang,
@@ -284,14 +284,14 @@ function render() {
 }
 
 function updateSaveLabel() {
-  // The button opens the Save / Convert panel; ⌘S is the instant in-place path,
-  // so the tooltip advertises what that fast key actually does.
+  // ⌘S is the instant in-place path; the tooltip advertises what that fast
+  // key actually does (the button itself opens the Save / Save As menu).
   const inPlace = fileHandle
     ? "⌘S saves in place"
     : FS_AVAILABLE
       ? "⌘S = Save as…"
       : "⌘S = download";
-  saveBtn.title = `Save / Convert…  (${inPlace})`;
+  saveBtn.title = `Save  (${inPlace})`;
 }
 
 function getEdit() {
@@ -1042,7 +1042,7 @@ function beginTrailingEdit(rowEl: HTMLElement, path: Path) {
 // and managed solely by `renderTypeFilterPop`, so these never touch it (else the
 // two would open/close together).
 function clickMenus(): HTMLElement[] {
-  return [$("kindMenu"), $("ctxMenu"), $("moreMenu"), $("langMenu")];
+  return [$("kindMenu"), $("ctxMenu"), $("moreMenu"), $("langMenu"), $("saveMenu")];
 }
 // One shared outside-click closer; closing always removes it so listeners never
 // accumulate (a stale one fires on the reopening click and flashes the menu shut
@@ -1264,6 +1264,25 @@ function buildLangMenu(): HTMLElement {
   return menu;
 }
 
+// The split-button chevron next to Save opens this — Save itself (the pill's
+// main tap target) always saves in place; this menu only offers the other
+// destination/format-picking path.
+function buildSaveMenu(): HTMLElement {
+  const menu = $("saveMenu");
+  menu.innerHTML = `<button class="menu-item" data-act="saveas">${escapeHtml(t("web.toolbar.saveAs.title"))}</button>`;
+  menu.querySelectorAll<HTMLElement>("[data-act]").forEach((b) => {
+    b.onclick = () => {
+      closePops();
+      openSaveConvert(io);
+    };
+  });
+  return menu;
+}
+function openSaveMenuNear(el: HTMLElement) {
+  const r = el.getBoundingClientRect();
+  placePopAt(buildSaveMenu(), r.left, r.bottom + 4);
+}
+
 // Live search: the always-visible box owns the filter text and dispatches
 // `SetFilter` (debounced) on every keystroke. No `Mode::Filter` is entered.
 function bindSearch() {
@@ -1358,7 +1377,8 @@ function bindGlobal() {
   bindSearch();
   bindConvertDialog();
   openBtn.addEventListener("click", openOpenModal);
-  saveBtn.addEventListener("click", () => openSaveConvert(io));
+  saveBtn.addEventListener("click", () => void doSave());
+  saveAsBtn.addEventListener("click", () => openSaveMenuNear(saveAsBtn));
   fmtPill.addEventListener("click", () => cycleSampleFormat(openSample)); // no-op unless in sample mode
   themeBtn.addEventListener("click", toggleTheme);
   langBtn.addEventListener("click", (e) => {

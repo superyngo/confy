@@ -164,11 +164,7 @@ const io: HostIo = {
     toast(msg);
     firefoxIosSaveHint(filename);
   },
-  afterSaveAs: (_handle, name) => {
-    fileName = name;
-    setSampleMode(false);
-    render();
-  },
+  adoptFile: (text, format, handle, name) => openText(text, format, handle, name),
 };
 const openKindRow = (r: ViewRow) => openKindSheet(r.path);
 function pathOf(row: HTMLElement | null): Path | null {

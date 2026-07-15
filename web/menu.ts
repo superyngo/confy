@@ -147,6 +147,7 @@ export interface MenuDeps {
   doNew: () => void | Promise<void>;
   doOpen: () => void | Promise<void>;
   doSave: () => void | Promise<void>;
+  openSaveConvert: () => void;
   send: (intent: Intent) => void;
   toggleTheme: () => void;
   chooseLang: (lang: Lang) => void;
@@ -276,6 +277,7 @@ async function buildAndSet(): Promise<void> {
       openRecentMenu,
       await PredefinedMenuItem.new({ item: "Separator" }),
       await MenuItem.new({ text: t("web.menu.save"), accelerator: "CmdOrCtrl+S", action: menuAction(deps.doSave) }),
+      await MenuItem.new({ text: t("web.menu.saveAs"), action: menuAction(deps.openSaveConvert) }),
     ];
     if (!mac) {
       // No app submenu on Windows — Quit lives at the bottom of File instead.

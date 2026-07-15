@@ -173,6 +173,7 @@
   "web.menu.openRecent": "Open Recent",
   "web.menu.clearRecent": "Clear Recent",
   "web.menu.save": "Save",
+  "web.menu.saveAs": "Save As / Convert…",
   "web.menu.edit": "Edit",
   "web.menu.copyNode": "Copy Node",
   "web.menu.cutNode": "Cut Node",

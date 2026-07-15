@@ -41,8 +41,14 @@ export interface HostIo {
   /** Host hook after a download-fallback write (touch toasts + FxiOS hint). */
   afterDownload?(filename: string, msg: string): void;
   /** Host hook after a first Save adopts a new handle (desktop: recent-files
-   * + freeze the sample-format pill; touch: just the doc-name display). */
+   * bookkeeping; touch has nothing extra to do). */
   afterSaveAs?(handle: FsHandle, name: string): void;
+  /** Adopt a freshly written file as the new open document — re-parse `text`
+   * and switch to `handle`/`name`, so the app continues editing what was
+   * just saved (like Open). Used by a first Save of a new/sample doc, Save
+   * As, and Convert; an in-place Quick Save to an already-open handle never
+   * calls this since it's already editing that exact file. */
+  adoptFile(text: string, format: ConfigFormat, handle: FsHandle, name: string): void;
 }
 
 export function formatFromName(name: string): ConfigFormat {
@@ -174,7 +180,7 @@ export async function doQuickSave(io: HostIo): Promise<void> {
       if (!picked) return; // cancelled (Tauri: null)
       await writeFile(picked, text);
       const name = await deriveName(picked, suggested);
-      io.setHandle(picked);
+      io.adoptFile(text, formatFromName(name), picked, name);
       io.afterSaveAs?.(picked, name);
       io.send("Save");
       io.ok("Saved");
@@ -206,8 +212,9 @@ export function openSaveConvert(io: HostIo): void {
 }
 
 // Faithful "save a copy" of the live document (byte-for-byte `serialize()`),
-// used when the panel's format equals the open format. Like convert, it writes
-// an export copy and does not adopt the handle (the toolbar Save owns in-place).
+// used when the panel's format equals the open format. Adopts the new file
+// as the open document (see `HostIo.adoptFile`) — the app continues editing
+// what was just saved, like Open.
 export async function doSaveAsCopy(io: HostIo, path: string): Promise<void> {
   const text = io.serialize();
   if (text === null) return;
@@ -223,7 +230,10 @@ export async function doSaveAsCopy(io: HostIo, path: string): Promise<void> {
       const handle = await pickSaveFile(fmt, baseName);
       if (!handle) return; // cancelled (Tauri: null)
       await writeFile(handle, text);
-      io.ok(`Saved copy → ${(await handle.getFile()).name}`);
+      const name = await deriveName(handle, baseName);
+      io.adoptFile(text, formatFromName(name), handle, name);
+      io.afterSaveAs?.(handle, name);
+      io.ok(`Saved copy → ${name}`);
     } catch (e) {
       if (e instanceof Error && e.name === "AbortError") return; // browser cancel
       io.err(`save failed: ${String((e as Error).message ?? e)}`);
@@ -237,6 +247,8 @@ export async function doSaveAsCopy(io: HostIo, path: string): Promise<void> {
 // The convert flow always produces a new file. Prefer Save As when the host
 // supports it, else download. The Save-As picker gets the *target* format
 // (derived from the output path core produced), not the source `doc_format`.
+// Adopts the new file as the open document (see `HostIo.adoptFile`) — the app
+// continues editing what was just converted, like Open.
 export async function doConvertWrite(
   io: HostIo,
   path: string,
@@ -258,7 +270,10 @@ export async function doConvertWrite(
       );
       if (!handle) return; // cancelled (Tauri: null)
       await writeFile(handle, text);
-      io.ok(`Converted → ${(await handle.getFile()).name}`);
+      const name = await deriveName(handle, baseName);
+      io.adoptFile(text, formatFromName(name), handle, name);
+      io.afterSaveAs?.(handle, name);
+      io.ok(`Converted → ${name}`);
     } catch (e) {
       if (e instanceof Error && e.name === "AbortError") return; // browser cancel
       io.err(`convert write failed: ${String((e as Error).message ?? e)}`);
