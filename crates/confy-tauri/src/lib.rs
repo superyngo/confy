@@ -30,6 +30,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use serde::Serialize;
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
 use tauri::{Emitter, Manager, RunEvent};
 
 /// A file the host has read for the frontend: its absolute path (used later as
@@ -92,13 +93,14 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![startup_file, opened_urls])
         .build(tauri::generate_context!())
         .expect("error while building confy");
-    app.run(|app_handle, event| {
-        if let RunEvent::Opened { urls } = event {
+    app.run(|_app_handle, _event| {
+        #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
+        if let RunEvent::Opened { urls } = _event {
             let urls: Vec<String> = urls.into_iter().map(|u| u.to_string()).collect();
-            if let Some(window) = app_handle.get_webview_window("main") {
+            if let Some(window) = _app_handle.get_webview_window("main") {
                 let _ = window.emit("opened", &urls);
             }
-            app_handle
+            _app_handle
                 .state::<OpenedUrls>()
                 .0
                 .lock()

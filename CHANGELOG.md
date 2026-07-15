@@ -22,6 +22,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   intent-filter automatically. Full findings recorded in
   `docs/superpowers/plans/2026-07-13-mobile-m1-android-plan.md` (Task 0 outcome).
 
+### Fixed
+- **fix(desktop): Windows build failure — `RunEvent::Opened` is macOS/iOS/Android-only**
+  (2026-07-15). `crates/confy-tauri/src/lib.rs` used `RunEvent::Opened` unconditionally in
+  `run()`'s event handler, but that variant doesn't exist on Windows (tauri 2.11.5 gates it to
+  `target_os = "macos"/"ios"/"android"`), so `cargo tauri build` never compiled on Windows.
+  Wrapped the match arm and its `Emitter`/`Manager`/`RunEvent` imports in the same `#[cfg(any(...))]`
+  guard tauri's own source uses. Verified: `cargo tauri build --debug` now succeeds on Windows
+  and the resulting `confy-desktop.exe` passes a manual save-then-immediately-reload check.
+
 ### Changed
 - **refactor(desktop): plugin-backed file I/O (M1 Task 1)** (2026-07-13). `crates/confy-tauri`
   no longer implements `open_dialog`/`save_dialog`/`read_file_text`/`write_file` as custom Rust
