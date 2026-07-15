@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 2026-07-15 feat(vscode): extension scaffold — custom editor boots the confy webview
 - 2026-07-15 feat(vscode): document lifecycle — dirty tracking, save with save-ok ack, undo/redo single owner, revert, hot-exit backup
 - 2026-07-15 feat(vscode): raw preview command, convert-save dialog, parse-error fallback
+- 2026-07-15 feat(vscode): package sideload .vsix + docs (M1)
 
 ## [v0.15.0] - 2026-07-15
 

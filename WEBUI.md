@@ -570,3 +570,68 @@ measurable on large files, G2 introduces a structured row diff without changing 
 
 No diff scaffolding is built now; the `Path`-keyed `ViewRow` is already the identity
 the diff would key on, so the upgrade is additive.
+
+## VS Code (webview host)
+
+`editors/vscode/` is a third host shell (M1, sideload `.vsix` only — no Marketplace
+listing). A `CustomEditorProvider` owns the VS Code document lifecycle and file I/O;
+the webview runs the unmodified `web/dist` bundle plus `web/vscode.ts`'s adapter. Every
+behavior difference from the browser/Tauri hosts is gated in `ui.ts` on `VSHOST`
+(`isVsCode()` — true only when `acquireVsCodeApi` exists), so the pure-browser and Tauri
+builds are byte-identical when it is absent.
+
+**Chrome trimming.** `document.body.classList.add("host-vscode")` on boot; `style.css`
+hides `#btnOpen`/`#btnSaveAs`/`#btnTheme` under `body.host-vscode` — the document is
+tab-bound (VS Code owns Open), destination picks are native save dialogs, and the theme
+follows VS Code's own theme instead of confy's toggle.
+
+**Theme.** No `theme` protocol message — `web/vscode.ts`'s `trackVsCodeTheme()` instead
+runs a `MutationObserver` on `document.body`'s class list, mapping VS Code's
+`vscode-dark`/`vscode-light`/`vscode-high-contrast(-light)` stamps onto confy's own
+`:root[data-theme]`. Same visible behavior as a message would give, no protocol needed
+(a documented refinement over the original spec).
+
+**Message protocol** (`web/vscode-protocol.ts`, single source of truth for both sides):
+
+| Direction | Message | Purpose |
+|---|---|---|
+| host→webview | `init` | Initial text/name/format/lang; VS Code's display language is authoritative here (same principle as theme) |
+| host→webview | `undo` / `redo` | The *only* way an undo/redo reaches the Session (single-owner rule) |
+| host→webview | `save-request { id }` | Host asks for `session.serialize()` (save/save-as/backup) |
+| host→webview | `save-ok { id }` | Sent only after `workspace.fs.writeFile` succeeded; the webview marks the session clean only on this ack |
+| host→webview | `revert { text }` | File > Revert: rebuild the Session from on-disk text |
+| webview→host | `ready` | Boot handshake |
+| webview→host | `edited { dirty, text }` | A user-initiated mutation: host pushes one VS Code edit entry + refreshes the raw preview |
+| webview→host | `synced { dirty, text }` | A host-initiated change (undo/redo/revert/save-ok) landed: mirror only, no new edit entry (an addition over the original spec table — the suppression half of the undo rule) |
+| webview→host | `edit-cancelled { dirty, text }` | The Session rolled back its newest history entry *without* a host undo (add→Esc via `History::cancel_last`, detected as a `history_len` decrease): mirror + neuter the newest live VS Code edit entry |
+| webview→host | `save-response { id, text }` | Answers a `save-request` |
+| webview→host | `request-undo` / `request-redo` | Webview keyboard/toolbar undo forwards to the host so VS Code's stack stays the sole entry point |
+| webview→host | `request-save` | Webview Save / ⌘S → workbench save |
+| webview→host | `convert-save { suggestedName, text }` | Convert (or same-format save-a-copy) output: host shows a native save dialog |
+| webview→host | `parse-error { message }` | Initial text failed to parse: host offers the default text editor instead of a white screen |
+
+**The `history_len` / `edit-cancelled` depth rule.** `SessionSnapshot.history_len`
+(`History::depth()`, i.e. `past.len()`) is the one additive core change M1 needed. The
+webview diffs it across every dispatch outside a batch: depth **grew** → a real edit
+(`edited`), depth **shrank** → `History::cancel_last` rolled the newest entry back
+(the two callsites are scalar add→Esc and comment add→Esc) and the host must neuter its
+matching VS Code entry (`edit-cancelled`), depth **flat** → mirror-only (`synced`).
+Documented residual wart: VS Code's edit-stack API can't *remove* an entry, so the
+neutered add→Esc entry still counts toward the dirty dot until it is popped by one
+no-op ⌘Z at the tail of the stack.
+
+**Revert / hot-exit restore resets view state — by design.** Both rebuild the Session
+via `openText`, so expansion/cursor/selection/filter state resets to the fresh-load
+default. This is intended: a view reset alongside an explicit destructive action, not a
+bug to fix.
+
+**Boot-path localStorage guards.** `host-io.ts`'s `initTheme`/`toggleTheme` and
+`i18n.ts`'s `getLang`/`setLang` all wrap `localStorage` access in `try/catch` — a
+sandboxed webview may throw on any access, and these run on the boot path before `ready`
+is even posted, so an unguarded throw would white-screen before the host ever hears from
+the webview. The guards are behavior-neutral for the browser/Tauri hosts and are **not**
+`VSHOST`-gated. Persistence unreliability in webviews is accepted for M1 — theme comes
+from the VS Code observer regardless, and lang re-arrives on every `init`.
+
+See `editors/vscode/README.md` for build/install/use, and CLAUDE.md's module map for
+the extension-host-side file layout.
