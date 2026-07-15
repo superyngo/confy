@@ -9,9 +9,11 @@ import {
   fetchUrlFile,
   pickSaveFile,
   writeFile,
+  type FsHandle,
 } from "./fs.js";
 import { extForTag } from "./convert-dialog.js";
 import { Session } from "./confy.js";
+import { t } from "./i18n.js";
 import type { Intent, SessionSnapshot } from "./types.js";
 
 export type ConfigFormat = "toml" | "json" | "yaml";
@@ -19,6 +21,10 @@ export type ConfigFormat = "toml" | "json" | "yaml";
 // The differing surface between the two hosts.
 export interface HostIo {
   fsAvailable: boolean;
+  /** Can the host pick a *new* save destination? False on Tauri mobile in M1
+   * (see `fs.ts`'s `canSaveAs`) — an already-open handle can still be saved
+   * in place regardless of this flag. */
+  canSaveAs: boolean;
   getSnap(): SessionSnapshot | null;
   send(i: Intent): void;
   /** Dispatch several intents with a single re-render at the end. */
@@ -26,12 +32,17 @@ export interface HostIo {
   /** Live document text (`session.serialize()`), or null with no session. */
   serialize(): string | null;
   getFileName(): string | null;
+  getHandle(): FsHandle | null;
+  setHandle(h: FsHandle | null): void;
   ok(msg: string): void; // success feedback (status line / toast)
   err(msg: string): void; // failure feedback
   /** Host hook before a convert result is written (touch closes its sheets). */
   beforeConvertWrite?(): void;
   /** Host hook after a download-fallback write (touch toasts + FxiOS hint). */
   afterDownload?(filename: string, msg: string): void;
+  /** Host hook after a first Save adopts a new handle (desktop: recent-files
+   * + freeze the sample-format pill; touch: just the doc-name display). */
+  afterSaveAs?(handle: FsHandle, name: string): void;
 }
 
 export function formatFromName(name: string): ConfigFormat {
@@ -71,23 +82,29 @@ export function fileStem(io: HostIo): string {
   return dot > 0 ? base.slice(0, dot) : base;
 }
 
-// Parse `text` into a fresh Session, freeing the previous one; a parse failure
-// is reported through `err` and returns null (the host keeps its state, as the
-// old inline scaffold did). The rest of openText (file/name/sample bookkeeping
-// + render) stays host-owned.
+// Parse `text` into a fresh Session; a parse failure is reported through
+// `err` and returns null, leaving `prev` untouched and still usable (the host
+// keeps its state, as the old inline scaffold did). `prev` is freed only once
+// the replacement has actually parsed — freeing it first would leave the
+// caller's still-referenced `session` variable dangling on failure, and a
+// later call passing that same freed object back in double-frees it (wasm
+// "null pointer passed to rust"). The rest of openText (file/name/sample
+// bookkeeping + render) stays host-owned.
 export function replaceSession(
   prev: Session | null,
   text: string,
   format: ConfigFormat | "yml",
   err: (msg: string) => void,
 ): Session | null {
-  prev?.free();
+  let next: Session;
   try {
-    return Session.fromText(text, format);
+    next = Session.fromText(text, format);
   } catch (e) {
     err(String((e as Error).message ?? e));
     return null;
   }
+  prev?.free();
+  return next;
 }
 
 // Open a config file fetched from a URL. No on-disk handle, so a later Save
@@ -113,6 +130,67 @@ export async function openFromUrl(
   }
 }
 
+// Best-effort file name from a handle (falls back to the last-known name on
+// read failure, matching the old per-host `deriveName` helpers).
+async function deriveName(handle: FsHandle, fallback: string): Promise<string> {
+  try {
+    return (await handle.getFile()).name;
+  } catch {
+    return fallback;
+  }
+}
+
+// Quick Save: write in place to the currently open handle, or — if there is
+// none yet (a new/unsaved doc) — behave like a first Save As. Unlike
+// `doSaveAsCopy`/`doConvertWrite`, an in-place write to an *already open*
+// handle never needs `canSaveAs` — that flag only gates picking a NEW
+// destination. This is the fast path both hosts' primary Save action uses;
+// `openSaveConvert` (below) is the separate, explicit "choose a destination /
+// format" flow.
+export async function doQuickSave(io: HostIo): Promise<void> {
+  const text = io.serialize();
+  if (text === null) return;
+  const handle = io.getHandle();
+  if (handle) {
+    try {
+      await writeFile(handle, text);
+      io.send("Save");
+      io.ok("Saved");
+    } catch (e) {
+      io.err(`save failed: ${String((e as Error).message ?? e)}`);
+    }
+    return;
+  }
+  // No handle yet — first save. Picking a destination needs `canSaveAs`.
+  if (!io.canSaveAs) {
+    io.err(t("web.mobile.saveAsUnavailable"));
+    return;
+  }
+  const fmt = io.getSnap()!.doc_format;
+  const suggested = (io.getFileName() ?? "confy-export") + extFor(fmt);
+  if (io.fsAvailable) {
+    try {
+      const picked = await pickSaveFile(fmt, suggested);
+      if (!picked) return; // cancelled (Tauri: null)
+      await writeFile(picked, text);
+      const name = await deriveName(picked, suggested);
+      io.setHandle(picked);
+      io.afterSaveAs?.(picked, name);
+      io.send("Save");
+      io.ok("Saved");
+    } catch (e) {
+      // Browsers reject `showSaveFilePicker()` with AbortError on cancel
+      // (rather than resolving null like the Tauri path) — treat it the same.
+      if (e instanceof Error && e.name === "AbortError") return;
+      io.err(`save failed: ${String((e as Error).message ?? e)}`);
+    }
+    return;
+  }
+  downloadText(suggested, text);
+  io.afterDownload?.(suggested, "Downloaded");
+  io.send("Save");
+}
+
 // Open the unified "Save / Convert" panel from the root node. `open_convert`
 // leaves `target` = the current format (the panel's default), so the dialog
 // opens on "save in the current format"; seed the output name from the open
@@ -136,13 +214,18 @@ export async function doSaveAsCopy(io: HostIo, path: string): Promise<void> {
   const fmt = io.getSnap()!.doc_format;
   const baseName = path.split("/").pop() || "confy-export" + extFor(fmt);
   io.send("ExitConvert");
+  if (!io.canSaveAs) {
+    io.err(t("web.mobile.saveAsUnavailable"));
+    return;
+  }
   if (io.fsAvailable) {
-    const handle = await pickSaveFile(fmt, baseName);
-    if (!handle) return;
     try {
+      const handle = await pickSaveFile(fmt, baseName);
+      if (!handle) return; // cancelled (Tauri: null)
       await writeFile(handle, text);
       io.ok(`Saved copy → ${(await handle.getFile()).name}`);
     } catch (e) {
+      if (e instanceof Error && e.name === "AbortError") return; // browser cancel
       io.err(`save failed: ${String((e as Error).message ?? e)}`);
     }
     return;
@@ -161,18 +244,23 @@ export async function doConvertWrite(
 ): Promise<void> {
   io.beforeConvertWrite?.();
   const baseName = path.split("/").pop() ?? "confy-converted";
+  if (!io.canSaveAs) {
+    io.err(t("web.mobile.saveAsUnavailable"));
+    return;
+  }
   if (io.fsAvailable) {
     const target = targetTagFor(path);
     const outExt = extFor(target);
-    const handle = await pickSaveFile(
-      target,
-      baseName.endsWith(outExt) ? baseName : baseName + outExt,
-    );
-    if (!handle) return; // cancelled
     try {
+      const handle = await pickSaveFile(
+        target,
+        baseName.endsWith(outExt) ? baseName : baseName + outExt,
+      );
+      if (!handle) return; // cancelled (Tauri: null)
       await writeFile(handle, text);
       io.ok(`Converted → ${(await handle.getFile()).name}`);
     } catch (e) {
+      if (e instanceof Error && e.name === "AbortError") return; // browser cancel
       io.err(`convert write failed: ${String((e as Error).message ?? e)}`);
     }
     return;

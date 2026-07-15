@@ -190,7 +190,10 @@ appends a localStorage disclosure line instead.
 Cargo **workspace** (see `PORTING.md`): `confy-core` is the headless model crate; `confy-tui`
 is the ratatui TUI + CLI binary (`confy`) that depends on it and re-exports `model` so its UI
 modules keep their `crate::model::…` paths. `confy-ffi` is the WASM wrapper (Web UI); `confy-tauri`
-is the Tauri v2 desktop shell over that same web UI, adding only native file I/O.
+is the Tauri v2 shell over that same web UI — desktop (macOS/Windows) and, since Mobile M1,
+Android — adding only native file I/O. `tauri-plugin-confy-picker` is a small first-party mobile
+plugin `confy-tauri` depends on for the one Android gap stock Tauri plugins don't cover (see
+below).
 
 ```
 i18n/                     translation catalogs — root i18n/en.json (canonical, en-fallback
@@ -315,31 +318,99 @@ crates/confy-tui/src/    ratatui TUI + CLI; depends on confy-core, `pub use conf
     ui.rs          ratatui rendering: title bar + NAME/TYPE/VALUE column header + tree Table, detail popup, help, prompts
 crates/confy-tui/tests/   convert_cli.rs integration: `confy convert` happy/lossy/abort paths, source-unchanged
 
-crates/confy-tauri/       desktop app shell (Tauri v2) over the web UI — **native file I/O only**
-  src/main.rs    bin `confy-desktop`: Tauri builder + dialog plugin + 5 `#[tauri::command]`s —
-                 open_dialog / save_dialog / read_file_text / write_file / startup_file (CLI-arg open).
-                 Editing stays in the in-webview wasm Session (dispatch is sync; not moved over IPC);
-                 the Rust side owns only real open/save/read/write so the desktop gets native paths,
-                 in-place save, and CLI-arg open — no download fallback.
+crates/confy-tauri/       desktop + Android app shell (Tauri v2) over the web UI — **native file
+                          I/O only**
+  src/lib.rs     `confy_tauri_lib` — the real crate body (mobile needs a `#[cfg_attr(mobile,
+                 tauri::mobile_entry_point)] pub fn run()` in a `[lib]`, not `main.rs`): Tauri
+                 builder + `tauri_plugin_fs`/`tauri_plugin_dialog` + 2 custom
+                 `#[tauri::command]`s — `startup_file` (desktop CLI-arg open) and `opened_urls`
+                 (Android cold-start "Open with" drain; a warm app instead gets an `"opened"`
+                 window event). Editing stays in the in-webview wasm Session (dispatch is sync;
+                 not moved over IPC) — Rust owns only real open/save/read/write. Real open/save
+                 on desktop goes through `tauri_plugin_dialog`/`tauri_plugin_fs` directly (no
+                 custom command needed, unlike the pre-M1 5-command design); Android's
+                 write-in-place picker instead routes through `tauri-plugin-confy-picker`
+                 (below) since stock `tauri-plugin-dialog`'s Android `open()` uses
+                 `ACTION_GET_CONTENT`, which never grants write access (a confirmed, unresolved
+                 upstream gap as of `tauri-plugin-dialog` 2.7.1).
+  src/main.rs    thin bin `confy-desktop`, just calls `confy_tauri_lib::run()`.
   tauri.conf.json  frontendDist=../../web/dist, beforeBuildCommand=cf-build.sh (via git toplevel),
                    bundle targets ["dmg"], identifier net.turkeyang.confy
   tauri.windows.conf.json  Windows platform override (Tauri v2 auto-merge): empty
                    before-commands (bash/git rev-parse don't run under the Windows build
                    shell — build web/dist manually first) + bundle targets ["nsis"]
-  capabilities/    default.json — core:default + dialog:default for the main window
-  icons/           placeholder brand set (32/128/@2x png + icon.icns/.ico), regen via `cargo tauri icon`
+  tauri.android.conf.json  Android-only platform-merge override: `bundle.fileAssociations` for
+                   `.toml`/`.json`/`.jsonc`/`.yaml`/`.yml` (kept out of the shared config —
+                   `bundle` also governs the macOS `.dmg`, and Finder would register the
+                   association there with nothing wired up to handle it). Several MIME entries
+                   per extension (`text/plain` fallback, YAML's 4 near-synonym MIME strings) —
+                   `.toml`/`.yaml` have no IANA-registered type, so different Android file
+                   managers guess differently when resolving a file's MIME for intent matching;
+                   this broadens the match without guaranteeing every one. Tauri's Android build
+                   generates the intent-filter from this automatically — no manual
+                   `AndroidManifest.xml` edit.
+  capabilities/    default.json — core:default + dialog:default + explicit
+                   `fs:allow-read-text-file`/`fs:allow-write-text-file` + scope, plus
+                   `confy-picker:default` (Android only) for the custom plugin below.
+  icons/           brand set (32/128/@2x png + icon.icns/.ico), regen via `cargo tauri icon`.
+                   Android's launcher icon deliberately uses the plain per-density
+                   `ic_launcher.png` mipmaps, **not** the adaptive-icon foreground/background
+                   split `cargo tauri icon` also generates — the source PNG has zero alpha
+                   transparency, so the adaptive foreground fills the entire icon with no margin
+                   for a background color to show through and reads as a flat block; the
+                   adaptive-icon resources are removed from `gen/android`.
+  gen/android/     Tauri-generated Android Studio project (committed, generated `.gitignore`
+                   already excludes build outputs/keystores). A few files are **hand-edited and
+                   must be reapplied if `cargo tauri icon`/`android init` regenerates this
+                   directory**: `values{,-night}/themes.xml` add
+                   `android:windowOptOutEdgeToEdgeEnforcement` (targetSdk 36 forces edge-to-edge
+                   by default, drawing content under the status bar otherwise); the
+                   `mipmap-anydpi-v26/ic_launcher.xml` adaptive-icon definition (plus its
+                   now-orphaned `drawable-v24`/`values` foreground/background resources) is
+                   deleted per the icon note above.
+
+crates/tauri-plugin-confy-picker/   first-party Tauri mobile plugin, Android-only real
+                          implementation (desktop stub returns `Error::Unsupported` — desktop
+                          keeps using `tauri-plugin-dialog` directly, which has no such gap)
+  src/models.rs  `PickWritableResponse { uri: Option<String>, name: Option<String> }` — **every
+                 field the Kotlin side puts on its response object must be declared here**,
+                 since mobile-plugin responses deserialize from the JNI/Kotlin JSON into this
+                 typed Rust struct before being re-serialized back to JS; serde silently drops
+                 anything undeclared (a real bug hit in M1: the Kotlin side computed `name`
+                 correctly the whole time, but it never reached JS until this struct declared
+                 the field).
+  android/.../ConfyPickerPlugin.kt  one command, `pickWritable`: `ACTION_OPEN_DOCUMENT` +
+                 `FLAG_GRANT_{READ,WRITE,PERSISTABLE_URI_PERMISSION}`, then
+                 `takePersistableUriPermission` on the result so the URI survives a full app
+                 restart, then queries the real display name via `ContentResolver`'s SAF
+                 `DISPLAY_NAME` column (null projection — some providers, e.g. the Downloads
+                 provider's `msf:` media-store-file passthrough IDs, don't honor a narrow one)
+                 since `content://` URIs are opaque and don't reliably embed a filename/extension
+                 for format detection.
 ```
 
-**Desktop host I/O.** `web/fs.ts` detects Tauri (`window.__TAURI__`) and routes open/save through the
-Rust commands instead of the browser File System Access API. The path string is the durable "handle",
-wrapped in an object that **conforms to the existing `FsHandle` shape** (getFile/createWritable →
-`invoke`), so `ui.ts` (writeFile/readHandle/deriveName/convert) is unchanged. `tauriStartupFile()`
-opens a CLI-arg file at boot. A plain `cargo build -p confy-tauri --release` must add `--features custom-protocol` (embeds
-`web/dist`; without it the exe loads devUrl → "localhost refused"); `cargo tauri build` enables
-it automatically. Build a desktop bundle with `cargo tauri build` from `crates/confy-tauri`
-(the workspace `[profile.release]` is aggressive — `lto`+`codegen-units=1`+`opt-level z` — so the
-release bundle is slow; `--debug` is fast for local checks). macOS produces `.app`/`.dmg`; **Windows
-must be built on a Windows host** (the webview is WebView2; no cross-build). Linux is not targeted yet.
+**Desktop + mobile host I/O.** `web/fs.ts` detects Tauri (`window.__TAURI__`) and routes
+open/save through `tauri_plugin_fs`/`tauri_plugin_dialog`'s JS bindings instead of the browser
+File System Access API. The path/URI string is the durable "handle", wrapped in an object that
+**conforms to the existing `FsHandle` shape** (getFile/createWritable → `invoke`), so `ui.ts`/
+`touch/app.ts` (writeFile/readHandle/deriveName/convert) are unchanged regardless of platform.
+`tauriStartupFile()` opens a CLI-arg file at boot (desktop only). `fs.ts::isTauriAndroid()` picks
+the one Android-specific fork: `pickOpenFile()` calls `plugin:confy-picker|pick_writable` instead
+of `dialog.open()` (see the crate note above); `canSaveAs()` is false on Tauri mobile — picking a
+*new* save destination (Save As, first-save-after-New, Convert output) isn't supported in M1, so
+those paths show a translated hint instead of opening a picker, while writing in place to an
+already-open handle is unaffected. `fileAssociations` + `opened_urls`/`"opened"` deliver a file
+picked from Android's "Open with" chooser through the same `openTauriPath`-style read path.
+
+A plain `cargo build -p confy-tauri --release` must add `--features custom-protocol` (embeds
+`web/dist`; without it the exe loads devUrl → "localhost refused"); `cargo tauri build`/
+`cargo tauri android build` enable it automatically. Build a desktop bundle with `cargo tauri
+build` from `crates/confy-tauri` (the workspace `[profile.release]` is aggressive —
+`lto`+`codegen-units=1`+`opt-level z` — so the release bundle is slow; `--debug` is fast for
+local checks). macOS produces `.app`/`.dmg`; **Windows must be built on a Windows host** (the
+webview is WebView2; no cross-build); Android needs the SDK/NDK + `cargo tauri android build
+--debug --apk` for a sideload-able debug APK (no keystore setup needed — debug builds auto-sign).
+Linux is not targeted yet, nor is iOS.
 
 `confy-core` is pure and **filesystem-free at runtime** — no TUI/terminal deps, no `fs`/`process`/
 `env`/`tempfile`, fully unit-testable in isolation (enforced by `tests/no_fs_gate.rs`). The sole

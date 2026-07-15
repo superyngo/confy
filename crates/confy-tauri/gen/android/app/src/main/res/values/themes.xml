@@ -1,0 +1,11 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Base application theme. -->
+    <style name="Theme.confy_tauri" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <!-- targetSdk 35+ forces edge-to-edge by default, drawing the WebView
+             under the status bar (M1 Task 4 finding — the toolbar was hidden
+             under it). Opt back out to the pre-15 default where content stays
+             clear of system bars; web/style.css's env(safe-area-inset-top)
+             is a CSS-side fallback in case this doesn't fully apply. -->
+        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>
+    </style>
+</resources>

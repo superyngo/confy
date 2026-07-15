@@ -7,6 +7,10 @@ license.workspace = true
 repository.workspace = true
 description = "confy desktop app (Tauri shell over the web UI; native file I/O)"
 
+[lib]
+name = "confy_tauri_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
 [[bin]]
 name = "confy-desktop"
 path = "src/main.rs"
@@ -25,4 +29,6 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-confy-picker = { path = "../tauri-plugin-confy-picker" }
 serde = { workspace = true }

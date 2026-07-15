@@ -29,13 +29,18 @@ import type {
   ConvertView,
 } from "../types.js";
 import {
+  canSaveAs,
   fsAccessAvailable,
+  onTauriOpened,
+  openTauriPath,
   pickOpenFile,
   isFirefoxIos,
+  tauriOpenedUrls,
   type OpenedFile,
 } from "../fs.js";
 import {
   doConvertWrite,
+  doQuickSave,
   doSaveAsCopy,
   fileStem,
   formatFromName,
@@ -140,11 +145,16 @@ function sendR(i: Intent): SessionSnapshot {
 // first close the open sheet; download fallbacks toast + show the FxiOS hint.
 const io: HostIo = {
   fsAvailable: FS_AVAILABLE,
+  canSaveAs: canSaveAs(),
   getSnap: () => snap,
   send,
   batch,
   serialize: () => session?.serialize() ?? null,
   getFileName: () => fileName,
+  getHandle: () => fileHandle,
+  setHandle: (h) => {
+    fileHandle = h;
+  },
   ok: (msg) => toast(msg),
   err: (msg) => {
     statusEl.textContent = msg;
@@ -153,6 +163,11 @@ const io: HostIo = {
   afterDownload: (filename, msg) => {
     toast(msg);
     firefoxIosSaveHint(filename);
+  },
+  afterSaveAs: (_handle, name) => {
+    fileName = name;
+    setSampleMode(false);
+    render();
   },
 };
 const openKindRow = (r: ViewRow) => openKindSheet(r.path);
@@ -203,6 +218,7 @@ const TIC = {
   expand: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 10l5 5 5-5"/><path d="M7 4l5 5 5-5"/></svg>',
   collapse: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 14l5-5 5 5"/><path d="M7 20l5-5 5 5"/></svg>',
   info: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.5h.01"/></svg>',
+  chevron: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>',
 };
 
 function appHTML(): string {
@@ -215,7 +231,7 @@ function appHTML(): string {
     '<span class="dirty-dot"></span>' +
     '<span class="spacer"></span>' +
     `<button class="tbtn" data-act="open" data-i18n-title="web.toolbar.open.title" title="Open file">${TIC.open}<span class="label-hide" data-i18n="web.toolbar.open.label">Open</span></button>` +
-    `<button class="tbtn primary" data-act="save" title="Save / Convert…">${TIC.save}<span class="label-hide" data-i18n="web.toolbar.save.label">Save</span></button>` +
+    `<button class="tbtn primary" data-act="save" data-i18n-title="web.toolbar.save.label" title="Save">${TIC.save}<span class="label-hide" data-i18n="web.toolbar.save.label">Save</span></button>` +
     '<div class="tgroup edit-grp">' +
     `<button class="icon-btn" data-act="undo" data-i18n-title="web.toolbar.undo.title" title="Undo" data-foldable="true">${TIC.undo}</button>` +
     `<button class="icon-btn" data-act="redo" data-i18n-title="web.toolbar.redo.title" title="Redo" data-foldable="true">${TIC.redo}</button>` +
@@ -260,6 +276,9 @@ function appHTML(): string {
     '<div class="sheet filter-sheet"></div>' +
     '<div class="sheet kind-sheet"></div>' +
     '<div class="sheet lang-sheet"></div>' +
+    // Save action-choice sheet (tap the toolbar Save button → pick Save vs
+    // Save As/Convert); built on demand by `openSaveSheet`.
+    '<div class="sheet save-sheet"></div>' +
     // Save / Convert sheet (shared form via convert-dialog.ts, hosted in a bottom
     // sheet like every other touch panel; the #conv* children match the refs).
     '<div class="sheet convert-sheet">' +
@@ -563,6 +582,31 @@ function openLangSheet() {
     });
   });
   openSheet("lang");
+}
+
+// Tapping the toolbar Save button always opens this action-choice sheet — no
+// one-tap quick-save on touch (unlike desktop's ⌘S), since a merged Save/
+// Save-As split-button pill turned out to render as two stacked buttons on
+// at least one real device with no obvious CSS cause; a plain sheet sidesteps
+// that whole class of layout bug.
+function openSaveSheet() {
+  sheets.save.innerHTML =
+    '<div class="grab"></div>' +
+    `<div class="sheet-head"><h3>${t("web.toolbar.save.label")}</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
+    "<div class=\"sheet-body\">" +
+    mi(TIC.save, t("web.toolbar.save.label"), "", "save") +
+    mi(TIC.chevron, t("web.toolbar.saveAs.title"), "", "saveas") +
+    "</div>";
+  sheets.save.querySelectorAll<HTMLElement>(".menu-item").forEach((it) => {
+    it.addEventListener("click", () => {
+      const id = it.dataset.mi!;
+      closeSheets();
+      if (id === "save") void doQuickSave(io);
+      else if (!io.canSaveAs) toast(t("web.mobile.saveAsUnavailable"));
+      else openSaveConvert(io);
+    });
+  });
+  openSheet("save");
 }
 
 function openMenuSheet() {
@@ -1108,6 +1152,37 @@ function openText(
   rawView = false;
   render();
 }
+// A file the OS opened us with (mobile file-association "Open with"), cold
+// or warm — read via the same path `openTauriPath`'s Open Recent flow uses;
+// the granted `content://`/`file://` URI reads no differently than an
+// already-known Tauri path. The Rust side delivers a cold-start URL through
+// BOTH `tauriOpenedUrls()` (drained at boot) and a possibly-already-live
+// `"opened"` listener — dedupe here so a cold start never opens the same URL
+// twice (which double-frees the previous `Session` and crashes the wasm).
+const openedUrlsHandled = new Set<string>();
+async function openOpenedUrl(url: string): Promise<void> {
+  if (openedUrlsHandled.has(url)) return;
+  openedUrlsHandled.add(url);
+  // TEMP (M1 Task 3 device debugging): inspect via chrome://inspect on a
+  // USB-connected desktop Chrome — remove once the content:// read bug is
+  // diagnosed.
+  console.log("[confy] opened url:", url);
+  const opened = await openTauriPath(url);
+  if (!opened) {
+    io.err(t("web.menu.recentGone"));
+    return;
+  }
+  console.log(
+    "[confy] opened name:",
+    opened.name,
+    "text length:",
+    opened.text.length,
+    "text head:",
+    JSON.stringify(opened.text.slice(0, 200)),
+  );
+  openText(opened.text, formatFromName(opened.name), opened.handle, opened.name);
+}
+
 async function doOpen() {
   if (FS_AVAILABLE) {
     const opened = await pickOpenFile();
@@ -1152,7 +1227,7 @@ function installShellHandlers() {
         cycleSampleFormat(openSample); // no-op unless in sample mode
         break;
       case "save":
-        openSaveConvert(io);
+        openSaveSheet();
         break;
       case "undo":
         send("Undo");
@@ -1327,6 +1402,7 @@ async function main() {
   sheets.filter = app.querySelector(".filter-sheet")!;
   sheets.kind = app.querySelector(".kind-sheet")!;
   sheets.lang = app.querySelector(".lang-sheet")!;
+  sheets.save = app.querySelector(".save-sheet")!;
   sheets.convert = app.querySelector(".convert-sheet")!;
   sheets.ext = app.querySelector(".ext-sheet")!;
   sheets.help = app.querySelector(".help-sheet")!;
@@ -1348,9 +1424,16 @@ async function main() {
 
   const wasmUrl = new URL("../pkg/confy_ffi_bg.wasm", import.meta.url);
   await load(wasmUrl);
-  // ?url= deep-link opens a remote config at boot; else the built-in sample.
+  // A warm-running app receiving a new "Open with" file-association intent.
+  void onTauriOpened((url) => {
+    void openOpenedUrl(url);
+  });
+  // Cold-start "Open with" file association; else ?url= deep-link; else sample.
+  const openedUrls = await tauriOpenedUrls();
   const urlParam = new URLSearchParams(location.search).get("url");
-  if (urlParam) {
+  if (openedUrls.length > 0) {
+    await openOpenedUrl(openedUrls[0]);
+  } else if (urlParam) {
     await openFromUrl(io, openText, urlParam);
   } else {
     loadSample("toml", openSample);

@@ -82,6 +82,8 @@
   "web.toolbar.open.label": "開啟",
   "web.toolbar.save.title": "儲存（Ctrl-s）",
   "web.toolbar.save.label": "儲存",
+  "web.toolbar.saveAs.title": "另存新檔／轉換格式…",
+  "web.mobile.saveAsUnavailable": "行動裝置上目前尚無法選擇新的儲存位置——請先開啟一個檔案，再編輯並原地儲存。",
   "web.toolbar.undo.title": "復原（z）",
   "web.toolbar.redo.title": "重做（y）",
   "web.toolbar.theme.title": "切換主題",

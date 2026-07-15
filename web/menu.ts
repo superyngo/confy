@@ -9,7 +9,7 @@
 // hint is appended to the label instead; actual handling stays in ui.ts's
 // `onKey`. Zoom items get no accelerator either — `zoomHotkeysEnabled` in
 // tauri.conf.json already owns Cmd+/−/0.
-import { isTauri } from "./fs.js";
+import { isTauri, isTauriMobile } from "./fs.js";
 import { availableLangs, getLang, LANG_DISPLAY_NAMES, t, type Lang } from "./i18n.js";
 import type { Intent } from "./types.js";
 
@@ -180,10 +180,11 @@ function menuAction(fn: () => void | Promise<void>): () => void {
   };
 }
 
-/** Build the native menu and install it. No-op on the pure web build. */
+/** Build the native menu and install it. No-op on the pure web build and on
+ * Tauri mobile (Android/iOS have no menu bar — same as the pure-web build). */
 export async function setupAppMenu(deps: MenuDeps): Promise<void> {
   currentDeps = deps;
-  if (!isTauri()) return;
+  if (!isTauri() || isTauriMobile()) return;
   try {
     await buildAndSet();
   } catch (e) {
@@ -194,7 +195,7 @@ export async function setupAppMenu(deps: MenuDeps): Promise<void> {
 
 /** Rebuild + reinstall the menu (language switch, recent-files mutation). */
 export async function rebuildMenu(): Promise<void> {
-  if (!currentDeps || !isTauri()) return;
+  if (!currentDeps || !isTauri() || isTauriMobile()) return;
   try {
     await buildAndSet();
   } catch (e) {

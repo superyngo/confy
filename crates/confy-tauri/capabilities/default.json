@@ -1,11 +1,18 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Core access for the main window. File dialogs run through Rust commands, not the JS dialog API.",
+  "description": "Core access for the main window. File I/O runs through the fs/dialog plugins' JS bindings directly (`window.__TAURI__.fs`/`.dialog`), not custom Rust commands. Desktop is unsandboxed — `fs:scope` is intentionally unrestricted (`**`) to allow reading/writing any user-picked path, matching normal desktop app trust. `confy-picker:default` is Android's write-capable file picker (Task 0 finding — `tauri-plugin-dialog`'s Android picker never grants write access); unused on desktop.",
   "windows": ["main"],
   "permissions": [
     "core:default",
     "dialog:default",
-    "core:webview:allow-set-webview-zoom"
+    "fs:allow-read-text-file",
+    "fs:allow-write-text-file",
+    {
+      "identifier": "fs:scope",
+      "allow": [{ "path": "**" }]
+    },
+    "core:webview:allow-set-webview-zoom",
+    "confy-picker:default"
   ]
 }

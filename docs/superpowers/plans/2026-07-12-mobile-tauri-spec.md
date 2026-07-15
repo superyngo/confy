@@ -1,9 +1,10 @@
 # Mobile extension spec — Tauri iOS/Android shell over the confy web UI
 
-**Status: DRAFT — not started.** Written 2026-07-12, after the PWA step landed
-(manifest + service worker; see CHANGELOG Unreleased). The PWA is the demand
-gate: build the native shell only if real mobile usage shows the PWA's gaps
-(in-place save, "Open with confy" file association) actually bite.
+**Status: M1 (Android) SHIPPED — 2026-07-15.** Written 2026-07-12, after the PWA step landed
+(manifest + service worker; see CHANGELOG Unreleased). The PWA demand gate was met — the Android
+sideload APK described below (Phase M1) is built, tested end-to-end on real hardware, and its
+implementation plan (`docs/superpowers/plans/2026-07-13-mobile-m1-android-plan.md`) is complete.
+iOS (Phase M2+) remains not started.
 
 ## Goal
 

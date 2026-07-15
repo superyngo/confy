@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/confy-core", "crates/confy-ffi", "crates/confy-tui", "crates/confy-tauri"]
+members = ["crates/confy-core", "crates/confy-ffi", "crates/confy-tui", "crates/confy-tauri", "crates/tauri-plugin-confy-picker"]
 resolver = "2"
 
 [workspace.package]

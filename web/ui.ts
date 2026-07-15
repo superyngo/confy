@@ -7,19 +7,17 @@
 // keyboard-driven `#overlay` fallback.
 import { load, Session } from "./confy.js";
 import {
-  downloadText,
-  extFor,
+  canSaveAs,
   fsAccessAvailable,
   openTauriPath,
   pickOpenFile,
-  pickSaveFile,
   tauriStartupFile,
-  writeFile,
   type FsHandle,
 } from "./fs.js";
 import { recentAdd, recentRemove, rebuildMenu, setupAppMenu } from "./menu.js";
 import {
   doConvertWrite,
+  doQuickSave,
   doSaveAsCopy,
   fileStem,
   formatFromName,
@@ -107,13 +105,27 @@ const FS_AVAILABLE = fsAccessAvailable();
 // The host surface the shared I/O flows (host-io.ts) are parameterized on.
 const io: HostIo = {
   fsAvailable: FS_AVAILABLE,
+  canSaveAs: canSaveAs(),
   getSnap: () => snap,
   send,
   batch,
   serialize: () => session?.serialize() ?? null,
   getFileName: () => fileName,
+  getHandle: () => fileHandle,
+  setHandle: (h) => {
+    fileHandle = h;
+  },
   ok: (msg) => setStatus(msg, ""),
   err: (msg) => setStatus("", msg),
+  afterSaveAs: (handle, name) => {
+    fileName = name;
+    if (handle.path) {
+      recentAdd(handle.path, name);
+      void rebuildMenu();
+    }
+    setSampleMode(false); // now backed by a real file → freeze the format pill
+    render();
+  },
 };
 
 // ---- bootstrap ----
@@ -724,62 +736,13 @@ function openExternalEdit(ext: { initial: string; kind: unknown }) {
 }
 
 // ---- save / open / download ----
-async function doSave() {
-  if (!session) return;
-  const text = session.serialize();
-  // 1. In-place write to an open file handle.
-  if (fileHandle) {
-    try {
-      await writeFile(fileHandle, text);
-      send("Save");
-      setStatus("Saved", "");
-      return;
-    } catch (e) {
-      setStatus("", `save failed: ${String((e as Error).message ?? e)}`);
-      return;
-    }
-  }
-  // 2. Save As via the FS Access API (stores the handle for subsequent saves).
-  if (FS_AVAILABLE) {
-    const fmt = snap!.doc_format;
-    const handle = await pickSaveFile(
-      fmt,
-      (fileName ?? "confy-export") + extFor(fmt),
-    );
-    if (handle) {
-      try {
-        await writeFile(handle, text);
-        fileHandle = handle;
-        fileName = await deriveName(handle, fmt);
-        if (handle.path) {
-          recentAdd(handle.path, fileName);
-          void rebuildMenu();
-        }
-        setSampleMode(false); // now backed by a real file → freeze the format pill
-        send("Save");
-        setStatus("Saved", "");
-        render();
-        return;
-      } catch (e) {
-        setStatus("", `save failed: ${String((e as Error).message ?? e)}`);
-        return;
-      }
-    }
-    // User cancelled the picker — fall through to nothing (don't surprise them
-    // with a download after they explicitly cancelled Save As).
-    return;
-  }
-  // 3. Download fallback.
-  downloadText((fileName ?? "confy-export") + extFor(snap!.doc_format), text);
-  send("Save");
-}
-
-async function deriveName(handle: FsHandle, fmt: string): Promise<string> {
-  try {
-    return (await handle.getFile()).name;
-  } catch {
-    return fileName ?? "confy-export" + extFor(fmt);
-  }
+// Instant Save: in-place write to an open handle, or a first Save-As if none
+// yet. Shared with touch/app.ts (host-io.ts's `doQuickSave`) so the two hosts
+// can't drift; the toolbar Save button and ⌘S both call this — the separate
+// "Save / Convert…" panel (`openSaveConvert`) is the explicit destination/
+// format-picking flow.
+function doSave(): Promise<void> {
+  return doQuickSave(io);
 }
 
 // Open: the FS Access API picker where available (keeps a handle for in-place

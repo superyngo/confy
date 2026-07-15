@@ -75,6 +75,9 @@ button{font-family:inherit;color:inherit;cursor:pointer}
 .toolbar{
   display:flex; align-items:center; gap:10px;
   padding:8px 12px; background:var(--surface);
+  /* Android targetSdk 35+ edge-to-edge fallback (native opt-out is the
+     primary fix, see gen/android's themes.xml) — 0 on platforms without it. */
+  padding-top:max(8px, env(safe-area-inset-top));
   border-bottom:1px solid var(--border); flex:0 0 auto;
 }
 .brand{display:flex;align-items:center;gap:8px;font-weight:700;letter-spacing:-.01em}
@@ -109,6 +112,17 @@ button{font-family:inherit;color:inherit;cursor:pointer}
 .icon-btn .ic{width:16px;height:16px}
 .tgroup{display:flex;gap:6px}
 .more-btn{display:none;padding:0 10px}
+
+/* Save + "Save As / Convert…" as one visual pill: two tap targets, no gap. */
+.split-btn{display:flex}
+.split-btn .tbtn.primary{border-top-right-radius:0;border-bottom-right-radius:0}
+.split-btn .icon-btn.primary{
+  width:22px;height:32px;border-top-left-radius:0;border-bottom-left-radius:0;
+  border-left:1px solid color-mix(in srgb, var(--bg) 25%, transparent);
+  background:var(--accent);color:var(--bg);
+}
+.split-btn .icon-btn.primary:hover{filter:brightness(1.06)}
+.split-btn .icon-btn.primary .ic{width:13px;height:13px}
 
 /* ---------- filter row ---------- */
 .filterbar{
@@ -369,6 +383,10 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
 @media (pointer:coarse){
   .tbtn{min-height:var(--hit)}
   .icon-btn{width:var(--hit);height:var(--hit)}
+  /* The split-button chevron stays narrower than --hit on purpose — Save
+     (its sibling, same pill) is the far larger, primary tap target right
+     next to it, so a slimmer chevron doesn't hurt reachability. */
+  .split-btn .icon-btn.primary{width:36px;height:var(--hit)}
   .row-actions{opacity:1}            /* 觸控：動作鈕常駐（寬螢幕亦然） */
   .drag-handle{opacity:.5}
 }

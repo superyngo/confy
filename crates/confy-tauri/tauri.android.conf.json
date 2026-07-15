@@ -1,0 +1,58 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "fileAssociations": [
+      {
+        "ext": ["toml"],
+        "name": "TOML config",
+        "description": "TOML configuration file",
+        "mimeType": "application/toml",
+        "role": "Editor"
+      },
+      {
+        "ext": ["toml"],
+        "mimeType": "text/plain",
+        "role": "Editor"
+      },
+      {
+        "ext": ["json", "jsonc"],
+        "name": "JSON config",
+        "description": "JSON/JSONC configuration file",
+        "mimeType": "application/json",
+        "role": "Editor"
+      },
+      {
+        "ext": ["json", "jsonc"],
+        "mimeType": "text/plain",
+        "role": "Editor"
+      },
+      {
+        "ext": ["yaml", "yml"],
+        "name": "YAML config",
+        "description": "YAML configuration file",
+        "mimeType": "application/yaml",
+        "role": "Editor"
+      },
+      {
+        "ext": ["yaml", "yml"],
+        "mimeType": "application/x-yaml",
+        "role": "Editor"
+      },
+      {
+        "ext": ["yaml", "yml"],
+        "mimeType": "text/yaml",
+        "role": "Editor"
+      },
+      {
+        "ext": ["yaml", "yml"],
+        "mimeType": "text/x-yaml",
+        "role": "Editor"
+      },
+      {
+        "ext": ["yaml", "yml"],
+        "mimeType": "text/plain",
+        "role": "Editor"
+      }
+    ]
+  }
+}

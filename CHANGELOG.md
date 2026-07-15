@@ -7,7 +7,117 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **feat(mobile): Android toolchain + write-in-place decision gate passed (M1 Task 0)**
+  (2026-07-13). `crates/confy-tauri` restructured into a `[lib] confy_tauri_lib` (mobile entry
+  point) + thin `main.rs`, unblocking `cargo tauri android init`/`build`. Spiked whether a
+  picked `content://` URI survives a full app restart for write-back — it does, but **only**
+  with a new workspace crate, `crates/tauri-plugin-confy-picker`
+  (`ACTION_OPEN_DOCUMENT` + `takePersistableUriPermission`), because stock
+  `tauri-plugin-dialog`'s Android picker uses `ACTION_GET_CONTENT`, which never grants write
+  access at all (confirmed against the plugin's own source; unresolved upstream as of
+  `tauri-plugin-dialog` 2.7.1). Gate passes on real hardware: pick → write → kill app →
+  relaunch → write again (no re-pick) → read back both markers. `bundle.fileAssociations`
+  needs no manual `AndroidManifest.xml` edit — Tauri's build system generates the Android
+  intent-filter automatically. Full findings recorded in
+  `docs/superpowers/plans/2026-07-13-mobile-m1-android-plan.md` (Task 0 outcome).
+
 ### Changed
+- **refactor(desktop): plugin-backed file I/O (M1 Task 1)** (2026-07-13). `crates/confy-tauri`
+  no longer implements `open_dialog`/`save_dialog`/`read_file_text`/`write_file` as custom Rust
+  commands — the builder now registers `tauri_plugin_fs::init()` alongside the existing
+  `tauri_plugin_dialog::init()`, and `web/fs.ts` calls `window.__TAURI__.dialog.open()`/`save()`
+  and `window.__TAURI__.fs.readTextFile()`/`writeTextFile()` directly (the `FsHandle` shape and
+  every `ui.ts`/`touch/app.ts` call site are unchanged). `startup_file` (CLI-arg open) stays a
+  custom command — no stock plugin covers it. `capabilities/default.json` gained explicit
+  `fs:allow-read-text-file`/`fs:allow-write-text-file` + an unrestricted `fs:scope` (`**` —
+  desktop is unsandboxed, matching normal desktop app trust; Android's real fs access instead
+  routes through the Task 0 `tauri-plugin-confy-picker` plugin). No change to `confy-core`,
+  `confy-ffi`, or the `Intent`/`SessionSnapshot` contract — `functional_smoke.mjs` still passes.
+- **feat(web): unify Save vs. Save As / Convert across desktop and touch (M1 Task 2)**
+  (2026-07-13). Desktop already split these (⌘S = instant in-place save; the toolbar Save
+  button opens the "Save / Convert…" panel) — touch's single Save button used to always open
+  that panel, with no quick in-place save at all. New shared `host-io.ts::doQuickSave`: writes
+  straight to the open handle when one exists, else behaves like a first Save As (gated by the
+  new `canSaveAs()`, see below). `ui.ts`'s `doSave()` becomes a thin wrapper over it (behavior
+  unchanged, now shared instead of duplicated); touch gains a small kebab button next to Save
+  (`web.toolbar.saveAs.title`) that opens the same "Save / Convert…" sheet desktop's button
+  does. Also fixed while touching this code: a cancelled/failed `pickSaveFile()` was unguarded
+  in all three save-destination call sites — browsers reject `showSaveFilePicker()` with
+  `AbortError` on cancel (unlike Tauri's `null`), which surfaced as an unhandled rejection;
+  now caught and treated as a silent cancel everywhere.
+- **feat(web): `canSaveAs()` mobile guard (M1 Task 2)** (2026-07-13). New `fs.ts::canSaveAs()` —
+  false only on Tauri mobile (`isTauriMobile()`, UA-sniffed) — gates picking a *new* save
+  destination: `doQuickSave`'s first-save branch, `doSaveAsCopy`, and `doConvertWrite` all show
+  a translated hint (`web.mobile.saveAsUnavailable`, both catalogs) instead of opening a picker.
+  In-place saves to an already-open handle are unaffected — Android's real limitation is
+  `ACTION_CREATE_DOCUMENT` (picking a *new* file) being untested, not writing to a file already
+  open via `tauri-plugin-confy-picker`. `menu.ts`'s native menu bar also now no-ops on Tauri
+  mobile (`setupAppMenu`/`rebuildMenu`), matching the pure-web build — mobile has no menu bar.
+- **feat(mobile): file association + open-intent (M1 Task 3)** (2026-07-13). New
+  `crates/confy-tauri/tauri.android.conf.json` (a platform-merge override, so desktop's `dmg`
+  bundle registers no unwired file association) adds `bundle.fileAssociations` for
+  `.toml`/`.json`/`.jsonc`/`.yaml`/`.yml`; Tauri's Android build generates the intent-filter from
+  it automatically (Task 0 finding — no manual `AndroidManifest.xml` edit). `lib.rs` gains a
+  second custom command, `opened_urls` (drains a `Mutex<Vec<String>>` populated from
+  `RunEvent::Opened`, for the cold-start "Open with" case) plus an `"opened"` window event (for a
+  warm-running app receiving another "Open with"). No new plugin needed to read/write the
+  granted `content://` URI — the launch intent's own (non-persistable, session-long) grant is
+  enough for `tauri-plugin-fs`'s `readTextFile`/`writeTextFile`, unlike the Task 0 picker case.
+  `web/fs.ts` gains `tauriOpenedUrls()`/`onTauriOpened()`; `web/touch/app.ts`'s `main()` checks
+  cold-start URLs before falling back to `?url=`/the sample, and subscribes to `"opened"` for the
+  warm case, both funneled through the existing `openTauriPath`-style read path. Desktop
+  (`ui.ts`) is untouched — it keeps `startup_file` only, per the plan's scope.
+- **fix(mobile): device-testing fixes from M1 Task 4** (2026-07-14/15). Real
+  Android device testing of the Task 3 build surfaced several bugs, all fixed: (1) a wasm
+  double-free crash — `host-io.ts::replaceSession` froze the old `Session` before attempting to
+  parse the new text, so a failed open left a dangling freed reference that crashed on the next
+  touch; now freed only after the replacement parses successfully. (2) A cold-start file could be
+  delivered twice (both the `"opened"` event and the `opened_urls()` drain fire for the same URL)
+  — deduped in `touch/app.ts` via a `Set<string>`. (3) Files opened through the app's own picker
+  failed to save with a permission error — `fs.ts::pickOpenFile()` was never actually wired to
+  `tauri-plugin-confy-picker` on Android (still called stock `tauri-plugin-dialog`, the exact
+  thing Task 0 found doesn't grant write access) and the plugin's own capability
+  (`confy-picker:default`) was missing from `capabilities/default.json`; both fixed. (4) Broadened
+  `tauri.android.conf.json`'s `fileAssociations` with extra MIME fallbacks per extension (`.toml`/
+  `.yaml` have no IANA-registered type, so different file managers guess differently when
+  resolving a file's MIME for intent matching). (5) Regenerated Android's app icon (`cargo tauri
+  icon`) — it was still Tauri's placeholder logo, never regenerated after `android init`. (6) Fixed
+  the toolbar rendering under the status bar — `gen/android`'s targetSdk 36 forces edge-to-edge by
+  default; opted out via `windowOptOutEdgeToEdgeEnforcement` in both theme files, plus a CSS
+  `env(safe-area-inset-top)` fallback. (7) Merged the Save/Save-As kebab pair into one split-button
+  pill on touch, and made the `!canSaveAs` hint fire on tap (via toast) instead of relying on a
+  disabled button's title, which touch screens never show. (8) The split-button pill from (7)
+  turned out to render as two buttons stacked top-to-bottom on a real device — root-caused live
+  by forwarding the app's WebView devtools socket over `adb` and driving the Chrome DevTools
+  Protocol directly (`Runtime.evaluate` over the raw WebSocket): the touch build loads its own
+  separate `web/touch/style.css`, which never received the `.split-btn` CSS rule fix (7) added
+  only to the shared desktop `web/style.css`. On seeing the fix live, the split-button pill design
+  itself was dropped in favor of a plain Save button that always opens a small sheet with
+  "Save"/"Save As / Convert…" choices (`touch/app.ts::openSaveSheet`), keeping the underlying
+  `doQuickSave`/`openSaveConvert` wiring. (9) Picker-opened files misdetected format (defaulted to
+  TOML) — root cause was two layers deep: `content://` URIs are opaque (the Downloads provider's
+  `.../document/msf:NNN` IDs embed no filename), and while `tauri-plugin-confy-picker`'s Kotlin
+  side correctly queries the real name via `ContentResolver`'s `DISPLAY_NAME` column, the
+  Rust-side `PickWritableResponse` struct only declared a `uri` field — serde silently dropped the
+  Kotlin plugin's `name` key on every response before it reached JS. Fixed by adding `name:
+  Option<String>` to the struct. (10) Re-confirmed the "Open with" chooser inconsistency across
+  file managers from (4) is an accepted, unfixable-from-confy's-side limitation (Tauri's
+  `fileAssociations` schema has no `android:scheme`, so content-URI matching depends entirely on
+  each file manager's own MIME-guessing heuristics). (11) The status-bar overlap from (6)
+  regressed for the same reason as (8) — the `env(safe-area-inset-top)` fix only landed in the
+  shared desktop stylesheet, never mirrored into `web/touch/style.css`; added there too. (12) The
+  launcher icon appeared as a solid dark block — `icons/icon.png` has zero alpha transparency
+  anywhere, so Android's adaptive-icon foreground layer filled the entire icon with no margin for
+  the background color to show through; disabled adaptive icons on Android (removed
+  `gen/android`'s `mipmap-anydpi-v26/ic_launcher.xml` and its now-orphaned background/foreground
+  resources) so it falls back to the plain flat `ic_launcher.png` mipmaps. All fixes verified live
+  on a real device — several (8, 9, 11, 12) by driving the actual system UI (document picker,
+  home screen) via `adb shell input tap`/`screencap` against the app's own WebView inspected live
+  over CDP, rather than relying on manual user retesting for every iteration. The full M1
+  acceptance flow (pick → edit → save → kill app → reopen via "Open with" → prior edit present)
+  passed on real hardware. Full findings recorded in
+  `docs/superpowers/plans/2026-07-13-mobile-m1-android-plan.md` (Task 4 outcome).
 - **chore(docs): retire stale port-era scratch** (2026-07-13). `HANDOFF.md` removed (it froze
   at the 2026-06-18 port status and self-described as deletable once the port was done — the
   history stays in git and `PORTING.md`); `docs/tmp/`'s 178 agd dispatch artifacts archived

@@ -360,10 +360,14 @@ edits to the verbatim desktop CSS.
   (horizontal >8px & > vertical → swipe; vertical → scroll/tap-cancel) so it coexists with grip-drag
   reorder and list scroll; read-only rows opt out (no `.row-del`). The open row's transform is reset
   on the next full re-render (the tree `innerHTML` is rebuilt), so a Delete (or any tap) closes it.
-- the **Save button** opens the shared Save / Convert dialog (`SetCursor []`→`OpenConvert`→seed
-  `SetConvertPath`) — there is no direct-save button (all saves go through the panel). The
-  **format pill** cycles the built-in sample's dialect TOML→JSON→YAML while in sample mode (frozen
-  once a real file is opened/saved), matching desktop — it no longer opens convert.
+- the **Save button** (single plain `.tbtn`, not a split-button pill — see Mobile section below
+  for why that design was tried and reverted) always opens a small **save-choice sheet**
+  (`openSaveSheet`, same anatomy as the language/menu sheets) offering "Save" (→ `doQuickSave`,
+  writing in place to the open handle) and "Save As / Convert…" (→ the shared Save/Convert dialog
+  via `SetCursor []`→`OpenConvert`→seed `SetConvertPath`, gated by `canSaveAs()` same as desktop).
+  There is no separate direct-save toolbar action — both choices live behind the one button/sheet.
+  The **format pill** cycles the built-in sample's dialect TOML→JSON→YAML while in sample mode
+  (frozen once a real file is opened/saved), matching desktop — it no longer opens convert.
 - search input → debounced `SetFilter`; a single **Tree/Raw toggle button** (`.viewtoggle`, label =
   the view it switches to) flips the view (`session.serialize()`) and folds into the `⋯` menu.
 - **Read-only / opaque rows** (`ViewRow.read_only`) render without grip/kind and reject edits —
@@ -470,6 +474,51 @@ an optional `path` field (populated only on the Tauri branches of `tauriStartupF
 file, Open, Save As), and `openTauriPath(path)` (new `fs.ts` export, `read_file_text` via
 `invoke`) backs the menu's `openRecentPath` handler — a missing/unreadable file calls
 `recentRemove` + `rebuildMenu()` + an error status instead of opening.
+
+## Mobile (Tauri Android)
+
+Android reuses the touch UI verbatim (same `web/touch/` module, same `confy.ts`/`Intent`
+contract) — the mobile-specific surface is entirely in host I/O (`web/fs.ts`) and a couple of
+platform guards, not a separate UI.
+
+**Picker + file-association I/O.** `fs.ts::isTauriAndroid()` (UA-sniffed, no `tauri-plugin-os`
+dependency) forks `pickOpenFile()` to call the first-party `plugin:confy-picker|pick_writable`
+command instead of `dialog.open()` — stock `tauri-plugin-dialog`'s Android picker uses
+`ACTION_GET_CONTENT`, which never grants write access at all. Opening a file via the OS's "Open
+with" chooser instead arrives through `tauri.android.conf.json`'s `fileAssociations` (Rust-side
+`opened_urls`/`"opened"` event) and reads through the same `openTauriPath`-style path — no plugin
+needed there, since a file-association launch intent's own grant covers the receiving activity's
+lifetime. `menu.ts`'s native menu bar no-ops on Tauri mobile (same `isTauriMobile()` guard as
+`canSaveAs()`) — there's no menu bar on Android.
+
+**`canSaveAs()` gating.** False on Tauri mobile: picking a *new* save destination (Save As, first
+Save after File-New-equivalent, Convert's output path) isn't supported in M1, so those paths show
+a translated hint (`web.mobile.saveAsUnavailable`) instead of opening a picker. Writing in place
+to an already-open handle is unaffected by this flag — `doQuickSave` only consults it on the
+no-handle-yet (first save) branch.
+
+**The split-button lesson (why Save is one plain button, not a pill).** An earlier iteration
+tried merging the Save button and a "Save As / Convert…" chevron into one visually-glued
+`.split-btn` pill. It rendered as two buttons stacked top-to-bottom on a real device with no
+visible CSS explanation — root cause: **`web/touch/` has its own separate stylesheet
+(`touch/style.css`), not the shared desktop `web/style.css`**, and the `.split-btn` CSS rule (and,
+separately, the `env(safe-area-inset-top)` toolbar padding fix) had only been added to the
+desktop file. Any style fix aimed at touch must land in `touch/style.css`, not `style.css` — the
+two are not the same cascade and nothing here shares rules between them by default. Once fixed and
+seen live, the pill design itself was dropped in favor of the plain single-button-opens-a-sheet
+design described in the Touch UI section above — simpler, and immune to this whole class of bug.
+
+**Debugging technique — live CDP against the on-device WebView.** Android's WebView exposes a
+Chrome DevTools Protocol endpoint when the app is debuggable: `adb forward tcp:PORT
+localabstract:webview_devtools_remote_<pid>` (find `<pid>` via `adb shell ps -A | grep
+<package>`), then `curl http://localhost:PORT/json` for the page's `webSocketDebuggerUrl`. A
+plain WebSocket client can then send `Runtime.evaluate` (and other CDP methods) directly — no
+`chrome://inspect` UI needed. One gotcha: the devtools server 403s a connection whose `Origin`
+header doesn't match an allowlist, so connect with `suppress_origin=True` (Python
+`websocket-client`) or an equivalent that omits the header. Combined with `adb shell input
+tap`/`screencap` to drive the actual system UI (document pickers, "Open with" choosers, the home
+screen), this lets bugs get root-caused and fixes verified end-to-end on real hardware without a
+human re-testing every iteration.
 
 ## Deployment
 

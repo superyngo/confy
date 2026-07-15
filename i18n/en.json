@@ -81,6 +81,8 @@
   "web.toolbar.open.label": "Open",
   "web.toolbar.save.title": "Save (Ctrl-s)",
   "web.toolbar.save.label": "Save",
+  "web.toolbar.saveAs.title": "Save As / Convert…",
+  "web.mobile.saveAsUnavailable": "Choosing a new save location isn't available on mobile yet — open a file first, then edit and save it in place.",
   "web.toolbar.undo.title": "Undo (z)",
   "web.toolbar.redo.title": "Redo (y)",
   "web.toolbar.theme.title": "Toggle theme",
