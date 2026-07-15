@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.15.0] - 2026-07-15
+
 ### Added
 - **feat(mobile): Android toolchain + write-in-place decision gate passed (M1 Task 0)**
   (2026-07-13). `crates/confy-tauri` restructured into a `[lib] confy_tauri_lib` (mobile entry
