@@ -182,6 +182,26 @@ The extension-host layer is thin glue, so M1 skips `@vscode/test-electron`. Veri
 
 - Marketplace publishing (M2: publisher account, listing assets, CI release).
 - Reconciling external on-disk changes while a confy editor is open.
-- Bidirectional live sync with an editable text buffer (`CustomTextEditorProvider`).
+- Bidirectional live sync with an editable text buffer (`CustomTextEditorProvider`) —
+  **promoted to the M1.5 goal (2026-07-16)**: rebase the provider on
+  `CustomTextEditorProvider` so the built-in text editor and confy share one
+  `TextDocument` (one dirty state, no disk round-trip when toggling). This reworks the
+  save/undo/edit-token protocol; until then the title-bar toggle (below) closes one
+  editor before opening the other.
 - Full `--vscode-*` theme-variable mapping (light/dark only).
 - Extension settings UI / walkthroughs.
+
+## Post-M1 addendum — editor title-bar toggle (2026-07-16)
+
+Two `editor/title` navigation buttons swap the active tab in place between the built-in
+text editor and confy (`vscode.openWith` on the same uri in the same group replaces the
+tab, since a resource opens at most once per group):
+
+- **Open with confy** (`confy.openWithConfy`, `$(list-tree)`) — shown on matching
+  extensions when the active editor is not confy. A dirty text buffer is saved first,
+  because `openCustomDocument` reads from disk.
+- **Reopen as Text Editor** (`confy.reopenAsText`, `$(go-to-file)`) — shown when
+  `activeCustomEditorId == 'confy.editor'`. A dirty confy editor goes through VS Code's
+  standard save prompt as its tab closes.
+
+Seamless dirty-state handoff between the two views is the M1.5 goal above.

@@ -41,6 +41,10 @@ export class ConfyEditorProvider implements vscode.CustomEditorProvider<ConfyDoc
 
   private activeDocument: ConfyDocument | undefined;
 
+  get activeUri(): vscode.Uri | undefined {
+    return this.activeDocument?.uri;
+  }
+
   private saveSeq = 0;
   private readonly pendingSaves = new Map<number, (text: string) => void>();
 
