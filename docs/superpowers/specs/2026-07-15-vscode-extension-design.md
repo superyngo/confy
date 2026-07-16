@@ -1,6 +1,6 @@
 # confy VS Code extension — M1 design
 
-**Status:** APPROVED (design review 2026-07-15)
+**Status:** SHIPPED (implemented + merged to main 2026-07-16; manual acceptance checklist deferred — see plan Task 6 Step 5)
 **Milestone:** M1 — sideload `.vsix`, personal use. Marketplace publishing is M2.
 **Prior art:** the Tauri shell (`crates/confy-tauri` + `web/fs.ts`'s Tauri branch) — this
 extension is the third host shell over the same `web/dist` UI + `confy_ffi` wasm Session.

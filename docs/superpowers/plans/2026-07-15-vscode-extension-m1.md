@@ -70,14 +70,14 @@ signal, and the only shrink paths outside host-initiated undo are the two
 **Interfaces:**
 - Produces: `SessionSnapshot.history_len: usize` (serde → `history_len: number` in JS), used by Task 2's `notifyHost` depth rule.
 
-- [ ] **Step 1: Create the branch**
+- [x] **Step 1: Create the branch**
 
 ```bash
 cd /Volumes/Home/Users/wen/repos/confy
 git checkout -b vscode-m1
 ```
 
-- [ ] **Step 2: `History::depth()` in `state.rs`**
+- [x] **Step 2: `History::depth()` in `state.rs`**
 
 Next to `current()`:
 
@@ -90,7 +90,7 @@ Next to `current()`:
     }
 ```
 
-- [ ] **Step 3: `SessionSnapshot.history_len` in `view.rs`**
+- [x] **Step 3: `SessionSnapshot.history_len` in `view.rs`**
 
 After `lang`:
 
@@ -100,13 +100,13 @@ After `lang`:
     pub history_len: usize,
 ```
 
-- [ ] **Step 4: Populate it in `dispatch.rs`'s `snapshot()`** (the sole construction site, line ~297):
+- [x] **Step 4: Populate it in `dispatch.rs`'s `snapshot()`** (the sole construction site, line ~297):
 
 ```rust
             history_len: self.history.as_ref().map(|h| h.depth()).unwrap_or(0),
 ```
 
-- [ ] **Step 5: Rust gates**
+- [x] **Step 5: Rust gates**
 
 ```bash
 cd /Volumes/Home/Users/wen/repos/confy
@@ -114,7 +114,7 @@ cargo test && cargo clippy -- -D warnings && cargo fmt --check
 ```
 Expected: all green (additive field; sole builder updated in Step 4).
 
-- [ ] **Step 6: Rebuild the wasm + mirror the type**
+- [x] **Step 6: Rebuild the wasm + mirror the type**
 
 ```bash
 cd /Volumes/Home/Users/wen/repos/confy/crates/confy-ffi && wasm-pack build --target web
@@ -127,7 +127,7 @@ In `web/types.ts`, add to the `SessionSnapshot` interface (next to `clipboard_co
   history_len: number; // undo-history depth; VS Code host diffs it (see vscode-protocol.ts)
 ```
 
-- [ ] **Step 7: Extend + run the smoke**
+- [x] **Step 7: Extend + run the smoke**
 
 In `crates/confy-ffi/functional_smoke.mjs`, alongside an existing mutation
 flow (e.g. the clipboard section's session), add:
@@ -150,7 +150,7 @@ cd /Volumes/Home/Users/wen/repos/confy/web && npx tsc --noEmit
 ```
 Expected: exit 0.
 
-- [ ] **Step 8: CHANGELOG + commit**
+- [x] **Step 8: CHANGELOG + commit**
 
 Append to `CHANGELOG.md`:
 `- 2026-07-15 feat(core): expose undo-history depth as SessionSnapshot.history_len (VS Code host edit-stack mirror)`
@@ -175,7 +175,7 @@ git commit -m "feat(core): expose undo-history depth as SessionSnapshot.history_
   - `web/vscode-protocol.ts`: `type ConfigFormat = "toml" | "json" | "yaml"` (the single definition; `host-io.ts` re-exports it), `type HostToWebview`, `type WebviewToHost` (exact definitions below).
   - `web/vscode.ts`: `isVsCode(): boolean`, `post(msg: WebviewToHost): void`, `onHostMessage(handler: (msg: HostToWebview) => void): void`, `trackVsCodeTheme(): void`.
 
-- [ ] **Step 2: Write `web/vscode-protocol.ts`** (branch already created in Task 0)
+- [x] **Step 2: Write `web/vscode-protocol.ts`** (branch already created in Task 0)
 
 ```ts
 // Message protocol between the VS Code extension host and the confy webview.
@@ -232,7 +232,7 @@ export type WebviewToHost =
   | { type: "parse-error"; message: string };
 ```
 
-- [ ] **Step 2b: Point `web/host-io.ts` at the shared type**
+- [x] **Step 2b: Point `web/host-io.ts` at the shared type**
 
 In `web/host-io.ts`, replace the line
 `export type ConfigFormat = "toml" | "json" | "yaml";` with:
@@ -244,7 +244,7 @@ export type { ConfigFormat } from "./vscode-protocol.js";
 (Every existing importer of `ConfigFormat` from `./host-io.js` keeps working;
 `tsc --noEmit` proves it.)
 
-- [ ] **Step 3: Write `web/vscode.ts`**
+- [x] **Step 3: Write `web/vscode.ts`**
 
 ```ts
 // VS Code webview host adapter — the third host shell (see fs.ts's Tauri
@@ -305,12 +305,12 @@ export function trackVsCodeTheme(): void {
 }
 ```
 
-- [ ] **Step 4: Typecheck**
+- [x] **Step 4: Typecheck**
 
 Run: `cd /Volumes/Home/Users/wen/repos/confy/web && npx tsc --noEmit`
 Expected: exit 0, no output. (If `web/` has no `tsconfig.json`, run `npx tsc --noEmit vscode-protocol.ts vscode.ts --target es2022 --module esnext --moduleResolution bundler --strict --lib es2022,dom` instead — but check for the tsconfig first; the repo's standard completion step runs tsc, so one should exist.)
 
-- [ ] **Step 5: CHANGELOG + commit**
+- [x] **Step 5: CHANGELOG + commit**
 
 Append to `CHANGELOG.md` under `Unreleased Update`:
 `- 2026-07-15 feat(web): add VS Code webview host protocol + adapter modules`
@@ -334,7 +334,7 @@ git commit -m "feat(web): add VS Code webview host protocol + adapter modules"
 - Consumes: Task 1's `isVsCode`, `post`, `onHostMessage`, `trackVsCodeTheme`, `HostToWebview`.
 - Produces: the webview-side behavior contract Tasks 3–5's host code relies on — posts `ready` on boot; answers `init`/`undo`/`redo`/`revert`/`save-request`/`save-ok`; emits `edited`/`synced`/`edit-cancelled`/`save-response`/`request-*`/`convert-save`/`parse-error` exactly as defined in Task 1 (flavor picked by the `history_len` depth rule from Task 0).
 
-- [ ] **Step 1: Add imports and the `VSHOST` flag**
+- [x] **Step 1: Add imports and the `VSHOST` flag**
 
 In `web/ui.ts`, after the existing `./fs.js` import block add:
 
@@ -362,7 +362,7 @@ routes any residual save-as attempt to the existing unavailable hint):
   canSaveAs: canSaveAs() && !VSHOST,
 ```
 
-- [ ] **Step 2: Add the host bridge block**
+- [x] **Step 2: Add the host bridge block**
 
 Add after the `batch()` function (line ~661), one self-contained block:
 
@@ -474,7 +474,7 @@ does NOT route through `send()` (it calls `session.dispatch` + `render()`
 directly, ui.ts:224–225), which is why `init` and `revert` above call
 `notifyHost()` explicitly inside the `hostInitiated` window.
 
-- [ ] **Step 3: Hook `notifyHost` into `send` and `batch`**
+- [x] **Step 3: Hook `notifyHost` into `send` and `batch`**
 
 Change `send` (line ~642) and `batch` (line ~652) to:
 
@@ -503,7 +503,7 @@ function batch(fn: () => void) {
 }
 ```
 
-- [ ] **Step 4: Boot branch in `main()`**
+- [x] **Step 4: Boot branch in `main()`**
 
 After `initTheme();` (first line of `main()`) add:
 
@@ -529,7 +529,7 @@ entry into the startup-file/url/sample chain for this host:
 (The existing `const startup = await tauriStartupFile();` … `bindGlobal();`
 tail stays as-is for the other hosts.)
 
-- [ ] **Step 5: Reroute Save, Undo/Redo**
+- [x] **Step 5: Reroute Save, Undo/Redo**
 
 Replace `doSave` (line ~744):
 
@@ -581,7 +581,7 @@ Then replace all four direct undo/redo dispatch sites with the helpers:
 - `toolbarEntries` (lines ~1213–1214): `run: () => uiUndo()` / `run: () => uiRedo()`
 - `bindGlobal` listeners (lines ~1396–1397): `$("btnUndo").addEventListener("click", () => uiUndo());` / `$("btnRedo").addEventListener("click", () => uiRedo());`
 
-- [ ] **Step 6: Reroute Convert output and save-a-copy**
+- [x] **Step 6: Reroute Convert output and save-a-copy**
 
 In `render()` (line ~280) replace the `convert_write` line:
 
@@ -622,7 +622,7 @@ Replace both `runSaveConvertShared`/`wireConvertDialog` callsites' callback
 ~532, and the `wireConvertDialog(...)` call further down) with
 `doSaveAsCopy: saveCopy`.
 
-- [ ] **Step 6b: Guard boot-path `localStorage` access**
+- [x] **Step 6b: Guard boot-path `localStorage` access**
 
 A sandboxed webview may throw on any `localStorage` access; `initTheme()` is
 the first line of `main()` and `getLang()` runs inside `openText`, so an
@@ -682,7 +682,7 @@ export function setLang(lang: Lang): void {
 }
 ```
 
-- [ ] **Step 7: Hide host-owned chrome**
+- [x] **Step 7: Hide host-owned chrome**
 
 In `web/style.css`, inside the fenced app-only appendix (bottom of the file),
 add:
@@ -699,7 +699,7 @@ body.host-vscode #btnTheme {
 }
 ```
 
-- [ ] **Step 8: Typecheck + build the web bundle (scratchpad) + smoke**
+- [x] **Step 8: Typecheck + build the web bundle (scratchpad) + smoke**
 
 ```bash
 cd /Volumes/Home/Users/wen/repos/confy/web && npx tsc --noEmit
@@ -733,7 +733,7 @@ cd /Volumes/Home/Users/wen/repos/confy/crates/confy-ffi && node functional_smoke
 ```
 Expected: all 36 checks pass (wasm contract untouched).
 
-- [ ] **Step 9: CHANGELOG + commit**
+- [x] **Step 9: CHANGELOG + commit**
 
 Append to `CHANGELOG.md`:
 `- 2026-07-15 feat(web): VS Code webview host wiring in ui.ts (boot, save/undo/convert reroutes, chrome trim)`
@@ -755,7 +755,7 @@ git commit -m "feat(web): VS Code webview host wiring in ui.ts"
 - Consumes: `web/vscode-protocol.ts` types (imported as `"../../../web/vscode-protocol.js"`); the built `web/dist` from Task 2.
 - Produces: `ConfyEditorProvider` (`static viewType = "confy.editor"`, `openRawPreview(): void`), `ConfyDocument` (`uri: vscode.Uri`, `latestText: string`, `panel: vscode.WebviewPanel | undefined`), `RawPreviewProvider` (`static scheme = "confy-raw"`, `static previewUri(source: vscode.Uri): vscode.Uri`, `update(source: vscode.Uri, text: string): void`) — Task 4/5 fill in behavior but keep these exact names.
 
-- [ ] **Step 1: `package.json`**
+- [x] **Step 1: `package.json`**
 
 ```json
 {
@@ -805,7 +805,7 @@ git commit -m "feat(web): VS Code webview host wiring in ui.ts"
 
 (Modern VS Code infers `onCustomEditor:`/`onCommand:` activation from `contributes` — no explicit `activationEvents` needed.)
 
-- [ ] **Step 2: `tsconfig.json`, `.gitignore`, `.vscodeignore`, `launch.json`**
+- [x] **Step 2: `tsconfig.json`, `.gitignore`, `.vscodeignore`, `launch.json`**
 
 `tsconfig.json`:
 ```json
@@ -858,7 +858,7 @@ tsconfig.json
 }
 ```
 
-- [ ] **Step 3: `build.mjs`**
+- [x] **Step 3: `build.mjs`**
 
 ```js
 // Bundle the extension host and stage the webview assets. Run this from a
@@ -886,7 +886,7 @@ await cp(new URL("../../web/dist/", import.meta.url), MEDIA, { recursive: true }
 console.log("built: dist/extension.js + media/");
 ```
 
-- [ ] **Step 4: `src/rawPreview.ts`** (full implementation now — it is tiny)
+- [x] **Step 4: `src/rawPreview.ts`** (full implementation now — it is tiny)
 
 ```ts
 import * as vscode from "vscode";
@@ -923,7 +923,7 @@ export class RawPreviewProvider implements vscode.TextDocumentContentProvider {
 }
 ```
 
-- [ ] **Step 5: `src/editorProvider.ts` — document, provider skeleton, webview HTML, init handshake**
+- [x] **Step 5: `src/editorProvider.ts` — document, provider skeleton, webview HTML, init handshake**
 
 Lifecycle methods beyond open/resolve are stubs in this task; Task 4 fills
 them. The class shape, names, and the HTML rewrite are final here.
@@ -1088,7 +1088,7 @@ export class ConfyEditorProvider implements vscode.CustomEditorProvider<ConfyDoc
 }
 ```
 
-- [ ] **Step 6: `src/extension.ts`**
+- [x] **Step 6: `src/extension.ts`**
 
 ```ts
 import * as vscode from "vscode";
@@ -1113,7 +1113,7 @@ export function activate(context: vscode.ExtensionContext): void {
 export function deactivate(): void {}
 ```
 
-- [ ] **Step 7: Install, typecheck, build (scratchpad)**
+- [x] **Step 7: Install, typecheck, build (scratchpad)**
 
 ```bash
 cd /Volumes/Home/Users/wen/repos/confy/editors/vscode && npm install && npx tsc --noEmit
@@ -1134,7 +1134,7 @@ Expected: `built: dist/extension.js + media/`; back in the repo, `editors/vscode
 
 (The scratchpad copy of `editors/vscode` includes `node_modules` via `cp -R` — that is what makes esbuild resolvable there. If `web/dist` is missing, rerun Task 2 Step 8 first.)
 
-- [ ] **Step 8: CHANGELOG + commit**
+- [x] **Step 8: CHANGELOG + commit**
 
 Append to `CHANGELOG.md`:
 `- 2026-07-15 feat(vscode): extension scaffold — custom editor boots the confy webview`
@@ -1155,7 +1155,7 @@ git commit -m "feat(vscode): extension scaffold — custom editor boots the conf
 - Consumes: Task 2's webview behavior (`edited`/`synced`/`edit-cancelled`/`save-response`/`request-*` emissions; `undo`/`redo`/`save-request`/`save-ok`/`revert` handling) and Task 3's class skeleton.
 - Produces: fully working save/dirty/undo for Task 5/6; `requestText(document): Promise<{ id: number; text: string }>` (private).
 
-- [ ] **Step 1: Add the save-request plumbing to `ConfyEditorProvider`**
+- [x] **Step 1: Add the save-request plumbing to `ConfyEditorProvider`**
 
 Add fields after `activeDocument`:
 
@@ -1189,7 +1189,7 @@ Add the private method:
   }
 ```
 
-- [ ] **Step 2: Fill the `onMessage` cases**
+- [x] **Step 2: Fill the `onMessage` cases**
 
 Add to the `switch` in `onMessage` (replacing the Task 4 comment):
 
@@ -1254,7 +1254,7 @@ Add to the `switch` in `onMessage` (replacing the Task 4 comment):
         break;
 ```
 
-- [ ] **Step 3: Replace the four lifecycle stubs**
+- [x] **Step 3: Replace the four lifecycle stubs**
 
 ```ts
   async saveCustomDocument(document: ConfyDocument): Promise<void> {
@@ -1299,11 +1299,11 @@ Add to the `switch` in `onMessage` (replacing the Task 4 comment):
   }
 ```
 
-- [ ] **Step 4: Typecheck + rebuild (scratchpad, same commands as Task 3 Step 7)**
+- [x] **Step 4: Typecheck + rebuild (scratchpad, same commands as Task 3 Step 7)**
 
 Run: `cd /Volumes/Home/Users/wen/repos/confy/editors/vscode && npx tsc --noEmit` → exit 0, then the Task 3 Step 7 scratchpad build block → `built: dist/extension.js + media/`.
 
-- [ ] **Step 5: CHANGELOG + commit**
+- [x] **Step 5: CHANGELOG + commit**
 
 Append to `CHANGELOG.md`:
 `- 2026-07-15 feat(vscode): document lifecycle — dirty tracking, save with save-ok ack, undo/redo single owner, revert, hot-exit backup`
@@ -1324,7 +1324,7 @@ git commit -m "feat(vscode): document lifecycle (dirty/save/undo/revert/backup)"
 - Consumes: `RawPreviewProvider.previewUri`/`update` (Task 3); webview `convert-save`/`parse-error` emissions (Task 2).
 - Produces: the complete M1 feature surface; nothing further depends on new names.
 
-- [ ] **Step 1: Implement `openRawPreview`**
+- [x] **Step 1: Implement `openRawPreview`**
 
 Replace the empty body:
 
@@ -1347,7 +1347,7 @@ Replace the empty body:
   }
 ```
 
-- [ ] **Step 2: Add the `convert-save` and `parse-error` message cases + helpers**
+- [x] **Step 2: Add the `convert-save` and `parse-error` message cases + helpers**
 
 Cases (replacing the Task 5 comment in `onMessage`):
 
@@ -1405,11 +1405,11 @@ Helpers:
   }
 ```
 
-- [ ] **Step 3: Typecheck + rebuild (scratchpad, same commands as Task 3 Step 7)**
+- [x] **Step 3: Typecheck + rebuild (scratchpad, same commands as Task 3 Step 7)**
 
 Run: `cd /Volumes/Home/Users/wen/repos/confy/editors/vscode && npx tsc --noEmit` → exit 0, then the Task 3 Step 7 scratchpad build block → `built: dist/extension.js + media/`.
 
-- [ ] **Step 4: CHANGELOG + commit**
+- [x] **Step 4: CHANGELOG + commit**
 
 Append to `CHANGELOG.md`:
 `- 2026-07-15 feat(vscode): raw preview command, convert-save dialog, parse-error fallback`
@@ -1430,7 +1430,7 @@ git commit -m "feat(vscode): raw preview, convert-save, parse-error fallback"
 **Interfaces:**
 - Consumes: everything above; produces the installable artifact + user checklist.
 
-- [ ] **Step 1: `editors/vscode/README.md`**
+- [x] **Step 1: `editors/vscode/README.md`**
 
 ```markdown
 # confy for VS Code (M1 — sideload)
@@ -1462,7 +1462,7 @@ Not in M1: Marketplace listing, watching external on-disk edits while open,
 editable side-by-side text sync.
 ```
 
-- [ ] **Step 2: Package**
+- [x] **Step 2: Package**
 
 ```bash
 cd /Volumes/Home/Users/wen/repos/confy/editors/vscode
@@ -1476,20 +1476,20 @@ unzip -l confy-vscode-0.1.0.vsix | grep -E "extension.js|media/index.html|media/
 ```
 Expected: all three present.
 
-- [ ] **Step 3: Docs**
+- [x] **Step 3: Docs**
 
 - `CLAUDE.md` module map: add an `editors/vscode/` block after `crates/tauri-plugin-confy-picker/`, in the same style — one line per file, noting: third host shell; `CustomEditorProvider` + `confy-raw://` preview; `web/vscode-protocol.ts`/`web/vscode.ts` adapter; the save-ok ack; the request-undo single-owner rule; media/ = build-time copy of web/dist; esbuild-from-scratchpad build rule.
 - `WEBUI.md`: add a "VS Code (webview host)" section documenting the `VSHOST` gating in `ui.ts`, hidden chrome (`body.host-vscode`), theme mapping via body-class observer, and the message protocol table (copy from the spec, including the `theme`→observer refinement, the `synced` message, and the `edit-cancelled`/`history_len` depth rule + its documented residual wart: a neutered add→Esc entry still counts toward the dirty dot until one no-op ⌘Z pops it). Also document as intended behavior: Revert (and hot-exit restore) rebuilds the Session via `openText`, so expansion/cursor/selection/filter state resets — a view reset alongside an explicit destructive action, not a bug.
 - `CHANGELOG.md`: `- 2026-07-15 feat(vscode): package sideload .vsix + docs (M1)`
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add editors/vscode/README.md CLAUDE.md WEBUI.md CHANGELOG.md
 git commit -m "feat(vscode): package sideload .vsix + docs (M1)"
 ```
 
-- [ ] **Step 5: Hand the user the acceptance checklist**
+- [x] **Step 5: Hand the user the acceptance checklist**
 
 Report done and ask the user to run the spec's 7 acceptance criteria against the installed `.vsix` (not F5): reopen-with; dirty dot; ⌘S on-disk write; ⌘Z/⌘⇧Z; live raw preview; close-with-unsaved prompt; one file per backend (TOML/JSON/YAML). Add an 8th check for the grilling Q8 machinery: edit → `a`-add → Esc → ⌘Z must undo the *first* edit (one extra no-op ⌘Z at the tail and a dirty dot that lingers until it are the documented expected warts). Also flag the known verify-first risk: `executeCommand("undo")` routing to the active custom editor. (The `localStorage` throw risk is already mitigated by Task 2 Step 6b's guards; only persistence quality remains to observe.) Do NOT merge to `main` or flip the spec status to SHIPPED until the user confirms.
 
