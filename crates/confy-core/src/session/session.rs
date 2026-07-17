@@ -204,6 +204,25 @@ impl Session {
         }
     }
 
+    /// **Reveal** (CONTEXT.md §Operations): expand every ancestor prefix of
+    /// `path`, then place the cursor on it. Unknown paths are ignored; if an
+    /// active filter still hides the row, the expansion sticks, the cursor
+    /// stays put, and the status line says so.
+    pub fn reveal_path(&mut self, path: Path) {
+        if self.tree.node_at(&path).is_none() {
+            return;
+        }
+        for i in 0..path.len() {
+            self.expanded.insert(path[..i].to_vec());
+        }
+        let visible = self.visible_nodes().iter().any(|r| r.node.path == path);
+        if visible {
+            self.cursor = path;
+        } else {
+            self.status = Some(tr(self.lang, "core.reveal.hidden-by-filter").to_string());
+        }
+    }
+
     // ---- Navigation ----
 
     pub fn cursor_down(&mut self) {

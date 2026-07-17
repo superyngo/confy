@@ -7,6 +7,7 @@
   "core.convert.aborted": "conversion aborted: {0}",
   "core.comment.invalid": "invalid comment: {0}",
   "core.error.generic": "error: {0}",
+  "core.reveal.hidden-by-filter": "target is hidden by the active filter",
   "core.trailing.inline-unsupported": "inline collection can't hold a trailing comment — switch to multiline (K) first",
   "core.rename.empty-key": "key cannot be empty",
   "core.type-change": "type {0} → {1}? y/n",
