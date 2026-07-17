@@ -6,6 +6,7 @@
   "publisher": "superyngo",
   "private": true,
   "license": "MIT",
+  "icon": "icon.png",
   "engines": { "vscode": "^1.85.0" },
   "categories": ["Other"],
   "main": "./dist/extension.js",
