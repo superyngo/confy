@@ -670,7 +670,8 @@ fn draw_help_overlay(f: &mut Frame, app: &App) {
             app.about_text(),
         ),
     };
-    let line_count = text.lines().count() as u16;
+    let popup_width = (f.area().width * 65 / 100).min(f.area().width);
+    let line_count = wrapped_line_count(&text, popup_width.saturating_sub(2)) as u16;
     let height = (line_count + 2).min(f.area().height);
     let area = centered_rect(65, height, f.area());
     f.render_widget(Clear, area);
@@ -680,6 +681,7 @@ fn draw_help_overlay(f: &mut Frame, app: &App) {
         .style(Style::default().bg(Color::Black).fg(Color::White));
     let paragraph = Paragraph::new(text)
         .block(block)
+        .wrap(Wrap { trim: false })
         .scroll((app.help_scroll, 0));
     f.render_widget(paragraph, area);
 }

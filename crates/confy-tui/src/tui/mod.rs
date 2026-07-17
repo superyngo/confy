@@ -184,9 +184,13 @@ fn run_event_loop(
                     }
                     crate::tui::state::HelpTab::About => app.about_text(),
                 };
-                let help_lines = text.lines().count() as u16;
-                // Approximate visible height: terminal height minus 2 borders.
-                let inner_h = terminal.size()?.height.saturating_sub(2);
+                // Mirror draw_help_overlay's geometry: popup is 65% of terminal
+                // width, content wraps within it (minus 2 borders each side).
+                let size = terminal.size()?;
+                let popup_width = (size.width * 65 / 100).min(size.width);
+                let inner_w = popup_width.saturating_sub(2);
+                let help_lines = ui::wrapped_line_count(&text, inner_w) as u16;
+                let inner_h = size.height.saturating_sub(2);
                 let max_scroll = help_lines.saturating_sub(inner_h);
                 let page = inner_h.max(1) as i32;
                 match key.code {

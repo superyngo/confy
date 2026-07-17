@@ -64,10 +64,7 @@ Ctrl-s         save (shared with VS Code)
 ⇧⌘S / Ctrl-⇧S  Save As / Convert…
 
 ── VS Code ──────────────────────────────────────
-Save As / Convert, Help, About, and language live in the tab's "…" More
-Actions menu. The title-bar "Reopen as Text Editor" / "Open Text Editor to
-the Side" buttons swap/split to the raw text view; while a side-by-side text
-edit doesn't parse, the tree dims and pauses until the text parses again.
+Save As / Convert, Help, About, and language live in the tab's "…" More Actions menu. The title-bar "Reopen as Text Editor" / "Open Text Editor to the Side" buttons swap/split to the raw text view; while a side-by-side text edit doesn't parse, the tree dims and pauses until the text parses again.
 
 ── pointer ──────────────────────────────────────
 click          select          ⇧click   range-select
@@ -91,10 +88,7 @@ Ctrl-s         儲存（與 VS Code 共用）
 ⇧⌘S / Ctrl-⇧S  另存新檔／轉換格式…
 
 ── VS Code ──────────────────────────────────────
-另存新檔／轉換格式、說明、關於、語言選擇都在分頁的「…」更多動作選單中。
-標題列的「以文字編輯器重新開啟」／「在旁開啟文字編輯器」按鈕會切換／並排
-顯示原始文字檢視；並排的文字編輯若無法解析，樹狀畫面會變暗並暫停，
-直到文字再次可解析為止。
+另存新檔／轉換格式、說明、關於、語言選擇都在分頁的「…」更多動作選單中。標題列的「以文字編輯器重新開啟」／「在旁開啟文字編輯器」按鈕會切換／並排顯示原始文字檢視；並排的文字編輯若無法解析，樹狀畫面會變暗並暫停，直到文字再次可解析為止。
 
 ── 指標裝置 ──────────────────────────────────────
 click          選取            ⇧click   範圍選取
