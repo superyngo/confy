@@ -2,7 +2,7 @@
   "name": "confy-vscode",
   "displayName": "confy",
   "description": "Structural tree editor for TOML / JSON / JSONC / YAML config files",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "superyngo",
   "private": true,
   "license": "MIT",
@@ -25,7 +25,7 @@
       }
     ],
     "commands": [
-      { "command": "confy.openRawPreview", "title": "confy: Open Raw Preview" },
+      { "command": "confy.openTextBeside", "title": "confy: Open Text Editor to the Side" },
       { "command": "confy.openWithConfy", "title": "Open with confy", "icon": "$(list-tree)" },
       { "command": "confy.reopenAsText", "title": "confy: Reopen as Text Editor", "icon": "$(go-to-file)" }
     ],

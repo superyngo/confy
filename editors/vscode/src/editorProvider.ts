@@ -1,6 +1,5 @@
 import * as vscode from "vscode";
 import type { ConfigFormat, HostToWebview, WebviewToHost } from "../../../web/vscode-protocol.js";
-import { RawPreviewProvider } from "./rawPreview.js";
 
 // Mirrors web/host-io.ts's formatFromName (same folding: .jsonc→json,
 // .yml→yaml); duplicated because the extension host must not import web
@@ -15,246 +14,150 @@ function basename(uri: vscode.Uri): string {
   return uri.path.split("/").pop() ?? "config.toml";
 }
 
-export class ConfyDocument implements vscode.CustomDocument {
-  // Mirror of the session's latest serialize(): feeds the raw preview and is
-  // the fallback text if a save races a dead webview.
-  latestText: string;
-  panel: vscode.WebviewPanel | undefined;
-  // One token per pushed VS Code edit entry; `edit-cancelled` flips the newest
-  // live one so its undo/redo callbacks no-op — the Session already rolled
-  // that edit back via History::cancel_last (see notifyHost's depth rule).
-  readonly editTokens: { cancelled: boolean }[] = [];
-
-  constructor(readonly uri: vscode.Uri, text: string) {
-    this.latestText = text;
-  }
-
-  dispose(): void {}
-}
-
-export class ConfyEditorProvider implements vscode.CustomEditorProvider<ConfyDocument> {
+// M1.5: VS Code's TextDocument owns the content, dirty state, undo stack,
+// save, revert, backup, and hot exit. This provider is a view adapter:
+// webview `edit` → minimal WorkspaceEdit; document change → `text-changed`.
+export class ConfyEditorProvider implements vscode.CustomTextEditorProvider {
   static readonly viewType = "confy.editor";
 
-  private readonly changeEmitter =
-    new vscode.EventEmitter<vscode.CustomDocumentEditEvent<ConfyDocument>>();
-  readonly onDidChangeCustomDocument = this.changeEmitter.event;
-
-  private activeDocument: ConfyDocument | undefined;
+  private activeDocument: vscode.TextDocument | undefined;
 
   get activeUri(): vscode.Uri | undefined {
     return this.activeDocument?.uri;
   }
 
-  private saveSeq = 0;
-  private readonly pendingSaves = new Map<number, (text: string) => void>();
+  constructor(private readonly context: vscode.ExtensionContext) {}
 
-  constructor(
-    private readonly context: vscode.ExtensionContext,
-    private readonly preview: RawPreviewProvider,
-  ) {}
-
-  async openCustomDocument(
-    uri: vscode.Uri,
-    openContext: vscode.CustomDocumentOpenContext,
-  ): Promise<ConfyDocument> {
-    // A backupId means we're restoring a hot-exit backup instead of the file.
-    const src = openContext.backupId ? vscode.Uri.parse(openContext.backupId) : uri;
-    const bytes = await vscode.workspace.fs.readFile(src);
-    return new ConfyDocument(uri, new TextDecoder().decode(bytes));
-  }
-
-  async resolveCustomEditor(
-    document: ConfyDocument,
+  async resolveCustomTextEditor(
+    document: vscode.TextDocument,
     panel: vscode.WebviewPanel,
   ): Promise<void> {
-    document.panel = panel;
     this.activeDocument = document;
     const mediaRoot = vscode.Uri.joinPath(this.context.extensionUri, "media");
     panel.webview.options = { enableScripts: true, localResourceRoots: [mediaRoot] };
     panel.webview.html = await this.html(panel.webview, mediaRoot);
+
+    // Last text the webview is known to hold — set on init, on every received
+    // `edit`, and on every posted `text-changed`. A document-change event whose
+    // result equals it is the echo of our own applyEdit: skip it.
+    let webviewText: string | null = null;
+    let debounce: ReturnType<typeof setTimeout> | undefined;
+
+    const postMsg = (msg: HostToWebview) => void panel.webview.postMessage(msg);
+
+    const postText = () => {
+      const text = document.getText();
+      if (text === webviewText) return;
+      webviewText = text;
+      postMsg({ type: "text-changed", text, dirty: document.isDirty });
+    };
+
+    const changeSub = vscode.workspace.onDidChangeTextDocument((e) => {
+      if (e.document.uri.toString() !== document.uri.toString()) return;
+      if (e.document.getText() === webviewText) return; // echo of our applyEdit
+      // Coalesce side-by-side keystrokes; each reload reparses the whole doc.
+      clearTimeout(debounce);
+      debounce = setTimeout(postText, 150);
+    });
+
+    const saveSub = vscode.workspace.onDidSaveTextDocument((d) => {
+      if (d.uri.toString() !== document.uri.toString()) return;
+      postMsg({ type: "saved" });
+    });
+
     panel.onDidChangeViewState(() => {
       if (panel.active) this.activeDocument = document;
     });
-    // A disposed webview throws synchronously on postMessage — clear the
-    // reference so postToWebview's optional chain actually protects the
-    // shutdown path (hot-exit backups race tab teardown).
+
     panel.onDidDispose(() => {
-      if (document.panel === panel) document.panel = undefined;
+      clearTimeout(debounce);
+      changeSub.dispose();
+      saveSub.dispose();
       if (this.activeDocument === document) this.activeDocument = undefined;
     });
-    panel.webview.onDidReceiveMessage((msg: WebviewToHost) => this.onMessage(document, msg));
-  }
 
-  private postToWebview(document: ConfyDocument, msg: HostToWebview): void {
-    void document.panel?.webview.postMessage(msg);
-  }
-
-  // Ask the webview for the current serialize(). Falls back to the last
-  // mirrored text after 2s so a wedged webview can't hang save/backup forever
-  // (latestText tracks every edited/synced, so it is at most one frame stale).
-  private requestText(document: ConfyDocument): Promise<{ id: number; text: string }> {
-    const id = ++this.saveSeq;
-    // No live panel (tab already closed, e.g. a shutdown backup): answer from
-    // the mirror immediately instead of eating the 2s timeout.
-    if (!document.panel) return Promise.resolve({ id, text: document.latestText });
-    return new Promise((resolve) => {
-      this.pendingSaves.set(id, (text) => resolve({ id, text }));
-      this.postToWebview(document, { type: "save-request", id });
-      setTimeout(() => {
-        const pending = this.pendingSaves.get(id);
-        if (pending) {
-          this.pendingSaves.delete(id);
-          resolve({ id, text: document.latestText });
+    panel.webview.onDidReceiveMessage((msg: WebviewToHost) => {
+      switch (msg.type) {
+        case "ready": {
+          const name = basename(document.uri);
+          const lang = vscode.env.language.toLowerCase() === "zh-tw" ? "zh-TW" : "en";
+          webviewText = document.getText();
+          postMsg({
+            type: "init",
+            text: webviewText,
+            name,
+            format: formatFromName(name),
+            lang,
+            dirty: document.isDirty,
+          });
+          break;
         }
-      }, 2000);
+        case "edit":
+          void this.applyWebviewEdit(document, msg.text, (t) => {
+            webviewText = t;
+          }, postText);
+          break;
+        case "request-undo":
+          void vscode.commands.executeCommand("undo");
+          break;
+        case "request-redo":
+          void vscode.commands.executeCommand("redo");
+          break;
+        case "request-save":
+          void vscode.commands.executeCommand("workbench.action.files.save");
+          break;
+        case "convert-save":
+          void this.convertSave(document, msg.suggestedName, msg.text);
+          break;
+        case "parse-error":
+          void this.parseError(document, panel, msg.message);
+          break;
+      }
     });
   }
 
-  private onMessage(document: ConfyDocument, msg: WebviewToHost): void {
-    switch (msg.type) {
-      case "ready": {
-        const name = basename(document.uri);
-        const lang = vscode.env.language.toLowerCase() === "zh-tw" ? "zh-TW" : "en";
-        this.postToWebview(document, {
-          type: "init",
-          text: document.latestText,
-          name,
-          format: formatFromName(name),
-          lang,
-        });
-        break;
-      }
-      case "edited": {
-        document.latestText = msg.text;
-        this.preview.update(document.uri, msg.text);
-        const token = { cancelled: false };
-        document.editTokens.push(token);
-        this.changeEmitter.fire({
-          document,
-          label: "confy edit",
-          undo: () => {
-            if (!token.cancelled) this.postToWebview(document, { type: "undo" });
-          },
-          redo: () => {
-            if (!token.cancelled) this.postToWebview(document, { type: "redo" });
-          },
-        });
-        break;
-      }
-      case "synced":
-        // Host-initiated change (undo/redo/revert/save-ok): mirror + preview
-        // only — pushing an edit entry here would double-count our own undo.
-        document.latestText = msg.text;
-        this.preview.update(document.uri, msg.text);
-        break;
-      case "edit-cancelled": {
-        // The Session rolled back its newest history entry (add→Esc via
-        // cancel_last). VS Code's stack API can't remove the matching entry,
-        // so neuter it: popping it later must not undo an older, wrong
-        // Session edit. Cancellation always immediately follows its own push
-        // (the add flow is modal), so the newest live token is the target.
-        // Residual wart (documented): the neutered entry still counts toward
-        // the dirty dot until it's popped by one no-op ⌘Z.
-        document.latestText = msg.text;
-        this.preview.update(document.uri, msg.text);
-        for (let i = document.editTokens.length - 1; i >= 0; i--) {
-          if (!document.editTokens[i].cancelled) {
-            document.editTokens[i].cancelled = true;
-            break;
-          }
-        }
-        break;
-      }
-      case "save-response": {
-        const pending = this.pendingSaves.get(msg.id);
-        if (pending) {
-          this.pendingSaves.delete(msg.id);
-          pending(msg.text);
-        }
-        break;
-      }
-      case "request-undo":
-        void vscode.commands.executeCommand("undo");
-        break;
-      case "request-redo":
-        void vscode.commands.executeCommand("redo");
-        break;
-      case "request-save":
-        void vscode.commands.executeCommand("workbench.action.files.save");
-        break;
-      case "convert-save":
-        void this.convertSave(document, msg.suggestedName, msg.text);
-        break;
-      case "parse-error":
-        void this.parseError(document, msg.message);
-        break;
+  // Apply a webview serialize() to the TextDocument, replacing only the
+  // changed span (common prefix/suffix trim) so a side-by-side text editor's
+  // cursor and scroll survive confy edits.
+  private async applyWebviewEdit(
+    document: vscode.TextDocument,
+    text: string,
+    markKnown: (t: string) => void,
+    resync: () => void,
+  ): Promise<void> {
+    const old = document.getText();
+    if (old === text) return;
+    // Before the await: the change event must already see this as an echo.
+    markKnown(text);
+    let start = 0;
+    const maxStart = Math.min(old.length, text.length);
+    while (start < maxStart && old[start] === text[start]) start++;
+    let endOld = old.length;
+    let endNew = text.length;
+    while (endOld > start && endNew > start && old[endOld - 1] === text[endNew - 1]) {
+      endOld--;
+      endNew--;
     }
-  }
-
-  async saveCustomDocument(document: ConfyDocument): Promise<void> {
-    const { id, text } = await this.requestText(document);
-    await vscode.workspace.fs.writeFile(document.uri, new TextEncoder().encode(text));
-    // Spec's save-ok ack: the session marks itself clean only after the write
-    // actually succeeded; a writeFile throw skips this and the doc stays dirty.
-    this.postToWebview(document, { type: "save-ok", id });
-  }
-
-  async saveCustomDocumentAs(document: ConfyDocument, destination: vscode.Uri): Promise<void> {
-    const { text } = await this.requestText(document);
-    await vscode.workspace.fs.writeFile(destination, new TextEncoder().encode(text));
-  }
-
-  async revertCustomDocument(document: ConfyDocument): Promise<void> {
-    const bytes = await vscode.workspace.fs.readFile(document.uri);
-    const text = new TextDecoder().decode(bytes);
-    document.latestText = text;
-    this.preview.update(document.uri, text);
-    this.postToWebview(document, { type: "revert", text });
-  }
-
-  async backupCustomDocument(
-    document: ConfyDocument,
-    context: vscode.CustomDocumentBackupContext,
-  ): Promise<vscode.CustomDocumentBackup> {
-    // Hot exit: same text fetch as save, but no save-ok — the session must
-    // not mark itself clean for a backup write.
-    const { text } = await this.requestText(document);
-    await vscode.workspace.fs.writeFile(context.destination, new TextEncoder().encode(text));
-    return {
-      id: context.destination.toString(),
-      delete: async () => {
-        try {
-          await vscode.workspace.fs.delete(context.destination);
-        } catch {
-          // already gone
-        }
-      },
-    };
-  }
-
-  // "confy: Open Raw Preview" — open the read-only serialize() mirror beside
-  // the most recently active confy editor. Content updates arrive via
-  // preview.update() on every edited/synced message.
-  openRawPreview(): void {
-    const doc = this.activeDocument;
-    if (!doc) {
-      void vscode.window.showInformationMessage("confy: no active confy editor");
-      return;
+    const edit = new vscode.WorkspaceEdit();
+    edit.replace(
+      document.uri,
+      new vscode.Range(document.positionAt(start), document.positionAt(endOld)),
+      text.slice(start, endNew),
+    );
+    const ok = await vscode.workspace.applyEdit(edit);
+    if (!ok) {
+      // Rejected (readonly file, concurrent conflicting edit, …): the webview
+      // now holds text the document doesn't. Force a resync back to reality.
+      markKnown(" never-matches ");
+      resync();
     }
-    this.preview.update(doc.uri, doc.latestText);
-    void vscode.window.showTextDocument(RawPreviewProvider.previewUri(doc.uri), {
-      viewColumn: vscode.ViewColumn.Beside,
-      preserveFocus: true,
-      preview: true,
-    });
   }
 
   // Convert (or same-format save-a-copy) output: the destination pick is the
-  // native save dialog — the webview cannot pick paths (spec §UI trimming).
-  // The open document is never touched; offer to open the result in a new
-  // confy tab.
+  // native save dialog — the webview cannot pick paths. The open document is
+  // never touched; offer to open the result in a new confy tab.
   private async convertSave(
-    document: ConfyDocument,
+    document: vscode.TextDocument,
     suggestedName: string,
     text: string,
   ): Promise<void> {
@@ -278,14 +181,18 @@ export class ConfyEditorProvider implements vscode.CustomEditorProvider<ConfyDoc
   }
 
   // Initial text failed to parse in the webview: never white-screen — offer
-  // the default text editor for this uri instead (spec §Error handling).
-  private async parseError(document: ConfyDocument, message: string): Promise<void> {
+  // the default text editor for this uri instead.
+  private async parseError(
+    document: vscode.TextDocument,
+    panel: vscode.WebviewPanel,
+    message: string,
+  ): Promise<void> {
     const action = await vscode.window.showErrorMessage(
       `confy: cannot parse ${basename(document.uri)}: ${message}`,
       "Open in text editor",
     );
     if (action) {
-      document.panel?.dispose();
+      panel.dispose();
       void vscode.commands.executeCommand("vscode.openWith", document.uri, "default");
     }
   }
