@@ -7,7 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.16.0] - 2026-07-17
+
 ### Added
+- feat(core): RevealPath intent — expand ancestors + set cursor + select; filter-hidden targets keep cursor
+- feat(core+ffi): children_of query for breadcrumb mini-tree
+- feat(core): expose undo-history depth as SessionSnapshot.history_len
+- feat(core): Privacy Policy paragraph in shared About text
+- feat(web): breadcrumb bar + mini-tree picker with direct-jump and center-scroll Reveal
+- feat(web): VS Code webview host protocol + adapter modules
+- feat(vscode): M1.5 — CustomTextEditorProvider rebase, shared TextDocument owns dirty/undo/save
+- feat(vscode): 0.2.1 — in-place tab swap + "Open Text Editor to the Side" button
+- feat(vscode): M1.6 (0.3.0) — Save As/Convert, header hidden, Help/About/Language in "…" menu
+- feat(vscode): Marketplace icon
+
+### Fixed
+- fix(vscode): Save As/Convert shortcut claimed by workbench — moved to extension keybinding
+- fix(vscode): move "Open Text Editor to the Side" to editor title bar
+- fix(tui+web): Help/About overlay wraps long lines
+
+### Docs
+- docs: VS Code M1 plan/spec, TAURI.md/VSCODE.md split, CLAUDE.md breadcrumb docs
+
+## [Unreleased]
 - 2026-07-15 feat(core): expose undo-history depth as SessionSnapshot.history_len (VS Code host edit-stack mirror)
 - 2026-07-15 feat(web): add VS Code webview host protocol + adapter modules
 - 2026-07-15 feat(web): VS Code webview host wiring in ui.ts (boot, save/undo/convert reroutes, chrome trim)
