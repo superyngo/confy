@@ -647,3 +647,51 @@ body.host-vscode header.toolbar {
 /* VS Code host: tree is stale while the side-by-side raw text doesn't parse
    (see ui.ts staleTree) — dim it but keep it browsable/copyable. */
 body.stale-tree #tree { opacity: 0.45; }
+
+/* ===== Breadcrumb bar + mini-tree (cursor path, VS Code-style — web/breadcrumb.ts) ===== */
+.crumbs {
+  display: flex; align-items: center; gap: 1px;
+  padding: 3px 14px; font-size: 12px; color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto; white-space: nowrap; scrollbar-width: none;
+  user-select: none;
+}
+.crumbs::-webkit-scrollbar { display: none; }
+.crumbs .crumb {
+  display: inline-flex; align-items: center; gap: 4px;
+  border: 0; background: none; color: inherit; font: inherit;
+  padding: 2px 4px; border-radius: 4px; cursor: pointer;
+}
+.crumbs .crumb:hover { background: var(--accent-soft); color: var(--fg); }
+.crumbs .crumb.current { color: var(--fg); font-weight: 600; }
+.crumb-sep { color: var(--faint); padding: 0 1px; }
+.crumb-glyph { font-size: 10px; min-width: 20px; text-align: center; }
+.crumb-glyph.t-branch { color: var(--t-branch); }
+.crumb-glyph.t-string { color: var(--t-string); }
+.crumb-glyph.t-number { color: var(--t-number); }
+.crumb-glyph.t-bool { color: var(--t-bool); }
+.crumb-glyph.t-date { color: var(--t-date); }
+.crumb-glyph.t-null { color: var(--t-null); }
+.crumb-menu {
+  position: fixed; z-index: 60; min-width: 200px; max-width: 340px;
+  max-height: 50vh; overflow: auto;
+  background: var(--surface); border: 1px solid var(--border-strong);
+  border-radius: 8px; box-shadow: var(--shadow); padding: 4px;
+  font-size: 12px;
+}
+.crumb-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 8px 4px calc(8px + var(--d) * 14px);
+  border-radius: 5px; cursor: pointer; color: var(--fg);
+}
+.crumb-row:hover { background: var(--accent-soft); }
+.crumb-row.current { background: var(--sel); }
+.crumb-caret {
+  border: 0; background: none; color: var(--faint); font: inherit;
+  width: 14px; padding: 0; cursor: pointer; text-align: center;
+}
+.crumb-caret:hover { color: var(--fg); }
+.crumb-caret.none { display: inline-block; width: 14px; }
+.crumb-label {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
