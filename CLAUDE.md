@@ -266,7 +266,7 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
   fs.ts          File System Access API open/save-in-place + download fallback + `fetchUrlFile`
                  (open a remote config; `?url=` deep-link & "Open from URL") — host-owned I/O
   menu.ts        Tauri native File/Edit/View/Help menu bar (`window.__TAURI__.menu`;
-                 `isTauri()` no-op on the pure web build) — see WEBUI.md §Desktop menu (Tauri)
+                 `isTauri()` no-op on the pure web build) — see TAURI.md §Desktop menu (Tauri)
   render.ts      pure `SessionSnapshot → DOM` tree: web-native row anatomy (drag grip, rotating
                  caret, key/`—`/value value-type-colored, item count, **kind badge** =
                  label+notation suffix+chevron, comment/trailing, hover ＋/⋮ actions);
@@ -319,7 +319,8 @@ crates/confy-tui/src/    ratatui TUI + CLI; depends on confy-core, `pub use conf
 crates/confy-tui/tests/   convert_cli.rs integration: `confy convert` happy/lossy/abort paths, source-unchanged
 
 crates/confy-tauri/       desktop + Android app shell (Tauri v2) over the web UI — **native file
-                          I/O only**
+                          I/O only** (the native menu bar, recent-files, and Android
+                          picker/file-association mechanics are in **`TAURI.md`**)
   src/lib.rs     `confy_tauri_lib` — the real crate body (mobile needs a `#[cfg_attr(mobile,
                  tauri::mobile_entry_point)] pub fn run()` in a `[lib]`, not `main.rs`): Tauri
                  builder + `tauri_plugin_fs`/`tauri_plugin_dialog` + 2 custom
@@ -390,28 +391,18 @@ crates/tauri-plugin-confy-picker/   first-party Tauri mobile plugin, Android-onl
 
 editors/vscode/          third host shell (M1.5, sideload-only, no Marketplace): a
                           `CustomTextEditorProvider` VS Code extension embedding `web/dist`
-                          verbatim in a webview. VS Code's `TextDocument` is the single source of
-                          truth — content, dirty state, undo stack, save, revert, hot exit are all
-                          native. `web/vscode-protocol.ts`/`web/vscode.ts` are the shared-type
-                          adapter layer the webview side uses (imported here as
-                          `../../../web/vscode-protocol.ts` — protocol drift is a compile error,
-                          not a runtime surprise); every other `web/` behavior difference is gated
-                          on `ui.ts`'s `VSHOST` flag (`isVsCode()`), so the browser/Tauri hosts are
-                          byte-identical when `acquireVsCodeApi` is absent. A webview mutation
-                          posts `edit {serialize()}`; the host applies it as a minimal-span
-                          `WorkspaceEdit` (common prefix/suffix trim) and tracks `webviewText` so
-                          the resulting `onDidChangeTextDocument` echo is filtered, not re-posted.
-                          Any document change the webview doesn't already hold (side-by-side
-                          typing debounced 150ms, undo/redo, revert, git) arrives as
-                          `text-changed`, and the webview reloads its Session from it, restoring
-                          expansion + cursor by path; a `text-changed` that fails to parse pauses
-                          the tree (dimmed, browsable, edits ignored) until a later one parses.
-                          `saved` clears the dirty pill. `SessionSnapshot.history_len` remains in
-                          core but the webview no longer reads it. `media/` is a build-time copy of
-                          `web/dist` (gitignored, staged by `build.mjs`) — the extension ships no
-                          web source of its own. Like the web bundle, **the extension's esbuild
-                          must run from a scratchpad copy**; see `editors/vscode/README.md` for the
-                          exact commands.
+                          verbatim in a webview, over VS Code's own `TextDocument` (single source
+                          of truth for content/dirty/undo/save/revert/hot-exit) via a shared
+                          `web/vscode-protocol.ts` message contract — mechanics, the protocol
+                          table, and the 0.2.1 tab-swap fix are in **`VSCODE.md`**.
+                          `web/vscode-protocol.ts`/`web/vscode.ts` are imported here as
+                          `../../../web/vscode-protocol.ts`, so protocol drift is a compile error;
+                          every other `web/` behavior difference is gated on `ui.ts`'s `VSHOST`
+                          flag (`isVsCode()`). `media/` is a build-time copy of `web/dist`
+                          (gitignored, staged by `build.mjs`) — the extension ships no web source
+                          of its own. Like the web bundle, **the extension's esbuild must run from
+                          a scratchpad copy**; see `editors/vscode/README.md` for the exact
+                          commands.
 ```
 
 **Desktop + mobile host I/O.** `web/fs.ts` detects Tauri (`window.__TAURI__`) and routes

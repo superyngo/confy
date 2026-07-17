@@ -4,8 +4,10 @@ The Web UI is the second host of the headless core (`confy-core`), alongside the
 ratatui TUI. It compiles the same `Session` state machine to WebAssembly and drives
 it from TypeScript. This file documents the FFI boundary and the UI architecture; the
 shared model glossary lives in `CONTEXT.md`, nested behavior in `BEHAVIOR_MATRIX.md`,
-TUI mechanics in `TUI.md`. The port design record is `PORTING.md` (§8 records the
-Stage-2 transport decisions).
+TUI mechanics in `TUI.md`. Two native shells embed this same `web/` bundle and get
+their own docs: the Tauri desktop/Android app in `TAURI.md`, the VS Code extension in
+`VSCODE.md`. The port design record is `PORTING.md` (§8 records the Stage-2 transport
+decisions).
 
 ## Architecture
 
@@ -407,118 +409,11 @@ browser's local storage (or the desktop app's WebView persistent storage) rather
 filesystem path — unlike the TUI, which discloses a config-file path (see `TUI.md` §*Language
 / i18n (TUI)*).
 
-## Desktop menu (Tauri)
+## Desktop + Mobile (Tauri)
 
-`web/menu.ts` builds a native File/Edit/View/Help menu bar for the Tauri desktop shell via
-`window.__TAURI__.menu`/`window.__TAURI__.webview` (`withGlobalTauri: true` in
-`tauri.conf.json`, so no `@tauri-apps/api` npm dependency — minimal ambient types follow the
-`fs.ts` `TauriCore` pattern). `setupAppMenu(deps)` is a no-op on the pure web build
-(`isTauri()` guard) and is called from the top of `ui.ts`'s `main()`, **before** `await
-load(wasmUrl)` and **not awaited** — menu construction is several async IPC round-trips and
-must not delay the wasm boot; this also means the menu is visible during the startup gap, and
-Quit/About use `PredefinedMenuItem` so they still work if wasm init fails. `rebuildMenu()`
-rebuilds and reinstalls it (`setAsAppMenu()`) on language change and after every recent-files
-mutation, re-reading labels via `t()`, the recent list, and `getLang()` each time; an in-flight
-flag drops concurrent rebuilds.
-
-**Structure:** File (New `CmdOrCtrl+N` — discards the current doc and loads the default toml
-sample, i.e. `loadSample("toml", openSample)`, the same fallback `main()` takes with no
-startup file/URL; no confirmation, matching a browser refresh / Open `CmdOrCtrl+O` / Open
-Recent ▸ dynamic submenu / Save `CmdOrCtrl+S`),
-Edit (native `Predefined` Cut/Copy/Paste/Undo/Redo/SelectAll acting on focused text fields,
-plus node-op items Undo/Redo/Copy/Cut/Paste Node), View (Toggle Theme / Zoom In-Out-Reset /
-Language ▸ one `CheckMenuItem` per `availableLangs()`, checked = `getLang()`), Help (Help /
-About — both send `EnterHelp`, About additionally sends `ToggleHelpTab` to flip onto the About
-tab, mirroring `enter_help`/`toggle_help_tab` in `session.rs`). macOS gets a rebuilt app
-submenu ("About confy"/Hide/HideOthers/ShowAll/Quit) since `setAsAppMenu()` replaces the
-entire default menu bar including Cmd+Q; "About confy" is a custom `MenuItem` (not
-`Predefined`) using the same `EnterHelp`+`ToggleHelpTab` handler as the Help menu's About, so
-it opens the in-app About overlay instead of macOS's native About panel — one consistent
-About surface across platforms. Windows has no app submenu, so a `Predefined` Quit sits at
-the bottom of File instead (`navigator.platform`/`userAgentData` check).
-
-**`PredefinedMenuItem.item` gotcha:** every predefined kind is a plain Rust unit variant
-serialized as a bare string (`"Quit"`, `"Hide"`, …) — **except** `About`, which the Rust side
-models as a newtype variant carrying `Option<AboutMetadata>` and must be sent as
-`{ item: { About: null } }`; a bare `"About"` string fails IPC deserialization
-(`invalid type: unit variant, expected newtype variant`). This is moot now that the app
-submenu's About is a custom item rather than `Predefined`, but the gotcha applies to any
-future `PredefinedMenuItem.new({ item: "About" })` call.
-
-**Accelerator policy** (the one dangerous design point): node-op items get **no accelerator
-at all** — the plain-key hint (`c`/`x`/`v`/`z`/`y`) is a label suffix only, e.g. `Copy Node
-(c)`; actual handling stays in `ui.ts`'s `onKey`. Binding `CmdOrCtrl+C/X/V/Z/Y` to a menu item
-would intercept the key **before** the webview sees it, breaking native copy/cut/paste/undo
-inside every text input (inline edit, panel fields, search box). Zoom items also get no
-accelerator — `zoomHotkeysEnabled` (`tauri.conf.json`) already owns Cmd+/−/0; the JS-tracked
-zoom factor (`menu.ts`'s module-local `zoom`, `±0.1` steps clamped to `[0.3, 3]`) is a known,
-accepted, not-synced duplicate of that built-in path. `getCurrentWebview().setZoom()` needs
-`core:webview:allow-set-webview-zoom` explicitly in `capabilities/default.json` —
-`core:webview:default` does not include it.
-
-**GC-retention gotcha:** `buildAndSet()` keeps the built root `Menu` in the module-level
-`installedMenu` variable and never lets it go out of scope. Every `Menu`/`Submenu`/`MenuItem`
-JS wrapper is backed by a Tauri resource (including the click-action channel); if nothing in
-JS references the tree after `setAsAppMenu()` returns, V8 is free to garbage-collect it at any
-later point, tearing down those resources while the native OS menu bar keeps showing the —
-now silently unresponsive — items. A large allocation spike (e.g. opening a file and swapping
-in a fresh wasm `Session`) is a classic GC trigger, which is how this first surfaced. Children
-don't need their own persistent JS references — they stay alive via the Rust-side tree the
-root `Menu` resource owns.
-
-**Recent files:** `localStorage["confy-recent"]` (Tauri-only — paths are only meaningful
-there), most-recent-first, cap 8, deduped by path. `fs.ts`'s `OpenedFile`/`FsHandle` both grew
-an optional `path` field (populated only on the Tauri branches of `tauriStartupFile`,
-`pickOpenFile`, and `tauriHandle` — so `pickSaveFile`'s returned handle carries it too);
-`ui.ts` calls `recentAdd` + `rebuildMenu()` wherever a Tauri path becomes newly known (startup
-file, Open, Save As), and `openTauriPath(path)` (new `fs.ts` export, `read_file_text` via
-`invoke`) backs the menu's `openRecentPath` handler — a missing/unreadable file calls
-`recentRemove` + `rebuildMenu()` + an error status instead of opening.
-
-## Mobile (Tauri Android)
-
-Android reuses the touch UI verbatim (same `web/touch/` module, same `confy.ts`/`Intent`
-contract) — the mobile-specific surface is entirely in host I/O (`web/fs.ts`) and a couple of
-platform guards, not a separate UI.
-
-**Picker + file-association I/O.** `fs.ts::isTauriAndroid()` (UA-sniffed, no `tauri-plugin-os`
-dependency) forks `pickOpenFile()` to call the first-party `plugin:confy-picker|pick_writable`
-command instead of `dialog.open()` — stock `tauri-plugin-dialog`'s Android picker uses
-`ACTION_GET_CONTENT`, which never grants write access at all. Opening a file via the OS's "Open
-with" chooser instead arrives through `tauri.android.conf.json`'s `fileAssociations` (Rust-side
-`opened_urls`/`"opened"` event) and reads through the same `openTauriPath`-style path — no plugin
-needed there, since a file-association launch intent's own grant covers the receiving activity's
-lifetime. `menu.ts`'s native menu bar no-ops on Tauri mobile (same `isTauriMobile()` guard as
-`canSaveAs()`) — there's no menu bar on Android.
-
-**`canSaveAs()` gating.** False on Tauri mobile: picking a *new* save destination (Save As, first
-Save after File-New-equivalent, Convert's output path) isn't supported in M1, so those paths show
-a translated hint (`web.mobile.saveAsUnavailable`) instead of opening a picker. Writing in place
-to an already-open handle is unaffected by this flag — `doQuickSave` only consults it on the
-no-handle-yet (first save) branch.
-
-**The split-button lesson (why Save is one plain button, not a pill).** An earlier iteration
-tried merging the Save button and a "Save As / Convert…" chevron into one visually-glued
-`.split-btn` pill. It rendered as two buttons stacked top-to-bottom on a real device with no
-visible CSS explanation — root cause: **`web/touch/` has its own separate stylesheet
-(`touch/style.css`), not the shared desktop `web/style.css`**, and the `.split-btn` CSS rule (and,
-separately, the `env(safe-area-inset-top)` toolbar padding fix) had only been added to the
-desktop file. Any style fix aimed at touch must land in `touch/style.css`, not `style.css` — the
-two are not the same cascade and nothing here shares rules between them by default. Once fixed and
-seen live, the pill design itself was dropped in favor of the plain single-button-opens-a-sheet
-design described in the Touch UI section above — simpler, and immune to this whole class of bug.
-
-**Debugging technique — live CDP against the on-device WebView.** Android's WebView exposes a
-Chrome DevTools Protocol endpoint when the app is debuggable: `adb forward tcp:PORT
-localabstract:webview_devtools_remote_<pid>` (find `<pid>` via `adb shell ps -A | grep
-<package>`), then `curl http://localhost:PORT/json` for the page's `webSocketDebuggerUrl`. A
-plain WebSocket client can then send `Runtime.evaluate` (and other CDP methods) directly — no
-`chrome://inspect` UI needed. One gotcha: the devtools server 403s a connection whose `Origin`
-header doesn't match an allowlist, so connect with `suppress_origin=True` (Python
-`websocket-client`) or an equivalent that omits the header. Combined with `adb shell input
-tap`/`screencap` to drive the actual system UI (document pickers, "Open with" choosers, the home
-screen), this lets bugs get root-caused and fixes verified end-to-end on real hardware without a
-human re-testing every iteration.
+Moved to **`TAURI.md`** — the native menu bar (`web/menu.ts`), recent-files, the
+`PredefinedMenuItem`/GC-retention/accelerator gotchas, and Android (picker I/O,
+`canSaveAs()` gating, the split-button/touch-stylesheet lesson, on-device CDP debugging).
 
 ## Deployment
 
@@ -573,75 +468,7 @@ the diff would key on, so the upgrade is additive.
 
 ## VS Code (webview host)
 
-`editors/vscode/` is a third host shell (M1.5, sideload `.vsix` only — no Marketplace
-listing). A `CustomTextEditorProvider` makes VS Code's own `TextDocument` the single
-source of truth for content, dirty state, undo stack, save, revert, and hot exit; the
-webview runs the unmodified `web/dist` bundle plus `web/vscode.ts`'s adapter, and the
-Session there is a *view* over that document. Every behavior difference from the
-browser/Tauri hosts is gated in `ui.ts` on `VSHOST` (`isVsCode()` — true only when
-`acquireVsCodeApi` exists), so the pure-browser and Tauri builds are byte-identical when
-it is absent.
-
-**Chrome trimming.** `document.body.classList.add("host-vscode")` on boot; `style.css`
-hides `#btnOpen`/`#btnSaveAs`/`#btnTheme` under `body.host-vscode` — the document is
-tab-bound (VS Code owns Open), destination picks are native save dialogs, and the theme
-follows VS Code's own theme instead of confy's toggle.
-
-**Theme.** No `theme` protocol message — `web/vscode.ts`'s `trackVsCodeTheme()` instead
-runs a `MutationObserver` on `document.body`'s class list, mapping VS Code's
-`vscode-dark`/`vscode-light`/`vscode-high-contrast(-light)` stamps onto confy's own
-`:root[data-theme]`. Same visible behavior as a message would give, no protocol needed
-(a documented refinement over the original spec).
-
-**Message protocol** (`web/vscode-protocol.ts`, single source of truth for both sides):
-
-| Direction | Message | Purpose |
-|---|---|---|
-| host→webview | `init { text, name, format, lang, dirty }` | Initial state; `dirty` rides along because the TextDocument may already be dirty when the confy editor opens (toggle from an unsaved text editor). VS Code's display language is authoritative here (same principle as theme) |
-| host→webview | `text-changed { text, dirty }` | The document changed under us — side-by-side typing (150ms debounce), undo/redo, revert, git. Echoes of the webview's own `edit` are filtered host-side (via `webviewText`) and never arrive here |
-| host→webview | `saved` | The document was saved (any save path) — webview clears its dirty pill |
-| webview→host | `ready` | Boot handshake |
-| webview→host | `edit { text }` | A Session mutation happened: `text` is `session.serialize()`. The host applies it as a minimal-span `WorkspaceEdit` (common prefix/suffix trim) — VS Code's dirty/undo/save machinery takes over from there |
-| webview→host | `request-undo` / `request-redo` | Webview keyboard/toolbar undo/redo forward to the workbench, which owns the text document's stacks |
-| webview→host | `request-save` | Webview Save / ⌘S → workbench save |
-| webview→host | `convert-save { suggestedName, text }` | Convert (or same-format save-a-copy) output: host shows a native save dialog |
-| webview→host | `parse-error { message }` | Initial text failed to parse: host offers the default text editor instead of a white screen |
-
-**Echo suppression.** The host tracks `webviewText` (last text the webview is known to
-hold — set on `ready`'s `init` reply, on every received `edit`, and on every posted
-`text-changed`). An `onDidChangeTextDocument` whose result equals `webviewText` is the
-echo of the host's own `applyEdit` and is not posted back — this is what lets a shared
-`TextDocument` avoid an infinite edit↔text-changed loop.
-
-**Edit-mode gating eliminates the M1 add→Esc wart.** The webview's `notifyHost` defers
-posting `edit` while `Mode::Edit` is active: an `a`-add's immediate Insert never reaches
-the host; Esc rolls the Session back to `lastNotifyText` and nothing is posted (no dirty,
-no undo entry), while a commit posts one single `edit` for the whole add. A side-by-side
-text editor doesn't see in-flight inline-edit/nudge churn until commit; a save/hot-exit
-during an in-flight edit stores the text *without* the transient placeholder.
-
-**Stale-tree pause.** While side-by-side text doesn't parse, `reloadFromHost` leaves the
-last-good Session in place, sets `staleTree`, and the webview dims the tree
-(`body.stale-tree` CSS — browsable/copyable but visibly paused) and shows a status
-message (`web.vscode.staleTree`), and stops posting `edit` (so a stale tree can never
-clobber newer raw text). Tree edits made during the stale window are dropped on the next
-successful reload — a rare, accepted wart. The pause clears the moment a later
-`text-changed` parses.
-
-**Expansion + cursor restore on `text-changed`.** A successful reload captures the
-expanded-branch set and cursor path before rebuilding the Session, then replays them by
-path afterward (`captureTreeState`/`restoreTreeState`) — parents precede children in row
-order, so expanding in order always finds the child row once its parent is open. An
-in-flight inline edit, modal, selection, or filter is discarded by the reload; this is
-accepted (it matches revert semantics).
-
-**Boot-path localStorage guards.** `host-io.ts`'s `initTheme`/`toggleTheme` and
-`i18n.ts`'s `getLang`/`setLang` all wrap `localStorage` access in `try/catch` — a
-sandboxed webview may throw on any access, and these run on the boot path before `ready`
-is even posted, so an unguarded throw would white-screen before the host ever hears from
-the webview. The guards are behavior-neutral for the browser/Tauri hosts and are **not**
-`VSHOST`-gated. Persistence unreliability in webviews is accepted for M1 — theme comes
-from the VS Code observer regardless, and lang re-arrives on every `init`.
-
-See `editors/vscode/README.md` for build/install/use, and CLAUDE.md's module map for
-the extension-host-side file layout.
+Moved to **`VSCODE.md`** — the `CustomTextEditorProvider` model, chrome trimming, theme
+tracking, the full message protocol table, echo suppression, edit-mode gating,
+stale-tree pause, expansion/cursor restore, the 0.2.1 title-bar tab-swap fix, and the
+boot-path localStorage guards.
