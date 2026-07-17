@@ -22,10 +22,9 @@ web UI + wasm Session in a custom editor. Design:
   swaps back the same way. (Right-click → "Reopen Editor With…" → **confy**
   still works.) To make confy the default for a glob, use VS Code's
   `workbench.editorAssociations` setting (e.g. `"*.toml": "confy.editor"`).
-- Command palette: **confy: Open Text Editor to the Side** — the real text
-  editor, editable and live in both directions (shared `TextDocument`). Also
-  available as a toolbar button inside confy (the split-rectangle icon,
-  VS Code host only).
+- **confy: Open Text Editor to the Side** (title-bar button next to **Reopen
+  as Text Editor**, or command palette) — the real text editor, editable and
+  live in both directions (shared `TextDocument`).
 - Save/undo/redo/revert are native VS Code (⌘S / ⌘Z / ⌘⇧Z / File > Revert).
 
 M1.5 (shared `TextDocument`) shipped — switching carries unsaved changes;

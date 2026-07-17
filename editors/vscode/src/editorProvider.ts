@@ -112,14 +112,6 @@ export class ConfyEditorProvider implements vscode.CustomTextEditorProvider {
         case "parse-error":
           void this.parseError(document, panel, msg.message);
           break;
-        case "open-text-beside":
-          void vscode.commands.executeCommand(
-            "vscode.openWith",
-            document.uri,
-            "default",
-            vscode.ViewColumn.Beside,
-          );
-          break;
       }
     });
   }

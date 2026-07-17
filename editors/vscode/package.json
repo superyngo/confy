@@ -25,7 +25,7 @@
       }
     ],
     "commands": [
-      { "command": "confy.openTextBeside", "title": "confy: Open Text Editor to the Side" },
+      { "command": "confy.openTextBeside", "title": "confy: Open Text Editor to the Side", "icon": "$(split-horizontal)" },
       { "command": "confy.openWithConfy", "title": "Open with confy", "icon": "$(list-tree)" },
       { "command": "confy.reopenAsText", "title": "confy: Reopen as Text Editor", "icon": "$(go-to-file)" }
     ],
@@ -38,7 +38,12 @@
         },
         {
           "command": "confy.reopenAsText",
-          "group": "navigation",
+          "group": "navigation@1",
+          "when": "activeCustomEditorId == 'confy.editor'"
+        },
+        {
+          "command": "confy.openTextBeside",
+          "group": "navigation@2",
           "when": "activeCustomEditorId == 'confy.editor'"
         }
       ]

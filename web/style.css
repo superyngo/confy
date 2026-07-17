@@ -646,11 +646,6 @@ body.host-vscode #btnTheme {
   display: none;
 }
 
-/* Panel mirror of "confy: Open Text Editor to the Side" — a VS Code-only
-   action (no equivalent split-view concept in the browser/Tauri hosts). */
-#btnOpenBeside { display: none; }
-body.host-vscode #btnOpenBeside { display: grid; }
-
 /* VS Code host: tree is stale while the side-by-side raw text doesn't parse
    (see ui.ts staleTree) — dim it but keep it browsable/copyable. */
 body.stale-tree #tree { opacity: 0.45; }

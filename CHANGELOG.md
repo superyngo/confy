@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 2026-07-15 feat(vscode): package sideload .vsix + docs (M1)
 - 2026-07-16 feat(vscode): editor title-bar toggle — Open with confy ⇄ Reopen as Text Editor (in-place tab swap; dirty text buffer saved before switching); shared-dirty-state sync via CustomTextEditorProvider recorded as the M1.5 goal
 - 2026-07-16 feat(vscode): M1.5 — rebase onto CustomTextEditorProvider: shared TextDocument owns dirty/undo/save/hot-exit; toggle carries unsaved changes; editable side-by-side text sync (150ms debounce, tree pauses on invalid text); raw preview retired for "Open Text Editor to the Side"; vsix 0.2.0
-- 2026-07-17 feat(vscode): 0.2.1 — title-bar toggle now truly swaps in place (open new view, then close the old tab, avoiding VS Code's per-(uri,viewType) tab stacking); "Open Text Editor to the Side" also available as a panel toolbar button
+- 2026-07-17 feat(vscode): 0.2.1 — title-bar toggle now truly swaps in place (open new view, then close the old tab, avoiding VS Code's per-(uri,viewType) tab stacking); "Open Text Editor to the Side" promoted to an editor/title icon button next to "Reopen as Text Editor" (was command-palette only)
 
 ## [v0.15.0] - 2026-07-15
 
