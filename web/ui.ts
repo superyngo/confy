@@ -412,7 +412,7 @@ function renderOverlay() {
   if (tag === "Help") {
     const activeTab = (m as { Help: { tab: "Help" | "About" } }).Help.tab;
     // helpBodyHTML output is pre-escaped HTML (key spans) — insert raw.
-    const body = helpBodyHTML(activeTab, snap!.doc_format, session!.aboutText());
+    const body = helpBodyHTML(activeTab, snap!.doc_format, session!.aboutText(), VSHOST ? "vscode" : "web");
     overlay.innerHTML =
       `<div class="overlay-head"><div class="help-tabs">` +
       `<button class="opt tab-btn${activeTab === "Help" ? " sel" : ""}" data-tab="Help">${t("web.help.tab.help")}</button>` +
@@ -613,6 +613,11 @@ function onKey(ev: KeyboardEvent) {
   }
 
   const ctrl = ev.ctrlKey || ev.metaKey;
+  // VS Code host: ⇧⌘S/Ctrl-Shift-S is claimed by the workbench's own
+  // Save-As keybinding before this handler ever sees it (proven in testing —
+  // the built-in Save As fired instead of this branch), so the shortcut is
+  // rebound to confy.saveAsConvert in package.json's `contributes.keybindings`
+  // instead of intercepted here.
   if (ctrl && ev.key === "s") {
     ev.preventDefault();
     return void doSave();
@@ -828,6 +833,20 @@ function handleHostMsg(msg: HostToWebview) {
       // Session may be stale (see staleTree) — the class toggle below still
       // runs via render(); marking the session clean is safe either way.
       hostDispatch("Save");
+      break;
+    case "exec":
+      if (!session) break;
+      if (msg.action === "save-as") {
+        if (!staleTree) openSaveConvert(io); // guarded per spec: a stale tree can't be saved/converted
+      } else if (msg.action === "help") {
+        send("EnterHelp"); // always lands on the Help tab
+      } else if (msg.action === "about") {
+        send("EnterHelp"); // always lands on Help; flip to About
+        send("ToggleHelpTab");
+      }
+      break;
+    case "set-lang":
+      chooseLang(msg.lang);
       break;
   }
 }

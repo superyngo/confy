@@ -636,13 +636,11 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
 #detailBody .row-btns .btn { flex: 1; }
 .fmt-pill.toggleable:hover { background: var(--accent-soft); }
 
-/* VS Code webview host: chrome the extension host owns is hidden — Open and
-   Save-As/Convert destination picks are VS Code dialogs, the theme follows
-   the VS Code theme (web/vscode.ts), and the doc is tab-bound (no Open). The
-   Save button stays: it forwards to the workbench save (request-save). */
-body.host-vscode #btnOpen,
-body.host-vscode #btnSaveAs,
-body.host-vscode #btnTheme {
+/* VS Code webview host: the whole confy toolbar header is hidden — Open,
+   Save, Save-As/Convert, theme, language, and Help/About all live in VS
+   Code's own chrome instead (title-bar "…" More Actions menu commands, plus
+   the workbench's undo/redo/save via z/y/Ctrl-s). The filter row below stays. */
+body.host-vscode header.toolbar {
   display: none;
 }
 

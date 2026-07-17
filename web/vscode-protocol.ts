@@ -18,7 +18,13 @@ export type HostToWebview =
   // webview's own `edit` are filtered host-side and never arrive here.
   | { type: "text-changed"; text: string; dirty: boolean }
   // The document was saved (any save path) — webview clears its dirty pill.
-  | { type: "saved" };
+  | { type: "saved" }
+  // Host-menu-driven actions with no keyboard/toolbar entry point of their own
+  // in this host (title-bar "…" menu commands): open the Save As/Convert
+  // dialog, or the Help overlay on a given tab.
+  | { type: "exec"; action: "save-as" | "help" | "about" }
+  // Language picked from the title-bar "…" menu's Choose Display Language command.
+  | { type: "set-lang"; lang: "en" | "zh-TW" };
 
 export type WebviewToHost =
   | { type: "ready" }

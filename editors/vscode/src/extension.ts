@@ -59,7 +59,27 @@ export function activate(context: vscode.ExtensionContext): void {
       const target = uri ?? provider.activeUri;
       if (target) void swapEditorKind(target, "default");
     }),
+    // M1.6: with the confy toolbar header hidden in this host (VSCODE.md §
+    // Chrome trimming), these live in the editor title's "…" More Actions menu.
+    vscode.commands.registerCommand("confy.saveAsConvert", () => {
+      provider.postToActive({ type: "exec", action: "save-as" });
+    }),
+    vscode.commands.registerCommand("confy.help", () => {
+      provider.postToActive({ type: "exec", action: "help" });
+    }),
+    vscode.commands.registerCommand("confy.about", () => {
+      provider.postToActive({ type: "exec", action: "about" });
+    }),
+    // Language is a native submenu of the "…" menu (contributes.submenus) —
+    // one command per language, picked directly, no intermediate QuickPick.
+    vscode.commands.registerCommand("confy.langEnglish", () => setLang("en")),
+    vscode.commands.registerCommand("confy.langZhTw", () => setLang("zh-TW")),
   );
+
+  async function setLang(lang: "en" | "zh-TW"): Promise<void> {
+    await context.globalState.update("confy.lang", lang);
+    provider.postToActive({ type: "set-lang", lang });
+  }
 }
 
 export function deactivate(): void {}

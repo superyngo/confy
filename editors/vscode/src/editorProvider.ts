@@ -21,9 +21,18 @@ export class ConfyEditorProvider implements vscode.CustomTextEditorProvider {
   static readonly viewType = "confy.editor";
 
   private activeDocument: vscode.TextDocument | undefined;
+  private activePanel: vscode.WebviewPanel | undefined;
 
   get activeUri(): vscode.Uri | undefined {
     return this.activeDocument?.uri;
+  }
+
+  // "…" More Actions title-bar commands (Save As/Convert, Help, About, Choose
+  // Language) have no keyboard/toolbar entry point inside the webview's own
+  // chrome (hidden under host-vscode — see VSCODE.md § Chrome trimming), so
+  // they post straight to whichever confy webview panel is currently active.
+  postToActive(msg: HostToWebview): void {
+    void this.activePanel?.webview.postMessage(msg);
   }
 
   constructor(private readonly context: vscode.ExtensionContext) {}
@@ -33,6 +42,7 @@ export class ConfyEditorProvider implements vscode.CustomTextEditorProvider {
     panel: vscode.WebviewPanel,
   ): Promise<void> {
     this.activeDocument = document;
+    this.activePanel = panel;
     const mediaRoot = vscode.Uri.joinPath(this.context.extensionUri, "media");
     panel.webview.options = { enableScripts: true, localResourceRoots: [mediaRoot] };
     panel.webview.html = await this.html(panel.webview, mediaRoot);
@@ -66,7 +76,10 @@ export class ConfyEditorProvider implements vscode.CustomTextEditorProvider {
     });
 
     panel.onDidChangeViewState(() => {
-      if (panel.active) this.activeDocument = document;
+      if (panel.active) {
+        this.activeDocument = document;
+        this.activePanel = panel;
+      }
     });
 
     panel.onDidDispose(() => {
@@ -74,13 +87,23 @@ export class ConfyEditorProvider implements vscode.CustomTextEditorProvider {
       changeSub.dispose();
       saveSub.dispose();
       if (this.activeDocument === document) this.activeDocument = undefined;
+      if (this.activePanel === panel) this.activePanel = undefined;
     });
 
     panel.webview.onDidReceiveMessage((msg: WebviewToHost) => {
       switch (msg.type) {
         case "ready": {
           const name = basename(document.uri);
-          const lang = vscode.env.language.toLowerCase() === "zh-tw" ? "zh-TW" : "en";
+          // A user-picked language (confy.chooseLanguage → globalState) wins
+          // over VS Code's display language once set; otherwise fall back to
+          // the same env.language mapping as before.
+          const savedLang = this.context.globalState.get<string>("confy.lang");
+          const lang: "en" | "zh-TW" =
+            savedLang === "en" || savedLang === "zh-TW"
+              ? savedLang
+              : vscode.env.language.toLowerCase() === "zh-tw"
+                ? "zh-TW"
+                : "en";
           webviewText = document.getText();
           postMsg({
             type: "init",

@@ -44,6 +44,63 @@ click          選取            ⇧click   範圍選取
 ⌘click         多選            drag     套索選取／拖曳移動
 right-click    右鍵選單`;
 
+// VS Code host variant (M1.6): the confy toolbar header is hidden there
+// (VSCODE.md § Chrome trimming), so `Ctrl-o open`/`q quit` don't apply — VS
+// Code owns Open and there's no quit — and Save As/Convert/Help/About/
+// language move to the editor title's "…" More Actions menu instead.
+export const HELP_TEXT_VSCODE = `confy web — keys
+j/k or ↑/↓     move cursor
+Enter/Space    toggle branch / edit leaf / activate
+e              edit (inline or multiline modal)
+a              add node · d delete · c copy · x cut · v paste
+r              remark (toggle node ↔ comment)
++/- or ←/→     nudge numeric value
+z / y          undo / redo (shared with VS Code — the workbench owns the stack)
+s              toggle select · 0 collapse-all · 9 expand-all
+1 / 2          expand / collapse one level
+/              filter · f type-filter · K kind-switch · C convert
+i              detail popup · ? this help
+Ctrl-s         save (shared with VS Code)
+⇧⌘S / Ctrl-⇧S  Save As / Convert…
+
+── VS Code ──────────────────────────────────────
+Save As / Convert, Help, About, and language live in the tab's "…" More
+Actions menu. The title-bar "Reopen as Text Editor" / "Open Text Editor to
+the Side" buttons swap/split to the raw text view; while a side-by-side text
+edit doesn't parse, the tree dims and pauses until the text parses again.
+
+── pointer ──────────────────────────────────────
+click          select          ⇧click   range-select
+⌘click         multi-select    drag     marquee / move
+right-click    context menu`;
+
+// zh-TW translation of HELP_TEXT_VSCODE.
+const HELP_TEXT_VSCODE_ZH_TW = `confy web — 按鍵
+j/k 或 ↑/↓     移動游標
+Enter/Space    展開分支／編輯葉節點／啟用
+e              編輯（inline 或多行對話框）
+a              新增節點 · d 刪除 · c 複製 · x 剪下 · v 貼上
+r              remark（節點 ↔ comment 切換）
++/- 或 ←/→     微調數值
+z / y          復原／重做（與 VS Code 共用 — workbench 掌管復原堆疊）
+s              切換選取 · 0 全部摺疊 · 9 全部展開
+1 / 2          展開／摺疊一層
+/              篩選 · f 類型篩選 · K kind 切換 · C 轉換格式
+i              詳細資訊彈出視窗 · ? 本說明
+Ctrl-s         儲存（與 VS Code 共用）
+⇧⌘S / Ctrl-⇧S  另存新檔／轉換格式…
+
+── VS Code ──────────────────────────────────────
+另存新檔／轉換格式、說明、關於、語言選擇都在分頁的「…」更多動作選單中。
+標題列的「以文字編輯器重新開啟」／「在旁開啟文字編輯器」按鈕會切換／並排
+顯示原始文字檢視；並排的文字編輯若無法解析，樹狀畫面會變暗並暫停，
+直到文字再次可解析為止。
+
+── 指標裝置 ──────────────────────────────────────
+click          選取            ⇧click   範圍選取
+⌘click         多選            drag     套索選取／拖曳移動
+right-click    右鍵選單`;
+
 // Per-format KIND legend appended to the Help overlay, keyed by `doc_format`
 // (ported from the TUI's TOML_HELP/JSON_HELP/YAML_HELP KIND column). The kind
 // badge shows the friendly label + notation suffix; this explains what each
@@ -84,6 +141,7 @@ export function helpBodyHTML(
   tab: "Help" | "About",
   docFormat: string,
   aboutText: string,
+  variant: "web" | "vscode" = "web",
 ): string {
   if (tab === "About") {
     const body =
@@ -95,7 +153,15 @@ export function helpBodyHTML(
       '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>',
     );
   }
-  const helpText = getLang() === "zh-TW" ? HELP_TEXT_ZH_TW : HELP_TEXT;
+  const zhTw = getLang() === "zh-TW";
+  const helpText =
+    variant === "vscode"
+      ? zhTw
+        ? HELP_TEXT_VSCODE_ZH_TW
+        : HELP_TEXT_VSCODE
+      : zhTw
+        ? HELP_TEXT_ZH_TW
+        : HELP_TEXT;
   const legend =
     getLang() === "zh-TW"
       ? (KIND_LEGEND_ZH_TW[docFormat] ?? "")

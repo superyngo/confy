@@ -2,7 +2,7 @@
   "name": "confy-vscode",
   "displayName": "confy",
   "description": "Structural tree editor for TOML / JSON / JSONC / YAML config files",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "publisher": "superyngo",
   "private": true,
   "license": "MIT",
@@ -27,7 +27,15 @@
     "commands": [
       { "command": "confy.openTextBeside", "title": "confy: Open Text Editor to the Side", "icon": "$(split-horizontal)" },
       { "command": "confy.openWithConfy", "title": "Open with confy", "icon": "$(list-tree)" },
-      { "command": "confy.reopenAsText", "title": "confy: Reopen as Text Editor", "icon": "$(go-to-file)" }
+      { "command": "confy.reopenAsText", "title": "confy: Reopen as Text Editor", "icon": "$(go-to-file)" },
+      { "command": "confy.saveAsConvert", "title": "confy: Save As / Convert…" },
+      { "command": "confy.help", "title": "confy: Help" },
+      { "command": "confy.about", "title": "confy: About" },
+      { "command": "confy.langEnglish", "title": "English" },
+      { "command": "confy.langZhTw", "title": "繁體中文" }
+    ],
+    "submenus": [
+      { "id": "confy.language", "label": "confy: Language / 語言" }
     ],
     "menus": {
       "editor/title": [
@@ -45,9 +53,45 @@
           "command": "confy.openTextBeside",
           "group": "navigation@2",
           "when": "activeCustomEditorId == 'confy.editor'"
+        },
+        {
+          "command": "confy.saveAsConvert",
+          "group": "1_confy@1",
+          "when": "activeCustomEditorId == 'confy.editor'"
+        },
+        {
+          "command": "confy.help",
+          "group": "1_confy@2",
+          "when": "activeCustomEditorId == 'confy.editor'"
+        },
+        {
+          "command": "confy.about",
+          "group": "1_confy@3",
+          "when": "activeCustomEditorId == 'confy.editor'"
+        },
+        {
+          "submenu": "confy.language",
+          "group": "1_confy@4",
+          "when": "activeCustomEditorId == 'confy.editor'"
         }
+      ],
+      "confy.language": [
+        { "command": "confy.langEnglish", "group": "1_lang@1" },
+        { "command": "confy.langZhTw", "group": "1_lang@2" }
+      ],
+      "commandPalette": [
+        { "command": "confy.langEnglish", "when": "false" },
+        { "command": "confy.langZhTw", "when": "false" }
       ]
-    }
+    },
+    "keybindings": [
+      {
+        "command": "confy.saveAsConvert",
+        "key": "ctrl+shift+s",
+        "mac": "cmd+shift+s",
+        "when": "activeCustomEditorId == 'confy.editor'"
+      }
+    ]
   },
   "scripts": {
     "build": "node build.mjs",

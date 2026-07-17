@@ -14,14 +14,36 @@ Design record: `docs/superpowers/specs/2026-07-15-vscode-extension-design.md`. M
 rebased the provider from `CustomEditorProvider` onto `CustomTextEditorProvider`
 (plan: `docs/superpowers/plans/2026-07-16-vscode-m1_5-shared-dirty-state.md`); 0.2.1
 fixed the title-bar toggle to truly swap the tab in place and promoted "Open Text Editor
-to the Side" to an `editor/title` icon button.
+to the Side" to an `editor/title` icon button. M1.6 (0.3.0) hid the whole confy toolbar
+header in this host and moved Save As/Convert, Help, About, and language to the editor
+title's "…" More Actions menu (see Chrome trimming below).
 
 ## Chrome trimming
 
-`document.body.classList.add("host-vscode")` on boot; `style.css` hides
-`#btnOpen`/`#btnSaveAs`/`#btnTheme` under `body.host-vscode` — the document is tab-bound
-(VS Code owns Open), destination picks are native save dialogs, and the theme follows VS
-Code's own theme instead of confy's toggle.
+`document.body.classList.add("host-vscode")` on boot; `style.css` hides the entire
+`header.toolbar` under `body.host-vscode` (M1.6 — previously just `#btnOpen`/`#btnSaveAs`/
+`#btnTheme`) — the document is tab-bound (VS Code owns Open), destination picks are native
+save dialogs, the theme follows VS Code's own theme, and undo/redo/save get no replacement
+UI (keyboard z / y / ⌘S already forward to the workbench via `request-undo`/`request-redo`/
+`request-save`). The filter row below the header (search/type-filter/expand/Raw) stays.
+
+Save As / Convert, Help, About, and language — with no toolbar button left to click — move
+to the editor title's **"…" More Actions** menu: three commands (`confy.saveAsConvert`,
+`confy.help`, `confy.about`) each posting an `exec` message (below) to the active confy
+webview panel (`ConfyEditorProvider.postToActive`, tracked alongside `activeDocument`),
+plus a native **language submenu** (`contributes.submenus` id `confy.language`) whose two
+entries (`confy.langEnglish`/`confy.langZhTw`, hidden from the command palette) pick the
+language directly — no intermediate QuickPick. Save As / Convert also has a keyboard
+shortcut, **⇧⌘S / Ctrl-Shift-S**, contributed as `contributes.keybindings` (`when:
+activeCustomEditorId == 'confy.editor'`) rebinding it straight to `confy.saveAsConvert`.
+This is an extension-side rebind, not a webview `keydown` intercept: the workbench's
+keybinding service claims ⇧⌘S before it ever reaches the webview's DOM (confirmed in
+testing — VS Code's own built-in Save As fired instead of an earlier webview-side
+`onKey` intercept), so overriding the binding at the `contributes.keybindings` level is
+the only place this can actually be caught. A language pick persists in
+`context.globalState["confy.lang"]` and posts `set-lang`; that same key is read on the next
+`ready` handshake and **overrides `vscode.env.language`** once set (VS Code's display
+language is otherwise still authoritative — same principle as theme).
 
 ## Theme
 
@@ -40,6 +62,8 @@ No `theme` protocol message — `web/vscode.ts`'s `trackVsCodeTheme()` instead r
 | host→webview | `init { text, name, format, lang, dirty }` | Initial state; `dirty` rides along because the TextDocument may already be dirty when the confy editor opens (toggle from an unsaved text editor). VS Code's display language is authoritative here (same principle as theme) |
 | host→webview | `text-changed { text, dirty }` | The document changed under us — side-by-side typing (150ms debounce), undo/redo, revert, git. Echoes of the webview's own `edit` are filtered host-side (via `webviewText`) and never arrive here |
 | host→webview | `saved` | The document was saved (any save path) — webview clears its dirty pill |
+| host→webview | `exec { action: "save-as" \| "help" \| "about" }` | "…" menu commands with no in-webview chrome left to click: open the Save/Convert dialog, or the Help overlay on the Help/About tab. Ignored if no session or `staleTree` |
+| host→webview | `set-lang { lang }` | Language picked from the "…" menu's language submenu; calls the existing `chooseLang(lang)` |
 | webview→host | `ready` | Boot handshake |
 | webview→host | `edit { text }` | A Session mutation happened: `text` is `session.serialize()`. The host applies it as a minimal-span `WorkspaceEdit` (common prefix/suffix trim) — VS Code's dirty/undo/save machinery takes over from there |
 | webview→host | `request-undo` / `request-redo` | Webview keyboard/toolbar undo/redo forward to the workbench, which owns the text document's stacks |
