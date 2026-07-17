@@ -202,5 +202,6 @@
   "web.help.title": "confy web — 按鍵",
   "web.help.tab.help": "說明",
   "web.help.tab.about": "關於",
-  "web.about.language": "語言： {0}"
+  "web.about.language": "語言： {0}",
+  "web.vscode.staleTree": "原始文字有語法錯誤——樹狀檢視已暫停（此處的編輯會被忽略），待可解析後恢復"
 }

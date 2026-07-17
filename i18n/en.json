@@ -201,5 +201,6 @@
   "web.help.title": "confy web — keys",
   "web.help.tab.help": "Help",
   "web.help.tab.about": "About",
-  "web.about.language": "Language: {0}"
+  "web.about.language": "Language: {0}",
+  "web.vscode.staleTree": "Raw text has a syntax error — tree is paused (edits here are ignored) until it parses again"
 }

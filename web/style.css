@@ -645,3 +645,7 @@ body.host-vscode #btnSaveAs,
 body.host-vscode #btnTheme {
   display: none;
 }
+
+/* VS Code host: tree is stale while the side-by-side raw text doesn't parse
+   (see ui.ts staleTree) — dim it but keep it browsable/copyable. */
+body.stale-tree #tree { opacity: 0.45; }

@@ -15,7 +15,7 @@ import {
   type FsHandle,
 } from "./fs.js";
 import { isVsCode, onHostMessage, post, trackVsCodeTheme } from "./vscode.js";
-import type { HostToWebview } from "./vscode-protocol.js";
+import type { ConfigFormat, HostToWebview } from "./vscode-protocol.js";
 import { recentAdd, recentRemove, rebuildMenu, setupAppMenu } from "./menu.js";
 import {
   doConvertWrite,
@@ -110,6 +110,16 @@ const FS_AVAILABLE = fsAccessAvailable();
 // behavior differences below are gated on this flag so the browser and Tauri
 // hosts are untouched when acquireVsCodeApi is absent.
 const VSHOST = isVsCode();
+
+// VS Code host-bridge state. Declared up here (not inside the bridge block
+// further down) because `render()` — which reads hostDirty — sits above that
+// block; module-scope order makes the closure resolve at boot regardless, but
+// keeping them here reads cleanly. See the "VS Code host bridge" block below.
+let hostDirty = false; // tab dirty mirror; authoritative over snap.is_dirty here
+// Set when a text-changed failed to parse: the visible tree is stale, so
+// posting edits from it would clobber newer raw text. Cleared by the next
+// text-changed that parses.
+let staleTree = false;
 
 // The host surface the shared I/O flows (host-io.ts) are parameterized on.
 const io: HostIo = {
@@ -277,7 +287,7 @@ function render() {
   fmtPill.textContent = snap.doc_format.toUpperCase();
   fmtPill.classList.toggle("toggleable", inSampleMode());
   fmtPill.title = inSampleMode() ? "Sample — click to switch format" : "document format";
-  document.body.classList.toggle("dirty", snap.is_dirty);
+  document.body.classList.toggle("dirty", VSHOST ? hostDirty : snap.is_dirty);
   document.body.classList.toggle("paste-mode", (snap.clipboard_count ?? 0) > 0);
   titleEl.textContent = fileName ?? "confy";
   titleEl.title = fileName ?? ""; // full name on hover when the chip truncates
@@ -694,13 +704,14 @@ function batch(fn: () => void) {
 }
 
 // ---- VS Code host bridge (no-op unless VSHOST) ----
-// `hostInitiated` marks dispatches triggered by a host message (undo/redo/
-// revert/save-ok) so the resulting notification is a `synced` — the host must
-// not push a new VS Code edit entry for a change it initiated itself.
-let hostInitiated = false;
+// M1.5: VS Code's TextDocument is the single source of truth. The Session is
+// a view: user mutations post `edit {serialize()}`; every document change the
+// webview doesn't already hold comes back as `text-changed` and reloads the
+// Session (expansion + cursor restored by path).
+let hostInitiated = false; // reloading from host text — don't echo it back
 let lastNotifyText: string | null = null;
-let lastNotifyDirty: boolean | null = null;
-let lastNotifyDepth = 0;
+// (hostDirty / staleTree are declared up near `const VSHOST` — render() reads
+// hostDirty and sits above this block in module-scope order.)
 
 function hostDispatch(i: Intent) {
   hostInitiated = true;
@@ -711,83 +722,111 @@ function hostDispatch(i: Intent) {
   }
 }
 
-// Called after every render outside a batch (and once per batch): posts
-// edited/synced/edit-cancelled whenever the serialized text or dirty bit
-// actually moved. Navigation-only intents change neither and post nothing.
-// The history-depth delta (snap.history_len; History.past is unbounded, so
-// no cap artifacts) picks the flavor for user-initiated changes: grew → a
-// real edit push; shrank → History::cancel_last rolled the newest entry back
-// (add→Esc) and the host must neuter its matching stack entry; flat →
-// mirror-only sync (safe default).
+// Called after every render outside a batch (and once per batch): posts `edit`
+// whenever the serialized text actually moved. Navigation-only intents change
+// nothing and post nothing.
 function notifyHost() {
   if (!VSHOST || !session || !snap) return;
+  // Edit-mode gating (plan Decisions #2): defer while an inline edit is in
+  // flight — BEFORE lastNotifyText moves, so an add→Esc rollback that lands
+  // back on lastNotifyText posts nothing at all, and a commit posts one edit.
+  if (typeof snap.mode === "object" && "Edit" in snap.mode) return;
   const text = session.serialize();
-  const depth = snap.history_len;
-  const prevDepth = lastNotifyDepth;
-  lastNotifyDepth = depth; // track even when the dedupe below returns early
-  if (text === lastNotifyText && snap.is_dirty === lastNotifyDirty) return;
+  if (text === lastNotifyText) return;
   lastNotifyText = text;
-  lastNotifyDirty = snap.is_dirty;
-  const type = hostInitiated
-    ? "synced"
-    : depth > prevDepth
-      ? "edited"
-      : depth < prevDepth
-        ? "edit-cancelled"
-        : "synced";
-  post({ type, dirty: snap.is_dirty, text });
+  if (hostInitiated || staleTree) return;
+  hostDirty = true;
+  document.body.classList.toggle("dirty", true);
+  post({ type: "edit", text });
+}
+
+// Expansion + cursor survive a text-changed reload by path. A branch row is
+// expanded iff its successor row is deeper (ViewRow carries no expanded flag).
+function isExpandedRow(rows: ViewRow[], i: number): boolean {
+  return rows[i].is_branch && i + 1 < rows.length && rows[i + 1].depth > rows[i].depth;
+}
+
+function captureTreeState(): { expanded: Path[]; cursor: Path } | null {
+  if (!snap) return null;
+  const expanded = snap.rows.filter((_, i) => isExpandedRow(snap!.rows, i)).map((r) => r.path);
+  return { expanded, cursor: snap.cursor };
+}
+
+function restoreTreeState(saved: { expanded: Path[]; cursor: Path } | null) {
+  if (!saved || !session || !snap) return;
+  // Parents precede children in row order, so expanding in order always finds
+  // the child row once its parent is open. dispatch() directly (not send) —
+  // no notifyHost churn for view-only changes.
+  for (const p of saved.expanded) {
+    const rows = snap.rows;
+    const key = JSON.stringify(p);
+    const i = rows.findIndex((r) => JSON.stringify(r.path) === key);
+    if (i >= 0 && !isExpandedRow(rows, i)) {
+      snap = session.dispatch({ SetCursor: p });
+      snap = session.dispatch("ToggleExpand");
+    }
+  }
+  if (rowAt(saved.cursor)) snap = session.dispatch({ SetCursor: saved.cursor });
+  render();
+}
+
+// Reload the Session from host-provided text (init dirty carry / text-changed).
+function reloadFromHost(text: string, format: ConfigFormat, name: string | null) {
+  const saved = captureTreeState();
+  const before = session;
+  hostInitiated = true;
+  try {
+    openText(text, format, null, name);
+    // openText dispatches directly (not via send), so no notification fires on
+    // its own — run notifyHost explicitly to prime lastNotifyText with this text.
+    notifyHost();
+  } finally {
+    hostInitiated = false;
+  }
+  if (session !== before) {
+    staleTree = false;
+    restoreTreeState(saved);
+  } else {
+    // Parse failed: replaceSession left the old session in place. Freeze it —
+    // see staleTree above. Status carries the reason (replaceSession already
+    // wrote the parse error via its err callback; append the pause notice).
+    staleTree = true;
+    setStatus("", t("web.vscode.staleTree"));
+  }
+  // Visual cue while stale (grilling Q3): the tree dims but stays browsable.
+  document.body.classList.toggle("stale-tree", staleTree);
 }
 
 function handleHostMsg(msg: HostToWebview) {
   switch (msg.type) {
     case "init": {
       // VS Code's display language is authoritative in this host (same
-      // principle as theme): apply it before openText so its internal
-      // SetLang(getLang()) picks it up. In-session switching still works.
+      // principle as theme). Apply before openText so its internal
+      // SetLang(getLang()) picks it up.
       setLang(msg.lang === "zh-TW" ? "zh-TW" : "en");
+      hostDirty = msg.dirty;
       hostInitiated = true;
       try {
         openText(msg.text, msg.format, null, msg.name);
-        // openText dispatches directly (not via send), so no notification
-        // fires on its own — post the initial `synced` explicitly to seed the
-        // host's preview/text mirror and prime lastNotifyText.
         notifyHost();
       } finally {
         hostInitiated = false;
       }
-      // openText leaves `session` untouched on a parse failure (the error
-      // lands in #error via replaceSession's err callback) — surface it to
+      // openText leaves `session` untouched on a parse failure — surface it to
       // the host so it can offer the plain text editor instead.
       if (!session) {
         post({ type: "parse-error", message: errorEl.textContent || "parse failed" });
       }
       break;
     }
-    case "undo":
-      hostDispatch("Undo");
+    case "text-changed":
+      hostDirty = msg.dirty;
+      reloadFromHost(msg.text, formatFromName(fileName ?? "config.toml"), fileName);
       break;
-    case "redo":
-      hostDispatch("Redo");
-      break;
-    case "revert": {
-      hostInitiated = true;
-      try {
-        openText(msg.text, formatFromName(fileName ?? "config.toml"), null, fileName);
-        // Load-bearing, not just symmetry: the host self-updates on revert,
-        // but lastNotifyText here still holds the pre-revert text. Without
-        // this reset, an edit→revert→same-edit sequence would dedupe the next
-        // `edited` and the host would miss it (no undo entry, no dirty).
-        notifyHost();
-      } finally {
-        hostInitiated = false;
-      }
-      break;
-    }
-    case "save-request":
-      if (session) post({ type: "save-response", id: msg.id, text: session.serialize() });
-      break;
-    case "save-ok":
-      // Only now may the session mark itself clean (spec: save-ok ack).
+    case "saved":
+      hostDirty = false;
+      // Session may be stale (see staleTree) — the class toggle below still
+      // runs via render(); marking the session clean is safe either way.
       hostDispatch("Save");
       break;
   }
