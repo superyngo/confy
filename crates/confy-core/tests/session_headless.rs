@@ -1349,3 +1349,32 @@ fn reveal_path_hidden_by_filter_expands_and_reports() {
         "hidden-by-filter must report on the status line"
     );
 }
+
+// ---- children_of (breadcrumb mini-tree lazy query) ----
+
+#[test]
+fn children_of_lists_children_of_a_collapsed_branch() {
+    let s = toml_session("[a]\nx = 1\ny = 2\n");
+    // `a` is collapsed — children_of must not depend on expansion state.
+    let kids = s.children_of(&vec![Seg::Key("a".into())]);
+    assert_eq!(kids.len(), 2);
+    assert_eq!(kids[0].key, "x");
+    assert_eq!(kids[0].type_label, "integer");
+    assert!(!kids[0].is_branch);
+    assert_eq!(
+        kids[1].path,
+        vec![Seg::Key("a".into()), Seg::Key("y".into())]
+    );
+    // Unknown path → empty, never a panic.
+    assert!(s.children_of(&vec![Seg::Key("nope".into())]).is_empty());
+}
+
+#[test]
+fn children_of_includes_comments() {
+    // Grilled decision Q3/A: the mini-tree shows the same node set as the main
+    // tree — a Comment is a first-class child.
+    let s = toml_session("# note\na = 1\n");
+    let kids = s.children_of(&Vec::new());
+    assert_eq!(kids.len(), 2);
+    assert_eq!(kids[0].type_label, "comment");
+}

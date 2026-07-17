@@ -11,7 +11,7 @@ use crate::session::state::{
     Mode, PasteSlot, PendingComment, PendingCommit, PendingExternalEdit, PromptKind,
 };
 use crate::session::type_filter::TypeFilter;
-use crate::session::view::ViewRow;
+use crate::session::view::{ChildView, ViewRow};
 use std::collections::HashSet;
 
 pub struct Session {
@@ -221,6 +221,24 @@ impl Session {
         } else {
             self.status = Some(tr(self.lang, "core.reveal.hidden-by-filter").to_string());
         }
+    }
+
+    /// Immediate children of the node at `path`, independent of expansion
+    /// state — the Web UI breadcrumb mini-tree's lazy query (read-only,
+    /// mirrors the `kind_options` pattern). Unknown paths return an empty list.
+    pub fn children_of(&self, path: &Path) -> Vec<ChildView> {
+        let Some(node) = self.tree.node_at(path) else {
+            return Vec::new();
+        };
+        node.children
+            .iter()
+            .map(|c| ChildView {
+                key: c.key.clone(),
+                path: c.path.clone(),
+                type_label: node_type_label(&c.kind),
+                is_branch: c.is_branch(),
+            })
+            .collect()
     }
 
     // ---- Navigation ----
