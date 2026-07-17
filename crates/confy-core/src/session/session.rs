@@ -11,7 +11,7 @@ use crate::session::state::{
     Mode, PasteSlot, PendingComment, PendingCommit, PendingExternalEdit, PromptKind,
 };
 use crate::session::type_filter::TypeFilter;
-use crate::session::view::ViewRow;
+use crate::session::view::{ChildView, ViewRow};
 use std::collections::HashSet;
 
 pub struct Session {
@@ -202,6 +202,49 @@ impl Session {
         if visible {
             self.cursor = path;
         }
+    }
+
+    /// **Reveal** (CONTEXT.md §Operations): expand every ancestor prefix of
+    /// `path`, then place the cursor on it. Unknown paths are ignored; if an
+    /// active filter still hides the row, the expansion sticks, the cursor
+    /// stays put, and the status line says so.
+    pub fn reveal_path(&mut self, path: Path) {
+        if self.tree.node_at(&path).is_none() {
+            return;
+        }
+        for i in 0..path.len() {
+            self.expanded.insert(path[..i].to_vec());
+        }
+        let visible = self.visible_nodes().iter().any(|r| r.node.path == path);
+        if visible {
+            self.cursor = path.clone();
+            // Reveal also selects the target (single-node selection) — except
+            // the root, which has no selectable row, and paste mode, where the
+            // clipboard freezes the selection.
+            if self.clipboard.is_none() && !path.is_empty() {
+                self.selection.set_all(vec![path]);
+            }
+        } else {
+            self.status = Some(tr(self.lang, "core.reveal.hidden-by-filter").to_string());
+        }
+    }
+
+    /// Immediate children of the node at `path`, independent of expansion
+    /// state — the Web UI breadcrumb mini-tree's lazy query (read-only,
+    /// mirrors the `kind_options` pattern). Unknown paths return an empty list.
+    pub fn children_of(&self, path: &Path) -> Vec<ChildView> {
+        let Some(node) = self.tree.node_at(path) else {
+            return Vec::new();
+        };
+        node.children
+            .iter()
+            .map(|c| ChildView {
+                key: c.key.clone(),
+                path: c.path.clone(),
+                type_label: node_type_label(&c.kind),
+                is_branch: c.is_branch(),
+            })
+            .collect()
     }
 
     // ---- Navigation ----

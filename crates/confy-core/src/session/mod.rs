@@ -27,6 +27,6 @@ pub use type_filter::{
     classify, layout, nav_rows, Cell, CheckState, Group, LayoutRow, TypeFilter, TypeToken,
 };
 pub use view::{
-    ConvertView, EditView, ExternalEdit, ExternalEditKind, KindOptionView, ModeView, PromptView,
-    SessionSnapshot, TypeFilterCellView, TypeFilterRow, TypeFilterView, ViewRow,
+    ChildView, ConvertView, EditView, ExternalEdit, ExternalEditKind, KindOptionView, ModeView,
+    PromptView, SessionSnapshot, TypeFilterCellView, TypeFilterRow, TypeFilterView, ViewRow,
 };

@@ -22,6 +22,11 @@ pub enum Intent {
     /// Place the cursor on a visible row by path (pointer analogue of the
     /// navigation intents). Ignored if the path is not currently visible.
     SetCursor(crate::model::node::Path),
+    /// **Reveal** (CONTEXT.md §Operations): expand every ancestor of `path`
+    /// and place the cursor on it (Web UI breadcrumb mini-tree jump). No-op if
+    /// the path doesn't exist; if an active filter still hides the row, the
+    /// expansion sticks, the cursor stays put, and the status line reports it.
+    RevealPath(crate::model::node::Path),
     /// One-shot inline edit commit (pointer analogue of the `BeginEdit` →
     /// type → `EditCommit` keyboard flow). `value` replaces the scalar/comment
     /// text, `name` renames the key; `None` keeps the current one. Reuses the

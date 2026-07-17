@@ -1301,3 +1301,80 @@ fn escape_exits_help_from_either_tab() {
     s.dispatch(Intent::Escape);
     assert!(matches!(s.mode, Mode::Normal));
 }
+
+// ---- RevealPath (the "Reveal" operation — breadcrumb mini-tree jump) ----
+
+#[test]
+fn reveal_path_expands_ancestors_and_sets_cursor() {
+    let mut s = toml_session("[a]\n[a.b]\nx = 1\n");
+    // Everything starts collapsed: only root + `a` are visible.
+    let target = vec![
+        Seg::Key("a".into()),
+        Seg::Key("b".into()),
+        Seg::Key("x".into()),
+    ];
+    s.dispatch(Intent::RevealPath(target.clone()));
+    let rows = s.visible_rows();
+    let cursor_row = rows.iter().find(|r| r.is_cursor).unwrap();
+    assert_eq!(cursor_row.path, target);
+}
+
+#[test]
+fn reveal_path_ignores_unknown_path() {
+    let mut s = toml_session("a = 1\n");
+    let before = s.visible_rows().len();
+    let snap = s.dispatch(Intent::RevealPath(vec![Seg::Key("nope".into())]));
+    assert_eq!(s.visible_rows().len(), before, "no expansion happened");
+    assert!(snap.status.is_none(), "unknown path is a silent no-op");
+    let rows = s.visible_rows();
+    let cursor_row = rows.iter().find(|r| r.is_cursor).unwrap();
+    assert_eq!(cursor_row.key, "", "cursor stays on root");
+}
+
+#[test]
+fn reveal_path_hidden_by_filter_expands_and_reports() {
+    let mut s = toml_session("port = 8080\n[a]\nx = 1\n");
+    s.dispatch(Intent::SetFilter("port".into()));
+    // `a.x` exists but the filter hides it: expansion sticks, cursor doesn't
+    // move onto it, and the status line says so (grilled decision Q4/C).
+    let snap = s.dispatch(Intent::RevealPath(vec![
+        Seg::Key("a".into()),
+        Seg::Key("x".into()),
+    ]));
+    let rows = s.visible_rows();
+    let cursor_row = rows.iter().find(|r| r.is_cursor).unwrap();
+    assert_ne!(cursor_row.key, "x");
+    assert!(
+        snap.status.is_some(),
+        "hidden-by-filter must report on the status line"
+    );
+}
+
+// ---- children_of (breadcrumb mini-tree lazy query) ----
+
+#[test]
+fn children_of_lists_children_of_a_collapsed_branch() {
+    let s = toml_session("[a]\nx = 1\ny = 2\n");
+    // `a` is collapsed — children_of must not depend on expansion state.
+    let kids = s.children_of(&vec![Seg::Key("a".into())]);
+    assert_eq!(kids.len(), 2);
+    assert_eq!(kids[0].key, "x");
+    assert_eq!(kids[0].type_label, "integer");
+    assert!(!kids[0].is_branch);
+    assert_eq!(
+        kids[1].path,
+        vec![Seg::Key("a".into()), Seg::Key("y".into())]
+    );
+    // Unknown path → empty, never a panic.
+    assert!(s.children_of(&vec![Seg::Key("nope".into())]).is_empty());
+}
+
+#[test]
+fn children_of_includes_comments() {
+    // Grilled decision Q3/A: the mini-tree shows the same node set as the main
+    // tree — a Comment is a first-class child.
+    let s = toml_session("# note\na = 1\n");
+    let kids = s.children_of(&Vec::new());
+    assert_eq!(kids.len(), 2);
+    assert_eq!(kids[0].type_label, "comment");
+}

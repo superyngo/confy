@@ -53,6 +53,14 @@ export interface ViewRow {
   is_cursor: boolean;
 }
 
+// ---- Breadcrumb children query (session::view::ChildView, ffi `children`) ----
+export interface ChildView {
+  key: string;
+  path: Path;
+  type_label: string;
+  is_branch: boolean;
+}
+
 // ---- Mode projection (session::view::ModeView) ----
 export type PromptView =
   | "ConfirmQuit"
@@ -163,6 +171,7 @@ export type Intent =
   | "ToggleExpand" | "CollapseAll" | "ExpandAll" | "ExpandLevel" | "CollapseLevel"
   // Pointer (Web UI)
   | { SetCursor: Path }
+  | { RevealPath: Path }
   | { CommitEdit: { value: string | null; name: string | null } }
   | { CommitKind: { path: Path; target: string } }
   | { SetSelection: { paths: Path[] } }

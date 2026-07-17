@@ -20,6 +20,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 2026-07-17 feat(vscode): 0.2.1 — title-bar toggle now truly swaps in place (open new view, then close the old tab, avoiding VS Code's per-(uri,viewType) tab stacking); "Open Text Editor to the Side" promoted to an editor/title icon button next to "Reopen as Text Editor" (was command-palette only)
 - 2026-07-17 feat(vscode): M1.6 (0.3.0) — Save As/Convert entry point: new `exec`/`set-lang` protocol messages, `confy.saveAsConvert` editor-title command + ⇧⌘S/Ctrl-Shift-S opening confy's own Save/Convert dialog; whole confy toolbar header hidden in this host (`header.toolbar` under `body.host-vscode`, was three buttons) with Save As/Convert, Help, About, and a native Language submenu (English/繁體中文 picked directly, no QuickPick) moved to the editor title's "…" More Actions menu (`confy.help`/`confy.about`/`confy.langEnglish`/`confy.langZhTw` + `contributes.submenus`, routed via `ConfyEditorProvider.postToActive` tracking the active `WebviewPanel`); language choice persists in `context.globalState["confy.lang"]` and overrides `vscode.env.language` on the next boot; VS Code-specific Help text variant (`help-content.ts`'s `HELP_TEXT_VSCODE`/zh-TW pair) drops the inapplicable Ctrl-o/q lines and documents ⇧⌘S + the "…" menu
 - 2026-07-17 fix(vscode): ⇧⌘S/Ctrl-Shift-S Save As/Convert — the workbench's own Save-As keybinding was claiming the keystroke before the webview's `keydown` handler ever saw it (confirmed by manual testing), so the shortcut is now an extension-side `contributes.keybindings` rebind of `confy.saveAsConvert` (scoped to `activeCustomEditorId == 'confy.editor'`) instead of a webview-side intercept, which is removed as dead code
+- 2026-07-17 feat(vscode): Marketplace icon — `editors/vscode/icon.png` (the confy brand icon) wired via `package.json`'s `icon` field, verified with a local `vsce package`
+- 2026-07-17 feat(core): Privacy Policy paragraph added to the shared About text (`ABOUT_TEXT`/`ABOUT_TEXT_ZH_TW`) — one core string consumed verbatim by TUI, Web, Touch, Tauri, and VS Code, so all hosts pick it up with no per-host changes
+- 2026-07-17 fix(tui+web): Help/About overlay line wrapping — the TUI overlay now wraps long lines (`Paragraph::wrap`) with scroll math based on a `wrapped_line_count` matching the popup's 65% width; the web VS Code help paragraphs are joined into single lines so CSS wraps them naturally
+
+### Unreleased Update — 2026-07-17
+- feat(web): breadcrumb bar + mini-tree picker below the filter row — segment
+  click opens a lazy mini document tree (new ffi `children(path)` query),
+  row click Reveals the node via the new core `RevealPath` intent (expands
+  ancestors + sets cursor; filter-hidden targets keep the cursor and report on
+  the status line). All web hosts (browser / Tauri / VS Code webview); touch UI
+  excluded. New glossary term: Reveal (CONTEXT.md §Operations).
+- feat(web+core): breadcrumb direct-jump refinement — clicking a segment now
+  Reveals it directly (no mini-tree detour); the mini-tree moves to the `›`
+  separators (plus a trailing `›` after the current node, the only entry when
+  the cursor is on the root). `RevealPath` additionally selects the revealed
+  node (single-node selection; skipped for the root and in paste mode where the
+  clipboard freezes selection), and the web UI smooth-scrolls the revealed row
+  to the viewport center (clamped at the top/bottom edges).
+- fix(web): the Save As/Convert chevron now toggles — a second click while its
+  menu is open closes it (same pattern as the language and ⋯ buttons).
 
 ## [v0.15.0] - 2026-07-15
 

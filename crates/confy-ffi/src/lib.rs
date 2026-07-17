@@ -104,6 +104,13 @@ impl ConfySession {
         to_value(&opts).map_err(js_serde_error)
     }
 
+    /// Immediate children of the node at `path` (breadcrumb mini-tree), as
+    /// `ChildView[]` — independent of expansion state.
+    pub fn children(&self, path: JsValue) -> Result<JsValue, JsValue> {
+        let path: Path = from_value(path).map_err(js_serde_error)?;
+        to_value(&self.session.children_of(&path)).map_err(js_serde_error)
+    }
+
     /// Convenience accessor: the current external-edit request (if any), as
     /// `{ initial, kind }`. The host opens its async modal with `initial`.
     pub fn external_edit(&self) -> Result<JsValue, JsValue> {

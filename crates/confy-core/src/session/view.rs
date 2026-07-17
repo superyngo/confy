@@ -4,6 +4,18 @@ use crate::session::state::{ConvertStep, EditField, HelpTab};
 use crate::session::type_filter::CheckState;
 use serde::{Deserialize, Serialize};
 
+/// One immediate child of a node — the Web UI breadcrumb mini-tree row
+/// (returned by `Session::children_of`, exposed as ffi `children(path)`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChildView {
+    pub key: String,
+    pub path: Path,
+    /// Core type label ("table"/"array"/"string"/"comment"/…), same vocabulary
+    /// as `ViewRow::type_label`.
+    pub type_label: String,
+    pub is_branch: bool,
+}
+
 /// One visible row in the tree — the view model both the TUI and Web UI render.
 /// The host adds presentation-only fields (type_tag fixed-pitch label, column padding).
 #[derive(Debug, Clone, Serialize, Deserialize)]

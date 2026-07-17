@@ -190,6 +190,15 @@ The toggle that turns a live Node into a **Comment** (and back). Canonical name 
 _Avoid_: Disable/enable, comment-out (use these only as verbs in prose, never as the concept
 name).
 
+**Reveal**:
+Make the Node at a given path visible in the main tree — expand **all** of its ancestors, move
+the cursor onto it, and select it (a single-node selection replacing any prior one; in paste
+mode the clipboard-frozen selection is left untouched, and the root — which has no selectable
+row — only takes the cursor). If an active filter (text or type) still hides the Node, the expansion
+sticks, the cursor stays put, and the status line reports that the target is hidden by the
+filter. Canonical name for the breadcrumb / mini-tree jump.
+_Avoid_: Jump, Go-to (they describe only the cursor move, not the ancestor expansion).
+
 **Type filter** (`f`) vs **Text filter** (`/`):
 Two independent ways to narrow the visible tree. The **Text filter** (`/`) fuzzy-matches a Node's
 key/path (and a Comment's text). The **Type filter** (`f`) is a checkbox menu selecting **type

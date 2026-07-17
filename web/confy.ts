@@ -5,6 +5,7 @@ import init, {
   ConfySession as RawSession,
 } from "./pkg/confy_ffi.js";
 import type {
+  ChildView,
   Intent,
   KindOptionView,
   Path,
@@ -72,6 +73,11 @@ export class Session {
 
   kindOptions(path: Path): KindOption[] {
     return this.raw.kind_options(path) as KindOption[];
+  }
+
+  /** Immediate children of the node at `path` (breadcrumb mini-tree). */
+  children(path: Path): ChildView[] {
+    return this.raw.children(path) as ChildView[];
   }
 
   /** Free the underlying wasm memory. */

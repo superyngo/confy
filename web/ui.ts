@@ -45,6 +45,7 @@ import { resolveClick, resetAnchor, rowsInRect, setAnchor } from "./select.js";
 import { foldedEntries, type ToolbarEntry } from "./toolbar-fold.js";
 import { installDnd } from "./dnd.js";
 import { panelHTML, wirePanel } from "./panel.js";
+import { renderCrumbs, wireCrumbDismiss } from "./breadcrumb.js";
 import { bindPromptClicks, promptButtonsHTML, promptQuestion } from "./prompt.js";
 import { typeFilterHTML, wireTypeFilter } from "./typefilter.js";
 import {
@@ -94,6 +95,8 @@ let rawView = false;
 const statusEl = $("status");
 const errorEl = $("error");
 const fmtPill = $("fmtPill");
+const crumbsEl = $("crumbs");
+wireCrumbDismiss();
 const titleEl = $("title");
 const selBadge = $("selBadge");
 const clipBadge = $("clipBadge");
@@ -297,6 +300,20 @@ function render() {
   // mechanism as the touch UI, driven by the shared snapshot flag).
   $("btnTypeFilter").classList.toggle("on", snap.type_filter_active);
   renderRawOrTree();
+  crumbsEl.classList.toggle("hidden", rawView);
+  if (!rawView) {
+    renderCrumbs(crumbsEl, snap, {
+      children: (p) => session!.children(p),
+      jump: (p) => {
+        send({ RevealPath: p });
+        // Center the revealed row (dispatch is sync, so the tree is already
+        // re-rendered); skipped when the filter kept the cursor put.
+        if (snap && JSON.stringify(snap.cursor) === JSON.stringify(p)) {
+          tree.querySelector(".row.cursor")?.scrollIntoView({ block: "center", behavior: "smooth" });
+        }
+      },
+    });
+  }
   focusInlineEdit();
   renderDetailPanel();
   renderTypeFilterPop();
@@ -1601,7 +1618,11 @@ function bindGlobal() {
   bindConvertDialog();
   openBtn.addEventListener("click", openOpenModal);
   saveBtn.addEventListener("click", () => void doSave());
-  saveAsBtn.addEventListener("click", () => openSaveMenuNear(saveAsBtn));
+  saveAsBtn.addEventListener("click", () => {
+    // Toggle: a second click on the chevron while its menu is open closes it.
+    if ($("saveMenu").classList.contains("open")) return closePops();
+    openSaveMenuNear(saveAsBtn);
+  });
   fmtPill.addEventListener("click", () => cycleSampleFormat(openSample)); // no-op unless in sample mode
   themeBtn.addEventListener("click", toggleTheme);
   langBtn.addEventListener("click", (e) => {

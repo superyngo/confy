@@ -77,6 +77,8 @@ pub const ABOUT_TEXT: &str = concat!(
     "License:   MIT\n",
     "Copyright: (c) 2026 wen\n",
     "GitHub:    https://github.com/superyngo/confy\n",
+    "\n",
+    "Privacy: confy runs entirely offline. It collects no telemetry and transmits no data. Files stay on your device/browser; the only network activity is the optional Open-from-URL feature fetching a URL you supply. Language/theme preferences are stored locally only.\n",
 );
 
 /// Static About-tab text, zh-TW body (Phase 4). Kept as its own const —
@@ -93,6 +95,8 @@ pub const ABOUT_TEXT_ZH_TW: &str = concat!(
     "授權：     MIT\n",
     "版權：     (c) 2026 wen\n",
     "GitHub：   https://github.com/superyngo/confy\n",
+    "\n",
+    "隱私權：confy 完全離線運作，不蒐集任何遙測資料，也不會傳輸任何資料。檔案僅保留在您的裝置／瀏覽器中；唯一的網路活動是選用的「從網址開啟」功能，會擷取您所提供的網址。語言／主題偏好設定僅儲存在本機。\n",
 );
 
 /// About-tab text for `lang`.

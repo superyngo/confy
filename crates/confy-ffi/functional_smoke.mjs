@@ -318,5 +318,25 @@ const aboutText = s19.about_text();
 check("about_text() returns the core About body", aboutText.includes("confy"), aboutText);
 check("about_text() mentions the GitHub repo", aboutText.includes("github.com/superyngo/confy"), aboutText);
 
+// ---- 25. Breadcrumb: RevealPath (Reveal) + children(path) ----
+{
+  const sb = new ConfySession('[a]\n[a.b]\nx = 1\nport = 8080\n', "toml");
+  const kids = sb.children([{ Key: "a" }]);
+  check("children() lists a collapsed branch's child", kids.length === 1 && kids[0].key === "b", JSON.stringify(kids));
+  check("children() child carries path + type_label + is_branch",
+    kids[0].type_label === "table" && kids[0].is_branch === true && kids[0].path.length === 2,
+    JSON.stringify(kids[0]));
+  check("children() empty on unknown path", sb.children([{ Key: "zzz" }]).length === 0);
+  let snb = sb.dispatch(tuple("RevealPath", [{ Key: "a" }, { Key: "b" }, { Key: "x" }]));
+  const curRow = snb.rows.find((r) => r.is_cursor);
+  check("RevealPath expands ancestors and sets cursor", curRow && curRow.key === "x", JSON.stringify(snb.cursor));
+  snb = sb.dispatch(tuple("RevealPath", [{ Key: "zzz" }]));
+  check("RevealPath no-ops on an unknown path", snb.rows.find((r) => r.is_cursor).key === "x");
+  sb.dispatch(tuple("SetFilter", "port"));
+  snb = sb.dispatch(tuple("RevealPath", [{ Key: "a" }, { Key: "b" }, { Key: "x" }]));
+  check("RevealPath hidden-by-filter reports on status", typeof snb.status === "string" && snb.status.length > 0, snb.status);
+  sb.free();
+}
+
 console.log(failures === 0 ? "\nALL FUNCTIONAL CHECKS PASSED" : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);
