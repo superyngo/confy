@@ -573,12 +573,14 @@ the diff would key on, so the upgrade is additive.
 
 ## VS Code (webview host)
 
-`editors/vscode/` is a third host shell (M1, sideload `.vsix` only — no Marketplace
-listing). A `CustomEditorProvider` owns the VS Code document lifecycle and file I/O;
-the webview runs the unmodified `web/dist` bundle plus `web/vscode.ts`'s adapter. Every
-behavior difference from the browser/Tauri hosts is gated in `ui.ts` on `VSHOST`
-(`isVsCode()` — true only when `acquireVsCodeApi` exists), so the pure-browser and Tauri
-builds are byte-identical when it is absent.
+`editors/vscode/` is a third host shell (M1.5, sideload `.vsix` only — no Marketplace
+listing). A `CustomTextEditorProvider` makes VS Code's own `TextDocument` the single
+source of truth for content, dirty state, undo stack, save, revert, and hot exit; the
+webview runs the unmodified `web/dist` bundle plus `web/vscode.ts`'s adapter, and the
+Session there is a *view* over that document. Every behavior difference from the
+browser/Tauri hosts is gated in `ui.ts` on `VSHOST` (`isVsCode()` — true only when
+`acquireVsCodeApi` exists), so the pure-browser and Tauri builds are byte-identical when
+it is absent.
 
 **Chrome trimming.** `document.body.classList.add("host-vscode")` on boot; `style.css`
 hides `#btnOpen`/`#btnSaveAs`/`#btnTheme` under `body.host-vscode` — the document is
@@ -595,35 +597,43 @@ runs a `MutationObserver` on `document.body`'s class list, mapping VS Code's
 
 | Direction | Message | Purpose |
 |---|---|---|
-| host→webview | `init` | Initial text/name/format/lang; VS Code's display language is authoritative here (same principle as theme) |
-| host→webview | `undo` / `redo` | The *only* way an undo/redo reaches the Session (single-owner rule) |
-| host→webview | `save-request { id }` | Host asks for `session.serialize()` (save/save-as/backup) |
-| host→webview | `save-ok { id }` | Sent only after `workspace.fs.writeFile` succeeded; the webview marks the session clean only on this ack |
-| host→webview | `revert { text }` | File > Revert: rebuild the Session from on-disk text |
+| host→webview | `init { text, name, format, lang, dirty }` | Initial state; `dirty` rides along because the TextDocument may already be dirty when the confy editor opens (toggle from an unsaved text editor). VS Code's display language is authoritative here (same principle as theme) |
+| host→webview | `text-changed { text, dirty }` | The document changed under us — side-by-side typing (150ms debounce), undo/redo, revert, git. Echoes of the webview's own `edit` are filtered host-side (via `webviewText`) and never arrive here |
+| host→webview | `saved` | The document was saved (any save path) — webview clears its dirty pill |
 | webview→host | `ready` | Boot handshake |
-| webview→host | `edited { dirty, text }` | A user-initiated mutation: host pushes one VS Code edit entry + refreshes the raw preview |
-| webview→host | `synced { dirty, text }` | A host-initiated change (undo/redo/revert/save-ok) landed: mirror only, no new edit entry (an addition over the original spec table — the suppression half of the undo rule) |
-| webview→host | `edit-cancelled { dirty, text }` | The Session rolled back its newest history entry *without* a host undo (add→Esc via `History::cancel_last`, detected as a `history_len` decrease): mirror + neuter the newest live VS Code edit entry |
-| webview→host | `save-response { id, text }` | Answers a `save-request` |
-| webview→host | `request-undo` / `request-redo` | Webview keyboard/toolbar undo forwards to the host so VS Code's stack stays the sole entry point |
+| webview→host | `edit { text }` | A Session mutation happened: `text` is `session.serialize()`. The host applies it as a minimal-span `WorkspaceEdit` (common prefix/suffix trim) — VS Code's dirty/undo/save machinery takes over from there |
+| webview→host | `request-undo` / `request-redo` | Webview keyboard/toolbar undo/redo forward to the workbench, which owns the text document's stacks |
 | webview→host | `request-save` | Webview Save / ⌘S → workbench save |
 | webview→host | `convert-save { suggestedName, text }` | Convert (or same-format save-a-copy) output: host shows a native save dialog |
 | webview→host | `parse-error { message }` | Initial text failed to parse: host offers the default text editor instead of a white screen |
 
-**The `history_len` / `edit-cancelled` depth rule.** `SessionSnapshot.history_len`
-(`History::depth()`, i.e. `past.len()`) is the one additive core change M1 needed. The
-webview diffs it across every dispatch outside a batch: depth **grew** → a real edit
-(`edited`), depth **shrank** → `History::cancel_last` rolled the newest entry back
-(the two callsites are scalar add→Esc and comment add→Esc) and the host must neuter its
-matching VS Code entry (`edit-cancelled`), depth **flat** → mirror-only (`synced`).
-Documented residual wart: VS Code's edit-stack API can't *remove* an entry, so the
-neutered add→Esc entry still counts toward the dirty dot until it is popped by one
-no-op ⌘Z at the tail of the stack.
+**Echo suppression.** The host tracks `webviewText` (last text the webview is known to
+hold — set on `ready`'s `init` reply, on every received `edit`, and on every posted
+`text-changed`). An `onDidChangeTextDocument` whose result equals `webviewText` is the
+echo of the host's own `applyEdit` and is not posted back — this is what lets a shared
+`TextDocument` avoid an infinite edit↔text-changed loop.
 
-**Revert / hot-exit restore resets view state — by design.** Both rebuild the Session
-via `openText`, so expansion/cursor/selection/filter state resets to the fresh-load
-default. This is intended: a view reset alongside an explicit destructive action, not a
-bug to fix.
+**Edit-mode gating eliminates the M1 add→Esc wart.** The webview's `notifyHost` defers
+posting `edit` while `Mode::Edit` is active: an `a`-add's immediate Insert never reaches
+the host; Esc rolls the Session back to `lastNotifyText` and nothing is posted (no dirty,
+no undo entry), while a commit posts one single `edit` for the whole add. A side-by-side
+text editor doesn't see in-flight inline-edit/nudge churn until commit; a save/hot-exit
+during an in-flight edit stores the text *without* the transient placeholder.
+
+**Stale-tree pause.** While side-by-side text doesn't parse, `reloadFromHost` leaves the
+last-good Session in place, sets `staleTree`, and the webview dims the tree
+(`body.stale-tree` CSS — browsable/copyable but visibly paused) and shows a status
+message (`web.vscode.staleTree`), and stops posting `edit` (so a stale tree can never
+clobber newer raw text). Tree edits made during the stale window are dropped on the next
+successful reload — a rare, accepted wart. The pause clears the moment a later
+`text-changed` parses.
+
+**Expansion + cursor restore on `text-changed`.** A successful reload captures the
+expanded-branch set and cursor path before rebuilding the Session, then replays them by
+path afterward (`captureTreeState`/`restoreTreeState`) — parents precede children in row
+order, so expanding in order always finds the child row once its parent is open. An
+in-flight inline edit, modal, selection, or filter is discarded by the reload; this is
+accepted (it matches revert semantics).
 
 **Boot-path localStorage guards.** `host-io.ts`'s `initTheme`/`toggleTheme` and
 `i18n.ts`'s `getLang`/`setLang` all wrap `localStorage` access in `try/catch` — a

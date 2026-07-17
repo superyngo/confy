@@ -388,28 +388,30 @@ crates/tauri-plugin-confy-picker/   first-party Tauri mobile plugin, Android-onl
                  since `content://` URIs are opaque and don't reliably embed a filename/extension
                  for format detection.
 
-editors/vscode/          third host shell (M1, sideload-only, no Marketplace): a
-                          `CustomEditorProvider` VS Code extension embedding `web/dist` verbatim
-                          in a webview, plus a `confy-raw://` `TextDocumentContentProvider` for a
-                          live read-only preview. `web/vscode-protocol.ts`/`web/vscode.ts` are the
-                          shared-type adapter layer the webview side uses (imported here as
+editors/vscode/          third host shell (M1.5, sideload-only, no Marketplace): a
+                          `CustomTextEditorProvider` VS Code extension embedding `web/dist`
+                          verbatim in a webview. VS Code's `TextDocument` is the single source of
+                          truth — content, dirty state, undo stack, save, revert, hot exit are all
+                          native. `web/vscode-protocol.ts`/`web/vscode.ts` are the shared-type
+                          adapter layer the webview side uses (imported here as
                           `../../../web/vscode-protocol.ts` — protocol drift is a compile error,
                           not a runtime surprise); every other `web/` behavior difference is gated
                           on `ui.ts`'s `VSHOST` flag (`isVsCode()`), so the browser/Tauri hosts are
-                          byte-identical when `acquireVsCodeApi` is absent. Save only marks the
-                          Session clean on a `save-ok` ack **after** `workspace.fs.writeFile`
-                          actually succeeds. Undo/redo has a single owner: the webview never
-                          dispatches `Undo`/`Redo` itself — it posts `request-undo`/`request-redo`
-                          and VS Code's own edit stack (one entry per `edited` message, with
-                          undo/redo callbacks that post back `undo`/`redo`) is the sole entry
-                          point; `SessionSnapshot.history_len` (confy-core) lets the webview tell a
-                          real edit push apart from `History::cancel_last` rolling one back
-                          (add→Esc) and emit `edit-cancelled`, which neuters the newest live VS
-                          Code entry so a later undo can't replay a Session edit that no longer
-                          exists. `media/` is a build-time copy of `web/dist` (gitignored, staged
-                          by `build.mjs`) — the extension ships no web source of its own. Like the
-                          web bundle, **the extension's esbuild must run from a scratchpad copy**;
-                          see `editors/vscode/README.md` for the exact commands.
+                          byte-identical when `acquireVsCodeApi` is absent. A webview mutation
+                          posts `edit {serialize()}`; the host applies it as a minimal-span
+                          `WorkspaceEdit` (common prefix/suffix trim) and tracks `webviewText` so
+                          the resulting `onDidChangeTextDocument` echo is filtered, not re-posted.
+                          Any document change the webview doesn't already hold (side-by-side
+                          typing debounced 150ms, undo/redo, revert, git) arrives as
+                          `text-changed`, and the webview reloads its Session from it, restoring
+                          expansion + cursor by path; a `text-changed` that fails to parse pauses
+                          the tree (dimmed, browsable, edits ignored) until a later one parses.
+                          `saved` clears the dirty pill. `SessionSnapshot.history_len` remains in
+                          core but the webview no longer reads it. `media/` is a build-time copy of
+                          `web/dist` (gitignored, staged by `build.mjs`) — the extension ships no
+                          web source of its own. Like the web bundle, **the extension's esbuild
+                          must run from a scratchpad copy**; see `editors/vscode/README.md` for the
+                          exact commands.
 ```
 
 **Desktop + mobile host I/O.** `web/fs.ts` detects Tauri (`window.__TAURI__`) and routes

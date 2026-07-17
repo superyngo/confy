@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 2026-07-15 feat(vscode): raw preview command, convert-save dialog, parse-error fallback
 - 2026-07-15 feat(vscode): package sideload .vsix + docs (M1)
 - 2026-07-16 feat(vscode): editor title-bar toggle — Open with confy ⇄ Reopen as Text Editor (in-place tab swap; dirty text buffer saved before switching); shared-dirty-state sync via CustomTextEditorProvider recorded as the M1.5 goal
+- 2026-07-16 feat(vscode): M1.5 — rebase onto CustomTextEditorProvider: shared TextDocument owns dirty/undo/save/hot-exit; toggle carries unsaved changes; editable side-by-side text sync (150ms debounce, tree pauses on invalid text); raw preview retired for "Open Text Editor to the Side"; vsix 0.2.0
 
 ## [v0.15.0] - 2026-07-15
 

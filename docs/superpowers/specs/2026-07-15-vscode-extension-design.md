@@ -181,13 +181,14 @@ The extension-host layer is thin glue, so M1 skips `@vscode/test-electron`. Veri
 ## Non-goals (M1)
 
 - Marketplace publishing (M2: publisher account, listing assets, CI release).
-- Reconciling external on-disk changes while a confy editor is open.
+- Reconciling external on-disk changes while a confy editor is open — **superseded by
+  M1.5**: on-disk changes to an *open* TextDocument now flow through
+  `onDidChangeTextDocument` and are handled (side-by-side typing, undo/redo, revert, git).
 - Bidirectional live sync with an editable text buffer (`CustomTextEditorProvider`) —
-  **promoted to the M1.5 goal (2026-07-16)**: rebase the provider on
-  `CustomTextEditorProvider` so the built-in text editor and confy share one
-  `TextDocument` (one dirty state, no disk round-trip when toggling). This reworks the
-  save/undo/edit-token protocol; until then the title-bar toggle (below) closes one
-  editor before opening the other.
+  **SHIPPED as M1.5 (2026-07-16)** — see
+  docs/superpowers/plans/2026-07-16-vscode-m1_5-shared-dirty-state.md; the TextDocument
+  owns content/dirty/undo, the webview posts whole-serialize edits applied as minimal-span
+  WorkspaceEdits, and external changes reload the Session with tree-state restore.
 - Full `--vscode-*` theme-variable mapping (light/dark only).
 - Extension settings UI / walkthroughs.
 
@@ -198,10 +199,10 @@ text editor and confy (`vscode.openWith` on the same uri in the same group repla
 tab, since a resource opens at most once per group):
 
 - **Open with confy** (`confy.openWithConfy`, `$(list-tree)`) — shown on matching
-  extensions when the active editor is not confy. A dirty text buffer is saved first,
-  because `openCustomDocument` reads from disk.
+  extensions when the active editor is not confy.
 - **Reopen as Text Editor** (`confy.reopenAsText`, `$(go-to-file)`) — shown when
-  `activeCustomEditorId == 'confy.editor'`. A dirty confy editor goes through VS Code's
-  standard save prompt as its tab closes.
+  `activeCustomEditorId == 'confy.editor'`.
 
-Seamless dirty-state handoff between the two views is the M1.5 goal above.
+Since M1.5, both directions carry dirty state seamlessly: the toggle reopens the same
+shared `TextDocument` in the other view, so an unsaved edit is neither saved nor prompted
+for — it simply appears in the new view, still dirty.
