@@ -1591,6 +1591,7 @@ function bindGlobal() {
     openLangMenuNear(e.currentTarget as HTMLElement);
   });
   $("btnInfo").addEventListener("click", () => send("EnterHelp"));
+  $("btnOpenBeside").addEventListener("click", () => post({ type: "open-text-beside" }));
   $("btnMore").addEventListener("click", (e) => {
     // Toggle: a second click on ⋯ while its menu is open closes it.
     if ($("moreMenu").classList.contains("open")) return closePops();

@@ -89,6 +89,7 @@
   "web.toolbar.theme.title": "切換主題",
   "web.toolbar.lang.title": "語言",
   "web.toolbar.info.title": "說明／關於 (?)",
+  "web.toolbar.openBeside.title": "在旁開啟文字編輯器",
   "web.toolbar.more.title": "更多操作",
   "web.toolbar.typefilter.title": "類型篩選（f）",
   "web.toolbar.typefilter.label": "類型篩選",

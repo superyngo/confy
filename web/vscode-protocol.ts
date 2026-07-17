@@ -33,4 +33,7 @@ export type WebviewToHost =
   | { type: "request-save" }
   // Convert (and same-format save-a-copy) output: host shows a save dialog.
   | { type: "convert-save"; suggestedName: string; text: string }
-  | { type: "parse-error"; message: string };
+  | { type: "parse-error"; message: string }
+  // Panel button mirror of the command-palette "confy: Open Text Editor to
+  // the Side" — host opens the default editor for this uri beside.
+  | { type: "open-text-beside" };

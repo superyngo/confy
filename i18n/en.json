@@ -88,6 +88,7 @@
   "web.toolbar.theme.title": "Toggle theme",
   "web.toolbar.lang.title": "Language",
   "web.toolbar.info.title": "Help / About (?)",
+  "web.toolbar.openBeside.title": "Open Text Editor to the Side",
   "web.toolbar.more.title": "More actions",
   "web.toolbar.typefilter.title": "Type filter (f)",
   "web.toolbar.typefilter.label": "Type filter",
