@@ -217,7 +217,13 @@ impl Session {
         }
         let visible = self.visible_nodes().iter().any(|r| r.node.path == path);
         if visible {
-            self.cursor = path;
+            self.cursor = path.clone();
+            // Reveal also selects the target (single-node selection) — except
+            // the root, which has no selectable row, and paste mode, where the
+            // clipboard freezes the selection.
+            if self.clipboard.is_none() && !path.is_empty() {
+                self.selection.set_all(vec![path]);
+            }
         } else {
             self.status = Some(tr(self.lang, "core.reveal.hidden-by-filter").to_string());
         }

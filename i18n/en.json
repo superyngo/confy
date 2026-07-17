@@ -99,6 +99,7 @@
   "web.toolbar.viewToggle.tree": "Tree",
   "web.search.placeholder": "search keys or values…  ( / to focus )",
   "web.crumbs.root.title": "Document root",
+  "web.crumbs.browse.title": "Browse tree",
   "web.search.clear.title": "clear",
   "web.detail.title": "Node detail",
   "web.detail.close.title": "close",

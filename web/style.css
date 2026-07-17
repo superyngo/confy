@@ -664,7 +664,11 @@ body.stale-tree #tree { opacity: 0.45; }
 }
 .crumbs .crumb:hover { background: var(--accent-soft); color: var(--fg); }
 .crumbs .crumb.current { color: var(--fg); font-weight: 600; }
-.crumb-sep { color: var(--faint); padding: 0 1px; }
+.crumb-sep {
+  color: var(--faint); padding: 0 3px;
+  border: 0; background: none; font: inherit; border-radius: 4px; cursor: pointer;
+}
+.crumbs .crumb-sep:hover { background: var(--accent-soft); color: var(--fg); }
 .crumb-glyph { font-size: 10px; min-width: 20px; text-align: center; }
 .crumb-glyph.t-branch { color: var(--t-branch); }
 .crumb-glyph.t-string { color: var(--t-string); }

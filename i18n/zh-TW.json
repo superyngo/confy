@@ -100,6 +100,7 @@
   "web.toolbar.viewToggle.tree": "Tree",
   "web.search.placeholder": "搜尋 key 或 value…（按 / 聚焦）",
   "web.crumbs.root.title": "文件根節點",
+  "web.crumbs.browse.title": "瀏覽節點樹",
   "web.search.clear.title": "清除",
   "web.detail.title": "Node 詳細資訊",
   "web.detail.close.title": "關閉",

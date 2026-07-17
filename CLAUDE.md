@@ -285,10 +285,12 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
   prompt.ts      shared `Mode::Prompt` y/n(/o/r) answer buttons (`promptButtonsHTML`/
                  `promptQuestion`/`bindPromptClicks`) — desktop renders them in `#overlay`, touch in
                  a `.prompt-sheet`; both answer via the same `PromptKey` intent
-  breadcrumb.ts  VS Code-style breadcrumb bar + mini-tree picker: any segment click
-                 opens a lazy mini document tree (ffi children(path)), row click →
-                 RevealPath ("Reveal": expand ancestors + set cursor; filter-hidden
-                 targets keep cursor + report on status); popup state is ephemeral
+  breadcrumb.ts  VS Code-style breadcrumb bar + mini-tree picker: segment click →
+                 RevealPath ("Reveal": expand ancestors + set cursor + select, then
+                 ui.ts center-scrolls the row; filter-hidden targets keep cursor +
+                 report on status); `›` separator click (incl. trailing one) opens a
+                 lazy mini document tree (ffi children(path)), row click → same
+                 Reveal; popup state is ephemeral
   ui.ts          orchestrator: holds the latest snapshot, renders via render.ts + the modal
                  surfaces (detail aside, native search box, `#tfPop` type-filter grid, `#convDlg`
                  convert dialog, `#overlay` for Help/Prompt/KindSwitch only), Tree|Raw read-only

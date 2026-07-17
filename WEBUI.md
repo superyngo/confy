@@ -387,13 +387,17 @@ the filter row and the tree (all hosts — in the VS Code webview it supplies th
 symbol segments the workbench's native breadcrumb can't show for custom
 editors). One glyph-tagged segment per cursor-path `Seg` (⌂ root first; `Index`
 segs render `[i]`; glyphs are VS Code-style text tags colored by the `--t-*`
-value hues). Clicking **any** segment opens the mini-tree popup: a lazy mini
-document tree fed by the ffi `children(path)` query, pre-expanded along the
-cursor path, highlighted at the clicked segment; carets expand/collapse freely
-(expand state is ephemeral per open), and clicking a row **Reveals** it —
-`RevealPath` expands every ancestor and sets the cursor (plain `SetCursor`
-rejects non-visible paths), after which the tree's existing cursor
-`scrollIntoView` brings the row on-screen. If an active filter still hides the
+value hues). Clicking a **segment** Reveals it directly — `RevealPath` expands
+every ancestor, sets the cursor, and selects the target (plain `SetCursor`
+rejects non-visible paths; in paste mode the frozen selection is left alone) —
+and `ui.ts` then smooth-scrolls the revealed row to the viewport center
+(clamped at the edges). Clicking a **`›` separator** (including the trailing
+one after the current node — the only mini-tree entry when the cursor is on
+the root) opens the mini-tree popup: a lazy mini document tree fed by the ffi
+`children(path)` query, pre-expanded along the cursor path, highlighted at the
+segment left of the separator; carets expand/collapse freely (expand state is
+ephemeral per open), and clicking a row Reveals it the same way (select +
+center-scroll included). If an active filter still hides the
 target, the expansion sticks, the cursor stays, and the status line reports it.
 The mini-tree shows the same node set as the main tree (comments and read-only
 nodes included and jumpable). The popup is the module's only state — re-render,

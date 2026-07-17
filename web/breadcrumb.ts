@@ -4,12 +4,13 @@
 // file segment for custom editors).
 //
 // Bar anatomy: ⌂ root, then one segment per cursor-path `Seg` (`Key` → name,
-// `Index` → `[i]`), each with a type glyph. Clicking ANY segment opens the
-// mini-tree popup (VS Code parity — grilled decision Q1+Q2/B): a lazy mini
+// `Index` → `[i]`), each with a type glyph. Clicking a segment Reveals it
+// directly (`RevealPath` — expand ancestors + set cursor + select;
+// CONTEXT.md §Operations "Reveal"). Clicking a `›` separator (including the
+// trailing one after the current node) opens the mini-tree popup: a lazy mini
 // document tree fed by the ffi `children(path)` query, pre-expanded along the
-// cursor path, highlighted at the clicked segment; row carets expand/collapse
-// freely, clicking a row body Reveals it (`RevealPath` — expand ancestors +
-// set cursor; CONTEXT.md §Operations "Reveal") and closes the popup. The
+// cursor path, highlighted at the segment left of the separator; row carets
+// expand/collapse freely, clicking a row body Reveals it and closes the popup. The
 // popup's expand state is ephemeral — every open resets (Q7.1). The mini-tree
 // shows the same node set as the main tree — comments and read-only nodes
 // included (Q3/A). Pure render-from-snapshot; the only module state is the
@@ -77,15 +78,25 @@ export function renderCrumbs(bar: HTMLElement, snap: SessionSnapshot, deps: Crum
     // query per level per render is fine.
     const self = cur.slice(0, i + 1);
     const info = deps.children(cur.slice(0, i)).find((k) => pathEq(k.path, self));
-    parts.push(`<span class="crumb-sep">›</span>`);
+    parts.push(`<button class="crumb-sep" data-i="${i}" title="${t("web.crumbs.browse.title")}">›</button>`);
     parts.push(
       `<button class="crumb${i === cur.length - 1 ? " current" : ""}" data-i="${i + 1}">` +
         (info ? glyphHTML(info.type_label) : "") +
         `<span>${segLabel(cur[i])}</span></button>`,
     );
   }
+  // Trailing separator: opens the mini-tree at the current node (and is the
+  // only mini-tree entry when the cursor sits on the root).
+  parts.push(`<button class="crumb-sep" data-i="${cur.length}" title="${t("web.crumbs.browse.title")}">›</button>`);
   bar.innerHTML = parts.join("");
   bar.querySelectorAll<HTMLElement>("button.crumb").forEach((b) =>
+    b.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      closeMenu();
+      deps.jump(cur.slice(0, Number(b.dataset.i)));
+    }),
+  );
+  bar.querySelectorAll<HTMLElement>("button.crumb-sep").forEach((b) =>
     b.addEventListener("click", (ev) => {
       ev.stopPropagation();
       openTree(b, snap, deps, cur.slice(0, Number(b.dataset.i)));
