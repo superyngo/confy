@@ -60,6 +60,7 @@ hand-maintained field-by-field marshalling.
 | `isDirty` | `() => boolean` | |
 | `docFormat` | `() => DocFormat` | |
 | `kindOptions` | `(path: Seg[]) => KindOption[]` | per-node convertible kinds (drives the `K` popup). |
+| `children` | `(path: Seg[]) => ChildView[]` | immediate children of the node at `path` as `ChildView[]` (`{ key, path, type_label, is_branch }`), independent of expansion state; feeds the breadcrumb mini-tree's lazy expansion. |
 | `externalEdit` | `() => { initial, kind } \| undefined` | the current external-edit request, if any (§8.2). |
 
 `external_edit` in the snapshot is the async handshake (§8.2): the UI opens its
@@ -378,6 +379,27 @@ edits to the verbatim desktop CSS.
   desktop uses. Dismissing it (scrim/grab/×/Cancel) sends `Escape` to peel core's pending edit, so
   the sheet can't re-pop on the next render.
 - the initial sample document is the **same welcome sample as the desktop UI** (shared, build-stamped).
+
+### Breadcrumb bar + mini-tree (`web/breadcrumb.ts`)
+
+A VS Code-style symbol path for the cursor node, in the `#crumbs` nav between
+the filter row and the tree (all hosts — in the VS Code webview it supplies the
+symbol segments the workbench's native breadcrumb can't show for custom
+editors). One glyph-tagged segment per cursor-path `Seg` (⌂ root first; `Index`
+segs render `[i]`; glyphs are VS Code-style text tags colored by the `--t-*`
+value hues). Clicking **any** segment opens the mini-tree popup: a lazy mini
+document tree fed by the ffi `children(path)` query, pre-expanded along the
+cursor path, highlighted at the clicked segment; carets expand/collapse freely
+(expand state is ephemeral per open), and clicking a row **Reveals** it —
+`RevealPath` expands every ancestor and sets the cursor (plain `SetCursor`
+rejects non-visible paths), after which the tree's existing cursor
+`scrollIntoView` brings the row on-screen. If an active filter still hides the
+target, the expansion sticks, the cursor stays, and the status line reports it.
+The mini-tree shows the same node set as the main tree (comments and read-only
+nodes included and jumpable). The popup is the module's only state — re-render,
+outside pointerdown, or a capture-phase Escape closes it (the Escape is
+swallowed so it doesn't also peel filter state). Hidden in Raw view. Not in the
+touch UI (deliberate — touch is sheet-driven with a weak cursor concept).
 
 `web/build.mjs` emits both bundles: `ui.ts → ui.js` (desktop, unchanged) and `touch/app.ts →
 touch/app.js`.
