@@ -644,6 +644,14 @@ body.host-vscode header.toolbar {
   display: none;
 }
 
+/* Tauri desktop host: same trim as VS Code above — Open/Save/Save-As/Convert,
+   Undo/Redo, theme, language, and Help/About all live in the native menu bar
+   (menu.ts) instead, with the format pill + dirty-dot replaced by the native
+   window title (see ui.ts's setWindowTitle call). The filter row stays. */
+body.host-tauri-desktop header.toolbar {
+  display: none;
+}
+
 /* VS Code host: tree is stale while the side-by-side raw text doesn't parse
    (see ui.ts staleTree) — dim it but keep it browsable/copyable. */
 body.stale-tree #tree { opacity: 0.45; }

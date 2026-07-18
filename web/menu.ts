@@ -11,6 +11,7 @@
 // tauri.conf.json already owns Cmd+/−/0.
 import { isTauri, isTauriMobile } from "./fs.js";
 import { availableLangs, getLang, LANG_DISPLAY_NAMES, t, type Lang } from "./i18n.js";
+import type { SampleFormat } from "./samples.js";
 import type { Intent } from "./types.js";
 
 // ---- ambient types for window.__TAURI__.menu / .webview ----
@@ -84,6 +85,28 @@ function currentWebview(): CurrentWebview | null {
   return w.__TAURI__?.webview?.getCurrentWebview() ?? null;
 }
 
+interface CurrentWindow {
+  setTitle(title: string): Promise<void>;
+}
+function currentWindow(): CurrentWindow | null {
+  const w = window as unknown as {
+    __TAURI__?: { window?: { getCurrentWindow: () => CurrentWindow } };
+  };
+  return w.__TAURI__?.window?.getCurrentWindow() ?? null;
+}
+
+// Replaces the toolbar header's format pill + dirty-dot on desktop (where the
+// header is hidden — see `TAURI_DESKTOP` in ui.ts): the native OS window title
+// carries the same two signals instead. No-op if the `window` API isn't
+// present (older Tauri, or called before setup).
+let lastTitle = "";
+export function setWindowTitle(fileName: string, format: string, dirty: boolean): void {
+  const title = `${dirty ? "● " : ""}${fileName} · ${format.toUpperCase()} — confy`;
+  if (title === lastTitle) return;
+  lastTitle = title;
+  void currentWindow()?.setTitle(title);
+}
+
 function isMac(): boolean {
   const nav = navigator as Navigator & { userAgentData?: { platform?: string } };
   const platform = nav.userAgentData?.platform ?? navigator.platform ?? "";
@@ -144,8 +167,9 @@ function zoomReset(): Promise<void> {
 
 // ---- host wiring ----
 export interface MenuDeps {
-  doNew: () => void | Promise<void>;
+  doNew: (format: SampleFormat) => void | Promise<void>;
   doOpen: () => void | Promise<void>;
+  openUrlModal: () => void;
   doSave: () => void | Promise<void>;
   openSaveConvert: () => void;
   send: (intent: Intent) => void;
@@ -271,9 +295,33 @@ async function buildAndSet(): Promise<void> {
     );
     const openRecentMenu = await Submenu.new({ text: t("web.menu.openRecent"), items: recentItems });
 
+    const newMenu = await Submenu.new({
+      text: t("web.menu.new"),
+      items: [
+        await MenuItem.new({
+          text: t("web.menu.newToml"),
+          accelerator: "CmdOrCtrl+N",
+          action: menuAction(() => deps.doNew("toml")),
+        }),
+        await MenuItem.new({ text: t("web.menu.newJson"), action: menuAction(() => deps.doNew("json")) }),
+        await MenuItem.new({ text: t("web.menu.newYaml"), action: menuAction(() => deps.doNew("yaml")) }),
+      ],
+    });
+    const openMenu = await Submenu.new({
+      text: t("web.menu.open"),
+      items: [
+        await MenuItem.new({
+          text: t("web.menu.openBrowse"),
+          accelerator: "CmdOrCtrl+O",
+          action: menuAction(deps.doOpen),
+        }),
+        await MenuItem.new({ text: t("web.menu.openUrl"), action: menuAction(deps.openUrlModal) }),
+      ],
+    });
+
     const fileItems: MenuElement[] = [
-      await MenuItem.new({ text: t("web.menu.new"), accelerator: "CmdOrCtrl+N", action: menuAction(deps.doNew) }),
-      await MenuItem.new({ text: t("web.menu.open"), accelerator: "CmdOrCtrl+O", action: menuAction(deps.doOpen) }),
+      newMenu,
+      openMenu,
       openRecentMenu,
       await PredefinedMenuItem.new({ item: "Separator" }),
       await MenuItem.new({ text: t("web.menu.save"), accelerator: "CmdOrCtrl+S", action: menuAction(deps.doSave) }),

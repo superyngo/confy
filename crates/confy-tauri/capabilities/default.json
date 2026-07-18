@@ -13,6 +13,7 @@
       "allow": [{ "path": "**" }]
     },
     "core:webview:allow-set-webview-zoom",
+    "core:window:allow-set-title",
     "confy-picker:default"
   ]
 }

@@ -9,6 +9,8 @@ import { load, Session } from "./confy.js";
 import {
   canSaveAs,
   fsAccessAvailable,
+  isTauri,
+  isTauriMobile,
   openTauriPath,
   pickOpenFile,
   tauriStartupFile,
@@ -16,7 +18,7 @@ import {
 } from "./fs.js";
 import { isVsCode, onHostMessage, post, trackVsCodeTheme } from "./vscode.js";
 import type { ConfigFormat, HostToWebview } from "./vscode-protocol.js";
-import { recentAdd, recentRemove, rebuildMenu, setupAppMenu } from "./menu.js";
+import { recentAdd, recentRemove, rebuildMenu, setupAppMenu, setWindowTitle } from "./menu.js";
 import {
   doConvertWrite,
   doQuickSave,
@@ -113,6 +115,9 @@ const FS_AVAILABLE = fsAccessAvailable();
 // behavior differences below are gated on this flag so the browser and Tauri
 // hosts are untouched when acquireVsCodeApi is absent.
 const VSHOST = isVsCode();
+// Desktop (Tauri) minus mobile: the host with a native menu bar AND a native
+// window title bar, so the toolbar header can be replaced by both.
+const TAURI_DESKTOP = isTauri() && !isTauriMobile();
 
 // VS Code host-bridge state. Declared up here (not inside the bridge block
 // further down) because `render()` — which reads hostDirty — sits above that
@@ -163,11 +168,12 @@ function chooseLang(lang: Lang) {
   void rebuildMenu();
 }
 
-// Menu > File > New: same as reloading the page with no startup file/URL —
-// discard the current doc and load the default (toml) built-in sample. No
-// confirmation, matching a browser refresh's unconditional discard.
-function doNew(): void {
-  loadSample("toml", openSample);
+// Menu > File > New > <format>: same as reloading the page with no startup
+// file/URL — discard the current doc and load the built-in sample in the
+// chosen format. No confirmation, matching a browser refresh's unconditional
+// discard.
+function doNew(format: SampleFormat): void {
+  loadSample(format, openSample);
 }
 
 // Menu > File > Open Recent handler: reopen a previously-known Tauri path.
@@ -190,6 +196,8 @@ async function main() {
   if (VSHOST) {
     document.body.classList.add("host-vscode");
     trackVsCodeTheme();
+  } else if (TAURI_DESKTOP) {
+    document.body.classList.add("host-tauri-desktop");
   }
   applyStaticI18n();
   updateLangUI();
@@ -197,6 +205,7 @@ async function main() {
   void setupAppMenu({
     doNew,
     doOpen,
+    openUrlModal,
     doSave,
     openSaveConvert: () => openSaveConvert(io),
     send,
@@ -294,6 +303,9 @@ function render() {
   document.body.classList.toggle("paste-mode", (snap.clipboard_count ?? 0) > 0);
   titleEl.textContent = fileName ?? "confy";
   titleEl.title = fileName ?? ""; // full name on hover when the chip truncates
+  if (TAURI_DESKTOP) {
+    setWindowTitle(fileName ?? "confy", snap.doc_format, snap.is_dirty);
+  }
   setStatus(snap.status, snap.error ?? "");
 
   // Active type-filter indicator on the funnel button (same `.on` + dot
@@ -1029,6 +1041,15 @@ function openOpenModal() {
   // modal (so Esc/Enter, wired on the modal element, still bubble correctly)
   // without landing the user in a text field ready to type.
   $("url-browse").focus();
+}
+
+// Menu > File > Open > Open from URL: same modal, but the caller already
+// picked "URL" intent — land focus straight in the URL field.
+function openUrlModal() {
+  const input = $<HTMLInputElement>("url-input");
+  input.value = "";
+  $("url-modal").classList.remove("hidden");
+  input.focus();
 }
 
 // ---- pointer: click routing for every row affordance ----

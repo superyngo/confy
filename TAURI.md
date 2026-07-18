@@ -23,10 +23,12 @@ rebuilds and reinstalls it (`setAsAppMenu()`) on language change and after every
 mutation, re-reading labels via `t()`, the recent list, and `getLang()` each time; an in-flight
 flag drops concurrent rebuilds.
 
-**Structure:** File (New `CmdOrCtrl+N` — discards the current doc and loads the default toml
-sample, i.e. `loadSample("toml", openSample)`, the same fallback `main()` takes with no
-startup file/URL; no confirmation, matching a browser refresh / Open `CmdOrCtrl+O` / Open
-Recent ▸ dynamic submenu / Save `CmdOrCtrl+S`),
+**Structure:** File (New ▸ TOML `CmdOrCtrl+N`/JSON/YAML — discards the current doc and loads
+the built-in sample in the chosen format, i.e. `loadSample(format, openSample)`, the same
+fallback `main()` takes with no startup file/URL; no confirmation, matching a browser refresh /
+Open ▸ Browse Local File `CmdOrCtrl+O` (native picker, unchanged `doOpen`) / Open from URL…
+(the existing combined open modal, `openUrlModal()` focuses the URL field directly instead of
+the Browse button) / Open Recent ▸ dynamic submenu / Save `CmdOrCtrl+S`),
 Edit (native `Predefined` Cut/Copy/Paste/Undo/Redo/SelectAll acting on focused text fields,
 plus node-op items Undo/Redo/Copy/Cut/Paste Node), View (Toggle Theme / Zoom In-Out-Reset /
 Language ▸ one `CheckMenuItem` per `availableLangs()`, checked = `getLang()`), Help (Help /
@@ -76,6 +78,23 @@ an optional `path` field (populated only on the Tauri branches of `tauriStartupF
 file, Open, Save As), and `openTauriPath(path)` (new `fs.ts` export, `read_file_text` via
 `invoke`) backs the menu's `openRecentPath` handler — a missing/unreadable file calls
 `recentRemove` + `rebuildMenu()` + an error status instead of opening.
+
+## Chrome trimming (Desktop)
+
+`document.body.classList.add("host-tauri-desktop")` (`ui.ts`'s `main()`, guarded by the
+module-level `TAURI_DESKTOP = isTauri() && !isTauriMobile()` flag) — `style.css` hides the
+whole `header.toolbar` under `body.host-tauri-desktop`, the same trim VS Code's `host-vscode`
+class applies (VSCODE.md §Chrome trimming): Open/Save/Save-As/Convert, Undo/Redo, theme,
+language, and Help/About all live in the native menu bar above instead. The filter row
+(search/type-filter/Expand-Collapse/Raw toggle) stays, since it isn't part of `header.toolbar`.
+
+The header also carried two pure status displays with no menu equivalent — the format pill and
+the dirty-dot — so those move to the native OS window title instead: `menu.ts`'s
+`setWindowTitle(fileName, format, dirty)` (`window.__TAURI__.window.getCurrentWindow().setTitle`,
+needing `core:window:allow-set-title` explicitly in `capabilities/default.json` — not covered by
+`core:default`) renders `"● name · FORMAT — confy"` (dirty prefix omitted when clean), called
+from `render()` every snapshot, deduped against the last-set string so an unchanged render is a
+no-op IPC-wise.
 
 ## Mobile (Tauri Android)
 

@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- 2026-07-18 feat(tauri): hide toolbar header on desktop — native menu bar + window title (filename/format/dirty) replace it; File ▸ New/Open become format/source submenus
 
 ## [v0.16.0] - 2026-07-17
 
