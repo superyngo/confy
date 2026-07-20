@@ -114,6 +114,20 @@ Side"** (`confy.openTextBeside`) is a separate, unaffected command — it always
 genuinely new tab in `ViewColumn.Beside` and is contributed as an `editor/title` icon
 button next to "Reopen as Text Editor" (not a button inside the confy panel itself).
 
+## Publishing (M2)
+
+Publisher/namespace is **`wenanlin`** on both registries — Open VSX requires its
+namespace to match `package.json`'s `publisher` field, so the two can't diverge without
+maintaining separate IDs. `.github/workflows/publish-vscode.yml` (triggered by
+`vscode-v*.*.*` tags) builds, packages, and publishes to both from two repo secrets:
+`VSCE_PAT` (Azure DevOps PAT, org scope "All accessible organizations", Marketplace →
+Manage; the org lives at `dev.azure.com/wenanlin`) and `OVSX_PAT` (Open VSX access
+token — requires the account to have signed the Eclipse Foundation Open VSX Publisher
+Agreement, which itself requires an Eclipse Foundation account with GitHub linked). A
+freshly published version isn't visible immediately: VS Marketplace shows "Verifying"
+until its malware scan clears, and Open VSX activates asynchronously — both normally
+within minutes. Release steps: `editors/vscode/README.md` § Publishing a new version.
+
 ## Boot-path localStorage guards
 
 `host-io.ts`'s `initTheme`/`toggleTheme` and `i18n.ts`'s `getLang`/`setLang` all wrap

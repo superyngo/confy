@@ -64,6 +64,18 @@ native open/save dialogs, in-place writes, and CLI-arg file open. Releases inclu
   A `confy-desktop-windows-x86_64.msix` is also published for Microsoft Store submission
   (see `crates/confy-tauri/msix/STORE.md`); it is unsigned by design — the Store signs it.
 
+## VS Code extension
+
+The web UI also ships as a VS Code custom editor (`editors/vscode/`) — open a config file
+and click **Open with confy** to get the tree view in-place, backed by VS Code's own
+save/undo/revert.
+
+- Marketplace: search **confy**, or install
+  [wenanlin.confy-vscode](https://marketplace.visualstudio.com/items?itemName=wenanlin.confy-vscode).
+- VSCodium / Cursor / Windsurf etc.: [Open VSX listing](https://open-vsx.org/extension/wenanlin/confy-vscode).
+
+See [VSCODE.md](VSCODE.md) and [editors/vscode/README.md](editors/vscode/README.md) for details.
+
 ## Format support
 
 | Format | Status | Notes |

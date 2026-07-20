@@ -6,10 +6,10 @@ web UI + wasm Session in a custom editor. Design:
 
 ## Install
 
-- From the Marketplace: search **confy** in VS Code's Extensions view, or
-  install [superyngo.confy-vscode](https://marketplace.visualstudio.com/items?itemName=superyngo.confy-vscode).
-- VSCodium / Cursor / Windsurf etc.: [Open VSX listing](https://open-vsx.org/extension/superyngo/confy-vscode).
-- Sideload a built `.vsix` (see Build below): `code --install-extension confy-vscode.vsix`.
+- Marketplace: search **confy** in VS Code's Extensions view, or install
+  [wenanlin.confy-vscode](https://marketplace.visualstudio.com/items?itemName=wenanlin.confy-vscode).
+- VSCodium / Cursor / Windsurf etc.: [Open VSX listing](https://open-vsx.org/extension/wenanlin/confy-vscode).
+- Sideload a built `.vsix`: `code --install-extension confy-vscode-<version>.vsix` (see Build).
 
 ## Build
 
@@ -18,21 +18,20 @@ web UI + wasm Session in a custom editor. Design:
    `crates/confy-ffi: wasm-pack build --target web`, then `web: node build.mjs`
    + assemble `web/dist` (cf-build.sh's copy steps).
 2. `cd editors/vscode && npm install && npm run build` (same scratchpad rule).
-3. `npm run package` → `confy-vscode-0.3.0.vsix`.
+3. `npm run package` → `confy-vscode-<version>.vsix`.
 
 ## Publishing a new version
 
 1. Bump `version` in `editors/vscode/package.json`.
 2. Commit, then tag `vscode-vX.Y.Z` and push the tag.
-3. `.github/workflows/publish-vscode.yml` builds the extension, verifies the
-   tag matches `package.json`'s version, and publishes the `.vsix` to both
-   the VS Marketplace (`VSCE_PAT` secret) and Open VSX (`OVSX_PAT` secret).
+3. `.github/workflows/publish-vscode.yml` builds, verifies the tag matches
+   `package.json`'s version, and publishes to the VS Marketplace + Open VSX
+   (account/secret setup: `VSCODE.md` § Publishing).
 4. A plain `workflow_dispatch` run (no tag) builds + packages without
    publishing — useful as a dry run.
 
-## Install / use
+## Use
 
-- `code --install-extension confy-vscode-0.3.0.vsix`
 - Open a `.toml`/`.json`/`.jsonc`/`.yaml`/`.yml` file and click the
   **Open with confy** title-bar button (tree icon) — the tab swaps to confy in
   place, carrying any unsaved edit; inside confy, **Reopen as Text Editor**
