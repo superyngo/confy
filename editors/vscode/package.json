@@ -3,9 +3,16 @@
   "displayName": "confy",
   "description": "Structural tree editor for TOML / JSON / JSONC / YAML config files",
   "version": "0.3.0",
-  "publisher": "superyngo",
+  "publisher": "wenanlin",
   "private": true,
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/superyngo/confy.git",
+    "directory": "editors/vscode"
+  },
+  "bugs": { "url": "https://github.com/superyngo/confy/issues" },
+  "homepage": "https://github.com/superyngo/confy/tree/main/editors/vscode#readme",
   "icon": "icon.png",
   "engines": { "vscode": "^1.85.0" },
   "categories": ["Other"],

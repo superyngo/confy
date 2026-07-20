@@ -1,0 +1,82 @@
+name: Publish VS Code Extension
+
+on:
+  push:
+    tags:
+      - "vscode-v*.*.*"
+  # Dry run: builds + packages the .vsix (downloadable from the run page)
+  # without publishing to either marketplace.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: vscode-ext
+          cache-on-failure: true
+
+      - uses: cargo-bins/cargo-binstall@main
+      - name: Install wasm-pack
+        run: cargo binstall -y wasm-pack
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # Builds crates/confy-ffi (wasm) + assembles web/dist.
+      - name: Build web frontend
+        run: bash web/cf-build.sh
+
+      - name: Install extension deps
+        working-directory: editors/vscode
+        run: npm ci
+
+      - name: Build extension
+        working-directory: editors/vscode
+        run: npm run build
+
+      # Only meaningful on a tag push — workflow_dispatch has no tag to check.
+      - name: Verify package.json version matches tag
+        if: startsWith(github.ref, 'refs/tags/')
+        working-directory: editors/vscode
+        run: |
+          tag_version="${GITHUB_REF_NAME#vscode-v}"
+          pkg_version="$(node -p "require('./package.json').version")"
+          if [ "$tag_version" != "$pkg_version" ]; then
+            echo "::error::tag vscode-v$tag_version does not match package.json version $pkg_version"
+            exit 1
+          fi
+
+      - name: Package .vsix
+        working-directory: editors/vscode
+        run: npx vsce package -o confy-vscode.vsix
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: confy-vscode-vsix
+          path: editors/vscode/confy-vscode.vsix
+
+      - name: Publish to VS Marketplace
+        if: startsWith(github.ref, 'refs/tags/')
+        working-directory: editors/vscode
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npx vsce publish --packagePath confy-vscode.vsix
+
+      - name: Publish to Open VSX
+        if: startsWith(github.ref, 'refs/tags/')
+        working-directory: editors/vscode
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: npx ovsx publish confy-vscode.vsix -p "$OVSX_PAT"

@@ -1,7 +1,8 @@
 # VSCODE.md — confy VS Code extension host (`editors/vscode`)
 
-`editors/vscode/` is a third host shell (M1.5, sideload `.vsix` only — no Marketplace
-listing) over the same `web/` bundle `WEBUI.md` documents. A `CustomTextEditorProvider`
+`editors/vscode/` is a third host shell (M1.5+, published to the VS Marketplace and Open
+VSX — see `.github/workflows/publish-vscode.yml`) over the same `web/` bundle `WEBUI.md`
+documents. A `CustomTextEditorProvider`
 makes VS Code's own `TextDocument` the single source of truth for content, dirty state,
 undo stack, save, revert, and hot exit; the webview runs the unmodified `web/dist` bundle
 plus `web/vscode.ts`'s adapter, and the Session there is a *view* over that document.
