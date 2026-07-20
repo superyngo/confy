@@ -89,6 +89,11 @@ export function fileStem(io: HostIo): string {
   return dot > 0 ? base.slice(0, dot) : base;
 }
 
+// Ensure `name` ends with `ext` (which must start with `.`), avoiding duplicates.
+function ensureExt(name: string, ext: string): string {
+  return name.endsWith(ext) ? name : name + ext;
+}
+
 // Parse `text` into a fresh Session; a parse failure is reported through
 // `err` and returns null, leaving `prev` untouched and still usable (the host
 // keeps its state, as the old inline scaffold did). `prev` is freed only once
@@ -174,7 +179,7 @@ export async function doQuickSave(io: HostIo): Promise<void> {
     return;
   }
   const fmt = io.getSnap()!.doc_format;
-  const suggested = (io.getFileName() ?? "confy-export") + extFor(fmt);
+  const suggested = ensureExt(io.getFileName() ?? "confy-export", extFor(fmt));
   if (io.fsAvailable) {
     try {
       const picked = await pickSaveFile(fmt, suggested);
@@ -220,7 +225,7 @@ export async function doSaveAsCopy(io: HostIo, path: string): Promise<void> {
   const text = io.serialize();
   if (text === null) return;
   const fmt = io.getSnap()!.doc_format;
-  const baseName = path.split("/").pop() || "confy-export" + extFor(fmt);
+  const baseName = ensureExt(path.split("/").pop() || "confy-export", extFor(fmt));
   io.send("ExitConvert");
   if (!io.canSaveAs) {
     io.err(t("web.mobile.saveAsUnavailable"));
@@ -267,7 +272,7 @@ export async function doConvertWrite(
     try {
       const handle = await pickSaveFile(
         target,
-        baseName.endsWith(outExt) ? baseName : baseName + outExt,
+        ensureExt(baseName, outExt),
       );
       if (!handle) return; // cancelled (Tauri: null)
       await writeFile(handle, text);
