@@ -4,19 +4,25 @@
 // file segment for custom editors).
 //
 // Bar anatomy: ⌂ root, then one segment per cursor-path `Seg` (`Key` → name,
-// `Index` → `[i]`), each with a type glyph. Clicking a segment Reveals it
-// directly (`RevealPath` — expand ancestors + set cursor + select;
-// CONTEXT.md §Operations "Reveal"). Clicking a `›` separator (including the
-// trailing one after the current node) opens the mini-tree popup: a lazy mini
-// document tree fed by the ffi `children(path)` query, pre-expanded along the
-// cursor path, highlighted at the segment left of the separator; row carets
-// expand/collapse freely, clicking a row body Reveals it and closes the popup. The
-// popup's expand state is ephemeral — every open resets (Q7.1). The mini-tree
-// shows the same node set as the main tree — comments and read-only nodes
-// included (Q3/A). Pure render-from-snapshot; the only module state is the
-// open popup + its ephemeral expand set, which any re-render, outside
-// pointerdown, or a capture-phase Escape closes (Escape is swallowed so it
-// doesn't also peel filter state — panel.ts stopPropagation precedent).
+// `Index` → `[i]`), each with a type glyph. Clicking a **segment** Reveals it
+// (`RevealPath` — expand ancestors + set cursor + select) AND toggles open the
+// mini-tree popup at that segment — but the *displayed* bar path freezes at
+// its pre-click state while browsing: hopping to another segment keeps
+// jump-selecting without moving the bar. The bar only catches up (unfreezes)
+// when the user re-clicks the same segment (closing the popup) or picks a row
+// inside the mini-tree (which also Reveals + closes). Clicking a `›`
+// separator (including the trailing one after the current node) instead opens
+// the mini-tree as a pure browse — no jump-select, bar untouched — fed by the
+// ffi `children(path)` query, pre-expanded along the highlighted path; row
+// carets expand/collapse freely, clicking a row body Reveals it and closes the
+// popup + finalizes the bar. The popup's expand state is ephemeral — every
+// open resets (Q7.1). The mini-tree shows the same node set as the main tree
+// — comments and read-only nodes included (Q3/A). Pure render-from-snapshot
+// aside from the popup + its ephemeral expand set and the frozen-path latch;
+// any re-render, outside pointerdown, or a capture-phase Escape closes the
+// popup (Escape is swallowed so it doesn't also peel filter state — panel.ts
+// stopPropagation precedent) — closing this way does not finalize a frozen
+// bar path.
 import type { ChildView, Path, Seg, SessionSnapshot } from "./types.js";
 import { escapeHtml } from "./escape.js";
 import { pathEq } from "./path-utils.js";
@@ -60,6 +66,13 @@ function segLabel(seg: Seg): string {
 let openMenu: HTMLElement | null = null;
 let treeExpanded = new Set<string>(); // JSON.stringify(path) keys
 
+// A segment click jump-selects immediately but freezes the *displayed* bar
+// path until the interaction is finalized (re-clicking the same segment, or
+// picking a row in the mini-tree) — so browsing between segments doesn't
+// thrash the breadcrumb path underfoot. `null` means "not frozen": the bar
+// tracks the live cursor as usual.
+let frozenPath: Path | null = null;
+
 function closeMenu(): void {
   openMenu?.remove();
   openMenu = null;
@@ -68,7 +81,7 @@ function closeMenu(): void {
 // ---- bar ----
 export function renderCrumbs(bar: HTMLElement, snap: SessionSnapshot, deps: CrumbDeps): void {
   closeMenu();
-  const cur = snap.cursor;
+  const cur = frozenPath ?? snap.cursor;
   const parts: string[] = [
     `<button class="crumb${cur.length === 0 ? " current" : ""}" data-i="0" title="${t("web.crumbs.root.title")}">⌂</button>`,
   ];
@@ -92,14 +105,26 @@ export function renderCrumbs(bar: HTMLElement, snap: SessionSnapshot, deps: Crum
   bar.querySelectorAll<HTMLElement>("button.crumb").forEach((b) =>
     b.addEventListener("click", (ev) => {
       ev.stopPropagation();
-      closeMenu();
-      deps.jump(cur.slice(0, Number(b.dataset.i)));
+      const path = cur.slice(0, Number(b.dataset.i));
+      if (openMenu && openMenu.dataset.kind === "node" && openMenu.dataset.i === b.dataset.i) {
+        // Re-clicking the same segment: close the panel and finalize —
+        // the bar now catches up to wherever the cursor ended up.
+        closeMenu();
+        frozenPath = null;
+        return;
+      }
+      // First segment click of a browsing session: freeze the bar at its
+      // current (pre-jump) path so hopping between segments doesn't move it.
+      if (frozenPath === null) frozenPath = cur;
+      deps.jump(path); // synchronous dispatch + re-render (bar stays frozen)
+      const freshAnchor = bar.querySelector<HTMLElement>(`button.crumb[data-i="${b.dataset.i}"]`);
+      if (freshAnchor) openTree(freshAnchor, deps, path, "node");
     }),
   );
   bar.querySelectorAll<HTMLElement>("button.crumb-sep").forEach((b) =>
     b.addEventListener("click", (ev) => {
       ev.stopPropagation();
-      openTree(b, snap, deps, cur.slice(0, Number(b.dataset.i)));
+      openTree(b, deps, cur.slice(0, Number(b.dataset.i)), "sep");
     }),
   );
   // Keep the tail (current node) in view when a deep path overflows.
@@ -107,24 +132,24 @@ export function renderCrumbs(bar: HTMLElement, snap: SessionSnapshot, deps: Crum
 }
 
 // ---- mini-tree popup ----
-function openTree(anchor: HTMLElement, snap: SessionSnapshot, deps: CrumbDeps, highlight: Path): void {
-  if (openMenu?.dataset.i === anchor.dataset.i) {
-    closeMenu(); // second click on the same segment toggles the popup off
+function openTree(anchor: HTMLElement, deps: CrumbDeps, highlight: Path, kind: "node" | "sep"): void {
+  if (openMenu?.dataset.i === anchor.dataset.i && openMenu?.dataset.kind === kind) {
+    closeMenu(); // second click on the same trigger toggles the popup off
     return;
   }
   closeMenu();
-  // Ephemeral expand state: reset to "expanded along the cursor path" (Q7.1).
-  // Every prefix INCLUDING the cursor node itself (expanding a leaf is a
-  // harmless no-op — it has no children), plus the clicked segment.
+  // Ephemeral expand state: reset to "expanded along the highlighted path"
+  // (Q7.1) — every prefix of `highlight` (expanding a leaf is a harmless
+  // no-op — it has no children).
   treeExpanded = new Set<string>();
-  for (let i = 0; i <= snap.cursor.length; i++) {
-    treeExpanded.add(JSON.stringify(snap.cursor.slice(0, i)));
+  for (let i = 0; i <= highlight.length; i++) {
+    treeExpanded.add(JSON.stringify(highlight.slice(0, i)));
   }
-  treeExpanded.add(JSON.stringify(highlight));
 
   const menu = document.createElement("div");
   menu.className = "crumb-menu";
   menu.dataset.i = anchor.dataset.i!;
+  menu.dataset.kind = kind;
   renderTreeRows(menu, deps, highlight);
   menu.addEventListener("click", (ev) => {
     const rowEl = (ev.target as Element).closest<HTMLElement>(".crumb-row");
@@ -140,6 +165,7 @@ function openTree(anchor: HTMLElement, snap: SessionSnapshot, deps: CrumbDeps, h
     }
     const path = JSON.parse(rowEl.dataset.path!) as Path;
     closeMenu();
+    frozenPath = null; // picking a mini-tree row finalizes the breadcrumb path
     deps.jump(path);
   });
   document.body.appendChild(menu);
