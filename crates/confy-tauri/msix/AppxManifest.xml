@@ -24,7 +24,7 @@
     ProcessorArchitecture="x64" />
 
   <Properties>
-    <DisplayName>confy</DisplayName>
+    <DisplayName>Confy — TOML/JSON/YAML Editor</DisplayName>
     <PublisherDisplayName>__PUBLISHER_DISPLAY__</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
