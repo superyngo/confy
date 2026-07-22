@@ -441,8 +441,8 @@ and no `path` field (backends keep a host-set `filename` display label via `set_
 host owns all file I/O:** `confy_tui::load_document(path, format)` reads the bytes, parses via
 `from_str_as`, sets the path-derived label, and enables JSONC comments for a `.jsonc` extension;
 `App::save` serializes and writes to `App::source_path`. `detect_format(path)` (pure extension
-match, no I/O) stays in core. The next slice is the §3 cursor reshape / §5 state-machine lift — see
-`PORTING.md`.
+match, no I/O) stays in core. The headless-core port (§3 cursor reshape, §5 state-machine lift)
+is complete — see `PORTING.md`.
 
 ## Terminology
 

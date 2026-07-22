@@ -41,14 +41,10 @@ web UI + wasm Session in a custom editor. Design:
 - **confy: Open Text Editor to the Side** (title-bar button next to **Reopen
   as Text Editor**, or command palette) — the real text editor, editable and
   live in both directions (shared `TextDocument`).
-- Save/undo/redo/revert are native VS Code (⌘S / ⌘Z / ⌘⇧Z / File > Revert).
+- Save/undo/redo/revert are native VS Code (⌘S / ⌘Z / ⌘⇧Z / File > Revert),
+  backed by a shared `TextDocument` — switching editors carries unsaved
+  changes, and side-by-side text editing syncs live in both directions.
 - The confy toolbar header is hidden in this host — **Save As / Convert…**,
   **Help**, **About**, and the **Language** submenu live in the editor
   tab's **"…" More Actions** menu (command palette works too). ⇧⌘S
   (Ctrl-Shift-S) is the keyboard shortcut for Save As / Convert.
-
-M1.5 (shared `TextDocument`) shipped — switching carries unsaved changes;
-side-by-side text editing syncs live. M1.6 moved chrome VS Code already owns
-(Open/Save/theme/undo/redo) out of the confy header into native VS Code
-surfaces, and added Save As / Convert, Help, About, and language commands to
-the "…" menu. M2 published the extension to the VS Marketplace and Open VSX.
