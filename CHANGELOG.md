@@ -7,12 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.18.0] - 2026-07-29
+
 ### Added
 - feat(core+tui+web): `f` type-filter panel — Reverse toggle inverts the sign/type match (`Cell::Reverse`, first row of `layout()`; a no-op with nothing else selected, so it can't blank the tree before a facet is picked); Home/End jump to the first/last nav row, PageUp/PageDown jump by the popup's visible-height nav-row count (`ui::type_filter_page_step` in TUI, scroll-ratio in Web)
 - feat(ci): automate Microsoft Store re-submission — new `msstore` job in `release.yml` runs `msstore reconfigure`/`msstore publish` against the Partner Center Submission API on every `v*.*.*` tag, gated behind a `msstore-publish` GitHub Environment approval; replaces the manual Partner Center upload documented in `STORE.md`
 
 ### Fixed
 - fix(web): duplicate/misaligned clear "×" on the filter bar search box — Safari/Edge/Chromium (and every host embedding the shared web UI: Windows/macOS desktop apps, VS Code extension) render their own native `type="search"` cancel button alongside the custom `.clear` button; suppress it via `::-webkit-search-cancel-button{-webkit-appearance:none}` in both `web/style.css` and `web/touch/style.css`
+- fix(msix): match Store-reserved DisplayName — Partner Center rejected the submission because `Package/Properties/DisplayName` "confy" wasn't reserved; renamed to the reserved "Confy — TOML/JSON/YAML Editor"
+
+### Docs
+- docs: add standalone PRIVACY.md for Microsoft Store submission — mirrors the existing in-app About-tab privacy statement (`state.rs` `ABOUT_TEXT`)
+- docs: update RELEASES.md versions for v0.17.0 (app + VS Code extension)
 
 ## [v0.17.0] - 2026-07-22
 

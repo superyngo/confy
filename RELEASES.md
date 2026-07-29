@@ -5,12 +5,12 @@ each channel live in the referenced doc — this is just the map.
 
 | Platform / channel | Method | Trigger | Current version | Status |
 |---|---|---|---|---|
-| TUI binaries (Linux/macOS/Windows, `confy`) | GitHub Releases | `.github/workflows/release.yml`, tag `v*.*.*` | v0.17.0 | Live |
-| Desktop app (macOS `.dmg`, Windows portable `.exe`) | GitHub Releases | same workflow, tag `v*.*.*` | v0.17.0 | Live — unsigned/un-notarized (see README § Desktop app) |
-| Windows Microsoft Store (`.msix`) | Partner Center Submission API (`msstore` CLI) | built by `release.yml` every tag; auto-submitted, gated behind `msstore-publish` environment approval | v0.17.0 | Live |
+| TUI binaries (Linux/macOS/Windows, `confy`) | GitHub Releases | `.github/workflows/release.yml`, tag `v*.*.*` | v0.18.0 | Live |
+| Desktop app (macOS `.dmg`, Windows portable `.exe`) | GitHub Releases | same workflow, tag `v*.*.*` | v0.18.0 | Live — unsigned/un-notarized (see README § Desktop app) |
+| Windows Microsoft Store (`.msix`) | Partner Center Submission API (`msstore` CLI) | built by `release.yml` every tag; auto-submitted, gated behind `msstore-publish` environment approval | v0.18.0 | Live |
 | Android (Tauri mobile) | Sideload debug APK | manual `cargo tauri android build --debug --apk`, no CI | — | Dev/sideload only, not distributed |
 | Web UI | Cloudflare Workers Builds (Git integration) | push to `main` | rolling (no version tag) | Live at <https://confy.turkeyang.net/> |
-| VS Code extension | VS Marketplace + Open VSX | `.github/workflows/publish-vscode.yml`, tag `vscode-v*.*.*` | v0.17.0 | Live |
+| VS Code extension | VS Marketplace + Open VSX | `.github/workflows/publish-vscode.yml`, tag `vscode-v*.*.*` | v0.18.0 | Live |
 
 Not targeted yet: Linux/iOS desktop-app builds (Tauri), F-Droid/Play Store for Android.
 
