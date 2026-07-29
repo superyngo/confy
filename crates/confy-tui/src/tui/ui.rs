@@ -690,7 +690,10 @@ fn draw_help_overlay(f: &mut Frame, app: &App) {
 /// size — shared by the renderer (`draw_type_filter_overlay`, to keep the
 /// focused row on-screen) and the event loop (`PageUp`/`PageDown` step size,
 /// mod.rs), so a page always jumps roughly one screenful of rows.
-pub(crate) fn type_filter_inner_height(fmt: crate::model::document::DocFormat, term_area: Rect) -> u16 {
+pub(crate) fn type_filter_inner_height(
+    fmt: crate::model::document::DocFormat,
+    term_area: Rect,
+) -> u16 {
     let total_lines = crate::tui::type_filter::layout(fmt).len() as u16;
     let height = (total_lines + 2).min(term_area.height);
     let area = centered_rect(60, height, term_area);
@@ -702,7 +705,10 @@ pub(crate) fn type_filter_inner_height(fmt: crate::model::document::DocFormat, t
 /// `type_filter_inner_height` (screen *lines*, headers included): headers
 /// don't count as cursor stops, so a page of nav rows is smaller than the
 /// line height — counting raw lines here would overshoot by roughly 2x.
-pub(crate) fn type_filter_page_step(fmt: crate::model::document::DocFormat, term_area: Rect) -> i32 {
+pub(crate) fn type_filter_page_step(
+    fmt: crate::model::document::DocFormat,
+    term_area: Rect,
+) -> i32 {
     let inner_h = type_filter_inner_height(fmt, term_area) as usize;
     crate::tui::type_filter::layout(fmt)
         .into_iter()
