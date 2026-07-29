@@ -36,22 +36,35 @@ with a non-Store cert is rejected.
    | Seller ID (Account settings → Developer settings) | `MSIX_SUBMISSION_SELLER_ID` |
    | Store product ID (App identity → "Store ID") | `MSIX_SUBMISSION_APP_ID`   |
 
-5. Create a GitHub **Environment** named `msstore-publish` with a required
-   reviewer (Settings → Environments). The `msstore` job in `release.yml` runs
-   under this environment, so every tagged release pauses for manual approval
-   before it reaches the Store — CI builds and stages the submission, a human
-   clicks "Approve" to actually publish.
+5. Create a GitHub **Environment** named `publish-gate` with a required
+   reviewer (Settings → Environments). `publish-gate.yml` runs under this
+   environment: it fires once `release.yml`'s Release job succeeds on a
+   `v*.*.*` tag, pauses for manual approval, then dispatches every
+   `publish-*.yml` workflow (Microsoft Store + VS Code extension) exactly
+   once — one approval covers all publishing targets, not one gate per
+   target.
 
 ## Per-release submission
 
-Automatic: the `msstore` job in `.github/workflows/release.yml` runs after
-`desktop` + `release` on every `v*.*.*` tag, gated behind the `msstore-publish`
-environment approval. Once approved it downloads the `x86_64-pc-windows-msvc`
-`.msix`, configures the Microsoft Store Developer CLI (`msstore reconfigure`)
-with the secrets above, and runs `msstore publish` — which creates a new
-submission, uploads the package (`x.y.z.0` derived from the git tag, same as
-the identity manifest), and commits it. The Store then validates and
-publishes it same as any Partner Center submission (review time varies).
+Automatic, in two stages:
+
+1. `release.yml` builds the `.msix` (via `pack-msix.ps1`) on every `v*.*.*`
+   tag and publishes the GitHub Release.
+2. Once that succeeds, `publish-gate.yml` (`workflow_run` on `release.yml`
+   completing) pauses for approval in the `publish-gate` environment, then
+   dispatches `publish-msstore.yml` with the tag + source run ID.
+   `publish-msstore.yml` downloads the `x86_64-pc-windows-msvc` `.msix` from
+   that run, configures the Microsoft Store Developer CLI (`msstore
+   reconfigure`) with the secrets above, and runs `msstore publish` — which
+   creates a new submission, uploads the package (`x.y.z.0` derived from the
+   git tag, same as the identity manifest), and commits it. The Store then
+   validates and publishes it same as any Partner Center submission (review
+   time varies).
+
+Runs on `windows-latest`, not `ubuntu-latest`: the msstore CLI's Linux
+credential store needs `libsecret` + a D-Bus Secret Service daemon that
+headless Ubuntu runners don't have; Windows DPAPI works headless with no
+extra setup.
 
 Note the CLI's "Only needed if the project has not been initialized before
 with the `init` command" caveat on `--appId` doesn't apply here: this repo

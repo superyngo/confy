@@ -1,0 +1,33 @@
+name: Publish Gate
+
+# Fires once release.yml's "Release" workflow finishes for a real tag push
+# (workflow_dispatch dry runs on main have event == 'workflow_dispatch' and
+# nothing to publish, so they're excluded). Pauses for one manual approval,
+# then dispatches every publish-*.yml workflow exactly once — a single
+# review gate shared by all publishing targets instead of one gate per
+# target (which duplicated approval clicks and let the individual jobs'
+# pending-deployment state get out of sync across reruns).
+on:
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  gate:
+    name: Approve publishing
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    environment: publish-gate
+    steps:
+      - name: Dispatch publishing workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.workflow_run.head_branch }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          gh workflow run publish-msstore.yml --repo "${{ github.repository }}" --ref main -f tag="$TAG" -f run_id="$RUN_ID"
+          gh workflow run publish-vscode.yml --repo "${{ github.repository }}" --ref main -f tag="$TAG"

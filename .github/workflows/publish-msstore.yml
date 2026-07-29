@@ -1,0 +1,51 @@
+name: Publish to Microsoft Store
+
+# Dispatched by publish-gate.yml once a tagged Release succeeds and a
+# reviewer approves. Not tag-triggered directly: release.yml's tag glob
+# (v[0-9]*.[0-9]*.[0-9]*) and this workflow used to live in the same file,
+# which is simpler but couples the Store submission to the app build/test
+# matrix and its cache keys — splitting it out keeps this retryable in
+# isolation without re-running the whole release.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag whose .msix to publish (e.g. v0.18.0)"
+        required: true
+      run_id:
+        description: "Run ID of the Release workflow that built the .msix"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish to Microsoft Store
+    runs-on: windows-latest
+    # msstore CLI's Linux credential store needs libsecret + a D-Bus Secret
+    # Service daemon, neither present on headless ubuntu-latest runners
+    # (DllNotFoundException: libsecret-1.so.0). Windows uses DPAPI, which
+    # works headless — also matches the official Microsoft Learn example.
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: desktop-x86_64-pc-windows-msvc
+          path: msix
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: microsoft/microsoft-store-apppublisher@v1.2
+
+      - name: Configure Microsoft Store Developer CLI
+        shell: bash
+        run: |
+          msstore reconfigure \
+            --tenantId ${{ secrets.MSIX_SUBMISSION_TENANT_ID }} \
+            --sellerId ${{ secrets.MSIX_SUBMISSION_SELLER_ID }} \
+            --clientId ${{ secrets.MSIX_SUBMISSION_CLIENT_ID }} \
+            --clientSecret ${{ secrets.MSIX_SUBMISSION_CLIENT_SECRET }}
+
+      - name: Submit and publish to the Store
+        shell: bash
+        run: msstore publish msix/confy-desktop-windows-x86_64.msix -id ${{ secrets.MSIX_SUBMISSION_APP_ID }}

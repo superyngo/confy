@@ -1,12 +1,20 @@
 name: Publish VS Code Extension
 
+# Dispatched by publish-gate.yml once a tagged app Release succeeds and a
+# reviewer approves — the extension is versioned in lockstep with the app
+# (editors/vscode/package.json bumped alongside Cargo.toml in each release
+# commit), so it publishes off the same vX.Y.Z tag rather than its own
+# vscode-v*.*.* tag.
 on:
-  push:
-    tags:
-      - "vscode-v*.*.*"
-  # Dry run: builds + packages the .vsix (downloadable from the run page)
-  # without publishing to either marketplace.
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "App release tag to check out and publish (e.g. v0.18.0)"
+        required: true
+      dry_run:
+        description: "Build + package only, skip Marketplace/Open VSX publish"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -16,6 +24,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -46,15 +56,14 @@ jobs:
         working-directory: editors/vscode
         run: npm run build
 
-      # Only meaningful on a tag push — workflow_dispatch has no tag to check.
       - name: Verify package.json version matches tag
-        if: startsWith(github.ref, 'refs/tags/')
         working-directory: editors/vscode
         run: |
-          tag_version="${GITHUB_REF_NAME#vscode-v}"
+          tag_version="${{ inputs.tag }}"
+          tag_version="${tag_version#v}"
           pkg_version="$(node -p "require('./package.json').version")"
           if [ "$tag_version" != "$pkg_version" ]; then
-            echo "::error::tag vscode-v$tag_version does not match package.json version $pkg_version"
+            echo "::error::tag ${{ inputs.tag }} does not match package.json version $pkg_version"
             exit 1
           fi
 
@@ -68,14 +77,14 @@ jobs:
           path: editors/vscode/confy-vscode.vsix
 
       - name: Publish to VS Marketplace
-        if: startsWith(github.ref, 'refs/tags/')
+        if: ${{ inputs.dry_run != true }}
         working-directory: editors/vscode
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: npx vsce publish --packagePath confy-vscode.vsix
 
       - name: Publish to Open VSX
-        if: startsWith(github.ref, 'refs/tags/')
+        if: ${{ inputs.dry_run != true }}
         working-directory: editors/vscode
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}

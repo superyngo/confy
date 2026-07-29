@@ -118,8 +118,8 @@ button next to "Reopen as Text Editor" (not a button inside the confy panel itse
 
 Publisher/namespace is **`wenanlin`** on both registries — Open VSX requires its
 namespace to match `package.json`'s `publisher` field, so the two can't diverge without
-maintaining separate IDs. `.github/workflows/publish-vscode.yml` (triggered by
-`vscode-v*.*.*` tags) builds, packages, and publishes to both from two repo secrets:
+maintaining separate IDs. `.github/workflows/publish-vscode.yml` (dispatched by
+`publish-gate.yml` after `release.yml` succeeds on an app `v*.*.*` tag) builds, packages, and publishes to both from two repo secrets:
 `VSCE_PAT` (Azure DevOps PAT, org scope "All accessible organizations", Marketplace →
 Manage; the org lives at `dev.azure.com/wenanlin`) and `OVSX_PAT` (Open VSX access
 token — requires the account to have signed the Eclipse Foundation Open VSX Publisher

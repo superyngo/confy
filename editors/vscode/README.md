@@ -22,13 +22,17 @@ web UI + wasm Session in a custom editor. Design:
 
 ## Publishing a new version
 
-1. Bump `version` in `editors/vscode/package.json`.
-2. Commit, then tag `vscode-vX.Y.Z` and push the tag.
-3. `.github/workflows/publish-vscode.yml` builds, verifies the tag matches
-   `package.json`'s version, and publishes to the VS Marketplace + Open VSX
-   (account/secret setup: `VSCODE.md` § Publishing).
-4. A plain `workflow_dispatch` run (no tag) builds + packages without
-   publishing — useful as a dry run.
+1. Bump `version` in `editors/vscode/package.json` (normally done together
+   with the app's own release version bump in the root `chore: release
+   vX.Y.Z` commit).
+2. Cut the app release as usual (`git tag vX.Y.Z && git push --tags`).
+3. Once `.github/workflows/release.yml` succeeds, `publish-gate.yml` pauses
+   for one manual approval (`publish-gate` environment), then dispatches
+   `.github/workflows/publish-vscode.yml` with that tag — it checks out the
+   tag, verifies `package.json`'s version matches it, and publishes to the
+   VS Marketplace + Open VSX (account/secret setup: `VSCODE.md` § Publishing).
+4. A manual `gh workflow run publish-vscode.yml -f tag=vX.Y.Z -f
+   dry_run=true` builds + packages without publishing — useful as a dry run.
 
 ## Use
 
