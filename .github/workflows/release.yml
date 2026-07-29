@@ -3,7 +3,10 @@ name: Release
 on:
   push:
     tags:
-      - "v*.*.*"
+      # Anchored digit class after "v" — plain "v*.*.*" also matches
+      # "vscode-v*.*.*" (glob `*` matches any chars incl. the "scode-v0"
+      # middle), which double-fired this workflow on VS Code extension tags.
+      - "v[0-9]*.[0-9]*.[0-9]*"
   # Dry run: builds every artifact (downloadable from the run page) without
   # publishing a release.
   workflow_dispatch:
