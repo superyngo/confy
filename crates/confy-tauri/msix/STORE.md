@@ -23,13 +23,40 @@ with a non-Store cert is rejected.
    Until these are set, CI uses placeholders — fine for sideload testing, but a
    Store upload will fail identity validation.
 
+4. Register a Microsoft Entra ID application and, from Partner Center's
+   *Account settings → User management → Microsoft Entra applications*, assign
+   it the **Manager** role. Collect the Submission API credentials and set them
+   as GitHub **repository secrets**:
+
+   | Value                              | GitHub secret                    |
+   |-------------------------------------|-----------------------------------|
+   | Tenant ID                          | `MSIX_SUBMISSION_TENANT_ID`       |
+   | Client (application) ID            | `MSIX_SUBMISSION_CLIENT_ID`       |
+   | Client secret                      | `MSIX_SUBMISSION_CLIENT_SECRET`   |
+   | Seller ID (Account settings → Developer settings) | `MSIX_SUBMISSION_SELLER_ID` |
+   | Store product ID (App identity → "Store ID") | `MSIX_SUBMISSION_APP_ID`   |
+
+5. Create a GitHub **Environment** named `msstore-publish` with a required
+   reviewer (Settings → Environments). The `msstore` job in `release.yml` runs
+   under this environment, so every tagged release pauses for manual approval
+   before it reaches the Store — CI builds and stages the submission, a human
+   clicks "Approve" to actually publish.
+
 ## Per-release submission
 
-1. Download `confy-desktop-windows-x86_64.msix` from the GitHub release.
-2. Partner Center → the app → new submission → upload the `.msix`.
-3. The Store validates the manifest (identity must match step 3 above exactly;
-   version must be strictly greater than the previous submission — the workflow
-   derives `x.y.z.0` from the git tag automatically).
+Automatic: the `msstore` job in `.github/workflows/release.yml` runs after
+`desktop` + `release` on every `v*.*.*` tag, gated behind the `msstore-publish`
+environment approval. Once approved it downloads the `x86_64-pc-windows-msvc`
+`.msix`, configures the Microsoft Store Developer CLI (`msstore reconfigure`)
+with the secrets above, and runs `msstore publish` — which creates a new
+submission, uploads the package (`x.y.z.0` derived from the git tag, same as
+the identity manifest), and commits it. The Store then validates and
+publishes it same as any Partner Center submission (review time varies).
+
+Note the CLI's "Only needed if the project has not been initialized before
+with the `init` command" caveat on `--appId` doesn't apply here: this repo
+never ran `msstore init` (no local `msstore.json` project file), so `-id` is
+passed explicitly every run.
 
 ## Sideload testing (before Store identity exists)
 

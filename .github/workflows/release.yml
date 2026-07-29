@@ -297,3 +297,31 @@ jobs:
             artifacts/confy-windows-*.exe
             artifacts/confy-desktop-*
             artifacts/SHA256SUMS
+
+  msstore:
+    name: Publish to Microsoft Store
+    # Same tag-only guard as `release`; also gated behind the msstore-publish
+    # GitHub Environment (required-reviewer approval) so no tag auto-publishes
+    # to the Store unattended.
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [desktop, release]
+    runs-on: ubuntu-latest
+    environment: msstore-publish
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: desktop-x86_64-pc-windows-msvc
+          path: msix
+
+      - uses: microsoft/microsoft-store-apppublisher@v1.2
+
+      - name: Configure Microsoft Store Developer CLI
+        run: |
+          msstore reconfigure \
+            --tenantId ${{ secrets.MSIX_SUBMISSION_TENANT_ID }} \
+            --sellerId ${{ secrets.MSIX_SUBMISSION_SELLER_ID }} \
+            --clientId ${{ secrets.MSIX_SUBMISSION_CLIENT_ID }} \
+            --clientSecret ${{ secrets.MSIX_SUBMISSION_CLIENT_SECRET }}
+
+      - name: Submit and publish to the Store
+        run: msstore publish msix/confy-desktop-windows-x86_64.msix -id ${{ secrets.MSIX_SUBMISSION_APP_ID }}
