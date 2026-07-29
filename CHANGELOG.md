@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- feat(core+tui+web): `f` type-filter panel — Reverse toggle inverts the sign/type match (`Cell::Reverse`, first row of `layout()`; a no-op with nothing else selected, so it can't blank the tree before a facet is picked); Home/End jump to the first/last nav row, PageUp/PageDown jump by the popup's visible-height nav-row count (`ui::type_filter_page_step` in TUI, scroll-ratio in Web)
+
+### Fixed
+- fix(web): duplicate/misaligned clear "×" on the filter bar search box — Safari/Edge/Chromium (and every host embedding the shared web UI: Windows/macOS desktop apps, VS Code extension) render their own native `type="search"` cancel button alongside the custom `.clear` button; suppress it via `::-webkit-search-cancel-button{-webkit-appearance:none}` in both `web/style.css` and `web/touch/style.css`
+
 ## [v0.17.0] - 2026-07-22
 
 ### Added

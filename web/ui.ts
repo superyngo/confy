@@ -500,6 +500,26 @@ function renderTypeFilterPop() {
   }
 }
 
+// Number of navigable (`Cells`) rows in the facet grid — headers don't count
+// as cursor stops. Used to compute Home/End (jump the whole panel) deltas.
+function navRowCount(grid: TypeFilterView): number {
+  return grid.rows.filter((r) => "Cells" in r).length;
+}
+
+// PageUp/PageDown step, in nav-row units. `#tfPop` is a CSS-scrollable
+// popover (`max-height: 72vh; overflow-y: auto`), so instead of measuring
+// pixel row heights (fragile across wrapped `.tf-grid` flex rows, zoom,
+// fonts), use the visible/total scroll ratio: a fully-visible panel pages by
+// its whole row count (matching a tall TUI terminal); a clipped one pages by
+// roughly the fraction currently on screen.
+function typeFilterPageStep(grid: TypeFilterView): number {
+  const total = navRowCount(grid);
+  const pop = document.getElementById("tfPop");
+  if (!pop || total === 0) return 1;
+  const ratio = pop.scrollHeight > 0 ? pop.clientHeight / pop.scrollHeight : 1;
+  return Math.max(1, Math.min(total, Math.round(ratio * total)));
+}
+
 // The convert flow as a native `<dialog>`: a format `<select>`, an output-path
 // `<input>`, and a warnings list. Open while `Mode::Convert`, closed otherwise.
 // Format/path edits dispatch `SetConvertFormat`/`SetConvertPath`; the action
@@ -608,11 +628,22 @@ function onKey(ev: KeyboardEvent) {
     }
     return;
   }
-  if (modeTag(m) === "TypeFilter") {
+  if (typeof m === "object" && "TypeFilter" in m) {
+    const grid = m.TypeFilter;
     if (ev.key === "ArrowUp") return send({ TypeFilterMove: [-1, 0] });
     if (ev.key === "ArrowDown") return send({ TypeFilterMove: [1, 0] });
     if (ev.key === "ArrowLeft") return send({ TypeFilterMove: [0, -1] });
     if (ev.key === "ArrowRight") return send({ TypeFilterMove: [0, 1] });
+    if (ev.key === "Home") return send({ TypeFilterMove: [-navRowCount(grid), 0] });
+    if (ev.key === "End") return send({ TypeFilterMove: [navRowCount(grid), 0] });
+    if (ev.key === "PageUp") {
+      ev.preventDefault();
+      return send({ TypeFilterMove: [-typeFilterPageStep(grid), 0] });
+    }
+    if (ev.key === "PageDown") {
+      ev.preventDefault();
+      return send({ TypeFilterMove: [typeFilterPageStep(grid), 0] });
+    }
     if (ev.key === " ") {
       ev.preventDefault();
       return send("TypeFilterToggle");

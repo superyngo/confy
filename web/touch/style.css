@@ -421,6 +421,8 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none
   font-size:16px;font-family:var(--font);/* 16px 防 iOS 聚焦縮放 */
 }
 .filterbar .search input::placeholder{color:var(--faint)}
+.filterbar .search input[type=search]::-webkit-search-cancel-button,
+.filterbar .search input[type=search]::-webkit-search-decoration{-webkit-appearance:none;appearance:none;display:none}
 .filterbar .search .clear{
   position:absolute;right:8px;top:50%;transform:translateY(-50%);
   width:32px;height:32px;border-radius:9px;color:var(--faint);display:none;place-items:center;

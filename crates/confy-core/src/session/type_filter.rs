@@ -134,12 +134,16 @@ pub enum Cell {
     Sign(KeySign),
     All(Group),
     Token(TypeToken),
+    /// Inverts the combined sign/type match (§`TypeFilter::matches`); a no-op
+    /// while no sign/type is selected (`TypeFilter::is_active` gates it).
+    Reverse,
 }
 
 impl Cell {
     pub fn label(self) -> &'static str {
         match self {
             Cell::All(_) => "all",
+            Cell::Reverse => "reverse",
             Cell::Sign(s) => match s {
                 KeySign::Bare => "(B) bare",
                 KeySign::Quoted => "(Q) quoted",
@@ -205,6 +209,8 @@ pub fn layout(format: DocFormat) -> Vec<LayoutRow> {
     use TypeToken as T;
     match format {
         DocFormat::Json => vec![
+            LayoutRow::Header("Reverse"),
+            LayoutRow::Cells(vec![Reverse]),
             LayoutRow::Header("Key sign"),
             LayoutRow::Cells(vec![Sign(K::Quoted), Sign(K::None)]),
             LayoutRow::Header("Type"),
@@ -226,6 +232,8 @@ pub fn layout(format: DocFormat) -> Vec<LayoutRow> {
             LayoutRow::Cells(vec![Token(T::Null)]),
         ],
         DocFormat::Yaml => vec![
+            LayoutRow::Header("Reverse"),
+            LayoutRow::Cells(vec![Reverse]),
             LayoutRow::Header("Key sign"),
             LayoutRow::Cells(vec![Sign(K::Bare), Sign(K::Quoted)]),
             LayoutRow::Cells(vec![Sign(K::None)]),
@@ -262,6 +270,8 @@ pub fn layout(format: DocFormat) -> Vec<LayoutRow> {
             LayoutRow::Cells(vec![Token(T::Opaque)]),
         ],
         _ => vec![
+            LayoutRow::Header("Reverse"),
+            LayoutRow::Cells(vec![Reverse]),
             LayoutRow::Header("Key sign"),
             LayoutRow::Cells(vec![Sign(K::Bare), Sign(K::Quoted)]),
             LayoutRow::Cells(vec![Sign(K::Dotted), Sign(K::None)]),
@@ -322,6 +332,7 @@ pub struct TypeFilter {
     pub types: HashSet<TypeToken>,
     pub row: usize,
     pub col: usize,
+    pub reverse: bool,
 }
 
 impl TypeFilter {
@@ -332,6 +343,7 @@ impl TypeFilter {
     pub fn clear(&mut self) {
         self.key_signs.clear();
         self.types.clear();
+        self.reverse = false;
     }
 
     pub fn matches(
@@ -345,7 +357,15 @@ impl TypeFilter {
         let sign_ok = self.key_signs.is_empty() || self.key_signs.contains(&key_sign);
         let type_ok =
             self.types.is_empty() || self.types.contains(&classify(kind, format, doc, read_only));
-        sign_ok && type_ok
+        let base = sign_ok && type_ok;
+        // A no-op while nothing is selected: `base` is unconditionally `true`
+        // with an empty selection, so inverting it would blank the whole tree
+        // the moment `reverse` is toggled on, before the user picked a facet.
+        if self.reverse && self.is_active() {
+            !base
+        } else {
+            base
+        }
     }
 
     pub fn move_cursor(&mut self, dr: i32, dc: i32, format: DocFormat) {
@@ -403,6 +423,7 @@ impl TypeFilter {
                     }
                 }
             }
+            Cell::Reverse => self.reverse = !self.reverse,
         }
     }
 
@@ -422,6 +443,7 @@ impl TypeFilter {
             Cell::Sign(s) => bool_state(self.key_signs.contains(&s)),
             Cell::Token(t) => bool_state(self.types.contains(&t)),
             Cell::All(g) => self.group_state(g),
+            Cell::Reverse => bool_state(self.reverse),
         }
     }
 }
@@ -640,6 +662,10 @@ mod tests {
         let rows = nav_rows(fmt);
         f.move_cursor(-1, 0, fmt);
         assert_eq!(f.row, 0);
+        // Row 0 is now the single-cell Reverse row; move to "Key sign" (row 1,
+        // width 2) to exercise column clamping the way this test always has.
+        f.move_cursor(1, 0, fmt);
+        assert_eq!(f.row, 1);
         f.move_cursor(0, -1, fmt);
         assert_eq!(f.col, 0);
         f.move_cursor(0, 1, fmt);
@@ -647,5 +673,54 @@ mod tests {
         f.move_cursor(1000, 0, fmt);
         assert_eq!(f.row, rows.len() - 1);
         assert!(f.col < rows[f.row].len());
+    }
+
+    #[test]
+    fn reverse_is_inert_with_empty_selection() {
+        let mut f = TypeFilter::default();
+        f.toggle(Cell::Reverse);
+        assert!(f.reverse);
+        // No sign/type selected: matches() must stay `true` for everything —
+        // this is what stops "just flip reverse" from blanking the whole tree
+        // before the user has picked a facet.
+        assert!(f.matches(
+            KeySign::Bare,
+            &NodeKind::Scalar(ScalarType::String),
+            Format::BasicString,
+            DocFormat::Toml,
+            false,
+        ));
+    }
+
+    #[test]
+    fn reverse_inverts_an_active_selection() {
+        let mut f = TypeFilter::default();
+        f.toggle(Cell::Token(TypeToken::Bool));
+        let is_bool = |f: &TypeFilter| {
+            f.matches(
+                KeySign::Bare,
+                &NodeKind::Scalar(ScalarType::Bool),
+                Format::Plain,
+                DocFormat::Toml,
+                false,
+            )
+        };
+        let is_string = |f: &TypeFilter| {
+            f.matches(
+                KeySign::Bare,
+                &NodeKind::Scalar(ScalarType::String),
+                Format::BasicString,
+                DocFormat::Toml,
+                false,
+            )
+        };
+        assert!(is_bool(&f));
+        assert!(!is_string(&f));
+        f.toggle(Cell::Reverse);
+        assert!(!is_bool(&f));
+        assert!(is_string(&f));
+        // clear() resets reverse along with the selection.
+        f.clear();
+        assert!(!f.reverse);
     }
 }

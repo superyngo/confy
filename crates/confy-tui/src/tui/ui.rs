@@ -686,6 +686,32 @@ fn draw_help_overlay(f: &mut Frame, app: &App) {
     f.render_widget(paragraph, area);
 }
 
+/// The `f` type-filter popup's visible inner height for a given terminal
+/// size — shared by the renderer (`draw_type_filter_overlay`, to keep the
+/// focused row on-screen) and the event loop (`PageUp`/`PageDown` step size,
+/// mod.rs), so a page always jumps roughly one screenful of rows.
+pub(crate) fn type_filter_inner_height(fmt: crate::model::document::DocFormat, term_area: Rect) -> u16 {
+    let total_lines = crate::tui::type_filter::layout(fmt).len() as u16;
+    let height = (total_lines + 2).min(term_area.height);
+    let area = centered_rect(60, height, term_area);
+    area.height.saturating_sub(2)
+}
+
+/// How many `type_filter::nav_rows` fit within the `f` popup's visible
+/// height — the `PageUp`/`PageDown` step. Distinct from
+/// `type_filter_inner_height` (screen *lines*, headers included): headers
+/// don't count as cursor stops, so a page of nav rows is smaller than the
+/// line height — counting raw lines here would overshoot by roughly 2x.
+pub(crate) fn type_filter_page_step(fmt: crate::model::document::DocFormat, term_area: Rect) -> i32 {
+    let inner_h = type_filter_inner_height(fmt, term_area) as usize;
+    crate::tui::type_filter::layout(fmt)
+        .into_iter()
+        .take(inner_h)
+        .filter(|r| matches!(r, crate::tui::type_filter::LayoutRow::Cells(_)))
+        .count()
+        .max(1) as i32
+}
+
 fn draw_type_filter_overlay(f: &mut Frame, app: &App) {
     if !matches!(app.session.mode, Mode::TypeFilter) {
         return;
@@ -741,9 +767,9 @@ fn draw_type_filter_overlay(f: &mut Frame, app: &App) {
 
     // Size the popup to its content but cap at the terminal height; when capped,
     // scroll just enough to keep the focused row visible (roughly centered).
+    let inner_h = type_filter_inner_height(fmt, f.area());
     let height = (lines.len() as u16 + 2).min(f.area().height);
     let area = centered_rect(60, height, f.area());
-    let inner_h = area.height.saturating_sub(2);
     let max_scroll = (lines.len() as u16).saturating_sub(inner_h);
     let scroll = if max_scroll == 0 {
         0
@@ -1008,6 +1034,35 @@ mod tests {
         assert!(
             !joined.contains("(B) bare"),
             "top cell should have scrolled off: {joined:?}"
+        );
+    }
+
+    #[test]
+    fn type_filter_page_step_counts_nav_rows_not_all_lines() {
+        // Regression guard: the popup mixes Header lines with Cells lines, but
+        // `move_cursor`'s delta is in nav-row units (Cells rows only). Feeding
+        // it the raw visible *line* count would overshoot by roughly 2x.
+        let fmt = crate::model::document::DocFormat::Toml;
+        let total_lines = crate::tui::type_filter::layout(fmt).len();
+        let total_nav_rows = crate::tui::type_filter::nav_rows(fmt).len();
+        assert!(
+            total_nav_rows < total_lines,
+            "headers must inflate the line count beyond the nav-row count"
+        );
+
+        // Terminal tall enough to fit the whole popup: one page covers every
+        // nav row.
+        let full = Rect::new(0, 0, 80, 100);
+        assert_eq!(type_filter_page_step(fmt, full) as usize, total_nav_rows);
+
+        // Short terminal: a page must stay within the panel (never overshoot
+        // past the total nav rows) and never degrade to a zero-length jump.
+        let short = Rect::new(0, 0, 80, 10);
+        let step = type_filter_page_step(fmt, short);
+        assert!(step >= 1, "a page must move at least one row");
+        assert!(
+            (step as usize) < total_nav_rows,
+            "a short-terminal page must be smaller than the whole panel"
         );
     }
 

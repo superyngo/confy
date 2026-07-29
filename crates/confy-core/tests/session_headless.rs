@@ -746,7 +746,21 @@ fn dispatch_type_filter_projects_facet_grid_with_cursor() {
     assert!(cells.iter().all(|c| c.state == CheckState::Off));
     assert!(!grid.active);
 
-    // Toggle the cursor cell: it goes On and the grid reports active.
+    // The cursor now defaults onto the new "Reverse" cell (row 0, col 0).
+    // Toggling it alone must NOT report the grid active — reverse is a no-op
+    // until a real sign/type facet is selected.
+    let _ = s.dispatch(Intent::TypeFilterToggle);
+    let snap = s.dispatch(Intent::EnterTypeFilter);
+    let grid = match &snap.mode {
+        ModeView::TypeFilter(v) => v,
+        _ => panic!("expected TypeFilter mode after reverse toggle"),
+    };
+    assert!(!grid.active);
+    let _ = s.dispatch(Intent::TypeFilterToggle); // untoggle reverse again
+
+    // Move to a real facet cell (row 1, the first "Key sign" row) and toggle
+    // it: it goes On and the grid reports active.
+    let _ = s.dispatch(Intent::TypeFilterMove(1, 0));
     let _ = s.dispatch(Intent::TypeFilterToggle);
     let snap = s.dispatch(Intent::EnterTypeFilter);
     let grid = match &snap.mode {

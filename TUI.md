@@ -138,13 +138,21 @@ loaded backend's reachable facets — JSON/YAML omit TOML-only rows, YAML adds b
 is **tristate** (`group_state`: `[x]` all / `[~]` some / `[ ]` none; Space selects-or-clears the
 whole group). `TypeFilter::matches` ANDs the two halves and unions within each; an empty half is no
 constraint (`is_active` gates the whole filter). `layout()` is the single source of truth for both
-render and nav; `nav_rows()` drops headers so the `(row,col)` cursor only lands on cells. The popup
+render and nav; `nav_rows()` drops headers so the `(row,col)` cursor only lands on cells. A
+`Reverse` header/cell sits first in every `layout()` (row 0, so opening the popup starts there) —
+toggling it inverts `matches`' combined result (`base = sign_ok && type_ok`), but only once
+`is_active()` is true; with nothing else selected `reverse` is a deliberate no-op, not a "hide
+everything" trap. `clear()` resets it alongside the two halves. Cursor movement isn't limited to
+arrows: Home/End jump to the first/last nav row (col clamps into the new row's width, same as any
+vertical move); PageUp/PageDown jump by `ui::type_filter_page_step` — how many nav rows fit in the
+popup's visible height, *not* the raw line count (headers don't count as cursor stops, so using line
+count would roughly double-jump). The popup
 filters **live** (every `type_filter_toggle` recomputes), Enter (`commit_type_filter`) closes into
 `resting_mode`, Esc (`exit_type_filter`) clears the type selections. `recompute_filter` now builds
 `filtered_paths` as the **AND intersection** of the `/` text match and the type match (matched nodes
 keep ancestors). When both filters are active, Esc in `FilterResults` peels **one layer at a time**
 via `App.last_filter_applied: Option<FilterLayer>` (most-recently-applied first); the status bar
-shows `[filter: …]` and/or `[type: N]`.
+shows `[filter: …]` and/or `[type: N]` (`N` counts only `key_signs`/`types`, never `reverse`).
 
 ## Multi-select
 

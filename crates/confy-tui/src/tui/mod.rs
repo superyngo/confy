@@ -211,15 +211,40 @@ fn run_event_loop(
             }
             // Type-filter popup: arrows move the cursor, Space toggles the focused
             // cell, Enter applies (→ FilterResults/Normal), Esc peels the type
-            // filter. Every toggle live-updates the filtered background. All other
-            // keys are swallowed so the popup is modal.
+            // filter. Home/End jump to the first/last row; PageUp/PageDown jump by
+            // one popup-height's worth of nav rows (`ui::type_filter_page_step`,
+            // sized off the same layout the popup renders, so a page always
+            // matches what's actually on screen). Every toggle live-updates the
+            // filtered background. All other keys are swallowed so the popup is
+            // modal.
             if matches!(app.session.mode, crate::tui::state::Mode::TypeFilter) {
                 use crossterm::event::KeyCode;
+                let fmt = app.doc_format();
                 match key.code {
                     KeyCode::Up => app.type_filter_move(-1, 0),
                     KeyCode::Down => app.type_filter_move(1, 0),
                     KeyCode::Left => app.type_filter_move(0, -1),
                     KeyCode::Right => app.type_filter_move(0, 1),
+                    KeyCode::Home => {
+                        let n = confy_core::session::type_filter::nav_rows(fmt).len() as i32;
+                        app.type_filter_move(-n, 0);
+                    }
+                    KeyCode::End => {
+                        let n = confy_core::session::type_filter::nav_rows(fmt).len() as i32;
+                        app.type_filter_move(n, 0);
+                    }
+                    KeyCode::PageUp => {
+                        let size = terminal.size()?;
+                        let area = ratatui::layout::Rect::new(0, 0, size.width, size.height);
+                        let step = ui::type_filter_page_step(fmt, area);
+                        app.type_filter_move(-step, 0);
+                    }
+                    KeyCode::PageDown => {
+                        let size = terminal.size()?;
+                        let area = ratatui::layout::Rect::new(0, 0, size.width, size.height);
+                        let step = ui::type_filter_page_step(fmt, area);
+                        app.type_filter_move(step, 0);
+                    }
                     KeyCode::Char(' ') => app.type_filter_toggle(),
                     KeyCode::Enter => app.commit_type_filter(),
                     KeyCode::Esc => app.escape(),
