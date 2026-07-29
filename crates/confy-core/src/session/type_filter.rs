@@ -346,7 +346,13 @@ impl TypeFilter {
         self.reverse = false;
     }
 
-    pub fn matches(
+    /// The sign/type check alone, ignoring `reverse` — i.e. whether this node
+    /// is one of the facets the user actually selected. `matches()` inverts
+    /// this when `reverse` is on; `recompute_filter` also uses it directly to
+    /// decide whether an excluded container's whole subtree should be pruned
+    /// (see `session.rs`), since a plain post-reverse `false` doesn't tell you
+    /// *why* the node failed.
+    fn base_match(
         &self,
         key_sign: KeySign,
         kind: &NodeKind,
@@ -357,7 +363,33 @@ impl TypeFilter {
         let sign_ok = self.key_signs.is_empty() || self.key_signs.contains(&key_sign);
         let type_ok =
             self.types.is_empty() || self.types.contains(&classify(kind, format, doc, read_only));
-        let base = sign_ok && type_ok;
+        sign_ok && type_ok
+    }
+
+    /// A node is a deliberate Reverse-exclusion target when it's a positive
+    /// facet match (`base_match`) while `reverse` is active — i.e. `matches()`
+    /// returns `false` for it *because* it was selected, not merely because
+    /// nothing selected it.
+    pub fn is_reverse_excluded(
+        &self,
+        key_sign: KeySign,
+        kind: &NodeKind,
+        format: Format,
+        doc: DocFormat,
+        read_only: bool,
+    ) -> bool {
+        self.reverse && self.is_active() && self.base_match(key_sign, kind, format, doc, read_only)
+    }
+
+    pub fn matches(
+        &self,
+        key_sign: KeySign,
+        kind: &NodeKind,
+        format: Format,
+        doc: DocFormat,
+        read_only: bool,
+    ) -> bool {
+        let base = self.base_match(key_sign, kind, format, doc, read_only);
         // A no-op while nothing is selected: `base` is unconditionally `true`
         // with an empty selection, so inverting it would blank the whole tree
         // the moment `reverse` is toggled on, before the user picked a facet.

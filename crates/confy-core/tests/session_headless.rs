@@ -54,6 +54,35 @@ fn filter_narrows_visible_rows() {
     assert!(!k.iter().any(|k| k == "host"), "host filtered: {k:?}");
 }
 
+#[test]
+fn reverse_type_filter_prunes_excluded_container_subtree() {
+    // Reverse + Table facet must hide the whole `[server]` subtree (table +
+    // its `port` child), not just fail to match the table itself while a
+    // scalar-vs-comment reversal keeps working because leaves have no
+    // children to resurrect them via ancestor-context.
+    use confy_core::session::type_filter::TypeToken;
+    let mut s = toml_session("debug = true\n[server]\nport = 8080\n");
+    s.type_filter.types.insert(TypeToken::TableScope);
+    s.type_filter.reverse = true;
+    s.recompute_filter();
+    let fp = s.filtered_paths.clone().unwrap();
+    let server_path = vec![Seg::Key("server".into())];
+    let port_path = vec![Seg::Key("server".into()), Seg::Key("port".into())];
+    let debug_path = vec![Seg::Key("debug".into())];
+    assert!(
+        !fp.contains(&server_path),
+        "excluded table itself stays hidden"
+    );
+    assert!(
+        !fp.contains(&port_path),
+        "table's own child must not resurrect the excluded table as ancestor-context"
+    );
+    assert!(
+        fp.contains(&debug_path),
+        "root-level scalar outside the excluded table is unaffected"
+    );
+}
+
 // ---- Mutations via apply_replace ----
 
 #[test]

@@ -150,7 +150,13 @@ count would roughly double-jump). The popup
 filters **live** (every `type_filter_toggle` recomputes), Enter (`commit_type_filter`) closes into
 `resting_mode`, Esc (`exit_type_filter`) clears the type selections. `recompute_filter` now builds
 `filtered_paths` as the **AND intersection** of the `/` text match and the type match (matched nodes
-keep ancestors). When both filters are active, Esc in `FilterResults` peels **one layer at a time**
+keep ancestors — *except* a node that's a deliberate `reverse` exclusion target: `TypeFilter::is_reverse_excluded`
+is true when the node's own sign/type facet was positively selected, so `reverse` hid it on purpose;
+`recompute_filter` prunes that node's whole subtree instead of just dropping it from the match set,
+otherwise a descendant that legitimately passes the reversed filter would drag the excluded container
+back in via ancestor-context — the bug that made `reverse` look like a no-op on Table/Array while
+working fine on Scalar/Comment, which have no children to trigger the resurrection). When both
+filters are active, Esc in `FilterResults` peels **one layer at a time**
 via `App.last_filter_applied: Option<FilterLayer>` (most-recently-applied first); the status bar
 shows `[filter: …]` and/or `[type: N]` (`N` counts only `key_signs`/`types`, never `reverse`).
 

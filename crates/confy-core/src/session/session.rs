@@ -656,6 +656,16 @@ impl Session {
                     ancestors.insert(anc.clone());
                 }
             }
+            // A container that's a deliberate Reverse-exclusion target (its own
+            // sign/type facet was selected, so Reverse specifically hid it) has
+            // its whole subtree pruned here — otherwise a descendant that
+            // legitimately passes the reversed filter would drag this node
+            // back in via the ancestor-context rule below, making Reverse look
+            // like a no-op on Table/Array (leaves have no children, so this
+            // never applied to Scalar/Comment).
+            if type_filter.is_reverse_excluded(n.key_sign, &n.kind, n.format, doc, n.read_only) {
+                return;
+            }
             ancestor_paths.push(n.path.clone());
             for c in &n.children {
                 walk(

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- fix(core): Reverse type-filter had no visible effect on Table/Array — `recompute_filter`'s ancestor-context rule (an ancestor of any match stays visible) resurrected an excluded container the instant one of its own children legitimately passed the reversed filter, which is virtually always true for non-empty containers; Scalar/Comment reversal looked fine only because leaves have no children to trigger this. Fixed by pruning the whole subtree under a node that's a deliberate Reverse-exclusion target (`TypeFilter::is_reverse_excluded`, new `base_match` helper) instead of just dropping it from the match set.
+
 ## [v0.18.0] - 2026-07-29
 
 ### Added
