@@ -5,6 +5,18 @@ A cross-platform Terminal User Interface (TUI) for editing structured configurat
 Modeled on [wenv](https://github.com/superyngo/wenv)'s navigation/selection/editing UX, but
 targeting **markup config formats** (TOML, JSON/JSONC, and a lossless YAML subset) and **single-file editing**.
 
+## Installation
+
+```
+wenget add confy
+```
+
+Installs the latest `confy` release for your platform via
+[wenget](https://github.com/superyngo/wenget), a cross-platform (Windows/macOS/Linux)
+package manager that pulls straight from GitHub Releases. Or download a binary directly
+from [Releases](https://github.com/superyngo/confy/releases) — see also § Desktop app
+and § VS Code extension below for the GUI/editor builds.
+
 ## Usage
 
 ```
