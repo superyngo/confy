@@ -140,3 +140,19 @@ header doesn't match an allowlist, so connect with `suppress_origin=True` (Pytho
 tap`/`screencap` to drive the actual system UI (document pickers, "Open with" choosers, the home
 screen), this lets bugs get root-caused and fixes verified end-to-end on real hardware without a
 human re-testing every iteration.
+
+**Google Play (in progress, blocked on account creation).** `gen/android/app/build.gradle.kts`
+has a conditional release `signingConfig` (reads a gitignored, per-machine
+`keystore.properties` — see `keystore.properties.example`; falls back to an unsigned release
+build when absent, so this doesn't affect the M1 debug-sideload flow above) and a
+`CONFY_VERSION_CODE`-env-var-driven `versionCode` for future tag-derived CI builds (deliberately
+not Tauri's `autoIncrementVersionCode`, whose counter lives in a gitignored file that resets on
+every fresh CI clone). No Play Console account exists yet (needs the human: $25 one-time,
+plus Google's ≥12-tester/14-consecutive-day closed-testing gate for personal accounts created
+after 2023-11-13 before production access), so there's no `publish-play.yml` CI and the release
+AAB has never been built or run end-to-end — this dev machine currently has no Android
+SDK/NDK/gradle installed (`ANDROID_HOME` unset), which the M1 toolchain setup
+(`docs/superpowers/plans/2026-07-13-mobile-m1-android-plan.md`) originally covered. Status
+tracked in `RELEASES.md`'s "Android Google Play" row. See also `crates/confy-tauri/play/` (draft
+Play Store feature graphic) and `PRIVACY.md` / `web/privacy.html` (the privacy-policy URL every
+store listing points to).
