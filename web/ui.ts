@@ -195,7 +195,7 @@ async function main() {
   initTheme();
   if (VSHOST) {
     document.body.classList.add("host-vscode");
-    trackVsCodeTheme();
+    trackVsCodeTheme("auto");
   } else if (TAURI_DESKTOP) {
     document.body.classList.add("host-tauri-desktop");
   }
@@ -865,9 +865,10 @@ function reloadFromHost(text: string, format: ConfigFormat, name: string | null)
 function handleHostMsg(msg: HostToWebview) {
   switch (msg.type) {
     case "init": {
-      // VS Code's display language is authoritative in this host (same
-      // principle as theme). Apply before openText so its internal
-      // SetLang(getLang()) picks it up.
+      // VS Code's display language and theme mode are authoritative in this
+      // host (both persisted host-side via globalState). Apply theme before
+      // openText/render so the first paint uses the right palette.
+      trackVsCodeTheme(msg.theme);
       setLang(msg.lang === "zh-TW" ? "zh-TW" : "en");
       hostDirty = msg.dirty;
       hostInitiated = true;
@@ -907,6 +908,9 @@ function handleHostMsg(msg: HostToWebview) {
       break;
     case "set-lang":
       chooseLang(msg.lang);
+      break;
+    case "set-theme":
+      trackVsCodeTheme(msg.theme);
       break;
   }
 }

@@ -40,10 +40,14 @@
       { "command": "confy.help", "title": "confy: Help" },
       { "command": "confy.about", "title": "confy: About" },
       { "command": "confy.langEnglish", "title": "English" },
-      { "command": "confy.langZhTw", "title": "繁體中文" }
+      { "command": "confy.langZhTw", "title": "繁體中文" },
+      { "command": "confy.themeAuto", "title": "Auto (Follow VS Code)" },
+      { "command": "confy.themeLight", "title": "Light" },
+      { "command": "confy.themeDark", "title": "Dark" }
     ],
     "submenus": [
-      { "id": "confy.language", "label": "confy: Language / 語言" }
+      { "id": "confy.language", "label": "confy: Language / 語言" },
+      { "id": "confy.theme", "label": "confy: Theme" }
     ],
     "menus": {
       "editor/title": [
@@ -81,15 +85,28 @@
           "submenu": "confy.language",
           "group": "1_confy@4",
           "when": "activeCustomEditorId == 'confy.editor'"
+        },
+        {
+          "submenu": "confy.theme",
+          "group": "1_confy@5",
+          "when": "activeCustomEditorId == 'confy.editor'"
         }
       ],
       "confy.language": [
         { "command": "confy.langEnglish", "group": "1_lang@1" },
         { "command": "confy.langZhTw", "group": "1_lang@2" }
       ],
+      "confy.theme": [
+        { "command": "confy.themeAuto", "group": "1_theme@1" },
+        { "command": "confy.themeLight", "group": "1_theme@2" },
+        { "command": "confy.themeDark", "group": "1_theme@3" }
+      ],
       "commandPalette": [
         { "command": "confy.langEnglish", "when": "false" },
-        { "command": "confy.langZhTw", "when": "false" }
+        { "command": "confy.langZhTw", "when": "false" },
+        { "command": "confy.themeAuto", "when": "false" },
+        { "command": "confy.themeLight", "when": "false" },
+        { "command": "confy.themeDark", "when": "false" }
       ]
     },
     "keybindings": [

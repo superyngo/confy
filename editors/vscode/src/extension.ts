@@ -74,11 +74,21 @@ export function activate(context: vscode.ExtensionContext): void {
     // one command per language, picked directly, no intermediate QuickPick.
     vscode.commands.registerCommand("confy.langEnglish", () => setLang("en")),
     vscode.commands.registerCommand("confy.langZhTw", () => setLang("zh-TW")),
+    // Theme is the same pattern as language: a native submenu, one command
+    // per mode, no intermediate QuickPick.
+    vscode.commands.registerCommand("confy.themeAuto", () => setTheme("auto")),
+    vscode.commands.registerCommand("confy.themeLight", () => setTheme("light")),
+    vscode.commands.registerCommand("confy.themeDark", () => setTheme("dark")),
   );
 
   async function setLang(lang: "en" | "zh-TW"): Promise<void> {
     await context.globalState.update("confy.lang", lang);
     provider.postToActive({ type: "set-lang", lang });
+  }
+
+  async function setTheme(theme: "auto" | "light" | "dark"): Promise<void> {
+    await context.globalState.update("confy.theme", theme);
+    provider.postToActive({ type: "set-theme", theme });
   }
 }
 

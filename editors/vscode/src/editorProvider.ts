@@ -104,12 +104,19 @@ export class ConfyEditorProvider implements vscode.CustomTextEditorProvider {
               : vscode.env.language.toLowerCase() === "zh-tw"
                 ? "zh-TW"
                 : "en";
+          // A user-picked theme mode (confy.theme{Auto,Light,Dark} →
+          // globalState) wins; default "auto" preserves the original
+          // follow-VS-Code behavior.
+          const savedTheme = this.context.globalState.get<string>("confy.theme");
+          const theme: "auto" | "light" | "dark" =
+            savedTheme === "light" || savedTheme === "dark" ? savedTheme : "auto";
           webviewText = document.getText();
           postMsg({
             type: "init",
             text: webviewText,
             name,
             format: formatFromName(name),
+            theme,
             lang,
             dirty: document.isDirty,
           });

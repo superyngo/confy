@@ -9,10 +9,15 @@
 // `.yml` folds to "yaml" and `.jsonc` to "json"; the wire never carries "yml".
 export type ConfigFormat = "toml" | "json" | "yaml";
 
+// "auto" tracks VS Code's own active color theme (vscode-light/vscode-dark/
+// vscode-high-contrast* body classes, see web/vscode.ts); "light"/"dark" pin
+// confy's palette regardless of VS Code's theme.
+export type ThemeMode = "auto" | "light" | "dark";
+
 export type HostToWebview =
   // `dirty` rides along because the TextDocument may already be dirty when the
   // confy editor opens (toggle from an unsaved text editor).
-  | { type: "init"; text: string; name: string; format: ConfigFormat; lang: string; dirty: boolean }
+  | { type: "init"; text: string; name: string; format: ConfigFormat; theme: ThemeMode; lang: string; dirty: boolean }
   // The document changed under us (side-by-side typing, undo/redo, revert,
   // git). The webview reloads its Session from this text; echoes of the
   // webview's own `edit` are filtered host-side and never arrive here.
@@ -23,6 +28,8 @@ export type HostToWebview =
   // in this host (title-bar "…" menu commands): open the Save As/Convert
   // dialog, or the Help overlay on a given tab.
   | { type: "exec"; action: "save-as" | "help" | "about" }
+  // Theme picked from the title-bar "…" menu's confy: Theme submenu.
+  | { type: "set-theme"; theme: ThemeMode }
   // Language picked from the title-bar "…" menu's Choose Display Language command.
   | { type: "set-lang"; lang: "en" | "zh-TW" };
 
