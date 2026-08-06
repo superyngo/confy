@@ -149,10 +149,26 @@ build when absent, so this doesn't affect the M1 debug-sideload flow above) and 
 not Tauri's `autoIncrementVersionCode`, whose counter lives in a gitignored file that resets on
 every fresh CI clone). No Play Console account exists yet (needs the human: $25 one-time,
 plus Google's ≥12-tester/14-consecutive-day closed-testing gate for personal accounts created
-after 2023-11-13 before production access), so there's no `publish-play.yml` CI and the release
-AAB has never been built or run end-to-end — this dev machine currently has no Android
-SDK/NDK/gradle installed (`ANDROID_HOME` unset), which the M1 toolchain setup
-(`docs/superpowers/plans/2026-07-13-mobile-m1-android-plan.md`) originally covered. Status
-tracked in `RELEASES.md`'s "Android Google Play" row. See also `crates/confy-tauri/play/` (draft
-Play Store feature graphic) and `PRIVACY.md` / `web/privacy.html` (the privacy-policy URL every
-store listing points to).
+after 2023-11-13 before production access), so there's no `publish-play.yml` CI. Status tracked
+in `RELEASES.md`'s "Android Google Play" row. See also `crates/confy-tauri/play/` (draft Play
+Store feature graphic) and `PRIVACY.md` / `web/privacy.html` (the privacy-policy URL every store
+listing points to).
+
+**Build/sign/install verified end-to-end (2026-08-06).** The M1 toolchain setup
+(`docs/superpowers/plans/2026-07-13-mobile-m1-android-plan.md`) is CLI-only and still current —
+no Android Studio installed or needed (`android-commandlinetools` under
+`ANDROID_HOME=/opt/homebrew/share/android-commandlinetools`: build-tools 34/35, platforms 34/36,
+NDK 27, plus JDK 21 and the `rustup` android targets). `cargo tauri android build --debug --apk`
+and `--apk` (release) both ran clean on the current tree; `apksigner verify`/`aapt` confirmed the
+release APK is `confy-release`-signed (not debug), `usesCleartextTraffic=false` (vs `true` in
+debug) resolves correctly per build type, and proguard/minify shrinks the universal release APK
+585MB→25.6MB. Both variants installed and launched on a real device without crashing, and a
+tap-to-select interaction confirmed the wasm↔JS bridge survives release minification. One real
+bug found and fixed along the way: `keystore.properties`' `keyPassword` didn't match
+`confy-release.keystore` — it's a PKCS12 keystore, which uses one password for both the store and
+the key (`keytool -keypasswd` refuses PKCS12 outright), so the separately-recorded key password
+was simply never validated; release builds failed with `KeytoolException: ... Given final block
+not properly padded` until `keyPassword` was corrected to match `storePassword`. The 7/15 M1
+manual acceptance pass was left unfinished (work moved to VS Code); "另存新檔"/Save As is still
+the known, deliberate M1 gap (`canSaveAs()` above) and remains open as a separate task, not
+covered by this verification pass.
