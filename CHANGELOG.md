@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - feat(vscode): theme menu — "…" → confy: Theme (Auto / Light / Dark), replacing the previously implicit auto-follow-VS-Code behavior; persisted via globalState, same pattern as the existing Language submenu
+- feat(ci): selective publish gate — `publish-gate.yml` splits its single approval job into one job per store (`publish-gate-msstore`, `publish-gate-vscode` environments), so a release's Microsoft Store and VS Code Marketplace/Open VSX submissions can be approved independently in the same "Review pending deployments" screen instead of all-or-nothing; replaces the shared `publish-gate` environment (removed)
 
 ## [v0.18.1] - 2026-07-29
 

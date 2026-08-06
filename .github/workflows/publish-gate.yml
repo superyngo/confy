@@ -2,11 +2,12 @@ name: Publish Gate
 
 # Fires once release.yml's "Release" workflow finishes for a real tag push
 # (workflow_dispatch dry runs on main have event == 'workflow_dispatch' and
-# nothing to publish, so they're excluded). Pauses for one manual approval,
-# then dispatches every publish-*.yml workflow exactly once — a single
-# review gate shared by all publishing targets instead of one gate per
-# target (which duplicated approval clicks and let the individual jobs'
-# pending-deployment state get out of sync across reruns).
+# nothing to publish, so they're excluded). One job per publish target, each
+# gated by its own `environment: publish-gate-<store>` instead of a single
+# shared environment: GitHub's "Review pending deployments" screen lists
+# every pending environment for one workflow run as individually checkable
+# items, so a release can be approved for a subset of stores in the same
+# single visit instead of all-or-nothing.
 on:
   workflow_run:
     workflows: ["Release"]
@@ -17,17 +18,29 @@ permissions:
   actions: write
 
 jobs:
-  gate:
-    name: Approve publishing
+  msstore:
+    name: Approve msstore publish
     if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
-    environment: publish-gate
+    environment: publish-gate-msstore
     steps:
-      - name: Dispatch publishing workflows
+      - name: Dispatch publish-msstore.yml
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.workflow_run.head_branch }}
           RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
           gh workflow run publish-msstore.yml --repo "${{ github.repository }}" --ref main -f tag="$TAG" -f run_id="$RUN_ID"
+
+  vscode:
+    name: Approve vscode publish
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    environment: publish-gate-vscode
+    steps:
+      - name: Dispatch publish-vscode.yml
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.workflow_run.head_branch }}
+        run: |
           gh workflow run publish-vscode.yml --repo "${{ github.repository }}" --ref main -f tag="$TAG"
