@@ -113,6 +113,54 @@
             </intent-filter>
             
             <!-- tauri-file-associations. AUTO-GENERATED. DO NOT REMOVE. -->
+            <!-- MANUAL, confy-specific: survives `cargo tauri android build` regeneration because it's
+                 outside the tauri-file-associations markers above. Re-add if a full `cargo tauri android
+                 init` ever regenerates this file from scratch. See TAURI.md § Mobile > Open-with
+                 visibility, and docs/superpowers/plans/2026-08-06-mobile-m2-saveas-fileassoc-plan.md.
+                 Root cause: the auto-generated filters above declare `android:mimeType` with no
+                 `android:scheme`, so Android's path-pattern matching (which requires a scheme) never
+                 activates; these manual filters add scheme/host + a wildcard mimeType so pathPattern
+                 does the real matching. Action set (VIEW + SEND + SEND_MULTIPLE) deliberately mirrors
+                 the auto-generated block above (decision 3, grilled 2026-08-06) — the same scheme-less-
+                 pathPattern root cause equally breaks the Share sheet, not just "Open with". -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:host="*" />
+                <data android:mimeType="*/*" />
+                <data android:pathPattern=".*\\.toml" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:host="*" />
+                <data android:mimeType="*/*" />
+                <data android:pathPattern=".*\\.json" />
+                <data android:pathPattern=".*\\.jsonc" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:host="*" />
+                <data android:mimeType="*/*" />
+                <data android:pathPattern=".*\\.yaml" />
+                <data android:pathPattern=".*\\.yml" />
+            </intent-filter>
         </activity>
 
         <provider

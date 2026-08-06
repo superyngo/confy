@@ -6,10 +6,16 @@ import android.provider.OpenableColumns
 import androidx.activity.result.ActivityResult
 import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
+import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
+
+@InvokeArg
+class CreateWritableArgs {
+    lateinit var suggestedName: String
+}
 
 /**
  * Standalone picker for confy's mobile M1 write-in-place flow.
@@ -34,6 +40,46 @@ class ConfyPickerPlugin(private val activity: Activity) : Plugin(activity) {
                 Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION,
         )
         startActivityForResult(invoke, intent, "pickWritableResult")
+    }
+
+    /**
+     * `ACTION_CREATE_DOCUMENT` counterpart to [pickWritable] for confy's
+     * mobile M2 Save-As flow — mirrors it exactly except for the intent
+     * action/title, since stock `tauri-plugin-dialog`'s Android
+     * `saveFileDialog` never calls `takePersistableUriPermission` (see
+     * docs/adr/0001-android-save-as-persistable-grant.md).
+     */
+    @Command
+    fun createWritable(invoke: Invoke) {
+        val args = invoke.parseArgs(CreateWritableArgs::class.java)
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT)
+        intent.addCategory(Intent.CATEGORY_OPENABLE)
+        intent.type = "*/*"
+        intent.putExtra(Intent.EXTRA_TITLE, args.suggestedName)
+        intent.addFlags(
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION,
+        )
+        startActivityForResult(invoke, intent, "createWritableResult")
+    }
+
+    @ActivityCallback
+    fun createWritableResult(invoke: Invoke, result: ActivityResult) {
+        val ret = JSObject()
+        val uri = if (result.resultCode == Activity.RESULT_OK) result.data?.data else null
+        if (uri != null) {
+            activity.contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+            )
+            ret.put("uri", uri.toString())
+            ret.put("name", queryDisplayName(uri))
+        } else {
+            ret.put("uri", null)
+            ret.put("name", null)
+        }
+        invoke.resolve(ret)
     }
 
     @ActivityCallback

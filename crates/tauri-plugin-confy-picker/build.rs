@@ -1,4 +1,4 @@
-const COMMANDS: &[&str] = &["pick_writable"];
+const COMMANDS: &[&str] = &["pick_writable", "create_writable"];
 
 fn main() {
     tauri_plugin::Builder::new(COMMANDS)

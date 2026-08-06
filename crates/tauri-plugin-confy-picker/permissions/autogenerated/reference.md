@@ -5,6 +5,7 @@ Default permissions for the plugin
 #### This default permission set includes the following:
 
 - `allow-pick-writable`
+- `allow-create-writable`
 
 ## Permission Table
 
@@ -14,6 +15,32 @@ Default permissions for the plugin
 <th>Description</th>
 </tr>
 
+
+<tr>
+<td>
+
+`confy-picker:allow-create-writable`
+
+</td>
+<td>
+
+Enables the create_writable command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`confy-picker:deny-create-writable`
+
+</td>
+<td>
+
+Denies the create_writable command without any pre-configured scope.
+
+</td>
+</tr>
 
 <tr>
 <td>

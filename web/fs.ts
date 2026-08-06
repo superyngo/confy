@@ -125,15 +125,16 @@ export function isTauriAndroid(): boolean {
 
 /**
  * True when the host can pick a *new* save destination (Save As / Convert to
- * a new file / first Save with no open handle). False only on Tauri mobile in
- * M1: stock `tauri-plugin-dialog`'s Android save path (`ACTION_CREATE_DOCUMENT`)
- * is untested and the spec flags it as a research item, so M1 disables picking
- * a new destination there — only in-place saves to an already-open, already
- * write-granted handle (via `tauri-plugin-confy-picker`) are supported. Desktop
- * Tauri and every browser path (FS Access API or download fallback) stay true.
+ * a new file / first Save with no open handle). Always true on Tauri
+ * mobile/desktop and every browser path (FS Access API or download
+ * fallback) — Android's `tauri-plugin-confy-picker` `create_writable`
+ * command (M2) takes the same persistable write grant `pickOpenFile`
+ * already does, so a newly-created Android file also survives an app
+ * restart. `ui.ts` separately ANDs this with `!VSHOST` (VS Code webview
+ * host, an unrelated third shell) — see `docs/adr/0001-android-save-as-persistable-grant.md`.
  */
 export function canSaveAs(): boolean {
-  return !isTauriMobile();
+  return true;
 }
 
 interface RustOpenedFile {
@@ -285,6 +286,20 @@ export async function pickSaveFile(
   suggestedName: string,
 ): Promise<FsHandle | null> {
   const g = tauriGlobal();
+  // Android: stock `tauri-plugin-dialog`'s `saveFileDialog` uses the correct
+  // `ACTION_CREATE_DOCUMENT` action but never calls
+  // `takePersistableUriPermission` (confirmed by reading its source; see
+  // docs/adr/0001-android-save-as-persistable-grant.md) — route through the
+  // custom `tauri-plugin-confy-picker` plugin instead, same shape as
+  // `pickOpenFile`'s Android branch above.
+  if (g?.core && g.fs && isTauriAndroid()) {
+    const res = await g.core.invoke<PickWritableResponse>(
+      "plugin:confy-picker|create_writable",
+      { suggestedName },
+    );
+    if (!res.uri) return null;
+    return tauriHandle(res.uri, res.name ?? suggestedName);
+  }
   if (g?.dialog && g.fs) {
     const path = await g.dialog.save({ defaultPath: suggestedName });
     if (!path) return null;

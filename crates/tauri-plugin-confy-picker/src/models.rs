@@ -15,3 +15,11 @@ pub struct PickWritableResponse {
     /// the JNI response into this struct before it's re-serialized back to JS.
     pub name: Option<String>,
 }
+
+/// Args for [`crate::mobile::ConfyPicker::create_writable`]: the filename to
+/// suggest to the SAF create-document picker (`Intent.EXTRA_TITLE`).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateWritableRequest {
+    pub suggested_name: String,
+}

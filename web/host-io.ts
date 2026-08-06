@@ -22,9 +22,12 @@ export type { ConfigFormat } from "./vscode-protocol.js";
 // The differing surface between the two hosts.
 export interface HostIo {
   fsAvailable: boolean;
-  /** Can the host pick a *new* save destination? False on Tauri mobile in M1
-   * (see `fs.ts`'s `canSaveAs`) — an already-open handle can still be saved
-   * in place regardless of this flag. */
+  /** Can the host pick a *new* save destination? True everywhere except the
+   * VS Code webview host, which forces it false (see `ui.ts`'s `VSHOST`
+   * gate) — an already-open handle can still be saved in place regardless
+   * of this flag. Kept as a capability flag for that one remaining
+   * consumer; no function in this file branches on it anymore (see
+   * `fs.ts`'s `canSaveAs`). */
   canSaveAs: boolean;
   getSnap(): SessionSnapshot | null;
   send(i: Intent): void;
@@ -173,11 +176,6 @@ export async function doQuickSave(io: HostIo): Promise<void> {
     }
     return;
   }
-  // No handle yet — first save. Picking a destination needs `canSaveAs`.
-  if (!io.canSaveAs) {
-    io.err(t("web.mobile.saveAsUnavailable"));
-    return;
-  }
   const fmt = io.getSnap()!.doc_format;
   const suggested = ensureExt(io.getFileName() ?? "confy-export", extFor(fmt));
   if (io.fsAvailable) {
@@ -227,10 +225,6 @@ export async function doSaveAsCopy(io: HostIo, path: string): Promise<void> {
   const fmt = io.getSnap()!.doc_format;
   const baseName = ensureExt(path.split("/").pop() || "confy-export", extFor(fmt));
   io.send("ExitConvert");
-  if (!io.canSaveAs) {
-    io.err(t("web.mobile.saveAsUnavailable"));
-    return;
-  }
   if (io.fsAvailable) {
     try {
       const handle = await pickSaveFile(fmt, baseName);
@@ -262,10 +256,6 @@ export async function doConvertWrite(
 ): Promise<void> {
   io.beforeConvertWrite?.();
   const baseName = path.split("/").pop() ?? "confy-converted";
-  if (!io.canSaveAs) {
-    io.err(t("web.mobile.saveAsUnavailable"));
-    return;
-  }
   if (io.fsAvailable) {
     const target = targetTagFor(path);
     const outExt = extFor(target);

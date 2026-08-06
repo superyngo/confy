@@ -35,7 +35,10 @@ impl<R: Runtime, T: Manager<R>> crate::ConfyPickerExt<R> for T {
 /// Initializes the plugin.
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("confy-picker")
-        .invoke_handler(tauri::generate_handler![commands::pick_writable])
+        .invoke_handler(tauri::generate_handler![
+            commands::pick_writable,
+            commands::create_writable
+        ])
         .setup(|app, api| {
             #[cfg(mobile)]
             let confy_picker = mobile::init(app, api)?;

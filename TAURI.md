@@ -112,11 +112,33 @@ needed there, since a file-association launch intent's own grant covers the rece
 lifetime. `menu.ts`'s native menu bar no-ops on Tauri mobile (same `isTauriMobile()` guard as
 `canSaveAs()`) — there's no menu bar on Android.
 
-**`canSaveAs()` gating.** False on Tauri mobile: picking a *new* save destination (Save As, first
-Save after File-New-equivalent, Convert's output path) isn't supported in M1, so those paths show
-a translated hint (`web.mobile.saveAsUnavailable`) instead of opening a picker. Writing in place
-to an already-open handle is unaffected by this flag — `doQuickSave` only consults it on the
-no-handle-yet (first save) branch.
+**Save As (M2, 2026-08-06).** `canSaveAs()` now returns `true` on every platform — picking a *new*
+save destination (Save As, first Save after File-New-equivalent, Convert's output path) was
+hardcoded `false` on Tauri mobile in M1 (stock `tauri-plugin-dialog`'s Android `saveFileDialog`
+never took a persistable write grant). Fixed with a new `create_writable` command in
+`tauri-plugin-confy-picker` (`ACTION_CREATE_DOCUMENT` + `takePersistableUriPermission`, the same
+shape as `pick_writable` above); `fs.ts::pickSaveFile()` forks to it on `isTauriAndroid()`. Writing
+in place to an already-open handle was always unaffected by this flag — `doQuickSave` only
+consulted it on the no-handle-yet (first save) branch, which is now unconditional everywhere except
+the VS Code webview host (`ui.ts`'s separate `VSHOST` gate, unrelated to mobile). See
+`docs/adr/0001-android-save-as-persistable-grant.md` and
+`docs/superpowers/plans/2026-08-06-mobile-m2-saveas-fileassoc-plan.md` for the full rationale and
+the kill+relaunch persistable-grant verification.
+
+**Open-with / share chooser visibility (M2 manifest hand-edit).** Confy didn't reliably appear
+when opening/sharing `.toml`/`.json`/`.yaml` from a file manager — root cause: the auto-generated
+`AndroidManifest.xml` intent-filters (from `tauri.android.conf.json`'s `bundle.fileAssociations`)
+declare `android:mimeType` with no `android:scheme`, so Android's `pathPattern` matching (which
+requires a scheme) never activates, leaving a match dependent on the firing file manager's own
+MIME-type guess. Fixed with hand-authored `<intent-filter>` blocks (one per extension group;
+VIEW + SEND + SEND_MULTIPLE, `scheme=content`/`file`, `host=*`, wildcard `mimeType="*/*"`
+constrained by a real `pathPattern`) placed in
+`crates/confy-tauri/gen/android/app/src/main/AndroidManifest.xml` immediately after the
+`<!-- tauri-file-associations. AUTO-GENERATED. DO NOT REMOVE. -->` **closing** marker, still inside
+`<activity>...</activity>` — same manual-maintenance pattern M1 used for the icon/theme/status-bar
+edits (this file is committed to git; hand-edits *outside* the marker pair survive every
+`cargo tauri android build`/`dev` regeneration, edits *inside* them don't). Re-add if a full
+`cargo tauri android init` ever regenerates this file from scratch.
 
 **The split-button lesson (why Save is one plain button, not a pill).** An earlier iteration
 tried merging the Save button and a "Save As / Convert…" chevron into one visually-glued
@@ -169,6 +191,6 @@ bug found and fixed along the way: `keystore.properties`' `keyPassword` didn't m
 the key (`keytool -keypasswd` refuses PKCS12 outright), so the separately-recorded key password
 was simply never validated; release builds failed with `KeytoolException: ... Given final block
 not properly padded` until `keyPassword` was corrected to match `storePassword`. The 7/15 M1
-manual acceptance pass was left unfinished (work moved to VS Code); "另存新檔"/Save As is still
-the known, deliberate M1 gap (`canSaveAs()` above) and remains open as a separate task, not
-covered by this verification pass.
+manual acceptance pass was left unfinished (work moved to VS Code); at the time of this
+verification pass "另存新檔"/Save As was still the known, deliberate M1 gap — since resolved by
+the M2 work above.

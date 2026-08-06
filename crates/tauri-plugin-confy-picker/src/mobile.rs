@@ -29,4 +29,21 @@ impl<R: Runtime> ConfyPicker<R> {
             .run_mobile_plugin("pickWritable", ())
             .map_err(Into::into)
     }
+
+    /// Opens `ACTION_CREATE_DOCUMENT` for a new file named `suggested_name`
+    /// and takes a persistable read+write URI permission grant on the
+    /// result, same as [`Self::pick_writable`] — unlike stock
+    /// `tauri-plugin-dialog`'s Android `saveFileDialog`, which never calls
+    /// `takePersistableUriPermission` (confirmed by reading its source; see
+    /// `docs/adr/0001-android-save-as-persistable-grant.md`).
+    pub fn create_writable(&self, suggested_name: &str) -> crate::Result<PickWritableResponse> {
+        self.0
+            .run_mobile_plugin(
+                "createWritable",
+                CreateWritableRequest {
+                    suggested_name: suggested_name.to_string(),
+                },
+            )
+            .map_err(Into::into)
+    }
 }

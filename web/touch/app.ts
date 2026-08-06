@@ -598,7 +598,6 @@ function openSaveSheet() {
       const id = it.dataset.mi!;
       closeSheets();
       if (id === "save") void doQuickSave(io);
-      else if (!io.canSaveAs) toast(t("web.mobile.saveAsUnavailable"));
       else openSaveConvert(io);
     });
   });

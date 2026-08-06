@@ -19,4 +19,8 @@ impl<R: Runtime> ConfyPicker<R> {
     pub fn pick_writable(&self) -> crate::Result<PickWritableResponse> {
         Err(crate::Error::Unsupported)
     }
+
+    pub fn create_writable(&self, _suggested_name: &str) -> crate::Result<PickWritableResponse> {
+        Err(crate::Error::Unsupported)
+    }
 }
