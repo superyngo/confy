@@ -28,7 +28,7 @@ fi
 cd web
 rm -rf dist
 mkdir -p dist/touch dist/pkg dist/icons
-cp index.html touch.html style.css ui.js ui.js.map manifest.webmanifest sw.js dist/
+cp index.html touch.html privacy.html style.css ui.js ui.js.map manifest.webmanifest sw.js dist/
 cp touch/style.css touch/app.js touch/app.js.map dist/touch/
 cp icons/icon-192.png icons/icon-512.png dist/icons/
 cp -r pkg/. dist/pkg/

@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - feat(vscode): theme menu — "…" → confy: Theme (Auto / Light / Dark), replacing the previously implicit auto-follow-VS-Code behavior; persisted via globalState, same pattern as the existing Language submenu
 - feat(ci): selective publish gate — `publish-gate.yml` splits its single approval job into one job per store (`publish-gate-msstore`, `publish-gate-vscode` environments), so a release's Microsoft Store and VS Code Marketplace/Open VSX submissions can be approved independently in the same "Review pending deployments" screen instead of all-or-nothing; replaces the shared `publish-gate` environment (removed)
+- feat(ci): RELEASES.md version auto-sync — `scripts/sync-releases-md.sh` patches the "Current version" column and pushes to `main` from `release.yml`/`publish-msstore.yml`/`publish-vscode.yml` right after each channel actually goes live (retries on push race), replacing the manual, previously-forgotten update step
+- docs(readme): document `wenget add confy` as the recommended cross-platform CLI install method (confy is registered in the `wenget` bucket manifest)
+- feat(android): Google Play prep — conditional release `signingConfig` in `gen/android/app/build.gradle.kts` (gitignored `keystore.properties`, CI-secret-driven, falls back to unsigned when absent), tag-derived `versionCode` override (`CONFY_VERSION_CODE` env var, avoids Tauri's stateless-CI-unsafe `autoIncrementVersionCode`), new `/privacy` static route (`web/privacy.html`, mirrors `PRIVACY.md`) as the canonical privacy-policy URL for every store listing, draft Play feature graphic (`crates/confy-tauri/play/`); RELEASES.md gains an in-development "Android Google Play" row — no Play Console account yet, `publish-play.yml` CI not built
+
+### Fixed
+- fix(docs): `crates/confy-tauri/msix/STORE.md` — stale single shared `publish-gate` environment description corrected to match the `1c3e01a` per-store `publish-gate-msstore`/`publish-gate-vscode` split; added the (manual, non-automatable) Partner Center privacy-policy-URL setup step
 
 ## [v0.18.1] - 2026-07-29
 

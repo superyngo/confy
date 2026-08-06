@@ -13,6 +13,18 @@ val tauriProperties = Properties().apply {
     }
 }
 
+// Release (upload key) signing. keystore.properties is a gitignored,
+// per-machine file (storeFile/storePassword/keyAlias/keyPassword) -- see
+// keystore.properties.example next to this file. CI writes it from
+// ANDROID_KEYSTORE_* secrets before building; local machines without the
+// production key fall back to an unsigned release build.
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        keystorePropertiesFile.inputStream().use { load(it) }
+    }
+}
+
 android {
     compileSdk = 36
     namespace = "net.turkeyang.confy"
@@ -21,8 +33,24 @@ android {
         applicationId = "net.turkeyang.confy"
         minSdk = 24
         targetSdk = 36
-        versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
+        // CONFY_VERSION_CODE (CI, derived from the release tag -- see
+        // publish-play.yml) wins when set; tauri.properties' auto-generated
+        // value is the local-dev fallback. Not Tauri's own
+        // autoIncrementVersionCode: that counter lives in a gitignored,
+        // per-checkout file, which resets to 1 on every fresh CI clone.
+        versionCode = System.getenv("CONFY_VERSION_CODE")?.toIntOrNull()
+            ?: tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+    }
+    signingConfigs {
+        if (keystorePropertiesFile.exists()) {
+            create("release") {
+                storeFile = file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
     }
     buildTypes {
         getByName("debug") {
@@ -38,6 +66,9 @@ android {
         }
         getByName("release") {
             isMinifyEnabled = true
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(
                 *fileTree(".") { include("**/*.pro") }
                     .plus(getDefaultProguardFile("proguard-android-optimize.txt"))

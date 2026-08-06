@@ -2,6 +2,10 @@
 
 _Last updated: 2026-07-22_
 
+Mirrored verbatim at <https://confy.turkeyang.net/privacy> (`web/privacy.html`) — the URL
+used for every store listing's privacy policy field (Microsoft Store, Google Play, VS
+Marketplace, future App Store). Keep both copies in sync on edit.
+
 Confy ("the app") runs entirely offline.
 
 - **No telemetry.** The app does not collect, log, or transmit any usage data,

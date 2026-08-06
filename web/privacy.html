@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Privacy Policy — confy</title>
+    <meta name="theme-color" content="#16181d" />
+    <link rel="icon" type="image/png" href="./icons/icon-192.png" />
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0;
+        padding: 2.5rem 1.25rem 4rem;
+        background: #16181d;
+        color: #e6e6e6;
+        font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+      main { max-width: 40rem; margin: 0 auto; }
+      h1 { font-size: 1.5rem; margin-bottom: 0.25rem; }
+      .updated { color: #9a9fa8; font-size: 0.875rem; margin-bottom: 2rem; }
+      ul { padding-left: 1.25rem; }
+      li { margin-bottom: 0.75rem; }
+      a { color: #7db2ff; }
+      .back { display: inline-block; margin-top: 2.5rem; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Privacy Policy — Confy — TOML/JSON/YAML Editor</h1>
+      <p class="updated">Last updated: 2026-07-22</p>
+
+      <p>Confy ("the app") runs entirely offline.</p>
+
+      <ul>
+        <li><strong>No telemetry.</strong> The app does not collect, log, or transmit any usage
+          data, analytics, or diagnostics.</li>
+        <li><strong>No data transmission.</strong> Files you open and edit stay on your device
+          (or, for the web build, in your browser). Confy never uploads file contents anywhere.</li>
+        <li><strong>Network activity.</strong> The only network request the app ever makes is the
+          optional "Open from URL" feature, which fetches a URL you explicitly supply. No other
+          network activity occurs.</li>
+        <li><strong>Local preferences only.</strong> Language and theme preferences are stored
+          locally (a config file on desktop/TUI, <code>localStorage</code> on the web build) and
+          are never transmitted.</li>
+        <li><strong>No accounts, no third parties.</strong> Confy has no user accounts, no
+          authentication, and does not share data with any third party — because it does not
+          collect any data to share.</li>
+      </ul>
+
+      <h2>Contact</h2>
+      <p>Questions about this policy can be raised via the project's GitHub issues:
+        <a href="https://github.com/superyngo/confy/issues">github.com/superyngo/confy/issues</a>.</p>
+
+      <a class="back" href="./">&larr; Back to confy</a>
+    </main>
+  </body>
+</html>
