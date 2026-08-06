@@ -300,3 +300,14 @@ jobs:
             artifacts/confy-windows-*.exe
             artifacts/confy-desktop-*
             artifacts/SHA256SUMS
+
+
+      - name: Sync RELEASES.md — TUI + Desktop versions
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git fetch origin main
+          git checkout main
+          bash scripts/sync-releases-md.sh "TUI binaries" "${{ github.ref_name }}"
+          bash scripts/sync-releases-md.sh "Desktop app" "${{ github.ref_name }}"

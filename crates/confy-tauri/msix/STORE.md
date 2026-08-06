@@ -36,13 +36,18 @@ with a non-Store cert is rejected.
    | Seller ID (Account settings → Developer settings) | `MSIX_SUBMISSION_SELLER_ID` |
    | Store product ID (App identity → "Store ID") | `MSIX_SUBMISSION_APP_ID`   |
 
-5. Create a GitHub **Environment** named `publish-gate` with a required
-   reviewer (Settings → Environments). `publish-gate.yml` runs under this
-   environment: it fires once `release.yml`'s Release job succeeds on a
-   `v*.*.*` tag, pauses for manual approval, then dispatches every
-   `publish-*.yml` workflow (Microsoft Store + VS Code extension) exactly
-   once — one approval covers all publishing targets, not one gate per
-   target.
+5. Create GitHub **Environments** named `publish-gate-msstore` and
+   `publish-gate-vscode`, each with a required reviewer (Settings →
+   Environments). `publish-gate.yml` runs one job per store, each under its
+   own environment: it fires once `release.yml`'s Release job succeeds on a
+   `v*.*.*` tag and pauses both jobs for manual approval — reviewable
+   independently in the same "Review pending deployments" screen — then
+   dispatches the corresponding `publish-*.yml` workflow.
+6. In Partner Center's *Store listings* page, set **Privacy policy URL** to
+   <https://confy.turkeyang.net/privacy> (`web/privacy.html` / `PRIVACY.md`,
+   kept in sync manually). Not automatable via the Submission API used
+   above — a one-time manual edit in the dashboard. If the listing already
+   has a different URL from an earlier submission, update it there too.
 
 ## Per-release submission
 
@@ -51,8 +56,9 @@ Automatic, in two stages:
 1. `release.yml` builds the `.msix` (via `pack-msix.ps1`) on every `v*.*.*`
    tag and publishes the GitHub Release.
 2. Once that succeeds, `publish-gate.yml` (`workflow_run` on `release.yml`
-   completing) pauses for approval in the `publish-gate` environment, then
-   dispatches `publish-msstore.yml` with the tag + source run ID.
+   completing) pauses its `msstore` job for approval in the
+   `publish-gate-msstore` environment, then dispatches `publish-msstore.yml`
+   with the tag + source run ID.
    `publish-msstore.yml` downloads the `x86_64-pc-windows-msvc` `.msix` from
    that run, configures the Microsoft Store Developer CLI (`msstore
    reconfigure`) with the secrets above, and runs `msstore publish` — which

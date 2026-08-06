@@ -17,7 +17,7 @@ on:
         required: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   publish:
@@ -49,3 +49,13 @@ jobs:
       - name: Submit and publish to the Store
         shell: bash
         run: msstore publish msix/confy-desktop-windows-x86_64.msix -id ${{ secrets.MSIX_SUBMISSION_APP_ID }}
+
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+
+      - name: Sync RELEASES.md — Microsoft Store version
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/sync-releases-md.sh "Windows Microsoft Store" "${{ inputs.tag }}"

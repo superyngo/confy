@@ -17,7 +17,7 @@ on:
         default: false
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   publish:
@@ -89,3 +89,12 @@ jobs:
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
         run: npx ovsx publish confy-vscode.vsix -p "$OVSX_PAT"
+
+      - name: Sync RELEASES.md — VS Code extension version
+        if: ${{ inputs.dry_run != true }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git fetch origin main
+          git checkout main
+          bash scripts/sync-releases-md.sh "VS Code extension" "${{ inputs.tag }}"
