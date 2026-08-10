@@ -26,6 +26,7 @@ pub struct Session {
     pub status: Option<String>,
     pub error: Option<String>,
     pub schema: Option<crate::schema::SchemaState>,
+    pub pending_schema_fetch: Option<crate::schema::SchemaSource>,
     pub mode: Mode,
     pub clipboard: Option<Clipboard>,
     pub paste_slot: Option<PasteSlot>,
@@ -66,6 +67,7 @@ impl Session {
         let mut s = Session::from_tree(tree);
         s.doc = Some(doc);
         s.history = Some(history);
+        s.pending_schema_fetch = s.detect_and_request_schema();
         s
     }
 
@@ -83,6 +85,7 @@ impl Session {
             status: None,
             error: None,
             schema: None,
+            pending_schema_fetch: None,
             mode: Mode::Normal,
             clipboard: None,
             paste_slot: None,
@@ -149,6 +152,15 @@ impl Session {
                     read_only: r.node.read_only,
                     selected: self.selection.contains(&r.node.path),
                     is_cursor: r.node.path == self.cursor,
+                    schema_warn: self.schema.as_ref().and_then(|s| {
+                        let msgs: Vec<String> = s
+                            .violations
+                            .iter()
+                            .filter(|v| v.path == r.node.path)
+                            .map(|v| v.message.clone())
+                            .collect();
+                        (!msgs.is_empty()).then_some(msgs)
+                    }),
                 }
             })
             .collect()

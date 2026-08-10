@@ -256,6 +256,11 @@ impl super::Session {
                     }
                 }
             }
+            // Schema
+            Intent::SetSchema { source } => self.pending_schema_fetch = Some(source),
+            Intent::SchemaLoaded { source, text } => self.apply_schema_text(source, text),
+            Intent::SchemaEnumMove(delta) => self.schema_enum_move(delta),
+            Intent::SchemaEnumCommit => self.schema_enum_commit(),
         }
 
         // Snap the cursor onto a visible row and drop a stale paste slot after
@@ -265,6 +270,7 @@ impl super::Session {
         let mut snap = self.snapshot();
         snap.convert_write = convert_write;
         snap.quit = quit;
+        snap.schema_fetch_request = self.pending_schema_fetch.take();
         snap
     }
 
@@ -281,6 +287,8 @@ impl super::Session {
             error: self.error.clone(),
             detail_text: self.detail_text.clone(),
             external_edit: self.external_edit_view(),
+            schema_status: self.schema.as_ref().map(|s| s.status()),
+            schema_fetch_request: self.pending_schema_fetch.clone(),
             convert_write: None,
             clipboard_count: self
                 .clipboard

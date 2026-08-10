@@ -101,6 +101,7 @@ fn view_row_roundtrips() {
         read_only: false,
         selected: true,
         is_cursor: false,
+        schema_warn: None,
     };
     assert_roundtrip(&row);
 
@@ -119,6 +120,7 @@ fn view_row_roundtrips() {
         read_only: true,
         selected: false,
         is_cursor: true,
+        schema_warn: None,
     };
     assert_roundtrip(&branch);
 }

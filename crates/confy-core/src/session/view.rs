@@ -45,6 +45,10 @@ pub struct ViewRow {
     pub selected: bool,
     /// True when this row's path matches `session.cursor`.
     pub is_cursor: bool,
+    /// Soft-constraint violation messages whose Path == this row's Path;
+    /// `None` = clean. Never blocks anything (`CONTEXT.md` § Schema
+    /// "Soft constraint").
+    pub schema_warn: Option<Vec<String>>,
 }
 
 // ---- Stage-2 full-state transport (WASM / Web UI) ----
@@ -217,4 +221,9 @@ pub struct SessionSnapshot {
     /// Undo-history depth (`History::depth()`, 0 before the first edit or
     /// when no document is loaded).
     pub history_len: usize,
+    pub schema_status: Option<crate::schema::SchemaStatus>,
+    /// Set when a detected/explicit schema source needs the host to resolve
+    /// its text (local read or URL fetch) and dispatch `Intent::SchemaLoaded`
+    /// back — mirrors `external_edit`/`convert_write`'s async-signal shape.
+    pub schema_fetch_request: Option<crate::schema::SchemaSource>,
 }

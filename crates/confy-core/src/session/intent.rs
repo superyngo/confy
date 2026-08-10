@@ -190,4 +190,9 @@ pub enum Intent {
     /// wire contract simple; an unrecognized code leaves the current language
     /// unchanged (never panics).
     SetLang(String),
+    // Schema
+    SetSchema { source: crate::schema::SchemaSource },
+    SchemaLoaded { source: crate::schema::SchemaSource, text: Result<String, String> },
+    SchemaEnumMove(i32),
+    SchemaEnumCommit,
 }

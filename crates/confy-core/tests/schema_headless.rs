@@ -547,3 +547,36 @@ fn add_node_resolving_enum_hint_is_cancellable_via_escape() {
     assert!(!text.contains("new_field"), "placeholder removed on cancel: {text}");
     assert!(text.contains("port = 1"), "pre-existing node intact: {text}");
 }
+
+use confy_core::session::Intent;
+
+#[test]
+fn dispatch_schema_loaded_populates_snapshot_status_and_row_warnings() {
+    let mut s = session_from("port = \"nope\"\n", DocFormat::Toml);
+    let schema_text = json!({
+        "type": "object",
+        "properties": { "port": { "type": "integer" } }
+    })
+    .to_string();
+    let snap = s.dispatch(Intent::SchemaLoaded {
+        source: SchemaSource::Local("./s.json".into()),
+        text: Ok(schema_text),
+    });
+    let status = snap.schema_status.expect("schema_status set");
+    assert_eq!(status.violation_count, 1);
+    let port_row = snap.rows.iter().find(|r| r.key == "port").unwrap();
+    assert!(port_row.schema_warn.is_some());
+    assert!(port_row.schema_warn.as_ref().unwrap()[0].contains("type"));
+}
+
+#[test]
+fn dispatch_set_schema_requests_a_fetch() {
+    let mut s = session_from("port = 1\n", DocFormat::Toml);
+    let snap = s.dispatch(Intent::SetSchema {
+        source: SchemaSource::Local("./explicit.json".into()),
+    });
+    assert_eq!(
+        snap.schema_fetch_request,
+        Some(SchemaSource::Local("./explicit.json".into()))
+    );
+}
