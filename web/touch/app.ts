@@ -48,6 +48,7 @@ import {
   openFromUrl,
   openSaveConvert,
   replaceSession,
+  resolveSchemaFetchRequest,
   toggleTheme,
   type HostIo,
 } from "../host-io.js";
@@ -421,6 +422,14 @@ function render() {
   // Async host I/O the snapshot requested.
   if (snap.external_edit) openExternalEdit(snap.external_edit);
   if (snap.convert_write) void doConvertWrite(io, snap.convert_write[0], snap.convert_write[1]);
+  if (snap.schema_fetch_request) {
+    void resolveSchemaFetchRequest(io, session!, snap.schema_fetch_request, fileHandle?.path ?? null).then(
+      (next) => {
+        snap = next;
+        render();
+      },
+    );
+  }
 }
 function anySheetOpen(): boolean {
   return Object.keys(sheets).some((k) => sheets[k].classList.contains("open"));
@@ -604,21 +613,41 @@ function openSaveSheet() {
   openSheet("save");
 }
 
+// "Attach schema…" — prompt for a path or URL to a JSON Schema file and
+// dispatch `SetSchema`; the host resolves the request via `schema_fetch_request`
+// on the next snapshot. Mirrors the desktop attach flow; the label is a
+// hard-coded string (not `t(...)`) because adding i18n keys is out of this
+// task's file scope (deferred i18n item).
+function attachSchema() {
+  const choice = prompt("Path or URL to a JSON Schema file:");
+  if (!choice) return;
+  const source = choice.startsWith("http://") || choice.startsWith("https://")
+    ? { Url: choice }
+    : { Local: choice };
+  closeSheets();
+  send({ SetSchema: { source } });
+}
+
 function openMenuSheet() {
   const folded = foldedEntries(MENU_CANDIDATES, isFolded);
+  // `Attach schema…` is appended as a synthetic, always-present entry that lives
+  // only in this local `items` array — it is NOT a `ToolbarEntry` in
+  // `MENU_CANDIDATES` (it has no matching physical toolbar button), so it stays
+  // immune to the toolbar-fold invariant enforced by `toolbar-fold.spec.mjs`.
+  const items = [
+    ...folded,
+    { icon: IC.filter, label: "Attach schema…", run: attachSchema },
+  ];
   sheets.menu.innerHTML =
     '<div class="grab"></div>' +
     `<div class="sheet-head"><h3>${t("web.toolbar.more.title")}</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
     '<div class="sheet-body">' +
-    folded.map((c, i) => mi(c.icon ?? "", t(c.labelKey), "", String(i))).join("") +
+    items.map((c, i) => mi(c.icon ?? "", "labelKey" in c ? t(c.labelKey) : c.label, "", String(i))).join("") +
     "</div>";
   sheets.menu.querySelectorAll<HTMLElement>(".menu-item").forEach((it) => {
     it.addEventListener("click", () => {
       const id = it.dataset.mi!;
-      const c = folded[Number(id)];
-      // Theme toggle intentionally stays open (so you can see the effect); every
-      // other entry — including the lang sheet-to-sheet transition — closes the
-      // ⋯ menu first.
+      const c = items[Number(id)];
       if (c.run !== toggleTheme) closeSheets();
       c.run();
     });
