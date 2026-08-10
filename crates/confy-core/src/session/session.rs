@@ -2042,34 +2042,66 @@ impl Session {
         }
     }
 
-    /// Whether nudging the node at `path` to `new_repr` stays within any
-    /// schema `Bounded` constraint on it. `true` (allowed) whenever no
-    /// schema is loaded, the node has no `Bounded` hint, or `new_repr`
-    /// doesn't parse as a number — the arrow-key nudge only *clamps*
-    /// against a schema, it never gains new rejection power beyond that
-    /// (spec §3: "Free-text inline typing stays unclamped" — this guard is
-    /// arrow-key-nudge-only, never applied to a typed/committed edit).
-    fn schema_allows_nudge(&self, path: &crate::model::node::Path, new_repr: &str) -> bool {
-        let Some(state) = self.schema.as_ref() else { return true };
-        let Some(raw) = state.raw.as_ref() else { return true };
+    /// Clamp/snap an arrow-key-nudged value into a schema's `Bounded`
+    /// constraint. Returns the (possibly adjusted) repr to commit. The
+    /// early-return cases — no schema, no raw schema text, no `Bounded`
+    /// hint for this path, or `new_repr` not parsing as a number — all
+    /// pass the value through unchanged (mirroring today's early-`true`
+    /// guards), so `None` is never produced in practice today; the
+    /// `Option` wrapper is kept for the `let Some(..) else { return }`
+    /// call-site shape. The arrow-key nudge *clamps* to `[minimum, maximum]`
+    /// and *snaps* to `multiple_of` (spec §3 `Bounded{min,max,multiple_of}`
+    /// row); free-text inline typing stays unclamped (this is
+    /// arrow-key-nudge-only — an out-of-range typed value is flagged by
+    /// validate.rs, never rejected at commit).
+    fn schema_clamp_nudge(
+        &self,
+        path: &crate::model::node::Path,
+        new_repr: &str,
+    ) -> Option<String> {
+        let Some(state) = self.schema.as_ref() else {
+            return Some(new_repr.to_string());
+        };
+        let Some(raw) = state.raw.as_ref() else {
+            return Some(new_repr.to_string());
+        };
         let hint = crate::schema::hints_edit::resolve_edit_hint(raw, path);
-        let crate::schema::EditHint::Bounded { minimum, maximum, .. } = hint else {
-            return true;
+        let crate::schema::EditHint::Bounded {
+            minimum,
+            maximum,
+            multiple_of,
+        } = hint
+        else {
+            return Some(new_repr.to_string());
         };
-        let Ok(n) = new_repr.replace('_', "").parse::<f64>() else {
-            return true;
+        let Ok(mut n) = new_repr.replace('_', "").parse::<f64>() else {
+            return Some(new_repr.to_string());
         };
-        if let Some(min) = minimum {
-            if n < min {
-                return false;
+        // Snap to the nearest multiple of `step` (positive steps only — a
+        // non-positive multipleOf is invalid JSON Schema, ignored).
+        if let Some(step) = multiple_of {
+            if step > 0.0 {
+                n = (n / step).round() * step;
             }
+        }
+        // Clamp to [minimum, maximum] (whichever bounds are present).
+        if let Some(min) = minimum {
+            n = n.max(min);
         }
         if let Some(max) = maximum {
-            if n > max {
-                return false;
-            }
+            n = n.min(max);
         }
-        true
+        // Format back, matching the original repr's style when sensible:
+        // an integer-style repr (no '.') yielding a whole number formats
+        // as an integer; otherwise a plain float format. Best-effort
+        // display value — the committed representation comes from
+        // re-parsing the fragment downstream.
+        let was_int_style = !new_repr.contains('.');
+        Some(if was_int_style && n.fract() == 0.0 {
+            format!("{}", n as i64)
+        } else {
+            format!("{n}")
+        })
     }
 
     // ---- Nudge (←/→ in Normal) ----
@@ -2110,9 +2142,9 @@ impl Session {
         let format = node.format;
         let trailing = node.trailing_comment.clone();
         if let Some(new_repr) = nudge_scalar(st, format, &repr, delta) {
-            if !self.schema_allows_nudge(&path, &new_repr) {
+            let Some(new_repr) = self.schema_clamp_nudge(&path, &new_repr) else {
                 return;
-            }
+            };
             let key_arg = (frag_key != "__elem__").then_some(frag_key.as_str());
             let preserves = self
                 .doc
@@ -3410,6 +3442,93 @@ mod helper_tests {
         assert_eq!(
             nudge_scalar(ScalarType::Integer, Format::Decimal, "999", 1).as_deref(),
             Some("1000")
+        );
+    }
+
+    #[test]
+    fn schema_clamp_nudge_snaps_to_multiple_of_and_clamps_to_bounds() {
+        use crate::model::any_doc::AnyDocument;
+        use crate::schema::{SchemaSource, SchemaState};
+
+        let doc =
+            AnyDocument::from_str_as("port = 1\nretry = 1\n", DocFormat::Toml).unwrap();
+        let mut s = Session::new(doc);
+
+        // multipleOf: 5, no min/max. Nudging a non-multiple (1 + delta 1
+        // => 2) snaps to the nearest multiple of 5.
+        s.schema = Some(SchemaState {
+            source: SchemaSource::Local("schema.json".into()),
+            compiled: None,
+            raw: Some(serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "port": { "type": "integer", "multipleOf": 5 }
+                }
+            })),
+            violations: Vec::new(),
+            load_error: None,
+        });
+        let port: Path = vec![Seg::Key("port".into())];
+        assert_eq!(
+            s.schema_clamp_nudge(&port, "2").as_deref(),
+            Some("0"),
+            "2 snaps to nearest multiple of 5 (0)"
+        );
+        assert_eq!(
+            s.schema_clamp_nudge(&port, "8").as_deref(),
+            Some("10"),
+            "8 snaps to nearest multiple of 5 (10)"
+        );
+
+        // minimum/maximum: nudging past a bound clamps to the bound
+        // instead of no-op'ing the whole nudge.
+        s.schema = Some(SchemaState {
+            source: SchemaSource::Local("schema.json".into()),
+            compiled: None,
+            raw: Some(serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "retry": { "type": "integer", "minimum": 0, "maximum": 3 }
+                }
+            })),
+            violations: Vec::new(),
+            load_error: None,
+        });
+        let retry: Path = vec![Seg::Key("retry".into())];
+        assert_eq!(
+            s.schema_clamp_nudge(&retry, "5").as_deref(),
+            Some("3"),
+            "5 clamps down to maximum 3"
+        );
+        assert_eq!(
+            s.schema_clamp_nudge(&retry, "-2").as_deref(),
+            Some("0"),
+            "-2 clamps up to minimum 0"
+        );
+
+        // no schema loaded: value passes through unchanged.
+        s.schema = None;
+        assert_eq!(
+            s.schema_clamp_nudge(&port, "2").as_deref(),
+            Some("2"),
+            "no schema => passthrough"
+        );
+
+        // path with no Bounded hint: passthrough.
+        s.schema = Some(SchemaState {
+            source: SchemaSource::Local("schema.json".into()),
+            compiled: None,
+            raw: Some(serde_json::json!({
+                "type": "object",
+                "properties": { "port": { "type": "string" } }
+            })),
+            violations: Vec::new(),
+            load_error: None,
+        });
+        assert_eq!(
+            s.schema_clamp_nudge(&port, "2").as_deref(),
+            Some("2"),
+            "non-Bounded hint => passthrough"
         );
     }
 
