@@ -75,3 +75,62 @@ fn bridge_maps_non_finite_floats_to_strings_not_null() {
         json!({ "x": "nan", "y": "inf", "z": "-inf" })
     );
 }
+
+
+use confy_core::schema::hints::detect_hint;
+
+#[test]
+fn detect_hint_json_root_schema_key() {
+    let src = r#"{ "$schema": "./app.schema.json", "port": 1 }"#;
+    assert_eq!(
+        detect_hint(src, DocFormat::Json),
+        Some(SchemaSource::Local("./app.schema.json".into()))
+    );
+}
+
+#[test]
+fn detect_hint_json_url_schema_key() {
+    let src = r#"{ "$schema": "https://example.com/s.json" }"#;
+    assert_eq!(
+        detect_hint(src, DocFormat::Json),
+        Some(SchemaSource::Url("https://example.com/s.json".into()))
+    );
+}
+
+#[test]
+fn detect_hint_json_none_when_absent() {
+    let src = r#"{ "port": 1 }"#;
+    assert_eq!(detect_hint(src, DocFormat::Json), None);
+}
+
+#[test]
+fn detect_hint_yaml_modeline() {
+    let src = "# yaml-language-server: $schema=./s.yaml\nport: 1\n";
+    assert_eq!(
+        detect_hint(src, DocFormat::Yaml),
+        Some(SchemaSource::Local("./s.yaml".into()))
+    );
+}
+
+#[test]
+fn detect_hint_yaml_none_when_modeline_not_leading() {
+    // The modeline must be a leading comment — not one that appears after
+    // real content.
+    let src = "port: 1\n# yaml-language-server: $schema=./s.yaml\n";
+    assert_eq!(detect_hint(src, DocFormat::Yaml), None);
+}
+
+#[test]
+fn detect_hint_toml_first_line_schema_comment() {
+    let src = "#:schema ./app.schema.json\nport = 1\n";
+    assert_eq!(
+        detect_hint(src, DocFormat::Toml),
+        Some(SchemaSource::Local("./app.schema.json".into()))
+    );
+}
+
+#[test]
+fn detect_hint_toml_none_when_not_first_line() {
+    let src = "port = 1\n#:schema ./app.schema.json\n";
+    assert_eq!(detect_hint(src, DocFormat::Toml), None);
+}
