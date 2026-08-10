@@ -258,3 +258,109 @@ fn validate_does_not_misclassify_a_nullable_type_union_mismatch_as_representatio
     assert_eq!(violations.len(), 1);
     assert_eq!(violations[0].category, Category::Value);
 }
+use confy_core::model::node::Seg;
+use confy_core::schema::hints_edit::resolve_edit_hint;
+use confy_core::schema::types::EditHint;
+
+#[test]
+fn resolve_edit_hint_finds_enum_via_properties() {
+    let schema = json!({
+        "type": "object",
+        "properties": {
+            "level": { "enum": ["debug", "info", "warn"] }
+        }
+    });
+    let hint = resolve_edit_hint(&schema, &vec![Seg::Key("level".into())]);
+    match hint {
+        EditHint::Enum(opts) => {
+            let labels: Vec<_> = opts.iter().map(|(l, _)| l.clone()).collect();
+            assert_eq!(labels, vec!["debug", "info", "warn"]);
+        }
+        other => panic!("expected Enum, got {other:?}"),
+    }
+}
+
+#[test]
+fn resolve_edit_hint_finds_bounded_numeric() {
+    let schema = json!({
+        "type": "object",
+        "properties": {
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+        }
+    });
+    let hint = resolve_edit_hint(&schema, &vec![Seg::Key("port".into())]);
+    assert_eq!(
+        hint,
+        EditHint::Bounded { minimum: Some(1.0), maximum: Some(65535.0), multiple_of: None }
+    );
+}
+
+#[test]
+fn resolve_edit_hint_carves_out_oneof_of_const() {
+    let schema = json!({
+        "type": "object",
+        "properties": {
+            "level": {
+                "oneOf": [
+                    { "const": "debug", "title": "Debug" },
+                    { "const": "info", "title": "Info" }
+                ]
+            }
+        }
+    });
+    let hint = resolve_edit_hint(&schema, &vec![Seg::Key("level".into())]);
+    match hint {
+        EditHint::Enum(opts) => {
+            assert_eq!(
+                opts,
+                vec![
+                    ("Debug".to_string(), json!("debug")),
+                    ("Info".to_string(), json!("info")),
+                ]
+            );
+        }
+        other => panic!("expected Enum via oneOf carve-out, got {other:?}"),
+    }
+}
+
+#[test]
+fn resolve_edit_hint_declines_true_composition() {
+    let schema = json!({
+        "type": "object",
+        "properties": {
+            "value": {
+                "oneOf": [
+                    { "type": "string", "minLength": 1 },
+                    { "type": "integer" }
+                ]
+            }
+        }
+    });
+    let hint = resolve_edit_hint(&schema, &vec![Seg::Key("value".into())]);
+    assert_eq!(hint, EditHint::None);
+}
+
+#[test]
+fn resolve_edit_hint_resolves_array_items_and_local_ref() {
+    let schema = json!({
+        "type": "object",
+        "properties": {
+            "tags": { "type": "array", "items": { "$ref": "#/$defs/tag" } }
+        },
+        "$defs": { "tag": { "enum": ["a", "b"] } }
+    });
+    let hint = resolve_edit_hint(&schema, &vec![Seg::Key("tags".into()), Seg::Index(0)]);
+    match hint {
+        EditHint::Enum(opts) => {
+            assert_eq!(opts.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>(), vec!["a", "b"]);
+        }
+        other => panic!("expected Enum via items+$ref, got {other:?}"),
+    }
+}
+
+#[test]
+fn resolve_edit_hint_none_for_unresolvable_path() {
+    let schema = json!({ "type": "object", "properties": {} });
+    let hint = resolve_edit_hint(&schema, &vec![Seg::Key("missing".into())]);
+    assert_eq!(hint, EditHint::None);
+}
