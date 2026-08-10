@@ -1087,7 +1087,7 @@ fn display_label(v: &Json) -> String {
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `cargo test -p confy-core --test schema_headless`
-Expected: PASS (25 tests total).
+Expected: PASS (27 tests total).
 
 - [ ] **Step 5: Commit**
 
@@ -1530,7 +1530,7 @@ Add `self.revalidate_schema();` at the end of the Nudge handler (alongside where
 - [ ] **Step 6: Run the tests to verify they pass**
 
 Run: `cargo test -p confy-core --test schema_headless`
-Expected: PASS (35 tests total).
+Expected: PASS (37 tests total).
 
 - [ ] **Step 7: Commit**
 
@@ -1691,7 +1691,7 @@ Also: right after document construction inside `Session::new` (or wherever a fre
 - [ ] **Step 6: Run the tests to verify they pass**
 
 Run: `cargo test -p confy-core --test schema_headless`
-Expected: PASS (37 tests total).
+Expected: PASS (39 tests total).
 
 - [ ] **Step 7: Run the full confy-core test suite to confirm no regressions**
 
