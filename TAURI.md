@@ -125,6 +125,21 @@ the VS Code webview host (`ui.ts`'s separate `VSHOST` gate, unrelated to mobile)
 `docs/superpowers/plans/2026-08-06-mobile-m2-saveas-fileassoc-plan.md` for the full rationale and
 the kill+relaunch persistable-grant verification.
 
+### JSON Schema on Android
+
+A local/relative-path schema hint (`#:schema ./s.json`, a bare relative-path
+`$schema` value, or an "Attach schema…" pick of a local file) cannot resolve
+on Android: `tauri-plugin-confy-picker`'s only commands (`pick_writable`,
+`create_writable`) grant a persistable SAF URI to exactly the *document
+being opened*, not a directory — there is no way to read a second file
+relative to it. This degrades soft (`SchemaStatus.load_error`, editing
+unaffected) — see ADR 0001 for why `pick_writable` exists (a durability
+gap, not a read/write capability gap) and
+`docs/superpowers/specs/2026-08-10-json-schema-support-design.md`'s
+Tauri/Android section for the full reasoning. **URL-based hints and the
+"Attach schema…" action's URL path work identically to desktop** — no new
+capability needed (plain `fetch()`, already used by "Open from URL…").
+
 **Open-with / share chooser visibility (M2 manifest hand-edit).** Confy didn't reliably appear
 when opening/sharing `.toml`/`.json`/`.yaml` from a file manager — root cause: the auto-generated
 `AndroidManifest.xml` intent-filters (from `tauri.android.conf.json`'s `bundle.fileAssociations`)
