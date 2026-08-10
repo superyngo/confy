@@ -206,6 +206,30 @@ facets** — **Key sign** and **Format/kind** (the KIND-column vocabulary). Both
 filtered list and **intersect** (a Node must pass both); selections *within* the Type filter's two
 halves union. _Avoid_: calling either one "search" exclusively — both are filters.
 
+### Schema
+
+**JSON projection**:
+The `serde_json::Value` tree a document's **Value** (neutral tree) is lowered into,
+purely for JSON Schema validation. Deliberately a distinct term from **Value**: same
+shape-carrying job, different tree — the projection has no comments, no source notation,
+and exists only transiently for one `validate()` pass.
+_Avoid_: Value (already taken — the conversion pipeline's own neutral tree), JSON tree.
+
+**Violation**:
+A single JSON Schema constraint failure reported against a Node's **Path** (or its
+parent's Path, for a `required` failure — the missing child has no Path of its own).
+Purely informational: a Violation never blocks a **Mutation**, never appears in a
+`MutateError`, and can sit quietly on an already-committed, otherwise-valid document.
+_Avoid_: Error (Mutation errors are a hard gate; a Violation is not one), warning used
+alone (always say Violation — "warning" is reserved for prose, not the type name).
+
+**Soft constraint**:
+The governing principle of Schema support: a loaded JSON Schema's rules surface only as
+**Violations** — a visual, non-blocking indicator — never a rejected edit or a blocked
+save. Contrasts explicitly with the existing Mutation-mechanics gate (`Illegal`/
+`Unsupported`/`Collision`), which does reject.
+_Avoid_: Validation error, hard constraint (confy has none).
+
 ## KIND column tags (full vocabulary)
 
 TOML: `[T/S]` scope table, `[T/D]` dotted table, `[T/I]` inline table, `[T/M]` multiline object

@@ -10,6 +10,11 @@ across TOML/JSON/YAML and across all four surfaces (TUI, desktop web, touch/mobi
 Tauri desktop/mobile). Validation is always **soft** — it never blocks edit or save. The
 free-form popup/`$EDITOR` block editor is never constrained by schema, only by the user.
 
+Vocabulary: a **Violation** and the **Soft constraint** principle behind it are now
+canonical CONTEXT.md terms (§ Schema), explicitly contrasted with confy's existing
+Mutation-mechanics error vocabulary (`Illegal`/`Unsupported`/`Collision`) — a Violation
+never blocks a Mutation and never appears in a `MutateError`.
+
 Decisions locked in this session:
 - Validation engine: the [`jsonschema`](https://crates.io/crates/jsonschema) Rust crate
   (full draft 2020-12 support incl. `$ref`/`allOf`/`oneOf`/`anyOf`/`if-then-else`/`format`),
@@ -18,6 +23,9 @@ Decisions locked in this session:
 - Detection: **in-file hints only**, no filename-based sibling-file guessing.
 - Association lifetime: **session-only** — re-detected on every file open, nothing
   persisted to `config.toml`.
+- Recorded as `docs/adr/0002-jsonschema-crate-for-validation.md` — hard to reverse,
+  surprising against confy's hand-rolled-parser house style, and a real trade-off; see
+  the ADR for the full reasoning.
 
 ## Non-goals
 
@@ -56,9 +64,11 @@ Files:
   Returns `Option<SchemaSource>` where `SchemaSource = Local(String) | Url(String)`
   (string, not a resolved path — resolution is host-side).
 - `schema/value_bridge.rs` — converts confy's format-neutral `Value` tree
-  (`model/value.rs`, already used by the format-conversion pipeline) into
-  `serde_json::Value`, plus a `Path` (`model/node.rs::Seg`/`Path`) ⇄ JSON-Pointer mapping
-  in both directions. This is the single place format-specific type bridging happens:
+  (`model/value.rs`, already used by the format-conversion pipeline) into a **JSON
+  projection** (a `serde_json::Value` tree, deliberately *not* called "Value" — that name
+  is already taken by `model/value.rs`'s own tree; see `CONTEXT.md` § Schema), plus a
+  `Path` (`model/node.rs::Seg`/`Path`) ⇄ JSON-Pointer mapping in both directions. This is
+  the single place format-specific type bridging happens:
   - `ScalarType::{Integer,Float,Bool,Str}` → JSON `integer`/`number`/`boolean`/`string`
     directly.
   - TOML `OffsetDatetime`/`LocalDatetime`/`LocalDate`/`LocalTime` → JSON `string`,
@@ -74,9 +84,17 @@ Files:
 - `schema/validate.rs` — `fn validate(root: &serde_json::Value, compiled: &Validator) ->
   Vec<Violation>` where `Violation { path: Path, pointer: String, keyword: String,
   message: String, category: Category }` (`Category::{Value, Representation}`). Built on
-  `jsonschema::Validator::iter_errors()`. Runs against the whole document value tree in
-  one pass; full spec semantics (composition, `$ref` to the schema's own `$defs`) apply
-  uniformly across TOML/JSON/YAML since it's operating on `Value`, not source syntax.
+  `jsonschema::Validator::iter_errors()`. Runs against the whole document's **JSON
+  projection** in one pass; full spec semantics (composition, `$ref` to the schema's own
+  `$defs`) apply uniformly across TOML/JSON/YAML since it's operating on the projection,
+  not source syntax. A `required`-keyword failure has no Path of its own (the missing
+  child doesn't exist) — `jsonschema` reports the JSON Pointer of the **parent** object,
+  so the Violation's `path` is the parent's Path and the message names the missing
+  key(s) (e.g. "missing required field 'port'"). It surfaces as an ordinary parent-row
+  Soft constraint warning, same mechanism as every other Violation — no distinct
+  affordance for the absent child this pass. (A "quick-add missing field" action from
+  that warning is a plausible fast-follow, deliberately out of scope here — it's a new
+  interactive surface, not a visual indicator.)
 - `schema/hints_edit.rs` — **separate and intentionally simpler** than `validate.rs`: a
   best-effort walk of the *raw* (uncompiled) schema JSON to resolve the applicable
   sub-schema at one target `Path` (only called when a node enters inline edit, not
@@ -87,7 +105,13 @@ Files:
   Deliberately does **not** attempt `allOf`/`oneOf`/`anyOf`/`not`/`if-then-else` or
   remote `$ref` resolution — those fall through to `EditHint::None` (plain text input),
   while `validate.rs` still fully validates against them regardless. This split keeps the
-  editing-widget code simple without limiting validation coverage.
+  editing-widget code simple without limiting validation coverage. **Carve-out:** a
+  `oneOf`/`anyOf` where every branch is a bare `{const, title?, description?}` (nothing
+  else) resolves to `EditHint::Enum`, using each branch's `title` as the picker label
+  when present (else the const value itself) — this is the single most common
+  real-world idiom for an enum with per-value descriptions (SchemaStore, code-generated
+  schemas), so it earns a narrow special case; any branch carrying anything beyond
+  `const`/`title`/`description` still declines to `EditHint::None`.
 
 ### Session / snapshot wiring
 
@@ -105,6 +129,10 @@ pub struct SchemaState {
 ```
 Re-`validate()` runs after every successful mutation commit, at the same point
 `rebuild_rows()` already re-projects the tree — no new invalidation mechanism.
+This is deliberately **unconditional and synchronous** — no size/complexity guard: the
+compiled `Validator` is built once per schema load, so a re-`iter_errors()` pass is a
+single tree walk, matching confy's existing fully-synchronous mutation pipeline. Revisit
+only if profiling proves it a problem.
 
 `crates/confy-core/src/session/view.rs::SessionSnapshot` gains:
 ```rust
@@ -149,13 +177,22 @@ used for config/format detection in `confy-tui/src/cli.rs`).
 ## 1. Detection + fallback
 
 Resolution order, evaluated once per file open (session-only — never persisted):
-1. Explicit override (`Intent::SetSchema{source}` — surfaced via a new `--schema
-   <path-or-url>` CLI flag in `confy-tui/src/cli.rs::Args`, threaded the same way
-   `--format`/`--lang` already are; web/Tauri hosts can wire an equivalent explicit
-   action later, not required for MVP parity since the ask was in-file-hint-first).
+1. Explicit override — **in MVP on every surface**, not TUI-only (the locked detection
+   decision was "in-file hints + explicit specification", both in scope). TUI: a new
+   `--schema <path-or-url>` CLI flag in `confy-tui/src/cli.rs::Args`, threaded the same
+   way `--format`/`--lang` already are. Web/touch/Tauri: an "Attach schema…" action next
+   to Open, reusing the same file-pick/URL-fetch primitives already wired for opening the
+   main config file (`web/fs.ts::pickOpenFile`/`fetchUrlFile`) — no new capability, just a
+   second invocation of the existing pick/fetch flow.
 2. In-file hint via `schema/hints.rs` (see above), format-specific.
 3. Neither → `Session.schema = None`. Editor behaves exactly as it does today; zero
    observable change.
+
+A **local** hint/override's relative path resolves against **the directory of the open
+config file** — the only base that's meaningful on every surface (web/Tauri have no
+process cwd for a browser- or SAF-picked file) and matches the ecosystem convention
+Taplo/yaml-language-server/the JSON Schema spec itself already use for `$schema`-as-a
+relative reference.
 
 Load failure at any stage (missing file, network error, the schema document itself
 fails to parse as JSON, or fails to compile as a schema) degrades to `schema: None` for
@@ -165,10 +202,10 @@ status-line message. Never blocks opening, editing, or saving the file.
 ## 2. Value constraints
 
 Full JSON Schema keyword coverage, "for free" from the `jsonschema` crate, applied to the
-format-neutral `Value` tree — the same tree the format-conversion pipeline already
-produces via `ConfigDocument::to_value()`. Cross-format bridging caveats are documented
-above in `value_bridge.rs`'s description; all are soft/informational
-(`Category::Representation`), never a hard rejection.
+**JSON projection** lowered from the format-neutral `Value` tree — the same `Value` tree
+the format-conversion pipeline already produces via `ConfigDocument::to_value()`.
+Cross-format bridging caveats are documented above in `value_bridge.rs`'s description;
+all are soft/informational (`Category::Representation`), never a hard rejection.
 
 ## 3. Constraint-driven inline edit
 
@@ -216,12 +253,24 @@ state" mechanism rather than inventing new ones:
 ## 5 & 6. Cross-platform / cross-format parity
 
 Structural, not incidental to this design:
-- Validation runs once, against the format-neutral `Value` tree — one code path serves
-  TOML/JSON/YAML.
+- Validation runs once, against the JSON projection lowered from the format-neutral
+  `Value` tree — one code path serves TOML/JSON/YAML.
 - Each surface's constrained-input widget for `Enum`/`Const` is a **reuse** of that
   surface's pre-existing single-select mechanism (TUI kind-switch popup, touch bottom
   sheet) or a natural DOM-native addition (`<select>`) — this is wiring, not new UI
   framework work.
+
+## Convert interaction
+
+`Convert` (`C`) produces a new in-memory document in a different `DocFormat` within the
+same session. The currently-loaded `SchemaState` (compiled `Validator` + source) carries
+forward and re-validates against the converted document's freshly-lowered JSON
+projection — the schema is format-neutral and the bridge already normalizes
+representation differences, so this is just another `validate()` pass, no special case.
+confy does **not** attempt to auto-write an equivalent in-file hint into the converted
+document's syntax (e.g. synthesizing a TOML `#:schema` comment from a JSON `$schema`
+key) — a fresh open of the converted file re-detects from scratch, consistent with
+session-only association.
 
 ## Tauri / Android file access
 
@@ -233,11 +282,13 @@ Research findings (`crates/confy-tauri/capabilities/default.json`,
   capability changes needed.
 - **Android**: `tauri-plugin-confy-picker`'s only commands (`pick_writable`,
   `create_writable`) grant a *persistable* SAF URI to exactly the one document the user
-  picked — there is no directory-tree or second-document read capability. This is a
-  structural SAF limitation (the same root cause that motivated building
-  `confy-picker` for write access in the first place), not a confy oversight. Given the
-  session's decision to skip filename-based sibling guessing entirely, this narrows to:
-  a **local/relative-path** hint or override on Android degrades to a soft
+  picked — there is no directory-tree or second-document read capability. Per
+  `docs/adr/0001-android-save-as-persistable-grant.md`, `pick_writable` exists to fix a
+  **persistable-grant durability gap** (the grant must survive app-kill + relaunch so a
+  later in-place save still works) — not, as an earlier draft of this doc claimed,
+  because Android categorically withholds write access. Given the session's decision to
+  skip filename-based sibling guessing entirely, this narrows to: a
+  **local/relative-path** hint or override on Android degrades to a soft
   `SchemaStatus.load_error` (schema unavailable, editing unaffected).
 - **URL-based hints work identically to desktop on Android today, with zero new
   capability**: `web/fs.ts::fetchUrlFile()` already does a plain `fetch(url)` (used by
@@ -247,10 +298,11 @@ Research findings (`crates/confy-tauri/capabilities/default.json`,
   entry is required.
 - **Out of scope for this design**: a future "manually attach a local schema file"
   action on Android. Noted as a low-risk fast-follow — it would only need a *one-shot*
-  read (not a persistable grant), so the existing `tauri-plugin-dialog` `dialog.open()` +
-  `fs.readTextFile()` primitives (already used for opening the main config file) are
-  expected to suffice without a new `confy-picker` command, since the write-grant problem
-  — not the one-shot-read problem — was `confy-picker`'s specific reason for existing.
+  read, which has no relaunch-survival requirement and so never needed the
+  persistable-grant machinery `pick_writable` exists for (see ADR 0001 above); the
+  existing `tauri-plugin-dialog` `dialog.open()` + `fs.readTextFile()` primitives
+  (already used for opening the main config file) are expected to suffice without a new
+  `confy-picker` command.
 
 ## New dependencies
 
