@@ -680,7 +680,7 @@ git commit -m "feat(schema): detect in-file schema hints for JSON/YAML/TOML"
 - Test: `crates/confy-core/tests/schema_headless.rs`
 
 **Interfaces:**
-- Consumes: `jsonschema::Validator` (external crate, `Validator::new(schema: &serde_json::Value) -> Result<Validator, jsonschema::ValidationError<'static>>`, `validator.iter_errors(&instance) -> impl Iterator<Item = jsonschema::ValidationError>`; each error exposes `.instance_path() -> &Location` and `.schema_path() -> &Location`, both `Display`-able as JSON Pointer strings, and `Display`/`ToString` for the message), `schema::value_bridge::{bridge, PointerMap}` (Task 2), `schema::types::{Violation, Category}` (Task 1).
+- Consumes: `jsonschema::Validator` (external crate, `Validator::new(schema: &serde_json::Value) -> Result<Validator, jsonschema::ValidationError<'static>>`, `validator.iter_errors(&instance) -> impl Iterator<Item = jsonschema::ValidationError>`; each error exposes **public fields** `instance_path: Location` and `schema_path: Location` — field access, not method calls (verified against jsonschema 0.30 source: `error.rs`'s `ValidationError` struct has no `instance_path()`/`schema_path()` methods, only the fields) — both `Location: Display`-able as JSON Pointer strings, and `ValidationError: Display`/`ToString` for the message), `schema::value_bridge::{bridge, PointerMap}` (Task 2), `schema::types::{Violation, Category}` (Task 1).
 - Produces: `pub fn validate(projection: &serde_json::Value, compiled: &jsonschema::Validator, map: &PointerMap) -> Vec<Violation>` — Task 6 (`Session::revalidate_schema`) consumes this.
 
 - [ ] **Step 1: Write the failing tests**
@@ -794,8 +794,8 @@ pub fn validate(projection: &Json, compiled: &Validator, map: &PointerMap) -> Ve
     compiled
         .iter_errors(projection)
         .map(|err| {
-            let pointer = err.instance_path().to_string();
-            let schema_path = err.schema_path().to_string();
+            let pointer = err.instance_path.to_string();
+            let schema_path = err.schema_path.to_string();
             let keyword = schema_path
                 .rsplit('/')
                 .next()
