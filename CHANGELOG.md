@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- feat(core+tui+web+touch+tauri): JSON Schema support — in-file hint detection ($schema key, yaml-language-server modeline, TOML `#:schema` comment) with explicit override, `jsonschema`-crate-backed validation surfaced as soft (never-blocking) per-row warnings, and constrained enum/const inline editing (TUI popup, web `<select>`, touch bottom sheet) across TOML/JSON/YAML on every surface (TUI, web desktop, touch, Tauri desktop/mobile)
 - feat(vscode): theme menu — "…" → confy: Theme (Auto / Light / Dark), replacing the previously implicit auto-follow-VS-Code behavior; persisted via globalState, same pattern as the existing Language submenu
 - feat(ci): selective publish gate — `publish-gate.yml` splits its single approval job into one job per store (`publish-gate-msstore`, `publish-gate-vscode` environments), so a release's Microsoft Store and VS Code Marketplace/Open VSX submissions can be approved independently in the same "Review pending deployments" screen instead of all-or-nothing; replaces the shared `publish-gate` environment (removed)
 - feat(ci): RELEASES.md version auto-sync — `scripts/sync-releases-md.sh` patches the "Current version" column and pushes to `main` from `release.yml`/`publish-msstore.yml`/`publish-vscode.yml` right after each channel actually goes live (retries on push race), replacing the manual, previously-forgotten update step
