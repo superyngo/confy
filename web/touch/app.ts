@@ -413,6 +413,18 @@ function render() {
   // Without this, a `Mode::Prompt` would soft-lock the touch UI (no keyboard).
   if (tag === "Prompt") renderPromptSheet((snap.mode as { Prompt: { kind: PromptView } }).Prompt.kind);
   else sheets.prompt.classList.remove("open");
+  // Schema-constrained enum/const picker (Mode::SchemaEnum): core enters this
+  // mode via begin_inline_edit when an enum field is tapped; render the bottom
+  // sheet of allowed values (mirrors the TypeFilter/Convert/Prompt checks above).
+  if (modeTag(snap.mode) === "SchemaEnum") {
+    const cur = snap.rows.find((r) => r.is_cursor);
+    if (cur) {
+      openSchemaEnumSheet(
+        cur.path,
+        (snap.mode as { SchemaEnum: { options: string[]; cursor: number } }).SchemaEnum.options,
+      );
+    }
+  }
   renderHelpSheet();
   if (tag !== "TypeFilter" && !anySheetOpen()) scrim.classList.remove("show");
 
@@ -508,6 +520,39 @@ function openKindSheet(path: Path) {
       closeSheets();
       const after = sendR({ CommitKind: { path, target } });
       toast(after.error ?? "Kind changed");
+    });
+  });
+  openSheet("kind");
+}
+
+// ---- schema-enum sheet (Mode::SchemaEnum — schema-constrained value picker) ----
+// Mirrors openKindSheet's structure: a bottom-sheet grid of `.kind-opt` cells
+// in the shared `sheets.kind` element. Core enters Mode::SchemaEnum via
+// begin_inline_edit when an enum/const-constrained field is tapped (Task 6);
+// this only renders that mode. Selection moves the cursor (SchemaEnumMove) then
+// commits (SchemaEnumCommit) — commit uses whatever cursor index is current.
+function openSchemaEnumSheet(path: Path, options: string[]) {
+  const cells = options
+    .map(
+      (label, i) =>
+        `<button class="add-cell kind-opt" data-idx="${i}"><span class="dotc" style="background:var(--warn)"></span>${esc(label)}</button>`,
+    )
+    .join("");
+  sheets.kind.innerHTML =
+    '<div class="grab"></div>' +
+    `<div class="sheet-head"><h3>Schema value</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
+    `<div class="sheet-body"><div class="addgrid">${cells}</div></div>`;
+  sheets.kind.querySelectorAll<HTMLElement>(".kind-opt").forEach((b) => {
+    b.addEventListener("click", () => {
+      const idx = Number(b.dataset.idx);
+      const current =
+        modeTag(snap!.mode) === "SchemaEnum"
+          ? (snap!.mode as { SchemaEnum: { options: string[]; cursor: number } }).SchemaEnum.cursor
+          : 0;
+      send({ SchemaEnumMove: idx - current });
+      closeSheets();
+      const after = sendR("SchemaEnumCommit");
+      toast(after.error ?? "Value changed");
     });
   });
   openSheet("kind");
