@@ -1434,7 +1434,10 @@ function dismissSheets() {
   // Same peel-on-dismiss requirement: Escape → `Session::escape()` →
   // `schema_enum_cancel()`, which also removes a freshly-added placeholder
   // (`created_on_add`) — mirrors desktop's `focusSchemaEnumSelect` Escape wiring.
-  if (tag === "SchemaEnum") return send("Escape");
+  if (tag === "SchemaEnum") {
+    closeSheets();
+    return send("Escape");
+  }
   // Same peel-on-dismiss requirement as Prompt/Convert/TypeFilter above: without
   // this, dismissing the Help sheet only removed its `.open` CSS class while
   // core stayed in `Mode::Help`, so the very next unrelated render() (e.g. a tap
