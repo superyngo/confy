@@ -1691,7 +1691,7 @@ Also: right after document construction inside `Session::new` (or wherever a fre
 - [ ] **Step 6: Run the tests to verify they pass**
 
 Run: `cargo test -p confy-core --test schema_headless`
-Expected: PASS (39 tests total).
+Expected: PASS (40 tests total).
 
 - [ ] **Step 7: Run the full confy-core test suite to confirm no regressions**
 
