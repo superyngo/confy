@@ -123,7 +123,7 @@ function renderRow(
     `row${r.is_branch ? " branch" : ""}${expanded ? " open" : ""}` +
     `${r.is_cursor ? " cursor" : ""}${r.selected ? " selected" : ""}` +
     `${r.read_only ? " readonly" : ""}${comment ? " comment-row" : ""}${clip}` +
-    `${r.schema_warn ? " schema-warn" : ""}`;
+    `${r.violations ? " schema-violation" : ""}`;
   let s = `<div class="${cls}" data-path="${pathAttr}" data-index="${idx}">`;
   // Indentation: a single spacer whose width scales with depth (the design's
   // `indent.style.width = depth*22`). The synthetic root (depth 0) is not drawn,

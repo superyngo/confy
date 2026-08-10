@@ -565,8 +565,8 @@ fn dispatch_schema_loaded_populates_snapshot_status_and_row_warnings() {
     let status = snap.schema_status.expect("schema_status set");
     assert_eq!(status.violation_count, 1);
     let port_row = snap.rows.iter().find(|r| r.key == "port").unwrap();
-    assert!(port_row.schema_warn.is_some());
-    assert!(port_row.schema_warn.as_ref().unwrap()[0].contains("type"));
+    assert!(port_row.violations.is_some());
+    assert!(port_row.violations.as_ref().unwrap()[0].contains("type"));
 }
 
 #[test]

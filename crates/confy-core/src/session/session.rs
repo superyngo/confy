@@ -152,7 +152,7 @@ impl Session {
                     read_only: r.node.read_only,
                     selected: self.selection.contains(&r.node.path),
                     is_cursor: r.node.path == self.cursor,
-                    schema_warn: self.schema.as_ref().and_then(|s| {
+                    violations: self.schema.as_ref().and_then(|s| {
                         let msgs: Vec<String> = s
                             .violations
                             .iter()

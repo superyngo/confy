@@ -49,7 +49,7 @@ export interface ViewRow {
   // Key-sign label ("bare"/"quoted"/"dotted"/"none") for the structured "Sign" field.
   key_sign?: string;
   read_only: boolean;
-  schema_warn: string[] | undefined;
+  violations: string[] | undefined;
   selected: boolean;
   is_cursor: boolean;
 }

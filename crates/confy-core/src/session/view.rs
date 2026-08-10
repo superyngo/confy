@@ -48,7 +48,7 @@ pub struct ViewRow {
     /// Soft-constraint violation messages whose Path == this row's Path;
     /// `None` = clean. Never blocks anything (`CONTEXT.md` § Schema
     /// "Soft constraint").
-    pub schema_warn: Option<Vec<String>>,
+    pub violations: Option<Vec<String>>,
 }
 
 // ---- Stage-2 full-state transport (WASM / Web UI) ----

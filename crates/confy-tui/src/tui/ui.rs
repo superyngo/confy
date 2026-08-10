@@ -348,7 +348,7 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                 Style::default().bg(bg).fg(Color::White)
             } else if app.session.selection.contains(&row.path) {
                 Style::default().bg(Color::DarkGray)
-            } else if row.schema_warn.is_some() {
+            } else if row.violations.is_some() {
                 // Subdued, not alarming — a soft constraint, never a hard error.
                 Style::default().fg(Color::Yellow)
             } else {
@@ -658,7 +658,7 @@ pub(crate) fn detail_full_text(app: &App) -> String {
     let mut text = app.session.detail_text.clone().unwrap_or_default();
     if let Some(msgs) = app
         .cursor_row()
-        .and_then(|r| r.schema_warn.as_ref())
+        .and_then(|r| r.violations.as_ref())
         .filter(|msgs| !msgs.is_empty())
     {
         text.push_str("\n\nSchema:\n");
@@ -675,9 +675,9 @@ fn draw_detail_overlay(f: &mut Frame, app: &App) {
         Some(t) => t.clone(),
         None => return,
     };
-    let schema_warn = app
+    let violations = app
         .cursor_row()
-        .and_then(|r| r.schema_warn.as_ref())
+        .and_then(|r| r.violations.as_ref())
         .filter(|msgs| !msgs.is_empty());
     // Size the popup from the FULL rendered text (original + appended Schema
     // section), so violation messages never get clipped.
@@ -689,7 +689,7 @@ fn draw_detail_overlay(f: &mut Frame, app: &App) {
         .borders(Borders::ALL)
         .style(Style::default().bg(Color::Black).fg(Color::White));
     let mut lines: Vec<Line> = detail_text.lines().map(Line::from).collect();
-    if let Some(msgs) = schema_warn {
+    if let Some(msgs) = violations {
         lines.push(Line::from(""));
         lines.push(Line::from("Schema:"));
         for msg in msgs {
@@ -1291,7 +1291,7 @@ mod tests {
         assert!(full.contains("Schema:"), "section appended: {full:?}");
         assert!(full.contains("not of type"), "violation msg present: {full:?}");
 
-        // A conforming value produces no schema_warn → no Schema section.
+        // A conforming value produces no violations → no Schema section.
         let mut clean = App::new(crate::model::any_doc::AnyDocument::Toml(
             crate::model::cst_doc::CstDocument::from_str("port = \"ok\"\n").unwrap(),
         ));

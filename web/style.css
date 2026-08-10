@@ -558,11 +558,11 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
 .row.clip-copy { outline: 1.5px dashed var(--t-string); outline-offset: -3px; border-radius: 6px; }
 .row.clip-cut { outline: 1.5px dashed var(--t-date); outline-offset: -3px; border-radius: 6px; opacity: .6; }
 .row.clip-cut .key, .row.clip-cut .val { text-decoration: line-through; text-decoration-thickness: 1px; }
-.row.schema-warn { box-shadow: inset 0 0 0 1.5px var(--warn); border-radius: 6px; }
-.row.selected.schema-warn { box-shadow: inset 0 0 0 1px var(--sel-edge), inset 0 0 0 3px var(--warn); }
-.row.drag-over-into.schema-warn { box-shadow: inset 0 0 0 2px var(--drop), inset 0 0 0 4px var(--warn); }
-.paste-mode .row.cursor.schema-warn { box-shadow: inset 0 0 0 1px var(--accent), inset 0 0 0 3px var(--warn); }
-.row.schema-warn::after { content: ""; position: absolute; right: 4px; top: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
+.row.schema-violation { box-shadow: inset 0 0 0 1.5px var(--warn); border-radius: 6px; }
+.row.selected.schema-violation { box-shadow: inset 0 0 0 1px var(--sel-edge), inset 0 0 0 3px var(--warn); }
+.row.drag-over-into.schema-violation { box-shadow: inset 0 0 0 2px var(--drop), inset 0 0 0 4px var(--warn); }
+.paste-mode .row.cursor.schema-violation { box-shadow: inset 0 0 0 1px var(--accent), inset 0 0 0 3px var(--warn); }
+.row.schema-violation::after { content: ""; position: absolute; right: 4px; top: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
 
 /* Type-filter popup header: title row + a `Clear` text button (replaces the old
    Apply/Cancel foot — the filter applies live and persists when the popup closes). */

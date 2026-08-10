@@ -57,7 +57,7 @@ pub struct RowSnapshot {
     /// Writing style of a scalar leaf (`Plain` for branches/comments).
     pub format: Format,
     pub trailing_comment: Option<String>,
-    pub schema_warn: Option<Vec<String>>,
+    pub violations: Option<Vec<String>>,
 }
 
 pub enum PromptOutcome {
@@ -113,7 +113,7 @@ impl App {
                     .node_at(&vr.path)
                     .map(|n| type_tag(&n.kind, vr.format, doc_fmt, n.read_only))
                     .unwrap_or_default();
-                let type_tag = if vr.schema_warn.is_some() {
+                let type_tag = if vr.violations.is_some() {
                     // The KIND column is a fixed 8 cols; the tag's padding lives
                     // *inside* the brackets (e.g. `[I:dec ]`), so `trim_end` is a
                     // no-op. Swap that internal space for `!` to stay in budget.
@@ -135,7 +135,7 @@ impl App {
                     type_tag,
                     format: vr.format,
                     trailing_comment: vr.trailing_comment,
-                    schema_warn: vr.schema_warn.clone(),
+                    violations: vr.violations.clone(),
                 }
             })
             .collect();

@@ -115,7 +115,7 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none
   will-change:transform;
 }
 .row.selected > .row-main{background:var(--sel);box-shadow:inset 0 0 0 1.5px var(--sel-edge)}
-.row.schema-warn > .row-main{outline:1.5px dashed var(--warn);outline-offset:-2px}
+.row.schema-violation > .row-main{outline:1.5px dashed var(--warn);outline-offset:-2px}
 .row.cut > .row-main{opacity:.45}
 /* Opaque press tint — a translucent mix would let the red swipe-to-delete
    button behind (.row-del, z-index:1) bleed through while the finger is down. */
