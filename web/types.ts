@@ -128,7 +128,8 @@ export type ModeView =
   | { Convert: ConvertView }
   | "Detail"
   | { Help: { tab: "Help" | "About" } }
-  | { Edit: EditView };
+  | { Edit: EditView }
+  | { SchemaEnum: { options: string[]; cursor: number } };
 
 // ---- External edit handshake (session::view::ExternalEdit, §8.2) ----
 export type ExternalEditKind =

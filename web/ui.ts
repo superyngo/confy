@@ -328,6 +328,7 @@ function render() {
     });
   }
   focusInlineEdit();
+  if (typeof snap.mode === "object" && "SchemaEnum" in snap.mode) focusSchemaEnumSelect();
   renderDetailPanel();
   renderTypeFilterPop();
   renderConvertDialog();
@@ -1270,6 +1271,28 @@ function focusInlineEdit() {
     }
   };
   input.onblur = () => finish(true);
+}
+
+// Focus the schema-enum `<select>` (rendered by render.ts when snap.mode is the
+// SchemaEnum variant) and commit on change via SchemaEnumMove/SchemaEnumCommit,
+// cancel on Escape. Native picker — the constrained-value editor for enum/const
+// schema hints (spec §3).
+function focusSchemaEnumSelect() {
+  const select = tree.querySelector("select[data-schema-enum]") as HTMLSelectElement | null;
+  if (!select) return;
+  select.focus();
+  select.onchange = () => {
+    const idx = Number(select.value);
+    const current = snap && typeof snap.mode === "object" && "SchemaEnum" in snap.mode ? snap.mode.SchemaEnum.cursor : 0;
+    send({ SchemaEnumMove: idx - current });
+    send("SchemaEnumCommit");
+  };
+  select.onkeydown = (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      send("Escape");
+    }
+  };
 }
 
 // The rendered `.row` element for a path (the menu reopens against a still-live
