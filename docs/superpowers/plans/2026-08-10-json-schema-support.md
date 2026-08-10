@@ -2399,7 +2399,7 @@ git commit -m "feat(web): soft schema-violation row indicator and status-line su
 
 **Files:**
 - Modify: `web/ui.ts`
-- Modify: (whichever HTML file defines the toolbar — per WEBUI.md, `web/index.html`)
+- Modify: `web/index.html` (desktop's page — confirmed by WEBUI.md — holds the toolbar markup)
 
 **Interfaces:**
 - Consumes: `Intent::SetSchema` (Task 7), `resolveSchemaFetchRequest` (Task 12).
