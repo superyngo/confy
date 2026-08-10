@@ -649,6 +649,23 @@ pub(crate) fn wrapped_line_count(text: &str, width: u16) -> usize {
         .sum()
 }
 
+/// The Detail popup's full rendered text — `detail_text` plus, when the
+/// cursor row carries schema violations, an appended `Schema:` section.
+/// Shared by `draw_detail_overlay` (sizing + content) and `mod.rs`'s Detail
+/// key handler (scroll-clamp), so they can never drift out of sync.
+pub(crate) fn detail_full_text(app: &App) -> String {
+    let mut text = app.session.detail_text.clone().unwrap_or_default();
+    if let Some(msgs) = app
+        .cursor_row()
+        .and_then(|r| r.schema_warn.as_ref())
+        .filter(|msgs| !msgs.is_empty())
+    {
+        text.push_str("\n\nSchema:\n");
+        text.push_str(&msgs.join("\n"));
+    }
+    text
+}
+
 fn draw_detail_overlay(f: &mut Frame, app: &App) {
     if !matches!(app.session.mode, Mode::Detail) {
         return;
@@ -658,18 +675,12 @@ fn draw_detail_overlay(f: &mut Frame, app: &App) {
         None => return,
     };
     let schema_warn = app
-        .rows
-        .iter()
-        .find(|r| r.path == app.session.cursor)
+        .cursor_row()
         .and_then(|r| r.schema_warn.as_ref())
         .filter(|msgs| !msgs.is_empty());
     // Size the popup from the FULL rendered text (original + appended Schema
     // section), so violation messages never get clipped.
-    let mut full_text = detail_text.clone();
-    if let Some(msgs) = schema_warn {
-        full_text.push_str("\n\nSchema:\n");
-        full_text.push_str(&msgs.join("\n"));
-    }
+    let full_text = detail_full_text(app);
     let area = detail_popup_rect(f.area(), &full_text);
     f.render_widget(Clear, area);
     let block = Block::default()
@@ -1226,6 +1237,46 @@ mod tests {
         assert!(
             !render_detail(&app).contains("Path:"),
             "Path line should scroll away"
+        );
+    }
+
+    #[test]
+    fn detail_full_text_appends_schema_section_for_cursor_violations() {
+        // A schema-violating cursor row must produce a full-text string that
+        // includes the appended `Schema:` section — this is what both the popup
+        // sizing and the scroll-clamp measure, so they can't drift.
+        let schema = r#"{"type":"object","properties":{"port":{"type":"string"}}}"#;
+        let mut app = App::new(crate::model::any_doc::AnyDocument::Toml(
+            crate::model::cst_doc::CstDocument::from_str("port = 1\n").unwrap(),
+        ));
+        app.session.apply_schema_text(
+            confy_core::schema::SchemaSource::Local("/tmp/s.json".into()),
+            Ok(schema.to_string()),
+        );
+        app.rebuild_rows();
+        app.select_row(1); // cursor on port
+        app.open_detail();
+        let full = detail_full_text(&app);
+        assert!(full.contains("Schema:"), "section appended: {full:?}");
+        assert!(full.contains("not of type"), "violation msg present: {full:?}");
+
+        // A conforming value produces no schema_warn → no Schema section.
+        let mut clean = App::new(crate::model::any_doc::AnyDocument::Toml(
+            crate::model::cst_doc::CstDocument::from_str("port = \"ok\"\n").unwrap(),
+        ));
+        clean
+            .session
+            .apply_schema_text(
+                confy_core::schema::SchemaSource::Local("/tmp/s.json".into()),
+                Ok(schema.to_string()),
+            );
+        clean.rebuild_rows();
+        clean.select_row(1);
+        clean.open_detail();
+        let clean_full = detail_full_text(&clean);
+        assert!(
+            !clean_full.contains("Schema:"),
+            "no section when conforming: {clean_full:?}"
         );
     }
 

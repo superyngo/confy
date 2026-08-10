@@ -146,7 +146,7 @@ fn run_event_loop(
                 use crossterm::event::KeyCode;
                 // Compute the popup's inner viewport + content height to clamp scrolling.
                 let size = terminal.size()?;
-                let text = app.session.detail_text.clone().unwrap_or_default();
+                let text = ui::detail_full_text(app);
                 let rect = ui::detail_popup_rect(
                     ratatui::layout::Rect::new(0, 0, size.width, size.height),
                     &text,
