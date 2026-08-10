@@ -232,6 +232,11 @@ export async function fetchUrlFile(
   return { name, text, contentType };
 }
 
+/** True for a POSIX (`/…`) or Windows (`C:\\…`/`C:/…`/`\\server\…`) absolute path. */
+function isAbsolutePath(p: string): boolean {
+  return p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p) || p.startsWith("\\\\");
+}
+
 /**
  * Read a schema file by relative path, against the directory of the
  * currently open file. FS Access API: resolves via the open file handle's
@@ -252,7 +257,13 @@ export async function readSiblingFile(
   const g = tauriGlobal();
   if (g?.fs && currentFilePath) {
     const dir = currentFilePath.split(/[\\/]/).slice(0, -1).join("/");
-    const resolved = relativePath.startsWith("./") || relativePath.startsWith("../")
+    // Resolve EVERY relative path against the open file's directory (spec §1),
+    // mirroring the TUI's `open_file_dir.join(rel)` (schema_io.rs) — bare
+    // filenames (`schema.json`), `./`-prefixed and `../`-prefixed paths all
+    // resolve the same way. Absolute paths are left untouched, matching Rust
+    // `Path::join`'s absolute-replaces-base rule. The caller has already
+    // classified this source as `Local` (never a URL), so no URL check here.
+    const resolved = dir && !isAbsolutePath(relativePath)
       ? `${dir}/${relativePath}`
       : relativePath;
     return g.fs.readTextFile(resolved);
