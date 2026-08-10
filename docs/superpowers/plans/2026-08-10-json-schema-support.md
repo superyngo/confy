@@ -56,7 +56,7 @@
 - `crates/confy-tui/src/tui/state.rs` — re-export `SchemaEnumState`.
 
 **Modified files (web):**
-- `web/types.ts` — `SchemaStatus`, `ViewRow.schema_warn`, `EditView.constraint`, `ModeView` schema-enum variant.
+- `web/types.ts` — `SchemaStatus`, `ViewRow.schema_warn`, `ModeView` schema-enum variant.
 - `web/fs.ts` — `readSiblingFile()`.
 - `web/host-io.ts` — schema resolution wiring.
 - `web/ui.ts` — attach-schema action, `focusInlineEdit()` `<select>` branch, status summary.
@@ -2072,7 +2072,7 @@ git commit -m "feat(tui): add the schema-constrained enum/const picker popup"
 - Modify: `web/types.ts`
 
 **Interfaces:**
-- Produces: `SchemaStatus`, `ViewRow.schema_warn`, `EditView.constraint`, `ModeView`'s schema-enum variant — Tasks 12-14 consume these.
+- Produces: `SchemaStatus`, `ViewRow.schema_warn` — Tasks 12/14 consume these. (`ModeView`'s schema-enum variant is added later, by Task 13 — see its own Interfaces note.)
 
 - [ ] **Step 1: Add the types**
 
@@ -2099,21 +2099,7 @@ Add to `SessionSnapshot` (alongside `external_edit: ExternalEdit | undefined;`):
   schema_fetch_request: { Local: string } | { Url: string } | undefined;
 ```
 
-Add to `EditView` (alongside `rename_only: boolean;`):
-
-```ts
-  constraint: { Enum: [string, unknown][] } | { Bounded: { minimum: number | null; maximum: number | null; multiple_of: number | null } } | "None" | undefined;
-```
-
-(This mirrors serde's default externally-tagged enum representation for `EditHint`/`SchemaSource` crossing serde-wasm-bindgen — `EditHint::None` a unit variant serializes as the bare string `"None"`, `EditHint::Enum(v)`/`EditHint::Bounded{..}` as `{ VariantName: payload }`, matching the `{ CommitEdit: {...} }` shape already documented in `confy-ffi/functional_smoke.mjs`'s Intent-dispatch convention from this plan's grounding research. However `EditState.constraint` was defined in Task 6 as `Option<EditHint>` on the internal `EditState`, not surfaced onto the transport `EditView` yet — add that mapping now too:)
-
-In `crates/confy-core/src/session/view.rs` (confy-core, not `web/types.ts` — noting the cross-reference since this TS type has no meaning without it), add to `EditView`:
-
-```rust
-    pub constraint: Option<crate::schema::EditHint>,
-```
-
-And in wherever `Mode::Edit(e) => ModeView::Edit(EditView { ... })` is built, add `constraint: None,` (the schema-enum picker uses `Mode::SchemaEnum`, a *different* Mode variant entirely — per Task 6's design, `EditState` never actually carries a live `EditHint::Enum`/`Bounded` at runtime today, since `begin_inline_edit` branches to `Mode::SchemaEnum` instead of populating this field on `Mode::Edit`. This `EditView.constraint` field is therefore always `None` for now — included for forward-compatibility with a future `Bounded` numeric-clamp surfacing on the plain `Edit` mode (Task 12 uses it for that), not populated by this task.) Run `cargo check -p confy-core` after this edit to confirm the additive field doesn't break existing `EditView` construction call sites (there should be exactly one, in `snapshot()`).
+**Scoped out:** an earlier draft of this task also added `EditView.constraint: Option<EditHint>` (Rust) / `constraint` (TS), forward-compat scaffolding for a `Bounded` numeric-clamp surfacing on plain `Mode::Edit`. Dropped: no task in this plan ever populates it (Task 6's actual design diverts a constrained node to `Mode::SchemaEnum` instead, never touching `EditState`/`EditView`) or consumes it (Task 13 originally listed it as a dependency but its own text already says that's superseded, and Task 13 instead renders directly off `ModeView::SchemaEnum`). Shipping an always-`None`, always-unread field is dead weight, not forward compatibility — add it later if a real consumer needs it.
 
 - [ ] **Step 2: Run the TypeScript build to verify no type errors**
 
@@ -2123,8 +2109,8 @@ Expected: PASS — these are additive optional/union fields; no existing code re
 - [ ] **Step 3: Commit**
 
 ```bash
-git add web/types.ts crates/confy-core/src/session/view.rs
-git commit -m "feat(web): add SchemaStatus/schema_warn/constraint TypeScript types"
+git add web/types.ts
+git commit -m "feat(web): add SchemaStatus/schema_warn TypeScript types"
 ```
 
 ---
@@ -2246,7 +2232,7 @@ git commit -m "feat(web): resolve schema_fetch_request via local sibling read or
 - Modify: `web/ui.ts`
 
 **Interfaces:**
-- Consumes: `EditView.constraint` (Task 11) — **superseded by Task 6's design choice** that the enum picker uses a dedicated `Mode::SchemaEnum`, not `Mode::Edit`. Web therefore needs its **own** rendering of `ModeView::SchemaEnum` (a `<select>` inline, not a TUI-style popup — spec §3's table: "renderValue()'s edit branch emits `<select>`"), driven by `snap.mode` being the `SchemaEnum` variant rather than `Edit`.
+- Consumes: `ModeView::SchemaEnum` (Task 6/7, confy-core; TS shape from Task 11's `ModeView` addition) — the enum picker uses a dedicated `Mode::SchemaEnum`, not `Mode::Edit`. Web needs its **own** rendering of `ModeView::SchemaEnum` (a `<select>` inline, not a TUI-style popup — spec §3's table: "renderValue()'s edit branch emits `<select>`"), driven by `snap.mode` being the `SchemaEnum` variant.
 
 - [ ] **Step 1: Extend `renderValue()`**
 
