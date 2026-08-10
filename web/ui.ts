@@ -308,6 +308,9 @@ function render() {
     setWindowTitle(fileName ?? "confy", snap.doc_format, snap.is_dirty);
   }
   setStatus(snap.status, snap.error ?? "");
+  if (snap.schema_status && snap.schema_status.violation_count > 0 && !snap.error) {
+    setStatus(`${snap.status ?? ""} · ${snap.schema_status.violation_count} schema warnings`.trim(), "");
+  }
 
   // Active type-filter indicator on the funnel button (same `.on` + dot
   // mechanism as the touch UI, driven by the shared snapshot flag).

@@ -58,6 +58,7 @@
   /* 觸控 / RWD 基礎令牌（desktop 預設不改） */
   --hit: 44px;           /* 最小觸控目標尺寸 (WCAG 2.5.5) */
   --row-h-touch: 44px;   /* 觸控裝置列高（pointer:coarse 媒體查詢生效） */
+  --warn: #d9a441;
 }
 *{box-sizing:border-box}
 html,body{height:100%}
@@ -556,6 +557,8 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
 .row.clip-copy { outline: 1.5px dashed var(--t-string); outline-offset: -3px; border-radius: 6px; }
 .row.clip-cut { outline: 1.5px dashed var(--t-date); outline-offset: -3px; border-radius: 6px; opacity: .6; }
 .row.clip-cut .key, .row.clip-cut .val { text-decoration: line-through; text-decoration-thickness: 1px; }
+.row.schema-warn { outline: 1.5px dashed var(--warn); outline-offset: -3px; border-radius: 6px; }
+.row.schema-warn::after { content: ""; position: absolute; right: 4px; top: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
 
 /* Type-filter popup header: title row + a `Clear` text button (replaces the old
    Apply/Cancel foot — the filter applies live and persists when the popup closes). */
