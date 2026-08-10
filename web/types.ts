@@ -49,6 +49,7 @@ export interface ViewRow {
   // Key-sign label ("bare"/"quoted"/"dotted"/"none") for the structured "Sign" field.
   key_sign?: string;
   read_only: boolean;
+  schema_warn: string[] | undefined;
   selected: boolean;
   is_cursor: boolean;
 }
@@ -139,6 +140,12 @@ export interface ExternalEdit {
   kind: ExternalEditKind;
 }
 
+export interface SchemaStatus {
+  source_label: string;
+  violation_count: number;
+  load_error: string | undefined;
+}
+
 // ---- Full-state snapshot (session::view::SessionSnapshot) ----
 export interface SessionSnapshot {
   doc_format: DocFormat;
@@ -151,6 +158,8 @@ export interface SessionSnapshot {
   error: string | undefined;
   detail_text: string | undefined;
   external_edit: ExternalEdit | undefined;
+  schema_status: SchemaStatus | undefined;
+  schema_fetch_request: { Local: string } | { Url: string } | undefined;
   convert_write: [string, string] | undefined; // [output_path, text]
   clipboard_count: number | undefined; // Some(n) when the clipboard holds n fragments
   clipboard_cut: boolean; // true = cut (move); false = copy
