@@ -17,6 +17,7 @@ thiserror.workspace = true
 taplo.workspace = true
 rowan.workspace = true
 fuzzy-matcher.workspace = true
+jsonschema.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
