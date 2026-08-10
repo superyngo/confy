@@ -58,7 +58,16 @@ fn walk(node: &Node, value: &Value, pointer: &str, map: &mut PointerMap) -> Json
         Value::Null => Json::Null,
         Value::Bool(b) => Json::Bool(*b),
         Value::Int(i) => Json::Number(Number::from(*i)),
-        Value::Float(f) => Number::from_f64(*f).map(Json::Number).unwrap_or(Json::Null),
+        Value::Float(f) if f.is_finite() => {
+            Number::from_f64(*f).map(Json::Number).unwrap_or(Json::Null)
+        }
+        Value::Float(f) => Json::String(if f.is_nan() {
+            "nan".to_string()
+        } else if *f > 0.0 {
+            "inf".to_string()
+        } else {
+            "-inf".to_string()
+        }),
         // TOML datetimes have no JSON Schema-native type: bridged as a string
         // (RFC3339-shaped source text passes `format: date-time`/`date`/`time`
         // checks as-is; a schema requiring `type: null` against a TOML node

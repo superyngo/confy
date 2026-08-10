@@ -63,3 +63,15 @@ fn bridge_skips_comments_and_keeps_array_order() {
     assert_eq!(json, json!({ "vals": [1, 2, 3] }));
     assert!(map.resolve("/vals/1").is_some());
 }
+
+#[test]
+fn bridge_maps_non_finite_floats_to_strings_not_null() {
+    let doc = toml_doc("x = nan\ny = inf\nz = -inf\n");
+    let tree = doc.project();
+    let (value, _warnings) = doc.to_value().unwrap();
+    let (json, _map) = bridge(&tree.root, &value);
+    assert_eq!(
+        json,
+        json!({ "x": "nan", "y": "inf", "z": "-inf" })
+    );
+}
