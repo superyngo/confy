@@ -107,6 +107,7 @@ const themeBtn = $<HTMLButtonElement>("btnTheme");
 const langBtn = $<HTMLButtonElement>("btnLang");
 const langLabel = $("langLabel");
 const openBtn = $<HTMLButtonElement>("btnOpen");
+const attachSchemaBtn = $<HTMLButtonElement>("btnAttachSchema");
 const saveBtn = $<HTMLButtonElement>("btnSave");
 const saveAsBtn = $<HTMLButtonElement>("btnSaveAs");
 const FS_AVAILABLE = fsAccessAvailable();
@@ -1099,6 +1100,20 @@ function openUrlModal() {
   $("url-modal").classList.remove("hidden");
   input.focus();
 }
+// "Attach schema…" — prompt for a path or URL to a JSON Schema file and
+// dispatch `SetSchema`. The host resolves the request via
+// `schema_fetch_request` on the next snapshot (render()'s resolver hook),
+// completing the SetSchema → SchemaLoaded round-trip. Mirrors the touch
+// attach flow; the prompt string is hard-coded (not `t(...)`) because adding
+// i18n keys is out of this task's file scope (deferred i18n item).
+function attachSchema() {
+  const choice = prompt("Path or URL to a JSON Schema file:");
+  if (!choice) return;
+  const source = choice.startsWith("http://") || choice.startsWith("https://")
+    ? { Url: choice }
+    : { Local: choice };
+  send({ SetSchema: { source } });
+}
 
 // ---- pointer: click routing for every row affordance ----
 function onTreeClick(ev: MouseEvent) {
@@ -1708,6 +1723,7 @@ function bindGlobal() {
   bindSearch();
   bindConvertDialog();
   openBtn.addEventListener("click", openOpenModal);
+  attachSchemaBtn.addEventListener("click", () => void attachSchema());
   saveBtn.addEventListener("click", () => void doSave());
   saveAsBtn.addEventListener("click", () => {
     // Toggle: a second click on the chevron while its menu is open closes it.
