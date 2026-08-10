@@ -76,7 +76,8 @@ function rowHTML(r: ViewRow, idx: number, rows: ViewRow[]): string {
     (expanded ? " open" : "") +
     (r.selected ? " selected" : "") +
     (r.is_cursor ? " cursor" : "") +
-    (r.read_only ? " readonly" : "");
+    (r.read_only ? " readonly" : "") +
+    (r.schema_warn ? " schema-warn" : "");
   let h = `<div class="${cls}" data-type="${esc(String(type))}" data-path="${dataPath}">`;
   h += `<div class="row-main" style="padding-left:${pad}px">`;
   h += `<button class="caret ${branch ? "" : "leaf"}" data-act="caret" aria-label="expand">${IC.chev}</button>`;
