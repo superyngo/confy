@@ -209,6 +209,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     draw_type_filter_overlay(f, app);
     draw_kind_switch_overlay(f, app);
     draw_convert_overlay(f, app);
+    draw_schema_enum_overlay(f, app);
     draw_lang_picker_overlay(f, app);
 }
 
@@ -919,6 +920,36 @@ fn draw_kind_switch_overlay(f: &mut Frame, app: &App) {
     f.render_widget(Clear, area);
     let block = Block::default()
         .title(" Switch kind ")
+        .title_bottom(" ↑↓ move · Enter apply · Esc cancel ")
+        .borders(Borders::ALL)
+        .style(Style::default().bg(Color::Black).fg(Color::White));
+    f.render_widget(Paragraph::new(lines).block(block), area);
+}
+
+/// The schema-constrained enum/const picker: reuses the `K` kind-switch
+/// popup's exact shape (spec §3/§5).
+fn draw_schema_enum_overlay(f: &mut Frame, app: &App) {
+    let Mode::SchemaEnum(st) = &app.session.mode else {
+        return;
+    };
+    let lines: Vec<Line> = st
+        .options
+        .iter()
+        .enumerate()
+        .map(|(i, (label, _))| {
+            let marker = if i == st.cursor { "›" } else { " " };
+            let mut style = Style::default();
+            if i == st.cursor {
+                style = style.add_modifier(Modifier::REVERSED);
+            }
+            Line::from(Span::styled(format!(" {marker} {label:<28}"), style))
+        })
+        .collect();
+    let height = (lines.len() as u16 + 2).min(f.area().height);
+    let area = centered_rect(40, height, f.area());
+    f.render_widget(Clear, area);
+    let block = Block::default()
+        .title(" Schema value ")
         .title_bottom(" ↑↓ move · Enter apply · Esc cancel ")
         .borders(Borders::ALL)
         .style(Style::default().bg(Color::Black).fg(Color::White));

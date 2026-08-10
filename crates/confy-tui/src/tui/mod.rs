@@ -297,6 +297,25 @@ fn run_event_loop(
                 }
                 continue;
             }
+            // Schema-constrained enum/const picker (modal): Up/Down (or j/k)
+            // move the selection, Enter applies + rebuilds the render rows,
+            // Esc cancels via the session's escape dispatch (which removes a
+            // placeholder node when the picker was opened via "add into an
+            // enum-constrained field"). Other keys swallowed.
+            if matches!(app.session.mode, crate::tui::state::Mode::SchemaEnum(_)) {
+                use crossterm::event::KeyCode;
+                match key.code {
+                    KeyCode::Up | KeyCode::Char('k') => app.session.schema_enum_move(-1),
+                    KeyCode::Down | KeyCode::Char('j') => app.session.schema_enum_move(1),
+                    KeyCode::Enter => {
+                        app.session.schema_enum_commit();
+                        app.rebuild_rows();
+                    }
+                    KeyCode::Esc => app.escape(),
+                    _ => {}
+                }
+                continue;
+            }
             // Document-conversion flow (modal). The step decides the keys:
             //   Format  — Up/Down (j/k) pick a target, Enter advances, Esc cancels.
             //   Path    — caret text field for the output path, Enter renders.
