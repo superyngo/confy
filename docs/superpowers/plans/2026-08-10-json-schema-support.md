@@ -94,8 +94,10 @@
 In `Cargo.toml` (workspace root), inside `[workspace.dependencies]`, add (alphabetical order, matching the existing list's convention):
 
 ```toml
-jsonschema = "0.30"
+jsonschema = { version = "0.30", default-features = false }
 ```
+
+`default-features = false` is required, not optional: `jsonschema`'s default features (`resolve-http`, `resolve-file`) pull in `reqwest`/`tokio` and hard-fail compilation on `wasm32-unknown-unknown` (`jsonschema` emits a build-time `compile_error!` for those features on WASM) — this is `confy-ffi`'s target. confy-core never needs `jsonschema`'s own external-`$ref` resolution: the host fetches schema text once via the `schema_fetch_request` handshake, and in-document `$ref`s (JSON-pointer, e.g. `#/$defs/...`) work with no resolver features at all.
 
 In `crates/confy-core/Cargo.toml`, inside `[dependencies]`, add:
 
@@ -179,7 +181,7 @@ pub enum EditHint {
 /// projected tree is rebuilt from the document on every mutation, so
 /// per-document state belongs one level up (mirrors `Session.clipboard`,
 /// `Session.filter`, etc.).
-#[derive(Clone, Debug)]
+#[derive(Debug)] // NOTE: not Clone — jsonschema::Validator (0.30) isn't Clone; no later task clones a whole SchemaState (only its individually-Clone fields, e.g. via `.status()`).
 pub struct SchemaState {
     pub source: SchemaSource,
     /// `None` while `load_error` is set (load/compile failed) or before the
@@ -660,7 +662,7 @@ fn detect_toml(text: &str) -> Option<SchemaSource> {
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `cargo test -p confy-core --test schema_headless`
-Expected: PASS (11 tests total).
+Expected: PASS (12 tests total).
 
 - [ ] **Step 5: Commit**
 
@@ -825,7 +827,7 @@ pub fn validate(projection: &Json, compiled: &Validator, map: &PointerMap) -> Ve
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `cargo test -p confy-core --test schema_headless`
-Expected: PASS (15 tests total).
+Expected: PASS (19 tests total).
 
 - [ ] **Step 5: Commit**
 
@@ -1085,7 +1087,7 @@ fn display_label(v: &Json) -> String {
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `cargo test -p confy-core --test schema_headless`
-Expected: PASS (21 tests total).
+Expected: PASS (25 tests total).
 
 - [ ] **Step 5: Commit**
 
@@ -1528,7 +1530,7 @@ Add `self.revalidate_schema();` at the end of the Nudge handler (alongside where
 - [ ] **Step 6: Run the tests to verify they pass**
 
 Run: `cargo test -p confy-core --test schema_headless`
-Expected: PASS (31 tests total).
+Expected: PASS (35 tests total).
 
 - [ ] **Step 7: Commit**
 
@@ -1689,7 +1691,7 @@ Also: right after document construction inside `Session::new` (or wherever a fre
 - [ ] **Step 6: Run the tests to verify they pass**
 
 Run: `cargo test -p confy-core --test schema_headless`
-Expected: PASS (33 tests total).
+Expected: PASS (37 tests total).
 
 - [ ] **Step 7: Run the full confy-core test suite to confirm no regressions**
 
