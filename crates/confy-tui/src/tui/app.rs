@@ -57,6 +57,7 @@ pub struct RowSnapshot {
     /// Writing style of a scalar leaf (`Plain` for branches/comments).
     pub format: Format,
     pub trailing_comment: Option<String>,
+    pub schema_warn: Option<Vec<String>>,
 }
 
 pub enum PromptOutcome {
@@ -112,6 +113,16 @@ impl App {
                     .node_at(&vr.path)
                     .map(|n| type_tag(&n.kind, vr.format, doc_fmt, n.read_only))
                     .unwrap_or_default();
+                let type_tag = if vr.schema_warn.is_some() {
+                    // The KIND column is a fixed 8 cols; the tag's padding lives
+                    // *inside* the brackets (e.g. `[I:dec ]`), so `trim_end` is a
+                    // no-op. Swap that internal space for `!` to stay in budget.
+                    // Tags with no padding space (e.g. `[B:bool]`) keep their glyph;
+                    // the row's yellow accent is the primary cue then.
+                    type_tag.replacen(' ', "!", 1)
+                } else {
+                    type_tag
+                };
                 let scalar_type = vr.scalar_type.map(|st| format!("{st:?}").to_lowercase());
                 RowSnapshot {
                     key: vr.key,
@@ -124,6 +135,7 @@ impl App {
                     type_tag,
                     format: vr.format,
                     trailing_comment: vr.trailing_comment,
+                    schema_warn: vr.schema_warn.clone(),
                 }
             })
             .collect();

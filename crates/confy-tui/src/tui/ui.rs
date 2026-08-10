@@ -347,6 +347,9 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                 Style::default().bg(bg).fg(Color::White)
             } else if app.session.selection.contains(&row.path) {
                 Style::default().bg(Color::DarkGray)
+            } else if row.schema_warn.is_some() {
+                // Subdued, not alarming — a soft constraint, never a hard error.
+                Style::default().fg(Color::Yellow)
             } else {
                 Style::default()
             };
@@ -563,8 +566,24 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
     if let Some(ref msg) = app.session.status {
         status = format!(" {msg}");
     }
-    let paragraph =
-        Paragraph::new(status).style(Style::default().bg(Color::DarkGray).fg(Color::White));
+    let violation_count = app
+        .session
+        .schema
+        .as_ref()
+        .map(|s| s.violations.len())
+        .unwrap_or(0);
+    let paragraph = if violation_count > 0 {
+        Paragraph::new(Line::from(vec![
+            Span::raw(status),
+            Span::styled(
+                format!(" · {violation_count} schema warnings"),
+                Style::default().fg(Color::Yellow),
+            ),
+        ]))
+        .style(Style::default().bg(Color::DarkGray).fg(Color::White))
+    } else {
+        Paragraph::new(status).style(Style::default().bg(Color::DarkGray).fg(Color::White))
+    };
     f.render_widget(paragraph, area);
 }
 
@@ -638,13 +657,37 @@ fn draw_detail_overlay(f: &mut Frame, app: &App) {
         Some(t) => t.clone(),
         None => return,
     };
-    let area = detail_popup_rect(f.area(), &detail_text);
+    let schema_warn = app
+        .rows
+        .iter()
+        .find(|r| r.path == app.session.cursor)
+        .and_then(|r| r.schema_warn.as_ref())
+        .filter(|msgs| !msgs.is_empty());
+    // Size the popup from the FULL rendered text (original + appended Schema
+    // section), so violation messages never get clipped.
+    let mut full_text = detail_text.clone();
+    if let Some(msgs) = schema_warn {
+        full_text.push_str("\n\nSchema:\n");
+        full_text.push_str(&msgs.join("\n"));
+    }
+    let area = detail_popup_rect(f.area(), &full_text);
     f.render_widget(Clear, area);
     let block = Block::default()
         .title(" Detail (↑/↓ PgUp/PgDn Home/End · Esc) ")
         .borders(Borders::ALL)
         .style(Style::default().bg(Color::Black).fg(Color::White));
-    let paragraph = Paragraph::new(detail_text)
+    let mut lines: Vec<Line> = detail_text.lines().map(Line::from).collect();
+    if let Some(msgs) = schema_warn {
+        lines.push(Line::from(""));
+        lines.push(Line::from("Schema:"));
+        for msg in msgs {
+            lines.push(Line::from(Span::styled(
+                msg.clone(),
+                Style::default().fg(Color::Yellow),
+            )));
+        }
+    }
+    let paragraph = Paragraph::new(lines)
         .block(block)
         .wrap(Wrap { trim: false })
         .scroll((app.detail_scroll, 0));
