@@ -15,12 +15,15 @@ pub fn detect_hint(text: &str, format: DocFormat) -> Option<SchemaSource> {
     }
 }
 
-fn to_source(raw: &str) -> SchemaSource {
+fn to_source(raw: &str) -> Option<SchemaSource> {
     let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
     if raw.starts_with("http://") || raw.starts_with("https://") {
-        SchemaSource::Url(raw.to_string())
+        Some(SchemaSource::Url(raw.to_string()))
     } else {
-        SchemaSource::Local(raw.to_string())
+        Some(SchemaSource::Local(raw.to_string()))
     }
 }
 
@@ -36,7 +39,7 @@ fn detect_json(text: &str) -> Option<SchemaSource> {
     // hard-fail").
     let parsed: serde_json::Value = serde_json::from_str(text).ok()?;
     let schema = parsed.get("$schema")?.as_str()?;
-    Some(to_source(schema))
+    to_source(schema)
 }
 
 fn detect_yaml(text: &str) -> Option<SchemaSource> {
@@ -50,7 +53,7 @@ fn detect_yaml(text: &str) -> Option<SchemaSource> {
         if let Some(rest) = trimmed.strip_prefix('#') {
             if let Some(eq) = rest.trim_start().strip_prefix("yaml-language-server:") {
                 if let Some(schema) = eq.trim_start().strip_prefix("$schema=") {
-                    return Some(to_source(schema.trim()));
+                    return to_source(schema.trim());
                 }
             }
             continue; // some other leading comment — keep scanning
@@ -63,9 +66,8 @@ fn detect_yaml(text: &str) -> Option<SchemaSource> {
 fn detect_toml(text: &str) -> Option<SchemaSource> {
     let first_line = text.lines().next()?;
     let rest = first_line.strip_prefix("#:schema")?;
-    let path = rest.trim();
-    if path.is_empty() {
+    if !rest.is_empty() && !rest.starts_with(char::is_whitespace) {
         return None;
     }
-    Some(to_source(path))
+    to_source(rest)
 }

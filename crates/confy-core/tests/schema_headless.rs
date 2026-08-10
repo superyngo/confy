@@ -134,3 +134,21 @@ fn detect_hint_toml_none_when_not_first_line() {
     let src = "port = 1\n#:schema ./app.schema.json\n";
     assert_eq!(detect_hint(src, DocFormat::Toml), None);
 }
+
+#[test]
+fn detect_hint_toml_none_when_no_separator_after_schema() {
+    let src = "#:schemaless\nport = 1\n";
+    assert_eq!(detect_hint(src, DocFormat::Toml), None);
+}
+
+#[test]
+fn detect_hint_json_none_when_schema_value_empty() {
+    let src = r#"{ "$schema": "" }"#;
+    assert_eq!(detect_hint(src, DocFormat::Json), None);
+}
+
+#[test]
+fn detect_hint_yaml_none_when_modeline_schema_value_empty() {
+    let src = "# yaml-language-server: $schema=\nport: 1\n";
+    assert_eq!(detect_hint(src, DocFormat::Yaml), None);
+}
