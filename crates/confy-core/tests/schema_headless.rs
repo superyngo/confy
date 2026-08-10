@@ -491,7 +491,7 @@ fn dispatch_nudge_clamps_to_schema_maximum() {
     let snap = s.dispatch(confy_core::session::Intent::Nudge(1));
     let row = snap.rows.iter().find(|r| r.key == "port").unwrap();
     assert_eq!(row.value.as_deref(), Some("65535"));
-    // 65535 -> 65536 would exceed the maximum: clamped, silently a no-op.
+    // 65535 -> 65536 would exceed the maximum: clamped back down to 65535.
     let snap = s.dispatch(confy_core::session::Intent::Nudge(1));
     let row = snap.rows.iter().find(|r| r.key == "port").unwrap();
     assert_eq!(row.value.as_deref(), Some("65535"));
