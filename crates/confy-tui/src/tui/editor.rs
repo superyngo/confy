@@ -30,7 +30,7 @@ fn default_editor() -> String {
 
 #[cfg(test)]
 mod tests {
-    
+    use super::*;
 
     #[cfg(unix)]
     #[test]
