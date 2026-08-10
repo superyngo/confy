@@ -17,6 +17,7 @@ rowan = "=0.15.18"        # lossless hand-rolled JSON/JSONC CST (same version ta
 tempfile = "3"
 fuzzy-matcher = "0.3"
 jsonschema = { version = "0.30", default-features = false }
+ureq = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 wasm-bindgen = "0.2"

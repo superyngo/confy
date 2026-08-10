@@ -26,6 +26,9 @@ struct Args {
     /// file but does not write it. Falls back to the config file, then `en`.
     #[arg(long)]
     lang: Option<String>,
+    /// Path or URL to a JSON Schema, overriding in-file hint detection.
+    #[arg(long)]
+    schema: Option<String>,
 }
 
 /// Resolve the active UI language: `--lang` > config file `lang` > default.
@@ -148,7 +151,7 @@ pub fn run() -> Result<()> {
                 create_missing_file(&file, fmt)?;
             }
             let lang = resolve_lang(args.lang.as_deref());
-            crate::tui::run(&file, fmt, lang)
+            crate::tui::run(&file, fmt, lang, args.schema)
         }
     }
 }
