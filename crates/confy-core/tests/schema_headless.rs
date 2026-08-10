@@ -228,3 +228,33 @@ fn validate_flags_null_type_against_toml_as_representation_category() {
     assert_eq!(violations.len(), 1);
     assert_eq!(violations[0].category, Category::Representation);
 }
+
+#[test]
+fn validate_does_not_misclassify_a_literal_string_null_value_as_representation() {
+    let doc = toml_doc("port = \"null\"\n");
+    let tree = doc.project();
+    let (value, _w) = doc.to_value().unwrap();
+    let (json, map) = bridge(&tree.root, &value);
+    let v = compiled(json!({
+        "type": "object",
+        "properties": { "port": { "type": "integer" } }
+    }));
+    let violations = validate(&json, &v, &map);
+    assert_eq!(violations.len(), 1);
+    assert_eq!(violations[0].category, Category::Value);
+}
+
+#[test]
+fn validate_does_not_misclassify_a_nullable_type_union_mismatch_as_representation() {
+    let doc = toml_doc("port = 8080\n");
+    let tree = doc.project();
+    let (value, _w) = doc.to_value().unwrap();
+    let (json, map) = bridge(&tree.root, &value);
+    let v = compiled(json!({
+        "type": "object",
+        "properties": { "port": { "type": ["string", "null"] } }
+    }));
+    let violations = validate(&json, &v, &map);
+    assert_eq!(violations.len(), 1);
+    assert_eq!(violations[0].category, Category::Value);
+}

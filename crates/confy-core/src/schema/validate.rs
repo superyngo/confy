@@ -5,7 +5,8 @@
 
 use super::types::{Category, Violation};
 use super::value_bridge::PointerMap;
-use jsonschema::Validator;
+use jsonschema::error::{TypeKind, ValidationErrorKind};
+use jsonschema::{JsonType, Validator};
 use serde_json::Value as Json;
 
 /// Validate `projection` against `compiled`, returning every Violation.
@@ -28,11 +29,16 @@ pub fn validate(projection: &Json, compiled: &Validator, map: &PointerMap) -> Ve
             // A `type: null` mismatch against a TOML-sourced document is a
             // structural representation gap (TOML has no null literal — the
             // bridge never emits `Json::Null` for a TOML scalar), not an
-            // ordinary value error the user can fix by editing.
-            let category = if keyword == "type" && message.contains("null") {
-                Category::Representation
-            } else {
-                Category::Value
+            // ordinary value error the user can fix by editing. Matched on
+            // the error's structured kind (not the rendered message text)
+            // so a string value that merely contains "null", or a nullable
+            // `type` union that includes `"null"` as one alternative, are
+            // not misclassified.
+            let category = match &err.kind {
+                ValidationErrorKind::Type {
+                    kind: TypeKind::Single(JsonType::Null),
+                } => Category::Representation,
+                _ => Category::Value,
             };
             Violation {
                 path,
