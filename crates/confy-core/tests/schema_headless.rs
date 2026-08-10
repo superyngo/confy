@@ -496,3 +496,54 @@ fn dispatch_nudge_clamps_to_schema_maximum() {
     let row = snap.rows.iter().find(|r| r.key == "port").unwrap();
     assert_eq!(row.value.as_deref(), Some("65535"));
 }
+
+#[test]
+fn commit_edit_bypasses_schema_enum_diversion_and_writes_the_value() {
+    let mut s = session_from("level = \"debug\"\n", DocFormat::Toml);
+    let schema_text = json!({
+        "type": "object",
+        "properties": { "level": { "enum": ["debug", "info"] } }
+    })
+    .to_string();
+    s.apply_schema_text(SchemaSource::Local("./s.json".into()), Ok(schema_text));
+    s.cursor = vec![Seg::Key("level".into())];
+    // The Web one-shot CommitEdit carries the final value directly — it must
+    // NOT be diverted to the interactive SchemaEnum picker (which would make
+    // commit_edit's `Mode::Edit` requirement silently drop the edit).
+    s.dispatch(confy_core::session::Intent::CommitEdit {
+        value: Some("\"info\"".into()),
+        name: None,
+    });
+    assert!(
+        s.serialize().unwrap().contains("level = \"info\""),
+        "value written despite the enum hint: {}",
+        s.serialize().unwrap()
+    );
+}
+
+#[test]
+fn add_node_resolving_enum_hint_is_cancellable_via_escape() {
+    use confy_core::session::state::Mode;
+    let mut s = session_from("port = 1\n", DocFormat::Toml);
+    let schema_text = json!({
+        "type": "object",
+        "properties": { "new_field": { "enum": ["a", "b"] } }
+    })
+    .to_string();
+    s.apply_schema_text(SchemaSource::Local("./s.json".into()), Ok(schema_text));
+    s.cursor = vec![Seg::Key("port".into())];
+    // Adding a sibling generates a `new_field` key, which resolves the enum
+    // hint → the picker opens with created_on_add = true.
+    s.dispatch(confy_core::session::Intent::AddNode);
+    assert!(
+        matches!(&s.mode, Mode::SchemaEnum(st) if st.created_on_add),
+        "picker opened for the freshly-added enum node"
+    );
+    // Escape must cancel the picker AND remove the placeholder (mirrors the
+    // Mode::Edit created_on_add → edit_cancel → cancel_added_node safety net).
+    s.dispatch(confy_core::session::Intent::Escape);
+    assert!(matches!(s.mode, Mode::Normal));
+    let text = s.serialize().unwrap();
+    assert!(!text.contains("new_field"), "placeholder removed on cancel: {text}");
+    assert!(text.contains("port = 1"), "pre-existing node intact: {text}");
+}

@@ -1404,13 +1404,17 @@ impl Session {
             fragment,
         }) {
             Ok(()) => self.on_mutation_success(),
-            Err(e) => self.error = Some(e.to_string()),
+            Err(e) => self.error = Some(tr_args(self.lang, "core.error.generic", &[&e.to_string()])),
         }
     }
 
     // ---- Inline editor ----
 
     pub fn begin_inline_edit(&mut self) {
+        self.begin_inline_edit_impl(true);
+    }
+
+    fn begin_inline_edit_impl(&mut self, allow_schema_enum: bool) {
         let rows = self.visible_rows();
         let row = match rows.iter().find(|r| r.path == self.cursor) {
             Some(r) => r.clone(),
@@ -1442,26 +1446,29 @@ impl Session {
         }
         let cursor = buffer.chars().count();
         let name_cursor = key.chars().count();
-        if let Some(hint) = self.schema.as_ref().and_then(|s| s.raw.as_ref()).map(|raw| {
-            crate::schema::hints_edit::resolve_edit_hint(raw, &row.path)
-        }) {
-            if let crate::schema::EditHint::Enum(options) = hint {
-                if !options.is_empty() {
-                    let format = self.doc.as_ref().map(|d| d.format());
-                    let opts: Vec<(String, String)> = options
-                        .into_iter()
-                        .filter_map(|(label, v)| scalar_repr_for(&v, format?).map(|r| (label, r)))
-                        .collect();
-                    if !opts.is_empty() {
-                        self.mode = Mode::SchemaEnum(crate::session::state::SchemaEnumState {
-                            path: row.path.clone(),
-                            key: key.clone(),
-                            is_element,
-                            cursor: 0,
-                            options: opts,
-                        });
-                        self.status = None;
-                        return;
+        if allow_schema_enum {
+            if let Some(hint) = self.schema.as_ref().and_then(|s| s.raw.as_ref()).map(|raw| {
+                crate::schema::hints_edit::resolve_edit_hint(raw, &row.path)
+            }) {
+                if let crate::schema::EditHint::Enum(options) = hint {
+                    if !options.is_empty() {
+                        let format = self.doc.as_ref().map(|d| d.format());
+                        let opts: Vec<(String, String)> = options
+                            .into_iter()
+                            .filter_map(|(label, v)| scalar_repr_for(&v, format?).map(|r| (label, r)))
+                            .collect();
+                        if !opts.is_empty() {
+                            self.mode = Mode::SchemaEnum(crate::session::state::SchemaEnumState {
+                                path: row.path.clone(),
+                                key: key.clone(),
+                                is_element,
+                                created_on_add: false,
+                                cursor: 0,
+                                options: opts,
+                            });
+                            self.status = None;
+                            return;
+                        }
                     }
                 }
             }
@@ -1617,6 +1624,15 @@ impl Session {
         }
     }
 
+    pub fn schema_enum_cancel(&mut self) {
+        let created_on_add = matches!(&self.mode, Mode::SchemaEnum(st) if st.created_on_add);
+        self.mode = self.resting_mode();
+        self.status = None;
+        if created_on_add {
+            self.cancel_added_node();
+        }
+    }
+
     fn cancel_added_node(&mut self) {
         let snapshot = match self.history.as_mut().and_then(|h| h.cancel_last()) {
             Some(s) => s,
@@ -1639,7 +1655,7 @@ impl Session {
     /// external-edit handshake).
     pub fn commit_edit(&mut self, value: Option<String>, name: Option<String>) {
         let from_detail = matches!(self.mode, Mode::Detail);
-        self.begin_inline_edit();
+        self.begin_inline_edit_impl(false);
         let Mode::Edit(ref mut e) = self.mode else {
             return;
         };
@@ -2237,8 +2253,10 @@ impl Session {
             self.cursor = new_path;
             if inline {
                 self.begin_inline_edit();
-                if let Mode::Edit(e) = &mut self.mode {
-                    e.created_on_add = true;
+                match &mut self.mode {
+                    Mode::Edit(e) => e.created_on_add = true,
+                    Mode::SchemaEnum(st) => st.created_on_add = true,
+                    _ => {}
                 }
             } else if key.is_some() {
                 // Container sibling with a key: enter rename mode so the user
@@ -2287,8 +2305,10 @@ impl Session {
             // immediately; `created_on_add` makes Esc remove it (and its
             // blank-line separator) via History::cancel_last, matching scalar add.
             self.begin_inline_edit();
-            if let Mode::Edit(e) = &mut self.mode {
-                e.created_on_add = true;
+            match &mut self.mode {
+                Mode::Edit(e) => e.created_on_add = true,
+                Mode::SchemaEnum(st) => st.created_on_add = true,
+                _ => {}
             }
         }
     }
@@ -2838,10 +2858,7 @@ impl Session {
             Mode::FilterResults => self.exit_filter_results(),
             Mode::TypeFilter => self.exit_type_filter(),
             Mode::KindSwitch(_) => self.exit_kind_switch(),
-            Mode::SchemaEnum(_) => {
-                self.mode = self.resting_mode();
-                self.status = None;
-            }
+            Mode::SchemaEnum(_) => self.schema_enum_cancel(),
             Mode::Convert(_) => self.exit_convert(),
             Mode::Detail => self.exit_detail(),
             Mode::Help(_) => self.exit_help(),

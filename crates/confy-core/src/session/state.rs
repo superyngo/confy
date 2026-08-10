@@ -146,6 +146,7 @@ pub struct SchemaEnumState {
     pub path: Path,
     pub key: String,
     pub is_element: bool,
+    pub created_on_add: bool,
     pub options: Vec<(String, String)>,
     pub cursor: usize,
 }
