@@ -152,3 +152,79 @@ fn detect_hint_yaml_none_when_modeline_schema_value_empty() {
     let src = "# yaml-language-server: $schema=\nport: 1\n";
     assert_eq!(detect_hint(src, DocFormat::Yaml), None);
 }
+
+use confy_core::schema::validate::validate;
+use jsonschema::Validator;
+
+fn compiled(schema: serde_json::Value) -> Validator {
+    Validator::new(&schema).expect("valid test schema")
+}
+
+#[test]
+fn validate_reports_no_violations_for_a_conforming_document() {
+    let doc = toml_doc("port = 8080\n");
+    let tree = doc.project();
+    let (value, _w) = doc.to_value().unwrap();
+    let (json, map) = bridge(&tree.root, &value);
+    let v = compiled(json!({
+        "type": "object",
+        "properties": { "port": { "type": "integer" } }
+    }));
+    assert!(validate(&json, &v, &map).is_empty());
+}
+
+#[test]
+fn validate_reports_a_type_violation_with_the_leaf_path() {
+    use confy_core::model::node::Seg;
+    let doc = toml_doc("port = \"not-a-number\"\n");
+    let tree = doc.project();
+    let (value, _w) = doc.to_value().unwrap();
+    let (json, map) = bridge(&tree.root, &value);
+    let v = compiled(json!({
+        "type": "object",
+        "properties": { "port": { "type": "integer" } }
+    }));
+    let violations = validate(&json, &v, &map);
+    assert_eq!(violations.len(), 1);
+    assert_eq!(violations[0].path, vec![Seg::Key("port".into())]);
+    assert_eq!(violations[0].keyword, "type");
+    assert_eq!(violations[0].category, Category::Value);
+}
+
+#[test]
+fn validate_reports_a_required_violation_against_the_parent_path() {
+    use confy_core::model::node::Seg;
+    let doc = toml_doc("[server]\nhost = \"local\"\n");
+    let tree = doc.project();
+    let (value, _w) = doc.to_value().unwrap();
+    let (json, map) = bridge(&tree.root, &value);
+    let v = compiled(json!({
+        "type": "object",
+        "properties": {
+            "server": {
+                "type": "object",
+                "required": ["port"]
+            }
+        }
+    }));
+    let violations = validate(&json, &v, &map);
+    assert_eq!(violations.len(), 1);
+    assert_eq!(violations[0].keyword, "required");
+    assert_eq!(violations[0].path, vec![Seg::Key("server".into())]);
+    assert!(violations[0].message.contains("port"));
+}
+
+#[test]
+fn validate_flags_null_type_against_toml_as_representation_category() {
+    let doc = toml_doc("port = 8080\n");
+    let tree = doc.project();
+    let (value, _w) = doc.to_value().unwrap();
+    let (json, map) = bridge(&tree.root, &value);
+    let v = compiled(json!({
+        "type": "object",
+        "properties": { "port": { "type": "null" } }
+    }));
+    let violations = validate(&json, &v, &map);
+    assert_eq!(violations.len(), 1);
+    assert_eq!(violations[0].category, Category::Representation);
+}
