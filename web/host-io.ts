@@ -8,6 +8,7 @@ import {
   extFor,
   fetchUrlFile,
   pickSaveFile,
+  readSiblingFile,
   writeFile,
   type FsHandle,
 } from "./fs.js";
@@ -278,6 +279,33 @@ export async function doConvertWrite(
   }
   downloadText(baseName, text);
   io.afterDownload?.(baseName, "Converted (downloaded)");
+}
+
+/**
+ * Resolve `snap.schema_fetch_request` (if any) and dispatch the result back
+ * as `Intent::SchemaLoaded`. Mirrors `openFromUrl`'s try/catch-to-soft-error
+ * shape — a failure here never surfaces as `io.err`'s blocking banner, only
+ * as `SchemaStatus.load_error` on the next snapshot (spec §1).
+ */
+export async function resolveSchemaFetchRequest(
+  io: HostIo,
+  session: Session,
+  request: { Local: string } | { Url: string },
+  currentFilePath: string | null,
+): Promise<SessionSnapshot> {
+  const source = "Local" in request
+    ? { Local: request.Local }
+    : { Url: request.Url };
+  let text: { Ok: string } | { Err: string };
+  try {
+    const raw = "Local" in request
+      ? await readSiblingFile(request.Local, currentFilePath)
+      : (await fetchUrlFile(request.Url)).text;
+    text = { Ok: raw };
+  } catch (e) {
+    text = { Err: String((e as Error).message ?? e) };
+  }
+  return session.dispatch({ SchemaLoaded: { source, text } });
 }
 
 // ---- theme (identical in both hosts) ----

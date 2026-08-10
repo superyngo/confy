@@ -232,6 +232,34 @@ export async function fetchUrlFile(
   return { name, text, contentType };
 }
 
+/**
+ * Read a schema file by relative path, against the directory of the
+ * currently open file. FS Access API: resolves via the open file handle's
+ * parent directory handle. Tauri: reads `dirOf(currentPath) + '/' + rel`
+ * directly (unrestricted `fs:scope` — spec: Tauri/Android section). No
+ * File System Access API directory handle is retained today (`fileHandle`
+ * only holds the file handle, not its parent) — Chromium exposes
+ * `handle.getParent?.()` behind an experimental flag some browsers lack, so
+ * this degrades to a soft failure (`Promise.reject`) there rather than
+ * probing an unstable API, consistent with the "never a hard-fail" schema
+ * convention (spec §1) — the caller (openText's schema wiring) always
+ * treats rejection as a soft `load_error`, never a UI-blocking error.
+ */
+export async function readSiblingFile(
+  relativePath: string,
+  currentFilePath: string | null,
+): Promise<string> {
+  const g = tauriGlobal();
+  if (g?.fs && currentFilePath) {
+    const dir = currentFilePath.split(/[\\/]/).slice(0, -1).join("/");
+    const resolved = relativePath.startsWith("./") || relativePath.startsWith("../")
+      ? `${dir}/${relativePath}`
+      : relativePath;
+    return g.fs.readTextFile(resolved);
+  }
+  throw new Error("local schema file resolution is not available on this host");
+}
+
 interface PickWritableResponse {
   uri: string | null;
   name: string | null;

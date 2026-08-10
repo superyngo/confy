@@ -29,6 +29,7 @@ import {
   openFromUrl,
   openSaveConvert,
   replaceSession,
+  resolveSchemaFetchRequest,
   toggleTheme,
   type HostIo,
 } from "./host-io.js";
@@ -345,6 +346,14 @@ function render() {
     } else {
       void doConvertWrite(io, snap.convert_write[0], snap.convert_write[1]);
     }
+  }
+  if (snap.schema_fetch_request) {
+    void resolveSchemaFetchRequest(io, session!, snap.schema_fetch_request, fileHandle?.path ?? null).then(
+      (next) => {
+        snap = next;
+        render();
+      },
+    );
   }
   if (snap.quit) {
     setStatus("", "quit (reload to reopen)");

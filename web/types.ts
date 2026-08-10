@@ -229,4 +229,12 @@ export type Intent =
   // Lifecycle
   | "Escape" | { PromptKey: string } | "QuitRequested" | "Save"
   // i18n
-  | { SetLang: string };
+  | { SetLang: string }
+  // Schema — host ↔ core async handshake (spec §1): host resolves
+  // `schema_fetch_request`'s text and dispatches `SchemaLoaded` back; `SetSchema`
+  // is the "attach schema" action; the enum arms drive the constrained-value
+  // picker. Mirrors Rust `session::intent::Intent` (Tasks 13/15/16 consume these).
+  | { SetSchema: { source: { Local: string } | { Url: string } } }
+  | { SchemaLoaded: { source: { Local: string } | { Url: string }; text: { Ok: string } | { Err: string } } }
+  | { SchemaEnumMove: number }
+  | "SchemaEnumCommit";
