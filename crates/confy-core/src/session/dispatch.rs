@@ -361,6 +361,10 @@ impl super::Session {
                     })
                     .collect(),
             },
+            Mode::SchemaEnum(st) => ModeView::SchemaEnum {
+                cursor: st.cursor,
+                options: st.options.iter().map(|(label, _)| label.clone()).collect(),
+            },
             Mode::Convert(st) => ModeView::Convert(ConvertView {
                 step: st.step,
                 cursor: st.cursor,

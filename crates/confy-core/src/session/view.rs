@@ -84,6 +84,13 @@ pub enum ModeView {
         cursor: usize,
         options: Vec<KindOptionView>,
     },
+    /// The schema-enum picker popup is open (spec §3). `options` are the
+    /// display labels; the chosen value is committed core-side by
+    /// `Session::schema_enum_commit`.
+    SchemaEnum {
+        cursor: usize,
+        options: Vec<String>,
+    },
     /// The `C` document-conversion flow is open.
     Convert(ConvertView),
     /// The `i` detail popup is open.

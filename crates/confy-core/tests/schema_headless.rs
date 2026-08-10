@@ -364,3 +364,135 @@ fn resolve_edit_hint_none_for_unresolvable_path() {
     let hint = resolve_edit_hint(&schema, &vec![Seg::Key("missing".into())]);
     assert_eq!(hint, EditHint::None);
 }
+
+use confy_core::session::Session;
+
+fn session_from(src: &str, format: DocFormat) -> Session {
+    let doc = AnyDocument::from_str_as(src, format).unwrap();
+    Session::new(doc)
+}
+
+#[test]
+fn session_detects_toml_schema_hint_on_construction() {
+    let s = session_from("#:schema ./s.json\nport = 1\n", DocFormat::Toml);
+    // Detection itself doesn't load — schema stays None until the host
+    // resolves the fetch request and dispatches the text back.
+    assert!(s.schema.is_none());
+}
+
+#[test]
+fn session_detect_and_request_schema_returns_the_hint() {
+    let mut s = session_from("#:schema ./s.json\nport = 1\n", DocFormat::Toml);
+    let source = s.detect_and_request_schema();
+    assert_eq!(source, Some(SchemaSource::Local("./s.json".into())));
+}
+
+#[test]
+fn session_detect_and_request_schema_none_without_a_hint() {
+    let mut s = session_from("port = 1\n", DocFormat::Toml);
+    assert_eq!(s.detect_and_request_schema(), None);
+}
+
+#[test]
+fn session_apply_schema_text_compiles_and_revalidates() {
+    let mut s = session_from("port = \"nope\"\n", DocFormat::Toml);
+    let schema_text = json!({
+        "type": "object",
+        "properties": { "port": { "type": "integer" } }
+    })
+    .to_string();
+    s.apply_schema_text(SchemaSource::Local("./s.json".into()), Ok(schema_text));
+    let state = s.schema.as_ref().expect("schema loaded");
+    assert!(state.load_error.is_none());
+    assert_eq!(state.violations.len(), 1);
+    assert_eq!(state.violations[0].keyword, "type");
+}
+
+#[test]
+fn session_apply_schema_text_load_error_is_soft() {
+    let mut s = session_from("port = 1\n", DocFormat::Toml);
+    s.apply_schema_text(
+        SchemaSource::Local("./missing.json".into()),
+        Err("file not found".into()),
+    );
+    let state = s.schema.as_ref().expect("schema state present even on load error");
+    assert!(state.load_error.is_some());
+    assert!(state.compiled.is_none());
+    // The document is still fully editable — no error on the session itself.
+    assert!(s.error.is_none());
+}
+
+#[test]
+fn session_revalidates_after_a_mutation_commit() {
+    let mut s = session_from("port = 1\n", DocFormat::Toml);
+    let schema_text = json!({
+        "type": "object",
+        "properties": { "port": { "type": "string" } }
+    })
+    .to_string();
+    s.apply_schema_text(SchemaSource::Local("./s.json".into()), Ok(schema_text));
+    assert_eq!(s.schema.as_ref().unwrap().violations.len(), 1);
+    // Fix the value via the same Replace mutation path CommitEdit/Nudge use.
+    let path = vec![Seg::Key("port".into())];
+    let doc = s.doc.as_mut().unwrap();
+    let fragment = doc.scalar_fragment(Some("port"), "\"eighty\"");
+    doc.apply(confy_core::model::document::Mutation::Replace { path, fragment })
+        .unwrap();
+    s.tree = doc.project();
+    s.revalidate_schema();
+    assert!(s.schema.as_ref().unwrap().violations.is_empty());
+}
+
+#[test]
+fn session_begin_inline_edit_sets_schema_enum_mode_for_an_enum_constrained_node() {
+    use confy_core::session::state::Mode;
+    let mut s = session_from("level = \"debug\"\n", DocFormat::Toml);
+    let schema_text = json!({
+        "type": "object",
+        "properties": { "level": { "enum": ["debug", "info"] } }
+    })
+    .to_string();
+    s.apply_schema_text(SchemaSource::Local("./s.json".into()), Ok(schema_text));
+    s.cursor = vec![Seg::Key("level".into())];
+    s.begin_inline_edit();
+    assert!(matches!(s.mode, Mode::SchemaEnum(_)));
+}
+
+#[test]
+fn session_schema_enum_commit_writes_the_chosen_value() {
+    use confy_core::session::state::Mode;
+    let mut s = session_from("level = \"debug\"\n", DocFormat::Toml);
+    let schema_text = json!({
+        "type": "object",
+        "properties": { "level": { "enum": ["debug", "info"] } }
+    })
+    .to_string();
+    s.apply_schema_text(SchemaSource::Local("./s.json".into()), Ok(schema_text));
+    s.cursor = vec![Seg::Key("level".into())];
+    s.begin_inline_edit();
+    s.schema_enum_move(1); // move to "info"
+    s.schema_enum_commit();
+    assert!(matches!(s.mode, Mode::Normal));
+    let node = s.tree.node_at(&[Seg::Key("level".into())]).unwrap();
+    assert_eq!(node.value.as_deref(), Some("\"info\""));
+}
+
+#[test]
+fn dispatch_nudge_clamps_to_schema_maximum() {
+    let mut s = session_from("port = 65534\n", DocFormat::Toml);
+    let schema_text = json!({
+        "type": "object",
+        "properties": { "port": { "type": "integer", "minimum": 1, "maximum": 65535 } }
+    })
+    .to_string();
+    s.apply_schema_text(SchemaSource::Local("./s.json".into()), Ok(schema_text));
+    s.cursor = vec![Seg::Key("port".into())];
+    // 65534 -> 65535 lands exactly at the maximum: allowed.
+    let snap = s.dispatch(confy_core::session::Intent::Nudge(1));
+    let row = snap.rows.iter().find(|r| r.key == "port").unwrap();
+    assert_eq!(row.value.as_deref(), Some("65535"));
+    // 65535 -> 65536 would exceed the maximum: clamped, silently a no-op.
+    let snap = s.dispatch(confy_core::session::Intent::Nudge(1));
+    let row = snap.rows.iter().find(|r| r.key == "port").unwrap();
+    assert_eq!(row.value.as_deref(), Some("65535"));
+}
