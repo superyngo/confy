@@ -164,23 +164,15 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # wasm32 for the confy-ffi frontend core built by web/cf-build.sh.
-      - uses: dtolnay/rust-toolchain@stable
+      # wasm32 for the confy-ffi frontend core; windows builds web/dist here
+      # directly, macOS builds it internally via cargo-tauri's
+      # beforeBuildCommand (still needs wasm-pack on PATH, just not this
+      # action's explicit build step).
+      - uses: ./.github/actions/build-web-frontend
         with:
-          targets: ${{ matrix.target }},wasm32-unknown-unknown
-
-      # Same caching as the TUI job; covers both the native Tauri deps and the
-      # wasm32 confy-ffi build (workspace members share the root ./target).
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: desktop-${{ matrix.target }}
-          cache-on-failure: true
-
-      # Prebuilt binaries in seconds (cargo install would take ~10 min).
-      - uses: cargo-bins/cargo-binstall@main
-
-      - name: Install wasm-pack
-        run: cargo binstall -y wasm-pack
+          extra-target: ${{ matrix.target }}
+          cache-key: desktop-${{ matrix.target }}
+          build-frontend: ${{ matrix.kind == 'windows' && 'true' || 'false' }}
 
       - name: Install tauri-cli
         if: matrix.kind == 'macos'
@@ -200,11 +192,6 @@ jobs:
       # Windows: no bundler needed — build the web frontend, then the bare exe
       # (assets are compile-time embedded → portable single file). Same
       # AV-friendly profile overrides as the TUI build.
-      - name: Build web frontend (Windows)
-        if: matrix.kind == 'windows'
-        shell: bash
-        run: bash web/cf-build.sh
-
       - name: Build portable exe (Windows)
         if: matrix.kind == 'windows'
         shell: bash

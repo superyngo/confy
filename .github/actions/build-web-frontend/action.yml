@@ -1,0 +1,69 @@
+name: Build web frontend
+description: >
+  Installs the Rust wasm32 toolchain + wasm-pack (needed by every consumer of
+  crates/confy-ffi), then optionally runs web/cf-build.sh to assemble
+  web/dist. Shared by release.yml's desktop job and publish-vscode.yml, which
+  previously duplicated this sequence near-verbatim.
+
+inputs:
+  extra-target:
+    description: >
+      Additional Rust target triple to install alongside wasm32-unknown-unknown
+      (e.g. a native desktop target). Leave empty for wasm32-only consumers.
+    required: false
+    default: ""
+  cache-key:
+    description: Swatinem/rust-cache key (scope the cache per matrix leg).
+    required: true
+  build-frontend:
+    description: >
+      Run `bash web/cf-build.sh` after installing the toolchain. Set to
+      "false" when the caller's own build step (e.g. macOS's `cargo tauri
+      build`, via tauri.conf.json's beforeBuildCommand) builds the frontend
+      internally — that leg still needs wasm-pack on PATH, just not this
+      action's explicit build step.
+    required: false
+    default: "true"
+  node-version:
+    required: false
+    default: "20"
+  npm-cache-dependency-path:
+    description: >
+      Passed through to actions/setup-node's cache-dependency-path. Defaults
+      to web/package-lock.json (the only lockfile cf-build.sh installs from);
+      callers that also npm-install elsewhere (e.g. editors/vscode) should
+      list every lockfile so the npm cache key covers both.
+    required: false
+    default: "web/package-lock.json"
+
+runs:
+  using: composite
+  steps:
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: >-
+          ${{ inputs.extra-target != '' && format('{0},wasm32-unknown-unknown', inputs.extra-target) || 'wasm32-unknown-unknown' }}
+
+    - uses: Swatinem/rust-cache@v2
+      with:
+        key: ${{ inputs.cache-key }}
+        cache-on-failure: true
+
+    # Prebuilt binaries in seconds (cargo install would take ~10 min).
+    - uses: cargo-bins/cargo-binstall@main
+
+    - name: Install wasm-pack
+      shell: bash
+      run: cargo binstall -y wasm-pack
+
+    - if: inputs.build-frontend == 'true'
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: "npm"
+        cache-dependency-path: ${{ inputs.npm-cache-dependency-path }}
+
+    - if: inputs.build-frontend == 'true'
+      name: Build web frontend
+      shell: bash
+      run: bash web/cf-build.sh
