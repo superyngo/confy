@@ -208,8 +208,13 @@ pub struct Clipboard {
     pub sources: Vec<Path>,
 }
 
+/// Undoable-entry cap — a ring buffer, not an unbounded stack. Fixed, not
+/// configurable: no host exposes undo depth as a setting, and none should
+/// (ADR 0003).
+const MAX_HISTORY: usize = 200;
+
 pub struct History {
-    past: Vec<String>,
+    past: std::collections::VecDeque<String>,
     current: String,
     future: Vec<String>,
 }
@@ -217,18 +222,21 @@ pub struct History {
 impl History {
     pub fn new(initial: String) -> Self {
         History {
-            past: Vec::new(),
+            past: std::collections::VecDeque::new(),
             current: initial,
             future: Vec::new(),
         }
     }
     pub fn push(&mut self, snapshot: String) {
         self.past
-            .push(std::mem::replace(&mut self.current, snapshot));
+            .push_back(std::mem::replace(&mut self.current, snapshot));
+        if self.past.len() > MAX_HISTORY {
+            self.past.pop_front();
+        }
         self.future.clear();
     }
     pub fn undo(&mut self) -> Option<String> {
-        let prev = self.past.pop()?;
+        let prev = self.past.pop_back()?;
         self.future
             .push(std::mem::replace(&mut self.current, prev.clone()));
         Some(prev)
@@ -236,11 +244,11 @@ impl History {
     pub fn redo(&mut self) -> Option<String> {
         let next = self.future.pop()?;
         self.past
-            .push(std::mem::replace(&mut self.current, next.clone()));
+            .push_back(std::mem::replace(&mut self.current, next.clone()));
         Some(next)
     }
     pub fn cancel_last(&mut self) -> Option<String> {
-        let prev = self.past.pop()?;
+        let prev = self.past.pop_back()?;
         self.current = prev.clone();
         Some(prev)
     }

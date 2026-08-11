@@ -40,7 +40,7 @@ fn resolve_subschema<'a>(root: &'a Json, current: &'a Json, path: &[Seg]) -> Opt
 /// A remote `$ref` (no leading `#`) returns `None` unresolved, which
 /// `resolve_subschema` propagates as "no hint" (spec: "remote `$ref`
 /// resolution" is out of scope for editing hints).
-fn deref<'a>(root: &'a Json, schema: &'a Json) -> Option<&'a Json> {
+pub(crate) fn deref<'a>(root: &'a Json, schema: &'a Json) -> Option<&'a Json> {
     let Some(r) = schema.get("$ref").and_then(Json::as_str) else {
         return Some(schema);
     };

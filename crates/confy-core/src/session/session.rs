@@ -831,7 +831,7 @@ impl Session {
             target,
         }) {
             Ok(()) => {
-                self.on_mutation_success();
+                self.on_mutation_success(None);
                 self.status = Some(tr_args(self.lang, "core.kind-switch.converted", &[&label]));
             }
             Err(e) => {
@@ -860,7 +860,7 @@ impl Session {
         };
         match doc.apply(Mutation::ConvertKind { path, target }) {
             Ok(()) => {
-                self.on_mutation_success();
+                self.on_mutation_success(None);
                 self.status = Some(tr(self.lang, "core.kind-switch.converted-generic").to_string());
             }
             Err(e) => {
@@ -1365,37 +1365,44 @@ impl Session {
     pub fn apply_schema_text(&mut self, source: crate::schema::SchemaSource, text: Result<String, String>) {
         let state = match text {
             Ok(text) => match serde_json::from_str::<serde_json::Value>(&text) {
-                Ok(raw) => match jsonschema::Validator::new(&raw) {
-                    Ok(compiled) => crate::schema::SchemaState {
+            Ok(raw) => match jsonschema::Validator::new(&raw) {
+                Ok(compiled) => {
+                    let fully_analyzable = crate::schema::dirty_check::is_fully_analyzable(&raw);
+                    crate::schema::SchemaState {
                         source,
                         compiled: Some(compiled),
                         raw: Some(raw),
+                        fully_analyzable,
                         violations: Vec::new(),
                         load_error: None,
-                    },
-                    Err(e) => crate::schema::SchemaState {
-                        source,
-                        compiled: None,
-                        raw: None,
-                        violations: Vec::new(),
-                        load_error: Some(format!("invalid schema: {e}")),
-                    },
-                },
+                    }
+                }
                 Err(e) => crate::schema::SchemaState {
                     source,
                     compiled: None,
                     raw: None,
+                    fully_analyzable: false,
                     violations: Vec::new(),
-                    load_error: Some(format!("schema is not valid JSON: {e}")),
+                    load_error: Some(format!("invalid schema: {e}")),
                 },
             },
-            Err(msg) => crate::schema::SchemaState {
+            Err(e) => crate::schema::SchemaState {
                 source,
                 compiled: None,
                 raw: None,
+                fully_analyzable: false,
                 violations: Vec::new(),
-                load_error: Some(msg),
+                load_error: Some(format!("schema is not valid JSON: {e}")),
             },
+        },
+        Err(msg) => crate::schema::SchemaState {
+            source,
+            compiled: None,
+            raw: None,
+            fully_analyzable: false,
+            violations: Vec::new(),
+            load_error: Some(msg),
+        },
         };
         self.schema = Some(state);
         self.revalidate_schema();
@@ -1878,7 +1885,7 @@ impl Session {
                 None => Ok(()),
             };
             match ok {
-                Ok(()) => self.on_mutation_success(),
+                Ok(()) => self.on_mutation_success(None),
                 Err(MutateError::Fragment(msg)) => {
                     self.status = Some(tr_args(self.lang, "core.comment.invalid", &[&msg]));
                     self.mode = Mode::Edit(e);
@@ -1991,7 +1998,7 @@ impl Session {
                 };
                 match res {
                     Ok(()) => {
-                        self.on_mutation_success();
+                        self.on_mutation_success(None);
                         let old_path = e.path.clone();
                         if let Some(last) = e.path.last_mut() {
                             *last = Seg::Key(new_name.clone());
@@ -2077,7 +2084,7 @@ impl Session {
             ));
             return;
         }
-        self.on_mutation_success();
+        self.on_mutation_success(None);
         let old_path = e.path.clone();
         let parent_len = e.path.len() - 1;
         let new_segs: Vec<Seg> = new_name
@@ -2121,7 +2128,7 @@ impl Session {
                         ));
                     }
                 }
-                self.on_mutation_success();
+                self.on_mutation_success(Some(&path));
                 self.note_schema_violation(&path);
             }
             Err(MutateError::Fragment(msg)) => {
@@ -2158,7 +2165,7 @@ impl Session {
             }
         });
         match doc.apply(Mutation::SetTrailingComment { path, comment }) {
-            Ok(()) => self.on_mutation_success(),
+            Ok(()) => self.on_mutation_success(None),
             Err(e) => {
                 self.error = Some(tr_args(
                     self.lang,
@@ -2175,7 +2182,7 @@ impl Session {
             None => return,
         };
         match doc.apply(Mutation::EditComment { path, text }) {
-            Ok(()) => self.on_mutation_success(),
+            Ok(()) => self.on_mutation_success(None),
             Err(MutateError::Fragment(msg)) => {
                 self.error = Some(tr_args(self.lang, "core.comment.invalid", &[&msg]));
             }
@@ -2474,7 +2481,7 @@ impl Session {
             target: target.clone(),
             text,
         }) {
-            Ok(()) => self.on_mutation_success(),
+            Ok(()) => self.on_mutation_success(None),
             Err(e) => {
                 self.error = Some(tr_args(self.lang, "core.add.error", &[&e.to_string()]));
                 return;
@@ -2507,7 +2514,7 @@ impl Session {
             fragment: edited,
             on_collision: OnCollision::Cancel,
         }) {
-            Ok(()) => self.on_mutation_success(),
+            Ok(()) => self.on_mutation_success(None),
             Err(MutateError::Collision(key)) => {
                 self.error = Some(tr_args(self.lang, "core.insert.collision", &[&key]));
             }
@@ -2520,7 +2527,13 @@ impl Session {
         }
     }
 
-    fn on_mutation_success(&mut self) {
+    /// `touched`: the mutation's target `Path`, when the caller has exactly
+    /// one available (most call sites do — `apply_replace`'s value/rename
+    /// commit, the dominant "one keystroke" path per the audit's own Critical
+    /// finding). `None` for multi-path operations (paste, delete-selected,
+    /// structural inserts) — always revalidates, identical to pre-Task-14
+    /// behavior. See `schema::dirty_check` for the skip condition itself.
+    fn on_mutation_success(&mut self, touched: Option<&Path>) {
         if let Some(doc) = self.doc.as_ref() {
             let snapshot = doc.serialize();
             let tree = doc.project();
@@ -2531,7 +2544,17 @@ impl Session {
         }
         self.status = None;
         self.error = None;
-        self.revalidate_schema();
+        let skip_revalidate = match (touched, self.schema.as_ref()) {
+            (Some(path), Some(schema)) if schema.fully_analyzable => schema
+                .raw
+                .as_ref()
+                .map(|raw| !crate::schema::dirty_check::path_is_constrained(raw, path))
+                .unwrap_or(false),
+            _ => false,
+        };
+        if !skip_revalidate {
+            self.revalidate_schema();
+        }
     }
 
     // ---- d/x/c/v/r/z/y operations ----
@@ -2557,7 +2580,7 @@ impl Session {
                 return;
             }
         }
-        self.on_mutation_success();
+        self.on_mutation_success(None);
     }
 
     pub fn copy_selected(&mut self) {
@@ -2871,7 +2894,7 @@ impl Session {
             if is_cut {
                 let doc = self.doc.as_mut().unwrap();
                 if let Err(e) = doc.apply(Mutation::Delete { path: src.clone() }) {
-                    self.on_mutation_success();
+                    self.on_mutation_success(None);
                     self.clipboard = Some(rebuild(is_cut, &[], &comment_entries[..=oi]));
                     self.error = Some(tr_args(self.lang, "core.paste.error", &[&e.to_string()]));
                     return;
@@ -2883,13 +2906,13 @@ impl Session {
                 text: frag.clone(),
             }) {
                 let end = if is_cut { oi } else { oi + 1 };
-                self.on_mutation_success();
+                self.on_mutation_success(None);
                 self.clipboard = Some(rebuild(is_cut, &[], &comment_entries[..end]));
                 self.error = Some(tr_args(self.lang, "core.paste.error", &[&e.to_string()]));
                 return;
             }
         }
-        self.on_mutation_success();
+        self.on_mutation_success(None);
         // Drop the source selection and move both cursor and selection onto the
         // freshly-pasted node(s). They land contiguously starting at
         // `target.index - shift`: on a same-parent cut, every source (node *or*
@@ -2961,7 +2984,7 @@ impl Session {
             None => return,
         };
         match doc.apply(Mutation::Remark { path }) {
-            Ok(()) => self.on_mutation_success(),
+            Ok(()) => self.on_mutation_success(None),
             Err(MutateError::Fragment(_)) => {
                 self.status = Some(tr(self.lang, "core.remark.invalid").to_string());
             }
@@ -3602,6 +3625,7 @@ mod helper_tests {
                     "port": { "type": "integer", "multipleOf": 5 }
                 }
             })),
+            fully_analyzable: false,
             violations: Vec::new(),
             load_error: None,
         });
@@ -3628,6 +3652,7 @@ mod helper_tests {
                     "retry": { "type": "integer", "minimum": 0, "maximum": 3 }
                 }
             })),
+            fully_analyzable: false,
             violations: Vec::new(),
             load_error: None,
         });
@@ -3659,6 +3684,7 @@ mod helper_tests {
                 "type": "object",
                 "properties": { "port": { "type": "string" } }
             })),
+            fully_analyzable: false,
             violations: Vec::new(),
             load_error: None,
         });

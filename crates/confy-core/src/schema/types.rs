@@ -117,6 +117,15 @@ pub struct SchemaState {
     /// walks this directly (it needs keyword introspection the compiled
     /// `Validator` doesn't expose).
     pub raw: Option<serde_json::Value>,
+    /// Whether the whole schema document uses only same-document `$ref`/
+    /// `properties`/`items` composition (no remote `$ref`, `allOf`/`not`/
+    /// `if`/`then`/`else`, or `oneOf`/`anyOf` beyond the bare-`const`
+    /// carve-out) — computed once in `apply_schema_text`. Gates the Task 14
+    /// per-mutation dirty-check (`schema::dirty_check::path_is_constrained`):
+    /// only `true` here lets `on_mutation_success` skip a full
+    /// `revalidate_schema()` walk. `false` for any schema that failed to
+    /// compile (`raw: None`) — there's no document to walk.
+    pub fully_analyzable: bool,
     pub violations: Vec<Violation>,
     pub load_error: Option<String>,
 }

@@ -1473,3 +1473,52 @@ fn children_of_includes_comments() {
     assert_eq!(kids.len(), 2);
     assert_eq!(kids[0].type_label, "comment");
 }
+
+// ---- History cap (Task 14, 2026-08-11 audit remediation) ----
+
+#[test]
+fn history_caps_at_200_entries_evicting_the_oldest() {
+    let mut s = toml_session("a = 0\n");
+    let path = vec![Seg::Key("a".into())];
+    for i in 1..=250 {
+        s.apply_replace(path.clone(), format!("a = {i}\n"));
+    }
+    let history = s.history.as_mut().expect("history present");
+    assert_eq!(
+        history.depth(),
+        200,
+        "past is capped at the fixed 200-entry limit, not left to grow to 250"
+    );
+    // All 200 capped entries must be redeemable...
+    for _ in 0..200 {
+        assert!(
+            history.undo().is_some(),
+            "all 200 capped entries must be undoable"
+        );
+    }
+    // ...but the 201st has nothing left: eviction actually dropped the
+    // oldest pushes, it didn't just refuse to grow past 200 while secretly
+    // keeping them.
+    assert!(
+        history.undo().is_none(),
+        "oldest entries were evicted, not retained beyond the cap"
+    );
+}
+
+#[test]
+fn history_undo_redo_still_works_correctly_at_the_cap_boundary() {
+    let mut s = toml_session("a = 0\n");
+    let path = vec![Seg::Key("a".into())];
+    for i in 1..=205 {
+        s.apply_replace(path.clone(), format!("a = {i}\n"));
+    }
+    assert_eq!(s.serialize().unwrap(), "a = 205\n");
+    s.undo();
+    assert_eq!(
+        s.serialize().unwrap(),
+        "a = 204\n",
+        "undo restores the immediately-prior value even once the ring buffer has wrapped"
+    );
+    s.redo();
+    assert_eq!(s.serialize().unwrap(), "a = 205\n", "redo re-applies it");
+}

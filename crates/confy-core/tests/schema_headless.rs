@@ -785,3 +785,112 @@ fn committing_a_schema_compliant_value_leaves_status_untouched() {
     assert!(s.schema.as_ref().unwrap().violations.is_empty());
     assert!(s.status.is_none());
 }
+
+// ---- Task 14 dirty-check: skip revalidate_schema() when the mutated path
+// carries no constraint on a fully_analyzable schema (2026-08-11 audit
+// remediation). Verified behaviorally, not by pointer identity (an empty or
+// freshly-freed-then-reused Vec allocation can share an address by
+// coincidence — flaky): seed `violations` with a sentinel entry no real
+// `validate()` run would ever produce, then check whether it survived.
+
+fn sentinel_violation() -> confy_core::schema::Violation {
+    confy_core::schema::Violation {
+        path: vec![],
+        pointer: "/__sentinel__".into(),
+        keyword: "__sentinel__".into(),
+        message: "planted by the dirty-check test — must survive a skipped revalidate".into(),
+        category: Category::Value,
+    }
+}
+
+#[test]
+fn dirty_check_skips_revalidate_for_an_unconstrained_path_on_a_fully_analyzable_schema() {
+    let mut s = session_from("level = 5\nname = \"x\"\n", DocFormat::Toml);
+    let schema_text = json!({
+        "type": "object",
+        "properties": { "level": { "type": "string" } }
+    })
+    .to_string();
+    s.apply_schema_text(SchemaSource::Local("./s.json".into()), Ok(schema_text));
+    assert!(
+        s.schema.as_ref().unwrap().fully_analyzable,
+        "plain properties-only schema must be fully_analyzable"
+    );
+    // Plant the sentinel, replacing whatever real (level-type-mismatch)
+    // violation apply_schema_text's own revalidate produced.
+    s.schema.as_mut().unwrap().violations = vec![sentinel_violation()];
+    s.cursor = vec![Seg::Key("name".into())];
+    // "name" carries no schema constraint (not in `properties`) — the
+    // dirty-check should conclude "unconstrained" and skip revalidate_schema().
+    s.dispatch(Intent::CommitEdit {
+        value: Some("\"y\"".into()),
+        name: None,
+    });
+    let violations = &s.schema.as_ref().unwrap().violations;
+    assert_eq!(
+        violations.len(),
+        1,
+        "sentinel must survive untouched: {violations:?}"
+    );
+    assert_eq!(violations[0].keyword, "__sentinel__");
+}
+
+#[test]
+fn dirty_check_always_revalidates_when_the_schema_is_not_fully_analyzable() {
+    let mut s = session_from("level = 5\nname = \"x\"\n", DocFormat::Toml);
+    // `allOf` disqualifies the whole document from the dirty-check's simple
+    // properties/items model — the conservative fallback must always engage.
+    let schema_text = json!({
+        "type": "object",
+        "allOf": [{ "properties": { "level": { "type": "string" } } }]
+    })
+    .to_string();
+    s.apply_schema_text(SchemaSource::Local("./s.json".into()), Ok(schema_text));
+    assert!(
+        !s.schema.as_ref().unwrap().fully_analyzable,
+        "a schema using allOf must not be fully_analyzable"
+    );
+    s.schema.as_mut().unwrap().violations = vec![sentinel_violation()];
+    s.cursor = vec![Seg::Key("name".into())];
+    // Even a mutation to a path with no *direct* properties entry must
+    // revalidate — the conservative fallback ignores the dirty-check
+    // entirely once fully_analyzable is false.
+    s.dispatch(Intent::CommitEdit {
+        value: Some("\"y\"".into()),
+        name: None,
+    });
+    let violations = &s.schema.as_ref().unwrap().violations;
+    assert!(
+        violations.iter().all(|v| v.keyword != "__sentinel__"),
+        "sentinel must be overwritten by a real revalidate: {violations:?}"
+    );
+}
+
+#[test]
+fn dirty_check_revalidates_and_surfaces_a_new_violation_for_a_constrained_path() {
+    let mut s = session_from("port = 8080\n", DocFormat::Toml);
+    let schema_text = json!({
+        "type": "object",
+        "properties": { "port": { "type": "integer", "maximum": 65535 } }
+    })
+    .to_string();
+    s.apply_schema_text(SchemaSource::Local("./s.json".into()), Ok(schema_text));
+    assert!(s.schema.as_ref().unwrap().fully_analyzable);
+    assert!(s.schema.as_ref().unwrap().violations.is_empty(), "8080 conforms");
+    s.schema.as_mut().unwrap().violations = vec![sentinel_violation()];
+    s.cursor = vec![Seg::Key("port".into())];
+    // "port" IS in `properties` with a `maximum` — a constrained path, so the
+    // dirty-check must say "constrained" and let revalidate_schema() run,
+    // which both clears the sentinel and surfaces the real new violation.
+    s.dispatch(Intent::CommitEdit {
+        value: Some("99999".into()),
+        name: None,
+    });
+    let violations = &s.schema.as_ref().unwrap().violations;
+    assert!(
+        violations.iter().all(|v| v.keyword != "__sentinel__"),
+        "sentinel must be overwritten: {violations:?}"
+    );
+    assert_eq!(violations.len(), 1, "the maximum violation: {violations:?}");
+    assert_eq!(violations[0].keyword, "maximum");
+}
