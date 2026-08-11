@@ -1250,9 +1250,6 @@ const openedUrlsHandled = new Set<string>();
 async function openOpenedUrl(url: string): Promise<void> {
   if (openedUrlsHandled.has(url)) return;
   openedUrlsHandled.add(url);
-  // TEMP (M1 Task 3 device debugging): inspect via chrome://inspect on a
-  // USB-connected desktop Chrome — remove once the content:// read bug is
-  // diagnosed.
   console.log("[confy] opened url:", url);
   const opened = await openTauriPath(url);
   if (!opened) {
