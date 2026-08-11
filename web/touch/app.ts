@@ -1076,9 +1076,12 @@ function handleTap(target: HTMLElement, row: HTMLElement) {
       return;
     }
     if (act === "caret") {
-      send({ SetCursor: path });
-      send("ToggleExpand");
-      return;
+      // Paste mode freezes the selection (core's SetSelection is a no-op
+      // there), so it falls back to a bare cursor move — same guard as the
+      // plain-tap fallback below.
+      if ((snap?.clipboard_count ?? 0) > 0) send({ SetCursor: path });
+      else selectOnly(path);
+      return send("ToggleExpand");
     }
   }
   // A tap while a row is swiped open just closes it (no selection change).

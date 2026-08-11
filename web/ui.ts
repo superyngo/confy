@@ -1087,6 +1087,19 @@ function openUrlModal() {
   input.focus();
 }
 
+// A click on any row affordance (caret, kind badge, ±, key/value edit) should
+// leave the row visibly selected — not just cursored — same as a blank-area
+// body click. Routes through the same `resolveClick` gesture resolution
+// (plain replaces, ⇧ ranges, ⌘/Ctrl toggles) so the shift-range anchor stays
+// consistent with whatever the user last clicked. Paste mode freezes the
+// selection (core's `SetSelection` is a no-op there), so it falls back to a
+// bare cursor move — the paste target still tracks these clicks.
+function focusRow(path: Path, ev: MouseEvent) {
+  if (!snap) return;
+  if ((snap.clipboard_count ?? 0) > 0) return send({ SetCursor: path });
+  send({ SetSelection: { paths: resolveClick(snap, path, ev) } });
+}
+
 // ---- pointer: click routing for every row affordance ----
 function onTreeClick(ev: MouseEvent) {
   if (!session || !snap) return;
@@ -1113,7 +1126,7 @@ function onTreeClick(ev: MouseEvent) {
   if (target.closest('[data-act="add"]')) {
     // The `＋` is branch-only and always adds a *child* (unlike the TUI `a`,
     // which appends a sibling when the branch is collapsed).
-    send({ SetCursor: path });
+    focusRow(path, ev);
     return send("AddChild");
   }
   if (target.closest('[data-act="menu"]')) {
@@ -1140,12 +1153,12 @@ function onTreeClick(ev: MouseEvent) {
       return closePops();
     }
     const r = kindEl.getBoundingClientRect(); // capture before the re-render
-    send({ SetCursor: path });
+    focusRow(path, ev);
     return openKindMenuAt(path, r.left, r.bottom + 4);
   }
   // Caret → toggle expand without editing.
   if (target.closest("[data-caret]")) {
-    send({ SetCursor: path });
+    focusRow(path, ev);
     return send("ToggleExpand");
   }
   // Editable cells: key → rename, value/comment-node → inline edit, trailing
@@ -1153,8 +1166,13 @@ function onTreeClick(ev: MouseEvent) {
   // value, but the web edits it independently).
   const editEl = target.closest("[data-edit]") as HTMLElement | null;
   if (editEl) {
-    if (editEl.dataset.edit === "note") return beginTrailingEdit(rowEl, path);
-    send({ SetCursor: path });
+    if (editEl.dataset.edit === "note") {
+      focusRow(path, ev);
+      // `focusRow` re-rendered the tree, detaching `rowEl` — look up its
+      // replacement so the trailing-comment input lands in the live DOM.
+      return beginTrailingEdit(rowElByPath(path) ?? rowEl, path);
+    }
+    focusRow(path, ev);
     return send(editEl.dataset.edit === "key" ? "BeginRename" : "BeginEdit");
   }
   // In paste mode the clipboard freezes the selection, so a click can't reselect
