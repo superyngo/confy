@@ -338,3 +338,27 @@ export function wirePanel(
   if (cp) cp.addEventListener("click", () => act("CopySelected", "Copied — paste to place it"));
   if (ct) ct.addEventListener("click", () => act("CutSelected", "Cut — paste to move it"));
 }
+
+// Format a resolved `EditHint` into a plain-English advisory sentence —
+// "Valid values: …" / "Must be between X and Y, a multiple of Z" — shared by
+// every surface that shows the schema constraint for the current node: the
+// desktop hover tooltip, and the desktop/TUI-mirroring idle status-line hint
+// on both desktop and touch (see `ui.ts`/`touch/app.ts` `render()`). English-
+// only by design, matching the schema feature's existing "N schema warnings"
+// precedent (`jsonschema`'s own violation text is English-only, so the
+// composed constraint description stays English too rather than mixing
+// languages) — mirrors `confy-core`'s `EditHint::describe()` wording exactly.
+export function schemaHintText(hint: EditHint): string {
+  if (hint === "None") return "";
+  if ("Enum" in hint) {
+    const labels = hint.Enum.map(([label]) => label);
+    return labels.length ? `Valid values: ${labels.join(", ")}` : "";
+  }
+  const { minimum, maximum, multiple_of } = hint.Bounded;
+  const parts: string[] = [];
+  if (minimum !== undefined && maximum !== undefined) parts.push(`between ${minimum} and ${maximum}`);
+  else if (minimum !== undefined) parts.push(`at least ${minimum}`);
+  else if (maximum !== undefined) parts.push(`at most ${maximum}`);
+  if (multiple_of !== undefined) parts.push(`a multiple of ${multiple_of}`);
+  return parts.length ? `Must be ${parts.join(", ")}` : "";
+}

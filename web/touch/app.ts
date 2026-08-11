@@ -61,7 +61,7 @@ import {
 } from "../samples.js";
 import { IC, esc, treeHTML, isExpanded } from "./render.js";
 import { parentOf, pathEq, siblingIndex } from "../path-utils.js";
-import { panelHTML, wirePanel } from "../panel.js";
+import { panelHTML, wirePanel, schemaHintText } from "../panel.js";
 import { bindPromptClicks, promptButtonsHTML, promptQuestion, promptTitle } from "../prompt.js";
 import { typeFilterHTML, wireTypeFilter } from "../typefilter.js";
 import { helpBodyHTML } from "../help-content.js";
@@ -353,7 +353,18 @@ function render() {
   fmtPill.title = inSampleMode() ? t("web.toolbar.fmtPill.sampleTitle") : t("web.toolbar.fmtPill.title");
   docNameEl.textContent = fileName ?? "config";
   dirtyDot.style.opacity = snap.is_dirty ? "1" : "0";
-  statusEl.textContent = snap.error ? snap.error : snap.status ?? t("web.status.ready");
+  if (snap.error) {
+    statusEl.textContent = snap.error;
+  } else if (snap.status) {
+    statusEl.textContent = snap.status;
+  } else {
+    // Idle schema hint — mirrors the TUI/desktop status line's dynamic
+    // behavior (tooltip-like: appears while the cursor sits on a schema-
+    // constrained node, clears the instant it moves off). Touch has no
+    // hover, so this is its only way to see the constraint outside the
+    // detail panel.
+    statusEl.textContent = schemaHintText(session.schemaHint(snap.cursor)) || t("web.status.ready");
+  }
   const cur = cursorRow();
   selBadge.textContent = cur && cur.path.length ? lastKey(cur.path) : t("web.badge.none");
   const armed = (snap.clipboard_count ?? 0) > 0;

@@ -47,7 +47,7 @@ import type { Lang } from "./i18n.js";
 import { resolveClick, resetAnchor, rowsInRect, setAnchor } from "./select.js";
 import { foldedEntries, type ToolbarEntry } from "./toolbar-fold.js";
 import { installDnd } from "./dnd.js";
-import { panelHTML, wirePanel } from "./panel.js";
+import { panelHTML, wirePanel, schemaHintText } from "./panel.js";
 import { renderCrumbs, wireCrumbDismiss } from "./breadcrumb.js";
 import { bindPromptClicks, promptButtonsHTML, promptQuestion } from "./prompt.js";
 import { typeFilterHTML, wireTypeFilter } from "./typefilter.js";
@@ -61,7 +61,6 @@ import {
 } from "./convert-dialog.js";
 import type {
   ConvertView,
-  EditHint,
   ExternalEdit,
   Intent,
   ModeView,
@@ -309,9 +308,18 @@ function render() {
   if (TAURI_DESKTOP) {
     setWindowTitle(fileName ?? "confy", snap.doc_format, snap.is_dirty);
   }
-  setStatus(snap.status, snap.error ?? "");
+  // Idle schema hint — mirrors the TUI status line's dynamic behavior
+  // (tooltip-like: appears while the cursor sits on a schema-constrained
+  // node, clears the instant it moves off). Only surfaces when nothing more
+  // important is showing — an explicit status/error message always wins.
+  let statusText = snap.status;
+  if (!statusText && !snap.error) {
+    const hint = schemaHintText(session.schemaHint(snap.cursor));
+    if (hint) statusText = hint;
+  }
+  setStatus(statusText, snap.error ?? "");
   if (snap.schema_status && snap.schema_status.violation_count > 0 && !snap.error) {
-    setStatus(`${snap.status ?? ""} · ${snap.schema_status.violation_count} schema warnings`.trim(), "");
+    setStatus(`${statusText ?? ""} · ${snap.schema_status.violation_count} schema warnings`.trim(), "");
   }
 
   // Active type-filter indicator on the funnel button (same `.on` + dot
@@ -1129,25 +1137,9 @@ function attachSchema() {
 }
 
 // Schema-driven hover tooltip (spec req 4, desktop-only — no hover on touch,
-// see touch/render.ts which never applies this). Format a resolved EditHint
-// into "Valid values: …" / "Must be between X and Y" — plain English,
-// matching the schema feature's existing "N schema warnings" precedent
-// (jsonschema's own violation text is English-only, so the composed
-// constraint description stays English too rather than mixing languages).
-function schemaHintTooltip(hint: EditHint): string {
-  if (hint === "None") return "";
-  if ("Enum" in hint) {
-    const labels = hint.Enum.map(([label]) => label);
-    return labels.length ? `Valid values: ${labels.join(", ")}` : "";
-  }
-  const { minimum, maximum, multiple_of } = hint.Bounded;
-  const parts: string[] = [];
-  if (minimum !== undefined && maximum !== undefined) parts.push(`between ${minimum} and ${maximum}`);
-  else if (minimum !== undefined) parts.push(`at least ${minimum}`);
-  else if (maximum !== undefined) parts.push(`at most ${maximum}`);
-  if (multiple_of !== undefined) parts.push(`a multiple of ${multiple_of}`);
-  return parts.length ? `Must be ${parts.join(", ")}` : "";
-}
+// see touch/render.ts which never applies this). Formatting itself lives in
+// `schemaHintText` (panel.js) — shared with the idle status-line hint below
+// and with touch's own status line.
 
 // Lazy, on-demand — resolves the hint only for the cell actually hovered
 // (not eagerly for the whole visible tree), mirroring the existing
@@ -1163,7 +1155,7 @@ function onTreeHover(ev: MouseEvent) {
   const raw = rowEl?.dataset.path;
   if (raw === undefined) return;
   const path = JSON.parse(raw) as Path;
-  const text = schemaHintTooltip(session.schemaHint(path));
+  const text = schemaHintText(session.schemaHint(path));
   if (text) cell.title = text;
 }
 
