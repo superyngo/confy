@@ -320,48 +320,40 @@ picker on all three surfaces).
   next. Final verify: the full TUI keybinding table in `README.md` §Usage, exercised end-to-end on
   a sample TOML/JSON/YAML file each.
 
-### Task 14: Schema-aware dirty-check for revalidation + capped undo history
-- **Files**: `crates/confy-core/src/session/session.rs:2501-2515` (`on_mutation_success`),
-  `:1379-1391` (`revalidate_schema`), `:1337-1373` (`apply_schema_text`),
-  `crates/confy-core/src/schema/types.rs:112-127` (`SchemaState`),
-  `crates/confy-core/src/schema/hints_edit.rs` (reference only — new sibling module, not this
-  file, hosts the new walk), `crates/confy-core/src/session/state.rs:211-229` (`History`)
-- **Description**: Two related changes, corrected from the initial draft after fact-finding
-  showed the original "reuse EditHint's precomputed constrained paths" premise was false — no
-  such cache exists; `edit_hint()` re-walks the raw schema from scratch on every call, and
-  `value_bridge::PointerMap` maps document structure, not schema constraints (see ADR 0003 for
-  the full correction writeup):
-  1. Add a `fully_analyzable: bool` field to `SchemaState`, computed once in `apply_schema_text`
-     by walking the raw schema document and confirming it contains no remote `$ref`,
-     `allOf`/`not`/`if-then-else`, or `oneOf`/`anyOf` beyond `hints_edit.rs`'s existing `const`
-     carve-out, anywhere. This is a whole-schema-document walk, done once per
-     `SetSchema`/`SchemaLoaded`, not per mutation. Add a new module
-     `crates/confy-core/src/schema/dirty_check.rs` with a sibling function to
-     `hints_edit::resolve_subschema` (sharing its `deref` helper) that, when `fully_analyzable` is
-     true, walks from the schema root along a target `Path` and returns whether any keyword
-     (`type`/`enum`/`const`/`pattern`/bounds/`required`/etc.) applies there. Deliberately a new
-     module rather than added to `hints_edit.rs`: that file's `None` return means "safe to fall
-     back to plain-text editing" (conservative-if-unsure-say-no-hint); a dirty-check's "unsure"
-     case must mean the opposite polarity ("assume constrained, revalidate") — mixing the two in
-     one file risks a future edit silently flipping the wrong one's safe direction.
-  2. In `on_mutation_success`, before calling `revalidate_schema()`: if `schema.is_none()` (no
-     schema loaded) or `!schema.fully_analyzable`, behavior is unchanged (always revalidate — the
-     safe default). If `fully_analyzable`, thread the just-applied `Mutation`'s target `Path`
-     through to `on_mutation_success` (it doesn't receive one today) and call the new dirty-check;
-     skip `revalidate_schema()` and reuse the previous `violations` list untouched only when the
-     check conclusively finds no constraint on that path.
-  3. `History::push` (state.rs:225-228): cap `past` at a **fixed 200 entries** (not configurable —
-     see ADR 0003) via a `VecDeque` ring buffer, evicting the oldest entry with `pop_front()` (not
-     `Vec::remove(0)`, which is O(n) and would defeat the purpose on every commit).
+### Task 14: Schema-aware dirty-check for revalidation + capped undo history — IMPLEMENTED
+- **Files**: `crates/confy-core/src/session/session.rs` (`on_mutation_success` + its ~15 call
+  sites, `apply_schema_text`), `crates/confy-core/src/schema/dirty_check.rs` (new),
+  `crates/confy-core/src/schema/hints_edit.rs` (`deref` made `pub(crate)`),
+  `crates/confy-core/src/schema/types.rs` (`SchemaState`), `crates/confy-core/src/session/state.rs`
+  (`History`)
+- **What shipped** (matches the corrected design from Architecture Decisions above):
+  1. `SchemaState.fully_analyzable: bool`, computed once in `apply_schema_text` via
+     `dirty_check::is_fully_analyzable`.
+  2. `dirty_check::path_is_constrained` — the per-mutation O(schema-depth) walk.
+  3. `on_mutation_success(&mut self, touched: Option<&Path>)` — signature change threaded through
+     all ~15 call sites, but only `Path`ed at ONE: `apply_replace`'s `Some(&path)`, since it's the
+     single highest-frequency call site (every value edit, rename, nudge, and schema-enum-commit
+     routes through it — the "one keystroke's inline-edit commit" the audit's Critical finding
+     named specifically). The other ~14 (kind-switch, comment edit/rename, structural insert,
+     paste, delete-selected, remark) pass `None` — identical always-revalidate behavior to before
+     this task, zero regression risk on the harder multi-path/ownership-tangled call sites. This
+     differs from the literal "thread the target Path through to on_mutation_success" text above,
+     which implied every call site would supply one — most of those paths are multi-node
+     operations (delete-selected, paste) with no single target `Path` to thread in the first
+     place, so `None`'s conservative fallback is the correct answer there, not a gap.
+  4. `History::push` capped via `VecDeque` + `pop_front`, exactly as designed.
 - **Dependencies**: None (see Task 9's corrected note — the two changes don't share a code path).
-- **Verify**: `cargo test -p confy-core` 472/472 unchanged. New tests: (a) a `fully_analyzable`
-  schema — a mutation entirely outside any constrained path does not trigger `iter_errors`
-  (assert via a call-counter or pointer-identity on the unchanged `violations` Vec); (b) a schema
-  that is **not** `fully_analyzable` (e.g. contains `allOf`) always revalidates regardless of
-  mutation path — proves the conservative fallback actually engages; (c) a mutation *inside* a
-  constrained path on a `fully_analyzable` schema still revalidates and still surfaces a new
-  `Violation` correctly; (d) `History` never exceeds the 200-entry cap after >200 edits, and
-  undo/redo still work correctly at the boundary (oldest entry evicted, not the most recent).
+- **Verify**: `cargo test -p confy-core` — `schema_headless.rs` 48→51, `session_headless.rs`
+  80→82, rest unchanged (472 lib tests). New tests verify behaviorally via a sentinel `Violation`
+  planted before each mutation (survives = skipped; overwritten = revalidated) rather than Vec
+  pointer identity, which can coincidentally match on allocator reuse and would have been a flaky
+  test: (a) unconstrained path on a `fully_analyzable` schema — sentinel survives; (b) `allOf`
+  schema (not `fully_analyzable`) — sentinel always overwritten regardless of path; (c) constrained
+  path — sentinel overwritten, real new `Violation` present. History: (d) exactly 200 survive
+  after 250 pushes, all 200 undoable, the 201st `undo()` has nothing (genuinely evicted, not just
+  hidden past the cap); undo/redo correct at the boundary. `cargo clippy --workspace` 0 warnings.
+  `functional_smoke.mjs` 92/92 unchanged (`fully_analyzable` is core-internal, not part of the
+  wasm wire contract).
 
 ### Task 15: Split oversized files into per-concern modules
 - **Files**:
