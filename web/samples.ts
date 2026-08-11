@@ -6,7 +6,8 @@
 // this bundle) via each format's own hint convention — TOML `#:schema`,
 // JSON root `$schema`, YAML's `yaml-language-server` modeline — so opening
 // any sample format immediately demos live constrained editing (`editor`'s
-// off-enum value opens the enum picker) and a soft violation indicator
+// off-enum value opens the enum picker, whose `0` option is a deliberately
+// mixed-type member — picking it demos the type-change confirmation) and
 // (`editor` and `poll_ms` both start out schema-invalid on purpose). JSON
 // stays fully comment-free, unlike TOML/YAML (which keep two short inline
 // explainer comments on the `[schema]` rows): `detect_json`'s hint scan
@@ -63,7 +64,7 @@ brackets_collected = ["{ }", "[ ]", "< >"]
 coffees_per_config = 3
 
 [schema]
-editor = "sublime"    # not in the schema's enum — edit this row to see the picker
+editor = "sublime"    # not in the schema's enum — edit this row to see the picker (pick "0" for a type-change confirm)
 poll_ms = 253          # multiple of 5, 100-2000 — try ← / → to see it snap
 `,
   json: `{
@@ -129,7 +130,7 @@ fun:
   coffees_per_config: 3
 
 schema:
-  editor: sublime        # not in the schema's enum — edit this row to see the picker
+  editor: sublime        # not in the schema's enum — edit this row to see the picker (pick "0" for a type-change confirm)
   poll_ms: 253            # multiple of 5, 100-2000 — try ← / → to see it snap
 `,
 };

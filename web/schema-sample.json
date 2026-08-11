@@ -6,8 +6,7 @@
       "type": "object",
       "properties": {
         "editor": {
-          "type": "string",
-          "enum": ["vim", "nano", "helix", "confy"]
+          "enum": ["vim", "nano", "helix", "confy", 0]
         },
         "poll_ms": {
           "type": "integer",
