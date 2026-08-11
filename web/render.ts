@@ -166,7 +166,20 @@ function renderRow(
   return s;
 }
 
-/** Render the whole tree into `treeEl` and scroll the cursor row into view. */
+/** Render the whole tree into `treeEl` and scroll the cursor row into view.
+ *
+ * Reconciles by `data-path` key instead of rebuilding `innerHTML`
+ * unconditionally: a row whose freshly-rendered HTML is byte-identical to
+ * what's cached on its existing element (`data-html`) is left untouched —
+ * no DOM write, no reflow — everything else is created/replaced/reordered
+ * in place. This is the reason a live-focused inline `<input>` (edit mode)
+ * survives a render that fires for an unrelated reason (e.g. an async
+ * schema fetch resolving): `renderRow` derives the row from `edit.buffer`,
+ * which core only updates on commit, so the row's output is unchanged while
+ * typing and the element — including its focus and in-progress keystrokes —
+ * is reused verbatim. A caller that mutates a row's DOM out of band (see
+ * `beginTrailingEdit` in ui.ts) must invalidate that row's `data-html` so
+ * this can't skip restoring it on the next render. */
 export function renderTree(
   treeEl: HTMLElement,
   snap: SessionSnapshot,
@@ -185,20 +198,58 @@ export function renderTree(
     : " clip-copy";
   // The synthetic root (empty path) is not rendered; `idx` stays the real
   // `snap.rows` index so a click maps back to the right node.
-  treeEl.innerHTML = rows
-    .map((r, idx) =>
-      r.path.length === 0
-        ? ""
-        : renderRow(
-            r,
-            idx,
-            rows,
-            edit,
-            schemaEnum,
-            clipKeys.has(JSON.stringify(r.path)) ? clipCls : "",
-          ),
-    )
-    .join("");
+  const next: { key: string; html: string }[] = [];
+  rows.forEach((r, idx) => {
+    if (r.path.length === 0) return;
+    next.push({
+      key: JSON.stringify(r.path),
+      html: renderRow(
+        r,
+        idx,
+        rows,
+        edit,
+        schemaEnum,
+        clipKeys.has(JSON.stringify(r.path)) ? clipCls : "",
+      ),
+    });
+  });
+
+  const existing = new Map<string, HTMLElement>();
+  for (const child of Array.from(treeEl.children)) {
+    const key = (child as HTMLElement).dataset.path;
+    if (key) existing.set(key, child as HTMLElement);
+  }
+  const tpl = document.createElement("template");
+  let cursor: ChildNode | null = treeEl.firstChild;
+  for (const { key, html } of next) {
+    const old = existing.get(key);
+    if (old) existing.delete(key);
+    let node: HTMLElement;
+    if (old && old.dataset.html === html) {
+      node = old; // unchanged — reuse verbatim, no DOM write
+    } else {
+      tpl.innerHTML = html;
+      node = tpl.content.firstElementChild as HTMLElement;
+      node.dataset.html = html;
+    }
+    if (cursor === node) {
+      cursor = node.nextSibling;
+    } else {
+      // `cursor` may currently *be* `old` (the stale node this replaces,
+      // sitting exactly where `node` belongs) — step past it first so
+      // removing `old` below can't invalidate the reference `insertBefore`
+      // needs.
+      if (cursor === old) cursor = cursor.nextSibling;
+      // Inserting an already-attached node moves it (detaching it from its
+      // old position first) — this one call handles create, replace-in-
+      // place, and reorder uniformly.
+      treeEl.insertBefore(node, cursor);
+    }
+    if (old && old !== node) old.remove();
+  }
+  // Anything left in `existing` is a row that no longer appears — drop it.
+  for (const stale of existing.values()) stale.remove();
+
   const cur = treeEl.querySelector(".row.cursor") as HTMLElement | null;
   cur?.scrollIntoView({ block: "nearest" });
 }

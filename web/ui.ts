@@ -1459,6 +1459,11 @@ function beginTrailingEdit(rowEl: HTMLElement, path: Path) {
   if (note) note.replaceWith(input);
   else if (actions) rowEl.insertBefore(input, actions);
   else rowEl.appendChild(input);
+  // render.ts's keyed diff skips a row whose HTML still matches its cached
+  // `data-html` — this row was just mutated out of band, so drop the cache
+  // or a later render (e.g. Escape's `render()` below) would see no change
+  // and leave the injected `<input>` stuck in place instead of restoring it.
+  delete rowEl.dataset.html;
   input.focus();
   const n = input.value.length;
   input.setSelectionRange(n, n);

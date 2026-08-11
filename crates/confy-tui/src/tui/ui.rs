@@ -282,14 +282,34 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
     } else {
         None
     };
-    let mut rows: Vec<Row> = Vec::with_capacity(app.rows.len() + 1);
     // The cursor identity is a path (§3); map it to a visible-row index here, the
     // sole index↔path bridge on the render side.
     let cursor_idx = app.cursor_row_index();
+    // Only format rows the viewport can actually show, not every logical row —
+    // a large document (thousands of rows) previously paid for building a
+    // styled `Row` (indent/highlight/style matching) for every one of them on
+    // every single keystroke, even though ratatui only draws ~area.height of
+    // them. `start` follows the persisted offset from last frame, nudged just
+    // enough to keep the cursor in view (mirrors ratatui's own selection-
+    // follow scrolling, which this now takes over — the outer window is our
+    // job, not ratatui's, once we're only handing it the visible slice).
+    let total = app.rows.len();
+    let viewport_h = (area.height as usize).max(1);
+    let mut start = app.table_offset.get().min(total.saturating_sub(1));
+    if let Some(idx) = cursor_idx {
+        if idx < start {
+            start = idx;
+        } else if idx >= start + viewport_h {
+            start = idx + 1 - viewport_h;
+        }
+    }
+    let end = (start + viewport_h).min(total);
+    let mut rows: Vec<Row> = Vec::with_capacity(viewport_h + 1);
     // Display index (into `rows`, which may include an inserted green line) of the
-    // active paste cue, so the viewport scrolls to it; else the plain cursor.
-    let mut selected_display = cursor_idx.unwrap_or(0);
-    for (i, row) in app.rows.iter().enumerate() {
+    // active paste cue, so the viewport scrolls to it; else the plain cursor —
+    // relative to `start` now that `rows` only ever holds the visible window.
+    let mut selected_display = cursor_idx.map(|idx| idx - start).unwrap_or(0);
+    for (i, row) in app.rows.iter().enumerate().skip(start).take(end - start) {
         {
             let indent = "  ".repeat(row.depth);
             let marker = if row.is_branch {
@@ -409,15 +429,13 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
         ],
     )
     .column_spacing(1);
-    // Seed the table's scroll offset from the persisted value so ratatui only
-    // scrolls when the cursor would leave the viewport (a fresh default state
-    // would re-derive the offset each frame and pin the cursor to an edge), then
-    // store the post-render offset back for the next frame.
-    let mut state = TableState::default()
-        .with_offset(app.table_offset.get())
-        .with_selected(Some(selected_display));
+    // `rows` is already exactly the visible window, so ratatui gets offset 0 —
+    // the windowing above (not ratatui's own selection-follow) now owns
+    // scroll position. Persist `start` (+ any residual ratatui-internal
+    // adjustment, defensively) as next frame's basis.
+    let mut state = TableState::default().with_offset(0).with_selected(Some(selected_display));
     f.render_stateful_widget(table, area, &mut state);
-    app.table_offset.set(state.offset());
+    app.table_offset.set(start + state.offset());
 }
 
 /// The standalone green insertion line shown for an `After` paste slot. It is
@@ -1042,5 +1060,61 @@ mod tests {
         assert!(joined.contains("port"), "rows: {joined:?}");
         assert!(joined.contains("[I:dec ]"), "type col missing: {joined:?}");
         assert!(joined.contains("8080"), "value col missing: {joined:?}");
+    }
+
+    #[test]
+    fn draw_tree_windows_to_the_viewport_and_still_follows_the_cursor() {
+        // 60 top-level keys — far more than a small terminal can show at once.
+        let mut src = String::new();
+        for i in 0..60 {
+            src.push_str(&format!("k{i:02} = {i}\n"));
+        }
+        let doc = crate::model::any_doc::AnyDocument::Toml(
+            crate::model::cst_doc::CstDocument::from_str(&src).unwrap(),
+        );
+        let mut app = App::new(doc);
+        // title(1) + column header(1) + status(1) leaves 7 rows for the tree:
+        // root + 6 data rows.
+        let mut terminal = Terminal::new(TestBackend::new(60, 10)).unwrap();
+        terminal.draw(|fr| draw(fr, &app)).unwrap();
+        let joined_initial: String = (0..10)
+            .map(|y| {
+                (0..60)
+                    .map(|x| terminal.backend().buffer()[(x, y)].symbol().to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(joined_initial.contains("k00"), "top of list visible: {joined_initial:?}");
+        assert!(
+            !joined_initial.contains("k59"),
+            "far-below row must not be drawn while scrolled to the top: {joined_initial:?}"
+        );
+
+        // Move the cursor well past the initial window and re-render — the
+        // window must follow it (proves the manual offset-tracking replacing
+        // ratatui's own selection-follow still works), and the rows that
+        // scrolled out of view must be gone from the buffer, not just hidden.
+        for _ in 0..40 {
+            app.cursor_down();
+        }
+        app.rebuild_rows();
+        terminal.draw(|fr| draw(fr, &app)).unwrap();
+        let joined_after: String = (0..10)
+            .map(|y| {
+                (0..60)
+                    .map(|x| terminal.backend().buffer()[(x, y)].symbol().to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            joined_after.contains("k39"),
+            "cursor row (40th CursorDown = k39) must be visible after scrolling: {joined_after:?}"
+        );
+        assert!(
+            !joined_after.contains("k00"),
+            "row scrolled far out of view must not still be drawn: {joined_after:?}"
+        );
     }
 }
