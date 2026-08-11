@@ -1572,28 +1572,28 @@ impl Session {
         let cursor = buffer.chars().count();
         let name_cursor = key.chars().count();
         if allow_schema_enum {
-            if let Some(hint) = self.schema.as_ref().and_then(|s| s.raw.as_ref()).map(|raw| {
-                crate::schema::hints_edit::resolve_edit_hint(raw, &row.path)
-            }) {
-                if let crate::schema::EditHint::Enum(options) = hint {
-                    if !options.is_empty() {
-                        let format = self.doc.as_ref().map(|d| d.format());
-                        let opts: Vec<(String, String)> = options
-                            .into_iter()
-                            .filter_map(|(label, v)| scalar_repr_for(&v, format?).map(|r| (label, r)))
-                            .collect();
-                        if !opts.is_empty() {
-                            self.mode = Mode::SchemaEnum(crate::session::state::SchemaEnumState {
-                                path: row.path.clone(),
-                                key: key.clone(),
-                                is_element,
-                                created_on_add: false,
-                                cursor: 0,
-                                options: opts,
-                            });
-                            self.status = None;
-                            return;
-                        }
+            if let Some(crate::schema::EditHint::Enum(options)) =
+                self.schema.as_ref().and_then(|s| s.raw.as_ref()).map(|raw| {
+                    crate::schema::hints_edit::resolve_edit_hint(raw, &row.path)
+                })
+            {
+                if !options.is_empty() {
+                    let format = self.doc.as_ref().map(|d| d.format());
+                    let opts: Vec<(String, String)> = options
+                        .into_iter()
+                        .filter_map(|(label, v)| scalar_repr_for(&v, format?).map(|r| (label, r)))
+                        .collect();
+                    if !opts.is_empty() {
+                        self.mode = Mode::SchemaEnum(crate::session::state::SchemaEnumState {
+                            path: row.path.clone(),
+                            key: key.clone(),
+                            is_element,
+                            created_on_add: false,
+                            cursor: 0,
+                            options: opts,
+                        });
+                        self.status = None;
+                        return;
                     }
                 }
             }
