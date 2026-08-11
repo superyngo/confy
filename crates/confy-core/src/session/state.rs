@@ -52,6 +52,9 @@ pub enum Mode {
     TypeFilter,
     /// The `K` kind-switch popup is open.
     KindSwitch(KindSwitchState),
+    /// The schema-enum picker popup is open (spec §3: reuses the `K`
+    /// kind-switch popup's shape on every host).
+    SchemaEnum(SchemaEnumState),
     /// The `C` document-conversion flow is open.
     Convert(ConvertState),
     Detail,
@@ -130,6 +133,21 @@ pub enum ConvertStep {
 pub struct KindSwitchState {
     pub path: Path,
     pub options: Vec<(String, KindTarget)>,
+    pub cursor: usize,
+}
+
+/// State for the schema-enum picker popup (spec §3: reuses the `K`
+/// kind-switch popup's shape on every host). `options` are `(display_label,
+/// value_repr)` pairs — `value_repr` is the document-format scalar text
+/// `Session::schema_enum_commit` splices in directly via
+/// `ConfigDocument::scalar_fragment`.
+#[derive(Clone, Debug)]
+pub struct SchemaEnumState {
+    pub path: Path,
+    pub key: String,
+    pub is_element: bool,
+    pub created_on_add: bool,
+    pub options: Vec<(String, String)>,
     pub cursor: usize,
 }
 

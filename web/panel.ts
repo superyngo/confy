@@ -16,7 +16,7 @@
 //     `wireDetail` — are actually wired here.
 //   · Every `send(...)` result is inspected for `SessionSnapshot.error`; a
 //     non-empty error is surfaced via `onError` (no more silent failures).
-import type { ViewRow, Intent, SessionSnapshot, Path } from "./types";
+import type { ViewRow, Intent, SessionSnapshot, Path, EditHint } from "./types";
 import { escapeHtml as esc } from "./escape.js";
 import { notationGlyph, valueHue } from "./kind-labels.js";
 import { t, tArgs } from "./i18n.js";
@@ -60,7 +60,12 @@ function humanPath(path: Path): string {
 // the Trailing-comment input is disabled instead of failing on commit. The
 // host computes this from its own `SessionSnapshot.rows` (no parent lookup
 // lives in `ViewRow` itself).
-export function panelHTML(row: ViewRow, parentInline = false): string {
+export function panelHTML(
+  row: ViewRow,
+  parentInline = false,
+  editHint?: EditHint,
+  schemaEnum?: { options: string[]; cursor: number },
+): string {
   const r = row;
   const branch = r.is_branch;
   const comment = isComment(r);
@@ -81,6 +86,7 @@ export function panelHTML(row: ViewRow, parentInline = false): string {
     h += `<dl><dt>${t("web.panel.field.path")}</dt><dd>${esc(humanPath(r.path))}</dd></dl>`;
     h +=
       '<div class="row-btns">' +
+      `<button class="btn" data-act="editexternal">${t("web.panel.editExternal")}</button>` +
       `<button class="btn" data-act="copy">${t("web.common.copy")}</button>` +
       `<button class="btn" data-act="cut">${t("web.common.cut")}</button>` +
       `<button class="btn danger" data-act="del">${t("web.common.delete")}</button></div></div>`;
@@ -98,13 +104,21 @@ export function panelHTML(row: ViewRow, parentInline = false): string {
     h += `<input class="v-edit" value="${esc(r.key)}" disabled />`;
   }
 
-  // Value (scalars only). A multi-line value can't live in a one-line <input>;
-  // render it as a clickable button that opens the host's popup editor (click →
-  // BeginEdit → external_edit), mirroring the tree's multiline routing.
+  // Value (scalars only). A schema-enum-constrained value swaps in the
+  // picker select once BeginEdit resolves `Mode::SchemaEnum` (mirrors the
+  // tree's `renderValue`'s `schemaEnum` branch exactly, same option/cursor
+  // shape). Before that — and for a multi-line value — it's a clickable
+  // trigger that dispatches BeginEdit and lets core pick the destination
+  // (external popup, or the schema picker for an enum-constrained field).
   if (!branch) {
     h += `<div class="field-label">${esc(tArgs("web.panel.field.value", [r.type_label]))}</div>`;
     const v = r.value ?? "";
-    if (!r.read_only && isMultilineValue(r)) {
+    if (!r.read_only && schemaEnum) {
+      const opts = schemaEnum.options
+        .map((label, i) => `<option value="${i}"${i === schemaEnum.cursor ? " selected" : ""}>${esc(label)}</option>`)
+        .join("");
+      h += `<select class="v-edit" data-field="value-enum">${opts}</select>`;
+    } else if (!r.read_only && (isMultilineValue(r) || (editHint && editHint !== "None" && "Enum" in editHint))) {
       const oneLine = v.replace(/\r?\n/g, " ↵ ") || t("web.panel.multilinePlaceholder");
       h += `<button class="v-edit v-multiline" data-act="editvalue" style="text-align:left;cursor:pointer;display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(oneLine)}</button>`;
     } else {
@@ -146,6 +160,7 @@ export function panelHTML(row: ViewRow, parentInline = false): string {
   if (!r.read_only) {
     h +=
       '<div class="row-btns">' +
+      `<button class="btn" data-act="editexternal">${t("web.panel.editExternal")}</button>` +
       `<button class="btn" data-act="copy">${t("web.common.copy")}</button>` +
       `<button class="btn" data-act="cut">${t("web.common.cut")}</button>` +
       `<button class="btn danger" data-act="del">${t("web.common.delete")}</button></div>`;
@@ -170,6 +185,7 @@ export function wirePanel(
   onError: (msg: string) => void,
   afterMutation?: (msg: string) => void,
   batch?: (fn: () => void) => void,
+  schemaEnum?: { options: string[]; cursor: number },
 ): void {
   const path = row.path;
   const run = batch ?? ((fn: () => void) => fn());
@@ -207,6 +223,7 @@ export function wirePanel(
 
   const ke = container.querySelector<HTMLInputElement>('[data-field="name"]');
   const ve = container.querySelector<HTMLInputElement>('[data-field="value"]');
+  const ven = container.querySelector<HTMLSelectElement>('[data-field="value-enum"]');
   const te = container.querySelector<HTMLInputElement>('[data-field="trailing"]');
   const cn = container.querySelector<HTMLInputElement>('[data-field="comment-node"]');
   const kb = container.querySelector<HTMLElement>("[data-act=kindswitch]");
@@ -214,6 +231,7 @@ export function wirePanel(
   const cp = container.querySelector<HTMLElement>("[data-act=copy]");
   const ct = container.querySelector<HTMLElement>("[data-act=cut]");
   const ev = container.querySelector<HTMLElement>("[data-act=editvalue]");
+  const ext = container.querySelector<HTMLElement>("[data-act=editexternal]");
 
   // NOTE: read the field value BEFORE the first `fire` — a `SetCursor` dispatch
   // rebuilds the host panel's innerHTML, detaching this input, so reading
@@ -253,6 +271,36 @@ export function wirePanel(
       );
     }
   }
+  // Schema-enum picker select (active once BeginEdit resolves
+  // Mode::SchemaEnum) → SchemaEnumMove/SchemaEnumCommit, mirroring the
+  // tree's focusSchemaEnumSelect exactly (same idx-current delta
+  // convention). Escape cancels the picker.
+  if (ven) {
+    ven.addEventListener("change", () => {
+      const idx = Number(ven.value);
+      const current = schemaEnum?.cursor ?? 0;
+      run(() => {
+        fire({ SchemaEnumMove: idx - current });
+        fire("SchemaEnumCommit");
+      });
+    });
+    ven.addEventListener("keydown", (e) => {
+      if ((e as KeyboardEvent).key === "Escape") {
+        e.stopPropagation();
+        fire("Escape");
+      }
+    });
+  }
+  // "Edit in editor" — unconditionally forces the external popup editor,
+  // bypassing the schema-select branch BeginEdit takes for an
+  // enum-constrained scalar (req 1).
+  if (ext)
+    ext.addEventListener("click", () => {
+      run(() => {
+        fire({ SetCursor: path });
+        fire("BeginEditExternal");
+      });
+    });
   // Multi-line value button → open the host's popup editor via core's edit flow.
   if (ev)
     ev.addEventListener("click", () => {
@@ -289,4 +337,28 @@ export function wirePanel(
   // click) commits the paste at the new cursor.
   if (cp) cp.addEventListener("click", () => act("CopySelected", "Copied — paste to place it"));
   if (ct) ct.addEventListener("click", () => act("CutSelected", "Cut — paste to move it"));
+}
+
+// Format a resolved `EditHint` into a plain-English advisory sentence —
+// "Valid values: …" / "Must be between X and Y, a multiple of Z" — shared by
+// every surface that shows the schema constraint for the current node: the
+// desktop hover tooltip, and the desktop/TUI-mirroring idle status-line hint
+// on both desktop and touch (see `ui.ts`/`touch/app.ts` `render()`). English-
+// only by design, matching the schema feature's existing "N schema warnings"
+// precedent (`jsonschema`'s own violation text is English-only, so the
+// composed constraint description stays English too rather than mixing
+// languages) — mirrors `confy-core`'s `EditHint::describe()` wording exactly.
+export function schemaHintText(hint: EditHint): string {
+  if (hint === "None") return "";
+  if ("Enum" in hint) {
+    const labels = hint.Enum.map(([label]) => label);
+    return labels.length ? `Valid values: ${labels.join(", ")}` : "";
+  }
+  const { minimum, maximum, multiple_of } = hint.Bounded;
+  const parts: string[] = [];
+  if (minimum !== undefined && maximum !== undefined) parts.push(`between ${minimum} and ${maximum}`);
+  else if (minimum !== undefined) parts.push(`at least ${minimum}`);
+  else if (maximum !== undefined) parts.push(`at most ${maximum}`);
+  if (multiple_of !== undefined) parts.push(`a multiple of ${multiple_of}`);
+  return parts.length ? `Must be ${parts.join(", ")}` : "";
 }

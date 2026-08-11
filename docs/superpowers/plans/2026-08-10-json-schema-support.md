@@ -56,7 +56,7 @@
 - `crates/confy-tui/src/tui/state.rs` — re-export `SchemaEnumState`.
 
 **Modified files (web):**
-- `web/types.ts` — `SchemaStatus`, `ViewRow.schema_warn`, `EditView.constraint`, `ModeView` schema-enum variant.
+- `web/types.ts` — `SchemaStatus`, `ViewRow.schema_warn`, `ModeView` schema-enum variant.
 - `web/fs.ts` — `readSiblingFile()`.
 - `web/host-io.ts` — schema resolution wiring.
 - `web/ui.ts` — attach-schema action, `focusInlineEdit()` `<select>` branch, status summary.
@@ -94,8 +94,10 @@
 In `Cargo.toml` (workspace root), inside `[workspace.dependencies]`, add (alphabetical order, matching the existing list's convention):
 
 ```toml
-jsonschema = "0.30"
+jsonschema = { version = "0.30", default-features = false }
 ```
+
+`default-features = false` is required, not optional: `jsonschema`'s default features (`resolve-http`, `resolve-file`) pull in `reqwest`/`tokio` and hard-fail compilation on `wasm32-unknown-unknown` (`jsonschema` emits a build-time `compile_error!` for those features on WASM) — this is `confy-ffi`'s target. confy-core never needs `jsonschema`'s own external-`$ref` resolution: the host fetches schema text once via the `schema_fetch_request` handshake, and in-document `$ref`s (JSON-pointer, e.g. `#/$defs/...`) work with no resolver features at all.
 
 In `crates/confy-core/Cargo.toml`, inside `[dependencies]`, add:
 
@@ -179,7 +181,7 @@ pub enum EditHint {
 /// projected tree is rebuilt from the document on every mutation, so
 /// per-document state belongs one level up (mirrors `Session.clipboard`,
 /// `Session.filter`, etc.).
-#[derive(Clone, Debug)]
+#[derive(Debug)] // NOTE: not Clone — jsonschema::Validator (0.30) isn't Clone; no later task clones a whole SchemaState (only its individually-Clone fields, e.g. via `.status()`).
 pub struct SchemaState {
     pub source: SchemaSource,
     /// `None` while `load_error` is set (load/compile failed) or before the
@@ -660,7 +662,7 @@ fn detect_toml(text: &str) -> Option<SchemaSource> {
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `cargo test -p confy-core --test schema_headless`
-Expected: PASS (11 tests total).
+Expected: PASS (12 tests total).
 
 - [ ] **Step 5: Commit**
 
@@ -678,7 +680,7 @@ git commit -m "feat(schema): detect in-file schema hints for JSON/YAML/TOML"
 - Test: `crates/confy-core/tests/schema_headless.rs`
 
 **Interfaces:**
-- Consumes: `jsonschema::Validator` (external crate, `Validator::new(schema: &serde_json::Value) -> Result<Validator, jsonschema::ValidationError<'static>>`, `validator.iter_errors(&instance) -> impl Iterator<Item = jsonschema::ValidationError>`; each error exposes `.instance_path() -> &Location` and `.schema_path() -> &Location`, both `Display`-able as JSON Pointer strings, and `Display`/`ToString` for the message), `schema::value_bridge::{bridge, PointerMap}` (Task 2), `schema::types::{Violation, Category}` (Task 1).
+- Consumes: `jsonschema::Validator` (external crate, `Validator::new(schema: &serde_json::Value) -> Result<Validator, jsonschema::ValidationError<'static>>`, `validator.iter_errors(&instance) -> impl Iterator<Item = jsonschema::ValidationError>`; each error exposes **public fields** `instance_path: Location` and `schema_path: Location` — field access, not method calls (verified against jsonschema 0.30 source: `error.rs`'s `ValidationError` struct has no `instance_path()`/`schema_path()` methods, only the fields) — both `Location: Display`-able as JSON Pointer strings, and `ValidationError: Display`/`ToString` for the message), `schema::value_bridge::{bridge, PointerMap}` (Task 2), `schema::types::{Violation, Category}` (Task 1).
 - Produces: `pub fn validate(projection: &serde_json::Value, compiled: &jsonschema::Validator, map: &PointerMap) -> Vec<Violation>` — Task 6 (`Session::revalidate_schema`) consumes this.
 
 - [ ] **Step 1: Write the failing tests**
@@ -792,8 +794,8 @@ pub fn validate(projection: &Json, compiled: &Validator, map: &PointerMap) -> Ve
     compiled
         .iter_errors(projection)
         .map(|err| {
-            let pointer = err.instance_path().to_string();
-            let schema_path = err.schema_path().to_string();
+            let pointer = err.instance_path.to_string();
+            let schema_path = err.schema_path.to_string();
             let keyword = schema_path
                 .rsplit('/')
                 .next()
@@ -825,7 +827,7 @@ pub fn validate(projection: &Json, compiled: &Validator, map: &PointerMap) -> Ve
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `cargo test -p confy-core --test schema_headless`
-Expected: PASS (15 tests total).
+Expected: PASS (19 tests total).
 
 - [ ] **Step 5: Commit**
 
@@ -1085,7 +1087,7 @@ fn display_label(v: &Json) -> String {
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `cargo test -p confy-core --test schema_headless`
-Expected: PASS (21 tests total).
+Expected: PASS (27 tests total).
 
 - [ ] **Step 5: Commit**
 
@@ -1528,7 +1530,7 @@ Add `self.revalidate_schema();` at the end of the Nudge handler (alongside where
 - [ ] **Step 6: Run the tests to verify they pass**
 
 Run: `cargo test -p confy-core --test schema_headless`
-Expected: PASS (31 tests total).
+Expected: PASS (37 tests total).
 
 - [ ] **Step 7: Commit**
 
@@ -1689,7 +1691,7 @@ Also: right after document construction inside `Session::new` (or wherever a fre
 - [ ] **Step 6: Run the tests to verify they pass**
 
 Run: `cargo test -p confy-core --test schema_headless`
-Expected: PASS (33 tests total).
+Expected: PASS (40 tests total).
 
 - [ ] **Step 7: Run the full confy-core test suite to confirm no regressions**
 
@@ -2070,7 +2072,7 @@ git commit -m "feat(tui): add the schema-constrained enum/const picker popup"
 - Modify: `web/types.ts`
 
 **Interfaces:**
-- Produces: `SchemaStatus`, `ViewRow.schema_warn`, `EditView.constraint`, `ModeView`'s schema-enum variant — Tasks 12-14 consume these.
+- Produces: `SchemaStatus`, `ViewRow.schema_warn` — Tasks 12/14 consume these. (`ModeView`'s schema-enum variant is added later, by Task 13 — see its own Interfaces note.)
 
 - [ ] **Step 1: Add the types**
 
@@ -2097,21 +2099,7 @@ Add to `SessionSnapshot` (alongside `external_edit: ExternalEdit | undefined;`):
   schema_fetch_request: { Local: string } | { Url: string } | undefined;
 ```
 
-Add to `EditView` (alongside `rename_only: boolean;`):
-
-```ts
-  constraint: { Enum: [string, unknown][] } | { Bounded: { minimum: number | null; maximum: number | null; multiple_of: number | null } } | "None" | undefined;
-```
-
-(This mirrors serde's default externally-tagged enum representation for `EditHint`/`SchemaSource` crossing serde-wasm-bindgen — `EditHint::None` a unit variant serializes as the bare string `"None"`, `EditHint::Enum(v)`/`EditHint::Bounded{..}` as `{ VariantName: payload }`, matching the `{ CommitEdit: {...} }` shape already documented in `confy-ffi/functional_smoke.mjs`'s Intent-dispatch convention from this plan's grounding research. However `EditState.constraint` was defined in Task 6 as `Option<EditHint>` on the internal `EditState`, not surfaced onto the transport `EditView` yet — add that mapping now too:)
-
-In `crates/confy-core/src/session/view.rs` (confy-core, not `web/types.ts` — noting the cross-reference since this TS type has no meaning without it), add to `EditView`:
-
-```rust
-    pub constraint: Option<crate::schema::EditHint>,
-```
-
-And in wherever `Mode::Edit(e) => ModeView::Edit(EditView { ... })` is built, add `constraint: None,` (the schema-enum picker uses `Mode::SchemaEnum`, a *different* Mode variant entirely — per Task 6's design, `EditState` never actually carries a live `EditHint::Enum`/`Bounded` at runtime today, since `begin_inline_edit` branches to `Mode::SchemaEnum` instead of populating this field on `Mode::Edit`. This `EditView.constraint` field is therefore always `None` for now — included for forward-compatibility with a future `Bounded` numeric-clamp surfacing on the plain `Edit` mode (Task 12 uses it for that), not populated by this task.) Run `cargo check -p confy-core` after this edit to confirm the additive field doesn't break existing `EditView` construction call sites (there should be exactly one, in `snapshot()`).
+**Scoped out:** an earlier draft of this task also added `EditView.constraint: Option<EditHint>` (Rust) / `constraint` (TS), forward-compat scaffolding for a `Bounded` numeric-clamp surfacing on plain `Mode::Edit`. Dropped: no task in this plan ever populates it (Task 6's actual design diverts a constrained node to `Mode::SchemaEnum` instead, never touching `EditState`/`EditView`) or consumes it (Task 13 originally listed it as a dependency but its own text already says that's superseded, and Task 13 instead renders directly off `ModeView::SchemaEnum`). Shipping an always-`None`, always-unread field is dead weight, not forward compatibility — add it later if a real consumer needs it.
 
 - [ ] **Step 2: Run the TypeScript build to verify no type errors**
 
@@ -2121,8 +2109,8 @@ Expected: PASS — these are additive optional/union fields; no existing code re
 - [ ] **Step 3: Commit**
 
 ```bash
-git add web/types.ts crates/confy-core/src/session/view.rs
-git commit -m "feat(web): add SchemaStatus/schema_warn/constraint TypeScript types"
+git add web/types.ts
+git commit -m "feat(web): add SchemaStatus/schema_warn TypeScript types"
 ```
 
 ---
@@ -2244,7 +2232,7 @@ git commit -m "feat(web): resolve schema_fetch_request via local sibling read or
 - Modify: `web/ui.ts`
 
 **Interfaces:**
-- Consumes: `EditView.constraint` (Task 11) — **superseded by Task 6's design choice** that the enum picker uses a dedicated `Mode::SchemaEnum`, not `Mode::Edit`. Web therefore needs its **own** rendering of `ModeView::SchemaEnum` (a `<select>` inline, not a TUI-style popup — spec §3's table: "renderValue()'s edit branch emits `<select>`"), driven by `snap.mode` being the `SchemaEnum` variant rather than `Edit`.
+- Consumes: `ModeView::SchemaEnum` (Task 6/7, confy-core; TS shape from Task 11's `ModeView` addition) — the enum picker uses a dedicated `Mode::SchemaEnum`, not `Mode::Edit`. Web needs its **own** rendering of `ModeView::SchemaEnum` (a `<select>` inline, not a TUI-style popup — spec §3's table: "renderValue()'s edit branch emits `<select>`"), driven by `snap.mode` being the `SchemaEnum` variant.
 
 - [ ] **Step 1: Extend `renderValue()`**
 

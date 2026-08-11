@@ -29,6 +29,7 @@ import {
   openFromUrl,
   openSaveConvert,
   replaceSession,
+  resolveSchemaFetchRequest,
   toggleTheme,
   type HostIo,
 } from "./host-io.js";
@@ -46,7 +47,7 @@ import type { Lang } from "./i18n.js";
 import { resolveClick, resetAnchor, rowsInRect, setAnchor } from "./select.js";
 import { foldedEntries, type ToolbarEntry } from "./toolbar-fold.js";
 import { installDnd } from "./dnd.js";
-import { panelHTML, wirePanel } from "./panel.js";
+import { panelHTML, wirePanel, schemaHintText } from "./panel.js";
 import { renderCrumbs, wireCrumbDismiss } from "./breadcrumb.js";
 import { bindPromptClicks, promptButtonsHTML, promptQuestion } from "./prompt.js";
 import { typeFilterHTML, wireTypeFilter } from "./typefilter.js";
@@ -106,6 +107,7 @@ const themeBtn = $<HTMLButtonElement>("btnTheme");
 const langBtn = $<HTMLButtonElement>("btnLang");
 const langLabel = $("langLabel");
 const openBtn = $<HTMLButtonElement>("btnOpen");
+const attachSchemaBtn = $<HTMLButtonElement>("btnAttachSchema");
 const saveBtn = $<HTMLButtonElement>("btnSave");
 const saveAsBtn = $<HTMLButtonElement>("btnSaveAs");
 const FS_AVAILABLE = fsAccessAvailable();
@@ -306,7 +308,19 @@ function render() {
   if (TAURI_DESKTOP) {
     setWindowTitle(fileName ?? "confy", snap.doc_format, snap.is_dirty);
   }
-  setStatus(snap.status, snap.error ?? "");
+  // Idle schema hint — mirrors the TUI status line's dynamic behavior
+  // (tooltip-like: appears while the cursor sits on a schema-constrained
+  // node, clears the instant it moves off). Only surfaces when nothing more
+  // important is showing — an explicit status/error message always wins.
+  let statusText = snap.status;
+  if (!statusText && !snap.error) {
+    const hint = schemaHintText(session.schemaHint(snap.cursor));
+    if (hint) statusText = hint;
+  }
+  setStatus(statusText, snap.error ?? "");
+  if (snap.schema_status && snap.schema_status.violation_count > 0 && !snap.error) {
+    setStatus(`${statusText ?? ""} · ${snap.schema_status.violation_count} schema warnings`.trim(), "");
+  }
 
   // Active type-filter indicator on the funnel button (same `.on` + dot
   // mechanism as the touch UI, driven by the shared snapshot flag).
@@ -327,6 +341,7 @@ function render() {
     });
   }
   focusInlineEdit();
+  if (typeof snap.mode === "object" && "SchemaEnum" in snap.mode) focusSchemaEnumSelect();
   renderDetailPanel();
   renderTypeFilterPop();
   renderConvertDialog();
@@ -345,6 +360,14 @@ function render() {
     } else {
       void doConvertWrite(io, snap.convert_write[0], snap.convert_write[1]);
     }
+  }
+  if (snap.schema_fetch_request) {
+    void resolveSchemaFetchRequest(io, session!, snap.schema_fetch_request, fileHandle?.path ?? null).then(
+      (next) => {
+        snap = next;
+        render();
+      },
+    );
   }
   if (snap.quit) {
     setStatus("", "quit (reload to reopen)");
@@ -393,11 +416,23 @@ function renderDetailPanel() {
   if (!cursorRow) {
     body.innerHTML = `<pre class="mono">${escapeHtml(snap!.detail_text ?? "")}</pre>`;
   } else {
-    body.innerHTML = panelHTML(cursorRow, parentIsInline(cursorRow.path));
-    wirePanel(body, cursorRow, panelSend, openKindForRow, (msg) => setStatus("", msg), (msg) => {
-      setStatus("", msg);
-      send("ExitDetail");
-    });
+    const hint = session!.schemaHint(cursorRow.path);
+    const schemaEnum =
+      typeof snap!.mode === "object" && "SchemaEnum" in snap!.mode ? snap!.mode.SchemaEnum : undefined;
+    body.innerHTML = panelHTML(cursorRow, parentIsInline(cursorRow.path), hint, schemaEnum);
+    wirePanel(
+      body,
+      cursorRow,
+      panelSend,
+      openKindForRow,
+      (msg) => setStatus("", msg),
+      (msg) => {
+        setStatus("", msg);
+        send("ExitDetail");
+      },
+      undefined,
+      schemaEnum,
+    );
   }
   panel.classList.add("open");
 }
@@ -657,6 +692,50 @@ function onKey(ev: KeyboardEvent) {
     if (ev.key === "ArrowDown") return send({ KindSwitchMove: 1 });
     if (ev.key === "Enter") return send("KindSwitchCommit");
     if (ev.key === "Escape") return send("ExitKindSwitch");
+    return;
+  }
+  // Schema-enum picker (native `<select>`, focused by `focusSchemaEnumSelect`):
+  // owns every nav key itself, same as KindSwitch/TypeFilter above. Without
+  // this the picker's own Arrow/Home/End/Enter would bubble here first and
+  // get reinterpreted as tree shortcuts (Home/End move the *tree* cursor,
+  // Enter toggles branch expand) — the select's `<option>`s never actually
+  // moved via keyboard. `SchemaEnumMove` (±1) wraps, matching the mouse-driven
+  // cursor cycling; `SchemaEnumJump` (Home/End/Page) clamps at the ends
+  // instead (`session.schema_enum_jump`, mirrors `type_filter::move_cursor`'s
+  // convention and confy-tui's own Home/End/PageUp/PageDown handling for this
+  // same picker). Page step is a fixed constant, not a computed viewport
+  // height — a native combobox has no rendered "visible window" to size a
+  // page off of, unlike the TUI's own popup or the `f` type-filter popup.
+  // Escape is handled by the select's own local `onkeydown` (fires first,
+  // target phase) — not re-handled here to avoid a double dispatch.
+  if (typeof m === "object" && "SchemaEnum" in m) {
+    const st = m.SchemaEnum;
+    const SCHEMA_ENUM_PAGE_STEP = 5;
+    if (ev.key === "ArrowUp") {
+      ev.preventDefault();
+      return send({ SchemaEnumMove: -1 });
+    }
+    if (ev.key === "ArrowDown") {
+      ev.preventDefault();
+      return send({ SchemaEnumMove: 1 });
+    }
+    if (ev.key === "Home") {
+      ev.preventDefault();
+      return send({ SchemaEnumJump: -st.options.length });
+    }
+    if (ev.key === "End") {
+      ev.preventDefault();
+      return send({ SchemaEnumJump: st.options.length });
+    }
+    if (ev.key === "PageUp") {
+      ev.preventDefault();
+      return send({ SchemaEnumJump: -SCHEMA_ENUM_PAGE_STEP });
+    }
+    if (ev.key === "PageDown") {
+      ev.preventDefault();
+      return send({ SchemaEnumJump: SCHEMA_ENUM_PAGE_STEP });
+    }
+    if (ev.key === "Enter") return send("SchemaEnumCommit");
     return;
   }
   // Help/About panel: pause every tree shortcut (j/k/e/a/d/c/x/v/… would
@@ -1086,6 +1165,43 @@ function openUrlModal() {
   $("url-modal").classList.remove("hidden");
   input.focus();
 }
+// "Attach schema…" — prompt for a path or URL to a JSON Schema file and
+// dispatch `SetSchema`. The host resolves the request via
+// `schema_fetch_request` on the next snapshot (render()'s resolver hook),
+// completing the SetSchema → SchemaLoaded round-trip. Mirrors the touch
+// attach flow; the prompt string is hard-coded (not `t(...)`) because adding
+// i18n keys is out of this task's file scope (deferred i18n item).
+function attachSchema() {
+  const choice = prompt("Path or URL to a JSON Schema file:");
+  if (!choice) return;
+  const source = choice.startsWith("http://") || choice.startsWith("https://")
+    ? { Url: choice }
+    : { Local: choice };
+  send({ SetSchema: { source } });
+}
+
+// Schema-driven hover tooltip (spec req 4, desktop-only — no hover on touch,
+// see touch/render.ts which never applies this). Formatting itself lives in
+// `schemaHintText` (panel.js) — shared with the idle status-line hint below
+// and with touch's own status line.
+
+// Lazy, on-demand — resolves the hint only for the cell actually hovered
+// (not eagerly for the whole visible tree), mirroring the existing
+// `kind_options`/`schemaHint` on-demand-per-path precedent. `mouseover`
+// (not `mouseenter`) so one delegated listener on the tree wrap covers every
+// row, matching `onTreeClick`'s delegation pattern.
+function onTreeHover(ev: MouseEvent) {
+  if (!session) return;
+  const target = ev.target as HTMLElement;
+  const cell = target.closest('[data-edit="val"], [data-kind]') as HTMLElement | null;
+  if (!cell || cell.title) return;
+  const rowEl = cell.closest(".row") as HTMLElement | null;
+  const raw = rowEl?.dataset.path;
+  if (raw === undefined) return;
+  const path = JSON.parse(raw) as Path;
+  const text = schemaHintText(session.schemaHint(path));
+  if (text) cell.title = text;
+}
 
 // A click on any row affordance (caret, kind badge, ±, key/value edit) should
 // leave the row visibly selected — not just cursored — same as a blank-area
@@ -1281,6 +1397,28 @@ function focusInlineEdit() {
   input.onblur = () => finish(true);
 }
 
+// Focus the schema-enum `<select>` (rendered by render.ts when snap.mode is the
+// SchemaEnum variant) and commit on change via SchemaEnumMove/SchemaEnumCommit,
+// cancel on Escape. Native picker — the constrained-value editor for enum/const
+// schema hints (spec §3).
+function focusSchemaEnumSelect() {
+  const select = tree.querySelector("select[data-schema-enum]") as HTMLSelectElement | null;
+  if (!select) return;
+  select.focus();
+  select.onchange = () => {
+    const idx = Number(select.value);
+    const current = snap && typeof snap.mode === "object" && "SchemaEnum" in snap.mode ? snap.mode.SchemaEnum.cursor : 0;
+    send({ SchemaEnumMove: idx - current });
+    send("SchemaEnumCommit");
+  };
+  select.onkeydown = (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      send("Escape");
+    }
+  };
+}
+
 // The rendered `.row` element for a path (the menu reopens against a still-live
 // DOM after `closePops`, so we look it up rather than threading the element).
 function rowElByPath(path: Path): HTMLElement | null {
@@ -1467,7 +1605,7 @@ function buildCtxMenu(path: Path): HTMLElement {
     if (el) beginTrailingEdit(el, path);
   };
   const items: Array<[string, CtxAction, boolean]> = [
-    ["Edit", "BeginEdit", true],
+    ["Edit", "BeginEditExternal", true],
     ["Add child", "AddChild", !!row?.is_branch],
     ["Append sibling", "AddSibling", path.length > 0],
     ["Copy", "CopySelected", true],
@@ -1651,6 +1789,7 @@ function bindGlobal() {
   // click on the blank space below the last row also reaches `onTreeClick`'s
   // "empty area" branch — same wrap `installMarquee`'s mousedown uses.
   $("treeWrap").addEventListener("click", onTreeClick);
+  $("treeWrap").addEventListener("mouseover", onTreeHover);
   tree.addEventListener("contextmenu", onTreeContext);
   tree.addEventListener("wheel", onTreeWheel, { passive: false });
   installMarquee();
@@ -1691,6 +1830,7 @@ function bindGlobal() {
   bindSearch();
   bindConvertDialog();
   openBtn.addEventListener("click", openOpenModal);
+  attachSchemaBtn.addEventListener("click", () => void attachSchema());
   saveBtn.addEventListener("click", () => void doSave());
   saveAsBtn.addEventListener("click", () => {
     // Toggle: a second click on the chevron while its menu is open closes it.

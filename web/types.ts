@@ -49,6 +49,7 @@ export interface ViewRow {
   // Key-sign label ("bare"/"quoted"/"dotted"/"none") for the structured "Sign" field.
   key_sign?: string;
   read_only: boolean;
+  violations: string[] | undefined;
   selected: boolean;
   is_cursor: boolean;
 }
@@ -127,7 +128,16 @@ export type ModeView =
   | { Convert: ConvertView }
   | "Detail"
   | { Help: { tab: "Help" | "About" } }
-  | { Edit: EditView };
+  | { Edit: EditView }
+  | { SchemaEnum: { options: string[]; cursor: number } };
+
+// Schema-driven editing constraint for one node (session::schema::EditHint,
+// mirrors the Rust enum exactly). `Enum`'s pairs are `[label, value]` tuples
+// (serde tuple-serialization); `value` is the raw JSON to write verbatim.
+export type EditHint =
+  | { Enum: Array<[string, unknown]> }
+  | { Bounded: { minimum: number | undefined; maximum: number | undefined; multiple_of: number | undefined } }
+  | "None";
 
 // ---- External edit handshake (session::view::ExternalEdit, §8.2) ----
 export type ExternalEditKind =
@@ -137,6 +147,12 @@ export type ExternalEditKind =
 export interface ExternalEdit {
   initial: string;
   kind: ExternalEditKind;
+}
+
+export interface SchemaStatus {
+  source_label: string;
+  violation_count: number;
+  load_error: string | undefined;
 }
 
 // ---- Full-state snapshot (session::view::SessionSnapshot) ----
@@ -151,6 +167,8 @@ export interface SessionSnapshot {
   error: string | undefined;
   detail_text: string | undefined;
   external_edit: ExternalEdit | undefined;
+  schema_status: SchemaStatus | undefined;
+  schema_fetch_request: { Local: string } | { Url: string } | undefined;
   convert_write: [string, string] | undefined; // [output_path, text]
   clipboard_count: number | undefined; // Some(n) when the clipboard holds n fragments
   clipboard_cut: boolean; // true = cut (move); false = copy
@@ -204,7 +222,7 @@ export type Intent =
   // Help
   | "EnterHelp" | "ExitHelp" | "ToggleHelpTab"
   // Inline edit
-  | "BeginEdit" | "BeginRename" | "EditToggleField"
+  | "BeginEdit" | "BeginEditExternal" | "BeginRename" | "EditToggleField"
   | { EditChar: string }
   | "EditBackspace" | "EditDelete"
   | "EditCursorLeft" | "EditCursorRight" | "EditCursorHome" | "EditCursorEnd"
@@ -220,4 +238,13 @@ export type Intent =
   // Lifecycle
   | "Escape" | { PromptKey: string } | "QuitRequested" | "Save"
   // i18n
-  | { SetLang: string };
+  | { SetLang: string }
+  // Schema — host ↔ core async handshake (spec §1): host resolves
+  // `schema_fetch_request`'s text and dispatches `SchemaLoaded` back; `SetSchema`
+  // is the "attach schema" action; the enum arms drive the constrained-value
+  // picker. Mirrors Rust `session::intent::Intent` (Tasks 13/15/16 consume these).
+  | { SetSchema: { source: { Local: string } | { Url: string } } }
+  | { SchemaLoaded: { source: { Local: string } | { Url: string }; text: { Ok: string } | { Err: string } } }
+  | { SchemaEnumMove: number }
+  | { SchemaEnumJump: number }
+  | "SchemaEnumCommit";

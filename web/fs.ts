@@ -232,6 +232,45 @@ export async function fetchUrlFile(
   return { name, text, contentType };
 }
 
+/** True for a POSIX (`/…`) or Windows (`C:\\…`/`C:/…`/`\\server\…`) absolute path. */
+function isAbsolutePath(p: string): boolean {
+  return p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p) || p.startsWith("\\\\");
+}
+
+/**
+ * Read a schema file by relative path, against the directory of the
+ * currently open file. FS Access API: resolves via the open file handle's
+ * parent directory handle. Tauri: reads `dirOf(currentPath) + '/' + rel`
+ * directly (unrestricted `fs:scope` — spec: Tauri/Android section). No
+ * File System Access API directory handle is retained today (`fileHandle`
+ * only holds the file handle, not its parent) — Chromium exposes
+ * `handle.getParent?.()` behind an experimental flag some browsers lack, so
+ * this degrades to a soft failure (`Promise.reject`) there rather than
+ * probing an unstable API, consistent with the "never a hard-fail" schema
+ * convention (spec §1) — the caller (openText's schema wiring) always
+ * treats rejection as a soft `load_error`, never a UI-blocking error.
+ */
+export async function readSiblingFile(
+  relativePath: string,
+  currentFilePath: string | null,
+): Promise<string> {
+  const g = tauriGlobal();
+  if (g?.fs && currentFilePath) {
+    const dir = currentFilePath.split(/[\\/]/).slice(0, -1).join("/");
+    // Resolve EVERY relative path against the open file's directory (spec §1),
+    // mirroring the TUI's `open_file_dir.join(rel)` (schema_io.rs) — bare
+    // filenames (`schema.json`), `./`-prefixed and `../`-prefixed paths all
+    // resolve the same way. Absolute paths are left untouched, matching Rust
+    // `Path::join`'s absolute-replaces-base rule. The caller has already
+    // classified this source as `Local` (never a URL), so no URL check here.
+    const resolved = dir && !isAbsolutePath(relativePath)
+      ? `${dir}/${relativePath}`
+      : relativePath;
+    return g.fs.readTextFile(resolved);
+  }
+  throw new Error("local schema file resolution is not available on this host");
+}
+
 interface PickWritableResponse {
   uri: string | null;
   name: string | null;

@@ -2,6 +2,7 @@ pub mod app;
 pub mod editor;
 pub mod insertion;
 pub mod keys;
+pub mod schema_io;
 pub mod search;
 pub mod selection;
 pub mod state;
@@ -19,11 +20,28 @@ pub fn run(
     path: &Path,
     format: crate::model::document::DocFormat,
     lang: confy_core::session::Lang,
+    schema_override: Option<String>,
 ) -> Result<()> {
     let doc = crate::load_document(path, format)?;
     let mut app = app::App::new(doc);
     app.session.set_lang(lang);
     app.source_path = Some(path.to_path_buf());
+
+    let open_file_dir = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let source = schema_override
+        .map(|s| {
+            if s.starts_with("http://") || s.starts_with("https://") {
+                confy_core::schema::SchemaSource::Url(s)
+            } else {
+                confy_core::schema::SchemaSource::Local(s)
+            }
+        })
+        .or_else(|| app.session.detect_and_request_schema());
+    if let Some(source) = source {
+        let text = crate::tui::schema_io::resolve_schema_source(&source, open_file_dir);
+        app.session.apply_schema_text(source, text);
+        app.rebuild_rows();
+    }
 
     // Restore the terminal even if the event loop panics, so a crash never
     // leaves the user's shell stuck in raw mode / the alternate screen.
@@ -128,7 +146,7 @@ fn run_event_loop(
                 use crossterm::event::KeyCode;
                 // Compute the popup's inner viewport + content height to clamp scrolling.
                 let size = terminal.size()?;
-                let text = app.session.detail_text.clone().unwrap_or_default();
+                let text = ui::detail_full_text(app);
                 let rect = ui::detail_popup_rect(
                     ratatui::layout::Rect::new(0, 0, size.width, size.height),
                     &text,
@@ -274,6 +292,49 @@ fn run_event_loop(
                     KeyCode::Up | KeyCode::Char('k') => app.kind_switch_move(-1),
                     KeyCode::Down | KeyCode::Char('j') => app.kind_switch_move(1),
                     KeyCode::Enter => app.kind_switch_commit(),
+                    KeyCode::Esc => app.escape(),
+                    _ => {}
+                }
+                continue;
+            }
+            // Schema-constrained enum/const picker (modal): Up/Down (or j/k)
+            // move the selection by one (wraps — `schema_enum_move`), Home/End
+            // jump to the first/last option, PageUp/PageDown jump a screenful
+            // (`ui::schema_enum_page_step`, sized off the same popup layout
+            // the renderer draws, so a page always matches what's on screen —
+            // same convention as the `f` type-filter popup's paging). Jump
+            // moves clamp instead of wrapping (`schema_enum_jump`). Enter
+            // applies + rebuilds the render rows, Esc cancels via the
+            // session's escape dispatch (which removes a placeholder node
+            // when the picker was opened via "add into an enum-constrained
+            // field"). Other keys swallowed.
+            if matches!(app.session.mode, crate::tui::state::Mode::SchemaEnum(_)) {
+                use crossterm::event::KeyCode;
+                let option_count = match &app.session.mode {
+                    crate::tui::state::Mode::SchemaEnum(st) => st.options.len(),
+                    _ => 0,
+                };
+                match key.code {
+                    KeyCode::Up | KeyCode::Char('k') => app.session.schema_enum_move(-1),
+                    KeyCode::Down | KeyCode::Char('j') => app.session.schema_enum_move(1),
+                    KeyCode::Home => app.session.schema_enum_jump(-(option_count as i32)),
+                    KeyCode::End => app.session.schema_enum_jump(option_count as i32),
+                    KeyCode::PageUp => {
+                        let size = terminal.size()?;
+                        let area = ratatui::layout::Rect::new(0, 0, size.width, size.height);
+                        let step = ui::schema_enum_page_step(option_count, area);
+                        app.session.schema_enum_jump(-step);
+                    }
+                    KeyCode::PageDown => {
+                        let size = terminal.size()?;
+                        let area = ratatui::layout::Rect::new(0, 0, size.width, size.height);
+                        let step = ui::schema_enum_page_step(option_count, area);
+                        app.session.schema_enum_jump(step);
+                    }
+                    KeyCode::Enter => {
+                        app.session.schema_enum_commit();
+                        app.rebuild_rows();
+                    }
                     KeyCode::Esc => app.escape(),
                     _ => {}
                 }

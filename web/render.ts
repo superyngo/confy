@@ -77,7 +77,13 @@ export function editWidthCh(text: string): string {
 }
 const editWidthStyle = (text: string): string => `width:${editWidthCh(text)}`;
 
-function renderValue(r: ViewRow, edit: EditView | null): string {
+function renderValue(r: ViewRow, edit: EditView | null, schemaEnum: { options: string[]; cursor: number } | null): string {
+  if (schemaEnum && r.is_cursor) {
+    const opts = schemaEnum.options
+      .map((label, i) => `<option value="${i}"${i === schemaEnum.cursor ? " selected" : ""}>${escapeHtml(label)}</option>`)
+      .join("");
+    return `<select class="cell-input mono" data-editing="value" data-schema-enum="1">${opts}</select>`;
+  }
   if (edit && r.is_cursor && edit.field === "Value") {
     const seed = valueEditSeed(r, edit.buffer);
     return `<input class="cell-input mono" data-editing="value" style="${editWidthStyle(seed)}" value="${escapeHtml(seed)}" />`;
@@ -107,6 +113,7 @@ function renderRow(
   idx: number,
   rows: ViewRow[],
   edit: EditView | null,
+  schemaEnum: { options: string[]; cursor: number } | null,
   clip: "" | " clip-copy" | " clip-cut",
 ): string {
   const pathAttr = escapeHtml(JSON.stringify(r.path));
@@ -115,7 +122,8 @@ function renderRow(
   const cls =
     `row${r.is_branch ? " branch" : ""}${expanded ? " open" : ""}` +
     `${r.is_cursor ? " cursor" : ""}${r.selected ? " selected" : ""}` +
-    `${r.read_only ? " readonly" : ""}${comment ? " comment-row" : ""}${clip}`;
+    `${r.read_only ? " readonly" : ""}${comment ? " comment-row" : ""}${clip}` +
+    `${r.violations ? " schema-violation" : ""}`;
   let s = `<div class="${cls}" data-path="${pathAttr}" data-index="${idx}">`;
   // Indentation: a single spacer whose width scales with depth (the design's
   // `indent.style.width = depth*22`). The synthetic root (depth 0) is not drawn,
@@ -160,7 +168,7 @@ function renderRow(
     } else {
       const vcls = valueTypeClass(r);
       s += `<span class="eq">=</span>`;
-      s += `<span class="val ${vcls} mono" data-edit="val">${renderValue(r, edit)}</span>`;
+      s += `<span class="val ${vcls} mono" data-edit="val">${renderValue(r, edit, schemaEnum)}</span>`;
     }
     // Kind badge (type + notation + chevron).
     if (!r.read_only) s += renderKindBadge(r);
@@ -187,6 +195,10 @@ export function renderTree(
   edit: EditView | null,
 ): void {
   const rows = snap.rows;
+  const schemaEnum =
+    typeof snap.mode === "object" && "SchemaEnum" in snap.mode
+      ? { options: snap.mode.SchemaEnum.options, cursor: snap.mode.SchemaEnum.cursor }
+      : null;
   // Clipboard source rows get a distinct class (copy vs cut) so they read
   // differently from the selection box.
   const clipKeys = new Set(snap.clipboard_paths.map((p) => JSON.stringify(p)));
@@ -204,6 +216,7 @@ export function renderTree(
             idx,
             rows,
             edit,
+            schemaEnum,
             clipKeys.has(JSON.stringify(r.path)) ? clipCls : "",
           ),
     )

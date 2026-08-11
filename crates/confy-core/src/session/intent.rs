@@ -137,6 +137,11 @@ pub enum Intent {
 
     // ---- Inline edit ----
     BeginEdit,
+    /// Force the external popup editor unconditionally, bypassing the
+    /// schema-aware inline/SchemaEnum-picker branch `BeginEdit` takes for
+    /// scalars. Mirrors the TUI's `E` key (`App::edit_node`, always
+    /// external regardless of node kind or schema).
+    BeginEditExternal,
     BeginRename,
     EditToggleField,
     EditClampScroll(usize),
@@ -190,4 +195,11 @@ pub enum Intent {
     /// wire contract simple; an unrecognized code leaves the current language
     /// unchanged (never panics).
     SetLang(String),
+    // Schema
+    SetSchema { source: crate::schema::SchemaSource },
+    SchemaLoaded { source: crate::schema::SchemaSource, text: Result<String, String> },
+    SchemaEnumMove(i32),
+    /// Clamped jump (PageUp/PageDown/Home/End) — see `Session::schema_enum_jump`.
+    SchemaEnumJump(i32),
+    SchemaEnumCommit,
 }

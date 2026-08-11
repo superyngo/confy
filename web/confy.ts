@@ -6,6 +6,7 @@ import init, {
 } from "./pkg/confy_ffi.js";
 import type {
   ChildView,
+  EditHint,
   Intent,
   KindOptionView,
   Path,
@@ -73,6 +74,15 @@ export class Session {
 
   kindOptions(path: Path): KindOption[] {
     return this.raw.kind_options(path) as KindOption[];
+  }
+
+  /**
+   * Schema-driven editing constraint for the node at `path` — enum/const
+   * options or numeric bounds, `"None"` when unconstrained or no schema is
+   * loaded. Read-only, does not enter edit mode.
+   */
+  schemaHint(path: Path): EditHint {
+    return this.raw.schema_hint(path) as EditHint;
   }
 
   /** Immediate children of the node at `path` (breadcrumb mini-tree). */

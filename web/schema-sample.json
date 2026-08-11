@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "editor": {
+          "enum": ["vim", "nano", "helix", "confy", 0]
+        },
+        "poll_ms": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 2000,
+          "multipleOf": 5
+        }
+      }
+    }
+  }
+}

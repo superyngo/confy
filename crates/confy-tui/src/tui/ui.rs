@@ -209,6 +209,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     draw_type_filter_overlay(f, app);
     draw_kind_switch_overlay(f, app);
     draw_convert_overlay(f, app);
+    draw_schema_enum_overlay(f, app);
     draw_lang_picker_overlay(f, app);
 }
 
@@ -347,6 +348,9 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                 Style::default().bg(bg).fg(Color::White)
             } else if app.session.selection.contains(&row.path) {
                 Style::default().bg(Color::DarkGray)
+            } else if row.violations.is_some() {
+                // Subdued, not alarming — a soft constraint, never a hard error.
+                Style::default().fg(Color::Yellow)
             } else {
                 Style::default()
             };
@@ -560,11 +564,33 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
         "tui.status.default",
         &[&pos.to_string(), &total.to_string()],
     );
-    if let Some(ref msg) = app.session.status {
+    if let Some(msg) = &app.session.status {
         status = format!(" {msg}");
+    } else if let Some(hint) = app.session.edit_hint(&app.session.cursor).describe() {
+        // Dynamic, tooltip-like: appears while the cursor sits on a
+        // schema-constrained node, clears the instant it moves off (no
+        // explicit session.status set — that always wins, e.g. a just-
+        // committed violation message).
+        status = format!(" {hint}");
     }
-    let paragraph =
-        Paragraph::new(status).style(Style::default().bg(Color::DarkGray).fg(Color::White));
+    let violation_count = app
+        .session
+        .schema
+        .as_ref()
+        .map(|s| s.violations.len())
+        .unwrap_or(0);
+    let paragraph = if violation_count > 0 {
+        Paragraph::new(Line::from(vec![
+            Span::raw(status),
+            Span::styled(
+                format!(" · {violation_count} schema warnings"),
+                Style::default().fg(Color::Yellow),
+            ),
+        ]))
+        .style(Style::default().bg(Color::DarkGray).fg(Color::White))
+    } else {
+        Paragraph::new(status).style(Style::default().bg(Color::DarkGray).fg(Color::White))
+    };
     f.render_widget(paragraph, area);
 }
 
@@ -630,6 +656,23 @@ pub(crate) fn wrapped_line_count(text: &str, width: u16) -> usize {
         .sum()
 }
 
+/// The Detail popup's full rendered text — `detail_text` plus, when the
+/// cursor row carries schema violations, an appended `Schema:` section.
+/// Shared by `draw_detail_overlay` (sizing + content) and `mod.rs`'s Detail
+/// key handler (scroll-clamp), so they can never drift out of sync.
+pub(crate) fn detail_full_text(app: &App) -> String {
+    let mut text = app.session.detail_text.clone().unwrap_or_default();
+    if let Some(msgs) = app
+        .cursor_row()
+        .and_then(|r| r.violations.as_ref())
+        .filter(|msgs| !msgs.is_empty())
+    {
+        text.push_str("\n\nSchema:\n");
+        text.push_str(&msgs.join("\n"));
+    }
+    text
+}
+
 fn draw_detail_overlay(f: &mut Frame, app: &App) {
     if !matches!(app.session.mode, Mode::Detail) {
         return;
@@ -638,13 +681,31 @@ fn draw_detail_overlay(f: &mut Frame, app: &App) {
         Some(t) => t.clone(),
         None => return,
     };
-    let area = detail_popup_rect(f.area(), &detail_text);
+    let violations = app
+        .cursor_row()
+        .and_then(|r| r.violations.as_ref())
+        .filter(|msgs| !msgs.is_empty());
+    // Size the popup from the FULL rendered text (original + appended Schema
+    // section), so violation messages never get clipped.
+    let full_text = detail_full_text(app);
+    let area = detail_popup_rect(f.area(), &full_text);
     f.render_widget(Clear, area);
     let block = Block::default()
         .title(" Detail (↑/↓ PgUp/PgDn Home/End · Esc) ")
         .borders(Borders::ALL)
         .style(Style::default().bg(Color::Black).fg(Color::White));
-    let paragraph = Paragraph::new(detail_text)
+    let mut lines: Vec<Line> = detail_text.lines().map(Line::from).collect();
+    if let Some(msgs) = violations {
+        lines.push(Line::from(""));
+        lines.push(Line::from("Schema:"));
+        for msg in msgs {
+            lines.push(Line::from(Span::styled(
+                msg.clone(),
+                Style::default().fg(Color::Yellow),
+            )));
+        }
+    }
+    let paragraph = Paragraph::new(lines)
         .block(block)
         .wrap(Wrap { trim: false })
         .scroll((app.detail_scroll, 0));
@@ -869,6 +930,68 @@ fn draw_kind_switch_overlay(f: &mut Frame, app: &App) {
         .borders(Borders::ALL)
         .style(Style::default().bg(Color::Black).fg(Color::White));
     f.render_widget(Paragraph::new(lines).block(block), area);
+}
+
+/// The schema-constrained enum/const picker: reuses the `K` kind-switch
+/// popup's exact shape (spec §3/§5). Long option lists scroll to keep the
+/// cursor on-screen (`scroll_offset`, computed the same follow-the-cursor
+/// way as the tree's own row scrolling) — `PageUp`/`PageDown` jump a
+/// screenful via `schema_enum_page_step`, which must stay in lockstep with
+/// this function's `inner_h` so a page always matches what's on screen.
+fn draw_schema_enum_overlay(f: &mut Frame, app: &App) {
+    let Mode::SchemaEnum(st) = &app.session.mode else {
+        return;
+    };
+    let lines: Vec<Line> = st
+        .options
+        .iter()
+        .enumerate()
+        .map(|(i, (label, _))| {
+            let marker = if i == st.cursor { "›" } else { " " };
+            let mut style = Style::default();
+            if i == st.cursor {
+                style = style.add_modifier(Modifier::REVERSED);
+            }
+            Line::from(Span::styled(format!(" {marker} {label:<28}"), style))
+        })
+        .collect();
+    let height = (lines.len() as u16 + 2).min(f.area().height);
+    let area = centered_rect(40, height, f.area());
+    let inner_h = area.height.saturating_sub(2);
+    let scroll_offset = schema_enum_scroll_offset(st.cursor, lines.len(), inner_h);
+    f.render_widget(Clear, area);
+    let block = Block::default()
+        .title(" Schema value ")
+        .title_bottom(" ↑↓ move · PgUp/PgDn · Home/End · Enter apply · Esc cancel ")
+        .borders(Borders::ALL)
+        .style(Style::default().bg(Color::Black).fg(Color::White));
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .scroll((scroll_offset, 0)),
+        area,
+    );
+}
+
+/// Smallest scroll offset that keeps `cursor` inside the `inner_h`-tall
+/// visible window — scrolls up the instant the cursor would go above it,
+/// down the instant it would go below, otherwise holds still.
+fn schema_enum_scroll_offset(cursor: usize, option_count: usize, inner_h: u16) -> u16 {
+    let inner_h = inner_h.max(1) as usize;
+    if option_count <= inner_h {
+        return 0;
+    }
+    let max_offset = option_count - inner_h;
+    cursor.saturating_sub(inner_h - 1).min(max_offset) as u16
+}
+
+/// How many options fit within the picker's visible height for a given
+/// option count/terminal size — the `PageUp`/`PageDown` step (mod.rs),
+/// kept in lockstep with `draw_schema_enum_overlay`'s own height calc.
+pub(crate) fn schema_enum_page_step(option_count: usize, term_area: Rect) -> i32 {
+    let height = (option_count as u16 + 2).min(term_area.height);
+    let area = centered_rect(40, height, term_area);
+    area.height.saturating_sub(2).max(1) as i32
 }
 
 fn draw_convert_overlay(f: &mut Frame, app: &App) {
@@ -1183,6 +1306,46 @@ mod tests {
         assert!(
             !render_detail(&app).contains("Path:"),
             "Path line should scroll away"
+        );
+    }
+
+    #[test]
+    fn detail_full_text_appends_schema_section_for_cursor_violations() {
+        // A schema-violating cursor row must produce a full-text string that
+        // includes the appended `Schema:` section — this is what both the popup
+        // sizing and the scroll-clamp measure, so they can't drift.
+        let schema = r#"{"type":"object","properties":{"port":{"type":"string"}}}"#;
+        let mut app = App::new(crate::model::any_doc::AnyDocument::Toml(
+            crate::model::cst_doc::CstDocument::from_str("port = 1\n").unwrap(),
+        ));
+        app.session.apply_schema_text(
+            confy_core::schema::SchemaSource::Local("/tmp/s.json".into()),
+            Ok(schema.to_string()),
+        );
+        app.rebuild_rows();
+        app.select_row(1); // cursor on port
+        app.open_detail();
+        let full = detail_full_text(&app);
+        assert!(full.contains("Schema:"), "section appended: {full:?}");
+        assert!(full.contains("not of type"), "violation msg present: {full:?}");
+
+        // A conforming value produces no violations → no Schema section.
+        let mut clean = App::new(crate::model::any_doc::AnyDocument::Toml(
+            crate::model::cst_doc::CstDocument::from_str("port = \"ok\"\n").unwrap(),
+        ));
+        clean
+            .session
+            .apply_schema_text(
+                confy_core::schema::SchemaSource::Local("/tmp/s.json".into()),
+                Ok(schema.to_string()),
+            );
+        clean.rebuild_rows();
+        clean.select_row(1);
+        clean.open_detail();
+        let clean_full = detail_full_text(&clean);
+        assert!(
+            !clean_full.contains("Schema:"),
+            "no section when conforming: {clean_full:?}"
         );
     }
 

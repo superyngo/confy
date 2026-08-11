@@ -25,6 +25,8 @@ pub struct Session {
     pub history: Option<History>,
     pub status: Option<String>,
     pub error: Option<String>,
+    pub schema: Option<crate::schema::SchemaState>,
+    pub pending_schema_fetch: Option<crate::schema::SchemaSource>,
     pub mode: Mode,
     pub clipboard: Option<Clipboard>,
     pub paste_slot: Option<PasteSlot>,
@@ -65,6 +67,7 @@ impl Session {
         let mut s = Session::from_tree(tree);
         s.doc = Some(doc);
         s.history = Some(history);
+        s.pending_schema_fetch = s.detect_and_request_schema();
         s
     }
 
@@ -81,6 +84,8 @@ impl Session {
             history: None,
             status: None,
             error: None,
+            schema: None,
+            pending_schema_fetch: None,
             mode: Mode::Normal,
             clipboard: None,
             paste_slot: None,
@@ -147,6 +152,15 @@ impl Session {
                     read_only: r.node.read_only,
                     selected: self.selection.contains(&r.node.path),
                     is_cursor: r.node.path == self.cursor,
+                    violations: self.schema.as_ref().and_then(|s| {
+                        let msgs: Vec<String> = s
+                            .violations
+                            .iter()
+                            .filter(|v| v.path == r.node.path)
+                            .map(|v| v.message.clone())
+                            .collect();
+                        (!msgs.is_empty()).then_some(msgs)
+                    }),
                 }
             })
             .collect()
@@ -1302,9 +1316,230 @@ impl Session {
         })
     }
 
+    // ---- Schema state (spec §1/§3) ----
+
+    /// Detect an in-file schema hint on the current document. Does **not**
+    /// load anything (confy-core is fs-free) — the host resolves the
+    /// returned `SchemaSource` (local read or URL fetch) and calls
+    /// `apply_schema_text` with the result. Returns `None` (leaving
+    /// `self.schema` untouched) when no hint is found — editing proceeds
+    /// exactly as before (spec §1).
+    pub fn detect_and_request_schema(&mut self) -> Option<crate::schema::SchemaSource> {
+        let doc = self.doc.as_ref()?;
+        let text = doc.serialize();
+        crate::schema::hints::detect_hint(&text, doc.format())
+    }
+
+    /// The host resolved `source`'s text (or failed to). `Ok` compiles and
+    /// validates; `Err` sets a soft `load_error` — never touches
+    /// `self.error`, and the document stays fully editable either way
+    /// (spec §1: "never blocks opening, editing, or saving").
+    pub fn apply_schema_text(&mut self, source: crate::schema::SchemaSource, text: Result<String, String>) {
+        let state = match text {
+            Ok(text) => match serde_json::from_str::<serde_json::Value>(&text) {
+                Ok(raw) => match jsonschema::Validator::new(&raw) {
+                    Ok(compiled) => crate::schema::SchemaState {
+                        source,
+                        compiled: Some(compiled),
+                        raw: Some(raw),
+                        violations: Vec::new(),
+                        load_error: None,
+                    },
+                    Err(e) => crate::schema::SchemaState {
+                        source,
+                        compiled: None,
+                        raw: None,
+                        violations: Vec::new(),
+                        load_error: Some(format!("invalid schema: {e}")),
+                    },
+                },
+                Err(e) => crate::schema::SchemaState {
+                    source,
+                    compiled: None,
+                    raw: None,
+                    violations: Vec::new(),
+                    load_error: Some(format!("schema is not valid JSON: {e}")),
+                },
+            },
+            Err(msg) => crate::schema::SchemaState {
+                source,
+                compiled: None,
+                raw: None,
+                violations: Vec::new(),
+                load_error: Some(msg),
+            },
+        };
+        self.schema = Some(state);
+        self.revalidate_schema();
+    }
+
+    /// Re-run validation against the current tree. Called after every
+    /// successful mutation commit and once right after `apply_schema_text`.
+    /// A no-op when no schema is loaded or it failed to compile.
+    pub fn revalidate_schema(&mut self) {
+        let Some(state) = self.schema.as_mut() else { return };
+        let Some(compiled) = state.compiled.as_ref() else { return };
+        let Some(doc) = self.doc.as_ref() else { return };
+        let Ok((value, _warnings)) = doc.to_value() else {
+            // A YAML opaque node or similar blocks `to_value()` — leave the
+            // previous violation list rather than silently clearing it.
+            return;
+        };
+        let (projection, map) = crate::schema::value_bridge::bridge(&self.tree.root, &value);
+        state.violations = crate::schema::validate::validate(&projection, compiled, &map);
+    }
+
+    /// Resolve the schema-driven editing hint for the node at `path` —
+    /// enum/const options, numeric bounds, or `EditHint::None` when
+    /// unconstrained or no schema is loaded. Read-only, cheap (same
+    /// `resolve_edit_hint` walk `begin_inline_edit_impl`/`nudge` already do),
+    /// no I/O. Used by hosts for a hover tooltip (spec §4) and to decide
+    /// whether the detail panel should render a schema-select widget before
+    /// entering edit mode (spec §2), without a `BeginEdit` round-trip.
+    pub fn edit_hint(&self, path: &Path) -> crate::schema::EditHint {
+        self.schema
+            .as_ref()
+            .and_then(|s| s.raw.as_ref())
+            .map(|raw| crate::schema::hints_edit::resolve_edit_hint(raw, path))
+            .unwrap_or(crate::schema::EditHint::None)
+    }
+
+    /// After a value commit, surface any resulting schema violation at
+    /// `path` as an advisory `self.status` message (spec §3). The commit
+    /// already succeeded — schema constraints are soft (`CONTEXT.md` §
+    /// Schema) — this never blocks or reverts anything, it only informs.
+    /// Combines the violation message(s) with a `resolve_edit_hint`-derived
+    /// suggestion (valid enum values / numeric bounds) when one applies.
+    fn note_schema_violation(&mut self, path: &Path) {
+        let Some(state) = self.schema.as_ref() else {
+            return;
+        };
+        let messages: Vec<&str> = state
+            .violations
+            .iter()
+            .filter(|v| &v.path == path)
+            .map(|v| v.message.as_str())
+            .collect();
+        if messages.is_empty() {
+            return;
+        }
+        let mut msg = messages.join("; ");
+        if let Some(raw) = state.raw.as_ref() {
+            match crate::schema::hints_edit::resolve_edit_hint(raw, path) {
+                crate::schema::EditHint::Enum(options) => {
+                    let labels: Vec<&str> = options.iter().map(|(l, _)| l.as_str()).collect();
+                    if !labels.is_empty() {
+                        msg.push_str(&format!(" — valid values: {}", labels.join(", ")));
+                    }
+                }
+                crate::schema::EditHint::Bounded {
+                    minimum,
+                    maximum,
+                    multiple_of,
+                } => {
+                    let mut parts = Vec::new();
+                    match (minimum, maximum) {
+                        (Some(min), Some(max)) => parts.push(format!("between {min} and {max}")),
+                        (Some(min), None) => parts.push(format!("at least {min}")),
+                        (None, Some(max)) => parts.push(format!("at most {max}")),
+                        (None, None) => {}
+                    }
+                    if let Some(m) = multiple_of {
+                        parts.push(format!("a multiple of {m}"));
+                    }
+                    if !parts.is_empty() {
+                        msg.push_str(&format!(" — must be {}", parts.join(", ")));
+                    }
+                }
+                crate::schema::EditHint::None => {}
+            }
+        }
+        self.status = Some(msg);
+    }
+
+    pub fn schema_enum_move(&mut self, delta: i32) {
+        if let crate::session::state::Mode::SchemaEnum(st) = &mut self.mode {
+            let len = st.options.len() as i32;
+            if len == 0 {
+                return;
+            }
+            st.cursor = ((st.cursor as i32 + delta).rem_euclid(len)) as usize;
+        }
+    }
+
+    /// Jumps the schema-enum picker cursor by `delta`, clamped to the option
+    /// range instead of wrapping (`schema_enum_move`'s ±1 arrow-key step
+    /// wraps deliberately; PageUp/PageDown/Home/End should stop at the ends,
+    /// same convention as `type_filter::move_cursor`). Callers land exactly
+    /// on the first/last option for Home/End by passing a `delta` at least
+    /// as large as the option count in either direction — the clamp does
+    /// the rest, so callers don't need the exact length.
+    pub fn schema_enum_jump(&mut self, delta: i32) {
+        if let crate::session::state::Mode::SchemaEnum(st) = &mut self.mode {
+            let len = st.options.len() as i32;
+            if len == 0 {
+                return;
+            }
+            st.cursor = (st.cursor as i32 + delta).clamp(0, len - 1) as usize;
+        }
+    }
+
+    /// Commits the picked enum/const value. Deliberately routes through
+    /// `edit_commit` (like the Web one-shot `commit_edit`) rather than
+    /// applying the `Replace` mutation directly, so a schema-picked value
+    /// that would change the node's underlying type (e.g. an enum mixing
+    /// string and numeric consts) gets the same `Mode::Prompt(TypeChange)`
+    /// confirmation gate as any other value commit — previously this path
+    /// bypassed it entirely (every surface, not just one host, since this is
+    /// core-shared logic). `allow_schema_enum: false` keeps `edit_commit`
+    /// from re-diverting back into the picker.
+    pub fn schema_enum_commit(&mut self) {
+        let Mode::SchemaEnum(st) = std::mem::replace(&mut self.mode, Mode::Normal) else {
+            return;
+        };
+        let Some((_, value_repr)) = st.options.get(st.cursor).cloned() else {
+            return;
+        };
+        self.cursor = st.path.clone();
+        self.begin_inline_edit_impl(false);
+        let Mode::Edit(e) = &mut self.mode else {
+            return;
+        };
+        // Seed the buffer with the picked value plus whatever trailing
+        // comment already lived on the line (mirrors the buffer `begin_
+        // inline_edit_impl` would have built had it entered the picker
+        // itself, spec §1525) so `edit_commit`'s unchanged-trailing check
+        // sees no diff and never disturbs it.
+        let mut buffer = value_repr;
+        if let Some(tc) = &e.orig_trailing {
+            buffer.push_str("  ");
+            buffer.push_str(tc);
+        }
+        e.cursor = buffer.chars().count();
+        e.buffer = buffer;
+        self.edit_commit();
+        // One-shot epilogue, mirroring `commit_edit`: the picker has no live
+        // text editor or Detail panel to fall back into on decline/retry —
+        // schema_enum_commit already always resolved to `Mode::Normal` on
+        // success, so both outcomes settle there too.
+        match &self.mode {
+            Mode::Edit(_) => {
+                let msg = self.status.take();
+                self.edit_cancel();
+                self.error = msg;
+            }
+            Mode::Prompt(_) => self.prompt_from_commit_edit = Some(false),
+            _ => {}
+        }
+    }
+
     // ---- Inline editor ----
 
     pub fn begin_inline_edit(&mut self) {
+        self.begin_inline_edit_impl(true);
+    }
+
+    fn begin_inline_edit_impl(&mut self, allow_schema_enum: bool) {
         let rows = self.visible_rows();
         let row = match rows.iter().find(|r| r.path == self.cursor) {
             Some(r) => r.clone(),
@@ -1336,6 +1571,33 @@ impl Session {
         }
         let cursor = buffer.chars().count();
         let name_cursor = key.chars().count();
+        if allow_schema_enum {
+            if let Some(hint) = self.schema.as_ref().and_then(|s| s.raw.as_ref()).map(|raw| {
+                crate::schema::hints_edit::resolve_edit_hint(raw, &row.path)
+            }) {
+                if let crate::schema::EditHint::Enum(options) = hint {
+                    if !options.is_empty() {
+                        let format = self.doc.as_ref().map(|d| d.format());
+                        let opts: Vec<(String, String)> = options
+                            .into_iter()
+                            .filter_map(|(label, v)| scalar_repr_for(&v, format?).map(|r| (label, r)))
+                            .collect();
+                        if !opts.is_empty() {
+                            self.mode = Mode::SchemaEnum(crate::session::state::SchemaEnumState {
+                                path: row.path.clone(),
+                                key: key.clone(),
+                                is_element,
+                                created_on_add: false,
+                                cursor: 0,
+                                options: opts,
+                            });
+                            self.status = None;
+                            return;
+                        }
+                    }
+                }
+            }
+        }
         self.mode = Mode::Edit(EditState {
             path: row.path.clone(),
             key: key.clone(),
@@ -1487,6 +1749,15 @@ impl Session {
         }
     }
 
+    pub fn schema_enum_cancel(&mut self) {
+        let created_on_add = matches!(&self.mode, Mode::SchemaEnum(st) if st.created_on_add);
+        self.mode = self.resting_mode();
+        self.status = None;
+        if created_on_add {
+            self.cancel_added_node();
+        }
+    }
+
     fn cancel_added_node(&mut self) {
         let snapshot = match self.history.as_mut().and_then(|h| h.cancel_last()) {
             Some(s) => s,
@@ -1495,6 +1766,7 @@ impl Session {
         if let Some(doc) = self.doc.as_mut() {
             if doc.replace_from_str(&snapshot).is_ok() {
                 self.tree = doc.project();
+                self.revalidate_schema();
             }
         }
     }
@@ -1508,7 +1780,7 @@ impl Session {
     /// external-edit handshake).
     pub fn commit_edit(&mut self, value: Option<String>, name: Option<String>) {
         let from_detail = matches!(self.mode, Mode::Detail);
-        self.begin_inline_edit();
+        self.begin_inline_edit_impl(false);
         let Mode::Edit(ref mut e) = self.mode else {
             return;
         };
@@ -1812,7 +2084,10 @@ impl Session {
         }) {
             Ok(()) => {
                 if let Some(comment) = trailing {
-                    if let Err(e) = doc.apply(Mutation::SetTrailingComment { path, comment }) {
+                    if let Err(e) = doc.apply(Mutation::SetTrailingComment {
+                        path: path.clone(),
+                        comment,
+                    }) {
                         self.error = Some(tr_args(
                             self.lang,
                             "core.trailing.update-failed",
@@ -1821,6 +2096,7 @@ impl Session {
                     }
                 }
                 self.on_mutation_success();
+                self.note_schema_violation(&path);
             }
             Err(MutateError::Fragment(msg)) => {
                 self.error = Some(tr_args(self.lang, "core.fragment.invalid", &[fmt, &msg]));
@@ -1883,6 +2159,68 @@ impl Session {
         }
     }
 
+    /// Clamp/snap an arrow-key-nudged value into a schema's `Bounded`
+    /// constraint. Returns the (possibly adjusted) repr to commit. The
+    /// early-return cases — no schema, no raw schema text, no `Bounded`
+    /// hint for this path, or `new_repr` not parsing as a number — all
+    /// pass the value through unchanged (mirroring today's early-`true`
+    /// guards), so `None` is never produced in practice today; the
+    /// `Option` wrapper is kept for the `let Some(..) else { return }`
+    /// call-site shape. The arrow-key nudge *clamps* to `[minimum, maximum]`
+    /// and *snaps* to `multiple_of` (spec §3 `Bounded{min,max,multiple_of}`
+    /// row); free-text inline typing stays unclamped (this is
+    /// arrow-key-nudge-only — an out-of-range typed value is flagged by
+    /// validate.rs, never rejected at commit).
+    fn schema_clamp_nudge(
+        &self,
+        path: &crate::model::node::Path,
+        new_repr: &str,
+    ) -> Option<String> {
+        let Some(state) = self.schema.as_ref() else {
+            return Some(new_repr.to_string());
+        };
+        let Some(raw) = state.raw.as_ref() else {
+            return Some(new_repr.to_string());
+        };
+        let hint = crate::schema::hints_edit::resolve_edit_hint(raw, path);
+        let crate::schema::EditHint::Bounded {
+            minimum,
+            maximum,
+            multiple_of,
+        } = hint
+        else {
+            return Some(new_repr.to_string());
+        };
+        let Ok(mut n) = new_repr.replace('_', "").parse::<f64>() else {
+            return Some(new_repr.to_string());
+        };
+        // Snap to the nearest multiple of `step` (positive steps only — a
+        // non-positive multipleOf is invalid JSON Schema, ignored).
+        if let Some(step) = multiple_of {
+            if step > 0.0 {
+                n = (n / step).round() * step;
+            }
+        }
+        // Clamp to [minimum, maximum] (whichever bounds are present).
+        if let Some(min) = minimum {
+            n = n.max(min);
+        }
+        if let Some(max) = maximum {
+            n = n.min(max);
+        }
+        // Format back, matching the original repr's style when sensible:
+        // an integer-style repr (no '.') yielding a whole number formats
+        // as an integer; otherwise a plain float format. Best-effort
+        // display value — the committed representation comes from
+        // re-parsing the fragment downstream.
+        let was_int_style = !new_repr.contains('.');
+        Some(if was_int_style && n.fract() == 0.0 {
+            format!("{}", n as i64)
+        } else {
+            format!("{n}")
+        })
+    }
+
     // ---- Nudge (←/→ in Normal) ----
 
     pub fn nudge(&mut self, delta: i64) {
@@ -1921,6 +2259,9 @@ impl Session {
         let format = node.format;
         let trailing = node.trailing_comment.clone();
         if let Some(new_repr) = nudge_scalar(st, format, &repr, delta) {
+            let Some(new_repr) = self.schema_clamp_nudge(&path, &new_repr) else {
+                return;
+            };
             let key_arg = (frag_key != "__elem__").then_some(frag_key.as_str());
             let preserves = self
                 .doc
@@ -2073,8 +2414,10 @@ impl Session {
             self.cursor = new_path;
             if inline {
                 self.begin_inline_edit();
-                if let Mode::Edit(e) = &mut self.mode {
-                    e.created_on_add = true;
+                match &mut self.mode {
+                    Mode::Edit(e) => e.created_on_add = true,
+                    Mode::SchemaEnum(st) => st.created_on_add = true,
+                    _ => {}
                 }
             } else if key.is_some() {
                 // Container sibling with a key: enter rename mode so the user
@@ -2123,8 +2466,10 @@ impl Session {
             // immediately; `created_on_add` makes Esc remove it (and its
             // blank-line separator) via History::cancel_last, matching scalar add.
             self.begin_inline_edit();
-            if let Mode::Edit(e) = &mut self.mode {
-                e.created_on_add = true;
+            match &mut self.mode {
+                Mode::Edit(e) => e.created_on_add = true,
+                Mode::SchemaEnum(st) => st.created_on_add = true,
+                _ => {}
             }
         }
     }
@@ -2164,6 +2509,7 @@ impl Session {
         }
         self.status = None;
         self.error = None;
+        self.revalidate_schema();
     }
 
     // ---- d/x/c/v/r/z/y operations ----
@@ -2620,6 +2966,7 @@ impl Session {
             Ok(()) => {
                 self.tree = doc.project();
                 self.status = None;
+                self.revalidate_schema();
             }
             Err(e) => self.error = Some(tr_args(self.lang, "core.undo.error", &[&e.to_string()])),
         }
@@ -2641,6 +2988,7 @@ impl Session {
             Ok(()) => {
                 self.tree = doc.project();
                 self.status = None;
+                self.revalidate_schema();
             }
             Err(e) => self.error = Some(tr_args(self.lang, "core.redo.error", &[&e.to_string()])),
         }
@@ -2671,6 +3019,7 @@ impl Session {
             Mode::FilterResults => self.exit_filter_results(),
             Mode::TypeFilter => self.exit_type_filter(),
             Mode::KindSwitch(_) => self.exit_kind_switch(),
+            Mode::SchemaEnum(_) => self.schema_enum_cancel(),
             Mode::Convert(_) => self.exit_convert(),
             Mode::Detail => self.exit_detail(),
             Mode::Help(_) => self.exit_help(),
@@ -3026,6 +3375,25 @@ fn project_first_label(fragment: &str) -> Option<String> {
         .map(|n| node_type_label(&n.kind))
 }
 
+/// A schema enum/const JSON value's text repr for `ConfigDocument::scalar_fragment`.
+/// `format!("{:?}", s)` (Rust's Debug for `&str`) produces a `"…"`
+/// backslash-escaped double-quoted form that is simultaneously valid TOML
+/// basic-string, JSON string, and YAML double-quoted syntax — one repr
+/// serves all three backends. `Json::Null` has no TOML representation (spec
+/// §2: TOML never produces `Value::Null`) — filtered out for a TOML
+/// document so the enum picker never offers an unwritable option.
+fn scalar_repr_for(v: &serde_json::Value, format: crate::model::document::DocFormat) -> Option<String> {
+    use crate::model::document::DocFormat;
+    match v {
+        serde_json::Value::String(s) => Some(format!("{s:?}")),
+        serde_json::Value::Number(n) => Some(n.to_string()),
+        serde_json::Value::Bool(b) => Some(b.to_string()),
+        serde_json::Value::Null if format == DocFormat::Toml => None,
+        serde_json::Value::Null => Some("null".to_string()),
+        _ => None, // arrays/objects are not valid scalar enum options
+    }
+}
+
 fn nudge_scalar(st: ScalarType, fmt: Format, repr: &str, delta: i64) -> Option<String> {
     let s = repr.trim();
     match st {
@@ -3191,6 +3559,93 @@ mod helper_tests {
         assert_eq!(
             nudge_scalar(ScalarType::Integer, Format::Decimal, "999", 1).as_deref(),
             Some("1000")
+        );
+    }
+
+    #[test]
+    fn schema_clamp_nudge_snaps_to_multiple_of_and_clamps_to_bounds() {
+        use crate::model::any_doc::AnyDocument;
+        use crate::schema::{SchemaSource, SchemaState};
+
+        let doc =
+            AnyDocument::from_str_as("port = 1\nretry = 1\n", DocFormat::Toml).unwrap();
+        let mut s = Session::new(doc);
+
+        // multipleOf: 5, no min/max. Nudging a non-multiple (1 + delta 1
+        // => 2) snaps to the nearest multiple of 5.
+        s.schema = Some(SchemaState {
+            source: SchemaSource::Local("schema.json".into()),
+            compiled: None,
+            raw: Some(serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "port": { "type": "integer", "multipleOf": 5 }
+                }
+            })),
+            violations: Vec::new(),
+            load_error: None,
+        });
+        let port: Path = vec![Seg::Key("port".into())];
+        assert_eq!(
+            s.schema_clamp_nudge(&port, "2").as_deref(),
+            Some("0"),
+            "2 snaps to nearest multiple of 5 (0)"
+        );
+        assert_eq!(
+            s.schema_clamp_nudge(&port, "8").as_deref(),
+            Some("10"),
+            "8 snaps to nearest multiple of 5 (10)"
+        );
+
+        // minimum/maximum: nudging past a bound clamps to the bound
+        // instead of no-op'ing the whole nudge.
+        s.schema = Some(SchemaState {
+            source: SchemaSource::Local("schema.json".into()),
+            compiled: None,
+            raw: Some(serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "retry": { "type": "integer", "minimum": 0, "maximum": 3 }
+                }
+            })),
+            violations: Vec::new(),
+            load_error: None,
+        });
+        let retry: Path = vec![Seg::Key("retry".into())];
+        assert_eq!(
+            s.schema_clamp_nudge(&retry, "5").as_deref(),
+            Some("3"),
+            "5 clamps down to maximum 3"
+        );
+        assert_eq!(
+            s.schema_clamp_nudge(&retry, "-2").as_deref(),
+            Some("0"),
+            "-2 clamps up to minimum 0"
+        );
+
+        // no schema loaded: value passes through unchanged.
+        s.schema = None;
+        assert_eq!(
+            s.schema_clamp_nudge(&port, "2").as_deref(),
+            Some("2"),
+            "no schema => passthrough"
+        );
+
+        // path with no Bounded hint: passthrough.
+        s.schema = Some(SchemaState {
+            source: SchemaSource::Local("schema.json".into()),
+            compiled: None,
+            raw: Some(serde_json::json!({
+                "type": "object",
+                "properties": { "port": { "type": "string" } }
+            })),
+            violations: Vec::new(),
+            load_error: None,
+        });
+        assert_eq!(
+            s.schema_clamp_nudge(&port, "2").as_deref(),
+            Some("2"),
+            "non-Bounded hint => passthrough"
         );
     }
 

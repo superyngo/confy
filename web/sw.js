@@ -17,6 +17,7 @@ const SHELL = [
   "./pkg/confy_ffi.js",
   "./pkg/confy_ffi_bg.wasm",
   "./manifest.webmanifest",
+  "./schema-sample.json",
 ];
 
 self.addEventListener("install", (e) => {

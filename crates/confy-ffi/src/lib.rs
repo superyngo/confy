@@ -104,6 +104,16 @@ impl ConfySession {
         to_value(&opts).map_err(js_serde_error)
     }
 
+    /// Schema-driven editing hint for the node at `path` (enum/const options
+    /// or numeric bounds, `EditHint::None` when unconstrained) — read-only,
+    /// does not enter edit mode. Used for the desktop hover tooltip and to
+    /// decide whether the detail panel should render a schema-select widget
+    /// before dispatching `BeginEdit`.
+    pub fn schema_hint(&self, path: JsValue) -> Result<JsValue, JsValue> {
+        let path: Path = from_value(path).map_err(js_serde_error)?;
+        to_value(&self.session.edit_hint(&path)).map_err(js_serde_error)
+    }
+
     /// Immediate children of the node at `path` (breadcrumb mini-tree), as
     /// `ChildView[]` — independent of expansion state.
     pub fn children(&self, path: JsValue) -> Result<JsValue, JsValue> {

@@ -48,6 +48,7 @@ import {
   openFromUrl,
   openSaveConvert,
   replaceSession,
+  resolveSchemaFetchRequest,
   toggleTheme,
   type HostIo,
 } from "../host-io.js";
@@ -60,7 +61,7 @@ import {
 } from "../samples.js";
 import { IC, esc, treeHTML, isExpanded } from "./render.js";
 import { parentOf, pathEq, siblingIndex } from "../path-utils.js";
-import { panelHTML, wirePanel } from "../panel.js";
+import { panelHTML, wirePanel, schemaHintText } from "../panel.js";
 import { bindPromptClicks, promptButtonsHTML, promptQuestion, promptTitle } from "../prompt.js";
 import { typeFilterHTML, wireTypeFilter } from "../typefilter.js";
 import { helpBodyHTML } from "../help-content.js";
@@ -352,7 +353,18 @@ function render() {
   fmtPill.title = inSampleMode() ? t("web.toolbar.fmtPill.sampleTitle") : t("web.toolbar.fmtPill.title");
   docNameEl.textContent = fileName ?? "config";
   dirtyDot.style.opacity = snap.is_dirty ? "1" : "0";
-  statusEl.textContent = snap.error ? snap.error : snap.status ?? t("web.status.ready");
+  if (snap.error) {
+    statusEl.textContent = snap.error;
+  } else if (snap.status) {
+    statusEl.textContent = snap.status;
+  } else {
+    // Idle schema hint — mirrors the TUI/desktop status line's dynamic
+    // behavior (tooltip-like: appears while the cursor sits on a schema-
+    // constrained node, clears the instant it moves off). Touch has no
+    // hover, so this is its only way to see the constraint outside the
+    // detail panel.
+    statusEl.textContent = schemaHintText(session.schemaHint(snap.cursor)) || t("web.status.ready");
+  }
   const cur = cursorRow();
   selBadge.textContent = cur && cur.path.length ? lastKey(cur.path) : t("web.badge.none");
   const armed = (snap.clipboard_count ?? 0) > 0;
@@ -394,8 +406,11 @@ function render() {
   // double-tap. The shared panel.ts renders/wires the body identically to desktop.
   if (isWide() && !rawView) {
     if (cur && cur.path.length) {
-      dpBody.innerHTML = panelHTML(cur, parentIsInline(cur.path));
-      wirePanel(dpBody, cur, sendR, openKindRow, toast, afterPanelMutation);
+      const hint = session!.schemaHint(cur.path);
+      const schemaEnum =
+        typeof snap.mode === "object" && "SchemaEnum" in snap.mode ? snap.mode.SchemaEnum : undefined;
+      dpBody.innerHTML = panelHTML(cur, parentIsInline(cur.path), hint, schemaEnum);
+      wirePanel(dpBody, cur, sendR, openKindRow, toast, afterPanelMutation, undefined, schemaEnum);
     } else {
       dpBody.innerHTML = '<div class="dp-empty">Tap any node<br>to edit its value and metadata here</div>';
     }
@@ -412,6 +427,18 @@ function render() {
   // Without this, a `Mode::Prompt` would soft-lock the touch UI (no keyboard).
   if (tag === "Prompt") renderPromptSheet((snap.mode as { Prompt: { kind: PromptView } }).Prompt.kind);
   else sheets.prompt.classList.remove("open");
+  // Schema-constrained enum/const picker (Mode::SchemaEnum): core enters this
+  // mode via begin_inline_edit when an enum field is tapped; render the bottom
+  // sheet of allowed values (mirrors the TypeFilter/Convert/Prompt checks above).
+  if (modeTag(snap.mode) === "SchemaEnum") {
+    const cur = snap.rows.find((r) => r.is_cursor);
+    if (cur) {
+      openSchemaEnumSheet(
+        cur.path,
+        (snap.mode as { SchemaEnum: { options: string[]; cursor: number } }).SchemaEnum.options,
+      );
+    }
+  }
   renderHelpSheet();
   if (tag !== "TypeFilter" && !anySheetOpen()) scrim.classList.remove("show");
 
@@ -421,6 +448,14 @@ function render() {
   // Async host I/O the snapshot requested.
   if (snap.external_edit) openExternalEdit(snap.external_edit);
   if (snap.convert_write) void doConvertWrite(io, snap.convert_write[0], snap.convert_write[1]);
+  if (snap.schema_fetch_request) {
+    void resolveSchemaFetchRequest(io, session!, snap.schema_fetch_request, fileHandle?.path ?? null).then(
+      (next) => {
+        snap = next;
+        render();
+      },
+    );
+  }
 }
 function anySheetOpen(): boolean {
   return Object.keys(sheets).some((k) => sheets[k].classList.contains("open"));
@@ -451,10 +486,11 @@ function openPanel(path: Path) {
     // which would blow up the title — use a fixed label; otherwise the node key.
     // The `.sheet-head h3` CSS truncates a long key to one line (ellipsis).
     const title = r.type_label === "comment" ? "Comment" : r.key || lastKey(path);
+    const hint = session!.schemaHint(r.path);
     sheets.detail.innerHTML =
       '<div class="grab"></div>' +
       `<div class="sheet-head"><h3>${esc(title)}</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
-      `<div class="sheet-body detail-wrap">${panelHTML(r, parentIsInline(r.path))}</div>`;
+      `<div class="sheet-body detail-wrap">${panelHTML(r, parentIsInline(r.path), hint)}</div>`;
     wirePanel(sheets.detail, r, sendR, openKindRow, toast, afterPanelMutation);
     openSheet("detail");
   }
@@ -499,6 +535,39 @@ function openKindSheet(path: Path) {
       closeSheets();
       const after = sendR({ CommitKind: { path, target } });
       toast(after.error ?? "Kind changed");
+    });
+  });
+  openSheet("kind");
+}
+
+// ---- schema-enum sheet (Mode::SchemaEnum — schema-constrained value picker) ----
+// Mirrors openKindSheet's structure: a bottom-sheet grid of `.kind-opt` cells
+// in the shared `sheets.kind` element. Core enters Mode::SchemaEnum via
+// begin_inline_edit when an enum/const-constrained field is tapped (Task 6);
+// this only renders that mode. Selection moves the cursor (SchemaEnumMove) then
+// commits (SchemaEnumCommit) — commit uses whatever cursor index is current.
+function openSchemaEnumSheet(path: Path, options: string[]) {
+  const cells = options
+    .map(
+      (label, i) =>
+        `<button class="add-cell kind-opt" data-idx="${i}"><span class="dotc" style="background:var(--warn)"></span>${esc(label)}</button>`,
+    )
+    .join("");
+  sheets.kind.innerHTML =
+    '<div class="grab"></div>' +
+    `<div class="sheet-head"><h3>Schema value</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
+    `<div class="sheet-body"><div class="addgrid">${cells}</div></div>`;
+  sheets.kind.querySelectorAll<HTMLElement>(".kind-opt").forEach((b) => {
+    b.addEventListener("click", () => {
+      const idx = Number(b.dataset.idx);
+      const current =
+        modeTag(snap!.mode) === "SchemaEnum"
+          ? (snap!.mode as { SchemaEnum: { options: string[]; cursor: number } }).SchemaEnum.cursor
+          : 0;
+      send({ SchemaEnumMove: idx - current });
+      closeSheets();
+      const after = sendR("SchemaEnumCommit");
+      toast(after.error ?? "Value changed");
     });
   });
   openSheet("kind");
@@ -604,21 +673,41 @@ function openSaveSheet() {
   openSheet("save");
 }
 
+// "Attach schema…" — prompt for a path or URL to a JSON Schema file and
+// dispatch `SetSchema`; the host resolves the request via `schema_fetch_request`
+// on the next snapshot. Mirrors the desktop attach flow; the label is a
+// hard-coded string (not `t(...)`) because adding i18n keys is out of this
+// task's file scope (deferred i18n item).
+function attachSchema() {
+  const choice = prompt("Path or URL to a JSON Schema file:");
+  if (!choice) return;
+  const source = choice.startsWith("http://") || choice.startsWith("https://")
+    ? { Url: choice }
+    : { Local: choice };
+  closeSheets();
+  send({ SetSchema: { source } });
+}
+
 function openMenuSheet() {
   const folded = foldedEntries(MENU_CANDIDATES, isFolded);
+  // `Attach schema…` is appended as a synthetic, always-present entry that lives
+  // only in this local `items` array — it is NOT a `ToolbarEntry` in
+  // `MENU_CANDIDATES` (it has no matching physical toolbar button), so it stays
+  // immune to the toolbar-fold invariant enforced by `toolbar-fold.spec.mjs`.
+  const items = [
+    ...folded,
+    { icon: IC.filter, label: "Attach schema…", run: attachSchema },
+  ];
   sheets.menu.innerHTML =
     '<div class="grab"></div>' +
     `<div class="sheet-head"><h3>${t("web.toolbar.more.title")}</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
     '<div class="sheet-body">' +
-    folded.map((c, i) => mi(c.icon ?? "", t(c.labelKey), "", String(i))).join("") +
+    items.map((c, i) => mi(c.icon ?? "", "labelKey" in c ? t(c.labelKey) : c.label, "", String(i))).join("") +
     "</div>";
   sheets.menu.querySelectorAll<HTMLElement>(".menu-item").forEach((it) => {
     it.addEventListener("click", () => {
       const id = it.dataset.mi!;
-      const c = folded[Number(id)];
-      // Theme toggle intentionally stays open (so you can see the effect); every
-      // other entry — including the lang sheet-to-sheet transition — closes the
-      // ⋯ menu first.
+      const c = items[Number(id)];
       if (c.run !== toggleTheme) closeSheets();
       c.run();
     });
@@ -1360,6 +1449,13 @@ function dismissSheets() {
   // A prompt must be *answered*, not hidden — scrim/grab dismissal = "no"
   // (peel-on-dismiss; otherwise core stays stuck in Mode::Prompt).
   if (tag === "Prompt") return send({ PromptKey: "n" });
+  // Same peel-on-dismiss requirement: Escape → `Session::escape()` →
+  // `schema_enum_cancel()`, which also removes a freshly-added placeholder
+  // (`created_on_add`) — mirrors desktop's `focusSchemaEnumSelect` Escape wiring.
+  if (tag === "SchemaEnum") {
+    closeSheets();
+    return send("Escape");
+  }
   // Same peel-on-dismiss requirement as Prompt/Convert/TypeFilter above: without
   // this, dismissing the Help sheet only removed its `.open` CSS class while
   // core stayed in `Mode::Help`, so the very next unrelated render() (e.g. a tap
