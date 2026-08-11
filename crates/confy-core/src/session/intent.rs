@@ -199,5 +199,7 @@ pub enum Intent {
     SetSchema { source: crate::schema::SchemaSource },
     SchemaLoaded { source: crate::schema::SchemaSource, text: Result<String, String> },
     SchemaEnumMove(i32),
+    /// Clamped jump (PageUp/PageDown/Home/End) — see `Session::schema_enum_jump`.
+    SchemaEnumJump(i32),
     SchemaEnumCommit,
 }

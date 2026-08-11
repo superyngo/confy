@@ -261,6 +261,7 @@ impl super::Session {
             Intent::SetSchema { source } => self.pending_schema_fetch = Some(source),
             Intent::SchemaLoaded { source, text } => self.apply_schema_text(source, text),
             Intent::SchemaEnumMove(delta) => self.schema_enum_move(delta),
+            Intent::SchemaEnumJump(delta) => self.schema_enum_jump(delta),
             Intent::SchemaEnumCommit => self.schema_enum_commit(),
         }
 

@@ -298,15 +298,39 @@ fn run_event_loop(
                 continue;
             }
             // Schema-constrained enum/const picker (modal): Up/Down (or j/k)
-            // move the selection, Enter applies + rebuilds the render rows,
-            // Esc cancels via the session's escape dispatch (which removes a
-            // placeholder node when the picker was opened via "add into an
-            // enum-constrained field"). Other keys swallowed.
+            // move the selection by one (wraps — `schema_enum_move`), Home/End
+            // jump to the first/last option, PageUp/PageDown jump a screenful
+            // (`ui::schema_enum_page_step`, sized off the same popup layout
+            // the renderer draws, so a page always matches what's on screen —
+            // same convention as the `f` type-filter popup's paging). Jump
+            // moves clamp instead of wrapping (`schema_enum_jump`). Enter
+            // applies + rebuilds the render rows, Esc cancels via the
+            // session's escape dispatch (which removes a placeholder node
+            // when the picker was opened via "add into an enum-constrained
+            // field"). Other keys swallowed.
             if matches!(app.session.mode, crate::tui::state::Mode::SchemaEnum(_)) {
                 use crossterm::event::KeyCode;
+                let option_count = match &app.session.mode {
+                    crate::tui::state::Mode::SchemaEnum(st) => st.options.len(),
+                    _ => 0,
+                };
                 match key.code {
                     KeyCode::Up | KeyCode::Char('k') => app.session.schema_enum_move(-1),
                     KeyCode::Down | KeyCode::Char('j') => app.session.schema_enum_move(1),
+                    KeyCode::Home => app.session.schema_enum_jump(-(option_count as i32)),
+                    KeyCode::End => app.session.schema_enum_jump(option_count as i32),
+                    KeyCode::PageUp => {
+                        let size = terminal.size()?;
+                        let area = ratatui::layout::Rect::new(0, 0, size.width, size.height);
+                        let step = ui::schema_enum_page_step(option_count, area);
+                        app.session.schema_enum_jump(-step);
+                    }
+                    KeyCode::PageDown => {
+                        let size = terminal.size()?;
+                        let area = ratatui::layout::Rect::new(0, 0, size.width, size.height);
+                        let step = ui::schema_enum_page_step(option_count, area);
+                        app.session.schema_enum_jump(step);
+                    }
                     KeyCode::Enter => {
                         app.session.schema_enum_commit();
                         app.rebuild_rows();

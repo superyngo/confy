@@ -246,4 +246,5 @@ export type Intent =
   | { SetSchema: { source: { Local: string } | { Url: string } } }
   | { SchemaLoaded: { source: { Local: string } | { Url: string }; text: { Ok: string } | { Err: string } } }
   | { SchemaEnumMove: number }
+  | { SchemaEnumJump: number }
   | "SchemaEnumCommit";

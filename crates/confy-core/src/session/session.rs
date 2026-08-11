@@ -1467,6 +1467,23 @@ impl Session {
         }
     }
 
+    /// Jumps the schema-enum picker cursor by `delta`, clamped to the option
+    /// range instead of wrapping (`schema_enum_move`'s ±1 arrow-key step
+    /// wraps deliberately; PageUp/PageDown/Home/End should stop at the ends,
+    /// same convention as `type_filter::move_cursor`). Callers land exactly
+    /// on the first/last option for Home/End by passing a `delta` at least
+    /// as large as the option count in either direction — the clamp does
+    /// the rest, so callers don't need the exact length.
+    pub fn schema_enum_jump(&mut self, delta: i32) {
+        if let crate::session::state::Mode::SchemaEnum(st) = &mut self.mode {
+            let len = st.options.len() as i32;
+            if len == 0 {
+                return;
+            }
+            st.cursor = (st.cursor as i32 + delta).clamp(0, len - 1) as usize;
+        }
+    }
+
     /// Commits the picked enum/const value. Deliberately routes through
     /// `edit_commit` (like the Web one-shot `commit_edit`) rather than
     /// applying the `Replace` mutation directly, so a schema-picked value

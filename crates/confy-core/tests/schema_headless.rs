@@ -478,6 +478,42 @@ fn session_schema_enum_commit_writes_the_chosen_value() {
 }
 
 #[test]
+fn schema_enum_jump_clamps_instead_of_wrapping() {
+    // PageUp/PageDown/Home/End land exactly on the ends and never wrap,
+    // unlike the ±1 arrow-key `schema_enum_move` step.
+    use confy_core::session::state::Mode;
+    let mut s = session_from("level = \"debug\"\n", DocFormat::Toml);
+    let schema_text = json!({
+        "type": "object",
+        "properties": { "level": { "enum": ["debug", "info", "warn", "error"] } }
+    })
+    .to_string();
+    s.apply_schema_text(SchemaSource::Local("./s.json".into()), Ok(schema_text));
+    s.cursor = vec![Seg::Key("level".into())];
+    s.begin_inline_edit();
+    let cursor_of = |s: &confy_core::session::Session| match &s.mode {
+        Mode::SchemaEnum(st) => st.cursor,
+        _ => panic!("expected SchemaEnum mode"),
+    };
+    assert_eq!(cursor_of(&s), 0);
+
+    s.schema_enum_jump(-4); // End-style oversized delta from cursor 0 stays clamped at 0
+    assert_eq!(cursor_of(&s), 0);
+
+    s.schema_enum_jump(4); // End: oversized positive delta clamps to the last option
+    assert_eq!(cursor_of(&s), 3);
+
+    s.schema_enum_jump(4); // already at the end - stays put, no wrap to 0
+    assert_eq!(cursor_of(&s), 3);
+
+    s.schema_enum_jump(-2); // PageUp by 2
+    assert_eq!(cursor_of(&s), 1);
+
+    s.schema_enum_jump(-4); // Home: oversized negative delta clamps to 0
+    assert_eq!(cursor_of(&s), 0);
+}
+
+#[test]
 fn schema_enum_commit_defers_to_type_change_prompt_when_the_picked_value_changes_type() {
     // A mixed-type enum ("debug" string, 42 integer) — picking the
     // differently-typed option must go through the same `Mode::Prompt(

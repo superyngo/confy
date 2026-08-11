@@ -694,6 +694,50 @@ function onKey(ev: KeyboardEvent) {
     if (ev.key === "Escape") return send("ExitKindSwitch");
     return;
   }
+  // Schema-enum picker (native `<select>`, focused by `focusSchemaEnumSelect`):
+  // owns every nav key itself, same as KindSwitch/TypeFilter above. Without
+  // this the picker's own Arrow/Home/End/Enter would bubble here first and
+  // get reinterpreted as tree shortcuts (Home/End move the *tree* cursor,
+  // Enter toggles branch expand) — the select's `<option>`s never actually
+  // moved via keyboard. `SchemaEnumMove` (±1) wraps, matching the mouse-driven
+  // cursor cycling; `SchemaEnumJump` (Home/End/Page) clamps at the ends
+  // instead (`session.schema_enum_jump`, mirrors `type_filter::move_cursor`'s
+  // convention and confy-tui's own Home/End/PageUp/PageDown handling for this
+  // same picker). Page step is a fixed constant, not a computed viewport
+  // height — a native combobox has no rendered "visible window" to size a
+  // page off of, unlike the TUI's own popup or the `f` type-filter popup.
+  // Escape is handled by the select's own local `onkeydown` (fires first,
+  // target phase) — not re-handled here to avoid a double dispatch.
+  if (typeof m === "object" && "SchemaEnum" in m) {
+    const st = m.SchemaEnum;
+    const SCHEMA_ENUM_PAGE_STEP = 5;
+    if (ev.key === "ArrowUp") {
+      ev.preventDefault();
+      return send({ SchemaEnumMove: -1 });
+    }
+    if (ev.key === "ArrowDown") {
+      ev.preventDefault();
+      return send({ SchemaEnumMove: 1 });
+    }
+    if (ev.key === "Home") {
+      ev.preventDefault();
+      return send({ SchemaEnumJump: -st.options.length });
+    }
+    if (ev.key === "End") {
+      ev.preventDefault();
+      return send({ SchemaEnumJump: st.options.length });
+    }
+    if (ev.key === "PageUp") {
+      ev.preventDefault();
+      return send({ SchemaEnumJump: -SCHEMA_ENUM_PAGE_STEP });
+    }
+    if (ev.key === "PageDown") {
+      ev.preventDefault();
+      return send({ SchemaEnumJump: SCHEMA_ENUM_PAGE_STEP });
+    }
+    if (ev.key === "Enter") return send("SchemaEnumCommit");
+    return;
+  }
   // Help/About panel: pause every tree shortcut (j/k/e/a/d/c/x/v/… would
   // otherwise still reach the list underneath). Only close/tab-switch are
   // handled here; every other key is left alone so the browser's native
