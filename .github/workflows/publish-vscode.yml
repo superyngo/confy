@@ -43,6 +43,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: "npm"
+          cache-dependency-path: |
+            web/package-lock.json
+            editors/vscode/package-lock.json
 
       # Builds crates/confy-ffi (wasm) + assembles web/dist.
       - name: Build web frontend
