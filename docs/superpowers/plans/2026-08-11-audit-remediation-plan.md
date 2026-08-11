@@ -283,7 +283,7 @@ picker on all three surfaces).
 
 ## Phase 3 — Long-term (> 5 days)
 
-### Task 13: Route TUI through `Session::dispatch(Intent)`
+### Task 13: Route TUI through `Session::dispatch(Intent)` — DESCOPED
 - **Files**: `crates/confy-tui/src/tui/mod.rs` (event loop, ~40 mutating call sites),
   `crates/confy-core/src/session/dispatch.rs`, `crates/confy-core/src/session/intent.rs`
 - **Description**: See Architecture Decisions above — this is the structural fix behind the
@@ -319,6 +319,19 @@ picker on all three surfaces).
   checkpoint (same build/test/smoke steps, scoped to just that group's keys) before moving to the
   next. Final verify: the full TUI keybinding table in `README.md` §Usage, exercised end-to-end on
   a sample TOML/JSON/YAML file each.
+- **Decision (2026-08-11)**: descoped before starting. Fact-finding during this task (dispatched,
+  not guessed) counted the TUI's actual raw `Session` call sites at **495**, not the plan's
+  original ~40 estimate — a 12x underestimate on the single highest-blast-radius task in the
+  entire remediation (every TUI keybinding routes through the changed code). Presented to the
+  user with the revised scope; explicit choice was to stop the remediation project here rather
+  than take on a refactor of that size in this session. The duplicated cross-cutting logic
+  (`ToggleExpand` branch/leaf decision, shift-select reset) the audit flagged stays as
+  documented, known debt in `mod.rs` — not a correctness bug, just a maintenance cost, unchanged
+  from before this project. Left for a dedicated future session with its own planning pass (the
+  8-group/per-checkpoint structure above is still a reasonable starting point for that session).
+  The "Phase 3 gate: full keybinding table smoke test" item tracked alongside this task existed
+  solely to verify *this* task's routing change end-to-end — dropped with it, not performed as
+  standalone busywork.
 
 ### Task 14: Schema-aware dirty-check for revalidation + capped undo history — IMPLEMENTED
 - **Files**: `crates/confy-core/src/session/session.rs` (`on_mutation_success` + its ~15 call
@@ -459,8 +472,8 @@ picker on all three surfaces).
 
 **Phase 3 testing strategy**: this phase is architecturally the riskiest — land one task at a
 time, full `cargo test --workspace` + `tsc --noEmit` + manual smoke pass after each task, not
-just at the end of the phase. Task 13 in particular should be treated as its own mini-project
-with per-group checkpoints (see its own verify step).
+just at the end of the phase. (Task 13 was going to be treated as its own mini-project with
+per-group checkpoints — descoped before starting; see its section above.)
 
 ## Cross-cutting Integration Points
 
@@ -485,3 +498,8 @@ with per-group checkpoints (see its own verify step).
   to match what was actually approved).
 - `crates/confy-ffi/functional_smoke.mjs`: JSON Schema scenarios added; `grid active after
   toggle` no longer silently waived.
+- **Final status**: 15 of 16 tasks landed (Tasks 1-12, 14-16); Task 13 descoped by explicit user
+  decision after fact-finding revealed its true scope (495 call sites, not ~40) — see its section
+  above. `cargo test --workspace` 495 passed / 0 failed throughout; `cargo clippy --workspace
+  --all-targets` 0 warnings; `tsc --noEmit` (web/ + editors/vscode/) 0 errors;
+  `functional_smoke.mjs` 92/92.
