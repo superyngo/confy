@@ -70,7 +70,8 @@ import type {
   TypeFilterView,
   ViewRow,
 } from "./types.js";
-
+import { createBatcher, modeTag } from "./mode.js";
+import { navRowCount, resolveKeyIntent } from "./key-intent.js";
 
 let session: Session | null = null;
 let snap: SessionSnapshot | null = null;
@@ -130,6 +131,11 @@ let hostDirty = false; // tab dirty mirror; authoritative over snap.is_dirty her
 // posting edits from it would clobber newer raw text. Cleared by the next
 // text-changed that parses.
 let staleTree = false;
+
+// Dispatch every `send` inside `fn` with a single render at the end, so a
+// multi-intent gesture (nav+select, per-branch toggles, save/convert seeding)
+// rebuilds the tree DOM once instead of once per intent.
+const { batch, isBatching } = createBatcher(render, notifyHost);
 
 // The host surface the shared I/O flows (host-io.ts) are parameterized on.
 const io: HostIo = {
@@ -391,9 +397,6 @@ function getEdit() {
     : null;
 }
 
-function modeTag(m: ModeView): string {
-  return typeof m === "string" ? m : Object.keys(m)[0];
-}
 
 // The detail aside (design slide-in panel) mirrors the `Detail` mode. While open
 // it shows the shared editable node panel (`web/panel.ts`, identical to the touch
@@ -535,12 +538,6 @@ function renderTypeFilterPop() {
   }
 }
 
-// Number of navigable (`Cells`) rows in the facet grid — headers don't count
-// as cursor stops. Used to compute Home/End (jump the whole panel) deltas.
-function navRowCount(grid: TypeFilterView): number {
-  return grid.rows.filter((r) => "Cells" in r).length;
-}
-
 // PageUp/PageDown step, in nav-row units. `#tfPop` is a CSS-scrollable
 // popover (`max-height: 72vh; overflow-y: auto`), so instead of measuring
 // pixel row heights (fragile across wrapped `.tf-grid` flex rows, zoom,
@@ -615,233 +612,60 @@ function renderFooter() {
 }
 
 // ---- keyboard → Intent (mirrors tui/keys.rs) ----
+// Pure mode/key resolution lives in `key-intent.ts` (Task 8, see
+// docs/superpowers/plans/2026-08-11-web-code-audit-remediation-plan.md); this
+// wrapper keeps every side effect: the modal-open guards, `ev.preventDefault()`,
+// and the handful of branches that are more than a single `Intent` dispatch.
 function onKey(ev: KeyboardEvent) {
   if (!session || !snap) return;
   if (!document.getElementById("ext-modal")!.classList.contains("hidden")) return;
   if (!document.getElementById("url-modal")!.classList.contains("hidden")) return;
 
-  const m = snap.mode;
-  if (typeof m === "object" && "Edit" in m) {
-    if (ev.key === "Enter") return send("EditCommit");
-    if (ev.key === "Escape") return send("EditCancel");
-    if (ev.key === "Tab") {
-      ev.preventDefault();
-      return send("EditToggleField");
-    }
-    if (ev.key === "Backspace") return send("EditBackspace");
-    if (ev.key.length === 1) return send({ EditChar: ev.key });
-    return;
-  }
-  if (typeof m === "object" && "Prompt" in m) {
-    if (ev.key === "y" || ev.key === "Y" || ev.key === "Enter")
-      return send({ PromptKey: "y" });
-    if (ev.key === "n" || ev.key === "N" || ev.key === "Escape")
-      return send({ PromptKey: "n" });
-    // Collision offers Overwrite (o) / Rename (r) besides cancel.
-    if (ev.key === "o" || ev.key === "r") return send({ PromptKey: ev.key });
-    return;
-  }
-  if (typeof m === "object" && "Convert" in m) {
-    const step = (m as { Convert: { step: string } }).Convert.step;
-    if (ev.key === "Escape") return send("Escape");
-    if (step === "Format") {
-      if (ev.key === "ArrowUp") return send({ ConvertMove: -1 });
-      if (ev.key === "ArrowDown") return send({ ConvertMove: 1 });
-      if (ev.key === "Enter") return send("ConvertPickFormat");
-    } else if (step === "Path") {
-      if (ev.key === "Enter")
-        return runSaveConvertShared(snap!, {
-          send,
-          doSaveAsCopy: saveCopy,
-        });
-      if (ev.key === "Backspace") return send("ConvertPathBackspace");
-      if (ev.key.length === 1) return send({ ConvertPathChar: ev.key });
-    } else if (step === "Confirm") {
-      if (ev.key === "y" || ev.key === "Y" || ev.key === "Enter")
-        return send("ConvertConfirm");
-      return send("Escape");
-    }
-    return;
-  }
-  if (typeof m === "object" && "TypeFilter" in m) {
-    const grid = m.TypeFilter;
-    if (ev.key === "ArrowUp") return send({ TypeFilterMove: [-1, 0] });
-    if (ev.key === "ArrowDown") return send({ TypeFilterMove: [1, 0] });
-    if (ev.key === "ArrowLeft") return send({ TypeFilterMove: [0, -1] });
-    if (ev.key === "ArrowRight") return send({ TypeFilterMove: [0, 1] });
-    if (ev.key === "Home") return send({ TypeFilterMove: [-navRowCount(grid), 0] });
-    if (ev.key === "End") return send({ TypeFilterMove: [navRowCount(grid), 0] });
-    if (ev.key === "PageUp") {
-      ev.preventDefault();
-      return send({ TypeFilterMove: [-typeFilterPageStep(grid), 0] });
-    }
-    if (ev.key === "PageDown") {
-      ev.preventDefault();
-      return send({ TypeFilterMove: [typeFilterPageStep(grid), 0] });
-    }
-    if (ev.key === " ") {
-      ev.preventDefault();
-      return send("TypeFilterToggle");
-    }
-    if (ev.key === "Enter") return send("CommitTypeFilter");
-    if (ev.key === "Escape") return send("ExitTypeFilter");
-    return;
-  }
-  if (modeTag(m) === "KindSwitch") {
-    if (ev.key === "ArrowUp") return send({ KindSwitchMove: -1 });
-    if (ev.key === "ArrowDown") return send({ KindSwitchMove: 1 });
-    if (ev.key === "Enter") return send("KindSwitchCommit");
-    if (ev.key === "Escape") return send("ExitKindSwitch");
-    return;
-  }
-  // Schema-enum picker (native `<select>`, focused by `focusSchemaEnumSelect`):
-  // owns every nav key itself, same as KindSwitch/TypeFilter above. Without
-  // this the picker's own Arrow/Home/End/Enter would bubble here first and
-  // get reinterpreted as tree shortcuts (Home/End move the *tree* cursor,
-  // Enter toggles branch expand) — the select's `<option>`s never actually
-  // moved via keyboard. `SchemaEnumMove` (±1) wraps, matching the mouse-driven
-  // cursor cycling; `SchemaEnumJump` (Home/End/Page) clamps at the ends
-  // instead (`session.schema_enum_jump`, mirrors `type_filter::move_cursor`'s
-  // convention and confy-tui's own Home/End/PageUp/PageDown handling for this
-  // same picker). Page step is a fixed constant, not a computed viewport
-  // height — a native combobox has no rendered "visible window" to size a
-  // page off of, unlike the TUI's own popup or the `f` type-filter popup.
-  // Escape is handled by the select's own local `onkeydown` (fires first,
-  // target phase) — not re-handled here to avoid a double dispatch.
-  if (typeof m === "object" && "SchemaEnum" in m) {
-    const st = m.SchemaEnum;
-    const SCHEMA_ENUM_PAGE_STEP = 5;
-    if (ev.key === "ArrowUp") {
-      ev.preventDefault();
-      return send({ SchemaEnumMove: -1 });
-    }
-    if (ev.key === "ArrowDown") {
-      ev.preventDefault();
-      return send({ SchemaEnumMove: 1 });
-    }
-    if (ev.key === "Home") {
-      ev.preventDefault();
-      return send({ SchemaEnumJump: -st.options.length });
-    }
-    if (ev.key === "End") {
-      ev.preventDefault();
-      return send({ SchemaEnumJump: st.options.length });
-    }
-    if (ev.key === "PageUp") {
-      ev.preventDefault();
-      return send({ SchemaEnumJump: -SCHEMA_ENUM_PAGE_STEP });
-    }
-    if (ev.key === "PageDown") {
-      ev.preventDefault();
-      return send({ SchemaEnumJump: SCHEMA_ENUM_PAGE_STEP });
-    }
-    if (ev.key === "Enter") return send("SchemaEnumCommit");
-    return;
-  }
-  // Help/About panel: pause every tree shortcut (j/k/e/a/d/c/x/v/… would
-  // otherwise still reach the list underneath). Only close/tab-switch are
-  // handled here; every other key is left alone so the browser's native
-  // scroll/text-select/copy on the focused #overlay (see renderOverlay) works.
-  if (modeTag(m) === "Help") {
-    if (ev.key === "Escape" || ev.key === "?") return send("Escape");
-    if (ev.key === "Tab") {
-      ev.preventDefault();
-      return send("ToggleHelpTab");
-    }
-    return;
-  }
+  const result = resolveKeyIntent(
+    snap.mode,
+    ev.key,
+    { ctrl: ev.ctrlKey || ev.metaKey, shift: ev.shiftKey },
+    rawView,
+    VSHOST,
+  );
+  if (!result) return;
 
-  const ctrl = ev.ctrlKey || ev.metaKey;
-  // VS Code host: ⇧⌘S/Ctrl-Shift-S is claimed by the workbench's own
-  // Save-As keybinding before this handler ever sees it (proven in testing —
-  // the built-in Save As fired instead of this branch), so the shortcut is
-  // rebound to confy.saveAsConvert in package.json's `contributes.keybindings`
-  // instead of intercepted here.
-  if (ctrl && ev.key === "s") {
-    ev.preventDefault();
-    return void doSave();
-  }
-  if (ctrl && ev.key === "o") {
-    ev.preventDefault();
-    return void doOpen();
-  }
-  // Every other Ctrl/Cmd-modified key (Select All, native Edit-menu accelerators,
-  // OS shortcuts, …) is left to the browser/OS — otherwise it falls through to
-  // the modifier-free single-letter tree shortcuts below (e.g. Cmd+A becoming
-  // the plain "a" → AddNode shortcut).
-  if (ctrl) return;
-  // Raw view is read-only serialized text, not the tree — every other key
-  // (arrows/Home/End scrolling, Ctrl+A select-all, Ctrl+C copy, …) is left to
-  // native `<pre>` behavior instead of the tree's single-letter shortcuts
-  // (which would otherwise hijack e.g. Ctrl+A as "a" → AddNode).
-  if (rawView) return;
-  // ⇧+↑/↓ extends the multi-select range (cursor and selection move together).
-  if (ev.shiftKey && (ev.key === "ArrowUp" || ev.key === "ArrowDown")) {
-    ev.preventDefault();
-    return send(ev.key === "ArrowUp" ? "ExtendSelectUp" : "ExtendSelectDown");
-  }
-  // Arrows / Home / End / Space natively scroll the focused container; we own
-  // them as navigation (cursor scroll-into-view keeps the row visible). Without
-  // this, ←/→ horizontally scroll the off-canvas detail panel into view.
-  if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", " "].includes(ev.key)) {
-    ev.preventDefault();
-  }
-  switch (ev.key) {
-    case "j": case "ArrowDown": return navSelect("CursorDown");
-    case "k": case "ArrowUp": return navSelect("CursorUp");
-    case "g": case "Home": return navSelect("CursorHome");
-    case "G": case "End": return navSelect("CursorEnd");
-    case "Enter": return toggleSelectedBranches();
-    case " ": return send("ToggleDetail");
-    // preventDefault: these open a text editor synchronously (inline input or the
-    // external modal); without it the triggering keystroke leaks into the field.
-    case "e": ev.preventDefault(); return send("BeginEdit");
-    case "a": ev.preventDefault(); return send("AddNode");
-    case "d": case "Delete": return send("DeleteSelected");
-    case "c": return send("CopySelected");
-    case "x": return send("CutSelected");
-    case "v": return send("Paste");
-    case "r": return send("Remark");
-    case "z": return uiUndo();
-    case "y": return uiRedo();
-    case "s": return send("ToggleSelect");
-    case "1": return send("ExpandLevel");
-    case "2": return send("CollapseLevel");
-    case "0": return send("CollapseAll");
-    case "9": return send("ExpandAll");
-    case "+": case "ArrowRight": return send({ Nudge: 1 });
-    case "-": case "ArrowLeft": return send({ Nudge: -1 });
-    case "/": ev.preventDefault(); return $("search").focus();
-    case "f": return send("EnterTypeFilter");
-    case "K": return send("OpenKindSwitch");
-    case "C": return send("OpenConvert");
-    case "i": return send("ToggleDetail");
-    case "?": return send("EnterHelp");
-    case "Escape": return send("Escape");
-    case "q": if (VSHOST) return; return send("QuitRequested");
+  switch (result.kind) {
+    case "intent":
+      if (result.preventDefault) ev.preventDefault();
+      return send(result.intent);
+    case "nav":
+      if (result.preventDefault) ev.preventDefault();
+      return navSelect(result.intent);
+    case "typefilter-page": {
+      ev.preventDefault();
+      const mode = snap.mode;
+      if (typeof mode !== "object" || !("TypeFilter" in mode)) return;
+      return send({ TypeFilterMove: [result.dir * typeFilterPageStep(mode.TypeFilter), 0] });
+    }
+    case "native":
+      if (result.preventDefault) ev.preventDefault();
+      switch (result.action) {
+        case "focus-search": return void $("search").focus();
+        case "undo": return uiUndo();
+        case "redo": return uiRedo();
+        // VS Code host: ⇧⌘S/Ctrl-Shift-S is claimed by the workbench's own
+        // Save-As keybinding before this handler ever sees it (proven in
+        // testing — the built-in Save As fired instead of this branch), so
+        // the shortcut is rebound to confy.saveAsConvert in package.json's
+        // `contributes.keybindings` instead of intercepted here.
+        case "save": return void doSave();
+        case "open": return void doOpen();
+        case "toggle-branches": return toggleSelectedBranches();
+        case "save-convert": return void runSaveConvertShared(snap!, { send, doSaveAsCopy: saveCopy });
+      }
   }
 }
 
 function send(i: Intent) {
   if (!session) return;
   snap = session.dispatch(i);
-  if (!batching) {
-    render();
-    notifyHost();
-  }
-}
-
-// Dispatch every `send` inside `fn` with a single render at the end, so a
-// multi-intent gesture (nav+select, per-branch toggles, save/convert seeding)
-// rebuilds the tree DOM once instead of once per intent.
-let batching = false;
-function batch(fn: () => void) {
-  if (batching) return fn(); // nested batches render at the outermost level
-  batching = true;
-  try {
-    fn();
-  } finally {
-    batching = false;
+  if (!isBatching()) {
     render();
     notifyHost();
   }

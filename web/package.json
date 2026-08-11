@@ -8,7 +8,7 @@
     "build": "node build.mjs",
     "build:bundle": "esbuild ui.ts --bundle --outfile=ui.js --format=esm --target=es2022 --sourcemap",
     "typecheck": "tsc --noEmit",
-    "test": "node toolbar-fold.spec.mjs",
+    "test": "for f in *.spec.mjs; do node \"$f\" || exit 1; done",
     "serve": "node serve.mjs"
   },
   "devDependencies": {

@@ -1,0 +1,31 @@
+name: Web CI
+
+# Fast pass/fail feedback on every push/PR touching the web UI or its wasm
+# core. Visibility only — not a required status check (see
+# docs/superpowers/plans/2026-08-11-web-code-audit-remediation-plan.md,
+# Architecture Decisions: confy is a single-committer, direct-push-to-main
+# repo, so a required check would reject the maintainer's own pushes
+# (GH006). The actual enforcement is the typecheck/test gate inside
+# web/cf-build.sh (run here via build-web-frontend), which every
+# release/store build and CF Pages deploy already goes through regardless
+# of how a commit reached main.
+
+on:
+  push:
+    paths:
+      - "web/**"
+      - "crates/confy-ffi/**"
+  pull_request:
+    paths:
+      - "web/**"
+      - "crates/confy-ffi/**"
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: ./.github/actions/build-web-frontend
+        with:
+          cache-key: web-ci

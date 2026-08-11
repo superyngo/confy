@@ -86,7 +86,7 @@ function renderKindBadge(r: ViewRow): string {
   return `<button class="kind" data-kind="1">${escapeHtml(label)}${suffix} ${IC_CHEV}</button>`;
 }
 
-function renderRow(
+export function renderRow(
   r: ViewRow,
   idx: number,
   rows: ViewRow[],

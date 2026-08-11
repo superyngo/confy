@@ -38,6 +38,7 @@ import {
   tauriOpenedUrls,
   type OpenedFile,
 } from "../fs.js";
+import { createBatcher, modeTag } from "../mode.js";
 import {
   doConvertWrite,
   doQuickSave,
@@ -115,25 +116,12 @@ const PASTE_IC =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="3" width="8" height="4" rx="1"/><path d="M9 5H6a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-3"/><path d="M12 11v6M9 14l3 3 3-3"/></svg>';
 
 // ---- helpers ----
-function modeTag(m: ModeView): string {
-  return typeof m === "string" ? m : Object.keys(m)[0];
-}
-let batching = false;
+// Dispatch several intents with a single re-render at the end (mirrors ui.ts).
+const { batch, isBatching } = createBatcher(render);
 function send(i: Intent) {
   if (!session) return;
   snap = session.dispatch(i);
-  if (!batching) render();
-}
-// Dispatch several intents with a single re-render at the end (mirrors ui.ts).
-function batch(fn: () => void) {
-  if (batching) return fn(); // nested batches render at the outermost level
-  batching = true;
-  try {
-    fn();
-  } finally {
-    batching = false;
-    render();
-  }
+  if (!isBatching()) render();
 }
 // Dispatch and return the resulting snapshot (the shared panel.ts contract reads
 // `snapshot.error`). `send` already triggered the re-render.
@@ -1251,20 +1239,11 @@ const openedUrlsHandled = new Set<string>();
 async function openOpenedUrl(url: string): Promise<void> {
   if (openedUrlsHandled.has(url)) return;
   openedUrlsHandled.add(url);
-  console.log("[confy] opened url:", url);
   const opened = await openTauriPath(url);
   if (!opened) {
     io.err(t("web.menu.recentGone"));
     return;
   }
-  console.log(
-    "[confy] opened name:",
-    opened.name,
-    "text length:",
-    opened.text.length,
-    "text head:",
-    JSON.stringify(opened.text.slice(0, 200)),
-  );
   openText(opened.text, formatFromName(opened.name), opened.handle, opened.name);
 }
 

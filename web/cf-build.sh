@@ -20,9 +20,10 @@ if ! command -v wasm-pack >/dev/null 2>&1; then
   curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 fi
 
-# 3. Build wasm core, then the web bundle.
+# 3. Build wasm core, then typecheck + test + bundle the web UI (fails fast on
+#    a type error or test regression before any output is assembled).
 ( cd crates/confy-ffi && wasm-pack build --target web )
-( cd web && npm install && node build.mjs )
+( cd web && npm ci && npm run typecheck && npm test && node build.mjs )
 
 # 4. Assemble a clean output dir with only the runtime files.
 cd web
