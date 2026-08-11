@@ -1467,27 +1467,52 @@ impl Session {
         }
     }
 
+    /// Commits the picked enum/const value. Deliberately routes through
+    /// `edit_commit` (like the Web one-shot `commit_edit`) rather than
+    /// applying the `Replace` mutation directly, so a schema-picked value
+    /// that would change the node's underlying type (e.g. an enum mixing
+    /// string and numeric consts) gets the same `Mode::Prompt(TypeChange)`
+    /// confirmation gate as any other value commit — previously this path
+    /// bypassed it entirely (every surface, not just one host, since this is
+    /// core-shared logic). `allow_schema_enum: false` keeps `edit_commit`
+    /// from re-diverting back into the picker.
     pub fn schema_enum_commit(&mut self) {
-        let crate::session::state::Mode::SchemaEnum(st) =
-            std::mem::replace(&mut self.mode, crate::session::state::Mode::Normal)
-        else {
+        let Mode::SchemaEnum(st) = std::mem::replace(&mut self.mode, Mode::Normal) else {
             return;
         };
-        let Some(doc) = self.doc.as_mut() else { return };
-        let Some((_, value_repr)) = st.options.get(st.cursor) else { return };
-        let fragment = doc.scalar_fragment(
-            if st.is_element { None } else { Some(&st.key) },
-            value_repr,
-        );
-        match doc.apply(crate::model::document::Mutation::Replace {
-            path: st.path.clone(),
-            fragment,
-        }) {
-            Ok(()) => {
-                self.on_mutation_success();
-                self.note_schema_violation(&st.path);
+        let Some((_, value_repr)) = st.options.get(st.cursor).cloned() else {
+            return;
+        };
+        self.cursor = st.path.clone();
+        self.begin_inline_edit_impl(false);
+        let Mode::Edit(e) = &mut self.mode else {
+            return;
+        };
+        // Seed the buffer with the picked value plus whatever trailing
+        // comment already lived on the line (mirrors the buffer `begin_
+        // inline_edit_impl` would have built had it entered the picker
+        // itself, spec §1525) so `edit_commit`'s unchanged-trailing check
+        // sees no diff and never disturbs it.
+        let mut buffer = value_repr;
+        if let Some(tc) = &e.orig_trailing {
+            buffer.push_str("  ");
+            buffer.push_str(tc);
+        }
+        e.cursor = buffer.chars().count();
+        e.buffer = buffer;
+        self.edit_commit();
+        // One-shot epilogue, mirroring `commit_edit`: the picker has no live
+        // text editor or Detail panel to fall back into on decline/retry —
+        // schema_enum_commit already always resolved to `Mode::Normal` on
+        // success, so both outcomes settle there too.
+        match &self.mode {
+            Mode::Edit(_) => {
+                let msg = self.status.take();
+                self.edit_cancel();
+                self.error = msg;
             }
-            Err(e) => self.error = Some(tr_args(self.lang, "core.error.generic", &[&e.to_string()])),
+            Mode::Prompt(_) => self.prompt_from_commit_edit = Some(false),
+            _ => {}
         }
     }
 

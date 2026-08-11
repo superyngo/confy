@@ -478,6 +478,90 @@ fn session_schema_enum_commit_writes_the_chosen_value() {
 }
 
 #[test]
+fn schema_enum_commit_defers_to_type_change_prompt_when_the_picked_value_changes_type() {
+    // A mixed-type enum ("debug" string, 42 integer) — picking the
+    // differently-typed option must go through the same `Mode::Prompt(
+    // TypeChange)` confirmation gate as any other value commit (previously
+    // `schema_enum_commit` bypassed it entirely and wrote the value
+    // unconditionally).
+    use confy_core::session::{Mode, PromptKind};
+    let mut s = session_from("level = \"debug\"\n", DocFormat::Toml);
+    let schema_text = json!({
+        "type": "object",
+        "properties": { "level": { "enum": ["debug", 42] } }
+    })
+    .to_string();
+    s.apply_schema_text(SchemaSource::Local("./s.json".into()), Ok(schema_text));
+    s.cursor = vec![Seg::Key("level".into())];
+    s.begin_inline_edit();
+    s.schema_enum_move(1); // move to 42
+    s.schema_enum_commit();
+    assert!(
+        matches!(s.mode, Mode::Prompt(PromptKind::TypeChange { .. })),
+        "expected a TypeChange prompt"
+    );
+    let node = s.tree.node_at(&[Seg::Key("level".into())]).unwrap();
+    assert_eq!(node.value.as_deref(), Some("\"debug\""), "not yet committed");
+
+    // 'y' applies the value and settles back on Normal (no live editor / no
+    // Detail panel to fall back into — matches the pre-existing "always
+    // resolves to Normal on success" contract of schema_enum_commit).
+    assert!(!s.handle_prompt_key('y'));
+    assert!(matches!(s.mode, Mode::Normal));
+    let node = s.tree.node_at(&[Seg::Key("level".into())]).unwrap();
+    assert_eq!(node.value.as_deref(), Some("42"));
+}
+
+#[test]
+fn schema_enum_commit_type_change_prompt_declined_leaves_the_document_unchanged() {
+    use confy_core::session::{Mode, PromptKind};
+    let mut s = session_from("level = \"debug\"\n", DocFormat::Toml);
+    let schema_text = json!({
+        "type": "object",
+        "properties": { "level": { "enum": ["debug", 42] } }
+    })
+    .to_string();
+    s.apply_schema_text(SchemaSource::Local("./s.json".into()), Ok(schema_text));
+    s.cursor = vec![Seg::Key("level".into())];
+    s.begin_inline_edit();
+    s.schema_enum_move(1);
+    s.schema_enum_commit();
+    assert!(matches!(s.mode, Mode::Prompt(PromptKind::TypeChange { .. })));
+    assert!(!s.handle_prompt_key('n'));
+    assert!(
+        matches!(s.mode, Mode::Normal),
+        "n → Normal, not a resurrected live editor (one-shot, no editor to show)"
+    );
+    let node = s.tree.node_at(&[Seg::Key("level".into())]).unwrap();
+    assert_eq!(node.value.as_deref(), Some("\"debug\""), "unchanged");
+}
+
+#[test]
+fn schema_enum_commit_preserves_the_existing_trailing_comment() {
+    // Same-type pick (no prompt) with a pre-existing trailing comment on the
+    // line — must round-trip untouched, not get silently dropped by the
+    // buffer-based comment-diff logic `edit_commit` now applies underneath.
+    use confy_core::session::Mode;
+    let mut s = session_from("level = \"debug\" # pick one\n", DocFormat::Toml);
+    let schema_text = json!({
+        "type": "object",
+        "properties": { "level": { "enum": ["debug", "info"] } }
+    })
+    .to_string();
+    s.apply_schema_text(SchemaSource::Local("./s.json".into()), Ok(schema_text));
+    s.cursor = vec![Seg::Key("level".into())];
+    s.begin_inline_edit();
+    s.schema_enum_move(1);
+    s.schema_enum_commit();
+    assert!(matches!(s.mode, Mode::Normal));
+    assert_eq!(
+        s.serialize().unwrap(),
+        "level = \"info\" # pick one\n",
+        "trailing comment preserved across the enum-picker commit"
+    );
+}
+
+#[test]
 fn dispatch_nudge_clamps_to_schema_maximum() {
     let mut s = session_from("port = 65534\n", DocFormat::Toml);
     let schema_text = json!({
