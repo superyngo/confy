@@ -204,27 +204,38 @@ after Phase 1 lands.
   vs. full-scan parity, no-staleness across a mutation, correct `None` on a collapsed path);
   `cargo clippy --workspace` 0 warnings. `tsc --noEmit` unaffected (core-only change).
 
-### Task 10: Split TUI overlay renderers
-- **File**: `crates/confy-tui/src/tui/ui.rs` (939 non-test lines) → `crates/confy-tui/src/tui/overlays/`
-  with one file per overlay: `detail.rs` (`draw_detail_overlay`, `detail_popup_rect`,
-  `detail_full_text`, `wrapped_line_count`), `help.rs` (`draw_help_overlay`), `type_filter.rs`
+### Task 10: Split TUI overlay renderers — IMPLEMENTED, layout corrected
+- **File**: `crates/confy-tui/src/tui/ui.rs` (939 non-test lines) → 7 new flat sibling files
+  (**not** a nested `overlays/` directory — corrected during implementation: every existing split
+  in this crate, `keys.rs`/`search.rs`/`selection.rs`/`type_filter.rs`, is a flat file directly
+  under `tui/`; there is no nested-module precedent anywhere in the crate, so a new `overlays/`
+  subdirectory would itself have been the convention deviation, not the fix for one):
+  `overlay_detail.rs` (`draw_detail_overlay`, `detail_popup_rect`, `detail_full_text`,
+  `wrapped_line_count`), `overlay_help.rs` (`draw_help_overlay`), `overlay_type_filter.rs`
   (`draw_type_filter_overlay`, `type_filter_inner_height`, `type_filter_page_step`),
-  `kind_switch.rs` (`draw_kind_switch_overlay`), `convert.rs` (`draw_convert_overlay`),
-  `lang_picker.rs` (`draw_lang_picker_overlay`, `lang_label`), `schema_enum.rs`
-  (`draw_schema_enum_overlay`, `schema_enum_scroll_offset`, `schema_enum_page_step`); `ui.rs`
-  keeps `draw`, `draw_title`, `draw_column_header`, `draw_tree`, `draw_status`,
-  `draw_prompt_overlay`, and the shared cell/span helpers (`cell_preview`, `type_col_cell`,
-  `value_col_width`, `edit_value_cell`, `value_cell`, `edit_field_spans`, `edit_overflow_hint`,
-  `highlight_spans`, `centered_rect`, `paste_line_row`).
-- **Description**: Matches the crate's existing granular module convention (`keys.rs`, `search.rs`,
-  `selection.rs`, `type_filter.rs` already sibling files). Pure code motion — `pub(crate)` /
-  `pub(super)` visibility as needed for cross-module helper reuse (`centered_rect` is shared by
-  several overlays — put it in a small `overlays/common.rs` or keep it `pub(crate)` in `ui.rs`).
+  `overlay_kind_switch.rs` (`draw_kind_switch_overlay`), `overlay_convert.rs`
+  (`draw_convert_overlay`), `overlay_lang_picker.rs` (`draw_lang_picker_overlay`, `lang_label`),
+  `overlay_schema_enum.rs` (`draw_schema_enum_overlay`, `schema_enum_scroll_offset`,
+  `schema_enum_page_step`); `ui.rs` keeps `draw`, `draw_title`, `draw_column_header`, `draw_tree`,
+  `draw_status`, `draw_prompt_overlay`, and the shared cell/span helpers (`cell_preview`,
+  `type_col_cell`, `value_col_width`, `edit_value_cell`, `value_cell`, `edit_field_spans`,
+  `edit_overflow_hint`, `highlight_spans`, `centered_rect`, `paste_line_row`) — non-test `ui.rs`
+  is now 648 lines (was 939).
+- **Description**: Pure code motion, `pub(crate)` visibility for cross-module reuse. `centered_rect`
+  stayed in `ui.rs` (shared by 5 of the 7 overlays) rather than a new `common.rs` — one more file
+  for one four-line function wasn't worth it. `ui.rs` re-exports the handful of functions
+  `mod.rs`'s event loop calls by their old `ui::X` path (`detail_full_text`, `detail_popup_rect`,
+  `wrapped_line_count`, `schema_enum_page_step`, `type_filter_page_step`) so those call sites
+  needed zero changes — true pure code motion, not a call-site migration.
 - **Dependencies**: None (independent of the Rust-core splits in Task 15).
-- **Verify**: `cargo build -p confy-tui` clean; `cargo test -p confy-tui` unchanged pass count;
-  manual TUI smoke test (launch on a sample file, open each overlay — Detail `i`, Help `?`, type
-  filter `f`, kind switch `K`, convert `C`, language `l`, and a schema-enum picker if a schema is
-  loaded — confirm each still renders and responds to keys).
+- **Verify**: `cargo build -p confy-tui` clean (1 unused-import warning caught and fixed:
+  `type_filter_inner_height` didn't need re-exporting, only used internally by
+  `overlay_type_filter.rs` itself); `cargo test -p confy-tui` unchanged at 177/177; manual TUI
+  smoke test via a `hub`-launched session on a 3-node TOML fixture — Detail (`i`), Help (`?`),
+  type filter (`f`), kind switch (`K`, cursor on the integer row), convert (`C`, cursor on root),
+  language (`l`) all rendered correctly from their new files with live session data. Schema-enum
+  picker not exercised here (no schema loaded on this plain fixture) — already covered by the
+  JSON Schema feature's own prior smoke tests.
 
 ### Task 11: `SchemaSource::Url` mock-server test
 - **File**: `crates/confy-tui/tests/schema_io.rs` (currently only covers `SchemaSource::Local`)
