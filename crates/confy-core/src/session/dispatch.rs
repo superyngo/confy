@@ -169,6 +169,7 @@ impl super::Session {
                     self.begin_external_edit();
                 }
             }
+            Intent::BeginEditExternal => self.begin_external_edit(),
             Intent::BeginRename => self.begin_inline_rename(),
             Intent::EditToggleField => self.edit_toggle_field(),
             // Horizontal viewport clamp is host-owned (terminal width); no-op headlessly.

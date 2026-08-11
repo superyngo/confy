@@ -580,3 +580,88 @@ fn dispatch_set_schema_requests_a_fetch() {
         Some(SchemaSource::Local("./explicit.json".into()))
     );
 }
+
+#[test]
+fn begin_edit_external_forces_the_popup_editor_for_an_enum_constrained_scalar() {
+    use confy_core::session::state::Mode;
+    let mut s = session_from("level = \"debug\"\n", DocFormat::Toml);
+    let schema_text = json!({
+        "type": "object",
+        "properties": { "level": { "enum": ["debug", "info"] } }
+    })
+    .to_string();
+    s.apply_schema_text(SchemaSource::Local("./s.json".into()), Ok(schema_text));
+    s.cursor = vec![Seg::Key("level".into())];
+    // Plain BeginEdit is diverted into the picker (req 2's precedent, already
+    // covered above) — BeginEditExternal must NOT be, for the same node.
+    s.dispatch(Intent::BeginEditExternal);
+    assert!(
+        s.pending_external_edit.is_some(),
+        "BeginEditExternal always routes to the external-edit handshake, schema or not"
+    );
+    assert!(!matches!(s.mode, Mode::SchemaEnum(_)));
+}
+
+#[test]
+fn edit_hint_exposes_enum_and_bounded_constraints_without_entering_edit_mode() {
+    let mut s = session_from("level = \"debug\"\nport = 1\n", DocFormat::Toml);
+    let schema_text = json!({
+        "type": "object",
+        "properties": {
+            "level": { "enum": ["debug", "info"] },
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+        }
+    })
+    .to_string();
+    s.apply_schema_text(SchemaSource::Local("./s.json".into()), Ok(schema_text));
+    assert_eq!(
+        s.edit_hint(&vec![Seg::Key("level".into())]),
+        EditHint::Enum(vec![
+            ("debug".into(), json!("debug")),
+            ("info".into(), json!("info")),
+        ])
+    );
+    assert_eq!(
+        s.edit_hint(&vec![Seg::Key("port".into())]),
+        EditHint::Bounded { minimum: Some(1.0), maximum: Some(65535.0), multiple_of: None }
+    );
+    // Mode untouched — this is a read-only query, not an edit-mode entry.
+    assert!(matches!(s.mode, confy_core::session::state::Mode::Normal));
+}
+
+#[test]
+fn committing_a_schema_violating_value_sets_an_advisory_status_with_suggested_values() {
+    let mut s = session_from("level = \"debug\"\n", DocFormat::Toml);
+    let schema_text = json!({
+        "type": "object",
+        "properties": { "level": { "enum": ["debug", "info"] } }
+    })
+    .to_string();
+    s.apply_schema_text(SchemaSource::Local("./s.json".into()), Ok(schema_text));
+    s.cursor = vec![Seg::Key("level".into())];
+    // commit_edit's one-shot path bypasses the picker (existing precedent
+    // above) — write an out-of-enum value directly, as the free-form popup
+    // editor (BeginEditExternal) would.
+    s.dispatch(Intent::CommitEdit { value: Some("\"trace\"".into()), name: None });
+    // Soft constraint: the write still succeeds.
+    assert!(s.serialize().unwrap().contains("level = \"trace\""));
+    assert_eq!(s.schema.as_ref().unwrap().violations.len(), 1);
+    let status = s.status.as_ref().expect("advisory status set on violation");
+    assert!(status.contains("debug"), "status suggests valid values: {status}");
+    assert!(status.contains("info"), "status suggests valid values: {status}");
+}
+
+#[test]
+fn committing_a_schema_compliant_value_leaves_status_untouched() {
+    let mut s = session_from("level = \"debug\"\n", DocFormat::Toml);
+    let schema_text = json!({
+        "type": "object",
+        "properties": { "level": { "enum": ["debug", "info"] } }
+    })
+    .to_string();
+    s.apply_schema_text(SchemaSource::Local("./s.json".into()), Ok(schema_text));
+    s.cursor = vec![Seg::Key("level".into())];
+    s.dispatch(Intent::CommitEdit { value: Some("\"info\"".into()), name: None });
+    assert!(s.schema.as_ref().unwrap().violations.is_empty());
+    assert!(s.status.is_none());
+}

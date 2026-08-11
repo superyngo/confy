@@ -1389,6 +1389,74 @@ impl Session {
         state.violations = crate::schema::validate::validate(&projection, compiled, &map);
     }
 
+    /// Resolve the schema-driven editing hint for the node at `path` —
+    /// enum/const options, numeric bounds, or `EditHint::None` when
+    /// unconstrained or no schema is loaded. Read-only, cheap (same
+    /// `resolve_edit_hint` walk `begin_inline_edit_impl`/`nudge` already do),
+    /// no I/O. Used by hosts for a hover tooltip (spec §4) and to decide
+    /// whether the detail panel should render a schema-select widget before
+    /// entering edit mode (spec §2), without a `BeginEdit` round-trip.
+    pub fn edit_hint(&self, path: &Path) -> crate::schema::EditHint {
+        self.schema
+            .as_ref()
+            .and_then(|s| s.raw.as_ref())
+            .map(|raw| crate::schema::hints_edit::resolve_edit_hint(raw, path))
+            .unwrap_or(crate::schema::EditHint::None)
+    }
+
+    /// After a value commit, surface any resulting schema violation at
+    /// `path` as an advisory `self.status` message (spec §3). The commit
+    /// already succeeded — schema constraints are soft (`CONTEXT.md` §
+    /// Schema) — this never blocks or reverts anything, it only informs.
+    /// Combines the violation message(s) with a `resolve_edit_hint`-derived
+    /// suggestion (valid enum values / numeric bounds) when one applies.
+    fn note_schema_violation(&mut self, path: &Path) {
+        let Some(state) = self.schema.as_ref() else {
+            return;
+        };
+        let messages: Vec<&str> = state
+            .violations
+            .iter()
+            .filter(|v| &v.path == path)
+            .map(|v| v.message.as_str())
+            .collect();
+        if messages.is_empty() {
+            return;
+        }
+        let mut msg = messages.join("; ");
+        if let Some(raw) = state.raw.as_ref() {
+            match crate::schema::hints_edit::resolve_edit_hint(raw, path) {
+                crate::schema::EditHint::Enum(options) => {
+                    let labels: Vec<&str> = options.iter().map(|(l, _)| l.as_str()).collect();
+                    if !labels.is_empty() {
+                        msg.push_str(&format!(" — valid values: {}", labels.join(", ")));
+                    }
+                }
+                crate::schema::EditHint::Bounded {
+                    minimum,
+                    maximum,
+                    multiple_of,
+                } => {
+                    let mut parts = Vec::new();
+                    match (minimum, maximum) {
+                        (Some(min), Some(max)) => parts.push(format!("between {min} and {max}")),
+                        (Some(min), None) => parts.push(format!("at least {min}")),
+                        (None, Some(max)) => parts.push(format!("at most {max}")),
+                        (None, None) => {}
+                    }
+                    if let Some(m) = multiple_of {
+                        parts.push(format!("a multiple of {m}"));
+                    }
+                    if !parts.is_empty() {
+                        msg.push_str(&format!(" — must be {}", parts.join(", ")));
+                    }
+                }
+                crate::schema::EditHint::None => {}
+            }
+        }
+        self.status = Some(msg);
+    }
+
     pub fn schema_enum_move(&mut self, delta: i32) {
         if let crate::session::state::Mode::SchemaEnum(st) = &mut self.mode {
             let len = st.options.len() as i32;
@@ -1415,7 +1483,10 @@ impl Session {
             path: st.path.clone(),
             fragment,
         }) {
-            Ok(()) => self.on_mutation_success(),
+            Ok(()) => {
+                self.on_mutation_success();
+                self.note_schema_violation(&st.path);
+            }
             Err(e) => self.error = Some(tr_args(self.lang, "core.error.generic", &[&e.to_string()])),
         }
     }
@@ -1971,7 +2042,10 @@ impl Session {
         }) {
             Ok(()) => {
                 if let Some(comment) = trailing {
-                    if let Err(e) = doc.apply(Mutation::SetTrailingComment { path, comment }) {
+                    if let Err(e) = doc.apply(Mutation::SetTrailingComment {
+                        path: path.clone(),
+                        comment,
+                    }) {
                         self.error = Some(tr_args(
                             self.lang,
                             "core.trailing.update-failed",
@@ -1980,6 +2054,7 @@ impl Session {
                     }
                 }
                 self.on_mutation_success();
+                self.note_schema_violation(&path);
             }
             Err(MutateError::Fragment(msg)) => {
                 self.error = Some(tr_args(self.lang, "core.fragment.invalid", &[fmt, &msg]));

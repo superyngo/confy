@@ -137,6 +137,11 @@ pub enum Intent {
 
     // ---- Inline edit ----
     BeginEdit,
+    /// Force the external popup editor unconditionally, bypassing the
+    /// schema-aware inline/SchemaEnum-picker branch `BeginEdit` takes for
+    /// scalars. Mirrors the TUI's `E` key (`App::edit_node`, always
+    /// external regardless of node kind or schema).
+    BeginEditExternal,
     BeginRename,
     EditToggleField,
     EditClampScroll(usize),
