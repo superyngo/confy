@@ -60,6 +60,49 @@ pub enum EditHint {
     None,
 }
 
+impl EditHint {
+    /// Format as a standalone advisory sentence — "Valid values: a, b, c" /
+    /// "Must be between X and Y, a multiple of Z" — for surfaces that show
+    /// the constraint proactively (not tied to a violation message). Mirrors
+    /// `web/ui.ts`'s `schemaHintTooltip` wording exactly, so the desktop
+    /// hover tooltip and any other host-side rendering read the same. `None`
+    /// when unconstrained or nothing resolvable to say.
+    pub fn describe(&self) -> Option<String> {
+        match self {
+            EditHint::None => None,
+            EditHint::Enum(options) => {
+                let labels: Vec<&str> = options.iter().map(|(l, _)| l.as_str()).collect();
+                if labels.is_empty() {
+                    None
+                } else {
+                    Some(format!("Valid values: {}", labels.join(", ")))
+                }
+            }
+            EditHint::Bounded {
+                minimum,
+                maximum,
+                multiple_of,
+            } => {
+                let mut parts = Vec::new();
+                match (minimum, maximum) {
+                    (Some(min), Some(max)) => parts.push(format!("between {min} and {max}")),
+                    (Some(min), None) => parts.push(format!("at least {min}")),
+                    (None, Some(max)) => parts.push(format!("at most {max}")),
+                    (None, None) => {}
+                }
+                if let Some(m) = multiple_of {
+                    parts.push(format!("a multiple of {m}"));
+                }
+                if parts.is_empty() {
+                    None
+                } else {
+                    Some(format!("Must be {}", parts.join(", ")))
+                }
+            }
+        }
+    }
+}
+
 /// Per-session schema state. Lives on `Session`, not `Node`/`NodeTree` — the
 /// projected tree is rebuilt from the document on every mutation, so
 /// per-document state belongs one level up (mirrors `Session.clipboard`,

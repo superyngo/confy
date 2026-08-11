@@ -161,7 +161,7 @@
   "web.panel.field.value": "Value ({0})",
   "web.panel.field.trailing": "Trailing comment",
   "web.panel.field.kind": "Kind",
-  "web.panel.editExternal": "Edit in editor",
+  "web.panel.editExternal": "Editor",
   "web.kind.switchTitle": "Switch kind — {0}",
   "web.menu.undo": "Undo",
   "web.menu.redo": "Redo",

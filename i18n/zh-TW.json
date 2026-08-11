@@ -162,7 +162,7 @@
   "web.panel.field.value": "Value（{0}）",
   "web.panel.field.trailing": "Trailing comment",
   "web.panel.field.kind": "Kind",
-  "web.panel.editExternal": "在編輯器中編輯",
+  "web.panel.editExternal": "編輯器",
   "web.kind.switchTitle": "切換 kind — {0}",
   "web.menu.undo": "復原",
   "web.menu.redo": "重做",

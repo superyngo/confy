@@ -564,8 +564,14 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
         "tui.status.default",
         &[&pos.to_string(), &total.to_string()],
     );
-    if let Some(ref msg) = app.session.status {
+    if let Some(msg) = &app.session.status {
         status = format!(" {msg}");
+    } else if let Some(hint) = app.session.edit_hint(&app.session.cursor).describe() {
+        // Dynamic, tooltip-like: appears while the cursor sits on a
+        // schema-constrained node, clears the instant it moves off (no
+        // explicit session.status set — that always wins, e.g. a just-
+        // committed violation message).
+        status = format!(" {hint}");
     }
     let violation_count = app
         .session
