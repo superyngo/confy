@@ -171,26 +171,38 @@ after Phase 1 lands.
   in this environment). Diff the two workflows' pre/post step sequences to confirm the
   composite action's inlined behavior is identical to what was removed.
 
-### Task 9: O(1) cursor→row lookup in `Session`
-- **File**: `crates/confy-core/src/session/session.rs:132` (`visible_rows`) + ~14 call sites
-  (1150, 1168, 1183, 1196, 1207, 1543, 1621, 2227, 2307, 2412, 2462, 2913, 3107, 3233, 3240 —
-  re-verify each against current line numbers before editing, since Phase 1 edits shift lines)
-- **Description**: Add a `row_index: Option<HashMap<Path, usize>>` (or similar) built lazily from
-  `self.tree`/`self.visible_nodes()`, invalidated at every point `self.tree` is reassigned
-  (`on_mutation_success`, `apply_schema_text`, undo/redo — the same set of call sites Task 14
-  touches, so sequence these together or at minimum re-grep after Task 14 lands). Add a
-  `fn cursor_row_index(&mut self) -> Option<usize>` (or non-mutating variant returning a fresh
-  lookup if no cache exists yet) that the ~14 sites call instead of
-  `self.visible_rows().iter().position(...)` / equivalent full-materialization pattern.
-- **Dependencies**: None. (Originally drafted as "sequence after Task 14" — re-checked against
-  `on_mutation_success`, which the corrected Task 14 design targets: tree rebuild (`self.tree =
-  tree`) and schema revalidation (`self.revalidate_schema()`) are independent sequential
-  statements, not a shared code path. Task 9's invalidation point and Task 14's dirty-check don't
-  overlap; either can land first.)
-- **Verify**: `cargo test -p confy-core` 472/472 unchanged (behavior-preserving — this is a perf
-  optimization, not a semantic change). Add one new test asserting the O(1) path returns the
-  same row the O(n) `.find()` would for a cursor mid-document, and that it's correctly invalidated
-  after a mutation that changes row count (e.g. `Delete` above the cursor shifts its index).
+### Task 9: O(depth) cursor→row lookup in `Session` — IMPLEMENTED, corrected from the literal sketch
+- **File**: `crates/confy-core/src/session/session.rs` — `visible_rows`, plus new `to_view_row`/
+  `is_path_visible`/`view_row_at`/`cursor_row`, plus ~10 migrated call sites.
+- **What shipped, and why it differs from the original sketch**: the original text called for a
+  `row_index: HashMap<Path, usize>` cache. Tracing the actual costs while implementing showed
+  that design was hollow: `visible_rows()`'s expense is the `NodeTree::flatten` walk *and* the
+  per-row `ViewRow` field-cloning/violation-filtering in its `.map()` — a bare index map still
+  requires materializing the full row list to turn an index back into a `ViewRow`, so it wouldn't
+  have saved anything. Worse, its proposed invalidation scope (only `self.tree` reassignment)
+  ignored that `self.expanded`/`self.filtered_paths` also change `visible_rows()`'s output at
+  ~12 additional call sites (`toggle_expand`, `collapse_all`, `expand_all`, `set_filter`, …) —
+  missing any one would have been a silent stale-lookup bug.
+  Shipped design instead: `NodeTree::node_at(path)` already resolves a path in O(depth) (walks
+  path segments, not the whole tree) — provably cheaper than building any index. `to_view_row`
+  factors `visible_rows()`'s per-row projection into a shared helper; `is_path_visible` replicates
+  `flatten`'s expand/filter descent gate in O(depth) (checking every ancestor prefix); `view_row_at`
+  composes both for a stateless, cache-free O(depth) single-path lookup — `cursor_row()` is the
+  `self.cursor` convenience. No persistent cache, so no invalidation surface at all: it's simply
+  cheap on every call, correct by construction, matching `visible_rows()`'s exact semantics
+  (visibility included) rather than a raw unchecked tree lookup.
+  Migrated ~10 single-row call sites (`cursor_is_read_only`, `edit_target_kind`,
+  `begin_inline_edit_impl`, `begin_inline_rename`, `nudge`, `add_node_impl` ×2,
+  `add_comment_sibling`, `remark`, the `Collision` paste-prompt handler, `selected_paths`) plus
+  the pre-existing `cursor_row_path()` (hot: called 3× per `dispatch()` on the WASM/web path).
+  Left untouched: `extend_select_up`/`extend_select_down` (genuinely need the full ordered path
+  list for `extend_round_to`), `compute_rows` (needs the full list to snap the cursor),
+  `cursor_row_index`/`visible_paths` (position-in-order / all-paths queries — no single-path
+  shortcut applies), and the 3 `#[cfg(test)]`-only helpers (`select_row`/`row_path`/`visible_keys`).
+- **Dependencies**: None (see the corrected note above — Task 14 doesn't touch this code path).
+- **Verify**: `cargo test -p confy-core` — `session_headless.rs` 77→80 (3 new tests: direct-lookup
+  vs. full-scan parity, no-staleness across a mutation, correct `None` on a collapsed path);
+  `cargo clippy --workspace` 0 warnings. `tsc --noEmit` unaffected (core-only change).
 
 ### Task 10: Split TUI overlay renderers
 - **File**: `crates/confy-tui/src/tui/ui.rs` (939 non-test lines) → `crates/confy-tui/src/tui/overlays/`

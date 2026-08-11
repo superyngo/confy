@@ -2,7 +2,7 @@ use crate::model::any_doc::AnyDocument;
 use crate::model::document::{
     ConfigDocument, DocFormat, MutateError, Mutation, OnCollision, Target,
 };
-use crate::model::node::{Format, KeySign, NodeKind, NodeTree, Path, ScalarType, Seg, VisibleRow};
+use crate::model::node::{Format, KeySign, Node, NodeKind, NodeTree, Path, ScalarType, Seg, VisibleRow};
 use crate::session::i18n::{tr, tr_args, Lang};
 use crate::session::search::{fuzzy_match, haystack};
 use crate::session::selection::Selection;
@@ -132,38 +132,77 @@ impl Session {
     pub fn visible_rows(&self) -> Vec<ViewRow> {
         self.visible_nodes()
             .into_iter()
-            .map(|r| {
-                let scalar_type = match &r.node.kind {
-                    NodeKind::Scalar(st) => Some(*st),
-                    _ => None,
-                };
-                ViewRow {
-                    path: r.node.path.clone(),
-                    depth: r.depth,
-                    is_branch: r.node.is_branch(),
-                    key: r.node.key.clone(),
-                    value: r.node.value.clone(),
-                    scalar_type,
-                    format: r.node.format,
-                    type_label: node_type_label_str(&r.node.kind).to_string(),
-                    child_count: r.node.children.len(),
-                    trailing_comment: r.node.trailing_comment.clone(),
-                    key_sign: key_sign_label(r.node.key_sign).to_string(),
-                    read_only: r.node.read_only,
-                    selected: self.selection.contains(&r.node.path),
-                    is_cursor: r.node.path == self.cursor,
-                    violations: self.schema.as_ref().and_then(|s| {
-                        let msgs: Vec<String> = s
-                            .violations
-                            .iter()
-                            .filter(|v| v.path == r.node.path)
-                            .map(|v| v.message.clone())
-                            .collect();
-                        (!msgs.is_empty()).then_some(msgs)
-                    }),
-                }
-            })
+            .map(|r| self.to_view_row(r.node, r.depth))
             .collect()
+    }
+
+    /// Build one `ViewRow` transport struct from a tree `Node` + its depth.
+    /// Single source of truth for `visible_rows()`'s per-row projection and
+    /// `view_row_at()`'s direct single-path lookup — the two must never drift.
+    fn to_view_row(&self, node: &Node, depth: usize) -> ViewRow {
+        let scalar_type = match &node.kind {
+            NodeKind::Scalar(st) => Some(*st),
+            _ => None,
+        };
+        ViewRow {
+            path: node.path.clone(),
+            depth,
+            is_branch: node.is_branch(),
+            key: node.key.clone(),
+            value: node.value.clone(),
+            scalar_type,
+            format: node.format,
+            type_label: node_type_label_str(&node.kind).to_string(),
+            child_count: node.children.len(),
+            trailing_comment: node.trailing_comment.clone(),
+            key_sign: key_sign_label(node.key_sign).to_string(),
+            read_only: node.read_only,
+            selected: self.selection.contains(&node.path),
+            is_cursor: node.path == self.cursor,
+            violations: self.schema.as_ref().and_then(|s| {
+                let msgs: Vec<String> = s
+                    .violations
+                    .iter()
+                    .filter(|v| v.path == node.path)
+                    .map(|v| v.message.clone())
+                    .collect();
+                (!msgs.is_empty()).then_some(msgs)
+            }),
+        }
+    }
+
+    /// Whether `path` is currently visible: every ancestor prefix must be
+    /// expanded (mirrors `NodeTree::flatten`'s descent gate) and, when a
+    /// filter is active, `path` itself must be a filter match. O(depth), not
+    /// O(document size) — replicated here instead of delegating to
+    /// `visible_nodes()` so `view_row_at` never pays for a full-tree flatten
+    /// just to check one path.
+    fn is_path_visible(&self, path: &Path) -> bool {
+        if let Some(fp) = &self.filtered_paths {
+            if !fp.contains(path) {
+                return false;
+            }
+        }
+        (0..path.len()).all(|i| self.expanded.contains(&path[..i]))
+    }
+
+    /// O(depth) lookup of the `ViewRow` for one path, without materializing
+    /// the full `visible_rows()` list — for the many call sites that only
+    /// ever need one row (usually the cursor's), not the whole visible
+    /// ordering. Returns `None` exactly when `path` would be absent from
+    /// `visible_rows()` (not found in the tree, or hidden by a collapsed
+    /// ancestor / active filter) — same semantics, cheaper path.
+    pub fn view_row_at(&self, path: &Path) -> Option<ViewRow> {
+        if !self.is_path_visible(path) {
+            return None;
+        }
+        let node = self.tree.node_at(path)?;
+        Some(self.to_view_row(node, path.len()))
+    }
+
+    /// `view_row_at(&self.cursor)` — the single most common single-row lookup.
+    pub fn cursor_row(&self) -> Option<ViewRow> {
+        self.view_row_at(&self.cursor)
     }
 
     /// Stateful rebuild: compute visible rows, snap cursor, clear stale paste slot.
@@ -196,10 +235,7 @@ impl Session {
 
     /// Path the cursor is on, if visible.
     pub fn cursor_row_path(&self) -> Option<Path> {
-        self.visible_nodes()
-            .iter()
-            .find(|r| r.node.path == self.cursor)
-            .map(|r| r.node.path.clone())
+        self.is_path_visible(&self.cursor).then(|| self.cursor.clone())
     }
 
     /// Cursor's visible-row index.
@@ -1180,12 +1216,10 @@ impl Session {
     }
 
     pub fn selected_paths(&self) -> Vec<Path> {
-        let rows = self.visible_rows();
         if self.selection.is_empty() {
-            return rows
-                .iter()
-                .find(|r| r.path == self.cursor)
-                .map(|r| vec![r.path.clone()])
+            return self
+                .cursor_row()
+                .map(|r| vec![r.path])
                 .unwrap_or_default();
         }
         let paths: Vec<Path> = self.selection.iter().collect();
@@ -1193,20 +1227,14 @@ impl Session {
     }
 
     fn cursor_is_read_only(&self) -> bool {
-        let rows = self.visible_rows();
-        rows.iter()
-            .find(|r| r.path == self.cursor)
-            .and_then(|r| self.tree.node_at(&r.path))
-            .map(|n| n.read_only)
-            .unwrap_or(false)
+        self.cursor_row().map(|r| r.read_only).unwrap_or(false)
     }
 
     // ---- Edit routing ----
 
     pub fn edit_target_kind(&self) -> EditKind {
-        let rows = self.visible_rows();
-        let path = match rows.iter().find(|r| r.path == self.cursor) {
-            Some(r) => r.path.clone(),
+        let path = match self.cursor_row() {
+            Some(r) => r.path,
             None => return EditKind::External,
         };
         if path.is_empty() {
@@ -1540,9 +1568,8 @@ impl Session {
     }
 
     fn begin_inline_edit_impl(&mut self, allow_schema_enum: bool) {
-        let rows = self.visible_rows();
-        let row = match rows.iter().find(|r| r.path == self.cursor) {
-            Some(r) => r.clone(),
+        let row = match self.cursor_row() {
+            Some(r) => r,
             None => return,
         };
         let is_comment = self
@@ -1618,9 +1645,8 @@ impl Session {
     }
 
     pub fn begin_inline_rename(&mut self) {
-        let rows = self.visible_rows();
-        let row = match rows.iter().find(|r| r.path == self.cursor) {
-            Some(r) => r.clone(),
+        let row = match self.cursor_row() {
+            Some(r) => r,
             None => return,
         };
         let key = match row.path.last() {
@@ -2224,9 +2250,8 @@ impl Session {
     // ---- Nudge (←/→ in Normal) ----
 
     pub fn nudge(&mut self, delta: i64) {
-        let rows = self.visible_rows();
-        let path = match rows.iter().find(|r| r.path == self.cursor) {
-            Some(r) => r.path.clone(),
+        let path = match self.cursor_row() {
+            Some(r) => r.path,
             None => return,
         };
         let frag_key = match path.last() {
@@ -2304,8 +2329,7 @@ impl Session {
         if self.doc.is_none() {
             return;
         }
-        let rows = self.visible_rows();
-        let cursor_row = match rows.iter().find(|r| r.path == self.cursor).cloned() {
+        let cursor_row = match self.cursor_row() {
             Some(r) => r,
             None => return,
         };
@@ -2409,8 +2433,7 @@ impl Session {
             Some(k) => new_path.push(Seg::Key(k.clone())),
             None => new_path.push(Seg::Index(target.index)),
         }
-        let rows = self.visible_rows();
-        if rows.iter().any(|r| r.path == new_path) {
+        if self.view_row_at(&new_path).is_some() {
             self.cursor = new_path;
             if inline {
                 self.begin_inline_edit();
@@ -2459,8 +2482,7 @@ impl Session {
         }
         let mut new_path = target.parent.clone();
         new_path.push(Seg::Index(target.index));
-        let rows = self.visible_rows();
-        if rows.iter().any(|r| r.path == new_path) {
+        if self.view_row_at(&new_path).is_some() {
             self.cursor = new_path;
             // Enter the inline editor on the fresh comment so the user types
             // immediately; `created_on_add` makes Esc remove it (and its
@@ -2910,9 +2932,8 @@ impl Session {
             self.status = Some(tr(self.lang, "core.readonly").to_string());
             return;
         }
-        let rows = self.visible_rows();
-        let path = match rows.iter().find(|r| r.path == self.cursor) {
-            Some(r) => r.path.clone(),
+        let path = match self.cursor_row() {
+            Some(r) => r.path,
             None => return,
         };
         let authoring = self
@@ -3104,8 +3125,7 @@ impl Session {
                         return false;
                     }
                 };
-                let rows = self.visible_rows();
-                let cursor_row = match rows.iter().find(|r| r.path == self.cursor).cloned() {
+                let cursor_row = match self.cursor_row() {
                     Some(r) => r,
                     None => {
                         self.mode = Mode::Normal;

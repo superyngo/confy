@@ -161,6 +161,58 @@ fn visible_rows_marks_cursor_and_selection() {
     assert!(b_row.is_cursor, "b is the cursor");
 }
 
+// ---- cursor_row / view_row_at (O(depth) single-row lookup, Task 9) ----
+
+#[test]
+fn cursor_row_matches_full_scan_lookup() {
+    let mut s = toml_session("a = 1\nb = 2\nc = 3\n");
+    s.cursor_down();
+    s.cursor_down(); // cursor on 'b'
+    let scanned = s.visible_rows().into_iter().find(|r| r.is_cursor).unwrap();
+    let direct = s.cursor_row().expect("cursor row found");
+    assert_eq!(direct.path, scanned.path);
+    assert_eq!(direct.key, scanned.key);
+    assert_eq!(direct.value, scanned.value);
+    assert!(direct.is_cursor);
+}
+
+#[test]
+fn cursor_row_tracks_cursor_across_a_mutation() {
+    let mut s = toml_session("a = 1\nb = 2\nc = 3\n");
+    s.cursor_down();
+    s.cursor_down();
+    s.cursor_down(); // cursor on 'c'
+    assert_eq!(s.cursor_row().unwrap().key, "c");
+    s.delete_selected(); // deletes 'c' (empty selection targets the cursor)
+    assert!(
+        s.cursor_row().is_none(),
+        "cursor still points at the just-deleted path — no false positive"
+    );
+    s.compute_rows(); // hosts call this after every mutation to snap the cursor
+    let after = s.cursor_row().expect("cursor snapped to a visible row");
+    assert_ne!(after.key, "c", "deleted row is gone");
+    // No staleness: matches a fresh full scan of the post-snap tree.
+    let scanned = s.visible_rows().into_iter().find(|r| r.is_cursor).unwrap();
+    assert_eq!(after.path, scanned.path);
+}
+
+#[test]
+fn view_row_at_returns_none_for_a_collapsed_path() {
+    let mut s = toml_session("[a]\nx = 1\n");
+    s.cursor_down(); // cursor on 'a'
+    s.toggle_expand(); // reveal x
+    let x_path = s.visible_rows().into_iter().find(|r| r.key == "x").unwrap().path;
+    assert!(
+        s.view_row_at(&x_path).is_some(),
+        "x is visible while a is expanded"
+    );
+    s.toggle_expand(); // collapse 'a' again
+    assert!(
+        s.view_row_at(&x_path).is_none(),
+        "x is hidden once its parent collapses, even though it still exists in the tree"
+    );
+}
+
 // ---- Copy / cut ----
 
 #[test]
