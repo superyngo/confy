@@ -407,7 +407,7 @@ picker on all three surfaces).
   total incl. its ~170-line test module, is the one file still clearly over threshold: 105
   cohesive core-API methods have no further natural seam).
 
-### Task 16: Row-level diffing / virtualization for tree rendering
+### Task 16: Row-level diffing / virtualization for tree rendering — IMPLEMENTED
 - **Files**: `web/render.ts:192-226` (`renderTree`, `treeEl.innerHTML = rows.map(...).join('')`),
   `crates/confy-tui/src/tui/ui.rs:261-407` (`draw_tree`, post-Task-10 lives wherever `draw_tree`
   landed — it stays in the main `ui.rs`, not an overlay file)
@@ -436,6 +436,26 @@ picker on all three surfaces).
   count, for a document larger than the terminal). No automated web test exists for render
   output today (per the audit's Testing note) — this task does not introduce one; visual/manual
   verification only, consistent with the existing convention.
+- **What shipped**: matches the design above with two corrections learned during
+  implementation. (1) Web: reconciliation additionally had to explicitly `.remove()` the stale
+  node a changed row replaces — the first version left it orphaned in the DOM as a same-key
+  duplicate, caught via live browser identity-marker testing (`tsc --noEmit` alone couldn't have
+  caught it — the type-checker has no notion of DOM node uniqueness). (2) One out-of-band row
+  mutator, `beginTrailingEdit` (ui.ts), had to be taught to invalidate its row's `data-html`
+  cache — otherwise a render firing after Escape (to restore the row) would see no content
+  change and skip the DOM write, leaving the injected `<input>` stuck in place. `installDnd` and
+  the marquee-select box needed no such treatment (verified by reading, not assumed): dnd clears
+  its transient classes before any dispatch, marquee never touches row nodes.
+- **Verify**: `cargo test -p confy-tui` 178 passed (was 177 — new
+  `draw_tree_windows_to_the_viewport_and_still_follows_the_cursor`, a 60-key doc rendered in a
+  10-row terminal, confirms the far-below row is absent while scrolled to the top and the cursor
+  row is drawn after paging 40 rows down). Live headless-browser verification (not just
+  `tsc --noEmit`) tagged every row with a throwaway JS property and confirmed across click-to-
+  move-cursor / expand / collapse that only rows whose content actually changed lost the tag,
+  no duplicate `data-path`s ever appeared, and a real inline-edit commit (type into a value,
+  Enter) still renders correctly end to end. `cargo test --workspace` 495/495, `cargo clippy
+  --workspace --all-targets` 0 warnings, `tsc --noEmit` (web/ + editors/vscode/) 0 errors,
+  `functional_smoke.mjs` 92/92, `web/toolbar-fold.spec.mjs` all passed.
 
 **Phase 3 testing strategy**: this phase is architecturally the riskiest — land one task at a
 time, full `cargo test --workspace` + `tsc --noEmit` + manual smoke pass after each task, not
