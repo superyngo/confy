@@ -18,12 +18,8 @@
 //     non-empty error is surfaced via `onError` (no more silent failures).
 import type { ViewRow, Intent, SessionSnapshot, Path, EditHint } from "./types";
 import { escapeHtml as esc } from "./escape.js";
-import { notationGlyph, valueHue } from "./kind-labels.js";
+import { isCommentRow, isPositional, notationGlyph, valueHue } from "./kind-labels.js";
 import { t, tArgs } from "./i18n.js";
-
-function isComment(r: ViewRow): boolean {
-  return r.type_label === "comment";
-}
 
 // Whether a scalar value edits through the host's popup editor rather than a
 // one-line input. Mirrors core's `edit_target_kind` scalar rule (multiline string
@@ -31,11 +27,6 @@ function isComment(r: ViewRow): boolean {
 const MULTILINE_FORMATS = ["MultilineBasic", "MultilineLiteral", "LiteralBlock", "Folded"];
 function isMultilineValue(r: ViewRow): boolean {
   return MULTILINE_FORMATS.includes(r.format) || (r.value ?? "").includes("\n");
-}
-
-function isPositional(r: ViewRow): boolean {
-  const last = r.path[r.path.length - 1];
-  return !!last && "Index" in last;
 }
 
 // Kind-notation glyph + value-hue lookups are shared (`kind-labels.ts`).
@@ -68,7 +59,7 @@ export function panelHTML(
 ): string {
   const r = row;
   const branch = r.is_branch;
-  const comment = isComment(r);
+  const comment = isCommentRow(r);
   const elem = isPositional(r);
   let h = '<div class="detail">';
 

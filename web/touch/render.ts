@@ -7,7 +7,7 @@
 // whole tree from each snapshot.
 import type { SessionSnapshot, ViewRow } from "../types.js";
 import { escapeHtml as esc } from "../escape.js";
-import { kindLabelParts, valueTypeClass } from "../kind-labels.js";
+import { isCommentRow, isExpanded, isPositional, kindLabelParts, valueTypeClass } from "../kind-labels.js";
 
 // The shared quote-safe escaper, under this module's traditional short name.
 export { esc };
@@ -36,22 +36,6 @@ export const IC = {
   grip: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>',
 };
 
-export function isComment(r: ViewRow): boolean {
-  return r.type_label === "comment";
-}
-
-export function isPositional(r: ViewRow): boolean {
-  const last = r.path[r.path.length - 1];
-  return !!last && "Index" in last;
-}
-
-// A branch is open iff the next visible row is one level deeper (mirrors the
-// desktop `isExpanded`; the snapshot only carries visible rows).
-export function isExpanded(rows: ViewRow[], idx: number): boolean {
-  const next = rows[idx + 1];
-  return next !== undefined && next.depth > rows[idx].depth;
-}
-
 function containerKind(r: ViewRow): "array" | "table" {
   return /array|seq/i.test(r.type_label) ? "array" : "table";
 }
@@ -65,7 +49,7 @@ function kindBadgeText(r: ViewRow): string {
 
 function rowHTML(r: ViewRow, idx: number, rows: ViewRow[]): string {
   const branch = r.is_branch;
-  const comment = isComment(r);
+  const comment = isCommentRow(r);
   const pad = 10 + Math.max(0, r.depth - 1) * 18;
   const expanded = branch && isExpanded(rows, idx);
   const type = branch ? containerKind(r) : r.scalar_type ?? "string";

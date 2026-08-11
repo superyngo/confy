@@ -10,20 +10,12 @@
 // phases (kind popover, context menu, drag-reparent).
 import type { EditView, SessionSnapshot, ViewRow } from "./types.js";
 import { escapeHtml } from "./escape.js";
-import { kindLabelParts, valueTypeClass } from "./kind-labels.js";
+import { isCommentRow, isExpanded, isPositional, kindLabelParts, valueTypeClass } from "./kind-labels.js";
 import { t } from "./i18n.js";
 
 // Re-export so existing importers (ui.ts / typefilter.ts / convert-dialog.ts)
 // keep their entry point; the single quote-safe escaper lives in escape.ts.
 export { escapeHtml } from "./escape.js";
-
-// A positional node (array element / AoT entry) is addressed by `Seg::Index`; it
-// is keyless and renders as the faint "—" placeholder (core hands us a display
-// key like "[0]", which the design replaces with the dash).
-function isPositional(r: ViewRow): boolean {
-  const last = r.path[r.path.length - 1];
-  return last !== undefined && "Index" in last;
-}
 
 // --- inline SVGs (mirrors the design's IC table) ---
 export const IC_CARET =
@@ -45,13 +37,6 @@ const IC_MORE =
 export function currentKindLabel(r: ViewRow): string {
   const { label, note } = kindLabelParts(r);
   return note ? `${label} · ${note}` : label;
-}
-
-// The disclosure caret as an inline SVG (rotated 90° via `.row.open > .caret`).
-function isExpanded(rows: ViewRow[], idx: number): boolean {
-  const r = rows[idx];
-  const next = rows[idx + 1];
-  return next !== undefined && next.depth > r.depth;
 }
 
 // When the cursor row is in `Value` edit mode, the value cell becomes a live
@@ -92,13 +77,6 @@ function renderValue(r: ViewRow, edit: EditView | null, schemaEnum: { options: s
   // break the flexbox and push the kind badge off, making it unclickable). The
   // `.val` cell also clamps with ellipsis (style.css).
   return escapeHtml((r.value ?? "").replace(/\r?\n/g, " ↵ "));
-}
-
-// A comment node is identified by its kind label (core sets `type_label` to
-// "comment"; it also fills both `key` and `value` with the comment text, so the
-// old key/value heuristic is unreliable — use the label).
-function isCommentRow(r: ViewRow): boolean {
-  return r.type_label === "comment";
 }
 
 // The per-row kind badge: friendly kind label + notation suffix + chevron.

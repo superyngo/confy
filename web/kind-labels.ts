@@ -1,5 +1,6 @@
-// Shared kind/notation/value-hue lookups for a `ViewRow` (previously duplicated
-// across render.ts, panel.ts and touch/render.ts).
+// Shared `ViewRow` lookups and predicates (kind/notation/value-hue labels,
+// plus row-anatomy predicates isCommentRow/isPositional/isExpanded) —
+// previously duplicated across render.ts, panel.ts and touch/render.ts.
 import type { ViewRow } from "./types.js";
 
 // Short notation glyph for a scalar's `Format` (design's NOTATION_SHORT). Plain
@@ -104,4 +105,29 @@ export function valueHue(r: ViewRow): string {
 export function valueTypeClass(r: ViewRow): string {
   const hue = valueHue(r);
   return hue ? `t-${hue}` : "";
+}
+
+// A comment node is identified by its kind label (core sets `type_label` to
+// "comment"; it also fills both `key` and `value` with the comment text, so a
+// key/value heuristic is unreliable — use the label). Previously duplicated
+// across render.ts, touch/render.ts and panel.ts.
+export function isCommentRow(r: ViewRow): boolean {
+  return r.type_label === "comment";
+}
+
+// A positional node (array element / AoT entry) is addressed by `Seg::Index`;
+// it is keyless — core hands it a display key like "[0]", which hosts render
+// faintly instead of as a real key. Previously duplicated across render.ts,
+// touch/render.ts and panel.ts.
+export function isPositional(r: ViewRow): boolean {
+  const last = r.path[r.path.length - 1];
+  return last !== undefined && "Index" in last;
+}
+
+// A branch is open iff the next visible row is one level deeper (the
+// snapshot only carries visible rows, so there's no `.expanded` flag to read
+// directly). Previously duplicated across render.ts and touch/render.ts.
+export function isExpanded(rows: ViewRow[], idx: number): boolean {
+  const next = rows[idx + 1];
+  return next !== undefined && next.depth > rows[idx].depth;
 }

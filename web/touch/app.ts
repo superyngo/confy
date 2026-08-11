@@ -59,7 +59,8 @@ import {
   setSampleMode,
   type SampleFormat,
 } from "../samples.js";
-import { IC, esc, treeHTML, isExpanded } from "./render.js";
+import { IC, esc, treeHTML } from "./render.js";
+import { isExpanded } from "../kind-labels.js";
 import { parentOf, pathEq, siblingIndex } from "../path-utils.js";
 import { panelHTML, wirePanel, schemaHintText } from "../panel.js";
 import { bindPromptClicks, promptButtonsHTML, promptQuestion, promptTitle } from "../prompt.js";
