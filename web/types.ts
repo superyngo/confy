@@ -131,6 +131,14 @@ export type ModeView =
   | { Edit: EditView }
   | { SchemaEnum: { options: string[]; cursor: number } };
 
+// Schema-driven editing constraint for one node (session::schema::EditHint,
+// mirrors the Rust enum exactly). `Enum`'s pairs are `[label, value]` tuples
+// (serde tuple-serialization); `value` is the raw JSON to write verbatim.
+export type EditHint =
+  | { Enum: Array<[string, unknown]> }
+  | { Bounded: { minimum: number | undefined; maximum: number | undefined; multiple_of: number | undefined } }
+  | "None";
+
 // ---- External edit handshake (session::view::ExternalEdit, §8.2) ----
 export type ExternalEditKind =
   | { Value: { path: Path } }
@@ -214,7 +222,7 @@ export type Intent =
   // Help
   | "EnterHelp" | "ExitHelp" | "ToggleHelpTab"
   // Inline edit
-  | "BeginEdit" | "BeginRename" | "EditToggleField"
+  | "BeginEdit" | "BeginEditExternal" | "BeginRename" | "EditToggleField"
   | { EditChar: string }
   | "EditBackspace" | "EditDelete"
   | "EditCursorLeft" | "EditCursorRight" | "EditCursorHome" | "EditCursorEnd"

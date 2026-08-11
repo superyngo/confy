@@ -61,6 +61,7 @@ import {
 } from "./convert-dialog.js";
 import type {
   ConvertView,
+  EditHint,
   ExternalEdit,
   Intent,
   ModeView,
@@ -407,11 +408,23 @@ function renderDetailPanel() {
   if (!cursorRow) {
     body.innerHTML = `<pre class="mono">${escapeHtml(snap!.detail_text ?? "")}</pre>`;
   } else {
-    body.innerHTML = panelHTML(cursorRow, parentIsInline(cursorRow.path));
-    wirePanel(body, cursorRow, panelSend, openKindForRow, (msg) => setStatus("", msg), (msg) => {
-      setStatus("", msg);
-      send("ExitDetail");
-    });
+    const hint = session!.schemaHint(cursorRow.path);
+    const schemaEnum =
+      typeof snap!.mode === "object" && "SchemaEnum" in snap!.mode ? snap!.mode.SchemaEnum : undefined;
+    body.innerHTML = panelHTML(cursorRow, parentIsInline(cursorRow.path), hint, schemaEnum);
+    wirePanel(
+      body,
+      cursorRow,
+      panelSend,
+      openKindForRow,
+      (msg) => setStatus("", msg),
+      (msg) => {
+        setStatus("", msg);
+        send("ExitDetail");
+      },
+      undefined,
+      schemaEnum,
+    );
   }
   panel.classList.add("open");
 }
@@ -1115,6 +1128,45 @@ function attachSchema() {
   send({ SetSchema: { source } });
 }
 
+// Schema-driven hover tooltip (spec req 4, desktop-only — no hover on touch,
+// see touch/render.ts which never applies this). Format a resolved EditHint
+// into "Valid values: …" / "Must be between X and Y" — plain English,
+// matching the schema feature's existing "N schema warnings" precedent
+// (jsonschema's own violation text is English-only, so the composed
+// constraint description stays English too rather than mixing languages).
+function schemaHintTooltip(hint: EditHint): string {
+  if (hint === "None") return "";
+  if ("Enum" in hint) {
+    const labels = hint.Enum.map(([label]) => label);
+    return labels.length ? `Valid values: ${labels.join(", ")}` : "";
+  }
+  const { minimum, maximum, multiple_of } = hint.Bounded;
+  const parts: string[] = [];
+  if (minimum !== undefined && maximum !== undefined) parts.push(`between ${minimum} and ${maximum}`);
+  else if (minimum !== undefined) parts.push(`at least ${minimum}`);
+  else if (maximum !== undefined) parts.push(`at most ${maximum}`);
+  if (multiple_of !== undefined) parts.push(`a multiple of ${multiple_of}`);
+  return parts.length ? `Must be ${parts.join(", ")}` : "";
+}
+
+// Lazy, on-demand — resolves the hint only for the cell actually hovered
+// (not eagerly for the whole visible tree), mirroring the existing
+// `kind_options`/`schemaHint` on-demand-per-path precedent. `mouseover`
+// (not `mouseenter`) so one delegated listener on the tree wrap covers every
+// row, matching `onTreeClick`'s delegation pattern.
+function onTreeHover(ev: MouseEvent) {
+  if (!session) return;
+  const target = ev.target as HTMLElement;
+  const cell = target.closest('[data-edit="val"], [data-kind]') as HTMLElement | null;
+  if (!cell || cell.title) return;
+  const rowEl = cell.closest(".row") as HTMLElement | null;
+  const raw = rowEl?.dataset.path;
+  if (raw === undefined) return;
+  const path = JSON.parse(raw) as Path;
+  const text = schemaHintTooltip(session.schemaHint(path));
+  if (text) cell.title = text;
+}
+
 // ---- pointer: click routing for every row affordance ----
 function onTreeClick(ev: MouseEvent) {
   if (!session || !snap) return;
@@ -1499,7 +1551,7 @@ function buildCtxMenu(path: Path): HTMLElement {
     if (el) beginTrailingEdit(el, path);
   };
   const items: Array<[string, CtxAction, boolean]> = [
-    ["Edit", "BeginEdit", true],
+    ["Edit", "BeginEditExternal", true],
     ["Add child", "AddChild", !!row?.is_branch],
     ["Append sibling", "AddSibling", path.length > 0],
     ["Copy", "CopySelected", true],
@@ -1683,6 +1735,7 @@ function bindGlobal() {
   // click on the blank space below the last row also reaches `onTreeClick`'s
   // "empty area" branch — same wrap `installMarquee`'s mousedown uses.
   $("treeWrap").addEventListener("click", onTreeClick);
+  $("treeWrap").addEventListener("mouseover", onTreeHover);
   tree.addEventListener("contextmenu", onTreeContext);
   tree.addEventListener("wheel", onTreeWheel, { passive: false });
   installMarquee();

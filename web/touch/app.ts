@@ -395,8 +395,11 @@ function render() {
   // double-tap. The shared panel.ts renders/wires the body identically to desktop.
   if (isWide() && !rawView) {
     if (cur && cur.path.length) {
-      dpBody.innerHTML = panelHTML(cur, parentIsInline(cur.path));
-      wirePanel(dpBody, cur, sendR, openKindRow, toast, afterPanelMutation);
+      const hint = session!.schemaHint(cur.path);
+      const schemaEnum =
+        typeof snap.mode === "object" && "SchemaEnum" in snap.mode ? snap.mode.SchemaEnum : undefined;
+      dpBody.innerHTML = panelHTML(cur, parentIsInline(cur.path), hint, schemaEnum);
+      wirePanel(dpBody, cur, sendR, openKindRow, toast, afterPanelMutation, undefined, schemaEnum);
     } else {
       dpBody.innerHTML = '<div class="dp-empty">Tap any node<br>to edit its value and metadata here</div>';
     }
@@ -472,10 +475,11 @@ function openPanel(path: Path) {
     // which would blow up the title — use a fixed label; otherwise the node key.
     // The `.sheet-head h3` CSS truncates a long key to one line (ellipsis).
     const title = r.type_label === "comment" ? "Comment" : r.key || lastKey(path);
+    const hint = session!.schemaHint(r.path);
     sheets.detail.innerHTML =
       '<div class="grab"></div>' +
       `<div class="sheet-head"><h3>${esc(title)}</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
-      `<div class="sheet-body detail-wrap">${panelHTML(r, parentIsInline(r.path))}</div>`;
+      `<div class="sheet-body detail-wrap">${panelHTML(r, parentIsInline(r.path), hint)}</div>`;
     wirePanel(sheets.detail, r, sendR, openKindRow, toast, afterPanelMutation);
     openSheet("detail");
   }
