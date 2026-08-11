@@ -1,11 +1,22 @@
 // Built-in demo doc + sample-mode state, shared by the desktop (ui.ts) and
 // touch (touch/app.ts) orchestrators so both surfaces boot the same tree.
 //
-// All three samples carry the *same* tree (identical keys/values/comments);
-// only the dialect's notation and comment marker differ, so cycling the header
-// pill shows one config wearing three outfits. The pill cycles these while the
-// doc is the unsaved sample (`sampleMode`); opening or saving a real file
-// leaves sample mode and freezes it.
+// All three samples carry the *same* tree (identical keys/values). The
+// `[schema]` branch is pre-wired to `schema-sample.json` (served alongside
+// this bundle) via each format's own hint convention — TOML `#:schema`,
+// JSON root `$schema`, YAML's `yaml-language-server` modeline — so opening
+// any sample format immediately demos live constrained editing (`editor`'s
+// off-enum value opens the enum picker) and a soft violation indicator
+// (`editor` and `poll_ms` both start out schema-invalid on purpose). JSON
+// stays fully comment-free, unlike TOML/YAML (which keep two short inline
+// explainer comments on the `[schema]` rows): `detect_json`'s hint scan
+// requires strict JSON, so a single stray `//` comment anywhere in the
+// document would silently block detection — this is also why the former
+// leading-comment welcome banner and the `lossless` field's trailing note
+// are now real tree data (`[welcome]`, `about.round_trip`) instead of
+// comments, keeping the tree genuinely identical across all three formats.
+// The pill cycles these while the doc is the unsaved sample (`sampleMode`);
+// opening or saving a real file leaves sample mode and freezes it.
 
 // Workspace version stamped in at build time (see `build.mjs` `define`); falls
 // back to "dev" when the bundle is loaded without that define (e.g. raw serve).
@@ -13,17 +24,28 @@ declare const __APP_VERSION__: string;
 const APP_VERSION =
   typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "dev";
 
+// Absolute URL to the sample JSON Schema, computed once at module load so it
+// resolves correctly under any origin/subpath (local dev server, Cloudflare
+// Pages, Tauri's bundled asset origin). Must be an explicit http(s) URL
+// (never a relative "Local" hint) — the sample has no backing file, so a
+// Local hint's sibling-directory resolution has nothing to resolve against.
+const SCHEMA_SAMPLE_URL = new URL("schema-sample.json", location.href).href;
+
 export type SampleFormat = "toml" | "json" | "yaml";
 
 export const SAMPLES: Record<SampleFormat, string> = {
-  toml: `# 👋 Welcome to confy — a lossless editor for TOML · JSON · YAML
-# Click a row to select · drag the ⠿ grip to reparent · ⌘S to save
+  toml: `#:schema ${SCHEMA_SAMPLE_URL}
+
+[welcome]
+greeting = "👋 Welcome to confy — a lossless editor for TOML · JSON · YAML"
+tips = "Click a row to select · drag the ⠿ grip to reparent · ⌘S to save"
 
 [about]
 name = "confy"
 pitch = "Three config dialects, one tidy tree 🌳"
 version = "${APP_VERSION}"
-lossless = true    # untouched bytes round-trip byte-for-byte
+lossless = true
+round_trip = "untouched bytes round-trip byte-for-byte"
 
 [basics]
 select = ["click = one", "shift-click = range", "cmd-click = toggle"]
@@ -39,15 +61,23 @@ yaml = "block + flow, plain-where-safe"
 emoji_welcome = true
 brackets_collected = ["{ }", "[ ]", "< >"]
 coffees_per_config = 3
+
+[schema]
+editor = "sublime"    # not in the schema's enum — edit this row to see the picker
+poll_ms = 253          # multiple of 5, 100-2000 — try ← / → to see it snap
 `,
-  json: `// 👋 Welcome to confy — a lossless editor for TOML · JSON · YAML
-// Click a row to select · drag the ⠿ grip to reparent · ⌘S to save
-{
+  json: `{
+  "$schema": "${SCHEMA_SAMPLE_URL}",
+  "welcome": {
+    "greeting": "👋 Welcome to confy — a lossless editor for TOML · JSON · YAML",
+    "tips": "Click a row to select · drag the ⠿ grip to reparent · ⌘S to save"
+  },
   "about": {
     "name": "confy",
     "pitch": "Three config dialects, one tidy tree 🌳",
     "version": "${APP_VERSION}",
-    "lossless": true    // untouched bytes round-trip byte-for-byte
+    "lossless": true,
+    "round_trip": "untouched bytes round-trip byte-for-byte"
   },
   "basics": {
     "select": ["click = one", "shift-click = range", "cmd-click = toggle"],
@@ -63,17 +93,25 @@ coffees_per_config = 3
     "emoji_welcome": true,
     "brackets_collected": ["{ }", "[ ]", "< >"],
     "coffees_per_config": 3
+  },
+  "schema": {
+    "editor": "sublime",
+    "poll_ms": 253
   }
 }
 `,
-  yaml: `# 👋 Welcome to confy — a lossless editor for TOML · JSON · YAML
-# Click a row to select · drag the ⠿ grip to reparent · ⌘S to save
+  yaml: `# yaml-language-server: $schema=${SCHEMA_SAMPLE_URL}
+
+welcome:
+  greeting: 👋 Welcome to confy — a lossless editor for TOML · JSON · YAML
+  tips: Click a row to select · drag the ⠿ grip to reparent · ⌘S to save
 
 about:
   name: confy
   pitch: Three config dialects, one tidy tree 🌳
   version: "${APP_VERSION}"
-  lossless: true    # untouched bytes round-trip byte-for-byte
+  lossless: true
+  round_trip: untouched bytes round-trip byte-for-byte
 
 basics:
   select: ["click = one", "shift-click = range", "cmd-click = toggle"]
@@ -89,6 +127,10 @@ fun:
   emoji_welcome: true
   brackets_collected: ["{ }", "[ ]", "< >"]
   coffees_per_config: 3
+
+schema:
+  editor: sublime        # not in the schema's enum — edit this row to see the picker
+  poll_ms: 253            # multiple of 5, 100-2000 — try ← / → to see it snap
 `,
 };
 
