@@ -355,45 +355,57 @@ picker on all three surfaces).
   `functional_smoke.mjs` 92/92 unchanged (`fully_analyzable` is core-internal, not part of the
   wasm wire contract).
 
-### Task 15: Split oversized files into per-concern modules
-- **Files**:
-  - `crates/confy-core/src/model/cst_edit.rs` (7064 ln) → `cst_edit/mod.rs` (dispatcher: `apply`,
-    `validate_semantics`) + `cst_edit/escape.rs` (`unescape_basic`, `encode_basic_string`,
-    `encode_multiline_basic`, `string_inner`) + `cst_edit/scalar_convert.rs` (`convert_scalar`,
-    `convert_kind` for scalars, `nudge`-adjacent helpers if any live here) + `cst_edit/dotted_table.rs`
-    (`dotted_member_entries`, `replace_dotted_table`, `rename_dotted_segment`, `strip_key_prefix`,
-    `dotted_ancestor_prefix_len`, `is_headerless_table`, `has_own_header`) + `cst_edit/aot_group.rs`
-    (`aot_group_span`, `aot_group_insert`, `aot_entry_end`, `aot_entry_member_fragments`,
-    `convert_aot_to_array`, `convert_array_to_aot`) + `cst_edit/move_paste.rs` (`move_nodes`,
-    `insert`, `parse_fragment_adapted`, `wrap_keyed_as_inline_element`, `unpack_inline_table`,
-    `check_partition`). Exact boundary calls are a judgment call during execution — the audit's
-    own module-doc-comment groupings (lines 10-17) are the authoritative seam list; keep the
-    `#[cfg(test)] mod tests` colocated with whichever module ends up easiest (or split tests
-    per-module too, matching source).
-  - `crates/confy-core/src/session/session.rs` (3668 ln) → keep `session.rs` as the `Session`
-    struct definition + `impl Session` core (construction, doc lifecycle), extract
-    `session/inline_edit.rs` (edit-buffer lifecycle: `begin_inline_edit*`, `edit_char`,
-    `edit_commit`, etc.), `session/clipboard.rs` (cut/copy/paste + collision sub-state-machine),
-    `session/undo_redo.rs`, `session/schema_hint.rs` (schema-hint clamping, `nudge_scalar` and
-    friends), `session/status_fmt.rs` (i18n status formatting free functions at the bottom of
-    the current file, lines ~3252-3500). `dispatch.rs`/`view.rs`/`selection.rs`/`insertion.rs`
-    already exist as narrower siblings — new files follow that same flat `session/` layout.
-  - `crates/confy-core/src/model/yaml/edit.rs` (3958 ln) → `yaml/edit/mod.rs` (dispatcher: `apply`,
-    `mutation_paths`) + `yaml/edit/resolve.rs` (`resolve`, `resolve_in`, `is_opaque`, indent
-    engine `reindent`) + `yaml/edit/block.rs` (block map/seq replace/delete/insert: `replace`,
-    `delete`, `insert`, `find_container`, `slot_elements`, `collect_items`, `adapt_fragment`) +
-    `yaml/edit/flow.rs` (all `flow_*`/`*_flow_*` functions — flow-collection edits are already a
-    clearly delimited section per the file's own `// ── Flow-collection edits ──` banner) +
-    `yaml/edit/convert.rs` (`convert_kind`, `convert_container`, `convert_string`, `convert_int`,
-    `convert_float`, plus their string-encode/decode helpers).
-- **Description**: Pure code motion, no behavior change. This is the largest and most
-  mechanically risky task in the plan purely by line count — recommend one file at a time, each
-  its own commit, with a full `cargo test -p confy-core` pass between files (not just at the end).
-- **Dependencies**: Independent of Task 13; can run in parallel with it if desired, but NOT
-  concurrently with Task 14/9 on `session.rs` (same file, sequence after those land).
-- **Verify**: `cargo build --workspace` clean after each file split; `cargo test -p confy-core`
-  472/472 unchanged after each; `cargo clippy --workspace` no new warnings (watch for new
-  `unused import`/visibility warnings from the split — expected churn, not a regression).
+### Task 15: Split oversized files into per-concern modules — IMPLEMENTED
+- **What shipped** (all 3 files, corrected scope — see below):
+  - `cst_edit.rs` (7063 ln, 97 top-level items) → 9 modules: `mod.rs` (dispatcher: `apply`,
+    `validate_semantics`, `serialize_fragment*`, `joinable_entry`), `escape.rs`, `convert.rs`
+    (renamed from `scalar_convert` — covers container conversions too, `convert_kind` dispatches
+    to all three), `dotted_table.rs`, `aot_group.rs`, `move_paste.rs`, plus 3 the plan's own
+    5-module sketch didn't cover (verified by mapping every item programmatically — the sketch
+    accounted for only 53 of 97 items): `replace_delete.rs`, `rename.rs`, `tree_nav.rs`.
+  - `yaml/edit.rs` (3957 ln, 80 items) → 6 modules: `mod.rs`, `resolve.rs`, `block.rs`, `flow.rs`,
+    `convert.rs` — matching the plan's own sketch closely — plus one addition: `mutations.rs`
+    (rename/remark/comment/move/trailing-comment, uncovered by the original 4-module sketch).
+  - `session.rs` (3713 ln, one `impl Session` of 146 methods + 16 free functions — structurally
+    different from the other two, not free-standing functions) → 5 new siblings exactly as
+    planned: `inline_edit.rs`, `clipboard.rs`, `undo_redo.rs`, `schema_hint.rs`, `status_fmt.rs`,
+    each a fragment `impl Session { ... }` (Rust allows inherent impls to split across
+    files/modules) or free-function module; `session.rs` keeps the struct + a 105-method core
+    `impl Session` + the test module.
+- **Method**: for each file, extracted the full source verbatim and computed exact item
+  boundaries (doc-comment + signature + brace-matched body) programmatically rather than by
+  hand — files this size make manual line-counting unreliable. Verified 1:1 coverage (every item
+  assigned to exactly one module, none missing/duplicated) before generating anything. Every
+  cross-module reference got `pub(crate)` (methods: only where actually called from a different
+  file, computed by scanning every method body + test module for cross-bucket references, not
+  guessed; free functions/types: same, plus an explicit `use` since free-function calls — unlike
+  `self.method()` — need the name in scope). Let the compiler find the real gaps my
+  regex-based dependency scan missed (a handful each time — a value used as a bare type instead
+  of a call, a function passed as a fn-pointer instead of being called directly, a test-only
+  reference my method-body-only scan didn't check) rather than hand-verifying every reference.
+  `cargo fix --lib --tests -p confy-core` (not just `--lib`) cleaned the resulting unused-import
+  churn — `--tests` matters: a `--lib`-only fix pass can strip an import a `#[cfg(test)]` block
+  still relies on transitively, which `--lib`'s non-test compile can't see.
+- **Corrected from the plan's original 3-file/13-module sketch**: 4 modules were missing outright
+  (`replace_delete.rs`, `rename.rs`, `tree_nav.rs` for `cst_edit.rs`; `mutations.rs` for
+  `yaml/edit.rs`) — the plan's own module lists only accounted for 53/97 and 66/80 items
+  respectively; the remainder (whole-node replace/delete/rename, low-level tree navigation,
+  comment/trailing-comment mutations) didn't fit any named bucket. Corrected by completing the
+  item-by-item map before writing any file, not by guessing at boundaries during execution.
+- **Dependencies**: `session.rs` split ran after Task 14 (already landed) per the plan's own
+  sequencing note.
+- **Verify**: `cargo build --workspace` clean after each file. `cargo test -p confy-core`
+  472/472 unchanged after all 3 (proves zero behavior drift — no test file content was ever
+  edited, only `use` imports extended). `cargo test --workspace` unchanged. `cargo clippy
+  --workspace --all-targets` (lib + test targets, not just lib) 0 warnings — confirms no
+  unused-import residue survived, including inside `#[cfg(test)]` blocks.
+- **Line counts, before → after** (non-test lines; a few remain over the 800-line threshold —
+  each is one coherent concern, not worth further fragmentation for the indirection cost):
+  `cst_edit.rs` 7063 → 9 files (126–1107 ln each, 2 over 800: `move_paste.rs` 999,
+  `replace_delete.rs` 1107); `yaml/edit.rs` 3957 → 6 files (64–820 ln each, 1 at the threshold:
+  `block.rs` 820); `session.rs` 3713 → 6 files (53–1945 ln each — `session.rs` itself, at 1945
+  total incl. its ~170-line test module, is the one file still clearly over threshold: 105
+  cohesive core-API methods have no further natural seam).
 
 ### Task 16: Row-level diffing / virtualization for tree rendering
 - **Files**: `web/render.ts:192-226` (`renderTree`, `treeEl.innerHTML = rows.map(...).join('')`),
