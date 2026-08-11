@@ -182,8 +182,11 @@ after Phase 1 lands.
   `fn cursor_row_index(&mut self) -> Option<usize>` (or non-mutating variant returning a fresh
   lookup if no cache exists yet) that the ~14 sites call instead of
   `self.visible_rows().iter().position(...)` / equivalent full-materialization pattern.
-- **Dependencies**: Sequence after Task 14 (both touch the same tree-invalidation points) to
-  avoid two separate cache-invalidation mechanisms landing in the same commit window.
+- **Dependencies**: None. (Originally drafted as "sequence after Task 14" — re-checked against
+  `on_mutation_success`, which the corrected Task 14 design targets: tree rebuild (`self.tree =
+  tree`) and schema revalidation (`self.revalidate_schema()`) are independent sequential
+  statements, not a shared code path. Task 9's invalidation point and Task 14's dirty-check don't
+  overlap; either can land first.)
 - **Verify**: `cargo test -p confy-core` 472/472 unchanged (behavior-preserving — this is a perf
   optimization, not a semantic change). Add one new test asserting the O(1) path returns the
   same row the O(n) `.find()` would for a cursor mid-document, and that it's correctly invalidated
@@ -321,7 +324,7 @@ picker on all three surfaces).
   3. `History::push` (state.rs:225-228): cap `past` at a **fixed 200 entries** (not configurable —
      see ADR 0003) via a `VecDeque` ring buffer, evicting the oldest entry with `pop_front()` (not
      `Vec::remove(0)`, which is O(n) and would defeat the purpose on every commit).
-- **Dependencies**: Sequence with Task 9 (both touch mutation-commit invalidation points).
+- **Dependencies**: None (see Task 9's corrected note — the two changes don't share a code path).
 - **Verify**: `cargo test -p confy-core` 472/472 unchanged. New tests: (a) a `fully_analyzable`
   schema — a mutation entirely outside any constrained path does not trigger `iter_errors`
   (assert via a call-counter or pointer-identity on the unchanged `violations` Vec); (b) a schema
