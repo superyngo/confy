@@ -133,7 +133,16 @@ if (tf) {
   check("grid has headers + cells", hasHeader && cells.length > 0);
   check("exactly one cursor cell", cells.filter(c => c.is_cursor).length === 1);
   check("grid starts inactive", tf.active === false);
-  // Toggle the cursor cell, reopen, expect active + one On cell.
+  // Toggle the cursor cell, reopen, expect active + one On cell. Root-caused
+  // 2026-08-11 (audit remediation Task 12): the default cursor (row 0, col 0)
+  // lands on the "Reverse" cell (nav_rows()[0] is `[Cell::Reverse]` in every
+  // format's layout, per type_filter.rs) — toggling it alone is a genuine
+  // core no-op for `is_active()` (`matches()` only inverts `reverse` when a
+  // real facet is *also* selected, so a bare reverse toggle can never flip
+  // `active`; see `TypeFilter::is_reverse_excluded`'s doc comment). This was
+  // a test-script bug, not a wasm/core defect — move to a real facet cell
+  // (row 1: Key sign) before toggling.
+  s5.dispatch(tuple("TypeFilterMove", [1, 0]));
   s5.dispatch(unit("TypeFilterToggle"));
   snap5 = s5.dispatch(unit("EnterTypeFilter"));
   const tf2 = "TypeFilter" in snap5.mode ? snap5.mode.TypeFilter : null;
@@ -336,6 +345,68 @@ check("about_text() mentions the GitHub repo", aboutText.includes("github.com/su
   snb = sb.dispatch(tuple("RevealPath", [{ Key: "a" }, { Key: "b" }, { Key: "x" }]));
   check("RevealPath hidden-by-filter reports on status", typeof snb.status === "string" && snb.status.length > 0, snb.status);
   sb.free();
+}
+
+// ---- 26. JSON Schema: SetSchema/SchemaLoaded/SchemaEnumMove/SchemaEnumCommit
+// wire contract (Task 12, 2026-08-11 audit remediation). Nothing previously
+// proved SchemaLoaded/SetSchema/SchemaEnum round-trip through serde-wasm-
+// bindgen the way the rest of the Intent surface does, despite thorough
+// core-layer coverage in schema_headless.rs.
+{
+  const s20 = new ConfySession('{"kind": "cat"}', "json");
+
+  // SetSchema queues a host fetch — the source comes back on schema_fetch_request.
+  let snap20 = s20.dispatch(tuple("SetSchema", { source: { Local: "pet.schema.json" } }));
+  check("SetSchema surfaces schema_fetch_request",
+    JSON.stringify(snap20.schema_fetch_request) === JSON.stringify({ Local: "pet.schema.json" }),
+    JSON.stringify(snap20.schema_fetch_request));
+
+  // Host resolves it and hands the text back via SchemaLoaded.
+  const schemaText = JSON.stringify({
+    type: "object",
+    properties: { kind: { type: "string", enum: ["cat", "dog"] } },
+  });
+  snap20 = s20.dispatch(tuple("SchemaLoaded", {
+    source: { Local: "pet.schema.json" },
+    text: { Ok: schemaText },
+  }));
+  check("SchemaLoaded(Ok) compiles: schema_status has no load_error",
+    snap20.schema_status && isNull(snap20.schema_status.load_error),
+    JSON.stringify(snap20.schema_status));
+  check("schema_status carries the source label",
+    snap20.schema_status?.source_label === "pet.schema.json", JSON.stringify(snap20.schema_status));
+  check("no violations for a conforming document",
+    snap20.schema_status?.violation_count === 0, JSON.stringify(snap20.schema_status));
+
+  // BeginEdit on the enum-constrained `kind` field routes into Mode::SchemaEnum,
+  // not a plain text Edit — the enum picker widget the web/TUI overlays render.
+  s20.dispatch(unit("CursorDown")); // onto `kind`
+  snap20 = s20.dispatch(unit("BeginEdit"));
+  const se = typeof snap20.mode === "object" && "SchemaEnum" in snap20.mode ? snap20.mode.SchemaEnum : null;
+  check("BeginEdit on an enum field enters Mode::SchemaEnum",
+    se !== null, JSON.stringify(snap20.mode));
+  check("SchemaEnum options carry both enum values",
+    se && se.options.includes("cat") && se.options.includes("dog"), JSON.stringify(se));
+
+  // Move the picker cursor, then commit — the picked value lands in the doc.
+  snap20 = s20.dispatch(tuple("SchemaEnumMove", 1));
+  const se2 = snap20.mode.SchemaEnum;
+  check("SchemaEnumMove advances the picker cursor", se2.cursor !== se.cursor, JSON.stringify(se2));
+  snap20 = s20.dispatch(unit("SchemaEnumCommit"));
+  check("SchemaEnumCommit returns to Normal", snap20.mode === "Normal", JSON.stringify(snap20.mode));
+  check("SchemaEnumCommit writes the picked value",
+    s20.serialize().includes(se2.options[se2.cursor]), s20.serialize());
+
+  // A failed fetch is a soft error — the document stays fully editable.
+  const s21 = new ConfySession('{"kind": "cat"}', "json");
+  const snap21 = s21.dispatch(tuple("SchemaLoaded", {
+    source: { Url: "http://example.invalid/s.json" },
+    text: { Err: "network unreachable" },
+  }));
+  check("SchemaLoaded(Err) is a soft load_error, not a panic",
+    snap21.schema_status?.load_error === "network unreachable", JSON.stringify(snap21.schema_status));
+  check("doc stays editable after a failed schema fetch",
+    s21.serialize().includes("cat"), s21.serialize());
 }
 
 console.log(failures === 0 ? "\nALL FUNCTIONAL CHECKS PASSED" : `\n${failures} FAILURES`);

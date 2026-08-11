@@ -251,24 +251,30 @@ after Phase 1 lands.
 - **Dependencies**: None.
 - **Verify**: `cargo test -p confy-tui --test schema_io` passes, including the new URL cases.
 
-### Task 12: JSON Schema functional_smoke coverage + resolve the waived assertion
+### Task 12: JSON Schema functional_smoke coverage + resolve the waived assertion — IMPLEMENTED
 - **Files**: `crates/confy-ffi/functional_smoke.mjs`
-- **Description**: Two sub-parts:
-  1. Add Intent→SessionSnapshot round-trip scenarios for `SetSchema`, `SchemaLoaded`,
-     `SchemaEnumMove`/`SchemaEnumCommit` — mirroring the script's existing numbered-scenario
-     convention (currently 25 scenarios covering the rest of the Intent surface). Confirms the
-     wasm `serde-wasm-bindgen` wire contract actually round-trips schema state, which nothing
-     currently proves despite `schema_headless.rs`'s 788 lines of core-layer coverage.
-  2. Investigate the long-standing `grid active after toggle` failing assertion at line 140
-     (documented since 2026-08-06). Reproduce it, root-cause it (likely a `TypeFilter` state
-     transition the wasm layer doesn't preserve correctly, or a scenario-ordering dependency in
-     the script itself), and either fix it or — if it's genuinely out of scope for this pass —
-     convert the silent pass/fail waiver into an explicit `console.warn` + tracked follow-up
-     reference (not a bare hidden waiver inside a script that gates merges by convention).
+- **What shipped**:
+  1. 10 new scenario-26 checks covering `SetSchema` → `schema_fetch_request`, `SchemaLoaded(Ok)` →
+     `schema_status` (source label, zero violations), `BeginEdit` on an enum-constrained field
+     entering `Mode::SchemaEnum` with both enum values present, `SchemaEnumMove`/`SchemaEnumCommit`
+     writing the picked value, and `SchemaLoaded(Err)` resolving as a soft `load_error` with the
+     document still fully editable. Proves the wasm `serde-wasm-bindgen` wire contract round-trips
+     schema state — nothing did before this, despite `schema_headless.rs`'s core-layer coverage.
+  2. **`grid active after toggle` root-caused and fixed** (not waived): `TypeFilter::default()`
+     starts the popup cursor at `(row: 0, col: 0)`. `nav_rows()[0]` is `[Cell::Reverse]` in
+     *every* format's `layout()` (`type_filter.rs`) — so toggling the default-cursor cell flips
+     `reverse`, not a real facet. `TypeFilter::is_active()` (`!key_signs.is_empty() ||
+     !types.is_empty()`) correctly excludes bare `reverse` — `matches()`'s own doc comment
+     confirms this is deliberate: reverse alone, with nothing selected, must stay a no-op or
+     toggling it would blank the whole tree before the user picked a facet. So the failure was a
+     **test-script bug** (toggling the wrong cell), not a wasm/core defect, confirmed by tracing
+     `type_filter_toggle`/`current_cell`/`is_active` end to end. Fixed by moving the cursor to a
+     real facet cell (`TypeFilterMove(1, 0)`, landing on the Key-sign row) before toggling.
 - **Dependencies**: None.
-- **Verify**: `node crates/confy-ffi/functional_smoke.mjs` (after `wasm-pack build --target web`)
-  — all scenarios pass including the new schema ones; the `grid active after toggle` assertion
-  either passes or is explicitly, visibly flagged (not silently skipped).
+- **Verify**: `wasm-pack build --target web` + `node crates/confy-ffi/functional_smoke.mjs` — 92
+  checks (was 82), 0 failures, `ALL FUNCTIONAL CHECKS PASSED` including the previously-failing
+  assertion. `cargo test --workspace` / `cargo clippy --workspace` / `tsc --noEmit` (web +
+  editors/vscode) all unaffected. Fixed the stale "36 checks" count in `CLAUDE.md`'s module map.
 
 **Phase 2 testing strategy**: each task carries its own verify step above. After all of Phase 2
 lands, re-run the full gate: `cargo test --workspace`, `cargo clippy --workspace`, `tsc --noEmit`,

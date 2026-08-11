@@ -256,7 +256,7 @@ crates/confy-core/tests/  roundtrip*.rs / yaml_scratch.rs + fixtures/ + no_fs_ga
 crates/confy-ffi/         Stage-2 WASM wrapper over confy-core (wasm-bindgen + serde-wasm-bindgen)
   src/lib.rs     ConfySession: from_text/dispatch/snapshot/serialize/visible_rows/kind_options
                  (the JS-facing handle; serde-wasm-bindgen marshals Intent/SessionSnapshot)
-  functional_smoke.mjs     node verification of the Intent→snapshot contract (36 checks)
+  functional_smoke.mjs     node verification of the Intent→snapshot contract (92 checks)
   (build: `wasm-pack build --target web`; getrandom wasm_js for the ahash-via-taplo chain)
 
 web/                       TypeScript integration + **web-native** UI (see WEBUI.md) — a
