@@ -85,7 +85,6 @@ export class Session {
     return this.raw.schema_hint(path) as EditHint;
   }
 
-
   /** Immediate children of the node at `path` (breadcrumb mini-tree). */
   children(path: Path): ChildView[] {
     return this.raw.children(path) as ChildView[];
