@@ -1,7 +1,9 @@
-//! SPIKE: lossless YAML-subset lexer + indentation-driven parser → rowan green
-//! tree (spec §3.3 gate task).
+//! Lossless YAML-subset lexer + indentation-driven parser → rowan green tree.
+//! Production entry point for every YAML load/mutation (`yaml/doc.rs` calls
+//! `parse` on open, on fragment replacement, and when re-parsing a scalar
+//! buffer for value-kind projection).
 //!
-//! Goal of this file is to *prove the gate*, not ship production code:
+//! Invariants this module maintains:
 //!   1. `lex` is lossless — `lex(src).concat() == src`.
 //!   2. `parse` builds a structural tree (mappings / sequences / scalars / flow)
 //!      AND fences out-of-subset constructs (anchors, aliases, merge keys, tags,
@@ -18,7 +20,6 @@ use rowan::{GreenNode, GreenNodeBuilder};
 pub(crate) type Lexeme = (SyntaxKind, String);
 
 /// Parse `src` into a lossless green tree, or `Err(message)`.
-#[allow(dead_code)]
 pub(crate) fn parse(src: &str) -> Result<GreenNode, String> {
     let tokens = lex(src);
     // Multi-document files are out of subset (v1): reject at load.

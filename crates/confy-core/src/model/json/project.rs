@@ -6,7 +6,6 @@ use rowan::NodeOrToken;
 
 /// The syntax element a projected node was built from, for mutation resolution.
 #[derive(Clone)]
-#[allow(dead_code)]
 pub(crate) enum Target {
     /// A `MEMBER` node (one `"key": value` pair).
     Member(SyntaxNode),
