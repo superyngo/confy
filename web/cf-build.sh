@@ -23,7 +23,7 @@ fi
 # 3. Build wasm core, then typecheck + test + bundle the web UI (fails fast on
 #    a type error or test regression before any output is assembled).
 ( cd crates/confy-ffi && wasm-pack build --target web )
-( cd web && npm ci && npm run typecheck && npm test && node build.mjs )
+( cd web && npm ci && node build.mjs && npm run typecheck && npm test )
 
 # 4. Assemble a clean output dir with only the runtime files.
 cd web
