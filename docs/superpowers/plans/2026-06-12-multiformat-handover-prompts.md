@@ -1,3 +1,5 @@
+✅ **Shipped — historical reference.** See `CHANGELOG.md` for current behavior; this plan is kept for context, not as a live task list.
+
 # Multi-format backends — handover prompts
 
 One prompt per phase, designed to be pasted as the first message of a fresh session in

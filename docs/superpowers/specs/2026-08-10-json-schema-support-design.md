@@ -1,7 +1,7 @@
 # JSON Schema Support — Design
 
 Date: 2026-08-10
-Status: Approved (pending implementation plan)
+Status: ✅ Shipped (historical reference — see CHANGELOG.md)
 
 ## Summary
 

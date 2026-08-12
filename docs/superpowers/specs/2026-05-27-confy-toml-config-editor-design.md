@@ -1,7 +1,7 @@
 # confy — Single-File TUI Config Editor (Design Spec)
 
 **Date:** 2026-05-27
-**Status:** Draft for review
+**Status:** ✅ Shipped (foundational MVP spec — historical reference, see CHANGELOG.md)
 **Scope of this spec:** MVP — TOML only, single file. YAML/JSON are explicitly out of scope here (the architecture is chosen so they can be added later).
 
 ## 1. Purpose

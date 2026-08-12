@@ -1,7 +1,7 @@
 # Mobile M2 plan — Android Save As + "Open with" chooser visibility
 
-**Date:** 2026-08-06 · **Status:** DRAFT — decisions grilled and locked 2026-08-06 (see
-`docs/adr/0001-android-save-as-persistable-grant.md`); ready for a new session to execute.
+**Date:** 2026-08-06 · **Status:** ✅ Shipped (historical reference — see CHANGELOG.md; decisions
+grilled and locked 2026-08-06, see `docs/adr/0001-android-save-as-persistable-grant.md`).
 **Spec:** none separate — this plan's own "Governing facts" section is the spec, distilled from
 `docs/superpowers/plans/2026-07-13-mobile-m1-android-plan.md` (M1, shipped 2026-07-15) and a
 2026-08-06 investigation + grilling session (Android build/sign/install verification,

@@ -1,7 +1,7 @@
 # Multi-format backends: JSON/JSONC + YAML (+ document-level conversion)
 
 **Date:** 2026-06-12
-**Status:** approved design, pre-implementation
+**Status:** ✅ Shipped (historical reference — see CHANGELOG.md)
 **Scope decisions (user-approved):**
 
 1. Both new backends are **lossless** — an untouched file round-trips byte-identically,

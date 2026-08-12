@@ -1,7 +1,7 @@
 # TUI layer — confy ratatui frontend
 
 TUI-specific mechanics for the ratatui frontend (`src/tui/`). These are **not** shared
-with the model layer and will have a parallel `WEBUI.md` when the web UI lands. For model
+with the model layer; see `WEBUI.md` for the parallel web-UI mechanics. For model
 semantics (Mutation variants, kind-switch rules, insert/move legality) see `CONTEXT.md`.
 For the inline-vs-`$EDITOR` boundary see `BEHAVIOR_MATRIX.md §6`.
 

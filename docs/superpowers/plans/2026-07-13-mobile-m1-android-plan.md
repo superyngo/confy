@@ -1,3 +1,5 @@
+✅ **Shipped — historical reference.** See `CHANGELOG.md` for current behavior; this plan is kept for context, not as a live task list.
+
 # Mobile M1 plan — Android sideload APK (Tauri v2)
 
 **Date:** 2026-07-13 · **Status:** SHIPPED — 2026-07-15. All tasks complete; acceptance criteria

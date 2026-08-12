@@ -1,3 +1,5 @@
+✅ **Shipped — historical reference.** See `CHANGELOG.md` for current behavior; this plan is kept for context, not as a live task list.
+
 # Handover — KIND column header, 40% column position, help legend + scrollable help
 
 > **Status:** plan **approved by the user on 2026-06-10** (this session). No implementation

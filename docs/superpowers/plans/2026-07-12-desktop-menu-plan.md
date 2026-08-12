@@ -1,6 +1,6 @@
 # Desktop (Tauri) native menu plan — File/Edit/View/Help
 
-**Date:** 2026-07-12 · **Status:** planned, approved, not started
+**Date:** 2026-07-12 · **Status:** ✅ Shipped (historical reference — see CHANGELOG.md)
 **Scope:** `web/` only (new `web/menu.ts` + wiring in `ui.ts`/`fs.ts` + i18n keys). Zero Rust
 changes — `read_file_text` already supports recent-files reopen. Zero `confy-core` changes,
 so **no wasm rebuild** is needed.

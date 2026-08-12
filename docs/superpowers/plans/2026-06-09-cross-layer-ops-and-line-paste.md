@@ -1,3 +1,5 @@
+✅ **Shipped — historical reference.** See `CHANGELOG.md` for current behavior; this plan is kept for context, not as a live task list.
+
 # Cross-layer node ops + precise line-paste
 
 > **Status:** spec for review. Not started. Sits on top of the `cst-backend` work

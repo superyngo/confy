@@ -1,3 +1,5 @@
+✅ **Shipped — historical reference.** See `CHANGELOG.md` for current behavior; this plan is kept for context, not as a live task list.
+
 # Handover — "reconstruct proposal" increments on the CST backend
 
 > **Status:** handover for a fresh session. No implementation started. The expected first

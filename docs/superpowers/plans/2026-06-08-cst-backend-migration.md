@@ -1,3 +1,5 @@
+✅ **Shipped — historical reference.** See `CHANGELOG.md` for current behavior; this plan is kept for context, not as a live task list.
+
 # CST backend migration — comments as real, independent nodes
 
 > **Status: COMPLETE (2026-06-10).** All phases done. `CstDocument` went live in v0.4.0
