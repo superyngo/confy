@@ -1,8 +1,8 @@
 use std::cell::Cell;
 use std::path::PathBuf;
 
-use confy_core::session::Session;
 pub use confy_core::session::{EditKind, FilterLayer, PendingCommit};
+use confy_core::session::{Intent, Session};
 
 use crate::model::document::ConfigDocument;
 #[cfg(test)]
@@ -172,39 +172,41 @@ impl App {
     // ---- Navigation delegates ----
 
     pub fn cursor_down(&mut self) {
-        self.session.cursor_down();
+        self.session.apply(Intent::CursorDown);
     }
     pub fn cursor_up(&mut self) {
-        self.session.cursor_up();
+        self.session.apply(Intent::CursorUp);
     }
     pub fn toggle_expand(&mut self) {
         self.session.toggle_expand();
     }
     pub fn collapse_all(&mut self) {
-        self.session.collapse_all();
+        self.session.apply(Intent::CollapseAll);
+        self.rebuild_rows();
     }
     pub fn expand_all(&mut self) {
-        self.session.expand_all();
+        self.session.apply(Intent::ExpandAll);
+        self.rebuild_rows();
     }
     pub fn expand_level(&mut self) {
-        self.session.expand_level();
+        self.session.apply(Intent::ExpandLevel);
         self.rebuild_rows();
     }
     pub fn collapse_level(&mut self) {
-        self.session.collapse_level();
+        self.session.apply(Intent::CollapseLevel);
         self.rebuild_rows();
     }
     pub fn page_up(&mut self, page_size: usize) {
-        self.session.page_up(page_size);
+        self.session.apply(Intent::PageUp(page_size));
     }
     pub fn page_down(&mut self, page_size: usize) {
-        self.session.page_down(page_size);
+        self.session.apply(Intent::PageDown(page_size));
     }
     pub fn cursor_home(&mut self) {
-        self.session.cursor_home();
+        self.session.apply(Intent::CursorHome);
     }
     pub fn cursor_end(&mut self) {
-        self.session.cursor_end();
+        self.session.apply(Intent::CursorEnd);
     }
 
     // ---- Paste-mode insertion slots ----
@@ -226,44 +228,44 @@ impl App {
     // ---- Filter (/) ----
 
     pub fn enter_filter(&mut self) {
-        self.session.enter_filter();
+        self.session.apply(Intent::EnterFilter);
         self.rebuild_rows();
     }
     pub fn commit_filter(&mut self) {
-        self.session.commit_filter();
+        self.session.apply(Intent::CommitFilter);
         self.rebuild_rows();
     }
     pub fn exit_filter_results(&mut self) {
-        self.session.exit_filter_results();
+        self.session.apply(Intent::ExitFilterResults);
         self.rebuild_rows();
     }
     pub fn exit_filter(&mut self) {
-        self.session.exit_filter();
+        self.session.apply(Intent::ExitFilter);
         self.rebuild_rows();
     }
     pub fn filter_char(&mut self, c: char) {
-        self.session.filter_char(c);
+        self.session.apply(Intent::FilterChar(c));
         self.rebuild_rows();
     }
     pub fn filter_backspace(&mut self) {
-        self.session.filter_backspace();
+        self.session.apply(Intent::FilterBackspace);
         self.rebuild_rows();
     }
     pub fn filter_delete(&mut self) {
-        self.session.filter_delete();
+        self.session.apply(Intent::FilterDelete);
         self.rebuild_rows();
     }
     pub fn filter_cursor_left(&mut self) {
-        self.session.filter_cursor_left();
+        self.session.apply(Intent::FilterCursorLeft);
     }
     pub fn filter_cursor_right(&mut self) {
-        self.session.filter_cursor_right();
+        self.session.apply(Intent::FilterCursorRight);
     }
     pub fn filter_cursor_home(&mut self) {
-        self.session.filter_cursor_home();
+        self.session.apply(Intent::FilterCursorHome);
     }
     pub fn filter_cursor_end(&mut self) {
-        self.session.filter_cursor_end();
+        self.session.apply(Intent::FilterCursorEnd);
     }
     #[cfg(test)]
     fn recompute_filter(&mut self) {
@@ -274,22 +276,22 @@ impl App {
     // ---- Type filter (f) ----
 
     pub fn enter_type_filter(&mut self) {
-        self.session.enter_type_filter();
+        self.session.apply(Intent::EnterTypeFilter);
         self.rebuild_rows();
     }
     pub fn type_filter_move(&mut self, dr: i32, dc: i32) {
-        self.session.type_filter_move(dr, dc);
+        self.session.apply(Intent::TypeFilterMove(dr, dc));
     }
     pub fn type_filter_toggle(&mut self) {
-        self.session.type_filter_toggle();
+        self.session.apply(Intent::TypeFilterToggle);
         self.rebuild_rows();
     }
     pub fn commit_type_filter(&mut self) {
-        self.session.commit_type_filter();
+        self.session.apply(Intent::CommitTypeFilter);
         self.rebuild_rows();
     }
     pub fn exit_type_filter(&mut self) {
-        self.session.exit_type_filter();
+        self.session.apply(Intent::ExitTypeFilter);
         self.rebuild_rows();
     }
 
@@ -302,26 +304,26 @@ impl App {
     // ---- Kind switch (K) ----
 
     pub fn open_kind_switch(&mut self) {
-        self.session.open_kind_switch();
+        self.session.apply(Intent::OpenKindSwitch);
     }
     pub fn kind_switch_move(&mut self, delta: i32) {
-        self.session.kind_switch_move(delta);
+        self.session.apply(Intent::KindSwitchMove(delta));
     }
     pub fn kind_switch_commit(&mut self) {
-        self.session.kind_switch_commit();
+        self.session.apply(Intent::KindSwitchCommit);
         self.rebuild_rows();
     }
     pub fn exit_kind_switch(&mut self) {
-        self.session.exit_kind_switch();
+        self.session.apply(Intent::ExitKindSwitch);
     }
 
     // ---- Document conversion (C) ----
 
     pub fn open_convert(&mut self) {
-        self.session.open_convert();
+        self.session.apply(Intent::OpenConvert);
     }
     pub fn convert_move(&mut self, delta: i32) {
-        self.session.convert_move(delta);
+        self.session.apply(Intent::ConvertMove(delta));
     }
     pub fn convert_pick_format(&mut self) {
         let stem = self
@@ -333,34 +335,36 @@ impl App {
         self.session.convert_pick_format(stem);
     }
     pub fn convert_path_char(&mut self, c: char) {
-        self.session.convert_path_char(c);
+        self.session.apply(Intent::ConvertPathChar(c));
     }
     pub fn convert_path_backspace(&mut self) {
-        self.session.convert_path_backspace();
+        self.session.apply(Intent::ConvertPathBackspace);
     }
     pub fn convert_path_delete(&mut self) {
-        self.session.convert_path_delete();
+        self.session.apply(Intent::ConvertPathDelete);
     }
     pub fn convert_path_left(&mut self) {
-        self.session.convert_path_left();
+        self.session.apply(Intent::ConvertPathLeft);
     }
     pub fn convert_path_right(&mut self) {
-        self.session.convert_path_right();
+        self.session.apply(Intent::ConvertPathRight);
     }
     pub fn convert_path_home(&mut self) {
-        self.session.convert_path_home();
+        self.session.apply(Intent::ConvertPathHome);
     }
     pub fn convert_path_end(&mut self) {
-        self.session.convert_path_end();
+        self.session.apply(Intent::ConvertPathEnd);
     }
     pub fn convert_run(&mut self) {
-        if let Some((path, text)) = self.session.convert_run() {
+        let outcome = self.session.apply(Intent::ConvertRun);
+        if let Some((path, text)) = outcome.convert_write {
             self.convert_write(&path, &text);
         }
         self.rebuild_rows();
     }
     pub fn convert_confirm(&mut self) {
-        if let Some((path, text)) = self.session.convert_confirm() {
+        let outcome = self.session.apply(Intent::ConvertConfirm);
+        if let Some((path, text)) = outcome.convert_write {
             self.convert_write(&path, &text);
         }
         self.rebuild_rows();
@@ -382,13 +386,13 @@ impl App {
         }
     }
     pub fn exit_convert(&mut self) {
-        self.session.exit_convert();
+        self.session.apply(Intent::ExitConvert);
     }
 
     // ---- Detail view ----
 
     pub fn toggle_detail(&mut self) {
-        self.session.toggle_detail();
+        self.session.apply(Intent::ToggleDetail);
     }
     pub fn open_detail(&mut self) {
         self.session.open_detail();
@@ -401,14 +405,14 @@ impl App {
         self.detail_scroll = v;
     }
     pub fn exit_detail(&mut self) {
-        self.session.exit_detail();
+        self.session.apply(Intent::ExitDetail);
     }
 
     // ---- Help ----
 
     pub fn enter_help(&mut self) {
         self.help_scroll = 0;
-        self.session.enter_help();
+        self.session.apply(Intent::EnterHelp);
     }
     pub fn help_scroll_by(&mut self, delta: i32, max: u16) {
         let v = (self.help_scroll as i32 + delta).clamp(0, max as i32);
@@ -418,7 +422,7 @@ impl App {
         self.help_scroll = v;
     }
     pub fn exit_help(&mut self) {
-        self.session.exit_help();
+        self.session.apply(Intent::ExitHelp);
     }
 
     /// The About-tab body: the core's translated `about_text(lang)`, plus two
@@ -481,13 +485,13 @@ impl App {
     // ---- Selection ----
 
     pub fn toggle_select(&mut self) {
-        self.session.toggle_select();
+        self.session.apply(Intent::ToggleSelect);
     }
     pub fn extend_select_up(&mut self) {
-        self.session.extend_select_up();
+        self.session.apply(Intent::ExtendSelectUp);
     }
     pub fn extend_select_down(&mut self) {
-        self.session.extend_select_down();
+        self.session.apply(Intent::ExtendSelectDown);
     }
     pub fn selected_paths(&self) -> Vec<Path> {
         self.session.selected_paths()
@@ -562,41 +566,41 @@ impl App {
         self.session.begin_inline_edit();
     }
     pub fn begin_inline_rename(&mut self) {
-        self.session.begin_inline_rename();
+        self.session.apply(Intent::BeginRename);
     }
     pub fn edit_toggle_field(&mut self) {
-        self.session.edit_toggle_field();
+        self.session.apply(Intent::EditToggleField);
     }
     pub fn edit_clamp_scroll(&mut self, width: usize) {
         self.session.edit_clamp_scroll(width);
     }
     pub fn edit_input_char(&mut self, c: char) {
-        self.session.edit_input_char(c);
+        self.session.apply(Intent::EditChar(c));
     }
     pub fn edit_backspace(&mut self) {
-        self.session.edit_backspace();
+        self.session.apply(Intent::EditBackspace);
     }
     pub fn edit_delete(&mut self) {
-        self.session.edit_delete();
+        self.session.apply(Intent::EditDelete);
     }
     pub fn edit_cursor_left(&mut self) {
-        self.session.edit_cursor_left();
+        self.session.apply(Intent::EditCursorLeft);
     }
     pub fn edit_cursor_right(&mut self) {
-        self.session.edit_cursor_right();
+        self.session.apply(Intent::EditCursorRight);
     }
     pub fn edit_cursor_home(&mut self) {
-        self.session.edit_cursor_home();
+        self.session.apply(Intent::EditCursorHome);
     }
     pub fn edit_cursor_end(&mut self) {
-        self.session.edit_cursor_end();
+        self.session.apply(Intent::EditCursorEnd);
     }
     pub fn edit_cancel(&mut self) {
-        self.session.edit_cancel();
+        self.session.apply(Intent::EditCancel);
         self.rebuild_rows();
     }
     pub fn edit_commit(&mut self) {
-        self.session.edit_commit();
+        self.session.apply(Intent::EditCommit);
         self.rebuild_rows();
     }
 
@@ -617,25 +621,25 @@ impl App {
     }
 
     pub fn nudge(&mut self, delta: i64) {
-        self.session.nudge(delta);
+        self.session.apply(Intent::Nudge(delta));
         self.rebuild_rows();
     }
     pub fn add_node(&mut self) {
-        self.session.add_node();
+        self.session.apply(Intent::AddNode);
         self.rebuild_rows();
     }
     pub fn delete_selected(&mut self) {
-        self.session.delete_selected();
+        self.session.apply(Intent::DeleteSelected);
         self.rebuild_rows();
     }
     pub fn copy_selected(&mut self) {
-        self.session.copy_selected();
+        self.session.apply(Intent::CopySelected);
     }
     pub fn cut_selected(&mut self) {
-        self.session.cut_selected();
+        self.session.apply(Intent::CutSelected);
     }
     pub fn paste(&mut self) {
-        self.session.paste();
+        self.session.apply(Intent::Paste);
         self.rebuild_rows();
     }
     #[cfg(test)]
@@ -651,7 +655,7 @@ impl App {
         self.rebuild_rows();
     }
     pub fn remark(&mut self) {
-        self.session.remark();
+        self.session.apply(Intent::Remark);
         self.rebuild_rows();
     }
 
@@ -684,18 +688,18 @@ impl App {
     // ---- Undo / redo ----
 
     pub fn undo(&mut self) {
-        self.session.undo();
+        self.session.apply(Intent::Undo);
         self.rebuild_rows();
     }
     pub fn redo(&mut self) {
-        self.session.redo();
+        self.session.apply(Intent::Redo);
         self.rebuild_rows();
     }
 
     // ---- Escape / quit ----
 
     pub fn escape(&mut self) {
-        self.session.escape();
+        self.session.apply(Intent::Escape);
         self.rebuild_rows();
     }
     pub fn confirm_quit(&self) -> bool {
@@ -708,7 +712,8 @@ impl App {
     // ---- Prompt ----
 
     pub fn handle_prompt_key(&mut self, c: char) -> PromptOutcome {
-        if self.session.handle_prompt_key(c) {
+        let outcome = self.session.apply(Intent::PromptKey(c));
+        if outcome.quit {
             PromptOutcome::Quit
         } else {
             self.rebuild_rows();

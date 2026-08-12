@@ -16,6 +16,7 @@ pub mod type_filter;
 pub mod undo_redo;
 pub mod view;
 
+pub use dispatch::ApplyOutcome;
 pub use host::{EditTextOutcome, Host};
 pub use i18n::{tr, tr_args, Lang};
 pub use insertion::resolve_target;
@@ -23,12 +24,12 @@ pub use intent::Intent;
 pub use search::{fuzzy_indices, fuzzy_match, haystack};
 pub use selection::{normalize, Selection};
 pub use session::Session;
-pub use status_fmt::{format_label, node_type_label, node_type_label_str};
 pub use state::{
     Clipboard, ConvertState, ConvertStep, EditField, EditKind, EditState, FilterLayer, HelpTab,
     History, KindSwitchState, Mode, PasteSlot, PendingComment, PendingCommit, PendingExternalEdit,
     PromptKind,
 };
+pub use status_fmt::{format_label, node_type_label, node_type_label_str};
 pub use type_filter::{
     classify, layout, nav_rows, Cell, CheckState, Group, LayoutRow, TypeFilter, TypeToken,
 };

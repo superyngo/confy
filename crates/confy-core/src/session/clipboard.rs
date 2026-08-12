@@ -2,15 +2,10 @@
 //! machine — split out of `session.rs` (Task 15, 2026-08-11 audit
 //! remediation).
 
-use crate::model::document::{
-    ConfigDocument, MutateError, Mutation, OnCollision, Target,
-};
+use crate::model::document::{ConfigDocument, MutateError, Mutation, OnCollision, Target};
 use crate::model::node::{NodeKind, Path};
 use crate::session::i18n::{tr, tr_args};
-use crate::session::state::{
-    Clipboard,
-    Mode, PendingComment, PromptKind,
-};
+use crate::session::state::{Clipboard, Mode, PendingComment, PromptKind};
 
 use super::session::Session;
 

@@ -1,3 +1,5 @@
+✅ **Shipped — historical reference.** See `CHANGELOG.md` for current behavior; this plan is kept for context, not as a live task list.
+
 # Audit Remediation — Implementation Plan
 
 Date: 2026-08-11
@@ -283,7 +285,7 @@ picker on all three surfaces).
 
 ## Phase 3 — Long-term (> 5 days)
 
-### Task 13: Route TUI through `Session::dispatch(Intent)` — DESCOPED
+### Task 13: Route TUI through `Session::dispatch(Intent)` — DESCOPED, then IMPLEMENTED (later session)
 - **Files**: `crates/confy-tui/src/tui/mod.rs` (event loop, ~40 mutating call sites),
   `crates/confy-core/src/session/dispatch.rs`, `crates/confy-core/src/session/intent.rs`
 - **Description**: See Architecture Decisions above — this is the structural fix behind the
@@ -332,6 +334,23 @@ picker on all three surfaces).
   The "Phase 3 gate: full keybinding table smoke test" item tracked alongside this task existed
   solely to verify *this* task's routing change end-to-end — dropped with it, not performed as
   standalone busywork.
+
+- **Update (2026-08-11, later session): implemented, with corrected scope.** The 495-site
+  count above measured every `session.`-qualified reference, including read-only queries reached
+  through the `App` facade (`app.rs`, which landed *after* this task was descoped and already
+  funnels ~90% of mutating calls through ~90 named delegate methods, not scattered across the
+  event loop). The actual conversion surface was `app.rs`'s method bodies, not `mod.rs`'s call
+  sites: ~65 wrapper methods with an exact `Intent` match now call `self.session.apply(Intent::_)`
+  internally (same signature, same behavior — `cargo test -p confy-tui`'s 178 tests passed
+  unchanged before and after). `apply()` (not `dispatch()` — see the ADR 0003 Update above this
+  task was blocked on) made this safe: no `compute_rows()`/snapshot cost added to the hot
+  navigation path. Two real hand-duplicated decisions in `mod.rs` itself (not just raw calls)
+  were fixed: `ToggleExpand`'s `is_branch` check and `Quit`'s `confirm_quit()`/`quit_requested()`
+  gate — both now single `apply()` calls. See `docs/adr/0003-*.md`'s Resolution section for the
+  full accounting, including what was deliberately left un-routed and why. Verified: `cargo test
+  --workspace` + `cargo clippy --workspace --all-targets -D warnings` clean, plus a live TUI
+  binary smoke run (leaf/branch `ToggleExpand`, clean/dirty `Quit` confirm flow) — the two
+  behaviors the dedup fixes touch, exercised on the real terminal event loop, not just unit tests.
 
 ### Task 14: Schema-aware dirty-check for revalidation + capped undo history — IMPLEMENTED
 - **Files**: `crates/confy-core/src/session/session.rs` (`on_mutation_success` + its ~15 call
@@ -498,8 +517,11 @@ per-group checkpoints — descoped before starting; see its section above.)
   to match what was actually approved).
 - `crates/confy-ffi/functional_smoke.mjs`: JSON Schema scenarios added; `grid active after
   toggle` no longer silently waived.
-- **Final status**: 15 of 16 tasks landed (Tasks 1-12, 14-16); Task 13 descoped by explicit user
-  decision after fact-finding revealed its true scope (495 call sites, not ~40) — see its section
-  above. `cargo test --workspace` 495 passed / 0 failed throughout; `cargo clippy --workspace
-  --all-targets` 0 warnings; `tsc --noEmit` (web/ + editors/vscode/) 0 errors;
-  `functional_smoke.mjs` 92/92.
+- **Final status**: 15 of 16 tasks landed same-session (Tasks 1-12, 14-16); Task 13 initially
+  descoped by explicit user decision after fact-finding revealed its true scope (495 call sites,
+  not ~40) — see its section above. `cargo test --workspace` 495 passed / 0 failed throughout;
+  `cargo clippy --workspace --all-targets` 0 warnings; `tsc --noEmit` (web/ + editors/vscode/)
+  0 errors; `functional_smoke.mjs` 92/92. Task 13 was later implemented in a follow-up session
+  (see its section's Update) once the `apply()`/`dispatch()` split (ADR 0003 Update) made the
+  actual conversion cost-free on the hot navigation path and the real scope turned out to be
+  ~65 `app.rs` method bodies, not 495 call sites — **16 of 16 tasks landed.**

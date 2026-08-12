@@ -201,7 +201,12 @@ fn view_row_at_returns_none_for_a_collapsed_path() {
     let mut s = toml_session("[a]\nx = 1\n");
     s.cursor_down(); // cursor on 'a'
     s.toggle_expand(); // reveal x
-    let x_path = s.visible_rows().into_iter().find(|r| r.key == "x").unwrap().path;
+    let x_path = s
+        .visible_rows()
+        .into_iter()
+        .find(|r| r.key == "x")
+        .unwrap()
+        .path;
     assert!(
         s.view_row_at(&x_path).is_some(),
         "x is visible while a is expanded"
@@ -356,6 +361,58 @@ fn dispatch_toggle_expand_branch_then_collapse() {
     assert_eq!(snap.rows.len(), 3);
     let snap = s.dispatch(Intent::CollapseAll);
     assert_eq!(snap.rows.len(), 2);
+}
+
+#[test]
+fn apply_skips_row_rebuild_dispatch_performs_it() {
+    let mut s = toml_session("[a]\nx = 1\n");
+    s.dispatch(Intent::ExpandAll);
+    s.dispatch(Intent::CursorDown); // a
+    s.dispatch(Intent::CursorDown); // x
+    let cursor_before = s.cursor.clone();
+    assert!(
+        s.visible_rows().iter().any(|r| r.path == cursor_before),
+        "cursor starts on a visible row"
+    );
+
+    // Collapsing 'a' hides 'x'. `apply()` must NOT snap the cursor back onto
+    // a visible row -- that's `compute_rows()`'s job, deliberately skipped by
+    // the cheap path so navigation-only callers don't pay for it.
+    s.apply(Intent::CollapseAll);
+    assert_eq!(
+        s.cursor, cursor_before,
+        "apply() leaves the now-invisible cursor untouched"
+    );
+    assert!(
+        !s.visible_rows().iter().any(|r| r.path == cursor_before),
+        "the collapsed child really is hidden"
+    );
+
+    // `dispatch()` performs the same mutation plus the row rebuild, which
+    // snaps the cursor onto a visible row.
+    let mut s2 = toml_session("[a]\nx = 1\n");
+    s2.dispatch(Intent::ExpandAll);
+    s2.dispatch(Intent::CursorDown);
+    s2.dispatch(Intent::CursorDown);
+    let snap = s2.dispatch(Intent::CollapseAll);
+    assert!(
+        snap.rows.iter().any(|r| r.path == s2.cursor),
+        "dispatch() snaps the cursor back onto a visible row"
+    );
+}
+
+#[test]
+fn apply_outcome_quit_matches_dispatch_snapshot_quit() {
+    // `ApplyOutcome`'s transient signals must carry the exact same values
+    // `dispatch()` overlays onto its `SessionSnapshot` -- proven here for
+    // `quit`, the simplest of the three (`convert_write`, `schema_fetch_
+    // request` share the same overlay code path in `dispatch()`).
+    let mut s = toml_session("a = 1\n");
+    let outcome = s.apply(Intent::QuitRequested);
+    assert!(
+        outcome.quit,
+        "clean doc quits immediately, same as dispatch()"
+    );
 }
 
 #[test]

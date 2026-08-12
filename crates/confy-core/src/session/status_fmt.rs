@@ -138,7 +138,10 @@ pub(crate) fn project_first_label(fragment: &str) -> Option<String> {
 /// serves all three backends. `Json::Null` has no TOML representation (spec
 /// §2: TOML never produces `Value::Null`) — filtered out for a TOML
 /// document so the enum picker never offers an unwritable option.
-pub(crate) fn scalar_repr_for(v: &serde_json::Value, format: crate::model::document::DocFormat) -> Option<String> {
+pub(crate) fn scalar_repr_for(
+    v: &serde_json::Value,
+    format: crate::model::document::DocFormat,
+) -> Option<String> {
     use crate::model::document::DocFormat;
     match v {
         serde_json::Value::String(s) => Some(format!("{s:?}")),

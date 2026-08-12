@@ -14,7 +14,9 @@ use ratatui::widgets::*;
 // scroll-clamp / paging calculations) keep working unchanged after the
 // Task 10 overlay-renderer split — the logic didn't move conceptually, just
 // its file.
-pub(crate) use crate::tui::overlay_detail::{detail_full_text, detail_popup_rect, wrapped_line_count};
+pub(crate) use crate::tui::overlay_detail::{
+    detail_full_text, detail_popup_rect, wrapped_line_count,
+};
 pub(crate) use crate::tui::overlay_schema_enum::schema_enum_page_step;
 pub(crate) use crate::tui::overlay_type_filter::type_filter_page_step;
 
@@ -433,7 +435,9 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
     // the windowing above (not ratatui's own selection-follow) now owns
     // scroll position. Persist `start` (+ any residual ratatui-internal
     // adjustment, defensively) as next frame's basis.
-    let mut state = TableState::default().with_offset(0).with_selected(Some(selected_display));
+    let mut state = TableState::default()
+        .with_offset(0)
+        .with_selected(Some(selected_display));
     f.render_stateful_widget(table, area, &mut state);
     app.table_offset.set(start + state.offset());
 }
@@ -931,18 +935,19 @@ mod tests {
         app.open_detail();
         let full = detail_full_text(&app);
         assert!(full.contains("Schema:"), "section appended: {full:?}");
-        assert!(full.contains("not of type"), "violation msg present: {full:?}");
+        assert!(
+            full.contains("not of type"),
+            "violation msg present: {full:?}"
+        );
 
         // A conforming value produces no violations → no Schema section.
         let mut clean = App::new(crate::model::any_doc::AnyDocument::Toml(
             crate::model::cst_doc::CstDocument::from_str("port = \"ok\"\n").unwrap(),
         ));
-        clean
-            .session
-            .apply_schema_text(
-                confy_core::schema::SchemaSource::Local("/tmp/s.json".into()),
-                Ok(schema.to_string()),
-            );
+        clean.session.apply_schema_text(
+            confy_core::schema::SchemaSource::Local("/tmp/s.json".into()),
+            Ok(schema.to_string()),
+        );
         clean.rebuild_rows();
         clean.select_row(1);
         clean.open_detail();
@@ -1085,7 +1090,10 @@ mod tests {
             })
             .collect::<Vec<_>>()
             .join("\n");
-        assert!(joined_initial.contains("k00"), "top of list visible: {joined_initial:?}");
+        assert!(
+            joined_initial.contains("k00"),
+            "top of list visible: {joined_initial:?}"
+        );
         assert!(
             !joined_initial.contains("k59"),
             "far-below row must not be drawn while scrolled to the top: {joined_initial:?}"

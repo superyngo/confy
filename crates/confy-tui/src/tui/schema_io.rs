@@ -6,7 +6,10 @@
 use confy_core::schema::SchemaSource;
 use std::path::Path;
 
-pub fn resolve_schema_source(source: &SchemaSource, open_file_dir: &Path) -> Result<String, String> {
+pub fn resolve_schema_source(
+    source: &SchemaSource,
+    open_file_dir: &Path,
+) -> Result<String, String> {
     match source {
         SchemaSource::Local(rel) => {
             let path = open_file_dir.join(rel);

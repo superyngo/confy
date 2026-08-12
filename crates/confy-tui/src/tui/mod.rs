@@ -417,29 +417,27 @@ fn run_event_loop(
                             ));
                         }
                     } else if let Some(r) = app.cursor_row() {
-                        // Enter/Space: branch toggles expand, leaf opens detail.
-                        if r.is_branch {
-                            app.toggle_expand();
+                        let is_branch = r.is_branch;
+                        // Enter/Space: branch toggles expand, leaf opens detail —
+                        // the actual decision lives once in `Session::apply`; only
+                        // rebuild when it does (opening detail changes no rows).
+                        app.session.apply(confy_core::session::Intent::ToggleExpand);
+                        if is_branch {
                             app.rebuild_rows();
-                        } else {
-                            app.open_detail();
                         }
                     }
                 }
-                keys::KeyAction::CollapseAll => {
-                    app.collapse_all();
-                    app.rebuild_rows();
-                }
-                keys::KeyAction::ExpandAll => {
-                    app.expand_all();
-                    app.rebuild_rows();
-                }
+                keys::KeyAction::CollapseAll => app.collapse_all(),
+                keys::KeyAction::ExpandAll => app.expand_all(),
                 keys::KeyAction::ExpandLevel => app.expand_level(),
                 keys::KeyAction::CollapseLevel => app.collapse_level(),
                 keys::KeyAction::Quit => {
-                    if app.confirm_quit() {
-                        // Already in ConfirmQuit prompt — y/n handled via char
-                    } else if app.quit_requested() {
+                    // Mirrors `Intent::QuitRequested`'s own confirm_quit gate:
+                    // already in the ConfirmQuit prompt, y/n is handled via char.
+                    let outcome = app
+                        .session
+                        .apply(confy_core::session::Intent::QuitRequested);
+                    if outcome.quit {
                         should_quit = true;
                     }
                 }

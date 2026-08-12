@@ -3,21 +3,19 @@
 //! commit through it — split out of `session.rs` (Task 15, 2026-08-11 audit
 //! remediation).
 
-use crate::model::document::{
-    ConfigDocument, MutateError, Mutation, OnCollision, Target,
-};
+use crate::model::document::{ConfigDocument, MutateError, Mutation, OnCollision, Target};
 use crate::model::node::{Format, NodeKind, Path, ScalarType, Seg};
 use crate::session::i18n::{tr, tr_args};
-use crate::session::state::{
-    EditField, EditState,
-    Mode, PendingCommit, PromptKind,
-};
+use crate::session::state::{EditField, EditState, Mode, PendingCommit, PromptKind};
 
 use super::session::Session;
 
 use super::schema_hint::nudge_scalar;
 
-use super::status_fmt::{node_type_label_str, char_byte_idx, scalar_repr_for, clamp_scroll, project_first_label, unique_key};
+use super::status_fmt::{
+    char_byte_idx, clamp_scroll, node_type_label_str, project_first_label, scalar_repr_for,
+    unique_key,
+};
 
 impl Session {
     pub fn begin_inline_edit(&mut self) {
@@ -56,10 +54,11 @@ impl Session {
         let cursor = buffer.chars().count();
         let name_cursor = key.chars().count();
         if allow_schema_enum {
-            if let Some(crate::schema::EditHint::Enum(options)) =
-                self.schema.as_ref().and_then(|s| s.raw.as_ref()).map(|raw| {
-                    crate::schema::hints_edit::resolve_edit_hint(raw, &row.path)
-                })
+            if let Some(crate::schema::EditHint::Enum(options)) = self
+                .schema
+                .as_ref()
+                .and_then(|s| s.raw.as_ref())
+                .map(|raw| crate::schema::hints_edit::resolve_edit_hint(raw, &row.path))
             {
                 if !options.is_empty() {
                     let format = self.doc.as_ref().map(|d| d.format());
@@ -518,7 +517,12 @@ impl Session {
         self.apply_replace(e.path, fragment);
     }
 
-    pub(crate) fn apply_deferred_rename(&mut self, mut e: EditState, new_name: String, value: String) {
+    pub(crate) fn apply_deferred_rename(
+        &mut self,
+        mut e: EditState,
+        new_name: String,
+        value: String,
+    ) {
         let res = match self.doc.as_mut() {
             Some(doc) => doc.apply(Mutation::Rename {
                 path: e.path.clone(),

@@ -1,19 +1,20 @@
-use crate::model::any_doc::AnyDocument;
-use crate::model::document::{
-    ConfigDocument, DocFormat, Mutation, OnCollision, Target,
+use super::status_fmt::{
+    branch_type_format, char_byte_idx, default_ext, format_label, key_sign_label, node_type_label,
+    node_type_label_str,
 };
+use crate::model::any_doc::AnyDocument;
+use crate::model::document::{ConfigDocument, DocFormat, Mutation, OnCollision, Target};
 use crate::model::node::{Format, Node, NodeKind, NodeTree, Path, Seg, VisibleRow};
 use crate::session::i18n::{tr, tr_args, Lang};
 use crate::session::search::{fuzzy_match, haystack};
 use crate::session::selection::Selection;
 use crate::session::state::{
-    Clipboard, EditKind, EditState, FilterLayer, HelpTab, History, KindSwitchState,
-    Mode, PasteSlot, PendingComment, PendingCommit, PendingExternalEdit, PromptKind,
+    Clipboard, EditKind, EditState, FilterLayer, HelpTab, History, KindSwitchState, Mode,
+    PasteSlot, PendingComment, PendingCommit, PendingExternalEdit, PromptKind,
 };
 use crate::session::type_filter::TypeFilter;
 use crate::session::view::{ChildView, ViewRow};
 use std::collections::HashSet;
-use super::status_fmt::{branch_type_format, char_byte_idx, default_ext, format_label, key_sign_label, node_type_label, node_type_label_str};
 
 pub struct Session {
     pub doc: Option<AnyDocument>,
@@ -232,7 +233,8 @@ impl Session {
 
     /// Path the cursor is on, if visible.
     pub fn cursor_row_path(&self) -> Option<Path> {
-        self.is_path_visible(&self.cursor).then(|| self.cursor.clone())
+        self.is_path_visible(&self.cursor)
+            .then(|| self.cursor.clone())
     }
 
     /// Cursor's visible-row index.
@@ -1194,10 +1196,7 @@ impl Session {
 
     pub fn selected_paths(&self) -> Vec<Path> {
         if self.selection.is_empty() {
-            return self
-                .cursor_row()
-                .map(|r| vec![r.path])
-                .unwrap_or_default();
+            return self.cursor_row().map(|r| vec![r.path]).unwrap_or_default();
         }
         let paths: Vec<Path> = self.selection.iter().collect();
         crate::session::selection::normalize(paths)
@@ -1335,47 +1334,52 @@ impl Session {
     /// validates; `Err` sets a soft `load_error` — never touches
     /// `self.error`, and the document stays fully editable either way
     /// (spec §1: "never blocks opening, editing, or saving").
-    pub fn apply_schema_text(&mut self, source: crate::schema::SchemaSource, text: Result<String, String>) {
+    pub fn apply_schema_text(
+        &mut self,
+        source: crate::schema::SchemaSource,
+        text: Result<String, String>,
+    ) {
         let state = match text {
             Ok(text) => match serde_json::from_str::<serde_json::Value>(&text) {
-            Ok(raw) => match jsonschema::Validator::new(&raw) {
-                Ok(compiled) => {
-                    let fully_analyzable = crate::schema::dirty_check::is_fully_analyzable(&raw);
-                    crate::schema::SchemaState {
-                        source,
-                        compiled: Some(compiled),
-                        raw: Some(raw),
-                        fully_analyzable,
-                        violations: Vec::new(),
-                        load_error: None,
+                Ok(raw) => match jsonschema::Validator::new(&raw) {
+                    Ok(compiled) => {
+                        let fully_analyzable =
+                            crate::schema::dirty_check::is_fully_analyzable(&raw);
+                        crate::schema::SchemaState {
+                            source,
+                            compiled: Some(compiled),
+                            raw: Some(raw),
+                            fully_analyzable,
+                            violations: Vec::new(),
+                            load_error: None,
+                        }
                     }
-                }
+                    Err(e) => crate::schema::SchemaState {
+                        source,
+                        compiled: None,
+                        raw: None,
+                        fully_analyzable: false,
+                        violations: Vec::new(),
+                        load_error: Some(format!("invalid schema: {e}")),
+                    },
+                },
                 Err(e) => crate::schema::SchemaState {
                     source,
                     compiled: None,
                     raw: None,
                     fully_analyzable: false,
                     violations: Vec::new(),
-                    load_error: Some(format!("invalid schema: {e}")),
+                    load_error: Some(format!("schema is not valid JSON: {e}")),
                 },
             },
-            Err(e) => crate::schema::SchemaState {
+            Err(msg) => crate::schema::SchemaState {
                 source,
                 compiled: None,
                 raw: None,
                 fully_analyzable: false,
                 violations: Vec::new(),
-                load_error: Some(format!("schema is not valid JSON: {e}")),
+                load_error: Some(msg),
             },
-        },
-        Err(msg) => crate::schema::SchemaState {
-            source,
-            compiled: None,
-            raw: None,
-            fully_analyzable: false,
-            violations: Vec::new(),
-            load_error: Some(msg),
-        },
         };
         self.schema = Some(state);
         self.revalidate_schema();
@@ -1385,8 +1389,12 @@ impl Session {
     /// successful mutation commit and once right after `apply_schema_text`.
     /// A no-op when no schema is loaded or it failed to compile.
     pub fn revalidate_schema(&mut self) {
-        let Some(state) = self.schema.as_mut() else { return };
-        let Some(compiled) = state.compiled.as_ref() else { return };
+        let Some(state) = self.schema.as_mut() else {
+            return;
+        };
+        let Some(compiled) = state.compiled.as_ref() else {
+            return;
+        };
         let Some(doc) = self.doc.as_ref() else { return };
         let Ok((value, _warnings)) = doc.to_value() else {
             // A YAML opaque node or similar blocks `to_value()` — leave the
@@ -1772,11 +1780,9 @@ impl Session {
 mod helper_tests {
     use super::*;
     use crate::model::node::{Format, Path, ScalarType, Seg};
-    
-    
+
     use super::super::schema_hint::*;
     use super::super::status_fmt::*;
-    
 
     #[test]
     fn nudge_scalar_steps_each_type_preserving_format() {
@@ -1842,8 +1848,7 @@ mod helper_tests {
         use crate::model::any_doc::AnyDocument;
         use crate::schema::{SchemaSource, SchemaState};
 
-        let doc =
-            AnyDocument::from_str_as("port = 1\nretry = 1\n", DocFormat::Toml).unwrap();
+        let doc = AnyDocument::from_str_as("port = 1\nretry = 1\n", DocFormat::Toml).unwrap();
         let mut s = Session::new(doc);
 
         // multipleOf: 5, no min/max. Nudging a non-multiple (1 + delta 1

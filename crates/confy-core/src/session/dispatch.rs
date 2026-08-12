@@ -1,12 +1,19 @@
 //! The single command channel for non-TUI hosts (WASM / Web UI).
 //!
-//! `Session::dispatch(Intent) -> SessionSnapshot` is the one entry point the Web
-//! UI uses: it serializes one [`super::intent::Intent`] and re-renders from the
-//! returned [`super::view::SessionSnapshot`]. The routing mirrors the TUI event
-//! loop (`confy_tui::tui::run_event_loop`), but expressed as a direct
-//! `Intent → Session method` map. The TUI itself is unchanged — it still calls
-//! `Session` methods directly; this is the new, independently-tested WASM
-//! contract (PORTING §8.4).
+//! `Session::apply(Intent) -> ApplyOutcome` mutates the session for one
+//! [`super::intent::Intent`] and returns only the transient signals that
+//! aren't persistent `Session` state (`convert_write`, `quit`,
+//! `schema_fetch_request`) — it never rebuilds the row list or the render
+//! snapshot, so a caller that doesn't need to redraw (e.g. a future TUI
+//! navigation intent) can call it without paying `compute_rows()`'s
+//! O(visible-node) cost. `Session::dispatch(Intent) -> SessionSnapshot` is
+//! `apply()` plus that render snapshot, overlaid with `apply()`'s transient
+//! signals — the one entry point the Web UI uses: it serializes one Intent
+//! and re-renders from the returned [`super::view::SessionSnapshot`]. The
+//! routing mirrors the TUI event loop (`confy_tui::tui::run_event_loop`),
+//! but expressed as a direct `Intent → Session method` map. The TUI itself
+//! is unchanged — it still calls `Session` methods directly; this is the
+//! WASM contract (PORTING §8.4).
 
 use crate::model::document::ConfigDocument;
 use crate::model::node::NodeKind;
@@ -18,22 +25,34 @@ use crate::session::view::{
     SessionSnapshot, TypeFilterCellView, TypeFilterRow, TypeFilterView,
 };
 
+/// Transient signals from applying one [`Intent`] — not persistent `Session`
+/// state, so `apply()` returns them directly instead of folding them into a
+/// snapshot. `dispatch()` overlays these onto `snapshot()`'s output.
+pub struct ApplyOutcome {
+    /// Set when the core needs the host to write a converted file (fs-free).
+    pub convert_write: Option<(String, String)>,
+    /// The user confirmed quit — the host should exit.
+    pub quit: bool,
+    /// Pending schema fetch — mirrors `SessionSnapshot::schema_fetch_request`.
+    pub schema_fetch_request: Option<crate::schema::SchemaSource>,
+}
+
 impl super::Session {
-    /// The one command channel. Map a key (in the host) to an [`Intent`], call
-    /// this, and re-render from the returned [`SessionSnapshot`].
-    ///
-    /// Full-state transport (PORTING §8.3): the snapshot carries the entire
-    /// visible tree + modal surfaces + transient signals (`external_edit`,
-    /// `convert_write`, `quit`). No structured row diff yet.
-    pub fn dispatch(&mut self, intent: Intent) -> SessionSnapshot {
+    /// Mutate the session for one `Intent`. Cheap: no row list or render
+    /// snapshot is built, only the transient signals `dispatch()` would
+    /// otherwise fold into the snapshot. Callers that need to redraw should
+    /// use `dispatch()` instead; callers that already know no redraw is
+    /// needed (or that will build their own host-side row list regardless,
+    /// like the TUI) can call this directly and skip that cost.
+    pub fn apply(&mut self, intent: Intent) -> ApplyOutcome {
         // Any non-shift-extend action ends the current shift multi-select round,
         // so the next Shift+Arrow begins a fresh one (mirrors the TUI loop).
         if !matches!(intent, Intent::ExtendSelectUp | Intent::ExtendSelectDown) {
             self.last_action_was_shift_select = false;
         }
 
-        // Transient signals that only the dispatch return carries (not persistent
-        // session state), overlaid on the snapshot after routing.
+        // Transient signals that only the return carries (not persistent
+        // session state), overlaid onto the snapshot by `dispatch()`.
         let mut convert_write = None;
         let mut quit = false;
 
@@ -265,14 +284,30 @@ impl super::Session {
             Intent::SchemaEnumCommit => self.schema_enum_commit(),
         }
 
+        ApplyOutcome {
+            convert_write,
+            quit,
+            schema_fetch_request: self.pending_schema_fetch.take(),
+        }
+    }
+
+    /// The one command channel. Map a key (in the host) to an [`Intent`], call
+    /// this, and re-render from the returned [`SessionSnapshot`].
+    ///
+    /// Full-state transport (PORTING §8.3): the snapshot carries the entire
+    /// visible tree + modal surfaces + transient signals (`external_edit`,
+    /// `convert_write`, `quit`). No structured row diff yet.
+    pub fn dispatch(&mut self, intent: Intent) -> SessionSnapshot {
+        let outcome = self.apply(intent);
+
         // Snap the cursor onto a visible row and drop a stale paste slot after
         // any structural change (delete/collapse/filter), mirroring the TUI's
         // `App::rebuild_rows`. `snapshot()` is `&self` and can't do this itself.
         self.compute_rows();
         let mut snap = self.snapshot();
-        snap.convert_write = convert_write;
-        snap.quit = quit;
-        snap.schema_fetch_request = self.pending_schema_fetch.take();
+        snap.convert_write = outcome.convert_write;
+        snap.quit = outcome.quit;
+        snap.schema_fetch_request = outcome.schema_fetch_request;
         snap
     }
 
