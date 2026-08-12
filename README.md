@@ -21,11 +21,16 @@ and § VS Code extension below for the GUI/editor builds.
 
 ```
 confy <file.toml>
+confy <https://example.com/config.toml>
 ```
 
 Opens the file in an interactive TUI tree editor. On save (`w` or `Ctrl+s`) the file is
 written back with comments, key order, and formatting fully preserved (byte-identical round-trip
 for unmodified subtrees).
+
+Given a URL instead of a local path, confy fetches it, prompts for a local save path (pre-filled
+from the URL's filename), writes it there, then opens normally — nothing is written until you
+confirm.
 
 ### Convert between formats
 

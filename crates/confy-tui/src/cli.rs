@@ -132,6 +132,66 @@ fn create_missing_file(file: &Path, fmt: DocFormat) -> Result<()> {
     Ok(())
 }
 
+/// True for a bare `http(s)://` URL passed as `<file>`.
+fn is_url(s: &str) -> bool {
+    s.starts_with("http://") || s.starts_with("https://")
+}
+
+/// Best-effort filename suggestion from a URL's last non-empty path segment
+/// (query string and fragment stripped). Falls back to `"config"` when the
+/// URL has no path segment — `resolve_format` then rejects it exactly like
+/// any other extensionless path.
+fn derive_filename_from_url(url: &str) -> String {
+    let without_fragment = url.split('#').next().unwrap_or(url);
+    let without_query = without_fragment
+        .split('?')
+        .next()
+        .unwrap_or(without_fragment);
+    // Strip `scheme://host` first, so a bare `https://host` or `https://host/`
+    // (no path segment at all) doesn't fall back to the hostname.
+    let after_host = without_query.split("://").nth(1).unwrap_or(without_query);
+    let path = after_host
+        .find('/')
+        .map(|i| &after_host[i + 1..])
+        .unwrap_or("");
+    path.rsplit('/')
+        .find(|seg| !seg.is_empty())
+        .unwrap_or("config")
+        .to_string()
+}
+
+/// `confy <url>` where `<url>` is an http(s) URL: prompt on the terminal for a
+/// local save path (suggesting a name derived from the URL; accepting the
+/// blank default keeps the suggestion), then fetch and write the URL's
+/// content there so the normal load path can open it exactly like any
+/// pre-existing file. A non-interactive stdin aborts without any network
+/// call, matching `create_missing_file`'s non-TTY guard.
+fn open_url(url: &str, fmt_override: Option<&str>) -> Result<(PathBuf, DocFormat)> {
+    if !std::io::stdin().is_terminal() {
+        anyhow::bail!("cannot prompt for a save path for a URL (run in a terminal)");
+    }
+    let suggested = derive_filename_from_url(url);
+    eprint!("Save {url} as [{suggested}]: ");
+    std::io::stderr().flush().ok();
+    let mut answer = String::new();
+    std::io::stdin().read_line(&mut answer)?;
+    let typed = answer.trim();
+    let path = PathBuf::from(if typed.is_empty() {
+        suggested.as_str()
+    } else {
+        typed
+    });
+    let fmt = resolve_format(fmt_override, &path)?;
+    let body = ureq::get(url)
+        .call()
+        .map_err(|e| anyhow::anyhow!("{url}: {e}"))?
+        .into_string()
+        .map_err(|e| anyhow::anyhow!("{url}: {e}"))?;
+    std::fs::write(&path, &body)
+        .map_err(|e| anyhow::anyhow!("failed to write {}: {e}", path.display()))?;
+    Ok((path, fmt))
+}
+
 pub fn run() -> Result<()> {
     let args = Args::parse();
     match args.command {
@@ -146,11 +206,17 @@ pub fn run() -> Result<()> {
             let file = args.file.ok_or_else(|| {
                 anyhow::anyhow!("no file given (try `confy <file>` or `confy convert <in> <out>`)")
             })?;
+            let lang = resolve_lang(args.lang.as_deref());
+            if let Some(s) = file.to_str() {
+                if is_url(s) {
+                    let (path, fmt) = open_url(s, args.format.as_deref())?;
+                    return crate::tui::run(&path, fmt, lang, args.schema);
+                }
+            }
             let fmt = resolve_format(args.format.as_deref(), &file)?;
             if !file.exists() {
                 create_missing_file(&file, fmt)?;
             }
-            let lang = resolve_lang(args.lang.as_deref());
             crate::tui::run(&file, fmt, lang, args.schema)
         }
     }
@@ -281,5 +347,38 @@ mod tests {
         assert_eq!(p("a.yaml"), Some(DocFormat::Yaml));
         assert_eq!(p("a.yml"), Some(DocFormat::Yaml));
         assert_eq!(p("a.ini"), None);
+    }
+
+    #[test]
+    fn is_url_accepts_http_and_https_only() {
+        assert!(super::is_url("https://example.com/a.toml"));
+        assert!(super::is_url("http://example.com/a.toml"));
+        assert!(!super::is_url("a.toml"));
+        assert!(!super::is_url("/abs/path/a.toml"));
+        assert!(!super::is_url("ftp://example.com/a.toml"));
+    }
+
+    #[test]
+    fn derive_filename_from_url_uses_last_path_segment() {
+        assert_eq!(
+            super::derive_filename_from_url("https://example.com/dir/a.toml"),
+            "a.toml"
+        );
+        assert_eq!(
+            super::derive_filename_from_url("https://example.com/a.json?raw=1"),
+            "a.json"
+        );
+        assert_eq!(
+            super::derive_filename_from_url("https://example.com/a.yaml#frag"),
+            "a.yaml"
+        );
+        assert_eq!(
+            super::derive_filename_from_url("https://example.com/dir/"),
+            "dir"
+        );
+        assert_eq!(
+            super::derive_filename_from_url("https://example.com/"),
+            "config"
+        );
     }
 }
