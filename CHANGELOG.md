@@ -7,9 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.19.1] - 2026-08-12
+
 ### Fixed
 - fix(web): schema-enum `<select>`'s dropdown arrow was clipped when its row's value cell was flex-compressed (long trailing comment, narrow window) — `.val`'s ellipsis-truncation sizing (`overflow:hidden; min-width:0`, needed to clamp long static text) also clamped a live editing control to less than its own rendered width. `render.ts` now tags the `.val` cell with an `editing` class while it holds the schema-enum `<select>` or the plain inline-edit `<input>`, and that class resets to `overflow:visible; min-width:max-content` so the control is never narrower than its content.
 - fix(web): schema-enum picker relocated onto whatever row was clicked next, covering that row's real value — clicking a different row while the picker was open moved the tree cursor (`SetSelection`/`SetCursor`, unguarded by `Mode::SchemaEnum`) without cancelling the picker, and `renderValue` draws the picker on whichever row is `is_cursor`, so it visually "followed" the click onto an unrelated row (the eventual commit still silently applied to the *original* field). `focusSchemaEnumSelect` (`web/ui.ts`) now cancels the picker on blur — mirroring Escape, and matching the plain inline-edit `<input>`'s existing commit-on-blur behavior — guarded by a `settled` flag (not `document.contains`, which reads `true` mid-blur during the picker's own commit-triggered re-render) so a real option pick still commits normally.
+- fix(web): `npm test` was bash-only syntax (`for f in *.spec.mjs; do node "$f" || exit 1; done`), breaking on Windows CI (`cmd.exe`, not bash) — the Windows desktop release leg failed immediately with `"f was unexpected at this time."` before running a single spec, never caught since this test script had never run on Windows CI until this release. New `web/run-tests.mjs` is a small cross-platform runner (`spawnSync(process.execPath, ...)`, no shell syntax in the npm script itself) — same sorts-and-runs-each-until-first-failure behavior as the old loop.
+- fix(web): `cf-build.sh` typechecked before `web/pkg` existed on a clean checkout — `npm run typecheck && npm test && node build.mjs` ran in that order, but `node build.mjs` is what copies `crates/confy-ffi/pkg` → `web/pkg` (which `confy.ts` imports); locally masked by a leftover `web/pkg/` from a prior build, a genuinely clean CI checkout failed `tsc` with `TS2307`. Reordered to build (wasm-pack + esbuild bundle) before typecheck/test.
 
 ## [v0.19.0] - 2026-08-12
 
