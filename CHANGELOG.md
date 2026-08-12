@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- fix(web): schema-enum `<select>`'s dropdown arrow was clipped when its row's value cell was flex-compressed (long trailing comment, narrow window) — `.val`'s ellipsis-truncation sizing (`overflow:hidden; min-width:0`, needed to clamp long static text) also clamped a live editing control to less than its own rendered width. `render.ts` now tags the `.val` cell with an `editing` class while it holds the schema-enum `<select>` or the plain inline-edit `<input>`, and that class resets to `overflow:visible; min-width:max-content` so the control is never narrower than its content.
+- fix(web): schema-enum picker relocated onto whatever row was clicked next, covering that row's real value — clicking a different row while the picker was open moved the tree cursor (`SetSelection`/`SetCursor`, unguarded by `Mode::SchemaEnum`) without cancelling the picker, and `renderValue` draws the picker on whichever row is `is_cursor`, so it visually "followed" the click onto an unrelated row (the eventual commit still silently applied to the *original* field). `focusSchemaEnumSelect` (`web/ui.ts`) now cancels the picker on blur — mirroring Escape, and matching the plain inline-edit `<input>`'s existing commit-on-blur behavior — guarded by a `settled` flag (not `document.contains`, which reads `true` mid-blur during the picker's own commit-triggered re-render) so a real option pick still commits normally.
+
 ## [v0.19.0] - 2026-08-12
 
 ### Added

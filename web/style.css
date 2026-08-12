@@ -190,6 +190,14 @@ button{font-family:inherit;color:inherit;cursor:pointer}
   font-family:var(--mono);font-size:13px;padding:3px 6px;border-radius:5px;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46vw;min-width:0;
 }
+/* While `.val` holds a live editing control (the schema-enum `<select>` or
+   the plain inline-edit `<input>`, render.ts's `editing` class), the default
+   ellipsis-truncation sizing (min-width:0 + overflow:hidden, needed to clamp
+   long static text) must not also clamp the control itself — a flex-shrunk
+   `.val` narrower than the control's own rendered width used to clip its
+   right edge, hiding the select's native dropdown arrow (bug: enum picker
+   arrow invisible once the row is narrow/comment-heavy). */
+.val.editing{overflow:visible;min-width:max-content}
 .val:hover{background:color-mix(in oklch,var(--accent-soft) 70%,transparent);cursor:text}
 .val.t-string{color:var(--t-string)}
 .val.t-number{color:var(--t-number)}

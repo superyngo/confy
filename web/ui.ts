@@ -1225,11 +1225,30 @@ function focusInlineEdit() {
 // SchemaEnum variant) and commit on change via SchemaEnumMove/SchemaEnumCommit,
 // cancel on Escape. Native picker — the constrained-value editor for enum/const
 // schema hints (spec §3).
+//
+// Clicking a *different* row while this picker is open used to leave `Mode::
+// SchemaEnum` pinned to the original path while the pointer-driven `SetCursor`/
+// `SetSelection` click handler (`onTreeClick`) moved the tree cursor anyway —
+// nothing gates pointer navigation the way `key-intent.ts` gates keyboard nav
+// during this mode. Since `renderValue` draws the picker on whichever row is
+// `is_cursor`, the select would visually "jump" onto the newly-clicked row and
+// cover its real value (bug: schema-enum picker relocates onto next click).
+// `blur` fires synchronously on mousedown, before that click's own handler
+// runs, so cancelling here (mirroring Escape) beats the cursor move. A commit
+// or an own Escape keypress already dispatches its own intent — guard with a
+// `settled` flag (set as the *first* thing each does) rather than checking
+// `document.contains(select)`: committing re-renders the row (the picked
+// option changes the generated HTML, so `renderTree`'s reconciliation
+// replaces the row element), and that replacement's removal fires this same
+// `blur` *while `select` is still connected* — `document.contains` can't
+// tell a genuine click-away from our own commit's incidental blur.
 function focusSchemaEnumSelect() {
   const select = tree.querySelector("select[data-schema-enum]") as HTMLSelectElement | null;
   if (!select) return;
   select.focus();
+  let settled = false;
   select.onchange = () => {
+    settled = true;
     const idx = Number(select.value);
     const current = snap && typeof snap.mode === "object" && "SchemaEnum" in snap.mode ? snap.mode.SchemaEnum.cursor : 0;
     send({ SchemaEnumMove: idx - current });
@@ -1238,8 +1257,13 @@ function focusSchemaEnumSelect() {
   select.onkeydown = (e) => {
     if (e.key === "Escape") {
       e.preventDefault();
+      settled = true;
       send("Escape");
     }
+  };
+  select.onblur = () => {
+    if (settled) return;
+    send("Escape");
   };
 }
 

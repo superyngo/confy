@@ -145,8 +145,10 @@ export function renderRow(
       s += `<span class="count">${r.child_count} ${r.child_count === 1 ? t("web.render.item.one") : t("web.render.item.many")}</span>`;
     } else {
       const vcls = valueTypeClass(r);
+      const editingValue =
+        (schemaEnum && r.is_cursor) || (edit !== null && r.is_cursor && edit.field === "Value");
       s += `<span class="eq">=</span>`;
-      s += `<span class="val ${vcls} mono" data-edit="val">${renderValue(r, edit, schemaEnum)}</span>`;
+      s += `<span class="val ${vcls}${editingValue ? " editing" : ""} mono" data-edit="val">${renderValue(r, edit, schemaEnum)}</span>`;
     }
     // Kind badge (type + notation + chevron).
     if (!r.read_only) s += renderKindBadge(r);
