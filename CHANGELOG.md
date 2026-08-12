@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.19.0] - 2026-08-12
+
 ### Added
 - feat(core+tui+web+touch+tauri): JSON Schema support — in-file hint detection ($schema key, yaml-language-server modeline, TOML `#:schema` comment) with explicit override, `jsonschema`-crate-backed validation surfaced as soft (never-blocking) per-row warnings, and constrained enum/const inline editing (TUI popup, web `<select>`, touch bottom sheet) across TOML/JSON/YAML on every surface (TUI, web desktop, touch, Tauri desktop/mobile)
 - feat(web+touch): JSON Schema editing UX refinements — the "Edit" ctx-menu item (web) and a new "Edit in editor" detail-panel button (touch, also on desktop's side panel) now always force the free-form popup editor, bypassing the schema-enum picker (`Intent::BeginEditExternal`); the shared detail panel's value field now also triggers the schema-select when enum-constrained, giving touch full parity with the tree (touch's only value-edit surface); a schema-violating commit now surfaces an advisory status message combining the violation text with a "valid values: …"/"must be between X and Y" suggestion (soft — the commit still succeeds); a desktop-only hover tooltip on schema-constrained rows shows the same suggestion via a native `title` attribute, lazily resolved per-hover
