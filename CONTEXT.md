@@ -201,10 +201,12 @@ _Avoid_: Jump, Go-to (they describe only the cursor move, not the ancestor expan
 
 **PasteSlot** (`Into(Path)` / `After(Path)`):
 The target of an armed clipboard (copy/cut) — a navigable gap-cursor distinct from the tree
-cursor. `Into` a branch appends as its last child; `After` a Node inserts as its next sibling.
-Canonical, cross-platform vocabulary for "where a paste/move lands" — not TUI-only, even though
-the TUI was the first surface to navigate and render it (arrow keys step through the flattened
-`Into`-then-`After` sequence; ADR 0004).
+cursor. `Into` a branch appends as its last child. `After` a Node inserts as its next sibling —
+except an **expanded branch**, where it inserts as that branch's first child instead (so
+`Into`-then-`After` on the same expanded branch land adjacently, matching how `paste_slots()`
+flattens the tree; see `resolve_target`). Canonical, cross-platform vocabulary for "where a
+paste/move lands" — not TUI-only, even though the TUI was the first surface to navigate and
+render it (arrow keys step through the flattened `Into`-then-`After` sequence; ADR 0004).
 _Avoid_: drop target, insertion point (these describe the visual affordance, not the domain
 concept).
 
@@ -292,11 +294,14 @@ Notes:
 - A **`[T/D]` inside a `[T/I]`** (decomposed inline dotted keys) moves/copies like any `[T/D]`:
   fan-out over its `{ … }` member entries, captured scope-relative.
 - ⏸ = an **AoT *group*** as a whole-group source is `Unsupported` for move (and degrades for
-  copy). An AoT ***entry*** (`product[0]`) move/copy **works** — it splits into member fragments
-  (`aot_entry_member_fragments`, sub-sections flattened to dotted entries), so into a table/root
-  it lands as nodes (dotted re-prefix, per-leaf collision) and into another group/array it joins
-  into one `[[entry]]`/`{ … }` element. A nested `[[…]]` sub-group has no dotted form: move →
-  `Unsupported`, copy → full-section capture.
+  copy). An AoT ***entry*** (`product[0]`) move/copy **works**: into a table/root it splits into
+  member fragments (`aot_entry_member_fragments`, sub-sections flattened to dotted entries) and
+  lands as nodes (dotted re-prefix, per-leaf collision); into another `[A/T]` group or array it
+  moves **atomically** — its own body lines land directly and every nested `[table]` sub-section
+  is reconstructed as a nested section under the new entry (`aot_entry_section_body` +
+  `prefix_section_headers`, ADR 0004 §3), not flattened to a dotted key. A nested `[[…]]`
+  sub-group has no dotted/atomic form either way: move → `Unsupported`, copy → full-section
+  capture.
 - Moving a **`[T/S]` scope table** into another scope re-prefixes every header with the
   destination path (`prefix_section_headers`: `[a]`/`[a.sub]` into `[b]` → `[b.a]`/`[b.a.sub]`);
   capture is scope-relative via `strip_section_header_prefix` (a nested `[a.sub]` cut into `[b]`
@@ -335,7 +340,7 @@ atomic** (edited on a `clone_for_update` copy, committed only on success, then
 | **Delete** | Removes the node's full extent. An `[A/T]` entry takes its own section **plus** its sub-sections (`aot_entry_end`). A `[T/D]` table fans out to every member line. |
 | **Replace** | Empty path = **whole-document reparse** (rejects invalid as `Fragment`; doc untouched) — the `$EDITOR`/root rewrite path. An `[A/T]`-entry path (`product[0]`) rewrites only that `[[…]]` entry; sibling entries and between-entry comments stay intact. |
 | **Rename** | Swaps **only the key token in place** (position-preserving, collision-checked). Rewrites the **whole** key for a dotted rename (`foo` → `foo.x` converts the scalar into a `[T/D]` table). No separate user action — driven by the UI's rename flow. |
-| **Move** | Atomic: delete-before-reinsert on a scratch tree, committed only on success, so a same-scope reposition is a move, not a `Key already exists` collision. An `[A/T]` *entry* moved/copied out splits into member fragments (`aot_entry_member_fragments` — body lines verbatim, one fragment each, **sub-sections flattened to dotted**: `[fruit.physical]` `color` → `physical.color`); into a table/root the members land as nodes, into another group/array they join into ONE `[[entry]]`/`{ … }` element. A whole-`[A/T]`-*group* Move degrades to `Unsupported`. A nested `[[…]]` sub-group has no dotted form: Move → `Unsupported`, Copy → full-section capture. |
+| **Move** | Atomic: delete-before-reinsert on a scratch tree, committed only on success, so a same-scope reposition is a move, not a `Key already exists` collision. An `[A/T]` *entry* moved/copied out of its array splits into member fragments; into a table/root the body lines land as nodes (**sub-sections flattened to dotted**: `[fruit.physical]` `color` → `physical.color`, `aot_entry_member_fragments`); into another `[A/T]` group or array it moves **atomically** instead — nested `[table]` sub-sections are reconstructed as nested sections under the new entry, not flattened (`aot_entry_section_body`, ADR 0004 §3). A whole-`[A/T]`-*group* Move degrades to `Unsupported`. A nested `[[…]]` sub-group has no dotted/atomic form either way: Move → `Unsupported`, Copy → full-section capture. |
 | **Remark / EditComment / InsertComment** | Comments are first-class — see *Comment* / *Trailing comment*. |
 
 **Known rough edge:** multiline-array element insert/delete spacing is not yet byte-perfect.
