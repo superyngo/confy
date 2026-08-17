@@ -1706,7 +1706,7 @@ function bindGlobal() {
   // dnd's `endDrag()`/`clearOver()` wipe the armed-paste cue (dropLine +
   // `.drag-over-into`) whenever ANY drag gesture ends, even one unrelated to
   // the armed clipboard; redraw it from the live snap so the cue survives.
-  installDnd(tree, () => snap, send, () => {
+  installDnd(tree, () => snap, send, (p, r) => session!.pointerSlot(p, r), () => {
     if (snap) renderPasteSlotCue(snap);
   });
   $("detailClose").addEventListener("click", () => send("ExitDetail"));

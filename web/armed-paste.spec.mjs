@@ -173,7 +173,7 @@ async function bundleTs(entry) {
   };
   globalThis.CSS = { escape: (s) => s };
   const { installDnd: install } = await bundleTs("dnd.ts");
-  install(treeEl, () => null, () => {}, () => ops.push("onDragEnd"));
+  install(treeEl, () => null, () => {}, () => undefined, () => ops.push("onDragEnd"));
   listeners.dragend[0]({}); // Esc / dropped outside the tree
   check("dragend fires the onDragEnd hook", ops.includes("onDragEnd"));
   check(
@@ -245,7 +245,7 @@ export ${cueMatch[0]}\n`,
 // ---- ui.ts wiring: installDnd's 4th argument re-invokes the cue ----
 check(
   "installDnd call site passes the cue-restore callback",
-  /installDnd\(tree, \(\) => snap, send, \(\) => \{\s*\n\s*if \(snap\) renderPasteSlotCue\(snap\);\s*\n\s*\}\);/.test(uiTs),
+  /installDnd\(tree, \(\) => snap, send, \(p, r\) => session!\.pointerSlot\(p, r\), \(\) => \{\s*\n\s*if \(snap\) renderPasteSlotCue\(snap\);\s*\n\s*\}\);/.test(uiTs),
 );
 
 // ---- call-site wiring: both armed branches route through the helper ----
