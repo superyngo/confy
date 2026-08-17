@@ -136,7 +136,20 @@ pub(crate) fn resolve_insert_at(
 /// index among its own element and all descendants. The dual of
 /// [`node_start_root_index`] — used to append *after* a node whose subtree may include
 /// a synthetic `[T/D]` table with no element of its own.
+///
+/// An `Entry`'s own physical span (its whole `key = value` line) already contains
+/// everything nested inside its value — including any inline-table members
+/// `project_inline` also indexes. Those nested members' own `Target::Entry` index
+/// is relative to *their* immediate CST parent (the inline table), not the ROOT,
+/// so descending past an Entry and treating that as a ROOT-child index is wrong
+/// (it can return an index past the ROOT's actual child count). Short-circuit on
+/// `Entry` exactly like `node_start_root_index` already does; only a `Header`/
+/// `AotEntry`/synthetic (headerless) container's members are genuinely separate
+/// ROOT-level elements worth descending into.
 pub(crate) fn node_last_root_index(idx: &CstIndex, node: &Node) -> Option<usize> {
+    if let Some(Target::Entry(n)) = idx.iter().find(|(p, _)| p == &node.path).map(|(_, t)| t) {
+        return Some(n.index());
+    }
     let own = element_root_index(idx, node);
     let deepest = node
         .children

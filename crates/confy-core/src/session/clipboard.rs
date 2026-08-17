@@ -284,9 +284,9 @@ impl Session {
                     .map(|(i, (f, _))| (f.clone(), i))
                     .collect()
             };
-            let doc = self.doc.as_mut().unwrap();
             for (frag, i) in &grouped {
                 let i = *i;
+                let doc = self.doc.as_mut().unwrap();
                 match doc.apply(Mutation::Insert {
                     target: target.clone(),
                     fragment: frag.clone(),
@@ -294,6 +294,11 @@ impl Session {
                 }) {
                     Ok(()) => {}
                     Err(MutateError::Collision(key)) => {
+                        // Earlier entries in this loop may have already mutated
+                        // `self.doc` — re-project `self.tree` before returning so it
+                        // doesn't go stale relative to the real document (the same
+                        // reason the comment phase below already does this).
+                        self.on_mutation_success(None);
                         self.clipboard =
                             Some(rebuild(is_cut, &node_entries[i..], &comment_entries));
                         self.error = Some(tr_args(self.lang, "core.paste.collision", &[&key]));
@@ -301,6 +306,7 @@ impl Session {
                         return;
                     }
                     Err(e) => {
+                        self.on_mutation_success(None);
                         self.clipboard =
                             Some(rebuild(is_cut, &node_entries[i..], &comment_entries));
                         self.error =
@@ -364,14 +370,23 @@ impl Session {
             }
         }
         self.on_mutation_success(None);
-        // Drop the source selection and move both cursor and selection onto the
-        // freshly-pasted node(s). They land contiguously starting at
-        // `target.index - shift`: on a same-parent cut, every source (node *or*
-        // comment) that sat above the target was removed first, shifting the
-        // landing slot up by that count (the Move/Insert/InsertComment mutations
-        // already account for it, so the selection must too — else a downward
-        // move selects the next row). `node_shift` covers the nodes; the comment
-        // sources above the target add the rest.
+        // Drop the source selection and clear any leftover selection, then move
+        // the cursor onto the first freshly-pasted/moved node so it's clearly
+        // visible -- expanding every collapsed ancestor of the destination, not
+        // just its immediate parent, so a deeply-nested target surfaces
+        // correctly too (mirrors `reveal_path`'s prefix-expansion). Deliberately
+        // does NOT select the pasted/moved node(s): `self.selection` is a
+        // persistent, opt-in multi-select the user builds explicitly (`s` /
+        // Shift-range) that must survive plain cursor movement -- if paste/move
+        // populated it, the very next unrelated `cursor_down` + `c` would
+        // silently re-copy the old paste/move instead of the node now under the
+        // cursor. They land contiguously starting at `target.index - shift`: on
+        // a same-parent cut, every source (node *or* comment) that sat above the
+        // target was removed first, shifting the landing slot up by that count
+        // (the Move/Insert/InsertComment mutations already account for it, so
+        // the cursor must too -- else a downward move lands on the next row).
+        // `node_shift` covers the nodes; the comment sources above the target
+        // add the rest.
         let comment_shift = if is_cut {
             comment_ords
                 .iter()
@@ -381,6 +396,10 @@ impl Session {
             0
         };
         let pasted = node_entries.len() + comment_entries.len();
+        for i in 0..=target.parent.len() {
+            self.expanded.insert(target.parent[..i].to_vec());
+        }
+        self.selection.clear();
         if let Some(parent) = self.tree.node_at(&target.parent) {
             let n = parent.children.len();
             if pasted > 0 && n > 0 {
@@ -388,13 +407,7 @@ impl Session {
                     .index
                     .saturating_sub(node_shift + comment_shift)
                     .min(n - 1);
-                let end = (start + pasted).min(n);
-                let paths: Vec<Path> = parent.children[start..end]
-                    .iter()
-                    .map(|c| c.path.clone())
-                    .collect();
-                if let Some(first) = paths.first().cloned() {
-                    self.selection.set_all(paths);
+                if let Some(first) = parent.children.get(start).map(|c| c.path.clone()) {
                     self.cursor = first;
                 }
             }

@@ -452,11 +452,13 @@ impl Session {
                         if let Some(last) = e.path.last_mut() {
                             *last = Seg::Key(new_name.clone());
                         }
-                        // Keep the cursor on the renamed node (its identity is
-                        // its path) instead of letting it snap to the first row.
+                        // Keep the cursor -- and any selected/anchored paths
+                        // under it -- on the renamed node (its identity is its
+                        // path) instead of letting them go stale or snap away.
                         if self.cursor == old_path {
                             self.cursor = e.path.clone();
                         }
+                        self.selection.remap_prefix(&old_path, &e.path);
                         e.key = new_name.clone();
                         frag_key = new_name;
                     }
@@ -551,10 +553,12 @@ impl Session {
         };
         e.path.truncate(parent_len);
         e.path.extend(new_segs);
-        // Keep the cursor on the renamed node (path identity changed).
+        // Keep the cursor -- and any selected/anchored paths under it -- on
+        // the renamed node (path identity changed).
         if self.cursor == old_path {
             self.cursor = e.path.clone();
         }
+        self.selection.remap_prefix(&old_path, &e.path);
         self.apply_replace(e.path, format!("{leaf_key} = {value}\n"));
     }
 

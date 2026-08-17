@@ -116,6 +116,33 @@ impl Selection {
         self.round.clear();
         self.anchor = None;
     }
+
+    /// Rewrite every selected path (and the in-progress round's anchor) whose
+    /// prefix is exactly `old_prefix` to `new_prefix` instead, preserving any
+    /// suffix beneath it. `Selection` is just a set of path snapshots with no
+    /// mutation awareness of its own — anything that changes a node's path
+    /// identity (currently: rename) must explicitly remap it here, mirroring
+    /// how `Session::cursor` is remapped at each rename call site. Left
+    /// unremapped, a selected path silently goes stale and out-ranks the
+    /// cursor in `selected_paths()`, so the very next copy/delete/paste
+    /// silently targets a node that no longer exists at that path.
+    pub fn remap_prefix(&mut self, old_prefix: &Path, new_prefix: &Path) {
+        if old_prefix == new_prefix {
+            return;
+        }
+        let remap_one = |p: &Path| -> Path {
+            if p.starts_with(old_prefix.as_slice()) {
+                let mut np = new_prefix.clone();
+                np.extend_from_slice(&p[old_prefix.len()..]);
+                np
+            } else {
+                p.clone()
+            }
+        };
+        self.committed = self.committed.iter().map(remap_one).collect();
+        self.round = self.round.iter().map(remap_one).collect();
+        self.anchor = self.anchor.as_ref().map(remap_one);
+    }
 }
 
 #[cfg(test)]
@@ -192,5 +219,50 @@ mod tests {
         let port = vec![Seg::Key("server".into()), Seg::Key("port".into())];
         let normalized = normalize(vec![server.clone(), port]);
         assert_eq!(normalized, vec![server]);
+    }
+
+    #[test]
+    fn remap_prefix_rewrites_exact_and_descendant_matches() {
+        use std::collections::HashSet;
+        let old = vec![Seg::Key("new_field".into())];
+        let new = vec![Seg::Key("inner".into())];
+        let descendant = vec![Seg::Key("new_field".into()), Seg::Key("x".into())];
+        let mut sel = Selection::new();
+        sel.set_all([old.clone(), descendant.clone()]);
+        sel.remap_prefix(&old, &new);
+        let expected_descendant = vec![Seg::Key("inner".into()), Seg::Key("x".into())];
+        assert_eq!(
+            selected(&sel),
+            HashSet::from([new, expected_descendant]),
+            "an exact match and a descendant of the renamed prefix must both be rewritten"
+        );
+    }
+
+    #[test]
+    fn remap_prefix_leaves_unrelated_paths_untouched() {
+        use std::collections::HashSet;
+        let renamed = vec![Seg::Key("new_field".into())];
+        let unrelated = vec![Seg::Key("other".into())];
+        let mut sel = Selection::new();
+        sel.set_all([unrelated.clone()]);
+        sel.remap_prefix(&renamed, &vec![Seg::Key("inner".into())]);
+        assert_eq!(selected(&sel), HashSet::from([unrelated]));
+    }
+
+    #[test]
+    fn remap_prefix_updates_the_round_anchor() {
+        let v = vis(8);
+        let mut sel = Selection::new();
+        sel.begin_round(p(3));
+        sel.extend_round_to(&v, &p(3));
+        // Rename `p(3)` to a path outside the visible-row fixture, then extend
+        // the round again -- the anchor must have followed the rename, not
+        // stayed pinned to the now-nonexistent old path.
+        let renamed = vec![Seg::Key("renamed".into())];
+        sel.remap_prefix(&p(3), &renamed);
+        assert!(
+            selected(&sel).contains(&renamed),
+            "the round's own selected path must be remapped"
+        );
     }
 }

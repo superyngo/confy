@@ -273,8 +273,10 @@ look & gesture, but drives the **same `confy-core` Session** through the shared
 `confy.ts`/`Intent` contract — exactly how the desktop UI relates to the core. The prototype's
 only discarded part is its fake `TREE`/DOM-as-state model; everything mutating goes through
 `session.dispatch(Intent)` + a full re-render from the returned `SessionSnapshot` (stateless,
-like desktop). Beyond the core (`confy.ts`, `types.ts`, `fs.ts`, the Intent contract), the two
-UIs now share several **single-source UI modules** so look & behavior can't drift: `web/panel.ts`
+like desktop; ADR 0003 documents the one exception — the TUI calls `Session` methods directly
+for its ~40 mutating calls instead of routing through `dispatch`). Beyond the core (`confy.ts`,
+`types.ts`, `fs.ts`, the Intent contract), the two UIs now share several **single-source UI
+modules** so look & behavior can't drift: `web/panel.ts`
 (node edit/detail panel), `web/convert-dialog.ts` (the Save / Convert form), and
 `web/typefilter.ts` (the type-filter grid). `convert-dialog.ts` is **container-agnostic** — it
 operates over a host-supplied `ConvertSurface` (`isOpen/open/close/onCancel`), so desktop hosts the

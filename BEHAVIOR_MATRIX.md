@@ -64,6 +64,8 @@ How a container behaves *as an item inside another container*.
 - **flow parents (seq-flow / map-flow)** hold their children on one line, so a child has no own line
   for a trailing comment (✗) and isn't independently `Replace`-addressable as text — an external edit
   takes the **whole inline repr** (⚠).
+- **paste-in forming** is one instance of the cross-platform `PasteSlot` targeting model —
+  ADR 0004.
 
 ---
 

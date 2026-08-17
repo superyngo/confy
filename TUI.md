@@ -4,6 +4,8 @@ TUI-specific mechanics for the ratatui frontend (`src/tui/`). These are **not** 
 with the model layer; see `WEBUI.md` for the parallel web-UI mechanics. For model
 semantics (Mutation variants, kind-switch rules, insert/move legality) see `CONTEXT.md`.
 For the inline-vs-`$EDITOR` boundary see `BEHAVIOR_MATRIX.md §6`.
+The TUI calling `Session` methods directly rather than routing every mutation through
+`dispatch(Intent)` (as the other hosts do) is a deliberate exception — ADR 0003.
 
 ## Rendering
 
@@ -189,6 +191,7 @@ the same `tui.*` catalog keys as the rest of the TUI; CJK lines in the `?` cheat
 popup were manually eyeballed for the double-width alignment risk noted in the i18n plan.
 
 ## Clipboard / paste
+See ADR 0004 for the cross-platform `PasteSlot` targeting model these mechanics implement.
 
 `copy_selected` (`c`) and `cut_selected` (`x`) load `App.clipboard`
 (`Option<Clipboard>`) from `selected_paths()` (the selection, or the cursor row when none). Both

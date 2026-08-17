@@ -199,6 +199,15 @@ sticks, the cursor stays put, and the status line reports that the target is hid
 filter. Canonical name for the breadcrumb / mini-tree jump.
 _Avoid_: Jump, Go-to (they describe only the cursor move, not the ancestor expansion).
 
+**PasteSlot** (`Into(Path)` / `After(Path)`):
+The target of an armed clipboard (copy/cut) — a navigable gap-cursor distinct from the tree
+cursor. `Into` a branch appends as its last child; `After` a Node inserts as its next sibling.
+Canonical, cross-platform vocabulary for "where a paste/move lands" — not TUI-only, even though
+the TUI was the first surface to navigate and render it (arrow keys step through the flattened
+`Into`-then-`After` sequence; ADR 0004).
+_Avoid_: drop target, insertion point (these describe the visual affordance, not the domain
+concept).
+
 **Type filter** (`f`) vs **Text filter** (`/`):
 Two independent ways to narrow the visible tree. The **Text filter** (`/`) fuzzy-matches a Node's
 key/path (and a Comment's text). The **Type filter** (`f`) is a checkbox menu selecting **type
@@ -207,6 +216,8 @@ filtered list and **intersect** (a Node must pass both); selections *within* the
 halves union. _Avoid_: calling either one "search" exclusively — both are filters.
 
 ### Schema
+
+Validation runs on the `jsonschema` crate rather than a hand-rolled subset validator — ADR 0002.
 
 **JSON projection**:
 The `serde_json::Value` tree a document's **Value** (neutral tree) is lowered into,

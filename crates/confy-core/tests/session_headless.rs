@@ -946,10 +946,12 @@ fn dispatch_clipboard_cut_flag_and_exit_type_filter() {
 }
 
 #[test]
-fn dispatch_paste_retargets_selection_to_pasted_node() {
+fn dispatch_paste_drops_selection_and_moves_only_the_cursor_onto_the_pasted_node() {
     // Copy t1.x, then paste it after t2.y (a different table → no collision). The
-    // source selection on t1.x is dropped; the freshly-pasted t2.x becomes the
-    // cursor and the sole selection.
+    // source selection on t1.x is dropped and NOT replaced by the pasted node --
+    // only the cursor follows the paste. Selection is a persistent, opt-in
+    // multi-select the user builds explicitly; if paste populated it, the very
+    // next unrelated cursor move + copy would silently re-target the old paste.
     let mut s = toml_session("[t1]\nx = 1\n[t2]\ny = 2\n");
     s.dispatch(Intent::ExpandAll);
     // Navigate onto t1.x (root → t1 → x).
@@ -967,16 +969,9 @@ fn dispatch_paste_retargets_selection_to_pasted_node() {
         vec![Seg::Key("t2".into()), Seg::Key("x".into())],
         "pasted node lives under t2, not t1"
     );
-    let selected: Vec<Vec<Seg>> = snap
-        .rows
-        .iter()
-        .filter(|r| r.selected)
-        .map(|r| r.path.clone())
-        .collect();
-    assert_eq!(
-        selected,
-        vec![vec![Seg::Key("t2".into()), Seg::Key("x".into())]],
-        "only the pasted node is selected; source t1.x is deselected"
+    assert!(
+        snap.rows.iter().all(|r| !r.selected),
+        "paste must not select the pasted node or leave the source selected"
     );
 }
 
@@ -1136,10 +1131,12 @@ fn dispatch_move_selection_reorders_within_parent() {
 }
 
 #[test]
-fn dispatch_move_selection_down_keeps_selection_on_moved_node() {
+fn dispatch_move_selection_down_keeps_cursor_on_moved_node() {
     // Regression: a same-parent DOWNWARD move shifts the landing slot up by the
-    // removed earlier source, so the post-move selection/cursor must follow the
-    // moved node — not land on the next row.
+    // removed earlier source, so the post-move cursor must follow the moved
+    // node — not land on the next row. Selection is NOT auto-populated by a
+    // move/paste (a deliberate, opt-in multi-select the user builds
+    // explicitly) — see `dispatch_paste_drops_selection_and_moves_only_the_cursor_onto_the_pasted_node`.
     let mut s = toml_session("a = 1\nb = 2\nc = 3\n");
     let snap = s.dispatch(Intent::MoveSelectionTo {
         sources: vec![vec![Seg::Key("a".into())]],
@@ -1158,8 +1155,8 @@ fn dispatch_move_selection_down_keeps_selection_on_moved_node() {
     );
     let row_a = snap.rows.iter().find(|r| r.key == "a").unwrap();
     assert!(
-        row_a.is_cursor && row_a.selected,
-        "'a' is cursor + selected"
+        row_a.is_cursor && !row_a.selected,
+        "'a' is cursor, but not auto-selected"
     );
     let row_c = snap.rows.iter().find(|r| r.key == "c").unwrap();
     assert!(
@@ -1169,10 +1166,10 @@ fn dispatch_move_selection_down_keeps_selection_on_moved_node() {
 }
 
 #[test]
-fn dispatch_move_comment_down_keeps_selection_on_moved_comment() {
+fn dispatch_move_comment_down_keeps_cursor_on_moved_comment() {
     // Regression: a DOWNWARD move of a *comment* node shifted the landing slot
-    // up by the removed comment too, but the selection only accounted for node
-    // sources — so the moved comment's next row got selected/cursored.
+    // up by the removed comment too, but the cursor-shift math only accounted
+    // for node sources — so the moved comment's next row got cursored.
     let mut s = toml_session("# note\na = 1\nb = 2\n");
     // The comment is positional index 0; move it down to after 'b' (index 2).
     let snap = s.dispatch(Intent::MoveSelectionTo {
@@ -1185,14 +1182,14 @@ fn dispatch_move_comment_down_keeps_selection_on_moved_comment() {
         "move should succeed: {:?}",
         snap.error
     );
-    // Order is now a, # note, b — the comment landed at index 1 (cursor + select).
+    // Order is now a, # note, b — the comment landed at index 1 (cursor).
     let cur = snap.rows.iter().find(|r| r.is_cursor).unwrap();
     assert!(
         cur.key.contains("note"),
         "cursor stays on the moved comment, not 'b': cursor on {:?}",
         cur.key
     );
-    assert!(cur.selected, "the moved comment is selected");
+    assert!(!cur.selected, "the moved comment is not auto-selected");
     let row_b = snap.rows.iter().find(|r| r.key == "b").unwrap();
     assert!(
         !row_b.is_cursor && !row_b.selected,
@@ -1578,4 +1575,297 @@ fn history_undo_redo_still_works_correctly_at_the_cap_boundary() {
     );
     s.redo();
     assert_eq!(s.serialize().unwrap(), "a = 205\n", "redo re-applies it");
+}
+
+// ---- Append into a `[T/D]` table with a nested-inline-table member value ----
+//
+// Regression for a `resolve_insert_at`/`node_last_root_index` bug (found while
+// grilling ADR 0004): `project_inline` also indexes an inline table's own members
+// as `Target::Entry`, but their `.index()` is relative to their immediate CST
+// parent (the inline table), not the flat ROOT. `node_last_root_index` used to
+// recurse past a table member's own backing entry into those nested indices and
+// treat them as ROOT-child positions, computing a splice index past the ROOT's
+// actual child count and panicking `splice_children`. Triggered by *any* insert
+// that appends to a dotted table whose existing member's value contains >= 2
+// levels of nested inline tables — not specific to self-paste.
+
+#[test]
+fn append_new_key_into_dotted_table_with_nested_inline_member() {
+    use confy_core::model::document::{Mutation, OnCollision, Target};
+    let mut s = toml_session("t.a = { b = { x = 1 } }\n");
+    let doc = s.doc.as_mut().unwrap();
+    doc.apply(Mutation::Insert {
+        target: Target {
+            parent: vec![Seg::Key("t".into())],
+            index: 1,
+        },
+        fragment: "newkey = 1\n".to_string(),
+        on_collision: OnCollision::Cancel,
+    })
+    .expect("append must not fail");
+    assert_eq!(
+        s.serialize().unwrap(),
+        "t.a = { b = { x = 1 } }\nt.newkey = 1\n"
+    );
+}
+
+#[test]
+fn copy_paste_dotted_table_into_its_own_scope_does_not_panic() {
+    use confy_core::session::PasteSlot;
+    let mut s = toml_session("t.a = { b = { x = 1 } }\n");
+    let t_path = vec![Seg::Key("t".into())];
+    s.reveal_path(t_path.clone());
+    s.copy_selected();
+    // Step from the default `After(t)` slot back to `Into(t)`.
+    s.cursor_up();
+    assert_eq!(s.effective_paste_slot(), PasteSlot::Into(t_path));
+    s.paste();
+    assert!(s.error.is_none(), "paste must not surface an error: {:?}", s.error);
+    assert_eq!(
+        s.serialize().unwrap(),
+        "t.a = { b = { x = 1 } }\nt.t.a = { b = { x = 1 } }\n"
+    );
+}
+
+// ---- Stale `self.tree` after a partial multi-fragment paste failure ----
+//
+// Regression for a second bug found in the same `systematic-debugging` pass:
+// `do_paste`'s NODE PHASE loop (copy branch) inserted each grouped fragment via a
+// separate `Mutation::Insert`, holding one `doc` borrow across every iteration and
+// never calling `on_mutation_success` on its Collision/error early-returns. So a
+// multi-node paste whose *first* fragment inserted successfully but whose *second*
+// collided left `self.doc` correctly mutated (the first fragment's insert stuck)
+// while `self.tree` (and everything addressed through it — visible rows, cursor,
+// selection) kept the pre-paste snapshot: silently diverged from the real
+// document. The comment phase a few lines below already re-borrows `doc` per
+// iteration and calls `on_mutation_success` on its own error paths — the node
+// phase was the asymmetric, unfixed twin.
+
+#[test]
+fn paste_partial_failure_reprojects_tree_before_returning() {
+    use confy_core::model::document::OnCollision;
+    use confy_core::session::state::Clipboard;
+    use confy_core::session::PasteSlot;
+    let mut s = toml_session("a = 1\nb = 2\n[t]\nb = 99\n");
+    let t_path = vec![Seg::Key("t".into())];
+    s.reveal_path(t_path.clone());
+    let target = s.slot_target(PasteSlot::Into(t_path.clone())).unwrap();
+    // `a` has no collision under `[t]`; `b` collides with the existing `[t].b`.
+    let clipboard = Clipboard {
+        fragments: vec!["a = 1\n".to_string(), "b = 2\n".to_string()],
+        cut: false,
+        sources: vec![vec![Seg::Key("a".into())], vec![Seg::Key("b".into())]],
+    };
+    s.do_paste(clipboard, target, OnCollision::Cancel, false);
+    assert!(s.error.is_some(), "the second fragment's collision must surface");
+    // The first fragment's insert already committed to the document...
+    assert_eq!(
+        s.serialize().unwrap(),
+        "a = 1\nb = 2\n[t]\nb = 99\na = 1\n"
+    );
+    // ...and `self.tree` must already reflect it, not the pre-paste snapshot.
+    let t_node = s.tree.node_at(&t_path).unwrap();
+    let a_path = vec![Seg::Key("t".into()), Seg::Key("a".into())];
+    assert!(
+        t_node.children.iter().any(|c| c.path == a_path),
+        "cached tree must see the already-committed t.a, not go stale: {:?}",
+        t_node.children.iter().map(|c| &c.path).collect::<Vec<_>>()
+    );
+}
+
+// ---- `do_paste` didn't expand an `Into` target, stranding the cursor on an
+// invisible row ----
+//
+// Regression for a bug found while chasing a user-reported repro chain
+// ("copy a JSON-converted table into itself, rename the nested copy, copy it
+// to root" -> `paste error: invalid fragment: fragment is not a value` then
+// `delete error: path not found`). Confirmed on the real `confy` TUI binary:
+// after pasting a node `Into` a still-collapsed target, the target stayed
+// collapsed (`▸`) and F2 (rename) silently did nothing. Root cause:
+// `do_paste` set `self.cursor` to the freshly pasted child without expanding
+// `target.parent` first -- unlike `add_node_impl`, which already does
+// `self.expanded.insert(target.parent.clone())` for exactly this reason. An
+// invisible cursor makes every subsequent cursor-relative action (rename,
+// the next copy/paste, detail view) silently no-op or resolve against a
+// stale path, exactly the kind of confusing chain the user reported.
+#[test]
+fn paste_into_slot_expands_target_so_pasted_child_is_visible() {
+    use confy_core::session::state::Mode;
+    use confy_core::session::PasteSlot;
+    let mut s = toml_session("t = { a = 1 }\n");
+    let t_path = vec![Seg::Key("t".into())];
+    s.reveal_path(t_path.clone());
+    s.copy_selected();
+    // Step the paste slot back from the default `After(t)` to `Into(t)`.
+    s.cursor_up();
+    assert_eq!(s.effective_paste_slot(), PasteSlot::Into(t_path.clone()));
+    s.paste();
+    assert!(s.error.is_none(), "paste must not surface an error: {:?}", s.error);
+
+    // The pasted child must be immediately visible, not just present in the
+    // document -- else the very next cursor-relative action silently no-ops.
+    assert!(
+        s.cursor_row().is_some(),
+        "cursor must land on a visible row after an Into-paste, not an \
+         invisible child of a target that stayed collapsed: cursor={:?}",
+        s.cursor
+    );
+
+    // F2 rename must actually engage on the freshly pasted node.
+    s.begin_inline_rename();
+    assert!(
+        matches!(s.mode, Mode::Edit(_)),
+        "rename must enter edit mode on the freshly pasted node, not silently no-op"
+    );
+}
+
+// ---- `Selection` wasn't remapped after a rename, so a stale selected path
+// silently poisoned every action downstream ----
+//
+// Regression for the user's exact reported repro chain, root-caused *after*
+// the `paste_into_slot_expands_target_so_pasted_child_is_visible` fix above
+// turned out to be necessary but insufficient -- confirmed on the real TUI
+// binary by instrumenting `capture_selected`/`paste`/`delete_selected` with
+// temporary debug output (removed once root-caused). The chain: `do_paste`
+// selects the freshly pasted node (`self.selection.set_all(...)`, correct);
+// F2-renaming that same node then updates `self.cursor` to the new path but
+// never touches `self.selection`, which `edit_commit`'s rename-success path
+// simply didn't remap. `selected_paths()` prefers a non-empty `self.selection`
+// over the cursor, so the *next* copy captured a fragment from the stale,
+// now-nonexistent pre-rename path -- silently the wrong (empty/garbage)
+// fragment. That's what produced the exact reported errors two steps later:
+// pasting the wrong fragment to root failed with `"fragment is not a value"`,
+// and deleting the stale path failed with `"path not found"`. Fixed by
+// `Selection::remap_prefix`, called alongside the existing cursor remap at
+// both rename call sites (`edit_commit`'s plain rename and
+// `apply_deferred_rename`'s TypeChange-confirmed dotted rename).
+#[test]
+fn rename_remaps_stale_selection_so_the_next_copy_targets_the_right_node() {
+    use confy_core::session::state::Clipboard;
+
+    let doc = AnyDocument::from_str_as("{}\n", DocFormat::Json).unwrap();
+    let mut s = Session::new(doc);
+
+    // Add a field, replace its value with a JSON object literal (triggers the
+    // string -> table conversion prompt), confirm it.
+    s.add_node();
+    // The seeded value buffer for a fresh empty JSON string is `""` -- clear
+    // it before typing, exactly like a real user backspacing first.
+    for _ in 0..2 {
+        s.edit_backspace();
+    }
+    for c in "{\"a\":1}".chars() {
+        s.edit_input_char(c);
+    }
+    s.edit_commit();
+    s.handle_prompt_key('y');
+    assert_eq!(s.serialize().unwrap(), "{ \"new_field\": {\"a\":1} }\n");
+
+    // Copy `new_field`, paste it `Into` itself -- lands a nested copy at
+    // `new_field.new_field`, cursor follows it (paste no longer auto-selects).
+    s.copy_selected();
+    s.cursor_up();
+    s.paste();
+    assert!(s.error.is_none(), "into-self paste must not error: {:?}", s.error);
+    let nested_path = vec![Seg::Key("new_field".into()), Seg::Key("new_field".into())];
+    assert_eq!(s.cursor, nested_path);
+
+    // Explicitly pin the nested copy into `self.selection` (e.g. the user
+    // pressed `s` to select it for a later multi-op) -- this is the only way
+    // `self.selection` becomes non-empty now that paste itself doesn't do it.
+    // A persistent selection like this must survive the rename below.
+    s.toggle_select();
+
+    // Rename the nested copy to `inner` -- this is the step that used to
+    // leave `self.selection` pointing at the now-stale `new_field.new_field`.
+    s.begin_inline_rename();
+    for _ in 0.."new_field".chars().count() {
+        s.edit_backspace();
+    }
+    for c in "inner".chars() {
+        s.edit_input_char(c);
+    }
+    s.edit_commit();
+    let inner_path = vec![Seg::Key("new_field".into()), Seg::Key("inner".into())];
+    assert_eq!(s.cursor, inner_path);
+
+    // Copy again: must capture `inner`'s real fragment, not a stale/garbage
+    // fragment resolved from the pre-rename path.
+    s.copy_selected();
+    match &s.clipboard {
+        Some(Clipboard { sources, fragments, .. }) => {
+            assert_eq!(sources, &vec![inner_path.clone()], "copy must target the renamed node's real path");
+            assert_eq!(fragments, &vec!["\"inner\": {\"a\":1}".to_string()]);
+        }
+        None => panic!("copy_selected must arm the clipboard"),
+    }
+
+    // Paste the correctly-captured fragment to root, then delete it -- both
+    // must now succeed on the first try (previously: "fragment is not a
+    // value" then "path not found").
+    s.cursor_home();
+    s.paste();
+    assert!(s.error.is_none(), "paste to root must succeed: {:?}", s.error);
+    assert_eq!(
+        s.serialize().unwrap(),
+        "{ \"new_field\": {\"a\":1, \"inner\": {\"a\":1}}, \"inner\": {\"a\":1} }\n"
+    );
+
+    s.delete_selected();
+    assert!(s.error.is_none(), "delete must succeed on the first try: {:?}", s.error);
+    assert_eq!(
+        s.serialize().unwrap(),
+        "{ \"new_field\": {\"a\":1, \"inner\": {\"a\":1}} }\n"
+    );
+}
+
+// ---- `do_paste` used to leave the freshly-pasted node selected, so a
+// subsequent unrelated cursor move + copy silently re-copied the stale paste
+// instead of the node under the cursor ----
+//
+// User-reported: "after pasting and I move the selection and press c again
+// trying to copy another node, it actually copies the previous pasted node".
+// Root cause: `do_paste` called `self.selection.set_all(...)` on every
+// successful paste/move so the pasted node looked "selected" (matching the
+// same visual treatment as a manual multi-select). But `self.selection` is a
+// persistent, opt-in multi-select that deliberately survives plain cursor
+// movement (so `s` / Shift-range selections aren't lost while navigating) --
+// and `selected_paths()` prefers a non-empty `self.selection` over the
+// cursor. So paste's auto-selection silently hijacked the next `c` regardless
+// of where the cursor had since moved. Fixed: `do_paste` now clears
+// `self.selection` and only moves the cursor onto the result.
+#[test]
+fn paste_does_not_leave_a_stale_selection_that_hijacks_the_next_copy() {
+    let mut s = toml_session("[t1]\nx = 1\n[t2]\ny = 2\n[t3]\nz = 3\n");
+    s.expand_all();
+    // Copy `t1.x`, paste it into `t2` (after `y`) -- lands `t2.x`, no
+    // collision.
+    s.reveal_path(vec![Seg::Key("t1".into()), Seg::Key("x".into())]);
+    s.copy_selected();
+    s.reveal_path(vec![Seg::Key("t2".into()), Seg::Key("y".into())]);
+    s.paste();
+    assert!(s.error.is_none(), "paste must not surface an error: {:?}", s.error);
+    let pasted_x = vec![Seg::Key("t2".into()), Seg::Key("x".into())];
+    assert_eq!(s.cursor, pasted_x, "cursor follows the freshly-pasted node");
+
+    // Move away from the pasted node onto an unrelated node ('t3.z') without
+    // any selection gesture -- just plain cursor navigation, exactly how a
+    // user would look for the next thing to copy.
+    s.cursor_down(); // t3
+    s.cursor_down(); // z
+    let row = s.cursor_row().expect("cursor row");
+    assert_eq!(row.key, "z", "cursor now sits on the unrelated node 't3.z'");
+
+    // Copy: must capture 't3.z', not the stale pasted 't2.x'.
+    s.copy_selected();
+    match &s.clipboard {
+        Some(clipboard) => {
+            assert_eq!(
+                clipboard.sources,
+                vec![vec![Seg::Key("t3".into()), Seg::Key("z".into())]],
+                "copy must target the node under the cursor, not a stale paste selection"
+            );
+        }
+        None => panic!("copy_selected must arm the clipboard"),
+    }
 }
