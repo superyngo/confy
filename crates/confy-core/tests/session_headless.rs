@@ -1990,3 +1990,56 @@ fn dispatch_set_paste_slot_intent_arms_the_target_for_paste() {
     let snap = s.dispatch(Intent::SetPasteSlot(PasteSlot::Into(b.clone())));
     assert_eq!(snap.paste_slot, Some(PasteSlot::Into(b)));
 }
+
+// ---- AoT-entry move into another `[A/T]` group (ADR 0004 §3) ----
+
+#[test]
+fn move_aot_entry_into_another_group_preserves_nested_section() {
+    let mut s = toml_session(
+        "[[fruit]]\nname = \"apple\"\n\n[fruit.physical]\ncolor = \"red\"\n\n[[items]]\nname = \"seed\"\n",
+    );
+    let fruit0 = vec![Seg::Key("fruit".into()), Seg::Index(0)];
+    s.reveal_path(fruit0.clone());
+    s.cursor = fruit0.clone();
+    s.cut_selected();
+    assert!(s.error.is_none(), "cut should succeed: {:?}", s.error);
+
+    let items = vec![Seg::Key("items".into())];
+    s.paste_slot = Some(PasteSlot::Into(items.clone()));
+    s.paste();
+    assert!(s.error.is_none(), "paste should succeed: {:?}", s.error);
+
+    // The moved entry lands as `items[1]`, its `name` member traveling with it.
+    let name1 = vec![
+        Seg::Key("items".into()),
+        Seg::Index(1),
+        Seg::Key("name".into()),
+    ];
+    assert_eq!(
+        s.tree.node_at(&name1).and_then(|n| n.value.clone()),
+        Some("\"apple\"".to_string())
+    );
+
+    // `physical` must survive as a real nested table (`[T/S]`, `Format::Scope`)
+    // — TOML attaches `[items.physical]` to the most recent `[[items]]` entry,
+    // so semantically it is `items[1].physical` (the projector addresses it as
+    // a group-level keyed child, the same shape as the source document's
+    // `[fruit.physical]`). It must NOT be flattened to a dotted
+    // `items[1].physical.color` key (the ADR 0004 §3 bug).
+    let physical = vec![Seg::Key("items".into()), Seg::Key("physical".into())];
+    let node = s
+        .tree
+        .node_at(&physical)
+        .expect("nested `physical` table survives the atomic move");
+    assert_eq!(node.format, Format::Scope, "sub-section stays a real nested table");
+
+    let mut color = physical.clone();
+    color.push(Seg::Key("color".into()));
+    assert_eq!(
+        s.tree.node_at(&color).and_then(|n| n.value.clone()),
+        Some("\"red\"".to_string())
+    );
+
+    // Moved (cut), so `fruit` no longer has the entry.
+    assert!(s.tree.node_at(&fruit0).is_none(), "cut removed the source entry");
+}

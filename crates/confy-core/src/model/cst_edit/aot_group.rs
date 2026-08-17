@@ -170,6 +170,42 @@ pub(crate) fn aot_entry_end(tree: &SyntaxNode, group_path: &[Seg], header_idx: u
     els.len()
 }
 
+/// One member event within a `[[…]]` entry's body span: a nested `[table]`
+/// header (path relative to the entry's own group-path ancestor — empty
+/// means "back at the entry's own top level") or a `key = value` entry
+/// line's own source text. Shared by `aot_entry_member_fragments` (flattens
+/// to dotted form for a table/root destination) and `aot_entry_section_body`
+/// (keeps headers verbatim for an atomic AoT-group-destination move, ADR
+/// 0004 §3) — the two output shapes each insert engine needs, over the
+/// identical tree walk.
+enum EntryEvent {
+    Header(Vec<Seg>),
+    Entry(String),
+}
+
+fn walk_aot_entry_body(tree: &SyntaxNode, header: &SyntaxNode) -> Result<Vec<EntryEvent>, MutateError> {
+    let group_path = header_path(header);
+    let i = header.index();
+    let end = aot_entry_end(tree, &group_path, i);
+    let els: Vec<_> = tree.children_with_tokens().collect();
+    let mut events = Vec::new();
+    for el in &els[i + 1..end] {
+        if let NodeOrToken::Node(n) = el {
+            match n.kind() {
+                SyntaxKind::TABLE_ARRAY_HEADER => return Err(MutateError::Unsupported),
+                SyntaxKind::TABLE_HEADER => {
+                    events.push(EntryEvent::Header(header_path(n)[group_path.len()..].to_vec()));
+                }
+                SyntaxKind::ENTRY => {
+                    events.push(EntryEvent::Entry(n.to_string().trim().to_string()));
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(events)
+}
+
 /// The member fragments of the `[[…]]` AoT entry backed by `header` — an `[A/T]`
 /// group is equivalent to an array of inline tables, so moving/copying an entry
 /// out of its array **splits it into member nodes**: the body `ENTRY` lines
@@ -182,32 +218,42 @@ pub(crate) fn aot_entry_member_fragments(
     tree: &SyntaxNode,
     header: &SyntaxNode,
 ) -> Result<Vec<String>, MutateError> {
-    let group_path = header_path(header);
-    let i = header.index();
-    let end = aot_entry_end(tree, &group_path, i);
-    let els: Vec<_> = tree.children_with_tokens().collect();
     let mut prefix = String::new();
     let mut frags = Vec::new();
-    for el in &els[i + 1..end] {
-        if let NodeOrToken::Node(n) = el {
-            match n.kind() {
-                SyntaxKind::TABLE_ARRAY_HEADER => return Err(MutateError::Unsupported),
-                SyntaxKind::TABLE_HEADER => {
-                    prefix = path_key_display(&header_path(n)[group_path.len()..]);
-                }
-                SyntaxKind::ENTRY => {
-                    let text = n.to_string().trim().to_string();
-                    frags.push(if prefix.is_empty() {
-                        format!("{text}\n")
-                    } else {
-                        format!("{prefix}.{text}\n")
-                    });
-                }
-                _ => {}
-            }
+    for ev in walk_aot_entry_body(tree, header)? {
+        match ev {
+            EntryEvent::Header(rel) => prefix = path_key_display(&rel),
+            EntryEvent::Entry(text) => frags.push(if prefix.is_empty() {
+                format!("{text}\n")
+            } else {
+                format!("{prefix}.{text}\n")
+            }),
         }
     }
     Ok(frags)
+}
+
+/// The full body of the `[[…]]` AoT entry backed by `header`, preserving
+/// nested `[table]` sub-sections as *relative* headers (`[physical]`,
+/// stripped of the entry's own group-path ancestor) instead of flattening
+/// them to dotted keys — used when the destination is itself an `[A/T]`
+/// group (ADR 0004 §3), so the caller's `prefix_section_headers`
+/// pass re-qualifies each relative header against the *destination's* key,
+/// reconstructing the same nested structure atomically instead of losing it
+/// to a dotted-key rewrite. `Err(Unsupported)` on a nested `[[…]]` sub-group,
+/// same as `aot_entry_member_fragments` (it has no dotted/atomic form either).
+pub(crate) fn aot_entry_section_body(tree: &SyntaxNode, header: &SyntaxNode) -> Result<String, MutateError> {
+    let mut body = String::new();
+    for ev in walk_aot_entry_body(tree, header)? {
+        match ev {
+            EntryEvent::Header(rel) => body.push_str(&format!("[{}]\n", path_key_display(&rel))),
+            EntryEvent::Entry(text) => {
+                body.push_str(&text);
+                body.push('\n');
+            }
+        }
+    }
+    Ok(body)
 }
 
 /// Whether a header node is a `[[aot]]` entry (vs a `[table]`).
