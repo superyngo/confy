@@ -22,6 +22,12 @@ export function installDnd(
   treeEl: HTMLElement,
   getSnap: () => SessionSnapshot | null,
   send: (i: Intent) => void,
+  // Runs at the end of every `endDrag()` — after `clearOver()` — so the owner
+  // can redraw what that wipes unconditionally: the armed-paste cue (ADR
+  // 0004 §1), whose `.drag-over-into` row class and `#dropLine` double as
+  // the drag feedback. Kept optional and last so 3-argument callers are
+  // unaffected.
+  onDragEnd?: () => void,
 ): void {
   const wrap = document.getElementById("treeWrap") as HTMLElement;
   const dropLine = document.getElementById("dropLine") as HTMLElement;
@@ -44,6 +50,9 @@ export function installDnd(
     target = null;
     clearOver();
     treeEl.querySelectorAll(".drag-src").forEach((el) => el.classList.remove("drag-src"));
+    // Last, and only after the wipe above: restore the armed-paste cue
+    // `clearOver()` may have collaterally hidden while a clipboard is armed.
+    onDragEnd?.();
   };
 
   treeEl.addEventListener("dragstart", (ev) => {

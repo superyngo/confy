@@ -303,13 +303,23 @@ function renderRawOrTree() {
 
 // The armed-paste `After` target renders as the same green insertion line
 // drag-drop already uses (`#dropLine`) — reused rather than duplicated
-// (ADR 0004 §1). `Into` is a per-row class, already baked into `renderRow`'s
-// output by `render.ts`.
+// (ADR 0004 §1). `Into` is a per-row class: baked into `renderRow`'s output
+// at render time AND re-applied here — dnd's `endDrag()` → `clearOver()`
+// strips it (and hides the line) whenever ANY drag gesture ends, even one
+// unrelated to the armed clipboard, with no render() to restore either; the
+// `installDnd` `onDragEnd` callback calls this to redraw both halves.
 function renderPasteSlotCue(snap: SessionSnapshot) {
   const dropLine = $("dropLine");
   const slot = snap.paste_slot;
-  if (!slot || !("After" in slot) || rawView) {
+  if (!slot || rawView) {
     dropLine.style.display = "none";
+    return;
+  }
+  if ("Into" in slot) {
+    dropLine.style.display = "none";
+    tree
+      .querySelector<HTMLElement>(`.row[data-path='${CSS.escape(JSON.stringify(slot.Into))}']`)
+      ?.classList.add("drag-over-into");
     return;
   }
   const rowEl = tree.querySelector<HTMLElement>(
@@ -1693,7 +1703,12 @@ function bindGlobal() {
   tree.addEventListener("contextmenu", onTreeContext);
   tree.addEventListener("wheel", onTreeWheel, { passive: false });
   installMarquee();
-  installDnd(tree, () => snap, send);
+  // dnd's `endDrag()`/`clearOver()` wipe the armed-paste cue (dropLine +
+  // `.drag-over-into`) whenever ANY drag gesture ends, even one unrelated to
+  // the armed clipboard; redraw it from the live snap so the cue survives.
+  installDnd(tree, () => snap, send, () => {
+    if (snap) renderPasteSlotCue(snap);
+  });
   $("detailClose").addEventListener("click", () => send("ExitDetail"));
   // Escape closes an open click-menu before anything else handles it (the
   // mode-driven #tfPop is closed by its own ExitTypeFilter path instead).
