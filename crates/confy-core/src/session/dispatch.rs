@@ -85,6 +85,7 @@ impl super::Session {
 
             // ---- Pointer (Web UI) ----
             Intent::SetCursor(path) => self.set_cursor(path),
+            Intent::SetPasteSlot(slot) => self.set_paste_slot(slot),
             Intent::RevealPath(path) => self.reveal_path(path),
             Intent::CommitEdit { value, name } => self.commit_edit(value, name),
             Intent::CommitKind { path, target } => self.commit_kind(path, target),

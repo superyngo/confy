@@ -535,6 +535,67 @@ impl Session {
         }
     }
 
+    /// Pointer analogue of arrow-key `PasteSlot` stepping: turn "this row,
+    /// this relative vertical position" (`0.0` = row top, `1.0` = row bottom)
+    /// into a `PasteSlot`, so every pointer host (Web mouse click, touch tap,
+    /// drag-drop into-eligibility) shares one target-classification algorithm
+    /// instead of each hand-rolling its own 0.25/0.75 band threshold (ADR
+    /// 0004 §1). `None` if `path` is not currently visible.
+    ///
+    /// Mid-band (`0.25..0.75`) on a branch whose `format != Format::Inline`
+    /// (a single-line container has no meaningful "insert into" drop zone) ->
+    /// `Into(path)`; an inline branch's whole lower half falls through to
+    /// `After(path)`. Bottom band -> `After(path)`. Top band resolves to the
+    /// slot immediately preceding this row's own slot(s) in `paste_slots()`'s
+    /// flattened order — **not** a tree-sibling computation: for an expanded
+    /// branch, `After(that branch)` means "its first child" (`resolve_target`),
+    /// so the row before an expanded branch's *next sibling* is that branch's
+    /// *last descendant*, not the branch itself. Reusing `paste_slots()`
+    /// directly (rather than re-deriving sibling/parent indices by hand)
+    /// keeps this provably in sync with the TUI's own arrow-key stepping.
+    pub fn pointer_slot(&self, path: &Path, rel_y: f32) -> Option<PasteSlot> {
+        let row = self
+            .visible_nodes()
+            .into_iter()
+            .find(|r| &r.node.path == path)?;
+        let into_eligible = row.node.is_branch() && row.node.format != Format::Inline;
+        if into_eligible && rel_y > 0.25 && rel_y < 0.75 {
+            return Some(PasteSlot::Into(path.clone()));
+        }
+        // Bottom band — and the whole lower half of an inline branch, which
+        // has no "insert into" drop zone — is `After` this row.
+        if rel_y >= 0.75 || (row.node.is_branch() && rel_y > 0.25) {
+            return Some(PasteSlot::After(path.clone()));
+        }
+        let slots = self.paste_slots();
+        // The row's own FIRST slot in `paste_slots()`'s flattened order:
+        // `Into` for any branch (`paste_slots` emits it even for inline
+        // branches), `After` for a leaf.
+        let mine = if row.node.is_branch() {
+            PasteSlot::Into(path.clone())
+        } else {
+            PasteSlot::After(path.clone())
+        };
+        let mine_idx = slots.iter().position(|s| *s == mine)?;
+        Some(slots.get(mine_idx.wrapping_sub(1)).cloned().unwrap_or(mine))
+    }
+
+    /// Pointer analogue of the TUI's arrow-key `PasteSlot` stepping: set the
+    /// armed clipboard's target directly (Web UI/touch `Intent::SetPasteSlot`,
+    /// built from `pointer_slot`). No-op if the slot's path is not currently
+    /// visible — mirrors `set_cursor`'s guard, so a stale click (row
+    /// scrolled/collapsed away between the pointer event and dispatch) can't
+    /// arm a target the tree no longer shows.
+    pub fn set_paste_slot(&mut self, slot: PasteSlot) {
+        let path = match &slot {
+            PasteSlot::Into(p) | PasteSlot::After(p) => p,
+        };
+        let visible = self.visible_nodes().iter().any(|r| &r.node.path == path);
+        if visible {
+            self.paste_slot = Some(slot);
+        }
+    }
+
     pub fn is_expanded(&self, path: &Path) -> bool {
         self.expanded.contains(path)
     }
