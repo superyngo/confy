@@ -1,5 +1,11 @@
 use serde::{Deserialize, Serialize};
 
+/// Serde default for `Intent::MoveSelectionTo.cut` — omitting the field on
+/// the wire preserves the pre-ADR-0004 cut-only behavior.
+fn default_move_cut() -> bool {
+    true
+}
+
 /// Every user-facing action the TUI can dispatch to the Session.
 /// The event loop translates raw key events to `Intent` values; the Session
 /// drives all state changes from there.
@@ -22,6 +28,11 @@ pub enum Intent {
     /// Place the cursor on a visible row by path (pointer analogue of the
     /// navigation intents). Ignored if the path is not currently visible.
     SetCursor(crate::model::node::Path),
+    /// Pointer analogue of the TUI's arrow-key `PasteSlot` stepping (ADR 0004
+    /// §1): set the armed clipboard's target directly. Built from
+    /// `ConfySession::pointer_slot(path, rel_y)`; ignored if the path isn't
+    /// currently visible when it lands (mirrors `SetCursor`).
+    SetPasteSlot(crate::session::state::PasteSlot),
     /// **Reveal** (CONTEXT.md §Operations): expand every ancestor of `path`
     /// and place the cursor on it (Web UI breadcrumb mini-tree jump). No-op if
     /// the path doesn't exist; if an active filter still hides the row, the
@@ -65,6 +76,11 @@ pub enum Intent {
         sources: Vec<crate::model::node::Path>,
         target: crate::model::node::Path,
         index: usize,
+        /// Copy (`false`) vs move (`true`, the default). A drag-drop with the
+        /// platform copy modifier (⌥/Ctrl) held sends `false`; a plain
+        /// drag-drop omits it (ADR 0004 §1).
+        #[serde(default = "default_move_cut")]
+        cut: bool,
     },
 
     // ---- Selection ----

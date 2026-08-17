@@ -2,9 +2,9 @@
 /// These run entirely in confy-core with no TUI or filesystem dependency.
 use confy_core::model::any_doc::AnyDocument;
 use confy_core::model::document::{ConfigDocument, DocFormat};
-use confy_core::model::node::Seg;
+use confy_core::model::node::{Format, Seg};
 use confy_core::session::{
-    EditKind, EditTextOutcome, HelpTab, Host, Intent, Mode, ModeView, Session,
+    EditKind, EditTextOutcome, HelpTab, Host, Intent, Mode, ModeView, PasteSlot, Session,
 };
 
 fn toml_session(src: &str) -> Session {
@@ -1065,6 +1065,7 @@ fn dispatch_move_selection_reparents_node() {
         sources: vec![vec![Seg::Key("a".into())]],
         target: vec![Seg::Key("t".into())],
         index: 0,
+        cut: true,
     });
     assert!(
         snap.error.is_none(),
@@ -1085,6 +1086,7 @@ fn dispatch_move_selection_rejects_drop_into_own_subtree() {
         sources: vec![vec![Seg::Key("t".into())]],
         target: vec![Seg::Key("t".into()), Seg::Key("x".into())],
         index: 0,
+        cut: true,
     });
     assert!(
         snap.error.is_some(),
@@ -1103,6 +1105,7 @@ fn dispatch_move_selection_failure_does_not_arm_cut_clipboard() {
         sources: vec![vec![Seg::Key("a".into())]],
         target: vec![Seg::Key("b".into())], // scalar parent → illegal destination
         index: 0,
+        cut: true,
     });
     assert!(snap.error.is_some(), "move into a scalar must fail");
     assert!(
@@ -1121,6 +1124,7 @@ fn dispatch_move_selection_reorders_within_parent() {
         sources: vec![vec![Seg::Key("a".into())]],
         target: vec![],
         index: 2,
+        cut: true,
     });
     let t = s.serialize().unwrap();
     assert!(
@@ -1142,6 +1146,7 @@ fn dispatch_move_selection_down_keeps_cursor_on_moved_node() {
         sources: vec![vec![Seg::Key("a".into())]],
         target: vec![],
         index: 2, // after 'b' → order becomes b, a, c
+        cut: true,
     });
     assert!(
         snap.error.is_none(),
@@ -1176,6 +1181,7 @@ fn dispatch_move_comment_down_keeps_cursor_on_moved_comment() {
         sources: vec![vec![Seg::Index(0)]],
         target: vec![],
         index: 2,
+        cut: true,
     });
     assert!(
         snap.error.is_none(),
@@ -1207,6 +1213,7 @@ fn dispatch_move_comment_into_collapsed_table_lands_inside() {
         sources: vec![vec![Seg::Index(0)]],
         target: vec![Seg::Key("t".into())],
         index: 1, // child_count of [t]
+        cut: true,
     });
     assert!(
         snap.error.is_none(),
@@ -1237,6 +1244,24 @@ fn dispatch_move_comment_into_collapsed_table_lands_inside() {
         text.contains("x = 2\n# note\n\n[u]"),
         "blank line separates the trailing comment from [u]:\n{text}"
     );
+}
+
+#[test]
+fn move_selection_to_with_cut_false_copies_instead_of_moving() {
+    let mut s = toml_session("[a]\nx = 1\n[b]\nc = 2\n");
+    s.expand_all();
+    let ax = vec![Seg::Key("a".into()), Seg::Key("x".into())];
+    let b = vec![Seg::Key("b".into())];
+    s.move_selection_to(vec![ax.clone()], b.clone(), 1, false);
+    assert!(s.error.is_none(), "copy-drag should succeed: {:?}", s.error);
+    // Source untouched (copy, not move).
+    assert!(
+        s.tree.node_at(&ax).is_some(),
+        "source `a.x` must survive a copy-drag"
+    );
+    // Destination gained the copy.
+    let bx = vec![Seg::Key("b".into()), Seg::Key("x".into())];
+    assert!(s.tree.node_at(&bx).is_some(), "`b` must gain a copy of `x`");
 }
 
 #[test]
@@ -1868,4 +1893,153 @@ fn paste_does_not_leave_a_stale_selection_that_hijacks_the_next_copy() {
         }
         None => panic!("copy_selected must arm the clipboard"),
     }
+}
+
+// ---- PasteSlot snapshot (ADR 0004 §1) ----
+
+#[test]
+fn snapshot_paste_slot_is_none_until_clipboard_armed_then_tracks_effective_slot() {
+    let mut s = toml_session("a = 1\n[b]\nc = 2\n");
+    assert_eq!(s.snapshot().paste_slot, None);
+    s.cursor = vec![Seg::Key("a".into())];
+    s.copy_selected();
+    // Armed with no explicit `paste_slot` set: falls back to `After(cursor)`,
+    // exactly like `effective_paste_slot()`.
+    assert_eq!(
+        s.snapshot().paste_slot,
+        Some(PasteSlot::After(vec![Seg::Key("a".into())]))
+    );
+}
+
+// ---- pointer_slot / SetPasteSlot (ADR 0004 §1) ----
+
+#[test]
+fn pointer_slot_bands_into_vs_after_and_finds_the_preceding_flattened_slot() {
+    let mut s = toml_session("a = 1\n[b]\nc = 2\nd = 3\n");
+    s.expand_all();
+    let a = vec![Seg::Key("a".into())];
+    let b = vec![Seg::Key("b".into())];
+    let c = vec![Seg::Key("b".into()), Seg::Key("c".into())];
+    let d = vec![Seg::Key("b".into()), Seg::Key("d".into())];
+
+    // Mid-band on an expanded, non-inline branch -> Into.
+    assert_eq!(s.pointer_slot(&b, 0.5), Some(PasteSlot::Into(b.clone())));
+    // Bottom band on a leaf -> After(that leaf).
+    assert_eq!(s.pointer_slot(&a, 0.9), Some(PasteSlot::After(a.clone())));
+    // Top band on `b`'s first child `c` -> After(b) (== "first child of b",
+    // exactly `c`'s own position, via `resolve_target`'s expanded-branch rule).
+    assert_eq!(s.pointer_slot(&c, 0.1), Some(PasteSlot::After(b.clone())));
+    // Top band on `b`'s second child `d` -> After(c): here the preceding
+    // flattened slot and "previous sibling" happen to coincide (`c` is a
+    // leaf) — the differentiating case is below.
+    assert_eq!(s.pointer_slot(&d, 0.1), Some(PasteSlot::After(c.clone())));
+    // Unknown path -> None.
+    assert_eq!(s.pointer_slot(&vec![Seg::Key("nope".into())], 0.5), None);
+}
+
+#[test]
+fn pointer_slot_top_band_skips_into_an_expanded_previous_sibling() {
+    // `r`'s previous *sibling* is `s`, an expanded branch with children `x`,
+    // `y`. The preceding *flattened* slot before `r` is After(y) (s's last
+    // child) — landing visually between `s`'s subtree and `r`, exactly where
+    // the top-band click pointed. A sibling-position shortcut would wrongly
+    // return After(s), which `slot_target` resolves to "prepend into s's
+    // children" (`resolve_target`'s expanded-branch rule) — deep inside s's
+    // subtree, nowhere near where the user clicked. This is the regression
+    // guard for that bug. (TOML has no back-to-root-scope: a bare `r = 3`
+    // after the `[s]` header would parse as `s.r`, so the following sibling
+    // is its own `[r]` table instead of a root-level scalar.)
+    let mut s = toml_session("[s]\nx = 1\ny = 2\n\n[r]\nz = 3\n");
+    s.expand_all();
+    let y = vec![Seg::Key("s".into()), Seg::Key("y".into())];
+    let r = vec![Seg::Key("r".into())];
+    assert_eq!(s.pointer_slot(&r, 0.1), Some(PasteSlot::After(y)));
+}
+
+#[test]
+fn pointer_slot_withholds_into_for_a_single_line_inline_container() {
+    let s = toml_session("t = { x = 1, y = 2 }\n");
+    let t = vec![Seg::Key("t".into())];
+    assert_eq!(s.tree.node_at(&t).map(|n| n.format), Some(Format::Inline));
+    // Mid-band would normally be Into, but a `Format::Inline` branch has no
+    // "insert into" drop zone (mirrors the existing web `dnd.ts` comment) —
+    // falls through to After.
+    assert_eq!(s.pointer_slot(&t, 0.5), Some(PasteSlot::After(t.clone())));
+}
+
+#[test]
+fn set_paste_slot_ignores_a_slot_whose_path_is_not_visible() {
+    let mut s = toml_session("a = 1\n[b]\nc = 2\n");
+    // `b` is collapsed by default; `c` is not visible.
+    let c = vec![Seg::Key("b".into()), Seg::Key("c".into())];
+    s.set_paste_slot(PasteSlot::After(c.clone()));
+    assert_eq!(s.paste_slot, None);
+    let a = vec![Seg::Key("a".into())];
+    s.set_paste_slot(PasteSlot::After(a.clone()));
+    assert_eq!(s.paste_slot, Some(PasteSlot::After(a)));
+}
+
+#[test]
+fn dispatch_set_paste_slot_intent_arms_the_target_for_paste() {
+    let mut s = toml_session("a = 1\n[b]\nc = 2\n");
+    s.expand_all();
+    let a = vec![Seg::Key("a".into())];
+    let b = vec![Seg::Key("b".into())];
+    s.cursor = a.clone();
+    s.copy_selected();
+    let snap = s.dispatch(Intent::SetPasteSlot(PasteSlot::Into(b.clone())));
+    assert_eq!(snap.paste_slot, Some(PasteSlot::Into(b)));
+}
+
+// ---- AoT-entry move into another `[A/T]` group (ADR 0004 §3) ----
+
+#[test]
+fn move_aot_entry_into_another_group_preserves_nested_section() {
+    let mut s = toml_session(
+        "[[fruit]]\nname = \"apple\"\n\n[fruit.physical]\ncolor = \"red\"\n\n[[items]]\nname = \"seed\"\n",
+    );
+    let fruit0 = vec![Seg::Key("fruit".into()), Seg::Index(0)];
+    s.reveal_path(fruit0.clone());
+    s.cursor = fruit0.clone();
+    s.cut_selected();
+    assert!(s.error.is_none(), "cut should succeed: {:?}", s.error);
+
+    let items = vec![Seg::Key("items".into())];
+    s.paste_slot = Some(PasteSlot::Into(items.clone()));
+    s.paste();
+    assert!(s.error.is_none(), "paste should succeed: {:?}", s.error);
+
+    // The moved entry lands as `items[1]`, its `name` member traveling with it.
+    let name1 = vec![
+        Seg::Key("items".into()),
+        Seg::Index(1),
+        Seg::Key("name".into()),
+    ];
+    assert_eq!(
+        s.tree.node_at(&name1).and_then(|n| n.value.clone()),
+        Some("\"apple\"".to_string())
+    );
+
+    // `physical` must survive as a real nested table (`[T/S]`, `Format::Scope`)
+    // — TOML attaches `[items.physical]` to the most recent `[[items]]` entry,
+    // so semantically it is `items[1].physical` (the projector addresses it as
+    // a group-level keyed child, the same shape as the source document's
+    // `[fruit.physical]`). It must NOT be flattened to a dotted
+    // `items[1].physical.color` key (the ADR 0004 §3 bug).
+    let physical = vec![Seg::Key("items".into()), Seg::Key("physical".into())];
+    let node = s
+        .tree
+        .node_at(&physical)
+        .expect("nested `physical` table survives the atomic move");
+    assert_eq!(node.format, Format::Scope, "sub-section stays a real nested table");
+
+    let mut color = physical.clone();
+    color.push(Seg::Key("color".into()));
+    assert_eq!(
+        s.tree.node_at(&color).and_then(|n| n.value.clone()),
+        Some("\"red\"".to_string())
+    );
+
+    // Moved (cut), so `fruit` no longer has the entry.
+    assert!(s.tree.node_at(&fruit0).is_none(), "cut removed the source entry");
 }

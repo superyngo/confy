@@ -196,7 +196,7 @@ pub struct EditState {
     pub created_on_add: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PasteSlot {
     Into(Path),
     After(Path),

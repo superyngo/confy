@@ -301,6 +301,43 @@ function renderRawOrTree() {
   }
 }
 
+// The armed-paste `After` target renders as the same green insertion line
+// drag-drop already uses (`#dropLine`) — reused rather than duplicated
+// (ADR 0004 §1). `Into` is a per-row class: baked into `renderRow`'s output
+// at render time AND re-applied here — dnd's `endDrag()` → `clearOver()`
+// strips it (and hides the line) whenever ANY drag gesture ends, even one
+// unrelated to the armed clipboard, with no render() to restore either; the
+// `installDnd` `onDragEnd` callback calls this to redraw both halves.
+function renderPasteSlotCue(snap: SessionSnapshot) {
+  const dropLine = $("dropLine");
+  const slot = snap.paste_slot;
+  if (!slot || rawView) {
+    dropLine.style.display = "none";
+    return;
+  }
+  if ("Into" in slot) {
+    dropLine.style.display = "none";
+    tree
+      .querySelector<HTMLElement>(`.row[data-path='${CSS.escape(JSON.stringify(slot.Into))}']`)
+      ?.classList.add("drag-over-into");
+    return;
+  }
+  const rowEl = tree.querySelector<HTMLElement>(
+    `.row[data-path='${CSS.escape(JSON.stringify(slot.After))}']`,
+  );
+  if (!rowEl) {
+    dropLine.style.display = "none";
+    return;
+  }
+  const wrap = $("treeWrap");
+  const r = rowEl.getBoundingClientRect();
+  const wr = wrap.getBoundingClientRect();
+  const indentW = (rowEl.querySelector(".indent") as HTMLElement | null)?.offsetWidth ?? 0;
+  dropLine.style.top = `${r.bottom - wr.top + wrap.scrollTop}px`;
+  dropLine.style.left = `${indentW + 8}px`;
+  dropLine.style.display = "block";
+}
+
 // ---- render ----
 function render() {
   if (!snap || !session) return;
@@ -332,6 +369,7 @@ function render() {
   // mechanism as the touch UI, driven by the shared snapshot flag).
   $("btnTypeFilter").classList.toggle("on", snap.type_filter_active);
   renderRawOrTree();
+  renderPasteSlotCue(snap);
   crumbsEl.classList.toggle("hidden", rawView);
   if (!rawView) {
     renderCrumbs(crumbsEl, snap, {
@@ -1027,16 +1065,34 @@ function onTreeHover(ev: MouseEvent) {
   if (text) cell.title = text;
 }
 
+// Pointer analogue of arrow-key `PasteSlot` stepping (ADR 0004 §1): while the
+// clipboard is armed, a click positions the paste target precisely
+// (`Into`/`After`) from the click's row + relative vertical position, instead
+// of always falling back to the bare cursor (`After(cursor)`). Shared by
+// `onTreeClick`'s plain row-body branch and `focusRow` (caret/kind-badge/
+// edit-cell affordance clicks), so every click while armed narrows the target
+// the same way.
+function armedPasteTarget(path: Path, ev: MouseEvent): Intent {
+  const rowEl = (ev.target as HTMLElement).closest(".row") as HTMLElement | null;
+  if (rowEl && session) {
+    const r = rowEl.getBoundingClientRect();
+    const relY = (ev.clientY - r.top) / (r.height || 1);
+    const slot = session.pointerSlot(path, relY);
+    if (slot) return { SetPasteSlot: slot };
+  }
+  return { SetCursor: path };
+}
+
 // A click on any row affordance (caret, kind badge, ±, key/value edit) should
 // leave the row visibly selected — not just cursored — same as a blank-area
 // body click. Routes through the same `resolveClick` gesture resolution
 // (plain replaces, ⇧ ranges, ⌘/Ctrl toggles) so the shift-range anchor stays
 // consistent with whatever the user last clicked. Paste mode freezes the
-// selection (core's `SetSelection` is a no-op there), so it falls back to a
-// bare cursor move — the paste target still tracks these clicks.
+// selection (core's `SetSelection` is a no-op there), so while armed these
+// clicks position the paste target instead (`armedPasteTarget`).
 function focusRow(path: Path, ev: MouseEvent) {
   if (!snap) return;
-  if ((snap.clipboard_count ?? 0) > 0) return send({ SetCursor: path });
+  if ((snap.clipboard_count ?? 0) > 0) return send(armedPasteTarget(path, ev));
   send({ SetSelection: { paths: resolveClick(snap, path, ev) } });
 }
 
@@ -1115,11 +1171,12 @@ function onTreeClick(ev: MouseEvent) {
     focusRow(path, ev);
     return send(editEl.dataset.edit === "key" ? "BeginRename" : "BeginEdit");
   }
-  // In paste mode the clipboard freezes the selection, so a click can't reselect
-  // — it moves the cursor, which is the paste destination (`After(cursor)`), and
-  // `body.paste-mode` styling makes that target visible.
+  // In paste mode the clipboard freezes the selection, so a click can't
+  // reselect — it positions the paste target (`Into`/`After`, from the
+  // click's row-relative Y) instead, and `body.paste-mode` styling makes it
+  // visible (ADR 0004 §1).
   if ((snap.clipboard_count ?? 0) > 0) {
-    return send({ SetCursor: path });
+    return send(armedPasteTarget(path, ev));
   }
   // Plain row-body click → selection gesture (plain / ⇧range / ⌘toggle). Core
   // moves the cursor to the focal path; expand stays on the caret (design).
@@ -1646,7 +1703,12 @@ function bindGlobal() {
   tree.addEventListener("contextmenu", onTreeContext);
   tree.addEventListener("wheel", onTreeWheel, { passive: false });
   installMarquee();
-  installDnd(tree, () => snap, send);
+  // dnd's `endDrag()`/`clearOver()` wipe the armed-paste cue (dropLine +
+  // `.drag-over-into`) whenever ANY drag gesture ends, even one unrelated to
+  // the armed clipboard; redraw it from the live snap so the cue survives.
+  installDnd(tree, () => snap, send, (p, r) => session!.pointerSlot(p, r), () => {
+    if (snap) renderPasteSlotCue(snap);
+  });
   $("detailClose").addEventListener("click", () => send("ExitDetail"));
   // Escape closes an open click-menu before anything else handles it (the
   // mode-driven #tfPop is closed by its own ExitTypeFilter path instead).

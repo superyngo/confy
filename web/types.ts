@@ -155,6 +155,10 @@ export interface SchemaStatus {
   load_error: string | undefined;
 }
 
+// ---- Clipboard paste target (session::state::PasteSlot, ADR 0004 §1) ----
+// Externally-tagged like every other Rust enum mirrored here.
+export type PasteSlot = { Into: Path } | { After: Path };
+
 // ---- Full-state snapshot (session::view::SessionSnapshot) ----
 export interface SessionSnapshot {
   doc_format: DocFormat;
@@ -173,6 +177,7 @@ export interface SessionSnapshot {
   clipboard_count: number | undefined; // Some(n) when the clipboard holds n fragments
   clipboard_cut: boolean; // true = cut (move); false = copy
   clipboard_paths: Path[]; // source node paths captured in the clipboard
+  paste_slot: PasteSlot | undefined; // effective_paste_slot(), only while a clipboard is armed
   type_filter_active: boolean; // a committed type filter is narrowing the rows
   quit: boolean;
   lang: string; // active UI language code ("en" / "zh-TW")
@@ -189,12 +194,13 @@ export type Intent =
   | "ToggleExpand" | "CollapseAll" | "ExpandAll" | "ExpandLevel" | "CollapseLevel"
   // Pointer (Web UI)
   | { SetCursor: Path }
+  | { SetPasteSlot: PasteSlot }
   | { RevealPath: Path }
   | { CommitEdit: { value: string | null; name: string | null } }
   | { CommitKind: { path: Path; target: string } }
   | { SetSelection: { paths: Path[] } }
   | { SetTrailing: { path: Path; comment: string | null } }
-  | { MoveSelectionTo: { sources: Path[]; target: Path; index: number } }
+  | { MoveSelectionTo: { sources: Path[]; target: Path; index: number; cut?: boolean } }
   // Selection
   | "ToggleSelect" | "ExtendSelectUp" | "ExtendSelectDown"
   // Filter

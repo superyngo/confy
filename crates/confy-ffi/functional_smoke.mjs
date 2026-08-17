@@ -409,5 +409,52 @@ check("about_text() mentions the GitHub repo", aboutText.includes("github.com/su
     s21.serialize().includes("cat"), s21.serialize());
 }
 
+// ---- 27. pointer_slot + SetPasteSlot: pointer paste-target classification
+// (ADR 0004 §1, wasm export). pointer_slot is the one classifier every
+// pointer host calls; SetPasteSlot arms the slot it returns.
+{
+  const sp = new ConfySession("a = 1\n[t]\nx = 2\ny = 3\n", "toml");
+  sp.dispatch(unit("ExpandAll"));
+  const pathOf = (k) => sp.snapshot().rows.find((r) => r.key === k).path;
+  const aP = pathOf("a");
+  const tP = pathOf("t");
+  // Band classification on a regular (non-inline) branch.
+  const same = (slot, tag, p) =>
+    slot != null && tag in slot && JSON.stringify(slot[tag]) === JSON.stringify(p);
+  check("pointer_slot mid-band on [t] -> Into",
+    same(sp.pointer_slot(tP, 0.5), "Into", tP), JSON.stringify(sp.pointer_slot(tP, 0.5)));
+  check("pointer_slot bottom band on [t] -> After",
+    same(sp.pointer_slot(tP, 0.9), "After", tP), JSON.stringify(sp.pointer_slot(tP, 0.9)));
+  // Top band -> the slot preceding this row's own in paste_slots()'s
+  // flattened order (rows root,a,t,x,y -> slots Into(root),After(root),
+  // After(a),Into(t),...): [t]'s predecessor is After(a).
+  check("pointer_slot top band on [t] -> After(a), the previous flattened slot",
+    same(sp.pointer_slot(tP, 0.1), "After", aP), JSON.stringify(sp.pointer_slot(tP, 0.1)));
+  // A leaf has no Into band: top half falls back to the previous flattened
+  // slot (After(root) for `a`), bottom band is After(a) itself.
+  check("pointer_slot leaf `a` top half -> After(root)",
+    same(sp.pointer_slot(aP, 0.5), "After", []), JSON.stringify(sp.pointer_slot(aP, 0.5)));
+  check("pointer_slot leaf `a` bottom band -> After(a)",
+    same(sp.pointer_slot(aP, 0.9), "After", aP), JSON.stringify(sp.pointer_slot(aP, 0.9)));
+  // Not-visible rows classify to undefined.
+  check("pointer_slot off-tree path -> undefined",
+    sp.pointer_slot([{ Key: "zzz" }], 0.5) === undefined);
+  const sp2 = new ConfySession("a = 1\n[t]\nx = 2\n", "toml");
+  check("pointer_slot collapsed-away child -> undefined",
+    sp2.pointer_slot([{ Key: "t" }, { Key: "x" }], 0.5) === undefined);
+  sp2.free();
+  // SetPasteSlot: arms the classifier's result; a stale (invisible) target is
+  // ignored, mirroring SetCursor's guard.
+  sp.dispatch({ SetSelection: { paths: [aP] } });
+  sp.dispatch(unit("CopySelected"));
+  let snp = sp.dispatch(tuple("SetPasteSlot", { Into: tP }));
+  check("SetPasteSlot arms Into(t); snapshot reflects it",
+    same(snp.paste_slot, "Into", tP), JSON.stringify(snp.paste_slot));
+  snp = sp.dispatch(tuple("SetPasteSlot", { After: [{ Key: "zzz" }] }));
+  check("SetPasteSlot ignores an invisible path (slot unchanged)",
+    same(snp.paste_slot, "Into", tP), JSON.stringify(snp.paste_slot));
+  sp.free();
+}
+
 console.log(failures === 0 ? "\nALL FUNCTIONAL CHECKS PASSED" : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

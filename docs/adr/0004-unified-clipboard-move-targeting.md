@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Unify node copy/cut/paste/move targeting across TUI, web keyboard, web mouse, and touch

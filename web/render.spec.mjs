@@ -97,6 +97,16 @@ console.log("\n-- renderRow() escaping: comment row (value) --");
   assertEscaped(html, VALUE_PAYLOAD, "comment-row value");
 }
 
+// ---- renderRow: Into-armed row gets the drag-over-into class (ADR 0004 §1) ----
+console.log("\n-- renderRow(): paste-armed Into styling --");
+{
+  const row = makeRow({ key: "b", is_branch: true });
+  const htmlPlain = renderRow(row, 0, [row], null, null, "");
+  check("plain row has no drag-over-into class", !htmlPlain.includes("drag-over-into"));
+  const htmlInto = renderRow(row, 0, [row], null, null, "", true);
+  check("Into-armed row gets drag-over-into class", htmlInto.includes("drag-over-into"));
+}
+
 // ---- panelHTML: value / trailing_comment ----
 console.log("\n-- panelHTML() escaping (value/comment fields) --");
 {

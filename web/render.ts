@@ -93,6 +93,7 @@ export function renderRow(
   edit: EditView | null,
   schemaEnum: { options: string[]; cursor: number } | null,
   clip: "" | " clip-copy" | " clip-cut",
+  pasteInto: boolean = false,
 ): string {
   const pathAttr = escapeHtml(JSON.stringify(r.path));
   const comment = isCommentRow(r);
@@ -101,7 +102,7 @@ export function renderRow(
     `row${r.is_branch ? " branch" : ""}${expanded ? " open" : ""}` +
     `${r.is_cursor ? " cursor" : ""}${r.selected ? " selected" : ""}` +
     `${r.read_only ? " readonly" : ""}${comment ? " comment-row" : ""}${clip}` +
-    `${r.violations ? " schema-violation" : ""}`;
+    `${r.violations ? " schema-violation" : ""}${pasteInto ? " drag-over-into" : ""}`;
   let s = `<div class="${cls}" data-path="${pathAttr}" data-index="${idx}">`;
   // Indentation: a single spacer whose width scales with depth (the design's
   // `indent.style.width = depth*22`). The synthetic root (depth 0) is not drawn,
@@ -198,6 +199,11 @@ export function renderTree(
   const clipCls: " clip-copy" | " clip-cut" = snap.clipboard_cut
     ? " clip-cut"
     : " clip-copy";
+  // Armed-paste `Into` target, keyed so the loop above can compare per row
+  // (ADR 0004 §1) — `After` is a cross-row line, drawn separately in
+  // `ui.ts`'s `renderPasteSlotCue` since it isn't any single row's own class.
+  const pasteIntoPath =
+    snap.paste_slot && "Into" in snap.paste_slot ? JSON.stringify(snap.paste_slot.Into) : null;
   // The synthetic root (empty path) is not rendered; `idx` stays the real
   // `snap.rows` index so a click maps back to the right node.
   const next: { key: string; html: string }[] = [];
@@ -212,6 +218,7 @@ export function renderTree(
         edit,
         schemaEnum,
         clipKeys.has(JSON.stringify(r.path)) ? clipCls : "",
+        pasteIntoPath !== null && JSON.stringify(r.path) === pasteIntoPath,
       ),
     });
   });

@@ -85,6 +85,7 @@ impl super::Session {
 
             // ---- Pointer (Web UI) ----
             Intent::SetCursor(path) => self.set_cursor(path),
+            Intent::SetPasteSlot(slot) => self.set_paste_slot(slot),
             Intent::RevealPath(path) => self.reveal_path(path),
             Intent::CommitEdit { value, name } => self.commit_edit(value, name),
             Intent::CommitKind { path, target } => self.commit_kind(path, target),
@@ -94,7 +95,8 @@ impl super::Session {
                 sources,
                 target,
                 index,
-            } => self.move_selection_to(sources, target, index),
+                cut,
+            } => self.move_selection_to(sources, target, index, cut),
 
             // ---- Selection ----
             Intent::ToggleSelect => self.toggle_select(),
@@ -338,6 +340,7 @@ impl super::Session {
                 .as_ref()
                 .map(|c| c.sources.clone())
                 .unwrap_or_default(),
+            paste_slot: self.clipboard.as_ref().map(|_| self.effective_paste_slot()),
             type_filter_active: self.type_filter.is_active(),
             quit: false,
             lang: self.lang.code().to_string(),

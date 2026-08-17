@@ -7,7 +7,7 @@ use crate::model::document::{MutateError, OnCollision, Target as InsTarget};
 use crate::model::node::{Format, Node, NodeKind, Seg};
 use taplo::rowan::NodeOrToken;
 use taplo::syntax::{SyntaxKind, SyntaxNode};
-use super::aot_group::{aot_entry_member_fragments, aot_group_insert};
+use super::aot_group::{aot_entry_member_fragments, aot_entry_section_body, aot_group_insert};
 use super::convert::{struct_node};
 use super::dotted_table::{dotted_ancestor_prefix_len, inline_ancestor_len, inline_member_entries, is_headerless_table, strip_key_prefix};
 use super::{joinable_entry};
@@ -15,6 +15,7 @@ use super::rename::{is_key_seg, key_seg_token};
 use super::replace_delete::MemberSpan;
 use super::replace_delete::{delete, path_key_display, section_text, table_fragment, table_member_spans};
 use super::tree_nav::{extend_over_newline, fragment_key_segs, inline_raw_member_index, node_at, resolve_insert_at};
+use std::collections::HashSet;
 
 /// Insert a keyed node fragment (`key = val`, `[table]…`) at the projected
 /// `target`. The fragment's first key is collision-checked against the parent
@@ -831,8 +832,11 @@ pub(crate) fn quote_key_seg(s: &str) -> String {
 /// Move `sources` to `target`, atomically (the caller commits the clone only on
 /// success). Comments are independent CST nodes, so a move repositions only the
 /// named nodes — adjacent comments stay put with no special handling. Entry,
-/// `[table]` and **array-element** sources are supported; AoT-entry sources are
-/// deferred (they would need append-not-collide insert semantics for `[[x]]`).
+/// `[table]` and **array-element** sources are supported. An AoT-entry source
+/// (`Target::AotEntry`) splits into dotted member fragments for a
+/// table/root/plain-array destination; into another `[A/T]` group it moves
+/// atomically (nested sections preserved) — a nested `[[…]]` sub-group has
+/// neither form (`Unsupported`, ADR 0004 §3).
 pub(crate) fn move_nodes(
     tree: &SyntaxNode,
     sources: &[Vec<Seg>],
@@ -841,8 +845,28 @@ pub(crate) fn move_nodes(
 ) -> Result<(), MutateError> {
     let (proj, idx) = walk(tree, "");
 
+    // Destination kind, computed up front (before the capture loop) since
+    // `Target::AotEntry` sources need to know it to decide between flattening
+    // and the atomic reconstruction below (ADR 0004 §3) — `target.parent`'s
+    // kind doesn't depend on `frags`. Only a real `[A/T]` group can host the
+    // atomic form: a plain array's elements are inline values and cannot
+    // carry `[table]` headers, so a plain-array destination keeps the flatten
+    // + pack-into-`{ … }` path below.
+    let dest_kind = node_at(&proj.root, &target.parent).map(|n| &n.kind);
+    let dest_is_aot = matches!(dest_kind, Some(NodeKind::ArrayOfTables));
+    let dest_packs = matches!(dest_kind, Some(NodeKind::ArrayOfTables | NodeKind::Array));
+
     // Capture each source's source text before any removal.
     let mut frags: Vec<String> = Vec::new();
+    // Indices into `frags` whose text is a composite AoT-entry body carrying
+    // its own nested `[table]` headers (ADR 0004 §3) — these splice via
+    // `aot_group_insert` directly, bypassing `insert`'s generic
+    // `has_header -> Illegal` gate (correct for a *bare* section paste, wrong
+    // here: this is an entry's *own* body, whose sub-section headers belong
+    // inside the destination group). Stays valid across the `dest_packs`-join
+    // below: a composite always contains a header, so it always fails
+    // `joinable_entry` and is never touched by that join.
+    let mut aot_composite_idxs: HashSet<usize> = HashSet::new();
     for p in sources {
         // A table — `[T/D]`, `[T/S]` (scattered or not), implicit, or mixed — is an
         // open set of member spans: capture them all, scope-relative (entry keys
@@ -912,11 +936,24 @@ pub(crate) fn move_nodes(
                     _ => frags.push(format!("{}\n", text.trim())),
                 }
             }
-            // Moving a `[[…]]` entry out of its array splits it into member
-            // nodes — one fragment per line (like the `[T/D]` fan-out, so the
-            // per-leaf collision check applies), sub-sections flattened to
-            // dotted entries.
-            Target::AotEntry(h) => frags.extend(aot_entry_member_fragments(tree, &h)?),
+            // Moving a `[[…]]` entry out of its array: into a table/root/plain
+            // array it still splits into member nodes (unchanged, `[T/D]`-parity
+            // — one fragment per line, sub-sections flattened to dotted; a plain
+            // array then packs them into ONE `{ … }` element below, the only
+            // lossless form an inline element can take). Into another `[A/T]`
+            // group it now moves *atomically* instead (ADR 0004 §3): the body
+            // keeps its nested `[table]` sub-sections as relative headers
+            // (`aot_entry_section_body`) rather than flattening them, and the
+            // composite branch below re-qualifies each header against the
+            // destination before splicing it in as a new entry.
+            Target::AotEntry(h) => {
+                if dest_is_aot {
+                    aot_composite_idxs.insert(frags.len());
+                    frags.push(aot_entry_section_body(tree, &h)?);
+                } else {
+                    frags.extend(aot_entry_member_fragments(tree, &h)?);
+                }
+            }
             _ => return Err(MutateError::Unsupported),
         }
     }
@@ -924,9 +961,9 @@ pub(crate) fn move_nodes(
     // Destination `[A/T]` group or plain array: several moved nodes pack into ONE
     // new `[[…]]` entry / `{ … }` element, so join the fragments when every one is
     // a header-less keyed entry (bare values / sections keep the per-fragment path
-    // and its own handling).
-    let dest_packs = node_at(&proj.root, &target.parent)
-        .is_some_and(|n| matches!(n.kind, NodeKind::ArrayOfTables | NodeKind::Array));
+    // and its own handling). A composite AoT-entry body (above) always contains a
+    // header, so it always fails `joinable_entry` and is never swept into this join
+    // — it keeps its own slot, indices in `aot_composite_idxs` stay valid.
     let frags = if dest_packs && frags.len() > 1 && frags.iter().all(|f| joinable_entry(f)) {
         vec![frags
             .iter()
@@ -971,10 +1008,10 @@ pub(crate) fn move_nodes(
     }
 
     // Re-insert before the anchor's current position (or append), in order.
-    for frag in frags {
+    for (i, frag) in frags.into_iter().enumerate() {
+        let (proj2, idx2) = walk(tree, "");
+        let parent2 = node_at(&proj2.root, &target.parent).ok_or(MutateError::NotFound)?;
         let index = {
-            let (proj2, _) = walk(tree, "");
-            let parent2 = node_at(&proj2.root, &target.parent).ok_or(MutateError::NotFound)?;
             let base = match &anchor_path {
                 Some(ap) => parent2
                     .children
@@ -985,15 +1022,38 @@ pub(crate) fn move_nodes(
             };
             base - gap.min(base)
         };
-        insert(
-            tree,
-            &InsTarget {
-                parent: target.parent.clone(),
-                index,
-            },
-            &frag,
-            on_collision,
-        )?;
+        if aot_composite_idxs.contains(&i) {
+            let parsed = taplo::parser::parse(&frag);
+            if let Some(e) = parsed.errors.first() {
+                return Err(MutateError::Fragment(e.to_string()));
+            }
+            let node = parsed.into_syntax().clone_for_update();
+            // Re-qualify the body's *relative* sub-section headers against the
+            // destination (`[physical]` → `[items.physical]`): TOML headers are
+            // absolute, so splicing them verbatim after the new `[[…]]` header
+            // would strand each sub-section at the top level instead of nesting
+            // it inside the moved entry.
+            let prefix: Vec<String> = target
+                .parent
+                .iter()
+                .filter_map(|s| match s {
+                    Seg::Key(k) => Some(k.clone()),
+                    _ => None,
+                })
+                .collect();
+            prefix_section_headers(&node, &prefix)?;
+            aot_group_insert(tree, &idx2, parent2, &target.parent, index, &node, on_collision)?;
+        } else {
+            insert(
+                tree,
+                &InsTarget {
+                    parent: target.parent.clone(),
+                    index,
+                },
+                &frag,
+                on_collision,
+            )?;
+        }
     }
     Ok(())
 }

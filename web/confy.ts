@@ -9,6 +9,7 @@ import type {
   EditHint,
   Intent,
   KindOptionView,
+  PasteSlot,
   Path,
   SessionSnapshot,
   ViewRow,
@@ -88,6 +89,15 @@ export class Session {
   /** Immediate children of the node at `path` (breadcrumb mini-tree). */
   children(path: Path): ChildView[] {
     return this.raw.children(path) as ChildView[];
+  }
+
+  /**
+   * Pointer-drop classification (ADR 0004 §1): "this row, this relative
+   * vertical position" (`0` = row top, `1` = row bottom) -> the `PasteSlot`
+   * it represents, or `undefined` if the row is no longer visible.
+   */
+  pointerSlot(path: Path, relY: number): PasteSlot | undefined {
+    return this.raw.pointer_slot(path, relY) as PasteSlot | undefined;
   }
 
   /** Free the underlying wasm memory. */
