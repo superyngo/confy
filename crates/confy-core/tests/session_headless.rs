@@ -4,7 +4,7 @@ use confy_core::model::any_doc::AnyDocument;
 use confy_core::model::document::{ConfigDocument, DocFormat};
 use confy_core::model::node::Seg;
 use confy_core::session::{
-    EditKind, EditTextOutcome, HelpTab, Host, Intent, Mode, ModeView, Session,
+    EditKind, EditTextOutcome, HelpTab, Host, Intent, Mode, ModeView, PasteSlot, Session,
 };
 
 fn toml_session(src: &str) -> Session {
@@ -1868,4 +1868,20 @@ fn paste_does_not_leave_a_stale_selection_that_hijacks_the_next_copy() {
         }
         None => panic!("copy_selected must arm the clipboard"),
     }
+}
+
+// ---- PasteSlot snapshot (ADR 0004 §1) ----
+
+#[test]
+fn snapshot_paste_slot_is_none_until_clipboard_armed_then_tracks_effective_slot() {
+    let mut s = toml_session("a = 1\n[b]\nc = 2\n");
+    assert_eq!(s.snapshot().paste_slot, None);
+    s.cursor = vec![Seg::Key("a".into())];
+    s.copy_selected();
+    // Armed with no explicit `paste_slot` set: falls back to `After(cursor)`,
+    // exactly like `effective_paste_slot()`.
+    assert_eq!(
+        s.snapshot().paste_slot,
+        Some(PasteSlot::After(vec![Seg::Key("a".into())]))
+    );
 }

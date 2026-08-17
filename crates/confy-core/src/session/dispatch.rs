@@ -338,6 +338,7 @@ impl super::Session {
                 .as_ref()
                 .map(|c| c.sources.clone())
                 .unwrap_or_default(),
+            paste_slot: self.clipboard.as_ref().map(|_| self.effective_paste_slot()),
             type_filter_active: self.type_filter.is_active(),
             quit: false,
             lang: self.lang.code().to_string(),

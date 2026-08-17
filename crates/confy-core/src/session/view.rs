@@ -1,6 +1,6 @@
 use crate::model::document::{DocFormat, KindTarget};
 use crate::model::node::{Format, Path, ScalarType};
-use crate::session::state::{ConvertStep, EditField, HelpTab};
+use crate::session::state::{ConvertStep, EditField, HelpTab, PasteSlot};
 use crate::session::type_filter::CheckState;
 use serde::{Deserialize, Serialize};
 
@@ -209,6 +209,10 @@ pub struct SessionSnapshot {
     /// The source node paths captured in the clipboard, so the UI can mark those
     /// rows (distinct from the selection box).
     pub clipboard_paths: Vec<Path>,
+    /// The armed clipboard's target — `effective_paste_slot()`, surfaced only
+    /// while a clipboard is armed (mirrors `clipboard_count`'s convention).
+    /// Every pointer host renders this instead of re-deriving it (ADR 0004 §1).
+    pub paste_slot: Option<PasteSlot>,
     /// True while a committed type filter is narrowing the rows, whatever the
     /// current mode — lets the UI keep its filter-button state accurate after
     /// the popup closes (the `TypeFilterView.active` flag only exists while

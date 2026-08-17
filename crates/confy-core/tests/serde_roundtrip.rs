@@ -3,7 +3,7 @@
 //! This rehearses the JS-interop contract before any WASM target exists.
 use confy_core::model::document::{KindTarget, Mutation, OnCollision, Target};
 use confy_core::model::node::{Format, Path, ScalarType, Seg};
-use confy_core::session::{Intent, ViewRow};
+use confy_core::session::{Intent, PasteSlot, ViewRow};
 
 fn roundtrip<T>(v: &T) -> T
 where
@@ -219,4 +219,11 @@ fn leaf_enums_roundtrip() {
         OnCollision::Cancel,
     ];
     assert_roundtrip(&cols);
+
+    // ADR 0004 §1: PasteSlot crosses the wire inside SessionSnapshot.
+    let slots = vec![
+        PasteSlot::Into(sample_path()),
+        PasteSlot::After(vec![Seg::Key("b".into())]),
+    ];
+    assert_roundtrip(&slots);
 }
