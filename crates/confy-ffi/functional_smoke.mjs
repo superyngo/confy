@@ -417,10 +417,10 @@ check("about_text() mentions the GitHub repo", aboutText.includes("github.com/su
   sp.dispatch(unit("ExpandAll"));
   const pathOf = (k) => sp.snapshot().rows.find((r) => r.key === k).path;
   const aP = pathOf("a");
+  const tP = pathOf("t");
   // Band classification on a regular (non-inline) branch.
   const same = (slot, tag, p) =>
     slot != null && tag in slot && JSON.stringify(slot[tag]) === JSON.stringify(p);
-  // Band classification on a regular (non-inline) band.
   check("pointer_slot mid-band on [t] -> Into",
     same(sp.pointer_slot(tP, 0.5), "Into", tP), JSON.stringify(sp.pointer_slot(tP, 0.5)));
   check("pointer_slot bottom band on [t] -> After",
