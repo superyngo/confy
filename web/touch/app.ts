@@ -975,10 +975,13 @@ function onReorderMove(y: number) {
   }
   const hr = hit.getBoundingClientRect();
   if (!resolved) {
-    const isBranch = hit.classList.contains("branch");
     const rel = (y - hr.top) / (hr.height || 1);
-    if (isBranch) reMode = rel < 0.28 ? "before" : rel > 0.72 ? "after" : "into";
-    else reMode = rel < 0.5 ? "before" : "after";
+    const slot = session?.pointerSlot(pathOf(hit)!, rel);
+    if (slot && "Into" in slot) {
+      reMode = "into";
+    } else {
+      reMode = rel < 0.5 ? "before" : "after";
+    }
   }
   reTarget = hit;
   const treeTop = treeEl.getBoundingClientRect().top;
@@ -1097,7 +1100,7 @@ function installTreeGestures() {
       swiping = false;
       setDelRevealed(main, open);
     } else if (dragging && dragRow && !moved) {
-      handleTap(e.target as HTMLElement, dragRow);
+      handleTap(e.target as HTMLElement, dragRow, e.clientY);
     }
     dragging = false;
     dragRow = null;
@@ -1137,9 +1140,18 @@ function installTreeGestures() {
 // Single tap = select only; double tap (same row within DOUBLE_TAP_MS) opens the
 // panel. The caret toggles expand; the kind badge now behaves like a normal tap
 // (kind switching lives inside the edit panel).
-function handleTap(target: HTMLElement, row: HTMLElement) {
+function handleTap(target: HTMLElement, row: HTMLElement, clientY: number) {
   const path = pathOf(row);
   if (!path) return;
+  const armedTarget = (): Intent => {
+    if (session) {
+      const r = row.getBoundingClientRect();
+      const relY = (clientY - r.top) / (r.height || 1);
+      const slot = session.pointerSlot(path, relY);
+      if (slot) return { SetPasteSlot: slot };
+    }
+    return { SetCursor: path };
+  };
   const actBtn = target.closest<HTMLElement>("[data-act]");
   if (actBtn) {
     const act = actBtn.dataset.act;
@@ -1155,9 +1167,9 @@ function handleTap(target: HTMLElement, row: HTMLElement) {
     }
     if (act === "caret") {
       // Paste mode freezes the selection (core's SetSelection is a no-op
-      // there), so it falls back to a bare cursor move — same guard as the
-      // plain-tap fallback below.
-      if ((snap?.clipboard_count ?? 0) > 0) send({ SetCursor: path });
+      // there), so it falls back to positioning the paste target instead —
+      // same guard as the plain-tap fallback below (ADR 0004 §1).
+      if ((snap?.clipboard_count ?? 0) > 0) send(armedTarget());
       else selectOnly(path);
       return send("ToggleExpand");
     }
@@ -1176,9 +1188,10 @@ function handleTap(target: HTMLElement, row: HTMLElement) {
   lastTapKey = key;
   lastTapTime = now;
   if (isDouble) openPanel(path);
-  // In paste mode the clipboard freezes the selection, so a tap only moves the
-  // cursor (= the paste target); `.app.paste-mode .row.cursor` highlights it.
-  else if ((snap?.clipboard_count ?? 0) > 0) send({ SetCursor: path });
+  // In paste mode the clipboard freezes the selection, so a tap positions the
+  // paste target (`Into`/`After`); `.app.paste-mode .row.cursor`/
+  // `.row.drop-into` highlight it (ADR 0004 §1).
+  else if ((snap?.clipboard_count ?? 0) > 0) send(armedTarget());
   else selectOnly(path);
 }
 
