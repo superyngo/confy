@@ -301,6 +301,33 @@ function renderRawOrTree() {
   }
 }
 
+// The armed-paste `After` target renders as the same green insertion line
+// drag-drop already uses (`#dropLine`) — reused rather than duplicated
+// (ADR 0004 §1). `Into` is a per-row class, already baked into `renderRow`'s
+// output by `render.ts`.
+function renderPasteSlotCue(snap: SessionSnapshot) {
+  const dropLine = $("dropLine");
+  const slot = snap.paste_slot;
+  if (!slot || !("After" in slot) || rawView) {
+    dropLine.style.display = "none";
+    return;
+  }
+  const rowEl = tree.querySelector<HTMLElement>(
+    `.row[data-path='${CSS.escape(JSON.stringify(slot.After))}']`,
+  );
+  if (!rowEl) {
+    dropLine.style.display = "none";
+    return;
+  }
+  const wrap = $("treeWrap");
+  const r = rowEl.getBoundingClientRect();
+  const wr = wrap.getBoundingClientRect();
+  const indentW = (rowEl.querySelector(".indent") as HTMLElement | null)?.offsetWidth ?? 0;
+  dropLine.style.top = `${r.bottom - wr.top + wrap.scrollTop}px`;
+  dropLine.style.left = `${indentW + 8}px`;
+  dropLine.style.display = "block";
+}
+
 // ---- render ----
 function render() {
   if (!snap || !session) return;
@@ -332,6 +359,7 @@ function render() {
   // mechanism as the touch UI, driven by the shared snapshot flag).
   $("btnTypeFilter").classList.toggle("on", snap.type_filter_active);
   renderRawOrTree();
+  renderPasteSlotCue(snap);
   crumbsEl.classList.toggle("hidden", rawView);
   if (!rawView) {
     renderCrumbs(crumbsEl, snap, {
