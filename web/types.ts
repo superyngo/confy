@@ -194,6 +194,7 @@ export type Intent =
   | "ToggleExpand" | "CollapseAll" | "ExpandAll" | "ExpandLevel" | "CollapseLevel"
   // Pointer (Web UI)
   | { SetCursor: Path }
+  | { SetPasteSlot: PasteSlot }
   | { RevealPath: Path }
   | { CommitEdit: { value: string | null; name: string | null } }
   | { CommitKind: { path: Path; target: string } }

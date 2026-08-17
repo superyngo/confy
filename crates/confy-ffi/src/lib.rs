@@ -121,6 +121,20 @@ impl ConfySession {
         to_value(&self.session.children_of(&path)).map_err(js_serde_error)
     }
 
+    /// Pointer-drop classification (Web mouse / touch): "this row, this
+    /// relative vertical position" -> the `PasteSlot` it represents, or
+    /// `undefined` if the row is no longer visible. Every pointer surface
+    /// (click-to-target while armed, drag-drop into/before/after
+    /// eligibility) calls this instead of hand-rolling the classification
+    /// (ADR 0004 §1).
+    pub fn pointer_slot(&self, path: JsValue, rel_y: f32) -> Result<JsValue, JsValue> {
+        let path: Path = from_value(path).map_err(js_serde_error)?;
+        match self.session.pointer_slot(&path, rel_y) {
+            Some(slot) => to_value(&slot).map_err(js_serde_error),
+            None => Ok(JsValue::UNDEFINED),
+        }
+    }
+
     /// Convenience accessor: the current external-edit request (if any), as
     /// `{ initial, kind }`. The host opens its async modal with `initial`.
     pub fn external_edit(&self) -> Result<JsValue, JsValue> {
