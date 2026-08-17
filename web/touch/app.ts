@@ -334,6 +334,44 @@ function setRawView(raw: boolean) {
   render();
 }
 
+// The armed-paste `After` target reuses the same `.reorder-line` element
+// drag-reorder already positions, and the `Into` target reuses the same
+// `.drop-into` row class drag-reorder's own hover uses (ADR 0004 §1). Both
+// survive a live reorder-drag ending: `endReorder()`'s cleanup (hiding
+// `.reorder-line` + `clearInto()`) unconditionally wipes whichever half a
+// drag last touched, even a drag unrelated to (or a no-op on) the armed
+// clipboard — e.g. a grip tap that never crosses the move threshold, or a
+// drag dropped back onto its own source — and in those cases no
+// `MoveSelectionTo` is sent, so no subsequent `render()` restores the cue.
+// `endReorder()` calls this again right after its own wipe (mirrors the
+// desktop `dnd.ts` `onDragEnd` fix, ADR 0004 §1) — found and fixed the same
+// way while implementing this hook, not part of the original brief.
+function renderPasteSlotCue(snap: SessionSnapshot) {
+  const slot = snap.paste_slot;
+  if (slot && "Into" in slot) {
+    treeEl
+      .querySelector<HTMLElement>(`.row[data-path='${CSS.escape(JSON.stringify(slot.Into))}']`)
+      ?.classList.add("drop-into");
+  }
+  const reorderLine = treeEl.querySelector<HTMLElement>(".reorder-line");
+  if (reorderLine) {
+    if (slot && "After" in slot) {
+      const rowEl = treeEl.querySelector<HTMLElement>(
+        `.row[data-path='${CSS.escape(JSON.stringify(slot.After))}']`,
+      );
+      if (rowEl) {
+        const treeTop = treeEl.getBoundingClientRect().top;
+        reorderLine.style.top = `${rowEl.getBoundingClientRect().bottom - treeTop}px`;
+        reorderLine.style.display = "block";
+      } else {
+        reorderLine.style.display = "none";
+      }
+    } else if (!reordering) {
+      reorderLine.style.display = "none";
+    }
+  }
+}
+
 // ---- render ----
 function render() {
   if (!snap || !session) return;
@@ -385,6 +423,7 @@ function render() {
     // otherwise every tap (re-render) snaps the pane back to the top.
     const st = treePane.scrollTop;
     treeEl.innerHTML = treeHTML(snap);
+    renderPasteSlotCue(snap);
     treePane.scrollTop = st;
     // The rebuild detaches any swipe-opened row — drop the stale reference.
     openSwipeMain = null;
@@ -1002,6 +1041,9 @@ function endReorder() {
   reordering = false;
   if (reLine) reLine.style.display = "none";
   clearInto();
+  // Restore the armed-paste cue this wipe may have collaterally stripped
+  // (see renderPasteSlotCue's doc comment above).
+  if (snap) renderPasteSlotCue(snap);
   if (reRow) reRow.classList.remove("dragging");
   if (reMoved && reTarget && reSrcPath) {
     const tgtPath = pathOf(reTarget);
