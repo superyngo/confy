@@ -73,7 +73,7 @@ export function installDnd(
       el?.classList.add("drag-src");
     }
     ev.dataTransfer?.setData("text/plain", "confy-move");
-    if (ev.dataTransfer) ev.dataTransfer.effectAllowed = "move";
+    if (ev.dataTransfer) ev.dataTransfer.effectAllowed = "copyMove";
   });
 
   treeEl.addEventListener("dragover", (ev) => {
