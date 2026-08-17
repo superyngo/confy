@@ -74,6 +74,7 @@ fn intent_roundtrips() {
             sources: vec![sample_path()],
             target: vec![Seg::Key("dest".into())],
             index: 2,
+            cut: false,
         },
         Intent::SetFilter("needle".into()),
         Intent::SetConvertFormat(confy_core::model::document::DocFormat::Json),
@@ -81,6 +82,28 @@ fn intent_roundtrips() {
     ];
     for v in &variants {
         assert_roundtrip(v);
+    }
+}
+
+#[test]
+fn move_selection_to_cut_defaults_to_true_when_omitted() {
+    // Pre-ADR-0004 senders omit `cut` — the wire stays cut-only (ADR 0004 §1).
+    let mut wire = serde_json::to_value(Intent::MoveSelectionTo {
+        sources: vec![vec![Seg::Key("a".into())]],
+        target: vec![],
+        index: 0,
+        cut: true,
+    })
+    .expect("serialize");
+    wire.get_mut("MoveSelectionTo")
+        .and_then(|v| v.as_object_mut())
+        .expect("externally-tagged variant object")
+        .remove("cut");
+    match serde_json::from_value::<Intent>(wire).expect("deserialize") {
+        Intent::MoveSelectionTo { cut, .. } => {
+            assert!(cut, "omitted `cut` must default to true (move, not copy)")
+        }
+        other => panic!("wrong variant: {other:?}"),
     }
 }
 

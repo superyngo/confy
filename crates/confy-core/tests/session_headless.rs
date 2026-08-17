@@ -1065,6 +1065,7 @@ fn dispatch_move_selection_reparents_node() {
         sources: vec![vec![Seg::Key("a".into())]],
         target: vec![Seg::Key("t".into())],
         index: 0,
+        cut: true,
     });
     assert!(
         snap.error.is_none(),
@@ -1085,6 +1086,7 @@ fn dispatch_move_selection_rejects_drop_into_own_subtree() {
         sources: vec![vec![Seg::Key("t".into())]],
         target: vec![Seg::Key("t".into()), Seg::Key("x".into())],
         index: 0,
+        cut: true,
     });
     assert!(
         snap.error.is_some(),
@@ -1103,6 +1105,7 @@ fn dispatch_move_selection_failure_does_not_arm_cut_clipboard() {
         sources: vec![vec![Seg::Key("a".into())]],
         target: vec![Seg::Key("b".into())], // scalar parent → illegal destination
         index: 0,
+        cut: true,
     });
     assert!(snap.error.is_some(), "move into a scalar must fail");
     assert!(
@@ -1121,6 +1124,7 @@ fn dispatch_move_selection_reorders_within_parent() {
         sources: vec![vec![Seg::Key("a".into())]],
         target: vec![],
         index: 2,
+        cut: true,
     });
     let t = s.serialize().unwrap();
     assert!(
@@ -1142,6 +1146,7 @@ fn dispatch_move_selection_down_keeps_cursor_on_moved_node() {
         sources: vec![vec![Seg::Key("a".into())]],
         target: vec![],
         index: 2, // after 'b' → order becomes b, a, c
+        cut: true,
     });
     assert!(
         snap.error.is_none(),
@@ -1176,6 +1181,7 @@ fn dispatch_move_comment_down_keeps_cursor_on_moved_comment() {
         sources: vec![vec![Seg::Index(0)]],
         target: vec![],
         index: 2,
+        cut: true,
     });
     assert!(
         snap.error.is_none(),
@@ -1207,6 +1213,7 @@ fn dispatch_move_comment_into_collapsed_table_lands_inside() {
         sources: vec![vec![Seg::Index(0)]],
         target: vec![Seg::Key("t".into())],
         index: 1, // child_count of [t]
+        cut: true,
     });
     assert!(
         snap.error.is_none(),
@@ -1237,6 +1244,24 @@ fn dispatch_move_comment_into_collapsed_table_lands_inside() {
         text.contains("x = 2\n# note\n\n[u]"),
         "blank line separates the trailing comment from [u]:\n{text}"
     );
+}
+
+#[test]
+fn move_selection_to_with_cut_false_copies_instead_of_moving() {
+    let mut s = toml_session("[a]\nx = 1\n[b]\nc = 2\n");
+    s.expand_all();
+    let ax = vec![Seg::Key("a".into()), Seg::Key("x".into())];
+    let b = vec![Seg::Key("b".into())];
+    s.move_selection_to(vec![ax.clone()], b.clone(), 1, false);
+    assert!(s.error.is_none(), "copy-drag should succeed: {:?}", s.error);
+    // Source untouched (copy, not move).
+    assert!(
+        s.tree.node_at(&ax).is_some(),
+        "source `a.x` must survive a copy-drag"
+    );
+    // Destination gained the copy.
+    let bx = vec![Seg::Key("b".into()), Seg::Key("x".into())];
+    assert!(s.tree.node_at(&bx).is_some(), "`b` must gain a copy of `x`");
 }
 
 #[test]

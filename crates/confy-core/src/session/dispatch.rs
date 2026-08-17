@@ -95,7 +95,8 @@ impl super::Session {
                 sources,
                 target,
                 index,
-            } => self.move_selection_to(sources, target, index),
+                cut,
+            } => self.move_selection_to(sources, target, index, cut),
 
             // ---- Selection ----
             Intent::ToggleSelect => self.toggle_select(),

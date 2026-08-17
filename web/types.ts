@@ -199,7 +199,7 @@ export type Intent =
   | { CommitKind: { path: Path; target: string } }
   | { SetSelection: { paths: Path[] } }
   | { SetTrailing: { path: Path; comment: string | null } }
-  | { MoveSelectionTo: { sources: Path[]; target: Path; index: number } }
+  | { MoveSelectionTo: { sources: Path[]; target: Path; index: number; cut?: boolean } }
   // Selection
   | "ToggleSelect" | "ExtendSelectUp" | "ExtendSelectDown"
   // Filter

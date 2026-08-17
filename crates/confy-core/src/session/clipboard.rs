@@ -107,12 +107,15 @@ impl Session {
         self.do_paste(cb, target, OnCollision::Cancel, false);
     }
 
-    /// Drag-reparent (Web UI): move `sources` into `target` at child `index`.
-    /// Implemented as a one-shot cut→paste so it reuses `do_paste`'s entire
-    /// collision / illegal-destination / array-upgrade machinery (a real
-    /// `Mutation::Move` under the hood). A drop onto a source or into its own
-    /// subtree is rejected; the document is untouched on any failure.
-    pub fn move_selection_to(&mut self, sources: Vec<Path>, target: Path, index: usize) {
+    /// Drag-reparent (Web UI): move (or, with `cut: false`, copy) `sources`
+    /// into `target` at child `index`. Implemented as a one-shot cut/copy→paste
+    /// so it reuses `do_paste`'s entire collision / illegal-destination /
+    /// array-upgrade machinery (a real `Mutation::Move`/`Insert` under the
+    /// hood) — the same primitive `Target` + `cut` -> `do_paste` a keyboard
+    /// Copy → position → Paste sequence uses (ADR 0004 §1). A drop onto a
+    /// source or into its own subtree is rejected; the document is untouched
+    /// on any failure.
+    pub fn move_selection_to(&mut self, sources: Vec<Path>, target: Path, index: usize, cut: bool) {
         if self.doc.is_none() {
             return;
         }
@@ -134,7 +137,7 @@ impl Session {
             .collect();
         let cb = Clipboard {
             fragments,
-            cut: true,
+            cut,
             sources,
         };
         let tgt = Target {

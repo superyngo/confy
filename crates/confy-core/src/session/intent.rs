@@ -1,5 +1,11 @@
 use serde::{Deserialize, Serialize};
 
+/// Serde default for `Intent::MoveSelectionTo.cut` — omitting the field on
+/// the wire preserves the pre-ADR-0004 cut-only behavior.
+fn default_move_cut() -> bool {
+    true
+}
+
 /// Every user-facing action the TUI can dispatch to the Session.
 /// The event loop translates raw key events to `Intent` values; the Session
 /// drives all state changes from there.
@@ -70,6 +76,11 @@ pub enum Intent {
         sources: Vec<crate::model::node::Path>,
         target: crate::model::node::Path,
         index: usize,
+        /// Copy (`false`) vs move (`true`, the default). A drag-drop with the
+        /// platform copy modifier (⌥/Ctrl) held sends `false`; a plain
+        /// drag-drop omits it (ADR 0004 §1).
+        #[serde(default = "default_move_cut")]
+        cut: bool,
     },
 
     // ---- Selection ----
