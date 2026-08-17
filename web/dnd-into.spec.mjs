@@ -148,7 +148,7 @@ const B = [{ Key: "b" }];
   drop();
   check(
     "drop after Into sends MoveSelectionTo into the hovered path (last child)",
-    eq(lastSend(), { MoveSelectionTo: { sources: [A], target: B, index: 0 } }),
+    eq(lastSend(), { MoveSelectionTo: { sources: [A], target: B, index: 0, cut: true } }),
     JSON.stringify(lastSend()),
   );
   check("drag lifecycle still fires the onDragEnd cue-restore hook", ops.includes("onDragEnd"));
@@ -164,7 +164,7 @@ const B = [{ Key: "b" }];
   drop();
   check(
     "declined at rel 0.5 drops AFTER the hovered sibling (sib+1)",
-    eq(lastSend(), { MoveSelectionTo: { sources: [A], target: [], index: 2 } }),
+    eq(lastSend(), { MoveSelectionTo: { sources: [A], target: [], index: 2, cut: true } }),
     JSON.stringify(lastSend()),
   );
   sent.length = 0;
@@ -174,7 +174,7 @@ const B = [{ Key: "b" }];
   drop();
   check(
     "top band (rel 0.1) still drops BEFORE the hovered sibling (sib)",
-    eq(lastSend(), { MoveSelectionTo: { sources: [A], target: [], index: 1 } }),
+    eq(lastSend(), { MoveSelectionTo: { sources: [A], target: [], index: 1, cut: true } }),
     JSON.stringify(lastSend()),
   );
 

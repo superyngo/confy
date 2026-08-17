@@ -79,7 +79,8 @@ export function installDnd(
   treeEl.addEventListener("dragover", (ev) => {
     if (!sources) return;
     ev.preventDefault(); // allow drop
-    if (ev.dataTransfer) ev.dataTransfer.dropEffect = "move";
+    const copy = ev.altKey || ev.ctrlKey;
+    if (ev.dataTransfer) ev.dataTransfer.dropEffect = copy ? "copy" : "move";
     const row = rowOf(ev.target);
     const path = pathOf(row);
     const snap = getSnap();
@@ -116,12 +117,13 @@ export function installDnd(
     const snap = getSnap();
     const src = sources;
     const tgt = target;
+    const cut = !(ev.altKey || ev.ctrlKey);
     endDrag();
     if (!snap) return;
     if (tgt.mode === "into") {
       // Append as the last child (design pushes onto `children`).
       const idx = rowFor(snap, tgt.path)?.child_count ?? 0;
-      send({ MoveSelectionTo: { sources: src, target: tgt.path, index: idx } });
+      send({ MoveSelectionTo: { sources: src, target: tgt.path, index: idx, cut } });
     } else {
       const sib = siblingIndex(snap.rows, tgt.path);
       send({
@@ -129,6 +131,7 @@ export function installDnd(
           sources: src,
           target: parentOf(tgt.path),
           index: tgt.mode === "after" ? sib + 1 : sib,
+          cut,
         },
       });
     }
