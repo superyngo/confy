@@ -1027,16 +1027,34 @@ function onTreeHover(ev: MouseEvent) {
   if (text) cell.title = text;
 }
 
+// Pointer analogue of arrow-key `PasteSlot` stepping (ADR 0004 §1): while the
+// clipboard is armed, a click positions the paste target precisely
+// (`Into`/`After`) from the click's row + relative vertical position, instead
+// of always falling back to the bare cursor (`After(cursor)`). Shared by
+// `onTreeClick`'s plain row-body branch and `focusRow` (caret/kind-badge/
+// edit-cell affordance clicks), so every click while armed narrows the target
+// the same way.
+function armedPasteTarget(path: Path, ev: MouseEvent): Intent {
+  const rowEl = (ev.target as HTMLElement).closest(".row") as HTMLElement | null;
+  if (rowEl && session) {
+    const r = rowEl.getBoundingClientRect();
+    const relY = (ev.clientY - r.top) / (r.height || 1);
+    const slot = session.pointerSlot(path, relY);
+    if (slot) return { SetPasteSlot: slot };
+  }
+  return { SetCursor: path };
+}
+
 // A click on any row affordance (caret, kind badge, ±, key/value edit) should
 // leave the row visibly selected — not just cursored — same as a blank-area
 // body click. Routes through the same `resolveClick` gesture resolution
 // (plain replaces, ⇧ ranges, ⌘/Ctrl toggles) so the shift-range anchor stays
 // consistent with whatever the user last clicked. Paste mode freezes the
-// selection (core's `SetSelection` is a no-op there), so it falls back to a
-// bare cursor move — the paste target still tracks these clicks.
+// selection (core's `SetSelection` is a no-op there), so while armed these
+// clicks position the paste target instead (`armedPasteTarget`).
 function focusRow(path: Path, ev: MouseEvent) {
   if (!snap) return;
-  if ((snap.clipboard_count ?? 0) > 0) return send({ SetCursor: path });
+  if ((snap.clipboard_count ?? 0) > 0) return send(armedPasteTarget(path, ev));
   send({ SetSelection: { paths: resolveClick(snap, path, ev) } });
 }
 
@@ -1115,11 +1133,12 @@ function onTreeClick(ev: MouseEvent) {
     focusRow(path, ev);
     return send(editEl.dataset.edit === "key" ? "BeginRename" : "BeginEdit");
   }
-  // In paste mode the clipboard freezes the selection, so a click can't reselect
-  // — it moves the cursor, which is the paste destination (`After(cursor)`), and
-  // `body.paste-mode` styling makes that target visible.
+  // In paste mode the clipboard freezes the selection, so a click can't
+  // reselect — it positions the paste target (`Into`/`After`, from the
+  // click's row-relative Y) instead, and `body.paste-mode` styling makes it
+  // visible (ADR 0004 §1).
   if ((snap.clipboard_count ?? 0) > 0) {
-    return send({ SetCursor: path });
+    return send(armedPasteTarget(path, ev));
   }
   // Plain row-body click → selection gesture (plain / ⇧range / ⌘toggle). Core
   // moves the cursor to the focal path; expand stays on the caret (design).
