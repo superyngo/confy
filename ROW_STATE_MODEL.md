@@ -226,3 +226,11 @@ Consequences.
 - Any change to node-kind/format mutation mechanics, `PasteSlot`/`Into`/`After`
   targeting semantics, or the AoT atomic-move behavior — all owned by ADR 0004,
   `CONTEXT.md`, `BEHAVIOR_MATRIX.md`, untouched here.
+- TUI `type_col_cell`'s fill-skip (`tui/ui.rs:48-56`, `has_fill` param) doesn't cover
+  the paste-slot `Into` target row's own green `bg(Green).fg(Black).BOLD` fill
+  (`tui/ui.rs:397-405`) — call site only passes `is_cursor || in_clipboard_source`
+  (`tui/ui.rs:414`), so a Green "string" KIND tag can render on that green fill,
+  the same legibility collision Phase 1 fixed for cursor/clip-source but in a path
+  Phase 1 didn't touch (ADR 0004's paste-target state, not one of ROW_STATE_MODEL's
+  five). Recorded, not scheduled — pick up alongside Phase 4 (§6a) if desktop's
+  equivalent paste-target legibility needs the same audit.
