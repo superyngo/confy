@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: implemented
 ---
 
 # Formalize the row cursor/selection/clipboard-source state model and unify its interaction and visual language across TUI, desktop, and touch
@@ -219,6 +219,15 @@ a follow-up in `ROW_STATE_MODEL.md`, not part of this ADR's implementation.
   preview, (5) touch drag-to-target + caret pointerdown gate, each independently
   testable and shippable. Auto-scroll is deliberately not phase 6 — it is a recorded,
   unscheduled follow-up.
+- **Status: implemented (2026-08-18).** All five phases shipped and merged to `main`,
+  each independently reviewed: visual language (`tui/ui.rs`, `web/style.css`,
+  `web/touch/style.css`), keybinding reversal (`tui/keys.rs`, `web/key-intent.ts`),
+  the cut/copy-mode modal lock (`Session::apply`, `web/dnd.ts`, `web/touch/app.ts`),
+  desktop hover preview (`web/ui.ts` `onArmedPasteHover`), and touch drag-to-target
+  (`web/touch/app.ts` `onPasteDragMove`/`finishPasteDrag`). See `CHANGELOG.md`
+  `[Unreleased]` for the itemized entries and `ROW_STATE_MODEL.md` §8 for the
+  per-phase checklist, now fully ticked. Auto-scroll-on-edge-drag (§6, out of
+  scope) remains an unscheduled follow-up, not a gap in this ADR's own scope.
 
 ## Considered options
 
