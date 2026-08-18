@@ -47,7 +47,13 @@ function kindBadgeText(r: ViewRow): string {
   return note ? `${label}·${note}` : label;
 }
 
-function rowHTML(r: ViewRow, idx: number, rows: ViewRow[], pasteInto: boolean): string {
+function rowHTML(
+  r: ViewRow,
+  idx: number,
+  rows: ViewRow[],
+  pasteInto: boolean,
+  clip: "" | " clip-copy" | " clip-cut",
+): string {
   const branch = r.is_branch;
   const comment = isCommentRow(r);
   const pad = 10 + Math.max(0, r.depth - 1) * 18;
@@ -62,7 +68,8 @@ function rowHTML(r: ViewRow, idx: number, rows: ViewRow[], pasteInto: boolean): 
     (r.is_cursor ? " cursor" : "") +
     (r.read_only ? " readonly" : "") +
     (r.violations ? " schema-violation" : "") +
-    (pasteInto ? " drop-into" : "");
+    (pasteInto ? " drop-into" : "") +
+    clip;
   let h = `<div class="${cls}" data-type="${esc(String(type))}" data-path="${dataPath}">`;
   h += `<div class="row-main" style="padding-left:${pad}px">`;
   h += `<button class="caret ${branch ? "" : "leaf"}" data-act="caret" aria-label="expand">${IC.chev}</button>`;
@@ -106,10 +113,20 @@ export function treeHTML(snap: SessionSnapshot): string {
   const rows = snap.rows;
   const pasteIntoPath =
     snap.paste_slot && "Into" in snap.paste_slot ? JSON.stringify(snap.paste_slot.Into) : null;
+  const clipKeys = new Set(snap.clipboard_paths.map((p) => JSON.stringify(p)));
+  const clipCls: " clip-copy" | " clip-cut" = snap.clipboard_cut ? " clip-cut" : " clip-copy";
   return (
     rows
       .map((r, idx) =>
-        r.path.length === 0 ? "" : rowHTML(r, idx, rows, pasteIntoPath === JSON.stringify(r.path)),
+        r.path.length === 0
+          ? ""
+          : rowHTML(
+              r,
+              idx,
+              rows,
+              pasteIntoPath === JSON.stringify(r.path),
+              clipKeys.has(JSON.stringify(r.path)) ? clipCls : "",
+            ),
       )
       .join("") + '<div class="reorder-line"></div>'
   );

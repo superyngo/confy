@@ -60,7 +60,7 @@ function makeRow(overrides = {}) {
 }
 
 function makeSnap(rows, pasteSlot) {
-  return { rows, paste_slot: pasteSlot };
+  return { rows, paste_slot: pasteSlot, clipboard_paths: [], clipboard_cut: false };
 }
 
 console.log("-- treeHTML(): armed Into styling keys off paste_slot, per row --");
