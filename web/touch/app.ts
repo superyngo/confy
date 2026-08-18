@@ -27,6 +27,7 @@ import type {
   PromptView,
   TypeFilterView,
   ConvertView,
+  PasteSlot,
 } from "../types.js";
 import {
   canSaveAs,
@@ -346,8 +347,14 @@ function setRawView(raw: boolean) {
 // `endReorder()` calls this again right after its own wipe (mirrors the
 // desktop `dnd.ts` `onDragEnd` fix, ADR 0004 §1) — found and fixed the same
 // way while implementing this hook, not part of the original brief.
-function renderPasteSlotCue(snap: SessionSnapshot) {
-  const slot = snap.paste_slot;
+function renderPasteSlotCue(snap: SessionSnapshot, slotOverride?: PasteSlot) {
+  // Sweep any previously-classified row's `.drop-into` before applying the
+  // new one — required once this function is called repeatedly mid-gesture
+  // (onPasteDragMove's live preview, below) without an intervening full
+  // render, where at most one stale row ever existed before. Mirrors
+  // web/ui.ts's Phase 4 renderPasteSlotCue sweep (ADR 0004 §1).
+  treeEl.querySelectorAll<HTMLElement>(".drop-into").forEach((el) => el.classList.remove("drop-into"));
+  const slot = slotOverride ?? snap.paste_slot;
   if (slot && "Into" in slot) {
     treeEl
       .querySelector<HTMLElement>(`.row[data-path='${CSS.escape(JSON.stringify(slot.Into))}']`)
@@ -937,6 +944,15 @@ let sx = 0,
   dragRow: HTMLElement | null = null,
   dragging = false,
   moved = false;
+// Live target preview during a body-drag while the clipboard is armed (§6b):
+// pointerdown latches `pasteDragActive` (armed && not a `.caret` press);
+// pointermove repaints the paste-target cue via `onPasteDragMove` past the
+// dead zone; pointerup commits the classified slot via `finishPasteDrag` —
+// a set, never a `Paste` (the FAB alone dispatches that).
+let pasteDragActive = false,
+  pasteDragStartY = 0,
+  pasteDragMoved = false,
+  pasteDragRow: HTMLElement | null = null;
 // Double-tap detection (item 6): same path within DOUBLE_TAP_MS opens the panel.
 let lastTapKey: string | null = null;
 let lastTapTime = 0;
@@ -1109,6 +1125,61 @@ function endReorder() {
   reSrcPath = null;
 }
 
+// Live per-pixel preview of the armed-paste target during a body-drag, once
+// past the same 6px dead zone `onReorderMove` uses — mirrors its hit-test
+// loop (prefer a row whose rect contains `y`, else nearest by edge
+// distance), but skips the source-subtree exclusion (armed clipboard rows
+// are ordinary rows, not a row mid-drag; trust `session.pointerSlot` the
+// same way desktop's `onArmedPasteHover` does, no client-side filtering).
+// Repaints via `renderPasteSlotCue`'s existing cue elements, client-only —
+// same fallback-to-committed behavior as `onArmedPasteHover` when the hit
+// resolves to nothing classifiable.
+function onPasteDragMove(y: number) {
+  if (Math.abs(y - pasteDragStartY) < 6 && !pasteDragMoved) return;
+  pasteDragMoved = true;
+  const rows = Array.prototype.filter.call(
+    treeEl.querySelectorAll<HTMLElement>(".row"),
+    (r: HTMLElement) => r.offsetHeight > 0,
+  ) as HTMLElement[];
+  let hit: HTMLElement | null = null,
+    nearest: HTMLElement | null = null,
+    nd = Infinity;
+  for (const r of rows) {
+    const rect = r.getBoundingClientRect();
+    if (y >= rect.top && y <= rect.bottom) {
+      hit = r;
+      break;
+    }
+    const d = y < rect.top ? rect.top - y : y - rect.bottom;
+    if (d < nd) {
+      nd = d;
+      nearest = r;
+    }
+  }
+  hit = hit ?? nearest;
+  if (!hit || !snap || !session) return;
+  pasteDragRow = hit;
+  const path = pathOf(hit);
+  if (!path) return;
+  const r = hit.getBoundingClientRect();
+  const relY = (y - r.top) / (r.height || 1);
+  const slot = session.pointerSlot(path, relY);
+  renderPasteSlotCue(snap, slot ?? snap.paste_slot ?? undefined);
+}
+
+// Commits the drag's last classified target on release — a set, never a
+// paste (the FAB alone dispatches `Paste`); mirrors `armedTarget()` in
+// `handleTap` below, for the stationary-tap case.
+function finishPasteDrag(y: number) {
+  if (!pasteDragRow || !session) return;
+  const path = pathOf(pasteDragRow);
+  if (!path) return;
+  const r = pasteDragRow.getBoundingClientRect();
+  const relY = (y - r.top) / (r.height || 1);
+  const slot = session.pointerSlot(path, relY);
+  send(slot ? { SetPasteSlot: slot } : { SetCursor: path });
+}
+
 function installTreeGestures() {
   treeEl.addEventListener("pointerdown", (e) => {
     const grip = (e.target as HTMLElement).closest<HTMLElement>(".drag-handle");
@@ -1121,6 +1192,11 @@ function installTreeGestures() {
       if (row) startReorder(e, row);
       return;
     }
+    const armed = (snap?.clipboard_count ?? 0) > 0;
+    pasteDragActive = armed && !(e.target as HTMLElement).closest(".caret");
+    pasteDragStartY = e.clientY;
+    pasteDragMoved = false;
+    pasteDragRow = null;
     const tgt = e.target as HTMLElement;
     // A tap can land on the visible row-main OR (when already swiped open) on the
     // revealed `.row-del` behind it — both map to the same row.
@@ -1144,6 +1220,11 @@ function installTreeGestures() {
     if (reordering) {
       e.preventDefault();
       onReorderMove(e.clientY);
+      return;
+    }
+    if (pasteDragActive && dragging) {
+      e.preventDefault();
+      onPasteDragMove(e.clientY);
       return;
     }
     if (!dragging || !dragRow) return;
@@ -1186,6 +1267,8 @@ function installTreeGestures() {
       const main = swipeMain;
       swiping = false;
       setDelRevealed(main, open);
+    } else if (pasteDragActive && pasteDragMoved) {
+      finishPasteDrag(e.clientY);
     } else if (dragging && dragRow && !moved) {
       handleTap(e.target as HTMLElement, dragRow, e.clientY);
     }
@@ -1193,6 +1276,9 @@ function installTreeGestures() {
     dragRow = null;
     swiping = false;
     swipeMain = null;
+    pasteDragActive = false;
+    pasteDragMoved = false;
+    pasteDragRow = null;
   });
   treeEl.addEventListener("pointercancel", () => {
     if (reordering) {
@@ -1207,6 +1293,10 @@ function installTreeGestures() {
       swiping = false;
       setDelRevealed(main, open);
     }
+    if (pasteDragMoved && snap) renderPasteSlotCue(snap);
+    pasteDragActive = false;
+    pasteDragMoved = false;
+    pasteDragRow = null;
     dragging = false;
     dragRow = null;
     swiping = false;

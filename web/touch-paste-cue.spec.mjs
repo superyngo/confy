@@ -147,6 +147,7 @@ function mkTreeEl(rows, reorderLine) {
       const m = sel.match(/^\.row\[data-path='(.+)'\]$/);
       return m ? (rows.find((r) => r.dataset.path === m[1]) ?? null) : null;
     },
+    querySelectorAll: (sel) => (sel === ".drop-into" ? rows.filter((r) => r.classes.has("drop-into")) : []),
     getBoundingClientRect: () => ({ top: 0 }),
   };
 }

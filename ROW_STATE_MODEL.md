@@ -209,10 +209,10 @@ Consequences.
   - [x] Add the toast/status message on a blocked attempt.
 - [x] **Phase 4 — Desktop hover preview (§6a)**
   - [x] Add client-only hover-preview cue computed from `pointerSlot()`, no dispatch.
-- [ ] **Phase 5 — Touch drag-to-target (§6b)**
-  - [ ] Body-drag while armed continuously repositions the target, reusing
+- [x] **Phase 5 — Touch drag-to-target (§6b)**
+  - [x] Body-drag while armed continuously repositions the target, reusing
         `onReorderMove`'s live classify-and-repaint loop; release sets/refines only.
-  - [ ] Move caret disambiguation to pointerdown (`closest('.caret')` bail, mirroring
+  - [x] Move caret disambiguation to pointerdown (`closest('.caret')` bail, mirroring
         the existing `.drag-handle` gate).
 - [ ] **Docs sync** (do in the same change as the phase that ships it, not after —
       per ADR 0004's own lesson about docstring drift):
