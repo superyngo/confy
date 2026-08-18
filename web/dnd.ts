@@ -57,6 +57,10 @@ export function installDnd(
   };
 
   treeEl.addEventListener("dragstart", (ev) => {
+    if (document.body?.classList?.contains("paste-mode")) {
+      ev.preventDefault();
+      return;
+    }
     const handle = (ev.target as HTMLElement).closest?.("[data-grip]");
     const row = rowOf(ev.target);
     const path = pathOf(row);

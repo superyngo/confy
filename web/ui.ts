@@ -951,10 +951,18 @@ function doSave(): Promise<void> {
 // to the workbench so its edit stack stays the sole entry point; the Session
 // executes them only via the host's undo/redo callback messages.
 function uiUndo() {
+  if (snap && (snap.clipboard_count ?? 0) > 0) {
+    setStatus(t("core.clipboard.action-locked"), "");
+    return;
+  }
   if (VSHOST) post({ type: "request-undo" });
   else send("Undo");
 }
 function uiRedo() {
+  if (snap && (snap.clipboard_count ?? 0) > 0) {
+    setStatus(t("core.clipboard.action-locked"), "");
+    return;
+  }
   if (VSHOST) post({ type: "request-redo" });
   else send("Redo");
 }
@@ -1034,6 +1042,10 @@ function openUrlModal() {
 // attach flow; the prompt string is hard-coded (not `t(...)`) because adding
 // i18n keys is out of this task's file scope (deferred i18n item).
 function attachSchema() {
+  if (snap && (snap.clipboard_count ?? 0) > 0) {
+    setStatus(t("core.clipboard.action-locked"), "");
+    return;
+  }
   const choice = prompt("Path or URL to a JSON Schema file:");
   if (!choice) return;
   const source = choice.startsWith("http://") || choice.startsWith("https://")
@@ -1120,12 +1132,20 @@ function onTreeClick(ev: MouseEvent) {
 
   // Hover action buttons.
   if (target.closest('[data-act="add"]')) {
+    if (snap.clipboard_count > 0) {
+      setStatus(t("core.clipboard.action-locked"), "");
+      return;
+    }
     // The `＋` is branch-only and always adds a *child* (unlike the TUI `a`,
     // which appends a sibling when the branch is collapsed).
     focusRow(path, ev);
     return send("AddChild");
   }
   if (target.closest('[data-act="menu"]')) {
+    if (snap.clipboard_count > 0) {
+      setStatus(t("core.clipboard.action-locked"), "");
+      return;
+    }
     // Toggle: a second click on the same row's ⋮ closes the menu.
     const pathKey = JSON.stringify(path);
     if ($("ctxMenu").classList.contains("open") && ctxMenuPath === pathKey) {
@@ -1144,6 +1164,10 @@ function onTreeClick(ev: MouseEvent) {
   // badge closes it).
   const kindEl = target.closest("[data-kind]") as HTMLElement | null;
   if (kindEl) {
+    if (snap.clipboard_count > 0) {
+      setStatus(t("core.clipboard.action-locked"), "");
+      return;
+    }
     const pathKey = JSON.stringify(path);
     if ($("kindMenu").classList.contains("open") && kindMenuPath === pathKey) {
       return closePops();
@@ -1168,6 +1192,10 @@ function onTreeClick(ev: MouseEvent) {
   // value, but the web edits it independently).
   const editEl = target.closest("[data-edit]") as HTMLElement | null;
   if (editEl) {
+    if (snap.clipboard_count > 0) {
+      setStatus(t("core.clipboard.action-locked"), "");
+      return;
+    }
     if (editEl.dataset.edit === "note") {
       focusRow(path, ev);
       // `focusRow` re-rendered the tree, detaching `rowEl` — look up its
@@ -1467,6 +1495,10 @@ function placePopAt(pop: HTMLElement, x: number, y: number) {
 }
 
 function openKindMenuAt(path: Path, x: number, y: number) {
+  if (snap && (snap.clipboard_count ?? 0) > 0) {
+    setStatus(t("core.clipboard.action-locked"), "");
+    return;
+  }
   const opts = session!.kindOptions(path);
   if (!opts.length) {
     setStatus("no kind conversions for this node", "");
@@ -1787,10 +1819,14 @@ function bindGlobal() {
   $("btnRedo").addEventListener("click", () => uiRedo());
   $("btnExpandAll").addEventListener("click", () => send("ExpandAll"));
   $("btnCollapseAll").addEventListener("click", () => send("CollapseAll"));
-  $("btnTypeFilter").addEventListener("click", () =>
+  $("btnTypeFilter").addEventListener("click", () => {
+    if (snap && (snap.clipboard_count ?? 0) > 0) {
+      setStatus(t("core.clipboard.action-locked"), "");
+      return;
+    }
     // Toggle: open the popup, or close it keeping the filter applied.
-    send(snap && modeTag(snap.mode) === "TypeFilter" ? "CommitTypeFilter" : "EnterTypeFilter"),
-  );
+    send(snap && modeTag(snap.mode) === "TypeFilter" ? "CommitTypeFilter" : "EnterTypeFilter");
+  });
   $("btnViewToggle").addEventListener("click", () => setRawView(!rawView));
 
   const closeUrlModal = () => {
@@ -1892,6 +1928,10 @@ function onTreeContext(ev: MouseEvent) {
   const rowEl = (ev.target as HTMLElement).closest(".row") as HTMLElement | null;
   if (!rowEl || rowEl.dataset.path === undefined) return;
   ev.preventDefault();
+  if (snap.clipboard_count > 0) {
+    setStatus(t("core.clipboard.action-locked"), "");
+    return;
+  }
   const path = JSON.parse(rowEl.dataset.path) as Path;
   selectForMenu(path);
   openCtxMenuAt(path, ev.clientX, ev.clientY);
