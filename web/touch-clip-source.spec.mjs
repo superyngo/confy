@@ -69,7 +69,7 @@ console.log("-- treeHTML(): clip-copy/clip-cut key off clipboard_paths + clipboa
   const htmlCopy = treeHTML(makeSnap([rowB, rowC], { clipboard_paths: [[{ Key: "b" }]], clipboard_cut: false }));
   const bDivCopy = htmlCopy.split("<div")[1];
   check("copy source row gets clip-copy", bDivCopy.includes("clip-copy"));
-  const cDivCopy = htmlCopy.split("<div")[2];
+  const cDivCopy = htmlCopy.split("<div")[3];
   check("non-source sibling does not get clip-copy", !cDivCopy.includes("clip-copy"));
 
   const htmlCut = treeHTML(makeSnap([rowB, rowC], { clipboard_paths: [[{ Key: "b" }]], clipboard_cut: true }));

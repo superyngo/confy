@@ -205,8 +205,9 @@ Cut defers deletion until a successful paste. A loaded clipboard *is* "paste mod
 selection mode: while `clipboard.is_some()`, the three selection mutators (`toggle_select`,
 `extend_select_up`/`down`) early-return, so selection is frozen; pressing `c`/`x` again **toggles** the
 existing clipboard's mode (copy ↔ cut) instead of re-capturing. Render cues (`draw_tree`): cursor row
-green (paste-ready), source rows blue, selected rows grey — and since selection is frozen during paste
-mode, blue vs grey never collide. `Esc` in `Mode::Normal` peels one layer per press: clipboard first
+blue, cut source green, copy source magenta (three mutually exclusive full-row fills), and a locked
+selection paints no fill at all — only its `●` marker — so it composes with any of them. `Esc` in
+`Mode::Normal` peels one layer per press: clipboard first
 (keeping any live selection, status "clipboard cleared"), then selection. Paste (`v`) resolves the
 insertion `Target` with `resolve_target` over `true_sibling_index` (position in the *full* tree, so
 FilterResults' hidden siblings don't skew it — the same helper is used by `add_node` and the

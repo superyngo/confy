@@ -494,7 +494,7 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
 /* Paste mode: the clipboard freezes the selection, so the cursor row is the
    paste destination — make it unmistakable (a click moves it). */
 .paste-mode .row.cursor { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
-.paste-mode .row.cursor::before { background: var(--accent); width: 4px; }
+.paste-mode .row.cursor::before { content: ""; position: absolute; left: 2px; top: 4px; bottom: 4px; width: 4px; border-radius: 2px; background: var(--accent); }
 .paste-mode .row.cursor::after { content: "▸ paste here"; margin-left: auto; align-self: center; font-size: 10px; font-weight: 700; letter-spacing: .04em; color: var(--accent); }
 .paste-mode .row-actions { display: none; }
 
@@ -570,7 +570,6 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
 .row.clip-cut { background: var(--cut-bg); }
 .row.clip-copy { background: var(--copy-bg); }
 .row.schema-violation { box-shadow: inset 0 0 0 1.5px var(--warn); border-radius: 6px; }
-.row.selected.schema-violation { box-shadow: inset 0 0 0 1px var(--sel-edge), inset 0 0 0 3px var(--warn); }
 .row.drag-over-into.schema-violation { box-shadow: inset 0 0 0 2px var(--drop), inset 0 0 0 4px var(--warn); }
 .paste-mode .row.cursor.schema-violation { box-shadow: inset 0 0 0 1px var(--accent), inset 0 0 0 3px var(--warn); }
 .row.schema-violation::after { content: ""; position: absolute; right: 4px; top: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }

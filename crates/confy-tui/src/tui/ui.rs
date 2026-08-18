@@ -46,11 +46,13 @@ pub(crate) fn cell_preview(s: &str) -> String {
 }
 
 /// TYPE column cell: the precomputed fixed-pitch tag, with per-type colour. On
-/// the cursor row (`is_cursor`) we skip colouring so the row's own `fg(White)`
-/// wins uncontested.
-fn type_col_cell(row: &RowSnapshot, is_cursor: bool) -> Cell<'static> {
+/// any row that paints a background fill (`has_fill`: the cursor's blue or a
+/// clip source's green/magenta) we skip colouring so the row's own `fg(White)`
+/// wins uncontested — e.g. a Magenta datetime tag on the copy source's Magenta
+/// fill would be illegible.
+fn type_col_cell(row: &RowSnapshot, has_fill: bool) -> Cell<'static> {
     let label = row.type_tag.clone();
-    if is_cursor {
+    if has_fill {
         return Cell::from(label);
     }
     let color = match row.type_label.as_str() {
@@ -409,7 +411,7 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                     .add_modifier(Modifier::BOLD),
                 _ => base,
             };
-            let type_cell = type_col_cell(row, is_cursor);
+            let type_cell = type_col_cell(row, is_cursor || in_clipboard_source);
             if into_here {
                 selected_display = rows.len();
             }
