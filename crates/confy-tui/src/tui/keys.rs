@@ -165,4 +165,53 @@ mod tests {
             "Space must keep ToggleExpand — only Enter's binding reverses"
         );
     }
+
+    #[test]
+    fn armed_clipboard_guards_lang_picker_and_edit_node() {
+        use crate::tui::app::App;
+        use crate::model::node::Seg;
+        use confy_core::session::Clipboard;
+
+        let mut app = App::new(crate::model::any_doc::AnyDocument::Toml(
+            crate::model::cst_doc::CstDocument::from_str("a = 1\n").unwrap(),
+        ));
+        app.rebuild_rows();
+        app.session.clipboard = Some(Clipboard {
+            fragments: vec!["a = 1\n".into()],
+            cut: false,
+            sources: vec![vec![Seg::Key("a".into())]],
+        });
+
+        // Key mapping verification
+        use crossterm::event::{KeyEvent, KeyModifiers};
+        let key_e_upper = KeyEvent::new(KeyCode::Char('E'), KeyModifiers::NONE);
+        assert!(matches!(map_key(key_e_upper), KeyAction::EditExternal));
+        let key_l = KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE);
+        assert!(matches!(map_key(key_l), KeyAction::LangPicker));
+
+        // Language picker is blocked
+        app.open_lang_picker();
+        assert!(
+            app.lang_picker.is_none(),
+            "lang picker should not open when clipboard is armed"
+        );
+        assert_eq!(
+            app.session.status.as_deref(),
+            Some(confy_core::session::tr(
+                app.session.lang,
+                "core.clipboard.action-locked"
+            ))
+        );
+
+        // Edit external / edit node is blocked
+        app.session.status = None;
+        app.edit_node();
+        assert_eq!(
+            app.session.status.as_deref(),
+            Some(confy_core::session::tr(
+                app.session.lang,
+                "core.clipboard.action-locked"
+            ))
+        );
+    }
 }

@@ -17,6 +17,7 @@ pub mod type_filter;
 pub mod ui;
 
 use anyhow::Result;
+use confy_core::session::tr;
 use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -450,6 +451,11 @@ fn run_event_loop(
                 }
                 keys::KeyAction::Info => app.toggle_detail(),
                 keys::KeyAction::EditNode => {
+                    if app.session.clipboard.is_some() {
+                        app.session.status =
+                            Some(tr(app.session.lang, "core.clipboard.action-locked").to_string());
+                        continue;
+                    }
                     if app.edit_target_kind() == crate::tui::app::EditKind::Inline {
                         app.begin_inline_edit();
                     } else {
@@ -462,6 +468,11 @@ fn run_event_loop(
                     }
                 }
                 keys::KeyAction::EditExternal => {
+                    if app.session.clipboard.is_some() {
+                        app.session.status =
+                            Some(tr(app.session.lang, "core.clipboard.action-locked").to_string());
+                        continue;
+                    }
                     let _ = disable_raw_mode();
                     let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
                     app.edit_node();
@@ -487,7 +498,14 @@ fn run_event_loop(
                 keys::KeyAction::Convert => app.open_convert(),
                 keys::KeyAction::Help => app.enter_help(),
                 keys::KeyAction::Rename => app.begin_inline_rename(),
-                keys::KeyAction::LangPicker => app.open_lang_picker(),
+                keys::KeyAction::LangPicker => {
+                    if app.session.clipboard.is_some() {
+                        app.session.status =
+                            Some(tr(app.session.lang, "core.clipboard.action-locked").to_string());
+                        continue;
+                    }
+                    app.open_lang_picker();
+                }
                 keys::KeyAction::Noop => {}
             }
         }

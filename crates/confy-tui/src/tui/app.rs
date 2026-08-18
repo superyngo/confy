@@ -2,7 +2,7 @@ use std::cell::Cell;
 use std::path::PathBuf;
 
 pub use confy_core::session::{EditKind, FilterLayer, PendingCommit};
-use confy_core::session::{Intent, Session};
+use confy_core::session::{tr, Intent, Session};
 
 use crate::model::document::ConfigDocument;
 #[cfg(test)]
@@ -448,6 +448,11 @@ impl App {
 
     /// Open the popup with the cursor on the currently active language.
     pub fn open_lang_picker(&mut self) {
+        if self.session.clipboard.is_some() {
+            self.session.status =
+                Some(tr(self.session.lang, "core.clipboard.action-locked").to_string());
+            return;
+        }
         let cursor = LANG_OPTIONS
             .iter()
             .position(|&l| l == self.session.lang)
@@ -509,6 +514,11 @@ impl App {
     /// `e` — edit the cursor node. Comments and containers go to $EDITOR; single-line
     /// scalars and comment nodes use the inline editor. HOST SPLIT: spawns $EDITOR.
     pub fn edit_node(&mut self) {
+        if self.session.clipboard.is_some() {
+            self.session.status =
+                Some(tr(self.session.lang, "core.clipboard.action-locked").to_string());
+            return;
+        }
         if self.cursor_is_read_only() {
             self.session.status = Some("read-only node (block comment)".into());
             return;
