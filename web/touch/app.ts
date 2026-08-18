@@ -506,6 +506,10 @@ function afterPanelMutation(msg: string) {
 // Double-tap (narrow) opens the bottom-sheet panel. Wide mode keeps the
 // persistent side pane (render() refreshed it), so no sheet is needed.
 function openPanel(path: Path) {
+  if ((snap?.clipboard_count ?? 0) > 0) {
+    toast(t("core.clipboard.action-locked"));
+    return;
+  }
   selectOnly(path);
   const r = rowFor(path);
   if (!r) return;
@@ -541,6 +545,10 @@ function renderPromptSheet(kind: PromptView) {
 // ---- kind sheet (from session.kindOptions) ----
 function openKindSheet(path: Path) {
   if (!session) return;
+  if ((snap?.clipboard_count ?? 0) > 0) {
+    toast(t("core.clipboard.action-locked"));
+    return;
+  }
   send({ SetCursor: path });
   const opts = session.kindOptions(path);
   if (!opts.length) {
@@ -575,6 +583,11 @@ function openKindSheet(path: Path) {
 // this only renders that mode. Selection moves the cursor (SchemaEnumMove) then
 // commits (SchemaEnumCommit) — commit uses whatever cursor index is current.
 function openSchemaEnumSheet(path: Path, options: string[]) {
+  if (!session) return;
+  if ((snap?.clipboard_count ?? 0) > 0) {
+    toast(t("core.clipboard.action-locked"));
+    return;
+  }
   const cells = options
     .map(
       (label, i) =>
@@ -656,6 +669,10 @@ function chooseLang(lang: Lang) {
 // language row instead of cycling on tap. Scales to any number of languages
 // (`availableLangs()`); the active one is marked `.sel` with a check icon.
 function openLangSheet() {
+  if ((snap?.clipboard_count ?? 0) > 0) {
+    toast(t("core.clipboard.action-locked"));
+    return;
+  }
   const cur = getLang();
   const cells = availableLangs()
     .map((lang) => {
@@ -683,6 +700,10 @@ function openLangSheet() {
 // at least one real device with no obvious CSS cause; a plain sheet sidesteps
 // that whole class of layout bug.
 function openSaveSheet() {
+  if ((snap?.clipboard_count ?? 0) > 0) {
+    toast(t("core.clipboard.action-locked"));
+    return;
+  }
   sheets.save.innerHTML =
     '<div class="grab"></div>' +
     `<div class="sheet-head"><h3>${t("web.toolbar.save.label")}</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
@@ -736,6 +757,11 @@ function openMenuSheet() {
     it.addEventListener("click", () => {
       const id = it.dataset.mi!;
       const c = items[Number(id)];
+      if ((snap?.clipboard_count ?? 0) > 0 && c.run !== toggleTheme) {
+        closeSheets();
+        toast(t("core.clipboard.action-locked"));
+        return;
+      }
       if (c.run !== toggleTheme) closeSheets();
       c.run();
     });
@@ -790,6 +816,10 @@ function convRefs(): ConvertRefs {
 // Guard: while the sheet is already open for this session, render() re-calls this
 // every snapshot — return early so the textarea/buttons aren't clobbered mid-edit.
 function openExternalEdit(ext: { initial: string; kind: unknown }) {
+  if ((snap?.clipboard_count ?? 0) > 0) {
+    toast(t("core.clipboard.action-locked"));
+    return;
+  }
   if (sheets.ext.classList.contains("open")) return;
   const kind = ext.kind as { Value?: { path: Path }; Comment?: { path: Path } };
   const isComment = !!kind.Comment;
@@ -855,6 +885,10 @@ function renderHelpSheet() {
 // remote config by URL. A URL open has no on-disk handle, so a later Save
 // falls back to download (like the file path).
 function openOpenSheet() {
+  if ((snap?.clipboard_count ?? 0) > 0) {
+    toast(t("core.clipboard.action-locked"));
+    return;
+  }
   if (sheets.url.classList.contains("open")) return;
   sheets.url.innerHTML =
     '<div class="grab"></div>' +
@@ -953,6 +987,10 @@ function clearInto() {
   }
 }
 function startReorder(e: PointerEvent, row: HTMLElement) {
+  if ((snap?.clipboard_count ?? 0) > 0) {
+    toast(t("core.clipboard.action-locked"));
+    return;
+  }
   reordering = true;
   reMoved = false;
   reRow = row;
@@ -1075,19 +1113,26 @@ function installTreeGestures() {
   treeEl.addEventListener("pointerdown", (e) => {
     const grip = (e.target as HTMLElement).closest<HTMLElement>(".drag-handle");
     if (grip) {
+      if ((snap?.clipboard_count ?? 0) > 0) {
+        toast(t("core.clipboard.action-locked"));
+        return;
+      }
       const row = grip.closest<HTMLElement>(".row");
       if (row) startReorder(e, row);
       return;
     }
-    const t = e.target as HTMLElement;
+    const tgt = e.target as HTMLElement;
     // A tap can land on the visible row-main OR (when already swiped open) on the
     // revealed `.row-del` behind it — both map to the same row.
-    const main = t.closest<HTMLElement>(".row-main") ?? t.closest<HTMLElement>(".row-del");
+    const main = tgt.closest<HTMLElement>(".row-main") ?? tgt.closest<HTMLElement>(".row-del");
     const rowEl = main?.closest<HTMLElement>(".row");
     if (!rowEl) return;
     dragRow = rowEl;
-    // Swipe only when the row carries a Delete action (read-only rows don't).
-    swipeMain = rowEl.querySelector<HTMLElement>(".row-del") ? rowEl.querySelector<HTMLElement>(".row-main") : null;
+    // Swipe only when the row carries a Delete action (read-only rows don't) and clipboard is not armed.
+    swipeMain =
+      (snap?.clipboard_count ?? 0) <= 0 && rowEl.querySelector<HTMLElement>(".row-del")
+        ? rowEl.querySelector<HTMLElement>(".row-main")
+        : null;
     swipeBase = swipeMain && openSwipeMain === swipeMain ? -SWIPE_W : 0;
     sx = e.clientX;
     sy = e.clientY;
@@ -1107,7 +1152,7 @@ function installTreeGestures() {
     // Lock the axis once the gesture is decisive: horizontal → swipe, vertical →
     // a scroll (which also cancels the pending tap).
     if (!swiping && !moved) {
-      if (swipeMain && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) {
+      if ((snap?.clipboard_count ?? 0) <= 0 && swipeMain && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) {
         swiping = true;
         setDelRevealed(swipeMain, true);
         if (openSwipeMain && openSwipeMain !== swipeMain) {
@@ -1200,6 +1245,10 @@ function handleTap(target: HTMLElement, row: HTMLElement, clientY: number) {
     if (act === "grip") return;
     // Revealed Delete (swipe-to-delete): remove this row, then re-render closes it.
     if (act === "rowdel") {
+      if ((snap?.clipboard_count ?? 0) > 0) {
+        toast(t("core.clipboard.action-locked"));
+        return;
+      }
       openSwipeMain = null;
       send({ SetCursor: path });
       send({ SetSelection: { paths: [path] } });
@@ -1248,6 +1297,10 @@ function handleTap(target: HTMLElement, row: HTMLElement, clientY: number) {
 // No cursor row → fall back to AddNode (the cursor-relative default).
 function addContextual() {
   if (!snap) return;
+  if ((snap.clipboard_count ?? 0) > 0) {
+    toast(t("core.clipboard.action-locked"));
+    return;
+  }
   const idx = snap.rows.findIndex((r) => r.is_cursor);
   if (idx < 0) {
     send("AddNode");
@@ -1337,9 +1390,17 @@ function installShellHandlers() {
         openMenuSheet();
         break;
       case "filter":
+        if ((snap?.clipboard_count ?? 0) > 0) {
+          toast(t("core.clipboard.action-locked"));
+          return;
+        }
         send("EnterTypeFilter");
         break;
       case "open":
+        if ((snap?.clipboard_count ?? 0) > 0) {
+          toast(t("core.clipboard.action-locked"));
+          return;
+        }
         openOpenSheet();
         break;
       case "add":
@@ -1349,30 +1410,62 @@ function installShellHandlers() {
         else addContextual();
         break;
       case "cyclefmt":
+        if ((snap?.clipboard_count ?? 0) > 0) {
+          toast(t("core.clipboard.action-locked"));
+          return;
+        }
         cycleSampleFormat(openSample); // no-op unless in sample mode
         break;
       case "save":
+        if ((snap?.clipboard_count ?? 0) > 0) {
+          toast(t("core.clipboard.action-locked"));
+          return;
+        }
         openSaveSheet();
         break;
       case "undo":
+        if ((snap?.clipboard_count ?? 0) > 0) {
+          toast(t("core.clipboard.action-locked"));
+          return;
+        }
         send("Undo");
         break;
       case "redo":
+        if ((snap?.clipboard_count ?? 0) > 0) {
+          toast(t("core.clipboard.action-locked"));
+          return;
+        }
         send("Redo");
         break;
       case "theme":
         toggleTheme();
         break;
       case "lang":
+        if ((snap?.clipboard_count ?? 0) > 0) {
+          toast(t("core.clipboard.action-locked"));
+          return;
+        }
         openLangSheet();
         break;
       case "info":
+        if ((snap?.clipboard_count ?? 0) > 0) {
+          toast(t("core.clipboard.action-locked"));
+          return;
+        }
         send("EnterHelp");
         break;
       case "expandall":
+        if ((snap?.clipboard_count ?? 0) > 0) {
+          toast(t("core.clipboard.action-locked"));
+          return;
+        }
         send("ExpandAll");
         break;
       case "collapseall":
+        if ((snap?.clipboard_count ?? 0) > 0) {
+          toast(t("core.clipboard.action-locked"));
+          return;
+        }
         send("CollapseAll");
         break;
       case "scrim":
@@ -1387,9 +1480,17 @@ function installShellHandlers() {
         send("Escape"); // clear clipboard / exit paste mode
         break;
       case "toggleview":
+        if ((snap?.clipboard_count ?? 0) > 0) {
+          toast(t("core.clipboard.action-locked"));
+          return;
+        }
         setRawView(!rawView);
         break;
       case "searchclear":
+        if ((snap?.clipboard_count ?? 0) > 0) {
+          toast(t("core.clipboard.action-locked"));
+          return;
+        }
         searchInput.value = "";
         searchInput.parentElement!.classList.remove("has-val");
         send({ SetFilter: "" });
@@ -1399,6 +1500,11 @@ function installShellHandlers() {
 
   // Search → debounced SetFilter.
   searchInput.addEventListener("input", () => {
+    if ((snap?.clipboard_count ?? 0) > 0) {
+      searchInput.value = "";
+      toast(t("core.clipboard.action-locked"));
+      return;
+    }
     searchInput.parentElement!.classList.toggle("has-val", !!searchInput.value);
     clearTimeout(searchTimer);
     searchTimer = window.setTimeout(() => send({ SetFilter: searchInput.value }), 180);
