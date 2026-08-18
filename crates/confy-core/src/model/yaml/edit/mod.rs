@@ -807,6 +807,83 @@ mod tests {
     }
 
     #[test]
+    fn insert_member_into_truly_empty_document_synthesizes_a_root_mapping() {
+        // No top-level MAPPING/SEQUENCE exists yet for `find_container` to find
+        // (regression: this used to fail the whole insert with `NotFound`,
+        // surfacing as "path not found" on Add for a blank YAML file).
+        use crate::model::document::{OnCollision, Target};
+        let out = apply_str(
+            "",
+            Mutation::Insert {
+                target: Target {
+                    parent: vec![],
+                    index: 0,
+                },
+                fragment: "new_field: \"\"\n".into(),
+                on_collision: OnCollision::Cancel,
+            },
+        )
+        .expect("insert into an empty document");
+        assert_eq!(out, "new_field: \"\"\n");
+    }
+
+    #[test]
+    fn insert_member_into_comment_only_document_keeps_the_comment() {
+        use crate::model::document::{OnCollision, Target};
+        let out = apply_str(
+            "# just a comment\n",
+            Mutation::Insert {
+                target: Target {
+                    parent: vec![],
+                    index: 0,
+                },
+                fragment: "new_field: \"\"\n".into(),
+                on_collision: OnCollision::Cancel,
+            },
+        )
+        .expect("insert into a comment-only document");
+        assert_eq!(out, "# just a comment\nnew_field: \"\"\n");
+    }
+
+    #[test]
+    fn insert_sequence_element_into_empty_document_synthesizes_a_root_sequence() {
+        use crate::model::document::{OnCollision, Target};
+        let out = apply_str(
+            "",
+            Mutation::Insert {
+                target: Target {
+                    parent: vec![],
+                    index: 0,
+                },
+                fragment: "- 1\n".into(),
+                on_collision: OnCollision::Cancel,
+            },
+        )
+        .expect("insert seq element into an empty document");
+        assert_eq!(out, "- 1\n");
+    }
+
+    #[test]
+    fn insert_at_a_nonexistent_nested_parent_in_an_empty_document_still_errors() {
+        // Only the *root* parent gets the empty-document synthesis fallback —
+        // a deeper path with nothing to walk into must still report NotFound.
+        use crate::model::document::{OnCollision, Target};
+        let res = apply_str(
+            "",
+            Mutation::Insert {
+                target: Target {
+                    parent: vec![Seg::Key("missing".into())],
+                    index: 0,
+                },
+                fragment: "x: 1\n".into(),
+                on_collision: OnCollision::Cancel,
+            },
+        );
+        assert!(matches!(res, Err(MutateError::NotFound)));
+    }
+
+
+    #[test]
     fn insert_keyed_fragment_into_sequence() {
         use crate::model::document::{OnCollision, Target};
         let out = apply_str(

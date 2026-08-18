@@ -740,6 +740,23 @@ pub(crate) fn rebuild_and_splice(
     commit_reparse(tree, &new_doc, MutateError::Illegal)
 }
 
+/// A document with no top-level MAPPING/SEQUENCE yet (a genuinely empty YAML
+/// file, or one holding only comments/blank lines — confy's YAML subset has
+/// no other root shape: the parser only ever emits a MAPPING/SEQUENCE at
+/// root, ROOT stays childless otherwise) has nothing for `find_container` to
+/// find, so a root-level `Insert` always failed with `NotFound` ("path not
+/// found") even though appending the first field/element is exactly what
+/// "Add" on an empty document should do. Mirrors the fragment shape (`- `
+/// prefix → sequence, else mapping — same convention `adapt_fragment` uses)
+/// and appends it as the document's first top-level item.
+fn insert_into_empty_document(tree: &SyntaxNode, fragment: &str) -> Result<(), MutateError> {
+    let is_mapping = !fragment.trim_start().starts_with("- ");
+    let (new_item, _) = adapt_fragment(fragment, is_mapping, 0)?;
+    let full_text = tree.to_string();
+    let sep = if full_text.is_empty() || full_text.ends_with('\n') { "" } else { "\n" };
+    commit_reparse(tree, &format!("{full_text}{sep}{new_item}"), MutateError::Fragment)
+}
+
 /// Insert a new member/element into the container at `target`.
 pub(crate) fn insert(
     tree: &SyntaxNode,
@@ -748,7 +765,13 @@ pub(crate) fn insert(
     on_collision: OnCollision,
 ) -> Result<(), MutateError> {
     // Find the container MAPPING or SEQUENCE.
-    let container = find_container(tree, &target.parent)?;
+    let container = match find_container(tree, &target.parent) {
+        Ok(c) => c,
+        Err(MutateError::NotFound) if target.parent.is_empty() => {
+            return insert_into_empty_document(tree, fragment);
+        }
+        Err(e) => return Err(e),
+    };
     // Inserting into an inline flow collection: rebuild the `{…}`/`[…]` inline.
     if matches!(
         container.kind(),
