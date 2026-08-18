@@ -46,10 +46,12 @@ pub(crate) fn cell_preview(s: &str) -> String {
 }
 
 /// TYPE column cell: the precomputed fixed-pitch tag, with per-type colour. On
-/// any row that paints a background fill (`has_fill`: the cursor's blue or a
-/// clip source's green/magenta) we skip colouring so the row's own `fg(White)`
-/// wins uncontested — e.g. a Magenta datetime tag on the copy source's Magenta
-/// fill would be illegible.
+/// any row that paints a background fill (`has_fill`: the cursor's blue, a
+/// clip source's green/magenta, or the armed paste-target's green `Into`
+/// fill) we skip colouring so the row's own fill-appropriate fg wins
+/// uncontested — e.g. a Magenta datetime tag on the copy source's Magenta
+/// fill, or a Green "string" tag on the paste-target's Green fill, would
+/// otherwise be illegible.
 fn type_col_cell(row: &RowSnapshot, has_fill: bool) -> Cell<'static> {
     let label = row.type_tag.clone();
     if has_fill {
@@ -411,7 +413,7 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                     .add_modifier(Modifier::BOLD),
                 _ => base,
             };
-            let type_cell = type_col_cell(row, is_cursor || in_clipboard_source);
+            let type_cell = type_col_cell(row, is_cursor || in_clipboard_source || into_here);
             if into_here {
                 selected_display = rows.len();
             }
@@ -1168,6 +1170,51 @@ mod tests {
             buf[(0, locked_only_y)].bg,
             Color::Reset,
             "a locked-selection row that is not the cursor must not paint any background fill"
+        );
+    }
+
+    #[test]
+    fn paste_target_into_fill_suppresses_kind_tag_color() {
+        // The armed paste-slot's `Into` fill (green bg, black fg, ADR 0005 §5)
+        // must suppress the KIND column's own type-based colour the same way
+        // the cursor's blue and the clip-source colours already do (§3) —
+        // otherwise a "string" row's Green KIND tag renders on top of the
+        // Into slot's own Green fill and becomes illegible. `paste_slots()`
+        // only ever offers `Into` on branch rows (whose KIND tag never gets a
+        // colour), so this state is unreachable via normal keyboard/pointer
+        // paste-slot cycling; it is however reachable through the WASM
+        // `Intent::SetPasteSlot` boundary, which does not re-validate
+        // `is_branch` — so this test drives it directly via the session field
+        // to pin the render-layer contract regardless of that upstream gate.
+        let doc = crate::model::any_doc::AnyDocument::Toml(
+            crate::model::cst_doc::CstDocument::from_str("s = \"x\"\no = 2\n").unwrap(),
+        );
+        let mut app = App::new(doc);
+        app.select_row(2); // cursor on `o`, so `s` is not the cursor row
+        let s_path = app.row_path(1);
+        let o_path = app.row_path(2);
+        app.session.clipboard = Some(Clipboard {
+            fragments: vec!["z = 1\n".into()],
+            cut: false,
+            sources: vec![o_path], // clip source is `o`, not `s`
+        });
+        app.session.paste_slot = Some(PasteSlot::Into(s_path));
+        let mut terminal = Terminal::new(TestBackend::new(40, 8)).unwrap();
+        terminal.draw(|fr| draw(fr, &app)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let row_y = (0..8)
+            .find(|&y| buf[(KEY_X, y)].symbol() == "s")
+            .expect("`s` row not found in rendered buffer");
+        let kind_x = name_col_width(40) + 1;
+        assert_eq!(
+            buf[(kind_x, row_y)].bg,
+            Color::Green,
+            "Into-target row must show the green paste-target fill"
+        );
+        assert_eq!(
+            buf[(kind_x, row_y)].fg,
+            Color::Black,
+            "the KIND tag's own colour must be suppressed on the Into fill, matching the row's fg(Black), not painted with type_label's Green"
         );
     }
 

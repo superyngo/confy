@@ -227,11 +227,14 @@ Consequences.
 - Any change to node-kind/format mutation mechanics, `PasteSlot`/`Into`/`After`
   targeting semantics, or the AoT atomic-move behavior — all owned by ADR 0004,
   `CONTEXT.md`, `BEHAVIOR_MATRIX.md`, untouched here.
-- TUI `type_col_cell`'s fill-skip (`tui/ui.rs:48-56`, `has_fill` param) doesn't cover
-  the paste-slot `Into` target row's own green `bg(Green).fg(Black).BOLD` fill
-  (`tui/ui.rs:397-405`) — call site only passes `is_cursor || in_clipboard_source`
-  (`tui/ui.rs:414`), so a Green "string" KIND tag can render on that green fill,
-  the same legibility collision Phase 1 fixed for cursor/clip-source but in a path
-  Phase 1 didn't touch (ADR 0004's paste-target state, not one of ROW_STATE_MODEL's
-  five). Recorded, not scheduled — pick up alongside Phase 4 (§6a) if desktop's
-  equivalent paste-target legibility needs the same audit.
+- ~~TUI `type_col_cell`'s fill-skip doesn't cover the paste-slot `Into` target
+  row's green fill~~ — **fixed** (`tui/ui.rs`, `type_col_cell` call site now
+  passes `is_cursor || in_clipboard_source || into_here`). Correction to the
+  original note: `Into` slots are only ever offered on branch rows
+  (`Session::paste_slots`/`pointer_slot` both gate on `is_branch()`), and a
+  branch's `type_label` never carries a KIND colour, so the collision was not
+  reachable through normal keyboard/pointer paste-slot cycling — it was
+  reachable only through the WASM `Intent::SetPasteSlot` boundary, which does
+  not re-validate `is_branch`. Fixed defensively regardless, with a regression
+  test (`paste_target_into_fill_suppresses_kind_tag_color`) that drives the
+  state directly to pin the render-layer contract.
