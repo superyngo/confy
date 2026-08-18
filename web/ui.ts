@@ -65,6 +65,7 @@ import type {
   Intent,
   ModeView,
   Path,
+  PasteSlot,
   PromptView,
   SessionSnapshot,
   TypeFilterView,
@@ -308,9 +309,10 @@ function renderRawOrTree() {
 // strips it (and hides the line) whenever ANY drag gesture ends, even one
 // unrelated to the armed clipboard, with no render() to restore either; the
 // `installDnd` `onDragEnd` callback calls this to redraw both halves.
-function renderPasteSlotCue(snap: SessionSnapshot) {
+function renderPasteSlotCue(snap: SessionSnapshot, slotOverride?: PasteSlot) {
+  tree.querySelectorAll(".drag-over-into").forEach((el) => el.classList.remove("drag-over-into"));
   const dropLine = $("dropLine");
-  const slot = snap.paste_slot;
+  const slot = slotOverride ?? snap.paste_slot;
   if (!slot || rawView) {
     dropLine.style.display = "none";
     return;
@@ -336,6 +338,29 @@ function renderPasteSlotCue(snap: SessionSnapshot) {
   dropLine.style.top = `${r.bottom - wr.top + wrap.scrollTop}px`;
   dropLine.style.left = `${indentW + 8}px`;
   dropLine.style.display = "block";
+}
+
+// Continuous per-pixel preview of the armed-paste target under the pointer,
+// client-only (no `dispatch`/no re-render) — reuses `armedPasteTarget`'s relY
+// math (`getBoundingClientRect()`, `(ev.clientY - r.top) / (r.height || 1)`)
+// and `renderPasteSlotCue`'s existing cue elements (`.drag-over-into`,
+// `#dropLine`) rather than a new preview style. When `pointerSlot` declines
+// to classify the hovered row (or the pointer isn't over a row at all),
+// falls back to redrawing the **committed** `snap.paste_slot` instead of
+// going blank — clicking there wouldn't change the committed target either
+// (`armedPasteTarget` falls back to `SetCursor`), so the preview stays
+// truthful to that outcome.
+function onArmedPasteHover(ev: MouseEvent) {
+  if (!snap || !session || (snap.clipboard_count ?? 0) === 0) return;
+  const rowEl = (ev.target as HTMLElement).closest?.(".row") as HTMLElement | null;
+  let slot: PasteSlot | undefined;
+  if (rowEl?.dataset.path) {
+    const path = JSON.parse(rowEl.dataset.path) as Path;
+    const r = rowEl.getBoundingClientRect();
+    const relY = (ev.clientY - r.top) / (r.height || 1);
+    slot = session.pointerSlot(path, relY);
+  }
+  renderPasteSlotCue(snap, slot ?? snap.paste_slot ?? undefined);
 }
 
 // ---- render ----
@@ -1749,6 +1774,10 @@ function bindGlobal() {
   // "empty area" branch — same wrap `installMarquee`'s mousedown uses.
   $("treeWrap").addEventListener("click", onTreeClick);
   $("treeWrap").addEventListener("mouseover", onTreeHover);
+  $("treeWrap").addEventListener("mousemove", onArmedPasteHover);
+  $("treeWrap").addEventListener("mouseleave", () => {
+    if (snap) renderPasteSlotCue(snap);
+  });
   tree.addEventListener("contextmenu", onTreeContext);
   tree.addEventListener("wheel", onTreeWheel, { passive: false });
   installMarquee();

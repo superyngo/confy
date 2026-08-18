@@ -224,6 +224,7 @@ export ${cueMatch[0]}\n`,
   };
   const cueTree = {
     querySelector: (sel) => (sel.includes('"Key":"b"') ? intoRow : sel.includes('"Key":"c"') ? afterRow : null),
+    querySelectorAll: () => [],
   };
   setEnv({
     $: (id) => (id === "dropLine" ? cueDropLine : { getBoundingClientRect: () => ({ top: 5 }), scrollTop: 3 }),

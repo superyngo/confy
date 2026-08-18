@@ -199,9 +199,15 @@ shapes round-trip). Key types:
   instead: `armedPasteTarget()` reads the click's row-relative Y and calls
   `session.pointerSlot(path, relY)` → `SetPasteSlot` (`Into`/`After`), falling back to
   `SetCursor` only when no slot resolves (ADR 0004 §1). A `body.paste-mode` class marks
-  the target row as a visible "▸ paste here" cue. See `ROW_STATE_MODEL.md` for the full
-  cross-platform row-state model this participates in, including the planned
-  hover-preview refinement (§6a there).
+  the target row as a visible "▸ paste here" cue. While armed, moving the pointer over
+  the tree also previews the click's eventual target *before* commit: `onArmedPasteHover`
+  (a delegated `mousemove` on `treeWrap`) re-runs the same `pointerSlot()` classification
+  and repaints `renderPasteSlotCue`'s cue elements client-only — no `dispatch`, no
+  re-render — falling back to redrawing the **committed** `paste_slot` whenever
+  `pointerSlot` declines to classify the hovered row or the pointer leaves the tree
+  entirely (`mouseleave`), so the preview never shows a target a click there wouldn't
+  actually commit. See `ROW_STATE_MODEL.md` §6a for the full cross-platform row-state
+  model this participates in.
 - **Pointer value gestures.** A **double-click on a row _toggles_ the Detail panel** for it
   (`SetCursor` + `ToggleDetail`); it no longer toggles branch-expand/boolean-value (expand stays
   on the caret + Space). **Mouse-wheel over the value cell** (`[data-edit="val"]`) adjusts it in

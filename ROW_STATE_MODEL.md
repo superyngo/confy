@@ -207,8 +207,8 @@ Consequences.
   - [x] Disable reorder-grip drag, context menu, kind-switch, convert, and inline
         edit affordances while `clipboard.is_some()`, on all three surfaces.
   - [x] Add the toast/status message on a blocked attempt.
-- [ ] **Phase 4 — Desktop hover preview (§6a)**
-  - [ ] Add client-only hover-preview cue computed from `pointerSlot()`, no dispatch.
+- [x] **Phase 4 — Desktop hover preview (§6a)**
+  - [x] Add client-only hover-preview cue computed from `pointerSlot()`, no dispatch.
 - [ ] **Phase 5 — Touch drag-to-target (§6b)**
   - [ ] Body-drag while armed continuously repositions the target, reusing
         `onReorderMove`'s live classify-and-repaint loop; release sets/refines only.
@@ -218,8 +218,8 @@ Consequences.
       per ADR 0004's own lesson about docstring drift):
   - [x] `TUI.md`'s "Multi-select"/"Clipboard / paste" render-cue prose, once Phase 1
         ships (completed in Phase 1 final review).
-  - [ ] `WEBUI.md`'s row-anatomy/paste-mode prose (Phase 1 visual language & Phase 2
-        keybinding prose synced; hover-preview prose pending Phase 4).
+  - [x] `WEBUI.md`'s row-anatomy/paste-mode prose (Phase 1 visual language & Phase 2
+        keybinding prose synced; hover-preview prose synced in Phase 4).
 
 ## 9. Out of scope
 
