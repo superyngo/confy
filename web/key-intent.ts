@@ -152,8 +152,8 @@ export function resolveKeyIntent(
     case "k": case "ArrowUp": return { kind: "nav", intent: "CursorUp", preventDefault: preSwitchPD };
     case "g": case "Home": return { kind: "nav", intent: "CursorHome", preventDefault: preSwitchPD };
     case "G": case "End": return { kind: "nav", intent: "CursorEnd", preventDefault: preSwitchPD };
-    case "Enter": return { kind: "native", action: "toggle-branches", preventDefault: false };
-    case " ": return { kind: "intent", intent: "ToggleDetail", preventDefault: preSwitchPD };
+    case "Enter": return { kind: "intent", intent: "ToggleDetail", preventDefault: false };
+    case " ": return { kind: "native", action: "toggle-branches", preventDefault: preSwitchPD };
     // preventDefault: these open a text editor synchronously (inline input or the
     // external modal); without it the triggering keystroke leaks into the field.
     case "e": return { kind: "intent", intent: "BeginEdit", preventDefault: true };

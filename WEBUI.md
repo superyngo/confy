@@ -136,7 +136,7 @@ shapes round-trip). Key types:
   clicks on the same path — native `dblclick` is unreliable after the first click
   re-renders) toggles: a branch expands/collapses, a boolean leaf flips its value. Only
   empty-space clicks reach it (key→rename, value→edit, caret→expand all return first).
-  With a **multi-selection**, `Enter` toggles every selected branch independently (cursor-walks
+  With a **multi-selection**, `Space` toggles every selected branch independently (cursor-walks
   the selected branch rows dispatching `ToggleExpand`, then restores the selection); a single
   selection keeps the plain cursor toggle.
   Navigation keys (`←→↑↓`, Home/End, Space) `preventDefault` so the browser's native
@@ -204,7 +204,7 @@ shapes round-trip). Key types:
   hover-preview refinement (§6a there).
 - **Pointer value gestures.** A **double-click on a row _toggles_ the Detail panel** for it
   (`SetCursor` + `ToggleDetail`); it no longer toggles branch-expand/boolean-value (expand stays
-  on the caret + Enter). **Mouse-wheel over the value cell** (`[data-edit="val"]`) adjusts it in
+  on the caret + Space). **Mouse-wheel over the value cell** (`[data-edit="val"]`) adjusts it in
   place: a `Bool` toggles true↔false, an `Integer`/`Float` nudges ±1 (`Nudge`, wheel up = +1) —
   `preventDefault` fires only over an adjustable value so other rows scroll normally. The keyboard
   `+`/`-` and `←`/`→` Nudge keys are unchanged. The **same wheel-adjust works on the shared
@@ -419,7 +419,7 @@ touch/app.js`.
 **Shared edit/detail panel — `web/panel.ts`.** A framework-free module (`panelHTML(row)` +
 `wirePanel(container,row,send,openKind,onError,afterMutation?)`) that renders the node edit/detail panel for
 **both** UIs from a `ViewRow`, guaranteeing the field set + order can't drift between touch and
-desktop. On the desktop side the detail `<aside>` (toggled with `i`/Space) now renders this panel
+desktop. On the desktop side the detail `<aside>` (toggled with `i`/Enter) now renders this panel
 **reactively** — it tracks the cursor row on every snapshot and is fully editable — instead of the
 old static `detail_text` `<pre>` dump (that flat string is now only the empty-doc fallback). To
 feed the panel's Sign field, core's `ViewRow` gained a `key_sign` field (`"bare"|"quoted"|"dotted"

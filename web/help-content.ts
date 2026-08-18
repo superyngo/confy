@@ -5,7 +5,7 @@ import { escapeHtml } from "./escape.js";
 import { tArgs, getLang } from "./i18n.js";
 export const HELP_TEXT = `confy web — keys
 j/k or ↑/↓     move cursor
-Enter/Space    toggle branch / edit leaf / activate
+Space          toggle branch / edit leaf / activate
 e              edit (inline or multiline modal)
 a              add node · d delete · c copy · x cut · v paste
 r              remark (toggle node ↔ comment)
@@ -14,7 +14,7 @@ z / y          undo / redo
 s              toggle select · 0 collapse-all · 9 expand-all
 1 / 2          expand / collapse one level
 /              filter · f type-filter · K kind-switch · C convert
-i              detail popup · ? this help · Ctrl-s save · Ctrl-o open
+Enter / i      detail popup · ? this help · Ctrl-s save · Ctrl-o open
 q              quit (prompts if dirty)
 
 ── pointer ──────────────────────────────────────
@@ -27,7 +27,7 @@ right-click    context menu`;
 // same rule as the TUI's tui.help.* catalog entries.
 const HELP_TEXT_ZH_TW = `confy web — 按鍵
 j/k 或 ↑/↓     移動游標
-Enter/Space    展開分支／編輯葉節點／啟用
+Space          展開分支／編輯葉節點／啟用
 e              編輯（inline 或多行對話框）
 a              新增節點 · d 刪除 · c 複製 · x 剪下 · v 貼上
 r              remark（節點 ↔ comment 切換）
@@ -36,7 +36,7 @@ z / y          復原／重做
 s              切換選取 · 0 全部摺疊 · 9 全部展開
 1 / 2          展開／摺疊一層
 /              篩選 · f 類型篩選 · K kind 切換 · C 轉換格式
-i              詳細資訊彈出視窗 · ? 本說明 · Ctrl-s 儲存 · Ctrl-o 開啟
+Enter / i      詳細資訊彈出視窗 · ? 本說明 · Ctrl-s 儲存 · Ctrl-o 開啟
 q              離開（若有未儲存變更會提示）
 
 ── 指標裝置 ──────────────────────────────────────
@@ -50,7 +50,7 @@ right-click    右鍵選單`;
 // language move to the editor title's "…" More Actions menu instead.
 export const HELP_TEXT_VSCODE = `confy web — keys
 j/k or ↑/↓     move cursor
-Enter/Space    toggle branch / edit leaf / activate
+Space          toggle branch / edit leaf / activate
 e              edit (inline or multiline modal)
 a              add node · d delete · c copy · x cut · v paste
 r              remark (toggle node ↔ comment)
@@ -59,7 +59,7 @@ z / y          undo / redo (shared with VS Code — the workbench owns the stack
 s              toggle select · 0 collapse-all · 9 expand-all
 1 / 2          expand / collapse one level
 /              filter · f type-filter · K kind-switch · C convert
-i              detail popup · ? this help
+Enter / i      detail popup · ? this help
 Ctrl-s         save (shared with VS Code)
 ⇧⌘S / Ctrl-⇧S  Save As / Convert…
 
@@ -74,7 +74,7 @@ right-click    context menu`;
 // zh-TW translation of HELP_TEXT_VSCODE.
 const HELP_TEXT_VSCODE_ZH_TW = `confy web — 按鍵
 j/k 或 ↑/↓     移動游標
-Enter/Space    展開分支／編輯葉節點／啟用
+Space          展開分支／編輯葉節點／啟用
 e              編輯（inline 或多行對話框）
 a              新增節點 · d 刪除 · c 複製 · x 剪下 · v 貼上
 r              remark（節點 ↔ comment 切換）
@@ -83,7 +83,7 @@ z / y          復原／重做（與 VS Code 共用 — workbench 掌管復原�
 s              切換選取 · 0 全部摺疊 · 9 全部展開
 1 / 2          展開／摺疊一層
 /              篩選 · f 類型篩選 · K kind 切換 · C 轉換格式
-i              詳細資訊彈出視窗 · ? 本說明
+Enter / i      詳細資訊彈出視窗 · ? 本說明
 Ctrl-s         儲存（與 VS Code 共用）
 ⇧⌘S / Ctrl-⇧S  另存新檔／轉換格式…
 

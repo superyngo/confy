@@ -251,7 +251,11 @@ console.log("\n-- tree shortcuts --");
 }
 {
   const r = resolve(normalMode, "Enter");
-  check("Enter -> native toggle-branches", r?.kind === "native" && r.action === "toggle-branches", JSON.stringify(r));
+  check("Enter -> intent ToggleDetail, no preventDefault", r?.kind === "intent" && r.intent === "ToggleDetail" && r.preventDefault === false, JSON.stringify(r));
+}
+{
+  const r = resolve(normalMode, " ");
+  check('"Space" -> native toggle-branches, preventDefault', r?.kind === "native" && r.action === "toggle-branches" && r.preventDefault === true, JSON.stringify(r));
 }
 {
   const r = resolve(normalMode, "e");
