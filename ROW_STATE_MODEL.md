@@ -188,15 +188,15 @@ regression test as the existing fix (`web/*.spec.mjs`, `touch-pointer-slot`/
 Each phase is independently testable/shippable; ordering follows ADR 0005's
 Consequences.
 
-- [ ] **Phase 1 — Visual language (§3)**
-  - [ ] TUI: replace `Selection`'s solid grey fill with a leading NAME-cell glyph;
+- [x] **Phase 1 — Visual language (§3)**
+  - [x] TUI: replace `Selection`'s solid grey fill with a leading NAME-cell glyph;
         unify cursor/cut/copy fill colors so cut and copy no longer collide with
         cursor's blue.
-  - [ ] Desktop: retire `.row.cursor`'s left bar in favor of a full-row fill shared
+  - [x] Desktop: retire `.row.cursor`'s left bar in favor of a full-row fill shared
         with `.row:hover`; retire `.row.selected`'s fill+ring in favor of a leading
         `::before` bar marker; swap `.clip-cut`/`.clip-copy` colors to match the
         unified cut/copy assignment; remove dead `.row.cut` rule.
-  - [ ] Touch: add `clip-cut`/`clip-copy` row classes (currently absent) to
+  - [x] Touch: add `clip-cut`/`clip-copy` row classes (currently absent) to
         `touch/render.ts`; add a resting-cursor style (currently absent); add the
         selection leading-bar marker; remove dead `.row.cut` rule.
 - [ ] **Phase 2 — Keybinding reversal (§4)**
