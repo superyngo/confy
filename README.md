@@ -115,7 +115,8 @@ See [VSCODE.md](VSCODE.md) and [editors/vscode/README.md](editors/vscode/README.
 | `k` / `↑` | Move cursor up |
 | `PgUp` / `PgDn` | Page up / down |
 | `Home` / `End` | First / last row |
-| `Enter` / `Space` | Expand/collapse branch, or open leaf detail (scroll with ↑/↓/PgUp/PgDn/Home/End) |
+| `Space` | Expand/collapse branch, or open leaf detail if it's a leaf |
+| `Enter` | Toggle the detail/info popup for the cursor row (same as `i`) |
 | `i` | Toggle the detail/info popup for any node (incl. branches; shows kind + child count) |
 | `0` | Collapse all |
 | `9` | Expand all |

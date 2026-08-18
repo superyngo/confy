@@ -53,7 +53,8 @@ pub fn map_key(key: KeyEvent) -> KeyAction {
         (KeyCode::End, _) => KeyAction::End,
         (KeyCode::Left, _) => KeyAction::DecValue,
         (KeyCode::Right, _) => KeyAction::IncValue,
-        (KeyCode::Enter, _) | (KeyCode::Char(' '), _) => KeyAction::ToggleExpand,
+        (KeyCode::Char(' '), _) => KeyAction::ToggleExpand,
+        (KeyCode::Enter, _) => KeyAction::Info,
         (KeyCode::Char('0'), _) => KeyAction::CollapseAll,
         (KeyCode::Char('9'), _) => KeyAction::ExpandAll,
         (KeyCode::Char('1'), _) => KeyAction::ExpandLevel,
@@ -148,5 +149,20 @@ mod tests {
         assert_ne!(en, zh);
         assert!(zh.contains("[D:odt ]"));
         assert!(zh.contains("Ctrl+s"));
+    }
+
+    #[test]
+    fn enter_opens_detail_space_toggles_expand() {
+        use crossterm::event::{KeyEvent, KeyModifiers};
+        let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        assert!(
+            matches!(map_key(enter), KeyAction::Info),
+            "Enter must route to the same detail-toggle action as `i` (ADR 0005 §4)"
+        );
+        let space = KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE);
+        assert!(
+            matches!(map_key(space), KeyAction::ToggleExpand),
+            "Space must keep ToggleExpand — only Enter's binding reverses"
+        );
     }
 }

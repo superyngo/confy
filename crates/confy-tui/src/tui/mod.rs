@@ -404,7 +404,7 @@ fn run_event_loop(
                     if app.session.clipboard.is_some() {
                         // Paste mode: only the `Into` (on-branch) slot toggles the
                         // branch; the green-line `After` slot is about the gap, not
-                        // the branch, so Enter/Space is a no-op there.
+                        // the branch, so Space is a no-op there.
                         if matches!(
                             app.effective_paste_slot(),
                             crate::tui::state::PasteSlot::Into(_)
@@ -418,8 +418,8 @@ fn run_event_loop(
                         }
                     } else if let Some(r) = app.cursor_row() {
                         let is_branch = r.is_branch;
-                        // Enter/Space: branch toggles expand, leaf opens detail —
-                        // the actual decision lives once in `Session::apply`; only
+                        // Space: branch toggles expand, leaf opens detail — the
+                        // actual decision lives once in `Session::apply`; only
                         // rebuild when it does (opening detail changes no rows).
                         app.session.apply(confy_core::session::Intent::ToggleExpand);
                         if is_branch {
