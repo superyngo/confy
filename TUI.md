@@ -191,7 +191,8 @@ the same `tui.*` catalog keys as the rest of the TUI; CJK lines in the `?` cheat
 popup were manually eyeballed for the double-width alignment risk noted in the i18n plan.
 
 ## Clipboard / paste
-See ADR 0004 for the cross-platform `PasteSlot` targeting model these mechanics implement.
+See ADR 0004 for the cross-platform `PasteSlot` targeting model these mechanics implement,
+and `ROW_STATE_MODEL.md` for the full cross-platform row cursor/selection/clipboard state model.
 
 `copy_selected` (`c`) and `cut_selected` (`x`) load `App.clipboard`
 (`Option<Clipboard>`) from `selected_paths()` (the selection, or the cursor row when none). Both

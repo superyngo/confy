@@ -210,6 +210,29 @@ render it (arrow keys step through the flattened `Into`-then-`After` sequence; A
 _Avoid_: drop target, insertion point (these describe the visual affordance, not the domain
 concept).
 
+**Cursor**:
+The single row-focus point (`Session.cursor: Path`) every host keeps. Always exists.
+Desktop mouse hover is a separate, core-invisible signal — it never moves the Cursor.
+Canonical, cross-platform vocabulary (ADR 0005). See `ROW_STATE_MODEL.md` for the full
+state model and its visual/keybinding spec.
+_Avoid_: focus, highlight (too generic — Cursor is one specific field).
+
+**Locked selection**:
+A non-empty `Session.selection: Selection`, built by `s`/Shift-range (TUI) or
+Ctrl/Shift-click/marquee (desktop); Touch has no equivalent gesture. Cross-platform —
+not TUI-only, despite desktop's version being reached by a different gesture. Applies
+uniformly from one member up; there is no multi-member threshold. Canonical,
+cross-platform vocabulary (ADR 0005).
+_Avoid_: multi-select (describes the gesture, not the resulting state).
+
+**Clipboard-armed**:
+`Session.clipboard.is_some()` — a later, independently-entered state layered on top of
+Locked selection, not the same thing: entering it freezes whatever Selection currently
+holds. Canonical, cross-platform vocabulary (ADR 0005) for what prose elsewhere calls
+"cut/copy mode" or "paste mode."
+_Avoid_: paste mode alone (ambiguous with PasteSlot navigation, which is available
+whenever Clipboard-armed is true but is a distinct concept).
+
 **Type filter** (`f`) vs **Text filter** (`/`):
 Two independent ways to narrow the visible tree. The **Text filter** (`/`) fuzzy-matches a Node's
 key/path (and a Comment's text). The **Type filter** (`f`) is a checkbox menu selecting **type

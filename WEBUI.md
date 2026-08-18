@@ -4,7 +4,8 @@ The Web UI is the second host of the headless core (`confy-core`), alongside the
 ratatui TUI. It compiles the same `Session` state machine to WebAssembly and drives
 it from TypeScript. This file documents the FFI boundary and the UI architecture; the
 shared model glossary lives in `CONTEXT.md`, nested behavior in `BEHAVIOR_MATRIX.md`,
-TUI mechanics in `TUI.md`. Two native shells embed this same `web/` bundle and get
+TUI mechanics in `TUI.md`, the cross-platform row cursor/selection/clipboard state
+model in `ROW_STATE_MODEL.md`. Two native shells embed this same `web/` bundle and get
 their own docs: the Tauri desktop/Android app in `TAURI.md`, the VS Code extension in
 `VSCODE.md`. The port design record is `PORTING.md` (§8 records the Stage-2 transport
 decisions).
@@ -193,9 +194,14 @@ shapes round-trip). Key types:
   included), re-serialized on every render so it never drifts. Read-only first: no in-Raw
   editing, so Save still serializes from the Session (always valid); an editable Raw tab +
   save-time format guard is a later step.
-- **Paste mode.** While the clipboard holds a cut/copy the selection is frozen, so a row
-  click moves the **cursor** (= the `After(cursor)` paste target) via `SetCursor`, and a
-  `body.paste-mode` class marks the cursor row as a visible "▸ paste here" target.
+- **Paste mode.** While the clipboard holds a cut/copy the selection is frozen
+  (`Session::set_selection` is a no-op), so a row click positions the paste target
+  instead: `armedPasteTarget()` reads the click's row-relative Y and calls
+  `session.pointerSlot(path, relY)` → `SetPasteSlot` (`Into`/`After`), falling back to
+  `SetCursor` only when no slot resolves (ADR 0004 §1). A `body.paste-mode` class marks
+  the target row as a visible "▸ paste here" cue. See `ROW_STATE_MODEL.md` for the full
+  cross-platform row-state model this participates in, including the planned
+  hover-preview refinement (§6a there).
 - **Pointer value gestures.** A **double-click on a row _toggles_ the Detail panel** for it
   (`SetCursor` + `ToggleDetail`); it no longer toggles branch-expand/boolean-value (expand stays
   on the caret + Enter). **Mouse-wheel over the value cell** (`[data-edit="val"]`) adjusts it in
