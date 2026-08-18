@@ -199,14 +199,14 @@ Consequences.
   - [x] Touch: add `clip-cut`/`clip-copy` row classes (currently absent) to
         `touch/render.ts`; add a resting-cursor style (currently absent); add the
         selection leading-bar marker; remove dead `.row.cut` rule.
-- [ ] **Phase 2 — Keybinding reversal (§4)**
-  - [ ] Desktop `key-intent.ts`: `Space` → `ToggleExpand`, `Enter` → `ToggleDetail`.
-  - [ ] TUI `tui/keys.rs`: `Enter` → `ToggleDetail` (drop its `ToggleExpand` binding;
+- [x] **Phase 2 — Keybinding reversal (§4)**
+  - [x] Desktop `key-intent.ts`: `Space` → `ToggleExpand`, `Enter` → `ToggleDetail`.
+  - [x] TUI `tui/keys.rs`: `Enter` → `ToggleDetail` (drop its `ToggleExpand` binding;
         `Space` keeps `ToggleExpand`).
-- [ ] **Phase 3 — Cut/copy modal lock (§5)**
-  - [ ] Disable reorder-grip drag, context menu, kind-switch, convert, and inline
+- [x] **Phase 3 — Cut/copy modal lock (§5)**
+  - [x] Disable reorder-grip drag, context menu, kind-switch, convert, and inline
         edit affordances while `clipboard.is_some()`, on all three surfaces.
-  - [ ] Add the toast/status message on a blocked attempt.
+  - [x] Add the toast/status message on a blocked attempt.
 - [ ] **Phase 4 — Desktop hover preview (§6a)**
   - [ ] Add client-only hover-preview cue computed from `pointerSlot()`, no dispatch.
 - [ ] **Phase 5 — Touch drag-to-target (§6b)**
@@ -216,9 +216,10 @@ Consequences.
         the existing `.drag-handle` gate).
 - [ ] **Docs sync** (do in the same change as the phase that ships it, not after —
       per ADR 0004's own lesson about docstring drift):
-  - [ ] `TUI.md`'s "Multi-select"/"Clipboard / paste" render-cue prose, once Phase 1
-        ships.
-  - [ ] `WEBUI.md`'s row-anatomy/paste-mode prose, once Phases 1/4 ship.
+  - [x] `TUI.md`'s "Multi-select"/"Clipboard / paste" render-cue prose, once Phase 1
+        ships (completed in Phase 1 final review).
+  - [ ] `WEBUI.md`'s row-anatomy/paste-mode prose (Phase 1 visual language & Phase 2
+        keybinding prose synced; hover-preview prose pending Phase 4).
 
 ## 9. Out of scope
 
