@@ -376,14 +376,15 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                 .clipboard
                 .as_ref()
                 .is_some_and(|cb| cb.sources.contains(&row.path));
-            // Base (non-cursor) appearance: copy source blue, cut source green,
-            // multi-select grey.
+            // Base (non-cursor) appearance: copy source purple, cut source green.
+            // Locked selection no longer paints a background — its `sel_marker` glyph
+            // (above) is the sole visual cue now, so it composes with the cursor's blue
+            // and the clip-source colors instead of being hidden underneath a grey fill
+            // (ADR 0005 §2 / ROW_STATE_MODEL.md §3).
             let base = if in_clipboard_source {
                 let cut = app.session.clipboard.as_ref().is_some_and(|cb| cb.cut);
-                let bg = if cut { Color::Green } else { Color::Blue };
+                let bg = if cut { Color::Green } else { Color::Magenta };
                 Style::default().bg(bg).fg(Color::White)
-            } else if app.session.selection.contains(&row.path) {
-                Style::default().bg(Color::DarkGray)
             } else if row.violations.is_some() {
                 // Subdued, not alarming — a soft constraint, never a hard error.
                 Style::default().fg(Color::Yellow)
@@ -672,8 +673,12 @@ pub(crate) fn centered_rect(percent_x: u16, height: u16, r: Rect) -> Rect {
 mod tests {
     use super::*;
     use crate::tui::app::App;
+    use crate::tui::state::Clipboard;
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
+
+    /// Buffer column where a depth-1 row's key glyph lands in the NAME cell.
+    const KEY_X: u16 = 5;
 
     #[test]
     fn highlight_spans_marks_matched_chars() {
@@ -1123,6 +1128,69 @@ mod tests {
         assert!(
             !joined_after.contains("k00"),
             "row scrolled far out of view must not still be drawn: {joined_after:?}"
+        );
+    }
+
+    #[test]
+    fn cursor_selection_and_clip_source_colors_are_distinct_and_composable() {
+        let doc = crate::model::any_doc::AnyDocument::Toml(
+            crate::model::cst_doc::CstDocument::from_str("a = 1\nb = 2\nc = 3\n").unwrap(),
+        );
+        let mut app = App::new(doc);
+        app.select_row(2); // rows[0] is the root; rows[1]=a, rows[2]=b, rows[3]=c — cursor on `b`
+        app.session.selection.toggle(app.row_path(2)); // lock-select the cursor row too
+        app.session.selection.toggle(app.row_path(3)); // and a second, non-cursor row (`c`)
+        let mut terminal = Terminal::new(TestBackend::new(40, 8)).unwrap();
+        terminal.draw(|fr| draw(fr, &app)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        // Locate a tree row by its NAME-cell key, which starts at column 5 for a
+        // depth-1 row (1 selection-marker col + 2 indent + 2 branch marker). Scanning
+        // the whole line instead would also hit the "confy" title and the status bar.
+        let row_y = |needle: &str| -> u16 {
+            (0..8)
+                .find(|&y| buf[(KEY_X, y)].symbol() == needle)
+                .unwrap_or_else(|| panic!("row containing {needle:?} not found in rendered buffer"))
+        };
+        let cursor_y = row_y("b");
+        let locked_only_y = row_y("c");
+        assert_eq!(
+            buf[(0, cursor_y)].bg,
+            Color::Blue,
+            "cursor row must be blue, not the retired grey selection fill"
+        );
+        assert!(
+            (0..40).any(|x| buf[(x, cursor_y)].symbol() == "●"),
+            "locked-selection glyph must still render on a row that is also the cursor"
+        );
+        assert_eq!(
+            buf[(0, locked_only_y)].bg,
+            Color::Reset,
+            "a locked-selection row that is not the cursor must not paint any background fill"
+        );
+    }
+
+    #[test]
+    fn clip_source_colors_do_not_collide_with_cursor_blue() {
+        let doc = crate::model::any_doc::AnyDocument::Toml(
+            crate::model::cst_doc::CstDocument::from_str("a = 1\nb = 2\n").unwrap(),
+        );
+        let mut app = App::new(doc);
+        let a_path = app.row_path(1); // rows[0] is the root; `a` is the first real row
+        app.session.clipboard = Some(Clipboard {
+            fragments: vec!["a = 1\n".into()],
+            cut: false,
+            sources: vec![a_path],
+        });
+        let mut terminal = Terminal::new(TestBackend::new(40, 8)).unwrap();
+        terminal.draw(|fr| draw(fr, &app)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let row_y = (0..8)
+            .find(|&y| buf[(KEY_X, y)].symbol() == "a")
+            .expect("copy-source row not found in rendered buffer");
+        assert_eq!(
+            buf[(0, row_y)].bg,
+            Color::Magenta,
+            "copy source must use its own color, not the cursor's blue"
         );
     }
 }
