@@ -8,6 +8,9 @@ use super::session::Session;
 
 impl Session {
     pub fn undo(&mut self) {
+        if self.guard_clipboard_locked() {
+            return;
+        }
         let snapshot = match self.history.as_mut().and_then(|h| h.undo()) {
             Some(s) => s,
             None => {
@@ -30,6 +33,9 @@ impl Session {
     }
 
     pub fn redo(&mut self) {
+        if self.guard_clipboard_locked() {
+            return;
+        }
         let snapshot = match self.history.as_mut().and_then(|h| h.redo()) {
             Some(s) => s,
             None => {

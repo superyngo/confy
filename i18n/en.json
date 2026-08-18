@@ -27,6 +27,7 @@
   "core.clipboard.copied": "copied {0} node(s)",
   "core.clipboard.empty": "clipboard empty",
   "core.clipboard.cleared": "clipboard cleared",
+  "core.clipboard.action-locked": "action disabled while clipboard is armed — paste (v) or discard (Esc) first",
   "core.move.self": "can't move a node into itself",
   "core.paste.comment-illegal": "paste error: comments can only go into a table or the document",
   "core.paste.collision": "collision on key '{0}' — o/r/c",

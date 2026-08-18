@@ -608,11 +608,25 @@ impl Session {
         }
     }
 
+    /// Returns `true` (and sets `status`) when the clipboard is armed,
+    /// signalling the caller to return early — ADR 0005 §5 modal lock.
+    pub(crate) fn guard_clipboard_locked(&mut self) -> bool {
+        if self.clipboard.is_some() {
+            self.status = Some(tr(self.lang, "core.clipboard.action-locked").to_string());
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn doc_format(&self) -> DocFormat {
         self.doc.as_ref().map_or(DocFormat::Toml, |d| d.format())
     }
 
     pub fn enter_filter(&mut self) {
+        if self.guard_clipboard_locked() {
+            return;
+        }
         self.filter = self.last_filter.clone();
         self.filter_cursor = self.filter.chars().count();
         self.mode = Mode::Filter;
@@ -797,6 +811,9 @@ impl Session {
     }
 
     pub fn enter_type_filter(&mut self) {
+        if self.guard_clipboard_locked() {
+            return;
+        }
         self.mode = Mode::TypeFilter;
         self.recompute_filter();
     }
@@ -831,6 +848,9 @@ impl Session {
     }
 
     pub fn open_kind_switch(&mut self) {
+        if self.guard_clipboard_locked() {
+            return;
+        }
         let Some(path) = self
             .visible_nodes()
             .iter()
@@ -902,6 +922,9 @@ impl Session {
     /// analogue of `open_kind_switch` + `kind_switch_commit`, with no popup dance.
     /// `target` must come from `kind_options(path)`.
     pub fn commit_kind(&mut self, path: Path, target: crate::model::document::KindTarget) {
+        if self.guard_clipboard_locked() {
+            return;
+        }
         self.mode = self.resting_mode();
         let Some(doc) = self.doc.as_mut() else {
             return;
@@ -922,6 +945,9 @@ impl Session {
     }
 
     pub fn open_convert(&mut self) {
+        if self.guard_clipboard_locked() {
+            return;
+        }
         let Some(is_root) = self
             .visible_nodes()
             .iter()
@@ -1105,6 +1131,9 @@ impl Session {
     }
 
     pub fn toggle_detail(&mut self) {
+        if self.guard_clipboard_locked() {
+            return;
+        }
         if matches!(self.mode, Mode::Detail) {
             self.exit_detail();
         } else {
@@ -1113,6 +1142,9 @@ impl Session {
     }
 
     pub fn open_detail(&mut self) {
+        if self.guard_clipboard_locked() {
+            return;
+        }
         let rows = self.visible_nodes();
         let node = match rows.iter().find(|r| r.node.path == self.cursor) {
             Some(r) => r.node,
@@ -1177,6 +1209,9 @@ impl Session {
     }
 
     pub fn enter_help(&mut self) {
+        if self.guard_clipboard_locked() {
+            return;
+        }
         self.mode = Mode::Help(HelpTab::Help);
     }
 

@@ -23,6 +23,9 @@ impl Session {
     }
 
     fn begin_inline_edit_impl(&mut self, allow_schema_enum: bool) {
+        if self.guard_clipboard_locked() {
+            return;
+        }
         let row = match self.cursor_row() {
             Some(r) => r,
             None => return,
@@ -101,6 +104,9 @@ impl Session {
     }
 
     pub fn begin_inline_rename(&mut self) {
+        if self.guard_clipboard_locked() {
+            return;
+        }
         let row = match self.cursor_row() {
             Some(r) => r,
             None => return,
@@ -261,6 +267,9 @@ impl Session {
     /// still fire. Inline path only (the host routes multiline/opaque through the
     /// external-edit handshake).
     pub fn commit_edit(&mut self, value: Option<String>, name: Option<String>) {
+        if self.guard_clipboard_locked() {
+            return;
+        }
         let from_detail = matches!(self.mode, Mode::Detail);
         self.begin_inline_edit_impl(false);
         let Mode::Edit(ref mut e) = self.mode else {
@@ -713,6 +722,9 @@ impl Session {
     }
 
     pub fn nudge(&mut self, delta: i64) {
+        if self.guard_clipboard_locked() {
+            return;
+        }
         let path = match self.cursor_row() {
             Some(r) => r.path,
             None => return,
@@ -787,6 +799,9 @@ impl Session {
     }
 
     fn add_node_impl(&mut self, force_append: Option<bool>) {
+        if self.guard_clipboard_locked() {
+            return;
+        }
         if self.doc.is_none() {
             return;
         }

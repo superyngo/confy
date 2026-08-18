@@ -11,6 +11,9 @@ use super::session::Session;
 
 impl Session {
     pub fn delete_selected(&mut self) {
+        if self.guard_clipboard_locked() {
+            return;
+        }
         if self.cursor_is_read_only() {
             self.status = Some(tr(self.lang, "core.readonly").to_string());
             return;
@@ -116,6 +119,9 @@ impl Session {
     /// source or into its own subtree is rejected; the document is untouched
     /// on any failure.
     pub fn move_selection_to(&mut self, sources: Vec<Path>, target: Path, index: usize, cut: bool) {
+        if self.guard_clipboard_locked() {
+            return;
+        }
         if self.doc.is_none() {
             return;
         }
@@ -418,6 +424,9 @@ impl Session {
     }
 
     pub fn remark(&mut self) {
+        if self.guard_clipboard_locked() {
+            return;
+        }
         if self.cursor_is_read_only() {
             self.status = Some(tr(self.lang, "core.readonly").to_string());
             return;

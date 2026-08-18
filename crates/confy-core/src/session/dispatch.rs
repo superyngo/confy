@@ -352,6 +352,9 @@ impl super::Session {
     /// follow-up `ApplyReplace`/`ApplyEditComment` can complete. Mirrors
     /// `App::edit_node` minus the spawn (§8.2).
     fn begin_external_edit(&mut self) {
+        if self.guard_clipboard_locked() {
+            return;
+        }
         let cursor_path = match self.cursor_row_path() {
             Some(p) => p,
             None => return,

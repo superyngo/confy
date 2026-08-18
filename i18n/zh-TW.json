@@ -27,6 +27,7 @@
   "core.clipboard.copied": "已複製 {0} 個節點",
   "core.clipboard.empty": "剪貼簿為空",
   "core.clipboard.cleared": "剪貼簿已清空",
+  "core.clipboard.action-locked": "剪貼簿使用中，此操作已停用 —— 請先貼上（v）或捨棄（Esc）",
   "core.move.self": "無法將節點移動到自身內",
   "core.paste.comment-illegal": "貼上失敗：comment 只能貼入 table 或文件本身",
   "core.paste.collision": "key '{0}' 發生衝突 —— o/r/c",
