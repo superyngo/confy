@@ -5,8 +5,6 @@ use confy_core::model::document::DocFormat;
 use confy_core::model::node::Seg;
 use confy_core::session::{Intent, Mode, Session};
 
-const STATUS_KEY: &str = "core.clipboard.action-locked";
-
 fn armed_session() -> Session {
     // A TOML doc with at least two scalar keys so copy/cut is meaningful.
     let doc = AnyDocument::from_str_as("a = 1\nb = 2\n", DocFormat::Toml).unwrap();
