@@ -1210,9 +1210,15 @@ function handleTap(target: HTMLElement, row: HTMLElement, clientY: number) {
     if (act === "caret") {
       // Paste mode freezes the selection (core's SetSelection is a no-op
       // there), so it falls back to positioning the paste target instead —
-      // same guard as the plain-tap fallback below (ADR 0004 §1).
+      // same guard as the plain-tap fallback below (ADR 0004 §1). That
+      // never moves the cursor, though, and `ToggleExpand` is cursor-based —
+      // without an explicit `SetCursor` here it kept toggling the frozen
+      // clipboard source instead of whichever branch was actually tapped;
+      // `SetCursor` doesn't disturb the just-armed paste slot (separate
+      // field), so it's safe to send unconditionally.
       if ((snap?.clipboard_count ?? 0) > 0) send(armedTarget());
       else selectOnly(path);
+      send({ SetCursor: path });
       return send("ToggleExpand");
     }
   }

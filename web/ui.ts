@@ -1152,9 +1152,15 @@ function onTreeClick(ev: MouseEvent) {
     focusRow(path, ev);
     return openKindMenuAt(path, r.left, r.bottom + 4);
   }
-  // Caret → toggle expand without editing.
+  // Caret → toggle expand without editing. `focusRow` arms the paste target
+  // (not the cursor) while a clipboard is armed — `SetCursor` never disturbs
+  // that (it's a separate field), and is otherwise a same-path no-op since a
+  // plain click's `SetSelection` already follows the click here — so without
+  // it, `ToggleExpand` (cursor-based) kept toggling the frozen clipboard
+  // source instead of whatever branch was actually clicked.
   if (target.closest("[data-caret]")) {
     focusRow(path, ev);
+    send({ SetCursor: path });
     return send("ToggleExpand");
   }
   // Editable cells: key → rename, value/comment-node → inline edit, trailing
@@ -1292,20 +1298,28 @@ function focusInlineEdit() {
 // cover its real value (bug: schema-enum picker relocates onto next click).
 // `blur` fires synchronously on mousedown, before that click's own handler
 // runs, so cancelling here (mirroring Escape) beats the cursor move. A commit
-// or an own Escape keypress already dispatches its own intent — guard with a
-// `settled` flag (set as the *first* thing each does) rather than checking
-// `document.contains(select)`: committing re-renders the row (the picked
-// option changes the generated HTML, so `renderTree`'s reconciliation
-// replaces the row element), and that replacement's removal fires this same
-// `blur` *while `select` is still connected* — `document.contains` can't
-// tell a genuine click-away from our own commit's incidental blur.
+// or an own Escape keypress already dispatches its own intent, so a plain
+// click-away must be told apart from `blur`s the picker causes on itself —
+// and it causes them constantly: every `SchemaEnumMove` (cursor-key or
+// click-driven option change) re-renders *while still in* `Mode::SchemaEnum`,
+// which re-runs this function and rebinds a fresh `<select>` — so the old one
+// is removed from the DOM mid-`onchange`, and a still-in-flight
+// `SchemaEnumCommit` right after does the same again when it leaves the mode
+// entirely. Chromium fires `blur` synchronously on that removal (Firefox/
+// Safari don't), so naively cancelling on every `blur` — or gating on the
+// `snap.mode` read *at that instant* — both fire mid-flight, before the
+// commit/rebind two lines later gets to finish, cancelling the type-change
+// confirmation the moment it opens. Deferred via `queueMicrotask`, the check
+// instead runs once every synchronous `send`/re-render this `blur` is part of
+// has settled: only cancel when the mode is *still* `SchemaEnum` and no
+// schema-enum select currently holds focus — i.e. this really was the last
+// word (a genuine click/tab-away), not a mid-flight rebind or a commit that
+// already moved the mode on.
 function focusSchemaEnumSelect() {
   const select = tree.querySelector("select[data-schema-enum]") as HTMLSelectElement | null;
   if (!select) return;
   select.focus();
-  let settled = false;
   select.onchange = () => {
-    settled = true;
     const idx = Number(select.value);
     const current = snap && typeof snap.mode === "object" && "SchemaEnum" in snap.mode ? snap.mode.SchemaEnum.cursor : 0;
     send({ SchemaEnumMove: idx - current });
@@ -1314,13 +1328,16 @@ function focusSchemaEnumSelect() {
   select.onkeydown = (e) => {
     if (e.key === "Escape") {
       e.preventDefault();
-      settled = true;
       send("Escape");
     }
   };
   select.onblur = () => {
-    if (settled) return;
-    send("Escape");
+    queueMicrotask(() => {
+      const stillOpen = snap && typeof snap.mode === "object" && "SchemaEnum" in snap.mode;
+      if (!stillOpen) return;
+      const stillFocused = document.activeElement === tree.querySelector("select[data-schema-enum]");
+      if (!stillFocused) send("Escape");
+    });
   };
 }
 

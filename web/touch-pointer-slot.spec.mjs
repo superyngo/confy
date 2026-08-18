@@ -213,8 +213,11 @@ console.log("\n-- caret tap while armed positions the paste target too --");
   mod.setEnv({ session: sessionStub(() => ({ Into: [{ Key: "a" }] }), []), snap: { clipboard_count: 1 } });
   mod.handleTap(caretTap, rowAt("a", 100, 40), 120);
   check(
-    "armed caret tap sends SetPasteSlot then ToggleExpand",
-    H.sent.length === 2 && eq(H.sent[0], { SetPasteSlot: { Into: [{ Key: "a" }] } }) && H.sent[1] === "ToggleExpand",
+    "armed caret tap sends SetPasteSlot then SetCursor then ToggleExpand",
+    H.sent.length === 3 &&
+      eq(H.sent[0], { SetPasteSlot: { Into: [{ Key: "a" }] } }) &&
+      eq(H.sent[1], { SetCursor: [{ Key: "a" }] }) &&
+      H.sent[2] === "ToggleExpand",
     JSON.stringify(H.sent),
   );
   check("armed caret tap does not re-freeze the selection (no selectOnly)", !H.ops.some((o) => o.startsWith("selectOnly")));
@@ -229,7 +232,10 @@ console.log("\n-- caret tap while armed positions the paste target too --");
   mod.handleTap(caretTap, rowAt("a", 100, 40), 120);
   check(
     "disarmed caret tap still selects + expands",
-    H.sent.length === 1 && H.sent[0] === "ToggleExpand" && H.ops.some((o) => o.startsWith("selectOnly")),
+    H.sent.length === 2 &&
+      eq(H.sent[0], { SetCursor: [{ Key: "a" }] }) &&
+      H.sent[1] === "ToggleExpand" &&
+      H.ops.some((o) => o.startsWith("selectOnly")),
     JSON.stringify({ sent: H.sent, ops: H.ops }),
   );
 }
