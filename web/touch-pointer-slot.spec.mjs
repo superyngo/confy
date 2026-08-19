@@ -107,6 +107,7 @@ let reMoved = false;
 let reTarget = null;
 let reMode = "before";
 let reInto = null;
+let edgeScrollY = 0;
 const H = globalThis.__touchHooks;
 const send = (i) => H.sent.push(i);
 const sendR = (i) => { H.sent.push(i); return H.snapAfter ?? {}; };

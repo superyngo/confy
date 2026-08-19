@@ -212,9 +212,6 @@ pub enum Intent {
     /// unchanged (never panics).
     SetLang(String),
     // Schema
-    SetSchema {
-        source: crate::schema::SchemaSource,
-    },
     SchemaLoaded {
         source: crate::schema::SchemaSource,
         text: Result<String, String>,

@@ -347,26 +347,20 @@ check("about_text() mentions the GitHub repo", aboutText.includes("github.com/su
   sb.free();
 }
 
-// ---- 26. JSON Schema: SetSchema/SchemaLoaded/SchemaEnumMove/SchemaEnumCommit
+// ---- 26. JSON Schema: SchemaLoaded/SchemaEnumMove/SchemaEnumCommit
 // wire contract (Task 12, 2026-08-11 audit remediation). Nothing previously
-// proved SchemaLoaded/SetSchema/SchemaEnum round-trip through serde-wasm-
+// proved SchemaLoaded/SchemaEnum round-trip through serde-wasm-
 // bindgen the way the rest of the Intent surface does, despite thorough
 // core-layer coverage in schema_headless.rs.
 {
   const s20 = new ConfySession('{"kind": "cat"}', "json");
-
-  // SetSchema queues a host fetch — the source comes back on schema_fetch_request.
-  let snap20 = s20.dispatch(tuple("SetSchema", { source: { Local: "pet.schema.json" } }));
-  check("SetSchema surfaces schema_fetch_request",
-    JSON.stringify(snap20.schema_fetch_request) === JSON.stringify({ Local: "pet.schema.json" }),
-    JSON.stringify(snap20.schema_fetch_request));
 
   // Host resolves it and hands the text back via SchemaLoaded.
   const schemaText = JSON.stringify({
     type: "object",
     properties: { kind: { type: "string", enum: ["cat", "dog"] } },
   });
-  snap20 = s20.dispatch(tuple("SchemaLoaded", {
+  let snap20 = s20.dispatch(tuple("SchemaLoaded", {
     source: { Local: "pet.schema.json" },
     text: { Ok: schemaText },
   }));

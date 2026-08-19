@@ -99,6 +99,8 @@ let pasteDragActive = false;
 let pasteDragStartY = 0;
 let pasteDragMoved = false;
 let pasteDragRow = null;
+let edgeScrollY = 0;
+let edgeScrollRAF = null;
 let swiping = false;
 let swipeMain = null;
 let swipeBase = 0;
@@ -167,6 +169,9 @@ const openMenuSheet = () => H.ops.push("openMenuSheet");
 const openOpenSheet = () => H.ops.push("openOpenSheet");
 const toggleTheme = () => H.ops.push("toggleTheme");
 const setRawView = (v) => { rawView = v; };
+const edgeAutoScrollStep = () => {};
+const kickEdgeAutoScroll = () => {};
+const requestAnimationFrame = (fn) => 0;
 
 export function setEnv(e) {
   session = e.session ?? session;

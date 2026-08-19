@@ -121,7 +121,22 @@ const PASTE_IC =
 const { batch, isBatching } = createBatcher(render);
 function send(i: Intent) {
   if (!session) return;
+  const preClip = snap?.clipboard_count ?? 0;
   snap = session.dispatch(i);
+  // Mirrors `web/ui.ts`'s `send()` (ROW_STATE_MODEL.md §6d): a paste that just
+  // landed re-selects the pasted/moved batch so it stays visibly highlighted.
+  // Purely client-side and ephemeral — safe here for the same reason it's safe
+  // on desktop: every ordinary tap already collapses `Selection` to a single
+  // path via `selectOnly()`, so this never outlives the tap that follows it.
+  if (preClip > 0 && !(snap.clipboard_count ?? 0) && !snap.error && snap.mode === "Normal") {
+    const parent = snap.cursor.slice(0, -1);
+    const siblings = session.children(parent).map((c) => c.path);
+    const idx = siblings.findIndex((p) => JSON.stringify(p) === JSON.stringify(snap!.cursor));
+    if (idx >= 0) {
+      const pasted = siblings.slice(idx, idx + preClip);
+      snap = session.dispatch({ SetSelection: { paths: pasted } });
+    }
+  }
   if (!isBatching()) render();
 }
 // Dispatch and return the resulting snapshot (the shared panel.ts contract reads
@@ -729,36 +744,13 @@ function openSaveSheet() {
   openSheet("save");
 }
 
-// "Attach schema…" — prompt for a path or URL to a JSON Schema file and
-// dispatch `SetSchema`; the host resolves the request via `schema_fetch_request`
-// on the next snapshot. Mirrors the desktop attach flow; the label is a
-// hard-coded string (not `t(...)`) because adding i18n keys is out of this
-// task's file scope (deferred i18n item).
-function attachSchema() {
-  const choice = prompt("Path or URL to a JSON Schema file:");
-  if (!choice) return;
-  const source = choice.startsWith("http://") || choice.startsWith("https://")
-    ? { Url: choice }
-    : { Local: choice };
-  closeSheets();
-  send({ SetSchema: { source } });
-}
-
 function openMenuSheet() {
-  const folded = foldedEntries(MENU_CANDIDATES, isFolded);
-  // `Attach schema…` is appended as a synthetic, always-present entry that lives
-  // only in this local `items` array — it is NOT a `ToolbarEntry` in
-  // `MENU_CANDIDATES` (it has no matching physical toolbar button), so it stays
-  // immune to the toolbar-fold invariant enforced by `toolbar-fold.spec.mjs`.
-  const items = [
-    ...folded,
-    { icon: IC.filter, label: "Attach schema…", run: attachSchema },
-  ];
+  const items = foldedEntries(MENU_CANDIDATES, isFolded);
   sheets.menu.innerHTML =
     '<div class="grab"></div>' +
     `<div class="sheet-head"><h3>${t("web.toolbar.more.title")}</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
     '<div class="sheet-body">' +
-    items.map((c, i) => mi(c.icon ?? "", "labelKey" in c ? t(c.labelKey) : c.label, "", String(i))).join("") +
+    items.map((c, i) => mi(c.icon ?? "", t(c.labelKey), "", String(i))).join("") +
     "</div>";
   sheets.menu.querySelectorAll<HTMLElement>(".menu-item").forEach((it) => {
     it.addEventListener("click", () => {
@@ -953,6 +945,54 @@ let pasteDragActive = false,
   pasteDragStartY = 0,
   pasteDragMoved = false,
   pasteDragRow: HTMLElement | null = null;
+// Edge auto-scroll while dragging (§6b follow-up, ADR 0005 §6, unified with
+// grip reorder below): a live rAF loop, distinct from the pointermove-driven
+// previews below it — the finger can sit still at `treePane`'s edge while
+// content keeps scrolling under it, which no pointermove event would ever
+// drive. Shared by both drag gestures that read pixel Y against the live
+// tree (armed-paste body-drag and grip reorder), since `reordering` and
+// `pasteDragActive` are mutually exclusive (a grip press never arms
+// `pasteDragActive`, see installTreeGestures) - so desktop's native-DnD
+// auto-scroll (a browser feature `web/dnd.ts` gets for free) and touch's
+// two custom drags now behave identically. Self-terminates the frame once
+// neither drag is active anymore (pointerup/pointercancel already clear
+// both), so no explicit cancelAnimationFrame bookkeeping is needed. Safe
+// against the render()-triggered scrollTop-restore latch (`web/touch/app.ts`
+// render(), ~line 429) because neither `onPasteDragMove` nor `onReorderMove`
+// dispatches mid-drag — only release does, by which point this loop has
+// already stopped.
+let edgeScrollRAF: number | null = null;
+let edgeScrollY = 0;
+const EDGE_SCROLL_ZONE = 44;
+const EDGE_SCROLL_MAX_SPEED = 16;
+function edgeAutoScrollStep() {
+  if (!pasteDragActive && !reordering) {
+    edgeScrollRAF = null;
+    return;
+  }
+  const rect = treePane.getBoundingClientRect();
+  const distTop = edgeScrollY - rect.top;
+  const distBottom = rect.bottom - edgeScrollY;
+  let dy = 0;
+  if (distTop < EDGE_SCROLL_ZONE && treePane.scrollTop > 0) {
+    dy = -EDGE_SCROLL_MAX_SPEED * (1 - Math.max(distTop, 0) / EDGE_SCROLL_ZONE);
+  } else if (distBottom < EDGE_SCROLL_ZONE && treePane.scrollTop < treePane.scrollHeight - treePane.clientHeight) {
+    dy = EDGE_SCROLL_MAX_SPEED * (1 - Math.max(distBottom, 0) / EDGE_SCROLL_ZONE);
+  }
+  if (dy !== 0) {
+    treePane.scrollTop += dy;
+    // The finger is stationary while rows shift under it — refresh whichever
+    // drag's live preview is active against the same y (past its own dead
+    // zone, since a drag is already in progress).
+    if (pasteDragActive) onPasteDragMove(edgeScrollY);
+    else onReorderMove(edgeScrollY);
+  }
+  edgeScrollRAF = requestAnimationFrame(edgeAutoScrollStep);
+}
+function kickEdgeAutoScroll(y: number) {
+  edgeScrollY = y;
+  if (edgeScrollRAF === null) edgeScrollRAF = requestAnimationFrame(edgeAutoScrollStep);
+}
 // Double-tap detection (item 6): same path within DOUBLE_TAP_MS opens the panel.
 let lastTapKey: string | null = null;
 let lastTapTime = 0;
@@ -1021,8 +1061,10 @@ function startReorder(e: PointerEvent, row: HTMLElement) {
   } catch (_) {
     /* ignore */
   }
+  kickEdgeAutoScroll(e.clientY);
 }
 function onReorderMove(y: number) {
+  edgeScrollY = y;
   if (!reLine || !reSrcPath) return;
   if (Math.abs(y - reStartY) < 6 && !reMoved) {
     reLine.style.display = "none";
@@ -1135,6 +1177,7 @@ function endReorder() {
 // same fallback-to-committed behavior as `onArmedPasteHover` when the hit
 // resolves to nothing classifiable.
 function onPasteDragMove(y: number) {
+  edgeScrollY = y;
   if (Math.abs(y - pasteDragStartY) < 6 && !pasteDragMoved) return;
   pasteDragMoved = true;
   const rows = Array.prototype.filter.call(
@@ -1197,6 +1240,7 @@ function installTreeGestures() {
     pasteDragStartY = e.clientY;
     pasteDragMoved = false;
     pasteDragRow = null;
+    if (pasteDragActive) kickEdgeAutoScroll(e.clientY);
     const tgt = e.target as HTMLElement;
     // A tap can land on the visible row-main OR (when already swiped open) on the
     // revealed `.row-del` behind it — both map to the same row.

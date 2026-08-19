@@ -87,6 +87,21 @@ currently emits neither); the pre-existing dead `.row.cut` rule (`touch/style.cs
 never emitted by any code path) is removed, not repurposed — the live class names stay
 `clip-cut`/`clip-copy` to match desktop's.
 
+### 3a. While armed, the target cue outranks the plain Cursor/hover fill
+
+`PasteSlot` targeting (§6) and state #1 (Cursor) both want the same full-row fill
+slot on the same row whenever the target happens to sit under the cursor or the
+pointer — so armed mode (state #4) suppresses the plain Cursor/hover fill
+everywhere except the row(s) actually carrying `Into`/`After`, leaving the green
+target cue as the only full-row highlight while `clipboard.is_some()`. TUI already
+had this precedence (`tui/ui.rs`'s `active_slot.is_some() => base` arm predates
+this model); desktop/touch were brought up to match it — `body:not(.paste-mode)
+.row.cursor`/`.row:hover` (`web/style.css`) and `.app:not(.paste-mode) .row.cursor`
+(`web/touch/style.css`) gate the plain fill off entirely once armed, rather than
+letting it collide with or dim under the target cue. Cut/copy source (#5) and the
+Locked-selection marker (#3) are unaffected — only the plain Cursor/hover fill is
+suppressed.
+
 ## 4. Keybindings
 
 | Key | Current TUI | Current desktop | Target |
@@ -151,14 +166,80 @@ inventing a new gesture:
   mirroring the existing `closest('.drag-handle')` gate (`web/touch/app.ts:1076`) that
   already keeps reorder-drag and tap mutually exclusive today.
 
-### 6c. Deferred, not part of this implementation
+### 6c. Edge auto-scroll — touch only, implemented; desktop/TUI need no equivalent
 
-**Auto-scroll on edge-drag** — no such mechanism exists anywhere in the repo (touch or
-desktop; desktop's native HTML5 drag gets it for free from the browser, which is why
-nobody hand-rolled it — `web/dnd.ts` has none). Building it also has to teach the
-existing scroll-position-restore-on-every-render latch (`web/touch/app.ts:424-427`)
-about an in-flight drag, or the two will fight. Recorded here as a known follow-up;
-explicitly not scheduled by the task list below.
+**Auto-scroll on edge-drag** (touch's armed-paste body-drag, §6b, and its
+reorder-grip drag) shares one `requestAnimationFrame` loop (`web/touch/app.ts` —
+`edgeScrollY`/`edgeScrollRAF`/`edgeAutoScrollStep`/`kickEdgeAutoScroll`): while
+either drag is active, the loop nudges `.tree-pane`'s `scrollTop` toward whichever
+edge the pointer sits near (speed ramps up closer to the edge) and re-runs that
+drag's own hit-test (`onPasteDragMove`/`onReorderMove`) each tick against the same
+pointer position, since content shifts under an otherwise-stationary finger; it
+self-terminates once neither drag is active. It does **not** fight the existing
+scroll-position-restore-on-render latch (`web/touch/app.ts:424-427`) because
+neither drag's hit-test dispatches mid-gesture — only release does, and `render()`
+only runs after a dispatch.
+
+Desktop and TUI were deliberately never given an equivalent, not because of an
+oversight but because each already solves "the target might be off-screen"
+differently, appropriately to its own input model:
+
+- **Desktop** grip-reorder uses native HTML5 drag-and-drop (`web/dnd.ts`), which
+  gets edge auto-scroll for free from the browser over a scrollable container —
+  building a hand-rolled version would duplicate what the platform already does.
+  Desktop's armed-paste targeting (§6a) is hover-driven, not drag-driven, so there
+  is no in-flight gesture to auto-scroll during in the first place — the pointer
+  simply isn't a candidate row yet if it's off-screen, exactly like clicking
+  anything off-screen.
+- **TUI** has no pointer drag at all — targeting is keyboard-only (`PasteSlot`
+  arrow-key stepping, or the tree cursor), and the TUI's viewport already
+  auto-follows the cursor/paste-slot on every navigation step (a pre-existing,
+  unrelated mechanism, not part of this model) — an off-screen target becomes
+  on-screen the moment a key press moves onto it, so there is no drag-scroll gap
+  to fill.
+
+### 6d. Post-paste highlight — desktop-only, new
+
+After a `Paste` lands, core's `do_paste` (`clipboard.rs:383-411`) uniformly
+expands every collapsed ancestor of the destination and places `cursor` on the
+first pasted/moved node — but deliberately does **not** select the pasted set
+(`self.selection.clear()` runs unconditionally on every paste/move). This is the
+fix for the `e6f4965`/`27f1b50` bug (ADR 0004's Consequences section): a real, persistent,
+core-level `Selection` covering the pasted nodes previously survived plain
+cursor-only arrow-key navigation with nothing to clear it, so a later cut/copy/
+rename could silently operate on a stale set. Ancestor-expand and cursor placement
+are core-level and already uniform across all three hosts; the Selection-clear is
+too — none of that is host-specific and none of it changed by what follows.
+
+**Desktop** (`web/ui.ts`'s `send()`) additionally re-selects the just-pasted set as
+a purely client-side, purely ephemeral compensating layer: after a dispatch whose
+`clipboard_count` just dropped to 0 with no error and `mode === "Normal"`, it reads
+the landing siblings via `session.children(parent)` and issues one extra
+`SetSelection`, painting the Locked-selection marker (§3) around every pasted node
+so the just-landed batch stays visible. This is safe *only* because desktop's
+keyboard/click navigation (`navSelect`, `web/ui.ts:937-941`; `onTreeClick`'s plain
+click path) unconditionally re-issues a fresh one-path `SetSelection` on every
+subsequent nav step or click — so this extra Selection never outlives the single
+gesture that follows it, unlike the reverted bug. It is a client-side echo of
+`clipboard_count`, not a new core field or `Intent`.
+
+**Touch and TUI do not have this.** The two hosts are not symmetric, though:
+
+- **Touch** now has this too — `web/touch/app.ts`'s `send()` mirrors desktop's
+  compensator verbatim, safe for the identical reason: touch's own tap handling
+  (`selectOnly()`, `web/touch/app.ts:501-505`) already collapses `Selection` to a
+  single path on every tap, the same self-clearing guarantee desktop relies on.
+- **TUI cannot adopt the identical pattern safely.** `cursor_down`/`cursor_up`
+  (`session.rs:299-332`) never touch `Selection` at all — a Locked selection set
+  via `s` is *meant* to persist across arrow-key navigation until the user
+  explicitly toggles it off or presses Esc (that persistence is how the TUI's
+  own select-a-range-then-`x`/`c` workflow works). Reusing the desktop compensator
+  verbatim would reintroduce exactly the `e6f4965`/`27f1b50` failure mode inside
+  the TUI: a post-paste Selection with no code path that ever clears it on plain
+  nav. Giving TUI equivalent visual feedback, if wanted, needs a TUI-native
+  mechanism that does not reuse the real `Selection` field (e.g. a host-local,
+  frame-limited flash independent of core state) — a materially different,
+  bigger change than "call the same compensator," not a gap in this phase.
 
 ## 7. Worked example: bug 3 as a regression case for this model
 
@@ -214,7 +295,18 @@ Consequences.
         `onReorderMove`'s live classify-and-repaint loop; release sets/refines only.
   - [x] Move caret disambiguation to pointerdown (`closest('.caret')` bail, mirroring
         the existing `.drag-handle` gate).
-- [ ] **Docs sync** (do in the same change as the phase that ships it, not after —
+- [x] **Ad hoc, outside the original 5-phase plan — shipped after Phase 5**
+  - [x] Touch edge auto-scroll (§6c) — shared `requestAnimationFrame` loop for
+        both the armed-paste body-drag and the reorder-grip drag; §6c's original
+        "deferred" note is superseded.
+  - [x] Desktop post-paste highlight (§6d) — client-side, ephemeral.
+  - [x] Touch post-paste highlight (§6d) — same client-side pattern, ported
+        verbatim into `web/touch/app.ts`'s `send()`; TUI intentionally excluded
+        (§6d explains why).
+  - [x] Desktop marquee now bails on an armed-clipboard mousedown
+        (`web/ui.ts`'s `installMarquee`), matching every other §5-guarded
+        affordance — closes the one gap the integration audit found.
+- [x] **Docs sync** (do in the same change as the phase that ships it, not after —
       per ADR 0004's own lesson about docstring drift):
   - [x] `TUI.md`'s "Multi-select"/"Clipboard / paste" render-cue prose, once Phase 1
         ships (completed in Phase 1 final review).
@@ -223,7 +315,16 @@ Consequences.
 
 ## 9. Out of scope
 
-- Auto-scroll on edge-drag (§6c) — recorded, not scheduled.
+- Auto-scroll on edge-drag (§6c) — **implemented for touch**; desktop/TUI need no
+  equivalent (§6c explains why). No longer an open item.
+- §6d's post-paste highlight is now on both desktop and touch; TUI stays a
+  documented, deliberate asymmetry — not revisited unless real TUI users report
+  losing track of a multi-node paste (§6d explains why porting it verbatim would
+  be unsafe there).
+- Desktop's marquee (`web/select.ts`/`web/ui.ts`'s `installMarquee`) now guards
+  `clipboard_count`/`paste-mode` like every other affordance §5 disables while
+  armed — found and fixed via the integration audit
+  (`docs/superpowers/audits/2026-08-19-clipboard-row-state-integration-audit.md`).
 - Any change to node-kind/format mutation mechanics, `PasteSlot`/`Into`/`After`
   targeting semantics, or the AoT atomic-move behavior — all owned by ADR 0004,
   `CONTEXT.md`, `BEHAVIOR_MATRIX.md`, untouched here.

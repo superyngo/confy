@@ -3,7 +3,7 @@
 //   1. dnd.ts onDragStart is prevented (no reorder drag in paste mode).
 //   2. ui.ts onTreeContext (right-click) is suppressed and sets the action-locked status.
 //   3. ui.ts onTreeClick kind badge click is suppressed and sets the action-locked status.
-//   4. ui.ts toolbar buttons (Undo, Redo, AttachSchema) are guarded and set status.
+//   4. ui.ts toolbar buttons (Undo, Redo) are guarded and set status.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -57,9 +57,10 @@ check(
   /function uiRedo\(\)\s*\{[\s\S]*?clipboard_count[\s\S]*?setStatus\(t\("core\.clipboard\.action-locked"\)/.test(uiTs),
 );
 
+
 check(
-  "ui.ts attachSchema guards clipboard_count > 0",
-  /function attachSchema\(\)\s*\{[\s\S]*?clipboard_count[\s\S]*?setStatus\(t\("core\.clipboard\.action-locked"\)/.test(uiTs),
+  "ui.ts installMarquee bails on paste-mode before arming a drag",
+  /function installMarquee\(\)[\s\S]*?mousedown"[\s\S]*?paste-mode[\s\S]*?sx = ev\.clientX/.test(uiTs),
 );
 
 // ---- (b) Behavioral checks: dnd.ts dragstart under paste-mode ----
@@ -183,13 +184,7 @@ console.log("\n-- behavioral: ui.ts toolbar & menu modal lock --");
   let sent = [];
   const send = (i) => sent.push(i);
 
-  let promptCalled = false;
-  globalThis.prompt = () => {
-    promptCalled = true;
-    return "test.json";
-  };
-
-  // Simulate uiUndo / uiRedo / attachSchema logic as in ui.ts
+  // Simulate uiUndo / uiRedo logic as in ui.ts
   const makeHelpers = (snap) => ({
     uiUndo: () => {
       if (snap && (snap.clipboard_count ?? 0) > 0) {
@@ -204,15 +199,6 @@ console.log("\n-- behavioral: ui.ts toolbar & menu modal lock --");
         return;
       }
       send("Redo");
-    },
-    attachSchema: () => {
-      if (snap && (snap.clipboard_count ?? 0) > 0) {
-        setStatus(t("core.clipboard.action-locked"), "");
-        return;
-      }
-      const choice = prompt("Path or URL to a JSON Schema file:");
-      if (!choice) return;
-      send({ SetSchema: { source: { Local: choice } } });
     },
   });
 
@@ -232,14 +218,6 @@ console.log("\n-- behavioral: ui.ts toolbar & menu modal lock --");
   check("uiRedo while armed sets action-locked status", statusSet.some((s) => s.status.includes("action disabled")));
   check("uiRedo while armed does not send Redo intent", sent.length === 0);
 
-  statusSet = [];
-  sent = [];
-  promptCalled = false;
-  armed.attachSchema();
-  check("attachSchema while armed sets action-locked status", statusSet.some((s) => s.status.includes("action disabled")));
-  check("attachSchema while armed does not open prompt", promptCalled === false);
-  check("attachSchema while armed does not send SetSchema", sent.length === 0);
-
   // Test with clipboard unarmed
   const unarmedSnap = { clipboard_count: 0 };
   const unarmed = makeHelpers(unarmedSnap);
@@ -254,12 +232,79 @@ console.log("\n-- behavioral: ui.ts toolbar & menu modal lock --");
   unarmed.uiRedo();
   check("uiRedo while unarmed sends Redo intent", sent.includes("Redo"));
 
-  statusSet = [];
-  sent = [];
-  promptCalled = false;
-  unarmed.attachSchema();
-  check("attachSchema while unarmed calls prompt", promptCalled === true);
-  check("attachSchema while unarmed sends SetSchema", sent.some((i) => i?.SetSchema));
+}
+
+// ---- (d) Behavioral checks: installMarquee bails while armed ----
+console.log("\n-- behavioral: installMarquee modal lock --");
+{
+  const marqueeBlock = uiTs.match(/^function installMarquee\(\)[\s\S]*?\n\}/m)?.[0];
+  check("installMarquee extracted verbatim", !!marqueeBlock);
+
+  const windowListeners = {};
+  const sent = [];
+  const rawView = false;
+  const snap = { rows: [{ path: [{ Key: "a" }], selected: false }] };
+
+  const boxStyle = { display: "" };
+  const wrap = {
+    addEventListener: () => {},
+    getBoundingClientRect: () => ({ top: 0, left: 0 }),
+    scrollLeft: 0,
+    scrollTop: 0,
+  };
+  const treeListeners = {};
+  wrap.addEventListener = (t, fn) => (treeListeners[t] = fn);
+  const box = { style: boxStyle };
+  const $ = (id) => (id === "treeWrap" ? wrap : box);
+  const windowStub = { addEventListener: (t, fn) => (windowListeners[t] = fn) };
+  const tree = {};
+  const send = (i) => sent.push(i);
+  const rowsInRect = () => [];
+  const setAnchor = () => {};
+
+  const src = `const $ = (id) => (id === "treeWrap" ? wrapStub : boxStub);
+let wrapStub, boxStub, tree, send, rowsInRect, setAnchor, rawView, snap, suppressClick;
+export function setEnv(e) {
+  wrapStub = e.wrap; boxStub = e.box; tree = e.tree;
+  send = e.send; rowsInRect = e.rowsInRect; setAnchor = e.setAnchor;
+  rawView = e.rawView; snap = e.snap; suppressClick = false;
+}
+const document = { body: { classList: { contains: (c) => e_bodyClasses.has(c) } } };
+let e_bodyClasses = new Set();
+export function setPasteMode(on) { on ? e_bodyClasses.add("paste-mode") : e_bodyClasses.delete("paste-mode"); }
+${marqueeBlock ?? "function installMarquee() {}"}
+export { installMarquee };
+`;
+  globalThis.window = windowStub;
+  const built = await esbuild.build({
+    stdin: { contents: src, resolveDir: here, loader: "ts" },
+    write: false,
+    format: "esm",
+    target: "es2022",
+  });
+  const modUrl = "data:text/javascript;base64," + Buffer.from(built.outputFiles[0].text).toString("base64");
+  const mod = await import(modUrl);
+
+  mod.setEnv({ wrap, box, tree, send, rowsInRect, setAnchor, rawView, snap });
+  mod.installMarquee();
+  const mousedown = treeListeners["mousedown"];
+  check("mousedown listener registered", typeof mousedown === "function");
+
+  // Armed: mousedown must not arm the drag, at all — a subsequent mousemove
+  // must never see `active`, so window listeners must never fire a repaint.
+  mod.setPasteMode(true);
+  mousedown({ button: 0, clientX: 10, clientY: 10, target: { closest: () => null } });
+  if (windowListeners["mousemove"]) {
+    windowListeners["mousemove"]({ clientX: 20, clientY: 20 });
+  }
+  check("box never shown after an armed mousedown + move past the drag tolerance", boxStyle.display !== "block");
+
+  // Unarmed: mousedown arms the drag, a real move past tolerance shows the box.
+  mod.setPasteMode(false);
+  boxStyle.display = "";
+  mousedown({ button: 0, clientX: 10, clientY: 10, target: { closest: () => null } });
+  windowListeners["mousemove"]({ clientX: 30, clientY: 30 });
+  check("box shown after an unarmed mousedown + move past the drag tolerance", boxStyle.display === "block");
 }
 
 console.log(failures === 0 ? "\nALL MODAL-LOCK CHECKS PASSED" : `\n${failures} FAILURES`);

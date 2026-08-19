@@ -690,18 +690,6 @@ fn dispatch_schema_loaded_populates_snapshot_status_and_row_warnings() {
 }
 
 #[test]
-fn dispatch_set_schema_requests_a_fetch() {
-    let mut s = session_from("port = 1\n", DocFormat::Toml);
-    let snap = s.dispatch(Intent::SetSchema {
-        source: SchemaSource::Local("./explicit.json".into()),
-    });
-    assert_eq!(
-        snap.schema_fetch_request,
-        Some(SchemaSource::Local("./explicit.json".into()))
-    );
-}
-
-#[test]
 fn begin_edit_external_forces_the_popup_editor_for_an_enum_constrained_scalar() {
     use confy_core::session::state::Mode;
     let mut s = session_from("level = \"debug\"\n", DocFormat::Toml);

@@ -117,6 +117,10 @@ let treeEl = null;
 let treePane = null;
 let sx = 0, sy = 0, dragRow = null, dragging = false, moved = false;
 let pasteDragActive = false, pasteDragStartY = 0, pasteDragMoved = false, pasteDragRow = null;
+let edgeScrollY = 0, edgeScrollRAF = null;
+function edgeAutoScrollStep() {}
+function kickEdgeAutoScroll() {}
+function requestAnimationFrame(fn) { return 0; }
 let lastTapKey = null, lastTapTime = 0;
 const DOUBLE_TAP_MS = 300;
 let swiping = false, swipeMain = null, swipeBase = 0, swipeOff = 0, openSwipeMain = null;

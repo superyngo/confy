@@ -109,7 +109,6 @@ const themeBtn = $<HTMLButtonElement>("btnTheme");
 const langBtn = $<HTMLButtonElement>("btnLang");
 const langLabel = $("langLabel");
 const openBtn = $<HTMLButtonElement>("btnOpen");
-const attachSchemaBtn = $<HTMLButtonElement>("btnAttachSchema");
 const saveBtn = $<HTMLButtonElement>("btnSave");
 const saveAsBtn = $<HTMLButtonElement>("btnSaveAs");
 const FS_AVAILABLE = fsAccessAvailable();
@@ -727,7 +726,29 @@ function onKey(ev: KeyboardEvent) {
 
 function send(i: Intent) {
   if (!session) return;
+  const preClip = snap?.clipboard_count ?? 0;
   snap = session.dispatch(i);
+  // A paste that just landed (direct `v`/menu `Paste`, or a collision prompt
+  // resolved via `PromptKey`) consumed an armed clipboard and dropped its
+  // nodes contiguously at `snap.cursor` within its parent (mirrors
+  // `do_paste`'s own landing-slot arithmetic, `clipboard.rs`) — select them
+  // so the just-pasted set stays visibly highlighted. Deliberately a real
+  // `SetSelection`, not a parallel flag: desktop's `navSelect`/`focusRow`
+  // (below/above) already collapse `Selection` onto the cursor on the very
+  // next plain nav or click, so this never outlives the gesture that
+  // follows — unlike the `e6f4965`/`27f1b50` bug, where core-side
+  // `Selection` survived cursor-only arrow-key movement with no such
+  // compensator (TUI has none either, which is why this stays desktop-only,
+  // client-side, and untouched at the core/`do_paste` level).
+  if (preClip > 0 && !(snap.clipboard_count ?? 0) && !snap.error && snap.mode === "Normal") {
+    const parent = snap.cursor.slice(0, -1);
+    const siblings = session.children(parent).map((c) => c.path);
+    const idx = siblings.findIndex((p) => JSON.stringify(p) === JSON.stringify(snap!.cursor));
+    if (idx >= 0) {
+      const pasted = siblings.slice(idx, idx + preClip);
+      snap = session.dispatch({ SetSelection: { paths: pasted } });
+    }
+  }
   if (!isBatching()) {
     render();
     notifyHost();
@@ -1059,24 +1080,6 @@ function openUrlModal() {
   input.value = "";
   $("url-modal").classList.remove("hidden");
   input.focus();
-}
-// "Attach schema…" — prompt for a path or URL to a JSON Schema file and
-// dispatch `SetSchema`. The host resolves the request via
-// `schema_fetch_request` on the next snapshot (render()'s resolver hook),
-// completing the SetSchema → SchemaLoaded round-trip. Mirrors the touch
-// attach flow; the prompt string is hard-coded (not `t(...)`) because adding
-// i18n keys is out of this task's file scope (deferred i18n item).
-function attachSchema() {
-  if (snap && (snap.clipboard_count ?? 0) > 0) {
-    setStatus(t("core.clipboard.action-locked"), "");
-    return;
-  }
-  const choice = prompt("Path or URL to a JSON Schema file:");
-  if (!choice) return;
-  const source = choice.startsWith("http://") || choice.startsWith("https://")
-    ? { Url: choice }
-    : { Local: choice };
-  send({ SetSchema: { source } });
 }
 
 // Schema-driven hover tooltip (spec req 4, desktop-only — no hover on touch,
@@ -1823,7 +1826,6 @@ function bindGlobal() {
   bindSearch();
   bindConvertDialog();
   openBtn.addEventListener("click", openOpenModal);
-  attachSchemaBtn.addEventListener("click", () => void attachSchema());
   saveBtn.addEventListener("click", () => void doSave());
   saveAsBtn.addEventListener("click", () => {
     // Toggle: a second click on the chevron while its menu is open closes it.
@@ -1902,6 +1904,12 @@ function installMarquee() {
     // Raw view is read-only serialized text (`.raw-view` sets user-select:text) —
     // leave mouse drags entirely to native text selection, not row rubber-banding.
     if (rawView) return;
+    // While the clipboard is armed, marquee must not hijack the gesture: any
+    // incidental >4px drift during what the user intends as an armed click
+    // would otherwise fire a no-op `SetSelection` (ADR 0005 §5 freezes it
+    // silently) and suppress the trailing `click` that armedPasteTarget()
+    // needs to set the paste target — same `paste-mode` check as `dnd.ts`.
+    if (document.body.classList.contains("paste-mode")) return;
     // Don't hijack grips (native drag), buttons, inputs, or open popovers.
     if ((ev.target as HTMLElement).closest("[data-grip],button,input,.pop")) return;
     sx = ev.clientX;

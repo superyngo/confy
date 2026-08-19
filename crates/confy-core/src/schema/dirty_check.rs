@@ -58,7 +58,7 @@ const VALUE_KEYWORDS: &[&str] = &[
     "uniqueItems",
 ];
 
-/// Whole-schema-document walk, done once per `SetSchema`/`SchemaLoaded` (not
+/// Whole-schema-document walk, done once per `SchemaLoaded` (not
 /// per mutation) — see `SchemaState::fully_analyzable`. `true` iff the
 /// schema uses only same-document `$ref`/`properties`/`items` composition:
 /// no remote `$ref`, `allOf`/`not`/`if`/`then`/`else`, or `oneOf`/`anyOf`
