@@ -1,0 +1,7 @@
+# Normalize line endings to LF on checkout for all platforms. Windows CI
+# runners default to git core.autocrlf=true, which silently rewrites LF ->
+# CRLF on checkout; several web/*.spec.mjs tests match `\n`-anchored regexes
+# against ui.ts/app.ts source, and CRLF broke those matches only on the
+# Windows Desktop leg of release.yml (Web CI runs ubuntu-latest only, so it
+# never caught this). Binary detection is git's own content heuristic.
+* text=auto eol=lf
