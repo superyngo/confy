@@ -179,7 +179,7 @@ config.rs`; `$XDG_CONFIG_HOME/confy/config.toml` else `~/.config/confy/config.to
 macOS/Linux, `%APPDATA%\confy\config.toml` on Windows via `dirs::config_dir()`) > default `en`.
 A missing/unparsable config file is never an error — it just falls back to defaults.
 
-`L` opens a small host-side popup (`App::open_lang_picker`, same pattern as the kind-switch
+`l` opens a small host-side popup (`App::open_lang_picker`, same pattern as the kind-switch
 popup) listing the available languages; selecting one dispatches `Intent::SetLang`, calls
 `save_config` (best-effort — a write failure surfaces as a status message via
 `tui.lang.save-failed`, never a crash), and confirms via `tui.lang.saved`. The About screen (`?` →

@@ -61,6 +61,12 @@ confy/                       (cargo workspace root)
     web/  desktop/ (Tauri)  vscode/   packages/ui  packages/core-wasm
 ```
 
+**Historical target, not current layout** — this predates the actual Stage 2/3 implementation
+and was superseded by it (`apps/`'s JS-monorepo split under `web/`/`desktop/`/`vscode/`/
+`packages/*` was never built; the real result added `crates/confy-tauri`/
+`crates/tauri-plugin-confy-picker` as Rust crates instead, plus top-level `web/`/`editors/vscode/`
+directories). See `CLAUDE.md`'s Module map for the actual current workspace layout.
+
 Local path dependencies only; nothing published to crates.io. The standalone TUI binary must
 keep building and passing the full existing test suite at every step (the Stage-1 exit gate).
 

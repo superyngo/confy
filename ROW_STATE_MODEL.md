@@ -16,9 +16,9 @@ the ones before it; a row can be in several at once.
 | # | Canonical name | 中文 | Core field | Who can enter it |
 |---|---|---|---|---|
 | 1 | Cursor | 提示定位 | `Session.cursor: Path` (`session.rs:23`) | TUI keyboard, desktop keyboard. Desktop mouse **hover** is a separate, core-invisible signal — see §1a. Touch has no equivalent. |
-| 2 | Focal row | 選取 | Derived: `selected_paths()`'s target for single-row mutating ops (`session.rs:1258`) | Always equals `cursor`, or the last/focal member of a non-empty `Selection` (`set_selection` keeps the clicked/typed path last). |
+| 2 | Focal row | 選取 | Derived: `selected_paths()`'s target for single-row mutating ops (`session.rs:1301`) | Always equals `cursor`, or the last/focal member of a non-empty `Selection` (`set_selection` keeps the clicked/typed path last). |
 | 3 | Locked selection | 鎖定選取 | `Session.selection: Selection` non-empty (`session.rs:25`, `selection/selection.rs:25-30`) | TUI: `s` (`ToggleSelect`) / Shift+↑↓ (`ExtendSelectUp/Down`). Desktop: Ctrl/Shift+click, marquee (`web/select.ts`). Touch: **none** — `selectOnly()` (`web/touch/app.ts:495-498`) only ever sets a 1-path selection. |
-| 4 | Clipboard-armed (cut/copy mode) | 剪下複製模式 | `Session.clipboard.is_some()` (`session.rs:33`, `state.rs:205-209`) | `c`/`x`/Copy/Cut on any surface. Freezes state #3 (four guards: `session.rs:1196-1199, 1208-1211, 1222-1225, 1240-1243`) — entering #4 does not require #3 to be non-empty first; a bare cursor with an empty `Selection` can still be copied/cut via the fallback in `selected_paths()`. |
+| 4 | Clipboard-armed (cut/copy mode) | 剪下複製模式 | `Session.clipboard.is_some()` (`session.rs:33`, `state.rs:205-209`) | `c`/`x`/Copy/Cut on any surface. Freezes state #3 (four guards: `session.rs:1240-1242, 1252-1254, 1266-1268, 1284-1286`) — entering #4 does not require #3 to be non-empty first; a bare cursor with an empty `Selection` can still be copied/cut via the fallback in `selected_paths()`. |
 | 5 | Clipboard source | cut/copy source | `Session.clipboard.sources: Vec<Path>`, colored by `clipboard.cut: bool` (`state.rs:207-208`) | Only meaningful while #4 is active. |
 
 ### 1a. Hover is not a core state
@@ -38,7 +38,7 @@ dedicated flag, is what explains the ESC asymmetry in §4.
 
 ## 2. Escape ladder (unchanged — recorded, not redesigned)
 
-`Session::escape()` (`session.rs:1594-1636`) peels exactly one layer per press, shared
+`Session::escape()` (`session.rs:1637-1680`) peels exactly one layer per press, shared
 by every host:
 
 1. If `clipboard.is_some()` → clear it (status `core.clipboard.cleared` if a selection
@@ -51,7 +51,7 @@ this mechanism's direct consequence, not a platform-specific rule:
 - TUI arrow-key navigation never calls `SetSelection` — a bare cursor move leaves
   `Selection` empty, so if the clipboard was armed, one Esc clears layer 1 and there is
   nothing left for layer 2 to do (visually: one press fully clears).
-- A desktop plain click always calls `SetSelection([path])` (`web/ui.ts:1096`) — even a
+- A desktop plain click always calls `SetSelection([path])` (`web/ui.ts:1136`) — even a
   "single selection" is a real one-entry `Selection`. So on desktop there is always
   something for layer 2 to clear after layer 1, hence the consistently-observed two
   presses.
@@ -104,11 +104,14 @@ suppressed.
 
 ## 4. Keybindings
 
-| Key | Current TUI | Current desktop | Target |
-|---|---|---|---|
-| `Space` | `ToggleExpand` (`tui/keys.rs:56`) | `ToggleDetail` (`key-intent.ts`) | `ToggleExpand` (desktop changes) |
-| `Enter` | `ToggleExpand` (`tui/keys.rs:56`) | `ToggleExpand` ("toggle-branches", `key-intent.ts`) | `ToggleDetail` (**both platforms reverse**) |
-| `i` | `ToggleDetail` (`tui/keys.rs:63`) | `ToggleDetail` (`key-intent.ts`) | `ToggleDetail` (unchanged — stays the alt binding) |
+Phase 2 (§8) shipped this reversal on both platforms; the table below is the current,
+not a target, state.
+
+| Key | TUI | Desktop |
+|---|---|---|
+| `Space` | `ToggleExpand` (`tui/keys.rs:56`) | `ToggleExpand` (`key-intent.ts`) |
+| `Enter` | `ToggleDetail` (`tui/keys.rs:57`) | `ToggleDetail` (`key-intent.ts`) |
+| `i` | `ToggleDetail` (`tui/keys.rs:64`), unchanged alt binding | `ToggleDetail` (`key-intent.ts`), unchanged alt binding |
 
 Touch has no physical Enter/Space; its existing double-tap-to-open-detail gesture needs
 no change.
@@ -118,7 +121,7 @@ no change.
 While state #4 is active, every function except `ToggleExpand` is disabled, on all
 three surfaces:
 
-- Move/reorder — including touch's reorder-grip drag (`web/touch/app.ts:955-1069`).
+- Move/reorder — including touch's reorder-grip drag (`web/touch/app.ts:1045-1135`).
   It is itself a paste-equivalent operation and conflicts with mid-target-selection.
 - Context menu, kind-switch, convert.
 - Inline edit of value/key/comment/remark (all surfaces' equivalents: TUI `e`/`E`/`r`/
@@ -139,14 +142,14 @@ TUI is unchanged: `PasteSlot` arrow-key stepping already exists and already work
 - Hovering a candidate row while armed computes `session.pointerSlot(path, relY)`
   client-side and paints a **local-only** preview cue (no `dispatch`, no re-render) —
   the same "compute from a DOM rect on the fly, no core round-trip" idiom `onTreeHover`
-  already uses for schema tooltips (`web/ui.ts:1055-1066`).
+  already uses for schema tooltips (`web/ui.ts:1095-1106`).
 - Clicking still calls the existing `armedPasteTarget()` → `SetPasteSlot`
-  (`web/ui.ts:1075-1096`), unchanged.
+  (`web/ui.ts:1115-1124`), unchanged.
 - Commit is still the separate `v` key / menu Paste action, unchanged.
 
 ### 6b. Touch — body-drag continuously repositions the target; FAB still commits
 
-Reuses the existing reorder-drag machinery (`web/touch/app.ts:971-1039`,
+Reuses the existing reorder-drag machinery (`web/touch/app.ts:1066-1135`,
 `onReorderMove` — already does live `pointer_slot()` classification and repaints the
 same `.reorder-line`/`.drop-into` cues `renderPasteSlotCue` uses) instead of
 inventing a new gesture:
@@ -157,13 +160,13 @@ inventing a new gesture:
   hit-test-and-classify loop.
 - Release only sets/refines the target — **no auto-commit**, matching desktop's
   set-then-separately-commit flow (§6a) rather than reorder-drag's own
-  commit-on-release behavior. The FAB (`web/touch/app.ts:1345-1349`) still performs the
+  commit-on-release behavior. The FAB (`web/touch/app.ts:1541-1545`) still performs the
   actual `Paste`.
 - Caret disambiguation must move earlier: today it only resolves at tap time
-  (`handleTap`, `web/touch/app.ts:1197, 1210-1222`); a pointerdown-level
+  (`handleTap`, `web/touch/app.ts:1364, 1393-1406`); a pointerdown-level
   `closest('.caret')` bail is required so a caret press that never moves still falls
   through to the existing `act === "caret"` branch (`SetCursor` + `ToggleExpand`),
-  mirroring the existing `closest('.drag-handle')` gate (`web/touch/app.ts:1076`) that
+  mirroring the existing `closest('.drag-handle')` gate (`web/touch/app.ts:1228`) that
   already keeps reorder-drag and tap mutually exclusive today.
 
 ### 6c. Edge auto-scroll — touch only, implemented; desktop/TUI need no equivalent
@@ -176,7 +179,7 @@ edge the pointer sits near (speed ramps up closer to the edge) and re-runs that
 drag's own hit-test (`onPasteDragMove`/`onReorderMove`) each tick against the same
 pointer position, since content shifts under an otherwise-stationary finger; it
 self-terminates once neither drag is active. It does **not** fight the existing
-scroll-position-restore-on-render latch (`web/touch/app.ts:424-427`) because
+scroll-position-restore-on-render latch (`web/touch/app.ts:446-449`) because
 neither drag's hit-test dispatches mid-gesture — only release does, and `render()`
 only runs after a dispatch.
 
@@ -217,7 +220,7 @@ a purely client-side, purely ephemeral compensating layer: after a dispatch whos
 the landing siblings via `session.children(parent)` and issues one extra
 `SetSelection`, painting the Locked-selection marker (§3) around every pasted node
 so the just-landed batch stays visible. This is safe *only* because desktop's
-keyboard/click navigation (`navSelect`, `web/ui.ts:937-941`; `onTreeClick`'s plain
+  keyboard/click navigation (`navSelect`, `web/ui.ts:936-941`; `onTreeClick`'s plain
 click path) unconditionally re-issues a fresh one-path `SetSelection` on every
 subsequent nav step or click — so this extra Selection never outlives the single
 gesture that follows it, unlike the reverted bug. It is a client-side echo of
@@ -254,7 +257,7 @@ read as "it always hits the source row" (the source row is usually where cursor 
 last sitting when `c`/`x` was pressed).
 
 Fixed by sending an explicit `SetCursor` before `ToggleExpand` in both hosts
-(`web/ui.ts:1161-1165`, `web/touch/app.ts:1213-1223`).
+(`web/ui.ts:1213-1216`, `web/touch/app.ts:1393-1406`).
 
 **Formal invariant this model adds**: any `Intent` defined against state #1 (`cursor`)
 must resolve against the row the user actually invoked it on, even while state #4 is

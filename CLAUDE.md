@@ -167,6 +167,26 @@ FilterLayer peel — TUI.md §*Type filter*.
 selection; `c`/`x` toggles; Esc peels), failure contract (`do_paste` restores on every
 failure), and InsertComment/ArrayUpgrade paths — TUI.md §*Clipboard / paste*.
 
+**JSON Schema.** `schema/` (types.rs: `SchemaSource`/`SchemaState`/`SchemaStatus`/`Violation`/
+`EditHint`/`Category`; hints.rs: per-format hint detection — JSON `"$schema"` root key, YAML
+`# yaml-language-server: $schema=` modeline, TOML `#:schema` leading comment; value_bridge.rs:
+Node+Value → JSON-projection bridging that attaches a Path to every projection node;
+validate.rs: `jsonschema`-backed validation over that projection, draft 2020-12, uniform across
+all three formats since it runs on the projection, never source syntax — ADR 0002; hints_edit.rs:
+best-effort sub-schema resolution at one Path for the constrained-value picker, simpler than full
+validation, declining to `EditHint::None` for anything beyond `properties`/`items`/local
+`$defs`/same-document `$ref`/a narrow `oneOf`/`anyOf`-of-`const`; dirty_check.rs: a per-mutation
+"does this path carry a schema constraint" check that lets `Session::on_mutation_success` skip a
+full revalidation walk when the answer is no) is a **soft constraint** (CONTEXT.md § Schema):
+Violations surface as a visual indicator and never block a Mutation or a save. Detection/parsing
+is host-agnostic in `confy-core`; hosts resolve the actual bytes — the TUI's
+`crates/confy-tui/src/tui/schema_io.rs` (local hint resolves against the open file's directory, a
+URL hint fetches over a blocking HTTP client) and its `overlay_schema_enum.rs` popup (reuses the
+`K` kind-switch popup's shape); the web layer's `session.schemaHint(path)`/`fetch()`. There is no
+manual "attach a schema" UI action on any host — every host goes through the same detection path.
+`session/schema_hint.rs` is unrelated by name collision only: it holds `nudge_scalar`'s numeric
+clamping for the `←`/`→` shortcut, not schema attachment.
+
 **i18n (internationalization).** The translation catalog lives in `confy-core`, not per-host
 (`crates/confy-core/src/session/i18n.rs`): `Lang` (`En`/`ZhTw`, serde `"en"`/`"zh-TW"`,
 `Default = En`) plus `tr(lang, key)`/`tr_args(lang, key, args)` look up flat `core.*`/`tui.*`/
@@ -202,7 +222,7 @@ i18n/                     translation catalogs — root i18n/en.json (canonical,
                           (esbuild bundles JSON)
 
 crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runtime deps
-  lib.rs           `pub mod model; pub mod session;`
+  lib.rs           `pub mod model; pub mod schema; pub mod session;`
   model/
     mod.rs         re-exports
     node.rs        Seg, ScalarType, Format, NodeKind, Node, NodeTree (+ node_at lookup)
@@ -212,7 +232,14 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
     any_doc.rs     AnyDocument enum: per-format dispatch + detect_format/from_str_as/set_filename (TOML/JSON/YAML)
     cst_doc.rs     CstDocument holding the taplo/rowan tree: from_str (sole headless ctor) / serialize / apply (atomic commit) / set_filename
     cst_project.rs CST → NodeTree projection (comments as real nodes; golden tests)
-    cst_edit.rs    rowan splice helpers: one fn per Mutation variant + the path→element walk index
+    cst_edit/      rowan splice helpers, split by Mutation family (Task 15, 2026-08-11 audit
+                   remediation) — mod.rs (dispatch + the path→element walk index),
+                   move_paste.rs (Insert/Move), replace_delete.rs (Replace/Delete/Remark/
+                   EditComment/InsertComment + table/section/member-span machinery),
+                   rename.rs (Rename), convert.rs (ConvertKind), dotted_table.rs (synthetic
+                   `[T/D]` table helpers), aot_group.rs (`[[array-of-tables]]` group spans),
+                   tree_nav.rs (shared projected-tree/CST-index navigation), escape.rs
+                   (basic-string escape helpers)
     json/
       mod.rs       re-exports for the JSON/JSONC backend
       syntax.rs    SyntaxKind enum + rowan Language impl (hand-rolled JSON token/node kinds)
@@ -227,16 +254,22 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
       doc.rs       YamlDocument: from_str/serialize/apply (atomic commit + validate_semantics)
       project.rs   GreenTree → NodeTree projection (# comments real nodes; opaque read-only nodes; golden tests)
       edit.rs      rowan splice helpers: reindent engine + one fn per Mutation variant; opaque guard
-  session/         §5 state-machine lift (Slice 4) — the complete headless Session
+  session/         §5 state-machine lift (Slice 4) — the complete headless Session, split
+                   further across single-purpose files (Task 15, 2026-08-11 audit remediation)
     mod.rs         re-exports
     host.rs        Host trait (edit_text callback) + EditTextOutcome
     i18n.rs        Lang enum + tr/tr_args catalog lookup (include_str!'d i18n/*.json, en-fallback)
     intent.rs      Intent enum — every key-mapped action the TUI can dispatch
     session.rs     Session struct (all CORE state + methods): visible_rows/compute_rows, navigation,
-                   filter/type-filter, kind-switch, convert (no fs), edit routing, inline-edit,
-                   mutations (apply_replace/insert/delete/copy/cut/paste/remark/undo/redo/nudge),
+                   filter/type-filter, kind-switch, convert (no fs), edit routing,
                    escape, prompt-key dispatch, quit flow; plus free fns: node_type_label,
-                   format_label, nudge_scalar
+                   format_label
+    clipboard.rs   cut/copy/paste + the paste collision/array-upgrade prompt sub-state-machine
+    inline_edit.rs inline-editor buffer lifecycle (begin_inline_edit*/edit_*/edit_commit) +
+                   value/rename/nudge/add-node mutation-application methods that commit through it
+    schema_hint.rs nudge_scalar: schema-constraint numeric clamping for the `←`/`→` shortcut
+    undo_redo.rs   undo/redo
+    status_fmt.rs  kind/type/format label formatting + small scalar-repr/string utilities
     state.rs       Mode, PendingCommit, PendingExternalEdit, EditKind, EditState, History,
                    Clipboard, PasteSlot, FilterLayer, …
     selection.rs   Selection (path-keyed multi-select + range rounds)
@@ -249,9 +282,15 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
                    TypeFilterView/TypeFilterRow/TypeFilterCellView (the WASM wire contract)
     dispatch.rs    Stage-2 command channel: Session::dispatch(Intent) -> SessionSnapshot
                    (mode-dependent Intent→method routing; the only entry point the Web UI uses)
+  schema/          JSON Schema detection/validation/constrained-editing — see Architecture
+                   *JSON Schema* above for the per-file breakdown
 crates/confy-core/tests/  roundtrip*.rs / yaml_scratch.rs + fixtures/ + no_fs_gate.rs (§7 gate)
                           + session_headless.rs (§7 gate #4: headless Session scripted tests;
                           §7 gate #5: fake-Host `$EDITOR` flow; + dispatch() tests) + serde_roundtrip.rs (§7 gate #3)
+                          + schema_headless.rs (headless schema-engine tests, same crate-root
+                          `#[test]`-fn convention as session_headless.rs) + modal_lock.rs
+                          (integration: every guarded method no-ops + sets status while the
+                          clipboard is armed, ADR 0005 §5)
 
 crates/confy-ffi/         Stage-2 WASM wrapper over confy-core (wasm-bindgen + serde-wasm-bindgen)
   src/lib.rs     ConfySession: from_text/dispatch/snapshot/serialize/visible_rows/kind_options
@@ -321,7 +360,19 @@ crates/confy-tui/src/    ratatui TUI + CLI; depends on confy-core, `pub use conf
     search.rs      thin re-export of confy_core::session::search
     type_filter.rs thin re-export of confy_core::session::type_filter
     editor.rs      $EDITOR integration (external edit for nested array/table)
-    ui.rs          ratatui rendering: title bar + NAME/TYPE/VALUE column header + tree Table, detail popup, help, prompts
+    schema_io.rs   host-side schema-source resolution: a local hint resolves against the open
+                   file's directory; a URL hint fetches over a blocking HTTP client (the one
+                   networking capability the schema feature adds to this crate)
+    ui.rs          ratatui rendering: title bar + NAME/TYPE/VALUE column header + tree Table;
+                   popup rendering itself was split out into the overlay_*.rs siblings below
+                   (Task 10, 2026-08-11 audit remediation — pure code motion)
+    overlay_convert.rs      the `C` convert-document popup
+    overlay_detail.rs       the `i` Detail popup (+ appended Schema: violations section)
+    overlay_help.rs         the `?` Help | About popup
+    overlay_kind_switch.rs  the `K` kind-switch popup
+    overlay_lang_picker.rs  the `l` language-picker popup
+    overlay_schema_enum.rs  the schema-constrained enum/const picker (reuses `K`'s popup shape)
+    overlay_type_filter.rs  the `f` type-filter facet popup
 crates/confy-tui/tests/   convert_cli.rs integration: `confy convert` happy/lossy/abort paths, source-unchanged
 
 crates/confy-tauri/       desktop + Android app shell (Tauri v2) over the web UI — **native file
