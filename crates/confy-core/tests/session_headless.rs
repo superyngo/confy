@@ -1626,6 +1626,7 @@ fn append_new_key_into_dotted_table_with_nested_inline_member() {
         },
         fragment: "newkey = 1\n".to_string(),
         on_collision: OnCollision::Cancel,
+        suggested_key: None,
     })
     .expect("append must not fail");
     assert_eq!(
@@ -2047,4 +2048,83 @@ fn move_aot_entry_into_another_group_preserves_nested_section() {
 
     // Moved (cut), so `fruit` no longer has the entry.
     assert!(s.tree.node_at(&fruit0).is_none(), "cut removed the source entry");
+}
+
+// ---- Copy (not cut) of a bare-scalar array element derives
+// `<arrayKey>_<index>` as the pasted key (Move + Copy scope parity) ----
+
+#[test]
+fn copy_array_element_into_table_derives_array_key_index_name() {
+    let mut s = toml_session("[src]\nnums = [10, 20, 30]\n\n[dst]\nkeep = true\n");
+    s.expand_all();
+    // Cursor on `src.nums[1]` — a bare scalar with no key of its own.
+    let nums1 = vec![
+        Seg::Key("src".into()),
+        Seg::Key("nums".into()),
+        Seg::Index(1),
+    ];
+    s.reveal_path(nums1.clone());
+    s.cursor = nums1;
+    s.copy_selected();
+    assert!(s.error.is_none(), "copy should succeed: {:?}", s.error);
+
+    let dst = vec![Seg::Key("dst".into())];
+    s.paste_slot = Some(PasteSlot::Into(dst.clone()));
+    s.paste();
+    assert!(s.error.is_none(), "paste should succeed: {:?}", s.error);
+
+    // The pasted key is `nums_1` — derived from the source array's own key +
+    // element index, the same name a cut/move of the same element produces —
+    // not the generic `placeholder`.
+    let pasted = vec![Seg::Key("dst".into()), Seg::Key("nums_1".into())];
+    assert_eq!(
+        s.tree.node_at(&pasted).and_then(|n| n.value.clone()),
+        Some("20".to_string()),
+        "pasted scalar must land under the derived `<arrayKey>_<index>` key"
+    );
+
+    // Copy (unlike cut) leaves the source array untouched: all 3 original
+    // elements survive the copy+paste.
+    for (i, v) in [(0usize, "10"), (1, "20"), (2, "30")] {
+        let elem = vec![
+            Seg::Key("src".into()),
+            Seg::Key("nums".into()),
+            Seg::Index(i),
+        ];
+        assert_eq!(
+            s.tree.node_at(&elem).and_then(|n| n.value.clone()),
+            Some(v.to_string()),
+            "source array element {i} must survive the copy"
+        );
+    }
+}
+
+#[test]
+fn copy_scalar_out_of_nested_unkeyed_array_falls_back_to_placeholder() {
+    // `grid`'s elements are themselves arrays, so the inner element's path
+    // ends `[..., Index(0), Index(1)]` — the array holding the scalar has no
+    // key of its own, so no `<arrayKey>_<index>` can be derived.
+    let mut s = toml_session("[src]\ngrid = [[1, 2], [3, 4]]\n\n[dst]\nkeep = true\n");
+    s.expand_all();
+    let inner = vec![
+        Seg::Key("src".into()),
+        Seg::Key("grid".into()),
+        Seg::Index(0),
+        Seg::Index(1),
+    ];
+    s.reveal_path(inner.clone());
+    s.cursor = inner;
+    s.copy_selected();
+
+    let dst = vec![Seg::Key("dst".into())];
+    s.paste_slot = Some(PasteSlot::Into(dst.clone()));
+    s.paste();
+    assert!(s.error.is_none(), "paste should succeed: {:?}", s.error);
+
+    let pasted = vec![Seg::Key("dst".into()), Seg::Key("placeholder".into())];
+    assert_eq!(
+        s.tree.node_at(&pasted).and_then(|n| n.value.clone()),
+        Some("2".to_string()),
+        "unkeyed/nested-array scalar keeps the generic placeholder key"
+    );
 }

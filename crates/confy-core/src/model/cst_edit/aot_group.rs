@@ -1,14 +1,14 @@
 //! `[[array-of-tables]]` group span/insert/entry-extraction helpers — split
 //! out of `cst_edit.rs` (Task 15, 2026-08-11 audit remediation).
 
+use super::move_paste::rewrite_last_key;
+use super::replace_delete::{path_key_display, section_end_strict};
+use super::tree_nav::{element_root_index, fragment_key_segs};
 use crate::model::cst_project::{header_path, CstIndex};
 use crate::model::document::{MutateError, OnCollision};
 use crate::model::node::{Node, Seg};
 use taplo::rowan::NodeOrToken;
 use taplo::syntax::{SyntaxKind, SyntaxNode};
-use super::move_paste::{rewrite_last_key};
-use super::replace_delete::{path_key_display, section_end_strict};
-use super::tree_nav::{element_root_index, fragment_key_segs};
 
 /// The contiguous root-child span `[start, end)` covering every `[[x]]` entry of
 /// the AoT group at `path`. `None` if the group's entries are interleaved with
@@ -183,7 +183,10 @@ enum EntryEvent {
     Entry(String),
 }
 
-fn walk_aot_entry_body(tree: &SyntaxNode, header: &SyntaxNode) -> Result<Vec<EntryEvent>, MutateError> {
+fn walk_aot_entry_body(
+    tree: &SyntaxNode,
+    header: &SyntaxNode,
+) -> Result<Vec<EntryEvent>, MutateError> {
     let group_path = header_path(header);
     let i = header.index();
     let end = aot_entry_end(tree, &group_path, i);
@@ -194,7 +197,9 @@ fn walk_aot_entry_body(tree: &SyntaxNode, header: &SyntaxNode) -> Result<Vec<Ent
             match n.kind() {
                 SyntaxKind::TABLE_ARRAY_HEADER => return Err(MutateError::Unsupported),
                 SyntaxKind::TABLE_HEADER => {
-                    events.push(EntryEvent::Header(header_path(n)[group_path.len()..].to_vec()));
+                    events.push(EntryEvent::Header(
+                        header_path(n)[group_path.len()..].to_vec(),
+                    ));
                 }
                 SyntaxKind::ENTRY => {
                     events.push(EntryEvent::Entry(n.to_string().trim().to_string()));
@@ -242,7 +247,10 @@ pub(crate) fn aot_entry_member_fragments(
 /// reconstructing the same nested structure atomically instead of losing it
 /// to a dotted-key rewrite. `Err(Unsupported)` on a nested `[[…]]` sub-group,
 /// same as `aot_entry_member_fragments` (it has no dotted/atomic form either).
-pub(crate) fn aot_entry_section_body(tree: &SyntaxNode, header: &SyntaxNode) -> Result<String, MutateError> {
+pub(crate) fn aot_entry_section_body(
+    tree: &SyntaxNode,
+    header: &SyntaxNode,
+) -> Result<String, MutateError> {
     let mut body = String::new();
     for ev in walk_aot_entry_body(tree, header)? {
         match ev {

@@ -9,6 +9,23 @@ pub enum Seg {
 
 pub type Path = Vec<Seg>;
 
+/// The natural synthesized key for a bare scalar being pulled out of an
+/// array element (move/paste): `<array's own key>_<index>`. `None` when the
+/// array itself has no key of its own (a nested/unkeyed array, or a
+/// root-level bare array) — callers fall back to the generic placeholder
+/// key in that case, same as before this existed.
+pub fn array_element_suggested_key(path: &[Seg]) -> Option<String> {
+    let idx = match path.last() {
+        Some(Seg::Index(i)) => *i,
+        _ => return None,
+    };
+    let key_seg = path.len().checked_sub(2).and_then(|i| path.get(i))?;
+    match key_seg {
+        Seg::Key(name) => Some(format!("{name}_{idx}")),
+        Seg::Index(_) => None,
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ScalarType {
     String,

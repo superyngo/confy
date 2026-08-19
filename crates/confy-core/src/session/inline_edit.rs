@@ -982,6 +982,10 @@ impl Session {
             target,
             fragment: edited,
             on_collision: OnCollision::Cancel,
+            // Hand-typed fragment with no source path to derive an
+            // array-element key from — generic placeholder fallback,
+            // exactly the pre-feature behavior.
+            suggested_key: None,
         }) {
             Ok(()) => self.on_mutation_success(None),
             Err(MutateError::Collision(key)) => {

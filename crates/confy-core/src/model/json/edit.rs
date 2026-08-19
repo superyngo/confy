@@ -355,6 +355,7 @@ fn insert(
     target: &MutTarget,
     fragment: &str,
     on_collision: OnCollision,
+    suggested_key: Option<&str>,
 ) -> Result<(), MutateError> {
     // ── 1. Locate the container OBJECT or ARRAY node ────────────────────────
     let container = find_container(tree, &target.parent)?;
@@ -369,7 +370,7 @@ fn insert(
     let mut items: Vec<String> = collect_items(&container);
 
     // ── 3. Adapt the fragment to the destination ────────────────────────────
-    let (new_item_text, new_key) = adapt_fragment(fragment, is_object)?;
+    let (new_item_text, new_key) = adapt_fragment(fragment, is_object, suggested_key)?;
 
     // ── 4. Collision check (objects only) ───────────────────────────────────
     let mut final_key = new_key.clone();
@@ -607,12 +608,15 @@ fn member_key_of_text(text: &str) -> Option<String> {
 /// Parse `fragment` and decide how to adapt it for the destination.
 ///
 /// - keyed (`"k": v`) → member text as-is; key = Some("k")
-/// - bare value → for objects: synthesize `"placeholder": <value>`; for arrays: use as-is
+/// - bare value → for objects: synthesize `"<suggested>": <value>` (falling back
+///   to `"placeholder"` when no suggestion — e.g. the moved source wasn't a
+///   keyed array's element); for arrays: use as-is
 ///
 /// Returns `(item_text, Option<key_name>)`.
 fn adapt_fragment(
     fragment: &str,
     is_object: bool,
+    suggested_key: Option<&str>,
 ) -> Result<(String, Option<String>), MutateError> {
     if let Some(member) = parse_member_fragment(fragment) {
         // Keyed fragment.
@@ -634,11 +638,10 @@ fn adapt_fragment(
         parse_value_fragment(fragment)?;
         let val = fragment.trim().to_string();
         if is_object {
-            // Synthesize placeholder key.
-            Ok((
-                format!("\"placeholder\": {val}"),
-                Some("placeholder".to_string()),
-            ))
+            // Synthesize the caller's suggested key (`<arrayKey>_<index>` for a
+            // moved array element) or the generic placeholder.
+            let key = suggested_key.unwrap_or("placeholder");
+            Ok((format!("\"{key}\": {val}"), Some(key.to_string())))
         } else {
             Ok((val, None))
         }
@@ -1080,12 +1083,23 @@ fn move_nodes(
     let effective_index = target.index - shift.min(target.index);
 
     // ── 4. Insert each captured fragment at the effective target ─────────────
-    for (i, (_path, frag)) in captured.iter().enumerate() {
+    for (i, (path, frag)) in captured.iter().enumerate() {
+        // A bare scalar lifted out of a keyed array needs a synthesized member
+        // key on the object side; prefer `<arrayKey>_<index>` over the generic
+        // "placeholder". Non-array sources (and unkeyed/nested arrays) get None
+        // and keep the old placeholder fallback.
+        let suggested_key = crate::model::node::array_element_suggested_key(path);
         let insert_target = MutTarget {
             parent: target.parent.clone(),
             index: effective_index + i,
         };
-        insert(tree, &insert_target, frag, on_collision)?;
+        insert(
+            tree,
+            &insert_target,
+            frag,
+            on_collision,
+            suggested_key.as_deref(),
+        )?;
     }
 
     Ok(())
@@ -1397,7 +1411,14 @@ pub fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<SyntaxNode, MutateError
             target,
             fragment,
             on_collision,
-        } => insert(&tree, &target, &fragment, on_collision)?,
+            suggested_key,
+        } => insert(
+            &tree,
+            &target,
+            &fragment,
+            on_collision,
+            suggested_key.as_deref(),
+        )?,
         Mutation::Rename { path, new_key } => rename(&tree, &path, &new_key)?,
         Mutation::Remark { path } => remark(&tree, &path)?,
         Mutation::EditComment { path, text } => edit_comment(&tree, &path, &text)?,
@@ -1585,6 +1606,7 @@ mod tests {
                 },
                 fragment: "\"c\": 3".into(),
                 on_collision: OnCollision::Cancel,
+                suggested_key: None,
             },
         );
         assert_eq!(
@@ -1752,6 +1774,7 @@ mod tests {
                 },
                 fragment: "\"b\": 2".into(),
                 on_collision: OnCollision::Cancel,
+                suggested_key: None,
             },
         );
         assert_eq!(out, "{\n  \"a\": 1,\n  \"b\": 2\n}\n");
@@ -1768,6 +1791,7 @@ mod tests {
                 },
                 fragment: "\"b\": 2".into(),
                 on_collision: OnCollision::Cancel,
+                suggested_key: None,
             },
         );
         assert_eq!(out, "{\n  \"b\": 2,\n  \"a\": 1\n}\n");
@@ -1784,6 +1808,7 @@ mod tests {
                 },
                 fragment: "3".into(),
                 on_collision: OnCollision::Cancel,
+                suggested_key: None,
             },
         );
         assert_eq!(out, "[1, 2, 3]\n");
@@ -1800,6 +1825,7 @@ mod tests {
                 },
                 fragment: "\"k\": 2".into(),
                 on_collision: OnCollision::Cancel,
+                suggested_key: None,
             },
         );
         assert_eq!(out, "[1, { \"k\": 2 }]\n");
@@ -1816,9 +1842,157 @@ mod tests {
                 },
                 fragment: "42".into(),
                 on_collision: OnCollision::Rename,
+                suggested_key: None,
             },
         );
         assert_eq!(out, "{\n  \"a\": 1,\n  \"placeholder\": 42\n}\n");
+    }
+
+    #[test]
+    fn insert_bare_with_suggested_key() {
+        // Copy-paste path: the caller knows the scalar came from `arr` index 1
+        // and passes the suggestion explicitly; insert() prefers it over the
+        // generic "placeholder".
+        let out = apply_str(
+            "{\n  \"a\": 1\n}\n",
+            Mutation::Insert {
+                target: MTarget {
+                    parent: vec![],
+                    index: 1,
+                },
+                fragment: "20".into(),
+                on_collision: OnCollision::Rename,
+                suggested_key: Some("arr_1".into()),
+            },
+        );
+        assert_eq!(out, "{\n  \"a\": 1,\n  \"arr_1\": 20\n}\n");
+    }
+
+    #[test]
+    fn move_bare_array_element_to_object_suggested_key() {
+        // A bare scalar moved out of a keyed array into an object needs a member
+        // key synthesized: `<arrayKey>_<index>` instead of "placeholder".
+        let out = apply_str(
+            "{\n  \"arr\": [10, 20, 30],\n  \"o\": {}\n}\n",
+            Mutation::Move {
+                sources: vec![vec![Seg::Key("arr".into()), Seg::Index(1)]],
+                target: MTarget {
+                    parent: vec![Seg::Key("o".into())],
+                    index: 0,
+                },
+                on_collision: OnCollision::Rename,
+            },
+        );
+        assert_eq!(
+            out,
+            "{\n  \"arr\": [10, 30],\n  \"o\": { \"arr_1\": 20 }\n}\n"
+        );
+    }
+
+    #[test]
+    fn move_bare_array_element_suggested_key_collision_renames() {
+        // Synthesized key colliding with an existing member follows the same
+        // Rename policy as "placeholder": arr_1 → arr_1_2.
+        let out = apply_str(
+            "{\n  \"arr\": [10, 20],\n  \"o\": { \"arr_1\": 99 }\n}\n",
+            Mutation::Move {
+                sources: vec![vec![Seg::Key("arr".into()), Seg::Index(1)]],
+                target: MTarget {
+                    parent: vec![Seg::Key("o".into())],
+                    index: 1,
+                },
+                on_collision: OnCollision::Rename,
+            },
+        );
+        assert_eq!(
+            out,
+            "{\n  \"arr\": [10],\n  \"o\": { \"arr_1\": 99, \"arr_1_2\": 20 }\n}\n"
+        );
+    }
+
+    #[test]
+    fn move_nested_unkeyed_array_element_still_placeholder() {
+        // An element of a nested array (`matrix[0][1]`) has no Key segment
+        // before the final Index, so no suggestion exists and the generic
+        // placeholder key is kept.
+        let out = apply_str(
+            "{\n  \"matrix\": [[1, 2], [3, 4]],\n  \"o\": {}\n}\n",
+            Mutation::Move {
+                sources: vec![vec![
+                    Seg::Key("matrix".into()),
+                    Seg::Index(0),
+                    Seg::Index(1),
+                ]],
+                target: MTarget {
+                    parent: vec![Seg::Key("o".into())],
+                    index: 0,
+                },
+                on_collision: OnCollision::Rename,
+            },
+        );
+        assert_eq!(
+            out,
+            "{\n  \"matrix\": [[1], [3, 4]],\n  \"o\": { \"placeholder\": 2 }\n}\n"
+        );
+    }
+
+    #[test]
+    fn move_root_unkeyed_array_element_still_placeholder() {
+        // Same fallback at document root: a scalar lifted from a bare top-level
+        // array into the root array's object element has no keyed parent.
+        let out = apply_str(
+            "[[1, 2], { \"a\": 1 }]\n",
+            Mutation::Move {
+                sources: vec![vec![Seg::Index(0), Seg::Index(1)]],
+                target: MTarget {
+                    parent: vec![Seg::Index(1)],
+                    index: 1,
+                },
+                on_collision: OnCollision::Rename,
+            },
+        );
+        assert_eq!(out, "[[1], { \"a\": 1, \"placeholder\": 2 }]\n");
+    }
+
+    #[test]
+    fn move_bare_array_element_to_array_stays_bare() {
+        // Regression: array → array moves keep the element bare — no key
+        // synthesized, no `{ ... }` wrapping; suggested_key is never consulted
+        // for array destinations.
+        let out = apply_str(
+            "{\n  \"src\": [1, 2],\n  \"dst\": []\n}\n",
+            Mutation::Move {
+                sources: vec![vec![Seg::Key("src".into()), Seg::Index(1)]],
+                target: MTarget {
+                    parent: vec![Seg::Key("dst".into())],
+                    index: 0,
+                },
+                on_collision: OnCollision::Rename,
+            },
+        );
+        assert_eq!(out, "{\n  \"src\": [1],\n  \"dst\": [2]\n}\n");
+    }
+
+    #[test]
+    fn move_object_array_element_to_object_value_kept_intact() {
+        // Regression: an object element moved into an object is a bare *value*
+        // fragment (not a member), so it nests under the synthesized key with
+        // its members kept intact — now named after the source array + index.
+        let out = apply_str(
+            "{\n  \"src\": [{ \"a\": 1 }],\n  \"dst\": {}\n}\n",
+            Mutation::Move {
+                sources: vec![vec![Seg::Key("src".into()), Seg::Index(0)]],
+                target: MTarget {
+                    parent: vec![Seg::Key("dst".into())],
+                    index: 0,
+                },
+                on_collision: OnCollision::Rename,
+            },
+        );
+        assert_eq!(
+            out,
+            "{\n  \"src\": [],\n  \"dst\": { \"src_0\": { \"a\": 1 } }\n}\n"
+        );
     }
 
     #[test]
@@ -1833,6 +2007,7 @@ mod tests {
                 },
                 fragment: "\"a\": 2".into(),
                 on_collision: OnCollision::Cancel,
+                suggested_key: None,
             },
         );
         assert!(matches!(r, Err(MutateError::Collision(_))));
@@ -1849,6 +2024,7 @@ mod tests {
                 },
                 fragment: "\"b\": 2".into(),
                 on_collision: OnCollision::Cancel,
+                suggested_key: None,
             },
         );
         assert_eq!(out, "{\n  \"o\": {\n    \"a\": 1,\n    \"b\": 2\n  }\n}\n");

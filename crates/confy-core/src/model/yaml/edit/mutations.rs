@@ -285,15 +285,18 @@ pub(crate) fn move_nodes(
         }
     }
 
-    // ── 1. Capture fragments BEFORE any deletion ────────────────────────────
-    let captured: Vec<String> = sources
+    // ── 1. Capture (path, fragment) pairs BEFORE any deletion ──────────────
+    // The source path rides along (same capture shape as the JSON backend) so
+    // the re-insert loop below can derive a `<arrayKey>_<index>` suggested key
+    // for a bare scalar pulled out of a keyed array.
+    let captured: Vec<(Vec<Seg>, String)> = sources
         .iter()
         .map(|path| {
             let frag = fragment_of(resolve_in(idx, path));
             if frag.is_empty() {
                 Err(MutateError::NotFound)
             } else {
-                Ok(frag)
+                Ok((path.clone(), frag))
             }
         })
         .collect::<Result<_, _>>()?;
@@ -341,12 +344,24 @@ pub(crate) fn move_nodes(
     let effective_index = target.index - shift.min(target.index);
 
     // ── 4. Insert each captured fragment at the effective target ─────────────
-    for (i, frag) in captured.iter().enumerate() {
+    for (i, (path, frag)) in captured.iter().enumerate() {
         let insert_target = MutTarget {
             parent: target.parent.clone(),
             index: effective_index + i,
         };
-        insert(tree, &insert_target, frag, on_collision)?;
+        // Some(`<arrayKey>_<index>`) only when this source is a bare element
+        // of a keyed array — exactly the source whose keyless fragment lands
+        // in a mapping and needs a key synthesized. Every other source shape
+        // (entry, header, nested/unkeyed array element) gets None and keeps
+        // the generic placeholder; keyed fragments ignore the suggestion.
+        let suggested_key = crate::model::node::array_element_suggested_key(path);
+        insert(
+            tree,
+            &insert_target,
+            frag,
+            suggested_key.as_deref(),
+            on_collision,
+        )?;
     }
 
     Ok(())

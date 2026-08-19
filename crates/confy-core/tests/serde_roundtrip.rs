@@ -161,6 +161,7 @@ fn mutation_roundtrips() {
             },
             fragment: "x = 1\n".into(),
             on_collision: OnCollision::Rename,
+            suggested_key: None,
         },
         Mutation::Replace {
             path: vec![Seg::Key("a".into())],

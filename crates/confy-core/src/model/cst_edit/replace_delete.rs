@@ -2,21 +2,32 @@
 //! the table/section/member-span machinery they share — split out of
 //! `cst_edit.rs` (Task 15, 2026-08-11 audit remediation).
 
+use super::aot_group::{aot_entry_end, aot_group_span, idx_target_is_aot};
+use super::convert::struct_node;
+use super::dotted_table::{
+    dotted_ancestor_prefix_len, dotted_member_entries, inline_ancestor_len, inline_member_entries,
+    is_headerless_table, replace_dotted_table, replace_inline_dotted_table, strip_key_prefix,
+};
+use super::move_paste::quote_key_seg;
+use super::rename::is_key_seg;
+use super::tree_nav::{
+    comment_block_range, extend_over_newline, is_scalar_kind, next_is_header, node_at,
+    resolve_insert_at,
+};
 use crate::model::cst_project::{header_path, walk, CstIndex, Target};
 use crate::model::document::{MutateError, Target as InsTarget};
 use crate::model::node::{Node, NodeKind, Seg};
 use taplo::rowan::NodeOrToken;
 use taplo::syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
-use super::aot_group::{aot_entry_end, aot_group_span, idx_target_is_aot};
-use super::convert::{struct_node};
-use super::dotted_table::{dotted_ancestor_prefix_len, dotted_member_entries, inline_ancestor_len, inline_member_entries, is_headerless_table, replace_dotted_table, replace_inline_dotted_table, strip_key_prefix};
-use super::move_paste::{quote_key_seg};
-use super::rename::{is_key_seg};
-use super::tree_nav::{comment_block_range, extend_over_newline, is_scalar_kind, next_is_header, node_at, resolve_insert_at};
 
 /// The source text of a `[table]` / `[[aot]]` section starting at `header_idx`,
 /// trimmed of a leading blank separator.
-pub(crate) fn section_text(syntax: &SyntaxNode, t_path: &[Seg], header_idx: usize, strict: bool) -> String {
+pub(crate) fn section_text(
+    syntax: &SyntaxNode,
+    t_path: &[Seg],
+    header_idx: usize,
+    strict: bool,
+) -> String {
     let end = if strict {
         section_end_strict(syntax, header_idx)
     } else {
@@ -77,7 +88,11 @@ impl MemberSpan {
 /// The member spans of the table at `path`, in document order. Empty when `path`
 /// addresses no root-level table content (e.g. a sub-table of an AoT entry,
 /// whose path contains a `Seg::Index`).
-pub(crate) fn table_member_spans(tree: &SyntaxNode, idx: &CstIndex, path: &[Seg]) -> Vec<MemberSpan> {
+pub(crate) fn table_member_spans(
+    tree: &SyntaxNode,
+    idx: &CstIndex,
+    path: &[Seg],
+) -> Vec<MemberSpan> {
     if path.is_empty() {
         return Vec::new();
     }
@@ -348,7 +363,11 @@ pub(crate) fn replace_table_spans(
     Ok(())
 }
 
-pub(crate) fn replace_value(tree: &SyntaxNode, path: &[Seg], toml: &str) -> Result<(), MutateError> {
+pub(crate) fn replace_value(
+    tree: &SyntaxNode,
+    path: &[Seg],
+    toml: &str,
+) -> Result<(), MutateError> {
     let (proj, idx) = walk(tree, "");
     // A table block-rewrites over its member spans: a pure `[T/D]` consolidates
     // its member lines at the first one; any table with member sections —
@@ -912,7 +931,11 @@ pub(crate) fn comment_line_elements(
 
 /// Insert a standalone comment block at the projected `target` position. Comments
 /// are independent nodes — no key, no collision.
-pub(crate) fn insert_comment(tree: &SyntaxNode, target: &InsTarget, text: &str) -> Result<(), MutateError> {
+pub(crate) fn insert_comment(
+    tree: &SyntaxNode,
+    target: &InsTarget,
+    text: &str,
+) -> Result<(), MutateError> {
     if text
         .lines()
         .any(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))

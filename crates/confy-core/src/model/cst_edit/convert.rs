@@ -2,18 +2,23 @@
 //! arrays, and tables — split out of `cst_edit.rs` (Task 15, 2026-08-11 audit
 //! remediation).
 
+use super::aot_group::aot_group_span;
+use super::dotted_table::{
+    dotted_member_entries, is_headerless_table, replace_dotted_table, strip_key_prefix,
+};
+use super::escape::{encode_basic_string, encode_multiline_basic, string_inner, unescape_basic};
+use super::rename::is_key_seg;
+use super::replace_delete::MemberSpan;
+use super::replace_delete::{
+    array_make_multiline, entry_array, entry_key_seg_count, path_key_display, replace_value,
+    section_end, table_member_spans,
+};
+use super::tree_nav::{extend_over_newline, is_scalar_kind, node_at};
 use crate::model::cst_project::{header_path, walk, CstIndex, Target};
 use crate::model::document::MutateError;
 use crate::model::node::{Node, Seg};
 use taplo::rowan::NodeOrToken;
 use taplo::syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
-use super::aot_group::{aot_group_span};
-use super::replace_delete::MemberSpan;
-use super::dotted_table::{dotted_member_entries, is_headerless_table, replace_dotted_table, strip_key_prefix};
-use super::escape::{encode_basic_string, encode_multiline_basic, string_inner, unescape_basic};
-use super::rename::{is_key_seg};
-use super::replace_delete::{array_make_multiline, entry_array, entry_key_seg_count, path_key_display, replace_value, section_end, table_member_spans};
-use super::tree_nav::{extend_over_newline, is_scalar_kind, node_at};
 
 /// `Mutation::ConvertKind` — rewrite the node at `path` in another kind/notation,
 /// in place. Scalars re-render their literal (lossless conversions only — a

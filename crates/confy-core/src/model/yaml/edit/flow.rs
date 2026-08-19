@@ -169,20 +169,26 @@ pub(crate) fn replace_flow_seq_element(
 }
 
 /// Insert a new member/element into a flow collection at `target`.
+///
+/// `suggested_key` names the key synthesized for a bare value landed in a
+/// FLOW_MAP (`<arrayKey>_<index>` for a moved scalar array element); `None`
+/// keeps the generic `placeholder`.
 pub(crate) fn insert_flow(
     tree: &SyntaxNode,
     flow: &SyntaxNode,
     target: &MutTarget,
     fragment: &str,
+    suggested_key: Option<&str>,
     on_collision: OnCollision,
 ) -> Result<(), MutateError> {
     let frag = fragment.trim();
     if flow.kind() == SyntaxKind::FLOW_MAP {
-        // Build a single-line `key: value` member; a bare value gets a placeholder.
+        // Build a single-line `key: value` member; a bare value gets a
+        // suggested-or-placeholder key.
         let member = if frag.contains(": ") || frag.ends_with(':') {
             frag.to_string()
         } else {
-            format!("placeholder: {frag}")
+            format!("{}: {frag}", suggested_key.unwrap_or("placeholder"))
         };
         if member.contains('\n') {
             return Err(MutateError::Unsupported);

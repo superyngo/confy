@@ -2,30 +2,43 @@
 //! insert/move splice logic — split out of `cst_edit.rs` (Task 15,
 //! 2026-08-11 audit remediation).
 
+use super::aot_group::{aot_entry_member_fragments, aot_entry_section_body, aot_group_insert};
+use super::convert::struct_node;
+use super::dotted_table::{
+    dotted_ancestor_prefix_len, inline_ancestor_len, inline_member_entries, is_headerless_table,
+    strip_key_prefix,
+};
+use super::joinable_entry;
+use super::rename::{is_key_seg, key_seg_token};
+use super::replace_delete::MemberSpan;
+use super::replace_delete::{
+    delete, path_key_display, section_text, table_fragment, table_member_spans,
+};
+use super::tree_nav::{
+    extend_over_newline, fragment_key_segs, inline_raw_member_index, node_at, resolve_insert_at,
+};
 use crate::model::cst_project::{walk, CstIndex, Target};
 use crate::model::document::{MutateError, OnCollision, Target as InsTarget};
 use crate::model::node::{Format, Node, NodeKind, Seg};
+use std::collections::HashSet;
 use taplo::rowan::NodeOrToken;
 use taplo::syntax::{SyntaxKind, SyntaxNode};
-use super::aot_group::{aot_entry_member_fragments, aot_entry_section_body, aot_group_insert};
-use super::convert::{struct_node};
-use super::dotted_table::{dotted_ancestor_prefix_len, inline_ancestor_len, inline_member_entries, is_headerless_table, strip_key_prefix};
-use super::{joinable_entry};
-use super::rename::{is_key_seg, key_seg_token};
-use super::replace_delete::MemberSpan;
-use super::replace_delete::{delete, path_key_display, section_text, table_fragment, table_member_spans};
-use super::tree_nav::{extend_over_newline, fragment_key_segs, inline_raw_member_index, node_at, resolve_insert_at};
-use std::collections::HashSet;
 
 /// Insert a keyed node fragment (`key = val`, `[table]…`) at the projected
 /// `target`. The fragment's first key is collision-checked against the parent
 /// scope's existing keys. (Overwrite/Rename collision modes and bare array-element
 /// inserts are deferred; `Cancel` and the no-collision path are handled.)
+///
+/// `suggested_key` is the preferred synthesized key for a **bare** fragment that
+/// needs one (`<arrayKey>_<index>` for a scalar moved out of a keyed array);
+/// `None` keeps the generic `PLACEHOLDER_KEY`. Ignored when the fragment
+/// already carries its own key.
 pub(crate) fn insert(
     tree: &SyntaxNode,
     target: &InsTarget,
     toml: &str,
     on_collision: OnCollision,
+    suggested_key: Option<&str>,
 ) -> Result<(), MutateError> {
     let frag_text = if toml.ends_with('\n') {
         toml.to_string()
@@ -91,7 +104,8 @@ pub(crate) fn insert(
     //    preserved (`key→{}`, below); a `[table]`/`[[aot]]` fragment is rejected.
     //  - into a TABLE/root we need a keyed entry: a bare element gets a synthesized
     //    `placeholder` key (`key+`).
-    let (frag, synthesized_key) = parse_fragment_adapted(&frag_text, parent_is_array)?;
+    let (frag, synthesized_key) =
+        parse_fragment_adapted(&frag_text, parent_is_array, suggested_key)?;
 
     // A keyless `{ … }` element copied out of an array **unpacks** into its
     // member entries for a table/root/[A/T] destination — matching the cut path
@@ -100,7 +114,7 @@ pub(crate) fn insert(
     // the element form is kept.
     if synthesized_key && !parent_is_array {
         if let Some(entries) = unpack_inline_table(frag_text.trim()) {
-            return insert(tree, target, &entries.concat(), on_collision);
+            return insert(tree, target, &entries.concat(), on_collision, None);
         }
     }
 
@@ -220,6 +234,7 @@ pub(crate) fn insert(
                 },
                 &entry_text,
                 on_collision,
+                None,
             )?;
         }
         return Ok(());
@@ -421,11 +436,12 @@ pub(crate) const PLACEHOLDER_KEY: &str = "placeholder";
 
 /// Parse a fragment for insertion into a table (`into_array == false`) or an array
 /// (`true`), adapting across container types (D1 simple adaptation). Returns the
-/// parsed fragment and whether a `placeholder` key was synthesized.
+/// parsed fragment and whether a synthesized key was added for it.
 ///
 /// A fragment that parses as a TOML document is used as-is (a keyed entry, or a
 /// `[table]`/`[[aot]]` section). A fragment that does not (a **bare array-element
-/// value** like `42` or `{ a = 1 }`) is wrapped as `placeholder = <value>` so it
+/// value** like `42` or `{ a = 1 }`) is wrapped as `<key> = <value>` (the
+/// caller's `suggested_key`, else `PLACEHOLDER_KEY`) so it
 /// becomes a keyed entry — for a table dest the key is kept (`key+`); for an array
 /// dest the synthesized key marks the value as keyless, so it stays a bare element
 /// (a *real* keyed fragment is instead wrapped as `{ key = value }` by the caller to
@@ -434,6 +450,7 @@ pub(crate) const PLACEHOLDER_KEY: &str = "placeholder";
 pub(crate) fn parse_fragment_adapted(
     frag_text: &str,
     into_array: bool,
+    suggested_key: Option<&str>,
 ) -> Result<(SyntaxNode, bool), MutateError> {
     let parse = taplo::parser::parse(frag_text);
     if parse.errors.is_empty() {
@@ -453,7 +470,11 @@ pub(crate) fn parse_fragment_adapted(
         return Ok((node, false));
     }
     // Not a standalone document — try treating it as a bare value with a key.
-    let wrapped = format!("{PLACEHOLDER_KEY} = {}\n", frag_text.trim_end());
+    let wrapped = format!(
+        "{} = {}\n",
+        suggested_key.unwrap_or(PLACEHOLDER_KEY),
+        frag_text.trim_end()
+    );
     let parse2 = taplo::parser::parse(&wrapped);
     match parse2.errors.first() {
         Some(e) => Err(MutateError::Fragment(e.to_string())),
@@ -524,7 +545,11 @@ pub(crate) fn unpack_inline_table(value_text: &str) -> Option<Vec<String>> {
 /// section. So a header-like fragment may only land at index `>= split`, a leaf-like
 /// one only at index `<= split`, where `split` is the parent's first sub-table/AoT
 /// child index (or `len` when it has none).
-pub(crate) fn check_partition(parent: &Node, frag: &SyntaxNode, index: usize) -> Result<(), MutateError> {
+pub(crate) fn check_partition(
+    parent: &Node,
+    frag: &SyntaxNode,
+    index: usize,
+) -> Result<(), MutateError> {
     use crate::model::node::NodeKind;
     let len = parent.children.len();
     // Clamp the append sentinel (callers pass an out-of-range index to mean "end").
@@ -769,7 +794,10 @@ pub(crate) fn prefix_entry_key(frag: &SyntaxNode, prefix: &[String]) -> Result<(
 /// dropped under `[b]` becomes `[b.a]` (and `[b.a.sub]`). Mirrors `prefix_entry_key`'s
 /// front-splice, applied to each header's `KEY` (a fresh token copy per header, since a
 /// token can only live in one tree).
-pub(crate) fn prefix_section_headers(frag: &SyntaxNode, prefix: &[String]) -> Result<(), MutateError> {
+pub(crate) fn prefix_section_headers(
+    frag: &SyntaxNode,
+    prefix: &[String],
+) -> Result<(), MutateError> {
     if prefix.is_empty() {
         return Ok(());
     }
@@ -856,8 +884,12 @@ pub(crate) fn move_nodes(
     let dest_is_aot = matches!(dest_kind, Some(NodeKind::ArrayOfTables));
     let dest_packs = matches!(dest_kind, Some(NodeKind::ArrayOfTables | NodeKind::Array));
 
-    // Capture each source's source text before any removal.
-    let mut frags: Vec<String> = Vec::new();
+    // Capture each source's source text before any removal. Each fragment
+    // carries its *suggested* synthesized key alongside the text (`Some` only
+    // for a bare scalar pulled out of a keyed array — `<arrayKey>_<index>`;
+    // every other source already carries its own key, so the generic
+    // placeholder remains the fallback).
+    let mut frags: Vec<(String, Option<String>)> = Vec::new();
     // Indices into `frags` whose text is a composite AoT-entry body carrying
     // its own nested `[table]` headers (ADR 0004 §3) — these splice via
     // `aot_group_insert` directly, bypassing `insert`'s generic
@@ -882,14 +914,14 @@ pub(crate) fn move_nodes(
             let spans = table_member_spans(tree, &idx, p);
             if spans.iter().any(|s| matches!(s, MemberSpan::Section(_))) {
                 if let Some(text) = table_fragment(tree, &idx, &proj.root, p, true) {
-                    frags.push(text);
+                    frags.push((text, None));
                     continue;
                 }
             } else if !spans.is_empty() {
                 let strip = dotted_ancestor_prefix_len(&idx, &proj.root, p);
                 for s in &spans {
                     if let MemberSpan::Entry(m) = s {
-                        frags.push(strip_key_prefix(m, strip));
+                        frags.push((strip_key_prefix(m, strip), None));
                     }
                 }
                 continue;
@@ -902,7 +934,7 @@ pub(crate) fn move_nodes(
                 if !members.is_empty() {
                     let strip = p.len() - 1 - inline_len;
                     for m in &members {
-                        frags.push(format!("{}\n", strip_key_prefix(m, strip).trim()));
+                        frags.push((format!("{}\n", strip_key_prefix(m, strip).trim()), None));
                     }
                     continue;
                 }
@@ -917,23 +949,26 @@ pub(crate) fn move_nodes(
             // re-insert re-prefixes only for the destination (matching copy/paste).
             Target::Entry(n) => {
                 let strip = dotted_ancestor_prefix_len(&idx, &proj.root, p);
-                frags.push(strip_key_prefix(&n, strip));
+                frags.push((strip_key_prefix(&n, strip), None));
             }
-            Target::Header(h) => frags.push(section_text(tree, p, h.index(), false)),
+            Target::Header(h) => frags.push((section_text(tree, p, h.index(), false), None)),
             // Moving an array element out: into another array it stays a bare element;
             // into a table/root an inline table `{ k = v, … }` **unpacks** into its
             // member entries (keys preserved, one node each — the per-leaf collision
-            // check applies), anything else gets a synthesized `placeholder` key on
-            // insert. The destination format is then applied by `insert` (dotted prefix,
-            // inline-table splice, …).
+            // check applies), anything else gets a synthesized key on insert —
+            // `<arrayKey>_<index>` for a keyed source array (below), else the
+            // generic `placeholder`. The destination format is then applied by
+            // `insert` (dotted prefix, inline-table splice, …).
             Target::ArrayElement(value) => {
                 let text = value.to_string();
                 let dest_is_array = node_at(&proj.root, &target.parent)
                     .map(|n| matches!(n.kind, crate::model::node::NodeKind::Array))
                     .unwrap_or(false);
+                let suggested = crate::model::node::array_element_suggested_key(p);
                 match (dest_is_array, unpack_inline_table(&text)) {
-                    (false, Some(entries)) => frags.extend(entries),
-                    _ => frags.push(format!("{}\n", text.trim())),
+                    // Unpacked `{ k = v }` members carry their own keys.
+                    (false, Some(entries)) => frags.extend(entries.into_iter().map(|e| (e, None))),
+                    _ => frags.push((format!("{}\n", text.trim()), suggested)),
                 }
             }
             // Moving a `[[…]]` entry out of its array: into a table/root/plain
@@ -949,9 +984,13 @@ pub(crate) fn move_nodes(
             Target::AotEntry(h) => {
                 if dest_is_aot {
                     aot_composite_idxs.insert(frags.len());
-                    frags.push(aot_entry_section_body(tree, &h)?);
+                    frags.push((aot_entry_section_body(tree, &h)?, None));
                 } else {
-                    frags.extend(aot_entry_member_fragments(tree, &h)?);
+                    frags.extend(
+                        aot_entry_member_fragments(tree, &h)?
+                            .into_iter()
+                            .map(|f| (f, None)),
+                    );
                 }
             }
             _ => return Err(MutateError::Unsupported),
@@ -964,11 +1003,16 @@ pub(crate) fn move_nodes(
     // and its own handling). A composite AoT-entry body (above) always contains a
     // header, so it always fails `joinable_entry` and is never swept into this join
     // — it keeps its own slot, indices in `aot_composite_idxs` stay valid.
-    let frags = if dest_packs && frags.len() > 1 && frags.iter().all(|f| joinable_entry(f)) {
-        vec![frags
-            .iter()
-            .map(|f| format!("{}\n", f.trim_end()))
-            .collect::<String>()]
+    let frags = if dest_packs && frags.len() > 1 && frags.iter().all(|f| joinable_entry(&f.0)) {
+        // Packing only fires for array/AoT destinations, where no key is
+        // synthesized at all — the joined fragment carries no suggested key.
+        vec![(
+            frags
+                .iter()
+                .map(|f| format!("{}\n", f.0.trim_end()))
+                .collect::<String>(),
+            None,
+        )]
     } else {
         frags
     };
@@ -1000,15 +1044,29 @@ pub(crate) fn move_nodes(
         .filter(|c| !sources.contains(&c.path))
         .count();
 
-    // Delete sources (longest path first keeps shallower paths valid).
+    // Delete sources (longest path first keeps shallower paths valid; among
+    // same-length array-index siblings, highest index first — otherwise
+    // deleting a lower index shifts the not-yet-deleted higher indices out
+    // from under their still-stale paths, e.g. `NotFound` once the array's
+    // last element is part of the selection — mirrors the same fix already
+    // in the JSON/YAML `move_nodes`).
     let mut ordered: Vec<&Vec<Seg>> = sources.iter().collect();
-    ordered.sort_by_key(|p| std::cmp::Reverse(p.len()));
+    ordered.sort_by(|a, b| {
+        if a.len() == b.len() {
+            match (a.last(), b.last()) {
+                (Some(Seg::Index(ia)), Some(Seg::Index(ib))) => ib.cmp(ia),
+                _ => std::cmp::Ordering::Equal,
+            }
+        } else {
+            b.len().cmp(&a.len())
+        }
+    });
     for p in ordered {
         delete(tree, p)?;
     }
 
     // Re-insert before the anchor's current position (or append), in order.
-    for (i, frag) in frags.into_iter().enumerate() {
+    for (i, (frag, frag_key)) in frags.into_iter().enumerate() {
         let (proj2, idx2) = walk(tree, "");
         let parent2 = node_at(&proj2.root, &target.parent).ok_or(MutateError::NotFound)?;
         let index = {
@@ -1042,7 +1100,15 @@ pub(crate) fn move_nodes(
                 })
                 .collect();
             prefix_section_headers(&node, &prefix)?;
-            aot_group_insert(tree, &idx2, parent2, &target.parent, index, &node, on_collision)?;
+            aot_group_insert(
+                tree,
+                &idx2,
+                parent2,
+                &target.parent,
+                index,
+                &node,
+                on_collision,
+            )?;
         } else {
             insert(
                 tree,
@@ -1052,6 +1118,7 @@ pub(crate) fn move_nodes(
                 },
                 &frag,
                 on_collision,
+                frag_key.as_deref(),
             )?;
         }
     }

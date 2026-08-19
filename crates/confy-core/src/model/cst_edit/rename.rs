@@ -2,13 +2,13 @@
 //! groups — split out of `cst_edit.rs` (Task 15, 2026-08-11 audit
 //! remediation).
 
+use super::dotted_table::rename_dotted_segment;
+use super::tree_nav::find_parent;
 use crate::model::cst_project::{walk, Target};
 use crate::model::document::MutateError;
 use crate::model::node::Seg;
 use taplo::rowan::NodeOrToken;
 use taplo::syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
-use super::dotted_table::{rename_dotted_segment};
-use super::tree_nav::{find_parent};
 
 /// Rename the key at `path` to `new_key`, swapping the relevant segment token(s)
 /// in place (position/decor preserved). Handles all node types:
@@ -188,7 +188,11 @@ pub(crate) fn rename(tree: &SyntaxNode, path: &[Seg], new_key: &str) -> Result<(
 /// An entry's key spells only the last `k` segments of its own path (a scoped
 /// entry omits its `[section]` prefix), so the index is end-relative. `None`
 /// when `seg_pos` falls outside the segments the key actually spells.
-pub(crate) fn entry_seg_idx(key_node: &SyntaxNode, owner_len: usize, seg_pos: usize) -> Option<usize> {
+pub(crate) fn entry_seg_idx(
+    key_node: &SyntaxNode,
+    owner_len: usize,
+    seg_pos: usize,
+) -> Option<usize> {
     let k = key_node
         .children_with_tokens()
         .filter(|c| matches!(c, NodeOrToken::Token(t) if is_key_seg(t.kind())))

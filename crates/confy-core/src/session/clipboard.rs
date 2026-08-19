@@ -278,28 +278,42 @@ impl Session {
                 .node_at(&target.parent)
                 .map(|n| matches!(n.kind, NodeKind::ArrayOfTables | NodeKind::Array))
                 .unwrap_or(false);
-            let grouped: Vec<(String, usize)> = if dest_packs
+            // Each grouped fragment keeps its source `Path`: a bare-scalar
+            // array element being copied out of a keyed array carries no key
+            // of its own, and the insert below derives `<arrayKey>_<index>`
+            // from that path — the same name the Move (cut) path gives it.
+            // The packed/joined branch can't map back to a single source, but
+            // it only fires for array/AoT destinations, where key synthesis
+            // never happens, so `None` is harmless there.
+            let grouped: Vec<(String, usize, Option<Path>)> = if dest_packs
                 && node_entries.len() > 1
                 && node_entries
                     .iter()
                     .all(|(f, _)| crate::model::cst_edit::joinable_entry(f))
             {
                 let joined: String = node_entries.iter().map(|(f, _)| f.as_str()).collect();
-                vec![(joined, 0)]
+                vec![(joined, 0, None)]
             } else {
                 node_entries
                     .iter()
                     .enumerate()
-                    .map(|(i, (f, _))| (f.clone(), i))
+                    .map(|(i, (f, s))| (f.clone(), i, Some(s.clone())))
                     .collect()
             };
-            for (frag, i) in &grouped {
+            for (frag, i, src) in &grouped {
                 let i = *i;
                 let doc = self.doc.as_mut().unwrap();
                 match doc.apply(Mutation::Insert {
                     target: target.clone(),
                     fragment: frag.clone(),
                     on_collision,
+                    // `None` for anything but a bare scalar pulled from a
+                    // keyed array: keyed fragments ignore this field, and
+                    // unkeyed/nested arrays fall back to the format's
+                    // generic placeholder key, as before this existed.
+                    suggested_key: src
+                        .as_deref()
+                        .and_then(crate::model::node::array_element_suggested_key),
                 }) {
                     Ok(()) => {}
                     Err(MutateError::Collision(key)) => {

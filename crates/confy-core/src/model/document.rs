@@ -180,6 +180,12 @@ pub enum Mutation {
         target: Target,
         fragment: String,
         on_collision: OnCollision,
+        /// Preferred key for a bare-scalar fragment that needs one synthesized
+        /// (a table/object/mapping destination, no key of its own) — e.g.
+        /// `<arrayKey>_<index>` for a scalar moved/copied out of an array
+        /// element. `None` falls back to the format's generic placeholder key.
+        /// Ignored when the fragment already carries its own key.
+        suggested_key: Option<String>,
     },
     Replace {
         path: Path,

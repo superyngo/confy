@@ -2,15 +2,15 @@
 //! detection, and whole-table `$EDITOR` block replace — split out of
 //! `cst_edit.rs` (Task 15, 2026-08-11 audit remediation).
 
+use super::move_paste::inline_table_insert;
+use super::rename::{entry_seg_idx, is_key_seg, rename_key_seg_at_pos};
+use super::replace_delete::{delete_seq_element, detach_entry_line};
+use super::tree_nav::node_at;
 use crate::model::cst_project::{walk, CstIndex, Target};
 use crate::model::document::MutateError;
 use crate::model::node::{Node, NodeKind, Seg};
 use taplo::rowan::NodeOrToken;
 use taplo::syntax::{SyntaxKind, SyntaxNode};
-use super::move_paste::{inline_table_insert};
-use super::rename::{entry_seg_idx, is_key_seg, rename_key_seg_at_pos};
-use super::replace_delete::{delete_seq_element, detach_entry_line};
-use super::tree_nav::{node_at};
 
 /// Replace a scalar value in place (inline value edit). `toml` is a `key = <value>`
 /// fragment (array elements use a synthetic `__elem__ = <value>`); only the scalar

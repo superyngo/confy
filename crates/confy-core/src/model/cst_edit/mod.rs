@@ -71,8 +71,9 @@ pub(crate) fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<SyntaxNode, Muta
             target,
             fragment: toml,
             on_collision,
+            suggested_key,
         } => {
-            insert(&tree, &target, &toml, on_collision)?;
+            insert(&tree, &target, &toml, on_collision, suggested_key.as_deref())?;
             tree
         }
         Mutation::Rename { path, new_key } => {
@@ -405,6 +406,7 @@ mod tests {
             },
             fragment: "d = 9\n".into(),
             on_collision: crate::model::document::OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(
@@ -621,6 +623,7 @@ mod tests {
             },
             fragment: "2\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(d.serialize(), "arr = [1, 2, 3]\n");
@@ -631,6 +634,7 @@ mod tests {
             },
             fragment: "4\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(d.serialize(), "arr = [1, 2, 3, 4]\n");
@@ -643,6 +647,7 @@ mod tests {
             },
             fragment: "7\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(e.serialize(), "xs = [7]\n");
@@ -825,6 +830,7 @@ mod tests {
             },
             fragment: "x = 2\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(d.serialize(), "a.b = 1\na.x = 2\n");
@@ -840,6 +846,7 @@ mod tests {
             },
             fragment: "d = 2\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(d.serialize(), "a.b.c = 1\na.b.d = 2\n");
@@ -856,6 +863,7 @@ mod tests {
             },
             fragment: "port = 80\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(
@@ -1013,6 +1021,7 @@ mod tests {
             },
             fragment: "b = 2\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(d.serialize(), "# section\nb = 2\na = 1\n");
@@ -1044,6 +1053,7 @@ mod tests {
             },
             fragment: "b = 2\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(d.serialize(), "a = 1\nb = 2\nc = 3\n");
@@ -1059,6 +1069,7 @@ mod tests {
             },
             fragment: "z = 9\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(d.serialize(), "a = 1\nz = 9\n");
@@ -1075,6 +1086,7 @@ mod tests {
                 },
                 fragment: "b = 9\n".into(),
                 on_collision: OnCollision::Cancel,
+                suggested_key: None,
             })
             .unwrap_err();
         assert!(matches!(err, MutateError::Collision(k) if k == "b"));
@@ -1091,6 +1103,7 @@ mod tests {
             },
             fragment: "b = 99\n".into(),
             on_collision: OnCollision::Overwrite,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(d.serialize(), "a = 1\nb = 99\nc = 3\n");
@@ -1106,6 +1119,7 @@ mod tests {
             },
             fragment: "b = 9\n".into(),
             on_collision: OnCollision::Rename,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(d.serialize(), "b = 2\nb_2 = 9\n");
@@ -1125,6 +1139,7 @@ mod tests {
                 },
                 fragment: "[a]\nz = 3\n".into(),
                 on_collision: OnCollision::Cancel,
+                suggested_key: None,
             })
             .unwrap_err();
         assert!(matches!(err, MutateError::Collision(_)), "got {err:?}");
@@ -1172,6 +1187,7 @@ mod tests {
             },
             fragment: "b = 3\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(
@@ -1190,6 +1206,7 @@ mod tests {
             },
             fragment: "b = 3\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(
@@ -1209,6 +1226,7 @@ mod tests {
             },
             fragment: "x = 1\ny = 2\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(d.serialize(), "[[p]]\na = 1\n[[p]]\nx = 1\ny = 2\n");
@@ -1226,6 +1244,7 @@ mod tests {
                 },
                 fragment: "[t]\nz = 1\n".into(),
                 on_collision: OnCollision::Cancel,
+                suggested_key: None,
             })
             .unwrap_err();
         assert!(matches!(err, MutateError::Illegal(_)), "got {err:?}");
@@ -1258,6 +1277,57 @@ mod tests {
             !out.contains("k1 = 1\nk2 = 2\n\n[[p]]"),
             "sources moved: {out}"
         );
+    }
+
+    #[test]
+    fn move_two_array_elements_including_last_index_succeeds() {
+        // Regression: deleting same-array sources in ascending-index order
+        // (as multi-select can hand them in) shifts the not-yet-deleted
+        // higher index out from under its still-stale path once the
+        // lower index is removed first — `sort_by_key(Reverse(len))` alone
+        // doesn't break the tie, since both source paths are the same
+        // length. Sources deliberately given ascending (idx 1 then idx 2)
+        // to reproduce the bug regardless of caller ordering.
+        let mut d = doc("arr = [\"{ }\", \"[ ]\", \"< >\"]\n\n[s]\nx = 1\n");
+        d.apply(Mutation::Move {
+            sources: vec![
+                vec![Seg::Key("arr".into()), Seg::Index(1)],
+                vec![Seg::Key("arr".into()), Seg::Index(2)],
+            ],
+            target: InsTarget {
+                parent: vec![Seg::Key("s".into())],
+                index: 9,
+            },
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        let out = d.serialize();
+        assert!(out.contains("arr = [\"{ }\"]"), "one element left: {out}");
+        assert!(out.contains("arr_1 = \"[ ]\""), "idx1 keyed: {out}");
+        assert!(out.contains("arr_2 = \"< >\""), "idx2 keyed: {out}");
+    }
+
+    #[test]
+    fn move_all_array_elements_into_table_succeeds() {
+        let mut d = doc("arr = [\"{ }\", \"[ ]\", \"< >\"]\n\n[s]\nx = 1\n");
+        d.apply(Mutation::Move {
+            sources: vec![
+                vec![Seg::Key("arr".into()), Seg::Index(0)],
+                vec![Seg::Key("arr".into()), Seg::Index(1)],
+                vec![Seg::Key("arr".into()), Seg::Index(2)],
+            ],
+            target: InsTarget {
+                parent: vec![Seg::Key("s".into())],
+                index: 9,
+            },
+            on_collision: OnCollision::Cancel,
+        })
+        .unwrap();
+        let out = d.serialize();
+        assert!(out.contains("arr = []"), "array emptied: {out}");
+        assert!(out.contains("arr_0 = \"{ }\""), "idx0 keyed: {out}");
+        assert!(out.contains("arr_1 = \"[ ]\""), "idx1 keyed: {out}");
+        assert!(out.contains("arr_2 = \"< >\""), "idx2 keyed: {out}");
     }
 
     #[test]
@@ -1371,6 +1441,7 @@ mod tests {
             },
             fragment: "{ a = 1, b = 2 }".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(
@@ -1389,6 +1460,7 @@ mod tests {
             },
             fragment: "{ a = 1, b = 2 }".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(d.serialize(), "[[p]]\nx = 1\n[[p]]\na = 1\nb = 2\n");
@@ -1404,9 +1476,28 @@ mod tests {
             },
             fragment: "42".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(d.serialize(), "[s]\nx = 1\nplaceholder = 42\n");
+    }
+
+    #[test]
+    fn copy_bare_scalar_into_table_uses_suggested_key() {
+        // The copy-paste path threads the source `<arrayKey>_<index>` through
+        // `Mutation::Insert::suggested_key` — the bare value needs no placeholder.
+        let mut d = doc("[dest]\nz = 0\n");
+        d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![Seg::Key("dest".into())],
+                index: 9,
+            },
+            fragment: "20".into(),
+            on_collision: OnCollision::Cancel,
+            suggested_key: Some("arr_1".into()),
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "[dest]\nz = 0\narr_1 = 20\n");
     }
 
     #[test]
@@ -1763,6 +1854,7 @@ mod tests {
             },
             fragment: "y = 2\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(d.serialize(), "[s]\nx = 1\ny = 2\n");
@@ -1781,6 +1873,7 @@ mod tests {
                 },
                 fragment: "z = 9\n".into(),
                 on_collision: OnCollision::Cancel,
+                suggested_key: None,
             })
             .unwrap_err();
         assert!(matches!(err, MutateError::Illegal(_)), "got {err:?}");
@@ -1799,6 +1892,7 @@ mod tests {
             },
             fragment: "b = 2\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(d.serialize(), "a = 1\nb = 2\n[t]\nx = 1\n");
@@ -1816,6 +1910,7 @@ mod tests {
                 },
                 fragment: "[t]\ny = 1\n".into(),
                 on_collision: OnCollision::Cancel,
+                suggested_key: None,
             })
             .unwrap_err();
         assert!(matches!(err, MutateError::Illegal(_)), "got {err:?}");
@@ -1834,6 +1929,7 @@ mod tests {
             },
             fragment: "x = 99\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(d.serialize(), "arr = [1, 2, { x = 99 }]\n");
@@ -1850,6 +1946,7 @@ mod tests {
             },
             fragment: "foo = { a = 1 }\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(d.serialize(), "arr = [1, { foo = { a = 1 } }]\n");
@@ -1866,6 +1963,7 @@ mod tests {
             },
             fragment: "{ a = 1 }\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(d.serialize(), "arr = [1, { a = 1 }]\n");
@@ -1882,6 +1980,7 @@ mod tests {
             },
             fragment: "42\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(d.serialize(), "a = 1\nplaceholder = 42\n");
@@ -1898,9 +1997,28 @@ mod tests {
             },
             fragment: "42\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(d.serialize(), "placeholder = 1\nplaceholder_2 = 42\n");
+    }
+
+    #[test]
+    fn suggested_key_auto_renames_on_collision() {
+        // A suggested key is synthesized like `placeholder` — a clash
+        // auto-suffixes even under Cancel, never prompts.
+        let mut d = doc("[dest]\narr_1 = 0\n");
+        d.apply(Mutation::Insert {
+            target: InsTarget {
+                parent: vec![Seg::Key("dest".into())],
+                index: 9,
+            },
+            fragment: "20".into(),
+            on_collision: OnCollision::Cancel,
+            suggested_key: Some("arr_1".into()),
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "[dest]\narr_1 = 0\narr_1_2 = 20\n");
     }
 
     #[test]
@@ -2124,6 +2242,7 @@ mod tests {
                 },
                 fragment: "[t]\nx = 1\n".into(),
                 on_collision: OnCollision::Cancel,
+                suggested_key: None,
             })
             .unwrap_err();
         assert!(matches!(err, MutateError::Illegal(_)), "got {err:?}");
@@ -2454,6 +2573,7 @@ mod tests {
             },
             fragment: "gg = 5\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(d.serialize(), "arr = [\n  1,\n]\ngg = 5\ndotted.x = 1\n");
@@ -2559,19 +2679,46 @@ mod tests {
             },
             fragment: "t.x = 1\nt.y = 2\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(d.serialize(), "arr = [0, { t.x = 1, t.y = 2 }]\n");
     }
 
     #[test]
-    fn move_bare_element_into_table_gets_placeholder() {
+    fn move_bare_element_into_table_gets_suggested_key() {
+        // The synthesized key names the source: `arr[0]` → `arr_0` (was the
+        // generic `placeholder` before suggested keys existed).
         let s = move_elem(
             "arr = [42]\n[dest]\nz = 0\n",
             vec![Seg::Key("arr".into()), Seg::Index(0)],
             vec![Seg::Key("dest".into())],
         );
-        assert_eq!(s, "arr = []\n[dest]\nz = 0\nplaceholder = 42\n");
+        assert_eq!(s, "arr = []\n[dest]\nz = 0\narr_0 = 42\n");
+    }
+
+    #[test]
+    fn move_keyed_array_scalar_into_table_gets_array_index_key() {
+        // A bare scalar pulled out of a *keyed* array suggests `<arrayKey>_<index>`
+        // instead of the generic `placeholder` (here: `arr[1]` → `arr_1`).
+        let s = move_elem(
+            "arr = [10, 20, 30]\n[dest]\nz = 0\n",
+            vec![Seg::Key("arr".into()), Seg::Index(1)],
+            vec![Seg::Key("dest".into())],
+        );
+        assert_eq!(s, "arr = [10, 30]\n[dest]\nz = 0\narr_1 = 20\n");
+    }
+
+    #[test]
+    fn move_nested_array_scalar_into_table_keeps_placeholder() {
+        // A nested (unkeyed) inner array has no key to suggest — the generic
+        // `placeholder` fallback still fires.
+        let s = move_elem(
+            "m = [[1, 2], [3, 4]]\n[dest]\nz = 0\n",
+            vec![Seg::Key("m".into()), Seg::Index(0), Seg::Index(0)],
+            vec![Seg::Key("dest".into())],
+        );
+        assert_eq!(s, "m = [[2], [3, 4]]\n[dest]\nz = 0\nplaceholder = 1\n");
     }
 
     #[test]
@@ -2638,6 +2785,7 @@ mod tests {
             },
             fragment: "a.y = 2\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(d.serialize(), "a.x = 1\na.y = 2\n");
@@ -2653,6 +2801,7 @@ mod tests {
             },
             fragment: "a.x = 9\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         });
         assert!(matches!(r, Err(MutateError::Collision(k)) if k == "a.x"));
     }
@@ -2669,6 +2818,7 @@ mod tests {
             },
             fragment: "a.x = 1\na.y = 2\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(
@@ -2801,6 +2951,7 @@ mod tests {
             },
             fragment: frag,
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(
@@ -2823,6 +2974,7 @@ mod tests {
             },
             fragment: frag,
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(
@@ -2845,6 +2997,7 @@ mod tests {
             },
             fragment: "q = 9\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(d.serialize(), "t = { x.y = 1, x.z = 2, w = 3, x.q = 9 }\n");
@@ -2860,6 +3013,7 @@ mod tests {
             },
             fragment: "x.y = 7\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         });
         assert!(matches!(r, Err(MutateError::Collision(k)) if k == "x.y"));
         d.apply(Mutation::Insert {
@@ -2869,6 +3023,7 @@ mod tests {
             },
             fragment: "x.q = 7\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(d.serialize(), "t = { x.q = 7, x.y = 1, x.z = 2, w = 3 }\n");
@@ -2948,6 +3103,7 @@ mod tests {
             },
             fragment: "b = 2\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(d.serialize(), "t = { a = 1, b = 2 }\n");
@@ -2963,6 +3119,7 @@ mod tests {
             },
             fragment: "b = 2\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(d.serialize(), "t = { b = 2, a = 1 }\n");
@@ -2978,6 +3135,7 @@ mod tests {
             },
             fragment: "a = 1\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(d.serialize(), "t = { a = 1 }\n");
@@ -2993,6 +3151,7 @@ mod tests {
             },
             fragment: "a = 2\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         });
         assert!(matches!(r, Err(MutateError::Collision(_))));
     }
@@ -3095,6 +3254,7 @@ mod tests {
             },
             fragment: "x = 1\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(d.serialize(), "[a]\nx = 1\n[a.sub]\nz = 3\n[b]\ny = 2\n");
@@ -3156,6 +3316,7 @@ mod tests {
             },
             fragment: "size = 3\n".into(),
             on_collision: OnCollision::Cancel,
+            suggested_key: None,
         })
         .unwrap();
         assert_eq!(

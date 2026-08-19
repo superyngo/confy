@@ -99,7 +99,8 @@ pub fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<SyntaxNode, MutateError
             target,
             fragment,
             on_collision,
-        } => insert(&tree, &target, &fragment, on_collision)?,
+            suggested_key,
+        } => insert(&tree, &target, &fragment, suggested_key.as_deref(), on_collision)?,
         Mutation::Rename { path, new_key } => rename(&idx, &path, &new_key)?,
         Mutation::Remark { path } => remark(&tree, &idx, &path)?,
         Mutation::EditComment { path, text } => edit_comment(&tree, &idx, &path, &text)?,
@@ -262,6 +263,7 @@ mod tests {
                 },
                 fragment: "y: 2".into(),
                 on_collision: OnCollision::Cancel,
+                suggested_key: None,
             },
         )
         .expect("insert under quoted-key parent");
@@ -281,6 +283,7 @@ mod tests {
                 },
                 fragment: "\"a b\": 2".into(),
                 on_collision: OnCollision::Cancel,
+                suggested_key: None,
             },
         );
         assert!(matches!(res, Err(MutateError::Collision(_))));
@@ -553,6 +556,7 @@ mod tests {
                 },
                 fragment: "b: 2\n".into(),
                 on_collision: OnCollision::Cancel,
+                suggested_key: None,
             },
         )
         .expect("insert after leading comment");
@@ -741,6 +745,7 @@ mod tests {
                 },
                 fragment: "z: 9\n".into(),
                 on_collision: OnCollision::Cancel,
+                suggested_key: None,
             },
         )
         .expect("insert into flow-map nested in flow-seq should succeed");
@@ -800,6 +805,7 @@ mod tests {
                 },
                 fragment: "b: 2\n".into(),
                 on_collision: OnCollision::Cancel,
+                suggested_key: None,
             },
         )
         .expect("insert member at end");
@@ -821,6 +827,7 @@ mod tests {
                 },
                 fragment: "new_field: \"\"\n".into(),
                 on_collision: OnCollision::Cancel,
+                suggested_key: None,
             },
         )
         .expect("insert into an empty document");
@@ -839,6 +846,7 @@ mod tests {
                 },
                 fragment: "new_field: \"\"\n".into(),
                 on_collision: OnCollision::Cancel,
+                suggested_key: None,
             },
         )
         .expect("insert into a comment-only document");
@@ -857,6 +865,7 @@ mod tests {
                 },
                 fragment: "- 1\n".into(),
                 on_collision: OnCollision::Cancel,
+                suggested_key: None,
             },
         )
         .expect("insert seq element into an empty document");
@@ -877,6 +886,7 @@ mod tests {
                 },
                 fragment: "x: 1\n".into(),
                 on_collision: OnCollision::Cancel,
+                suggested_key: None,
             },
         );
         assert!(matches!(res, Err(MutateError::NotFound)));
@@ -895,6 +905,7 @@ mod tests {
                 },
                 fragment: "b: 2\n".into(),
                 on_collision: OnCollision::Cancel,
+                suggested_key: None,
             },
         )
         .expect("insert keyed fragment into sequence");
@@ -917,6 +928,7 @@ mod tests {
                 },
                 fragment: "5".into(),
                 on_collision: OnCollision::Cancel,
+                suggested_key: None,
             },
         )
         .expect("insert bare value into mapping");
@@ -924,6 +936,48 @@ mod tests {
             out.contains("placeholder"),
             "expected 'placeholder' key in output: {out:?}"
         );
+    }
+
+    #[test]
+    fn insert_bare_value_into_mapping_with_suggested_key() {
+        // Copy-paste path: an explicit suggested key names the synthesized
+        // entry instead of the generic `placeholder` (block mapping).
+        use crate::model::document::{OnCollision, Target};
+        let out = apply_str(
+            "a: 1\n",
+            Mutation::Insert {
+                target: Target {
+                    parent: vec![],
+                    index: 1,
+                },
+                fragment: "5".into(),
+                on_collision: OnCollision::Cancel,
+                suggested_key: Some("num".into()),
+            },
+        )
+        .expect("insert bare value with suggested key");
+        assert_eq!(out, "a: 1\nnum: 5\n");
+    }
+
+    #[test]
+    fn insert_bare_value_into_flow_map_with_suggested_key() {
+        // Same via an inline flow map — `insert_flow`'s bare-value synthesis
+        // honors the suggestion too, not just the block-mapping one.
+        use crate::model::document::{OnCollision, Target};
+        let out = apply_str(
+            "pt: {x: 1}\n",
+            Mutation::Insert {
+                target: Target {
+                    parent: vec![Seg::Key("pt".into())],
+                    index: 1,
+                },
+                fragment: "9".into(),
+                on_collision: OnCollision::Cancel,
+                suggested_key: Some("arr_1".into()),
+            },
+        )
+        .expect("insert bare value into flow map with suggested key");
+        assert_eq!(out, "pt: {x: 1, arr_1: 9}\n");
     }
 
     // ── 5j: Move ─────────────────────────────────────────────────────────────
@@ -1009,6 +1063,101 @@ mod tests {
         )
         .expect("move low index to middle ordinal");
         assert_eq!(out, "- 20\n- 10\n- 30\n- 40\n");
+    }
+
+    #[test]
+    fn move_array_scalar_into_mapping_synthesizes_array_key() {
+        // A bare scalar leaving a keyed array carries no key of its own; the
+        // synthesized mapping key is source-derived `<arrayKey>_<index>`
+        // instead of the generic `placeholder`.
+        let src = "arr:\n  - 10\n  - 20\n  - 30\ndest:\n  x: 1\n";
+        let out = apply_str(
+            src,
+            Mutation::Move {
+                sources: vec![vec![Seg::Key("arr".into()), Seg::Index(1)]],
+                target: crate::model::document::Target {
+                    parent: vec![Seg::Key("dest".into())],
+                    index: 1,
+                },
+                on_collision: OnCollision::Cancel,
+            },
+        )
+        .expect("move array scalar into mapping");
+        assert_eq!(
+            out,
+            "arr:\n  - 10\n  - 30\ndest:\n  x: 1\n  arr_1: 20\n"
+        );
+    }
+
+    #[test]
+    fn move_array_scalar_onto_colliding_key_auto_renames() {
+        // `<arrayKey>_<index>` follows the placeholder collision policy: a
+        // taken name silently auto-suffixes (`arr_1_2`), never prompts.
+        let src = "arr:\n  - 10\n  - 20\ndest:\n  arr_1: existing\n";
+        let out = apply_str(
+            src,
+            Mutation::Move {
+                sources: vec![vec![Seg::Key("arr".into()), Seg::Index(1)]],
+                target: crate::model::document::Target {
+                    parent: vec![Seg::Key("dest".into())],
+                    index: 1,
+                },
+                on_collision: OnCollision::Rename,
+            },
+        )
+        .expect("move array scalar onto colliding key");
+        assert_eq!(
+            out,
+            "arr:\n  - 10\ndest:\n  arr_1: existing\n  arr_1_2: 20\n"
+        );
+    }
+
+    #[test]
+    fn move_nested_unkeyed_array_scalar_keeps_placeholder() {
+        // An element of a nested array has no array key to derive a
+        // suggestion from — the generic `placeholder` is kept.
+        let src = "data:\n  - - 1\n    - 2\ndest:\n  x: 1\n";
+        let out = apply_str(
+            src,
+            Mutation::Move {
+                sources: vec![vec![
+                    Seg::Key("data".into()),
+                    Seg::Index(0),
+                    Seg::Index(1),
+                ]],
+                target: crate::model::document::Target {
+                    parent: vec![Seg::Key("dest".into())],
+                    index: 1,
+                },
+                on_collision: OnCollision::Cancel,
+            },
+        )
+        .expect("move nested array scalar into mapping");
+        assert_eq!(
+            out,
+            "data:\n  - - 1\ndest:\n  x: 1\n  placeholder: 2\n"
+        );
+    }
+
+    #[test]
+    fn move_array_mapping_element_unpacks_and_keeps_own_key() {
+        // An array-of-mappings element is keyed once its `- ` is stripped, so
+        // the suggested `<arrayKey>_<index>` must be ignored — the fragment's
+        // own key wins (regression: seq→mapping unpacking is unchanged).
+        let src = "arr:\n  - k: v\ndest:\n  x: 1\n";
+        let out = apply_str(
+            src,
+            Mutation::Move {
+                sources: vec![vec![Seg::Key("arr".into()), Seg::Index(0)]],
+                target: crate::model::document::Target {
+                    parent: vec![Seg::Key("dest".into())],
+                    index: 1,
+                },
+                on_collision: OnCollision::Cancel,
+            },
+        )
+        .expect("move array mapping element into mapping");
+        assert_eq!(out, "arr:\ndest:\n  x: 1\n  k: v\n");
     }
 
     #[test]
@@ -1603,6 +1752,7 @@ mod tests {
                 },
                 fragment: "z: 3\n".into(),
                 on_collision: OnCollision::Cancel,
+                suggested_key: None,
             },
         )
         .expect("insert into flow map");
@@ -1621,6 +1771,7 @@ mod tests {
                 },
                 fragment: "x: 1\n".into(),
                 on_collision: OnCollision::Cancel,
+                suggested_key: None,
             },
         )
         .expect("insert at front of flow map");
@@ -1639,6 +1790,7 @@ mod tests {
                 },
                 fragment: "x: 9\n".into(),
                 on_collision: OnCollision::Cancel,
+                suggested_key: None,
             },
         );
         assert!(
@@ -1697,6 +1849,7 @@ mod tests {
                 },
                 fragment: "c\n".into(),
                 on_collision: OnCollision::Cancel,
+                suggested_key: None,
             },
         )
         .expect("insert into flow seq");
@@ -1716,6 +1869,7 @@ mod tests {
                 },
                 fragment: "port: 80\n".into(),
                 on_collision: OnCollision::Cancel,
+                suggested_key: None,
             },
         )
         .expect("insert into nested block mapping");

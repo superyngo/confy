@@ -642,14 +642,18 @@ pub(crate) fn existing_map_keys(container: &SyntaxNode) -> Vec<String> {
 ///
 /// - keyed (`b: 2`) into MAPPING → use as-is, key = Some("b")
 /// - keyed (`b: 2`) into SEQUENCE → wrap as `- b: 2` element, key = None
-/// - bare value (`5`) into MAPPING → synthesize `placeholder: 5`, key = Some("placeholder")
+/// - bare value (`5`) into MAPPING → synthesize `<suggested>: 5` (falling back
+///   to `placeholder`), key = Some(that key)
 /// - bare value (`5`) into SEQUENCE → use as `- 5`, key = None
 ///
+/// `suggested_key` only names the synthesized key in the bare-value→MAPPING
+/// arm — keyed fragments already carry their own key and ignore it.
 /// Returns `(item_text, Option<key_name>)`.
 pub(crate) fn adapt_fragment(
     fragment: &str,
     is_mapping: bool,
     dest_indent: usize,
+    suggested_key: Option<&str>,
 ) -> Result<(String, Option<String>), MutateError> {
     let frag = fragment.trim_end_matches('\n');
 
@@ -659,10 +663,12 @@ pub(crate) fn adapt_fragment(
     if frag.trim_start().starts_with("- ") {
         if is_mapping {
             // Strip exactly one `- ` level (a nested-seq element `- - x` keeps
-            // its inner `- x`), then re-adapt as a mapping member.
+            // its inner `- x`), then re-adapt as a mapping member. The
+            // suggestion rides along — this is the path a bare scalar array
+            // element takes on its way to a `<arrayKey>_<index>` key.
             let trimmed = frag.trim_start();
             let inner = trimmed.strip_prefix("- ").unwrap_or(trimmed);
-            return adapt_fragment(inner, true, dest_indent);
+            return adapt_fragment(inner, true, dest_indent, suggested_key);
         }
         let reindented = reindent(&format!("{frag}\n"), fragment_indent(frag), dest_indent);
         return Ok((reindented, None));
@@ -692,14 +698,19 @@ pub(crate) fn adapt_fragment(
         // Bare value.
         let val = trimmed.to_string();
         if is_mapping {
-            let placeholder = format!("{}: {val}", " ".repeat(dest_indent) + "placeholder");
+            // Only the synthesized key's *name* changes with `suggested_key`
+            // (`<arrayKey>_<index>` for a moved scalar array element; generic
+            // `placeholder` otherwise) — the bare-value detection above is
+            // untouched.
+            let key = suggested_key.unwrap_or("placeholder");
+            let placeholder = format!("{}: {val}", " ".repeat(dest_indent) + key);
             // Ensure trailing newline.
             let text = if placeholder.ends_with('\n') {
                 placeholder
             } else {
                 format!("{placeholder}\n")
             };
-            Ok((text, Some("placeholder".to_string())))
+            Ok((text, Some(key.to_string())))
         } else {
             let spaces = " ".repeat(dest_indent);
             Ok((format!("{spaces}- {val}\n"), None))
@@ -749,26 +760,35 @@ pub(crate) fn rebuild_and_splice(
 /// "Add" on an empty document should do. Mirrors the fragment shape (`- `
 /// prefix → sequence, else mapping — same convention `adapt_fragment` uses)
 /// and appends it as the document's first top-level item.
-fn insert_into_empty_document(tree: &SyntaxNode, fragment: &str) -> Result<(), MutateError> {
+fn insert_into_empty_document(
+    tree: &SyntaxNode,
+    fragment: &str,
+    suggested_key: Option<&str>,
+) -> Result<(), MutateError> {
     let is_mapping = !fragment.trim_start().starts_with("- ");
-    let (new_item, _) = adapt_fragment(fragment, is_mapping, 0)?;
+    let (new_item, _) = adapt_fragment(fragment, is_mapping, 0, suggested_key)?;
     let full_text = tree.to_string();
     let sep = if full_text.is_empty() || full_text.ends_with('\n') { "" } else { "\n" };
     commit_reparse(tree, &format!("{full_text}{sep}{new_item}"), MutateError::Fragment)
 }
 
 /// Insert a new member/element into the container at `target`.
+///
+/// `suggested_key` names the key synthesized for a bare-scalar fragment landed
+/// in a mapping (`<arrayKey>_<index>` when the fragment was moved out of a
+/// keyed array); `None` keeps the generic `placeholder`.
 pub(crate) fn insert(
     tree: &SyntaxNode,
     target: &MutTarget,
     fragment: &str,
+    suggested_key: Option<&str>,
     on_collision: OnCollision,
 ) -> Result<(), MutateError> {
     // Find the container MAPPING or SEQUENCE.
     let container = match find_container(tree, &target.parent) {
         Ok(c) => c,
         Err(MutateError::NotFound) if target.parent.is_empty() => {
-            return insert_into_empty_document(tree, fragment);
+            return insert_into_empty_document(tree, fragment, suggested_key);
         }
         Err(e) => return Err(e),
     };
@@ -777,7 +797,7 @@ pub(crate) fn insert(
         container.kind(),
         SyntaxKind::FLOW_MAP | SyntaxKind::FLOW_SEQ
     ) {
-        return insert_flow(tree, &container, target, fragment, on_collision);
+        return insert_flow(tree, &container, target, fragment, suggested_key, on_collision);
     }
     let is_mapping = container.kind() == SyntaxKind::MAPPING;
     let dest_indent = container_indent(&container);
@@ -786,7 +806,7 @@ pub(crate) fn insert(
     let mut items: Vec<String> = collect_items(&container);
 
     // Adapt the fragment to the destination.
-    let (new_item, new_key) = adapt_fragment(fragment, is_mapping, dest_indent)?;
+    let (new_item, new_key) = adapt_fragment(fragment, is_mapping, dest_indent, suggested_key)?;
 
     // Collision check for mappings.
     let mut final_item = new_item;
@@ -812,13 +832,19 @@ pub(crate) fn insert(
                         loop {
                             let candidate = format!("{key}_{n}");
                             if !existing.iter().any(|k| k == &candidate) {
-                                // Rebuild item with renamed key.
+                                // Rebuild item with renamed key. Derive the
+                                // value from the already-adapted item, not the
+                                // raw fragment: a moved seq element (`- 20`)
+                                // has already been normalized to `key: value`
+                                // by `adapt_fragment`, and splitting the raw
+                                // `- 20` on `: ` would leave the dash in the
+                                // rebuilt value.
                                 let spaces = " ".repeat(dest_indent);
-                                let trimmed_frag = fragment.trim();
-                                let val_part = trimmed_frag
+                                let adapted = final_item.trim_start();
+                                let val_part = adapted
                                     .split_once(": ")
                                     .map(|x| x.1)
-                                    .unwrap_or(trimmed_frag)
+                                    .unwrap_or(adapted)
                                     .trim_end_matches('\n');
                                 let renamed = format!("{spaces}{candidate}: {val_part}\n");
                                 final_item = renamed;
