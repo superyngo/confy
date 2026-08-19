@@ -169,7 +169,8 @@ button{font-family:inherit;color:inherit;cursor:pointer}
   padding-right:8px;border-radius:7px;position:relative;
   scroll-margin:60px;
 }
-.row:hover,.row.cursor{background:var(--cursor-bg)}
+body:not(.paste-mode) .row:hover{background:var(--cursor-bg)}
+body:not(.paste-mode) .row.cursor{background:var(--cursor-bg)}
 .row.selected::before{content:"";position:absolute;left:2px;top:4px;bottom:4px;width:3px;border-radius:2px;background:var(--sel-edge)}
 .row.drag-over-into{box-shadow:inset 0 0 0 2px var(--drop)}
 .row.drag-src{opacity:.4}
@@ -491,11 +492,15 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
 #convWarns.warns { background: color-mix(in oklch, var(--t-date) 13%, var(--surface)); border-color: color-mix(in oklch, var(--t-date) 38%, transparent); }
 #convWarns.warns strong { color: var(--t-date); }
 #convWarns .warns-note { margin: 2px 0 6px; color: var(--muted); }
-/* Paste mode: the clipboard freezes the selection, so the cursor row is the
-   paste destination — make it unmistakable (a click moves it). */
-.paste-mode .row.cursor { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
-.paste-mode .row.cursor::before { content: ""; position: absolute; left: 2px; top: 4px; bottom: 4px; width: 4px; border-radius: 2px; background: var(--accent); }
-.paste-mode .row.cursor::after { content: "▸ paste here"; margin-left: auto; align-self: center; font-size: 10px; font-weight: 700; letter-spacing: .04em; color: var(--accent); }
+/* Paste mode: the clipboard freezes the selection, so cursor-styled blue and
+   plain-hover blue are both suppressed while armed (`body:not(.paste-mode)
+   .row:hover`/`.row.cursor` above) — otherwise moving the pointer to
+   position the paste target painted a second, competing blue fill on the
+   hovered row right alongside the green target cue. The only target
+   indicator left is the green `.drag-over-into` fill / `#dropLine` cue that
+   already tracks the pointer live and the committed slot on release,
+   mirroring the TUI's `active_slot` precedence (no blue cursor/hover while
+   a paste slot is in play). */
 .paste-mode .row-actions { display: none; }
 
 .modal { position: fixed; inset: 0; background: oklch(15% 0.02 250 / .5); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 16px; }
@@ -571,7 +576,6 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
 .row.clip-copy { background: var(--copy-bg); }
 .row.schema-violation { box-shadow: inset 0 0 0 1.5px var(--warn); border-radius: 6px; }
 .row.drag-over-into.schema-violation { box-shadow: inset 0 0 0 2px var(--drop), inset 0 0 0 4px var(--warn); }
-.paste-mode .row.cursor.schema-violation { box-shadow: inset 0 0 0 1px var(--accent), inset 0 0 0 3px var(--warn); }
 .row.schema-violation::after { content: ""; position: absolute; right: 4px; top: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
 
 /* Type-filter popup header: title row + a `Clear` text button (replaces the old

@@ -1232,8 +1232,8 @@ function onTreeClick(ev: MouseEvent) {
   }
   // In paste mode the clipboard freezes the selection, so a click can't
   // reselect — it positions the paste target (`Into`/`After`, from the
-  // click's row-relative Y) instead, and `body.paste-mode` styling makes it
-  // visible (ADR 0004 §1).
+  // click's row-relative Y) instead, and the green `.drag-over-into`/
+  // `#dropLine` cue makes it visible (ADR 0004 §1).
   if ((snap.clipboard_count ?? 0) > 0) {
     return send(armedPasteTarget(path, ev));
   }

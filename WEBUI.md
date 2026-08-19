@@ -198,8 +198,12 @@ shapes round-trip). Key types:
   (`Session::set_selection` is a no-op), so a row click positions the paste target
   instead: `armedPasteTarget()` reads the click's row-relative Y and calls
   `session.pointerSlot(path, relY)` → `SetPasteSlot` (`Into`/`After`), falling back to
-  `SetCursor` only when no slot resolves (ADR 0004 §1). A `body.paste-mode` class marks
-  the target row as a visible "▸ paste here" cue. While armed, moving the pointer over
+  `SetCursor` only when no slot resolves (ADR 0004 §1). The committed target is the **only**
+  highlight while armed — both the plain cursor style and the plain `:hover` style are
+  suppressed via `body:not(.paste-mode) .row.cursor`/`.row:hover` (`web/style.css`) so
+  neither competes with the green `.drag-over-into`/`#dropLine` cue that marks the target
+  row/gap, mirroring the TUI's `active_slot` precedence (no blue cursor/hover while a paste
+  slot is in play). While armed, moving the pointer over
   the tree also previews the click's eventual target *before* commit: `onArmedPasteHover`
   (a delegated `mousemove` on `treeWrap`) re-runs the same `pointerSlot()` classification
   and repaints `renderPasteSlotCue`'s cue elements client-only — no `dispatch`, no

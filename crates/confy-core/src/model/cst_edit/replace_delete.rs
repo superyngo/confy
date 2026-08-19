@@ -998,12 +998,26 @@ pub(crate) fn insert_comment(tree: &SyntaxNode, target: &InsTarget, text: &str) 
 /// `# …` comment of its source line; a comment is uncommented by stripping the `#`
 /// and reparsing as live TOML. (Table/AoT subtree remark is deferred.)
 pub(crate) fn remark(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
-    let (_, idx) = walk(tree, "");
-    let target = idx
-        .iter()
-        .find(|(p, _)| p == path)
-        .map(|(_, t)| t.clone())
-        .ok_or(MutateError::NotFound)?;
+    let (proj, idx) = walk(tree, "");
+    let target = match idx.iter().find(|(p, _)| p == path).map(|(_, t)| t.clone()) {
+        Some(t) => t,
+        // No single syntax element addresses `path` directly — an implicit or
+        // mixed table exists only via child section headers/dotted members, no
+        // `[table]` header of its own (CONTEXT.md *Member spans*: e.g. `[profile]`
+        // absent, only `[profile.release]` written). Fan out over its member
+        // spans instead, mirroring `delete()`'s `table_member_spans` fallback.
+        None => {
+            let is_table =
+                node_at(&proj.root, path).is_some_and(|n| matches!(n.kind, NodeKind::Table));
+            if is_table && matches!(path.last(), Some(Seg::Key(_))) {
+                let spans = table_member_spans(tree, &idx, path);
+                if !spans.is_empty() {
+                    return remark_table_spans(tree, &spans);
+                }
+            }
+            return Err(MutateError::NotFound);
+        }
+    };
     match target {
         // Comment out a single entry line.
         Target::Entry(entry) => {
@@ -1059,38 +1073,70 @@ pub(crate) fn remark(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError>
             } else {
                 section_end(tree, path, i)
             };
-            let els: Vec<_> = tree.children_with_tokens().collect();
-            let raw: String = els[i..end]
-                .iter()
-                .map(|e| match e {
-                    NodeOrToken::Node(n) => n.to_string(),
-                    NodeOrToken::Token(t) => t.text().to_string(),
-                })
-                .collect();
-            let body = raw.strip_suffix('\n').unwrap_or(&raw);
-            let commented: String = body
-                .split('\n')
-                .map(|l| {
-                    if l.is_empty() {
-                        "#".to_string()
-                    } else {
-                        format!("# {l}")
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
-            let frag = taplo::parser::parse(&format!("{commented}\n"))
-                .into_syntax()
-                .clone_for_update();
-            let new_els: Vec<_> = frag.children_with_tokens().collect();
-            for e in &new_els {
-                e.detach();
-            }
-            tree.splice_children(i..end, new_els);
-            Ok(())
+            comment_out_section(tree, i, end)
         }
         _ => Err(MutateError::Unsupported),
     }
+}
+
+/// Comment out each of a table's member spans independently (reverse document
+/// order, so earlier splice offsets stay valid) — the implicit/mixed-table
+/// fallback branch of `remark`, above. Each span becomes its own standalone
+/// comment in place; spans are never merged into one contiguous block, since
+/// they may already be scattered (CONTEXT.md *Member spans*).
+fn remark_table_spans(tree: &SyntaxNode, spans: &[MemberSpan]) -> Result<(), MutateError> {
+    for s in spans.iter().rev() {
+        match s {
+            MemberSpan::Entry(entry) => {
+                let parent = entry.parent().ok_or(MutateError::NotFound)?;
+                let comment = format!("# {entry}");
+                let tok = first_comment_token(&comment)?;
+                let i = entry.index();
+                parent.splice_children(i..i + 1, vec![NodeOrToken::Token(tok)]);
+            }
+            MemberSpan::Section(header) => {
+                let i = header.index();
+                let end = section_end_strict(tree, i);
+                comment_out_section(tree, i, end)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Comment out ROOT-children `i..end` line by line: `# `-prefix each source
+/// line, reparse as COMMENT tokens, and splice them back in place. Shared by
+/// the `Target::Header`/`AotEntry` remark arm and `remark_table_spans`.
+fn comment_out_section(tree: &SyntaxNode, i: usize, end: usize) -> Result<(), MutateError> {
+    let els: Vec<_> = tree.children_with_tokens().collect();
+    let raw: String = els[i..end]
+        .iter()
+        .map(|e| match e {
+            NodeOrToken::Node(n) => n.to_string(),
+            NodeOrToken::Token(t) => t.text().to_string(),
+        })
+        .collect();
+    let body = raw.strip_suffix('\n').unwrap_or(&raw);
+    let commented: String = body
+        .split('\n')
+        .map(|l| {
+            if l.is_empty() {
+                "#".to_string()
+            } else {
+                format!("# {l}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let frag = taplo::parser::parse(&format!("{commented}\n"))
+        .into_syntax()
+        .clone_for_update();
+    let new_els: Vec<_> = frag.children_with_tokens().collect();
+    for e in &new_els {
+        e.detach();
+    }
+    tree.splice_children(i..end, new_els);
+    Ok(())
 }
 
 /// Build a single `COMMENT` token from `text` (a `# …` line).

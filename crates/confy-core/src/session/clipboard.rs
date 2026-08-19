@@ -455,12 +455,25 @@ impl Session {
     }
 
     pub(crate) fn do_remark(&mut self, path: Path) {
+        // Remark toggles the cursor row's own kind (Node<->Comment) in place
+        // without moving it, but its *addressing* changes (a keyed path becomes
+        // positional, or vice versa) — the stale `self.cursor` path no longer
+        // resolves post-mutation, so `compute_rows`'s "snap to first row when
+        // cursor path vanished" fallback fires and the cursor jumps to row 0.
+        // Capture the row's visible *index* (unaffected by the kind swap, since
+        // no sibling above it moves) and re-anchor `self.cursor` by index below.
+        let row_index = self.cursor_row_index();
         let doc = match self.doc.as_mut() {
             Some(d) => d,
             None => return,
         };
         match doc.apply(Mutation::Remark { path }) {
-            Ok(()) => self.on_mutation_success(None),
+            Ok(()) => {
+                self.on_mutation_success(None);
+                if let Some(row) = row_index.and_then(|i| self.visible_rows().get(i).cloned()) {
+                    self.cursor = row.path;
+                }
+            }
             Err(MutateError::Fragment(_)) => {
                 self.status = Some(tr(self.lang, "core.remark.invalid").to_string());
             }

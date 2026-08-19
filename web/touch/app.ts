@@ -1376,8 +1376,9 @@ function handleTap(target: HTMLElement, row: HTMLElement, clientY: number) {
   lastTapTime = now;
   if (isDouble) openPanel(path);
   // In paste mode the clipboard freezes the selection, so a tap positions the
-  // paste target (`Into`/`After`); `.app.paste-mode .row.cursor`/
-  // `.row.drop-into` highlight it (ADR 0004 §1).
+  // paste target (`Into`/`After`) instead; the green `.drop-into`/
+  // `.reorder-line` cue is the only highlight it gets (ADR 0004 §1) — the
+  // cursor's own row style is suppressed while armed, see `web/touch/style.css`.
   else if ((snap?.clipboard_count ?? 0) > 0) send(armedTarget());
   else selectOnly(path);
 }

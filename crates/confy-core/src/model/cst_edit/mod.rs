@@ -901,6 +901,30 @@ mod tests {
     }
 
     #[test]
+    fn remark_implicit_table_with_no_own_header() {
+        // `profile` has no `[profile]` header of its own — it exists only via
+        // the child section `[profile.release]` (an implicit table).
+        let mut d = doc("[profile.release]\nopt-level = 'z'\nlto = true\n");
+        d.apply(Mutation::Remark {
+            path: vec![Seg::Key("profile".into())],
+        })
+        .unwrap();
+        assert_eq!(
+            d.serialize(),
+            "# [profile.release]\n# opt-level = 'z'\n# lto = true\n"
+        );
+        // Uncomment the block back to a live (still-implicit) table.
+        d.apply(Mutation::Remark {
+            path: vec![Seg::Index(0)],
+        })
+        .unwrap();
+        assert_eq!(
+            d.serialize(),
+            "[profile.release]\nopt-level = 'z'\nlto = true\n"
+        );
+    }
+
+    #[test]
     fn remark_comments_out_an_aot_entry() {
         let mut d = doc("[[p]]\nn = 1\n[[p]]\nn = 2\n");
         d.apply(Mutation::Remark {

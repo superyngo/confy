@@ -585,13 +585,21 @@ impl Session {
     /// built from `pointer_slot`). No-op if the slot's path is not currently
     /// visible — mirrors `set_cursor`'s guard, so a stale click (row
     /// scrolled/collapsed away between the pointer event and dispatch) can't
-    /// arm a target the tree no longer shows.
+    /// arm a target the tree no longer shows. Also moves `cursor` onto the
+    /// slot's row, mirroring `move_paste_slot`'s keyboard-driven sync — no
+    /// row is ever painted with the plain cursor style while armed (`body:not(
+    /// .paste-mode) .row.cursor`/`.app:not(.paste-mode) .row.cursor` in
+    /// `web/style.css`/`web/touch/style.css`), so this is purely functional:
+    /// it keeps the auto-scroll-to-cursor behavior (`.row.cursor` in
+    /// `web/render.ts`) following the pointer-driven target the same way it
+    /// already follows the keyboard-driven one.
     pub fn set_paste_slot(&mut self, slot: PasteSlot) {
         let path = match &slot {
             PasteSlot::Into(p) | PasteSlot::After(p) => p,
         };
         let visible = self.visible_nodes().iter().any(|r| &r.node.path == path);
         if visible {
+            self.cursor = path.clone();
             self.paste_slot = Some(slot);
         }
     }

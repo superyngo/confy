@@ -1736,6 +1736,18 @@ mod tests {
     }
 
     #[test]
+    fn remark_preserves_cursor_row() {
+        let mut app = app_with("a = 1\nport = 8080\nb = 2\n");
+        app.select_row(2); // on port (rows: 0 root, 1 a, 2 port, 3 b)
+        app.remark();
+        assert_eq!(
+            app.cursor_row_index(),
+            Some(2),
+            "cursor should stay on the remarked row, not jump to first row"
+        );
+    }
+
+    #[test]
     fn pure_json_remark_prompts_then_upgrades() {
         let doc = crate::model::any_doc::AnyDocument::from_str_as(
             "{\n  \"a\": 1\n}\n",

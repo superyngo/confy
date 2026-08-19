@@ -1988,7 +1988,12 @@ fn dispatch_set_paste_slot_intent_arms_the_target_for_paste() {
     s.cursor = a.clone();
     s.copy_selected();
     let snap = s.dispatch(Intent::SetPasteSlot(PasteSlot::Into(b.clone())));
-    assert_eq!(snap.paste_slot, Some(PasteSlot::Into(b)));
+    assert_eq!(snap.paste_slot, Some(PasteSlot::Into(b.clone())));
+    // Pointer-driven targeting (desktop click / touch drag) also moves the
+    // cursor onto the slot's row, mirroring the TUI's keyboard-driven
+    // `PasteSlot` stepping — otherwise the cursor-styled row indicator
+    // (`.paste-mode .row.cursor`) goes stale under mouse/touch targeting.
+    assert_eq!(snap.cursor, b, "cursor should follow the pointer-driven target");
 }
 
 // ---- AoT-entry move into another `[A/T]` group (ADR 0004 §3) ----
