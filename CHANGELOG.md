@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.20.0] - 2026-08-19
+
 ### Added
 - feat(core): `PasteSlot` (`Into`/`After`) is now the shared target representation for every host — new `SessionSnapshot.paste_slot`, `Intent::SetPasteSlot`, `Session::pointer_slot(path, rel_y)` (pixel-position → target), `move_selection_to` gains `cut: bool` (ADR 0004 §1).
 - feat(session): armed cut/copy mode is now a full cross-platform modal lock across TUI, Desktop, and Touch — all mutating operations (add, delete, rename, inline edit, remark, kind-switch, convert, undo, redo, reorder-grip drag, swipe-to-delete) and modal entries (search/filter, type filter, detail popup, language picker) are disabled while `clipboard.is_some()`, leaving only navigation, `ToggleExpand` (Space/caret), paste commit (`v`/`p`), and escape (`Esc`) active; attempting a disabled affordance surfaces a transient localized status/toast message (`core.clipboard.action-locked`) (ADR 0005 §5 / `ROW_STATE_MODEL.md` §5).
