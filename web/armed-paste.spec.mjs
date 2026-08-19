@@ -256,7 +256,7 @@ check("focusRow's armed branch calls armedPasteTarget", /clipboard_count \?\? 0\
 check("focusRow armed branch no longer sends a bare SetCursor", !/clipboard_count[^;\n]*\)\s*> 0[^\n]*SetCursor/.test(focusRowBlock));
 
 const onTreeClickBlock = uiTs.match(/^function onTreeClick\([\s\S]*?\n\}/m)?.[0] ?? "";
-const armedBranch = onTreeClickBlock.match(/if \(\(snap\.clipboard_count \?\? 0\) > 0\) \{[\s\S]*?\n  \}/)?.[0] ?? "";
+const armedBranch = onTreeClickBlock.match(/if \(\(snap\.clipboard_count \?\? 0\) > 0\) \{\s*\n\s*return send\(armedPasteTarget\(path, ev\)\);\s*\n\s*\}/)?.[0] ?? "";
 check("onTreeClick has a clipboard-armed branch", armedBranch.length > 0);
 check(
   "onTreeClick's armed branch returns send(armedPasteTarget(path, ev))",

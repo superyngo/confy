@@ -34,12 +34,12 @@ check(
 
 check(
   "ui.ts onTreeContext guards clipboard_count > 0 and calls setStatus",
-  /function onTreeContext\([\s\S]*?clipboard_count > 0[\s\S]*?setStatus\(t\("core\.clipboard\.action-locked"\)/.test(uiTs),
+  /function onTreeContext\([\s\S]*?clipboard_count(?: \?\? 0\))? > 0[\s\S]*?setStatus\(t\("core\.clipboard\.action-locked"\)/.test(uiTs),
 );
 
 check(
   "ui.ts kind badge click in onTreeClick guards clipboard_count > 0",
-  /const kindEl = target\.closest\("\[data-kind\]"\)[\s\S]*?clipboard_count > 0[\s\S]*?setStatus\(t\("core\.clipboard\.action-locked"\)/.test(uiTs),
+  /const kindEl = target\.closest\("\[data-kind\]"\)[\s\S]*?clipboard_count(?: \?\? 0\))? > 0[\s\S]*?setStatus\(t\("core\.clipboard\.action-locked"\)/.test(uiTs),
 );
 
 check(

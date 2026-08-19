@@ -1160,7 +1160,7 @@ function onTreeClick(ev: MouseEvent) {
 
   // Hover action buttons.
   if (target.closest('[data-act="add"]')) {
-    if (snap.clipboard_count > 0) {
+    if ((snap.clipboard_count ?? 0) > 0) {
       setStatus(t("core.clipboard.action-locked"), "");
       return;
     }
@@ -1170,7 +1170,7 @@ function onTreeClick(ev: MouseEvent) {
     return send("AddChild");
   }
   if (target.closest('[data-act="menu"]')) {
-    if (snap.clipboard_count > 0) {
+    if ((snap.clipboard_count ?? 0) > 0) {
       setStatus(t("core.clipboard.action-locked"), "");
       return;
     }
@@ -1192,7 +1192,7 @@ function onTreeClick(ev: MouseEvent) {
   // badge closes it).
   const kindEl = target.closest("[data-kind]") as HTMLElement | null;
   if (kindEl) {
-    if (snap.clipboard_count > 0) {
+    if ((snap.clipboard_count ?? 0) > 0) {
       setStatus(t("core.clipboard.action-locked"), "");
       return;
     }
@@ -1220,7 +1220,7 @@ function onTreeClick(ev: MouseEvent) {
   // value, but the web edits it independently).
   const editEl = target.closest("[data-edit]") as HTMLElement | null;
   if (editEl) {
-    if (snap.clipboard_count > 0) {
+    if ((snap.clipboard_count ?? 0) > 0) {
       setStatus(t("core.clipboard.action-locked"), "");
       return;
     }
@@ -1965,7 +1965,7 @@ function onTreeContext(ev: MouseEvent) {
   const rowEl = (ev.target as HTMLElement).closest(".row") as HTMLElement | null;
   if (!rowEl || rowEl.dataset.path === undefined) return;
   ev.preventDefault();
-  if (snap.clipboard_count > 0) {
+  if ((snap.clipboard_count ?? 0) > 0) {
     setStatus(t("core.clipboard.action-locked"), "");
     return;
   }
