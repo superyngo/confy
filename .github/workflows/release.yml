@@ -73,14 +73,32 @@ jobs:
           cache-on-failure: true
 
       # x86_64 musl builds natively on the GNU runner with musl-tools (no `cross`).
+      # `timeout` + retry loop: GH-hosted ubuntu-latest runners occasionally
+      # hang here for 10+ minutes on a background apt/dpkg lock (e.g.
+      # unattended-upgrades) instead of failing outright — bound each attempt
+      # so a stuck lock surfaces as a quick retry, not a step that never ends.
       - name: Install musl tools
         if: matrix.kind == 'linux-musl'
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
+        timeout-minutes: 6
+        run: |
+          for i in 1 2 3; do
+            sudo timeout 90 apt-get update && sudo timeout 180 apt-get install -y musl-tools && exit 0
+            echo "apt-get attempt $i failed/timed out, retrying in 10s..."
+            sleep 10
+          done
+          exit 1
 
       # aarch64 Linux cross-compiles with the GNU cross toolchain + linker.
       - name: Install aarch64 cross linker
         if: matrix.kind == 'linux-arm'
-        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+        timeout-minutes: 6
+        run: |
+          for i in 1 2 3; do
+            sudo timeout 90 apt-get update && sudo timeout 180 apt-get install -y gcc-aarch64-linux-gnu && exit 0
+            echo "apt-get attempt $i failed/timed out, retrying in 10s..."
+            sleep 10
+          done
+          exit 1
 
       # aarch64 musl: Ubuntu has no aarch64-musl gcc package, so build inside
       # the `cross` Docker image, which ships the full musl cross toolchain.
