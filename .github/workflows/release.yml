@@ -16,8 +16,41 @@ permissions:
   actions: write
 
 jobs:
+  verify-versions:
+    name: Verify version consistency
+    # Skip on workflow_dispatch dry runs (ref is a branch, not a release tag)
+    # — only a real vX.Y.Z tag push has a version to check files against.
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check all version files + CHANGELOG match the tag
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          fail=0
+          check() {
+            local label="$1" actual="$2"
+            if [ "$actual" != "$tag" ]; then
+              echo "::error::$label is '$actual', expected '$tag' (from tag ${GITHUB_REF_NAME})"
+              fail=1
+            fi
+          }
+          check "Cargo.toml [workspace.package].version" \
+            "$(grep -m1 '^version' Cargo.toml | sed -E 's/version = "(.*)"/\1/')"
+          check "web/package.json .version" \
+            "$(node -p "require('./web/package.json').version")"
+          check "editors/vscode/package.json .version" \
+            "$(node -p "require('./editors/vscode/package.json').version")"
+          if ! grep -q "^## \[v${tag}\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## [v${tag}]' section"
+            fail=1
+          fi
+          exit $fail
+
   build:
     name: Build ${{ matrix.target }}
+    needs: verify-versions
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -163,6 +196,7 @@ jobs:
   # .msix for Microsoft Store submission (see crates/confy-tauri/msix/STORE.md).
   desktop:
     name: Desktop ${{ matrix.target }}
+    needs: verify-versions
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

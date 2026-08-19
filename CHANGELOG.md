@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- feat(release): `release.yml` gains a `verify-versions` job that runs before any platform build on a real tag push — checks `Cargo.toml`, `web/package.json`, and `editors/vscode/package.json` versions plus a `CHANGELOG.md` `## [vX.Y.Z]` section all match the tag, failing fast instead of discovering a mismatch during a downstream publish step (as happened with `editors/vscode/package.json` on v0.20.0).
+- feat(release): `publish-vscode.yml` gains an optional `ref` input, decoupled from `tag` — defaults to `tag`, but lets a fix-forward publish (e.g. a version-file correction on `main`) build from a different ref without moving/retagging the app release and re-triggering the whole cross-platform build matrix.
+- feat(release): `publish-gate.yml` gains a `workflow_dispatch` trigger (`tag`, `run_id` inputs) so the msstore/vscode approval gate can be re-run manually for an already-built release, without waiting for a fresh `Release` `workflow_run` event.
+
 ## [v0.20.0] - 2026-08-19
 
 ### Added

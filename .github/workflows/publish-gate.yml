@@ -8,10 +8,22 @@ name: Publish Gate
 # every pending environment for one workflow run as individually checkable
 # items, so a release can be approved for a subset of stores in the same
 # single visit instead of all-or-nothing.
+#
+# Manual dispatch re-runs the same approval gate for an already-built
+# release (e.g. re-approving after a downstream publish failure) without
+# waiting for a fresh Release workflow_run event.
 on:
   workflow_run:
     workflows: ["Release"]
     types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish (e.g. v0.20.0)"
+        required: true
+      run_id:
+        description: "Run ID of the Release workflow that built the artifacts (only needed for msstore's .msix download; see the Release run's URL)"
+        required: true
 
 permissions:
   contents: read
@@ -20,27 +32,28 @@ permissions:
 jobs:
   msstore:
     name: Approve msstore publish
-    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     environment: publish-gate-msstore
     steps:
       - name: Dispatch publish-msstore.yml
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.workflow_run.head_branch }}
-          RUN_ID: ${{ github.event.workflow_run.id }}
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.workflow_run.head_branch }}
+          RUN_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.run_id || github.event.workflow_run.id }}
         run: |
           gh workflow run publish-msstore.yml --repo "${{ github.repository }}" --ref main -f tag="$TAG" -f run_id="$RUN_ID"
 
   vscode:
     name: Approve vscode publish
-    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     environment: publish-gate-vscode
     steps:
       - name: Dispatch publish-vscode.yml
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.workflow_run.head_branch }}
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.workflow_run.head_branch }}
         run: |
           gh workflow run publish-vscode.yml --repo "${{ github.repository }}" --ref main -f tag="$TAG"
+

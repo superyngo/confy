@@ -9,8 +9,11 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "App release tag to check out and publish (e.g. v0.18.0)"
+        description: "App release tag this publish is recorded against (e.g. v0.18.0); package.json's version must match it"
         required: true
+      ref:
+        description: "Git ref to actually build from (branch/tag/SHA). Defaults to `tag`; override to fix-forward (e.g. a package.json version fix on `main`) without moving/retagging the app release"
+        required: false
       dry_run:
         description: "Build + package only, skip Marketplace/Open VSX publish"
         type: boolean
@@ -25,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ inputs.ref || inputs.tag }}
 
       - uses: ./.github/actions/build-web-frontend
         with:
