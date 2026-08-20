@@ -334,10 +334,7 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
             } else {
                 " "
             };
-            let warn_marker = if row.is_branch
-                && row.has_descendant_warning
-                && !app.is_expanded(&row.path)
-            {
+            let warn_marker = if row.is_branch && row.has_descendant_warning {
                 "⚠"
             } else {
                 " "
@@ -1253,7 +1250,7 @@ mod tests {
     }
 
     #[test]
-    fn collapsed_branch_with_descendant_warning_shows_marker_glyph() {
+    fn branch_with_descendant_warning_shows_marker_glyph_regardless_of_expand_state() {
         let doc = crate::model::any_doc::AnyDocument::Toml(
             crate::model::cst_doc::CstDocument::from_str("[server]\nport = \"nope\"\n").unwrap(),
         );
@@ -1263,6 +1260,7 @@ mod tests {
             Ok(r#"{"type":"object","properties":{"server":{"type":"object","properties":{"port":{"type":"integer"}}}}}"#.to_string()),
         );
         let server_path: crate::model::node::Path = vec![crate::model::node::Seg::Key("server".into())];
+        // Collapsed: the marker must show.
         app.session.expanded.remove(&server_path);
         app.rebuild_rows();
         let mut terminal = Terminal::new(TestBackend::new(40, 8)).unwrap();
@@ -1271,6 +1269,17 @@ mod tests {
         assert!(
             (0..40).any(|x| (0..8).any(|y| buf[(x, y)].symbol() == "⚠")),
             "collapsed branch with a hidden violation must show the ⚠ marker"
+        );
+        // Expanded: the marker must still show — a stable visual cue that
+        // doesn't vanish the moment the violating child becomes visible.
+        app.session.expanded.insert(server_path);
+        app.rebuild_rows();
+        let mut terminal2 = Terminal::new(TestBackend::new(40, 8)).unwrap();
+        terminal2.draw(|fr| draw(fr, &app)).unwrap();
+        let buf2 = terminal2.backend().buffer().clone();
+        assert!(
+            (0..40).any(|x| (0..8).any(|y| buf2[(x, y)].symbol() == "⚠")),
+            "expanded branch with a descendant violation must still show the ⚠ marker"
         );
     }
 }

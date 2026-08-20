@@ -68,7 +68,7 @@ function rowHTML(
     (r.is_cursor ? " cursor" : "") +
     (r.read_only ? " readonly" : "") +
     (r.violations ? " schema-violation" : "") +
-    (branch && !expanded && r.has_descendant_warning ? " warn-branch" : "") +
+    (branch && r.has_descendant_warning ? " warn-branch" : "") +
     (pasteInto ? " drop-into" : "") +
     clip;
   let h = `<div class="${cls}" data-type="${esc(String(type))}" data-path="${dataPath}">`;
