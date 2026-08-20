@@ -132,6 +132,23 @@ Side"** (`confy.openTextBeside`) is a separate, unaffected command — it always
 genuinely new tab in `ViewColumn.Beside` and is contributed as an `editor/title` icon
 button next to "Reopen as Text Editor" (not a button inside the confy panel itself).
 
+## Outline & breadcrumbs (native text editors)
+
+`activate` also registers a `DocumentSymbolProvider` (`outlineProvider.ts`) for
+`**/*.toml`, `**/*.yaml`, and `**/*.yml`: the extension host itself loads the wasm core
+(the same `media/pkg/confy_ffi.js` + `confy_ffi_bg.wasm` the webview stages; passed as
+raw bytes, so the `--target web` glue calls `WebAssembly.instantiate` directly instead
+of `fetch()`) and maps the read-only `ConfySession.outline()` tree onto hierarchical
+`DocumentSymbol`s — the core's UTF-8 byte offsets (rowan) converted to VS Code's
+UTF-16 positions (`byteToPosition.ts`, unit-tested via plain `node
+--experimental-strip-types`). This populates the Explorer's Outline view, ⇧⌘O
+go-to-symbol, and the breadcrumb bar, with scalar values as symbol detail. A malformed
+or mid-edit document never errors — the Outline simply goes empty. Scope: VS Code's
+**native** text editor only; confy's own custom editor tab is a webview and gets no
+Outline/breadcrumbs (spec's Platform constraint). Because a runtime-only
+`registerDocumentSymbolProvider` has no declarative `contributes` equivalent,
+`package.json` carries an explicit `"activationEvents": ["onStartupFinished"]`.
+
 ## Publishing (M2)
 
 Publisher/namespace is **`wenanlin`** on both registries — Open VSX requires its

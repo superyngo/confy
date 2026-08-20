@@ -3,9 +3,13 @@ import { readFileSync } from "node:fs";
 import { formatFromName } from "./formatFromName.js";
 import { byteOffsetsToRange } from "./byteToPosition.js";
 // The wasm-pack `--target web` glue for the core, staged into media/ by
-// build.mjs from web/dist. A static import (the specifier is fixed) is safe:
-// importing the glue has no side effects — wasm instantiation stays deferred
-// to loadConfySession below.
+// build.mjs from web/dist. Imported statically rather than the design doc's
+// sketch of a dynamic import(): whether esbuild's dynamic-import-from-CJS
+// output reliably works under the Node-18-bundled extension host was an
+// explicit open implementation detail of the design spec, and the static
+// form sidesteps it — esbuild inlines the glue at build time, and importing
+// the glue has no side effects, so wasm instantiation stays deferred to
+// loadConfySession below.
 import * as ffi from "../media/pkg/confy_ffi.js";
 
 interface OutlineNode {
