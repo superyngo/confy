@@ -115,9 +115,19 @@ The **Open with confy** / **Reopen as Text Editor** title-bar buttons
 stack a second one beside it. VS Code tracks tabs by `(uri, viewType)` identity, so a
 plain `vscode.openWith` call for a different viewType leaves the previous tab open. The
 fix (`extension.ts`'s `swapEditorKind()`): open the new view **first** (so the shared
-`TextDocument` keeps at least one reference), then close the old tab — closing while
-another view still holds the document skips VS Code's unsaved-changes prompt. This
-mirrors what the built-in "Reopen Editor With…" command does. **"Open Text Editor to the
+`TextDocument` keeps at least one reference), then close the old tab — this is the
+closest an extension can get to the built-in "Reopen Editor With…" swap using public
+API. **Known limitation:** unlike VS Code's own internal editor-replace (used by
+"Reopen Editor With…" and, as of 1.132, the `breadcrumbs.showEditorType` dropdown),
+`tabGroups.close()` still shows the unsaved-changes confirmation dialog on a dirty
+document — its API contract has no carve-out for another tab sharing the same
+document, and no public API exposes the in-place swap VS Code's core UI uses instead.
+Verified live against VS Code 1.134 (2026-08): the confy title-bar buttons prompt on a
+dirty document; the native `breadcrumbs.showEditorType` dropdown (opt-in, off by
+default) does not. Users who want a prompt-free swap can enable
+`breadcrumbs.showEditorType` as an alternative to the title-bar buttons — no change
+needed on confy's side, since the extension already satisfies it via
+`contributes.customEditors`. **"Open Text Editor to the
 Side"** (`confy.openTextBeside`) is a separate, unaffected command — it always opens a
 genuinely new tab in `ViewColumn.Beside` and is contributed as an `editor/title` icon
 button next to "Reopen as Text Editor" (not a button inside the confy panel itself).

@@ -14,9 +14,12 @@ function tabInfo(tab: vscode.Tab): { uri: vscode.Uri; viewType: string } | undef
 // VS Code tracks tabs by (uri, viewType), so a plain `vscode.openWith` for a
 // different viewType leaves the old tab open alongside the new one instead of
 // reusing it. Opening the new view FIRST (so the shared TextDocument keeps at
-// least one reference) then closing the old tab mirrors what the built-in
-// "Reopen Editor With…" does — and means the close never triggers an
-// unsaved-changes prompt, since the document is still open in the new tab.
+// least one reference) then closing the old tab is the closest an extension can
+// get to the built-in "Reopen Editor With…" swap — but `tabGroups.close()` still
+// shows the unsaved-changes confirmation on a dirty document regardless of
+// another tab sharing it (see its API doc); there is no public API for the
+// in-place editor-input replace VS Code's own UI uses, so that prompt is a known,
+// unavoidable limitation here (VSCODE.md § Title-bar tab swap).
 async function swapEditorKind(uri: vscode.Uri, viewType: string): Promise<void> {
   const group = vscode.window.tabGroups.activeTabGroup;
   const oldTab = group?.tabs.find((t) => {
