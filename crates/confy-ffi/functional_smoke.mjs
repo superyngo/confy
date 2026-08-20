@@ -257,7 +257,10 @@ const snap15a = s15.dispatch(unit("AddSibling"));
 check("AddSibling stays a root sibling off collapsed branch", snap15a.cursor.length === 1 && snap15a.cursor[0]?.Key !== "server",
   JSON.stringify(snap15a.cursor));
 
-// ---- 20. Paste retargets selection onto the pasted node (source deselected) ----
+// ---- 20. Paste clears the source selection and moves the cursor only (core
+// deliberately does NOT reselect the pasted node -- see clipboard.rs's
+// do_paste; hosts that want a "paste selects" UX issue a follow-up
+// SetSelection themselves, e.g. web/ui.ts's post-paste reselect compensator) ----
 const s16 = new ConfySession(`[t1]\nx = 1\n[t2]\ny = 2\n`, "toml");
 s16.dispatch(unit("ExpandAll"));
 s16.dispatch(tuple("SetSelection", { paths: [[{ Key: "t1" }, { Key: "x" }]] }));
@@ -265,8 +268,8 @@ s16.dispatch(unit("CopySelected"));
 s16.dispatch(tuple("SetCursor", [{ Key: "t2" }, { Key: "y" }]));
 const snap16 = s16.dispatch(unit("Paste"));
 const selRows16 = snap16.rows.filter((r) => r.selected).map((r) => r.path);
-check("Paste selects exactly the pasted node",
-  selRows16.length === 1 && selRows16[0]?.[0]?.Key === "t2" && selRows16[0]?.[1]?.Key === "x",
+check("Paste clears the selection (no auto-reselect of the pasted node)",
+  selRows16.length === 0,
   JSON.stringify(selRows16));
 check("Paste moves cursor onto the pasted node",
   snap16.cursor.length === 2 && snap16.cursor[0]?.Key === "t2" && snap16.cursor[1]?.Key === "x",

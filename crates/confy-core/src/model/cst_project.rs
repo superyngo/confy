@@ -538,8 +538,10 @@ fn project_entry(entry: &SyntaxNode, scope: &[Seg], idx: &mut CstIndex) -> Node 
 /// intermediates carry no index target (like an implicit header table). Inline
 /// table members keep using `project_entry` (their dotted keys are not split).
 /// When `widen_scope` is set (the scope's node was freshly created by the
-/// header that opened the current section), a single-segment leaf widens the
-/// scope's `text_range.end` — a directly-owned entry of that section.
+/// header that opened the current section), a directly-owned entry — single-
+/// or dotted-key alike — widens the scope's `text_range.end`. The synthetic
+/// `Dotted` chain node created for a multi-segment key stays anchor-only
+/// (ADR 0006); only the enclosing `scope` is widened here.
 fn project_entry_into(
     root: &mut Node,
     scope: &[Seg],
@@ -578,6 +580,7 @@ fn project_entry_into(
     // synthetic chain segments (below / `ensure_dotted_chain`) each key on
     // their own segment.
     let entry_range = to_range(entry.text_range());
+    let entry_end = entry_range.end;
     let leaf_key_range = seg_ranges.last().cloned();
     let value = entry.children().find(|c| c.kind() == SyntaxKind::VALUE);
     let mut node = match value {
@@ -604,6 +607,11 @@ fn project_entry_into(
 
     ensure_dotted_chain(root, scope.len(), &full, entry, &seg_ranges);
     append_child(root, &full[..full.len() - 1], node);
+    if widen_scope {
+        if let Some(container) = node_at_mut(root, scope) {
+            widen_end(container, entry_end);
+        }
+    }
 
     // A `[T/D]` table projects at the position of its **first** definition in the
     // scope (where a consolidating block-rewrite will place it) — the chain node
@@ -1460,5 +1468,20 @@ Array key="ml" sign=Bare val=None fmt=Multiline trail=None
         // ADR 0006: anchors at the FIRST member (`a.b = 1`), not an envelope.
         assert_eq!(&src[a.text_range.clone()], "a.b = 1");
         assert_eq!(a.key_text_range.clone().map(|r| &src[r]), Some("a"));
+    }
+
+    #[test]
+    fn table_widens_to_include_trailing_dotted_entry() {
+        // A dotted-key entry (`a.b = 1`) directly owned by a real `[server]`
+        // table must widen that table's own range too, same as a plain
+        // single-segment entry already does -- it's a directly-owned,
+        // contiguous, non-container child, just like `host`.
+        let src = "[server]\nhost = \"localhost\"\na.b = 1\n";
+        let t = cst_tree(src);
+        let server = &t.root.children[0];
+        assert_eq!(
+            &src[server.text_range.clone()],
+            "[server]\nhost = \"localhost\"\na.b = 1"
+        );
     }
 }
