@@ -424,9 +424,7 @@ fn walk_container_tokens(
                             &member_node,
                             &name,
                             KeySign::Quoted,
-                            key_node
-                                .as_ref()
-                                .map(|k| to_range(k.text_range())),
+                            key_node.as_ref().map(|k| to_range(k.text_range())),
                             path,
                             Target::Member(member_node.clone()),
                             idx,
@@ -442,9 +440,7 @@ fn walk_container_tokens(
                             trailing_comment: None,
                             read_only: false,
                             text_range: to_range(node.text_range()),
-                            key_text_range: key_node
-                                .as_ref()
-                                .map(|k| to_range(k.text_range())),
+                            key_text_range: key_node.as_ref().map(|k| to_range(k.text_range())),
                         },
                     };
                     out.push(child);
