@@ -119,13 +119,17 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none
 .row.clip-cut > .row-main{background:var(--cut-bg)}
 .row.clip-copy > .row-main{background:var(--copy-bg)}
 .row.schema-violation > .row-main{outline:1.5px dashed var(--warn);outline-offset:-2px}
-/* Branch containing a schema warning anywhere in its subtree — a small amber
-   corner dot (not the dashed outline, which is reserved for a row that
-   itself violates). Deliberately shown whether the branch is collapsed or
-   expanded — a stable "there's a warning under here" cue, not just a
-   collapsed-only summary. Clears only once no descendant violates anymore:
-   no JS state, just `has_descendant_warning` re-evaluated per render. */
-.row.warn-branch > .row-main::after{content:"";position:absolute;left:2px;top:4px;width:6px;height:6px;border-radius:50%;background:var(--warn)}
+/* Unified "there's a schema warning here" leading dot — shown identically
+   whether this exact row violates or it's a branch summarizing a violation
+   somewhere in its subtree (no visual distinction between the two, per
+   design decision), vertically centered and offset past `.row.selected`'s
+   own left-edge bar (`left:2px`, 3px wide) so a locked-selected warning row
+   doesn't collide with it. `.schema-violation` additionally gets the
+   dashed outline above (this exact row is wrong); `.warn-branch` gets only
+   the dot (the branch itself doesn't violate). Deliberately shown whether a
+   branch is collapsed or expanded — a stable cue, not a collapsed-only
+   summary; clears only once no violation remains, no JS state needed. */
+.row.schema-violation > .row-main::after, .row.warn-branch > .row-main::after{content:"";position:absolute;left:7px;top:50%;transform:translateY(-50%);width:6px;height:6px;border-radius:50%;background:var(--warn)}
 /* Opaque press tint — a translucent mix would let the red swipe-to-delete
    button behind (.row-del, z-index:1) bleed through while the finger is down. */
 .row-main:active{background:color-mix(in oklch,var(--panel) 70%,var(--bg))}

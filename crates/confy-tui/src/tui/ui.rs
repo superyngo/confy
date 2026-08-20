@@ -334,8 +334,17 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
             } else {
                 " "
             };
-            let warn_marker = if row.is_branch && row.has_descendant_warning {
-                "⚠"
+            // One triangle glyph for any row that itself violates OR is a
+            // branch summarizing a descendant violation — was `⚠` on the
+            // branch case only, own-row violations relied on the yellow
+            // text alone; unified so every "there's a warning here" row
+            // gets the same leading landmark (also avoids `⚠`'s variable
+            // emoji-presentation width across terminals — `▲` is always
+            // single-column).
+            let warn_marker = if row.violations.is_some()
+                || (row.is_branch && row.has_descendant_warning)
+            {
+                "▲"
             } else {
                 " "
             };
@@ -1267,19 +1276,27 @@ mod tests {
         terminal.draw(|fr| draw(fr, &app)).unwrap();
         let buf = terminal.backend().buffer().clone();
         assert!(
-            (0..40).any(|x| (0..8).any(|y| buf[(x, y)].symbol() == "⚠")),
-            "collapsed branch with a hidden violation must show the ⚠ marker"
+            (0..40).any(|x| (0..8).any(|y| buf[(x, y)].symbol() == "▲")),
+            "collapsed branch with a hidden violation must show the ▲ marker"
         );
         // Expanded: the marker must still show — a stable visual cue that
-        // doesn't vanish the moment the violating child becomes visible.
+        // doesn't vanish the moment the violating child becomes visible. And
+        // the leaf that actually violates (`port`) must show its own ▲ too,
+        // unified with the branch-summary case rather than relying on the
+        // yellow text alone. The root doc row is also an ancestor of the
+        // violation, so it gets a ▲ as well — three total: root, server, port.
         app.session.expanded.insert(server_path);
         app.rebuild_rows();
         let mut terminal2 = Terminal::new(TestBackend::new(40, 8)).unwrap();
         terminal2.draw(|fr| draw(fr, &app)).unwrap();
         let buf2 = terminal2.backend().buffer().clone();
-        assert!(
-            (0..40).any(|x| (0..8).any(|y| buf2[(x, y)].symbol() == "⚠")),
-            "expanded branch with a descendant violation must still show the ⚠ marker"
+        let triangle_count = (0..40)
+            .flat_map(|x| (0..8).map(move |y| (x, y)))
+            .filter(|&(x, y)| buf2[(x, y)].symbol() == "▲")
+            .count();
+        assert_eq!(
+            triangle_count, 3,
+            "root, expanded server (descendant warning), and its violating port leaf (own warning) must each show ▲"
         );
     }
 }
