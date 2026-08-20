@@ -71,6 +71,12 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
     let mut lines: Vec<String> = Vec::new();
     let mut first_tok: Option<SyntaxToken> = None;
     let mut current: Vec<Seg> = Vec::new();
+    // Whether `current`'s node was freshly created by the header that opened
+    // the current section. Only then do its directly-owned entries widen its
+    // `text_range.end` (own header line + own entries — a section re-opening
+    // an existing node, e.g. a super-table defined after its sub-tables or a
+    // dotted-table redefinition, keeps that node's ADR 0006 anchor instead).
+    let mut fresh_section = false;
 
     macro_rules! finalize_blocks {
         () => {{
@@ -118,8 +124,8 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
             NodeOrToken::Node(n) => match n.kind() {
                 SyntaxKind::ENTRY => {
                     let pending = finalize_blocks!();
-                    flush_comments(&mut root, &current, pending, &mut idx);
-                    project_entry_into(&mut root, &current, &n, &mut idx);
+                    flush_comments(&mut root, &current, pending, &mut idx, fresh_section);
+                    project_entry_into(&mut root, &current, &n, &mut idx, fresh_section);
                 }
                 SyntaxKind::TABLE_HEADER => {
                     let path = header_path(&n);
@@ -132,9 +138,9 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
                     let separated = std::mem::take(&mut blocks);
                     let adjacent = take_adjacent!();
                     ensure_table_path(&mut root, &parent, &signs, &key_ranges, &n);
-                    flush_comments(&mut root, &current, separated, &mut idx);
-                    flush_comments(&mut root, &parent, adjacent, &mut idx);
-                    ensure_table_path(&mut root, &path, &signs, &key_ranges, &n);
+                    flush_comments(&mut root, &current, separated, &mut idx, fresh_section);
+                    flush_comments(&mut root, &parent, adjacent, &mut idx, false);
+                    fresh_section = ensure_table_path(&mut root, &path, &signs, &key_ranges, &n);
                     // A `[section]  # c` header carries its EOL comment as the
                     // table node's trailing comment (editable via SetTrailingComment).
                     if let Some(tc) = entry_trailing_comment(&n) {
@@ -162,11 +168,11 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
                     let adjacent = take_adjacent!();
                     ensure_table_path(&mut root, &parent, &signs, &key_ranges, &n);
                     let exists = node_at(&root, &path).is_some();
-                    flush_comments(&mut root, &current, separated, &mut idx);
+                    flush_comments(&mut root, &current, separated, &mut idx, fresh_section);
                     if exists {
-                        flush_comments(&mut root, &path, adjacent, &mut idx);
+                        flush_comments(&mut root, &path, adjacent, &mut idx, false);
                     } else {
-                        flush_comments(&mut root, &parent, adjacent, &mut idx);
+                        flush_comments(&mut root, &parent, adjacent, &mut idx, false);
                         let aot = Node {
                             key: aot_key,
                             path: path.clone(),
@@ -209,13 +215,16 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
                     });
                     idx.push((entry_path.clone(), Target::AotEntry(n.clone())));
                     current = entry_path;
+                    // Every `[[b]]` header creates a brand-new entry node, so
+                    // the entries that follow it always widen it.
+                    fresh_section = true;
                 }
                 _ => {}
             },
         }
     }
     let pending = finalize_blocks!();
-    flush_comments(&mut root, &current, pending, &mut idx);
+    flush_comments(&mut root, &current, pending, &mut idx, fresh_section);
 
     (NodeTree { root }, idx)
 }
@@ -225,12 +234,14 @@ fn flush_comments(
     scope: &[Seg],
     blocks: Vec<(String, SyntaxToken)>,
     idx: &mut CstIndex,
+    widen: bool,
 ) {
     if blocks.is_empty() {
         return;
     }
     let container = node_at_mut(root, scope).expect("scope must exist");
     for (text, tok) in blocks {
+        let end = to_range(tok.text_range()).end;
         let i = container.children.len();
         let mut path = scope.to_vec();
         path.push(Seg::Index(i));
@@ -248,6 +259,13 @@ fn flush_comments(
             text_range: to_range(tok.text_range()),
             key_text_range: None,
         });
+        // A block trailing its own section (blank-separated before the next
+        // header, or at end of document) is one of that section's directly-
+        // owned entries and extends it; a block leading a new header never
+        // extends the scope it was parked on.
+        if widen {
+            widen_end(container, end);
+        }
         idx.push((path, Target::Comment(tok)));
     }
 }
@@ -257,6 +275,16 @@ fn append_child(root: &mut Node, scope: &[Seg], node: Node) {
         .expect("scope must exist")
         .children
         .push(node);
+}
+
+/// Widen `node.text_range.end` to cover a directly-owned entry appended under
+/// it — a section's range is its own header line plus the entries that
+/// directly follow it before the next header, never an envelope over a
+/// scattered descendant (ADR 0006). The start never moves.
+fn widen_end(node: &mut Node, end: usize) {
+    if end > node.text_range.end {
+        node.text_range.end = end;
+    }
 }
 
 fn node_at<'a>(root: &'a Node, path: &[Seg]) -> Option<&'a Node> {
@@ -280,21 +308,26 @@ fn node_at_mut<'a>(root: &'a mut Node, path: &[Seg]) -> Option<&'a mut Node> {
 /// per-segment `KeySign` of the header's KEY, aligned with `path`, and
 /// `key_ranges` the per-segment key byte ranges (same alignment). Per ADR 0006
 /// every synthetic table anchors at `source` — the single header node that
-/// created it, never an envelope. No-op for the empty path.
+/// created it, never an envelope. No-op for the empty path. Returns whether
+/// the **final** segment's node was freshly created here — a header that
+/// re-opens an existing table (a dotted-table redefinition, or a super-table
+/// defined after its sub-tables) must keep that node's ADR 0006 anchor, so its
+/// later entries do not widen it.
 fn ensure_table_path(
     root: &mut Node,
     path: &[Seg],
     signs: &[KeySign],
     key_ranges: &[std::ops::Range<usize>],
     source: &SyntaxNode,
-) {
+) -> bool {
+    let mut fresh = false;
     for i in 0..path.len() {
         if node_at(root, &path[..=i]).is_some() {
             continue;
         }
         let key = match &path[i] {
             Seg::Key(k) => k.clone(),
-            Seg::Index(_) => return,
+            Seg::Index(_) => return fresh,
         };
         let node = Node {
             key,
@@ -310,7 +343,9 @@ fn ensure_table_path(
             key_text_range: key_ranges.get(i).cloned(),
         };
         append_child(root, &path[..i], node);
+        fresh = i == path.len() - 1;
     }
+    fresh
 }
 
 /// The absolute key path named by a `TABLE_HEADER` / `TABLE_ARRAY_HEADER`'s `KEY`.
@@ -502,7 +537,16 @@ fn project_entry(entry: &SyntaxNode, scope: &[Seg], idx: &mut CstIndex) -> Node 
 /// `Target::Entry`, so mutation addressing is unchanged; the synthetic
 /// intermediates carry no index target (like an implicit header table). Inline
 /// table members keep using `project_entry` (their dotted keys are not split).
-fn project_entry_into(root: &mut Node, scope: &[Seg], entry: &SyntaxNode, idx: &mut CstIndex) {
+/// When `widen_scope` is set (the scope's node was freshly created by the
+/// header that opened the current section), a single-segment leaf widens the
+/// scope's `text_range.end` — a directly-owned entry of that section.
+fn project_entry_into(
+    root: &mut Node,
+    scope: &[Seg],
+    entry: &SyntaxNode,
+    idx: &mut CstIndex,
+    widen_scope: bool,
+) {
     let key_node = entry.children().find(|c| c.kind() == SyntaxKind::KEY);
     let segs = key_node.as_ref().map(key_segments).unwrap_or_default();
     let seg_ranges = key_node
@@ -513,7 +557,13 @@ fn project_entry_into(root: &mut Node, scope: &[Seg], entry: &SyntaxNode, idx: &
     // Single (or zero) segment: unchanged — one node directly under `scope`.
     if segs.len() <= 1 {
         let node = project_entry(entry, scope, idx);
+        let end = node.text_range.end;
         append_child(root, scope, node);
+        if widen_scope {
+            if let Some(container) = node_at_mut(root, scope) {
+                widen_end(container, end);
+            }
+        }
         return;
     }
     let mut full = scope.to_vec();
@@ -1331,7 +1381,12 @@ Array key="ml" sign=Bare val=None fmt=Multiline trail=None
         let src = "[server]\nhost = \"localhost\"\nport = 8080\n";
         let t = cst_tree(src);
         let server = &t.root.children[0];
-        assert_eq!(&src[server.text_range.clone()], "[server]");
+        // A section's range is its own header line plus its directly-owned
+        // entries (through the end of `port = 8080`, no trailing newline).
+        assert_eq!(
+            &src[server.text_range.clone()],
+            "[server]\nhost = \"localhost\"\nport = 8080"
+        );
         assert_eq!(
             server.key_text_range.clone().map(|r| &src[r]),
             Some("server")
@@ -1339,6 +1394,62 @@ Array key="ml" sign=Bare val=None fmt=Multiline trail=None
         let port = &server.children[1];
         assert_eq!(&src[port.text_range.clone()], "port = 8080");
         assert_eq!(port.key_text_range.clone().map(|r| &src[r]), Some("port"));
+    }
+
+    #[test]
+    fn aot_entry_text_range_covers_own_entries_only() {
+        let src = "[[item]]\nn = 1\n[[item]]\nn = 2\n";
+        let t = cst_tree(src);
+        let group = &t.root.children[0];
+        assert!(matches!(group.kind, NodeKind::ArrayOfTables));
+        // Each entry covers its own header + its own entries; the synthetic
+        // group keeps its ADR 0006 anchor at the header that created it.
+        let first = &group.children[0];
+        assert_eq!(&src[first.text_range.clone()], "[[item]]\nn = 1");
+        let second = &group.children[1];
+        assert_eq!(&src[second.text_range.clone()], "[[item]]\nn = 2");
+        assert_eq!(&src[group.text_range.clone()], "[[item]]");
+    }
+
+    #[test]
+    fn scattered_subsection_keeps_parent_range_scoped() {
+        // `[fruit.apple]` sits after `[other]`: a scattered descendant — the
+        // parent's range must stay its own header + directly-owned entries.
+        let src = "[fruit]\ncolor = \"red\"\n\n[other]\nx = 1\n\n[fruit.apple]\nsweet = true\n";
+        let t = cst_tree(src);
+        let fruit = &t.root.children[0];
+        assert_eq!(&src[fruit.text_range.clone()], "[fruit]\ncolor = \"red\"");
+        let apple = &fruit.children[1];
+        assert!(matches!(apple.kind, NodeKind::Table));
+        assert_eq!(
+            &src[apple.text_range.clone()],
+            "[fruit.apple]\nsweet = true"
+        );
+    }
+
+    #[test]
+    fn supertable_defined_after_subtable_stays_anchored() {
+        // `[x]` after `[x.y]` re-opens the implicit `x` (legal out-of-order
+        // TOML): `x` keeps its `[x.y]`-header anchor — its later direct entry
+        // must not turn that anchor into an envelope over `y`'s section.
+        let src = "[x.y]\na = 1\n\n[x]\nb = 2\n";
+        let t = cst_tree(src);
+        let x = &t.root.children[0];
+        assert_eq!(x.key, "x");
+        assert_eq!(&src[x.text_range.clone()], "[x.y]");
+        let y = &x.children[0];
+        assert_eq!(&src[y.text_range.clone()], "[x.y]\na = 1");
+    }
+
+    #[test]
+    fn trailing_comment_block_extends_section_range() {
+        // A blank-separated block trails its own section (a directly-owned
+        // comment entry); a block hugging the next header leads that header
+        // instead and never extends the scope it was parked on.
+        let src = "[s]\na = 1\n# trail\n\n[o]\nb = 2\n";
+        let t = cst_tree(src);
+        let s = &t.root.children[0];
+        assert_eq!(&src[s.text_range.clone()], "[s]\na = 1\n# trail");
     }
 
     #[test]

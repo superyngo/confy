@@ -48,11 +48,14 @@ async function loadConfySession(context: vscode.ExtensionContext): Promise<Confy
   return ffiInit;
 }
 
+// Keys are `OutlineNode.type_label` strings — the `node_type_label`/
+// `node_type_label_str` vocabulary from confy-core's status_fmt.rs (the same
+// one web/kind-labels.ts uses): "inline" and "array-of-tables", hyphenated.
 const KIND_MAP: Record<string, vscode.SymbolKind> = {
   table: vscode.SymbolKind.Object,
-  "inline table": vscode.SymbolKind.Object,
+  inline: vscode.SymbolKind.Object,
   array: vscode.SymbolKind.Array,
-  "array of tables": vscode.SymbolKind.Array,
+  "array-of-tables": vscode.SymbolKind.Array,
   string: vscode.SymbolKind.String,
   integer: vscode.SymbolKind.Number,
   float: vscode.SymbolKind.Number,
