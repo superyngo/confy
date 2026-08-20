@@ -181,6 +181,8 @@ fn classify_scalar(tok: &SyntaxToken) -> (NodeKind, Format, String) {
 /// `trailing_anchor` is the node whose next siblings are scanned for a trailing
 /// comment: a MEMBER node for object members, the VALUE node itself for array
 /// elements (since the COMMA/LINE_COMMENT sit at the ARRAY level after the VALUE).
+// Parameters are a natural per-syntax-node projection group, not accidental bloat.
+#[allow(clippy::too_many_arguments)]
 fn build_value_node(
     value: &SyntaxNode,
     trailing_anchor: &SyntaxNode,
