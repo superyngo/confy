@@ -74,7 +74,11 @@ block-rewrite lands). The value leaves stay mapped to their original source entr
 seeds a scalar and inserts write a scope-relative dotted entry (`a.b.x = …`); `e` block-edits all
 member lines and **consolidates** them at the first position; `d` deletes all members; renaming a
 plain key to a dotted one (`foo` → `foo.x`) converts the scalar into a `[T/D]` table.
-Whole-table move/copy fans out over the member lines.
+Whole-table move/copy fans out over the member lines. (Editor outline/symbol
+integrations that need a single representative position for a Dotted table —
+e.g. VS Code's `DocumentSymbol.range` — anchor at this same first-member
+position, not an envelope over the scattered members; see
+`docs/adr/0006-outline-symbol-representative-span-anchoring.md`.)
 
 A dotted key **inside an inline table** (`t = { x.y = 1, x.z = 2 }`) decomposes the same way, but
 ops on the synthetic `[T/D]` route through the **inline machinery**, never the flat-ROOT splices
