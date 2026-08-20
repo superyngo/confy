@@ -15,6 +15,7 @@
 //!   OPAQUE → out-of-subset span; projected read-only
 
 use crate::model::node::{Format, KeySign, Node, NodeKind, NodeTree, ScalarType, Seg};
+use crate::model::text_range::to_range;
 use crate::model::yaml::syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 use rowan::NodeOrToken;
 
@@ -49,6 +50,8 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, YamlIndex)
         key_sign: KeySign::None,
         trailing_comment: None,
         read_only: false,
+        text_range: to_range(syntax.text_range()),
+        key_text_range: None,
     };
     let mut idx: YamlIndex = Vec::new();
 
@@ -73,6 +76,7 @@ fn flush_comment_block(
     }
     let text = comment_lines.join("\n");
     let tok = first_comment_tok.take().expect("set when non-empty");
+    let text_range = to_range(tok.text_range());
     let i = out.len();
     let mut path = parent_path.to_vec();
     path.push(Seg::Index(i));
@@ -87,6 +91,8 @@ fn flush_comment_block(
         key_sign: KeySign::None,
         trailing_comment: None,
         read_only: false,
+        text_range,
+        key_text_range: None,
     });
     comment_lines.clear();
 }
@@ -179,6 +185,8 @@ fn walk_root_node(
                         key_sign: KeySign::None,
                         trailing_comment: None,
                         read_only: false,
+                        text_range: to_range(node.text_range()),
+                        key_text_range: None,
                     });
                 }
                 SyntaxKind::OPAQUE => {
@@ -198,6 +206,8 @@ fn walk_root_node(
                         key_sign: KeySign::None,
                         trailing_comment: None,
                         read_only: true,
+                        text_range: to_range(node.text_range()),
+                        key_text_range: None,
                     });
                 }
                 _ => {}
@@ -250,6 +260,8 @@ fn walk_mapping(
                         key_sign: KeySign::None,
                         trailing_comment: None,
                         read_only: true,
+                        text_range: to_range(node.text_range()),
+                        key_text_range: None,
                     });
                 }
                 _ => {}
@@ -354,6 +366,7 @@ fn project_map_entry(
     idx: &mut YamlIndex,
 ) {
     let (key_name, key_sign) = key_name_and_sign(entry);
+    let key_range = key_token_range(entry);
 
     let mut path = parent_path.to_vec();
     path.push(Seg::Key(key_name.clone()));
@@ -384,9 +397,13 @@ fn project_map_entry(
                 key_sign,
                 trailing_comment: trailing,
                 read_only: false,
+                text_range: to_range(entry.text_range()),
+                key_text_range: key_range,
             }
         }
-        Some(vc) => build_value_node_from_child(&vc, &key_name, key_sign, path, trailing, idx),
+        Some(vc) => {
+            build_value_node_from_child(&vc, &key_name, key_sign, key_range, path, trailing, idx)
+        }
     };
 
     out.push(node);
@@ -426,9 +443,11 @@ fn project_seq_entry(
             key_sign: KeySign::None,
             trailing_comment: trailing,
             read_only: false,
+            text_range: to_range(entry.text_range()),
+            key_text_range: None,
         },
         Some(vc) => {
-            build_value_node_from_child(&vc, &key_label, KeySign::None, path, trailing, idx)
+            build_value_node_from_child(&vc, &key_label, KeySign::None, None, path, trailing, idx)
         }
     };
 
@@ -443,6 +462,7 @@ fn build_value_node_from_child(
     child: &SyntaxNode,
     key: &str,
     key_sign: KeySign,
+    key_range: Option<std::ops::Range<usize>>,
     path: Vec<Seg>,
     trailing: Option<String>,
     idx: &mut YamlIndex,
@@ -459,6 +479,8 @@ fn build_value_node_from_child(
                 key_sign,
                 trailing_comment: trailing,
                 read_only: false,
+                text_range: to_range(child.text_range()),
+                key_text_range: key_range,
             };
             walk_mapping(child, &path, &mut n.children, idx);
             n
@@ -474,6 +496,8 @@ fn build_value_node_from_child(
                 key_sign,
                 trailing_comment: trailing,
                 read_only: false,
+                text_range: to_range(child.text_range()),
+                key_text_range: key_range,
             };
             walk_sequence(child, &path, &mut n.children, idx);
             n
@@ -490,6 +514,8 @@ fn build_value_node_from_child(
                 key_sign,
                 trailing_comment: trailing,
                 read_only: false,
+                text_range: to_range(child.text_range()),
+                key_text_range: key_range,
             };
             walk_flow_map_entries(child, &path, &mut n.children, idx);
             n
@@ -506,13 +532,15 @@ fn build_value_node_from_child(
                 key_sign,
                 trailing_comment: trailing,
                 read_only: false,
+                text_range: to_range(child.text_range()),
+                key_text_range: key_range,
             };
             walk_flow_seq(child, &path, &mut n.children, idx);
             n
         }
         SyntaxKind::VALUE => {
             // VALUE wraps SCALAR, BLOCK_SCALAR, or OPAQUE.
-            build_value_node(child, key, key_sign, path, trailing, idx)
+            build_value_node(child, key, key_sign, key_range, path, trailing, idx)
         }
         SyntaxKind::OPAQUE => {
             let raw = child.text().to_string().trim_end().to_string();
@@ -526,6 +554,8 @@ fn build_value_node_from_child(
                 key_sign,
                 trailing_comment: trailing,
                 read_only: true,
+                text_range: to_range(child.text_range()),
+                key_text_range: key_range,
             }
         }
         _ => Node {
@@ -538,6 +568,8 @@ fn build_value_node_from_child(
             key_sign,
             trailing_comment: trailing,
             read_only: false,
+            text_range: to_range(child.text_range()),
+            key_text_range: key_range,
         },
     }
 }
@@ -548,6 +580,7 @@ fn build_value_node(
     value: &SyntaxNode,
     key: &str,
     key_sign: KeySign,
+    key_range: Option<std::ops::Range<usize>>,
     path: Vec<Seg>,
     trailing: Option<String>,
     idx: &mut YamlIndex,
@@ -568,6 +601,8 @@ fn build_value_node(
                     key_sign,
                     trailing_comment: trailing,
                     read_only: false,
+                    text_range: to_range(inner_node.text_range()),
+                    key_text_range: key_range,
                 };
                 walk_flow_map_entries(&inner_node, &path, &mut n.children, idx);
                 n
@@ -584,6 +619,8 @@ fn build_value_node(
                     key_sign,
                     trailing_comment: trailing,
                     read_only: false,
+                    text_range: to_range(inner_node.text_range()),
+                    key_text_range: key_range,
                 };
                 walk_flow_seq(&inner_node, &path, &mut n.children, idx);
                 n
@@ -613,6 +650,8 @@ fn build_value_node(
                             key_sign,
                             trailing_comment: trailing,
                             read_only: false,
+                            text_range: to_range(tok.text_range()),
+                            key_text_range: key_range,
                         }
                     }
                     None => {
@@ -627,6 +666,8 @@ fn build_value_node(
                             key_sign,
                             trailing_comment: trailing,
                             read_only: false,
+                            text_range: to_range(inner_node.text_range()),
+                            key_text_range: key_range,
                         }
                     }
                 }
@@ -659,6 +700,8 @@ fn build_value_node(
                     key_sign,
                     trailing_comment: trailing,
                     read_only: false,
+                    text_range: to_range(value.text_range()),
+                    key_text_range: key_range,
                 }
             }
             SyntaxKind::OPAQUE => {
@@ -673,6 +716,8 @@ fn build_value_node(
                     key_sign,
                     trailing_comment: trailing,
                     read_only: true,
+                    text_range: to_range(inner_node.text_range()),
+                    key_text_range: key_range,
                 }
             }
             _ => Node {
@@ -685,6 +730,8 @@ fn build_value_node(
                 key_sign,
                 trailing_comment: trailing,
                 read_only: false,
+                text_range: to_range(inner_node.text_range()),
+                key_text_range: key_range,
             },
         },
         None => {
@@ -699,6 +746,8 @@ fn build_value_node(
                 key_sign,
                 trailing_comment: trailing,
                 read_only: false,
+                text_range: to_range(value.text_range()),
+                key_text_range: key_range,
             }
         }
     }
@@ -719,6 +768,7 @@ fn walk_flow_map_entries(
         .filter(|c| c.kind() == SyntaxKind::FLOW_ENTRY)
     {
         let (key_name, key_sign) = key_name_and_sign(&entry);
+        let key_range = key_token_range(&entry);
         let mut path = parent_path.to_vec();
         path.push(Seg::Key(key_name.clone()));
         idx.push((path.clone(), Target::MapEntry(entry.clone())));
@@ -742,8 +792,12 @@ fn walk_flow_map_entries(
                 key_sign,
                 trailing_comment: None,
                 read_only: false,
+                text_range: to_range(entry.text_range()),
+                key_text_range: key_range,
             },
-            Some(vc) => build_value_node_from_child(&vc, &key_name, key_sign, path, None, idx),
+            Some(vc) => {
+                build_value_node_from_child(&vc, &key_name, key_sign, key_range, path, None, idx)
+            }
         };
         out.push(node);
     }
@@ -780,6 +834,24 @@ fn key_name_and_sign(entry: &SyntaxNode) -> (String, KeySign) {
     }
 }
 
+/// Byte range of a MAP_ENTRY / FLOW_ENTRY's key scalar token (quotes included
+/// for quoted keys) — mirrors `key_name_and_sign`'s KEY/token discovery.
+fn key_token_range(entry: &SyntaxNode) -> Option<std::ops::Range<usize>> {
+    let key_node = entry.children().find(|c| c.kind() == SyntaxKind::KEY)?;
+    let tok = key_node.children_with_tokens().find_map(|c| match c {
+        NodeOrToken::Token(t)
+            if matches!(
+                t.kind(),
+                SyntaxKind::PLAIN | SyntaxKind::SINGLE | SyntaxKind::DOUBLE
+            ) =>
+        {
+            Some(t)
+        }
+        _ => None,
+    })?;
+    Some(to_range(tok.text_range()))
+}
+
 /// Walk a FLOW_SEQ node: emit elements (scalar tokens or nested nodes).
 fn walk_flow_seq(
     flow_seq: &SyntaxNode,
@@ -806,6 +878,8 @@ fn walk_flow_seq(
                         key_sign: KeySign::None,
                         trailing_comment: None,
                         read_only: false,
+                        text_range: to_range(tok.text_range()),
+                        key_text_range: None,
                     });
                 }
                 _ => {}
@@ -816,8 +890,15 @@ fn walk_flow_seq(
                 let mut path = parent_path.to_vec();
                 path.push(Seg::Index(i));
                 let key_label = format!("[{i}]");
-                let n =
-                    build_value_node_from_child(&node, &key_label, KeySign::None, path, None, idx);
+                let n = build_value_node_from_child(
+                    &node,
+                    &key_label,
+                    KeySign::None,
+                    None,
+                    path,
+                    None,
+                    idx,
+                );
                 out.push(n);
             }
         }
@@ -1166,5 +1247,17 @@ mod tests {
         let t = tree("base:\n  <<: *d\n  x: 1\n");
         let base = t.root.children.iter().find(|c| c.key == "base").unwrap();
         assert!(base.children.iter().any(|c| c.read_only));
+    }
+
+    #[test]
+    fn text_range_slices_expected_substring() {
+        let src = "server:\n  host: localhost\n  port: 8080\n";
+        let t = tree(src);
+        let server = &t.root.children[0];
+        let port = &server.children[1];
+        assert_eq!(&src[port.text_range.clone()], "8080");
+        assert_eq!(port.key_text_range.clone().map(|r| &src[r]), Some("port"));
+        assert!(server.text_range.start <= port.text_range.start);
+        assert!(port.text_range.end <= server.text_range.end);
     }
 }
