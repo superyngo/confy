@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat(release): `publish-vscode.yml` gains an optional `ref` input, decoupled from `tag` — defaults to `tag`, but lets a fix-forward publish (e.g. a version-file correction on `main`) build from a different ref without moving/retagging the app release and re-triggering the whole cross-platform build matrix.
 - feat(release): `publish-gate.yml` gains a `workflow_dispatch` trigger (`tag`, `run_id` inputs) so the msstore/vscode approval gate can be re-run manually for an already-built release, without waiting for a fresh `Release` `workflow_run` event.
 
+### Fixed
+- fix(release): `publish-msstore.yml`'s `Submit and publish to the Store` step reliably failed mid-upload ("Uploading Bundle to Azure blob: N%" then "Error while uploading the application package." / nonzero exit) — msstore-cli v0.4.0 (the `microsoft/microsoft-store-apppublisher@v1.2` default) has an unhandled `ObjectDisposedException` race in its Azure blob upload progress callback that fail-fasts the NativeAOT process, confirmed and reproduced upstream (microsoft/msstore-cli#154), fix not yet released. Pinned the action's `version` input to `v0.3.9`, the last known-good release, until upstream ships the fix.
+
 ## [v0.20.0] - 2026-08-19
 
 ### Added
