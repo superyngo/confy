@@ -6,5 +6,6 @@ pub mod cst_project;
 pub mod document;
 pub mod json;
 pub mod node;
+pub mod text_range;
 pub mod value;
 pub mod yaml;

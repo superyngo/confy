@@ -2,6 +2,7 @@
 
 use crate::model::json::syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 use crate::model::node::{Format, KeySign, Node, NodeKind, NodeTree, ScalarType, Seg};
+use crate::model::text_range::to_range;
 use rowan::NodeOrToken;
 
 /// The syntax element a projected node was built from, for mutation resolution.
@@ -35,6 +36,8 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, JsonIndex)
         key_sign: KeySign::None,
         trailing_comment: None,
         read_only: false,
+        text_range: to_range(syntax.text_range()),
+        key_text_range: None,
     };
     let mut idx: JsonIndex = Vec::new();
 
@@ -183,6 +186,7 @@ fn build_value_node(
     trailing_anchor: &SyntaxNode,
     key: &str,
     key_sign: KeySign,
+    key_range: Option<std::ops::Range<usize>>,
     path: Vec<Seg>,
     src_element: Target,
     idx: &mut JsonIndex,
@@ -209,6 +213,8 @@ fn build_value_node(
                     key_sign,
                     trailing_comment: trailing,
                     read_only: false,
+                    text_range: to_range(container.text_range()),
+                    key_text_range: key_range,
                 };
                 walk_container_tokens(&container, &path, &mut n.children, idx, false);
                 n
@@ -230,6 +236,8 @@ fn build_value_node(
                     key_sign,
                     trailing_comment: trailing,
                     read_only: false,
+                    text_range: to_range(container.text_range()),
+                    key_text_range: key_range,
                 };
                 walk_container_tokens(&container, &path, &mut n.children, idx, false);
                 n
@@ -246,6 +254,8 @@ fn build_value_node(
                     key_sign,
                     trailing_comment: trailing,
                     read_only: false,
+                    text_range: to_range(value.text_range()),
+                    key_text_range: key_range,
                 }
             }
         },
@@ -261,6 +271,8 @@ fn build_value_node(
                 key_sign,
                 trailing_comment: trailing,
                 read_only: false,
+                text_range: to_range(tok.text_range()),
+                key_text_range: key_range,
             }
         }
         None => Node {
@@ -273,6 +285,8 @@ fn build_value_node(
             key_sign,
             trailing_comment: trailing,
             read_only: false,
+            text_range: to_range(value.text_range()),
+            key_text_range: key_range,
         },
     }
 }
@@ -317,6 +331,7 @@ fn walk_container_tokens(
                 let i = out.len();
                 let mut path = parent_path.to_vec();
                 path.push(Seg::Index(i));
+                let text_range = to_range(tok.text_range());
                 idx.push((path.clone(), Target::Comment(tok)));
                 out.push(Node {
                     key: text.clone(),
@@ -328,6 +343,8 @@ fn walk_container_tokens(
                     key_sign: KeySign::None,
                     trailing_comment: None,
                     read_only: false,
+                    text_range,
+                    key_text_range: None,
                 });
                 lines.clear();
             }
@@ -382,6 +399,8 @@ fn walk_container_tokens(
                         key_sign: KeySign::None,
                         trailing_comment: None,
                         read_only: true,
+                        text_range: to_range(tok.text_range()),
+                        key_text_range: None,
                     });
                 }
                 _ => {} // WHITESPACE, COMMA, L_BRACE, R_BRACE, L_BRACK, R_BRACK, etc.
@@ -403,6 +422,9 @@ fn walk_container_tokens(
                             &member_node,
                             &name,
                             KeySign::Quoted,
+                            key_node
+                                .as_ref()
+                                .map(|k| to_range(k.text_range())),
                             path,
                             Target::Member(member_node.clone()),
                             idx,
@@ -417,6 +439,10 @@ fn walk_container_tokens(
                             key_sign: KeySign::Quoted,
                             trailing_comment: None,
                             read_only: false,
+                            text_range: to_range(node.text_range()),
+                            key_text_range: key_node
+                                .as_ref()
+                                .map(|k| to_range(k.text_range())),
                         },
                     };
                     out.push(child);
@@ -434,6 +460,7 @@ fn walk_container_tokens(
                         &node, // trailing_anchor = VALUE itself (COMMA/comment at ARRAY level)
                         &key_label,
                         KeySign::None,
+                        None,
                         path,
                         Target::Element(node.clone()),
                         idx,
@@ -463,6 +490,7 @@ fn walk_container_tokens(
                                 &node, // trailing_anchor: VALUE's siblings in ROOT
                                 "",
                                 KeySign::None,
+                                None,
                                 path,
                                 Target::Element(node.clone()),
                                 idx,
@@ -630,5 +658,18 @@ mod tests {
             .children
             .iter()
             .any(|c| matches!(c.kind, NodeKind::Comment(_)) && c.read_only));
+    }
+
+    #[test]
+    fn text_range_slices_expected_substring() {
+        let src = r#"{"server": {"host": "localhost", "port": 8080}}"#;
+        let t = tree(src);
+        let server = &t.root.children[0];
+        let port = &server.children[1];
+        assert_eq!(&src[port.text_range.clone()], "8080");
+        assert_eq!(
+            port.key_text_range.clone().map(|r| &src[r]),
+            Some(r#""port""#)
+        );
     }
 }
