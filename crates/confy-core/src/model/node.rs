@@ -125,6 +125,18 @@ pub struct Node {
     /// Read-only nodes (a JSONC `/* */` block comment, a Phase-3 opaque YAML
     /// node) display and copy but reject `e`/`d`/`x`/`r`/insert-into. Default false.
     pub read_only: bool,
+    /// Byte range (half-open, UTF-8 byte offsets into the source text) of the
+    /// whole node, including its key and value/children. Distinct from
+    /// `CONTEXT.md`'s "Member spans" (the discrete, possibly-scattered source
+    /// pieces that *constitute* a table) — this is a single contiguous
+    /// representative range for editor symbol-tree purposes (VS Code Outline
+    /// / breadcrumbs). See ADR 0006 for the anchoring policy on synthetic /
+    /// scattered-definition nodes.
+    pub text_range: std::ops::Range<usize>,
+    /// Byte range of just the key token; `None` for keyless nodes (array
+    /// elements, AoT entries, Root, comments) — the same nodes where
+    /// `key_sign` is already `KeySign::None`.
+    pub key_text_range: Option<std::ops::Range<usize>>,
 }
 
 impl Node {
@@ -150,6 +162,8 @@ impl Node {
             key_sign: KeySign::None,
             trailing_comment: None,
             read_only: false,
+            text_range: 0..0,
+            key_text_range: None,
         }
     }
 
@@ -168,6 +182,8 @@ impl Node {
             key_sign: KeySign::None,
             trailing_comment: None,
             read_only: false,
+            text_range: 0..0,
+            key_text_range: None,
         }
     }
 
