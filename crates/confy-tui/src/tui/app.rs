@@ -58,6 +58,7 @@ pub struct RowSnapshot {
     pub format: Format,
     pub trailing_comment: Option<String>,
     pub violations: Option<Vec<String>>,
+    pub has_descendant_warning: bool,
 }
 
 pub enum PromptOutcome {
@@ -136,6 +137,7 @@ impl App {
                     format: vr.format,
                     trailing_comment: vr.trailing_comment,
                     violations: vr.violations.clone(),
+                    has_descendant_warning: vr.has_descendant_warning,
                 }
             })
             .collect();

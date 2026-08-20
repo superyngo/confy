@@ -334,7 +334,15 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
             } else {
                 " "
             };
-            let prefix = format!("{sel_marker}{indent}{marker}");
+            let warn_marker = if row.is_branch
+                && row.has_descendant_warning
+                && !app.is_expanded(&row.path)
+            {
+                "⚠"
+            } else {
+                " "
+            };
+            let prefix = format!("{sel_marker}{warn_marker}{indent}{marker}");
             // Collapse the key to one line (a merged multi-line comment node's key
             // carries newlines) without disturbing the tree prefix/indent.
             let name = format!("{prefix}{}", cell_preview(&row.key));
@@ -681,8 +689,9 @@ mod tests {
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
 
-    /// Buffer column where a depth-1 row's key glyph lands in the NAME cell.
-    const KEY_X: u16 = 5;
+    /// Buffer column where a depth-1 row's key glyph lands in the NAME cell
+    /// (1 selection-marker col + 1 warning-marker col + 2 indent + 2 branch marker).
+    const KEY_X: u16 = 6;
 
     #[test]
     fn highlight_spans_marks_matched_chars() {
@@ -1240,6 +1249,28 @@ mod tests {
             buf[(0, row_y)].bg,
             Color::Magenta,
             "copy source must use its own color, not the cursor's blue"
+        );
+    }
+
+    #[test]
+    fn collapsed_branch_with_descendant_warning_shows_marker_glyph() {
+        let doc = crate::model::any_doc::AnyDocument::Toml(
+            crate::model::cst_doc::CstDocument::from_str("[server]\nport = \"nope\"\n").unwrap(),
+        );
+        let mut app = App::new(doc);
+        app.session.apply_schema_text(
+            confy_core::schema::SchemaSource::Local("/tmp/s.json".into()),
+            Ok(r#"{"type":"object","properties":{"server":{"type":"object","properties":{"port":{"type":"integer"}}}}}"#.to_string()),
+        );
+        let server_path: crate::model::node::Path = vec![crate::model::node::Seg::Key("server".into())];
+        app.session.expanded.remove(&server_path);
+        app.rebuild_rows();
+        let mut terminal = Terminal::new(TestBackend::new(40, 8)).unwrap();
+        terminal.draw(|fr| draw(fr, &app)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        assert!(
+            (0..40).any(|x| (0..8).any(|y| buf[(x, y)].symbol() == "⚠")),
+            "collapsed branch with a hidden violation must show the ⚠ marker"
         );
     }
 }
