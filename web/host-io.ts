@@ -17,6 +17,7 @@ import { Session } from "./confy.js";
 import { t } from "./i18n.js";
 import type { Intent, SessionSnapshot } from "./types.js";
 import type { ConfigFormat } from "./vscode-protocol.js";
+import { isVsCode, requestSchemaUrl } from "./vscode.js";
 
 export type { ConfigFormat } from "./vscode-protocol.js";
 
@@ -300,7 +301,9 @@ export async function resolveSchemaFetchRequest(
   try {
     const raw = "Local" in request
       ? await readSiblingFile(request.Local, currentFilePath)
-      : (await fetchUrlFile(request.Url)).text;
+      : isVsCode()
+        ? await requestSchemaUrl(request.Url)
+        : (await fetchUrlFile(request.Url)).text;
     text = { Ok: raw };
   } catch (e) {
     text = { Err: String((e as Error).message ?? e) };

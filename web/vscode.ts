@@ -29,9 +29,49 @@ export function post(msg: WebviewToHost): void {
   vsapi()?.postMessage(msg);
 }
 
-export function onHostMessage(handler: (msg: HostToWebview) => void): void {
-  window.addEventListener("message", (e: MessageEvent) => {
-    handler(e.data as HostToWebview);
+export function onHostMessage(handler: (msg: HostToWebview) => void): () => void {
+  const listener = (e: MessageEvent) => handler(e.data as HostToWebview);
+  window.addEventListener("message", listener);
+  return () => window.removeEventListener("message", listener);
+}
+
+// Ask the extension host to read a schema file by path relative to the open
+// document's directory (the webview itself has no filesystem access — see
+// fs.ts's readSiblingFile, whose VS Code branch calls this). Id-less: only
+// one schema fetch is ever in flight per Session, so the first `schema-file`/
+// `schema-file-error` reply after the request is assumed to be its answer.
+export function requestSchemaFile(relativePath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const stop = onHostMessage((msg) => {
+      if (msg.type === "schema-file") {
+        stop();
+        resolve(msg.text);
+      } else if (msg.type === "schema-file-error") {
+        stop();
+        reject(new Error(msg.message));
+      }
+    });
+    post({ type: "read-schema-file", relativePath });
+  });
+}
+
+// Ask the extension host to fetch a remote schema URL — the webview's CSP
+// `connect-src` blocks arbitrary external fetches; the extension host has
+// unsandboxed Node network access instead (see fs.ts's fetchUrlFile, whose
+// VS Code branch calls this). Id-less, same one-in-flight assumption as
+// requestSchemaFile.
+export function requestSchemaUrl(url: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const stop = onHostMessage((msg) => {
+      if (msg.type === "schema-url") {
+        stop();
+        resolve(msg.text);
+      } else if (msg.type === "schema-url-error") {
+        stop();
+        reject(new Error(msg.message));
+      }
+    });
+    post({ type: "read-schema-url", url });
   });
 }
 

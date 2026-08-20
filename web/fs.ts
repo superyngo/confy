@@ -1,3 +1,5 @@
+import { isVsCode, requestSchemaFile } from "./vscode.js";
+
 // File System Access API integration with a download fallback.
 //
 // The capability boundary is clean: core `Intent::Save` only marks the doc
@@ -267,6 +269,12 @@ export async function readSiblingFile(
       ? `${dir}/${relativePath}`
       : relativePath;
     return g.fs.readTextFile(resolved);
+  }
+  // VS Code webview: no filesystem access at all — the extension host reads
+  // the file (relative to its own `document.uri`) and replies over the
+  // postMessage channel. See web/vscode.ts's requestSchemaFile.
+  if (isVsCode()) {
+    return requestSchemaFile(relativePath);
   }
   throw new Error("local schema file resolution is not available on this host");
 }

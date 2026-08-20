@@ -31,7 +31,18 @@ export type HostToWebview =
   // Theme picked from the title-bar "…" menu's confy: Theme submenu.
   | { type: "set-theme"; theme: ThemeMode }
   // Language picked from the title-bar "…" menu's Choose Display Language command.
-  | { type: "set-lang"; lang: "en" | "zh-TW" };
+  | { type: "set-lang"; lang: "en" | "zh-TW" }
+  // Response to a webview `read-schema-file` request (local $schema
+  // resolution — the webview has no filesystem access; only the extension
+  // host can read a sibling schema file, relative to `document.uri`).
+  | { type: "schema-file"; text: string }
+  | { type: "schema-file-error"; message: string }
+  // Response to a webview `read-schema-url` request (remote $schema
+  // resolution — the webview's CSP `connect-src` blocks arbitrary external
+  // fetches, so the extension host, which has unsandboxed Node network
+  // access, fetches it instead).
+  | { type: "schema-url"; text: string }
+  | { type: "schema-url-error"; message: string };
 
 export type WebviewToHost =
   | { type: "ready" }
@@ -46,4 +57,13 @@ export type WebviewToHost =
   | { type: "request-save" }
   // Convert (and same-format save-a-copy) output: host shows a save dialog.
   | { type: "convert-save"; suggestedName: string; text: string }
-  | { type: "parse-error"; message: string };
+  | { type: "parse-error"; message: string }
+  // Ask the host to read a schema file by path relative to the open
+  // document's directory (absolute paths pass through untouched — same
+  // resolution rule as the Tauri host's `readSiblingFile`). Id-less: only
+  // one schema fetch is ever in flight per Session at a time.
+  | { type: "read-schema-file"; relativePath: string }
+  // Ask the host to fetch a remote schema URL — the webview's CSP
+  // `connect-src` only allows same-origin webview resources. Id-less: only
+  // one schema fetch is ever in flight per Session at a time.
+  | { type: "read-schema-url"; url: string };

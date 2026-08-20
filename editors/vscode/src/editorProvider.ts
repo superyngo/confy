@@ -7,6 +7,13 @@ function basename(uri: vscode.Uri): string {
   return uri.path.split("/").pop() ?? "config.toml";
 }
 
+/** True for a POSIX (`/…`) or Windows (`C:\\…`/`C:/…`/`\\server\…`) absolute
+ * path — mirrors web/fs.ts's isAbsolutePath, same absolute-vs-relative rule
+ * applied on the extension host side for VS Code's local schema reads. */
+function isAbsolutePath(p: string): boolean {
+  return p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p) || p.startsWith("\\\\");
+}
+
 // M1.5: VS Code's TextDocument owns the content, dirty state, undo stack,
 // save, revert, backup, and hot exit. This provider is a view adapter:
 // webview `edit` → minimal WorkspaceEdit; document change → `text-changed`.
@@ -135,6 +142,18 @@ export class ConfyEditorProvider implements vscode.CustomTextEditorProvider {
         case "parse-error":
           void this.parseError(document, panel, msg.message);
           break;
+        case "read-schema-file":
+          void this.readSchemaFile(document, msg.relativePath).then(
+            (text) => postMsg({ type: "schema-file", text }),
+            (e: unknown) => postMsg({ type: "schema-file-error", message: String((e as Error).message ?? e) }),
+          );
+          break;
+        case "read-schema-url":
+          void this.fetchSchemaUrl(msg.url).then(
+            (text) => postMsg({ type: "schema-url", text }),
+            (e: unknown) => postMsg({ type: "schema-url-error", message: String((e as Error).message ?? e) }),
+          );
+          break;
       }
     });
   }
@@ -218,6 +237,29 @@ export class ConfyEditorProvider implements vscode.CustomTextEditorProvider {
       panel.dispose();
       void vscode.commands.executeCommand("vscode.openWith", document.uri, "default");
     }
+  }
+
+  // Read a schema file by path relative to the open document's directory —
+  // the webview has no filesystem access, so the extension host resolves and
+  // reads it (unrestricted, mirroring the Tauri host's readSiblingFile: `../`
+  // is not sandboxed, only isAbsolutePath decides whether to join at all).
+  private async readSchemaFile(document: vscode.TextDocument, relativePath: string): Promise<string> {
+    const target = isAbsolutePath(relativePath)
+      ? vscode.Uri.file(relativePath)
+      : vscode.Uri.joinPath(document.uri, "..", relativePath);
+    const bytes = await vscode.workspace.fs.readFile(target);
+    return new TextDecoder().decode(bytes);
+  }
+
+  // Fetch a remote $schema URL — the webview's CSP `connect-src` blocks
+  // arbitrary external fetches, so the extension host (unsandboxed Node
+  // network access) fetches it instead, mirroring web/fs.ts's fetchUrlFile
+  // (no timeout/content-type/redirect checks — same behavior as the other
+  // hosts' fetch calls).
+  private async fetchSchemaUrl(url: string): Promise<string> {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+    return res.text();
   }
 
   // The webview page is web/dist's index.html verbatim, with: the browser-only
