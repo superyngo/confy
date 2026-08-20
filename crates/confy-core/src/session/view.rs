@@ -67,6 +67,11 @@ pub struct ViewRow {
     /// `None` = clean. Never blocks anything (`CONTEXT.md` § Schema
     /// "Soft constraint").
     pub violations: Option<Vec<String>>,
+    /// `true` when this row is a branch and some node in its subtree (at any
+    /// depth) currently has a schema violation — independent of this row's
+    /// own expand state; the renderer decides whether to draw a marker based
+    /// on whether the row is *currently* collapsed.
+    pub has_descendant_warning: bool,
 }
 
 // ---- Stage-2 full-state transport (WASM / Web UI) ----

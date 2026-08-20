@@ -127,6 +127,11 @@ pub struct SchemaState {
     /// compile (`raw: None`) — there's no document to walk.
     pub fully_analyzable: bool,
     pub violations: Vec<Violation>,
+    /// Every strict ancestor path of every current violation, including the
+    /// root (`vec![]`) — lets a collapsed branch row show a "warning inside"
+    /// marker without walking the whole subtree per render. Rebuilt in
+    /// lockstep with `violations` by `Session::revalidate_schema`.
+    pub warning_ancestors: std::collections::HashSet<Path>,
     pub load_error: Option<String>,
 }
 

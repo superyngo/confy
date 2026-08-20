@@ -168,6 +168,11 @@ impl Session {
                     .collect();
                 (!msgs.is_empty()).then_some(msgs)
             }),
+            has_descendant_warning: node.is_branch()
+                && self
+                    .schema
+                    .as_ref()
+                    .is_some_and(|s| s.warning_ancestors.contains(&node.path)),
         }
     }
 
@@ -1485,6 +1490,7 @@ impl Session {
                             raw: Some(raw),
                             fully_analyzable,
                             violations: Vec::new(),
+                            warning_ancestors: std::collections::HashSet::new(),
                             load_error: None,
                         }
                     }
@@ -1494,6 +1500,7 @@ impl Session {
                         raw: None,
                         fully_analyzable: false,
                         violations: Vec::new(),
+                        warning_ancestors: std::collections::HashSet::new(),
                         load_error: Some(format!("invalid schema: {e}")),
                     },
                 },
@@ -1503,6 +1510,7 @@ impl Session {
                     raw: None,
                     fully_analyzable: false,
                     violations: Vec::new(),
+                    warning_ancestors: std::collections::HashSet::new(),
                     load_error: Some(format!("schema is not valid JSON: {e}")),
                 },
             },
@@ -1512,6 +1520,7 @@ impl Session {
                 raw: None,
                 fully_analyzable: false,
                 violations: Vec::new(),
+                warning_ancestors: std::collections::HashSet::new(),
                 load_error: Some(msg),
             },
         };
@@ -1537,6 +1546,11 @@ impl Session {
         };
         let (projection, map) = crate::schema::value_bridge::bridge(&self.tree.root, &value);
         state.violations = crate::schema::validate::validate(&projection, compiled, &map);
+        state.warning_ancestors = state
+            .violations
+            .iter()
+            .flat_map(|v| (0..v.path.len()).map(|i| v.path[..i].to_vec()))
+            .collect();
     }
 
     /// Resolve the schema-driven editing hint for the node at `path` —
@@ -1998,6 +2012,7 @@ mod helper_tests {
             })),
             fully_analyzable: false,
             violations: Vec::new(),
+            warning_ancestors: std::collections::HashSet::new(),
             load_error: None,
         });
         let port: Path = vec![Seg::Key("port".into())];
@@ -2025,6 +2040,7 @@ mod helper_tests {
             })),
             fully_analyzable: false,
             violations: Vec::new(),
+            warning_ancestors: std::collections::HashSet::new(),
             load_error: None,
         });
         let retry: Path = vec![Seg::Key("retry".into())];
@@ -2057,6 +2073,7 @@ mod helper_tests {
             })),
             fully_analyzable: false,
             violations: Vec::new(),
+            warning_ancestors: std::collections::HashSet::new(),
             load_error: None,
         });
         assert_eq!(

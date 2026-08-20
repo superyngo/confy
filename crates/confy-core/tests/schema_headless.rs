@@ -690,6 +690,54 @@ fn dispatch_schema_loaded_populates_snapshot_status_and_row_warnings() {
 }
 
 #[test]
+fn revalidate_schema_marks_ancestors_of_violating_paths() {
+    use confy_core::model::node::{Path, Seg};
+    let mut s = session_from("[server]\nport = \"nope\"\n", DocFormat::Toml);
+    let schema_text = json!({
+        "type": "object",
+        "properties": {
+            "server": {
+                "type": "object",
+                "properties": { "port": { "type": "integer" } }
+            }
+        }
+    })
+    .to_string();
+    s.apply_schema_text(SchemaSource::Local("/tmp/s.json".into()), Ok(schema_text));
+    let state = s.schema.as_ref().unwrap();
+    assert!(!state.violations.is_empty(), "port must violate (string vs integer)");
+    let server_path: Path = vec![Seg::Key("server".into())];
+    assert!(
+        state.warning_ancestors.contains(&server_path),
+        "server (ancestor of violating port) must be marked"
+    );
+    assert!(state.warning_ancestors.contains(&Vec::new()));
+}
+
+#[test]
+fn collapsed_ancestor_row_reports_has_descendant_warning() {
+    use confy_core::model::node::{Path, Seg};
+    let mut s = session_from("[server]\nport = \"nope\"\n", DocFormat::Toml);
+    let schema_text = json!({
+        "type": "object",
+        "properties": {
+            "server": {
+                "type": "object",
+                "properties": { "port": { "type": "integer" } }
+            }
+        }
+    })
+    .to_string();
+    s.apply_schema_text(SchemaSource::Local("/tmp/s.json".into()), Ok(schema_text));
+    let server_path: Path = vec![Seg::Key("server".into())];
+    s.expanded.remove(&server_path);
+    let rows = s.visible_rows();
+    let server_row = rows.iter().find(|r| r.key == "server").unwrap();
+    assert!(server_row.is_branch);
+    assert!(server_row.has_descendant_warning);
+}
+
+#[test]
 fn begin_edit_external_forces_the_popup_editor_for_an_enum_constrained_scalar() {
     use confy_core::session::state::Mode;
     let mut s = session_from("level = \"debug\"\n", DocFormat::Toml);
