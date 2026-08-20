@@ -779,6 +779,11 @@ impl Session {
         }
         let mut matching: HashSet<Path> = HashSet::new();
         let mut ancestors: HashSet<Path> = HashSet::new();
+        let violating: HashSet<Path> = self
+            .schema
+            .as_ref()
+            .map(|s| s.violations.iter().map(|v| v.path.clone()).collect())
+            .unwrap_or_default();
         fn walk(
             n: &crate::model::node::Node,
             ancestor_paths: &mut Vec<Path>,
@@ -787,6 +792,7 @@ impl Session {
             needle: &str,
             type_filter: &TypeFilter,
             doc: DocFormat,
+            violating: &HashSet<Path>,
         ) {
             let path_keys: Vec<&str> = n
                 .path
@@ -808,7 +814,15 @@ impl Session {
             };
             let h = haystack(&path_keys, leaf_value, comment_text);
             let text_ok = fuzzy_match(&h, needle);
-            let type_ok = type_filter.matches(n.key_sign, &n.kind, n.format, doc, n.read_only);
+            let has_warning = violating.contains(&n.path);
+            let type_ok = type_filter.matches(
+                n.key_sign,
+                &n.kind,
+                n.format,
+                doc,
+                n.read_only,
+                has_warning,
+            );
             if text_ok && type_ok {
                 matching.insert(n.path.clone());
                 for anc in ancestor_paths.iter() {
@@ -822,7 +836,14 @@ impl Session {
             // back in via the ancestor-context rule below, making Reverse look
             // like a no-op on Table/Array (leaves have no children, so this
             // never applied to Scalar/Comment).
-            if type_filter.is_reverse_excluded(n.key_sign, &n.kind, n.format, doc, n.read_only) {
+            if type_filter.is_reverse_excluded(
+                n.key_sign,
+                &n.kind,
+                n.format,
+                doc,
+                n.read_only,
+                has_warning,
+            ) {
                 return;
             }
             ancestor_paths.push(n.path.clone());
@@ -835,6 +856,7 @@ impl Session {
                     needle,
                     type_filter,
                     doc,
+                    violating,
                 );
             }
             ancestor_paths.pop();
@@ -848,6 +870,7 @@ impl Session {
             &self.filter,
             &self.type_filter,
             doc,
+            &violating,
         );
         matching.extend(ancestors);
         self.filtered_paths = Some(matching);

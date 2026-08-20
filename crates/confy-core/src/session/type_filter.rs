@@ -134,8 +134,13 @@ pub enum Cell {
     Sign(KeySign),
     All(Group),
     Token(TypeToken),
-    /// Inverts the combined sign/type match (§`TypeFilter::matches`); a no-op
-    /// while no sign/type is selected (`TypeFilter::is_active` gates it).
+    /// Independent runtime-validation facet: whether the node currently has
+    /// a schema violation. Not a `TypeToken` — lexical/structural type is
+    /// static per `classify()`, this is live validation state (`CONTEXT.md`
+    /// § Schema).
+    Warning,
+    /// Inverts the combined sign/type/warning match (§`TypeFilter::matches`); a no-op
+    /// while nothing is selected (`TypeFilter::is_active` gates it).
     Reverse,
 }
 
@@ -144,6 +149,7 @@ impl Cell {
         match self {
             Cell::All(_) => "all",
             Cell::Reverse => "reverse",
+            Cell::Warning => "(!) has warning",
             Cell::Sign(s) => match s {
                 KeySign::Bare => "(B) bare",
                 KeySign::Quoted => "(Q) quoted",
@@ -211,6 +217,8 @@ pub fn layout(format: DocFormat) -> Vec<LayoutRow> {
         DocFormat::Json => vec![
             LayoutRow::Header("Reverse"),
             LayoutRow::Cells(vec![Reverse]),
+            LayoutRow::Header("Flags"),
+            LayoutRow::Cells(vec![Warning]),
             LayoutRow::Header("Key sign"),
             LayoutRow::Cells(vec![Sign(K::Quoted), Sign(K::None)]),
             LayoutRow::Header("Type"),
@@ -234,6 +242,8 @@ pub fn layout(format: DocFormat) -> Vec<LayoutRow> {
         DocFormat::Yaml => vec![
             LayoutRow::Header("Reverse"),
             LayoutRow::Cells(vec![Reverse]),
+            LayoutRow::Header("Flags"),
+            LayoutRow::Cells(vec![Warning]),
             LayoutRow::Header("Key sign"),
             LayoutRow::Cells(vec![Sign(K::Bare), Sign(K::Quoted)]),
             LayoutRow::Cells(vec![Sign(K::None)]),
@@ -272,6 +282,8 @@ pub fn layout(format: DocFormat) -> Vec<LayoutRow> {
         _ => vec![
             LayoutRow::Header("Reverse"),
             LayoutRow::Cells(vec![Reverse]),
+            LayoutRow::Header("Flags"),
+            LayoutRow::Cells(vec![Warning]),
             LayoutRow::Header("Key sign"),
             LayoutRow::Cells(vec![Sign(K::Bare), Sign(K::Quoted)]),
             LayoutRow::Cells(vec![Sign(K::Dotted), Sign(K::None)]),
@@ -333,17 +345,19 @@ pub struct TypeFilter {
     pub row: usize,
     pub col: usize,
     pub reverse: bool,
+    pub warning_only: bool,
 }
 
 impl TypeFilter {
     pub fn is_active(&self) -> bool {
-        !self.key_signs.is_empty() || !self.types.is_empty()
+        !self.key_signs.is_empty() || !self.types.is_empty() || self.warning_only
     }
 
     pub fn clear(&mut self) {
         self.key_signs.clear();
         self.types.clear();
         self.reverse = false;
+        self.warning_only = false;
     }
 
     /// The sign/type check alone, ignoring `reverse` — i.e. whether this node
@@ -359,11 +373,13 @@ impl TypeFilter {
         format: Format,
         doc: DocFormat,
         read_only: bool,
+        has_warning: bool,
     ) -> bool {
         let sign_ok = self.key_signs.is_empty() || self.key_signs.contains(&key_sign);
         let type_ok =
             self.types.is_empty() || self.types.contains(&classify(kind, format, doc, read_only));
-        sign_ok && type_ok
+        let warning_ok = !self.warning_only || has_warning;
+        sign_ok && type_ok && warning_ok
     }
 
     /// A node is a deliberate Reverse-exclusion target when it's a positive
@@ -377,8 +393,11 @@ impl TypeFilter {
         format: Format,
         doc: DocFormat,
         read_only: bool,
+        has_warning: bool,
     ) -> bool {
-        self.reverse && self.is_active() && self.base_match(key_sign, kind, format, doc, read_only)
+        self.reverse
+            && self.is_active()
+            && self.base_match(key_sign, kind, format, doc, read_only, has_warning)
     }
 
     pub fn matches(
@@ -388,8 +407,9 @@ impl TypeFilter {
         format: Format,
         doc: DocFormat,
         read_only: bool,
+        has_warning: bool,
     ) -> bool {
-        let base = self.base_match(key_sign, kind, format, doc, read_only);
+        let base = self.base_match(key_sign, kind, format, doc, read_only, has_warning);
         // A no-op while nothing is selected: `base` is unconditionally `true`
         // with an empty selection, so inverting it would blank the whole tree
         // the moment `reverse` is toggled on, before the user picked a facet.
@@ -456,6 +476,7 @@ impl TypeFilter {
                 }
             }
             Cell::Reverse => self.reverse = !self.reverse,
+            Cell::Warning => self.warning_only = !self.warning_only,
         }
     }
 
@@ -476,6 +497,7 @@ impl TypeFilter {
             Cell::Token(t) => bool_state(self.types.contains(&t)),
             Cell::All(g) => self.group_state(g),
             Cell::Reverse => bool_state(self.reverse),
+            Cell::Warning => bool_state(self.warning_only),
         }
     }
 }
@@ -655,6 +677,7 @@ mod tests {
             &NodeKind::Scalar(ScalarType::Integer),
             Format::Hex,
             DocFormat::Toml,
+            false,
             false
         ));
     }
@@ -666,7 +689,7 @@ mod tests {
         f.types.insert(TypeToken::IntDec);
         f.key_signs.insert(KeySign::Bare);
         let int = NodeKind::Scalar(ScalarType::Integer);
-        let m = |ks, f2| f.matches(ks, &int, f2, DocFormat::Toml, false);
+        let m = |ks, f2| f.matches(ks, &int, f2, DocFormat::Toml, false, false);
         assert!(m(KeySign::Bare, Format::Hex));
         assert!(m(KeySign::Bare, Format::Decimal));
         assert!(!m(KeySign::Quoted, Format::Hex));
@@ -694,10 +717,11 @@ mod tests {
         let rows = nav_rows(fmt);
         f.move_cursor(-1, 0, fmt);
         assert_eq!(f.row, 0);
-        // Row 0 is now the single-cell Reverse row; move to "Key sign" (row 1,
-        // width 2) to exercise column clamping the way this test always has.
-        f.move_cursor(1, 0, fmt);
-        assert_eq!(f.row, 1);
+        // Row 0 is now the single-cell Reverse row; move to "Key sign" (row 2,
+        // width 2) to exercise column clamping the way this test always has —
+        // row 1 is the single-cell Flags row.
+        f.move_cursor(2, 0, fmt);
+        assert_eq!(f.row, 2);
         f.move_cursor(0, -1, fmt);
         assert_eq!(f.col, 0);
         f.move_cursor(0, 1, fmt);
@@ -721,6 +745,7 @@ mod tests {
             Format::BasicString,
             DocFormat::Toml,
             false,
+            false,
         ));
     }
 
@@ -735,6 +760,7 @@ mod tests {
                 Format::Plain,
                 DocFormat::Toml,
                 false,
+                false,
             )
         };
         let is_string = |f: &TypeFilter| {
@@ -743,6 +769,7 @@ mod tests {
                 &NodeKind::Scalar(ScalarType::String),
                 Format::BasicString,
                 DocFormat::Toml,
+                false,
                 false,
             )
         };
@@ -754,5 +781,51 @@ mod tests {
         // clear() resets reverse along with the selection.
         f.clear();
         assert!(!f.reverse);
+    }
+
+    #[test]
+    fn warning_facet_matches_only_violating_nodes() {
+        let mut f = TypeFilter::default();
+        f.toggle(Cell::Warning);
+        assert!(f.matches(
+            KeySign::Bare,
+            &NodeKind::Scalar(ScalarType::Integer),
+            Format::Plain,
+            DocFormat::Toml,
+            false,
+            true,
+        ));
+        assert!(!f.matches(
+            KeySign::Bare,
+            &NodeKind::Scalar(ScalarType::Integer),
+            Format::Plain,
+            DocFormat::Toml,
+            false,
+            false,
+        ));
+    }
+
+    #[test]
+    fn warning_facet_composes_with_reverse() {
+        let mut f = TypeFilter::default();
+        f.toggle(Cell::Warning);
+        f.toggle(Cell::Reverse);
+        // reverse + has-warning = "only nodes WITHOUT a warning"
+        assert!(!f.matches(
+            KeySign::Bare,
+            &NodeKind::Scalar(ScalarType::Integer),
+            Format::Plain,
+            DocFormat::Toml,
+            false,
+            true,
+        ));
+        assert!(f.matches(
+            KeySign::Bare,
+            &NodeKind::Scalar(ScalarType::Integer),
+            Format::Plain,
+            DocFormat::Toml,
+            false,
+            false,
+        ));
     }
 }
