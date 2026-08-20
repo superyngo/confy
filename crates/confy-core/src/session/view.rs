@@ -16,6 +16,24 @@ pub struct ChildView {
     pub is_branch: bool,
 }
 
+/// Read-only outline transport — deliberately separate from the internal
+/// `Node`/`NodeKind` wire shape, matching the existing `ChildView`/
+/// `KindOptionView` convention of small dedicated FFI-boundary types.
+/// Consumed by editor Outline/breadcrumb integrations (VS Code
+/// `DocumentSymbolProvider`, spec `docs/superpowers/specs/2026-08-20-vscode-outline-provider-design.md`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OutlineNode {
+    pub key: String,
+    pub path: Path,
+    /// Same vocabulary as `ViewRow::type_label`/`ChildView::type_label`.
+    pub type_label: String,
+    /// Scalar leaves only — carried through for the editor's `detail` field.
+    pub value: Option<String>,
+    pub text_range: (u32, u32),
+    pub key_text_range: Option<(u32, u32)>,
+    pub children: Vec<OutlineNode>,
+}
+
 /// One visible row in the tree — the view model both the TUI and Web UI render.
 /// The host adds presentation-only fields (type_tag fixed-pitch label, column padding).
 #[derive(Debug, Clone, Serialize, Deserialize)]

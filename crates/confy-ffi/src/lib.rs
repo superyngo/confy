@@ -121,6 +121,12 @@ impl ConfySession {
         to_value(&self.session.children_of(&path)).map_err(js_serde_error)
     }
 
+    /// Read-only symbol tree for editor Outline/breadcrumb integrations
+    /// (`OutlineNode[]`), independent of cursor/expansion state.
+    pub fn outline(&self) -> Result<JsValue, JsValue> {
+        to_value(&self.session.outline()).map_err(js_serde_error)
+    }
+
     /// Pointer-drop classification (Web mouse / touch): "this row, this
     /// relative vertical position" -> the `PasteSlot` it represents, or
     /// `undefined` if the row is no longer visible. Every pointer surface

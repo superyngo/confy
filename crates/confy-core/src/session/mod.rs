@@ -35,5 +35,6 @@ pub use type_filter::{
 };
 pub use view::{
     ChildView, ConvertView, EditView, ExternalEdit, ExternalEditKind, KindOptionView, ModeView,
-    PromptView, SessionSnapshot, TypeFilterCellView, TypeFilterRow, TypeFilterView, ViewRow,
+    OutlineNode, PromptView, SessionSnapshot, TypeFilterCellView, TypeFilterRow, TypeFilterView,
+    ViewRow,
 };

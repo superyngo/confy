@@ -450,5 +450,27 @@ check("about_text() mentions the GitHub repo", aboutText.includes("github.com/su
   sp.free();
 }
 
+// ---- 28. Outline: whole-tree read-only symbol export ----
+const outlineSrc = `[server]\nhost = "localhost"\nport = 8080\n`;
+const outlineSession = new ConfySession(outlineSrc, "toml");
+const outline = outlineSession.outline();
+check("outline: top-level has one entry (server)", outline.length === 1, JSON.stringify(outline.map(o => o.key)));
+const serverNode = outline[0];
+check("outline: server type_label=table", serverNode.type_label === "table", serverNode.type_label);
+check("outline: server has 2 children", serverNode.children.length === 2, serverNode.children.length);
+const portNode = serverNode.children.find(c => c.key === "port");
+check("outline: port value carried for detail", portNode.value === "8080", portNode.value);
+check(
+  "outline: port text_range slices the right substring",
+  outlineSrc.slice(portNode.text_range[0], portNode.text_range[1]) === "port = 8080",
+  JSON.stringify(portNode.text_range),
+);
+check(
+  `outline: port key_text_range slices "port"`,
+  outlineSrc.slice(portNode.key_text_range[0], portNode.key_text_range[1]) === "port",
+  JSON.stringify(portNode.key_text_range),
+);
+outlineSession.free();
+
 console.log(failures === 0 ? "\nALL FUNCTIONAL CHECKS PASSED" : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

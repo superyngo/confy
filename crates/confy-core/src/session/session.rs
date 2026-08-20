@@ -13,7 +13,7 @@ use crate::session::state::{
     PasteSlot, PendingComment, PendingCommit, PendingExternalEdit, PromptKind,
 };
 use crate::session::type_filter::TypeFilter;
-use crate::session::view::{ChildView, ViewRow};
+use crate::session::view::{ChildView, OutlineNode, ViewRow};
 use std::collections::HashSet;
 
 pub struct Session {
@@ -294,6 +294,31 @@ impl Session {
                 is_branch: c.is_branch(),
             })
             .collect()
+    }
+
+    /// Read-only outline tree for editor Outline/breadcrumb integrations —
+    /// the whole document, independent of `Session`'s own cursor/expansion
+    /// state. Root itself is not included (its children are returned
+    /// directly); `Comment` nodes are omitted.
+    pub fn outline(&self) -> Vec<OutlineNode> {
+        fn convert(n: &Node) -> Option<OutlineNode> {
+            if matches!(n.kind, NodeKind::Comment(_)) {
+                return None;
+            }
+            Some(OutlineNode {
+                key: n.key.clone(),
+                path: n.path.clone(),
+                type_label: node_type_label(&n.kind),
+                value: if n.is_leaf() { n.value.clone() } else { None },
+                text_range: (n.text_range.start as u32, n.text_range.end as u32),
+                key_text_range: n
+                    .key_text_range
+                    .as_ref()
+                    .map(|r| (r.start as u32, r.end as u32)),
+                children: n.children.iter().filter_map(convert).collect(),
+            })
+        }
+        self.tree.root.children.iter().filter_map(convert).collect()
     }
 
     pub fn cursor_down(&mut self) {
