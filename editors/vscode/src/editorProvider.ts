@@ -1,14 +1,7 @@
 import * as vscode from "vscode";
-import type { ConfigFormat, HostToWebview, WebviewToHost } from "../../../web/vscode-protocol.js";
+import type { HostToWebview, WebviewToHost } from "../../../web/vscode-protocol.js";
 
-// Mirrors web/host-io.ts's formatFromName (same folding: .jsonc→json,
-// .yml→yaml); duplicated because the extension host must not import web
-// internals, but the return type is the one shared ConfigFormat.
-function formatFromName(name: string): ConfigFormat {
-  if (name.endsWith(".json") || name.endsWith(".jsonc")) return "json";
-  if (name.endsWith(".yaml") || name.endsWith(".yml")) return "yaml";
-  return "toml";
-}
+import { formatFromName } from "./formatFromName.js";
 
 function basename(uri: vscode.Uri): string {
   return uri.path.split("/").pop() ?? "config.toml";

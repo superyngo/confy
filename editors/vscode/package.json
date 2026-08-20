@@ -15,6 +15,7 @@
   "homepage": "https://github.com/superyngo/confy/tree/main/editors/vscode#readme",
   "icon": "icon.png",
   "engines": { "vscode": "^1.85.0" },
+  "activationEvents": ["onStartupFinished"],
   "categories": ["Other"],
   "main": "./dist/extension.js",
   "contributes": {

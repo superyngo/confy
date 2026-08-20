@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { ConfyEditorProvider } from "./editorProvider.js";
+import { ConfyOutlineProvider } from "./outlineProvider.js";
 
 // A tab's (uri, viewType) identity — "default" for the built-in text editor,
 // since TabInputText carries no viewType of its own.
@@ -82,6 +83,20 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("confy.themeAuto", () => setTheme("auto")),
     vscode.commands.registerCommand("confy.themeLight", () => setTheme("light")),
     vscode.commands.registerCommand("confy.themeDark", () => setTheme("dark")),
+  );
+
+  // Native-editor Outline / breadcrumbs for TOML/YAML opened in VS Code's own
+  // text editor (Explorer's Outline view, ⇧⌘O go-to-symbol, the breadcrumb
+  // bar): the extension host loads the wasm core itself (not the webview) and
+  // maps its read-only outline() tree onto DocumentSymbols. confy's own custom
+  // editor tab is a webview and stays out of this by design (spec's Platform
+  // constraint). runtime-only registration has no declarative `contributes`
+  // equivalent, hence package.json's explicit activationEvents.
+  context.subscriptions.push(
+    vscode.languages.registerDocumentSymbolProvider(
+      [{ pattern: "**/*.toml" }, { pattern: "**/*.yaml" }, { pattern: "**/*.yml" }],
+      new ConfyOutlineProvider(context),
+    ),
   );
 
   async function setLang(lang: "en" | "zh-TW"): Promise<void> {
