@@ -35,6 +35,13 @@ pub(crate) enum Target {
 
 pub(crate) type CstIndex = Vec<(Vec<Seg>, Target)>;
 
+/// Convert a rowan `TextRange` (UTF-8 byte offsets, half-open) to a `Range<usize>`.
+fn to_range(r: rowan::TextRange) -> std::ops::Range<usize> {
+    let start: usize = r.start().into();
+    let end: usize = r.end().into();
+    start..end
+}
+
 pub fn project(syntax: &SyntaxNode, filename: &str) -> NodeTree {
     walk(syntax, filename).0
 }
@@ -51,6 +58,8 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
         key_sign: KeySign::None,
         trailing_comment: None,
         read_only: false,
+        text_range: to_range(syntax.text_range()),
+        key_text_range: None,
     };
     let mut idx: CstIndex = Vec::new();
 
@@ -115,16 +124,17 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
                 SyntaxKind::TABLE_HEADER => {
                     let path = header_path(&n);
                     let signs = header_key_signs(&n);
+                    let key_ranges = header_key_ranges(&n);
                     let parent = path[..path.len().saturating_sub(1)].to_vec();
                     // Blocks separated from this header by a blank line trail the
                     // PRECEDING scope (`current`); a block hugging the header (no
                     // blank) is its leading comment, attached to the header's parent.
                     let separated = std::mem::take(&mut blocks);
                     let adjacent = take_adjacent!();
-                    ensure_table_path(&mut root, &parent, &signs);
+                    ensure_table_path(&mut root, &parent, &signs, &key_ranges, &n);
                     flush_comments(&mut root, &current, separated, &mut idx);
                     flush_comments(&mut root, &parent, adjacent, &mut idx);
-                    ensure_table_path(&mut root, &path, &signs);
+                    ensure_table_path(&mut root, &path, &signs, &key_ranges, &n);
                     // A `[section]  # c` header carries its EOL comment as the
                     // table node's trailing comment (editable via SetTrailingComment).
                     if let Some(tc) = entry_trailing_comment(&n) {
@@ -138,6 +148,7 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
                 SyntaxKind::TABLE_ARRAY_HEADER => {
                     let path = header_path(&n);
                     let signs = header_key_signs(&n);
+                    let key_ranges = header_key_ranges(&n);
                     let parent = path[..path.len().saturating_sub(1)].to_vec();
                     let aot_key = match path.last() {
                         Some(Seg::Key(k)) => k.clone(),
@@ -149,7 +160,7 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
                     // group's parent).
                     let separated = std::mem::take(&mut blocks);
                     let adjacent = take_adjacent!();
-                    ensure_table_path(&mut root, &parent, &signs);
+                    ensure_table_path(&mut root, &parent, &signs, &key_ranges, &n);
                     let exists = node_at(&root, &path).is_some();
                     flush_comments(&mut root, &current, separated, &mut idx);
                     if exists {
@@ -166,6 +177,10 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
                             key_sign: signs.last().copied().unwrap_or(KeySign::None),
                             trailing_comment: None,
                             read_only: false,
+                            // Synthetic group (like a Dotted table): per ADR 0006 it
+                            // anchors at the entry that created it — this header.
+                            text_range: to_range(n.text_range()),
+                            key_text_range: key_ranges.last().cloned(),
                         };
                         append_child(&mut root, &parent, aot);
                         idx.push((path.clone(), Target::AotGroup));
@@ -189,6 +204,8 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
                         // A `[[b]]  # c` header's EOL comment rides on the AoT entry.
                         trailing_comment: entry_trailing_comment(&n),
                         read_only: false,
+                        text_range: to_range(n.text_range()),
+                        key_text_range: None,
                     });
                     idx.push((entry_path.clone(), Target::AotEntry(n.clone())));
                     current = entry_path;
@@ -227,6 +244,9 @@ fn flush_comments(
             key_sign: KeySign::None,
             trailing_comment: None,
             read_only: false,
+            // A merged block anchors at its first line (never an envelope).
+            text_range: to_range(tok.text_range()),
+            key_text_range: None,
         });
         idx.push((path, Target::Comment(tok)));
     }
@@ -257,9 +277,17 @@ fn node_at_mut<'a>(root: &'a mut Node, path: &[Seg]) -> Option<&'a mut Node> {
 
 /// Ensure the chain of `Table` nodes named by `path` exists (creating implicit
 /// intermediate tables for a dotted header like `[x.a]`). `signs` is the
-/// per-segment `KeySign` of the header's KEY, aligned with `path`. No-op for
-/// the empty path.
-fn ensure_table_path(root: &mut Node, path: &[Seg], signs: &[KeySign]) {
+/// per-segment `KeySign` of the header's KEY, aligned with `path`, and
+/// `key_ranges` the per-segment key byte ranges (same alignment). Per ADR 0006
+/// every synthetic table anchors at `source` — the single header node that
+/// created it, never an envelope. No-op for the empty path.
+fn ensure_table_path(
+    root: &mut Node,
+    path: &[Seg],
+    signs: &[KeySign],
+    key_ranges: &[std::ops::Range<usize>],
+    source: &SyntaxNode,
+) {
     for i in 0..path.len() {
         if node_at(root, &path[..=i]).is_some() {
             continue;
@@ -278,6 +306,8 @@ fn ensure_table_path(root: &mut Node, path: &[Seg], signs: &[KeySign]) {
             key_sign: signs.get(i).copied().unwrap_or(KeySign::None),
             trailing_comment: None,
             read_only: false,
+            text_range: to_range(source.text_range()),
+            key_text_range: key_ranges.get(i).cloned(),
         };
         append_child(root, &path[..i], node);
     }
@@ -320,6 +350,33 @@ fn header_key_signs(header: &SyntaxNode) -> Vec<KeySign> {
         .children()
         .find(|c| c.kind() == SyntaxKind::KEY)
         .map(|k| key_signs(&k))
+        .unwrap_or_default()
+}
+
+/// Per-segment byte range of a `KEY` node's tokens, aligned with `key_segments`
+/// / `key_signs` — the `a` / `b` / `c` of `a.b.c`.
+fn key_segment_ranges(key: &SyntaxNode) -> Vec<std::ops::Range<usize>> {
+    key.children_with_tokens()
+        .filter_map(|c| match c {
+            NodeOrToken::Token(t) => match t.kind() {
+                SyntaxKind::IDENT
+                | SyntaxKind::IDENT_WITH_GLOB
+                | SyntaxKind::STRING
+                | SyntaxKind::STRING_LITERAL => Some(to_range(t.text_range())),
+                _ => None,
+            },
+            NodeOrToken::Node(_) => None,
+        })
+        .collect()
+}
+
+/// Per-segment key byte ranges of a header's `KEY` (empty if the header has
+/// none).
+fn header_key_ranges(header: &SyntaxNode) -> Vec<std::ops::Range<usize>> {
+    header
+        .children()
+        .find(|c| c.kind() == SyntaxKind::KEY)
+        .map(|k| key_segment_ranges(&k))
         .unwrap_or_default()
 }
 
@@ -397,18 +454,35 @@ fn project_entry(entry: &SyntaxNode, scope: &[Seg], idx: &mut CstIndex) -> Node 
         Some(k) => (key_display(k), key_segments(k), key_sign_of(k)),
         None => (String::new(), Vec::new(), KeySign::None),
     };
+    // The entry node spans its whole `key = value` (not just the VALUE); the key
+    // range is the sole key segment's token (`project_entry` only ever sees
+    // single-segment keys — dotted ones go through `project_entry_into`).
+    let entry_range = to_range(entry.text_range());
+    let key_range = key_node
+        .as_ref()
+        .and_then(|k| match key_segment_ranges(k).as_slice() {
+            [one] => Some(one.clone()),
+            _ => None,
+        });
     let mut path = scope.to_vec();
     path.extend(segs);
     idx.push((path.clone(), Target::Entry(entry.clone())));
     let value = entry.children().find(|c| c.kind() == SyntaxKind::VALUE);
     let mut node = match value {
-        Some(v) => project_value_node(&v, &display, path, idx),
+        Some(v) => {
+            let mut n = project_value_node(&v, &display, path, idx);
+            n.text_range = entry_range;
+            n.key_text_range = key_range;
+            n
+        }
         None => leaf(
             &display,
             NodeKind::Scalar(ScalarType::String),
             path,
             None,
             None,
+            entry_range,
+            key_range,
         ),
     };
     node.key_sign = sign;
@@ -431,6 +505,10 @@ fn project_entry(entry: &SyntaxNode, scope: &[Seg], idx: &mut CstIndex) -> Node 
 fn project_entry_into(root: &mut Node, scope: &[Seg], entry: &SyntaxNode, idx: &mut CstIndex) {
     let key_node = entry.children().find(|c| c.kind() == SyntaxKind::KEY);
     let segs = key_node.as_ref().map(key_segments).unwrap_or_default();
+    let seg_ranges = key_node
+        .as_ref()
+        .map(key_segment_ranges)
+        .unwrap_or_default();
 
     // Single (or zero) segment: unchanged — one node directly under `scope`.
     if segs.len() <= 1 {
@@ -446,15 +524,27 @@ fn project_entry_into(root: &mut Node, scope: &[Seg], entry: &SyntaxNode, idx: &
         Some(Seg::Key(k)) => k.clone(),
         _ => String::new(),
     };
+    // The dotted leaf spans the whole entry and keys on its LAST segment; the
+    // synthetic chain segments (below / `ensure_dotted_chain`) each key on
+    // their own segment.
+    let entry_range = to_range(entry.text_range());
+    let leaf_key_range = seg_ranges.last().cloned();
     let value = entry.children().find(|c| c.kind() == SyntaxKind::VALUE);
     let mut node = match value {
-        Some(v) => project_value_node(&v, &leaf_key, full.clone(), idx),
+        Some(v) => {
+            let mut n = project_value_node(&v, &leaf_key, full.clone(), idx);
+            n.text_range = entry_range;
+            n.key_text_range = leaf_key_range;
+            n
+        }
         None => leaf(
             &leaf_key,
             NodeKind::Scalar(ScalarType::String),
             full.clone(),
             None,
             None,
+            entry_range,
+            leaf_key_range,
         ),
     };
     node.key_sign = KeySign::Dotted;
@@ -462,7 +552,7 @@ fn project_entry_into(root: &mut Node, scope: &[Seg], entry: &SyntaxNode, idx: &
         node.trailing_comment = entry_trailing_comment(entry);
     }
 
-    ensure_dotted_chain(root, scope.len(), &full);
+    ensure_dotted_chain(root, scope.len(), &full, entry, &seg_ranges);
     append_child(root, &full[..full.len() - 1], node);
 
     // A `[T/D]` table projects at the position of its **first** definition in the
@@ -476,7 +566,17 @@ fn project_entry_into(root: &mut Node, scope: &[Seg], entry: &SyntaxNode, idx: &
 /// recreated). Creates every segment from `scope_len` up to but **excluding** the
 /// last (the leaf, appended by the caller). Every synthetic node reads
 /// `KeySign::Dotted` — the whole decomposed chain signals its dotted-key origin.
-fn ensure_dotted_chain(root: &mut Node, scope_len: usize, full: &[Seg]) {
+/// Per ADR 0006 each synthetic table anchors at its FIRST member's entry
+/// (`source` — the only definition seen at creation time, never an envelope);
+/// `key_ranges` holds the entry's own key-segment ranges, aligned with
+/// `full[scope_len..]`.
+fn ensure_dotted_chain(
+    root: &mut Node,
+    scope_len: usize,
+    full: &[Seg],
+    source: &SyntaxNode,
+    key_ranges: &[std::ops::Range<usize>],
+) {
     for i in scope_len..full.len().saturating_sub(1) {
         if node_at(root, &full[..=i]).is_some() {
             continue;
@@ -495,6 +595,8 @@ fn ensure_dotted_chain(root: &mut Node, scope_len: usize, full: &[Seg]) {
             key_sign: KeySign::Dotted,
             trailing_comment: None,
             read_only: false,
+            text_range: to_range(source.text_range()),
+            key_text_range: key_ranges.get(i - scope_len).cloned(),
         };
         append_child(root, &full[..i], node);
     }
@@ -538,6 +640,8 @@ fn project_value_node(value: &SyntaxNode, key: &str, path: Vec<Seg>, idx: &mut C
                         path,
                         Some(t.text().to_string()),
                         trailing,
+                        to_range(t.text_range()),
+                        None,
                     )
                     .with_format(fmt);
                 }
@@ -551,11 +655,19 @@ fn project_value_node(value: &SyntaxNode, key: &str, path: Vec<Seg>, idx: &mut C
         path,
         None,
         trailing,
+        to_range(value.text_range()),
+        None,
     )
 }
 
 fn project_array(arr: &SyntaxNode, key: &str, path: Vec<Seg>, idx: &mut CstIndex) -> Node {
-    let mut n = branch(key, NodeKind::Array, path.clone());
+    let mut n = branch(
+        key,
+        NodeKind::Array,
+        path.clone(),
+        to_range(arr.text_range()),
+        None,
+    );
     // A single-line array carries its one-line repr as `value` so the VALUE column
     // shows it and it is inline-editable; a multiline array leaves `value` None.
     // The same distinction is the array's Format facet.
@@ -637,6 +749,10 @@ fn project_array(arr: &SyntaxNode, key: &str, path: Vec<Seg>, idx: &mut CstIndex
                                 key_sign: KeySign::None,
                                 trailing_comment: None,
                                 read_only: false,
+                                // Anchors at this line (a merged group keeps its
+                                // first line's range — never an envelope).
+                                text_range: to_range(t.text_range()),
+                                key_text_range: None,
                             });
                             merge_into = Some(n.children.len() - 1);
                             k += 1;
@@ -653,7 +769,13 @@ fn project_array(arr: &SyntaxNode, key: &str, path: Vec<Seg>, idx: &mut CstIndex
 }
 
 fn project_inline(it: &SyntaxNode, key: &str, path: Vec<Seg>, idx: &mut CstIndex) -> Node {
-    let mut n = branch(key, NodeKind::InlineTable, path.clone());
+    let mut n = branch(
+        key,
+        NodeKind::InlineTable,
+        path.clone(),
+        to_range(it.text_range()),
+        None,
+    );
     n.format = Format::Inline;
     // Inline tables are single-line; carry the one-line repr as `value` for display
     // and inline editing (guard on newline anyway, for safety).
@@ -682,15 +804,30 @@ fn project_inline(it: &SyntaxNode, key: &str, path: Vec<Seg>, idx: &mut CstIndex
             Some(Seg::Key(k)) => k.clone(),
             _ => String::new(),
         };
+        // Same span policy as `project_entry_into`: the leaf spans the whole
+        // (inline) entry and keys on its LAST segment.
+        let seg_ranges = key_node
+            .as_ref()
+            .map(key_segment_ranges)
+            .unwrap_or_default();
+        let entry_range = to_range(c.text_range());
+        let leaf_key_range = seg_ranges.last().cloned();
         let value = c.children().find(|v| v.kind() == SyntaxKind::VALUE);
         let mut node = match value {
-            Some(v) => project_value_node(&v, &leaf_key, full.clone(), idx),
+            Some(v) => {
+                let mut n = project_value_node(&v, &leaf_key, full.clone(), idx);
+                n.text_range = entry_range;
+                n.key_text_range = leaf_key_range;
+                n
+            }
             None => leaf(
                 &leaf_key,
                 NodeKind::Scalar(ScalarType::String),
                 full.clone(),
                 None,
                 None,
+                entry_range,
+                leaf_key_range,
             ),
         };
         node.key_sign = KeySign::Dotted;
@@ -714,6 +851,9 @@ fn project_inline(it: &SyntaxNode, key: &str, path: Vec<Seg>, idx: &mut CstIndex
                         key_sign: KeySign::Dotted,
                         trailing_comment: None,
                         read_only: false,
+                        // ADR 0006: anchor at the first member's whole entry.
+                        text_range: to_range(c.text_range()),
+                        key_text_range: seg_ranges.get(i - path.len()).cloned(),
                     });
                     cur.children.len() - 1
                 }
@@ -754,6 +894,8 @@ fn leaf(
     path: Vec<Seg>,
     value: Option<String>,
     trailing_comment: Option<String>,
+    text_range: std::ops::Range<usize>,
+    key_text_range: Option<std::ops::Range<usize>>,
 ) -> Node {
     Node {
         key: key.to_string(),
@@ -765,10 +907,18 @@ fn leaf(
         key_sign: KeySign::None,
         trailing_comment,
         read_only: false,
+        text_range,
+        key_text_range,
     }
 }
 
-fn branch(key: &str, kind: NodeKind, path: Vec<Seg>) -> Node {
+fn branch(
+    key: &str,
+    kind: NodeKind,
+    path: Vec<Seg>,
+    text_range: std::ops::Range<usize>,
+    key_text_range: Option<std::ops::Range<usize>>,
+) -> Node {
     Node {
         key: key.to_string(),
         path,
@@ -779,6 +929,8 @@ fn branch(key: &str, kind: NodeKind, path: Vec<Seg>) -> Node {
         key_sign: KeySign::None,
         trailing_comment: None,
         read_only: false,
+        text_range,
+        key_text_range,
     }
 }
 
@@ -1172,5 +1324,30 @@ Array key="ml" sign=Bare val=None fmt=Multiline trail=None
                 "index missing non-table path {p:?} ({kind:?})"
             );
         }
+    }
+
+    #[test]
+    fn text_range_slices_expected_substring() {
+        let src = "[server]\nhost = \"localhost\"\nport = 8080\n";
+        let t = cst_tree(src);
+        let server = &t.root.children[0];
+        assert_eq!(&src[server.text_range.clone()], "[server]");
+        assert_eq!(
+            server.key_text_range.clone().map(|r| &src[r]),
+            Some("server")
+        );
+        let port = &server.children[1];
+        assert_eq!(&src[port.text_range.clone()], "port = 8080");
+        assert_eq!(port.key_text_range.clone().map(|r| &src[r]), Some("port"));
+    }
+
+    #[test]
+    fn dotted_table_text_range_anchors_first_member() {
+        let src = "a.b = 1\nx = 0\na.c = 2\n";
+        let t = cst_tree(src);
+        let a = &t.root.children[0];
+        // ADR 0006: anchors at the FIRST member (`a.b = 1`), not an envelope.
+        assert_eq!(&src[a.text_range.clone()], "a.b = 1");
+        assert_eq!(a.key_text_range.clone().map(|r| &src[r]), Some("a"));
     }
 }
