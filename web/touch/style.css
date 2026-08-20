@@ -119,6 +119,11 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none
 .row.clip-cut > .row-main{background:var(--cut-bg)}
 .row.clip-copy > .row-main{background:var(--copy-bg)}
 .row.schema-violation > .row-main{outline:1.5px dashed var(--warn);outline-offset:-2px}
+/* Collapsed branch hiding a schema warning somewhere in its subtree — a
+   small amber corner dot (not the dashed outline, which is reserved for a
+   row that itself violates). Auto-clears/relocates on expand: no JS state,
+   just `has_descendant_warning` re-evaluated per render. */
+.row.warn-branch > .row-main::after{content:"";position:absolute;left:2px;top:4px;width:6px;height:6px;border-radius:50%;background:var(--warn)}
 /* Opaque press tint — a translucent mix would let the red swipe-to-delete
    button behind (.row-del, z-index:1) bleed through while the finger is down. */
 .row-main:active{background:color-mix(in oklch,var(--panel) 70%,var(--bg))}

@@ -52,6 +52,7 @@ export interface ViewRow {
   violations: string[] | undefined;
   selected: boolean;
   is_cursor: boolean;
+  has_descendant_warning: boolean;
 }
 
 // ---- Breadcrumb children query (session::view::ChildView, ffi `children`) ----

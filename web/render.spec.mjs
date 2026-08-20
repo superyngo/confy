@@ -107,6 +107,20 @@ console.log("\n-- renderRow(): paste-armed Into styling --");
   check("Into-armed row gets drag-over-into class", htmlInto.includes("drag-over-into"));
 }
 
+// ---- renderRow: collapsed branch with has_descendant_warning gets warn-branch class ----
+console.log("\n-- renderRow(): collapsed-branch schema-warning marker --");
+{
+  const row = makeRow({ key: "server", is_branch: true, has_descendant_warning: true });
+  const htmlCollapsed = renderRow(row, 0, [row], null, null, "");
+  check("collapsed branch with descendant warning gets warn-branch class", htmlCollapsed.includes("warn-branch"));
+  const expandedRows = [row, makeRow({ key: "port", depth: 2 })];
+  const htmlExpanded = renderRow(row, 0, expandedRows, null, null, "");
+  check("expanded branch does not get warn-branch class", !htmlExpanded.includes("warn-branch"));
+  const noWarnRow = makeRow({ key: "server", is_branch: true, has_descendant_warning: false });
+  const htmlNoWarn = renderRow(noWarnRow, 0, [noWarnRow], null, null, "");
+  check("collapsed branch without descendant warning gets no warn-branch class", !htmlNoWarn.includes("warn-branch"));
+}
+
 // ---- panelHTML: value / trailing_comment ----
 console.log("\n-- panelHTML() escaping (value/comment fields) --");
 {

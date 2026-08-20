@@ -102,7 +102,8 @@ export function renderRow(
     `row${r.is_branch ? " branch" : ""}${expanded ? " open" : ""}` +
     `${r.is_cursor ? " cursor" : ""}${r.selected ? " selected" : ""}` +
     `${r.read_only ? " readonly" : ""}${comment ? " comment-row" : ""}${clip}` +
-    `${r.violations ? " schema-violation" : ""}${pasteInto ? " drag-over-into" : ""}`;
+    `${r.violations ? " schema-violation" : ""}${pasteInto ? " drag-over-into" : ""}` +
+    `${r.is_branch && !expanded && r.has_descendant_warning ? " warn-branch" : ""}`;
   let s = `<div class="${cls}" data-path="${pathAttr}" data-index="${idx}">`;
   // Indentation: a single spacer whose width scales with depth (the design's
   // `indent.style.width = depth*22`). The synthetic root (depth 0) is not drawn,
