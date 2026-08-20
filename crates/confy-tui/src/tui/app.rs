@@ -1111,6 +1111,27 @@ mod tests {
     }
 
     #[test]
+    fn collapse_level_never_collapses_root() {
+        // Repeated `2` presses beyond the top level must not collapse the
+        // root itself (it has no visible on-screen representation), which
+        // previously left the screen showing only a blank row.
+        let mut app = app_with("[a]\np = 1\n[a.b]\nq = 2\n");
+        app.collapse_all();
+        app.rebuild_rows();
+        assert_eq!(app.visible_keys()[1..], ["a"]);
+        app.select_row(app.visible_keys().iter().position(|k| k == "a").unwrap());
+        // `a` is a closed top-level branch: collapse_level ascends toward
+        // root, but must stop short of collapsing the root itself.
+        app.collapse_level();
+        app.rebuild_rows();
+        assert_eq!(app.visible_keys()[1..], ["a"], "top-level nodes stay visible");
+        assert!(
+            app.session.expanded.contains(&Vec::new()),
+            "root must remain expanded"
+        );
+    }
+
+    #[test]
     fn shift_rounds_union_across_a_plain_move_and_esc_clears() {
         use std::collections::HashSet;
         let mut app = app_with("a = 1\nb = 2\nc = 3\nd = 4\ne = 5\n");

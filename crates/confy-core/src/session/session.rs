@@ -407,6 +407,11 @@ impl Session {
         } else {
             path[..path.len() - 1].to_vec()
         };
+        if target.is_empty() {
+            // Never collapse the root itself: like `CollapseAll`, the root
+            // always stays expanded so the first-layer nodes remain visible.
+            return;
+        }
         self.expanded.remove(&target);
         self.cursor = target;
     }
