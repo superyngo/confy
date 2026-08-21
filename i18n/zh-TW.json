@@ -227,5 +227,15 @@
   "tui.host.saved": "已儲存",
   "tui.host.save-error": "儲存錯誤：{0}",
   "tui.status.filter-results-notice": "{0}{1}",
-  "core.schema.count": "{0} 個結構描述警告"
+  "core.schema.count": "{0} 個結構描述警告",
+  "web.host.save-ok": "已儲存",
+  "web.host.download-ok": "已下載",
+  "web.host.fxios-save-hint": "Firefox on iOS 無法為下載檔案命名 — 請在 Safari 開啟本站以取得正確檔名",
+  "web.host.kind.no-options": "無可切換的表示法",
+  "web.host.kind.changed": "表示法已變更",
+  "web.host.value.changed": "值已變更",
+  "web.host.delete.ok": "已刪除",
+  "web.host.add.node": "已新增節點",
+  "web.host.add.child": "已新增子項",
+  "web.host.add.sibling": "已新增相鄰節點"
 }

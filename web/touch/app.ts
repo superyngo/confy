@@ -28,6 +28,7 @@ import type {
   TypeFilterView,
   ConvertView,
   PasteSlot,
+  Notice,
 } from "../types.js";
 import {
   canSaveAs,
@@ -161,13 +162,13 @@ const io: HostIo = {
   setHandle: (h) => {
     fileHandle = h;
   },
-  ok: (msg) => toast(msg),
+  ok: (msg) => send({ SetHostNotice: { key: "web.host.save-ok", args: [], source: "host-web" } }),
   err: (msg) => {
     statusEl.textContent = msg;
   },
   beforeConvertWrite: () => closeSheets(),
   afterDownload: (filename, msg) => {
-    toast(msg);
+    send({ SetHostNotice: { key: "web.host.download-ok", args: [], source: "host-web" } });
     firefoxIosSaveHint(filename);
   },
   adoptFile: (text, format, handle, name) => openText(text, format, handle, name),
@@ -310,12 +311,22 @@ function appHTML(): string {
   );
 }
 
-// ---- toast ----
+// ---- notice/toast ----
 let toastT: number | undefined;
-function toast(msg: string, ms = 1600) {
-  toastEl.textContent = msg;
+function renderNotice(notice: Notice | undefined) {
+  if (!notice) {
+    toastEl.classList.remove("show");
+    return;
+  }
+  // Touch uses a simple toast for all severities (no separate error element like desktop).
+  // Severity classes enable different styling if needed.
+  toastEl.textContent = notice.text;
+  toastEl.classList.remove("sev-info", "sev-success", "sev-warn", "sev-error");
+  toastEl.classList.add(`sev-${notice.severity}`);
   toastEl.classList.add("show");
   clearTimeout(toastT);
+  // Longer duration for warnings/errors
+  const ms = notice.severity === "error" || notice.severity === "warn" ? 3000 : 1600;
   toastT = window.setTimeout(() => toastEl.classList.remove("show"), ms);
 }
 
@@ -325,7 +336,7 @@ function firefoxIosSaveHint(filename: string) {
   if (!isFirefoxIos() || filename.endsWith(".json")) return;
   if (localStorage.getItem("confy.fxios-save-hint")) return;
   localStorage.setItem("confy.fxios-save-hint", "1");
-  toast("Firefox on iOS can't name downloads — open this site in Safari for a proper filename", 5200);
+  send({ SetHostNotice: { key: "web.host.fxios-save-hint", args: [], source: "host-web" } });
 }
 
 // ---- sheets ----
@@ -402,6 +413,9 @@ function render() {
   fmtPill.title = inSampleMode() ? t("web.toolbar.fmtPill.sampleTitle") : t("web.toolbar.fmtPill.title");
   docNameEl.textContent = fileName ?? "config";
   dirtyDot.style.opacity = snap.is_dirty ? "1" : "0";
+  // Render notice (severity-driven toast)
+  renderNotice(snap.notice);
+  
   if (snap.error) {
     statusEl.textContent = snap.error;
   } else if (snap.status) {
@@ -460,7 +474,7 @@ function render() {
       const schemaEnum =
         typeof snap.mode === "object" && "SchemaEnum" in snap.mode ? snap.mode.SchemaEnum : undefined;
       dpBody.innerHTML = panelHTML(cur, parentIsInline(cur.path), hint, schemaEnum);
-      wirePanel(dpBody, cur, sendR, openKindRow, toast, afterPanelMutation, undefined, schemaEnum);
+      wirePanel(dpBody, cur, sendR, openKindRow, (msg: string) => renderNotice({ severity: "error", text: msg, source: "core" }), afterPanelMutation, undefined, schemaEnum);
     } else {
       dpBody.innerHTML = '<div class="dp-empty">Tap any node<br>to edit its value and metadata here</div>';
     }
@@ -508,28 +522,26 @@ function render() {
   }
 }
 function anySheetOpen(): boolean {
-  return Object.keys(sheets).some((k) => sheets[k].classList.contains("open"));
+  return Object.values(sheets).some((s) => s.classList.contains("open"));
 }
-
-// ---- selection / detail panel ----
+// After a successful panel Delete / Copy / Cut: dismiss the detail sheet.
+// Core's own notice (e.g., core.clipboard.copied, core.delete.error) now
+// renders via the severity-driven renderNotice() in render(), so the
+// confirmation toast that was here is no longer needed (it was a duplicate).
+function afterPanelMutation(msg: string) {
+  closeSheets();
+}
 // Single tap = select only (cursor + selection); the wide-mode side pane
 // reactively shows it. The detail sheet opens on double-tap (openPanel).
 function selectOnly(path: Path) {
   send({ SetCursor: path });
   send({ SetSelection: { paths: [path] } });
 }
-// After a successful panel Delete / Copy / Cut: confirm via a toast and dismiss
-// the detail sheet (a no-op in wide split-pane mode, which re-tracks the new
-// cursor on the next render).
-function afterPanelMutation(msg: string) {
-  toast(msg);
-  closeSheets();
-}
 // Double-tap (narrow) opens the bottom-sheet panel. Wide mode keeps the
 // persistent side pane (render() refreshed it), so no sheet is needed.
 function openPanel(path: Path) {
   if ((snap?.clipboard_count ?? 0) > 0) {
-    toast(t("core.clipboard.action-locked"));
+    send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
     return;
   }
   selectOnly(path);
@@ -545,7 +557,7 @@ function openPanel(path: Path) {
       '<div class="grab"></div>' +
       `<div class="sheet-head"><h3>${esc(title)}</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
       `<div class="sheet-body detail-wrap">${panelHTML(r, parentIsInline(r.path), hint)}</div>`;
-    wirePanel(sheets.detail, r, sendR, openKindRow, toast, afterPanelMutation);
+    wirePanel(sheets.detail, r, sendR, openKindRow, (msg: string) => renderNotice({ severity: "error", text: msg, source: "core" }), afterPanelMutation);
     openSheet("detail");
   }
 }
@@ -568,13 +580,13 @@ function renderPromptSheet(kind: PromptView) {
 function openKindSheet(path: Path) {
   if (!session) return;
   if ((snap?.clipboard_count ?? 0) > 0) {
-    toast(t("core.clipboard.action-locked"));
+    send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
     return;
   }
   send({ SetCursor: path });
   const opts = session.kindOptions(path);
   if (!opts.length) {
-    toast("No notation switches available");
+    send({ SetHostNotice: { key: "web.host.kind.no-options", args: [], source: "host-web" } });
     return;
   }
   const cells = opts
@@ -592,7 +604,7 @@ function openKindSheet(path: Path) {
       const target = b.dataset.target!;
       closeSheets();
       const after = sendR({ CommitKind: { path, target } });
-      toast(after.error ?? "Kind changed");
+      send({ SetHostNotice: { key: after.error ? "core.kind-switch.error" : "web.host.kind.changed", args: after.error ? [after.error] : [], source: "host-web" } });
     });
   });
   openSheet("kind");
@@ -607,7 +619,7 @@ function openKindSheet(path: Path) {
 function openSchemaEnumSheet(path: Path, options: string[]) {
   if (!session) return;
   if ((snap?.clipboard_count ?? 0) > 0) {
-    toast(t("core.clipboard.action-locked"));
+    send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
     return;
   }
   const cells = options
@@ -630,7 +642,7 @@ function openSchemaEnumSheet(path: Path, options: string[]) {
       send({ SchemaEnumMove: idx - current });
       closeSheets();
       const after = sendR("SchemaEnumCommit");
-      toast(after.error ?? "Value changed");
+      send({ SetHostNotice: { key: after.error ? "core.error.generic" : "web.host.value.changed", args: after.error ? [after.error] : [], source: "host-web" } });
     });
   });
   openSheet("kind");
@@ -692,7 +704,7 @@ function chooseLang(lang: Lang) {
 // (`availableLangs()`); the active one is marked `.sel` with a check icon.
 function openLangSheet() {
   if ((snap?.clipboard_count ?? 0) > 0) {
-    toast(t("core.clipboard.action-locked"));
+    send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
     return;
   }
   const cur = getLang();
@@ -723,7 +735,7 @@ function openLangSheet() {
 // that whole class of layout bug.
 function openSaveSheet() {
   if ((snap?.clipboard_count ?? 0) > 0) {
-    toast(t("core.clipboard.action-locked"));
+    send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
     return;
   }
   sheets.save.innerHTML =
@@ -758,7 +770,7 @@ function openMenuSheet() {
       const c = items[Number(id)];
       if ((snap?.clipboard_count ?? 0) > 0 && c.run !== toggleTheme) {
         closeSheets();
-        toast(t("core.clipboard.action-locked"));
+        send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
         return;
       }
       if (c.run !== toggleTheme) closeSheets();
@@ -816,7 +828,7 @@ function convRefs(): ConvertRefs {
 // every snapshot — return early so the textarea/buttons aren't clobbered mid-edit.
 function openExternalEdit(ext: { initial: string; kind: unknown }) {
   if ((snap?.clipboard_count ?? 0) > 0) {
-    toast(t("core.clipboard.action-locked"));
+    send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
     return;
   }
   if (sheets.ext.classList.contains("open")) return;
@@ -885,7 +897,7 @@ function renderHelpSheet() {
 // falls back to download (like the file path).
 function openOpenSheet() {
   if ((snap?.clipboard_count ?? 0) > 0) {
-    toast(t("core.clipboard.action-locked"));
+    send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
     return;
   }
   if (sheets.url.classList.contains("open")) return;
@@ -1044,7 +1056,7 @@ function clearInto() {
 }
 function startReorder(e: PointerEvent, row: HTMLElement) {
   if ((snap?.clipboard_count ?? 0) > 0) {
-    toast(t("core.clipboard.action-locked"));
+    send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
     return;
   }
   reordering = true;
@@ -1228,7 +1240,7 @@ function installTreeGestures() {
     const grip = (e.target as HTMLElement).closest<HTMLElement>(".drag-handle");
     if (grip) {
       if ((snap?.clipboard_count ?? 0) > 0) {
-        toast(t("core.clipboard.action-locked"));
+        send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
         return;
       }
       const row = grip.closest<HTMLElement>(".row");
@@ -1380,14 +1392,13 @@ function handleTap(target: HTMLElement, row: HTMLElement, clientY: number) {
     // Revealed Delete (swipe-to-delete): remove this row, then re-render closes it.
     if (act === "rowdel") {
       if ((snap?.clipboard_count ?? 0) > 0) {
-        toast(t("core.clipboard.action-locked"));
         return;
       }
       openSwipeMain = null;
       send({ SetCursor: path });
       send({ SetSelection: { paths: [path] } });
       const after = sendR("DeleteSelected");
-      toast(after.error ?? "Deleted");
+      send({ SetHostNotice: { key: after.error ? "core.delete.error" : "web.host.delete.ok", args: after.error ? [after.error] : [], source: "host-web" } });
       return;
     }
     if (act === "caret") {
@@ -1433,22 +1444,21 @@ function handleTap(target: HTMLElement, row: HTMLElement, clientY: number) {
 function addContextual() {
   if (!snap) return;
   if ((snap.clipboard_count ?? 0) > 0) {
-    toast(t("core.clipboard.action-locked"));
     return;
   }
   const idx = snap.rows.findIndex((r) => r.is_cursor);
   if (idx < 0) {
     send("AddNode");
-    toast("Node added");
+    send({ SetHostNotice: { key: "web.host.add.node", args: [], source: "host-web" } });
     return;
   }
   const r = snap.rows[idx];
   if (r.is_branch && isExpanded(snap.rows, idx)) {
     send("AddChild");
-    toast("Child added");
+    send({ SetHostNotice: { key: "web.host.add.child", args: [], source: "host-web" } });
   } else {
     send("AddSibling");
-    toast("Sibling added");
+    send({ SetHostNotice: { key: "web.host.add.sibling", args: [], source: "host-web" } });
   }
 }
 
@@ -1526,17 +1536,16 @@ function installShellHandlers() {
         break;
       case "filter":
         if ((snap?.clipboard_count ?? 0) > 0) {
-          toast(t("core.clipboard.action-locked"));
+          send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
           return;
         }
         send("EnterTypeFilter");
         break;
       case "open":
         if ((snap?.clipboard_count ?? 0) > 0) {
-          toast(t("core.clipboard.action-locked"));
+          send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
           return;
         }
-        openOpenSheet();
         break;
       case "add":
         // Paste-armed (after Copy/Cut) → the FAB pastes at the cursor; otherwise
@@ -1546,28 +1555,26 @@ function installShellHandlers() {
         break;
       case "cyclefmt":
         if ((snap?.clipboard_count ?? 0) > 0) {
-          toast(t("core.clipboard.action-locked"));
+          send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
           return;
         }
-        cycleSampleFormat(openSample); // no-op unless in sample mode
         break;
       case "save":
         if ((snap?.clipboard_count ?? 0) > 0) {
-          toast(t("core.clipboard.action-locked"));
+          send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
           return;
         }
-        openSaveSheet();
         break;
       case "undo":
         if ((snap?.clipboard_count ?? 0) > 0) {
-          toast(t("core.clipboard.action-locked"));
+          send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
           return;
         }
         send("Undo");
         break;
       case "redo":
         if ((snap?.clipboard_count ?? 0) > 0) {
-          toast(t("core.clipboard.action-locked"));
+          send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
           return;
         }
         send("Redo");
@@ -1577,28 +1584,27 @@ function installShellHandlers() {
         break;
       case "lang":
         if ((snap?.clipboard_count ?? 0) > 0) {
-          toast(t("core.clipboard.action-locked"));
+          send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
           return;
         }
-        openLangSheet();
         break;
       case "info":
         if ((snap?.clipboard_count ?? 0) > 0) {
-          toast(t("core.clipboard.action-locked"));
+          send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
           return;
         }
         send("EnterHelp");
         break;
       case "expandall":
         if ((snap?.clipboard_count ?? 0) > 0) {
-          toast(t("core.clipboard.action-locked"));
+          send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
           return;
         }
         send("ExpandAll");
         break;
       case "collapseall":
         if ((snap?.clipboard_count ?? 0) > 0) {
-          toast(t("core.clipboard.action-locked"));
+          send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
           return;
         }
         send("CollapseAll");
@@ -1616,14 +1622,13 @@ function installShellHandlers() {
         break;
       case "toggleview":
         if ((snap?.clipboard_count ?? 0) > 0) {
-          toast(t("core.clipboard.action-locked"));
+          send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
           return;
         }
-        setRawView(!rawView);
         break;
       case "searchclear":
         if ((snap?.clipboard_count ?? 0) > 0) {
-          toast(t("core.clipboard.action-locked"));
+          send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
           return;
         }
         searchInput.value = "";
@@ -1637,7 +1642,6 @@ function installShellHandlers() {
   searchInput.addEventListener("input", () => {
     if ((snap?.clipboard_count ?? 0) > 0) {
       searchInput.value = "";
-      toast(t("core.clipboard.action-locked"));
       return;
     }
     searchInput.parentElement!.classList.toggle("has-val", !!searchInput.value);

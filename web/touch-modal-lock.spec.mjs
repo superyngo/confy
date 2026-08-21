@@ -1,7 +1,7 @@
 // Plain-Node test for touch modal lock (ADR 0005 §5): while the clipboard
 // is armed (clipboard_count > 0), mutations, modal entries, grip reorder,
 // swipe-to-delete, double-tap detail sheet, and toolbar buttons are disabled
-// and emit a transient toast message (core.clipboard.action-locked).
+// and dispatch Intent::SetHostNotice (core.clipboard.action-locked).
 import path from "node:path";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -27,8 +27,8 @@ console.log("-- structural: touch/app.ts guards while clipboard is armed --");
 const startReorderBlock = appTs.match(/^function startReorder\([\s\S]*?\n\}/m)?.[0] ?? "";
 check("startReorder found in source", startReorderBlock.length > 0);
 check(
-  "startReorder checks clipboard_count and calls toast",
-  /clipboard_count/.test(startReorderBlock) && /toast\(/.test(startReorderBlock),
+  "startReorder checks clipboard_count and dispatches SetHostNotice",
+  /clipboard_count/.test(startReorderBlock) && /SetHostNotice/.test(startReorderBlock),
 );
 
 const installGesturesBlock = appTs.match(/^function installTreeGestures\(\) \{[\s\S]*?\n\}/m)?.[0] ?? "";
@@ -45,8 +45,8 @@ check(
 const openPanelBlock = appTs.match(/^function openPanel\([\s\S]*?\n\}/m)?.[0] ?? "";
 check("openPanel found in source", openPanelBlock.length > 0);
 check(
-  "openPanel checks clipboard_count and calls toast",
-  /clipboard_count/.test(openPanelBlock) && /toast\(/.test(openPanelBlock),
+  "openPanel checks clipboard_count and dispatches SetHostNotice",
+  /clipboard_count/.test(openPanelBlock) && /SetHostNotice/.test(openPanelBlock),
 );
 
 const shellHandlersBlock = appTs.match(/^function installShellHandlers\(\) \{[\s\S]*?\n\}/m)?.[0] ?? "";
@@ -62,7 +62,7 @@ const openMenuSheetBlock = appTs.match(/^function openMenuSheet\(\) \{[\s\S]*?\n
 check("openMenuSheet found in source", openMenuSheetBlock.length > 0);
 check(
   "openMenuSheet item clicks guard armed clipboard",
-  /clipboard_count/.test(openMenuSheetBlock) && /toast\(/.test(openMenuSheetBlock),
+  /clipboard_count/.test(openMenuSheetBlock) && /SetHostNotice/.test(openMenuSheetBlock),
 );
 
 // ---- 2. Behavioral checks with extracted functions ----
@@ -223,9 +223,9 @@ export ${fns[4]}
     mod.getReordering() === false,
   );
   check(
-    "startReorder when armed emits action-locked toast",
-    H.toasts.some((m) => m.includes("core.clipboard.action-locked")),
-    JSON.stringify(H.toasts),
+    "startReorder when armed dispatches action-locked SetHostNotice",
+    H.sent.some((i) => i && i.SetHostNotice && i.SetHostNotice.key === "core.clipboard.action-locked"),
+    JSON.stringify(H.sent),
   );
 }
 
@@ -246,15 +246,16 @@ export ${fns[4]}
     mod.getReordering() === false,
   );
   check(
-    "grip pointerdown when armed emits action-locked toast",
-    H.toasts.some((m) => m.includes("core.clipboard.action-locked")),
-    JSON.stringify(H.toasts),
+    "grip pointerdown when armed dispatches action-locked SetHostNotice",
+    H.sent.some((i) => i && i.SetHostNotice && i.SetHostNotice.key === "core.clipboard.action-locked"),
+    JSON.stringify(H.sent),
   );
 }
 
 // 3. Grip drag when unarmed (clipboard_count = 0): starts reorder
 {
   H.toasts.length = 0;
+  H.sent.length = 0;
   mod.setEnv({ snap: { clipboard_count: 0 } });
   const row = {
     dataset: { path: JSON.stringify([{ Key: "a" }]) },
@@ -262,7 +263,7 @@ export ${fns[4]}
   };
   mod.startReorder({ clientY: 100, pointerId: 1 }, row);
   check("startReorder when unarmed sets reordering", mod.getReordering() === true);
-  check("startReorder when unarmed emits no toast", H.toasts.length === 0);
+  check("startReorder when unarmed dispatches no SetHostNotice", !H.sent.some((i) => i && i.SetHostNotice));
 }
 
 // 4. Swipe-to-delete when armed: does not reveal delete button or start swipe
@@ -321,9 +322,9 @@ export ${fns[4]}
     JSON.stringify(H.ops),
   );
   check(
-    "openPanel when armed emits action-locked toast",
-    H.toasts.some((m) => m.includes("core.clipboard.action-locked")),
-    JSON.stringify(H.toasts),
+    "openPanel when armed dispatches action-locked SetHostNotice",
+    H.sent.some((i) => i && i.SetHostNotice && i.SetHostNotice.key === "core.clipboard.action-locked"),
+    JSON.stringify(H.sent),
   );
 }
 
@@ -341,13 +342,13 @@ for (const act of disabledActs) {
   };
   mod.triggerAppClick(btn);
   check(
-    `toolbar [data-act="${act}"] when armed emits toast`,
-    H.toasts.some((m) => m.includes("core.clipboard.action-locked")),
-    JSON.stringify(H.toasts),
+    `toolbar [data-act="${act}"] when armed dispatches action-locked SetHostNotice`,
+    H.sent.some((i) => i && i.SetHostNotice && i.SetHostNotice.key === "core.clipboard.action-locked"),
+    JSON.stringify(H.sent),
   );
   check(
-    `toolbar [data-act="${act}"] when armed does not send intent`,
-    H.sent.length === 0,
+    `toolbar [data-act="${act}"] when armed sends no other intent`,
+    H.sent.every((i) => i && i.SetHostNotice),
     JSON.stringify(H.sent),
   );
 }

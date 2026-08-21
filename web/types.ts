@@ -273,6 +273,7 @@ export type Intent =
   | "Escape" | { PromptKey: string } | "QuitRequested" | "Save"
   // i18n
   | { SetLang: string }
+  | { SetHostNotice: { key: string; args: string[]; source: NoticeSource } }
   // Schema — host ↔ core async handshake (spec §1): host resolves
   // `schema_fetch_request`'s text and dispatches `SchemaLoaded` back; the enum
   // arms drive the constrained-value picker. Mirrors Rust

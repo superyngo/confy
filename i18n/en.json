@@ -227,5 +227,15 @@
   "tui.host.saved": "Saved",
   "tui.host.save-error": "save error: {0}",
   "tui.status.filter-results-notice": "{0}{1}",
-  "core.schema.count": "{0} schema warning(s)"
+  "core.schema.count": "{0} schema warning(s)",
+  "web.host.save-ok": "Saved",
+  "web.host.download-ok": "Downloaded",
+  "web.host.fxios-save-hint": "Firefox on iOS can't name downloads — open this site in Safari for a proper filename",
+  "web.host.kind.no-options": "No notation switches available",
+  "web.host.kind.changed": "Kind changed",
+  "web.host.value.changed": "Value changed",
+  "web.host.delete.ok": "Deleted",
+  "web.host.add.node": "Node added",
+  "web.host.add.child": "Child added",
+  "web.host.add.sibling": "Sibling added"
 }
