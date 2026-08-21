@@ -1,11 +1,12 @@
 //! Diagnostics ring — see ADR 0008 and design spec §7. Developer-facing,
 //! English-only, no i18n. Zero new dependencies (no `tracing`/`log`).
 
+use serde::Serialize;
 use std::collections::VecDeque;
 
 const CAPACITY: usize = 256;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum DiagLevel {
     Debug,
     Info,
@@ -13,7 +14,7 @@ pub enum DiagLevel {
     Error,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct DiagEvent {
     pub seq: u64,
     pub level: DiagLevel,

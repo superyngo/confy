@@ -241,7 +241,7 @@
   "web.host.delete.ok": "已刪除",
   "web.host.add.node": "已新增節點",
   "web.host.add.child": "已新增子項",
-  "web.host.sibling": "已新增相鄰節點",
+  "web.host.add.sibling": "已新增相鄰節點",
   "cli.convert.warnings-header": "將 {0} 轉換為 {1} 會正規化以下內容（具失真性）：",
   "cli.convert.proceed": "是否繼續並寫入 {0}？[y/N] ",
   "cli.convert.cancelled": "已取消（未寫入任何檔案）",

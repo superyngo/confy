@@ -6,6 +6,7 @@ import init, {
 } from "./pkg/confy_ffi.js";
 import type {
   ChildView,
+  DiagEvent,
   EditHint,
   Intent,
   KindOptionView,
@@ -50,6 +51,10 @@ export class Session {
 
   snapshot(): SessionSnapshot {
     return this.raw.snapshot() as SessionSnapshot;
+  }
+
+  diagLog(): DiagEvent[] {
+    return this.raw.diag_log() as DiagEvent[];
   }
 
   visibleRows(): ViewRow[] {

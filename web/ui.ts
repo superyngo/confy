@@ -365,10 +365,24 @@ function onArmedPasteHover(ev: MouseEvent) {
   }
   renderPasteSlotCue(snap, slot ?? snap.paste_slot ?? undefined);
 }
+let lastSeenSeq = -1;
+function drainDiagIfEnabled() {
+  if (typeof location === "undefined") return;
+  if (new URLSearchParams(location.search).get("diag") !== "1") return;
+  if (!session) return;
+  const events = session.diagLog();
+  for (const e of events) {
+    if (e.seq <= lastSeenSeq) continue;
+    console.debug(`[confy-diag] [${e.level}] ${e.kind} ${e.detail}`);
+    lastSeenSeq = e.seq;
+  }
+}
+
 
 // ---- render ----
 function render() {
   if (!snap || !session) return;
+  drainDiagIfEnabled();
   fmtPill.textContent = snap.doc_format.toUpperCase();
   fmtPill.classList.toggle("toggleable", inSampleMode());
   fmtPill.title = inSampleMode() ? "Sample — click to switch format" : "document format";

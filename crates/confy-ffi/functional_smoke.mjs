@@ -491,5 +491,26 @@ check(
 );
 outlineSession.free();
 
+// ---- 29. diag_log: core diagnostics export (Task 17) ----
+const diagSession = new ConfySession("a = 1\n", "toml");
+check("diag_log() returns an empty array initially", diagSession.diag_log().length === 0);
+// Dispatch an intent to record a dispatch diag event
+diagSession.dispatch(unit("CursorDown"));
+const diagEvents = diagSession.diag_log();
+check("diag_log() has 2 events after first dispatch (dispatch + mutation)", diagEvents.length === 2, "len=" + diagEvents.length);
+check("diag event carries seq, level, kind, detail",
+  typeof diagEvents[0]?.seq === "number" &&
+  typeof diagEvents[0]?.level === "string" &&
+  typeof diagEvents[0]?.kind === "string" &&
+  typeof diagEvents[0]?.detail === "string",
+  JSON.stringify(diagEvents[0]));
+// Dispatch another intent to verify monotonic seq
+diagSession.dispatch(unit("CursorUp"));
+const diagEvents2 = diagSession.diag_log();
+check("diag_log() grows monotonically after second dispatch",
+  diagEvents2.length === 4 && diagEvents2[3].seq > diagEvents2[0].seq,
+  "len=" + diagEvents2.length);
+diagSession.free();
+
 console.log(failures === 0 ? "\nALL FUNCTIONAL CHECKS PASSED" : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

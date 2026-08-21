@@ -67,6 +67,12 @@ impl ConfySession {
         to_value(&rows).map_err(js_serde_error)
     }
 
+    /// Diagnostics log (oldest-first sequence of `DiagEvent`s recorded by core).
+    pub fn diag_log(&self) -> Result<JsValue, JsValue> {
+        let events: Vec<_> = self.session.diag.iter().collect();
+        to_value(&events).map_err(js_serde_error)
+    }
+
     /// Current document text — the host writes/downloads this on save.
     pub fn serialize(&self) -> String {
         self.session.serialize().unwrap_or_default()

@@ -36,6 +36,16 @@ export interface Notice {
   source: NoticeSource;
 }
 
+// ---- Diagnostics log (session::diag) ----
+// DiagLevel has no serde rename attribute, so variants serialize in Rust PascalCase.
+export type DiagLevel = "Debug" | "Info" | "Warn" | "Error";
+export interface DiagEvent {
+  seq: number;
+  level: DiagLevel;
+  kind: string;
+  detail: string;
+}
+
 // The full Format enum (TOML+JSON+YAML). Unknown strings are tolerated.
 export type Format = string;
 

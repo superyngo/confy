@@ -241,7 +241,7 @@
   "web.host.delete.ok": "Deleted",
   "web.host.add.node": "Node added",
   "web.host.add.child": "Child added",
-  "web.host.sibling": "Sibling added",
+  "web.host.add.sibling": "Sibling added",
   "cli.convert.warnings-header": "Converting {0} → {1} normalizes the following (lossy):",
   "cli.convert.proceed": "Proceed and write {0}? [y/N] ",
   "cli.convert.cancelled": "cancelled (no file written)",
