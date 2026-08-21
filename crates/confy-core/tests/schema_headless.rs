@@ -808,7 +808,7 @@ fn committing_a_schema_violating_value_sets_an_advisory_status_with_suggested_va
 }
 
 #[test]
-fn committing_a_schema_compliant_value_leaves_status_untouched() {
+fn committing_a_schema_compliant_value_leaves_notice_untouched() {
     let mut s = session_from("level = \"debug\"\n", DocFormat::Toml);
     let schema_text = json!({
         "type": "object",

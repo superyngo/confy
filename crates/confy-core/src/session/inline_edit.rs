@@ -5,7 +5,7 @@
 
 use crate::model::document::{ConfigDocument, MutateError, Mutation, OnCollision, Target};
 use crate::model::node::{Format, NodeKind, Path, ScalarType, Seg};
-use crate::session::notice::{Notice, Severity};
+use crate::session::notice::Notice;
 use crate::session::state::{EditField, EditState, Mode, PendingCommit, PromptKind};
 
 use super::session::Session;
@@ -871,8 +871,7 @@ impl Session {
                 )
             }
         };
-        self.apply_insert(target.clone(), fragment);
-        if matches!(&self.notice, Some(n) if n.severity == Severity::Error) {
+        if !self.apply_insert(target.clone(), fragment) {
             return;
         }
         let mut new_path = target.parent.clone();
@@ -943,10 +942,13 @@ impl Session {
         }
     }
 
-    pub fn apply_insert(&mut self, target: Target, edited: String) {
+    /// Apply a hand-typed insert fragment. Returns `false` when the insert
+    /// failed (collision / invalid fragment / generic error — the failure
+    /// notice is already set); `true` otherwise.
+    pub fn apply_insert(&mut self, target: Target, edited: String) -> bool {
         let doc = match self.doc.as_mut() {
             Some(d) => d,
-            None => return,
+            None => return true,
         };
         let fmt = doc.format().name();
         match doc.apply(Mutation::Insert {
@@ -958,15 +960,21 @@ impl Session {
             // exactly the pre-feature behavior.
             suggested_key: None,
         }) {
-            Ok(()) => self.on_mutation_success(None),
+            Ok(()) => {
+                self.on_mutation_success(None);
+                true
+            }
             Err(MutateError::Collision(key)) => {
                 self.set_notice(Notice::core(self.lang, "core.insert.collision", &[&key]));
+                false
             }
             Err(MutateError::Fragment(msg)) => {
                 self.set_notice(Notice::core(self.lang, "core.fragment.invalid", &[fmt, &msg]));
+                false
             }
             Err(e) => {
-                self.set_notice(Notice::core(self.lang, "core.error.generic", &[&e.to_string()]))
+                self.set_notice(Notice::core(self.lang, "core.error.generic", &[&e.to_string()]));
+                false
             }
         }
     }

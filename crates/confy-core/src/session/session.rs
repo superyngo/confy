@@ -669,7 +669,7 @@ impl Session {
         }
     }
 
-    /// Returns `true` (and sets `status`) when the clipboard is armed,
+    /// Returns `true` (and sets a notice) when the clipboard is armed,
     /// signalling the caller to return early — ADR 0005 §5 modal lock.
     pub(crate) fn guard_clipboard_locked(&mut self) -> bool {
         if self.clipboard.is_some() {
