@@ -156,6 +156,18 @@ export interface SchemaStatus {
   load_error: string | undefined;
 }
 
+// ---- Schema violation with resolved source range (ffi `schema_violations`) ----
+export type ViolationCategory = "Value" | "Representation";
+
+export interface ViolationView {
+  path: Path;
+  pointer: string;
+  keyword: string;
+  message: string;
+  category: ViolationCategory;
+  text_range: [number, number] | undefined;
+}
+
 // ---- Clipboard paste target (session::state::PasteSlot, ADR 0004 §1) ----
 // Externally-tagged like every other Rust enum mirrored here.
 export type PasteSlot = { Into: Path } | { After: Path };
@@ -253,4 +265,5 @@ export type Intent =
   | { SchemaLoaded: { source: { Local: string } | { Url: string }; text: { Ok: string } | { Err: string } } }
   | { SchemaEnumMove: number }
   | { SchemaEnumJump: number }
+  | "DetectSchema"
   | "SchemaEnumCommit";
