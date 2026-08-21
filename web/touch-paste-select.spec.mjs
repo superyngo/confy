@@ -62,7 +62,7 @@ function sessionStub(nextSnap, childrenList = siblings) {
     session: {
       dispatch: (i) => {
         dispatched.push(i);
-        return dispatched.length === 1 ? nextSnap : { ...nextSnap, mode: "Normal", error: null };
+        return dispatched.length === 1 ? nextSnap : { ...nextSnap, mode: "Normal", notice: undefined };
       },
       children: (_p) => childrenList,
     },
@@ -74,7 +74,7 @@ console.log("\n-- paste lands: re-selects the pasted batch --");
   const { session, dispatched } = sessionStub({
     cursor: P("b"),
     clipboard_count: 0,
-    error: null,
+    notice: undefined,
     mode: "Normal",
   });
   mod.setEnv({ session, snap: { clipboard_count: 2 } });
@@ -93,7 +93,7 @@ console.log("\n-- non-paste nav: no compensator fires --");
   const { session, dispatched } = sessionStub({
     cursor: P("c"),
     clipboard_count: 0,
-    error: null,
+    notice: undefined,
     mode: "Normal",
   });
   mod.setEnv({ session, snap: { clipboard_count: 0 } });
@@ -106,7 +106,7 @@ console.log("\n-- collision prompt: clipboard stays armed, no compensator --");
   const { session, dispatched } = sessionStub({
     cursor: P("b"),
     clipboard_count: 1,
-    error: null,
+    notice: undefined,
     mode: "Prompt",
   });
   mod.setEnv({ session, snap: { clipboard_count: 1 } });
@@ -119,7 +119,7 @@ console.log("\n-- paste failure (error set): no compensator --");
   const { session, dispatched } = sessionStub({
     cursor: P("b"),
     clipboard_count: 0,
-    error: "core.paste.error",
+    notice: { severity: "error", text: "core.paste.error", source: "core" },
     mode: "Normal",
   });
   mod.setEnv({ session, snap: { clipboard_count: 2 } });

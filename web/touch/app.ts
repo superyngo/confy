@@ -129,7 +129,7 @@ function send(i: Intent) {
   // Purely client-side and ephemeral — safe here for the same reason it's safe
   // on desktop: every ordinary tap already collapses `Selection` to a single
   // path via `selectOnly()`, so this never outlives the tap that follows it.
-  if (preClip > 0 && !(snap.clipboard_count ?? 0) && !snap.error && snap.mode === "Normal") {
+  if (preClip > 0 && !(snap.clipboard_count ?? 0) && snap.notice?.severity !== "error" && snap.mode === "Normal") {
     const parent = snap.cursor.slice(0, -1);
     const siblings = session.children(parent).map((c) => c.path);
     const idx = siblings.findIndex((p) => JSON.stringify(p) === JSON.stringify(snap!.cursor));
@@ -141,7 +141,7 @@ function send(i: Intent) {
   if (!isBatching()) render();
 }
 // Dispatch and return the resulting snapshot (the shared panel.ts contract reads
-// `snapshot.error`). `send` already triggered the re-render.
+// `snapshot.notice`). `send` already triggered the re-render.
 function sendR(i: Intent): SessionSnapshot {
   send(i);
   return snap!;
@@ -416,10 +416,8 @@ function render() {
   // Render notice (severity-driven toast)
   renderNotice(snap.notice);
   
-  if (snap.error) {
-    statusEl.textContent = snap.error;
-  } else if (snap.status) {
-    statusEl.textContent = snap.status;
+  if (snap.notice) {
+    statusEl.textContent = snap.notice.text;
   } else {
     // Idle schema hint — mirrors the TUI/desktop status line's dynamic
     // behavior (tooltip-like: appears while the cursor sits on a schema-
@@ -605,7 +603,8 @@ function openKindSheet(path: Path) {
       const target = b.dataset.target!;
       closeSheets();
       const after = sendR({ CommitKind: { path, target } });
-      send({ SetHostNotice: { key: after.error ? "core.kind-switch.error" : "web.host.kind.changed", args: after.error ? [after.error] : [], source: "host-web" } });
+      const isErr = after.notice?.severity === "error";
+      send({ SetHostNotice: { key: isErr ? "core.kind-switch.error" : "web.host.kind.changed", args: isErr ? [after.notice!.text] : [], source: "host-web" } });
     });
   });
   openSheet("kind");
@@ -643,7 +642,8 @@ function openSchemaEnumSheet(path: Path, options: string[]) {
       send({ SchemaEnumMove: idx - current });
       closeSheets();
       const after = sendR("SchemaEnumCommit");
-      send({ SetHostNotice: { key: after.error ? "core.error.generic" : "web.host.value.changed", args: after.error ? [after.error] : [], source: "host-web" } });
+      const isErr = after.notice?.severity === "error";
+      send({ SetHostNotice: { key: isErr ? "core.error.generic" : "web.host.value.changed", args: isErr ? [after.notice!.text] : [], source: "host-web" } });
     });
   });
   openSheet("kind");
@@ -1367,7 +1367,7 @@ function installTreeGestures() {
   treePane.addEventListener("click", (e) => {
     if ((e.target as HTMLElement).closest(".row")) return;
     if (snap?.rows.some((r) => r.selected)) send({ SetSelection: { paths: [] } });
-    if (snap?.error) statusEl.textContent = snap.status ?? t("web.status.ready");
+    if (snap?.notice?.severity === "error") statusEl.textContent = (session ? schemaHintText(session.schemaHint(snap.cursor)) : "") || t("web.status.ready");
   });
 }
 
@@ -1400,7 +1400,8 @@ function handleTap(target: HTMLElement, row: HTMLElement, clientY: number) {
       send({ SetCursor: path });
       send({ SetSelection: { paths: [path] } });
       const after = sendR("DeleteSelected");
-      send({ SetHostNotice: { key: after.error ? "core.delete.error" : "web.host.delete.ok", args: after.error ? [after.error] : [], source: "host-web" } });
+      const isErr = after.notice?.severity === "error";
+      send({ SetHostNotice: { key: isErr ? "core.delete.error" : "web.host.delete.ok", args: isErr ? [after.notice!.text] : [], source: "host-web" } });
       return;
     }
     if (act === "caret") {

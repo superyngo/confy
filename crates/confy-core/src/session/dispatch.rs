@@ -365,15 +365,6 @@ impl super::Session {
     /// The full renderable state, on demand (no mutation). The Web UI pulls this
     /// after each `dispatch`, or to resync.
     pub fn snapshot(&self) -> SessionSnapshot {
-        // Dual-write bridge (spec §10, §11 Q6): legacy `status`/`error`
-        // snapshot fields are computed from the single `notice` slot until
-        // Task 6 moves them into view.rs. Mapping pinned: Error → error,
-        // Info/Success/Warn → status, None → both None.
-        let (status, error) = match &self.notice {
-            Some(n) if n.severity == Severity::Error => (None, Some(n.text.clone())),
-            Some(n) => (Some(n.text.clone()), None),
-            None => (None, None),
-        };
         SessionSnapshot {
             doc_format: self.doc_format(),
             is_dirty: self.is_dirty(),
@@ -381,8 +372,6 @@ impl super::Session {
             rows: self.visible_rows(),
             cursor: self.cursor.clone(),
             notice: self.notice.clone(),
-            status,
-            error,
             detail_text: self.detail_text.clone(),
             external_edit: self.external_edit_view(),
             schema_status: self.schema.as_ref().map(|s| s.status()),

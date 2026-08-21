@@ -379,21 +379,19 @@ function render() {
   if (TAURI_DESKTOP) {
     setWindowTitle(fileName ?? "confy", snap.doc_format, snap.is_dirty);
   }
-  // Idle schema hint — mirrors the TUI status line's dynamic behavior
-  // (tooltip-like: appears while the cursor sits on a schema-constrained
-  // node, clears the instant it moves off). Only surfaces when nothing more
-  // important is showing — an explicit status/error message always wins.
-  let statusText = snap.status;
-  if (!statusText && !snap.error) {
-    const hint = schemaHintText(session.schemaHint(snap.cursor));
-    if (hint) statusText = hint;
-  }
-  setStatus(statusText, snap.error ?? "");
-  if (snap.schema_status && snap.schema_status.violation_count > 0 && !snap.error) {
-    setStatus(`${statusText ?? ""} · ${snap.schema_status.violation_count} schema warnings`.trim(), "");
-  }
-  // New notice system (Task 12: message-system-integration, Phase 3 dual-write)
+  // Render notice (severity-driven)
   renderNotice(snap.notice);
+  if (!snap.notice) {
+    // Idle schema hint — mirrors the TUI status line's dynamic behavior
+    // (tooltip-like: appears while the cursor sits on a schema-constrained
+    // node, clears the instant it moves off). Only surfaces when no notice
+    // is showing.
+    let statusText = schemaHintText(session.schemaHint(snap.cursor));
+    if (snap.schema_status && snap.schema_status.violation_count > 0) {
+      statusText = `${statusText} · ${snap.schema_status.violation_count} schema warnings`.trim();
+    }
+    statusEl.textContent = statusText;
+  }
 
   // Active type-filter indicator on the funnel button (same `.on` + dot
   // mechanism as the touch UI, driven by the shared snapshot flag).
@@ -509,7 +507,7 @@ function renderDetailPanel() {
 }
 
 // `send` variant for the shared panel: dispatch, re-render, and return the new
-// snapshot so `wirePanel` can read `snapshot.error`. The global `send` returns
+// snapshot so `wirePanel` can read `snapshot.notice`. The global `send` returns
 // void (other call sites depend on that), so this is a thin local adapter.
 function panelSend(i: Intent): SessionSnapshot {
   snap = session!.dispatch(i);
@@ -746,7 +744,7 @@ function send(i: Intent) {
   // `Selection` survived cursor-only arrow-key movement with no such
   // compensator (TUI has none either, which is why this stays desktop-only,
   // client-side, and untouched at the core/`do_paste` level).
-  if (preClip > 0 && !(snap.clipboard_count ?? 0) && !snap.error && snap.mode === "Normal") {
+  if (preClip > 0 && !(snap.clipboard_count ?? 0) && snap.notice?.severity !== "error" && snap.mode === "Normal") {
     const parent = snap.cursor.slice(0, -1);
     const siblings = session.children(parent).map((c) => c.path);
     const idx = siblings.findIndex((p) => JSON.stringify(p) === JSON.stringify(snap!.cursor));
@@ -1157,7 +1155,10 @@ function onTreeClick(ev: MouseEvent) {
     // Click on empty tree space (including the wrap's blank area below the
     // last row) clears the multi-select (cursor stays put) and any error banner.
     if (snap.rows.some((r) => r.selected)) send({ SetSelection: { paths: [] } });
-    if (snap.error) setStatus(snap.status, "");
+    if (snap.notice?.severity === "error") {
+      errorEl.textContent = "";
+      errorEl.classList.add("hidden");
+    }
     return;
   }
   const raw = rowEl.dataset.path;

@@ -14,8 +14,8 @@
 //   · A structured "Sign" field exposes `key_sign`.
 //   · The Delete and Duplicate buttons — rendered-but-dead in the old touch
 //     `wireDetail` — are actually wired here.
-//   · Every `send(...)` result is inspected for `SessionSnapshot.error`; a
-//     non-empty error is surfaced via `onError` (no more silent failures).
+//   · Every `send(...)` result is inspected for `SessionSnapshot.notice` (Error severity);
+//     a non-empty error is surfaced via `onError` (no more silent failures).
 import type { ViewRow, Intent, SessionSnapshot, Path, EditHint } from "./types";
 import { escapeHtml as esc } from "./escape.js";
 import { isCommentRow, isPositional, notationGlyph, valueHue } from "./kind-labels.js";
@@ -161,7 +161,7 @@ export function panelHTML(
 }
 
 // Wire the rendered panel's controls to intents.
-//  - send(intent): dispatches and returns the new snapshot (we read its error).
+//  - send(intent): dispatches and returns the new snapshot (we read its notice).
 //  - openKind(row): host opens its kind-switch surface (sheet / popover).
 //  - onError(msg): host shows a message (toast/status) when a send errors.
 //  - afterMutation(msg): host confirms + dismisses the panel after a successful
@@ -184,7 +184,7 @@ export function wirePanel(
   // Dispatch and surface any error the snapshot reports (no silent failures).
   const fire = (intent: Intent): void => {
     const snap = send(intent);
-    if (snap && snap.error) onError(snap.error);
+    if (snap?.notice?.severity === "error") onError(snap.notice.text);
   };
 
   // Commit on change (blur / Enter→blur); Esc cancels — restoring the value to
@@ -320,7 +320,7 @@ export function wirePanel(
       fire({ SetSelection: { paths: [path] } });
       out = send(intent);
     });
-    if (out?.error) onError(out.error);
+    if (out?.notice?.severity === "error") onError(out.notice.text);
     else afterMutation?.(okMsg);
   };
   if (del) del.addEventListener("click", () => act("DeleteSelected", "Deleted"));

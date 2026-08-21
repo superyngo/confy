@@ -223,13 +223,7 @@ pub struct SessionSnapshot {
     pub rows: Vec<ViewRow>,
     pub cursor: Path,
     /// The single user-facing transient message slot (design spec §2/§10).
-    /// `status`/`error` are the legacy dual-write projection of this field.
     pub notice: Option<Notice>,
-    /// Legacy dual-write projection of `notice` (spec §10/§11 Q6): Error →
-    /// `error`, Info/Success/Warn → `status`, no notice → both `None`.
-    /// Computed at snapshot-build time in `Session::snapshot`.
-    pub status: Option<String>,
-    pub error: Option<String>,
     pub detail_text: Option<String>,
     /// Set when the core needs the host's async editor (§8.2).
     pub external_edit: Option<ExternalEdit>,

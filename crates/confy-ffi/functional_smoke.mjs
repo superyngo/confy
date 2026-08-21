@@ -92,7 +92,7 @@ check("external initial contains hello", ext.initial.includes("hello"), ext.init
 // Host edits asynchronously, returns edited text via ApplyReplace.
 const edited = 'notes = """\nWORLD\n"""\n';
 snap2 = s2.dispatch(tuple("ApplyReplace", { path: extPath, text: edited }));
-check("apply succeeds (no error)", isNull(snap2.error), snap2.error);
+check("apply succeeds (no error)", isNull(snap2.notice) || snap2.notice.severity !== "error", JSON.stringify(snap2.notice));
 check("pending cleared", isNull(snap2.external_edit));
 const out = s2.serialize();
 check("doc reflects WORLD", out.includes("WORLD"), out);
@@ -204,14 +204,14 @@ const s10 = new ConfySession("a = 1\n[t]\nx = 2\n", "toml");
 const aPath = s10.snapshot().rows.find(r => r.key === "a").path;
 const tPath = s10.snapshot().rows.find(r => r.key === "t").path;
 const snap10 = s10.dispatch({ MoveSelectionTo: { sources: [aPath], target: tPath, index: 0 } });
-check("MoveSelectionTo succeeds (no error)", isNull(snap10.error), String(snap10.error));
+check("MoveSelectionTo succeeds (no error)", isNull(snap10.notice) || snap10.notice.severity !== "error", JSON.stringify(snap10.notice));
 check("MoveSelectionTo reparents a under [t]", s10.serialize().indexOf("a = 1") > s10.serialize().indexOf("[t]"), s10.serialize());
 // Drop into own subtree is rejected, document untouched.
 const s11 = new ConfySession("[t]\nx = 2\n", "toml");
 const before11 = s11.serialize();
 const tP = s11.snapshot().rows.find(r => r.key === "t").path;
 const snap11 = s11.dispatch({ MoveSelectionTo: { sources: [tP], target: [...tP, { Key: "x" }], index: 0 } });
-check("MoveSelectionTo rejects self-subtree drop", !isNull(snap11.error));
+check("MoveSelectionTo rejects self-subtree drop", !isNull(snap11.notice) && snap11.notice.severity === "warn");
 check("MoveSelectionTo leaves doc untouched on reject", s11.serialize() === before11);
 
 // ---- 17. SetFilter: pointer live-search (Web UI, Phase 4) ----
@@ -315,12 +315,12 @@ const s19 = new ConfySession(`a = 1\n`, "toml");
 s19.dispatch(unit("CursorDown"));
 s19.dispatch(tuple("Nudge", 1));
 const savedEn = s19.dispatch(unit("Save"));
-check("Save reports English status by default", savedEn.status === "Saved", savedEn.status);
+check("Save reports English status by default", savedEn.notice?.text === "Saved", savedEn.notice?.text);
 s19.dispatch(tuple("Nudge", 1));
 const snap19 = s19.dispatch(tuple("SetLang", "zh-TW"));
 check("SetLang reports lang=zh-TW", snap19.lang === "zh-TW", snap19.lang);
 const savedZh = s19.dispatch(unit("Save"));
-check("Save after SetLang no longer says English 'Saved'", savedZh.status !== "Saved", savedZh.status);
+check("Save after SetLang no longer says English 'Saved'", savedZh.notice?.text !== "Saved", savedZh.notice?.text);
 const snap19b = s19.dispatch(tuple("SetLang", "not-a-lang"));
 check("SetLang ignores an unknown code", snap19b.lang === "zh-TW", snap19b.lang);
 
@@ -346,7 +346,7 @@ check("about_text() mentions the GitHub repo", aboutText.includes("github.com/su
   check("RevealPath no-ops on an unknown path", snb.rows.find((r) => r.is_cursor).key === "x");
   sb.dispatch(tuple("SetFilter", "port"));
   snb = sb.dispatch(tuple("RevealPath", [{ Key: "a" }, { Key: "b" }, { Key: "x" }]));
-  check("RevealPath hidden-by-filter reports on status", typeof snb.status === "string" && snb.status.length > 0, snb.status);
+  check("RevealPath hidden-by-filter reports on status", typeof snb.notice?.text === "string" && snb.notice.text.length > 0, snb.notice?.text);
   sb.free();
 }
 

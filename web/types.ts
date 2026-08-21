@@ -194,8 +194,6 @@ export interface SessionSnapshot {
   rows: ViewRow[];
   cursor: Path;
   // serde `Option`s arrive as `undefined` (serde-wasm-bindgen), never `null`.
-  status: string | undefined;
-  error: string | undefined;
   notice: Notice | undefined;
   detail_text: string | undefined;
   external_edit: ExternalEdit | undefined;

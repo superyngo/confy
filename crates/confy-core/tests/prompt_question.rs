@@ -30,10 +30,9 @@ fn prompt_question_renders_from_kind_not_status() {
         ModeView::Prompt { kind, ref question } => {
             assert!(matches!(kind, PromptView::Collision), "kind was {kind:?}");
             assert!(question.contains("port"), "question was {question:?}");
-            // Dual-write bridge: `status`/`error` may carry the preceding
-            // clipboard notice, but never the prompt question text (Task 6
-            // moves the bridge; the invariant holds either way).
-            for slot in [snap.status.as_deref(), snap.error.as_deref()] {
+            // `status_text()`/`error_text()` may carry the preceding
+            // clipboard notice, but never the prompt question text.
+            for slot in [snap.status_text(), snap.error_text()] {
                 if let Some(text) = slot {
                     assert_ne!(text, question.as_str());
                 }

@@ -617,7 +617,7 @@ fn dispatch_set_trailing_comment_marks_raw_text() {
         path: a,
         comment: Some("hello".into()),
     });
-    assert!(snap.error_text().is_none(), "no error: {:?}", snap.error);
+    assert!(snap.error_text().is_none(), "no error: {:?}", snap.error_text());
     assert_eq!(s.serialize().unwrap(), "a = 1  # hello\n");
 
     // Already-marked text is left as-is (no double "# #").
@@ -647,7 +647,7 @@ fn dispatch_set_trailing_comment_json_and_yaml() {
         path: a,
         comment: Some("note".into()),
     });
-    assert!(snap.error_text().is_none(), "json no error: {:?}", snap.error);
+    assert!(snap.error_text().is_none(), "json no error: {:?}", snap.error_text());
     assert!(
         s.serialize().unwrap().contains("// note"),
         "json: {}",
@@ -661,7 +661,7 @@ fn dispatch_set_trailing_comment_json_and_yaml() {
         path: a,
         comment: Some("note".into()),
     });
-    assert!(snap.error_text().is_none(), "yaml no error: {:?}", snap.error);
+    assert!(snap.error_text().is_none(), "yaml no error: {:?}", snap.error_text());
     assert_eq!(s.serialize().unwrap(), "a: 1  # note\n");
 }
 

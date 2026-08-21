@@ -130,3 +130,16 @@ fn dispatch_and_mutation_diag_taps_fire() {
         "failure mutation tap missing"
     );
 }
+
+#[test]
+fn session_snapshot_has_no_legacy_status_error_fields() {
+    let src = std::fs::read_to_string("src/session/view.rs").unwrap();
+    assert!(
+        !src.contains("pub status: Option<String>"),
+        "SessionSnapshot still has legacy 'status' field"
+    );
+    assert!(
+        !src.contains("pub error: Option<String>"),
+        "SessionSnapshot still has legacy 'error' field"
+    );
+}
