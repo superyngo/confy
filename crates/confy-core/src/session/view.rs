@@ -94,6 +94,10 @@ pub enum ModeView {
     Normal,
     Prompt {
         kind: PromptView,
+        /// The localized question text, rendered core-side from `PromptKind`
+        /// + `Session::lang` per snapshot (`core.prompt.*` keys) so every
+        /// host renders identical prose.
+        question: String,
     },
     /// Typing a `/` filter query.
     Filter {
@@ -130,7 +134,8 @@ pub enum ModeView {
     Edit(EditView),
 }
 
-/// Which yes/no prompt is open (the prompt's text lives in `snapshot.status`).
+/// Which yes/no prompt is open (the question text lives in
+/// `ModeView::Prompt.question`).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum PromptView {
     ConfirmQuit,

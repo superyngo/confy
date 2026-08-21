@@ -17,6 +17,7 @@
 
 use crate::model::document::ConfigDocument;
 use crate::model::node::NodeKind;
+use crate::session::i18n::{tr_args, Lang};
 use crate::session::intent::Intent;
 use crate::session::notice::{Notice, Severity};
 use crate::session::state::{EditKind, KindSwitchState, Mode, PendingExternalEdit, PromptKind};
@@ -401,6 +402,7 @@ impl super::Session {
             Mode::Normal => ModeView::Normal,
             Mode::Prompt(pk) => ModeView::Prompt {
                 kind: prompt_view(pk),
+                question: prompt_question(self.lang, pk),
             },
             Mode::Filter => ModeView::Filter {
                 text: self.filter.clone(),
@@ -520,5 +522,20 @@ fn prompt_view(pk: &PromptKind) -> PromptView {
         PromptKind::TypeChange { .. } => PromptView::TypeChange,
         PromptKind::ArrayUpgrade { .. } => PromptView::ArrayUpgrade,
         PromptKind::JsoncUpgrade { .. } => PromptView::JsoncUpgrade,
+    }
+}
+
+/// The prompt's question text, rendered per-snapshot from `PromptKind` +
+/// `Session::lang` (`core.prompt.*` catalog keys) so both hosts show
+/// identical prose. The y/n or o/r/c key legend stays host-side (Task 8).
+fn prompt_question(lang: Lang, pk: &PromptKind) -> String {
+    match pk {
+        PromptKind::Collision { key } => tr_args(lang, "core.prompt.collision", &[key]),
+        PromptKind::ConfirmQuit => tr_args(lang, "core.prompt.confirm-quit", &[]),
+        PromptKind::TypeChange { from, to } => {
+            tr_args(lang, "core.prompt.type-change", &[from, to])
+        }
+        PromptKind::ArrayUpgrade { .. } => tr_args(lang, "core.prompt.array-upgrade", &[]),
+        PromptKind::JsoncUpgrade { .. } => tr_args(lang, "core.prompt.jsonc-upgrade", &[]),
     }
 }
