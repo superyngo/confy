@@ -32,6 +32,25 @@ function utf8ByteLength(codePoint: number): number {
   return 4;
 }
 
+/** Inverse of `utf8ByteOffsetToUtf16Offset`: walk `text` once, converting a
+ * UTF-16 code-unit offset (e.g. `document.offsetAt(position)`) into the
+ * UTF-8 byte offset comparable against `OutlineNode.text_range`/
+ * `ViolationView.text_range` — used by the hover provider's cursor→Path
+ * lookup (`outlineHitTest.ts`). */
+export function utf16OffsetToUtf8ByteOffset(text: string, utf16Offset: number): number {
+  let units = 0;
+  let bytes = 0;
+  for (let i = 0; i < text.length && units < utf16Offset; ) {
+    const code = text.codePointAt(i)!;
+    const len = utf8ByteLength(code);
+    const width = code > 0xffff ? 2 : 1; // surrogate pair consumes two UTF-16 units
+    bytes += len;
+    units += width;
+    i += width;
+  }
+  return bytes;
+}
+
 export function byteOffsetsToRange(
   document: vscode.TextDocument,
   startByte: number,
