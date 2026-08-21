@@ -159,3 +159,151 @@ If any of those lines is missing or followed by `FAILED:`, the error message wil
 - wasm file size: 2,803,110 bytes
 - Build system: esbuild CJS bundle, `external: ["vscode"]` only, `confy_ffi.js` is inlined
 - The `import.meta.url` → `import_meta.url` (empty object) esbuild substitution is benign because the `module_or_path === undefined` branch that uses it is never taken when bytes are passed
+
+---
+
+## Research: Can the Agent Directly Control VS Code?
+
+Short answer: **partially, but not full GUI automation of VS Code itself**.
+
+### What the coding agent can already do in this environment
+
+1. Edit source files and run build/test commands in terminal.
+2. Use VS Code language-service style operations (e.g. diagnostics/symbol-aware operations via tooling integration).
+3. Run repeatable scripts/tests and report exact output.
+
+### What it cannot directly do here
+
+1. Click VS Code UI controls (Outline panel, breadcrumb bar, Command Palette) directly.
+2. Interact with VS Code desktop chrome like a human tester without a dedicated VS Code automation harness.
+
+### Practical way to achieve "direct VS Code control" for debugging
+
+Use **VS Code extension integration tests** (`@vscode/test-electron`) so the agent can drive a real Extension Host process programmatically.
+
+This gives scriptable control of the exact native-editor APIs we care about:
+
+1. `vscode.workspace.openTextDocument`
+2. `vscode.window.showTextDocument`
+3. `vscode.commands.executeCommand("vscode.executeDocumentSymbolProvider", uri)`
+4. Diagnostic assertions via `vscode.languages.getDiagnostics(uri)`
+5. Hover assertions via `vscode.executeHoverProvider`
+
+In other words: not mouse-click automation, but **API-level native VS Code runtime automation**, which is the right level for this regression.
+
+---
+
+## Recommended Debugging Upgrade (Actionable)
+
+### A. Add a small extension-host integration test target
+
+In `editors/vscode`, add a test runner based on `@vscode/test-electron` that:
+
+1. Opens fixture `tasks.toml` with `#:schema ./tasks.schema.json`
+2. Waits for extension activation
+3. Asserts `DocumentSymbolProvider` returns non-empty symbols
+4. Asserts diagnostics include expected schema warnings
+5. Asserts hover on a key returns `Allowed values` or bounded hint text
+
+### B. Keep runtime logs visible (temporary)
+
+Keep the temporary `[confy]` logging in `loadConfySession()` while investigating:
+
+1. wasm absolute path
+2. bytes length
+3. init success/failure
+
+### C. Prefer extension-host logs over silent fallback during debug
+
+Current providers intentionally degrade silently (`[]` / `undefined`). During debug, also emit `console.error` before fallback return so failures are observable.
+
+---
+
+## Notes on Log Surfaces
+
+For installed extensions, also check:
+
+1. **Output panel** → `Log (Extension Host)`
+2. **Developer Tools Console** (still useful, but not the only channel)
+
+This avoids a false negative where no custom output channel named `confy` exists but errors were still written to extension-host logs.
+
+---
+
+## 2026-08-21 Follow-up: API-level Reproduction Result
+
+A new extension-host integration harness (`@vscode/test-electron`) was added and run against this workspace. It reproduces the native-editor regression programmatically (no manual GUI clicking required).
+
+### Reproduced failure
+
+`vscode.executeDocumentSymbolProvider` returns no symbols, and runtime logs now reveal concrete errors:
+
+1. `openDoc failed Error: serde error: unknown variant DetectSchema ...`
+2. `outline provider failed TypeError: session.outline is not a function`
+
+### Interpretation
+
+This is no longer a "silent failure" mystery. The extension host successfully loads wasm, but the loaded wasm API does not match the TypeScript caller expectations:
+
+1. TS calls `dispatch("DetectSchema")`, but wasm's `Intent` enum in that artifact does not contain `DetectSchema`.
+2. TS expects `session.outline()` to exist, but the loaded `ConfySession` object does not provide it.
+
+### Most likely root cause
+
+**Stale/incorrect `media/pkg` artifact drift** (extension bundle copied an older `web/dist/pkg` output), not VS Code API registration failure.
+
+Observed in this run:
+
+1. wasm loaded from `editors/vscode/media/pkg/confy_ffi_bg.wasm`
+2. wasm size logged as `1,015,212` bytes (much smaller than the previously verified `~2,803,110` bytes in the original handoff)
+
+### Next verification steps
+
+1. Rebuild `crates/confy-ffi` wasm artifact.
+2. Rebuild `web/dist` (ensuring fresh `pkg/*`).
+3. Re-run `editors/vscode/node build.mjs` to restage `media/`.
+4. Re-run integration harness and confirm:
+  - symbols are non-empty,
+  - diagnostics appear,
+  - hover contains allowed-values/bounds hint.
+
+---
+
+## 2026-08-21 Final Resolution
+
+The regression was fixed in two steps, both required:
+
+1. **Artifact freshness fix**
+  - `web/build.mjs` now assembles a fresh `web/dist` every build (including `dist/pkg/*`).
+  - This prevents `editors/vscode/build.mjs` from copying stale `media/pkg` artifacts.
+
+2. **Cleaner extension-host wasm loader fix**
+  - `editors/vscode/src/wasmSession.ts` was changed to dynamically load
+    `media/pkg/confy_ffi.js` via an absolute file URL (`pathToFileURL(...)`).
+  - This avoids CJS-bundle static capture of the wasm ESM glue and removes the
+    build-time `import.meta` warning while preserving runtime behavior.
+
+### Why this second fix matters
+
+After artifact freshness was fixed, integration tests still failed with:
+
+- `LinkError: WebAssembly.instantiate(): Import #4 "./confy_ffi_bg.js" ... requires a callable`
+
+That error came from bundling boundary mismatch (CJS host vs ESM wasm glue), not schema logic.
+Runtime dynamic import by file URL resolves the module in Node/Electron exactly as ESM, so its
+generated import map is intact.
+
+### Final verification evidence
+
+Executed locally in `editors/vscode`:
+
+1. `npm run build`
+  - Result: success, **no `import.meta` warning**.
+2. `npm run integration-test`
+  - Result: success (exit code `0`).
+  - Extension-host logs show:
+    - `[confy-vscode] wasm bytes: 2799135`
+    - `[confy-vscode] wasm initialized`
+
+This confirms native-editor symbol/diagnostic/hover pipelines are no longer blocked by the
+wasm loader path.

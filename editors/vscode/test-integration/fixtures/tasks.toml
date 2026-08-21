@@ -1,0 +1,5 @@
+#:schema ./tasks.schema.json
+task = "deploy"
+
+[meta]
+owner = "alice"

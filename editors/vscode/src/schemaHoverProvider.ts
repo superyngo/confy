@@ -45,7 +45,8 @@ export class ConfySchemaHoverProvider implements vscode.HoverProvider {
       if (!hint) return undefined;
       const text = renderEditHint(hint);
       return text ? new vscode.Hover(new vscode.MarkdownString(text)) : undefined;
-    } catch {
+    } catch (error) {
+      console.error("[confy-vscode] schema hover failed", error);
       // Never throw into VS Code's UI (ConfyOutlineProvider convention).
       return undefined;
     }

@@ -191,7 +191,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     diagnostics,
     vscode.languages.registerHoverProvider(SCHEMA_SELECTOR, new ConfySchemaHoverProvider(getManager)),
-    vscode.workspace.onDidOpenTextDocument(openDoc),
+    vscode.workspace.onDidOpenTextDocument((document) => {
+      void openDoc(document).catch((error) => {
+        console.error("[confy-vscode] openDoc failed", error);
+      });
+    }),
     vscode.workspace.onDidChangeTextDocument((e) => {
       if (SCHEMA_SELECTOR.some((s) => vscode.languages.match(s, e.document) > 0)) scheduleReparse(e.document);
     }),
@@ -211,7 +215,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // outline provider needs no equivalent (it's request-driven, not
   // event-driven).
   for (const document of vscode.workspace.textDocuments) {
-    if (SCHEMA_SELECTOR.some((s) => vscode.languages.match(s, document) > 0)) void openDoc(document);
+    if (SCHEMA_SELECTOR.some((s) => vscode.languages.match(s, document) > 0)) {
+      void openDoc(document).catch((error) => {
+        console.error("[confy-vscode] initial openDoc failed", error);
+      });
+    }
   }
 
   async function setLang(lang: "en" | "zh-TW"): Promise<void> {

@@ -11,12 +11,20 @@
     "url": "https://github.com/superyngo/confy.git",
     "directory": "editors/vscode"
   },
-  "bugs": { "url": "https://github.com/superyngo/confy/issues" },
+  "bugs": {
+    "url": "https://github.com/superyngo/confy/issues"
+  },
   "homepage": "https://github.com/superyngo/confy/tree/main/editors/vscode#readme",
   "icon": "icon.png",
-  "engines": { "vscode": "^1.85.0" },
-  "activationEvents": ["onStartupFinished"],
-  "categories": ["Other"],
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "categories": [
+    "Other"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "customEditors": [
@@ -25,30 +33,82 @@
         "displayName": "confy",
         "priority": "option",
         "selector": [
-          { "filenamePattern": "*.toml" },
-          { "filenamePattern": "*.json" },
-          { "filenamePattern": "*.jsonc" },
-          { "filenamePattern": "*.yaml" },
-          { "filenamePattern": "*.yml" }
+          {
+            "filenamePattern": "*.toml"
+          },
+          {
+            "filenamePattern": "*.json"
+          },
+          {
+            "filenamePattern": "*.jsonc"
+          },
+          {
+            "filenamePattern": "*.yaml"
+          },
+          {
+            "filenamePattern": "*.yml"
+          }
         ]
       }
     ],
     "commands": [
-      { "command": "confy.openTextBeside", "title": "confy: Open Text Editor to the Side", "icon": "$(split-horizontal)" },
-      { "command": "confy.openWithConfy", "title": "Open with confy", "icon": "$(list-tree)" },
-      { "command": "confy.reopenAsText", "title": "confy: Reopen as Text Editor", "icon": "$(go-to-file)" },
-      { "command": "confy.saveAsConvert", "title": "confy: Save As / Convert…" },
-      { "command": "confy.help", "title": "confy: Help" },
-      { "command": "confy.about", "title": "confy: About" },
-      { "command": "confy.langEnglish", "title": "English" },
-      { "command": "confy.langZhTw", "title": "繁體中文" },
-      { "command": "confy.themeAuto", "title": "Auto (Follow VS Code)" },
-      { "command": "confy.themeLight", "title": "Light" },
-      { "command": "confy.themeDark", "title": "Dark" }
+      {
+        "command": "confy.openTextBeside",
+        "title": "confy: Open Text Editor to the Side",
+        "icon": "$(split-horizontal)"
+      },
+      {
+        "command": "confy.openWithConfy",
+        "title": "Open with confy",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "confy.reopenAsText",
+        "title": "confy: Reopen as Text Editor",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "confy.saveAsConvert",
+        "title": "confy: Save As / Convert…"
+      },
+      {
+        "command": "confy.help",
+        "title": "confy: Help"
+      },
+      {
+        "command": "confy.about",
+        "title": "confy: About"
+      },
+      {
+        "command": "confy.langEnglish",
+        "title": "English"
+      },
+      {
+        "command": "confy.langZhTw",
+        "title": "繁體中文"
+      },
+      {
+        "command": "confy.themeAuto",
+        "title": "Auto (Follow VS Code)"
+      },
+      {
+        "command": "confy.themeLight",
+        "title": "Light"
+      },
+      {
+        "command": "confy.themeDark",
+        "title": "Dark"
+      }
     ],
     "submenus": [
-      { "id": "confy.language", "label": "confy: Language / 語言" },
-      { "id": "confy.theme", "label": "confy: Theme" }
+      {
+        "id": "confy.language",
+        "label": "confy: Language / 語言"
+      },
+      {
+        "id": "confy.theme",
+        "label": "confy: Theme"
+      }
     ],
     "menus": {
       "editor/title": [
@@ -94,20 +154,50 @@
         }
       ],
       "confy.language": [
-        { "command": "confy.langEnglish", "group": "1_lang@1" },
-        { "command": "confy.langZhTw", "group": "1_lang@2" }
+        {
+          "command": "confy.langEnglish",
+          "group": "1_lang@1"
+        },
+        {
+          "command": "confy.langZhTw",
+          "group": "1_lang@2"
+        }
       ],
       "confy.theme": [
-        { "command": "confy.themeAuto", "group": "1_theme@1" },
-        { "command": "confy.themeLight", "group": "1_theme@2" },
-        { "command": "confy.themeDark", "group": "1_theme@3" }
+        {
+          "command": "confy.themeAuto",
+          "group": "1_theme@1"
+        },
+        {
+          "command": "confy.themeLight",
+          "group": "1_theme@2"
+        },
+        {
+          "command": "confy.themeDark",
+          "group": "1_theme@3"
+        }
       ],
       "commandPalette": [
-        { "command": "confy.langEnglish", "when": "false" },
-        { "command": "confy.langZhTw", "when": "false" },
-        { "command": "confy.themeAuto", "when": "false" },
-        { "command": "confy.themeLight", "when": "false" },
-        { "command": "confy.themeDark", "when": "false" }
+        {
+          "command": "confy.langEnglish",
+          "when": "false"
+        },
+        {
+          "command": "confy.langZhTw",
+          "when": "false"
+        },
+        {
+          "command": "confy.themeAuto",
+          "when": "false"
+        },
+        {
+          "command": "confy.themeLight",
+          "when": "false"
+        },
+        {
+          "command": "confy.themeDark",
+          "when": "false"
+        }
       ]
     },
     "keybindings": [
@@ -122,11 +212,13 @@
   "scripts": {
     "build": "node build.mjs",
     "check": "tsc --noEmit",
+    "integration-test": "node ./test-integration/runTest.mjs",
     "package": "vsce package --allow-missing-repository"
   },
   "devDependencies": {
     "@types/node": "^20",
     "@types/vscode": "^1.85.0",
+    "@vscode/test-electron": "^3.1.0",
     "@vscode/vsce": "^3.0.0",
     "esbuild": "^0.25.0",
     "typescript": "^5.6.0"

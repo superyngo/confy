@@ -54,7 +54,8 @@ export class ConfyOutlineProvider implements vscode.DocumentSymbolProvider {
       const outline = session.outline();
       if (token.isCancellationRequested) return [];
       return outline.map((n) => toDocumentSymbol(n, document));
-    } catch {
+    } catch (error) {
+      console.error("[confy-vscode] outline provider failed", error);
       // Never throw into VS Code's UI — an empty Outline is an acceptable
       // degraded state for a read-only convenience feature (e.g. mid-edit
       // invalid document, or wasm init failure).

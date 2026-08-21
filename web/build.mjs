@@ -31,4 +31,9 @@ await esbuild.build({ ...esbuildOpts, entryPoints: ["ui.ts"], outfile: "ui.js" }
 // Dedicated touch UI bundle (see WEBUI.md § Touch UI).
 await esbuild.build({ ...esbuildOpts, entryPoints: ["touch/app.ts"], outfile: "touch/app.js" });
 
-console.log("built: ui.js + touch/app.js + pkg/");
+// The VS Code extension consumes web/dist verbatim. Rebuild the runtime-only
+// dist bundle from the fresh pkg/ output so the extension copies the current
+// wasm/JS artifacts instead of an accidentally stale previous build.
+await import(new URL("./assemble-dist.mjs", import.meta.url).href);
+
+console.log("built: ui.js + touch/app.js + pkg/ + dist/");
