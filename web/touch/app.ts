@@ -1392,6 +1392,7 @@ function handleTap(target: HTMLElement, row: HTMLElement, clientY: number) {
     // Revealed Delete (swipe-to-delete): remove this row, then re-render closes it.
     if (act === "rowdel") {
       if ((snap?.clipboard_count ?? 0) > 0) {
+        send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
         return;
       }
       openSwipeMain = null;
@@ -1444,6 +1445,7 @@ function handleTap(target: HTMLElement, row: HTMLElement, clientY: number) {
 function addContextual() {
   if (!snap) return;
   if ((snap.clipboard_count ?? 0) > 0) {
+    send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
     return;
   }
   const idx = snap.rows.findIndex((r) => r.is_cursor);
@@ -1546,6 +1548,7 @@ function installShellHandlers() {
           send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
           return;
         }
+        openOpenSheet();
         break;
       case "add":
         // Paste-armed (after Copy/Cut) → the FAB pastes at the cursor; otherwise
@@ -1558,12 +1561,14 @@ function installShellHandlers() {
           send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
           return;
         }
+        cycleSampleFormat(openSample); // no-op unless in sample mode
         break;
       case "save":
         if ((snap?.clipboard_count ?? 0) > 0) {
           send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
           return;
         }
+        openSaveSheet();
         break;
       case "undo":
         if ((snap?.clipboard_count ?? 0) > 0) {
@@ -1587,6 +1592,7 @@ function installShellHandlers() {
           send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
           return;
         }
+        openLangSheet();
         break;
       case "info":
         if ((snap?.clipboard_count ?? 0) > 0) {
@@ -1625,6 +1631,7 @@ function installShellHandlers() {
           send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
           return;
         }
+        setRawView(!rawView);
         break;
       case "searchclear":
         if ((snap?.clipboard_count ?? 0) > 0) {
@@ -1642,6 +1649,7 @@ function installShellHandlers() {
   searchInput.addEventListener("input", () => {
     if ((snap?.clipboard_count ?? 0) > 0) {
       searchInput.value = "";
+      send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
       return;
     }
     searchInput.parentElement!.classList.toggle("has-val", !!searchInput.value);
