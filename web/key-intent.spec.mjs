@@ -43,7 +43,7 @@ const { resolveKeyIntent, navRowCount } = await import(modUrl);
 
 // ---- fixtures (types.ts:34-132) ----
 const editMode = { Edit: { field: "Value", buffer: "x", cursor: 1, key: "", is_element: false, is_comment: false, rename_only: false } };
-const promptMode = { Prompt: { kind: "ConfirmQuit" } };
+const promptMode = { Prompt: { kind: "ConfirmQuit", question: "" } };
 const convertFormat = { Convert: { step: "Format", cursor: 0, options: ["Toml"], target: "Toml", path: "", path_cursor: 0, warnings: [] } };
 const convertPath = { Convert: { step: "Path", cursor: 0, options: ["Toml"], target: "Toml", path: "out", path_cursor: 3, warnings: [] } };
 const convertConfirm = { Convert: { step: "Confirm", cursor: 0, options: ["Toml"], target: "Toml", path: "out.toml", path_cursor: 8, warnings: [] } };

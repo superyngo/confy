@@ -475,7 +475,7 @@ function render() {
   else if (sheets.convert.classList.contains("open")) closeSheets();
   // Confirmation prompt (type change, paste collision, quit, …) → button sheet.
   // Without this, a `Mode::Prompt` would soft-lock the touch UI (no keyboard).
-  if (tag === "Prompt") renderPromptSheet((snap.mode as { Prompt: { kind: PromptView } }).Prompt.kind);
+  if (tag === "Prompt") renderPromptSheet((snap.mode as { Prompt: { kind: PromptView; question: string } }).Prompt.kind);
   else sheets.prompt.classList.remove("open");
   // Schema-constrained enum/const picker (Mode::SchemaEnum): core enters this
   // mode via begin_inline_edit when an enum field is tapped; render the bottom

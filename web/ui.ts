@@ -61,12 +61,15 @@ import {
 } from "./convert-dialog.js";
 import type {
   ConvertView,
+  EditField,
   ExternalEdit,
   Intent,
   ModeView,
-  Path,
+  Notice,
   PasteSlot,
+  Path,
   PromptView,
+  SchemaSource,
   SessionSnapshot,
   TypeFilterView,
   ViewRow,
@@ -99,6 +102,7 @@ const overlayScrim = $("overlayScrim");
 let rawView = false;
 const statusEl = $("status");
 const errorEl = $("error");
+const toastEl = $("toast");
 const fmtPill = $("fmtPill");
 const crumbsEl = $("crumbs");
 wireCrumbDismiss();
@@ -388,6 +392,8 @@ function render() {
   if (snap.schema_status && snap.schema_status.violation_count > 0 && !snap.error) {
     setStatus(`${statusText ?? ""} · ${snap.schema_status.violation_count} schema warnings`.trim(), "");
   }
+  // New notice system (Task 12: message-system-integration, Phase 3 dual-write)
+  renderNotice(snap.notice);
 
   // Active type-filter indicator on the funnel button (same `.on` + dot
   // mechanism as the touch UI, driven by the shared snapshot flag).
@@ -559,7 +565,7 @@ function renderOverlay() {
     // tree behind it; onKey's Help branch also stops list shortcuts firing.
     overlay.focus();
   } else if (tag === "Prompt") {
-    const kind = (m as { Prompt: { kind: PromptView } }).Prompt.kind;
+    const kind = (m as { Prompt: { kind: PromptView; question: string } }).Prompt.kind;
     overlay.innerHTML =
       `<h3>${escapeHtml(promptQuestion(kind, snap!.status ?? snap!.error ?? undefined))}</h3>` +
       promptButtonsHTML(kind);
@@ -2000,5 +2006,54 @@ function setStatus(status: string | undefined, error: string | undefined) {
   errorEl.textContent = err;
   errorEl.classList.toggle("hidden", err === "");
 }
+
+function renderNotice(notice: Notice | undefined) {
+  if (!notice) {
+    // Clear everything
+    toastEl.textContent = "";
+    toastEl.classList.add("hidden");
+    statusEl.textContent = "";
+    errorEl.textContent = "";
+    errorEl.classList.add("hidden");
+    return;
+  }
+
+  const { severity, text } = notice;
+
+  // Clear previous states
+  toastEl.textContent = "";
+  toastEl.classList.add("hidden");
+  statusEl.textContent = "";
+  errorEl.textContent = "";
+  errorEl.classList.add("hidden");
+  statusEl.classList.remove("sev-info", "sev-success", "sev-warn", "sev-error");
+
+  switch (severity) {
+    case "success":
+      // Toast + status bar
+      toastEl.textContent = text;
+      toastEl.classList.remove("hidden");
+      statusEl.textContent = text;
+      statusEl.classList.add("sev-success");
+      break;
+    case "error":
+      // Error element (red) + click-to-clear
+      errorEl.textContent = text;
+      errorEl.classList.remove("hidden");
+      break;
+    case "info":
+    case "warn":
+      // Status bar only
+      statusEl.textContent = text;
+      statusEl.classList.add(`sev-${severity}`);
+      break;
+  }
+}
+
+// Click-to-clear for error element
+errorEl.addEventListener("click", () => {
+  errorEl.textContent = "";
+  errorEl.classList.add("hidden");
+});
 
 main().catch((e) => setStatus("", String(e)));

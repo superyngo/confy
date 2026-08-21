@@ -25,6 +25,17 @@ export type ScalarType =
   | "LocalDate"
   | "LocalTime";
 
+// ---- Notice (session::notice) ----
+// Severity: #[serde(rename_all = "lowercase")] → "info", "success", "warn", "error"
+// NoticeSource: #[serde(rename_all = "kebab-case")] → "core", "host-tui", "host-web"
+export type Severity = "info" | "success" | "warn" | "error";
+export type NoticeSource = "core" | "host-tui" | "host-web";
+export interface Notice {
+  severity: Severity;
+  text: string;
+  source: NoticeSource;
+}
+
 // The full Format enum (TOML+JSON+YAML). Unknown strings are tolerated.
 export type Format = string;
 
@@ -121,7 +132,7 @@ export interface TypeFilterView {
 
 export type ModeView =
   | "Normal"
-  | { Prompt: { kind: PromptView } }
+  | { Prompt: { kind: PromptView; question: string } }
   | { Filter: { text: string; cursor: number } }
   | "FilterResults"
   | { TypeFilter: TypeFilterView }
@@ -185,6 +196,7 @@ export interface SessionSnapshot {
   // serde `Option`s arrive as `undefined` (serde-wasm-bindgen), never `null`.
   status: string | undefined;
   error: string | undefined;
+  notice: Notice | undefined;
   detail_text: string | undefined;
   external_edit: ExternalEdit | undefined;
   schema_status: SchemaStatus | undefined;

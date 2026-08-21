@@ -150,6 +150,9 @@
       <span class="badge" id="clipBadge">clipboard 0</span>
     </footer>
 
+    <!-- Toast notification (Task 12: message-system-integration) -->
+    <div id="toast" class="hidden"></div>
+
     <!-- Native open fallback (no FS Access API): hidden file input. No `accept`
          filter: iOS resolves extensions to UTIs and greys out `.toml`/`.yaml`
          (which have none), so it would block opening valid config files. confy
