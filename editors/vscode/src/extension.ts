@@ -155,6 +155,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const key = document.uri.toString();
     if (isDiagnosticsDeferred(document.fileName.endsWith(".yaml") || document.fileName.endsWith(".yml") ? "yaml" : "toml", (id) => vscode.extensions.getExtension(id) !== undefined)) {
       deferredDocs.add(key);
+      // Language may have become deferred after this URI already showed confy
+      // diagnostics (e.g. re-opened in a second tab after Even Better TOML
+      // was installed): drop the stale set, since updateDiagnostics now no-ops.
+      diagnostics.delete(document.uri);
     } else {
       deferredDocs.delete(key);
     }
@@ -186,7 +190,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   context.subscriptions.push(
     diagnostics,
-    vscode.languages.registerHoverProvider(SCHEMA_SELECTOR, new ConfySchemaHoverProvider(await getManager())),
+    vscode.languages.registerHoverProvider(SCHEMA_SELECTOR, new ConfySchemaHoverProvider(getManager)),
     vscode.workspace.onDidOpenTextDocument(openDoc),
     vscode.workspace.onDidChangeTextDocument((e) => {
       if (SCHEMA_SELECTOR.some((s) => vscode.languages.match(s, e.document) > 0)) scheduleReparse(e.document);

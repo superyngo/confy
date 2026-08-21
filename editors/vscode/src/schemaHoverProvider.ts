@@ -25,17 +25,23 @@ function renderEditHint(hint: EditHint): string | undefined {
  * schema-driven `EditHint` — no new core query beyond what Diagnostics
  * already needs (design §"Hover"). */
 export class ConfySchemaHoverProvider implements vscode.HoverProvider {
-  constructor(private readonly manager: SchemaSessionManager) {}
+  constructor(private readonly getManager: () => Promise<SchemaSessionManager>) {}
 
-  provideHover(document: vscode.TextDocument, position: vscode.Position): vscode.Hover | undefined {
+  async provideHover(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+  ): Promise<vscode.Hover | undefined> {
     try {
+      // Lazy: the wasm session manager is only awaited here, on the first
+      // actual hover — activation must not force wasm instantiation.
+      const manager = await this.getManager();
       const key = document.uri.toString();
-      const outline = this.manager.outline(key);
+      const outline = manager.outline(key);
       if (!outline) return undefined;
       const byteOffset = utf16OffsetToUtf8ByteOffset(document.getText(), document.offsetAt(position));
       const path = findPathAtByteOffset(outline, byteOffset);
       if (!path) return undefined;
-      const hint = this.manager.schemaHint(key, path);
+      const hint = manager.schemaHint(key, path);
       if (!hint) return undefined;
       const text = renderEditHint(hint);
       return text ? new vscode.Hover(new vscode.MarkdownString(text)) : undefined;
