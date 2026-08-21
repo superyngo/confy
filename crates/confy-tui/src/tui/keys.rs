@@ -38,6 +38,7 @@ pub enum KeyAction {
     Help,
     Rename,
     LangPicker,
+    ToggleDiag,
     Noop,
 }
 
@@ -87,6 +88,8 @@ pub fn map_key(key: KeyEvent) -> KeyAction {
         // Language picker — lowercase l (verified unbound; no collision with
         // existing bindings).
         (KeyCode::Char('l'), _) => KeyAction::LangPicker,
+        // Diag ring overlay — tilde (verified unbound).
+        (KeyCode::Char('~'), _) => KeyAction::ToggleDiag,
         _ => KeyAction::Noop,
     }
 }

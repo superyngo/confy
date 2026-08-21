@@ -5,6 +5,7 @@ pub mod keys;
 pub mod overlay_convert;
 pub mod overlay_detail;
 pub mod overlay_help;
+pub mod overlay_diag;
 pub mod overlay_kind_switch;
 pub mod overlay_lang_picker;
 pub mod overlay_schema_enum;
@@ -291,6 +292,16 @@ fn run_event_loop(
                 }
                 continue;
             }
+            // Diag ring overlay (host-side mini-mode, not a core `Mode`):
+            // read-only, Esc or ~ closes. Modal — other keys swallowed.
+            if app.diag_overlay_open {
+                use crossterm::event::KeyCode;
+                match key.code {
+                    KeyCode::Esc | KeyCode::Char('~') => app.diag_overlay_open = false,
+                    _ => {}
+                }
+                continue;
+            }
             // Kind-switch popup: Up/Down (or j/k) move the selection, Enter
             // applies the conversion, Esc cancels. Modal — other keys swallowed.
             if matches!(app.session.mode, crate::tui::state::Mode::KindSwitch(_)) {
@@ -513,6 +524,9 @@ fn run_event_loop(
                         continue;
                     }
                     app.open_lang_picker();
+                }
+                keys::KeyAction::ToggleDiag => {
+                    app.diag_overlay_open = true;
                 }
                 keys::KeyAction::Noop => {}
             }

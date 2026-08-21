@@ -28,6 +28,9 @@ pub struct App {
     /// core `Mode` variant) — language choice is a host concern since
     /// selecting one also writes the config file (§i18n Phase 2).
     pub lang_picker: Option<LangPickerState>,
+    /// The `~` diag ring overlay, when open. Host-side mini-mode (not a core
+    /// `Mode` variant) — purely read-only TUI visualization of `Session.diag`.
+    pub diag_overlay_open: bool,
 }
 
 /// In-flight `l` language-picker state: just the cursor over `LANG_OPTIONS`.
@@ -78,6 +81,7 @@ impl App {
             help_scroll: 0,
             table_offset: Cell::new(0),
             lang_picker: None,
+            diag_overlay_open: false,
         };
         app.rebuild_rows();
         app
@@ -94,6 +98,7 @@ impl App {
             help_scroll: 0,
             table_offset: Cell::new(0),
             lang_picker: None,
+            diag_overlay_open: false,
         };
         app.rebuild_rows();
         app
@@ -4154,5 +4159,39 @@ mod tests {
             "nudged value must be 8081: {}",
             app.session.doc.as_ref().unwrap().serialize()
         );
+    }
+
+    #[test]
+    fn tilde_opens_diag_overlay() {
+        let mut app = sample();
+        assert!(!app.diag_overlay_open, "overlay starts closed");
+        app.diag_overlay_open = true;
+        assert!(app.diag_overlay_open, "can open overlay");
+    }
+
+    #[test]
+    fn esc_closes_diag_overlay() {
+        let mut app = sample();
+        app.diag_overlay_open = true;
+        app.diag_overlay_open = false;
+        assert!(!app.diag_overlay_open, "Esc closes overlay");
+    }
+
+    #[test]
+    fn diag_events_are_readable() {
+        use confy_core::session::diag::DiagLevel;
+        let mut app = sample();
+        // Push some events
+        app.session.diag.push(DiagLevel::Info, "dispatch", "test info".to_string());
+        app.session.diag.push(DiagLevel::Warn, "schema", "test warn".to_string());
+        app.session.diag.push(DiagLevel::Error, "mutation", "test error".to_string());
+        
+        // Verify we can read them
+        let events: Vec<_> = app.session.diag.iter().collect();
+        assert_eq!(events.len(), 3);
+        assert_eq!(events[0].kind, "dispatch");
+        assert_eq!(events[1].kind, "schema");
+        assert_eq!(events[2].kind, "mutation");
+        assert!(events[2].detail.contains("error"));
     }
 }

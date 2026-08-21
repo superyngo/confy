@@ -1,6 +1,7 @@
 use crate::tui::app::{App, RowSnapshot};
 use crate::tui::overlay_convert::draw_convert_overlay;
 use crate::tui::overlay_detail::draw_detail_overlay;
+use crate::tui::overlay_diag::draw_diag_overlay;
 use crate::tui::overlay_help::draw_help_overlay;
 use crate::tui::overlay_kind_switch::draw_kind_switch_overlay;
 use crate::tui::overlay_lang_picker::draw_lang_picker_overlay;
@@ -231,6 +232,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     draw_convert_overlay(f, app);
     draw_schema_enum_overlay(f, app);
     draw_lang_picker_overlay(f, app);
+    draw_diag_overlay(f, app);
 }
 
 fn draw_title(f: &mut Frame, area: Rect, app: &App) {
