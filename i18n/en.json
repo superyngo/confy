@@ -75,7 +75,6 @@
   "tui.lang.save-failed": "language saved for session, but writing config failed: {0}",
   "tui.about.config": "Config:   {0}",
   "tui.about.language": "Language: {0}",
-
   "web.app.title": "confy — config tree editor",
   "web.toolbar.fmtPill.title": "document format",
   "web.toolbar.fmtPill.sampleTitle": "Sample — tap to switch format",
@@ -213,5 +212,20 @@
   "web.help.tab.help": "Help",
   "web.help.tab.about": "About",
   "web.about.language": "Language: {0}",
-  "web.vscode.staleTree": "Raw text has a syntax error — tree is paused (edits here are ignored) until it parses again"
+  "web.vscode.staleTree": "Raw text has a syntax error — tree is paused (edits here are ignored) until it parses again",
+  "tui.prompt.collision.legend": "o:overwrite  r:rename  c:cancel",
+  "tui.prompt.confirm-quit.legend": "y:quit without saving  n:cancel",
+  "tui.prompt.type-change.legend": "y:confirm  n:edit",
+  "tui.prompt.array-upgrade.legend": "y/n",
+  "tui.prompt.jsonc-upgrade.legend": "y/n",
+  "tui.host.convert-success": "converted → {0}",
+  "tui.host.convert-write-failed": "convert write failed: {0}",
+  "tui.host.readonly-comment": "read-only node (block comment)",
+  "tui.host.editor-error": "editor error: {0}",
+  "tui.host.no-save-path": "no save path set",
+  "tui.host.no-changes": "no changes to save",
+  "tui.host.saved": "Saved",
+  "tui.host.save-error": "save error: {0}",
+  "tui.status.filter-results-notice": "{0}{1}",
+  "core.schema.count": "{0} schema warning(s)"
 }

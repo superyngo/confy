@@ -374,7 +374,11 @@ impl App {
     fn convert_write(&mut self, path: &str, text: &str) {
         match std::fs::write(path, text) {
             Ok(()) => {
-                self.session.status = Some(format!("converted → {path}"));
+                self.session.dispatch(confy_core::session::Intent::SetHostNotice {
+                    key: "tui.host.convert-success".to_string(),
+                    args: vec![path.to_string()],
+                    source: confy_core::session::notice::NoticeSource::HostTui,
+                });
                 self.session.mode = if self.session.filtered_paths.is_some() {
                     Mode::FilterResults
                 } else {
@@ -382,7 +386,11 @@ impl App {
                 };
             }
             Err(e) => {
-                self.session.error = Some(format!("convert write failed: {e}"));
+                self.session.dispatch(confy_core::session::Intent::SetHostNotice {
+                    key: "tui.host.convert-write-failed".to_string(),
+                    args: vec![e.to_string()],
+                    source: confy_core::session::notice::NoticeSource::HostTui,
+                });
                 self.session.mode = Mode::Normal;
             }
         }
@@ -451,8 +459,11 @@ impl App {
     /// Open the popup with the cursor on the currently active language.
     pub fn open_lang_picker(&mut self) {
         if self.session.clipboard.is_some() {
-            self.session.status =
-                Some(tr(self.session.lang, "core.clipboard.action-locked").to_string());
+            self.session.dispatch(confy_core::session::Intent::SetHostNotice {
+                key: "core.clipboard.action-locked".to_string(),
+                args: vec![],
+                source: confy_core::session::notice::NoticeSource::HostTui,
+            });
             return;
         }
         let cursor = LANG_OPTIONS
@@ -480,10 +491,22 @@ impl App {
         let cfg = crate::config::Config {
             lang: Some(lang.code().to_string()),
         };
-        self.session.status = Some(match crate::config::save_config(&cfg) {
-            Ok(()) => confy_core::session::tr_args(lang, "tui.lang.saved", &[lang.code()]),
-            Err(e) => confy_core::session::tr_args(lang, "tui.lang.save-failed", &[&e.to_string()]),
-        });
+        match crate::config::save_config(&cfg) {
+            Ok(()) => {
+                self.session.dispatch(confy_core::session::Intent::SetHostNotice {
+                    key: "tui.lang.saved".to_string(),
+                    args: vec![lang.code().to_string()],
+                    source: confy_core::session::notice::NoticeSource::HostTui,
+                });
+            }
+            Err(e) => {
+                self.session.dispatch(confy_core::session::Intent::SetHostNotice {
+                    key: "tui.lang.save-failed".to_string(),
+                    args: vec![e.to_string()],
+                    source: confy_core::session::notice::NoticeSource::HostTui,
+                });
+            }
+        }
     }
     pub fn exit_lang_picker(&mut self) {
         self.lang_picker = None;
@@ -517,12 +540,19 @@ impl App {
     /// scalars and comment nodes use the inline editor. HOST SPLIT: spawns $EDITOR.
     pub fn edit_node(&mut self) {
         if self.session.clipboard.is_some() {
-            self.session.status =
-                Some(tr(self.session.lang, "core.clipboard.action-locked").to_string());
+            self.session.dispatch(confy_core::session::Intent::SetHostNotice {
+                key: "core.clipboard.action-locked".to_string(),
+                args: vec![],
+                source: confy_core::session::notice::NoticeSource::HostTui,
+            });
             return;
         }
         if self.cursor_is_read_only() {
-            self.session.status = Some("read-only node (block comment)".into());
+            self.session.dispatch(confy_core::session::Intent::SetHostNotice {
+                key: "tui.host.readonly-comment".to_string(),
+                args: vec![],
+                source: confy_core::session::notice::NoticeSource::HostTui,
+            });
             return;
         }
         let cursor_row = match self.cursor_row() {
@@ -536,7 +566,11 @@ impl App {
                     let edited = match crate::tui::editor::edit_text(&initial) {
                         Ok(t) => t,
                         Err(e) => {
-                            self.session.error = Some(format!("editor error: {e}"));
+                            self.session.dispatch(confy_core::session::Intent::SetHostNotice {
+                                key: "tui.host.editor-error".to_string(),
+                                args: vec![e.to_string()],
+                                source: confy_core::session::notice::NoticeSource::HostTui,
+                            });
                             return;
                         }
                     };
@@ -553,7 +587,11 @@ impl App {
         let edited = match crate::tui::editor::edit_text(&fragment) {
             Ok(t) => t,
             Err(e) => {
-                self.session.error = Some(format!("editor error: {e}"));
+                self.session.dispatch(confy_core::session::Intent::SetHostNotice {
+                    key: "tui.host.editor-error".to_string(),
+                    args: vec![e.to_string()],
+                    source: confy_core::session::notice::NoticeSource::HostTui,
+                });
                 return;
             }
         };
@@ -675,7 +713,11 @@ impl App {
 
     pub fn save(&mut self) {
         let Some(ref path) = self.source_path else {
-            self.session.error = Some("no save path set".into());
+            self.session.dispatch(confy_core::session::Intent::SetHostNotice {
+                key: "tui.host.no-save-path".to_string(),
+                args: vec![],
+                source: confy_core::session::notice::NoticeSource::HostTui,
+            });
             return;
         };
         let path = path.clone();
@@ -684,16 +726,30 @@ impl App {
             None => return,
         };
         if !doc.is_dirty() {
-            self.session.status = Some("no changes to save".into());
+            self.session.dispatch(confy_core::session::Intent::SetHostNotice {
+                key: "tui.host.no-changes".to_string(),
+                args: vec![],
+                source: confy_core::session::notice::NoticeSource::HostTui,
+            });
             return;
         }
         let text = doc.serialize();
         match std::fs::write(&path, text) {
             Ok(()) => {
                 doc.mark_saved();
-                self.session.status = Some("Saved".into());
+                self.session.dispatch(confy_core::session::Intent::SetHostNotice {
+                    key: "tui.host.saved".to_string(),
+                    args: vec![],
+                    source: confy_core::session::notice::NoticeSource::HostTui,
+                });
             }
-            Err(e) => self.session.error = Some(format!("save error: {e}")),
+            Err(e) => {
+                self.session.dispatch(confy_core::session::Intent::SetHostNotice {
+                    key: "tui.host.save-error".to_string(),
+                    args: vec![e.to_string()],
+                    source: confy_core::session::notice::NoticeSource::HostTui,
+                });
+            }
         }
     }
 
@@ -1228,9 +1284,9 @@ mod tests {
         app.select_row(app.rows.iter().position(|r| r.key == "a").unwrap());
         app.open_convert();
         assert!(matches!(app.session.mode, Mode::Normal));
-        assert!(app.session.error.as_deref().unwrap_or("").contains("root"));
+        assert!(app.session.notice.as_ref().map(|n| n.text.as_str()).unwrap_or("").contains("root"));
         // On the root node it opens with the other two formats offered.
-        app.session.error = None;
+        app.session.notice = None;
         app.select_row(app.rows.iter().position(|r| r.path.is_empty()).unwrap());
         app.open_convert();
         let Mode::Convert(st) = &app.session.mode else {
@@ -1321,9 +1377,7 @@ mod tests {
             "popup must not open"
         );
         assert!(app
-            .session
-            .error
-            .as_deref()
+            .session.notice.as_ref().map(|n| n.text.as_str())
             .unwrap_or("")
             .contains("cannot"));
     }
@@ -1344,9 +1398,7 @@ mod tests {
             "popup must not open"
         );
         assert!(app
-            .session
-            .error
-            .as_deref()
+            .session.notice.as_ref().map(|n| n.text.as_str())
             .unwrap_or("")
             .contains("cannot"));
     }
@@ -1377,7 +1429,7 @@ mod tests {
             app.session.doc.as_ref().unwrap().serialize(),
             "[dest]\nz = 0\na.x = 1\na.y = 2\n",
             "status={:?}",
-            app.session.status
+            app.session.notice
         );
     }
 
@@ -1412,9 +1464,9 @@ mod tests {
         let cpath = app.rows[1].path.clone(); // row 0 is root, row 1 the comment
         app.apply_edit_comment(cpath, "# new\n".into());
         assert!(
-            app.session.status.is_none(),
+            app.session.notice.is_none(),
             "unexpected status: {:?}",
-            app.session.status
+            app.session.notice
         );
         let s = app.session.doc.as_ref().unwrap().serialize();
         assert!(
@@ -1432,7 +1484,7 @@ mod tests {
         let cpath = app.rows[1].path.clone();
         app.apply_edit_comment(cpath, "not a comment\n".into());
         assert!(
-            app.session.error.is_some(),
+            app.session.notice.is_some(),
             "invalid comment must surface in error"
         );
         assert_eq!(app.session.doc.as_ref().unwrap().serialize(), before);
@@ -1544,7 +1596,7 @@ mod tests {
             matches!(app.session.mode, Mode::Edit(_)),
             "stay in editor on error"
         );
-        assert!(app.session.status.is_some(), "error surfaced in status");
+        assert!(app.session.notice.is_some(), "error surfaced in status");
         assert_eq!(
             app.session.doc.as_ref().unwrap().serialize(),
             before,
@@ -1558,7 +1610,7 @@ mod tests {
         let before = app.session.doc.as_ref().unwrap().serialize();
         app.apply_replace(vec![Seg::Key("port".into())], "port = = nope".into());
         assert!(
-            app.session.error.is_some(),
+            app.session.notice.is_some(),
             "invalid TOML must surface in error"
         );
         assert_eq!(
@@ -1572,7 +1624,7 @@ mod tests {
     fn apply_replace_valid_pushes_history_and_rebuilds() {
         let mut app = app_with("port = 8080\n");
         app.apply_replace(vec![Seg::Key("port".into())], "port = 9090\n".into());
-        assert!(app.session.status.is_none());
+        assert!(app.session.notice.is_none());
         assert!(app
             .session
             .doc
@@ -1597,7 +1649,7 @@ mod tests {
             "port = 1\n".into(),
         );
         assert!(
-            app.session.error.is_some(),
+            app.session.notice.is_some(),
             "collision must surface in error"
         );
         assert_eq!(
@@ -1620,7 +1672,7 @@ mod tests {
             "= = nope".into(),
         );
         assert!(
-            app.session.error.is_some(),
+            app.session.notice.is_some(),
             "invalid TOML must surface in error"
         );
         assert_eq!(
@@ -1640,7 +1692,7 @@ mod tests {
             },
             "host = \"x\"\n".into(),
         );
-        assert!(app.session.status.is_none());
+        assert!(app.session.notice.is_none());
         assert!(app
             .session
             .doc
@@ -2065,7 +2117,7 @@ mod tests {
             "must not be dirty after save"
         );
         assert!(
-            app.session.status.as_deref() == Some("Saved"),
+            app.session.notice.as_ref().map(|n| n.text.as_str()) == Some("Saved"),
             "status must be 'Saved'"
         );
     }
@@ -2220,9 +2272,9 @@ mod tests {
             "[[product]]\nname = \"Mallet\"\n".into(),
         );
         assert!(
-            app.session.status.is_none(),
+            app.session.notice.is_none(),
             "unexpected status: {:?}",
-            app.session.status
+            app.session.notice
         );
         let s = app.session.doc.as_ref().unwrap().serialize();
         assert_eq!(
@@ -2432,7 +2484,7 @@ mod tests {
             matches!(app.session.mode, Mode::Edit(_)),
             "stay in editor to fix"
         );
-        assert!(app.session.status.is_some());
+        assert!(app.session.notice.is_some());
         assert_eq!(
             app.session.doc.as_ref().unwrap().serialize(),
             before,
@@ -2901,9 +2953,9 @@ mod tests {
         app.session.paste_slot = Some(PasteSlot::Into(app.row_path(1)));
         app.paste();
         assert!(
-            app.session.status.is_none(),
+            app.session.notice.is_none(),
             "unexpected status: {:?}",
-            app.session.status
+            app.session.notice
         );
         let s = app.session.doc.as_ref().unwrap().serialize();
         // y must live under [t], after x.
@@ -2931,13 +2983,11 @@ mod tests {
             "clipboard must survive an illegal paste"
         );
         assert!(
-            app.session
-                .error
-                .as_deref()
+            app.session.notice.as_ref().map(|n| n.text.as_str())
                 .unwrap_or("")
                 .contains("paste error"),
             "error: {:?}",
-            app.session.error
+            app.session.notice
         );
         assert_eq!(
             app.session.doc.as_ref().unwrap().serialize(),
@@ -2963,9 +3013,9 @@ mod tests {
         app.session.paste_slot = Some(PasteSlot::Into(arow));
         app.paste();
         assert!(
-            app.session.status.is_none(),
+            app.session.notice.is_none(),
             "unexpected status: {:?}",
-            app.session.status
+            app.session.notice
         );
         let s = app.session.doc.as_ref().unwrap().serialize();
         assert_eq!(s, "arr = [\n  1,\n  2,\n  # top\n]\n", "got: {s:?}");
@@ -3045,9 +3095,9 @@ mod tests {
         });
         app.paste();
         assert!(
-            app.session.status.is_none(),
+            app.session.notice.is_none(),
             "unexpected status: {:?}",
-            app.session.status
+            app.session.notice
         );
         let s = app.session.doc.as_ref().unwrap().serialize();
         assert!(s.contains("placeholder = 42"), "serialize: {s:?}");
@@ -3639,10 +3689,10 @@ mod tests {
             .scalar_fragment(None, "\"z\"");
         app.apply_replace(path, wrapped);
         assert!(
-            app.session.status.is_none() && app.session.error.is_none(),
+            app.session.notice.is_none() && app.session.notice.is_none(),
             "status {:?} error {:?}",
-            app.session.status,
-            app.session.error
+            app.session.notice,
+            app.session.notice
         );
         assert_eq!(
             app.session.doc.as_ref().unwrap().serialize(),
@@ -3735,10 +3785,10 @@ mod tests {
             .scalar_fragment(None, "{ \"a\": 9 }");
         app.apply_replace(path, wrapped);
         assert!(
-            app.session.status.is_none() && app.session.error.is_none(),
+            app.session.notice.is_none() && app.session.notice.is_none(),
             "status {:?} error {:?}",
-            app.session.status,
-            app.session.error
+            app.session.notice,
+            app.session.notice
         );
         assert_eq!(
             app.session.doc.as_ref().unwrap().serialize(),
@@ -3783,10 +3833,10 @@ mod tests {
         assert!(!wrap, "a keyed member fragment needs no element wrap");
         app.apply_replace(path, "a = \"z\"\n".into());
         assert!(
-            app.session.status.is_none() && app.session.error.is_none(),
+            app.session.notice.is_none() && app.session.notice.is_none(),
             "status {:?} error {:?}",
-            app.session.status,
-            app.session.error
+            app.session.notice,
+            app.session.notice
         );
         assert_eq!(
             app.session.doc.as_ref().unwrap().serialize(),
@@ -3808,10 +3858,10 @@ mod tests {
         assert!(!wrap);
         app.apply_replace(path, "\"a\": 99\n".into());
         assert!(
-            app.session.status.is_none() && app.session.error.is_none(),
+            app.session.notice.is_none() && app.session.notice.is_none(),
             "status {:?} error {:?}",
-            app.session.status,
-            app.session.error
+            app.session.notice,
+            app.session.notice
         );
         assert_eq!(
             app.session.doc.as_ref().unwrap().serialize(),
@@ -3858,9 +3908,7 @@ mod tests {
         inline_set_value(&mut app, "1  // nope");
         assert!(matches!(app.session.mode, Mode::Edit(_)), "stays in editor");
         assert!(app
-            .session
-            .status
-            .as_deref()
+            .session.notice.as_ref().map(|n| n.text.as_str())
             .unwrap_or("")
             .contains("inline collection"));
         assert_eq!(
@@ -3917,13 +3965,11 @@ mod tests {
         assert!(app.cursor_is_read_only(), "block comment must be read_only");
         app.delete_selected();
         assert!(
-            app.session
-                .status
-                .as_deref()
+            app.session.notice.as_ref().map(|n| n.text.as_str())
                 .unwrap_or("")
                 .contains("read-only"),
             "expected read-only status, got: {:?}",
-            app.session.status
+            app.session.notice
         );
         use crate::model::document::ConfigDocument;
         assert!(
@@ -3950,13 +3996,11 @@ mod tests {
         app.select_row(ci);
         app.edit_node();
         assert!(
-            app.session
-                .status
-                .as_deref()
+            app.session.notice.as_ref().map(|n| n.text.as_str())
                 .unwrap_or("")
                 .contains("read-only"),
             "expected read-only status, got: {:?}",
-            app.session.status
+            app.session.notice
         );
     }
 
@@ -3973,13 +4017,11 @@ mod tests {
         app.select_row(ci);
         app.cut_selected();
         assert!(
-            app.session
-                .status
-                .as_deref()
+            app.session.notice.as_ref().map(|n| n.text.as_str())
                 .unwrap_or("")
                 .contains("read-only"),
             "expected read-only status, got: {:?}",
-            app.session.status
+            app.session.notice
         );
         assert!(
             app.session.clipboard.is_none(),
@@ -4000,13 +4042,11 @@ mod tests {
         app.select_row(ci);
         app.remark();
         assert!(
-            app.session
-                .status
-                .as_deref()
+            app.session.notice.as_ref().map(|n| n.text.as_str())
                 .unwrap_or("")
                 .contains("read-only"),
             "expected read-only status, got: {:?}",
-            app.session.status
+            app.session.notice
         );
         use crate::model::document::ConfigDocument;
         assert!(
@@ -4065,12 +4105,12 @@ mod tests {
         }
         app.edit_commit();
         assert!(
-            app.session.error.is_none(),
+            app.session.notice.is_none(),
             "unexpected error: {:?}",
-            app.session.error
+            app.session.notice
         );
         assert!(
-            app.session.status.as_deref() != Some("invalid value"),
+            app.session.notice.as_ref().map(|n| n.text.as_str()) != Some("invalid value"),
             "edit should not have failed validation"
         );
         assert!(
@@ -4100,9 +4140,9 @@ mod tests {
         app.select_row(ci);
         app.nudge(1);
         assert!(
-            app.session.error.is_none(),
+            app.session.notice.is_none(),
             "unexpected error: {:?}",
-            app.session.error
+            app.session.notice
         );
         assert!(
             app.session

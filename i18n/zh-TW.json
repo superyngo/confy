@@ -53,7 +53,6 @@
   "core.detail.value": "數值：{0}",
   "core.detail.sign": "符號：{0}",
   "core.detail.comment": "註解：{0}",
-
   "tui.title": "confy — {0} ",
   "tui.header.name": "  名稱",
   "tui.header.kind": "KIND",
@@ -76,7 +75,6 @@
   "tui.lang.save-failed": "本次會話語言已套用，但寫入設定檔失敗：{0}",
   "tui.about.config": "設定檔： {0}",
   "tui.about.language": "語言：   {0}",
-
   "web.app.title": "confy — 結構化設定檔編輯器",
   "web.toolbar.fmtPill.title": "文件格式",
   "web.toolbar.fmtPill.sampleTitle": "範例 — 點按以切換格式",
@@ -214,5 +212,20 @@
   "web.help.tab.help": "說明",
   "web.help.tab.about": "關於",
   "web.about.language": "語言： {0}",
-  "web.vscode.staleTree": "原始文字有語法錯誤——樹狀檢視已暫停（此處的編輯會被忽略），待可解析後恢復"
+  "web.vscode.staleTree": "原始文字有語法錯誤——樹狀檢視已暫停（此處的編輯會被忽略），待可解析後恢復",
+  "tui.prompt.collision.legend": "o：覆寫  r：重新命名  c：取消",
+  "tui.prompt.confirm-quit.legend": "y：不儲存並離開  n：取消",
+  "tui.prompt.type-change.legend": "y：確認  n：編輯",
+  "tui.prompt.array-upgrade.legend": "y/n",
+  "tui.prompt.jsonc-upgrade.legend": "y/n",
+  "tui.host.convert-success": "已轉換 → {0}",
+  "tui.host.convert-write-failed": "轉換寫入失敗：{0}",
+  "tui.host.readonly-comment": "唯讀節點（區塊註解）",
+  "tui.host.editor-error": "編輯器錯誤：{0}",
+  "tui.host.no-save-path": "未設定儲存路徑",
+  "tui.host.no-changes": "無變更需要儲存",
+  "tui.host.saved": "已儲存",
+  "tui.host.save-error": "儲存錯誤：{0}",
+  "tui.status.filter-results-notice": "{0}{1}",
+  "core.schema.count": "{0} 個結構描述警告"
 }

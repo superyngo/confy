@@ -589,7 +589,7 @@ fn variant_name(intent: &Intent) -> String {
 /// The prompt's question text, rendered per-snapshot from `PromptKind` +
 /// `Session::lang` (`core.prompt.*` catalog keys) so both hosts show
 /// identical prose. The y/n or o/r/c key legend stays host-side (Task 8).
-fn prompt_question(lang: Lang, pk: &PromptKind) -> String {
+pub fn prompt_question(lang: Lang, pk: &PromptKind) -> String {
     match pk {
         PromptKind::Collision { key } => tr_args(lang, "core.prompt.collision", &[key]),
         PromptKind::ConfirmQuit => tr_args(lang, "core.prompt.confirm-quit", &[]),

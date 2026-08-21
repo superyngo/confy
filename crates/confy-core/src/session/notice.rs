@@ -47,21 +47,26 @@ pub fn severity_of(key: &str) -> Severity {
         "core.error.generic" | "core.add.error" | "core.delete.error" | "core.paste.error"
         | "core.paste.comment-illegal" | "core.remark.error" | "core.rename.failed"
         | "core.trailing.update-failed" | "core.undo.error" | "core.redo.error"
-        | "core.kind-switch.error" => Severity::Error,
+        | "core.kind-switch.error"
+        | "tui.host.convert-write-failed" | "tui.host.editor-error" | "tui.host.no-save-path"
+        | "tui.host.save-error" | "tui.lang.save-failed" => Severity::Error,
 
         "core.readonly" | "core.clipboard.action-locked" | "core.comment.unsupported"
         | "core.trailing.inline-unsupported" | "core.reveal.hidden-by-filter" | "core.move.self"
         | "core.insert.collision" | "core.rename.empty-key" | "core.value.invalid"
         | "core.comment.invalid" | "core.fragment.invalid" | "core.remark.invalid"
-        | "core.convert.root-only" | "core.kind-switch.unsupported" | "core.schema.violation" => Severity::Warn,
+        | "core.convert.root-only" | "core.kind-switch.unsupported" | "core.schema.violation"
+        | "tui.host.readonly-comment" => Severity::Warn,
 
         "core.save.saved" | "core.kind-switch.converted" | "core.kind-switch.converted-generic"
         | "core.clipboard.cut" | "core.clipboard.copied" | "core.clipboard.cut-changed"
-        | "core.clipboard.copied-changed" => Severity::Success,
+        | "core.clipboard.copied-changed"
+        | "tui.host.convert-success" | "tui.host.saved" | "tui.lang.saved" => Severity::Success,
 
         "core.save.nothing" | "core.clipboard.empty" | "core.clipboard.cleared"
         | "core.selection.cleared" | "core.undo.empty" | "core.redo.empty"
-        | "core.paste.cancelled" | "core.add.placeholder" | "core.convert.aborted" => Severity::Info,
+        | "core.paste.cancelled" | "core.add.placeholder" | "core.convert.aborted"
+        | "tui.host.no-changes" => Severity::Info,
 
         _ => panic!("severity_of: unmapped notice key {key:?} — add it to the table in notice.rs"),
     }

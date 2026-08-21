@@ -452,8 +452,11 @@ fn run_event_loop(
                 keys::KeyAction::Info => app.toggle_detail(),
                 keys::KeyAction::EditNode => {
                     if app.session.clipboard.is_some() {
-                        app.session.status =
-                            Some(tr(app.session.lang, "core.clipboard.action-locked").to_string());
+                        app.session.dispatch(confy_core::session::Intent::SetHostNotice {
+                            key: "core.clipboard.action-locked".to_string(),
+                            args: vec![],
+                            source: confy_core::session::notice::NoticeSource::Core,
+                        });
                         continue;
                     }
                     if app.edit_target_kind() == crate::tui::app::EditKind::Inline {
@@ -469,8 +472,11 @@ fn run_event_loop(
                 }
                 keys::KeyAction::EditExternal => {
                     if app.session.clipboard.is_some() {
-                        app.session.status =
-                            Some(tr(app.session.lang, "core.clipboard.action-locked").to_string());
+                        app.session.dispatch(confy_core::session::Intent::SetHostNotice {
+                            key: "core.clipboard.action-locked".to_string(),
+                            args: vec![],
+                            source: confy_core::session::notice::NoticeSource::Core,
+                        });
                         continue;
                     }
                     let _ = disable_raw_mode();
@@ -500,8 +506,11 @@ fn run_event_loop(
                 keys::KeyAction::Rename => app.begin_inline_rename(),
                 keys::KeyAction::LangPicker => {
                     if app.session.clipboard.is_some() {
-                        app.session.status =
-                            Some(tr(app.session.lang, "core.clipboard.action-locked").to_string());
+                        app.session.dispatch(confy_core::session::Intent::SetHostNotice {
+                            key: "core.clipboard.action-locked".to_string(),
+                            args: vec![],
+                            source: confy_core::session::notice::NoticeSource::Core,
+                        });
                         continue;
                     }
                     app.open_lang_picker();

@@ -481,15 +481,17 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
     // Error messages always take priority — shown with red background regardless
     // of mode or clipboard state so they are never hidden.
     if !matches!(app.session.mode, Mode::Edit(_)) {
-        if let Some(ref msg) = app.session.error {
-            let paragraph = Paragraph::new(format!(" ✗ {msg}")).style(
-                Style::default()
-                    .bg(Color::Red)
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            );
-            f.render_widget(paragraph, area);
-            return;
+        if let Some(notice) = &app.session.notice {
+            if notice.severity == confy_core::session::notice::Severity::Error {
+                let paragraph = Paragraph::new(format!(" ✗ {}", notice.text)).style(
+                    Style::default()
+                        .bg(Color::Red)
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                );
+                f.render_widget(paragraph, area);
+                return;
+            }
         }
     }
     // In filter mode, show the filter input line as an inline text field: a
@@ -513,15 +515,15 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
     // In the inline editor, show a commit error if there is one (e.g. the value
     // failed the semantic re-parse and could not be saved), otherwise the hints.
     if let Mode::Edit(e) = &app.session.mode {
-        let (text, style) = match &app.session.status {
-            Some(msg) => (
-                format!(" {msg}  (Esc:cancel)"),
+        let (text, style) = if let Some(notice) = &app.session.notice {
+            (
+                format!(" {}  (Esc:cancel)", notice.text),
                 Style::default()
                     .bg(Color::Red)
                     .fg(Color::White)
                     .add_modifier(Modifier::BOLD),
-            ),
-            None => {
+            )
+        } else {
                 // When the value overflows the VALUE column, append a compact
                 // hint of which char range is visible out of the total.
                 let len = e.buffer.chars().count();
@@ -551,13 +553,12 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
                 } else {
                     field
                 };
-                (
-                    format!(
-                        " editing {field} — Enter:save  Esc:cancel  ←/→/Home/End:move  Bksp/Del:erase{tab}{hint}"
-                    ),
-                    Style::default().bg(Color::DarkGray).fg(Color::Yellow),
-                )
-            }
+            (
+                format!(
+                    " editing {field} — Enter:save  Esc:cancel  ←/→/Home/End:move  Bksp/Del:erase{tab}{hint}"
+                ),
+                Style::default().bg(Color::DarkGray).fg(Color::Yellow),
+            )
         };
         f.render_widget(Paragraph::new(text).style(style), area);
         return;
@@ -589,15 +590,14 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
                 "tui.status.filter-results-clipboard",
                 &[&tags, &n, kind],
             )
+        } else if let Some(notice) = &app.session.notice {
+            tr_args(lang, "tui.status.filter-results-notice", &[&tags, &notice.text])
         } else {
-            match &app.session.status {
-                Some(msg) => tr_args(lang, "tui.status.filter-results-status", &[&tags, msg]),
-                None => tr_args(
-                    lang,
-                    "tui.status.filter-results-default",
-                    &[&tags, &pos.to_string(), &total.to_string()],
-                ),
-            }
+            tr_args(
+                lang,
+                "tui.status.filter-results-default",
+                &[&tags, &pos.to_string(), &total.to_string()],
+            )
         };
         let paragraph =
             Paragraph::new(status).style(Style::default().bg(Color::DarkGray).fg(Color::Yellow));
@@ -619,8 +619,8 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
         "tui.status.default",
         &[&pos.to_string(), &total.to_string()],
     );
-    if let Some(msg) = &app.session.status {
-        status = format!(" {msg}");
+    if let Some(notice) = &app.session.notice {
+        status = format!(" {}", notice.text);
     } else if let Some(hint) = app.session.edit_hint(&app.session.cursor).describe() {
         // Dynamic, tooltip-like: appears while the cursor sits on a
         // schema-constrained node, clears the instant it moves off (no
@@ -638,7 +638,7 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
         Paragraph::new(Line::from(vec![
             Span::raw(status),
             Span::styled(
-                format!(" · {violation_count} schema warnings"),
+                format!(" · {}", tr_args(app.session.lang, "core.schema.count", &[&violation_count.to_string()])),
                 Style::default().fg(Color::Yellow),
             ),
         ]))
@@ -650,24 +650,21 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
 }
 
 fn draw_prompt_overlay(f: &mut Frame, app: &App) {
-    use confy_core::session::{tr, tr_args};
+    use confy_core::session::{prompt_question, tr};
     let lang = app.session.lang;
-    let text = match &app.session.mode {
-        Mode::Prompt(PromptKind::Collision { key }) => {
-            tr_args(lang, "tui.prompt.collision", &[key])
-        }
-        Mode::Prompt(PromptKind::ConfirmQuit) => tr(lang, "tui.prompt.confirm-quit").to_string(),
-        Mode::Prompt(PromptKind::TypeChange { from, to }) => {
-            tr_args(lang, "tui.prompt.type-change", &[from, to])
-        }
-        Mode::Prompt(PromptKind::ArrayUpgrade { .. }) => {
-            tr(lang, "tui.prompt.array-upgrade").to_string()
-        }
-        Mode::Prompt(PromptKind::JsoncUpgrade { .. }) => {
-            tr(lang, "tui.prompt.jsonc-upgrade").to_string()
-        }
-        _ => return,
+    let Mode::Prompt(ref pk) = app.session.mode else {
+        return;
     };
+    let question = prompt_question(lang, pk);
+    let legend_key = match pk {
+        PromptKind::Collision { .. } => "tui.prompt.collision.legend",
+        PromptKind::ConfirmQuit => "tui.prompt.confirm-quit.legend",
+        PromptKind::TypeChange { .. } => "tui.prompt.type-change.legend",
+        PromptKind::ArrayUpgrade { .. } => "tui.prompt.array-upgrade.legend",
+        PromptKind::JsoncUpgrade { .. } => "tui.prompt.jsonc-upgrade.legend",
+    };
+    let legend = tr(lang, legend_key);
+    let text = format!("{question}\n\n{legend}");
     let area = centered_rect(60, 3, f.area());
     f.render_widget(Clear, area);
     let paragraph = Paragraph::new(text).style(

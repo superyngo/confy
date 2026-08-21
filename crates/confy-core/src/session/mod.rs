@@ -18,7 +18,7 @@ pub mod type_filter;
 pub mod undo_redo;
 pub mod view;
 
-pub use dispatch::ApplyOutcome;
+pub use dispatch::{prompt_question, ApplyOutcome};
 pub use diag::{DiagEvent, DiagLevel};
 pub use host::{EditTextOutcome, Host};
 pub use i18n::{tr, tr_args, Lang};

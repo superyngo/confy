@@ -196,22 +196,22 @@ mod tests {
             "lang picker should not open when clipboard is armed"
         );
         assert_eq!(
-            app.session.status.as_deref(),
+            app.session.notice.as_ref().map(|n| n.text.as_str()),
             Some(confy_core::session::tr(
                 app.session.lang,
                 "core.clipboard.action-locked"
-            ))
+            ).as_ref())
         );
 
         // Edit external / edit node is blocked
-        app.session.status = None;
+        app.session.notice = None;
         app.edit_node();
         assert_eq!(
-            app.session.status.as_deref(),
+            app.session.notice.as_ref().map(|n| n.text.as_str()),
             Some(confy_core::session::tr(
                 app.session.lang,
                 "core.clipboard.action-locked"
-            ))
+            ).as_ref())
         );
     }
 }
