@@ -247,6 +247,10 @@ halves union. _Avoid_: calling either one "search" exclusively — both are filt
 
 ### Messages & diagnostics
 
+See `MESSAGES.md` for the full reference: the severity classification table,
+per-host channel/rendering behavior, and unified design principles. This
+section stays the glossary.
+
 **Notice**:
 The single-slot, user-facing transient message carried by the Session. Exactly
 one may be showing at a time; the next notice replaces it. Not a queue.

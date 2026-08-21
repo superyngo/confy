@@ -261,12 +261,14 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
     i18n.rs        Lang enum + tr/tr_args catalog lookup (include_str!'d i18n/*.json, en-fallback)
     intent.rs      Intent enum — every key-mapped action the TUI can dispatch
     notice.rs      Notice (single-slot transient message), Severity, NoticeSource, severity_of table
+                   — see MESSAGES.md for the full message-system reference
     session.rs     Session struct (all CORE state + methods): visible_rows/compute_rows, navigation,
                    filter/type-filter, kind-switch, convert (no fs), edit routing,
                    escape, prompt-key dispatch, quit flow; plus free fns: node_type_label,
                    format_label
     clipboard.rs   cut/copy/paste + the paste collision/array-upgrade prompt sub-state-machine
     diag.rs        DiagLevel, DiagEvent (monotonic seq, kind, detail), DiagRing (bounded 256-event ring)
+                   — see MESSAGES.md §4
     inline_edit.rs inline-editor buffer lifecycle (begin_inline_edit*/edit_*/edit_commit) +
                    value/rename/nudge/add-node mutation-application methods that commit through it
     schema_hint.rs nudge_scalar: schema-constraint numeric clamping for the `←`/`→` shortcut

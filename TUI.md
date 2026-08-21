@@ -233,15 +233,22 @@ upper-adjacent comment with it — the comment simply stays where it is.
 
 ## Status & diagnostics (TUI)
 
+See `MESSAGES.md` for the full cross-platform message-system reference (severity
+table, host comparison, unified design). This section covers TUI-specific
+rendering mechanics only.
+
 The status bar (`draw_status` in `ui.rs`) renders the Session's single-slot `Notice` (`Severity` +
-localized text) alongside mode hints. **Severity drives rendering and precedence**: an `Error`
-notice (red background, ` ✗ ` prefix) takes absolute priority over normal mode chrome (clipboard
-sticky hints, filter results, default row count) outside inline edit; during `Mode::Edit`, an
-active notice is rendered in red with an `(Esc:cancel)` cue in place of the editing/nudge hints.
-Non-Error notices (`Info`/`Warn`/`Success`) sit in the status bar's default dark-gray slot; active
-input (`Mode::Filter`) temporarily displays its input field over non-Error notices, but the notice
-reappears once filter input closes. When no notice is active, the status line falls back to dynamic
-schema hints (`edit_hint`) and appends aggregate violation counts (`core.schema.count`).
+localized text) alongside mode hints, in priority order: **(1) Error notice** — red background,
+` ✗ ` prefix, shown outside `Mode::Edit` regardless of any other state (clipboard armed, filter
+active) — the "errors never hidden" invariant; **(2) active input** — `Mode::Filter`'s inline `/`
+field, or `Mode::Edit`'s value/name editor (inside `Mode::Edit`, a pending notice *overrides* the
+edit hints — shown in red with an `(Esc:cancel)` cue — rather than being hidden by them);
+**(3) Warn/Success/Info notice** — the status bar's default dark-gray slot, which also wins over
+the clipboard-armed sticky hint and the `FilterResults` tag/count line (both used to render first
+and silently swallow a pending non-Error notice — fixed 2026-08-22); **(4) mode/hint fallback** —
+clipboard-armed sticky hint, `FilterResults` tag line, or the default `pos/total` status with a
+dynamic schema `edit_hint` tooltip and aggregate violation count (`core.schema.count`), only once
+no notice is pending.
 
 `~` opens a read-only diagnostics overlay (`overlay_diag.rs`, `draw_diag_overlay`), a centered
 popup displaying the Session's bounded 256-event diagnostic ring (`session.diag`), newest last,

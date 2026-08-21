@@ -464,6 +464,10 @@ filesystem path — unlike the TUI, which discloses a config-file path (see `TUI
 
 ## Diagnostics (`?diag=1`)
 
+See `MESSAGES.md` for the full cross-platform message-system reference
+(severity classification, per-host `Notice` rendering table, unified design).
+This section covers the web-specific diagnostics export mechanics only.
+
 The Web UI surfaces `confy-core`'s in-Session 256-event diagnostic ring (`DiagEvent`) through the
 WASM FFI method `ConfySession.diagLog()` (`diag_log()` in `crates/confy-ffi`).
 
