@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-08-21T01:19:46Z
+- feat(vscode): native TOML/YAML text editors now surface confy-core's JSON Schema support directly — Problems-panel diagnostics (schema violations, always `Warning` severity per the Soft-constraint principle, plus a load-error notice) and hover tooltips (enum/const/bounds at the cursor's node), driven by one persistent `ConfySession` per open document (`Intent::ApplyReplace{path:[],text}` in place of a per-edit rebuild, ADR 0007) and a new `Session::schema_violations()`/`Intent::DetectSchema` core surface. Defers to `tamasfe.even-better-toml`/`redhat.vscode-yaml` when installed. Scoped to VS Code's native editor only; confy's own custom editor tab is unaffected.
+
 ### Added
 - feat(release): `release.yml` gains a `verify-versions` job that runs before any platform build on a real tag push — checks `Cargo.toml`, `web/package.json`, and `editors/vscode/package.json` versions plus a `CHANGELOG.md` `## [vX.Y.Z]` section all match the tag, failing fast instead of discovering a mismatch during a downstream publish step (as happened with `editors/vscode/package.json` on v0.20.0).
 - feat(release): `publish-vscode.yml` gains an optional `ref` input, decoupled from `tag` — defaults to `tag`, but lets a fix-forward publish (e.g. a version-file correction on `main`) build from a different ref without moving/retagging the app release and re-triggering the whole cross-platform build matrix.
