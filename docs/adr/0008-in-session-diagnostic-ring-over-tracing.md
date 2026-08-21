@@ -4,8 +4,10 @@ The 2026-08-21 message-system design (see
 `docs/superpowers/specs/2026-08-21-message-system-design.md` §7) adds a
 developer-facing diagnostics layer as a bounded ring of `DiagEvent` records
 inside `Session` itself (capacity 256, English-only, five event kinds:
-dispatch / mutation / schema / convert / host_notice), exported through three
-small surfaces — the TUI `~` overlay, FFI `diag_log()`, and web `?diag=1` —
+dispatch / mutation / schema / convert / notice — the last one tapping *every*
+notice assignment, core and host alike, per the second spec review §12 Q3),
+exported through three small surfaces — the TUI `~` overlay, FFI `diag_log()`,
+and web `?diag=1` —
 instead of adopting the `tracing` or `log` crates. The reason is confy's core
 architecture: `Session` is a pure, host-free value that is fully unit-testable
 headlessly and compiles unchanged for TUI, wasm, and VS Code; a `tracing`
@@ -16,6 +18,11 @@ ordinary data and costs one `VecDeque` instead of a dependency chain in the
 wasm binary. Reversal is genuinely possible — wrap the ring's record points in
 a trait later — but call sites across five event kinds would all move at once,
 which is why the choice is recorded here.
+
+The ring's 256 is an independent budget, deliberately not tied to the undo
+cap of 200 (`state.rs:211`, ADR 0003): undo depth bounds user-visible history,
+the ring bounds a debugging tail, and `Session` is not `Clone`, so neither
+duplicates the other.
 
 ## Considered options
 
