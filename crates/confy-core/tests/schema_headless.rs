@@ -419,7 +419,7 @@ fn session_apply_schema_text_load_error_is_soft() {
     assert!(state.load_error.is_some());
     assert!(state.compiled.is_none());
     // The document is still fully editable — no error on the session itself.
-    assert!(s.error.is_none());
+    assert!(s.snapshot().error_text().is_none());
 }
 
 #[test]

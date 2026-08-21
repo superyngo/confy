@@ -211,6 +211,21 @@ pub enum Intent {
     /// wire contract simple; an unrecognized code leaves the current language
     /// unchanged (never panics).
     SetLang(String),
+
+    // ---- Host notices ----
+    /// **Not a user action** — the internal channel hosts use to report
+    /// their own errors/notices through the sole dispatch path, so
+    /// `dispatch` stays the only mutation route into the Session (design
+    /// spec §5, §12 Q6). `key` resolves through the shared `severity_of`
+    /// table; `source` stamps the notice (`HostTui`/`HostWeb` — `Core`
+    /// here is a caller bug the handler ignores). A `String` (not
+    /// `&'static str`) to keep the wasm wire contract deserializable,
+    /// matching `SetLang`'s precedent.
+    SetHostNotice {
+        key: String,
+        args: Vec<String>,
+        source: crate::session::notice::NoticeSource,
+    },
     // Schema
     /// Re-run `detect_and_request_schema()` against the current document and
     /// stash the result into `pending_schema_fetch` — **not** an idempotent

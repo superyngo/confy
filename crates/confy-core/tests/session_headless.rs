@@ -4,7 +4,8 @@ use confy_core::model::any_doc::AnyDocument;
 use confy_core::model::document::{ConfigDocument, DocFormat};
 use confy_core::model::node::{Format, Seg};
 use confy_core::session::{
-    EditKind, EditTextOutcome, HelpTab, Host, Intent, Mode, ModeView, PasteSlot, Session,
+    EditKind, EditTextOutcome, HelpTab, Host, Intent, Mode, ModeView, PasteSlot, PromptKind,
+    Session,
 };
 
 fn toml_session(src: &str) -> Session {
@@ -90,7 +91,11 @@ fn apply_replace_changes_doc() {
     let mut s = toml_session("port = 8080\n");
     let path = vec![Seg::Key("port".into())];
     s.apply_replace(path, "port = 9090\n".into());
-    assert!(s.error.is_none(), "unexpected error: {:?}", s.error);
+    assert!(
+        s.snapshot().error_text().is_none(),
+        "unexpected error: {:?}",
+        s.snapshot().error_text()
+    );
     let text = s.serialize().unwrap();
     assert!(text.contains("9090"), "new value in doc: {text}");
 }
@@ -299,7 +304,11 @@ fn fake_host_multiline_edit_applies_headlessly() {
 
     // 4. Core applies the edited fragment.
     s.apply_replace(path, edited);
-    assert!(s.error.is_none(), "unexpected error: {:?}", s.error);
+    assert!(
+        s.snapshot().error_text().is_none(),
+        "unexpected error: {:?}",
+        s.snapshot().error_text()
+    );
 
     let text = s.serialize().unwrap();
     assert!(text.contains("EDITED"), "edited text landed in doc: {text}");
@@ -461,10 +470,10 @@ fn dispatch_commit_edit_renames_key_inside_scope_table() {
         name: Some("hostname".into()),
     });
     assert!(
-        snap.status.is_none() && snap.error.is_none(),
+        snap.status_text().is_none() && snap.error_text().is_none(),
         "clean rename: status={:?} error={:?}",
-        snap.status,
-        snap.error
+        snap.status_text(),
+        snap.error_text()
     );
     assert_eq!(s.serialize().unwrap(), "[server]\nhostname = \"x\"\n");
 }
@@ -482,10 +491,10 @@ fn dispatch_commit_edit_renames_branch_key() {
         name: Some("svc".into()),
     });
     assert!(
-        snap.status.is_none() && snap.error.is_none(),
+        snap.status_text().is_none() && snap.error_text().is_none(),
         "clean rename: status={:?} error={:?}",
-        snap.status,
-        snap.error
+        snap.status_text(),
+        snap.error_text()
     );
     assert_eq!(s.serialize().unwrap(), "[svc]\nhost = \"x\"\n");
 }
@@ -542,7 +551,9 @@ fn dispatch_commit_edit_failure_is_one_shot() {
         name: None,
     });
     assert!(matches!(snap.mode, ModeView::Detail), "no dangling Edit");
-    assert!(snap.error.is_some(), "failure surfaced as error");
+    // `core.value.invalid` is Warn per the §2.2 severity table (the old
+    // status→error one-shot promotion is gone — severity comes from the key).
+    assert!(snap.status_text().is_some(), "failure surfaced as a notice");
     assert_eq!(s.serialize().unwrap(), "a = 1\n", "doc untouched");
 }
 
@@ -606,7 +617,7 @@ fn dispatch_set_trailing_comment_marks_raw_text() {
         path: a,
         comment: Some("hello".into()),
     });
-    assert!(snap.error.is_none(), "no error: {:?}", snap.error);
+    assert!(snap.error_text().is_none(), "no error: {:?}", snap.error);
     assert_eq!(s.serialize().unwrap(), "a = 1  # hello\n");
 
     // Already-marked text is left as-is (no double "# #").
@@ -636,7 +647,7 @@ fn dispatch_set_trailing_comment_json_and_yaml() {
         path: a,
         comment: Some("note".into()),
     });
-    assert!(snap.error.is_none(), "json no error: {:?}", snap.error);
+    assert!(snap.error_text().is_none(), "json no error: {:?}", snap.error);
     assert!(
         s.serialize().unwrap().contains("// note"),
         "json: {}",
@@ -650,7 +661,7 @@ fn dispatch_set_trailing_comment_json_and_yaml() {
         path: a,
         comment: Some("note".into()),
     });
-    assert!(snap.error.is_none(), "yaml no error: {:?}", snap.error);
+    assert!(snap.error_text().is_none(), "yaml no error: {:?}", snap.error);
     assert_eq!(s.serialize().unwrap(), "a: 1  # note\n");
 }
 
@@ -742,7 +753,7 @@ fn dispatch_multiline_edit_signals_external_edit_then_applies() {
         path: path.clone(),
         text: edited,
     });
-    assert!(snap.error.is_none(), "apply should succeed");
+    assert!(snap.error_text().is_none(), "apply should succeed");
     assert!(snap.external_edit.is_none(), "pending cleared after apply");
     let text = s.serialize().unwrap();
     assert!(text.contains("EDITED"), "doc reflects edit: {text}");
@@ -784,7 +795,7 @@ fn dispatch_save_clears_dirty_flag() {
     assert!(s.is_dirty());
     let snap = s.dispatch(Intent::Save);
     assert!(!snap.is_dirty, "Save clears dirty");
-    assert_eq!(snap.status.as_deref(), Some("Saved"));
+    assert_eq!(snap.status_text(), Some("Saved"));
     // The host obtains bytes separately via serialize(); core stays fs-free.
     assert_eq!(s.serialize().unwrap(), "a = 2\n");
 }
@@ -795,7 +806,7 @@ fn dispatch_set_lang_routes_status_text_through_zh_tw_catalog() {
     s.dispatch(Intent::CursorDown);
     s.dispatch(Intent::Nudge(1));
     // Default lang (en): Save reports the English "Saved" status.
-    assert_eq!(s.dispatch(Intent::Save).status.as_deref(), Some("Saved"));
+    assert_eq!(s.dispatch(Intent::Save).status_text(), Some("Saved"));
     // Dirty it again, switch to zh-TW, and confirm the SAME status site now
     // resolves through the zh-TW catalog end-to-end via dispatch/SetLang.
     s.dispatch(Intent::Nudge(1));
@@ -803,13 +814,13 @@ fn dispatch_set_lang_routes_status_text_through_zh_tw_catalog() {
     assert_eq!(snap.lang, "zh-TW");
     let snap = s.dispatch(Intent::Save);
     assert_eq!(
-        snap.status.as_deref(),
+        snap.status_text(),
         Some(confy_core::session::tr(
             confy_core::session::Lang::ZhTw,
             "core.save.saved"
         )),
     );
-    assert_ne!(snap.status.as_deref(), Some("Saved"));
+    assert_ne!(snap.status_text(), Some("Saved"));
 }
 
 #[test]
@@ -1068,9 +1079,9 @@ fn dispatch_move_selection_reparents_node() {
         cut: true,
     });
     assert!(
-        snap.error.is_none(),
+        snap.error_text().is_none(),
         "move should succeed: {:?}",
-        snap.error
+        snap.error_text()
     );
     let text = s.serialize().unwrap();
     let t_at = text.find("[t]").unwrap();
@@ -1088,8 +1099,10 @@ fn dispatch_move_selection_rejects_drop_into_own_subtree() {
         index: 0,
         cut: true,
     });
+    // `core.move.self` is Warn per the §2.2 severity table — the rejection
+    // surfaces in the status slot (was the error bucket pre-single-slot).
     assert!(
-        snap.error.is_some(),
+        snap.status_text().is_some(),
         "drop into own subtree must be rejected"
     );
     assert_eq!(s.serialize().unwrap(), before, "document untouched");
@@ -1107,7 +1120,7 @@ fn dispatch_move_selection_failure_does_not_arm_cut_clipboard() {
         index: 0,
         cut: true,
     });
-    assert!(snap.error.is_some(), "move into a scalar must fail");
+    assert!(snap.error_text().is_some(), "move into a scalar must fail");
     assert!(
         snap.clipboard_count.is_none(),
         "failed drag must not arm the clipboard (got cut={})",
@@ -1149,9 +1162,9 @@ fn dispatch_move_selection_down_keeps_cursor_on_moved_node() {
         cut: true,
     });
     assert!(
-        snap.error.is_none(),
+        snap.error_text().is_none(),
         "move should succeed: {:?}",
-        snap.error
+        snap.error_text()
     );
     assert_eq!(
         snap.cursor,
@@ -1184,9 +1197,9 @@ fn dispatch_move_comment_down_keeps_cursor_on_moved_comment() {
         cut: true,
     });
     assert!(
-        snap.error.is_none(),
+        snap.error_text().is_none(),
         "move should succeed: {:?}",
-        snap.error
+        snap.error_text()
     );
     // Order is now a, # note, b — the comment landed at index 1 (cursor).
     let cur = snap.rows.iter().find(|r| r.is_cursor).unwrap();
@@ -1216,9 +1229,9 @@ fn dispatch_move_comment_into_collapsed_table_lands_inside() {
         cut: true,
     });
     assert!(
-        snap.error.is_none(),
+        snap.error_text().is_none(),
         "move should succeed: {:?}",
-        snap.error
+        snap.error_text()
     );
     // The comment is now a child of [t] (path starts with Key("t")), depth 2.
     s.expand_all();
@@ -1253,7 +1266,11 @@ fn move_selection_to_with_cut_false_copies_instead_of_moving() {
     let ax = vec![Seg::Key("a".into()), Seg::Key("x".into())];
     let b = vec![Seg::Key("b".into())];
     s.move_selection_to(vec![ax.clone()], b.clone(), 1, false);
-    assert!(s.error.is_none(), "copy-drag should succeed: {:?}", s.error);
+    assert!(
+        s.snapshot().error_text().is_none(),
+        "copy-drag should succeed: {:?}",
+        s.snapshot().error_text()
+    );
     // Source untouched (copy, not move).
     assert!(
         s.tree.node_at(&ax).is_some(),
@@ -1499,7 +1516,7 @@ fn reveal_path_ignores_unknown_path() {
     let before = s.visible_rows().len();
     let snap = s.dispatch(Intent::RevealPath(vec![Seg::Key("nope".into())]));
     assert_eq!(s.visible_rows().len(), before, "no expansion happened");
-    assert!(snap.status.is_none(), "unknown path is a silent no-op");
+    assert!(snap.status_text().is_none(), "unknown path is a silent no-op");
     let rows = s.visible_rows();
     let cursor_row = rows.iter().find(|r| r.is_cursor).unwrap();
     assert_eq!(cursor_row.key, "", "cursor stays on root");
@@ -1519,7 +1536,7 @@ fn reveal_path_hidden_by_filter_expands_and_reports() {
     let cursor_row = rows.iter().find(|r| r.is_cursor).unwrap();
     assert_ne!(cursor_row.key, "x");
     assert!(
-        snap.status.is_some(),
+        snap.status_text().is_some(),
         "hidden-by-filter must report on the status line"
     );
 }
@@ -1646,7 +1663,11 @@ fn copy_paste_dotted_table_into_its_own_scope_does_not_panic() {
     s.cursor_up();
     assert_eq!(s.effective_paste_slot(), PasteSlot::Into(t_path));
     s.paste();
-    assert!(s.error.is_none(), "paste must not surface an error: {:?}", s.error);
+    assert!(
+        s.snapshot().error_text().is_none(),
+        "paste must not surface an error: {:?}",
+        s.snapshot().error_text()
+    );
     assert_eq!(
         s.serialize().unwrap(),
         "t.a = { b = { x = 1 } }\nt.t.a = { b = { x = 1 } }\n"
@@ -1683,7 +1704,12 @@ fn paste_partial_failure_reprojects_tree_before_returning() {
         sources: vec![vec![Seg::Key("a".into())], vec![Seg::Key("b".into())]],
     };
     s.do_paste(clipboard, target, OnCollision::Cancel, false);
-    assert!(s.error.is_some(), "the second fragment's collision must surface");
+    // A collision no longer sets a notice — it opens the Collision prompt
+    // (spec §3: questions moved out of the Notice slot).
+    assert!(
+        matches!(s.mode, Mode::Prompt(PromptKind::Collision { .. })),
+        "the second fragment's collision must surface"
+    );
     // The first fragment's insert already committed to the document...
     assert_eq!(
         s.serialize().unwrap(),
@@ -1726,7 +1752,11 @@ fn paste_into_slot_expands_target_so_pasted_child_is_visible() {
     s.cursor_up();
     assert_eq!(s.effective_paste_slot(), PasteSlot::Into(t_path.clone()));
     s.paste();
-    assert!(s.error.is_none(), "paste must not surface an error: {:?}", s.error);
+    assert!(
+        s.snapshot().error_text().is_none(),
+        "paste must not surface an error: {:?}",
+        s.snapshot().error_text()
+    );
 
     // The pasted child must be immediately visible, not just present in the
     // document -- else the very next cursor-relative action silently no-ops.
@@ -1792,7 +1822,11 @@ fn rename_remaps_stale_selection_so_the_next_copy_targets_the_right_node() {
     s.copy_selected();
     s.cursor_up();
     s.paste();
-    assert!(s.error.is_none(), "into-self paste must not error: {:?}", s.error);
+    assert!(
+        s.snapshot().error_text().is_none(),
+        "into-self paste must not error: {:?}",
+        s.snapshot().error_text()
+    );
     let nested_path = vec![Seg::Key("new_field".into()), Seg::Key("new_field".into())];
     assert_eq!(s.cursor, nested_path);
 
@@ -1831,14 +1865,22 @@ fn rename_remaps_stale_selection_so_the_next_copy_targets_the_right_node() {
     // value" then "path not found").
     s.cursor_home();
     s.paste();
-    assert!(s.error.is_none(), "paste to root must succeed: {:?}", s.error);
+    assert!(
+        s.snapshot().error_text().is_none(),
+        "paste to root must succeed: {:?}",
+        s.snapshot().error_text()
+    );
     assert_eq!(
         s.serialize().unwrap(),
         "{ \"new_field\": {\"a\":1, \"inner\": {\"a\":1}}, \"inner\": {\"a\":1} }\n"
     );
 
     s.delete_selected();
-    assert!(s.error.is_none(), "delete must succeed on the first try: {:?}", s.error);
+    assert!(
+        s.snapshot().error_text().is_none(),
+        "delete must succeed on the first try: {:?}",
+        s.snapshot().error_text()
+    );
     assert_eq!(
         s.serialize().unwrap(),
         "{ \"new_field\": {\"a\":1, \"inner\": {\"a\":1}} }\n"
@@ -1870,7 +1912,11 @@ fn paste_does_not_leave_a_stale_selection_that_hijacks_the_next_copy() {
     s.copy_selected();
     s.reveal_path(vec![Seg::Key("t2".into()), Seg::Key("y".into())]);
     s.paste();
-    assert!(s.error.is_none(), "paste must not surface an error: {:?}", s.error);
+    assert!(
+        s.snapshot().error_text().is_none(),
+        "paste must not surface an error: {:?}",
+        s.snapshot().error_text()
+    );
     let pasted_x = vec![Seg::Key("t2".into()), Seg::Key("x".into())];
     assert_eq!(s.cursor, pasted_x, "cursor follows the freshly-pasted node");
 
@@ -2008,12 +2054,20 @@ fn move_aot_entry_into_another_group_preserves_nested_section() {
     s.reveal_path(fruit0.clone());
     s.cursor = fruit0.clone();
     s.cut_selected();
-    assert!(s.error.is_none(), "cut should succeed: {:?}", s.error);
+    assert!(
+        s.snapshot().error_text().is_none(),
+        "cut should succeed: {:?}",
+        s.snapshot().error_text()
+    );
 
     let items = vec![Seg::Key("items".into())];
     s.paste_slot = Some(PasteSlot::Into(items.clone()));
     s.paste();
-    assert!(s.error.is_none(), "paste should succeed: {:?}", s.error);
+    assert!(
+        s.snapshot().error_text().is_none(),
+        "paste should succeed: {:?}",
+        s.snapshot().error_text()
+    );
 
     // The moved entry lands as `items[1]`, its `name` member traveling with it.
     let name1 = vec![
@@ -2066,12 +2120,20 @@ fn copy_array_element_into_table_derives_array_key_index_name() {
     s.reveal_path(nums1.clone());
     s.cursor = nums1;
     s.copy_selected();
-    assert!(s.error.is_none(), "copy should succeed: {:?}", s.error);
+    assert!(
+        s.snapshot().error_text().is_none(),
+        "copy should succeed: {:?}",
+        s.snapshot().error_text()
+    );
 
     let dst = vec![Seg::Key("dst".into())];
     s.paste_slot = Some(PasteSlot::Into(dst.clone()));
     s.paste();
-    assert!(s.error.is_none(), "paste should succeed: {:?}", s.error);
+    assert!(
+        s.snapshot().error_text().is_none(),
+        "paste should succeed: {:?}",
+        s.snapshot().error_text()
+    );
 
     // The pasted key is `nums_1` — derived from the source array's own key +
     // element index, the same name a cut/move of the same element produces —
@@ -2119,7 +2181,11 @@ fn copy_scalar_out_of_nested_unkeyed_array_falls_back_to_placeholder() {
     let dst = vec![Seg::Key("dst".into())];
     s.paste_slot = Some(PasteSlot::Into(dst.clone()));
     s.paste();
-    assert!(s.error.is_none(), "paste should succeed: {:?}", s.error);
+    assert!(
+        s.snapshot().error_text().is_none(),
+        "paste should succeed: {:?}",
+        s.snapshot().error_text()
+    );
 
     let pasted = vec![Seg::Key("dst".into()), Seg::Key("placeholder".into())];
     assert_eq!(

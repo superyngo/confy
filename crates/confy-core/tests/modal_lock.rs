@@ -13,7 +13,7 @@ fn armed_session() -> Session {
     s.cursor_down();
     s.copy_selected();
     assert!(s.clipboard.is_some(), "clipboard must be armed after copy");
-    s.status = None; // clear the "copied N node(s)" status
+    s.notice = None; // clear the "copied N node(s)" status
     s
 }
 
@@ -28,13 +28,13 @@ fn armed_session_with_table() -> Session {
     s.cursor_down(); // on "port"
     s.copy_selected();
     assert!(s.clipboard.is_some());
-    s.status = None;
+    s.notice = None;
     s
 }
 
 fn has_locked_status(s: &Session) -> bool {
-    s.status
-        .as_ref()
+    s.snapshot()
+        .status_text()
         .map(|st| st.contains("clipboard") || st.contains("剪貼簿"))
         .unwrap_or(false)
 }

@@ -1,5 +1,6 @@
 use crate::model::document::{DocFormat, KindTarget};
 use crate::model::node::{Format, Path, ScalarType};
+use crate::session::notice::{Notice, Severity};
 use crate::session::state::{ConvertStep, EditField, HelpTab, PasteSlot};
 use crate::session::type_filter::CheckState;
 use serde::{Deserialize, Serialize};
@@ -221,6 +222,12 @@ pub struct SessionSnapshot {
     pub mode: ModeView,
     pub rows: Vec<ViewRow>,
     pub cursor: Path,
+    /// The single user-facing transient message slot (design spec §2/§10).
+    /// `status`/`error` are the legacy dual-write projection of this field.
+    pub notice: Option<Notice>,
+    /// Legacy dual-write projection of `notice` (spec §10/§11 Q6): Error →
+    /// `error`, Info/Success/Warn → `status`, no notice → both `None`.
+    /// Computed at snapshot-build time in `Session::snapshot`.
     pub status: Option<String>,
     pub error: Option<String>,
     pub detail_text: Option<String>,
@@ -258,4 +265,24 @@ pub struct SessionSnapshot {
     /// its text (local read or URL fetch) and dispatch `Intent::SchemaLoaded`
     /// back — mirrors `external_edit`/`convert_write`'s async-signal shape.
     pub schema_fetch_request: Option<crate::schema::SchemaSource>,
+}
+
+impl SessionSnapshot {
+    /// The error-slot text: `Some` iff a notice is present with
+    /// `Severity::Error` (design spec §10 / §12 Q7).
+    pub fn error_text(&self) -> Option<&str> {
+        self.notice
+            .as_ref()
+            .filter(|n| n.severity == Severity::Error)
+            .map(|n| n.text.as_str())
+    }
+
+    /// The status-slot text: `Some` iff a notice is present with any
+    /// non-Error severity (Info/Success/Warn — design spec §10 / §12 Q7).
+    pub fn status_text(&self) -> Option<&str> {
+        self.notice
+            .as_ref()
+            .filter(|n| n.severity != Severity::Error)
+            .map(|n| n.text.as_str())
+    }
 }

@@ -17,9 +17,10 @@
 
 use crate::model::document::ConfigDocument;
 use crate::model::node::NodeKind;
+use crate::session::diag::DiagLevel;
 use crate::session::i18n::{tr_args, Lang};
 use crate::session::intent::Intent;
-use crate::session::notice::{Notice, Severity};
+use crate::session::notice::{Notice, NoticeSource, Severity};
 use crate::session::state::{EditKind, KindSwitchState, Mode, PendingExternalEdit, PromptKind};
 use crate::session::type_filter::{layout, LayoutRow};
 use crate::session::view::{
@@ -284,8 +285,26 @@ impl super::Session {
             Intent::SchemaEnumMove(delta) => self.schema_enum_move(delta),
             Intent::SchemaEnumJump(delta) => self.schema_enum_jump(delta),
             Intent::SchemaEnumCommit => self.schema_enum_commit(),
-        }
 
+            Intent::SetHostNotice { key, args, source } => {
+                // Hosts report their own notices through the sole dispatch
+                // path (§12 Q6) — severity resolves via `severity_of`, never
+                // chosen by the caller.
+                let args_ref: Vec<&str> = args.iter().map(String::as_str).collect();
+                let notice = match source {
+                    NoticeSource::HostTui => Some(Notice::host_tui(self.lang, &key, &args_ref)),
+                    NoticeSource::HostWeb => Some(Notice::host_web(self.lang, &key, &args_ref)),
+                    // `Core` here is a caller bug — core code never
+                    // dispatches host notices. Defensive no-op: sets no
+                    // notice, never panics in any build profile (spec
+                    // §12 Q6's "hosts never claim NoticeSource::Core").
+                    NoticeSource::Core => None,
+                };
+                if let Some(n) = notice {
+                    self.set_notice(n);
+                }
+            }
+        }
         ApplyOutcome {
             convert_write,
             quit,
@@ -300,7 +319,37 @@ impl super::Session {
     /// visible tree + modal surfaces + transient signals (`external_edit`,
     /// `convert_write`, `quit`). No structured row diff yet.
     pub fn dispatch(&mut self, intent: Intent) -> SessionSnapshot {
+        // Diag `dispatch` tap (spec §7): every intent, Debug level, first.
+        let variant = variant_name(&intent);
+        self.diag
+            .push(DiagLevel::Debug, "dispatch", variant.clone());
+
+        // Remember the notice slot across `apply` so the `mutation` tap can
+        // tell a *newly surfaced* Error (failure) from one left over from an
+        // earlier intent (navigation intents don't touch the slot). `Notice`
+        // has no `PartialEq`, so compare by (severity, text) fingerprint.
+        let notice_before = self.notice.as_ref().map(|n| (n.severity, n.text.clone()));
         let outcome = self.apply(intent);
+        let notice_after = self.notice.as_ref().map(|n| (n.severity, n.text.clone()));
+        let failed = notice_before != notice_after
+            && matches!(&self.notice, Some(n) if n.severity == Severity::Error);
+        self.diag.push(
+            if failed {
+                DiagLevel::Error
+            } else {
+                DiagLevel::Info
+            },
+            "mutation",
+            if failed {
+                format!(
+                    "{} err text={:?}",
+                    variant,
+                    self.notice.as_ref().map(|n| n.text.as_str()).unwrap_or("")
+                )
+            } else {
+                format!("{} ok", variant)
+            },
+        );
 
         // Snap the cursor onto a visible row and drop a stale paste slot after
         // any structural change (delete/collapse/filter), mirroring the TUI's
@@ -331,6 +380,7 @@ impl super::Session {
             mode: self.mode_view(),
             rows: self.visible_rows(),
             cursor: self.cursor.clone(),
+            notice: self.notice.clone(),
             status,
             error,
             detail_text: self.detail_text.clone(),
@@ -523,6 +573,17 @@ fn prompt_view(pk: &PromptKind) -> PromptView {
         PromptKind::ArrayUpgrade { .. } => PromptView::ArrayUpgrade,
         PromptKind::JsoncUpgrade { .. } => PromptView::JsoncUpgrade,
     }
+}
+
+/// The `Intent` enum variant name with payload elided (`SetLang("x")` →
+/// `SetLang`) for the diag `dispatch`/`mutation` detail lines (spec §7:
+/// "intent name" / "variant").
+fn variant_name(intent: &Intent) -> String {
+    let dbg = format!("{intent:?}");
+    dbg.split(['(', ' ', '{'])
+        .next()
+        .unwrap_or(&dbg)
+        .to_string()
 }
 
 /// The prompt's question text, rendered per-snapshot from `PromptKind` +
