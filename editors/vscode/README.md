@@ -16,9 +16,26 @@ web UI + wasm Session in a custom editor. Design:
 1. Build the web bundle first (repo root; esbuild must run from a scratchpad
    copy on this machine — see the plan/CLAUDE.md):
    `crates/confy-ffi: wasm-pack build --target web`, then `web: node build.mjs`
-   + assemble `web/dist` (cf-build.sh's copy steps).
+   (this now also assembles fresh `web/dist`, including `dist/pkg/*`).
 2. `cd editors/vscode && npm install && npm run build` (same scratchpad rule).
 3. `npm run package` → `confy-vscode-<version>.vsix`.
+
+## Native text-editor features
+
+Beyond the custom editor webview, the extension also enriches VS Code's native
+TOML/YAML text editors with:
+
+- Outline/breadcrumb symbols (`DocumentSymbolProvider`)
+- Schema diagnostics in Problems (warning-only)
+- Schema-aware hover hints
+
+All three run in the extension host process and are backed by the same wasm core.
+
+## Integration testing
+
+Run `npm run integration-test` in `editors/vscode/` to execute extension-host tests
+with `@vscode/test-electron` against fixture TOML/schema files. This is the primary
+regression guard for native editor symbol/diagnostic/hover behavior.
 
 ## Publishing a new version
 

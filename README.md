@@ -87,11 +87,18 @@ The web UI also ships as a VS Code custom editor (`editors/vscode/`) — open a 
 and click **Open with confy** to get the tree view in-place, backed by VS Code's own
 save/undo/revert.
 
+On VS Code's **native text editor** for TOML/YAML, the extension also contributes:
+
+- Outline/breadcrumb symbols (DocumentSymbolProvider backed by `ConfySession.outline()`)
+- JSON Schema diagnostics in Problems (warning-only, soft-constraint model)
+- Schema-aware hover hints (enum/const/range guidance)
+
 - Marketplace: search **confy**, or install
   [wenanlin.confy-vscode](https://marketplace.visualstudio.com/items?itemName=wenanlin.confy-vscode).
 - VSCodium / Cursor / Windsurf etc.: [Open VSX listing](https://open-vsx.org/extension/wenanlin/confy-vscode).
 
 See [VSCODE.md](VSCODE.md) and [editors/vscode/README.md](editors/vscode/README.md) for details.
+Maintainer quick check: `cd editors/vscode && npm run integration-test`.
 
 ## Format support
 

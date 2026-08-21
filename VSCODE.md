@@ -149,6 +149,49 @@ Outline/breadcrumbs (spec's Platform constraint). Because a runtime-only
 `registerDocumentSymbolProvider` has no declarative `contributes` equivalent,
 `package.json` carries an explicit `"activationEvents": ["onStartupFinished"]`.
 
+## Schema diagnostics & hover (native text editors)
+
+For the same TOML/YAML native-editor scope, `extension.ts` wires:
+
+- `SchemaSessionManager` (one persistent `ConfySession` per open document)
+- diagnostics (`confy-schema` `DiagnosticCollection`) from `schema_violations()`
+- hover provider (`schemaHoverProvider.ts`) from `schema_hint(path)`
+
+This pipeline is deliberately independent of the custom editor webview and runs in
+the extension host process.
+
+## Wasm loader boundary (CJS host vs ESM glue)
+
+The extension entry is CJS-bundled (`dist/extension.js`), while wasm-bindgen's
+`--target web` glue (`media/pkg/confy_ffi.js`) is ESM. The loader in
+`src/wasmSession.ts` therefore **must not** statically import the glue at bundle time.
+
+Current strategy (required):
+
+1. Resolve `media/pkg/confy_ffi.js` from `context.extensionUri`.
+2. Convert to an absolute file URL (`pathToFileURL(...).href`).
+3. Dynamic `import(fileUrl)` at runtime.
+4. Initialize with raw wasm bytes (`ffi.default({ module_or_path: bytes })`).
+
+This avoids CJS/ESM import-shim breakage and removed the previous runtime LinkError
+(`Import "./confy_ffi_bg.js" ... requires a callable`) and build-time `import.meta`
+warning.
+
+## Build/test workflow (regression guard)
+
+`web/build.mjs` now assembles a fresh runtime `web/dist` (including `dist/pkg/*`) on
+every run, so `editors/vscode/build.mjs` always stages current artifacts into `media/`.
+
+Recommended local verification for VS Code host changes:
+
+1. `cd crates/confy-ffi && wasm-pack build --target web`
+2. `cd web && node build.mjs`
+3. `cd editors/vscode && npm run check && npm run build && npm run integration-test`
+
+`npm run integration-test` uses `@vscode/test-electron` and asserts native-editor
+DocumentSymbols/diagnostics/hover behavior, catching the exact class of silent regressions
+that manual clicking can miss.
+
 ## Publishing (M2)
 
 Publisher/namespace is **`wenanlin`** on both registries — Open VSX requires its

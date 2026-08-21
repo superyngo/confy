@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-08-21T03:55:00Z
+- fix(vscode): extension-host wasm loading is now robust across CJS/ESM boundaries. Instead of static bundle-time import of `media/pkg/confy_ffi.js`, `wasmSession.ts` resolves it at runtime from `context.extensionUri` via `pathToFileURL(...)` and then initializes from raw `.wasm` bytes. This removes the build-time `import.meta` warning and fixes the extension-host runtime `LinkError` (`Import "./confy_ffi_bg.js" ... requires a callable`) observed after artifact refresh.
+- fix(web+vscode): `web/build.mjs` now assembles a fresh runtime `web/dist` on every build (including `dist/pkg/*`) through `web/assemble-dist.mjs`, so `editors/vscode/build.mjs` always stages current wasm/glue artifacts into `media/` instead of potentially stale outputs.
+- test(vscode): added extension-host integration tests (`editors/vscode/test-integration/*`, `npm run integration-test`) using `@vscode/test-electron` to assert native text-editor behavior programmatically (DocumentSymbolProvider non-empty, schema diagnostics present, hover schema hints available), preventing future silent regressions.
+
 ### Unreleased Update — 2026-08-21T01:19:46Z
 - feat(vscode): native TOML/YAML text editors now surface confy-core's JSON Schema support directly — Problems-panel diagnostics (schema violations, always `Warning` severity per the Soft-constraint principle, plus a load-error notice) and hover tooltips (enum/const/bounds at the cursor's node), driven by one persistent `ConfySession` per open document (`Intent::ApplyReplace{path:[],text}` in place of a per-edit rebuild, ADR 0007) and a new `Session::schema_violations()`/`Intent::DetectSchema` core surface. Defers to `tamasfe.even-better-toml`/`redhat.vscode-yaml` when installed. Scoped to VS Code's native editor only; confy's own custom editor tab is unaffected.
 
