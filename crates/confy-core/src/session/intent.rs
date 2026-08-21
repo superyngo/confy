@@ -212,6 +212,14 @@ pub enum Intent {
     /// unchanged (never panics).
     SetLang(String),
     // Schema
+    /// Re-run `detect_and_request_schema()` against the current document and
+    /// stash the result into `pending_schema_fetch` — **not** an idempotent
+    /// no-op: it unconditionally overwrites `pending_schema_fetch`, even
+    /// with `None`, whenever called. Hosts that want to avoid redundant
+    /// fetch/recompile after every edit must compare the returned
+    /// `schema_fetch_request` against what they already have loaded
+    /// themselves (VS Code schema-hints design).
+    DetectSchema,
     SchemaLoaded {
         source: crate::schema::SchemaSource,
         text: Result<String, String>,

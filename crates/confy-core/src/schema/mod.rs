@@ -8,5 +8,5 @@ pub mod types;
 pub mod validate;
 pub mod value_bridge;
 
-pub use types::{Category, EditHint, SchemaSource, SchemaState, SchemaStatus, Violation};
+pub use types::{Category, EditHint, SchemaSource, SchemaState, SchemaStatus, Violation, ViolationView};
 pub use value_bridge::PointerMap;

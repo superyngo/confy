@@ -930,3 +930,56 @@ fn dirty_check_revalidates_and_surfaces_a_new_violation_for_a_constrained_path()
     assert_eq!(violations.len(), 1, "the maximum violation: {violations:?}");
     assert_eq!(violations[0].keyword, "maximum");
 }
+
+use confy_core::model::node::Seg as HeadlessSeg;
+use confy_core::session::{Intent as HeadlessIntent, Session as HeadlessSession};
+
+fn session_from_toml(src: &str) -> HeadlessSession {
+    HeadlessSession::new(AnyDocument::from_str_as(src, DocFormat::Toml).unwrap())
+}
+
+#[test]
+fn detect_schema_intent_sets_pending_schema_fetch() {
+    let mut s = session_from_toml("port = 1\n");
+    // No hint yet: dispatch is a no-op.
+    let _ = s.dispatch(HeadlessIntent::DetectSchema);
+    assert_eq!(s.pending_schema_fetch, None);
+
+    let mut s = session_from_toml("#:schema ./s.json\nport = 1\n");
+    // `Session::new` already ran detection once (session.rs:72) — drain that first.
+    let _ = s.pending_schema_fetch.take();
+    let snap = s.dispatch(HeadlessIntent::DetectSchema);
+    assert_eq!(
+        snap.schema_fetch_request,
+        Some(SchemaSource::Local("./s.json".into()))
+    );
+}
+
+#[test]
+fn schema_violations_is_empty_without_a_loaded_schema() {
+    let s = session_from_toml("port = 1\n");
+    assert!(s.schema_violations().is_empty());
+}
+
+#[test]
+fn schema_violations_carries_the_violating_node_text_range() {
+    let mut s = session_from_toml("port = \"not-a-number\"\n");
+    s.apply_schema_text(
+        SchemaSource::Local("./s.json".into()),
+        Ok(r#"{"type":"object","properties":{"port":{"type":"integer"}}}"#.to_string()),
+    );
+    let violations = s.schema_violations();
+    assert_eq!(violations.len(), 1);
+    let v = &violations[0];
+    assert_eq!(v.path, vec![HeadlessSeg::Key("port".into())]);
+    assert_eq!(v.keyword, "type");
+    let (start, end) = v.text_range.expect("port node resolves");
+    // `Node.text_range` for a TOML entry spans the whole `key = value` (ADR
+    // 0006 / Outline-anchoring policy, `model/node.rs`'s `Node::text_range`
+    // doc comment) — not just the value token. `schema_violations` reuses
+    // that same node range rather than inventing a narrower one.
+    assert_eq!(
+        &"port = \"not-a-number\"\n"[start as usize..end as usize],
+        "port = \"not-a-number\""
+    );
+}

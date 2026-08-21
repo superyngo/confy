@@ -1576,6 +1576,31 @@ impl Session {
             .collect();
     }
 
+    /// Current schema violations, each carrying its node's resolved
+    /// `text_range` — the native-editor Diagnostics data source (VS Code
+    /// schema-hints design). Empty when no schema is loaded or there are no
+    /// violations.
+    pub fn schema_violations(&self) -> Vec<crate::schema::ViolationView> {
+        let Some(state) = self.schema.as_ref() else {
+            return Vec::new();
+        };
+        state
+            .violations
+            .iter()
+            .map(|v| crate::schema::ViolationView {
+                path: v.path.clone(),
+                pointer: v.pointer.clone(),
+                keyword: v.keyword.clone(),
+                message: v.message.clone(),
+                category: v.category,
+                text_range: self
+                    .tree
+                    .node_at(&v.path)
+                    .map(|n| (n.text_range.start as u32, n.text_range.end as u32)),
+            })
+            .collect()
+    }
+
     /// Resolve the schema-driven editing hint for the node at `path` —
     /// enum/const options, numeric bounds, or `EditHint::None` when
     /// unconstrained or no schema is loaded. Read-only, cheap (same

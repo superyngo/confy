@@ -40,6 +40,21 @@ pub struct Violation {
     pub category: Category,
 }
 
+/// A `Violation` plus its violating node's resolved source-text byte range —
+/// the native-editor Diagnostics data source (`Session::schema_violations`).
+/// `text_range: None` only if `path` no longer resolves against the current
+/// tree (defensive: in practice this is only ever read against the same
+/// tree revision the violations were computed from).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ViolationView {
+    pub path: Path,
+    pub pointer: String,
+    pub keyword: String,
+    pub message: String,
+    pub category: Category,
+    pub text_range: Option<(u32, u32)>,
+}
+
 /// A resolved editing constraint for one node, used to swap the inline
 /// editor's plain text input for a constrained widget (enum/const picker,
 /// numeric bounds). Deliberately does not attempt to resolve `allOf`/
