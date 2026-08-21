@@ -1,4 +1,5 @@
 pub mod clipboard;
+pub mod diag;
 pub mod dispatch;
 pub mod host;
 pub mod i18n;
@@ -18,6 +19,7 @@ pub mod undo_redo;
 pub mod view;
 
 pub use dispatch::ApplyOutcome;
+pub use diag::{DiagEvent, DiagLevel};
 pub use host::{EditTextOutcome, Host};
 pub use i18n::{tr, tr_args, Lang};
 pub use insertion::resolve_target;
