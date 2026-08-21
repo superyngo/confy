@@ -241,5 +241,22 @@
   "web.host.delete.ok": "Deleted",
   "web.host.add.node": "Node added",
   "web.host.add.child": "Child added",
-  "web.host.add.sibling": "Sibling added"
+  "web.host.sibling": "Sibling added",
+  "cli.convert.warnings-header": "Converting {0} → {1} normalizes the following (lossy):",
+  "cli.convert.proceed": "Proceed and write {0}? [y/N] ",
+  "cli.convert.cancelled": "cancelled (no file written)",
+  "cli.convert.refuse-non-interactive": "refusing to write a lossy conversion without --yes",
+  "cli.convert.write-failed": "failed to write {0}: {1}",
+  "cli.convert.wrote": "wrote {0}",
+  "cli.convert.load-failed": "failed to load {0}: {1}",
+  "cli.convert.aborted": "conversion aborted: {0}",
+  "cli.create.non-interactive": "{0} does not exist (run in a terminal to create it, or create it first)",
+  "cli.create.confirm": "{0} does not exist. Create it as {1}? [y/N] ",
+  "cli.create.cancelled": "cancelled (no file created)",
+  "cli.create.write-failed": "failed to create {0}: {1}",
+  "cli.url.non-interactive": "cannot prompt for a save path for a URL (run in a terminal)",
+  "cli.url.save-prompt": "Save {0} as [{1}]: ",
+  "cli.no-file": "no file given (try `confy <file>` or `confy convert <in> <out>`)",
+  "cli.format.unknown": "unknown format: {0}",
+  "cli.format.unrecognized": "unrecognized config format: {0}"
 }

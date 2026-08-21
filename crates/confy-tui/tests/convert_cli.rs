@@ -111,3 +111,84 @@ fn explicit_from_to_overrides_extension() {
 
     assert_eq!(fs::read_to_string(&output).unwrap(), "{\n  \"a\": 1\n}\n");
 }
+
+#[test]
+fn convert_cli_respects_lang_flag_zh_tw() {
+    use confy_core::session::{tr_args, Lang};
+    let dir = TempDir::new().unwrap();
+    let input = dir.path().join("in.json");
+    let output = dir.path().join("out.yaml");
+    fs::write(&input, "{ \"a\": 1 }\n").unwrap();
+
+    let expected_wrote = tr_args(
+        Lang::ZhTw,
+        "cli.convert.wrote",
+        &[output.to_str().unwrap()],
+    );
+
+    confy()
+        .args([
+            "convert",
+            input.to_str().unwrap(),
+            output.to_str().unwrap(),
+            "--lang",
+            "zh-TW",
+        ])
+        .assert()
+        .success()
+        .stderr(contains(&expected_wrote));
+}
+
+#[test]
+fn convert_cli_lossy_refusal_renders_in_zh_tw() {
+    use confy_core::session::{tr, Lang};
+    let dir = TempDir::new().unwrap();
+    let input = dir.path().join("in.toml");
+    let output = dir.path().join("out.json");
+    fs::write(&input, "n = 0xFF\n").unwrap();
+
+    let expected_refusal = tr(Lang::ZhTw, "cli.convert.refuse-non-interactive");
+
+    confy()
+        .args([
+            "convert",
+            input.to_str().unwrap(),
+            output.to_str().unwrap(),
+            "--lang",
+            "zh-TW",
+        ])
+        .assert()
+        .failure()
+        .stderr(contains(expected_refusal));
+}
+
+#[test]
+fn convert_cli_respects_config_file_lang_when_no_flag() {
+    use confy_core::session::{tr_args, Lang};
+    let dir = TempDir::new().unwrap();
+    let input = dir.path().join("in.json");
+    let output = dir.path().join("out.yaml");
+    fs::write(&input, "{ \"a\": 1 }\n").unwrap();
+
+    // Write a config file with lang = "zh-TW"
+    let config_dir = dir.path().join("confy");
+    fs::create_dir_all(&config_dir).unwrap();
+    fs::write(config_dir.join("config.toml"), "lang = \"zh-TW\"\n").unwrap();
+
+    let expected_wrote = tr_args(
+        Lang::ZhTw,
+        "cli.convert.wrote",
+        &[output.to_str().unwrap()],
+    );
+
+    confy()
+        .env("XDG_CONFIG_HOME", dir.path())
+        .args([
+            "convert",
+            input.to_str().unwrap(),
+            output.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stderr(contains(&expected_wrote));
+}

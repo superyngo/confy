@@ -1,8 +1,8 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use confy_core::session::{tr, tr_args, Lang};
 use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
-
 use crate::model::any_doc::detect_format;
 use crate::model::document::DocFormat;
 
@@ -12,7 +12,7 @@ use crate::model::document::DocFormat;
     version,
     about = "TUI editor for structured config files"
 )]
-#[command(args_conflicts_with_subcommands = true)]
+#[command(args_conflicts_with_subcommands = true, subcommand_precedence_over_arg = true)]
 struct Args {
     #[command(subcommand)]
     command: Option<Command>,
@@ -24,7 +24,7 @@ struct Args {
     format: Option<String>,
     /// UI language for this session (en, zh-TW). Overrides the saved config
     /// file but does not write it. Falls back to the config file, then `en`.
-    #[arg(long)]
+    #[arg(long, global = true)]
     lang: Option<String>,
     /// Path or URL to a JSON Schema, overriding in-file hint detection.
     #[arg(long)]
@@ -83,14 +83,22 @@ enum Command {
 
 /// Resolve a `--format`/`--from`/`--to` override string, falling back to the
 /// file extension.
-fn resolve_format(override_str: Option<&str>, path: &Path) -> Result<DocFormat> {
+fn resolve_format(override_str: Option<&str>, path: &Path, lang: Lang) -> Result<DocFormat> {
     match override_str {
         Some("toml") => Ok(DocFormat::Toml),
         Some("json") | Some("jsonc") => Ok(DocFormat::Json),
         Some("yaml") | Some("yml") => Ok(DocFormat::Yaml),
-        Some(other) => anyhow::bail!("unknown format: {other}"),
-        None => detect_format(path)
-            .ok_or_else(|| anyhow::anyhow!("unrecognized config format: {}", path.display())),
+        Some(other) => anyhow::bail!("{}", tr_args(lang, "cli.format.unknown", &[other])),
+        None => detect_format(path).ok_or_else(|| {
+            anyhow::anyhow!(
+                "{}",
+                tr_args(
+                    lang,
+                    "cli.format.unrecognized",
+                    &[&path.display().to_string()]
+                )
+            )
+        }),
     }
 }
 
@@ -109,26 +117,41 @@ fn seed_for(format: DocFormat) -> &'static str {
 /// create it with a minimal valid seed for the extension-derived format so the
 /// normal load path can open it. Declining (or a non-interactive stdin) aborts
 /// without touching the filesystem.
-fn create_missing_file(file: &Path, fmt: DocFormat) -> Result<()> {
+fn create_missing_file(file: &Path, fmt: DocFormat, lang: Lang) -> Result<()> {
     if !std::io::stdin().is_terminal() {
         anyhow::bail!(
-            "{} does not exist (run in a terminal to create it, or create it first)",
-            file.display()
+            "{}",
+            tr_args(
+                lang,
+                "cli.create.non-interactive",
+                &[&file.display().to_string()]
+            )
         );
     }
     eprint!(
-        "{} does not exist. Create it as {}? [y/N] ",
-        file.display(),
-        fmt.name()
+        "{}",
+        tr_args(
+            lang,
+            "cli.create.confirm",
+            &[&file.display().to_string(), fmt.name()]
+        )
     );
     std::io::stderr().flush().ok();
     let mut answer = String::new();
     std::io::stdin().read_line(&mut answer)?;
     if !matches!(answer.trim(), "y" | "Y" | "yes") {
-        anyhow::bail!("cancelled (no file created)");
+        anyhow::bail!("{}", tr(lang, "cli.create.cancelled"));
     }
-    std::fs::write(file, seed_for(fmt))
-        .map_err(|e| anyhow::anyhow!("failed to create {}: {e}", file.display()))?;
+    std::fs::write(file, seed_for(fmt)).map_err(|e| {
+        anyhow::anyhow!(
+            "{}",
+            tr_args(
+                lang,
+                "cli.create.write-failed",
+                &[&file.display().to_string(), &e.to_string()]
+            )
+        )
+    })?;
     Ok(())
 }
 
@@ -166,12 +189,15 @@ fn derive_filename_from_url(url: &str) -> String {
 /// content there so the normal load path can open it exactly like any
 /// pre-existing file. A non-interactive stdin aborts without any network
 /// call, matching `create_missing_file`'s non-TTY guard.
-fn open_url(url: &str, fmt_override: Option<&str>) -> Result<(PathBuf, DocFormat)> {
+fn open_url(url: &str, fmt_override: Option<&str>, lang: Lang) -> Result<(PathBuf, DocFormat)> {
     if !std::io::stdin().is_terminal() {
-        anyhow::bail!("cannot prompt for a save path for a URL (run in a terminal)");
+        anyhow::bail!("{}", tr(lang, "cli.url.non-interactive"));
     }
     let suggested = derive_filename_from_url(url);
-    eprint!("Save {url} as [{suggested}]: ");
+    eprint!(
+        "{}",
+        tr_args(lang, "cli.url.save-prompt", &[url, &suggested])
+    );
     std::io::stderr().flush().ok();
     let mut answer = String::new();
     std::io::stdin().read_line(&mut answer)?;
@@ -181,14 +207,22 @@ fn open_url(url: &str, fmt_override: Option<&str>) -> Result<(PathBuf, DocFormat
     } else {
         typed
     });
-    let fmt = resolve_format(fmt_override, &path)?;
+    let fmt = resolve_format(fmt_override, &path, lang)?;
     let body = ureq::get(url)
         .call()
         .map_err(|e| anyhow::anyhow!("{url}: {e}"))?
         .into_string()
         .map_err(|e| anyhow::anyhow!("{url}: {e}"))?;
-    std::fs::write(&path, &body)
-        .map_err(|e| anyhow::anyhow!("failed to write {}: {e}", path.display()))?;
+    std::fs::write(&path, &body).map_err(|e| {
+        anyhow::anyhow!(
+            "{}",
+            tr_args(
+                lang,
+                "cli.convert.write-failed",
+                &[&path.display().to_string(), &e.to_string()]
+            )
+        )
+    })?;
     Ok((path, fmt))
 }
 
@@ -201,21 +235,24 @@ pub fn run() -> Result<()> {
             from,
             to,
             yes,
-        }) => run_convert(&input, &output, from.as_deref(), to.as_deref(), yes),
-        None => {
-            let file = args.file.ok_or_else(|| {
-                anyhow::anyhow!("no file given (try `confy <file>` or `confy convert <in> <out>`)")
-            })?;
+        }) => {
             let lang = resolve_lang(args.lang.as_deref());
+            run_convert(&input, &output, from.as_deref(), to.as_deref(), yes, lang)
+        }
+        None => {
+            let lang = resolve_lang(args.lang.as_deref());
+            let file = args.file.ok_or_else(|| {
+                anyhow::anyhow!("{}", tr(lang, "cli.no-file"))
+            })?;
             if let Some(s) = file.to_str() {
                 if is_url(s) {
-                    let (path, fmt) = open_url(s, args.format.as_deref())?;
+                    let (path, fmt) = open_url(s, args.format.as_deref(), lang)?;
                     return crate::tui::run(&path, fmt, lang, args.schema);
                 }
             }
-            let fmt = resolve_format(args.format.as_deref(), &file)?;
+            let fmt = resolve_format(args.format.as_deref(), &file, lang)?;
             if !file.exists() {
-                create_missing_file(&file, fmt)?;
+                create_missing_file(&file, fmt, lang)?;
             }
             crate::tui::run(&file, fmt, lang, args.schema)
         }
@@ -228,48 +265,89 @@ fn run_convert(
     from: Option<&str>,
     to: Option<&str>,
     yes: bool,
+    lang: Lang,
 ) -> Result<()> {
-    let from_fmt = resolve_format(from, input)?;
-    let to_fmt = resolve_format(to, output)?;
+    let from_fmt = resolve_format(from, input, lang)?;
+    let to_fmt = resolve_format(to, output, lang)?;
 
-    let doc = crate::load_document(input, from_fmt)
-        .map_err(|e| anyhow::anyhow!("failed to load {}: {e}", input.display()))?;
+    let doc = crate::load_document(input, from_fmt).map_err(|e| {
+        anyhow::anyhow!(
+            "{}",
+            tr_args(
+                lang,
+                "cli.convert.load-failed",
+                &[&input.display().to_string(), &e.to_string()]
+            )
+        )
+    })?;
 
     let result = match crate::model::convert::convert(&doc, to_fmt) {
         Ok(r) => r,
         Err(abort) => {
             // Conversion aborted: nothing is written.
-            anyhow::bail!("conversion aborted: {}", abort);
+            anyhow::bail!(
+                "{}",
+                tr_args(
+                    lang,
+                    "cli.convert.aborted",
+                    &[&abort.to_string()]
+                )
+            );
         }
     };
 
     if !result.warnings.is_empty() {
         eprintln!(
-            "Converting {} → {} normalizes the following (lossy):",
-            from_fmt.name(),
-            to_fmt.name()
+            "{}",
+            tr_args(
+                lang,
+                "cli.convert.warnings-header",
+                &[from_fmt.name(), to_fmt.name()]
+            )
         );
         for w in &result.warnings {
             eprintln!("  • {w}");
         }
         if !yes {
             if std::io::stdin().is_terminal() {
-                eprint!("Proceed and write {}? [y/N] ", output.display());
+                eprint!(
+                    "{}",
+                    tr_args(
+                        lang,
+                        "cli.convert.proceed",
+                        &[&output.display().to_string()]
+                    )
+                );
                 std::io::stderr().flush().ok();
                 let mut answer = String::new();
                 std::io::stdin().read_line(&mut answer)?;
                 if !matches!(answer.trim(), "y" | "Y" | "yes") {
-                    anyhow::bail!("cancelled (no file written)");
+                    anyhow::bail!("{}", tr(lang, "cli.convert.cancelled"));
                 }
             } else {
-                anyhow::bail!("refusing to write a lossy conversion without --yes");
+                anyhow::bail!("{}", tr(lang, "cli.convert.refuse-non-interactive"));
             }
         }
     }
 
-    std::fs::write(output, &result.text)
-        .map_err(|e| anyhow::anyhow!("failed to write {}: {e}", output.display()))?;
-    eprintln!("wrote {}", output.display());
+    std::fs::write(output, &result.text).map_err(|e| {
+        anyhow::anyhow!(
+            "{}",
+            tr_args(
+                lang,
+                "cli.convert.write-failed",
+                &[&output.display().to_string(), &e.to_string()]
+            )
+        )
+    })?;
+    eprintln!(
+        "{}",
+        tr_args(
+            lang,
+            "cli.convert.wrote",
+            &[&output.display().to_string()]
+        )
+    );
     Ok(())
 }
 
@@ -380,5 +458,65 @@ mod tests {
             super::derive_filename_from_url("https://example.com/"),
             "config"
         );
+    }
+
+    #[test]
+    fn cli_catalog_keys_exist_in_en_and_zh_tw() {
+        use confy_core::session::{tr, tr_args, Lang};
+        let keys = [
+            "cli.convert.warnings-header",
+            "cli.convert.proceed",
+            "cli.convert.cancelled",
+            "cli.convert.refuse-non-interactive",
+            "cli.convert.write-failed",
+            "cli.convert.wrote",
+            "cli.convert.load-failed",
+            "cli.convert.aborted",
+            "cli.create.non-interactive",
+            "cli.create.confirm",
+            "cli.create.cancelled",
+            "cli.create.write-failed",
+            "cli.url.non-interactive",
+            "cli.url.save-prompt",
+            "cli.no-file",
+            "cli.format.unknown",
+            "cli.format.unrecognized",
+        ];
+
+        for k in keys {
+            let en = tr(Lang::En, k);
+            let zh = tr(Lang::ZhTw, k);
+            assert_ne!(en, k, "key '{k}' missing from en catalog");
+            assert_ne!(zh, k, "key '{k}' missing from zh-TW catalog");
+            assert_ne!(en, zh, "key '{k}' should have a distinct zh-TW translation");
+        }
+
+        // Check sample formatting with arguments
+        assert_eq!(
+            tr_args(Lang::ZhTw, "cli.convert.wrote", &["out.json"]),
+            "已寫入 out.json"
+        );
+    }
+
+    #[test]
+    fn resolve_format_unknown_override_returns_translated_error() {
+        use confy_core::session::Lang;
+        let err = super::resolve_format(Some("foo"), std::path::Path::new("a.toml"), Lang::ZhTw)
+            .unwrap_err();
+        assert_eq!(err.to_string(), "未知的格式：foo");
+        let err_en = super::resolve_format(Some("foo"), std::path::Path::new("a.toml"), Lang::En)
+            .unwrap_err();
+        assert_eq!(err_en.to_string(), "unknown format: foo");
+    }
+
+    #[test]
+    fn resolve_format_unrecognized_ext_returns_translated_error() {
+        use confy_core::session::Lang;
+        let err = super::resolve_format(None, std::path::Path::new("a.unknown_ext"), Lang::ZhTw)
+            .unwrap_err();
+        assert_eq!(err.to_string(), "無法識別的設定檔格式：a.unknown_ext");
+        let err_en = super::resolve_format(None, std::path::Path::new("a.unknown_ext"), Lang::En)
+            .unwrap_err();
+        assert_eq!(err_en.to_string(), "unrecognized config format: a.unknown_ext");
     }
 }

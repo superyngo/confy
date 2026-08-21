@@ -241,5 +241,22 @@
   "web.host.delete.ok": "已刪除",
   "web.host.add.node": "已新增節點",
   "web.host.add.child": "已新增子項",
-  "web.host.add.sibling": "已新增相鄰節點"
+  "web.host.sibling": "已新增相鄰節點",
+  "cli.convert.warnings-header": "將 {0} 轉換為 {1} 會正規化以下內容（具失真性）：",
+  "cli.convert.proceed": "是否繼續並寫入 {0}？[y/N] ",
+  "cli.convert.cancelled": "已取消（未寫入任何檔案）",
+  "cli.convert.refuse-non-interactive": "未指定 --yes，拒絕寫入具失真性的轉換",
+  "cli.convert.write-failed": "無法寫入 {0}：{1}",
+  "cli.convert.wrote": "已寫入 {0}",
+  "cli.convert.load-failed": "無法載入 {0}：{1}",
+  "cli.convert.aborted": "轉換已中止：{0}",
+  "cli.create.non-interactive": "{0} 不存在（請在終端機中執行以建立，或先手動建立）",
+  "cli.create.confirm": "{0} 不存在。是否建立為 {1}？[y/N] ",
+  "cli.create.cancelled": "已取消（未建立任何檔案）",
+  "cli.create.write-failed": "無法建立 {0}：{1}",
+  "cli.url.non-interactive": "無法為 URL 提示儲存路徑（請在終端機中執行）",
+  "cli.url.save-prompt": "將 {0} 儲存為 [{1}]：",
+  "cli.no-file": "未指定檔案（請嘗試 `confy <file>` 或 `confy convert <in> <out>`）",
+  "cli.format.unknown": "未知的格式：{0}",
+  "cli.format.unrecognized": "無法識別的設定檔格式：{0}"
 }
