@@ -523,9 +523,17 @@ fn run_event_loop(
                         });
                         continue;
                     }
+                    // Don't open lang picker while diag overlay is active.
+                    if app.diag_overlay_open {
+                        continue;
+                    }
                     app.open_lang_picker();
                 }
                 keys::KeyAction::ToggleDiag => {
+                    // Don't open diag overlay while lang picker is active.
+                    if app.lang_picker.is_some() {
+                        continue;
+                    }
                     app.diag_overlay_open = true;
                 }
                 keys::KeyAction::Noop => {}
