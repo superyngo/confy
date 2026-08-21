@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-08-22T00:00:00Z
+- fix(tui): a `Warn`/`Info`/`Success` `Notice` (e.g. `core.clipboard.action-locked`, surfaced when attempting a disallowed action — delete/rename/edit/move — while the clipboard is armed) was silently hidden by the status line's "clipboard armed" sticky hint (`draw_status`, `ui.rs`) and by the equivalent branch in `FilterResults` mode, both of which checked `session.clipboard` before `session.notice`. Reordered both checks so a pending notice always wins, mirroring the existing Edit-mode override and the Error-severity "never hidden" invariant (`docs/superpowers/specs/2026-08-21-message-system-design.md` §5.1's documented `draw_status` priority). Reproduced and verified fixed on the real TUI binary (cut a node, attempt `d`/Delete while armed — the warning now shows instead of the clipboard hint).
+
 ### Unreleased Update — 2026-08-21T21:45:00Z
 - feat(messages): unified message system across core and all hosts (TUI, Web desktop, Touch, CLI) — replaces the legacy dual-bucket `status`/`error` model with a typed single-slot `Notice` (`Severity`, `NoticeSource`, localized text) with severity derived from a centralized `severity_of(key)` table (`notice.rs`) rather than specified at call sites. Host notices route uniformly through `Intent::SetHostNotice { key, args, source }` (`dispatch.rs`), preserving `dispatch` as the sole mutation entry point.
 - feat(diag): in-Session developer diagnostics ring buffer (`diag.rs`, capacity 256, monotonic `seq`) tapping every notice assignment plus dispatch, mutation, schema, and convert events (ADR 0008). Exported via TUI `~` read-only overlay (`overlay_diag.rs`), FFI `diag_log()` / `ConfySession.diagLog()`, and web `?diag=1` console drain diffed by `seq` (`web/ui.ts`).

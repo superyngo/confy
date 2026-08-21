@@ -584,7 +584,9 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
             tags.push_str(&format!("[type: {n_types}] "));
         }
         let lang = app.session.lang;
-        let status = if let Some(cb) = &app.session.clipboard {
+        let status = if let Some(notice) = &app.session.notice {
+            tr_args(lang, "tui.status.filter-results-notice", &[&tags, &notice.text])
+        } else if let Some(cb) = &app.session.clipboard {
             let n = cb.fragments.len().to_string();
             let kind = if cb.cut { "cut" } else { "copied" };
             tr_args(
@@ -592,8 +594,6 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
                 "tui.status.filter-results-clipboard",
                 &[&tags, &n, kind],
             )
-        } else if let Some(notice) = &app.session.notice {
-            tr_args(lang, "tui.status.filter-results-notice", &[&tags, &notice.text])
         } else {
             tr_args(
                 lang,
@@ -606,15 +606,21 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
         f.render_widget(paragraph, area);
         return;
     }
-    // When clipboard is loaded, show a sticky hint in place of the normal hints.
-    if let Some(cb) = &app.session.clipboard {
-        let n = cb.fragments.len().to_string();
-        let kind = if cb.cut { "cut" } else { "copied" };
-        let text = tr_args(app.session.lang, "tui.status.clipboard", &[&n, kind]);
-        let paragraph =
-            Paragraph::new(text).style(Style::default().bg(Color::DarkGray).fg(Color::Yellow));
-        f.render_widget(paragraph, area);
-        return;
+    // When clipboard is loaded, show a sticky hint in place of the normal
+    // hints -- unless a notice is pending (e.g. "action disabled while
+    // clipboard is armed"), which must stay visible rather than vanish under
+    // the very clipboard-armed state it explains (falls through to the
+    // generic notice rendering below, mirroring the Edit-mode override).
+    if app.session.notice.is_none() {
+        if let Some(cb) = &app.session.clipboard {
+            let n = cb.fragments.len().to_string();
+            let kind = if cb.cut { "cut" } else { "copied" };
+            let text = tr_args(app.session.lang, "tui.status.clipboard", &[&n, kind]);
+            let paragraph =
+                Paragraph::new(text).style(Style::default().bg(Color::DarkGray).fg(Color::Yellow));
+            f.render_widget(paragraph, area);
+            return;
+        }
     }
     let mut status = tr_args(
         app.session.lang,
