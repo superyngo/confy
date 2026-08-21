@@ -260,11 +260,13 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
     host.rs        Host trait (edit_text callback) + EditTextOutcome
     i18n.rs        Lang enum + tr/tr_args catalog lookup (include_str!'d i18n/*.json, en-fallback)
     intent.rs      Intent enum — every key-mapped action the TUI can dispatch
+    notice.rs      Notice (single-slot transient message), Severity, NoticeSource, severity_of table
     session.rs     Session struct (all CORE state + methods): visible_rows/compute_rows, navigation,
                    filter/type-filter, kind-switch, convert (no fs), edit routing,
                    escape, prompt-key dispatch, quit flow; plus free fns: node_type_label,
                    format_label
     clipboard.rs   cut/copy/paste + the paste collision/array-upgrade prompt sub-state-machine
+    diag.rs        DiagLevel, DiagEvent (monotonic seq, kind, detail), DiagRing (bounded 256-event ring)
     inline_edit.rs inline-editor buffer lifecycle (begin_inline_edit*/edit_*/edit_commit) +
                    value/rename/nudge/add-node mutation-application methods that commit through it
     schema_hint.rs nudge_scalar: schema-constraint numeric clamping for the `←`/`→` shortcut
@@ -368,6 +370,7 @@ crates/confy-tui/src/    ratatui TUI + CLI; depends on confy-core, `pub use conf
                    (Task 10, 2026-08-11 audit remediation — pure code motion)
     overlay_convert.rs      the `C` convert-document popup
     overlay_detail.rs       the `i` Detail popup (+ appended Schema: violations section)
+    overlay_diag.rs         the `~` read-only diag ring overlay
     overlay_help.rs         the `?` Help | About popup
     overlay_kind_switch.rs  the `K` kind-switch popup
     overlay_lang_picker.rs  the `l` language-picker popup

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-08-21T21:45:00Z
+- feat(messages): unified message system across core and all hosts (TUI, Web desktop, Touch, CLI) — replaces the legacy dual-bucket `status`/`error` model with a typed single-slot `Notice` (`Severity`, `NoticeSource`, localized text) with severity derived from a centralized `severity_of(key)` table (`notice.rs`) rather than specified at call sites. Host notices route uniformly through `Intent::SetHostNotice { key, args, source }` (`dispatch.rs`), preserving `dispatch` as the sole mutation entry point.
+- feat(diag): in-Session developer diagnostics ring buffer (`diag.rs`, capacity 256, monotonic `seq`) tapping every notice assignment plus dispatch, mutation, schema, and convert events (ADR 0008). Exported via TUI `~` read-only overlay (`overlay_diag.rs`), FFI `diag_log()` / `ConfySession.diagLog()`, and web `?diag=1` console drain diffed by `seq` (`web/ui.ts`).
+- feat(tui): severity-driven status line rendering (`draw_status`), giving Error notices absolute red-background priority while rendering non-Error notices in the standard status slot; `~` opens the modal diagnostics overlay; prompt overlay consumes core-rendered `prompt_question`.
+- feat(web+touch): unified `#toast` element and severity-driven surface rendering on desktop (`renderNotice` in `ui.ts`) and touch (`touch/app.ts`); migrated touch `toast()` call sites to severity-driven `SetHostNotice`; deleted prompt fallback chain (`web/prompt.ts`) in favor of core-rendered `ModeView::Prompt.question`.
+- feat(cli): routed all CLI convert subcommand output strings and error diagnostics through the `cli.*` i18n catalog with `--lang` resolution from config.
+- refactor(core+web): removed deprecated `SessionSnapshot.status` and `SessionSnapshot.error` fields (paired core+web cutover), switched web types and components to consume `SessionSnapshot.notice` exclusively, and renamed `has_descendant_warning` to `has_descendant_violation`.
+
 ### Unreleased Update — 2026-08-21T15:05:00Z
 - docs(design): closed two gaps flagged at the end of the second spec review — (1) §2 now states explicitly that host notices resolve severity through the same `severity_of(key)` table as core notices (no explicit-severity variant exists), so a host message without a catalog key can't migrate; (2) Phase 1's verification (§8) gains an explicit slot-occupancy test — a `Warn` populating `notice` while `error_text()` is `None`/`status_text()` is `Some` — since the `error_text()`/`status_text()` helpers alone (§12 Q7) only preserve old two-bucket assertions and never exercise the new single-slot case.
 

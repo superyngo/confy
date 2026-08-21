@@ -230,3 +230,22 @@ the remaining entries — comment entries are preserved so they run on retry; an
 the rest + `paste error: …`), so a failed paste is never destructive; only `Esc`/`c` at the collision
 prompt discards it. Because comments are independent nodes, a moved or copied node never carries an
 upper-adjacent comment with it — the comment simply stays where it is.
+
+## Status & diagnostics (TUI)
+
+The status bar (`draw_status` in `ui.rs`) renders the Session's single-slot `Notice` (`Severity` +
+localized text) alongside mode hints. **Severity drives rendering and precedence**: an `Error`
+notice (red background, ` ✗ ` prefix) takes absolute priority over normal mode chrome (clipboard
+sticky hints, filter results, default row count) outside inline edit; during `Mode::Edit`, an
+active notice is rendered in red with an `(Esc:cancel)` cue in place of the editing/nudge hints.
+Non-Error notices (`Info`/`Warn`/`Success`) sit in the status bar's default dark-gray slot; active
+input (`Mode::Filter`) temporarily displays its input field over non-Error notices, but the notice
+reappears once filter input closes. When no notice is active, the status line falls back to dynamic
+schema hints (`edit_hint`) and appends aggregate violation counts (`core.schema.count`).
+
+`~` opens a read-only diagnostics overlay (`overlay_diag.rs`, `draw_diag_overlay`), a centered
+popup displaying the Session's bounded 256-event diagnostic ring (`session.diag`), newest last,
+with per-level coloring (`DiagLevel` Error red / Warn yellow / Info cyan / Debug dark gray). Like
+the `l` language picker, this is host-owned UI state (`App.diag_overlay_open`), not a core `Mode`:
+`~` or `Esc` closes the overlay, other keys are swallowed while open, and opening is mutually
+exclusive with the language picker (`app.lang_picker.is_some()`).

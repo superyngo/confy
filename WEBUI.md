@@ -63,6 +63,7 @@ hand-maintained field-by-field marshalling.
 | `kindOptions` | `(path: Seg[]) => KindOption[]` | per-node convertible kinds (drives the `K` popup). |
 | `children` | `(path: Seg[]) => ChildView[]` | immediate children of the node at `path` as `ChildView[]` (`{ key, path, type_label, is_branch }`), independent of expansion state; feeds the breadcrumb mini-tree's lazy expansion. |
 | `externalEdit` | `() => { initial, kind } \| undefined` | the current external-edit request, if any (§8.2). |
+| `diagLog` | `() => DiagEvent[]` | full event list from the Session's bounded 256-event ring buffer; feeds `?diag=1` console drain. |
 
 `external_edit` in the snapshot is the async handshake (§8.2): the UI opens its
 multi-line modal with `initial`, awaits the result, and re-dispatches
@@ -85,7 +86,7 @@ shapes round-trip). Key types:
   `CommitEdit {value?,name?}`, `CommitKind {path,target}`, `SetFilter(String)`,
   `SetConvertFormat(DocFormat)`, `SetConvertPath(String)`.
 - **`SessionSnapshot`** — full renderable state: `mode: ModeView`, `rows: ViewRow[]`,
-  `cursor: Seg[]`, `status`/`error`, `detail_text`, `external_edit`, `convert_write`,
+  `cursor: Seg[]`, `notice: Notice | undefined`, `detail_text`, `external_edit`, `convert_write`,
   `clipboard_count`, `quit`, `doc_format`, `is_dirty`.
 - **`ModeView`** — a serializable projection of `Mode` + the modal edit surfaces:
   `Normal | Prompt | Filter {text,cursor} | FilterResults | TypeFilter {…grid…} |
@@ -279,6 +280,14 @@ shapes round-trip). Key types:
   the flex row). The **value compresses first**; the **key keeps its full width**
   (`.key{flex-shrink:0}`, truncating only past its `max-width:38vw` cap). Full text remains in
   the detail panel (`i`).
+- **Notices & toast rendering (`renderNotice`).** Replaces the legacy two-bucket
+  status/error model with unified severity-driven message surfaces. On desktop (`web/ui.ts`),
+  `Success` notices display in a transient `#toast` alongside the status bar (`#status.sev-success`);
+  `Error` notices render in a persistent red `#error` box with click-to-clear; `Info` and
+  `Warn` notices update `#status` (`.sev-info` / `.sev-warn`). When idle (no notice), `#status`
+  falls back to dynamic schema violation counts or node hover hints. On touch (`web/touch/app.ts`),
+  all notices display via a unified `#toast` styled by severity class (`.sev-info`, `.sev-success`,
+  `.sev-warn`, `.sev-error`) with longer duration for errors/warnings (3000ms vs 1600ms).
 
 ## Touch UI (dedicated `web/touch/` module)
 
@@ -452,6 +461,17 @@ and `helpBodyHTML`'s About body both branch on `getLang()`; the About body appen
 browser's local storage (or the desktop app's WebView persistent storage) rather than a
 filesystem path — unlike the TUI, which discloses a config-file path (see `TUI.md` §*Language
 / i18n (TUI)*).
+
+## Diagnostics (`?diag=1`)
+
+The Web UI surfaces `confy-core`'s in-Session 256-event diagnostic ring (`DiagEvent`) through the
+WASM FFI method `ConfySession.diagLog()` (`diag_log()` in `crates/confy-ffi`).
+
+When the page URL includes `?diag=1`, `drainDiagIfEnabled()` in `web/ui.ts` runs after every
+`dispatch` cycle, diffing returned events against a module-level `lastSeenSeq` counter and printing
+only newly-recorded events to `console.debug` with a `[confy-diag] [LEVEL] KIND DETAIL` prefix.
+Because events are filtered by monotonic `seq`, successive user interactions emit only their own
+trace deltas without re-logging historical events.
 
 ## Desktop + Mobile (Tauri)
 
