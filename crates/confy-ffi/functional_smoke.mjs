@@ -406,6 +406,22 @@ check("about_text() mentions the GitHub repo", aboutText.includes("github.com/su
     s21.serialize().includes("cat"), s21.serialize());
 }
 
+{
+  const src = `port = "not-a-number"\n`;
+  const schemaSession = new ConfySession(src, "toml");
+  schemaSession.dispatch(tuple("SchemaLoaded", {
+    source: { Local: "./s.json" },
+    text: { Ok: JSON.stringify({ type: "object", properties: { port: { type: "integer" } } }) },
+  }));
+  const violations = schemaSession.schema_violations();
+  check("schema_violations reports one violation", violations.length === 1, JSON.stringify(violations));
+  check(
+    "violation carries a resolved text_range",
+    Array.isArray(violations[0]?.text_range) && violations[0].text_range.length === 2,
+    JSON.stringify(violations[0]),
+  );
+}
+
 // ---- 27. pointer_slot + SetPasteSlot: pointer paste-target classification
 // (ADR 0004 §1, wasm export). pointer_slot is the one classifier every
 // pointer host calls; SetPasteSlot arms the slot it returns.

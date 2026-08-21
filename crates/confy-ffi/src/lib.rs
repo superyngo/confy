@@ -127,6 +127,12 @@ impl ConfySession {
         to_value(&self.session.outline()).map_err(js_serde_error)
     }
 
+    /// Current schema violations with resolved `text_range`s — the
+    /// native-editor Diagnostics data source (VS Code schema-hints design).
+    pub fn schema_violations(&self) -> Result<JsValue, JsValue> {
+        to_value(&self.session.schema_violations()).map_err(js_serde_error)
+    }
+
     /// Pointer-drop classification (Web mouse / touch): "this row, this
     /// relative vertical position" -> the `PasteSlot` it represents, or
     /// `undefined` if the row is no longer visible. Every pointer surface
