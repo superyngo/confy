@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-08-21T12:30:00Z
+- docs(vscode): documented the custom editor's local/remote `$schema` loading (`31f86ba`) — `VSCODE.md` § Message protocol now lists the `read-schema-file`/`schema-file`/`schema-file-error` and `read-schema-url`/`schema-url`/`schema-url-error` message pairs (webview has no fs access; CSP blocks external fetches; host reads/fetches instead) with the webview↔host branching notes, plus brief mentions in `README.md` and `editors/vscode/README.md`.
+
 ### Unreleased Update — 2026-08-21T03:55:00Z
 - fix(vscode): extension-host wasm loading is now robust across CJS/ESM boundaries. Instead of static bundle-time import of `media/pkg/confy_ffi.js`, `wasmSession.ts` resolves it at runtime from `context.extensionUri` via `pathToFileURL(...)` and then initializes from raw `.wasm` bytes. This removes the build-time `import.meta` warning and fixes the extension-host runtime `LinkError` (`Import "./confy_ffi_bg.js" ... requires a callable`) observed after artifact refresh.
 - fix(web+vscode): `web/build.mjs` now assembles a fresh runtime `web/dist` on every build (including `dist/pkg/*`) through `web/assemble-dist.mjs`, so `editors/vscode/build.mjs` always stages current wasm/glue artifacts into `media/` instead of potentially stale outputs.

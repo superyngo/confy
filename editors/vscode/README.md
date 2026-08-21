@@ -31,6 +31,11 @@ TOML/YAML text editors with:
 
 All three run in the extension host process and are backed by the same wasm core.
 
+The **custom editor webview** also loads `$schema` references (local files and
+`https://` URLs) — the webview itself has no filesystem access and its CSP blocks
+external fetches, so both go through `read-schema-file`/`read-schema-url` message
+round trips to the extension host (see VSCODE.md § Message protocol).
+
 ## Integration testing
 
 Run `npm run integration-test` in `editors/vscode/` to execute extension-host tests

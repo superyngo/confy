@@ -77,8 +77,18 @@ the mode is `"auto"`. The persisted choice rides back on every `init` (same prin
 | webview→host | `edit { text }` | A Session mutation happened: `text` is `session.serialize()`. The host applies it as a minimal-span `WorkspaceEdit` (common prefix/suffix trim) — VS Code's dirty/undo/save machinery takes over from there |
 | webview→host | `request-undo` / `request-redo` | Webview keyboard/toolbar undo/redo forward to the workbench, which owns the text document's stacks |
 | webview→host | `request-save` | Webview Save / ⌘S → workbench save |
-| webview→host | `convert-save { suggestedName, text }` | Convert (or same-format save-a-copy) output: host shows a native save dialog |
+| webview→host | `read-schema-file { relativePath }` | Local `$schema` file read: the webview has **no filesystem access**, so the host resolves the path (absolute, or relative to `document.uri`'s directory) and reads it via `vscode.workspace.fs`. Reply: `schema-file { text }` or `schema-file-error { message }` |
+| webview→host | `read-schema-url { url }` | Remote `$schema: "https://…"` fetch: the webview's CSP `connect-src ${webview.cspSource}` blocks external origins, so the unsandboxed host fetches it instead (Node `fetch`, error format `HTTP {status} {statusText}` — parity with the browser/Tauri hosts). Reply: `schema-url { text }` or `schema-url-error { message }` |
 | webview→host | `parse-error { message }` | Initial text failed to parse: host offers the default text editor instead of a white screen |
+ 
+**Schema file/URL reads go through the host** (added 0.20.x, `31f86ba`): `web/fs.ts`'s
+`readSiblingFile` and `web/host-io.ts`'s `resolveSchemaFetchRequest` branch to
+`web/vscode.ts`'s `requestSchemaFile`/`requestSchemaUrl` when `isVsCode()` — before
+this, local and remote `$schema` loading both silently failed inside the extension
+(no Tauri bridge, CSP-blocked `fetch`). Parity with the other hosts only: no CSP
+relaxation, no `../` traversal sandboxing, no timeout/content-type/redirect checks.
+This serves the **custom editor webview**; the native text editors' diagnostics use
+the separate extension-host pipeline below instead.
 
 **Echo suppression.** The host tracks `webviewText` (last text the webview is known to
 hold — set on `ready`'s `init` reply, on every received `edit`, and on every posted

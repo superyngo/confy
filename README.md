@@ -87,6 +87,10 @@ The web UI also ships as a VS Code custom editor (`editors/vscode/`) — open a 
 and click **Open with confy** to get the tree view in-place, backed by VS Code's own
 save/undo/revert.
 
+The custom editor also resolves `$schema` references — local files (relative to the
+open document) and remote `https://` URLs — via message round trips to the extension
+host, since the webview has no filesystem access and its CSP blocks external fetches.
+
 On VS Code's **native text editor** for TOML/YAML, the extension also contributes:
 
 - Outline/breadcrumb symbols (DocumentSymbolProvider backed by `ConfySession.outline()`)
