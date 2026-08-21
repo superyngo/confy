@@ -192,6 +192,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (SCHEMA_SELECTOR.some((s) => vscode.languages.match(s, e.document) > 0)) scheduleReparse(e.document);
     }),
     vscode.workspace.onDidCloseTextDocument(async (document) => {
+      if (!SCHEMA_SELECTOR.some((s) => vscode.languages.match(s, document) > 0)) return;
       const key = document.uri.toString();
       const timer = reparseTimers.get(key);
       clearTimeout(timer);
