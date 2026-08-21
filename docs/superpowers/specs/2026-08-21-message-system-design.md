@@ -53,8 +53,8 @@ pub struct Notice {
 - `Session.status: Option<String>` and `Session.error: Option<String>` are
   replaced by a single `Session.notice: Option<Notice>`.
 - Lifecycle is unchanged: single slot, replaced by the next notice, cleared on
-  mutation success / Esc / edit begin, exactly where `status`/`error` are
-  cleared today.
+  mutation success / Esc / edit begin / language switch (SetLang intent clears
+  stale rendered text), exactly where `status`/`error` are cleared today.
 - Helpers on Session: `fn notice_info/text…` are NOT added; call sites use
   `self.notice = Some(Notice::core(Severity::Warn, tr_args(...)))` style
   constructors (`Notice::core`, `Notice::host_tui`) to keep source consistent.
@@ -63,34 +63,35 @@ pub struct Notice {
 
 | Severity | Meaning | Rule |
 |---|---|---|
-| `Error` | An operation the user initiated **failed** | mutation apply error, host I/O failure, schema load failure, convert abort |
-| `Warn` | Action unavailable in current context; user stays in flow | readonly / locked / unsupported / invalid-input guidance |
+| `Error` | An operation the user initiated **failed** | mutation apply error, host I/O failure, schema load failure |
+| `Warn` | Action unavailable in current context; user stays in flow | readonly / locked / unsupported / invalid-input / precondition-unmet guidance |
 | `Success` | Action completed | mutation confirmations |
-| `Info` | Neutral state report | empty/nothing/cancelled notices |
+| `Info` | Neutral state report | empty/nothing/cancelled/aborted notices |
 | *(question)* | Prompt awaiting an answer | moved out of Notice into `ModeView::Prompt` (§3) |
 
 ### 2.2 Per-key mapping table (all non-`detail` `core.*` keys, 45 total)
 
-**Error (14):** `core.error.generic`, `core.add.error`, `core.delete.error`,
+**Error (11):** `core.error.generic`, `core.add.error`, `core.delete.error`,
 `core.paste.error`, `core.paste.comment-illegal`, `core.remark.error`,
 `core.rename.failed`, `core.trailing.update-failed`, `core.undo.error`,
-`core.redo.error`, `core.kind-switch.error`, `core.kind-switch.unsupported`,
-`core.convert.aborted`, `core.convert.root-only`.
+`core.redo.error`, `core.kind-switch.error`.
 
-**Warn (12):** `core.readonly`, `core.clipboard.action-locked`,
+**Warn (14):** `core.readonly`, `core.clipboard.action-locked`,
 `core.comment.unsupported`, `core.trailing.inline-unsupported`,
 `core.reveal.hidden-by-filter`, `core.move.self`, `core.insert.collision`,
 `core.rename.empty-key`, `core.value.invalid`, `core.comment.invalid`,
-`core.fragment.invalid`, `core.remark.invalid`.
+`core.fragment.invalid`, `core.remark.invalid`, `core.convert.root-only`,
+`core.kind-switch.unsupported`.
 
 **Success (7):** `core.save.saved`, `core.kind-switch.converted`,
 `core.kind-switch.converted-generic`, `core.clipboard.cut`,
 `core.clipboard.copied`, `core.clipboard.cut-changed`,
 `core.clipboard.copied-changed`.
 
-**Info (8):** `core.save.nothing`, `core.clipboard.empty`,
+**Info (9):** `core.save.nothing`, `core.clipboard.empty`,
 `core.clipboard.cleared`, `core.selection.cleared`, `core.undo.empty`,
-`core.redo.empty`, `core.paste.cancelled`, `core.add.placeholder`.
+`core.redo.empty`, `core.paste.cancelled`, `core.add.placeholder`,
+`core.convert.aborted`.
 
 **Question (moved):** `core.paste.collision`, `core.quit.confirm`,
 `core.type-change`, `core.paste.array-upgrade-confirm` become
@@ -108,14 +109,17 @@ is deleted — the question is the message.
 - status: Option<String>          → notice: Option<Notice>
 - error: Option<String>           → (removed)
 - ModeView::Prompt { kind }       → ModeView::Prompt { kind, question: String }
+- rows[].has_descendant_warning   → rows[].has_descendant_violation
 ```
 
-- `question` is rendered once at prompt-open time (i18n, no legend) and rides
-  the mode; hosts never reconstruct it.
-- `web/types.ts` mirrors both changes. VS Code uses the same web bundle — no
-  extra interface. wasm + web ship together in this repo, so this is a
-  one-shot breaking change inside one phase pair (core phase + web phase land
-  before the next release).
+- `question` is rendered **per snapshot** by `prompt_view()` from `PromptKind`
+  data (i18n from `Session.lang`), deterministic since snapshots rebuild the
+  view. Runtime language switches (SetLang) re-render the prompt correctly.
+  Hosts never reconstruct it.
+- `web/types.ts` mirrors all changes. VS Code uses the same web bundle — no
+  extra interface. wasm + web ship together in this repo, so these are
+  one-shot breaking changes inside paired phases (core + web land before the
+  next release; see §10 dual-write mitigation).
 - `Notice` serializes as `{severity, text, source}`; severity/source as above.
 
 ## 4. Prompt text consolidation
@@ -146,11 +150,12 @@ After:
 | Warn | status line yellow |
 | Error | status line red-bg white-text (current error style) |
 
-`draw_status` priority becomes: notice (by severity style) > Filter input >
-Edit-mode hint. The "N schema warnings" footer switches to the shared key
-(§5.3). TUI host error sites (`app.rs` save/editor/convert-write,
-`schema_io.rs` fetch, config write) call `set_host_notice` with
-`NoticeSource::HostTui` + `Severity::Error`.
+`draw_status` priority: **Error notice** (preserves existing "errors never
+hidden" invariant, `ui.rs:481-482`) > **active input** (Filter query / Edit
+mode) > **Warn/Success/Info notice** > edit-mode hint. The "N schema warnings"
+footer switches to the shared key (§5.3). TUI host error sites (`app.rs`
+save/editor/convert-write, `schema_io.rs` fetch, config write) call
+`set_host_notice` with `NoticeSource::HostTui` + `Severity::Error`.
 
 ### 5.2 Web desktop + VS Code webview
 
@@ -166,11 +171,14 @@ Edit-mode hint. The "N schema warnings" footer switches to the shared key
 - Touch keeps its current behavior (success→toast, else statusbar), now driven
   by `notice.severity` instead of per-call-site choice; the 20+ hardcoded
   `toast(...)` call sites that duplicate core messages are replaced by the
-  severity-driven path. Touch-only notices (Firefox iOS save hint) remain
-  host-initiated via `Notice::host_web`-equivalent local call.
+  severity-driven path.
+- **Web host messages** (e.g. `recentGone` recent-file vanished, schema fetch
+  failures) migrate to FFI `set_host_notice(severity: Severity, text: String)`
+  (stamped with `NoticeSource::HostWeb`), so they enter the single-slot model
+  and appear in diagnostics. Touch-only local notices (Firefox iOS save hint,
+  if still purely host-side) may call the same FFI or remain DOM-local.
 - VS Code extension-side `showErrorMessage` / `showInformationMessage` stay
   native; their severity mapping is already error/info.
-
 ### 5.3 Shared strings
 
 - New `core.schema.count` (`"{0} schema warning(s)"` / zh-TW) — TUI footer,
@@ -247,14 +255,12 @@ pub struct DiagEvent {
 
 ## 10. Risks / notes
 
-- `SessionSnapshot` break means phases 1 and 3 cannot ship independently; the
-  repo's release unit (wasm + web bundle built together) absorbs this, and
-  phase ordering keeps `main` green at every commit because phase 1 updates
-  `web/types.ts` consumers' expectations only in phase 3 — **mitigation:**
-  phase 1 must ALSO update `functional_smoke.mjs` expectations in the same
-  commit, or the repo's CI breaks between phases. Decision: phase 1 includes
-  the minimal smoke-test expectation updates; phase 3 delivers the UI.
-- `modal_lock.rs` and `session_headless.rs` assert on status strings; they are
-  updated to assert on `notice` (severity + key-derived text) in phase 1.
+- `SessionSnapshot` break: **dual-write mitigation** — Phase 1 populates BOTH
+  `notice` (new) and legacy `status`/`error` fields (computed from notice) so
+  old web JS keeps working. Phase 3 switches web consumers to `notice` and
+  **removes** the legacy fields in the same commit (core+web together). Every
+  intermediate commit stays green. Phase 1 also updates `functional_smoke.mjs`
+  expectations minimally (legacy field assertions → notice assertions where
+  trivial; full update in phase 3).
 - zh-TW translations for new keys: author in phase 1 alongside en (mirror
   test enforces).

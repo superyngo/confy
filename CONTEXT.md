@@ -244,6 +244,33 @@ facets** — **Key sign** and **Format/kind** (the KIND-column vocabulary). Both
 filtered list and **intersect** (a Node must pass both); selections *within* the Type filter's two
 halves union. _Avoid_: calling either one "search" exclusively — both are filters.
 
+
+### Messages & diagnostics
+
+**Notice**:
+The single-slot, user-facing transient message carried by the Session. Exactly
+one may be showing at a time; the next notice replaces it. Not a queue.
+Classified by **Severity** (four levels) and rendered i18n text, cleared on
+mutation success / Esc / edit begin / language switch. Wire field
+`SessionSnapshot.notice`.
+_Avoid_: Message (too generic; the session sends many signals), status (deprecated
+dual-slot predecessor `status` / `error`).
+
+**Severity**:
+The four-level classification of a **Notice**: `Info` (neutral state, empty/cancelled),
+`Success` (action completed), `Warn` (action unavailable in current context —
+readonly/locked/precondition-unmet), `Error` (operation failed — mutation error,
+I/O failure, schema load failure). Determines rendering (TUI status line color,
+web toast vs status bar, click-to-clear).
+_Avoid_: Level (reserved for **Diagnostic event** developer logging), priority.
+
+**Diagnostic event**:
+A developer-facing, English-only trace record in the Session's bounded ring
+(capacity 256, oldest evicted). Never shown as a **Notice**. Exported via TUI
+`~` overlay, FFI `diag_log()`, and web `?diag=1` console. Has its own **DiagLevel**
+(Debug/Info/Warn/Error) independent of **Severity**.
+_Avoid_: Log entry (no `log` crate in use), trace (no `tracing` crate).
+
 ### Schema
 
 Validation runs on the `jsonschema` crate rather than a hand-rolled subset validator — ADR 0002.
