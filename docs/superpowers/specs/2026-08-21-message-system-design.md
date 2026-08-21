@@ -1,7 +1,7 @@
 # Message System Integration — Design
 
 **Date:** 2026-08-21
-**Status:** Approved in chat; pending spec review
+**Status:** Approved (chat 2026-08-21); spec review completed 2026-08-21 — decisions in §11
 **Scope:** confy-core message model, SessionSnapshot wire contract, all hosts (TUI / Web desktop / Touch / VS Code), CLI i18n, new diagnostics layer
 
 ---
@@ -52,9 +52,13 @@ pub struct Notice {
 
 - `Session.status: Option<String>` and `Session.error: Option<String>` are
   replaced by a single `Session.notice: Option<Notice>`.
-- Lifecycle is unchanged: single slot, replaced by the next notice, cleared on
-  mutation success / Esc / edit begin / language switch (SetLang intent clears
-  stale rendered text), exactly where `status`/`error` are cleared today.
+- Lifecycle is nearly unchanged: single slot, replaced by the next notice,
+  cleared on mutation success / Esc / edit begin exactly where `status`/`error`
+  are cleared today. One **new** clear: SetLang (today `set_lang` clears
+  nothing — stale old-language text lingers; §11 Q12).
+- `NoticeSource` is a closed set: Tauri/touch/VS Code all ride the web bundle →
+  `HostWeb`; a variant is added only when a real fourth host exists (paired
+  wasm+web shipping makes that break cheap).
 - Helpers on Session: `fn notice_info/text…` are NOT added; call sites use
   `self.notice = Some(Notice::core(Severity::Warn, tr_args(...)))` style
   constructors (`Notice::core`, `Notice::host_tui`) to keep source consistent.
@@ -121,6 +125,8 @@ is deleted — the question is the message.
   one-shot breaking changes inside paired phases (core + web land before the
   next release; see §10 dual-write mitigation).
 - `Notice` serializes as `{severity, text, source}`; severity/source as above.
+- The `has_descendant_violation` rename lands in **Phase 3's** paired commit —
+  not Phase 1 (§11 Q11).
 
 ## 4. Prompt text consolidation
 
@@ -136,8 +142,10 @@ After:
   (renamed from today's `tui.prompt.<kind>`; text keeps only the legend part,
   e.g. `o:overwrite  r:rename  c:cancel`).
 - Web `#overlay` / touch `.prompt-sheet` use `mode.question` directly;
-  `PROMPT_QUESTIONS` fallback and the `promptQuestion()` strip-legend hack are
-  deleted. `web.prompt.title.*` + `web.prompt.btn.*` stay.
+  `PROMPT_QUESTIONS`, the `promptQuestion()` strip-legend hack, **and** its
+  final `web.prompt.confirmFallback` fallback (a third fallback the original
+  list missed — `prompt.ts:63`) are deleted. `web.prompt.title.*` +
+  `web.prompt.btn.*` stay.
 
 ## 5. Host presentation mapping
 
@@ -152,7 +160,9 @@ After:
 
 `draw_status` priority: **Error notice** (preserves existing "errors never
 hidden" invariant, `ui.rs:481-482`) > **active input** (Filter query / Edit
-mode) > **Warn/Success/Info notice** > edit-mode hint. The "N schema warnings"
+mode) > **Warn/Success/Info notice** > edit-mode hint. The non-Error demotion
+below active input is **rendering-only** — the Notice stays in the slot and
+reappears when input exits (§11 Q4). The "N schema warnings"
 footer switches to the shared key (§5.3). TUI host error sites (`app.rs`
 save/editor/convert-write, `schema_io.rs` fetch, config write) call
 `set_host_notice` with `NoticeSource::HostTui` + `Severity::Error`.
@@ -168,15 +178,23 @@ save/editor/convert-write, `schema_io.rs` fetch, config write) call
 
 - One toast element (`#toast`) in `index.html`; logic mirrors
   `touch/app.ts::toast()`; no queue — a new toast replaces the showing one.
-- Touch keeps its current behavior (success→toast, else statusbar), now driven
-  by `notice.severity` instead of per-call-site choice; the 20+ hardcoded
-  `toast(...)` call sites that duplicate core messages are replaced by the
-  severity-driven path.
+- **One severity→surface rule for every web host** (touch included):
+  Success ⇒ toast **and** status-bar text; Info/Warn ⇒ status bar;
+  Error ⇒ red bar + click-to-clear — all driven by `notice.severity` (touch
+  gains the status-bar text; §11 Q5). The 36 `toast(...)` call sites in
+  `touch/app.ts` (24 are modal-lock duplications) are replaced by the
+  severity-driven path; `toast()` survives only as a *render* function of
+  severity, never called with authored text. Genuinely host-local
+  user-facing messages (Firefox-iOS save hint, `HostIo.ok` wiring,
+  "Node added"-style strings) migrate through the same FFI, picking up
+  catalog keys as they move (§11 Q10).
 - **Web host messages** (e.g. `recentGone` recent-file vanished, schema fetch
   failures) migrate to FFI `set_host_notice(severity: Severity, text: String)`
   (stamped with `NoticeSource::HostWeb`), so they enter the single-slot model
-  and appear in diagnostics. Touch-only local notices (Firefox iOS save hint,
-  if still purely host-side) may call the same FFI or remain DOM-local.
+  and appear in diagnostics. Host-origin Errors follow the uniform single-slot
+  lifecycle — no stickiness; the next Info/Success displaces them, and the
+  diag ring preserves the history (§11 Q9). Touch-only local notices
+  (Firefox-iOS save hint) migrate through the same FFI (§11 Q10).
 - VS Code extension-side `showErrorMessage` / `showInformationMessage` stay
   native; their severity mapping is already error/info.
 ### 5.3 Shared strings
@@ -223,7 +241,11 @@ pub struct DiagEvent {
   `dispatch` (intent name, in Debug), `mutation` (variant, ok/err + error
   variant, Info/Error), `schema` (detect source, validate violation count,
   load failure, Info/Error), `convert` (target format, warnings count, abort,
-  Info/Warn), `host_notice` (severity, source, Info).
+  Info/Warn), `host_notice` (severity, source, rendered text captured
+  **verbatim**, Info). All `dispatch` events are recorded unfiltered — Debug
+  marks the noise; navigation churning the ring is accepted (§11 Q2). Captured
+  payloads may be non-English: the English-only rule governs *authored*
+  fragments, not captured text (§11 Q3).
 - Zero new dependencies — no `tracing` (global state fights the pure, fully
   unit-testable Session; wasm size). `no_fs_gate.rs` stays green.
 - Exports:
@@ -231,7 +253,9 @@ pub struct DiagEvent {
     Help popup shape; newest at bottom; `~`/Esc closes).
   - FFI: `diag_log() -> JsValue` (serialized Vec, oldest first).
   - Web: when `?diag=1` is present, `ui.ts` drains `diagLog()` after each
-    dispatch into `console.debug` with a `[confy-diag]` prefix.
+    dispatch into `console.debug` with a `[confy-diag]` prefix, **diffing by
+    `seq`** (a module-level last-seen counter) so each keypress logs only new
+    events — never a full re-print (§11 Q14).
 
 ## 8. Phasing (each phase compiles + tests green, one commit each)
 
@@ -239,7 +263,7 @@ pub struct DiagEvent {
 |---|---|---|
 | 1 | Core: `notice.rs` model, snapshot fields, per-site re-tier, prompt question field, prompt key consolidation, catalog updates (en+zh-TW) | `cargo test -p confy-core`; new test asserting every core.* non-detail key maps to exactly one severity (table-driven) |
 | 2 | TUI: severity rendering, legend keys, `set_host_notice` migration, `core.schema.count` footer, `~` diag overlay + diag recording | `cargo test -p confy-tui`; manual TUI pass |
-| 3 | Web: `types.ts` mirror, `notice`/`question` consumption, desktop `#toast`, severity classes, touch severity-driven toast, `schemaHintText` i18n, delete strip hack + fallback array | `functional_smoke.mjs` (92 checks, updated), `render.spec.mjs`, `touch-render.spec.mjs`, `vscode-schema-url.spec.mjs` |
+| 3 | Web: `types.ts` mirror, `notice`/`question` consumption, desktop `#toast`, severity classes, touch severity-driven toast, `schemaHintText` i18n, `has_descendant_violation` rename (paired core+web), delete strip hack + fallback array + `confirmFallback` | `functional_smoke.mjs` (92 checks, updated), `render.spec.mjs`, `touch-render.spec.mjs`, `vscode-schema-url.spec.mjs` |
 | 4 | CLI: `cli.*` keys + `tr()` everywhere + convert-path config load | `cargo test -p confy-tui --test convert_cli`; catalog key-set equality test |
 | 5 | Diag exports: FFI `diag_log()`, web `?diag=1` console drain | `functional_smoke.mjs` extension |
 | 6 | Docs: TUI.md, WEBUI.md, CONTEXT.md (glossary: Notice/Severity), CLAUDE.md module map, CHANGELOG | consistency pass |
@@ -256,7 +280,10 @@ pub struct DiagEvent {
 ## 10. Risks / notes
 
 - `SessionSnapshot` break: **dual-write mitigation** — Phase 1 populates BOTH
-  `notice` (new) and legacy `status`/`error` fields (computed from notice) so
+  `notice` (new) and legacy `status`/`error` fields (computed from notice;
+  mapping pinned: `Error → error`, `Info/Success/Warn → status`,
+  `None → both None` — old web JS renders identically pre/post Phase 1; §11
+  Q6) so
   old web JS keeps working. Phase 3 switches web consumers to `notice` and
   **removes** the legacy fields in the same commit (core+web together). Every
   intermediate commit stays green. Phase 1 also updates `functional_smoke.mjs`
@@ -264,3 +291,64 @@ pub struct DiagEvent {
   trivial; full update in phase 3).
 - zh-TW translations for new keys: author in phase 1 alongside en (mirror
   test enforces).
+
+## 11. Spec review decisions (2026-08-21 grill)
+
+Fifteen questions across three rounds, all settled; recommendations accepted
+as proposed. Amendments above reference these by number.
+
+**Design decisions:**
+
+- **Q1** `NoticeSource` stays a closed 3-value enum; Tauri/touch/VS Code are
+  `HostWeb`; a new variant only when a real fourth host exists.
+- **Q2** Diag ring records **all** `dispatch` events unfiltered (Debug marks
+  the noise); navigation churning the 256-ring is accepted.
+- **Q3** `host_notice` diag events capture the notice's rendered text
+  verbatim — the English-only rule governs authored fragments, not captured
+  payloads (and the text is exactly what i18n debugging needs).
+- **Q4** TUI non-Error notices demoted below active input is rendering-only
+  (the Notice stays in the slot and reappears on input exit); Error keeps the
+  never-hidden invariant.
+- **Q5** One severity→surface rule for every web host: Success ⇒ toast +
+  status-bar text; Info/Warn ⇒ status bar; Error ⇒ red bar + click-to-clear.
+- **Q6** Dual-write legacy mapping pinned: `Error → error`,
+  `Info/Success/Warn → status`, `None → both None`.
+- **Q7** User-facing copy keeps "warning(s)" (`core.schema.count`); the
+  glossary avoid-rule targets type names, which the
+  `has_descendant_violation` rename already honors.
+- **Q8** Glossary updates (landed during review): `CONTEXT.md` **Notice**
+  entry gained its NoticeSource sentence; new **Prompt question** entry.
+- **Q9** Host-origin Errors follow the uniform single-slot lifecycle — no
+  stickiness; the diag ring preserves history.
+- **Q10** All user-facing host-local messages (incl. touch's Firefox-iOS
+  hint) route through FFI `set_host_notice`; `toast()` becomes purely a
+  severity renderer; hardcoded-English strings get catalog keys as they
+  migrate.
+- **Q11** `has_descendant_warning → has_descendant_violation` rename moved to
+  Phase 3's paired commit (12-file blast radius, cosmetic, unasserted by any
+  test today).
+- **Q12** SetLang clears the notice — **new** behavior (today it clears
+  nothing); re-render-from-key was rejected (contradicts the rendered-only
+  `Notice` model).
+- **Q13** `web.prompt.confirmFallback` is deleted with the rest of the
+  fallback chain; an empty question is the honest failure signal.
+- **Q14** Web `?diag=1` drain diffs by `seq` (module-level last-seen counter)
+  — never a full re-print per keypress.
+- **Q15** This section records the review; the header status is flipped.
+
+**Fact verifications** (sub-agent audits, 2026-08-21):
+
+- Catalog: exactly 45 non-detail `core.*` keys in `i18n/en.json`, 1:1 with
+  §2.2's table — no gaps in either direction.
+- `set_lang` (`session.rs:111`) assigns `self.lang` only — no status/error
+  clear today (hence §2's "new clear" correction).
+- `~` is unbound in `keys.rs` (bound punctuation: space, `/`, `?`) — free for
+  the diag overlay.
+- `toast(` in `touch/app.ts`: 36 call sites (24 modal-lock duplications);
+  desktop `ui.ts` has none.
+- `promptQuestion()` (`prompt.ts:61-64`) has a **third** fallback —
+  `web.prompt.confirmFallback` — now on §4's deletion list (Q13).
+
+**Stated assumption:** the TUI prompt overlay renders its question line from
+`PromptView.question` (hosts never reconstruct it); only the legend line
+comes from `tui.prompt.<kind>.legend`.

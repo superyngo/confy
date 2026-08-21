@@ -250,9 +250,10 @@ halves union. _Avoid_: calling either one "search" exclusively — both are filt
 **Notice**:
 The single-slot, user-facing transient message carried by the Session. Exactly
 one may be showing at a time; the next notice replaces it. Not a queue.
-Classified by **Severity** (four levels) and rendered i18n text, cleared on
-mutation success / Esc / edit begin / language switch. Wire field
-`SessionSnapshot.notice`.
+Classified by **Severity** (four levels), rendered i18n text, and stamped with
+its origin — **NoticeSource** (`Core` / `HostTui` / `HostWeb`), recording which
+layer authored it. Cleared on mutation success / Esc / edit begin / language
+switch. Wire field `SessionSnapshot.notice`.
 _Avoid_: Message (too generic; the session sends many signals), status (deprecated
 dual-slot predecessor `status` / `error`).
 
@@ -263,6 +264,14 @@ readonly/locked/precondition-unmet), `Error` (operation failed — mutation erro
 I/O failure, schema load failure). Determines rendering (TUI status line color,
 web toast vs status bar, click-to-clear).
 _Avoid_: Level (reserved for **Diagnostic event** developer logging), priority.
+
+**Prompt question**:
+The question text of an open prompt, carried on the wire by `ModeView::Prompt`
+(`question`) and rendered per snapshot by core (i18n from `Session.lang`) —
+hosts never reconstruct it. Legend-free and never multiplexed onto the
+**Notice** slot: when a prompt opens, the question *is* the message, and the
+key legend (`y/n`, `o/r/c`) is host chrome.
+_Avoid_: Prompt status, confirm message (a prompt's question is not a Notice).
 
 **Diagnostic event**:
 A developer-facing, English-only trace record in the Session's bounded ring

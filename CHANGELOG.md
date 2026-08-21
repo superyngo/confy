@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-08-21T13:20:00Z
+- docs(design): spec-reviewed the 2026-08-21 message-system design (`docs/superpowers/specs/2026-08-21-message-system-design.md`) via a 15-question grill; all recommendations accepted and recorded in new §11 — key amendments: SetLang-clears-notice flagged as *new* behavior (today `set_lang` clears nothing), `has_descendant_violation` rename moved to Phase 3's paired commit, `web.prompt.confirmFallback` added to the fallback-chain deletions, touch host-local messages (Firefox-iOS hint included) migrate through FFI `set_host_notice`, web `?diag=1` drain diffs by `seq`. Glossary: `CONTEXT.md` Notice entry gained its NoticeSource provenance sentence; new **Prompt question** entry.
+
 ### Unreleased Update — 2026-08-21T12:30:00Z
 - docs(vscode): documented the custom editor's local/remote `$schema` loading (`31f86ba`) — `VSCODE.md` § Message protocol now lists the `read-schema-file`/`schema-file`/`schema-file-error` and `read-schema-url`/`schema-url`/`schema-url-error` message pairs (webview has no fs access; CSP blocks external fetches; host reads/fetches instead) with the webview↔host branching notes, plus brief mentions in `README.md` and `editors/vscode/README.md`.
 
