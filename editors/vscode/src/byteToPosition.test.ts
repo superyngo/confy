@@ -46,15 +46,15 @@ test("emoji: a 2-unit surrogate pair maps to 4 bytes", () => {
 
 test("round-trips with utf8ByteOffsetToUtf16Offset", () => {
   const text = "鍵 = \"😀值\"";
-  for (let byte = 0; byte <= Buffer.byteLength(text, "utf8"); byte++) {
+  const boundaryByteOffsets: number[] = [0];
+  let offset = 0;
+  for (const ch of text) {
+    offset += Buffer.byteLength(ch, "utf8");
+    boundaryByteOffsets.push(offset);
+  }
+  for (const byte of boundaryByteOffsets) {
     const u16 = utf8ByteOffsetToUtf16Offset(text, byte);
     const back = utf16OffsetToUtf8ByteOffset(text, u16);
-    // Not a strict inverse mid-codepoint (byte offsets inside a multi-byte
-    // char round up to the next boundary) — but every *boundary* byte offset
-    // must round-trip exactly.
-    if (text.codePointAt(0) !== undefined) {
-      assert.ok(back >= byte === back >= byte); // boundary offsets checked explicitly below
-    }
+    assert.strictEqual(back, byte, `boundary byte offset ${byte} did not round-trip`);
   }
-  assert.strictEqual(utf16OffsetToUtf8ByteOffset(text, utf8ByteOffsetToUtf16Offset(text, 0)), 0);
 });
