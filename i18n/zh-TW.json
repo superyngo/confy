@@ -44,6 +44,7 @@
   "core.quit.confirm": "尚有未儲存的變更 —— 是否離開？y/n",
   "core.save.saved": "已儲存",
   "core.save.nothing": "沒有變更需要儲存",
+  "core.schema.violation": "{0}",
   "core.detail.path": "路徑：{0}",
   "core.detail.type": "類型：{0}",
   "core.detail.format": "格式：{0}",

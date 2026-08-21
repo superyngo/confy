@@ -5,7 +5,7 @@
 
 use crate::model::document::{ConfigDocument, MutateError, Mutation, OnCollision, Target};
 use crate::model::node::{Format, NodeKind, Path, ScalarType, Seg};
-use crate::session::i18n::{tr, tr_args};
+use crate::session::notice::{Notice, Severity};
 use crate::session::state::{EditField, EditState, Mode, PendingCommit, PromptKind};
 
 use super::session::Session;
@@ -78,7 +78,7 @@ impl Session {
                             cursor: 0,
                             options: opts,
                         });
-                        self.status = None;
+                        self.notice = None;
                         return;
                     }
                 }
@@ -100,7 +100,7 @@ impl Session {
             orig_trailing,
             created_on_add: false,
         });
-        self.status = None;
+        self.notice = None;
     }
 
     pub fn begin_inline_rename(&mut self) {
@@ -140,8 +140,7 @@ impl Session {
             orig_trailing: None,
             created_on_add: false,
         });
-        self.status = None;
-        self.error = None;
+        self.notice = None;
     }
 
     pub fn edit_toggle_field(&mut self) {
@@ -156,7 +155,7 @@ impl Session {
                 EditField::Value => EditField::Name,
                 EditField::Name => EditField::Value,
             };
-            self.status = None;
+            self.notice = None;
         }
     }
 
@@ -172,7 +171,7 @@ impl Session {
             let byte = char_byte_idx(&e.buffer, e.cursor);
             e.buffer.insert(byte, c);
             e.cursor += 1;
-            self.status = None;
+            self.notice = None;
         }
     }
 
@@ -182,7 +181,7 @@ impl Session {
                 let prev = char_byte_idx(&e.buffer, e.cursor - 1);
                 e.buffer.remove(prev);
                 e.cursor -= 1;
-                self.status = None;
+                self.notice = None;
             }
         }
     }
@@ -193,7 +192,7 @@ impl Session {
             if e.cursor < len {
                 let at = char_byte_idx(&e.buffer, e.cursor);
                 e.buffer.remove(at);
-                self.status = None;
+                self.notice = None;
             }
         }
     }
@@ -231,7 +230,7 @@ impl Session {
         self.pending_edit = None;
         self.pending_trailing = None;
         self.prompt_from_commit_edit = None;
-        self.status = None;
+        self.notice = None;
         if created_on_add {
             self.cancel_added_node();
         }
@@ -240,7 +239,7 @@ impl Session {
     pub fn schema_enum_cancel(&mut self) {
         let created_on_add = matches!(&self.mode, Mode::SchemaEnum(st) if st.created_on_add);
         self.mode = self.resting_mode();
-        self.status = None;
+        self.notice = None;
         if created_on_add {
             self.cancel_added_node();
         }
@@ -301,9 +300,11 @@ impl Session {
             // A retry branch (invalid value, rename failure, …) kept the edit —
             // cancel it and surface the retry message as the error instead.
             Mode::Edit(_) => {
-                let msg = self.status.take();
+                let msg = self.notice.take();
                 self.edit_cancel();
-                self.error = msg;
+                if let Some(n) = msg {
+                    self.set_notice(n);
+                }
                 if from_detail {
                     self.open_detail();
                 }
@@ -345,15 +346,11 @@ impl Session {
             match ok {
                 Ok(()) => self.on_mutation_success(None),
                 Err(MutateError::Fragment(msg)) => {
-                    self.status = Some(tr_args(self.lang, "core.comment.invalid", &[&msg]));
+                    self.set_notice(Notice::core(self.lang, "core.comment.invalid", &[&msg]));
                     self.mode = Mode::Edit(e);
                 }
                 Err(err) => {
-                    self.status = Some(tr_args(
-                        self.lang,
-                        "core.error.generic",
-                        &[&err.to_string()],
-                    ));
+                    self.set_notice(Notice::core(self.lang, "core.error.generic", &[&err.to_string()]));
                     self.mode = Mode::Edit(e);
                 }
             }
@@ -384,7 +381,7 @@ impl Session {
                     .unwrap_or(false)
             });
             if in_inline {
-                self.status = Some(tr(self.lang, "core.trailing.inline-unsupported").to_string());
+                self.set_notice(Notice::core(self.lang, "core.trailing.inline-unsupported", &[]));
                 self.mode = Mode::Edit(e);
                 return;
             }
@@ -407,7 +404,7 @@ impl Session {
             let new_name = name_str.trim().to_string();
             if new_name != e.key {
                 if new_name.is_empty() {
-                    self.status = Some(tr(self.lang, "core.rename.empty-key").to_string());
+                    self.set_notice(Notice::core(self.lang, "core.rename.empty-key", &[]));
                     self.mode = Mode::Edit(e);
                     return;
                 }
@@ -428,11 +425,6 @@ impl Session {
                     .flatten();
                 if let Some(new_label) = new_label {
                     if new_label != old_label {
-                        self.status = Some(tr_args(
-                            self.lang,
-                            "core.type-change",
-                            &[&old_label, &new_label],
-                        ));
                         self.pending_edit = Some((
                             e,
                             PendingCommit::Rename {
@@ -472,11 +464,7 @@ impl Session {
                         frag_key = new_name;
                     }
                     Err(err) => {
-                        self.status = Some(tr_args(
-                            self.lang,
-                            "core.rename.failed",
-                            &[&err.to_string()],
-                        ));
+                        self.set_notice(Notice::core(self.lang, "core.rename.failed", &[&err.to_string()]));
                         self.mode = Mode::Edit(e);
                         return;
                     }
@@ -496,7 +484,7 @@ impl Session {
                 match doc.value_kind(&value_str) {
                     Ok(kind) => (fragment, node_type_label_str(&kind).to_string()),
                     Err(msg) => {
-                        self.status = Some(tr_args(self.lang, "core.value.invalid", &[&msg]));
+                        self.set_notice(Notice::core(self.lang, "core.value.invalid", &[&msg]));
                         self.mode = Mode::Edit(e);
                         return;
                     }
@@ -513,11 +501,6 @@ impl Session {
         )
         .to_string();
         if new_label != old_label {
-            self.status = Some(tr_args(
-                self.lang,
-                "core.type-change",
-                &[&old_label, &new_label],
-            ));
             self.pending_edit = Some((e, PendingCommit::Replace(fragment)));
             self.mode = Mode::Prompt(PromptKind::TypeChange {
                 from: old_label,
@@ -542,11 +525,7 @@ impl Session {
             None => return,
         };
         if let Err(err) = res {
-            self.error = Some(tr_args(
-                self.lang,
-                "core.rename.failed",
-                &[&err.to_string()],
-            ));
+            self.set_notice(Notice::core(self.lang, "core.rename.failed", &[&err.to_string()]));
             return;
         }
         self.on_mutation_success(None);
@@ -588,21 +567,17 @@ impl Session {
                         path: path.clone(),
                         comment,
                     }) {
-                        self.error = Some(tr_args(
-                            self.lang,
-                            "core.trailing.update-failed",
-                            &[&e.to_string()],
-                        ));
+                        self.set_notice(Notice::core(self.lang, "core.trailing.update-failed", &[&e.to_string()]));
                     }
                 }
                 self.on_mutation_success(Some(&path));
                 self.note_schema_violation(&path);
             }
             Err(MutateError::Fragment(msg)) => {
-                self.error = Some(tr_args(self.lang, "core.fragment.invalid", &[fmt, &msg]));
+                self.set_notice(Notice::core(self.lang, "core.fragment.invalid", &[fmt, &msg]));
             }
             Err(e) => {
-                self.error = Some(tr_args(self.lang, "core.error.generic", &[&e.to_string()]))
+                self.set_notice(Notice::core(self.lang, "core.error.generic", &[&e.to_string()]))
             }
         }
     }
@@ -611,7 +586,7 @@ impl Session {
     /// the separate comment cell + "Append comment"). Atomic + semantically
     /// validated by `Mutation::SetTrailingComment`; an unsupported target
     /// (inline collection, …) leaves the document untouched and reports the
-    /// error as a status message.
+    /// error as a notice.
     pub fn set_trailing_comment(&mut self, path: Path, comment: Option<String>) {
         let doc = match self.doc.as_mut() {
             Some(d) => d,
@@ -634,11 +609,7 @@ impl Session {
         match doc.apply(Mutation::SetTrailingComment { path, comment }) {
             Ok(()) => self.on_mutation_success(None),
             Err(e) => {
-                self.error = Some(tr_args(
-                    self.lang,
-                    "core.trailing.update-failed",
-                    &[&e.to_string()],
-                ))
+                self.set_notice(Notice::core(self.lang, "core.trailing.update-failed", &[&e.to_string()]));
             }
         }
     }
@@ -651,10 +622,10 @@ impl Session {
         match doc.apply(Mutation::EditComment { path, text }) {
             Ok(()) => self.on_mutation_success(None),
             Err(MutateError::Fragment(msg)) => {
-                self.error = Some(tr_args(self.lang, "core.comment.invalid", &[&msg]));
+                self.set_notice(Notice::core(self.lang, "core.comment.invalid", &[&msg]));
             }
             Err(e) => {
-                self.error = Some(tr_args(self.lang, "core.error.generic", &[&e.to_string()]))
+                self.set_notice(Notice::core(self.lang, "core.error.generic", &[&e.to_string()]))
             }
         }
     }
@@ -901,7 +872,7 @@ impl Session {
             }
         };
         self.apply_insert(target.clone(), fragment);
-        if self.error.is_some() {
+        if matches!(&self.notice, Some(n) if n.severity == Severity::Error) {
             return;
         }
         let mut new_path = target.parent.clone();
@@ -928,7 +899,7 @@ impl Session {
                     e.created_on_add = true;
                 }
             } else {
-                self.status = Some(tr(self.lang, "core.add.placeholder").to_string());
+                self.set_notice(Notice::core(self.lang, "core.add.placeholder", &[]));
             }
         }
     }
@@ -939,7 +910,7 @@ impl Session {
             None => return,
         };
         if !doc.supports_comments() {
-            self.status = Some(tr(self.lang, "core.comment.unsupported").to_string());
+            self.set_notice(Notice::core(self.lang, "core.comment.unsupported", &[]));
             return;
         }
         // A leading blank line keeps the new comment a *separate* single-line node
@@ -952,7 +923,7 @@ impl Session {
         }) {
             Ok(()) => self.on_mutation_success(None),
             Err(e) => {
-                self.error = Some(tr_args(self.lang, "core.add.error", &[&e.to_string()]));
+                self.set_notice(Notice::core(self.lang, "core.add.error", &[&e.to_string()]));
                 return;
             }
         }
@@ -989,13 +960,13 @@ impl Session {
         }) {
             Ok(()) => self.on_mutation_success(None),
             Err(MutateError::Collision(key)) => {
-                self.error = Some(tr_args(self.lang, "core.insert.collision", &[&key]));
+                self.set_notice(Notice::core(self.lang, "core.insert.collision", &[&key]));
             }
             Err(MutateError::Fragment(msg)) => {
-                self.error = Some(tr_args(self.lang, "core.fragment.invalid", &[fmt, &msg]));
+                self.set_notice(Notice::core(self.lang, "core.fragment.invalid", &[fmt, &msg]));
             }
             Err(e) => {
-                self.error = Some(tr_args(self.lang, "core.error.generic", &[&e.to_string()]))
+                self.set_notice(Notice::core(self.lang, "core.error.generic", &[&e.to_string()]))
             }
         }
     }
@@ -1040,9 +1011,11 @@ impl Session {
         // success, so both outcomes settle there too.
         match &self.mode {
             Mode::Edit(_) => {
-                let msg = self.status.take();
+                let msg = self.notice.take();
                 self.edit_cancel();
-                self.error = msg;
+                if let Some(n) = msg {
+                    self.set_notice(n);
+                }
             }
             Mode::Prompt(_) => self.prompt_from_commit_edit = Some(false),
             _ => {}

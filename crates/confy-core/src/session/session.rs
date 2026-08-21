@@ -5,7 +5,8 @@ use super::status_fmt::{
 use crate::model::any_doc::AnyDocument;
 use crate::model::document::{ConfigDocument, DocFormat, Mutation, OnCollision, Target};
 use crate::model::node::{Format, Node, NodeKind, NodeTree, Path, Seg, VisibleRow};
-use crate::session::i18n::{tr, tr_args, Lang};
+use crate::session::i18n::{tr_args, Lang};
+use crate::session::notice::Notice;
 use crate::session::search::{fuzzy_match, haystack};
 use crate::session::selection::Selection;
 use crate::session::state::{
@@ -25,8 +26,8 @@ pub struct Session {
     pub selection: Selection,
     pub last_action_was_shift_select: bool,
     pub history: Option<History>,
-    pub status: Option<String>,
-    pub error: Option<String>,
+    pub notice: Option<Notice>,
+    pub diag: crate::session::diag::DiagRing,
     pub schema: Option<crate::schema::SchemaState>,
     pub pending_schema_fetch: Option<crate::schema::SchemaSource>,
     pub mode: Mode,
@@ -50,7 +51,7 @@ pub struct Session {
     /// when `true` — returns to `Mode::Detail` so the host's panel stays open.
     pub prompt_from_commit_edit: Option<bool>,
     /// Active UI language (§i18n Phase 1). Drives `tr`/`tr_args` lookups for
-    /// status/error text; default `En`.
+    /// notice text; default `En`.
     pub lang: Lang,
 }
 
@@ -84,8 +85,8 @@ impl Session {
             selection: Selection::new(),
             last_action_was_shift_select: false,
             history: None,
-            status: None,
-            error: None,
+            notice: None,
+            diag: Default::default(),
             schema: None,
             pending_schema_fetch: None,
             mode: Mode::Normal,
@@ -106,10 +107,27 @@ impl Session {
         }
     }
 
-    /// Switch the active UI language. Subsequent status/error text uses the
-    /// new language's catalog.
+    /// Sole write path for `notice` — every core/host notice assignment
+    /// goes through here so the diag ring sees "what did the user see, in
+    /// order" for every notice, not just host ones (design spec §7, §12 Q3).
+    pub fn set_notice(&mut self, notice: Notice) {
+        self.diag.push(
+            crate::session::diag::DiagLevel::Info,
+            "notice",
+            format!(
+                "severity={:?} source={:?} text={:?}",
+                notice.severity, notice.source, notice.text
+            ),
+        );
+        self.notice = Some(notice);
+    }
+
+    /// Switch the active UI language. Subsequent notice text uses the new
+    /// language's catalog; any showing notice is cleared so stale
+    /// old-language text never lingers (§12 Q12).
     pub fn set_lang(&mut self, lang: Lang) {
         self.lang = lang;
+        self.notice = None;
     }
 
     /// Pure: flatten the tree through the expand set and filter — borrowed
@@ -279,7 +297,7 @@ impl Session {
                 self.selection.set_all(vec![path]);
             }
         } else {
-            self.status = Some(tr(self.lang, "core.reveal.hidden-by-filter").to_string());
+            self.set_notice(Notice::core(self.lang, "core.reveal.hidden-by-filter", &[]));
         }
     }
 
@@ -655,7 +673,7 @@ impl Session {
     /// signalling the caller to return early — ADR 0005 §5 modal lock.
     pub(crate) fn guard_clipboard_locked(&mut self) -> bool {
         if self.clipboard.is_some() {
-            self.status = Some(tr(self.lang, "core.clipboard.action-locked").to_string());
+            self.set_notice(Notice::core(self.lang, "core.clipboard.action-locked", &[]));
             true
         } else {
             false
@@ -930,7 +948,7 @@ impl Session {
         };
         let options = doc.kind_options(&path);
         if options.is_empty() {
-            self.error = Some(tr(self.lang, "core.kind-switch.unsupported").to_string());
+            self.set_notice(Notice::core(self.lang, "core.kind-switch.unsupported", &[]));
             return;
         }
         self.mode = Mode::KindSwitch(KindSwitchState {
@@ -966,21 +984,17 @@ impl Session {
         }) {
             Ok(()) => {
                 self.on_mutation_success(None);
-                self.status = Some(tr_args(self.lang, "core.kind-switch.converted", &[&label]));
+                self.set_notice(Notice::core(self.lang, "core.kind-switch.converted", &[&label]));
             }
             Err(e) => {
-                self.error = Some(tr_args(
-                    self.lang,
-                    "core.kind-switch.error",
-                    &[&e.to_string()],
-                ))
+                self.set_notice(Notice::core(self.lang, "core.kind-switch.error", &[&e.to_string()]))
             }
         }
     }
 
     pub fn exit_kind_switch(&mut self) {
         self.mode = self.resting_mode();
-        self.status = None;
+        self.notice = None;
     }
 
     /// One-shot kind switch for the Web UI (`Intent::CommitKind`): apply
@@ -998,14 +1012,10 @@ impl Session {
         match doc.apply(Mutation::ConvertKind { path, target }) {
             Ok(()) => {
                 self.on_mutation_success(None);
-                self.status = Some(tr(self.lang, "core.kind-switch.converted-generic").to_string());
+                self.set_notice(Notice::core(self.lang, "core.kind-switch.converted-generic", &[]));
             }
             Err(e) => {
-                self.error = Some(tr_args(
-                    self.lang,
-                    "core.kind-switch.error",
-                    &[&e.to_string()],
-                ))
+                self.set_notice(Notice::core(self.lang, "core.kind-switch.error", &[&e.to_string()]))
             }
         }
     }
@@ -1023,7 +1033,7 @@ impl Session {
             return;
         };
         if !is_root {
-            self.error = Some(tr(self.lang, "core.convert.root-only").to_string());
+            self.set_notice(Notice::core(self.lang, "core.convert.root-only", &[]));
             return;
         }
         let Some(doc) = &self.doc else {
@@ -1170,11 +1180,7 @@ impl Session {
                 }
             }
             Err(abort) => {
-                self.error = Some(tr_args(
-                    self.lang,
-                    "core.convert.aborted",
-                    &[&abort.to_string()],
-                ));
+                self.set_notice(Notice::core(self.lang, "core.convert.aborted", &[&abort.to_string()]));
                 self.mode = self.resting_mode();
                 None
             }
@@ -1193,7 +1199,7 @@ impl Session {
 
     pub fn exit_convert(&mut self) {
         self.mode = self.resting_mode();
-        self.status = None;
+        self.notice = None;
     }
 
     pub fn toggle_detail(&mut self) {
@@ -1494,7 +1500,7 @@ impl Session {
 
     /// The host resolved `source`'s text (or failed to). `Ok` compiles and
     /// validates; `Err` sets a soft `load_error` — never touches
-    /// `self.error`, and the document stays fully editable either way
+    /// `self.notice`, and the document stays fully editable either way
     /// (spec §1: "never blocks opening, editing, or saving").
     pub fn apply_schema_text(
         &mut self,
@@ -1617,7 +1623,7 @@ impl Session {
     }
 
     /// After a value commit, surface any resulting schema violation at
-    /// `path` as an advisory `self.status` message (spec §3). The commit
+    /// `path` as an advisory notice (spec §3). The commit
     /// already succeeded — schema constraints are soft (`CONTEXT.md` §
     /// Schema) — this never blocks or reverts anything, it only informs.
     /// Combines the violation message(s) with a `resolve_edit_hint`-derived
@@ -1666,7 +1672,7 @@ impl Session {
                 crate::schema::EditHint::None => {}
             }
         }
-        self.status = Some(msg);
+        self.set_notice(Notice::core(self.lang, "core.schema.violation", &[&msg]));
     }
 
     pub fn schema_enum_move(&mut self, delta: i32) {
@@ -1711,8 +1717,7 @@ impl Session {
             }
             self.tree = tree;
         }
-        self.status = None;
-        self.error = None;
+        self.notice = None;
         let skip_revalidate = match (touched, self.schema.as_ref()) {
             (Some(path), Some(schema)) if schema.fully_analyzable => schema
                 .raw
@@ -1727,7 +1732,7 @@ impl Session {
     }
 
     pub fn escape(&mut self) {
-        self.error = None;
+        self.notice = None;
         // A pending async external edit (§8.2) lives outside `Mode` — Esc/Cancel
         // from the host's multi-line editor must discard it, else the snapshot's
         // `external_edit` stays set and the host reopens the modal forever.
@@ -1739,7 +1744,6 @@ impl Session {
                 self.mode = Mode::Normal;
                 self.clipboard = None;
                 self.pending_edit = None;
-                self.status = None;
                 // Esc on a one-shot (Web panel) prompt returns to the panel.
                 if self.prompt_from_commit_edit.take() == Some(true) {
                     self.open_detail();
@@ -1757,15 +1761,13 @@ impl Session {
             Mode::Normal => {
                 if self.clipboard.is_some() {
                     self.clipboard = None;
-                    self.status = if !self.selection.is_empty() {
-                        Some(tr(self.lang, "core.clipboard.cleared").to_string())
-                    } else {
-                        None
-                    };
+                    if !self.selection.is_empty() {
+                        self.set_notice(Notice::core(self.lang, "core.clipboard.cleared", &[]));
+                    }
                 } else if !self.selection.is_empty() {
                     self.selection.clear();
                     self.last_action_was_shift_select = false;
-                    self.status = Some(tr(self.lang, "core.selection.cleared").to_string());
+                    self.set_notice(Notice::core(self.lang, "core.selection.cleared", &[]));
                 }
             }
         }
@@ -1800,12 +1802,12 @@ impl Session {
                     _ => match (self.pending_edit.take(), one_shot) {
                         (Some(e_pending), None) => self.mode = Mode::Edit(e_pending.0),
                         (_, Some(true)) => {
-                            self.status = None;
+                            self.notice = None;
                             self.mode = self.resting_mode();
                             self.open_detail();
                         }
                         _ => {
-                            self.status = None;
+                            self.notice = None;
                             self.mode = self.resting_mode();
                         }
                     },
@@ -1821,7 +1823,7 @@ impl Session {
                 if !matches!(c, 'o' | 'r') {
                     self.mode = Mode::Normal;
                     self.clipboard = None;
-                    self.status = None;
+                    self.notice = None;
                     return false;
                 }
                 let cb = self.clipboard.take();
@@ -1863,7 +1865,7 @@ impl Session {
             Mode::Prompt(PromptKind::ArrayUpgrade { .. }) => {
                 if c != 'y' {
                     self.mode = Mode::Normal;
-                    self.status = Some(tr(self.lang, "core.paste.cancelled").to_string());
+                    self.set_notice(Notice::core(self.lang, "core.paste.cancelled", &[]));
                     return false;
                 }
                 let (target, oc) = match &self.mode {
@@ -1876,7 +1878,7 @@ impl Session {
                 self.mode = Mode::Normal;
                 match self.clipboard.take() {
                     Some(cb) => self.do_paste(cb, target, oc, true),
-                    None => self.status = None,
+                    None => self.notice = None,
                 }
                 false
             }
@@ -1904,13 +1906,13 @@ impl Session {
                 'y' => {
                     self.mode = Mode::Normal;
                     self.clipboard = None;
-                    self.status = None;
+                    self.notice = None;
                     true // quit
                 }
                 _ => {
                     self.mode = Mode::Normal;
                     self.clipboard = None;
-                    self.status = None;
+                    self.notice = None;
                     false
                 }
             },
@@ -1926,7 +1928,6 @@ impl Session {
         let dirty = self.doc.as_ref().map(|d| d.is_dirty()).unwrap_or(false);
         if dirty {
             self.mode = Mode::Prompt(PromptKind::ConfirmQuit);
-            self.status = Some(tr(self.lang, "core.quit.confirm").to_string());
             false
         } else {
             true

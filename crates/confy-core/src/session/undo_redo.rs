@@ -2,7 +2,7 @@
 //! remediation).
 
 use crate::model::document::ConfigDocument;
-use crate::session::i18n::{tr, tr_args};
+use crate::session::notice::Notice;
 
 use super::session::Session;
 
@@ -14,7 +14,7 @@ impl Session {
         let snapshot = match self.history.as_mut().and_then(|h| h.undo()) {
             Some(s) => s,
             None => {
-                self.status = Some(tr(self.lang, "core.undo.empty").to_string());
+                self.set_notice(Notice::core(self.lang, "core.undo.empty", &[]));
                 return;
             }
         };
@@ -25,10 +25,10 @@ impl Session {
         match doc.replace_from_str(&snapshot) {
             Ok(()) => {
                 self.tree = doc.project();
-                self.status = None;
+                self.notice = None;
                 self.revalidate_schema();
             }
-            Err(e) => self.error = Some(tr_args(self.lang, "core.undo.error", &[&e.to_string()])),
+            Err(e) => self.set_notice(Notice::core(self.lang, "core.undo.error", &[&e.to_string()])),
         }
     }
 
@@ -39,7 +39,7 @@ impl Session {
         let snapshot = match self.history.as_mut().and_then(|h| h.redo()) {
             Some(s) => s,
             None => {
-                self.status = Some(tr(self.lang, "core.redo.empty").to_string());
+                self.set_notice(Notice::core(self.lang, "core.redo.empty", &[]));
                 return;
             }
         };
@@ -50,10 +50,10 @@ impl Session {
         match doc.replace_from_str(&snapshot) {
             Ok(()) => {
                 self.tree = doc.project();
-                self.status = None;
+                self.notice = None;
                 self.revalidate_schema();
             }
-            Err(e) => self.error = Some(tr_args(self.lang, "core.redo.error", &[&e.to_string()])),
+            Err(e) => self.set_notice(Notice::core(self.lang, "core.redo.error", &[&e.to_string()])),
         }
     }
 }

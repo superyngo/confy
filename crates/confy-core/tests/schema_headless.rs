@@ -802,9 +802,9 @@ fn committing_a_schema_violating_value_sets_an_advisory_status_with_suggested_va
     // Soft constraint: the write still succeeds.
     assert!(s.serialize().unwrap().contains("level = \"trace\""));
     assert_eq!(s.schema.as_ref().unwrap().violations.len(), 1);
-    let status = s.status.as_ref().expect("advisory status set on violation");
-    assert!(status.contains("debug"), "status suggests valid values: {status}");
-    assert!(status.contains("info"), "status suggests valid values: {status}");
+    let notice = s.notice.as_ref().expect("advisory notice set on violation");
+    assert!(notice.text.contains("debug"), "notice suggests valid values: {}", notice.text);
+    assert!(notice.text.contains("info"), "notice suggests valid values: {}", notice.text);
 }
 
 #[test]
@@ -819,7 +819,7 @@ fn committing_a_schema_compliant_value_leaves_status_untouched() {
     s.cursor = vec![Seg::Key("level".into())];
     s.dispatch(Intent::CommitEdit { value: Some("\"info\"".into()), name: None });
     assert!(s.schema.as_ref().unwrap().violations.is_empty());
-    assert!(s.status.is_none());
+    assert!(s.notice.is_none());
 }
 
 // ---- Task 14 dirty-check: skip revalidate_schema() when the mutated path

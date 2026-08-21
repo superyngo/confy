@@ -4,7 +4,7 @@
 
 use crate::model::document::{ConfigDocument, MutateError, Mutation, OnCollision, Target};
 use crate::model::node::{NodeKind, Path};
-use crate::session::i18n::{tr, tr_args};
+use crate::session::notice::Notice;
 use crate::session::state::{Clipboard, Mode, PendingComment, PromptKind};
 
 use super::session::Session;
@@ -15,7 +15,7 @@ impl Session {
             return;
         }
         if self.cursor_is_read_only() {
-            self.status = Some(tr(self.lang, "core.readonly").to_string());
+            self.set_notice(Notice::core(self.lang, "core.readonly", &[]));
             return;
         }
         let paths = self.selected_paths();
@@ -30,7 +30,7 @@ impl Session {
         };
         for p in &paths {
             if let Err(e) = doc.apply(Mutation::Delete { path: p.clone() }) {
-                self.error = Some(tr_args(self.lang, "core.delete.error", &[&e.to_string()]));
+                self.set_notice(Notice::core(self.lang, "core.delete.error", &[&e.to_string()]));
                 return;
             }
         }
@@ -49,7 +49,7 @@ impl Session {
     /// message, and (cut only) the read-only guard.
     fn capture_selected(&mut self, cut: bool) {
         if cut && self.cursor_is_read_only() {
-            self.status = Some(tr(self.lang, "core.readonly").to_string());
+            self.set_notice(Notice::core(self.lang, "core.readonly", &[]));
             return;
         }
         if let Some(cb) = &mut self.clipboard {
@@ -61,7 +61,7 @@ impl Session {
                 } else {
                     "core.clipboard.copied-changed"
                 };
-                self.status = Some(tr_args(self.lang, key, &[&n]));
+                self.set_notice(Notice::core(self.lang, key, &[&n]));
             }
             return;
         }
@@ -89,14 +89,14 @@ impl Session {
         } else {
             "core.clipboard.copied"
         };
-        self.status = Some(tr_args(self.lang, key, &[&n]));
+        self.set_notice(Notice::core(self.lang, key, &[&n]));
     }
 
     pub fn paste(&mut self) {
         let cb = match self.clipboard.take() {
             Some(cb) => cb,
             None => {
-                self.status = Some(tr(self.lang, "core.clipboard.empty").to_string());
+                self.set_notice(Notice::core(self.lang, "core.clipboard.empty", &[]));
                 return;
             }
         };
@@ -133,7 +133,7 @@ impl Session {
             .iter()
             .any(|s| target == *s || (target.len() > s.len() && target.starts_with(s)))
         {
-            self.error = Some(tr(self.lang, "core.move.self").to_string());
+            self.set_notice(Notice::core(self.lang, "core.move.self", &[]));
             return;
         }
         let doc = self.doc.as_ref().unwrap();
@@ -232,8 +232,6 @@ impl Session {
                 Dest::Ok => {}
                 Dest::Prompt => {
                     self.clipboard = Some(rebuild(is_cut, &node_entries, &comment_entries));
-                    self.status =
-                        Some(tr(self.lang, "core.paste.array-upgrade-confirm").to_string());
                     self.mode = Mode::Prompt(PromptKind::ArrayUpgrade {
                         target,
                         on_collision,
@@ -242,7 +240,7 @@ impl Session {
                 }
                 Dest::Illegal => {
                     self.clipboard = Some(rebuild(is_cut, &node_entries, &comment_entries));
-                    self.error = Some(tr(self.lang, "core.paste.comment-illegal").to_string());
+                    self.set_notice(Notice::core(self.lang, "core.paste.comment-illegal", &[]));
                     return;
                 }
             }
@@ -260,14 +258,12 @@ impl Session {
                     Ok(()) => {}
                     Err(MutateError::Collision(key)) => {
                         self.clipboard = Some(rebuild(is_cut, &node_entries, &comment_entries));
-                        self.error = Some(tr_args(self.lang, "core.paste.collision", &[&key]));
                         self.mode = Mode::Prompt(PromptKind::Collision { key });
                         return;
                     }
                     Err(e) => {
                         self.clipboard = Some(rebuild(is_cut, &node_entries, &comment_entries));
-                        self.error =
-                            Some(tr_args(self.lang, "core.paste.error", &[&e.to_string()]));
+                        self.set_notice(Notice::core(self.lang, "core.paste.error", &[&e.to_string()]));
                         return;
                     }
                 }
@@ -324,7 +320,6 @@ impl Session {
                         self.on_mutation_success(None);
                         self.clipboard =
                             Some(rebuild(is_cut, &node_entries[i..], &comment_entries));
-                        self.error = Some(tr_args(self.lang, "core.paste.collision", &[&key]));
                         self.mode = Mode::Prompt(PromptKind::Collision { key });
                         return;
                     }
@@ -332,8 +327,7 @@ impl Session {
                         self.on_mutation_success(None);
                         self.clipboard =
                             Some(rebuild(is_cut, &node_entries[i..], &comment_entries));
-                        self.error =
-                            Some(tr_args(self.lang, "core.paste.error", &[&e.to_string()]));
+                        self.set_notice(Notice::core(self.lang, "core.paste.error", &[&e.to_string()]));
                         return;
                     }
                 }
@@ -376,7 +370,7 @@ impl Session {
                 if let Err(e) = doc.apply(Mutation::Delete { path: src.clone() }) {
                     self.on_mutation_success(None);
                     self.clipboard = Some(rebuild(is_cut, &[], &comment_entries[..=oi]));
-                    self.error = Some(tr_args(self.lang, "core.paste.error", &[&e.to_string()]));
+                    self.set_notice(Notice::core(self.lang, "core.paste.error", &[&e.to_string()]));
                     return;
                 }
             }
@@ -388,7 +382,7 @@ impl Session {
                 let end = if is_cut { oi } else { oi + 1 };
                 self.on_mutation_success(None);
                 self.clipboard = Some(rebuild(is_cut, &[], &comment_entries[..end]));
-                self.error = Some(tr_args(self.lang, "core.paste.error", &[&e.to_string()]));
+                self.set_notice(Notice::core(self.lang, "core.paste.error", &[&e.to_string()]));
                 return;
             }
         }
@@ -442,7 +436,7 @@ impl Session {
             return;
         }
         if self.cursor_is_read_only() {
-            self.status = Some(tr(self.lang, "core.readonly").to_string());
+            self.set_notice(Notice::core(self.lang, "core.readonly", &[]));
             return;
         }
         let path = match self.cursor_row() {
@@ -489,9 +483,9 @@ impl Session {
                 }
             }
             Err(MutateError::Fragment(_)) => {
-                self.status = Some(tr(self.lang, "core.remark.invalid").to_string());
+                self.set_notice(Notice::core(self.lang, "core.remark.invalid", &[]));
             }
-            Err(e) => self.error = Some(tr_args(self.lang, "core.remark.error", &[&e.to_string()])),
+            Err(e) => self.set_notice(Notice::core(self.lang, "core.remark.error", &[&e.to_string()])),
         }
     }
 }

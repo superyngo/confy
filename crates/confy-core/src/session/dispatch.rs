@@ -18,6 +18,7 @@
 use crate::model::document::ConfigDocument;
 use crate::model::node::NodeKind;
 use crate::session::intent::Intent;
+use crate::session::notice::{Notice, Severity};
 use crate::session::state::{EditKind, KindSwitchState, Mode, PendingExternalEdit, PromptKind};
 use crate::session::type_filter::{layout, LayoutRow};
 use crate::session::view::{
@@ -268,13 +269,9 @@ impl super::Session {
                 if let Some(d) = self.doc.as_mut() {
                     if d.is_dirty() {
                         d.mark_saved();
-                        self.status = Some(
-                            crate::session::i18n::tr(self.lang, "core.save.saved").to_string(),
-                        );
+                        self.set_notice(Notice::core(self.lang, "core.save.saved", &[]));
                     } else {
-                        self.status = Some(
-                            crate::session::i18n::tr(self.lang, "core.save.nothing").to_string(),
-                        );
+                        self.set_notice(Notice::core(self.lang, "core.save.nothing", &[]));
                     }
                 }
             }
@@ -318,14 +315,23 @@ impl super::Session {
     /// The full renderable state, on demand (no mutation). The Web UI pulls this
     /// after each `dispatch`, or to resync.
     pub fn snapshot(&self) -> SessionSnapshot {
+        // Dual-write bridge (spec §10, §11 Q6): legacy `status`/`error`
+        // snapshot fields are computed from the single `notice` slot until
+        // Task 6 moves them into view.rs. Mapping pinned: Error → error,
+        // Info/Success/Warn → status, None → both None.
+        let (status, error) = match &self.notice {
+            Some(n) if n.severity == Severity::Error => (None, Some(n.text.clone())),
+            Some(n) => (Some(n.text.clone()), None),
+            None => (None, None),
+        };
         SessionSnapshot {
             doc_format: self.doc_format(),
             is_dirty: self.is_dirty(),
             mode: self.mode_view(),
             rows: self.visible_rows(),
             cursor: self.cursor.clone(),
-            status: self.status.clone(),
-            error: self.error.clone(),
+            status,
+            error,
             detail_text: self.detail_text.clone(),
             external_edit: self.external_edit_view(),
             schema_status: self.schema.as_ref().map(|s| s.status()),
@@ -367,7 +373,7 @@ impl super::Session {
             .map(|n| n.read_only)
             .unwrap_or(false)
         {
-            self.status = Some(crate::session::i18n::tr(self.lang, "core.readonly").to_string());
+            self.set_notice(Notice::core(self.lang, "core.readonly", &[]));
             return;
         }
         if let Some(node) = self.tree.node_at(&cursor_path) {

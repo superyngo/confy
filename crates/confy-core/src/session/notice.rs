@@ -53,7 +53,7 @@ pub fn severity_of(key: &str) -> Severity {
         | "core.trailing.inline-unsupported" | "core.reveal.hidden-by-filter" | "core.move.self"
         | "core.insert.collision" | "core.rename.empty-key" | "core.value.invalid"
         | "core.comment.invalid" | "core.fragment.invalid" | "core.remark.invalid"
-        | "core.convert.root-only" | "core.kind-switch.unsupported" => Severity::Warn,
+        | "core.convert.root-only" | "core.kind-switch.unsupported" | "core.schema.violation" => Severity::Warn,
 
         "core.save.saved" | "core.kind-switch.converted" | "core.kind-switch.converted-generic"
         | "core.clipboard.cut" | "core.clipboard.copied" | "core.clipboard.cut-changed"
@@ -103,6 +103,7 @@ mod tests {
             ("core.remark.invalid", Severity::Warn),
             ("core.convert.root-only", Severity::Warn),
             ("core.kind-switch.unsupported", Severity::Warn),
+            ("core.schema.violation", Severity::Warn),
             ("core.save.saved", Severity::Success),
             ("core.kind-switch.converted", Severity::Success),
             ("core.kind-switch.converted-generic", Severity::Success),
@@ -120,7 +121,7 @@ mod tests {
             ("core.add.placeholder", Severity::Info),
             ("core.convert.aborted", Severity::Info),
         ];
-        assert_eq!(cases.len(), 41, "41 non-prompt keys in §2.2 (11 Error + 14 Warn + 7 Success + 9 Info)");
+        assert_eq!(cases.len(), 42, "42 keys: §2.2's 41 (11 Error + 14 Warn + 7 Success + 9 Info) + controller-approved core.schema.violation (pass-through wrapper for the dynamic schema-violation advisory)");
         for (key, expected) in cases {
             assert_eq!(severity_of(key), *expected, "key {key} classified wrong");
         }

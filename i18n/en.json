@@ -44,6 +44,7 @@
   "core.quit.confirm": "unsaved changes — quit? y/n",
   "core.save.saved": "Saved",
   "core.save.nothing": "no changes to save",
+  "core.schema.violation": "{0}",
   "core.detail.path": "Path:     {0}",
   "core.detail.type": "Type:     {0}",
   "core.detail.format": "Format:   {0}",
