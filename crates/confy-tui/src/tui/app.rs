@@ -2,7 +2,7 @@ use std::cell::Cell;
 use std::path::PathBuf;
 
 pub use confy_core::session::{EditKind, FilterLayer, PendingCommit};
-use confy_core::session::{tr, Intent, Session};
+use confy_core::session::{Intent, Session};
 
 use crate::model::document::ConfigDocument;
 #[cfg(test)]

@@ -17,7 +17,6 @@ pub mod type_filter;
 pub mod ui;
 
 use anyhow::Result;
-use confy_core::session::tr;
 use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -455,7 +454,7 @@ fn run_event_loop(
                         app.session.dispatch(confy_core::session::Intent::SetHostNotice {
                             key: "core.clipboard.action-locked".to_string(),
                             args: vec![],
-                            source: confy_core::session::notice::NoticeSource::Core,
+                            source: confy_core::session::notice::NoticeSource::HostTui,
                         });
                         continue;
                     }
@@ -475,7 +474,7 @@ fn run_event_loop(
                         app.session.dispatch(confy_core::session::Intent::SetHostNotice {
                             key: "core.clipboard.action-locked".to_string(),
                             args: vec![],
-                            source: confy_core::session::notice::NoticeSource::Core,
+                            source: confy_core::session::notice::NoticeSource::HostTui,
                         });
                         continue;
                     }
@@ -509,7 +508,7 @@ fn run_event_loop(
                         app.session.dispatch(confy_core::session::Intent::SetHostNotice {
                             key: "core.clipboard.action-locked".to_string(),
                             args: vec![],
-                            source: confy_core::session::notice::NoticeSource::Core,
+                            source: confy_core::session::notice::NoticeSource::HostTui,
                         });
                         continue;
                     }
