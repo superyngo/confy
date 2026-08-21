@@ -66,7 +66,7 @@ import { IC, esc, treeHTML } from "./render.js";
 import { isExpanded } from "../kind-labels.js";
 import { parentOf, pathEq, siblingIndex } from "../path-utils.js";
 import { panelHTML, wirePanel, schemaHintText } from "../panel.js";
-import { bindPromptClicks, promptButtonsHTML, promptQuestion, promptTitle } from "../prompt.js";
+import { bindPromptClicks, promptButtonsHTML, promptTitle } from "../prompt.js";
 import { typeFilterHTML, wireTypeFilter } from "../typefilter.js";
 import { helpBodyHTML } from "../help-content.js";
 import { applyStaticI18n, availableLangs, getLang, LANG_DISPLAY_NAMES, setLang, t, tArgs } from "../i18n.js";
@@ -489,8 +489,10 @@ function render() {
   else if (sheets.convert.classList.contains("open")) closeSheets();
   // Confirmation prompt (type change, paste collision, quit, …) → button sheet.
   // Without this, a `Mode::Prompt` would soft-lock the touch UI (no keyboard).
-  if (tag === "Prompt") renderPromptSheet((snap.mode as { Prompt: { kind: PromptView; question: string } }).Prompt.kind);
-  else sheets.prompt.classList.remove("open");
+  if (tag === "Prompt") {
+    const p = (snap.mode as { Prompt: { kind: PromptView; question: string } }).Prompt;
+    renderPromptSheet(p.kind, p.question);
+  } else sheets.prompt.classList.remove("open");
   // Schema-constrained enum/const picker (Mode::SchemaEnum): core enters this
   // mode via begin_inline_edit when an enum field is tapped; render the bottom
   // sheet of allowed values (mirrors the TypeFilter/Convert/Prompt checks above).
@@ -563,16 +565,15 @@ function openPanel(path: Path) {
 }
 
 // ---- confirmation-prompt sheet (Mode::Prompt) ----
-// The question is `snap.status ?? snap.error` (collision reports via error);
+// The question is `snap.mode.Prompt.question`;
 // the buttons are the shared per-kind set (`prompt.ts`), answered as PromptKey
 // via the delegated listener bound once in main(). The header × carries
 // data-pk="n" so every dismissal answers the prompt (never just hides it).
-function renderPromptSheet(kind: PromptView) {
-  const q = promptQuestion(kind, snap!.status ?? snap!.error ?? undefined);
+function renderPromptSheet(kind: PromptView, question: string) {
   sheets.prompt.innerHTML =
     '<div class="grab"></div>' +
     `<div class="sheet-head"><h3>${esc(promptTitle(kind))}</h3><button class="close" data-pk="n">${IC.close}</button></div>` +
-    `<div class="sheet-body"><p class="dlg-sub">${esc(q)}</p>${promptButtonsHTML(kind)}</div>`;
+    `<div class="sheet-body"><p class="dlg-sub">${esc(question)}</p>${promptButtonsHTML(kind)}</div>`;
   if (!sheets.prompt.classList.contains("open")) openSheet("prompt");
 }
 

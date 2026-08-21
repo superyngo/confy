@@ -49,7 +49,7 @@ import { foldedEntries, type ToolbarEntry } from "./toolbar-fold.js";
 import { installDnd } from "./dnd.js";
 import { panelHTML, wirePanel, schemaHintText } from "./panel.js";
 import { renderCrumbs, wireCrumbDismiss } from "./breadcrumb.js";
-import { bindPromptClicks, promptButtonsHTML, promptQuestion } from "./prompt.js";
+import { bindPromptClicks, promptButtonsHTML } from "./prompt.js";
 import { typeFilterHTML, wireTypeFilter } from "./typefilter.js";
 import {
   type ConvertRefs,
@@ -565,9 +565,9 @@ function renderOverlay() {
     // tree behind it; onKey's Help branch also stops list shortcuts firing.
     overlay.focus();
   } else if (tag === "Prompt") {
-    const kind = (m as { Prompt: { kind: PromptView; question: string } }).Prompt.kind;
+    const { kind, question } = (m as { Prompt: { kind: PromptView; question: string } }).Prompt;
     overlay.innerHTML =
-      `<h3>${escapeHtml(promptQuestion(kind, snap!.status ?? snap!.error ?? undefined))}</h3>` +
+      `<h3>${escapeHtml(question)}</h3>` +
       promptButtonsHTML(kind);
   } else if (tag === "KindSwitch") {
     const ks = (m as { KindSwitch: { cursor: number; options: { label: string }[] } })

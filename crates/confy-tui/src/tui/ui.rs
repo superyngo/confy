@@ -344,7 +344,7 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
             // emoji-presentation width across terminals — `▲` is always
             // single-column).
             let warn_marker = if row.violations.is_some()
-                || (row.is_branch && row.has_descendant_warning)
+                || (row.is_branch && row.has_descendant_violation)
             {
                 "▲"
             } else {

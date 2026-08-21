@@ -56,20 +56,20 @@ pub fn severity_of(key: &str) -> Severity {
         | "core.insert.collision" | "core.rename.empty-key" | "core.value.invalid"
         | "core.comment.invalid" | "core.fragment.invalid" | "core.remark.invalid"
         | "core.convert.root-only" | "core.kind-switch.unsupported" | "core.schema.violation"
-        | "web.host.fxios-save-hint" => Severity::Warn,
+        | "web.host.fxios-save-hint" | "tui.host.readonly-comment" => Severity::Warn,
 
         "core.save.saved" | "core.kind-switch.converted" | "core.kind-switch.converted-generic"
         | "core.clipboard.cut" | "core.clipboard.copied" | "core.clipboard.cut-changed"
         | "core.clipboard.copied-changed"
         | "web.host.save-ok" | "web.host.download-ok" | "web.host.delete.ok"
         | "web.host.add.node" | "web.host.add.child" | "web.host.add.sibling"
-        | "web.host.kind.changed" | "web.host.value.changed" => Severity::Success,
+        | "web.host.kind.changed" | "web.host.value.changed"
+        | "tui.host.saved" | "tui.host.convert-success" => Severity::Success,
 
         "core.save.nothing" | "core.clipboard.empty" | "core.clipboard.cleared"
         | "core.selection.cleared" | "core.undo.empty" | "core.redo.empty"
         | "core.paste.cancelled" | "core.add.placeholder" | "core.convert.aborted"
-        | "web.host.kind.no-options" => Severity::Info,
-
+        | "web.host.kind.no-options" | "tui.host.no-changes" => Severity::Info,
         _ => panic!("severity_of: unmapped notice key {key:?} — add it to the table in notice.rs"),
     }
 }

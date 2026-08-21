@@ -715,7 +715,7 @@ fn revalidate_schema_marks_ancestors_of_violating_paths() {
 }
 
 #[test]
-fn collapsed_ancestor_row_reports_has_descendant_warning() {
+fn collapsed_ancestor_row_reports_has_descendant_violation() {
     use confy_core::model::node::{Path, Seg};
     let mut s = session_from("[server]\nport = \"nope\"\n", DocFormat::Toml);
     let schema_text = json!({
@@ -734,7 +734,7 @@ fn collapsed_ancestor_row_reports_has_descendant_warning() {
     let rows = s.visible_rows();
     let server_row = rows.iter().find(|r| r.key == "server").unwrap();
     assert!(server_row.is_branch);
-    assert!(server_row.has_descendant_warning);
+    assert!(server_row.has_descendant_violation);
 }
 
 #[test]

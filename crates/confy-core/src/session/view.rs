@@ -72,7 +72,7 @@ pub struct ViewRow {
     /// depth) currently has a schema violation — independent of this row's
     /// own expand state; the renderer decides whether to draw a marker based
     /// on whether the row is *currently* collapsed.
-    pub has_descendant_warning: bool,
+    pub has_descendant_violation: bool,
 }
 
 // ---- Stage-2 full-state transport (WASM / Web UI) ----

@@ -125,7 +125,7 @@ fn view_row_roundtrips() {
         selected: true,
         is_cursor: false,
         violations: None,
-        has_descendant_warning: false,
+        has_descendant_violation: false,
     };
     assert_roundtrip(&row);
 
@@ -145,7 +145,7 @@ fn view_row_roundtrips() {
         selected: false,
         is_cursor: true,
         violations: None,
-        has_descendant_warning: false,
+        has_descendant_violation: false,
     };
     assert_roundtrip(&branch);
 }

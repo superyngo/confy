@@ -186,7 +186,7 @@ impl Session {
                     .collect();
                 (!msgs.is_empty()).then_some(msgs)
             }),
-            has_descendant_warning: node.is_branch()
+            has_descendant_violation: node.is_branch()
                 && self
                     .schema
                     .as_ref()

@@ -1,7 +1,7 @@
 // Shared y/n confirmation-prompt buttons, rendered identically by the desktop
 // overlay (`ui.ts`) and the touch prompt sheet (`touch/app.ts`). Each button
 // carries the `PromptKey` character it answers with in `data-pk`; the prompt
-// question itself is `SessionSnapshot.status`, rendered by the host.
+// question itself is `ModeView.Prompt.question`, rendered directly by the host.
 import type { PromptView, Intent, SessionSnapshot } from "./types";
 import { t } from "./i18n.js";
 
@@ -46,23 +46,6 @@ export function promptTitle(kind: PromptView): string {
   return key ? t(key) : t("web.prompt.titleFallback");
 }
 
-// Fallback questions for prompts the core raises without a status line (the
-// TUI renders these texts itself).
-const PROMPT_QUESTIONS: Partial<Record<PromptView, string>> = {
-  JsoncUpgrade: "web.prompt.q.jsoncUpgrade",
-  ArrayUpgrade: "web.prompt.q.arrayUpgrade",
-  ConfirmQuit: "web.prompt.q.confirmQuit",
-};
-
-// The question line. `text` is `snap.status ?? snap.error` (collision reports
-// via `error`), already localized by core `tr`/`tr_args` — written for the
-// keyboard TUI with a trailing key legend ("… y/n", "— o/r/c") that the
-// buttons replace — strip it.
-export function promptQuestion(kind: PromptView, text: string | undefined): string {
-  const q = text?.replace(/\s*[—–-]?\s*\S+\/\S+\s*$/, "").trim();
-  const fallbackKey = PROMPT_QUESTIONS[kind];
-  return q || (fallbackKey && t(fallbackKey)) || t("web.prompt.confirmFallback");
-}
 
 export function promptButtonsHTML(kind: PromptView): string {
   const btns = PROMPT_BUTTONS[kind] ?? [

@@ -90,14 +90,14 @@ console.log("\n-- treeHTML(): still emits the trailing .reorder-line the After c
   check('trailing reorder-line element present', html.includes('<div class="reorder-line"></div>'));
 }
 
-console.log("\n-- treeHTML(): has_descendant_warning gets warn-branch, stably regardless of expand state --");
+console.log("\n-- treeHTML(): has_descendant_violation gets warn-branch, stably regardless of expand state --");
 {
-  const rowB = makeRow({ path: [{ Key: "b" }], key: "b", has_descendant_warning: true });
+  const rowB = makeRow({ path: [{ Key: "b" }], key: "b", has_descendant_violation: true });
   const html = treeHTML(makeSnap([rowB], undefined));
   const bDiv = html.split("<div")[1];
   check("collapsed branch with descendant warning gets warn-branch class", bDiv.includes("warn-branch"));
 
-  const rowBExpanded = makeRow({ path: [{ Key: "b" }], key: "b", has_descendant_warning: true });
+  const rowBExpanded = makeRow({ path: [{ Key: "b" }], key: "b", has_descendant_violation: true });
   const rowChild = makeRow({ path: [{ Key: "b" }, { Key: "c" }], key: "c", depth: 2, is_branch: false });
   const htmlExpanded = treeHTML(makeSnap([rowBExpanded, rowChild], undefined));
   const bDivExpanded = htmlExpanded.split("<div")[1];
