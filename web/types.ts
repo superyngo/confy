@@ -150,6 +150,9 @@ export interface ExternalEdit {
   kind: ExternalEditKind;
 }
 
+// Mirrors confy-core `schema::types::SchemaSource` (serde external-tag).
+export type SchemaSource = { Local: string } | { Url: string };
+
 export interface SchemaStatus {
   source_label: string;
   violation_count: number;
@@ -185,7 +188,7 @@ export interface SessionSnapshot {
   detail_text: string | undefined;
   external_edit: ExternalEdit | undefined;
   schema_status: SchemaStatus | undefined;
-  schema_fetch_request: { Local: string } | { Url: string } | undefined;
+  schema_fetch_request: SchemaSource | undefined;
   convert_write: [string, string] | undefined; // [output_path, text]
   clipboard_count: number | undefined; // Some(n) when the clipboard holds n fragments
   clipboard_cut: boolean; // true = cut (move); false = copy
@@ -262,7 +265,7 @@ export type Intent =
   // `schema_fetch_request`'s text and dispatches `SchemaLoaded` back; the enum
   // arms drive the constrained-value picker. Mirrors Rust
   // `session::intent::Intent` (Tasks 13/15/16 consume these).
-  | { SchemaLoaded: { source: { Local: string } | { Url: string }; text: { Ok: string } | { Err: string } } }
+  | { SchemaLoaded: { source: SchemaSource; text: { Ok: string } | { Err: string } } }
   | { SchemaEnumMove: number }
   | { SchemaEnumJump: number }
   | "DetectSchema"
