@@ -402,7 +402,7 @@ function render() {
     // is showing.
     let statusText = schemaHintText(session.schemaHint(snap.cursor));
     if (snap.schema_status && snap.schema_status.violation_count > 0) {
-      statusText = `${statusText} · ${snap.schema_status.violation_count} schema warnings`.trim();
+      statusText = `${statusText} · ${tArgs("core.schema.count", [String(snap.schema_status.violation_count)])}`.trim();
     }
     statusEl.textContent = statusText;
   }
@@ -2022,11 +2022,12 @@ function setStatus(status: string | undefined, error: string | undefined) {
   errorEl.classList.toggle("hidden", err === "");
 }
 
+let toastT: number | undefined;
 function renderNotice(notice: Notice | undefined) {
   if (!notice) {
     // Clear everything
     toastEl.textContent = "";
-    toastEl.classList.add("hidden");
+    toastEl.classList.remove("show");
     statusEl.textContent = "";
     errorEl.textContent = "";
     errorEl.classList.add("hidden");
@@ -2037,7 +2038,8 @@ function renderNotice(notice: Notice | undefined) {
 
   // Clear previous states
   toastEl.textContent = "";
-  toastEl.classList.add("hidden");
+  toastEl.classList.remove("show");
+  clearTimeout(toastT);
   statusEl.textContent = "";
   errorEl.textContent = "";
   errorEl.classList.add("hidden");
@@ -2045,9 +2047,10 @@ function renderNotice(notice: Notice | undefined) {
 
   switch (severity) {
     case "success":
-      // Toast + status bar
+      // Toast (1.6s auto-hide, same animation as touch) + status bar
       toastEl.textContent = text;
-      toastEl.classList.remove("hidden");
+      toastEl.classList.add("show");
+      toastT = setTimeout(() => toastEl.classList.remove("show"), 1600);
       statusEl.textContent = text;
       statusEl.classList.add("sev-success");
       break;

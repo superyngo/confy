@@ -478,6 +478,19 @@ fn paste_line_row<'a>(row: &RowSnapshot, expanded: bool, width: u16) -> Row<'a> 
         .style(Style::default().fg(Color::Green))
 }
 
+/// Maps a non-`Error` `Severity` to its status-line color (design spec §5.1:
+/// Success = green, Warn = yellow, Info = default). `Error` is handled by its
+/// own red-background branch above `draw_status`'s callers, never via this
+/// helper, but is mapped safely regardless.
+fn notice_color(severity: confy_core::session::notice::Severity) -> Color {
+    use confy_core::session::notice::Severity;
+    match severity {
+        Severity::Success => Color::Green,
+        Severity::Warn => Color::Yellow,
+        Severity::Info | Severity::Error => Color::White,
+    }
+}
+
 fn draw_status(f: &mut Frame, area: Rect, app: &App) {
     use confy_core::session::tr_args;
     // Error messages always take priority — shown with red background regardless
@@ -584,25 +597,34 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
             tags.push_str(&format!("[type: {n_types}] "));
         }
         let lang = app.session.lang;
-        let status = if let Some(notice) = &app.session.notice {
-            tr_args(lang, "tui.status.filter-results-notice", &[&tags, &notice.text])
+        let (status, status_color) = if let Some(notice) = &app.session.notice {
+            (
+                tr_args(lang, "tui.status.filter-results-notice", &[&tags, &notice.text]),
+                notice_color(notice.severity),
+            )
         } else if let Some(cb) = &app.session.clipboard {
             let n = cb.fragments.len().to_string();
             let kind = if cb.cut { "cut" } else { "copied" };
-            tr_args(
-                lang,
-                "tui.status.filter-results-clipboard",
-                &[&tags, &n, kind],
+            (
+                tr_args(
+                    lang,
+                    "tui.status.filter-results-clipboard",
+                    &[&tags, &n, kind],
+                ),
+                Color::Yellow,
             )
         } else {
-            tr_args(
-                lang,
-                "tui.status.filter-results-default",
-                &[&tags, &pos.to_string(), &total.to_string()],
+            (
+                tr_args(
+                    lang,
+                    "tui.status.filter-results-default",
+                    &[&tags, &pos.to_string(), &total.to_string()],
+                ),
+                Color::Yellow,
             )
         };
         let paragraph =
-            Paragraph::new(status).style(Style::default().bg(Color::DarkGray).fg(Color::Yellow));
+            Paragraph::new(status).style(Style::default().bg(Color::DarkGray).fg(status_color));
         f.render_widget(paragraph, area);
         return;
     }
@@ -627,8 +649,10 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
         "tui.status.default",
         &[&pos.to_string(), &total.to_string()],
     );
+    let mut status_color = Color::White;
     if let Some(notice) = &app.session.notice {
         status = format!(" {}", notice.text);
+        status_color = notice_color(notice.severity);
     } else if let Some(hint) = app.session.edit_hint(&app.session.cursor).describe() {
         // Dynamic, tooltip-like: appears while the cursor sits on a
         // schema-constrained node, clears the instant it moves off (no
@@ -650,9 +674,9 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
                 Style::default().fg(Color::Yellow),
             ),
         ]))
-        .style(Style::default().bg(Color::DarkGray).fg(Color::White))
+        .style(Style::default().bg(Color::DarkGray).fg(status_color))
     } else {
-        Paragraph::new(status).style(Style::default().bg(Color::DarkGray).fg(Color::White))
+        Paragraph::new(status).style(Style::default().bg(Color::DarkGray).fg(status_color))
     };
     f.render_widget(paragraph, area);
 }
@@ -895,6 +919,39 @@ mod tests {
             joined.contains("invalid value"),
             "commit error must be visible in the status line: {joined:?}"
         );
+    }
+
+    #[test]
+    fn notice_severity_drives_status_line_color() {
+        // Design spec §5.1: Success => green, Warn => yellow, Info => default
+        // (white). Error is covered separately by the red-bg branch above
+        // (see the `!matches!(app.session.mode, Mode::Edit(_))` guard).
+        let doc = crate::model::any_doc::AnyDocument::Toml(
+            crate::model::cst_doc::CstDocument::from_str("x = 1\n").unwrap(),
+        );
+        let mut app = App::new(doc);
+        let lang = app.session.lang;
+        let cases = [
+            ("core.save.saved", confy_core::session::notice::Severity::Success, Color::Green),
+            ("core.readonly", confy_core::session::notice::Severity::Warn, Color::Yellow),
+            ("core.save.nothing", confy_core::session::notice::Severity::Info, Color::White),
+        ];
+        for (key, expected_severity, expected_color) in cases {
+            let notice = confy_core::session::notice::Notice::core(lang, key, &[]);
+            assert_eq!(
+                notice.severity, expected_severity,
+                "fixture key {key} must map to the severity this test means to exercise"
+            );
+            app.session.notice = Some(notice);
+            let mut terminal = Terminal::new(TestBackend::new(80, 8)).unwrap();
+            terminal.draw(|fr| draw(fr, &app)).unwrap();
+            let buf = terminal.backend().buffer().clone();
+            let fg = buf[(1, 7)].fg; // status bar is always the last row (height - 1)
+            assert_eq!(
+                fg, expected_color,
+                "{key:?} ({expected_severity:?}) must render {expected_color:?}, got {fg:?}"
+            );
+        }
     }
 
     #[test]

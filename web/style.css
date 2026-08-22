@@ -282,13 +282,16 @@ body:not(.paste-mode) .row.cursor{background:var(--cursor-bg)}
   border-bottom-width:2px;border-radius:4px;padding:1px 5px;margin:0 1px}
 
 /* Success toast — floating above the footer so it doesn't collide with the
-   status text it duplicates (severity table: Success => toast + status bar). */
+   status text it duplicates (severity table: Success => toast + status bar).
+   Same fade + slide-up transition as touch's .toast/.toast.show. */
 #toast{
-  position:fixed;left:50%;bottom:56px;transform:translateX(-50%);z-index:70;
+  position:fixed;left:50%;bottom:56px;transform:translate(-50%,12px);z-index:70;
   background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;
   padding:8px 16px;font-size:13px;color:var(--fg);box-shadow:var(--shadow);
   max-width:min(420px,86vw);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  opacity:0;visibility:hidden;transition:opacity .2s,transform .2s,visibility .2s;
 }
+#toast.show{opacity:1;visibility:visible;transform:translate(-50%,0)}
 
 /* ---------- popovers / menu ---------- */
 .pop{

@@ -2,6 +2,11 @@
 // Minimal standalone test - no bundling needed, just tests the type definitions.
 
 import assert from "node:assert";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
 
 let failures = 0;
 let checks = 0;
@@ -41,6 +46,36 @@ check("NoticeSource kebab-case",
 const promptMode = { Prompt: { kind: "ConfirmQuit", question: "Really quit?" } };
 check("Prompt mode has question field", promptMode.Prompt.question === "Really quit?");
 
+
+// Test 5: schema-warning count text goes through the i18n catalog, not a
+// hand-rolled English string (spec §5.3: "the three hand-rolled strings are
+// deleted" — TUI and touch already used core.schema.count; desktop's status
+// append did not).
+const uiTs = readFileSync(path.join(here, "ui.ts"), "utf8");
+const styleCss = readFileSync(path.join(here, "style.css"), "utf8");
+
+console.log("\nSchema Warning Count Text:");
+check(
+  "no hand-rolled 'schema warnings' English string remains in ui.ts",
+  !uiTs.includes("schema warnings"),
+);
+check(
+  "schema warning count status append uses the core.schema.count catalog key",
+  /violation_count > 0\)[\s\S]{0,200}tArgs\("core\.schema\.count"/.test(uiTs),
+);
+
+// Test 6: desktop Success toast auto-hides after 1.6s with the same
+// fade/slide animation as touch's .toast/.toast.show (spec §5.2).
+console.log("\nDesktop Toast Auto-Hide:");
+const renderNoticeFn = uiTs.match(/function renderNotice\([\s\S]*?\n\}/)?.[0] ?? "";
+check(
+  "renderNotice's success case schedules a 1.6s toast auto-hide timer",
+  /case "success":[\s\S]{0,200}setTimeout\([\s\S]{0,80}1600\)/.test(renderNoticeFn),
+);
+check(
+  "#toast has the same opacity/transform/visibility transition as touch's .toast",
+  /#toast\{[^}]*transition:opacity[^}]*\}[\s\S]{0,40}#toast\.show\{/.test(styleCss),
+);
 if (failures > 0) {
   console.error(`\n${failures} check(s) failed`);
   process.exit(1);
