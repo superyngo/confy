@@ -273,11 +273,22 @@ body:not(.paste-mode) .row.cursor{background:var(--cursor-bg)}
 }
 .footer .status{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .footer .status.err{color:var(--t-bool)}
+.footer .status.sev-warn{color:var(--warn)}
+.footer .status.sev-success{color:var(--drop)}
 .badge{font-family:var(--mono);font-size:11.5px;padding:2px 8px;border-radius:999px;background:var(--panel);border:1px solid var(--border)}
 .badge.on{background:var(--accent-soft);border-color:var(--sel-edge);color:var(--fg)}
 .hint{color:var(--faint);font-size:11.5px}
 .hint kbd{font-family:var(--mono);font-size:10.5px;background:var(--panel);border:1px solid var(--border);
   border-bottom-width:2px;border-radius:4px;padding:1px 5px;margin:0 1px}
+
+/* Success toast — floating above the footer so it doesn't collide with the
+   status text it duplicates (severity table: Success => toast + status bar). */
+#toast{
+  position:fixed;left:50%;bottom:56px;transform:translateX(-50%);z-index:70;
+  background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;
+  padding:8px 16px;font-size:13px;color:var(--fg);box-shadow:var(--shadow);
+  max-width:min(420px,86vw);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
 
 /* ---------- popovers / menu ---------- */
 .pop{

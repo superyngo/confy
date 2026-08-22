@@ -33,28 +33,28 @@ check(
 );
 
 check(
-  "ui.ts onTreeContext guards clipboard_count > 0 and calls setStatus",
-  /function onTreeContext\([\s\S]*?clipboard_count(?: \?\? 0\))? > 0[\s\S]*?setStatus\(t\("core\.clipboard\.action-locked"\)/.test(uiTs),
+  "ui.ts onTreeContext guards clipboard_count > 0 and dispatches SetHostNotice",
+  /function onTreeContext\([\s\S]*?clipboard_count(?: \?\? 0\))? > 0[\s\S]*?SetHostNotice[\s\S]*?core\.clipboard\.action-locked/.test(uiTs),
 );
 
 check(
   "ui.ts kind badge click in onTreeClick guards clipboard_count > 0",
-  /const kindEl = target\.closest\("\[data-kind\]"\)[\s\S]*?clipboard_count(?: \?\? 0\))? > 0[\s\S]*?setStatus\(t\("core\.clipboard\.action-locked"\)/.test(uiTs),
+  /const kindEl = target\.closest\("\[data-kind\]"\)[\s\S]*?clipboard_count(?: \?\? 0\))? > 0[\s\S]*?SetHostNotice[\s\S]*?core\.clipboard\.action-locked/.test(uiTs),
 );
 
 check(
   "ui.ts openKindMenuAt guards clipboard_count > 0",
-  /function openKindMenuAt\([\s\S]*?clipboard_count[\s\S]*?setStatus\(t\("core\.clipboard\.action-locked"\)/.test(uiTs),
+  /function openKindMenuAt\([\s\S]*?clipboard_count[\s\S]*?SetHostNotice[\s\S]*?core\.clipboard\.action-locked/.test(uiTs),
 );
 
 check(
   "ui.ts uiUndo guards clipboard_count > 0",
-  /function uiUndo\(\)\s*\{[\s\S]*?clipboard_count[\s\S]*?setStatus\(t\("core\.clipboard\.action-locked"\)/.test(uiTs),
+  /function uiUndo\(\)\s*\{[\s\S]*?clipboard_count[\s\S]*?SetHostNotice[\s\S]*?core\.clipboard\.action-locked/.test(uiTs),
 );
 
 check(
   "ui.ts uiRedo guards clipboard_count > 0",
-  /function uiRedo\(\)\s*\{[\s\S]*?clipboard_count[\s\S]*?setStatus\(t\("core\.clipboard\.action-locked"\)/.test(uiTs),
+  /function uiRedo\(\)\s*\{[\s\S]*?clipboard_count[\s\S]*?SetHostNotice[\s\S]*?core\.clipboard\.action-locked/.test(uiTs),
 );
 
 

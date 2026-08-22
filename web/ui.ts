@@ -1016,7 +1016,7 @@ function doSave(): Promise<void> {
 // executes them only via the host's undo/redo callback messages.
 function uiUndo() {
   if (snap && (snap.clipboard_count ?? 0) > 0) {
-    setStatus(t("core.clipboard.action-locked"), "");
+    send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
     return;
   }
   if (VSHOST) post({ type: "request-undo" });
@@ -1024,7 +1024,7 @@ function uiUndo() {
 }
 function uiRedo() {
   if (snap && (snap.clipboard_count ?? 0) > 0) {
-    setStatus(t("core.clipboard.action-locked"), "");
+    send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
     return;
   }
   if (VSHOST) post({ type: "request-redo" });
@@ -1182,7 +1182,7 @@ function onTreeClick(ev: MouseEvent) {
   // Hover action buttons.
   if (target.closest('[data-act="add"]')) {
     if ((snap.clipboard_count ?? 0) > 0) {
-      setStatus(t("core.clipboard.action-locked"), "");
+      send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
       return;
     }
     // The `＋` is branch-only and always adds a *child* (unlike the TUI `a`,
@@ -1192,7 +1192,7 @@ function onTreeClick(ev: MouseEvent) {
   }
   if (target.closest('[data-act="menu"]')) {
     if ((snap.clipboard_count ?? 0) > 0) {
-      setStatus(t("core.clipboard.action-locked"), "");
+      send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
       return;
     }
     // Toggle: a second click on the same row's ⋮ closes the menu.
@@ -1214,7 +1214,7 @@ function onTreeClick(ev: MouseEvent) {
   const kindEl = target.closest("[data-kind]") as HTMLElement | null;
   if (kindEl) {
     if ((snap.clipboard_count ?? 0) > 0) {
-      setStatus(t("core.clipboard.action-locked"), "");
+      send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
       return;
     }
     const pathKey = JSON.stringify(path);
@@ -1242,7 +1242,7 @@ function onTreeClick(ev: MouseEvent) {
   const editEl = target.closest("[data-edit]") as HTMLElement | null;
   if (editEl) {
     if ((snap.clipboard_count ?? 0) > 0) {
-      setStatus(t("core.clipboard.action-locked"), "");
+      send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
       return;
     }
     if (editEl.dataset.edit === "note") {
@@ -1545,12 +1545,12 @@ function placePopAt(pop: HTMLElement, x: number, y: number) {
 
 function openKindMenuAt(path: Path, x: number, y: number) {
   if (snap && (snap.clipboard_count ?? 0) > 0) {
-    setStatus(t("core.clipboard.action-locked"), "");
+    send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
     return;
   }
   const opts = session!.kindOptions(path);
   if (!opts.length) {
-    setStatus("no kind conversions for this node", "");
+    send({ SetHostNotice: { key: "web.host.kind.no-options", args: [], source: "host-web" } });
     return;
   }
   const menu = $("kindMenu");
@@ -1873,7 +1873,7 @@ function bindGlobal() {
   $("btnCollapseAll").addEventListener("click", () => send("CollapseAll"));
   $("btnTypeFilter").addEventListener("click", () => {
     if (snap && (snap.clipboard_count ?? 0) > 0) {
-      setStatus(t("core.clipboard.action-locked"), "");
+      send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
       return;
     }
     // Toggle: open the popup, or close it keeping the filter applied.
@@ -1987,7 +1987,7 @@ function onTreeContext(ev: MouseEvent) {
   if (!rowEl || rowEl.dataset.path === undefined) return;
   ev.preventDefault();
   if ((snap.clipboard_count ?? 0) > 0) {
-    setStatus(t("core.clipboard.action-locked"), "");
+    send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
     return;
   }
   const path = JSON.parse(rowEl.dataset.path) as Path;
