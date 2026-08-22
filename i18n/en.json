@@ -210,7 +210,6 @@
   "web.panel.multilinePlaceholder": "(multi-line — tap to edit)",
   "web.render.item.one": "item",
   "web.render.item.many": "items",
-  "web.render.addChild.title": "Add child",
   "web.render.moreActions.title": "More actions",
   "web.help.title": "confy web — keys",
   "web.help.tab.help": "Help",

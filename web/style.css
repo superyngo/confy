@@ -225,12 +225,15 @@ body:not(.paste-mode) .row.cursor{background:var(--cursor-bg)}
 
 .row-actions{margin-left:auto;display:flex;gap:2px;opacity:0;flex:0 0 auto;transition:opacity .1s}
 .row:hover .row-actions,.row.selected .row-actions{opacity:1}
-.row-actions button{
+.row-actions button,.row-actions .drag-handle{
   width:24px;height:24px;display:grid;place-items:center;border:0;background:transparent;
   border-radius:6px;color:var(--faint);
 }
-.row-actions button:hover{background:var(--border);color:var(--fg)}
+.row-actions button:hover,.row-actions .drag-handle:hover{background:var(--border);color:var(--fg)}
 .row-actions button .ic{width:14px;height:14px}
+.row-actions .drag-handle{cursor:grab}
+.row-actions .drag-handle:active{cursor:grabbing}
+.row-actions .drag-handle svg{width:14px;height:14px}
 
 /* inline edit input */
 .cell-input{
@@ -240,14 +243,6 @@ body:not(.paste-mode) .row.cursor{background:var(--cursor-bg)}
 }
 .key-input{font-weight:600}
 
-/* drag handle */
-.drag-handle{
-  flex:0 0 auto;width:16px;display:grid;place-items:center;color:var(--faint);
-  cursor:grab;opacity:0;transition:opacity .1s;
-}
-.row:hover .drag-handle{opacity:.55}
-.drag-handle:hover{opacity:1}
-.drag-handle svg{width:11px;height:13px}
 .drop-line{position:absolute;left:0;right:8px;height:2px;background:var(--drop);border-radius:2px;z-index:6;pointer-events:none;display:none}
 
 /* ---------- detail panel ---------- */

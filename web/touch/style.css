@@ -179,6 +179,13 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none
 }
 .drag-handle:active{cursor:grabbing;background:var(--accent-soft)}
 .drag-handle svg{width:18px;height:18px;opacity:.55}
+/* Armed clipboard: hide the reorder grip outright rather than letting it be
+   tapped and rejected with a toast — a move is itself paste-equivalent and
+   conflicts with being mid-target-selection (ADR 0005 §4), so there is
+   nothing valid to start here while armed. Mirrors desktop, where the grip
+   (now inside `.row-actions`, WEBUI.md) already vanishes wholesale via
+   `.paste-mode .row-actions{display:none}`. */
+.app.paste-mode .drag-handle{visibility:hidden}
 .row.dragging > .row-main{opacity:.45}
 /* .row-main's opacity above makes its opaque background translucent, which
    would let the red swipe-to-delete button sitting behind it (z-index:1,

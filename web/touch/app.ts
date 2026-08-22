@@ -1056,10 +1056,6 @@ function clearInto() {
   }
 }
 function startReorder(e: PointerEvent, row: HTMLElement) {
-  if ((snap?.clipboard_count ?? 0) > 0) {
-    send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
-    return;
-  }
   reordering = true;
   reMoved = false;
   reRow = row;
@@ -1240,10 +1236,8 @@ function installTreeGestures() {
   treeEl.addEventListener("pointerdown", (e) => {
     const grip = (e.target as HTMLElement).closest<HTMLElement>(".drag-handle");
     if (grip) {
-      if ((snap?.clipboard_count ?? 0) > 0) {
-        send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
-        return;
-      }
+      // Armed clipboard hides the grip via CSS (`.app.paste-mode .drag-handle`)
+      // so it can't be tapped in the first place — no runtime guard needed here.
       const row = grip.closest<HTMLElement>(".row");
       if (row) startReorder(e, row);
       return;

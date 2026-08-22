@@ -121,11 +121,13 @@ shapes round-trip). Key types:
   `SessionSnapshot` and renders the DOM from it. Every interaction is `dispatch`. The one
   non-editor UI-local bit of state is the **Tree|Raw view toggle** (see below).
 - **Row anatomy (`render.ts`).** A pure `SessionSnapshot → DOM` function draws the design's
-  web-native row: drag grip, rotating disclosure caret, key (or faint `[i]` for positional
+  web-native row: rotating disclosure caret, key (or faint `[i]` for positional
   elements) / `=` / value (value-type colored) or item count, a per-row **kind badge**
   (friendly label + notation suffix + chevron — `table·scope`/`table·dotted`/`array·multi`,
   YAML `·block`/`·flow`, scalar `·"…"`/`·0x`/`·1e`/…), comment/trailing decoration, and
-  hover `＋`/`⋮` action buttons. Each row carries `data-path` (attribute-safe JSON) so the
+  hover action buttons flush right — drag grip + `⋮` more (mirrors touch's row-actions
+  layout; `⋮`'s "Add child"/"Append sibling" cover the standalone `＋` this replaced, so
+  there is no separate add button). Each row carries `data-path` (attribute-safe JSON) so the
   pointer layer maps a click back to a node without re-deriving structure.
 - **Pointer selection (`select.ts`).** Pure logic resolving a click into the next full
   selection set → `SetSelection`: plain click = that row; ⇧-click = contiguous range from
@@ -152,7 +154,7 @@ shapes round-trip). Key types:
   edit buffer, Enter/blur → `CommitEdit`, **sized to its content** — `editWidthCh` seeds a
   `width:…ch` and an `input` listener grows it while typing, CSS min/max-width clamping);
   a key → a rename input; the kind badge → a
-  popover built from `kindOptions(path)` → `CommitKind`; `＋` → `AddNode`; `⋮`/right-click →
+  popover built from `kindOptions(path)` → `CommitKind`; `⋮`/right-click →
   a context menu. All popovers share one synchronous closer (a single outside-click
   listener) and are scoped per popover so they don't open/close together. **Every menu
   button toggles** — a second click on the `⋯` More button (tracked by `.open`) or the

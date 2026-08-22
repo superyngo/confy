@@ -1179,17 +1179,6 @@ function onTreeClick(ev: MouseEvent) {
   if (raw === undefined) return;
   const path = JSON.parse(raw) as Path;
 
-  // Hover action buttons.
-  if (target.closest('[data-act="add"]')) {
-    if ((snap.clipboard_count ?? 0) > 0) {
-      send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
-      return;
-    }
-    // The `＋` is branch-only and always adds a *child* (unlike the TUI `a`,
-    // which appends a sibling when the branch is collapsed).
-    focusRow(path, ev);
-    return send("AddChild");
-  }
   if (target.closest('[data-act="menu"]')) {
     if ((snap.clipboard_count ?? 0) > 0) {
       send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });

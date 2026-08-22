@@ -1,7 +1,9 @@
 // Plain-Node test for touch modal lock (ADR 0005 §5): while the clipboard
-// is armed (clipboard_count > 0), mutations, modal entries, grip reorder,
-// swipe-to-delete, double-tap detail sheet, and toolbar buttons are disabled
-// and dispatch Intent::SetHostNotice (core.clipboard.action-locked).
+// is armed (clipboard_count > 0), mutations, modal entries, swipe-to-delete,
+// double-tap detail sheet, and toolbar buttons are disabled and dispatch
+// Intent::SetHostNotice (core.clipboard.action-locked). Grip reorder instead
+// hides the grip outright via CSS (`.app.paste-mode .drag-handle`) so it can
+// never be tapped while armed — no runtime guard/toast for it.
 import path from "node:path";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -27,19 +29,21 @@ console.log("-- structural: touch/app.ts guards while clipboard is armed --");
 const startReorderBlock = appTs.match(/^function startReorder\([\s\S]*?\n\}/m)?.[0] ?? "";
 check("startReorder found in source", startReorderBlock.length > 0);
 check(
-  "startReorder checks clipboard_count and dispatches SetHostNotice",
-  /clipboard_count/.test(startReorderBlock) && /SetHostNotice/.test(startReorderBlock),
+  "startReorder no longer guards clipboard_count (armed-state protection moved to CSS)",
+  !/clipboard_count/.test(startReorderBlock),
 );
 
 const installGesturesBlock = appTs.match(/^function installTreeGestures\(\) \{[\s\S]*?\n\}/m)?.[0] ?? "";
 check("installTreeGestures found in source", installGesturesBlock.length > 0);
 check(
-  "installTreeGestures grip handler guards armed clipboard",
-  /grip\b[\s\S]*?clipboard_count/.test(installGesturesBlock),
-);
-check(
   "installTreeGestures swipe-to-delete guards armed clipboard",
   /swipeMain\s*=[\s\S]*?clipboard_count/.test(installGesturesBlock),
+);
+
+const touchCss = readFileSync(path.join(here, "touch/style.css"), "utf8");
+check(
+  "touch/style.css hides the drag-handle grip while paste-mode is armed",
+  /\.app\.paste-mode\s+\.drag-handle\s*\{\s*visibility:\s*hidden/.test(touchCss),
 );
 
 const openPanelBlock = appTs.match(/^function openPanel\([\s\S]*?\n\}/m)?.[0] ?? "";
@@ -209,29 +213,14 @@ export ${fns[4]}
   mod.installShellHandlers();
 }
 
-// 1. Grip drag when clipboard_count > 0: does not start reorder, emits toast
+// 1. Grip drag/pointerdown while armed: since the grip is hidden outright via
+// CSS (`.app.paste-mode .drag-handle`, checked structurally above) rather
+// than guarded at runtime, calling straight into the handlers (bypassing the
+// CSS a real pointer could never get past) now starts reorder unconditionally
+// — there is no code-level lock left to assert here.
 {
   H.toasts.length = 0;
-  mod.setEnv({ snap: { clipboard_count: 1 } });
-  const row = {
-    dataset: { path: JSON.stringify([{ Key: "a" }]) },
-    classList: { add: () => {}, remove: () => {} },
-  };
-  mod.startReorder({ clientY: 100, pointerId: 1 }, row);
-  check(
-    "startReorder when armed does not set reordering",
-    mod.getReordering() === false,
-  );
-  check(
-    "startReorder when armed dispatches action-locked SetHostNotice",
-    H.sent.some((i) => i && i.SetHostNotice && i.SetHostNotice.key === "core.clipboard.action-locked"),
-    JSON.stringify(H.sent),
-  );
-}
-
-// 2. Grip pointerdown in installTreeGestures when armed: emits toast, does not start reorder
-{
-  H.toasts.length = 0;
+  H.sent.length = 0;
   mod.setEnv({ snap: { clipboard_count: 1 } });
   const row = {
     dataset: { path: JSON.stringify([{ Key: "a" }]) },
@@ -242,17 +231,17 @@ export ${fns[4]}
   };
   mod.triggerPointerDown({ target: gripEl, clientY: 100, pointerId: 1 });
   check(
-    "grip pointerdown when armed does not start reorder",
-    mod.getReordering() === false,
+    "grip pointerdown starts reorder even when armed (no runtime guard; CSS hides the grip instead)",
+    mod.getReordering() === true,
   );
   check(
-    "grip pointerdown when armed dispatches action-locked SetHostNotice",
-    H.sent.some((i) => i && i.SetHostNotice && i.SetHostNotice.key === "core.clipboard.action-locked"),
+    "grip pointerdown never dispatches action-locked SetHostNotice",
+    !H.sent.some((i) => i && i.SetHostNotice && i.SetHostNotice.key === "core.clipboard.action-locked"),
     JSON.stringify(H.sent),
   );
 }
 
-// 3. Grip drag when unarmed (clipboard_count = 0): starts reorder
+// 2. Grip drag when unarmed (clipboard_count = 0): starts reorder
 {
   H.toasts.length = 0;
   H.sent.length = 0;

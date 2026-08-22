@@ -148,6 +148,22 @@ desktop's mouse-driven equivalents and to touch's grip-drag, not just to TUI's l
 key bindings. A disabled affordance surfaces a transient toast/status message rather
 than a silent no-op, since this is new-to-users modal behavior.
 
+**Later revision (2026-08-22, desktop/touch row-actions consolidation):** the
+reorder-grip is the one exception to "toast, not silent no-op" above. Desktop's
+`+`/`⋮` row-actions already went silent-hide-only (`.paste-mode .row-actions
+{display:none}`, `web/style.css`) rather than toast-on-attempt, because they are
+not independently reachable once hidden — any runtime guard on them is dead code
+under normal pointer input. When the grip moved into desktop's `.row-actions`
+(replacing the standalone `＋`, `web/render.ts`) it inherited the same hide, and
+touch's grip was brought in line with the same pattern (`.app.paste-mode
+.drag-handle{visibility:hidden}`, `web/touch/style.css`) — its runtime
+`clipboard_count` guard (`web/touch/app.ts: startReorder`) was removed as
+unreachable rather than kept as dead defensive code. Every other locked
+affordance (context menu, toolbar buttons, inline edit, swipe-to-delete, …)
+keeps the original toast-on-attempt behavior; only the grip's specific
+lock became hide-outright, because it is the one row-level move affordance a
+pointer can already never reach once its container is hidden.
+
 ### 5. Escape ladder — documented as-is, no behavior change
 
 `Session::escape()` (`session.rs:1594-1636`) already peels exactly one layer per press,

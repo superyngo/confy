@@ -1,8 +1,10 @@
 // Pure `SessionSnapshot → DOM` for the tree (WEBUI.md / PORTING §8.3). Renders
-// the full web-native row anatomy from `design_index_model.html`: drag grip,
-// rotating caret, key / `=` / value (value-type colored) or `—` element / item
-// count, a per-row **kind badge** (type + notation + chevron), comment / trailing
-// decoration, and hover action buttons (`＋` add on branches, `⋮` more). Each row
+// the full web-native row anatomy from `design_index_model.html`: rotating
+// caret, key / `=` / value (value-type colored) or `—` element / item count, a
+// per-row **kind badge** (type + notation + chevron), comment / trailing
+// decoration, and hover action buttons — drag grip + `⋮` more, flush right
+// (mirrors touch's row-actions layout; ⋮'s "Add child"/"Append sibling" cover
+// the standalone ＋ this replaced). Each row
 // carries `data-path` (JSON-encoded `Path`) + `data-index` so the pointer layer
 // (web/ui.ts, later web/select.ts / web/dnd.ts) maps a click back to a node
 // without re-deriving tree structure. No editing logic lives here — it renders
@@ -24,8 +26,6 @@ const IC_CHEV =
   `<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>`;
 const IC_GRIP =
   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="6" r="1.4"/><circle cx="15" cy="6" r="1.4"/><circle cx="9" cy="12" r="1.4"/><circle cx="15" cy="12" r="1.4"/><circle cx="9" cy="18" r="1.4"/><circle cx="15" cy="18" r="1.4"/></svg>`;
-const IC_ADD =
-  `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>`;
 const IC_MORE =
   `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>`;
 
@@ -112,8 +112,6 @@ export function renderRow(
   // left every node flush-left with no level hint.)
   const level = Math.max(0, r.depth - 1);
   s += `<span class="indent" style="width:calc(var(--indent) * ${level})"></span>`;
-  // Drag grip.
-  s += `<span class="drag-handle" data-grip="1" draggable="true">${IC_GRIP}</span>`;
   // Disclosure caret (rotates on expand); leaves get an aligned hidden caret.
   s += `<button class="caret${r.is_branch ? "" : " leaf"}" data-caret="1">${IC_CARET}</button>`;
 
@@ -160,9 +158,12 @@ export function renderRow(
     }
   }
 
-  // Hover action buttons (＋ add on branches, ⋮ more) — wired in later phases.
+  // Hover action buttons: drag grip (replaces the former standalone left-side
+  // grip AND the branch-only ＋, whose "add child" is already reachable via
+  // the ⋮ menu — desktop.paste-mode hides row-actions wholesale, so the grip
+  // now disappears with the rest during an armed clipboard, same as ⋮/menu).
   s += `<span class="row-actions">`;
-  if (r.is_branch) s += `<button title="${t("web.render.addChild.title")}" data-act="add">${IC_ADD}</button>`;
+  s += `<span class="drag-handle" data-grip="1" draggable="true">${IC_GRIP}</span>`;
   s += `<button title="${t("web.render.moreActions.title")}" data-act="menu">${IC_MORE}</button>`;
   s += `</span>`;
 
