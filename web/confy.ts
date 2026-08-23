@@ -91,6 +91,18 @@ export class Session {
     return this.raw.schema_hint(path) as EditHint;
   }
 
+  /**
+   * Non-widget descriptive schema info for the node at `path` —
+   * `description`/`type`/`format`/`pattern` from the resolved subschema,
+   * `undefined` when unresolvable or none of those keywords are present.
+   * Orthogonal to `schemaHint`: that resolves a widget (enum/const picker,
+   * numeric bounds) and stays `"None"` for a plain-typed field; this covers
+   * that common case so the detail panel still has something to show.
+   */
+  schemaInfo(path: Path): string | undefined {
+    return this.raw.schema_info(path) as string | undefined;
+  }
+
   /** Immediate children of the node at `path` (breadcrumb mini-tree). */
   children(path: Path): ChildView[] {
     return this.raw.children(path) as ChildView[];

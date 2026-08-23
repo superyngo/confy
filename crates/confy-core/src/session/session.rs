@@ -1622,6 +1622,21 @@ impl Session {
             .unwrap_or(crate::schema::EditHint::None)
     }
 
+    /// Non-widget descriptive schema info for the node at `path` —
+    /// `description`/`type`/`format`/`pattern` from the resolved subschema,
+    /// `None` when unresolvable or none of those keywords are present.
+    /// Orthogonal to `edit_hint`: that resolves a *widget* (enum/const
+    /// picker, numeric bounds) and stays `None` for the common plain-typed
+    /// case; this exists so hosts have something to show even then. Same
+    /// cheap, read-only, no-I/O shape as `edit_hint` — used by the TUI
+    /// Detail popup and the shared web/touch/VS Code detail panel.
+    pub fn schema_info(&self, path: &Path) -> Option<String> {
+        self.schema
+            .as_ref()
+            .and_then(|s| s.raw.as_ref())
+            .and_then(|raw| crate::schema::hints_edit::resolve_schema_info(raw, path))
+    }
+
     /// After a value commit, surface any resulting schema violation at
     /// `path` as an advisory notice (spec §3). The commit
     /// already succeeded — schema constraints are soft (`CONTEXT.md` §

@@ -175,7 +175,10 @@ validate.rs: `jsonschema`-backed validation over that projection, draft 2020-12,
 all three formats since it runs on the projection, never source syntax — ADR 0002; hints_edit.rs:
 best-effort sub-schema resolution at one Path for the constrained-value picker, simpler than full
 validation, declining to `EditHint::None` for anything beyond `properties`/`items`/local
-`$defs`/same-document `$ref`/a narrow `oneOf`/`anyOf`-of-`const`; dirty_check.rs: a per-mutation
+`$defs`/same-document `$ref`/a narrow `oneOf`/`anyOf`-of-`const` — plus `resolve_schema_info`
+(`Session::schema_info`), an orthogonal non-widget lookup on the same resolved sub-schema for
+`description`/`type`/`format`/`pattern`, covering the plain-typed case `EditHint` leaves at
+`None`; dirty_check.rs: a per-mutation
 "does this path carry a schema constraint" check that lets `Session::on_mutation_success` skip a
 full revalidation walk when the answer is no) is a **soft constraint** (CONTEXT.md § Schema):
 Violations surface as a visual indicator and never block a Mutation or a save. Detection/parsing
@@ -225,6 +228,7 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
   lib.rs           `pub mod model; pub mod schema; pub mod session;`
   model/
     mod.rs         re-exports
+    text_range.rs  TextRange (byte-offset spans for source ranges) shared by rowan projections
     node.rs        Seg, ScalarType, Format, NodeKind, Node, NodeTree (+ node_at lookup)
     document.rs    ConfigDocument trait (+ to_value), DocFormat, Mutation, Target, OnCollision, ConvertAbort, errors
     value.rs       format-neutral Value/Item tree for conversion (has_null/has_datetime)
@@ -253,7 +257,13 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
       parse.rs     lossless lexer + recursive-descent parser → rowan GreenTree (subset; multi-doc reject)
       doc.rs       YamlDocument: from_str/serialize/apply (atomic commit + validate_semantics)
       project.rs   GreenTree → NodeTree projection (# comments real nodes; opaque read-only nodes; golden tests)
-      edit.rs      rowan splice helpers: reindent engine + one fn per Mutation variant; opaque guard
+      edit/        rowan splice helpers, split by construct (Task 15, 2026-08-11 audit
+                    remediation) — mod.rs (indent engine/resolver/opaque-guard re-exports +
+                    atomic dispatch), block.rs (block-style map/seq Replace/Delete/Insert),
+                    flow.rs (`{ … }`/`[ … ]` flow-collection edits), mutations.rs
+                    (Rename/Remark/EditComment/InsertComment/Move/SetTrailingComment),
+                    convert.rs (ConvertKind: flow/block toggle + scalar notation),
+                    resolve.rs (reindent engine, path resolver, opaque guard)
   session/         §5 state-machine lift (Slice 4) — the complete headless Session, split
                    further across single-purpose files (Task 15, 2026-08-11 audit remediation)
     mod.rs         re-exports

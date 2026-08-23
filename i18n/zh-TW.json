@@ -202,6 +202,7 @@
   "web.panel.field.path": "Path",
   "web.panel.field.children": "Children",
   "web.panel.field.sign": "Sign",
+  "web.panel.field.schema": "Schema",
   "web.panel.sign.none": "無",
   "web.panel.hint.positionalKey": "array 元素的索引是依位置決定的 —— 拖曳把手即可重新排序。",
   "web.panel.trailing.placeholder": "新增 comment…",

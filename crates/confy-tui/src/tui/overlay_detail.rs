@@ -39,17 +39,34 @@ pub(crate) fn wrapped_line_count(text: &str, width: u16) -> usize {
 }
 
 /// The Detail popup's full rendered text — `detail_text` plus, when the
-/// cursor row carries schema violations, an appended `Schema:` section.
-/// Shared by `draw_detail_overlay` (sizing + content) and `mod.rs`'s Detail
-/// key handler (scroll-clamp), so they can never drift out of sync.
+/// cursor row carries schema info (proactive `description`/`type`/`format`/
+/// `pattern` info, a proactive `edit_hint` constraint description, and/or a
+/// violation), an appended `Schema:` section. Shared by `draw_detail_overlay`
+/// (sizing + content) and `mod.rs`'s Detail key handler (scroll-clamp), so
+/// they can never drift out of sync.
 pub(crate) fn detail_full_text(app: &App) -> String {
     let mut text = app.session.detail_text.clone().unwrap_or_default();
-    if let Some(msgs) = app
-        .cursor_row()
-        .and_then(|r| r.violations.as_ref())
-        .filter(|msgs| !msgs.is_empty())
-    {
-        text.push_str("\n\nSchema:\n");
+    let Some(row) = app.cursor_row() else {
+        return text;
+    };
+    let info = app.session.schema_info(&row.path);
+    let hint_line = app.session.edit_hint(&row.path).describe();
+    let violations = row.violations.as_ref().filter(|msgs| !msgs.is_empty());
+    if info.is_none() && hint_line.is_none() && violations.is_none() {
+        return text;
+    }
+    text.push_str("\n\nSchema:\n");
+    if let Some(info) = &info {
+        text.push_str(info);
+        text.push('\n');
+    }
+    if let Some(hint) = &hint_line {
+        text.push_str(hint);
+        if violations.is_some() {
+            text.push('\n');
+        }
+    }
+    if let Some(msgs) = violations {
         text.push_str(&msgs.join("\n"));
     }
     text
@@ -63,12 +80,19 @@ pub(crate) fn draw_detail_overlay(f: &mut Frame, app: &App) {
         Some(t) => t.clone(),
         None => return,
     };
-    let violations = app
-        .cursor_row()
-        .and_then(|r| r.violations.as_ref())
-        .filter(|msgs| !msgs.is_empty());
+    let (info, hint_line, violations) = match app.cursor_row() {
+        Some(row) => (
+            app.session.schema_info(&row.path),
+            app.session.edit_hint(&row.path).describe(),
+            row.violations
+                .as_ref()
+                .filter(|msgs| !msgs.is_empty())
+                .cloned(),
+        ),
+        None => (None, None, None),
+    };
     // Size the popup from the FULL rendered text (original + appended Schema
-    // section), so violation messages never get clipped.
+    // section), so hint/violation content never gets clipped.
     let full_text = detail_full_text(app);
     let area = detail_popup_rect(f.area(), &full_text);
     f.render_widget(Clear, area);
@@ -77,14 +101,27 @@ pub(crate) fn draw_detail_overlay(f: &mut Frame, app: &App) {
         .borders(Borders::ALL)
         .style(Style::default().bg(Color::Black).fg(Color::White));
     let mut lines: Vec<Line> = detail_text.lines().map(Line::from).collect();
-    if let Some(msgs) = violations {
+    if info.is_some() || hint_line.is_some() || violations.is_some() {
         lines.push(Line::from(""));
         lines.push(Line::from("Schema:"));
-        for msg in msgs {
-            lines.push(Line::from(Span::styled(
-                msg.clone(),
-                Style::default().fg(Color::Yellow),
-            )));
+        if let Some(info) = info {
+            for line in info.lines() {
+                lines.push(Line::from(Span::styled(
+                    line.to_string(),
+                    Style::default().fg(Color::Cyan),
+                )));
+            }
+        }
+        if let Some(hint) = hint_line {
+            lines.push(Line::from(Span::styled(hint, Style::default().fg(Color::Cyan))));
+        }
+        if let Some(msgs) = violations {
+            for msg in msgs {
+                lines.push(Line::from(Span::styled(
+                    msg,
+                    Style::default().fg(Color::Yellow),
+                )));
+            }
         }
     }
     let paragraph = Paragraph::new(lines)

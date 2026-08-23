@@ -16,9 +16,9 @@ the ones before it; a row can be in several at once.
 | # | Canonical name | 中文 | Core field | Who can enter it |
 |---|---|---|---|---|
 | 1 | Cursor | 提示定位 | `Session.cursor: Path` (`session.rs:23`) | TUI keyboard, desktop keyboard. Desktop mouse **hover** is a separate, core-invisible signal — see §1a. Touch has no equivalent. |
-| 2 | Focal row | 選取 | Derived: `selected_paths()`'s target for single-row mutating ops (`session.rs:1301`) | Always equals `cursor`, or the last/focal member of a non-empty `Selection` (`set_selection` keeps the clicked/typed path last). |
+| 2 | Focal row | 選取 | Derived: `selected_paths()`'s target for single-row mutating ops (`session.rs:1365`) | Always equals `cursor`, or the last/focal member of a non-empty `Selection` (`set_selection` keeps the clicked/typed path last). |
 | 3 | Locked selection | 鎖定選取 | `Session.selection: Selection` non-empty (`session.rs:25`, `selection/selection.rs:25-30`) | TUI: `s` (`ToggleSelect`) / Shift+↑↓ (`ExtendSelectUp/Down`). Desktop: Ctrl/Shift+click, marquee (`web/select.ts`). Touch: **none** — `selectOnly()` (`web/touch/app.ts:495-498`) only ever sets a 1-path selection. |
-| 4 | Clipboard-armed (cut/copy mode) | 剪下複製模式 | `Session.clipboard.is_some()` (`session.rs:33`, `state.rs:205-209`) | `c`/`x`/Copy/Cut on any surface. Freezes state #3 (four guards: `session.rs:1240-1242, 1252-1254, 1266-1268, 1284-1286`) — entering #4 does not require #3 to be non-empty first; a bare cursor with an empty `Selection` can still be copied/cut via the fallback in `selected_paths()`. |
+| 4 | Clipboard-armed (cut/copy mode) | 剪下複製模式 | `Session.clipboard.is_some()` (`session.rs:33`, `state.rs:205-209`) | `c`/`x`/Copy/Cut on any surface. Freezes state #3 (four guards: `session.rs:1304-1305, 1316-1317, 1330-1331, 1348-1349`) — entering #4 does not require #3 to be non-empty first; a bare cursor with an empty `Selection` can still be copied/cut via the fallback in `selected_paths()`. |
 | 5 | Clipboard source | cut/copy source | `Session.clipboard.sources: Vec<Path>`, colored by `clipboard.cut: bool` (`state.rs:207-208`) | Only meaningful while #4 is active. |
 
 ### 1a. Hover is not a core state

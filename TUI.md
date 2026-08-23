@@ -120,8 +120,8 @@ filter layer (`exit_filter_results`; the text layer when only `/` is active) —
 memory, never a persisted filter. The fuzzy query
 matches a node's **key/path** plus a **Comment node's own text** (`recompute_filter` builds the haystack
 from the path's `Seg::Key` segments — positional nodes contribute none — and appends the comment text
-for a Comment node); a scalar's **value is never matched** — this keeps a loose query from fuzzily hitting unrelated
-values while leaving comments searchable as standalone nodes. While a filter is active the matched chars are
+for a Comment node, plus a scalar leaf's **own value**), so a query matches keys, paths, comments, and
+values alike. While a filter is active the matched chars are
 highlighted in the **NAME cell** (`search::fuzzy_indices` → `ui::highlight_spans`; gated on a non-empty
 query, not the mode, so the highlight survives an inline edit / detail popup; a Comment node's NAME
 shows its text, so its match highlights there too). Transient overlays (detail popup,
@@ -249,6 +249,16 @@ and silently swallow a pending non-Error notice — fixed 2026-08-22); **(4) mod
 clipboard-armed sticky hint, `FilterResults` tag line, or the default `pos/total` status with a
 dynamic schema `edit_hint` tooltip and aggregate violation count (`core.schema.count`), only once
 no notice is pending.
+
+The `i` Detail popup's `Schema:` section (`overlay_detail.rs`) is a separate, persistent
+per-node reference surface — not part of the Notice/diagnostics system above. It combines three
+independent sources, any subset of which may be present: `Session::schema_info(path)` (non-widget
+`description`/`type`/`format`/`pattern` info pulled straight from the resolved subschema — the
+common plain-typed case `EditHint` doesn't model, e.g. a bare `{"type":"string"}` field), the
+cursor row's `edit_hint` constraint description (e.g. "Valid values: …", only for `enum`/`const`/
+numeric-bounds constraints), and its current violation message(s) — omitted entirely only when
+none of the three apply. Mirrors `web/panel.ts`'s Schema field exactly (§ Shared edit/detail
+panel, `WEBUI.md`), so the same schema information is available in both UIs.
 
 `~` opens a read-only diagnostics overlay (`overlay_diag.rs`, `draw_diag_overlay`), a centered
 popup displaying the Session's bounded 256-event diagnostic ring (`session.diag`), newest last,

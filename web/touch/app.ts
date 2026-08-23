@@ -469,9 +469,10 @@ function render() {
   if (isWide() && !rawView) {
     if (cur && cur.path.length) {
       const hint = session!.schemaHint(cur.path);
+      const info = session!.schemaInfo(cur.path);
       const schemaEnum =
         typeof snap.mode === "object" && "SchemaEnum" in snap.mode ? snap.mode.SchemaEnum : undefined;
-      dpBody.innerHTML = panelHTML(cur, parentIsInline(cur.path), hint, schemaEnum);
+      dpBody.innerHTML = panelHTML(cur, parentIsInline(cur.path), hint, schemaEnum, info);
       wirePanel(dpBody, cur, sendR, openKindRow, (msg: string) => renderNotice({ severity: "error", text: msg, source: "core" }), afterPanelMutation, undefined, schemaEnum);
     } else {
       dpBody.innerHTML = '<div class="dp-empty">Tap any node<br>to edit its value and metadata here</div>';
@@ -553,10 +554,11 @@ function openPanel(path: Path) {
     // The `.sheet-head h3` CSS truncates a long key to one line (ellipsis).
     const title = r.type_label === "comment" ? "Comment" : r.key || lastKey(path);
     const hint = session!.schemaHint(r.path);
+    const info = session!.schemaInfo(r.path);
     sheets.detail.innerHTML =
       '<div class="grab"></div>' +
       `<div class="sheet-head"><h3>${esc(title)}</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
-      `<div class="sheet-body detail-wrap">${panelHTML(r, parentIsInline(r.path), hint)}</div>`;
+      `<div class="sheet-body detail-wrap">${panelHTML(r, parentIsInline(r.path), hint, undefined, info)}</div>`;
     wirePanel(sheets.detail, r, sendR, openKindRow, (msg: string) => renderNotice({ severity: "error", text: msg, source: "core" }), afterPanelMutation);
     openSheet("detail");
   }

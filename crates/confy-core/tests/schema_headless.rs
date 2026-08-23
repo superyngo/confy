@@ -365,6 +365,50 @@ fn resolve_edit_hint_none_for_unresolvable_path() {
     assert_eq!(hint, EditHint::None);
 }
 
+use confy_core::schema::hints_edit::resolve_schema_info;
+
+#[test]
+fn resolve_schema_info_combines_description_and_type() {
+    let schema = json!({
+        "type": "object",
+        "properties": {
+            "email": {"type": "string", "format": "email", "description": "Contact address"}
+        }
+    });
+    let info = resolve_schema_info(&schema, &vec![Seg::Key("email".into())]);
+    assert_eq!(
+        info.as_deref(),
+        Some("Contact address\nType: string · Format: email")
+    );
+}
+
+#[test]
+fn resolve_schema_info_bare_type_only() {
+    let schema = json!({
+        "type": "object",
+        "properties": { "port": {"type": "integer"} }
+    });
+    let info = resolve_schema_info(&schema, &vec![Seg::Key("port".into())]);
+    assert_eq!(info.as_deref(), Some("Type: integer"));
+}
+
+#[test]
+fn resolve_schema_info_none_when_no_descriptive_keywords() {
+    let schema = json!({
+        "type": "object",
+        "properties": { "level": {"enum": ["debug", "info"]} }
+    });
+    let info = resolve_schema_info(&schema, &vec![Seg::Key("level".into())]);
+    assert_eq!(info, None);
+}
+
+#[test]
+fn resolve_schema_info_none_for_unresolvable_path() {
+    let schema = json!({ "type": "object", "properties": {} });
+    let info = resolve_schema_info(&schema, &vec![Seg::Key("missing".into())]);
+    assert_eq!(info, None);
+}
+
 use confy_core::session::Session;
 
 fn session_from(src: &str, format: DocFormat) -> Session {
@@ -783,6 +827,29 @@ fn edit_hint_exposes_enum_and_bounded_constraints_without_entering_edit_mode() {
     );
     // Mode untouched — this is a read-only query, not an edit-mode entry.
     assert!(matches!(s.mode, confy_core::session::state::Mode::Normal));
+}
+
+#[test]
+fn session_schema_info_surfaces_type_and_description_alongside_edit_hint() {
+    let mut s = session_from("level = \"debug\"\nport = 1\n", DocFormat::Toml);
+    let schema_text = json!({
+        "type": "object",
+        "properties": {
+            "level": { "enum": ["debug", "info"] },
+            "port": { "type": "integer", "description": "Listen port" }
+        }
+    })
+    .to_string();
+    s.apply_schema_text(SchemaSource::Local("./s.json".into()), Ok(schema_text));
+    // `level` has an enum EditHint but no type/description/format/pattern —
+    // schema_info is orthogonal and has nothing to add here.
+    assert_eq!(s.schema_info(&vec![Seg::Key("level".into())]), None);
+    // `port` has no enum/bounded EditHint (plain `type`), but schema_info
+    // still surfaces its type + description — the gap this exists to close.
+    assert_eq!(
+        s.schema_info(&vec![Seg::Key("port".into())]).as_deref(),
+        Some("Listen port\nType: integer")
+    );
 }
 
 #[test]

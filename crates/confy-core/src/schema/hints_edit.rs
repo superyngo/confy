@@ -19,6 +19,56 @@ pub fn resolve_edit_hint(schema: &Json, path: &Path) -> EditHint {
     hint_from_subschema(schema, sub)
 }
 
+/// A short, non-widget descriptive line for the node's schema constraint —
+/// `description`, `type`, `format`, and/or `pattern` — independent of
+/// `resolve_edit_hint`'s widget-selection job (that only models `enum`/
+/// `const`/numeric bounds). Surfaced by hosts alongside `EditHint::describe()`
+/// so a plain `{"type": "string"}` field (the common, non-enum/bounded case)
+/// still has *something* to show in a persistent schema-info surface, not
+/// only on violation. `None` when the path is unresolvable or the resolved
+/// subschema carries none of the four keywords.
+pub fn resolve_schema_info(schema: &Json, path: &Path) -> Option<String> {
+    let sub = resolve_subschema(schema, schema, path)?;
+    let sub = deref(schema, sub)?;
+    let mut lines = Vec::new();
+    if let Some(d) = sub.get("description").and_then(Json::as_str) {
+        lines.push(d.to_string());
+    }
+    if let Some(t) = schema_type_line(sub) {
+        lines.push(t);
+    }
+    if lines.is_empty() {
+        None
+    } else {
+        Some(lines.join("\n"))
+    }
+}
+
+/// "Type: string" / "Type: string | null" / "Type: string · Format: email" /
+/// "Format: email · Pattern: ^[a-z]+$" — `None` when the subschema has none
+/// of `type`/`format`/`pattern`.
+fn schema_type_line(sub: &Json) -> Option<String> {
+    let type_str = match sub.get("type") {
+        Some(Json::String(s)) => Some(s.clone()),
+        Some(Json::Array(arr)) => {
+            let parts: Vec<&str> = arr.iter().filter_map(Json::as_str).collect();
+            (!parts.is_empty()).then(|| parts.join(" | "))
+        }
+        _ => None,
+    };
+    let mut parts = Vec::new();
+    if let Some(t) = type_str {
+        parts.push(format!("Type: {t}"));
+    }
+    if let Some(f) = sub.get("format").and_then(Json::as_str) {
+        parts.push(format!("Format: {f}"));
+    }
+    if let Some(p) = sub.get("pattern").and_then(Json::as_str) {
+        parts.push(format!("Pattern: {p}"));
+    }
+    (!parts.is_empty()).then(|| parts.join(" · "))
+}
+
 /// Walk `path` from the schema root, following `properties`/`items` and
 /// resolving same-document `$ref`s along the way.
 fn resolve_subschema<'a>(root: &'a Json, current: &'a Json, path: &[Seg]) -> Option<&'a Json> {

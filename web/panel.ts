@@ -56,6 +56,7 @@ export function panelHTML(
   parentInline = false,
   editHint?: EditHint,
   schemaEnum?: { options: string[]; cursor: number },
+  schemaInfo?: string,
 ): string {
   const r = row;
   const branch = r.is_branch;
@@ -145,6 +146,31 @@ export function panelHTML(
   if (branch) h += `<dt>${t("web.panel.field.children")}</dt><dd>${r.child_count}</dd>`;
   h += `<dt>${t("web.panel.field.sign")}</dt><dd>${esc(r.key_sign ?? t("web.panel.sign.none"))}</dd>`;
   h += "</dl>";
+
+  // Schema — proactive non-widget info (`description`/`type`/`format`/
+  // `pattern`, `schemaInfo`), proactive constraint description (`editHint`'s
+  // `describe()` equivalent, `schemaHintText`), plus any violation messages
+  // for this row. Mirrors the TUI Detail popup's `Schema:` section exactly
+  // (same sources, same "only render when there's something to say" rule)
+  // so the information available in the panel doesn't drift by platform.
+  // Rendered right after Meta (Path/Children/Sign), before Actions, so the
+  // action buttons stay the panel's fixed trailing element. Class names are
+  // `schema-*-msg` (not bare `.schema-violation`) so they can't collide with
+  // the tree row's `.row.schema-violation` marker.
+  const hintText = editHint ? schemaHintText(editHint) : "";
+  const violations = r.violations ?? [];
+  if (schemaInfo || hintText || violations.length) {
+    h += `<div class="field-label">${t("web.panel.field.schema")}</div>`;
+    h += `<div class="schema-info${violations.length ? " has-violation" : ""}">`;
+    for (const line of schemaInfo ? schemaInfo.split("\n") : []) {
+      h += `<div class="schema-hint-msg">${esc(line)}</div>`;
+    }
+    if (hintText) h += `<div class="schema-hint-msg">${esc(hintText)}</div>`;
+    for (const msg of violations) {
+      h += `<div class="schema-violation-msg">${esc(msg)}</div>`;
+    }
+    h += "</div>";
+  }
 
   // Actions. Copy/Cut arm the clipboard (paste via the host's paste affordance);
   // Delete removes the node.

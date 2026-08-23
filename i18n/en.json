@@ -202,6 +202,7 @@
   "web.panel.field.path": "Path",
   "web.panel.field.children": "Children",
   "web.panel.field.sign": "Sign",
+  "web.panel.field.schema": "Schema",
   "web.panel.sign.none": "none",
   "web.panel.hint.positionalKey": "Array-element index is positional — drag the grip to reorder.",
   "web.panel.trailing.placeholder": "add a comment…",

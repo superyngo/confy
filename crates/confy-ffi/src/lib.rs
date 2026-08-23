@@ -120,6 +120,17 @@ impl ConfySession {
         to_value(&self.session.edit_hint(&path)).map_err(js_serde_error)
     }
 
+    /// Non-widget descriptive schema info for the node at `path` —
+    /// `description`/`type`/`format`/`pattern` from the resolved subschema,
+    /// `undefined` when unresolvable or none of those keywords are present.
+    /// Orthogonal to `schema_hint` (that only models `enum`/`const`/numeric
+    /// bounds); this covers the common plain-typed field `schema_hint`
+    /// leaves at `None`. Used for the shared web/touch/VS Code detail panel.
+    pub fn schema_info(&self, path: JsValue) -> Result<JsValue, JsValue> {
+        let path: Path = from_value(path).map_err(js_serde_error)?;
+        to_value(&self.session.schema_info(&path)).map_err(js_serde_error)
+    }
+
     /// Immediate children of the node at `path` (breadcrumb mini-tree), as
     /// `ChildView[]` — independent of expansion state.
     pub fn children(&self, path: JsValue) -> Result<JsValue, JsValue> {

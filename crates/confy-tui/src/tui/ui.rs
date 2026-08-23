@@ -1026,7 +1026,11 @@ mod tests {
             "violation msg present: {full:?}"
         );
 
-        // A conforming value produces no violations → no Schema section.
+        // A conforming value produces no violation message — but the
+        // Schema section still appears now, carrying schema_info's
+        // proactive "Type: string" line (this is the fix: a plain-typed
+        // field with no enum/bounded constraint used to show nothing at
+        // all outside a violation).
         let mut clean = App::new(crate::model::any_doc::AnyDocument::Toml(
             crate::model::cst_doc::CstDocument::from_str("port = \"ok\"\n").unwrap(),
         ));
@@ -1039,9 +1043,65 @@ mod tests {
         clean.open_detail();
         let clean_full = detail_full_text(&clean);
         assert!(
-            !clean_full.contains("Schema:"),
-            "no section when conforming: {clean_full:?}"
+            clean_full.contains("Type: string"),
+            "type info still shown when conforming: {clean_full:?}"
         );
+        assert!(
+            !clean_full.contains("not of type"),
+            "no violation msg when conforming: {clean_full:?}"
+        );
+    }
+
+    #[test]
+    fn detail_full_text_appends_schema_section_for_constraint_without_violation() {
+        // A conforming cursor row that still carries a schema constraint (e.g.
+        // an `enum`) must get a `Schema:` section too — the panel isn't only a
+        // violation channel, it's a general schema-info surface.
+        let schema = r#"{"type":"object","properties":{"env":{"enum":["dev","prod"]}}}"#;
+        let mut app = App::new(crate::model::any_doc::AnyDocument::Toml(
+            crate::model::cst_doc::CstDocument::from_str("env = \"dev\"\n").unwrap(),
+        ));
+        app.session.apply_schema_text(
+            confy_core::schema::SchemaSource::Local("/tmp/s.json".into()),
+            Ok(schema.to_string()),
+        );
+        app.rebuild_rows();
+        app.select_row(1); // cursor on env
+        app.open_detail();
+        let full = detail_full_text(&app);
+        assert!(full.contains("Schema:"), "section appended: {full:?}");
+        assert!(
+            full.contains("Valid values:"),
+            "constraint hint present: {full:?}"
+        );
+        assert!(
+            !full.contains("not of type") && !full.contains("is not one of"),
+            "no violation text for a conforming value: {full:?}"
+        );
+    }
+
+    #[test]
+    fn detail_full_text_appends_schema_section_for_plain_typed_field_with_description() {
+        // A field with only `type`/`description` (no enum/bounded, the common
+        // real-world case) has no `EditHint` at all, but must still show
+        // schema_info's proactive line — this is the gap this feature closes.
+        let schema = r#"{"type":"object","properties":{"host":{"type":"string","description":"Bind address"}}}"#;
+        let mut app = App::new(crate::model::any_doc::AnyDocument::Toml(
+            crate::model::cst_doc::CstDocument::from_str("host = \"0.0.0.0\"\n").unwrap(),
+        ));
+        app.session.apply_schema_text(
+            confy_core::schema::SchemaSource::Local("/tmp/s.json".into()),
+            Ok(schema.to_string()),
+        );
+        app.rebuild_rows();
+        app.select_row(1); // cursor on host
+        app.open_detail();
+        let full = detail_full_text(&app);
+        assert!(full.contains("Schema:"), "section appended: {full:?}");
+        assert!(full.contains("Bind address"), "description shown: {full:?}");
+        assert!(full.contains("Type: string"), "type shown: {full:?}");
+        assert!(!full.contains("Valid values:"), "no enum hint: {full:?}");
+        assert!(!full.contains("not of type"), "no violation: {full:?}");
     }
 
     #[test]

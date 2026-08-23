@@ -446,6 +446,21 @@ old static `detail_text` `<pre>` dump (that flat string is now only the empty-do
 feed the panel's Sign field, core's `ViewRow` gained a `key_sign` field (`"bare"|"quoted"|"dotted"
 |"none"`, the same mapping the TUI detail text uses).
 
+A **Schema** field renders after Meta (Path/Children/Sign), before the Actions row (Copy/Cut/
+Delete/External-edit stay the panel's fixed trailing element), as a bordered card (mirrors
+the panel's `.preview` box, not bare text — every other field is a bordered element too) when
+the row carries any of three independent sources: `session.schemaInfo(path)` (non-widget
+`description`/`type`/`format`/`pattern` info read straight off the resolved subschema — the
+common plain-typed case `schemaHint`/`EditHint` doesn't model, e.g. a bare `{"type":"string"}`
+field, so touch/desktop weren't showing anything for it outside a violation), the constraint
+description (`schemaHintText(editHint)`, e.g. "Valid values: …"), and the row's own violation
+message(s) — same underlying data used elsewhere (hover tooltip, status-line hint, enum picker),
+just also given a persistent home in the panel. The card's border tints `--warn` (`.has-violation`)
+when a violation is present, reusing the tree row's own `.row.schema-violation` warn signal
+instead of inventing a second one. Omitted entirely only when none of the three apply.
+Independent of the Notice system (`MESSAGES.md`) — mirrors the TUI Detail popup's `Schema:`
+section exactly (`TUI.md` § Status & diagnostics).
+
 ## Language / i18n (Web)
 
 `web/i18n.ts` imports both root catalog files (`../i18n/en.json`, `../i18n/zh-TW.json` —

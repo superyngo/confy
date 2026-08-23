@@ -500,9 +500,10 @@ function renderDetailPanel() {
     body.innerHTML = `<pre class="mono">${escapeHtml(snap!.detail_text ?? "")}</pre>`;
   } else {
     const hint = session!.schemaHint(cursorRow.path);
+    const info = session!.schemaInfo(cursorRow.path);
     const schemaEnum =
       typeof snap!.mode === "object" && "SchemaEnum" in snap!.mode ? snap!.mode.SchemaEnum : undefined;
-    body.innerHTML = panelHTML(cursorRow, parentIsInline(cursorRow.path), hint, schemaEnum);
+    body.innerHTML = panelHTML(cursorRow, parentIsInline(cursorRow.path), hint, schemaEnum, info);
     wirePanel(
       body,
       cursorRow,
