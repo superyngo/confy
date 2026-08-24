@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.21.0] - 2026-08-24
+
 ### Unreleased Update — 2026-08-24T09:15:00Z
 - docs: follow-up doc audit (one day after the 2026-08-23 repo-wide pass) covering today's
   schema-load-error/touch-keyboard/FAB/warning-marker work: `WEBUI.md` gained the missing
