@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: implemented (2026-08-21)
 ---
 
 # VS Code native-editor schema session updates in place via `ApplyReplace`, never rebuilt per keystroke

@@ -126,9 +126,15 @@ shapes round-trip). Key types:
   (friendly label + notation suffix + chevron — `table·scope`/`table·dotted`/`array·multi`,
   YAML `·block`/`·flow`, scalar `·"…"`/`·0x`/`·1e`/…), comment/trailing decoration, and
   hover action buttons flush right — drag grip + `⋮` more (mirrors touch's row-actions
-  layout; `⋮`'s "Add child"/"Append sibling" cover the standalone `＋` this replaced, so
-  there is no separate add button). Each row carries `data-path` (attribute-safe JSON) so the
+  layout; `⋮`'s "Add child"/"Append sibling" cover the standalone per-row `＋` this replaced,
+  so there is no separate per-row add button — see the global FAB below instead). Each row
+  carries `data-path` (attribute-safe JSON) so the
   pointer layer maps a click back to a node without re-deriving structure.
+- **Floating add/paste action (FAB).** A bottom-right floating button, shared with touch via
+  `web/fab.ts` (glyphs, markup, and the add/paste decision logic — see the Touch UI section's
+  FAB bullet below for the behavior, identical on both surfaces). Desktop wires it in
+  `web/ui.ts`; the armed `+` calls `Paste` directly (same as touch's own tap-to-paste path)
+  rather than going through the add-decision logic. Hidden in Raw view (`body.raw-view`).
 - **Pointer selection (`select.ts`).** Pure logic resolving a click into the next full
   selection set → `SetSelection`: plain click = that row; ⇧-click = contiguous range from
   an anchor, **unioned onto a base snapshot** so earlier segments survive (segmented
@@ -382,11 +388,21 @@ edits to the verbatim desktop CSS.
   `snapshot.mode` (`TypeFilterView` / `ConvertView`); the `convert_write` snapshot field is written
   via `fs.ts`. `dismissSheets` peels each mode on close (TypeFilter→`CommitTypeFilter`,
   Convert→`ExitConvert`, external-edit→`Escape`) so the next render doesn't re-open it.
-- **FAB is context-aware** (like the TUI `a`): when the cursor row is an expanded branch → `AddChild`;
+- **FAB is context-aware** (like the TUI `a`; decision logic shared with desktop's FAB above via
+  `web/fab.ts`): when the cursor row is an expanded branch → `AddChild`;
   otherwise (scalar or collapsed branch) → `AddSibling` (falls back to parameterless `AddNode` with
   no cursor row). When the **clipboard is armed** (`clipboard_count > 0`, after panel Copy/Cut) the
   FAB switches to a **paste glyph tinted by copy vs cut** (`clipboard_cut`) and a tap dispatches
   `Paste` at the cursor; tapping the status-bar clipboard badge clears it (`Escape`).
+- **External-keyboard shortcut parity.** A `document.body` `keydown` listener (`onKey`,
+  `web/touch/app.ts`) resolves every key through the same `web/key-intent.ts`
+  `resolveKeyIntent` desktop uses (shared verbatim, no touch-only fork) — navigation
+  (j/k/g/G, arrows, Home/End, Shift+↑/↓ range-select), edit actions (a/d/c/x/v/r/s),
+  expand/collapse (1/2/0/9), Nudge (+/-), `/` focus-search, `f`/`C` TypeFilter/Convert,
+  `?` Help, Ctrl+S/Ctrl+O save/open, z/y undo/redo, and Space multi-branch toggle all work
+  from an external/Bluetooth keyboard on a touch device. Guarded against focused
+  `INPUT`/`TEXTAREA`/`SELECT` fields and the URL/external-edit sheets so typing in a form
+  field is never hijacked.
 - **Swipe-to-delete.** A left-swipe on a row's `.row-main` slides it open to reveal a single
   red Delete action (`.row-del`); one row is open at a time. The pointer flow **locks the axis**
   (horizontal >8px & > vertical → swipe; vertical → scroll/tap-cancel) so it coexists with grip-drag
@@ -408,6 +424,19 @@ edits to the verbatim desktop CSS.
   desktop uses. Dismissing it (scrim/grab/×/Cancel) sends `Escape` to peel core's pending edit, so
   the sheet can't re-pop on the next render.
 - the initial sample document is the **same welcome sample as the desktop UI** (shared, build-stamped).
+- **Keyboard shortcuts** (external/Bluetooth keyboard on a touch device): a `document.body`
+  `keydown` listener (`onKey`) reuses desktop's `resolveKeyIntent` (`web/key-intent.ts`) verbatim,
+  so the key→Intent map can't drift between surfaces. Guarded against a focused `INPUT`/
+  `TEXTAREA`/`SELECT` and the URL/external-edit sheets. Most resolved intents `send()` straight
+  through, since touch already renders every core sub-mode they can produce (TypeFilter/Convert/
+  Prompt/SchemaEnum/Help all reactively open/close their sheet). Three are host-specific because
+  touch's own editing/kind-switch surfaces bypass the core sub-modes those intents drive on
+  desktop (`Mode::Edit`, `Mode::KindSwitch` — touch renders neither): `e`/`BeginEdit` and
+  `K`/`OpenKindSwitch` open touch's existing panel/kind sheets instead of dispatching the raw
+  intent, and `i`/Enter (`ToggleDetail`) toggles the host-local detail sheet directly (no core
+  mode backs it here, unlike desktop's `Mode::Detail`) — `Escape` closes that sheet first if open.
+  `q`/`QuitRequested` is suppressed (`vshost: true` passed to `resolveKeyIntent`) — a web/touch
+  surface has no "quit" concept.
 
 ### Breadcrumb bar + mini-tree (`web/breadcrumb.ts`)
 

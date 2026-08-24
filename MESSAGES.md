@@ -88,14 +88,21 @@ Four levels, one meaning each:
 `severity_of(key: &str) -> Severity` (`notice.rs:45`) is the single source of
 truth for every `core.*` and host-notice key — there is no explicit-severity
 constructor and no escape hatch; a key not yet in the table panics rather than
-silently defaulting, so a new Notice call site can't ship unclassified. 42 keys
-are classified today (11 Error + 14 Warn + 7 Success + 9 Info, plus one
-controller-approved pass-through wrapper, `core.schema.violation`, for the
-dynamic schema-violation advisory text) — see `notice.rs`'s own
+silently defaulting, so a new Notice call site can't ship unclassified. 42
+`core.*` keys are classified today (11 Error + 14 Warn + 7 Success + 9 Info,
+plus one controller-approved pass-through wrapper, `core.schema.violation`,
+for the dynamic schema-violation advisory text) — see `notice.rs`'s own
 `severity_of_covers_the_full_catalog_table` test for the byte-identical,
-exhaustive list; that test *is* the maintained reference, not duplicated here to
-avoid drift. `core.prompt.*` keys are **not** in this table — Prompt questions
-(§1.2) never carry a severity at all.
+exhaustive `core.*` list; that test *is* the maintained reference, not
+duplicated here to avoid drift (host-authored `tui.*`/`web.*` keys are
+classified by the same `severity_of` table but aren't part of that test).
+`core.prompt.*` keys are **not** in this table — Prompt questions (§1.2)
+never carry a severity at all. Among the host-authored keys (§3):
+`web.host.schema.load-error` / `tui.host.schema-load-error` (`Warn`) report a
+`$schema` hint that failed to load (local file not found / URL fetch failed) —
+dispatched by every host (web desktop, touch, TUI) once
+`schema_status.load_error` is set, so the failure is visible outside the VS
+Code extension's Problems-panel diagnostic too.
 
 ### 2.1 Catalog key prefixes
 

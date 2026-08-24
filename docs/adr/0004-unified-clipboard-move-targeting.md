@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: implemented (2026-08-19, v0.20.0)
 ---
 
 # Unify node copy/cut/paste/move targeting across TUI, web keyboard, web mouse, and touch
