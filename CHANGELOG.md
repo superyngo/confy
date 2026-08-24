@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.21.0] - 2026-08-24
 
+### Fixed
+- fix(release): `editors/vscode/package.json` was missed during the version bump (still `0.20.0`), failing `release.yml`'s version-consistency gate against tag `v0.21.0`. Bumped to `0.21.0`.
+
 ### Unreleased Update — 2026-08-24T09:15:00Z
 - docs: follow-up doc audit (one day after the 2026-08-23 repo-wide pass) covering today's
   schema-load-error/touch-keyboard/FAB/warning-marker work: `WEBUI.md` gained the missing
