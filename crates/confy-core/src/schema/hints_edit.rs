@@ -69,14 +69,17 @@ fn schema_type_line(sub: &Json) -> Option<String> {
     (!parts.is_empty()).then(|| parts.join(" · "))
 }
 
-/// Walk `path` from the schema root, following `properties`/`items` and
-/// resolving same-document `$ref`s along the way.
+/// Walk `path` from the schema root, following `properties`/`patternProperties`/
+/// `items` and resolving same-document `$ref`s along the way.
 fn resolve_subschema<'a>(root: &'a Json, current: &'a Json, path: &[Seg]) -> Option<&'a Json> {
     let current = deref(root, current)?;
     match path.split_first() {
         None => Some(current),
         Some((Seg::Key(k), rest)) => {
-            let next = current.get("properties")?.get(k)?;
+            let next = current
+                .get("properties")
+                .and_then(|p| p.get(k))
+                .or_else(|| pattern_property_match(current, k))?;
             resolve_subschema(root, next, rest)
         }
         Some((Seg::Index(_), rest)) => {
@@ -84,6 +87,21 @@ fn resolve_subschema<'a>(root: &'a Json, current: &'a Json, path: &[Seg]) -> Opt
             resolve_subschema(root, next, rest)
         }
     }
+}
+
+/// First `patternProperties` entry whose key (an ECMA-style regex) matches
+/// `key` — the dictionary-of-named-objects idiom (e.g. a schema keyed by
+/// arbitrary task/host names via `"^[a-zA-Z0-9_]+$"`, with no `properties`
+/// at all). An unparsable pattern is skipped, not fatal — same
+/// safe-if-unsure-say-no-hint polarity as the rest of this module.
+fn pattern_property_match<'a>(schema: &'a Json, key: &str) -> Option<&'a Json> {
+    let patterns = schema.get("patternProperties")?.as_object()?;
+    patterns.iter().find_map(|(pattern, sub)| {
+        regex::Regex::new(pattern)
+            .ok()
+            .filter(|re| re.is_match(key))
+            .map(|_| sub)
+    })
 }
 
 /// Resolve a single `$ref` hop if present — same-document only (`#/...`).

@@ -12,9 +12,10 @@ export interface DiagnosticDescriptor {
  * `DiagnosticSeverity.Warning`, never `Error` — Violations are a documented
  * Soft constraint, CONTEXT.md § Schema). A violation with no resolvable
  * `text_range` is dropped rather than guessed at. `loadError` becomes one
- * additional line-0 descriptor — the one piece of `load_error` UI shipping
- * in this pass (spec §"Non-goals": web/TUI/touch parity is tracked
- * separately). */
+ * additional line-0 descriptor — the Problems-panel piece of `load_error`
+ * UI for this host (web/touch/TUI instead surface it as a `Warn`-severity
+ * host notice — `web.host.schema.load-error`/`tui.host.schema-load-error`
+ * — via their own toast/status-line mechanisms). */
 export function buildSchemaDiagnostics(
   violations: ViolationView[],
   loadError: string | undefined,

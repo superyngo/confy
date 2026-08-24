@@ -336,21 +336,22 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
             } else {
                 " "
             };
-            // One triangle glyph for any row that itself violates OR is a
-            // branch summarizing a descendant violation — was `⚠` on the
-            // branch case only, own-row violations relied on the yellow
-            // text alone; unified so every "there's a warning here" row
-            // gets the same leading landmark (also avoids `⚠`'s variable
-            // emoji-presentation width across terminals — `▲` is always
-            // single-column).
-            let warn_marker = if row.violations.is_some()
-                || (row.is_branch && row.has_descendant_violation)
-            {
+            // The schema-warning marker rides with the row's own indentation —
+            // parked immediately left of the key so its column tracks tree depth
+            // instead of sitting in a fixed gutter. Hollow `△` means this branch
+            // only *summarizes* a violation somewhere in its subtree; filled `▲`
+            // means this exact row violates. A branch that both violates itself
+            // and has violating descendants shows the filled glyph — its own
+            // problem outranks the summary. Both glyphs are always single-column
+            // (unlike `⚠`, whose emoji presentation varies).
+            let warn_marker = if row.violations.is_some() {
                 "▲"
+            } else if row.is_branch && row.has_descendant_violation {
+                "△"
             } else {
                 " "
             };
-            let prefix = format!("{sel_marker}{warn_marker}{indent}{marker}");
+            let prefix = format!("{sel_marker}{indent}{marker}{warn_marker} ");
             // Collapse the key to one line (a merged multi-line comment node's key
             // carries newlines) without disturbing the tree prefix/indent.
             let name = format!("{prefix}{}", cell_preview(&row.key));
@@ -725,8 +726,9 @@ mod tests {
     use ratatui::Terminal;
 
     /// Buffer column where a depth-1 row's key glyph lands in the NAME cell
-    /// (1 selection-marker col + 1 warning-marker col + 2 indent + 2 branch marker).
-    const KEY_X: u16 = 6;
+    /// (1 selection-marker col + 2 indent + 2 branch marker + 1 warning-marker col
+    /// + 1 spacing col before the key).
+    const KEY_X: u16 = 7;
 
     #[test]
     fn highlight_spans_marks_matched_chars() {
@@ -1284,9 +1286,10 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(40, 8)).unwrap();
         terminal.draw(|fr| draw(fr, &app)).unwrap();
         let buf = terminal.backend().buffer().clone();
-        // Locate a tree row by its NAME-cell key, which starts at column 5 for a
-        // depth-1 row (1 selection-marker col + 2 indent + 2 branch marker). Scanning
-        // the whole line instead would also hit the "confy" title and the status bar.
+        // Locate a tree row by its NAME-cell key, which starts at column 7 for a
+        // depth-1 row (1 selection-marker col + 2 indent + 2 branch marker + 1
+        // warning-marker col + 1 spacing col). Scanning the whole line instead
+        // would also hit the "confy" title and the status bar.
         let row_y = |needle: &str| -> u16 {
             (0..8)
                 .find(|&y| buf[(KEY_X, y)].symbol() == needle)
@@ -1398,27 +1401,39 @@ mod tests {
         terminal.draw(|fr| draw(fr, &app)).unwrap();
         let buf = terminal.backend().buffer().clone();
         assert!(
-            (0..40).any(|x| (0..8).any(|y| buf[(x, y)].symbol() == "▲")),
-            "collapsed branch with a hidden violation must show the ▲ marker"
+            (0..40).any(|x| (0..8).any(|y| buf[(x, y)].symbol() == "△")),
+            "collapsed branch with only a hidden descendant violation must show the hollow △ marker"
         );
-        // Expanded: the marker must still show — a stable visual cue that
-        // doesn't vanish the moment the violating child becomes visible. And
-        // the leaf that actually violates (`port`) must show its own ▲ too,
-        // unified with the branch-summary case rather than relying on the
-        // yellow text alone. The root doc row is also an ancestor of the
-        // violation, so it gets a ▲ as well — three total: root, server, port.
+        assert!(
+            !(0..40).any(|x| (0..8).any(|y| buf[(x, y)].symbol() == "▲")),
+            "the violating leaf is hidden, so nothing is filled yet"
+        );
+        // Expanded: the summary markers must still show on root/server — a stable
+        // visual cue that doesn't vanish the moment the violating child becomes
+        // visible. And the leaf that actually violates (`port`) must show its own
+        // filled ▲, unified with the branch-summary case rather than relying on the
+        // yellow text alone. Root and server only summarize a descendant violation
+        // (hollow △); only `port` itself violates (filled ▲).
         app.session.expanded.insert(server_path);
         app.rebuild_rows();
         let mut terminal2 = Terminal::new(TestBackend::new(40, 8)).unwrap();
         terminal2.draw(|fr| draw(fr, &app)).unwrap();
         let buf2 = terminal2.backend().buffer().clone();
-        let triangle_count = (0..40)
+        let hollow_count = (0..40)
+            .flat_map(|x| (0..8).map(move |y| (x, y)))
+            .filter(|&(x, y)| buf2[(x, y)].symbol() == "△")
+            .count();
+        let filled_count = (0..40)
             .flat_map(|x| (0..8).map(move |y| (x, y)))
             .filter(|&(x, y)| buf2[(x, y)].symbol() == "▲")
             .count();
         assert_eq!(
-            triangle_count, 3,
-            "root, expanded server (descendant warning), and its violating port leaf (own warning) must each show ▲"
+            hollow_count, 2,
+            "root and server only summarize a descendant violation"
+        );
+        assert_eq!(
+            filled_count, 1,
+            "only port itself violates"
         );
     }
 }

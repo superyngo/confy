@@ -583,19 +583,23 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
    clip source shows the clip-source color (later same-specificity rules win). */
 .row.clip-cut { background: var(--cut-bg); }
 .row.clip-copy { background: var(--copy-bg); }
-.row.schema-violation { box-shadow: inset 0 0 0 1.5px var(--warn); border-radius: 6px; }
-.row.drag-over-into.schema-violation { box-shadow: inset 0 0 0 2px var(--drop), inset 0 0 0 4px var(--warn); }
-/* Unified "there's a schema warning here" leading dot — shown identically
-   whether this exact row violates or it's a branch summarizing a violation
-   somewhere in its subtree (no visual distinction between the two, per
-   design decision), vertically centered and offset past `.row.selected`'s
-   own left-edge bar (`left:2px`, 3px wide) so a locked-selected warning row
-   doesn't collide with it. `.schema-violation` additionally gets the
-   box-shadow ring above (this exact row is wrong); `.warn-branch` gets only
-   the dot (the branch itself doesn't violate). Deliberately shown whether a
-   branch is collapsed or expanded — a stable cue, not a collapsed-only
-   summary; clears only once no violation remains, no JS state needed. */
-.row.schema-violation::after, .row.warn-branch::after { content: ""; position: absolute; left: 7px; top: 50%; transform: translateY(-50%); width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
+/* Dashed warn frame, matching touch (`web/touch/style.css` §.row.schema-violation).
+   An `outline` rather than a `box-shadow` ring so it composes with
+   `.row.drag-over-into`'s green inset ring instead of overwriting it. */
+.row.schema-violation { outline: 1.5px dashed var(--warn); outline-offset: -2px; border-radius: 6px; }
+/* Schema-warning triangle — a real inline-SVG flex item rendered right after
+   the caret (`render.ts`), so its column tracks each row's own indentation
+   instead of sitting at a fixed offset from the tree's left edge. Filled =
+   this exact row violates (`.warn-dot-fill`, paired with the dashed outline
+   above); hollow = a branch merely summarizing a violation somewhere in its
+   subtree (`.warn-dot-hollow`, no outline on the branch itself). Matches the
+   TUI's ▲/△ glyphs. Deliberately shown whether the branch is collapsed or
+   expanded — a stable cue, not a collapsed-only summary; clears once no
+   violation remains, no JS state needed beyond the row's own
+   `violations`/`has_descendant_violation` fields. */
+.warn-dot { flex: 0 0 auto; margin-right: 4px; }
+.warn-dot-fill polygon { fill: var(--warn); }
+.warn-dot-hollow polygon { fill: none; stroke: var(--warn); stroke-width: 1.3; stroke-linejoin: round; }
 
 /* Type-filter popup header: title row + a `Clear` text button (replaces the old
    Apply/Cancel foot — the filter applies live and persists when the popup closes). */
@@ -769,3 +773,32 @@ body.stale-tree #tree { opacity: 0.45; }
 .crumb-label {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+
+/* Floating add / paste action — visual twin of the touch FAB
+   (web/touch/style.css §.fab). `fixed`, not `absolute`: the desktop shell has
+   no absolutely-positioned app root. z-index 40 keeps it above the `.detail`
+   drawer (z-index 30), exactly as on touch. `.tree-wrap` already reserves
+   `padding-bottom:80px`, so no tree row can hide underneath it, and the
+   footer's own content is left-aligned so the bottom-right corner is free. */
+.fab{
+  position:fixed;right:18px;bottom:calc(18px + env(safe-area-inset-bottom,0));z-index:40;
+  width:44px;height:44px;border-radius:14px;display:grid;place-items:center;border:0;cursor:pointer;
+  background:var(--accent);color:oklch(18% 0.02 250);
+  box-shadow:0 10px 28px oklch(0% 0 0/.4),0 0 0 1px oklch(80% 0.1 250/.2);
+}
+.fab:active{transform:scale(.95)}
+.fab svg{width:20px;height:20px}
+.fab.paste-copy{background:var(--t-string)}
+.fab.paste-cut{background:var(--t-bool)}
+.fab-clear{
+  position:fixed;right:24px;z-index:41;display:none;place-items:center;cursor:pointer;
+  bottom:calc(18px + 44px + 12px + env(safe-area-inset-bottom,0));
+  width:32px;height:32px;border-radius:50%;
+  background:var(--surface);border:1px solid var(--border-strong);color:var(--muted);box-shadow:var(--shadow);
+}
+.fab-clear svg{width:15px;height:15px}
+.fab-clear:active{background:var(--panel)}
+body.paste-mode .fab-clear{display:grid}
+/* Must come last: same specificity as the paste-mode rule above, so Raw view
+   wins and hides both buttons. */
+body.raw-view .fab,body.raw-view .fab-clear{display:none}

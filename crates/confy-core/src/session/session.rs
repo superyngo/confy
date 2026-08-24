@@ -1415,7 +1415,7 @@ impl Session {
         let addressable = self
             .doc
             .as_ref()
-            .map(|d| d.array_elements_addressable())
+            .map(|d| d.array_member_keys_addressable())
             .unwrap_or(false);
         let parent_path = &path[..path.len() - 1];
         let parent = self.tree.node_at(parent_path);

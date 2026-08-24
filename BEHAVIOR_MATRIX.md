@@ -160,7 +160,8 @@ format is purely additive:
 | `scalar_fragment(key, value)` | value / member forming | `key = value` | `"key": value` | `key: value` |
 | `array_element_fragment(value)` | bare keyless element | `value` | `value` | `- value` |
 | `empty_container_fragment(kind, key)` | the `a`-add container seed | `[table]` / `[[aot]]` | `{}` / `[]` | `{}` / `[]` |
-| `array_elements_addressable()` | element / through-array `Replace` precision (routing + wrap) | `false` | `false` | `true` |
+| `array_elements_addressable()` | array **element itself** `Replace` precision (direct-index routing + external-edit wrap) | `false` | `false` | `true` |
+| `array_member_keys_addressable()` | a **member reached via `Key` under an array index** (`x[0].a`) inline-vs-`$EDITOR` routing | `false` | `true` | `true` |
 | `rename_can_change_type()` | dotted-key rename → `[T/D]` type-change check | `true` | `false` | `false` |
 | `kind_options(path)` | the `K` flow↔block popup list | per-node | per-node | per-node |
 | `split_value_comment(buffer)` / `replace_preserves_trailing_comment()` | trailing-comment edit | `#` lexer / `true` | `//` lexer / `true` | `#` lexer / `false` |

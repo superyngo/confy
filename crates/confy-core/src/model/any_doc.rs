@@ -118,6 +118,9 @@ impl ConfigDocument for AnyDocument {
     fn array_elements_addressable(&self) -> bool {
         delegate!(self, d => d.array_elements_addressable())
     }
+    fn array_member_keys_addressable(&self) -> bool {
+        delegate!(self, d => d.array_member_keys_addressable())
+    }
     fn rename_can_change_type(&self) -> bool {
         delegate!(self, d => d.rename_can_change_type())
     }

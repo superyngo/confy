@@ -41,6 +41,7 @@ import {
   type SampleFormat,
 } from "./samples.js";
 import { currentKindLabel, editWidthCh, escapeHtml, IC_CARET, renderTree } from "./render.js";
+import { syncFab, fabAddAction, FAB_CLOSE_IC } from "./fab.js";
 import { helpBodyHTML } from "./help-content.js";
 import { applyStaticI18n, availableLangs, getLang, LANG_DISPLAY_NAMES, setLang, t, tArgs } from "./i18n.js";
 import type { Lang } from "./i18n.js";
@@ -286,6 +287,7 @@ function setRawView(raw: boolean) {
   const vt = $("btnViewToggle");
   vt.textContent = raw ? t("web.toolbar.viewToggle.tree") : t("web.toolbar.viewToggle.raw");
   vt.classList.toggle("active", raw);
+  document.body.classList.toggle("raw-view", raw);
   render();
 }
 
@@ -388,6 +390,7 @@ function render() {
   fmtPill.title = inSampleMode() ? "Sample — click to switch format" : "document format";
   document.body.classList.toggle("dirty", VSHOST ? hostDirty : snap.is_dirty);
   document.body.classList.toggle("paste-mode", (snap.clipboard_count ?? 0) > 0);
+  syncFab($("fab"), (snap.clipboard_count ?? 0) > 0, !!snap.clipboard_cut);
   titleEl.textContent = fileName ?? "confy";
   titleEl.title = fileName ?? ""; // full name on hover when the chip truncates
   if (TAURI_DESKTOP) {
@@ -451,6 +454,15 @@ function render() {
     void resolveSchemaFetchRequest(io, session!, snap.schema_fetch_request, fileHandle?.path ?? null).then(
       (next) => {
         snap = next;
+        if (snap.schema_status?.load_error) {
+          snap = session!.dispatch({
+            SetHostNotice: {
+              key: "web.host.schema.load-error",
+              args: [snap.schema_status.load_error],
+              source: "host-web",
+            },
+          });
+        }
         render();
       },
     );
@@ -1870,6 +1882,25 @@ function bindGlobal() {
     send(snap && modeTag(snap.mode) === "TypeFilter" ? "CommitTypeFilter" : "EnterTypeFilter");
   });
   $("btnViewToggle").addEventListener("click", () => setRawView(!rawView));
+  // Floating add / paste action — mirrors the touch FAB. Decision logic lives
+  // in the shared `fab.ts`; the armed `+` presses Paste directly here, same as
+  // touch's own "add" click case does, rather than going through `fabAddAction`.
+  $("fabClear").innerHTML = FAB_CLOSE_IC;
+  $("fab").addEventListener("click", () => {
+    if ((snap?.clipboard_count ?? 0) > 0) {
+      send("Paste");
+      return;
+    }
+    const a = fabAddAction(snap);
+    if (!a) return;
+    if (a.kind === "locked") {
+      send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
+      return;
+    }
+    send(a.intent);
+    send({ SetHostNotice: { key: a.noticeKey, args: [], source: "host-web" } });
+  });
+  $("fabClear").addEventListener("click", () => send("Escape"));
 
   const closeUrlModal = () => {
     $("url-modal").classList.add("hidden");

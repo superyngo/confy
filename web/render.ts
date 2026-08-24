@@ -28,6 +28,13 @@ const IC_GRIP =
   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="6" r="1.4"/><circle cx="15" cy="6" r="1.4"/><circle cx="9" cy="12" r="1.4"/><circle cx="15" cy="12" r="1.4"/><circle cx="9" cy="18" r="1.4"/><circle cx="15" cy="18" r="1.4"/></svg>`;
 const IC_MORE =
   `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>`;
+// Schema-warning triangle — same glyph as the TUI's ▲/△ (filled = this row
+// violates, hollow = a branch summarizing a descendant violation), drawn as
+// SVG rather than a CSS circle so both states render crisply at 7px.
+const IC_WARN_FILL =
+  `<svg class="warn-dot warn-dot-fill" viewBox="0 0 10 10" width="7" height="7"><polygon points="5,0 10,9 0,9"/></svg>`;
+const IC_WARN_HOLLOW =
+  `<svg class="warn-dot warn-dot-hollow" viewBox="0 0 10 10" width="7" height="7"><polygon points="5,0.9 9.2,8.6 0.8,8.6"/></svg>`;
 
 // KIND_SHORT / NOTATION_SHORT / CONTAINER_NOTE / kindLabelParts / valueTypeClass
 // live in the shared kind-labels.ts (also used by panel.ts and touch/render.ts).
@@ -114,6 +121,19 @@ export function renderRow(
   s += `<span class="indent" style="width:calc(var(--indent) * ${level})"></span>`;
   // Disclosure caret (rotates on expand); leaves get an aligned hidden caret.
   s += `<button class="caret${r.is_branch ? "" : " leaf"}" data-caret="1">${IC_CARET}</button>`;
+  // Schema-warning triangle: rides in the flex flow right after the caret,
+  // so its horizontal position tracks the row's own indentation instead of
+  // a fixed offset from the tree's left edge. Filled = this exact row
+  // violates (`r.violations`); hollow = a collapsed/expanded branch merely
+  // summarizing a violation somewhere in its subtree
+  // (`has_descendant_violation`). A branch that both violates itself and
+  // has violating descendants shows filled — its own problem outranks the
+  // summary. Matches the TUI's ▲/△ glyphs (`crates/confy-tui/src/tui/ui.rs`).
+  if (r.violations) {
+    s += IC_WARN_FILL;
+  } else if (r.is_branch && r.has_descendant_violation) {
+    s += IC_WARN_HOLLOW;
+  }
 
   if (comment) {
     if (edit && r.is_cursor && edit.field === "Value") {

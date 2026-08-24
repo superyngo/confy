@@ -47,7 +47,15 @@ pub fn run(
         .or_else(|| app.session.detect_and_request_schema());
     if let Some(source) = source {
         let text = crate::tui::schema_io::resolve_schema_source(&source, open_file_dir);
+        let load_error = text.clone().err();
         app.session.apply_schema_text(source, text);
+        if let Some(err) = load_error {
+            app.session.dispatch(confy_core::session::Intent::SetHostNotice {
+                key: "tui.host.schema-load-error".to_string(),
+                args: vec![err],
+                source: confy_core::session::notice::NoticeSource::HostTui,
+            });
+        }
         app.rebuild_rows();
     }
 

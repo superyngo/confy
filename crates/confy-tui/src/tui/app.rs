@@ -3876,6 +3876,40 @@ mod tests {
     }
 
     #[test]
+    fn json_key_through_array_index_edits_inline() {
+        // Companion to `json_key_through_array_index_external_path_is_precise`: the same shape
+        // (`arr[0].a`, a scalar member of a block-formatted array-of-objects element) must now
+        // classify as Inline and actually commit through the inline editor, not just $EDITOR.
+        let mut app = app_with_json(
+            "{\n  \"arr\": [\n    { \"a\": 1, \"b\": 2 },\n    { \"a\": 3 }\n  ]\n}\n",
+        );
+        app.expand_all();
+        app.rebuild_rows();
+        let ci = idx_of(&app, "a");
+        app.select_row(ci);
+        assert_eq!(app.edit_target_kind(), EditKind::Inline);
+        app.begin_inline_edit();
+        if let Mode::Edit(e) = &mut app.session.mode {
+            e.buffer.clear();
+            e.cursor = 0;
+        }
+        for c in "99".chars() {
+            app.edit_input_char(c);
+        }
+        app.edit_commit();
+        assert!(
+            app.session.notice.is_none(),
+            "unexpected error: {:?}",
+            app.session.notice
+        );
+        assert_eq!(
+            app.session.doc.as_ref().unwrap().serialize(),
+            "{\n  \"arr\": [\n    { \"a\": 99, \"b\": 2 },\n    { \"a\": 3 }\n  ]\n}\n",
+            "only arr[0].a changed via the inline editor"
+        );
+    }
+
+    #[test]
     fn json_multiline_array_element_takes_trailing_comment() {
         // ③ A multiline-array element can gain a trailing `//` comment.
         let mut app = app_with_jsonc("{\n  \"arr\": [\n    1,\n    2\n  ]\n}\n");

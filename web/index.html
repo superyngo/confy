@@ -150,6 +150,11 @@
       <span class="badge" id="clipBadge">clipboard 0</span>
     </footer>
 
+    <!-- Floating add / paste action — mirrors the touch FAB (web/touch/app.ts).
+         Behavior lives in the shared web/fab.ts. -->
+    <button class="fab" id="fab" data-act="add" aria-label="add node"></button>
+    <button class="fab-clear" id="fabClear" data-act="pastecancel" aria-label="exit paste mode"></button>
+
     <!-- Toast notification (Task 12: message-system-integration) -->
     <div id="toast"></div>
 

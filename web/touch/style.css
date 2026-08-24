@@ -119,17 +119,19 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none
 .row.clip-cut > .row-main{background:var(--cut-bg)}
 .row.clip-copy > .row-main{background:var(--copy-bg)}
 .row.schema-violation > .row-main{outline:1.5px dashed var(--warn);outline-offset:-2px}
-/* Unified "there's a schema warning here" leading dot — shown identically
-   whether this exact row violates or it's a branch summarizing a violation
-   somewhere in its subtree (no visual distinction between the two, per
-   design decision), vertically centered and offset past `.row.selected`'s
-   own left-edge bar (`left:2px`, 3px wide) so a locked-selected warning row
-   doesn't collide with it. `.schema-violation` additionally gets the
-   dashed outline above (this exact row is wrong); `.warn-branch` gets only
-   the dot (the branch itself doesn't violate). Deliberately shown whether a
-   branch is collapsed or expanded — a stable cue, not a collapsed-only
-   summary; clears only once no violation remains, no JS state needed. */
-.row.schema-violation > .row-main::after, .row.warn-branch > .row-main::after{content:"";position:absolute;left:7px;top:50%;transform:translateY(-50%);width:6px;height:6px;border-radius:50%;background:var(--warn)}
+/* Schema-warning triangle — a real inline-SVG flex item rendered right after
+   the caret (`render.ts`), so its column tracks each row's own indentation
+   instead of a fixed offset from `.row-main`'s left edge. Filled = this
+   exact row violates (`.warn-dot-fill`, paired with the dashed outline
+   above); hollow = a branch merely summarizing a violation somewhere in its
+   subtree (`.warn-dot-hollow`, no outline on the branch itself). Matches the
+   TUI's ▲/△ glyphs. Deliberately shown whether the branch is collapsed or
+   expanded — a stable cue, not a collapsed-only summary; clears once no
+   violation remains, no JS state needed beyond the row's own
+   `violations`/`has_descendant_violation` fields. */
+.warn-dot{flex:0 0 auto;margin-right:4px}
+.warn-dot-fill polygon{fill:var(--warn)}
+.warn-dot-hollow polygon{fill:none;stroke:var(--warn);stroke-width:1.3;stroke-linejoin:round}
 /* Opaque press tint — a translucent mix would let the red swipe-to-delete
    button behind (.row-del, z-index:1) bleed through while the finger is down. */
 .row-main:active{background:color-mix(in oklch,var(--panel) 70%,var(--bg))}
@@ -160,6 +162,9 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none
   letter-spacing:.02em;padding:3px 9px;border-radius:999px;
   border:1px solid var(--border-strong);background:var(--panel);color:var(--muted);
 }
+/* Notation note (`·dec`/`·scope`) inside the kind pill — dimmed relative to
+   the type label, matching desktop's `.kind-note` (`web/style.css`). */
+.kind-note{opacity:.6}
 /* 行末註解（# comment）— 空白時隱藏 */
 .comment{
   font-family:var(--mono);font-size:12.5px;color:var(--faint);font-style:italic;

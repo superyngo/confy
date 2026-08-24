@@ -63,7 +63,7 @@ import {
   type SampleFormat,
 } from "../samples.js";
 import { IC, esc, treeHTML } from "./render.js";
-import { isExpanded } from "../kind-labels.js";
+import { fabHTML, syncFab, fabAddAction } from "../fab.js";
 import { parentOf, pathEq, siblingIndex } from "../path-utils.js";
 import { panelHTML, wirePanel, schemaHintText } from "../panel.js";
 import { bindPromptClicks, promptButtonsHTML, promptTitle } from "../prompt.js";
@@ -75,8 +75,10 @@ import { foldedEntries, type ToolbarEntry } from "../toolbar-fold.js";
 import {
   type ConvertRefs,
   renderConvertDialog as renderConvertDialogShared,
+  runSaveConvert as runSaveConvertShared,
   wireConvertDialog,
 } from "../convert-dialog.js";
+import { resolveKeyIntent, navRowCount } from "../key-intent.js";
 
 type FsHandle = OpenedFile["handle"];
 
@@ -112,10 +114,6 @@ let filterBtn: HTMLElement;
 let toastEl: HTMLElement;
 let fabEl: HTMLElement;
 const sheets: Record<string, HTMLElement> = {};
-
-// Clipboard glyph for the paste-armed FAB (vs IC.plus when adding).
-const PASTE_IC =
-  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="3" width="8" height="4" rx="1"/><path d="M9 5H6a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-3"/><path d="M12 11v6M9 14l3 3 3-3"/></svg>';
 
 // ---- helpers ----
 // Dispatch several intents with a single re-render at the end (mirrors ui.ts).
@@ -268,10 +266,7 @@ function appHTML(): string {
     "</div>" +
     `<div class="statusbar"><span class="status" data-i18n="web.status.ready">ready</span>` +
     '<span class="badge sel-badge">none</span><span class="badge clip-badge">clipboard 0</span></div>' +
-    `<button class="fab" data-act="add" aria-label="add node">${IC.plus}</button>` +
-    // Small ✕ floating above the paste FAB — clears the clipboard / exits paste
-    // mode (shown only while armed, via `.app.paste-mode`).
-    `<button class="fab-clear" data-act="pastecancel" aria-label="exit paste mode">${IC.close}</button>` +
+    fabHTML() +
     '<div class="toast"></div>' +
     '<div class="scrim" data-act="scrim"></div>' +
     '<div class="sheet detail-sheet"></div>' +
@@ -449,10 +444,7 @@ function render() {
   // show the cursor row as the live paste target instead (CSS keys off this class).
   app.classList.toggle("paste-mode", armed);
   // Paste-armed FAB: paste glyph + copy/cut accent (tap pastes; see "add" case).
-  fabEl.classList.toggle("paste-copy", armed && !snap.clipboard_cut);
-  fabEl.classList.toggle("paste-cut", armed && snap.clipboard_cut);
-  fabEl.innerHTML = armed ? PASTE_IC : IC.plus;
-  fabEl.setAttribute("aria-label", armed ? "paste" : "add node");
+  syncFab(fabEl, armed, !!snap.clipboard_cut);
   // Toolbar language label — mirrors desktop `#langLabel`.
   const langLabelEl = app.querySelector<HTMLElement>('[data-act="lang"] .lang-label');
   if (langLabelEl) langLabelEl.textContent = getLang() === "zh-TW" ? "繁" : "EN";
@@ -531,6 +523,15 @@ function render() {
     void resolveSchemaFetchRequest(io, session!, snap.schema_fetch_request, fileHandle?.path ?? null).then(
       (next) => {
         snap = next;
+        if (snap.schema_status?.load_error) {
+          snap = session!.dispatch({
+            SetHostNotice: {
+              key: "web.host.schema.load-error",
+              args: [snap.schema_status.load_error],
+              source: "host-web",
+            },
+          });
+        }
         render();
       },
     );
@@ -1453,27 +1454,17 @@ function handleTap(target: HTMLElement, row: HTMLElement, clientY: number) {
 
 // ---- context-aware add (FAB) ----
 // On an expanded branch → AddChild; on a scalar or collapsed branch → AddSibling.
-// No cursor row → fall back to AddNode (the cursor-relative default).
+// No cursor row → fall back to AddNode (the cursor-relative default). Decision
+// logic lives in the shared `fab.ts` so desktop mirrors it exactly.
 function addContextual() {
-  if (!snap) return;
-  if ((snap.clipboard_count ?? 0) > 0) {
+  const a = fabAddAction(snap);
+  if (!a) return;
+  if (a.kind === "locked") {
     send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
     return;
   }
-  const idx = snap.rows.findIndex((r) => r.is_cursor);
-  if (idx < 0) {
-    send("AddNode");
-    send({ SetHostNotice: { key: "web.host.add.node", args: [], source: "host-web" } });
-    return;
-  }
-  const r = snap.rows[idx];
-  if (r.is_branch && isExpanded(snap.rows, idx)) {
-    send("AddChild");
-    send({ SetHostNotice: { key: "web.host.add.child", args: [], source: "host-web" } });
-  } else {
-    send("AddSibling");
-    send({ SetHostNotice: { key: "web.host.add.sibling", args: [], source: "host-web" } });
-  }
+  send(a.intent);
+  send({ SetHostNotice: { key: a.noticeKey, args: [], source: "host-web" } });
 }
 
 // ---- file I/O (host-owned, via fs.ts; the shared flows live in host-io.ts) ----
@@ -1537,6 +1528,148 @@ async function doOpen() {
   };
   input.click();
 }
+
+// ---- keyboard shortcuts (external/Bluetooth keyboard on a touch device) ----
+// Reuses the same pure `resolveKeyIntent` desktop's `onKey` (`web/ui.ts`) is
+// built on, so the key→Intent mapping can't drift between surfaces. Most
+// resolved intents are safe to `send()` as-is because touch already renders
+// every core sub-mode they can produce (TypeFilter/Convert/Prompt/SchemaEnum/
+// Help all reactively open/close their sheet in `render()`, proven by the
+// existing toolbar/menu buttons that already dispatch them). Three intents
+// are special-cased below because touch's own editing surfaces bypass the
+// core modes those intents drive on desktop (`Mode::Edit`, `Mode::KindSwitch`)
+// — touch has no rendering for those modes, so sending them raw would leave
+// the UI silently stuck. `ToggleDetail` isn't core-mode-driven on touch at
+// all (the detail sheet is host-local, see `openPanel`), so it's replaced
+// with an equivalent local toggle.
+
+// Mirrors desktop `ui.ts`'s `navSelect`: plain cursor navigation collapses
+// the selection onto the new cursor row (skipped in paste mode, where arrows
+// move the insertion slot instead).
+function touchNavSelect(i: Intent) {
+  send(i);
+  if (snap && (snap.clipboard_count ?? 0) === 0) {
+    send({ SetSelection: { paths: [snap.cursor] } });
+  }
+}
+
+// Mirrors desktop `ui.ts`'s `toggleSelectedBranches`: Space on a single/zero
+// selection is a plain expand/collapse toggle; on a multi-branch selection it
+// expand/collapse-toggles every selected branch while keeping the selection.
+function toggleSelectedBranches() {
+  const branches = snap?.rows.filter((r) => r.selected && r.is_branch) ?? [];
+  if (branches.length <= 1) return send("ToggleExpand");
+  const keep = snap!.rows.filter((r) => r.selected).map((r) => r.path);
+  for (const r of branches) {
+    send({ SetCursor: r.path });
+    send("ToggleExpand");
+  }
+  send({ SetSelection: { paths: keep } });
+}
+
+// `i`/`Enter` (ToggleDetail): the detail sheet is host-local state (no core
+// mode backs it on touch, unlike desktop's `Mode::Detail`), so this toggles
+// it directly instead of dispatching the core intent. No-op in wide layout,
+// where the side pane is always visible.
+function toggleDetailSheet() {
+  if (isWide()) return;
+  if (sheets.detail.classList.contains("open")) {
+    dismissSheets();
+    return;
+  }
+  const cur = cursorRow();
+  if (cur) openPanel(cur.path);
+}
+
+// PageUp/PageDown step for the TypeFilter sheet, in nav-row units. Mirrors
+// desktop `ui.ts`'s `typeFilterPageStep` (scroll-ratio, not pixel row
+// heights), reading the touch filter sheet's scrollable body instead of
+// `#tfPop`.
+function touchTypeFilterPageStep(grid: TypeFilterView): number {
+  const total = navRowCount(grid);
+  const body = sheets.filter.querySelector<HTMLElement>(".sheet-body");
+  if (!body || total === 0) return 1;
+  const ratio = body.scrollHeight > 0 ? body.clientHeight / body.scrollHeight : 1;
+  return Math.max(1, Math.min(total, Math.round(ratio * total)));
+}
+
+function onKey(ev: KeyboardEvent) {
+  if (!session || !snap) return;
+  // A focused text field (search, save-as path, external-edit textarea, URL
+  // sheet) owns its own keys; the ext/url sheets are checked explicitly too
+  // since their fields aren't always the very first thing focused.
+  if (sheets.ext.classList.contains("open")) return;
+  if (sheets.url.classList.contains("open")) return;
+  const tag = (document.activeElement as HTMLElement)?.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+  // `vshost: true` also suppresses `q`/QuitRequested — a web/touch surface has
+  // no "quit the app" concept to bind it to.
+  const result = resolveKeyIntent(snap.mode, ev.key, { ctrl: ev.ctrlKey || ev.metaKey, shift: ev.shiftKey }, rawView, true);
+  if (!result) return;
+  switch (result.kind) {
+    case "intent":
+      if (result.preventDefault) ev.preventDefault();
+      if (result.intent === "ToggleDetail") return toggleDetailSheet();
+      if (result.intent === "BeginEdit") {
+        const cur = cursorRow();
+        return cur ? openPanel(cur.path) : undefined;
+      }
+      if (result.intent === "OpenKindSwitch") {
+        const cur = cursorRow();
+        return cur ? openKindSheet(cur.path) : undefined;
+      }
+      if (result.intent === "Escape" && sheets.detail.classList.contains("open") && !isWide()) {
+        closeSheets();
+        return;
+      }
+      return send(result.intent);
+    case "nav":
+      if (result.preventDefault) ev.preventDefault();
+      return touchNavSelect(result.intent);
+    case "typefilter-page": {
+      ev.preventDefault();
+      const mode = snap.mode;
+      if (typeof mode !== "object" || !("TypeFilter" in mode)) return;
+      return send({ TypeFilterMove: [result.dir * touchTypeFilterPageStep(mode.TypeFilter), 0] });
+    }
+    case "native":
+      if (result.preventDefault) ev.preventDefault();
+      switch (result.action) {
+        case "focus-search":
+          return void searchInput.focus();
+        case "undo":
+          if ((snap?.clipboard_count ?? 0) > 0) {
+            send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
+            return;
+          }
+          return send("Undo");
+        case "redo":
+          if ((snap?.clipboard_count ?? 0) > 0) {
+            send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
+            return;
+          }
+          return send("Redo");
+        case "save":
+          if ((snap?.clipboard_count ?? 0) > 0) {
+            send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
+            return;
+          }
+          return openSaveSheet();
+        case "open":
+          if ((snap?.clipboard_count ?? 0) > 0) {
+            send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
+            return;
+          }
+          return openOpenSheet();
+        case "toggle-branches":
+          return toggleSelectedBranches();
+        case "save-convert":
+          return void runSaveConvertShared(snap!, { send, doSaveAsCopy: (path: string) => doSaveAsCopy(io, path) });
+      }
+  }
+}
+
 // ---- shell-level click delegation (toolbar / footer / scrim / sheets) ----
 function installShellHandlers() {
   app.addEventListener("click", (e) => {
@@ -1811,6 +1944,7 @@ async function main() {
   restoreDetailWidth();
   installTreeGestures();
   installShellHandlers();
+  document.body.addEventListener("keydown", onKey);
   installSplitter();
   wireConvertDialog(convRefs(), {
     send,

@@ -365,6 +365,51 @@ fn resolve_edit_hint_none_for_unresolvable_path() {
     assert_eq!(hint, EditHint::None);
 }
 
+#[test]
+fn resolve_edit_hint_finds_enum_via_pattern_properties() {
+    // Dictionary-of-named-objects idiom — no `properties` at all, only a
+    // regex-keyed `patternProperties` (e.g. tasks.schema.json's task map).
+    let schema = json!({
+        "type": "object",
+        "patternProperties": {
+            "^[a-zA-Z0-9_]+$": {
+                "type": "object",
+                "properties": {
+                    "kind": {"type": "string", "enum": ["a", "b"]}
+                }
+            }
+        }
+    });
+    let hint = resolve_edit_hint(
+        &schema,
+        &vec![Seg::Key("put_in_key".into()), Seg::Key("kind".into())],
+    );
+    match hint {
+        EditHint::Enum(opts) => {
+            assert_eq!(
+                opts.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>(),
+                vec!["a", "b"]
+            );
+        }
+        other => panic!("expected Enum, got {other:?}"),
+    }
+}
+
+#[test]
+fn resolve_edit_hint_pattern_properties_no_match_is_none() {
+    let schema = json!({
+        "type": "object",
+        "patternProperties": {
+            "^[0-9]+$": {"type": "object", "properties": {"kind": {"enum": ["a"]}}}
+        }
+    });
+    let hint = resolve_edit_hint(
+        &schema,
+        &vec![Seg::Key("not_numeric".into()), Seg::Key("kind".into())],
+    );
+    assert_eq!(hint, EditHint::None);
+}
+
 use confy_core::schema::hints_edit::resolve_schema_info;
 
 #[test]
@@ -407,6 +452,26 @@ fn resolve_schema_info_none_for_unresolvable_path() {
     let schema = json!({ "type": "object", "properties": {} });
     let info = resolve_schema_info(&schema, &vec![Seg::Key("missing".into())]);
     assert_eq!(info, None);
+}
+
+#[test]
+fn resolve_schema_info_via_pattern_properties() {
+    let schema = json!({
+        "type": "object",
+        "patternProperties": {
+            "^[a-zA-Z0-9_]+$": {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string", "description": "Task kind"}
+                }
+            }
+        }
+    });
+    let info = resolve_schema_info(
+        &schema,
+        &vec![Seg::Key("put_in_key".into()), Seg::Key("type".into())],
+    );
+    assert_eq!(info.as_deref(), Some("Task kind\nType: string"));
 }
 
 use confy_core::session::Session;

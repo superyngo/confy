@@ -35,16 +35,26 @@ export const IC = {
   help: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.4 2.3c-.8.4-1.4 1-1.4 2"/><path d="M12 17h.01"/></svg>',
   grip: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>',
 };
+// Schema-warning triangle — same glyph as the TUI's ▲/△ (filled = this row
+// violates, hollow = a branch summarizing a descendant violation), drawn as
+// SVG rather than a CSS circle so both states render crisply at 7px.
+const IC_WARN_FILL =
+  '<svg class="warn-dot warn-dot-fill" viewBox="0 0 10 10" width="7" height="7"><polygon points="5,0 10,9 0,9"/></svg>';
+const IC_WARN_HOLLOW =
+  '<svg class="warn-dot warn-dot-hollow" viewBox="0 0 10 10" width="7" height="7"><polygon points="5,0.9 9.2,8.6 0.8,8.6"/></svg>';
 
 function containerKind(r: ViewRow): "array" | "table" {
   return /array|seq/i.test(r.type_label) ? "array" : "table";
 }
 
 // The touch kind badge shares the desktop's friendly label + notation note
-// (kind-labels.ts), so both surfaces read `str·"…"` / `table·scope` identically.
-function kindBadgeText(r: ViewRow): string {
+// (kind-labels.ts) and now also shares its markup: the note is wrapped in a
+// `.kind-note` span so both surfaces dim `·dec`/`·scope` identically instead
+// of touch rendering the whole "int·dec" pill at one uniform brightness.
+function kindBadgeHTML(r: ViewRow): string {
   const { label, note } = kindLabelParts(r);
-  return note ? `${label}·${note}` : label;
+  const suffix = note ? `<span class="kind-note">·${esc(note)}</span>` : "";
+  return `${esc(label)}${suffix}`;
 }
 
 function rowHTML(
@@ -74,6 +84,18 @@ function rowHTML(
   let h = `<div class="${cls}" data-type="${esc(String(type))}" data-path="${dataPath}">`;
   h += `<div class="row-main" style="padding-left:${pad}px">`;
   h += `<button class="caret ${branch ? "" : "leaf"}" data-act="caret" aria-label="expand">${IC.chev}</button>`;
+  // Schema-warning triangle: rides in the flex flow right after the caret,
+  // so its horizontal position tracks the row's own indentation instead of
+  // a fixed offset from `.row-main`'s left edge. Filled = this exact row
+  // violates; hollow = a branch merely summarizing a violation in its
+  // subtree. A branch that both violates itself and has violating
+  // descendants shows filled — its own problem outranks the summary.
+  // Matches the TUI's ▲/△ glyphs (`crates/confy-tui/src/tui/ui.rs`).
+  if (r.violations) {
+    h += IC_WARN_FILL;
+  } else if (branch && r.has_descendant_violation) {
+    h += IC_WARN_HOLLOW;
+  }
 
   if (comment) {
     // Standalone comment node (no analogue in the prototype): show the text
@@ -83,15 +105,18 @@ function rowHTML(
     h += `<span class="key${isPositional(r) ? " elem" : ""}">${esc(r.key)}</span>`;
     if (branch) {
       h += `<span class="count">${r.child_count}</span>`;
-      h += `<span class="kind" data-act="kind">${esc(kindBadgeText(r))}</span>`;
+      h += `<span class="kind" data-act="kind">${kindBadgeHTML(r)}</span>`;
       // Core's `trailing_comment` already carries its marker (`#` / `//`) —
       // render it raw, exactly like the desktop render.ts.
       h += `<span class="comment">${esc(r.trailing_comment ?? "")}</span>`;
     } else {
       h += `<span class="eq">=</span>`;
       h += `<span class="val ${valueTypeClass(r)}">${esc(r.value ?? "")}</span>`;
+      // Kind badge before the trailing comment, matching desktop's order
+      // (key = value type·note #comment) — previously touch put the comment
+      // first, so the two surfaces disagreed on where the badge sits.
+      if (!r.read_only) h += `<span class="kind" data-act="kind">${kindBadgeHTML(r)}</span>`;
       h += `<span class="comment">${esc(r.trailing_comment ?? "")}</span>`;
-      if (!r.read_only) h += `<span class="kind" data-act="kind">${esc(kindBadgeText(r))}</span>`;
     }
   }
   // Drag grip (omitted on read-only/opaque rows — they reject moves in core).

@@ -95,6 +95,15 @@ impl ConfigDocument for JsonDocument {
         split_value_comment(buffer)
     }
 
+    fn array_member_keys_addressable(&self) -> bool {
+        // A scalar reached via `Key` under an array index (e.g. `arr[0].a`, a member
+        // of a block-formatted object element) is looked up by identity through the
+        // recursively-built `JsonIndex` (`json/project.rs::walk`), so `replace`/`rename`
+        // already splice that member precisely — unlike the array *element* itself
+        // (`array_elements_addressable`), which still needs external-edit wrapping.
+        true
+    }
+
     fn to_value(
         &self,
     ) -> Result<(crate::model::value::Value, Vec<String>), crate::model::document::ConvertAbort>
@@ -270,7 +279,7 @@ mod tests {
     }
 
     #[test]
-    fn json_facets_default_no_scope_table_not_addressable() {
+    fn json_facets_default_no_scope_table_element_not_addressable() {
         use crate::model::node::NodeKind;
         let doc = json_from_str(".json", "{}\n");
         // No scope table / AoT — an empty object is `{}`, an array `[]`.
@@ -283,6 +292,7 @@ mod tests {
             "\"xs\": []\n"
         );
         assert!(!doc.array_elements_addressable());
+        assert!(doc.array_member_keys_addressable());
         assert!(!doc.rename_can_change_type());
     }
 

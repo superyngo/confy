@@ -73,15 +73,29 @@ pub trait ConfigDocument: Sized {
         }
     }
 
-    /// Whether a value nested *within* an array/sequence — an element itself, or a
-    /// scalar reached through a sequence index — is individually `Replace`-addressable.
-    /// YAML's `resolve` descends `Index`→`Key` so every block/flow element is
-    /// addressable (`true`); TOML/JSON array elements are not addressable as bare
-    /// fragments (`false`), so the editor either truncates to the whole array or wraps
-    /// the element repr. Drives the inline-vs-`$EDITOR` routing and the external-edit
+    /// Whether an array **element itself** (the node a bare sequence `Index` path
+    /// resolves to, not a member reached further through it) is individually
+    /// `Replace`-addressable as a bare fragment. YAML's block/flow elements are
+    /// (`true`); TOML/JSON elements are not (`false`), so the editor either
+    /// truncates to the whole array or wraps the element repr via `scalar_fragment`.
+    /// Drives the direct-index inline-vs-`$EDITOR` routing and the external-edit
     /// element wrap.
     fn array_elements_addressable(&self) -> bool {
         false
+    }
+
+    /// Whether a scalar **member reached via a `Key` nested under an array
+    /// index** (e.g. `arr[0].a`) is individually `Replace`/`Rename`-addressable,
+    /// independent of whether the array *element* itself
+    /// ([`array_elements_addressable`](Self::array_elements_addressable)) is.
+    /// Defaults to mirroring `array_elements_addressable` (true for YAML, false
+    /// for the TOML CST backend, whose `ArrayOfTables` entries splice whole
+    /// sections); JSON overrides this to `true` while keeping
+    /// `array_elements_addressable` `false`, since its member-lookup index
+    /// resolves such nested keys precisely even though the bare element form
+    /// still needs external-edit wrapping. Drives the nested-key inline routing.
+    fn array_member_keys_addressable(&self) -> bool {
+        self.array_elements_addressable()
     }
 
     /// Whether a key **rename** can change the node's *type* — TOML only, where a
