@@ -313,11 +313,25 @@ function appHTML(): string {
 
 // ---- notice/toast ----
 let toastT: number | undefined;
+// Tracks the severity+text of whatever the toast last actually showed. render()
+// re-invokes renderNotice(snap.notice) on every dispatched Intent, including
+// pure navigation ones (cursor move, ToggleExpand, SetCursor/SetSelection) that
+// the core Notice lifecycle deliberately leaves untouched (MESSAGES.md §1.1) —
+// without this guard, tapping a different (valid) node or toggling expand while
+// a stale paste/cut error notice is still sitting in Session.notice replays the
+// toast's entrance animation and restarts its auto-hide timer, making one error
+// look like it keeps popping back up. Only a genuinely new/changed notice (a
+// fresh dispatch, or the notice clearing then reappearing) re-triggers it.
+let lastNoticeKey: string | undefined;
 function renderNotice(notice: Notice | undefined) {
   if (!notice) {
+    lastNoticeKey = undefined;
     toastEl.classList.remove("show");
     return;
   }
+  const key = `${notice.severity}|${notice.text}`;
+  if (key === lastNoticeKey) return;
+  lastNoticeKey = key;
   // Touch uses a simple toast for all severities (no separate error element like desktop).
   // Severity classes enable different styling if needed.
   toastEl.textContent = notice.text;
