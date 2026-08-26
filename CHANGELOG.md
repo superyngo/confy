@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-08-26T15:18:02Z
+- docs: doc-drift audit covering the 2026-08-26 work above (per-button toolbar fold, touch
+  Ctrl/Shift-tap multi-select, and the popup/`$EDITOR` trailing-comment fix) plus a re-check of
+  the 14 root docs / 3 host READMEs / 8 ADRs. Found and fixed: `WEBUI.md`'s desktop and touch
+  "Responsive toolbar"/"Responsive chrome collapse" paragraphs still described the old
+  per-group fold (`Tree/Raw ≤600px, Expand/Collapse ≤500px, Undo/Redo/Theme ≤440px`) — rewritten
+  to the actual per-button breakpoint ladder now in `web/style.css`/`web/touch/style.css`;
+  `WEBUI.md`'s touch Gesture→Intent map was missing the Ctrl/⌘-tap and Shift-tap multi-select
+  entry entirely — added; `docs/adr/0006-outline-symbol-representative-span-anchoring.md`'s
+  `status:` frontmatter was still `accepted` though the anchoring policy it defines has been
+  load-bearing production code since the day it was written (2026-08-20) and is cited by name
+  in cst_project.rs/node.rs/cst_edit/ and the 2026-08-26 breadcrumb-chain fix — corrected to
+  `implemented (2026-08-20)`, matching how ADR 0004/0007 were corrected in the 2026-08-23 audit.
+  The trailing-comment fix needed no doc changes: `BEHAVIOR_MATRIX.md` §6.3's "captures just the
+  edited node" and `TUI.md`'s comment section already describe the intended behavior the bug
+  broke, not the bug itself. **Flagged, not auto-fixed** (a version/release-process call, not a
+  doc-accuracy one): `editors/vscode/package.json` reads `0.21.1` (bumped in `b9ae6b4`, no
+  matching `chore: release`) while `Cargo.toml`/`web/package.json`/`RELEASES.md` all say
+  `0.21.0` — needs a maintainer decision on whether to revert to `0.21.0` pending the real next
+  release or leave it, before it hits `release.yml`'s version-consistency gate.
+
 ### Unreleased Update — 2026-08-26T00:00:00Z
 - fix(vscode): native text-editor `DocumentSymbolProvider` now expands each parent symbol's editor-facing `range` to include all descendant symbol ranges (while preserving the core `text_range` anchoring policy from ADR 0006). This restores VS Code breadcrumb parent-chain resolution for TOML nested tables like `[workspace.package]` when parent/child source spans are non-enclosing by design.
 - test(vscode): added an extension-host integration regression (`editors/vscode/test-integration/suite/index.mjs`) plus fixture (`workspace-package.toml`) asserting the `workspace` symbol range contains its `package` child range.

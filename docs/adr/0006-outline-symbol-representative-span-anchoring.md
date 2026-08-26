@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: implemented (2026-08-20)
 ---
 
 # Editor-outline symbol ranges for scattered-definition nodes anchor at the first member, never an envelope

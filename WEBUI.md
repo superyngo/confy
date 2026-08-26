@@ -278,11 +278,16 @@ shapes round-trip). Key types:
   variables carry both palettes and the choice persists in `localStorage`.
 - **Responsive toolbar.** The toolbar holds a single right-side action button (**Save**,
   opening the Save / Convert panel — the separate Convert button is gone). As the window
-  narrows, secondary controls fold into a `⋯ More` popup one group at a time, right→left, via
-  staged media queries (Tree/Raw ≤600px, Expand/Collapse ≤500px, Undo/Redo/Theme ≤440px);
-  the More popup lists the folded secondary actions but **not** Save / Convert (that lives only on
-  the always-visible Save button, so it is never duplicated). The search box has `min-width:96px` (well
-  below its content size) so it yields space to those buttons before they collapse.
+  narrows, secondary controls fold into a `⋯ More` popup **one button at a time**, right→left
+  in priority order, via staged media queries: Tree/Raw tabs (`#viewTabs`) fold first at ≤600px
+  (revealing `#btnMore`), then individually — Collapse all ≤520px, Expand all ≤500px, Help/About
+  ≤480px, Language ≤460px, Theme ≤440px, Redo ≤420px, Undo ≤400px — rather than a whole
+  Expand/Collapse or Undo/Redo/Theme group disappearing at once (`web/toolbar-fold.ts`'s
+  `foldedEntries`/`isFolded` already looked up per-button by element id, so this was a pure
+  CSS change). The More popup lists the folded secondary actions but **not** Save / Convert (that
+  lives only on the always-visible Save button, so it is never duplicated). The search box has
+  `min-width:96px` (well below its content size) so it yields space to those buttons before they
+  collapse.
   **Rows stay single-line at every width:** they never wrap or hide cells — long key/value/
   comment compress with an ellipsis (`min-width:0` lets `text-overflow:ellipsis` fire inside
   the flex row). The **value compresses first**; the **key keeps its full width**
@@ -355,6 +360,13 @@ edits to the verbatim desktop CSS.
   the pointer-gesture rows' own bounds, so it needs its own plain `click` listener on
   `.tree-pane`) clears the multi-select and any error banner, mirroring desktop
   `onTreeClick`'s empty-area branch.
+- **Ctrl/⌘-tap and Shift-tap multi-select** reuse desktop's `resolveClick` gesture resolution
+  (`web/select.ts`, previously desktop-only, now shared): Ctrl/⌘-tap toggles the tapped row
+  into/out of the selection; Shift-tap ranges from the last plain/Ctrl-tap anchor — matching
+  desktop's `onTreeClick` exactly. Only reachable on touch+keyboard hybrids (iPad+trackpad/
+  keyboard, Surface, Chromebook, touchscreen laptops), since `PointerEvent.ctrlKey/shiftKey/
+  metaKey` reflect real held keys and are unset on pure touch — a plain tap is unaffected (still
+  a single-row `SetSelection`, and resets the anchor).
 - grip drag (ported pointer geometry, before/after/into + `.reorder-line`/`.drop-into`) →
   `MoveSelectionTo {sources,target,index}` (sibling index = visible position, as in `dnd.ts`;
   the dragged row's own subtree is excluded from drop candidates by path-prefix). Swipe is gone;
@@ -374,8 +386,10 @@ edits to the verbatim desktop CSS.
   `localStorage` (`confy-detail-w`); hidden `<600px` and in Raw view.
 - **Responsive chrome collapse + dynamic menu.** The `.app` is a `container-type:inline-size`
   container; toolbar/filter buttons stay single-line (`nowrap`) and **fold into the `⋯` menu
-  right→left** via `@container` breakpoints (≤720 viewtabs → ≤620 expand/collapse `.nav-grp` →
-  ≤520 undo/redo/theme `.edit-grp`); the `⋯` button is hidden until the first fold. The **menu
+  right→left, one button at a time** via `@container` breakpoints — viewtabs ≤720px → Collapse
+  all ≤660px → Expand all ≤640px → Help/About ≤620px → Language ≤600px → Theme ≤580px → Redo
+  ≤560px → Undo ≤540px (mirroring desktop's per-button fold, superseding the earlier per-group
+  `.nav-grp`/`.edit-grp` collapse); the `⋯` button is hidden until the first fold. The **menu
   sheet is built dynamically** (`MENU_CANDIDATES` + `isFolded` = `offsetParent === null`) from
   whichever controls are currently folded — not a hardcoded list — so it always mirrors the
   breakpoints. Open/Save stay visible (never in the menu).
