@@ -97,6 +97,11 @@ On VS Code's **native text editor** for TOML/YAML, the extension also contribute
 - JSON Schema diagnostics in Problems (warning-only, soft-constraint model)
 - Schema-aware hover hints (enum/const/range guidance)
 
+Breadcrumb stability note: the extension keeps core outline anchoring semantics,
+but expands parent `DocumentSymbol.range` values to include descendant ranges in
+the editor host so TOML nested/scattered tables (for example `[workspace.package]`)
+retain a complete breadcrumb chain.
+
 - Marketplace: search **confy**, or install
   [wenanlin.confy-vscode](https://marketplace.visualstudio.com/items?itemName=wenanlin.confy-vscode).
 - VSCodium / Cursor / Windsurf etc.: [Open VSX listing](https://open-vsx.org/extension/wenanlin/confy-vscode).

@@ -15,6 +15,10 @@ async function waitFor(predicate, timeoutMs, failureMessage) {
   throw new Error(failureMessage);
 }
 
+function findChildByName(symbol, name) {
+  return symbol.children.find((child) => child.name === name);
+}
+
 async function main() {
   const extension = vscode.extensions.getExtension(EXTENSION_ID);
   assert.ok(extension, `Missing extension: ${EXTENSION_ID}`);
@@ -39,6 +43,32 @@ async function main() {
     "DocumentSymbolProvider returned no symbols for tasks.toml",
   );
   assert.ok(tomlSymbols.length > 0, "Expected at least one symbol from outline provider for tasks.toml");
+
+  const workspaceTomlUri = vscode.Uri.file(path.join(folder.uri.fsPath, "workspace-package.toml"));
+  const workspaceTomlDocument = await vscode.workspace.openTextDocument(workspaceTomlUri);
+  await vscode.window.showTextDocument(workspaceTomlDocument);
+
+  const workspaceSymbols = await waitFor(
+    async () => {
+      const result = await vscode.commands.executeCommand(
+        "vscode.executeDocumentSymbolProvider",
+        workspaceTomlUri,
+      );
+      return Array.isArray(result) && result.length > 0 ? result : undefined;
+    },
+    5000,
+    "DocumentSymbolProvider returned no symbols for workspace-package.toml",
+  );
+
+  const workspace = workspaceSymbols.find((symbol) => symbol.name === "workspace");
+  assert.ok(workspace, "Expected workspace root table symbol");
+
+  const pkg = findChildByName(workspace, "package");
+  assert.ok(pkg, "Expected workspace.package symbol");
+  assert.ok(
+    workspace.range.contains(pkg.range),
+    "Expected parent workspace range to contain workspace.package range for breadcrumb nesting",
+  );
 
   const yamlUri = vscode.Uri.file(path.join(folder.uri.fsPath, "sample.yaml"));
   const yamlDocument = await vscode.workspace.openTextDocument(yamlUri);

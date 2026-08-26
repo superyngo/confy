@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-08-26T00:00:00Z
+- fix(vscode): native text-editor `DocumentSymbolProvider` now expands each parent symbol's editor-facing `range` to include all descendant symbol ranges (while preserving the core `text_range` anchoring policy from ADR 0006). This restores VS Code breadcrumb parent-chain resolution for TOML nested tables like `[workspace.package]` when parent/child source spans are non-enclosing by design.
+- test(vscode): added an extension-host integration regression (`editors/vscode/test-integration/suite/index.mjs`) plus fixture (`workspace-package.toml`) asserting the `workspace` symbol range contains its `package` child range.
+
 ## [v0.21.0] - 2026-08-24
 
 ### Fixed

@@ -27,7 +27,14 @@ function toDocumentSymbol(node: OutlineNode, document: vscode.TextDocument): vsc
   const selectionRange = node.key_text_range
     ? byteOffsetsToRange(document, node.key_text_range[0], node.key_text_range[1])
     : textRange;
-  const range = textRange.contains(selectionRange) ? textRange : textRange.union(selectionRange);
+  const baseRange = textRange.contains(selectionRange) ? textRange : textRange.union(selectionRange);
+  const children = node.children.map((c) => toDocumentSymbol(c, document));
+  // VS Code breadcrumbs derive the parent chain from range containment.
+  // Keep the core anchor policy, but widen only the editor-facing symbol range.
+  let range = baseRange;
+  for (const child of children) {
+    range = range.union(child.range);
+  }
   const detail = node.value ?? ""; // scalar leaves only (spec Q3); containers stay empty.
   const symbol = new vscode.DocumentSymbol(
     node.key,
@@ -36,7 +43,7 @@ function toDocumentSymbol(node: OutlineNode, document: vscode.TextDocument): vsc
     range,
     selectionRange,
   );
-  symbol.children = node.children.map((c) => toDocumentSymbol(c, document));
+  symbol.children = children;
   return symbol;
 }
 

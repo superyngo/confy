@@ -159,6 +159,13 @@ Outline/breadcrumbs (spec's Platform constraint). Because a runtime-only
 `registerDocumentSymbolProvider` has no declarative `contributes` equivalent,
 `package.json` carries an explicit `"activationEvents": ["onStartupFinished"]`.
 
+Range policy note (2026-08-26): the provider preserves core `Node.text_range`
+anchoring semantics (ADR 0006) but widens the *editor-facing* parent
+`DocumentSymbol.range` to include all descendant symbol ranges. This keeps VS Code's
+breadcrumb parent-chain resolution stable for TOML scattered/nested table layouts
+such as `[workspace]` + `[workspace.package]`, where strict source anchoring can
+produce non-enclosing parent/child spans.
+
 ## Schema diagnostics & hover (native text editors)
 
 For the same TOML/YAML native-editor scope, `extension.ts` wires:
