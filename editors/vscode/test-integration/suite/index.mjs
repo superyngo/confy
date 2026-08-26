@@ -23,26 +23,43 @@ async function main() {
   const folder = vscode.workspace.workspaceFolders?.[0];
   assert.ok(folder, "Expected a workspace folder for integration fixtures");
 
-  const docUri = vscode.Uri.file(path.join(folder.uri.fsPath, "tasks.toml"));
-  const document = await vscode.workspace.openTextDocument(docUri);
-  await vscode.window.showTextDocument(document);
+  const tomlUri = vscode.Uri.file(path.join(folder.uri.fsPath, "tasks.toml"));
+  const tomlDocument = await vscode.workspace.openTextDocument(tomlUri);
+  await vscode.window.showTextDocument(tomlDocument);
 
-  const symbols = await waitFor(
+  const tomlSymbols = await waitFor(
     async () => {
       const result = await vscode.commands.executeCommand(
         "vscode.executeDocumentSymbolProvider",
-        docUri,
+        tomlUri,
       );
       return Array.isArray(result) && result.length > 0 ? result : undefined;
     },
     5000,
-    "DocumentSymbolProvider returned no symbols",
+    "DocumentSymbolProvider returned no symbols for tasks.toml",
   );
-  assert.ok(symbols.length > 0, "Expected at least one symbol from outline provider");
+  assert.ok(tomlSymbols.length > 0, "Expected at least one symbol from outline provider for tasks.toml");
+
+  const yamlUri = vscode.Uri.file(path.join(folder.uri.fsPath, "sample.yaml"));
+  const yamlDocument = await vscode.workspace.openTextDocument(yamlUri);
+  await vscode.window.showTextDocument(yamlDocument);
+
+  const yamlSymbols = await waitFor(
+    async () => {
+      const result = await vscode.commands.executeCommand(
+        "vscode.executeDocumentSymbolProvider",
+        yamlUri,
+      );
+      return Array.isArray(result) && result.length > 0 ? result : undefined;
+    },
+    5000,
+    "DocumentSymbolProvider returned no symbols for sample.yaml",
+  );
+  assert.ok(yamlSymbols.length > 0, "Expected at least one symbol from outline provider for sample.yaml");
 
   const diagnostics = await waitFor(
     async () => {
-      const result = vscode.languages.getDiagnostics(docUri);
+      const result = vscode.languages.getDiagnostics(tomlUri);
       return result.length > 0 ? result : undefined;
     },
     8000,
@@ -54,7 +71,7 @@ async function main() {
     async () => {
       const result = await vscode.commands.executeCommand(
         "vscode.executeHoverProvider",
-        docUri,
+        tomlUri,
         new vscode.Position(1, 1),
       );
       return Array.isArray(result) && result.length > 0 ? result : undefined;

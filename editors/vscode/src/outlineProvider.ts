@@ -23,10 +23,11 @@ function symbolKindFor(typeLabel: string): vscode.SymbolKind {
 }
 
 function toDocumentSymbol(node: OutlineNode, document: vscode.TextDocument): vscode.DocumentSymbol {
-  const range = byteOffsetsToRange(document, node.text_range[0], node.text_range[1]);
+  const textRange = byteOffsetsToRange(document, node.text_range[0], node.text_range[1]);
   const selectionRange = node.key_text_range
     ? byteOffsetsToRange(document, node.key_text_range[0], node.key_text_range[1])
-    : range;
+    : textRange;
+  const range = textRange.contains(selectionRange) ? textRange : textRange.union(selectionRange);
   const detail = node.value ?? ""; // scalar leaves only (spec Q3); containers stay empty.
   const symbol = new vscode.DocumentSymbol(
     node.key,
