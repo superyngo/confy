@@ -82,7 +82,7 @@ check(
 );
 check(
   "pointerup's new branch fires finishPasteDrag before the existing !moved tap branch",
-  /\} else if \(pasteDragActive && pasteDragMoved\) \{\n {6}finishPasteDrag\(e\.clientY\);\n {4}\} else if \(dragging && dragRow && !moved\) \{\n {6}handleTap\(e\.target as HTMLElement, dragRow, e\.clientY\);\n {4}\}/.test(
+  /\} else if \(pasteDragActive && pasteDragMoved\) \{\n {6}finishPasteDrag\(e\.clientY\);\n {4}\} else if \(dragging && dragRow && !moved\) \{\n {6}handleTap\(e\.target as HTMLElement, dragRow, e\.clientY, e\);\n {4}\}/.test(
     gesturesBlock,
   ),
   gesturesBlock,

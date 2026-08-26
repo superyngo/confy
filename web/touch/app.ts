@@ -65,6 +65,7 @@ import {
 import { IC, esc, treeHTML } from "./render.js";
 import { fabHTML, syncFab, fabAddAction } from "../fab.js";
 import { parentOf, pathEq, siblingIndex } from "../path-utils.js";
+import { resolveClick, resetAnchor, type Mods } from "../select.js";
 import { panelHTML, wirePanel, schemaHintText } from "../panel.js";
 import { bindPromptClicks, promptButtonsHTML, promptTitle } from "../prompt.js";
 import { typeFilterHTML, wireTypeFilter } from "../typefilter.js";
@@ -1338,7 +1339,7 @@ function installTreeGestures() {
     } else if (pasteDragActive && pasteDragMoved) {
       finishPasteDrag(e.clientY);
     } else if (dragging && dragRow && !moved) {
-      handleTap(e.target as HTMLElement, dragRow, e.clientY);
+      handleTap(e.target as HTMLElement, dragRow, e.clientY, e);
     }
     dragging = false;
     dragRow = null;
@@ -1382,12 +1383,15 @@ function installTreeGestures() {
   });
 }
 
-// Single tap = select only; double tap (same row within DOUBLE_TAP_MS) opens the
-// panel. The caret toggles expand; the kind badge now behaves like a normal tap
-// (kind switching lives inside the edit panel).
-function handleTap(target: HTMLElement, row: HTMLElement, clientY: number) {
+// Single tap = select only (⇧ ranges, ⌘/Ctrl toggles, via the shared
+// `resolveClick` gesture resolution — mirrors desktop `onTreeClick`); double
+// tap (same row, no modifiers, within DOUBLE_TAP_MS) opens the panel. The
+// caret toggles expand; the kind badge now behaves like a normal tap (kind
+// switching lives inside the edit panel).
+function handleTap(target: HTMLElement, row: HTMLElement, clientY: number, mods: Mods) {
   const path = pathOf(row);
   if (!path) return;
+  if (!snap) return;
   const armedTarget = (): Intent => {
     if (session) {
       const r = row.getBoundingClientRect();
@@ -1440,8 +1444,9 @@ function handleTap(target: HTMLElement, row: HTMLElement, clientY: number) {
   }
   const key = JSON.stringify(path);
   const now = Date.now();
-  const isDouble = key === lastTapKey && now - lastTapTime < DOUBLE_TAP_MS;
-  lastTapKey = key;
+  const plain = !mods.shiftKey && !mods.ctrlKey && !mods.metaKey;
+  const isDouble = plain && key === lastTapKey && now - lastTapTime < DOUBLE_TAP_MS;
+  lastTapKey = plain ? key : null;
   lastTapTime = now;
   if (isDouble) openPanel(path);
   // In paste mode the clipboard freezes the selection, so a tap positions the
@@ -1449,7 +1454,7 @@ function handleTap(target: HTMLElement, row: HTMLElement, clientY: number) {
   // `.reorder-line` cue is the only highlight it gets (ADR 0004 §1) — the
   // cursor's own row style is suppressed while armed, see `web/touch/style.css`.
   else if ((snap?.clipboard_count ?? 0) > 0) send(armedTarget());
-  else selectOnly(path);
+  else send({ SetSelection: { paths: resolveClick(snap, path, mods) } });
 }
 
 // ---- context-aware add (FAB) ----
@@ -1486,6 +1491,7 @@ function openText(
   fileHandle = handle;
   fileName = name;
   setSampleMode(asSample);
+  resetAnchor(); // a stale shift-range anchor must not survive the document swap
   // A fresh Session always boots at core's default lang (`en`) — sync it to
   // the selector's persisted choice so status/error/About text match.
   snap = session.dispatch({ SetLang: getLang() });

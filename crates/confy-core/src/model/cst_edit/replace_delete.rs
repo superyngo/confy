@@ -367,7 +367,7 @@ pub(crate) fn replace_value(
     tree: &SyntaxNode,
     path: &[Seg],
     toml: &str,
-) -> Result<(), MutateError> {
+) -> Result<Option<String>, MutateError> {
     let (proj, idx) = walk(tree, "");
     // A table block-rewrites over its member spans: a pure `[T/D]` consolidates
     // its member lines at the first one; any table with member sections —
@@ -377,13 +377,13 @@ pub(crate) fn replace_value(
     {
         let spans = table_member_spans(tree, &idx, path);
         if spans.iter().any(|s| matches!(s, MemberSpan::Section(_))) {
-            return replace_table_spans(tree, path, &spans, toml);
+            return replace_table_spans(tree, path, &spans, toml).map(|()| None);
         }
         if !spans.is_empty() {
-            return replace_dotted_table(tree, &idx, path, toml);
+            return replace_dotted_table(tree, &idx, path, toml).map(|()| None);
         }
         if inline_ancestor_len(&proj.root, path).is_some() {
-            return replace_inline_dotted_table(tree, &idx, &proj.root, path, toml);
+            return replace_inline_dotted_table(tree, &idx, &proj.root, path, toml).map(|()| None);
         }
     }
     let target = match idx.iter().find(|(p, _)| p == path).map(|(_, t)| t.clone()) {
@@ -404,7 +404,7 @@ pub(crate) fn replace_value(
             e.detach();
         }
         tree.splice_children(start..end, els);
-        return Ok(());
+        return Ok(None);
     }
     // Whole-section replace (`$EDITOR` on a `[table]` or `[[aot]]` entry): swap the
     // section's elements for the edited fragment.
@@ -425,7 +425,7 @@ pub(crate) fn replace_value(
             section_end(tree, path, i)
         };
         tree.splice_children(i..end, els);
-        return Ok(());
+        return Ok(None);
     }
 
     let value = match target {
@@ -467,7 +467,8 @@ pub(crate) fn replace_value(
     let i = old_content.index();
     new_content.detach();
     value.splice_children(i..i + 1, vec![new_content]);
-    Ok(())
+    let frag_comment = walk(&frag, "").0.root.children.first().and_then(|n| n.trailing_comment.clone());
+    Ok(frag_comment)
 }
 
 /// `Mutation::SetTrailingComment` — set/change/clear the EOL comment of the keyed

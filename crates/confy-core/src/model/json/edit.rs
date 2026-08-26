@@ -1,7 +1,7 @@
 //! JSON rowan splice helpers: one fn per `Mutation` variant (mirrors `cst_edit.rs`).
 
 use crate::model::document::{KindTarget, MutateError, Mutation, OnCollision, Target as MutTarget};
-use crate::model::json::project::{walk, Target};
+use crate::model::json::project::{trailing_comment_of_node, walk, Target};
 use crate::model::json::syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 use crate::model::node::Seg;
 
@@ -26,12 +26,27 @@ pub fn serialize_fragment(syntax: &SyntaxNode, path: &[Seg]) -> String {
 /// index-based lookups that already hold a `Target`).
 fn fragment_of(target: Option<Target>) -> String {
     match target {
-        Some(Target::Member(m)) => m.text().to_string().trim().to_string(),
-        Some(Target::Element(v)) => v.text().to_string().trim().to_string(),
+        Some(Target::Member(m)) => {
+            with_comment(m.text().to_string().trim().to_string(), trailing_comment_of_node(&m))
+        }
+        Some(Target::Element(v)) => {
+            with_comment(v.text().to_string().trim().to_string(), trailing_comment_of_node(&v))
+        }
         Some(Target::Comment(tok)) => comment_block_text(&tok),
         Some(Target::Block(tok)) => tok.text().to_string(),
         None => String::new(),
     }
+}
+
+/// Append a node's own trailing `//` comment (if any) to its fragment text,
+/// two spaces before the comment — matches the source's own inline spacing
+/// convention (see `set_trailing_comment` below).
+fn with_comment(mut text: String, comment: Option<String>) -> String {
+    if let Some(c) = comment {
+        text.push_str("  ");
+        text.push_str(&c);
+    }
+    text
 }
 
 /// Re-collect a merged standalone `//` block from its first token: consecutive
@@ -103,6 +118,7 @@ fn replace(tree: &SyntaxNode, path: &[Seg], fragment: &str) -> Result<(), Mutate
     }
     match resolve(tree, path).ok_or(MutateError::NotFound)? {
         Target::Member(member) => {
+            let frag_comment = fragment_member_trailing_comment(fragment);
             if let Some(new_member) = parse_member_fragment(fragment) {
                 replace_node(&member, new_member);
             } else {
@@ -113,11 +129,18 @@ fn replace(tree: &SyntaxNode, path: &[Seg], fragment: &str) -> Result<(), Mutate
                 let new_value = parse_value_fragment(fragment)?;
                 replace_node(&value, new_value);
             }
+            if let Some(c) = frag_comment {
+                set_trailing_comment(tree, path, Some(&c))?;
+            }
             Ok(())
         }
         Target::Element(value) => {
+            let frag_comment = fragment_element_trailing_comment(fragment);
             let new_value = parse_value_fragment(fragment)?;
             replace_node(&value, new_value);
+            if let Some(c) = frag_comment {
+                set_trailing_comment(tree, path, Some(&c))?;
+            }
             Ok(())
         }
         Target::Comment(_) | Target::Block(_) => Err(MutateError::Illegal(
@@ -148,7 +171,7 @@ fn parse_value_fragment(fragment: &str) -> Result<SyntaxNode, MutateError> {
 /// Parse `fragment` as a `"key": value` member by wrapping it in `{ … }`. Returns
 /// None if it isn't a single member.
 fn parse_member_fragment(fragment: &str) -> Option<SyntaxNode> {
-    let wrapped = format!("{{{fragment}}}");
+    let wrapped = format!("{{{fragment}\n}}");
     let green = crate::model::json::parse::parse(&wrapped).ok()?;
     let root = SyntaxNode::new_root(green);
     let obj = root
@@ -163,6 +186,31 @@ fn parse_member_fragment(fragment: &str) -> Option<SyntaxNode> {
     } else {
         None
     }
+}
+
+/// The external-edit fragment's own trailing `//` comment for an object
+/// member (`"key": value  // c`), if it wrote one. Used so an edited comment
+/// coming back from the popup editor / `$EDITOR` actually applies, instead of
+/// `replace()`'s default of leaving the pre-edit comment untouched.
+fn fragment_member_trailing_comment(fragment: &str) -> Option<String> {
+    fragment_trailing_comment(&format!("{{{fragment}\n}}"))
+}
+
+/// Same as `fragment_member_trailing_comment` for a bare array-element
+/// fragment (`value  // c`, no key) — wrapped under a synthetic key so the
+/// same VALUE/COMMA/COMMENT position rules apply.
+fn fragment_element_trailing_comment(fragment: &str) -> Option<String> {
+    fragment_trailing_comment(&format!("{{\"__elem__\": {fragment}\n}}"))
+}
+
+/// Parse `wrapped` (a synthetic one-member JSON object) and read its single
+/// member's projected trailing comment, or `None` if it doesn't parse as
+/// exactly one member.
+fn fragment_trailing_comment(wrapped: &str) -> Option<String> {
+    let green = crate::model::json::parse::parse(wrapped).ok()?;
+    let root = SyntaxNode::new_root(green);
+    let (tree, _) = walk(&root, "");
+    tree.root.children.first()?.trailing_comment.clone()
 }
 
 fn delete(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
@@ -1509,6 +1557,15 @@ mod tests {
     }
 
     #[test]
+    fn fragment_of_member_includes_trailing_comment() {
+        let t = parse("{\n  \"a\": 1 // c\n}\n");
+        assert_eq!(
+            serialize_fragment(&t, &[Seg::Key("a".into())]),
+            "\"a\": 1  // c"
+        );
+    }
+
+    #[test]
     fn fragment_of_element() {
         let t = parse("[10, 20, 30]\n");
         assert_eq!(serialize_fragment(&t, &[Seg::Index(1)]), "20");
@@ -1551,6 +1608,49 @@ mod tests {
             apply_str("{\n  \"a\": 1 // old\n}\n", set(None)),
             "{\n  \"a\": 1\n}\n"
         );
+    }
+
+    #[test]
+    fn replace_member_applies_edited_trailing_comment() {
+        let out = apply_str(
+            "{\n  \"a\": 1 // old\n}\n",
+            Mutation::Replace {
+                path: vec![Seg::Key("a".into())],
+                fragment: "\"a\": 2  // new\n".into(),
+            },
+        );
+        assert!(out.contains("// new"), "edited comment applied: {out}");
+        assert!(!out.contains("// old"), "old comment replaced: {out}");
+    }
+
+    #[test]
+    fn replace_member_without_comment_keeps_old_comment() {
+        let out = apply_str(
+            "{\n  \"a\": 1 // old\n}\n",
+            Mutation::Replace {
+                path: vec![Seg::Key("a".into())],
+                fragment: "\"a\": 2".into(),
+            },
+        );
+        assert!(out.contains("// old"), "value-only edit keeps old comment: {out}");
+    }
+
+    #[test]
+    fn replace_member_applies_edited_trailing_comment_no_source_newline() {
+        // The popup editor / `$EDITOR` round-trip: `serialize_fragment` never
+        // appends a trailing newline (see `fragment_of`/`with_comment`), so a
+        // fragment with an edited `//` comment but no trailing `\n` must still
+        // parse — the wrap helpers must not let the `//` comment swallow the
+        // synthetic closing `}`.
+        let out = apply_str(
+            "{\n  \"a\": 1 // old\n}\n",
+            Mutation::Replace {
+                path: vec![Seg::Key("a".into())],
+                fragment: "\"a\": 2  // new".into(),
+            },
+        );
+        assert!(out.contains("// new"), "edited comment applied: {out}");
+        assert!(!out.contains("// old"), "old comment replaced: {out}");
     }
 
     #[test]

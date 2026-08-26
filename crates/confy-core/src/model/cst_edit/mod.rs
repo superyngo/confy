@@ -51,8 +51,10 @@ pub(crate) fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<SyntaxNode, Muta
             if path.is_empty() {
                 reparse_document(&toml)?
             } else {
-                replace_value(&tree, &path, &toml)?;
-                tree
+                match replace_value(&tree, &path, &toml)? {
+                    Some(comment) => set_trailing_comment(&tree, &path, Some(&comment))?,
+                    None => tree,
+                }
             }
         }
         Mutation::EditComment { path, text } => {
@@ -368,6 +370,17 @@ mod tests {
     }
 
     #[test]
+    fn replace_scalar_applies_edited_trailing_comment() {
+        let mut d = doc("port = 8080  # http\n");
+        d.apply(Mutation::Replace {
+            path: vec![Seg::Key("port".into())],
+            fragment: "port = 9090  # https\n".into(),
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "port = 9090  # https\n");
+    }
+
+    #[test]
     fn replace_array_element_in_place() {
         let mut d = doc("arr = [0x1, 0o2, 3] # tail\n");
         d.apply(Mutation::Replace {
@@ -544,6 +557,17 @@ mod tests {
         })
         .unwrap();
         assert_eq!(d.serialize(), "pt = { x = 2, y = 3 }  # p\n");
+    }
+
+    #[test]
+    fn replace_inline_table_value_applies_edited_trailing_comment() {
+        let mut d = doc("pt = { x = 1 }  # p\n");
+        d.apply(Mutation::Replace {
+            path: vec![Seg::Key("pt".into())],
+            fragment: "pt = { x = 2, y = 3 }  # q\n".into(),
+        })
+        .unwrap();
+        assert_eq!(d.serialize(), "pt = { x = 2, y = 3 }  # q\n");
     }
 
     #[test]

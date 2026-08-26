@@ -778,6 +778,34 @@ fn dispatch_escape_cancels_pending_external_edit() {
 }
 
 #[test]
+fn dispatch_external_edit_applies_edited_trailing_comment() {
+    // Forces the external-edit path (Intent::BeginEditExternal, what the TUI's
+    // `E` and the Web's popup-editor button send) on an ordinary scalar that
+    // would otherwise edit inline, and proves an edited trailing comment in
+    // the host's returned text is applied, not discarded.
+    let mut s = toml_session("port = 8080  # http\n");
+    s.dispatch(Intent::CursorDown); // onto 'port'
+    let snap = s.dispatch(Intent::BeginEditExternal);
+    let ext = snap.external_edit.expect("BeginEditExternal always routes external");
+    assert!(
+        ext.initial.contains("# http"),
+        "initial text shows the trailing comment: {:?}",
+        ext.initial
+    );
+    let path = match ext.kind {
+        confy_core::session::ExternalEditKind::Value { path } => path,
+        other => panic!("expected Value, got {other:?}"),
+    };
+    let snap = s.dispatch(Intent::ApplyReplace {
+        path,
+        text: "port = 9090  # https\n".to_string(),
+    });
+    assert!(snap.error_text().is_none(), "apply should succeed");
+    let text = s.serialize().unwrap();
+    assert_eq!(text, "port = 9090  # https\n");
+}
+
+#[test]
 fn dispatch_nudge_increments_scalar_via_snapshot() {
     let mut s = toml_session("a = 1\n");
     s.dispatch(Intent::CursorDown);

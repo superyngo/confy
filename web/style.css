@@ -349,12 +349,11 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
 .dlg-foot{display:flex;justify-content:flex-end;gap:10px;padding:6px 20px 18px}
 
 /* ── 寬度響應式斷點 ─────────────────────────────────────────
-   斷點速查（max-width）:
-     920px — 平板：收合 detail、隱藏 label-hide
-     680px — 窄版：增大列高、動作鈕常駐（含觸控電話橫向）
-     600px — 折疊 Tree/Raw 頁籤 → ⋯ More
-     500px — 折疊 Expand/Collapse
-     440px — 折疊 Undo/Redo/Theme
+   920px — 平板：detail 收窄、隱藏 label 文字
+   680px — 窄版：增大列高、動作鈕常駐（含觸控電話橫向）
+   600px — 折疊 Tree/Raw 頁籤 → ⋯ More
+   520px..400px — 逐一折疊 Expand/Collapse/Undo/Redo/Theme/Lang/Info，
+   一次收攏一顆按鈕（右→左，優先度低的先收），而非整組一次全收。
    以下規則**逐字不動**；觸控能力擴充另在 pointer:coarse 區塊。
    ─────────────────────────────────────────────────────────── */
 
@@ -366,21 +365,36 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
   .tbtn{padding:0 10px}
 }
 /* Narrow: instead of one cliff that dumps everything into "⋯ More" (and instead
-   of wrapping), fold the right-side action groups into the More popup one step
-   at a time, right→left, as width shrinks. #btnMore appears at the first step
-   and always lists the full action set (a harmless superset). */
+   of wrapping), fold the right-side toolbar buttons into the More popup one at a
+   time, right→left, as width shrinks. #btnMore appears at the first step and
+   always lists the full action set (a harmless superset). */
 /* 窄：≤600px — step 1: 折疊 Tree/Raw 頁籤 */
 @media (max-width:600px){
   #btnMore{display:inline-flex}
   #viewTabs{display:none}            /* step 1: Tree/Raw tabs */
 }
-/* 窄：≤500px — step 2: 折疊 Expand/Collapse */
-@media (max-width:500px){
-  #navGroup{display:none}            /* step 2: Expand/Collapse */
+/* 窄：≤520px..≤500px — step 2-3: 逐一折疊 Expand/Collapse（各一顆） */
+@media (max-width:520px){
+  #btnCollapseAll{display:none}      /* step 2: Collapse all */
 }
-/* 窄：≤440px — step 3: 折疊 Undo/Redo/Theme */
+@media (max-width:500px){
+  #btnExpandAll{display:none}        /* step 3: Expand all */
+}
+/* 窄：≤480px..≤400px — step 4-8: 逐一折疊 Info/Lang/Theme/Redo/Undo（各一顆） */
+@media (max-width:480px){
+  #btnInfo{display:none}             /* step 4: Help/About */
+}
+@media (max-width:460px){
+  #btnLang{display:none}             /* step 5: Language */
+}
 @media (max-width:440px){
-  #editGroup{display:none}           /* step 3: Undo/Redo/Theme */
+  #btnTheme{display:none}            /* step 6: Theme */
+}
+@media (max-width:420px){
+  #btnRedo{display:none}             /* step 7: Redo */
+}
+@media (max-width:400px){
+  #btnUndo{display:none}             /* step 8: Undo */
 }
 /* 窄版 + 觸控電話橫向：≤680px */
 @media (max-width:680px){

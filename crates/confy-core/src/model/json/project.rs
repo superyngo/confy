@@ -94,7 +94,7 @@ pub(crate) fn is_standalone_line_comment(tok: &SyntaxToken) -> bool {
 /// For a MEMBER like `"a": 1, // trailing`, the COMMA and LINE_COMMENT are
 /// siblings of the MEMBER inside the OBJECT — so we walk the MEMBER's next siblings.
 /// For an array element VALUE, we walk the VALUE's next siblings inside the ARRAY.
-fn trailing_comment_of_node(anchor: &SyntaxNode) -> Option<String> {
+pub(crate) fn trailing_comment_of_node(anchor: &SyntaxNode) -> Option<String> {
     let mut skipped_comma = false;
     let mut sib = anchor.next_sibling_or_token();
     while let Some(s) = sib {

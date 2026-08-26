@@ -598,6 +598,23 @@ mod tests {
     }
 
     #[test]
+    fn replace_map_entry_applies_edited_trailing_comment() {
+        // YAML's whole-entry Replace already carries through an edited
+        // comment (unlike TOML/JSON's value-only splice) — this guards that
+        // existing correct behavior against regression.
+        let out = apply_str(
+            "port: 8080  # http\n",
+            Mutation::Replace {
+                path: vec![Seg::Key("port".into())],
+                fragment: "port: 9090  # https".into(),
+            },
+        )
+        .expect("replace should succeed");
+        assert!(out.contains("# https"), "edited comment applied: {out}");
+        assert!(!out.contains("# http\n"), "old comment replaced: {out}");
+    }
+
+    #[test]
     fn replace_block_mapping_value() {
         // Replace `host: a` inside `srv:` with `host: b`.
         let src = "srv:\n  host: a\n  port: 80\n";

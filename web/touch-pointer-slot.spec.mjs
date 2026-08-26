@@ -35,12 +35,12 @@ const appTs = readFileSync(path.join(here, "touch/app.ts"), "utf8");
 
 // ---- wiring: signature + call sites ----
 check(
-  "pointerup call site threads e.clientY into handleTap",
-  /handleTap\(e\.target as HTMLElement, dragRow, e\.clientY\);/.test(appTs),
+  "pointerup call site threads e.clientY and modifier keys into handleTap",
+  /handleTap\(e\.target as HTMLElement, dragRow, e\.clientY, e\);/.test(appTs),
 );
 check(
-  "handleTap takes clientY as its 3rd param",
-  /function handleTap\(target: HTMLElement, row: HTMLElement, clientY: number\) \{/.test(appTs),
+  "handleTap takes clientY as its 3rd param and Mods as its 4th",
+  /function handleTap\(target: HTMLElement, row: HTMLElement, clientY: number, mods: Mods\) \{/.test(appTs),
 );
 const handleTapBlock = appTs.match(/^function handleTap\([\s\S]*?\n\}/m)?.[0] ?? "";
 check("handleTap found in source", handleTapBlock.length > 0);
@@ -93,7 +93,8 @@ const fns = ["pathOf", "startsWith", "clearInto", "onReorderMove", "handleTap"]
 const H = (globalThis.__touchHooks = { sent: [], ops: [] });
 let mod = null;
 {
-  const src = `let session = null;
+  const src = `import { resolveClick } from "./select.js";
+let session = null;
 let snap = null;
 let treeEl = null;
 let openSwipeMain = null;
@@ -127,8 +128,10 @@ export ${fns[4]}
 `;
   const built = await esbuild.build({
     stdin: { contents: src, resolveDir: here, loader: "ts" },
+    bundle: true,
     write: false,
     format: "esm",
+    platform: "node",
     target: "es2022",
   });
   const modUrl = "data:text/javascript;base64," + Buffer.from(built.outputFiles[0].text).toString("base64");
@@ -159,8 +162,9 @@ const rowAt = (key, top, height, classes = []) => {
     querySelector: () => null,
   };
 };
-const tapOn = (row, clientY, target = { closest: () => null }) =>
-  mod.handleTap(target, row, clientY);
+const PLAIN = { shiftKey: false, ctrlKey: false, metaKey: false };
+const tapOn = (row, clientY, target = { closest: () => null }, mods = PLAIN) =>
+  mod.handleTap(target, row, clientY, mods);
 
 console.log("\n-- armed tap -> pointerSlot classification (plain tap) --");
 {
@@ -246,9 +250,43 @@ console.log("\n-- disarmed tap + double-tap precedence --");
   H.sent.length = 0;
   H.ops.length = 0;
   mod.resetTap();
-  mod.setEnv({ session: sessionStub(() => ({ Into: P }), []), snap: { clipboard_count: 0 } });
+  mod.setEnv({ session: sessionStub(() => ({ Into: P }), []), snap: { clipboard_count: 0, rows: [{ path: [{ Key: "a" }], selected: false }] } });
   tapOn(rowAt("a", 100, 40), 120);
-  check("disarmed tap selects only (no intent sent by handleTap itself)", H.sent.length === 0 && H.ops.some((o) => o.startsWith("selectOnly")), JSON.stringify({ sent: H.sent, ops: H.ops }));
+  check(
+    "disarmed plain tap selects via resolveClick (single SetSelection, no separate SetCursor)",
+    H.sent.length === 1 && eq(H.sent[0], { SetSelection: { paths: [[{ Key: "a" }]] } }),
+    JSON.stringify({ sent: H.sent, ops: H.ops }),
+  );
+}
+{
+  // Ctrl/Shift-tap multi-select (Task: touch adopts desktop's resolveClick
+  // gesture resolution) — only reachable on touch+keyboard hybrids (the
+  // PointerEvent modifier booleans reflect real held keys), but the pure
+  // logic itself doesn't care what pointer type triggered it.
+  const rows = [{ path: [{ Key: "a" }], selected: false }, { path: [{ Key: "b" }], selected: false }, { path: [{ Key: "c" }], selected: false }];
+  H.sent.length = 0;
+  H.ops.length = 0;
+  mod.resetTap();
+  mod.setEnv({ session: sessionStub(() => ({ Into: P }), []), snap: { clipboard_count: 0, rows } });
+  tapOn(rowAt("a", 100, 40), 120, undefined, { shiftKey: false, ctrlKey: true, metaKey: false });
+  check(
+    "ctrl-tap on an unselected row adds it (toggle-on)",
+    H.sent.length === 1 && eq(H.sent[0], { SetSelection: { paths: [[{ Key: "a" }]] } }),
+    JSON.stringify(H.sent),
+  );
+}
+{
+  const rows = [{ path: [{ Key: "a" }], selected: true }, { path: [{ Key: "b" }], selected: false }, { path: [{ Key: "c" }], selected: false }];
+  H.sent.length = 0;
+  H.ops.length = 0;
+  mod.resetTap();
+  mod.setEnv({ session: sessionStub(() => ({ Into: P }), []), snap: { clipboard_count: 0, rows } });
+  tapOn(rowAt("c", 0, 40), 20, undefined, { shiftKey: true, ctrlKey: false, metaKey: false });
+  check(
+    "shift-tap ranges from the last plain/ctrl anchor to the tapped row",
+    H.sent.length === 1 && eq(H.sent[0], { SetSelection: { paths: [[{ Key: "a" }], [{ Key: "b" }], [{ Key: "c" }]] } }),
+    JSON.stringify(H.sent),
+  );
 }
 {
   H.sent.length = 0;

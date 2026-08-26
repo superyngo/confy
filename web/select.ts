@@ -41,7 +41,7 @@ export function resetAnchor(): void {
   setAnchor(null);
 }
 
-interface Mods {
+export interface Mods {
   shiftKey: boolean;
   ctrlKey: boolean;
   metaKey: boolean;

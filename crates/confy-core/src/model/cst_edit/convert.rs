@@ -210,7 +210,8 @@ pub(crate) fn convert_scalar(
     if let Some(e) = parse.errors.first() {
         return Err(MutateError::Fragment(e.to_string()));
     }
-    replace_value(tree, path, &built)
+    replace_value(tree, path, &built)?;
+    Ok(())
 }
 
 pub(crate) fn convert_array(
@@ -253,7 +254,8 @@ pub(crate) fn convert_array(
                     "a multi-line element cannot be collapsed".into(),
                 ));
             }
-            replace_value(tree, path, &format!("__k__ = [{}]\n", elems.join(", ")))
+            replace_value(tree, path, &format!("__k__ = [{}]\n", elems.join(", ")))?;
+            Ok(())
         }
         _ => unreachable!(),
     }
