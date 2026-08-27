@@ -28,8 +28,13 @@ fi
 # FS='|' split is safe. Table layout: | Platform | Method | Trigger |
 # Current version | Status | -> fields (1-indexed, FS='|'): 1 "", 2 Platform,
 # 3 Method, 4 Trigger, 5 Current version, 6 Status, 7 "".
+#
+# Only lines that are actual table rows (start with "|") are eligible --
+# the "## Details" section below the table reuses the same anchor phrases
+# in prose bullets, and a plain substring match there would corrupt them
+# too (see CHANGELOG history for the "|||| v0.21.0" RELEASES.md bug).
 awk -F'|' -v OFS='|' -v anchor="$anchor" -v ver="$version" '
-  index($0, anchor) { $5 = " " ver " " }
+  /^\|/ && index($0, anchor) { $5 = " " ver " " }
   { print }
 ' "$file" > "$file.tmp"
 mv "$file.tmp" "$file"

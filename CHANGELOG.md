@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-08-27T01:29:56Z
+- docs: repo-wide documentation audit. Fixed a real bug: `scripts/sync-releases-md.sh`'s
+  awk anchor match was a plain substring search over the whole file, so a version-bump
+  anchor that also appears in `RELEASES.md`'s `## Details` prose bullets (e.g. "VS Code
+  extension") corrupted those bullets with a trailing `|||| vX.Y.Z`; restricted the match
+  to lines starting with `|` and cleaned up the two already-corrupted bullets. Applied the
+  repo's existing "✅ Shipped — historical reference" banner (already on 23 of 34
+  `docs/superpowers/plans/` files) to 11 more fully-shipped plans that were missing it, for
+  consistency, with zero content changes:
+  `2026-08-11-web-code-audit-remediation-plan.md`,
+  `2026-08-17-adr-0004-unified-clipboard-targeting.md`, the five
+  `2026-08-18-row-state-visual-language-phase{1..5}.md`,
+  `2026-08-20-schema-warning-indicators-plan.md`, `2026-08-20-vscode-outline-provider-plan.md`,
+  `2026-08-21-message-system-integration.md`, and `2026-08-21-vscode-schema-hints.md`. Added
+  `status: implemented` frontmatter to ADRs 0001, 0002, 0003, and 0008 to match the
+  convention already used on ADRs 0004-0007. No broken links found; all `docs/reference/*.md`
+  and ADR factual claims spot-checked against current source and confirmed accurate;
+  `docs/superpowers/` archive left intact (it is actively cited 26+ times from
+  `docs/reference/*.md` and `docs/adr/*.md` as the permanent design-rationale record, not
+  disposable scratch).
+
 ### Unreleased Update — 2026-08-27T01:12:18Z
 - docs: added `docs/reference/CHROME.md` as the single source of truth for the web/touch
   header + filter-row chrome — button inventory (id/`data-act`, group, i18n key), the

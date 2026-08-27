@@ -1,3 +1,7 @@
+---
+status: implemented
+---
+
 # Undo history is capped and lossy; TUI routes only mutations through `dispatch(Intent)`
 
 Two independent decisions from the 2026-08-11 audit remediation plan, bundled here because

@@ -1,3 +1,5 @@
+✅ **Shipped — historical reference.** See `CHANGELOG.md` for current behavior; this plan is kept for context, not as a live task list.
+
 # Schema Warning Indicators — Type Filter Facet + Collapsed-Branch Marker
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development

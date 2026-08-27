@@ -1,3 +1,7 @@
+---
+status: implemented (2026-08-21)
+---
+
 # Diagnostics are an in-Session ring buffer, not `tracing`
 
 The 2026-08-21 message-system design (see

@@ -1,3 +1,7 @@
+---
+status: implemented (2026-08-06)
+---
+
 # Android Save As uses a custom SAF plugin command, not stock `tauri-plugin-dialog`
 
 Save As must survive an app kill + relaunch, the same durability contract confy already

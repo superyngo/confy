@@ -1,3 +1,7 @@
+---
+status: implemented
+---
+
 # JSON Schema validation uses the `jsonschema` crate, not a hand-rolled validator
 
 confy's other backends (TOML/JSON/YAML parsing) are deliberately hand-rolled to get

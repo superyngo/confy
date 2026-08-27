@@ -1,3 +1,5 @@
+✅ **Shipped — historical reference.** See `CHANGELOG.md` for current behavior; this plan is kept for context, not as a live task list.
+
 # Row-State Visual Language (Phase 5) — Implementation Plan
 
 **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development

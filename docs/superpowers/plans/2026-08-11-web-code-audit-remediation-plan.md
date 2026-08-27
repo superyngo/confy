@@ -1,3 +1,5 @@
+✅ **Shipped — historical reference.** See `CHANGELOG.md` for current behavior; this plan is kept for context, not as a live task list.
+
 # Web Code Audit Remediation — Implementation Plan
 
 Date: 2026-08-11
