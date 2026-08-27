@@ -146,8 +146,14 @@ export function renderRow(
       const nl = full.search(/\r?\n/);
       const head = nl === -1 ? full : full.slice(0, nl);
       const more = nl !== -1;
+      // `comment_advisory` (a `strict_json` document — comments aren't
+      // standard JSON) takes priority over the plain "press i" hint when
+      // both apply; a wavy underline marks it visually (desktop hover only,
+      // matching the schema hover-tooltip convention — touch has no hover).
+      const advisoryTitle = r.comment_advisory ?? (more ? "multi-line comment — press i for full text" : "");
+      const advisoryCls = r.comment_advisory ? " comment-advisory" : "";
       s +=
-        `<span class="comment mono" data-edit="comment"${more ? ' title="multi-line comment — press i for full text"' : ""}>` +
+        `<span class="comment mono${advisoryCls}" data-edit="comment"${advisoryTitle ? ` title="${escapeHtml(advisoryTitle)}"` : ""}>` +
         `${escapeHtml(head)}${more ? '<span class="comment-more"> …</span>' : ""}</span>`;
     }
   } else {
@@ -174,7 +180,9 @@ export function renderRow(
     if (!r.read_only) s += renderKindBadge(r);
     // Trailing same-line comment.
     if (r.trailing_comment) {
-      s += `<span class="comment mono" data-edit="note">${escapeHtml(r.trailing_comment)}</span>`;
+      const advisoryCls = r.comment_advisory ? " comment-advisory" : "";
+      const titleAttr = r.comment_advisory ? ` title="${escapeHtml(r.comment_advisory)}"` : "";
+      s += `<span class="comment mono${advisoryCls}" data-edit="note"${titleAttr}>${escapeHtml(r.trailing_comment)}</span>`;
     }
   }
 

@@ -172,6 +172,15 @@ export function panelHTML(
     h += "</div>";
   }
 
+  // Comment advisory — a document-format note (not a schema constraint),
+  // shown when this row is a comment/trailing-comment carrier inside a
+  // `strict_json` document. Same "only render when there's something to
+  // say" convention as the Schema block, placed right after it.
+  if (r.comment_advisory) {
+    h += `<div class="field-label">${t("web.panel.field.advisory")}</div>`;
+    h += `<div class="comment-advisory"><div class="comment-advisory-msg">${esc(r.comment_advisory)}</div></div>`;
+  }
+
   // Actions. Copy/Cut arm the clipboard (paste via the host's paste affordance);
   // Delete removes the node.
   if (!r.read_only) {

@@ -93,17 +93,26 @@ fn edit_value_cell(e: &EditState, width: usize) -> Cell<'static> {
 /// The static VALUE cell: the value preview, plus the node's trailing inline
 /// comment (`host: x  # bind`) rendered dimmed after it. Used in Normal mode and
 /// while editing the Name field (the Value-field editor renders the live buffer,
-/// which already carries the comment).
+/// which already carries the comment). A `comment_advisory` (a `strict_json`
+/// document's comment — non-standard JSON confy silently accepts) swaps the
+/// dim style for an underlined warn-colored one, the TUI's closest analogue
+/// to the web tree's wavy underline (terminals have no hover tooltip; the
+/// full advisory text lives in the `i` Detail popup's `Note:` section).
 fn value_cell(row: &crate::tui::app::RowSnapshot) -> Cell<'static> {
     let preview = cell_preview(row.value.as_deref().unwrap_or(""));
+    let advisory_style = Style::default()
+        .fg(Color::Yellow)
+        .add_modifier(Modifier::UNDERLINED);
     match &row.trailing_comment {
         // A branch (`[section]  # c`, `key:  # c`) has no value preview, so the
         // comment leads the VALUE cell with no separator; a scalar keeps the gap.
         Some(tc) => {
-            let comment = Span::styled(
-                cell_preview(tc),
-                Style::default().add_modifier(Modifier::DIM),
-            );
+            let style = if row.comment_advisory.is_some() {
+                advisory_style
+            } else {
+                Style::default().add_modifier(Modifier::DIM)
+            };
+            let comment = Span::styled(cell_preview(tc), style);
             if preview.is_empty() {
                 Cell::from(Line::from(comment))
             } else {
@@ -113,6 +122,9 @@ fn value_cell(row: &crate::tui::app::RowSnapshot) -> Cell<'static> {
                     comment,
                 ]))
             }
+        }
+        None if row.comment_advisory.is_some() => {
+            Cell::from(Line::from(Span::styled(preview, advisory_style)))
         }
         None => Cell::from(preview),
     }
@@ -1104,6 +1116,66 @@ mod tests {
         assert!(full.contains("Type: string"), "type shown: {full:?}");
         assert!(!full.contains("Valid values:"), "no enum hint: {full:?}");
         assert!(!full.contains("not of type"), "no violation: {full:?}");
+    }
+
+    #[test]
+    fn detail_full_text_appends_note_section_for_comment_advisory() {
+        // A comment row in a `strict_json`-flagged document must get an
+        // appended `Note:` section carrying `comment_advisory`, independent
+        // of any Schema section.
+        let doc = crate::model::any_doc::AnyDocument::Json(
+            crate::model::json::JsonDocument::from_str("// hi\n{\"a\": 1}\n").unwrap(),
+        );
+        let mut app = App::new(doc);
+        app.session.strict_json = true;
+        app.rebuild_rows();
+        app.select_row(1); // the leading standalone comment (rows[0] is root)
+        let full = detail_full_text(&app);
+        assert!(full.contains("Note:"), "section appended: {full:?}");
+        assert!(
+            !full.contains("Schema:"),
+            "no schema loaded, no Schema section: {full:?}"
+        );
+    }
+
+    #[test]
+    fn comment_advisory_renders_underlined_in_value_column() {
+        // A `strict_json`-flagged document's trailing comment gets the
+        // underlined warn-colored style instead of the plain dim one — the
+        // TUI's analogue to the web tree's wavy underline (no hover tooltip
+        // in a terminal; the full text lives in the `i` Detail popup).
+        let doc = crate::model::any_doc::AnyDocument::Json(
+            crate::model::json::JsonDocument::from_str("{\"a\": 1  // note\n}\n").unwrap(),
+        );
+        let mut app = App::new(doc);
+        app.session.strict_json = true;
+        app.rebuild_rows();
+        let mut terminal = Terminal::new(TestBackend::new(60, 8)).unwrap();
+        terminal.draw(|fr| draw(fr, &app)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let row_y = (0..8)
+            .find(|&y| buf[(KEY_X, y)].symbol() == "a")
+            .expect("`a` row not found in rendered buffer");
+        let value_x = name_col_width(60) + TYPE_WIDTH + 2;
+        let underlined = (value_x..60)
+            .any(|x| buf[(x, row_y)].modifier.contains(Modifier::UNDERLINED));
+        assert!(underlined, "trailing comment_advisory must render underlined");
+
+        // Without `strict_json`, the same document's comment stays plain dim.
+        let doc2 = crate::model::any_doc::AnyDocument::Json(
+            crate::model::json::JsonDocument::from_str("{\"a\": 1  // note\n}\n").unwrap(),
+        );
+        let mut plain_app = App::new(doc2);
+        plain_app.rebuild_rows();
+        let mut terminal2 = Terminal::new(TestBackend::new(60, 8)).unwrap();
+        terminal2.draw(|fr| draw(fr, &plain_app)).unwrap();
+        let buf2 = terminal2.backend().buffer().clone();
+        let row_y2 = (0..8)
+            .find(|&y| buf2[(KEY_X, y)].symbol() == "a")
+            .expect("`a` row not found in rendered buffer");
+        let underlined2 = (value_x..60)
+            .any(|x| buf2[(x, row_y2)].modifier.contains(Modifier::UNDERLINED));
+        assert!(!underlined2, "plain .jsonc-equivalent doc must not underline");
     }
 
     #[test]

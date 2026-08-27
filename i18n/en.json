@@ -166,6 +166,7 @@
   "web.typefilter.clear": "Clear",
   "web.typefilter.clear.title": "clear type filter",
   "web.panel.field.comment": "Comment",
+  "web.panel.field.advisory": "Note",
   "web.panel.field.key": "Key",
   "web.panel.field.value": "Value ({0})",
   "web.panel.field.trailing": "Trailing comment",

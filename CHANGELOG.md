@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ## [v0.22.1] - 2026-08-27
+### Unreleased Update — 2026-08-27T08:08:42Z
+- feat(ui): comment-advisory UI rendering, web and TUI.
+  - Web: a comment/trailing-comment span with `comment_advisory` set gets a red wavy underline
+    (`.comment-advisory`, `text-decoration: underline wavy var(--warn)`) plus a native `title`
+    tooltip (desktop hover only, matching the existing schema hover-tooltip convention). The
+    Detail panel (`panel.ts`) gets a new "Note" field-label block (`web.panel.field.advisory`),
+    styled like the Schema block but bordered in warn color, right after it.
+  - TUI: the VALUE cell swaps its dim comment style for an underlined warn-colored one
+    (`value_cell` in `overlay_detail.rs`'s sibling `ui.rs`) — the closest terminal analogue to a
+    wavy underline (no hover tooltips in a terminal). The `i` Detail popup gets an appended
+    `Note:` section (`detail_full_text`/`draw_detail_overlay` in `overlay_detail.rs`), independent
+    of the existing `Schema:` section.
+  - `RowSnapshot` (confy-tui's host-side `ViewRow` wrapper) gained `comment_advisory`, threaded
+    through in `App::rebuild_rows`.
+- test: added `detail_full_text_appends_note_section_for_comment_advisory` and
+  `comment_advisory_renders_underlined_in_value_column` (confy-tui); fixed two `ViewRow` literals
+  in `tests/serde_roundtrip.rs` missing the new field.
+
 ### Unreleased Update — 2026-08-27T07:42:41Z
 - feat(host): wired `Session.strict_json` for every host. `confy-tui`'s `run()` sets it from
   the real file extension (plain `.json`, not `.jsonc`) and fires a one-shot

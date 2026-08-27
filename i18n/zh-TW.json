@@ -166,6 +166,7 @@
   "web.typefilter.clear": "清除",
   "web.typefilter.clear.title": "清除類型篩選",
   "web.panel.field.comment": "Comment",
+  "web.panel.field.advisory": "提示",
   "web.panel.field.key": "Key",
   "web.panel.field.value": "Value（{0}）",
   "web.panel.field.trailing": "Trailing comment",

@@ -41,9 +41,12 @@ pub(crate) fn wrapped_line_count(text: &str, width: u16) -> usize {
 /// The Detail popup's full rendered text — `detail_text` plus, when the
 /// cursor row carries schema info (proactive `description`/`type`/`format`/
 /// `pattern` info, a proactive `edit_hint` constraint description, and/or a
-/// violation), an appended `Schema:` section. Shared by `draw_detail_overlay`
-/// (sizing + content) and `mod.rs`'s Detail key handler (scroll-clamp), so
-/// they can never drift out of sync.
+/// violation), an appended `Schema:` section, and/or (independently) a
+/// `Note:` line when the row carries a `comment_advisory` (a document-format
+/// note, not a schema constraint — see `CONTEXT.md` § Messages & diagnostics
+/// "Comment advisory"). Shared by `draw_detail_overlay` (sizing + content)
+/// and `mod.rs`'s Detail key handler (scroll-clamp), so they can never drift
+/// out of sync.
 pub(crate) fn detail_full_text(app: &App) -> String {
     let mut text = app.session.detail_text.clone().unwrap_or_default();
     let Some(row) = app.cursor_row() else {
@@ -52,22 +55,23 @@ pub(crate) fn detail_full_text(app: &App) -> String {
     let info = app.session.schema_info(&row.path);
     let hint_line = app.session.edit_hint(&row.path).describe();
     let violations = row.violations.as_ref().filter(|msgs| !msgs.is_empty());
-    if info.is_none() && hint_line.is_none() && violations.is_none() {
-        return text;
-    }
-    text.push_str("\n\nSchema:\n");
-    if let Some(info) = &info {
-        text.push_str(info);
-        text.push('\n');
-    }
-    if let Some(hint) = &hint_line {
-        text.push_str(hint);
-        if violations.is_some() {
+    if info.is_some() || hint_line.is_some() || violations.is_some() {
+        text.push_str("\n\nSchema:\n");
+        if let Some(info) = &info {
+            text.push_str(info);
             text.push('\n');
         }
+        if let Some(hint) = &hint_line {
+            text.push_str(hint);
+            text.push('\n');
+        }
+        if let Some(msgs) = violations {
+            text.push_str(&msgs.join("\n"));
+        }
     }
-    if let Some(msgs) = violations {
-        text.push_str(&msgs.join("\n"));
+    if let Some(advisory) = &row.comment_advisory {
+        text.push_str("\n\nNote:\n");
+        text.push_str(advisory);
     }
     text
 }
@@ -80,7 +84,7 @@ pub(crate) fn draw_detail_overlay(f: &mut Frame, app: &App) {
         Some(t) => t.clone(),
         None => return,
     };
-    let (info, hint_line, violations) = match app.cursor_row() {
+    let (info, hint_line, violations, comment_advisory) = match app.cursor_row() {
         Some(row) => (
             app.session.schema_info(&row.path),
             app.session.edit_hint(&row.path).describe(),
@@ -88,8 +92,9 @@ pub(crate) fn draw_detail_overlay(f: &mut Frame, app: &App) {
                 .as_ref()
                 .filter(|msgs| !msgs.is_empty())
                 .cloned(),
+            row.comment_advisory.clone(),
         ),
-        None => (None, None, None),
+        None => (None, None, None, None),
     };
     // Size the popup from the FULL rendered text (original + appended Schema
     // section), so hint/violation content never gets clipped.
@@ -123,6 +128,14 @@ pub(crate) fn draw_detail_overlay(f: &mut Frame, app: &App) {
                 )));
             }
         }
+    }
+    if let Some(advisory) = comment_advisory {
+        lines.push(Line::from(""));
+        lines.push(Line::from("Note:"));
+        lines.push(Line::from(Span::styled(
+            advisory,
+            Style::default().fg(Color::Yellow),
+        )));
     }
     let paragraph = Paragraph::new(lines)
         .block(block)

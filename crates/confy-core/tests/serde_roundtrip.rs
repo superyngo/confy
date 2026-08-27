@@ -126,6 +126,7 @@ fn view_row_roundtrips() {
         is_cursor: false,
         violations: None,
         has_descendant_violation: false,
+        comment_advisory: None,
     };
     assert_roundtrip(&row);
 
@@ -146,6 +147,7 @@ fn view_row_roundtrips() {
         is_cursor: true,
         violations: None,
         has_descendant_violation: false,
+        comment_advisory: Some("comments aren't part of standard JSON".into()),
     };
     assert_roundtrip(&branch);
 }
