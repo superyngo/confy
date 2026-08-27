@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.22.0] - 2026-08-27
+
 ### Unreleased Update — 2026-08-27T01:29:56Z
 - docs: repo-wide documentation audit. Fixed a real bug: `scripts/sync-releases-md.sh`'s
   awk anchor match was a plain substring search over the whole file, so a version-bump
