@@ -5,7 +5,7 @@
 //! - TOML: a first-line `#:schema <path-or-url>` comment (Taplo convention).
 
 use super::types::SchemaSource;
-use crate::model::document::DocFormat;
+use crate::model::document::{ConfigDocument, DocFormat};
 
 pub fn detect_hint(text: &str, format: DocFormat) -> Option<SchemaSource> {
     match format {
@@ -30,16 +30,27 @@ fn to_source(raw: &str) -> Option<SchemaSource> {
 fn detect_json(text: &str) -> Option<SchemaSource> {
     // Parse-then-lookup rather than regex: `$schema` is a root member of a
     // JSON *value*, and a naive text scan would false-positive on a nested
-    // `"$schema"` string value elsewhere in the document. JSONC `//`/`/* */`
-    // comments would break `serde_json::from_str`, but a root-level
-    // `"$schema"` key is legal even in strict JSON, so this degrades to
-    // `None` (not a panic/error) on a JSONC file with comments before the
-    // key — acceptable: JSONC's `//`/`/* */` upgrade is orthogonal to schema
-    // detection, and a load failure here is never fatal (spec §1: "never a
-    // hard-fail").
-    let parsed: serde_json::Value = serde_json::from_str(text).ok()?;
-    let schema = parsed.get("$schema")?.as_str()?;
-    to_source(schema)
+    // `"$schema"` string value elsewhere in the document. Goes through the
+    // project's own lossless JSON/JSONC parser (`AnyDocument`), not
+    // `serde_json::from_str`, so a `//`/`/* */` comment *anywhere* in the
+    // document (not just before the key) never breaks detection — JSONC is
+    // explicitly in scope per spec §1 ("JSON/JSONC: a root-level `"$schema"`
+    // string member"). A genuine parse error (malformed JSON/JSONC) still
+    // degrades to `None`, never a hard-fail.
+    let doc = crate::model::any_doc::AnyDocument::from_str_as(text, DocFormat::Json).ok()?;
+    let (value, _warnings) = doc.to_value().ok()?;
+    let crate::model::value::Value::Map(items) = value else {
+        return None;
+    };
+    let schema = items.iter().find_map(|it| match it {
+        crate::model::value::Item::Node {
+            key: Some(k),
+            value: crate::model::value::Value::Str(s),
+            ..
+        } if k == "$schema" => Some(s.clone()),
+        _ => None,
+    })?;
+    to_source(&schema)
 }
 
 fn detect_yaml(text: &str) -> Option<SchemaSource> {

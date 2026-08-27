@@ -62,6 +62,18 @@ enum SlotMove {
     End,
 }
 
+/// Parse a fetched schema document's text as JSON — tolerant of `//`/`/* */`
+/// comments anywhere in the text (a schema authored JSONC-style), by going
+/// through the project's own lossless JSON/JSONC parser rather than
+/// `serde_json::from_str` directly. `Err` carries a display-ready message,
+/// matching `serde_json::Error`'s `Display` shape closely enough for
+/// `apply_schema_text`'s existing "schema is not valid JSON: {e}" wrapping.
+fn parse_schema_json(text: &str) -> Result<serde_json::Value, String> {
+    let doc = AnyDocument::from_str_as(text, DocFormat::Json).map_err(|e| e.to_string())?;
+    let (value, _warnings) = doc.to_value().map_err(|e| e.to_string())?;
+    Ok(crate::schema::value_bridge::value_to_json(&value))
+}
+
 impl Session {
     /// Construct a Session backed by a real document.
     pub fn new(doc: AnyDocument) -> Self {
@@ -1508,7 +1520,7 @@ impl Session {
         text: Result<String, String>,
     ) {
         let state = match text {
-            Ok(text) => match serde_json::from_str::<serde_json::Value>(&text) {
+            Ok(text) => match parse_schema_json(&text) {
                 Ok(raw) => match jsonschema::Validator::new(&raw) {
                     Ok(compiled) => {
                         let fully_analyzable =

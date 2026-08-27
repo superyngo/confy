@@ -104,6 +104,18 @@ fn detect_hint_json_none_when_absent() {
 }
 
 #[test]
+fn detect_hint_json_survives_comments_anywhere_in_the_document() {
+    // A `//` comment elsewhere in the document (not just before the
+    // `$schema` key) must not break detection — JSONC is in scope per
+    // spec §1 ("JSON/JSONC: a root-level `"$schema"` string member").
+    let src = "{\n  // leading comment\n  \"$schema\": \"./app.schema.json\",\n  \"port\": 1 // trailing\n}\n";
+    assert_eq!(
+        detect_hint(src, DocFormat::Json),
+        Some(SchemaSource::Local("./app.schema.json".into()))
+    );
+}
+
+#[test]
 fn detect_hint_yaml_modeline() {
     let src = "# yaml-language-server: $schema=./s.yaml\nport: 1\n";
     assert_eq!(
@@ -513,6 +525,20 @@ fn session_apply_schema_text_compiles_and_revalidates() {
     s.apply_schema_text(SchemaSource::Local("./s.json".into()), Ok(schema_text));
     let state = s.schema.as_ref().expect("schema loaded");
     assert!(state.load_error.is_none());
+    assert_eq!(state.violations.len(), 1);
+    assert_eq!(state.violations[0].keyword, "type");
+}
+
+#[test]
+fn session_apply_schema_text_accepts_jsonc_authored_schema() {
+    // A schema file authored with `//` comments (common in hand-edited
+    // JSON Schema documents) must still compile — not fall into
+    // `load_error: "schema is not valid JSON"`.
+    let mut s = session_from("port = \"nope\"\n", DocFormat::Toml);
+    let schema_text = "{\n  // port must be numeric\n  \"type\": \"object\",\n  \"properties\": { \"port\": { \"type\": \"integer\" } }\n}\n";
+    s.apply_schema_text(SchemaSource::Local("./s.json".into()), Ok(schema_text.into()));
+    let state = s.schema.as_ref().expect("schema loaded");
+    assert!(state.load_error.is_none(), "load_error: {:?}", state.load_error);
     assert_eq!(state.violations.len(), 1);
     assert_eq!(state.violations[0].keyword, "type");
 }

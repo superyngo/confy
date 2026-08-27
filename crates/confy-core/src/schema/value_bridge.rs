@@ -52,6 +52,48 @@ pub fn bridge(root: &Node, root_value: &Value) -> (Json, PointerMap) {
     (json, map)
 }
 
+/// Lower a bare `Value` (no `Node`/`Path` pairing) into a JSON projection —
+/// used where only the decoded shape is needed (schema-hint detection,
+/// parsing a fetched schema document itself), not per-node violation
+/// pointers. Mirrors `walk`'s scalar/container mapping minus the pointer
+/// bookkeeping; `Item::Comment` entries are dropped.
+pub fn value_to_json(value: &Value) -> Json {
+    match value {
+        Value::Null => Json::Null,
+        Value::Bool(b) => Json::Bool(*b),
+        Value::Int(i) => Json::Number(Number::from(*i)),
+        Value::Float(f) if f.is_finite() => {
+            Number::from_f64(*f).map(Json::Number).unwrap_or(Json::Null)
+        }
+        Value::Float(f) => Json::String(if f.is_nan() {
+            "nan".to_string()
+        } else if *f > 0.0 {
+            "inf".to_string()
+        } else {
+            "-inf".to_string()
+        }),
+        Value::Str(s) | Value::Datetime(s) => Json::String(s.clone()),
+        Value::Seq(items) => Json::Array(
+            items
+                .iter()
+                .filter_map(|it| match it {
+                    Item::Node { value, .. } => Some(value_to_json(value)),
+                    Item::Comment(_) => None,
+                })
+                .collect(),
+        ),
+        Value::Map(items) => {
+            let mut obj = Map::new();
+            for it in items {
+                if let Item::Node { key: Some(k), value, .. } = it {
+                    obj.insert(k.clone(), value_to_json(value));
+                }
+            }
+            Json::Object(obj)
+        }
+    }
+}
+
 fn walk(node: &Node, value: &Value, pointer: &str, map: &mut PointerMap) -> Json {
     map.insert(pointer.to_string(), node.path.clone());
     match value {

@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ## [v0.22.1] - 2026-08-27
+### Unreleased Update — 2026-08-27T07:25:59Z
+- fix(schema): JSON `$schema`-hint detection (`schema::hints::detect_json`) and external
+  schema-file compilation (`Session::apply_schema_text`) previously parsed with strict
+  `serde_json::from_str`, which silently fails on *any* `//`/`/* */` comment anywhere in the
+  text — not just before the `"$schema"` key as the old code comment claimed. A JSONC document
+  with a comment anywhere would never have its schema hint detected at all (`detect_hint`
+  degraded to `None` with no visible cause), contradicting the design spec's explicit
+  "JSON/JSONC" scope (`docs/superpowers/specs/2026-08-10-json-schema-support-design.md` §1). A
+  JSONC-authored schema file hit `load_error: "schema is not valid JSON"` the same way. Both
+  now parse through the project's own lossless JSON/JSONC parser (`AnyDocument::from_str_as` +
+  `ConfigDocument::to_value()`) instead of `serde_json` directly, so comments anywhere in
+  either document no longer break either path. Added `schema::value_bridge::value_to_json`, a
+  path-free `Value -> serde_json::Value` lowering shared by both call sites.
+- test(schema): added `detect_hint_json_survives_comments_anywhere_in_the_document` and
+  `session_apply_schema_text_accepts_jsonc_authored_schema` regression tests to
+  `tests/schema_headless.rs`.
+
 ### Unreleased Update — 2026-08-27T05:00:00Z
 - fix(core): document-level conversion (`model/convert.rs`, `confy convert`/TUI `C`) now
   carries a detected schema hint (`schema::hints::detect_hint` — JSON `"$schema"` root key,
