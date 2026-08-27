@@ -18,6 +18,7 @@ pub mod type_filter;
 pub mod ui;
 
 use anyhow::Result;
+use confy_core::model::document::ConfigDocument;
 use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -34,6 +35,27 @@ pub fn run(
     app.session.set_lang(lang);
     app.source_path = Some(path.to_path_buf());
 
+    // `strict_json` drives the per-row comment-advisory decoration
+    // (`ViewRow.comment_advisory`) — only the host knows whether the real
+    // extension is plain `.json` (not `.jsonc`); confy-core treats both
+    // identically as `DocFormat::Json`. A one-shot toast additionally fires
+    // when the file already had comments at open (the "surprise" case) —
+    // comments added later via the interactive JSONC-upgrade prompt are
+    // already self-explanatory and don't need a second notice.
+    let is_plain_json = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("json"));
+    if is_plain_json {
+        app.session.strict_json = true;
+        if app.session.doc.as_ref().is_some_and(|d| d.supports_comments()) {
+            app.session.dispatch(confy_core::session::Intent::SetHostNotice {
+                key: "tui.host.json-comments-detected".to_string(),
+                args: vec![],
+                source: confy_core::session::notice::NoticeSource::HostTui,
+            });
+        }
+    }
     let open_file_dir = path.parent().unwrap_or_else(|| std::path::Path::new("."));
     if let Some(source) = app.session.detect_and_request_schema() {
         let text = crate::tui::schema_io::resolve_schema_source(&source, open_file_dir);

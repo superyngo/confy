@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ## [v0.22.1] - 2026-08-27
+### Unreleased Update — 2026-08-27T07:42:41Z
+- feat(host): wired `Session.strict_json` for every host. `confy-tui`'s `run()` sets it from
+  the real file extension (plain `.json`, not `.jsonc`) and fires a one-shot
+  `tui.host.json-comments-detected` toast when the file already had comments at open.
+  `confy-ffi` gained `ConfySession::set_strict_json`/`supports_comments` wasm-bindgen methods
+  (wrapped as `Session.setStrictJson`/`supportsComments` in `web/confy.ts`); `web/ui.ts`'s
+  `openText` — the single entry point for desktop/URL/sample opens, shared by the Tauri host
+  since it embeds the same web bundle — does the equivalent extension check and fires
+  `web.host.json-comments-detected`. No `confy-tauri`-specific change needed: it has no
+  Rust-side document loading of its own.
+
 ### Unreleased Update — 2026-08-27T07:32:59Z
 - feat(core): added the **comment advisory** data layer — a host-supplied `Session.strict_json`
   flag (true iff the open document's real extension is plain `.json`, not `.jsonc`; confy-core

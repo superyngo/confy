@@ -74,6 +74,10 @@ export interface ViewRow {
   selected: boolean;
   is_cursor: boolean;
   has_descendant_violation: boolean;
+  // Advisory (never blocking) message when this row is a standalone comment
+  // or carries a trailing comment inside a `strict_json` document — a
+  // document-format note, distinct from a schema `violations` entry.
+  comment_advisory: string | undefined;
 }
 
 // ---- Breadcrumb children query (session::view::ChildView, ffi `children`) ----

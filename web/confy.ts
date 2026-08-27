@@ -69,6 +69,25 @@ export class Session {
     return this.raw.is_dirty();
   }
 
+  /**
+   * Host-supplied: true iff the open document's real file extension is
+   * plain `.json` (not `.jsonc`) — the wasm core is extension-blind, so
+   * only the host knows this. Drives the per-row `comment_advisory`
+   * decoration. Call once right after `fromText`.
+   */
+  setStrictJson(v: boolean): void {
+    this.raw.set_strict_json(v);
+  }
+
+  /**
+   * Whether authored comments are currently legal in the open document —
+   * true from load if the raw text already contained a `//` line comment
+   * or a block comment.
+   */
+  supportsComments(): boolean {
+    return this.raw.supports_comments();
+  }
+
   docFormat(): string {
     return this.raw.doc_format();
   }

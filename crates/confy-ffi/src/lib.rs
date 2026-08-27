@@ -82,6 +82,29 @@ impl ConfySession {
         self.session.is_dirty()
     }
 
+    /// Host-supplied: true iff the open document's real file extension is
+    /// plain `.json` (not `.jsonc`) — confy-core is extension-blind
+    /// (`DocFormat::Json` covers both), so only the host knows this. Drives
+    /// the per-row `comment_advisory` decoration (`ViewRow.comment_advisory`).
+    /// The host calls this once right after `from_text`, before the first
+    /// `snapshot()`/`visible_rows()`.
+    pub fn set_strict_json(&mut self, v: bool) {
+        self.session.strict_json = v;
+    }
+
+    /// Whether authored comments are currently legal in the open document —
+    /// true from load if the raw text already contained a `//` line comment
+    /// or a block comment. The host uses this alongside its own extension
+    /// check to decide whether to fire the one-shot "this .json file has
+    /// comments" advisory (see `set_strict_json`); `false` for a non-JSON
+    /// document.
+    pub fn supports_comments(&self) -> bool {
+        self.session
+            .doc
+            .as_ref()
+            .is_some_and(|d| d.supports_comments())
+    }
+
     pub fn doc_format(&self) -> String {
         format_name(self.session.doc_format())
     }

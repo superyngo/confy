@@ -282,9 +282,24 @@ function openText(
   fileName = name;
   setSampleMode(asSample);
   resetAnchor(); // a stale shift-range anchor must not survive the document swap
+  // `strict_json` drives the per-row comment-advisory decoration — only the
+  // host knows the real extension; the wasm core treats .json/.jsonc
+  // identically. Set before the first dispatch so the initial snapshot's
+  // rows already reflect it.
+  const isPlainJson = !!name && /\.json$/i.test(name);
+  if (isPlainJson) session.setStrictJson(true);
   // A fresh Session always boots at core's default lang (`en`) — sync it to the
   // selector's persisted choice so status/error/About text match immediately.
   snap = session.dispatch({ SetLang: getLang() });
+  // One-shot advisory when the file already had comments at open (a JSONC
+  // upgrade the user didn't ask for) — dispatched after SetLang, which
+  // clears any pending notice. Comments added later via the interactive
+  // JSONC-upgrade prompt are already self-explanatory and don't need this.
+  if (isPlainJson && session.supportsComments()) {
+    snap = session.dispatch({
+      SetHostNotice: { key: "web.host.json-comments-detected", args: [], source: "host-web" },
+    });
+  }
   render();
 }
 
