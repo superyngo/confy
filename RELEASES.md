@@ -21,7 +21,7 @@ CI-automated.
 
 ## Details
 
-- TUI + desktop + MSIX: [README.md](README.md) § Desktop app, [TAURI.md](docs/reference/TAURI.md), [crates/confy-tauri/msix/STORE.md](crates/confy-tauri/msix/STORE.md)|||| v0.21.0 
+- TUI + desktop + MSIX: [README.md](README.md) § Desktop app, [TAURI.md](docs/reference/TAURI.md), [crates/confy-tauri/msix/STORE.md](crates/confy-tauri/msix/STORE.md)
 - Android: [TAURI.md](docs/reference/TAURI.md) § Mobile (Tauri Android)
 - Web UI: [WEBUI.md](docs/reference/WEBUI.md) § Deployment
-- VS Code extension: [VSCODE.md](docs/reference/VSCODE.md) § Publishing, [editors/vscode/README.md](editors/vscode/README.md) § Publishing a new version|||| v0.21.0 
+- VS Code extension: [VSCODE.md](docs/reference/VSCODE.md) § Publishing, [editors/vscode/README.md](editors/vscode/README.md) § Publishing a new version
