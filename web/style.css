@@ -585,7 +585,7 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
 /* Tree/Raw view toggle + read-only raw text (#12). The active tab reads like a
    pressed segment; the raw pane fills the tree-wrap and scrolls on its own. */
 .viewtab.active { background: var(--accent); color: var(--bg); border-color: transparent; font-weight: 600; }
-.raw-view {
+#raw.raw-view {
   margin: 0; padding: 8px 10px; white-space: pre; tab-size: 2;
   font-size: 13px; line-height: 1.55; color: var(--fg);
   user-select: text; cursor: text; outline: none;

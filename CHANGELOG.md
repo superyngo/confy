@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Unreleased Update — 2026-08-27T02:34:32Z
+- fix(web): desktop Raw view no longer inflates the header/filter-row layout. The
+  `#raw` `<pre>`'s own style rule was a bare `.raw-view` class selector, which
+  collided with the identically-named `body.raw-view` state class `setRawView()`
+  toggles for hiding the FAB; that leaked `white-space:pre` (plus `font-size`/
+  `line-height`) onto `<body>` and, through inheritance, into the filter row's
+  `#searchWrap`, where it turned collapsed whitespace text nodes between the
+  search icon/input/clear button into rendered line breaks, ballooning the
+  filter row's height. Scoped the rule to `#raw.raw-view` so it only styles the
+  raw-text element; `body.raw-view` continues to work unchanged for its FAB-hiding
+  rule.
 
 ## [v0.22.0] - 2026-08-27
 
