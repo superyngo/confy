@@ -4,7 +4,6 @@ import type { ConfySessionCtor, ConfySessionHandle, OutlineNode } from "./wasmSe
 // Runtime imports use `.ts` specifiers so `node --experimental-strip-types`
 // can execute this module directly in tests (type-only `.js` imports above
 // are erased; esbuild resolves `.ts` specifiers identically).
-import { needsSchemaReload } from "./schemaDedup.ts";
 import { resolveLocalSchemaPath } from "./schemaPathResolve.ts";
 
 export interface SchemaSessionDeps {
@@ -21,7 +20,6 @@ export interface DocSyncResult {
 interface ManagedDoc {
   session: ConfySessionHandle;
   fsPath: string;
-  loadedSchemaSource: SchemaSource | undefined;
   generation: number;
 }
 
@@ -30,9 +28,11 @@ interface ManagedDoc {
  * opaque caller-chosen string (the caller uses `document.uri.toString()`).
  * Edits go through `reparse()`'s `Intent::ApplyReplace{path: [], text}`
  * against the *same* session rather than constructing a new one, so the
- * compiled schema `Validator` survives every edit; schema fetch/reload is
- * only re-triggered when `needsSchemaReload` says the detected source
- * actually changed.
+ * compiled schema `Validator` survives every edit. `confy-core`'s `Session`
+ * re-detects the in-document hint after every mutation and dedups against
+ * the currently loaded schema itself (`Session::sync_schema_hint`) — this
+ * manager only resolves whatever `schema_fetch_request` the snapshot asks
+ * for; it no longer tracks or compares the loaded source itself.
  */
 export class SchemaSessionManager {
   private docs = new Map<string, ManagedDoc>();
@@ -46,9 +46,9 @@ export class SchemaSessionManager {
 
   async open(key: string, fsPath: string, text: string, format: string): Promise<DocSyncResult> {
     const session = new this.SessionCtor(text, format);
-    const doc: ManagedDoc = { session, fsPath, loadedSchemaSource: undefined, generation: 0 };
+    const doc: ManagedDoc = { session, fsPath, generation: 0 };
     this.docs.set(key, doc);
-    return this.syncSchema(key, doc);
+    return this.syncSchema(key, doc, session.snapshot());
   }
 
   async reparse(key: string, text: string): Promise<DocSyncResult | undefined> {
@@ -64,7 +64,7 @@ export class SchemaSessionManager {
       // displaying drifted ranges (spec §"Error handling", Q7).
       return { violations: [], loadError: undefined, invalidSyntax: true };
     }
-    return this.syncSchema(key, doc);
+    return this.syncSchema(key, doc, snap);
   }
 
   outline(key: string): OutlineNode[] | undefined {
@@ -79,19 +79,17 @@ export class SchemaSessionManager {
     this.docs.delete(key);
   }
 
-  private async syncSchema(key: string, doc: ManagedDoc): Promise<DocSyncResult> {
-    let snap = doc.session.dispatch("DetectSchema") as SessionSnapshot;
+  private async syncSchema(key: string, doc: ManagedDoc, snap: SessionSnapshot): Promise<DocSyncResult> {
     const detected = snap.schema_fetch_request;
-    if (needsSchemaReload(detected, doc.loadedSchemaSource, snap.schema_status)) {
+    if (detected) {
       const generation = doc.generation;
-      const text = await this.resolveSchemaText(doc.fsPath, detected!);
+      const text = await this.resolveSchemaText(doc.fsPath, detected);
       // Stale-fetch guard: discard if the document closed or moved on to a
       // later reparse while this fetch/read was in flight (spec §"Error
       // handling").
       const stillCurrent = this.docs.get(key) === doc && doc.generation === generation;
       if (stillCurrent) {
-        snap = doc.session.dispatch({ SchemaLoaded: { source: detected!, text } }) as SessionSnapshot;
-        doc.loadedSchemaSource = detected!;
+        snap = doc.session.dispatch({ SchemaLoaded: { source: detected, text } }) as SessionSnapshot;
       }
     }
     return {

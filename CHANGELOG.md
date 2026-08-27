@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Unreleased Update — 2026-08-27T00:00:00Z
+- feat(schema): in-document schema hints (`$schema` / YAML modeline / TOML
+  `#:schema`) now reload live as the document is edited, instead of only at
+  file open. `Session::on_mutation_success` re-detects the hint after every
+  committed mutation and dedups against the currently loaded schema itself
+  (`Session::sync_schema_hint`) — same source + prior success is a no-op,
+  same source + prior failure retries, a changed source requests a fresh
+  fetch. No hint detected leaves an already-loaded schema untouched (a
+  schema loaded via an explicit override, e.g. the TUI's `--schema` flag,
+  is never cleared just because the document has no hint). This replaces
+  the VS Code extension's host-only `schemaDedup.ts`/`needsSchemaReload`
+  (ADR 0007) — `SchemaSessionManager.syncSchema` now just resolves whatever
+  `schema_fetch_request` the snapshot already carries — and adds the same
+  live-reload wiring to the TUI's event loop; the webview/Tauri/browser
+  hosts needed no changes since their render loop already checked
+  `schema_fetch_request` on every snapshot.
+
 ### Unreleased Update — 2026-08-27T02:34:32Z
 - fix(web): desktop Raw view no longer inflates the header/filter-row layout. The
   `#raw` `<pre>`'s own style rule was a bare `.raw-view` class selector, which

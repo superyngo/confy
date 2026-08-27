@@ -105,6 +105,28 @@ fn run_event_loop(
     use crossterm::event::{self, Event, KeyEventKind};
     let mut should_quit = false;
     while !should_quit {
+        // A mutation may have changed the in-document schema hint (edited
+        // `$schema` / modeline / `#:schema` comment) — `Session` recomputes
+        // this after every mutation (dedup included) and stages the result
+        // here; resolve it the same way the initial open does (§ schema).
+        if let Some(source) = app.session.pending_schema_fetch.take() {
+            let open_file_dir = app
+                .source_path
+                .as_deref()
+                .and_then(Path::parent)
+                .unwrap_or_else(|| Path::new("."));
+            let text = crate::tui::schema_io::resolve_schema_source(&source, open_file_dir);
+            let load_error = text.clone().err();
+            app.session.apply_schema_text(source, text);
+            if let Some(err) = load_error {
+                app.session.dispatch(confy_core::session::Intent::SetHostNotice {
+                    key: "tui.host.schema-load-error".to_string(),
+                    args: vec![err],
+                    source: confy_core::session::notice::NoticeSource::HostTui,
+                });
+            }
+            app.rebuild_rows();
+        }
         // Keep the inline editor's horizontal viewport in sync with the cursor at
         // the current terminal width before drawing.
         if let crate::tui::state::Mode::Edit(ref e) = app.session.mode {

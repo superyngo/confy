@@ -824,6 +824,88 @@ fn revalidate_schema_marks_ancestors_of_violating_paths() {
 }
 
 #[test]
+fn mutation_redetects_changed_schema_hint_without_reopening() {
+    let mut s = session_from("#:schema ./old.json\nport = 1\n", DocFormat::Toml);
+    s.dispatch(Intent::SchemaLoaded {
+        source: SchemaSource::Local("./old.json".into()),
+        text: Ok(json!({"type": "object"}).to_string()),
+    });
+    assert_eq!(
+        s.schema.as_ref().unwrap().source,
+        SchemaSource::Local("./old.json".into())
+    );
+    // Edit the modeline in place — mirrors the host's whole-document replace
+    // (schemaSessionManager.reparse()) used for both webview and native
+    // editors.
+    let snap = s.dispatch(Intent::ApplyReplace {
+        path: vec![],
+        text: "#:schema ./new.json\nport = 1\n".into(),
+    });
+    assert_eq!(
+        snap.schema_fetch_request,
+        Some(SchemaSource::Local("./new.json".into())),
+        "changed hint requests a fresh fetch without a separate DetectSchema dispatch"
+    );
+}
+
+#[test]
+fn mutation_does_not_reload_when_hint_is_unchanged_and_already_loaded() {
+    let mut s = session_from("#:schema ./s.json\nport = 1\n", DocFormat::Toml);
+    s.dispatch(Intent::SchemaLoaded {
+        source: SchemaSource::Local("./s.json".into()),
+        text: Ok(json!({"type": "object"}).to_string()),
+    });
+    let snap = s.dispatch(Intent::ApplyReplace {
+        path: vec![],
+        text: "#:schema ./s.json\nport = 2\n".into(),
+    });
+    assert_eq!(
+        snap.schema_fetch_request, None,
+        "same source, previously loaded successfully — no redundant fetch"
+    );
+}
+
+#[test]
+fn mutation_retries_a_previously_failed_load_for_the_same_hint() {
+    let mut s = session_from("#:schema ./missing.json\nport = 1\n", DocFormat::Toml);
+    s.dispatch(Intent::SchemaLoaded {
+        source: SchemaSource::Local("./missing.json".into()),
+        text: Err("not found".into()),
+    });
+    let snap = s.dispatch(Intent::ApplyReplace {
+        path: vec![],
+        text: "#:schema ./missing.json\nport = 2\n".into(),
+    });
+    assert_eq!(
+        snap.schema_fetch_request,
+        Some(SchemaSource::Local("./missing.json".into())),
+        "a prior load_error retries on the next mutation instead of getting stuck"
+    );
+}
+
+#[test]
+fn mutation_keeps_schema_loaded_when_hint_disappears() {
+    // A schema can be loaded without a matching in-document hint (e.g. the
+    // TUI's `--schema` CLI override) — "no hint detected" must never be
+    // read as "clear the schema", or an override-loaded schema would vanish
+    // on the very next edit.
+    let mut s = session_from("#:schema ./s.json\nport = 1\n", DocFormat::Toml);
+    s.dispatch(Intent::SchemaLoaded {
+        source: SchemaSource::Local("./s.json".into()),
+        text: Ok(json!({"type": "object"}).to_string()),
+    });
+    assert!(s.schema.is_some());
+    s.dispatch(Intent::ApplyReplace {
+        path: vec![],
+        text: "port = 1\n".into(),
+    });
+    assert!(
+        s.schema.is_some(),
+        "hint disappearing leaves a previously loaded schema in place"
+    );
+}
+
+#[test]
 fn collapsed_ancestor_row_reports_has_descendant_violation() {
     use confy_core::model::node::{Path, Seg};
     let mut s = session_from("[server]\nport = \"nope\"\n", DocFormat::Toml);

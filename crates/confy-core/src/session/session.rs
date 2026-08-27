@@ -1744,6 +1744,32 @@ impl Session {
         if !skip_revalidate {
             self.revalidate_schema();
         }
+        self.sync_schema_hint();
+    }
+
+    /// Re-detect the in-document schema hint after a mutation and decide
+    /// whether the host needs a (re)fetch. Centralizes the dedup logic that
+    /// previously lived only in the VS Code extension's `schemaDedup.ts`
+    /// (ADR 0007) so every host gets live hint-change detection for free —
+    /// not just the one host that happened to re-run `DetectSchema` on every
+    /// reparse. Same source + prior success → no-op (skip a redundant
+    /// fetch); same source + prior failure → retry; different source →
+    /// request a fetch. No hint detected → leave `self.schema` exactly as
+    /// is: a schema can be loaded without a matching in-document hint (the
+    /// TUI's `--schema` CLI override), so "no hint" must never be read as
+    /// "clear the schema".
+    fn sync_schema_hint(&mut self) {
+        let Some(source) = self.detect_and_request_schema() else {
+            return;
+        };
+        match &self.schema {
+            Some(state) if state.source == source => {
+                if state.load_error.is_some() {
+                    self.pending_schema_fetch = Some(source);
+                }
+            }
+            _ => self.pending_schema_fetch = Some(source),
+        }
     }
 
     pub fn escape(&mut self) {

@@ -21,30 +21,31 @@ class FakeSession implements ConfySessionHandle {
   outline() { return []; }
   schema_hint() { return "None" as const; }
   schema_violations() { return []; }
+  // Mirrors confy-core's `Session::sync_schema_hint`: only surface a fetch
+  // request when the hint is new/changed, or the same hint previously
+  // failed to load — the manager itself no longer computes this.
+  private fetchRequest(): { Local: string } | undefined {
+    if (!this.hint) return undefined;
+    const same = this.schemaSource && "Local" in this.schemaSource && this.schemaSource.Local === this.hint.Local;
+    if (same && this.loadError === undefined) return undefined;
+    return this.hint;
+  }
   snapshot() {
     return {
-      schema_fetch_request: undefined,
+      schema_fetch_request: this.fetchRequest(),
       schema_status: this.schemaSource
         ? { source_label: "s", violation_count: 0, load_error: this.loadError }
         : undefined,
     } as any;
   }
   dispatch(intent: any) {
-    if (intent === "DetectSchema") {
-      return {
-        schema_fetch_request: this.hint,
-        schema_status: this.schemaSource
-          ? { source_label: "s", violation_count: 0, load_error: this.loadError }
-          : undefined,
-      } as any;
-    }
     if (intent.ApplyReplace !== undefined) {
       if (this.failNextReplace) return { error: "parse error" } as any;
       this.text = intent.ApplyReplace.text;
       this.hint = this.text.includes("#:schema")
         ? { Local: this.text.split("#:schema ")[1].split("\n")[0] }
         : undefined;
-      return { error: undefined } as any;
+      return { error: undefined, ...this.snapshot() } as any;
     }
     if (intent.SchemaLoaded !== undefined) {
       this.schemaSource = intent.SchemaLoaded.source;

@@ -76,6 +76,14 @@ host compares the detected source against what it already knows is loaded
   "confy-core is fs-free, hosts resolve I/O" boundary, but it is new
   *dedup* responsibility, not just I/O, that every future stateful host
   adopting schema support will need to reimplement the same way.
+  **Superseded 2026-08-27**: `Session::sync_schema_hint` (called from
+  `on_mutation_success`) now performs this exact comparison inside
+  `confy-core` itself, after every mutation, and every host benefits
+  without reimplementing it — see the schema-dynamic-reload changelog
+  entry. `SchemaSessionManager` no longer tracks `loadedSchemaSource` or
+  calls `Intent::DetectSchema` directly; it only resolves whatever
+  `schema_fetch_request` the snapshot already carries. The persistent
+  one-`ConfySession`-per-document decision above is unaffected.
 - This is the first native-editor-host precedent to keep a `ConfySession`
   alive across host-observed text changes; a future feature that also needs
   live session state (not just per-request pure computation) should follow
