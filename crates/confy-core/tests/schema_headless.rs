@@ -906,6 +906,59 @@ fn mutation_keeps_schema_loaded_when_hint_disappears() {
 }
 
 #[test]
+fn undo_redetects_the_schema_hint_the_edit_had_changed() {
+    let mut s = session_from("#:schema ./old.json\nport = 1\n", DocFormat::Toml);
+    s.dispatch(Intent::SchemaLoaded {
+        source: SchemaSource::Local("./old.json".into()),
+        text: Ok(json!({"type": "object"}).to_string()),
+    });
+    s.dispatch(Intent::ApplyReplace {
+        path: vec![],
+        text: "#:schema ./new.json\nport = 1\n".into(),
+    });
+    // Load the new schema so the session is settled on ./new.json before
+    // undoing back to ./old.json.
+    s.dispatch(Intent::SchemaLoaded {
+        source: SchemaSource::Local("./new.json".into()),
+        text: Ok(json!({"type": "object"}).to_string()),
+    });
+    let snap = s.dispatch(Intent::Undo);
+    assert_eq!(
+        snap.schema_fetch_request,
+        Some(SchemaSource::Local("./old.json".into())),
+        "undoing back to the old hint must re-request its schema, not stay on ./new.json"
+    );
+}
+
+#[test]
+fn redo_redetects_the_schema_hint_the_edit_had_changed() {
+    let mut s = session_from("#:schema ./old.json\nport = 1\n", DocFormat::Toml);
+    s.dispatch(Intent::SchemaLoaded {
+        source: SchemaSource::Local("./old.json".into()),
+        text: Ok(json!({"type": "object"}).to_string()),
+    });
+    s.dispatch(Intent::ApplyReplace {
+        path: vec![],
+        text: "#:schema ./new.json\nport = 1\n".into(),
+    });
+    s.dispatch(Intent::SchemaLoaded {
+        source: SchemaSource::Local("./new.json".into()),
+        text: Ok(json!({"type": "object"}).to_string()),
+    });
+    s.dispatch(Intent::Undo);
+    s.dispatch(Intent::SchemaLoaded {
+        source: SchemaSource::Local("./old.json".into()),
+        text: Ok(json!({"type": "object"}).to_string()),
+    });
+    let snap = s.dispatch(Intent::Redo);
+    assert_eq!(
+        snap.schema_fetch_request,
+        Some(SchemaSource::Local("./new.json".into())),
+        "redoing forward to the new hint must re-request its schema"
+    );
+}
+
+#[test]
 fn collapsed_ancestor_row_reports_has_descendant_violation() {
     use confy_core::model::node::{Path, Seg};
     let mut s = session_from("[server]\nport = \"nope\"\n", DocFormat::Toml);

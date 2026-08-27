@@ -27,6 +27,7 @@ impl Session {
                 self.tree = doc.project();
                 self.notice = None;
                 self.revalidate_schema();
+                self.sync_schema_hint();
             }
             Err(e) => self.set_notice(Notice::core(self.lang, "core.undo.error", &[&e.to_string()])),
         }
@@ -52,6 +53,7 @@ impl Session {
                 self.tree = doc.project();
                 self.notice = None;
                 self.revalidate_schema();
+                self.sync_schema_hint();
             }
             Err(e) => self.set_notice(Notice::core(self.lang, "core.redo.error", &[&e.to_string()])),
         }

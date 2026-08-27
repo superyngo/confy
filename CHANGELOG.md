@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Unreleased Update — 2026-08-27T01:00:00Z
+- fix(schema): `undo`/`redo` now also re-detect the in-document schema hint
+  (`Session::sync_schema_hint`), matching every other mutation path. They
+  previously bypassed `on_mutation_success` entirely and called only
+  `revalidate_schema()`, so undoing/redoing past an edit that changed the
+  `$schema`/modeline hint left the session on the stale schema until the
+  next unrelated edit forced a resync.
+
 ### Unreleased Update — 2026-08-27T00:00:00Z
 - feat(schema): in-document schema hints (`$schema` / YAML modeline / TOML
   `#:schema`) now reload live as the document is edited, instead of only at

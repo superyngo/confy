@@ -1758,7 +1758,7 @@ impl Session {
     /// is: a schema can be loaded without a matching in-document hint (the
     /// TUI's `--schema` CLI override), so "no hint" must never be read as
     /// "clear the schema".
-    fn sync_schema_hint(&mut self) {
+    pub(crate) fn sync_schema_hint(&mut self) {
         let Some(source) = self.detect_and_request_schema() else {
             return;
         };
