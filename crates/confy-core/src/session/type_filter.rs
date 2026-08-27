@@ -139,6 +139,13 @@ pub enum Cell {
     /// static per `classify()`, this is live validation state (`CONTEXT.md`
     /// § Schema).
     Warning,
+    /// Independent structural facet: whether the node is itself a standalone
+    /// comment, or carries a trailing comment — spans every format (TOML/
+    /// YAML/JSON/JSONC), not just the `strict_json` advisory case. Not a
+    /// `TypeToken`: `Cell::Token(TypeToken::Comment)` already selects
+    /// standalone comment *nodes*; this additionally matches a scalar/
+    /// container that merely trails one.
+    HasComment,
     /// Inverts the combined sign/type/warning match (§`TypeFilter::matches`); a no-op
     /// while nothing is selected (`TypeFilter::is_active` gates it).
     Reverse,
@@ -150,6 +157,7 @@ impl Cell {
             Cell::All(_) => "all",
             Cell::Reverse => "reverse",
             Cell::Warning => "(!) has warning",
+            Cell::HasComment => "has comment",
             Cell::Sign(s) => match s {
                 KeySign::Bare => "(B) bare",
                 KeySign::Quoted => "(Q) quoted",
@@ -160,6 +168,7 @@ impl Cell {
         }
     }
 }
+
 
 fn token_label(t: TypeToken) -> &'static str {
     use TypeToken::*;
@@ -218,7 +227,7 @@ pub fn layout(format: DocFormat) -> Vec<LayoutRow> {
             LayoutRow::Header("Reverse"),
             LayoutRow::Cells(vec![Reverse]),
             LayoutRow::Header("Flags"),
-            LayoutRow::Cells(vec![Warning]),
+            LayoutRow::Cells(vec![Warning, HasComment]),
             LayoutRow::Header("Key sign"),
             LayoutRow::Cells(vec![Sign(K::Quoted), Sign(K::None)]),
             LayoutRow::Header("Type"),
@@ -243,7 +252,7 @@ pub fn layout(format: DocFormat) -> Vec<LayoutRow> {
             LayoutRow::Header("Reverse"),
             LayoutRow::Cells(vec![Reverse]),
             LayoutRow::Header("Flags"),
-            LayoutRow::Cells(vec![Warning]),
+            LayoutRow::Cells(vec![Warning, HasComment]),
             LayoutRow::Header("Key sign"),
             LayoutRow::Cells(vec![Sign(K::Bare), Sign(K::Quoted)]),
             LayoutRow::Cells(vec![Sign(K::None)]),
@@ -283,7 +292,7 @@ pub fn layout(format: DocFormat) -> Vec<LayoutRow> {
             LayoutRow::Header("Reverse"),
             LayoutRow::Cells(vec![Reverse]),
             LayoutRow::Header("Flags"),
-            LayoutRow::Cells(vec![Warning]),
+            LayoutRow::Cells(vec![Warning, HasComment]),
             LayoutRow::Header("Key sign"),
             LayoutRow::Cells(vec![Sign(K::Bare), Sign(K::Quoted)]),
             LayoutRow::Cells(vec![Sign(K::Dotted), Sign(K::None)]),
@@ -346,11 +355,14 @@ pub struct TypeFilter {
     pub col: usize,
     pub reverse: bool,
     pub warning_only: bool,
+    /// The `HasComment` facet: true = only nodes that are a standalone
+    /// comment or carry a trailing comment. Mirrors `warning_only`'s wiring.
+    pub comment_only: bool,
 }
 
 impl TypeFilter {
     pub fn is_active(&self) -> bool {
-        !self.key_signs.is_empty() || !self.types.is_empty() || self.warning_only
+        !self.key_signs.is_empty() || !self.types.is_empty() || self.warning_only || self.comment_only
     }
 
     pub fn clear(&mut self) {
@@ -358,6 +370,7 @@ impl TypeFilter {
         self.types.clear();
         self.reverse = false;
         self.warning_only = false;
+        self.comment_only = false;
     }
 
     /// The sign/type check alone, ignoring `reverse` — i.e. whether this node
@@ -374,12 +387,14 @@ impl TypeFilter {
         doc: DocFormat,
         read_only: bool,
         has_warning: bool,
+        has_comment: bool,
     ) -> bool {
         let sign_ok = self.key_signs.is_empty() || self.key_signs.contains(&key_sign);
         let type_ok =
             self.types.is_empty() || self.types.contains(&classify(kind, format, doc, read_only));
         let warning_ok = !self.warning_only || has_warning;
-        sign_ok && type_ok && warning_ok
+        let comment_ok = !self.comment_only || has_comment;
+        sign_ok && type_ok && warning_ok && comment_ok
     }
 
     /// A node is a deliberate Reverse-exclusion target when it's a positive
@@ -394,10 +409,11 @@ impl TypeFilter {
         doc: DocFormat,
         read_only: bool,
         has_warning: bool,
+        has_comment: bool,
     ) -> bool {
         self.reverse
             && self.is_active()
-            && self.base_match(key_sign, kind, format, doc, read_only, has_warning)
+            && self.base_match(key_sign, kind, format, doc, read_only, has_warning, has_comment)
     }
 
     pub fn matches(
@@ -408,8 +424,9 @@ impl TypeFilter {
         doc: DocFormat,
         read_only: bool,
         has_warning: bool,
+        has_comment: bool,
     ) -> bool {
-        let base = self.base_match(key_sign, kind, format, doc, read_only, has_warning);
+        let base = self.base_match(key_sign, kind, format, doc, read_only, has_warning, has_comment);
         // A no-op while nothing is selected: `base` is unconditionally `true`
         // with an empty selection, so inverting it would blank the whole tree
         // the moment `reverse` is toggled on, before the user picked a facet.
@@ -477,6 +494,7 @@ impl TypeFilter {
             }
             Cell::Reverse => self.reverse = !self.reverse,
             Cell::Warning => self.warning_only = !self.warning_only,
+            Cell::HasComment => self.comment_only = !self.comment_only,
         }
     }
 
@@ -498,6 +516,7 @@ impl TypeFilter {
             Cell::All(g) => self.group_state(g),
             Cell::Reverse => bool_state(self.reverse),
             Cell::Warning => bool_state(self.warning_only),
+            Cell::HasComment => bool_state(self.comment_only),
         }
     }
 }
@@ -678,6 +697,7 @@ mod tests {
             Format::Hex,
             DocFormat::Toml,
             false,
+            false,
             false
         ));
     }
@@ -689,7 +709,7 @@ mod tests {
         f.types.insert(TypeToken::IntDec);
         f.key_signs.insert(KeySign::Bare);
         let int = NodeKind::Scalar(ScalarType::Integer);
-        let m = |ks, f2| f.matches(ks, &int, f2, DocFormat::Toml, false, false);
+        let m = |ks, f2| f.matches(ks, &int, f2, DocFormat::Toml, false, false, false);
         assert!(m(KeySign::Bare, Format::Hex));
         assert!(m(KeySign::Bare, Format::Decimal));
         assert!(!m(KeySign::Quoted, Format::Hex));
@@ -746,6 +766,7 @@ mod tests {
             DocFormat::Toml,
             false,
             false,
+            false,
         ));
     }
 
@@ -761,6 +782,7 @@ mod tests {
                 DocFormat::Toml,
                 false,
                 false,
+                false,
             )
         };
         let is_string = |f: &TypeFilter| {
@@ -769,6 +791,7 @@ mod tests {
                 &NodeKind::Scalar(ScalarType::String),
                 Format::BasicString,
                 DocFormat::Toml,
+                false,
                 false,
                 false,
             )
@@ -794,12 +817,14 @@ mod tests {
             DocFormat::Toml,
             false,
             true,
+            false,
         ));
         assert!(!f.matches(
             KeySign::Bare,
             &NodeKind::Scalar(ScalarType::Integer),
             Format::Plain,
             DocFormat::Toml,
+            false,
             false,
             false,
         ));
@@ -818,6 +843,7 @@ mod tests {
             DocFormat::Toml,
             false,
             true,
+            false,
         ));
         assert!(f.matches(
             KeySign::Bare,
@@ -826,6 +852,44 @@ mod tests {
             DocFormat::Toml,
             false,
             false,
+            false,
+        ));
+    }
+
+    #[test]
+    fn has_comment_facet_matches_comment_nodes_and_trailing_comment_carriers() {
+        let mut f = TypeFilter::default();
+        f.toggle(Cell::HasComment);
+        // A standalone comment node.
+        assert!(f.matches(
+            KeySign::None,
+            &NodeKind::Comment("# x".into()),
+            Format::Plain,
+            DocFormat::Toml,
+            false,
+            false,
+            true,
+        ));
+        // A scalar with no trailing comment.
+        assert!(!f.matches(
+            KeySign::Bare,
+            &NodeKind::Scalar(ScalarType::Integer),
+            Format::Plain,
+            DocFormat::Toml,
+            false,
+            false,
+            false,
+        ));
+        // A scalar that carries a trailing comment (`has_comment` computed by
+        // the caller from `trailing_comment.is_some()`).
+        assert!(f.matches(
+            KeySign::Bare,
+            &NodeKind::Scalar(ScalarType::Integer),
+            Format::Plain,
+            DocFormat::Toml,
+            false,
+            false,
+            true,
         ));
     }
 }

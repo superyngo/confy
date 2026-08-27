@@ -57,7 +57,8 @@ pub fn severity_of(key: &str) -> Severity {
         | "core.comment.invalid" | "core.fragment.invalid" | "core.remark.invalid"
         | "core.convert.root-only" | "core.kind-switch.unsupported" | "core.schema.violation"
         | "web.host.fxios-save-hint" | "tui.host.readonly-comment"
-        | "web.host.schema.load-error" | "tui.host.schema-load-error" => Severity::Warn,
+        | "web.host.schema.load-error" | "tui.host.schema-load-error"
+        | "web.host.json-comments-detected" | "tui.host.json-comments-detected" => Severity::Warn,
 
         "core.save.saved" | "core.kind-switch.converted" | "core.kind-switch.converted-generic"
         | "core.clipboard.cut" | "core.clipboard.copied" | "core.clipboard.cut-changed"

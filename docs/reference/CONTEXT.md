@@ -290,6 +290,16 @@ other event kinds, but is never shown as one. Exported via TUI
 (Debug/Info/Warn/Error) independent of **Severity**.
 _Avoid_: Log entry (no `log` crate in use), trace (no `tracing` crate).
 
+**Comment advisory**:
+A per-row, per-format decoration distinct from a schema **Violation**: `ViewRow.comment_advisory`
+is `Some(message)` when the row is a standalone comment or carries a trailing comment inside a
+document `Session.strict_json` flags as plain `.json` (not `.jsonc`) — non-standard JSON confy
+silently upgrades to JSONC rather than rejecting. `strict_json` is host-supplied: confy-core is
+extension-blind (`DocFormat::Json` covers both `.json`/`.jsonc`), so only the host knows the
+real file extension. Never blocks anything — same soft-indicator spirit as a schema Violation,
+but a document-format note, not a JSON Schema constraint.
+_Avoid_: Violation (schema-specific term with its own `keyword`/`pointer` shape), warning alone.
+
 ### Schema
 
 Validation runs on the `jsonschema` crate rather than a hand-rolled subset validator — ADR 0002.

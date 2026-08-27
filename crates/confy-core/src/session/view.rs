@@ -73,6 +73,15 @@ pub struct ViewRow {
     /// own expand state; the renderer decides whether to draw a marker based
     /// on whether the row is *currently* collapsed.
     pub has_descendant_violation: bool,
+    /// Advisory (never blocking) message when this row is a standalone
+    /// comment, or carries a trailing comment, inside a document
+    /// `Session.strict_json` flags as a plain `.json` (not `.jsonc`) file —
+    /// comments there are non-standard JSON, silently accepted by confy but
+    /// worth calling out. `None` in every other case (any comment in a
+    /// `.jsonc`/TOML/YAML document, or `strict_json == false`). Distinct
+    /// from `violations`: this is a document-format note, not a JSON Schema
+    /// constraint.
+    pub comment_advisory: Option<String>,
 }
 
 // ---- Stage-2 full-state transport (WASM / Web UI) ----

@@ -8,6 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ## [v0.22.1] - 2026-08-27
+### Unreleased Update — 2026-08-27T07:32:59Z
+- feat(core): added the **comment advisory** data layer — a host-supplied `Session.strict_json`
+  flag (true iff the open document's real extension is plain `.json`, not `.jsonc`; confy-core
+  is extension-blind, so only the host knows this) drives a new `ViewRow.comment_advisory:
+  Option<String>` field, `Some(message)` when the row is a standalone comment or carries a
+  trailing comment inside a `strict_json` document — non-standard JSON that confy silently
+  upgrades to JSONC rather than rejecting. Distinct from schema `Violation`: this is a
+  document-format note, not a JSON Schema constraint, and it's computed the same way
+  (`Session::to_view_row`'s single source of truth for both `visible_rows()` and
+  `view_row_at()`). Also added a general-purpose `has comment` Type Filter facet
+  (`Cell::HasComment`/`TypeFilter.comment_only`, mirroring the existing `Warning` facet's
+  wiring) — matches any node that is itself a standalone comment or carries a trailing
+  comment, across every format (not just the `strict_json` advisory case). New i18n keys
+  `core.comment.advisory`, `tui.host.json-comments-detected`, `web.host.json-comments-detected`
+  (the latter two for a one-shot host `SetHostNotice` toast at file-open time — hosts wire the
+  toast and `strict_json` themselves; the extension check is host-only knowledge).
+- test(core): added `has_comment_facet_matches_comment_nodes_and_trailing_comment_carriers`
+  to `session::type_filter::tests`; extended existing `TypeFilter::matches`/
+  `is_reverse_excluded` call sites with the new `has_comment` parameter.
+
 ### Unreleased Update — 2026-08-27T07:25:59Z
 - fix(schema): JSON `$schema`-hint detection (`schema::hints::detect_json`) and external
   schema-file compilation (`Session::apply_schema_text`) previously parsed with strict

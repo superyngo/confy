@@ -53,6 +53,14 @@ pub struct Session {
     /// Active UI language (§i18n Phase 1). Drives `tr`/`tr_args` lookups for
     /// notice text; default `En`.
     pub lang: Lang,
+    /// Host-supplied: true iff the open document's real file extension is
+    /// plain `.json` (not `.jsonc`) — confy-core itself is extension-blind
+    /// (`DocFormat::Json` covers both), so only the host knows this. Drives
+    /// the per-row `comment_advisory` decoration on `ViewRow`: a comment in
+    /// such a file is non-standard JSON silently upgraded to JSONC, worth an
+    /// advisory even though the edit itself is never blocked. Set once after
+    /// `Session::new`/`from_tree`; never toggled by mutations. Default `false`.
+    pub strict_json: bool,
 }
 
 /// Paste-mode slot navigation step: a relative move or a jump to either edge.
@@ -116,6 +124,7 @@ impl Session {
             pending_external_edit: None,
             prompt_from_commit_edit: None,
             lang: Lang::default(),
+            strict_json: false,
         }
     }
 
@@ -203,7 +212,19 @@ impl Session {
                     .schema
                     .as_ref()
                     .is_some_and(|s| s.warning_ancestors.contains(&node.path)),
+            comment_advisory: self.comment_advisory_for(node),
         }
+    }
+
+    /// `Some(message)` when `node` is a standalone comment or carries a
+    /// trailing comment, and `strict_json` flags the open document as a
+    /// plain `.json` (not `.jsonc`) file. See `ViewRow::comment_advisory`.
+    fn comment_advisory_for(&self, node: &Node) -> Option<String> {
+        if !self.strict_json {
+            return None;
+        }
+        let is_comment = matches!(node.kind, NodeKind::Comment(_)) || node.trailing_comment.is_some();
+        is_comment.then(|| tr_args(self.lang, "core.comment.advisory", &[]))
     }
 
     /// Whether `path` is currently visible: every ancestor prefix must be
@@ -845,6 +866,7 @@ impl Session {
             let h = haystack(&path_keys, leaf_value, comment_text);
             let text_ok = fuzzy_match(&h, needle);
             let has_warning = violating.contains(&n.path);
+            let has_comment = comment_text.is_some() || n.trailing_comment.is_some();
             let type_ok = type_filter.matches(
                 n.key_sign,
                 &n.kind,
@@ -852,6 +874,7 @@ impl Session {
                 doc,
                 n.read_only,
                 has_warning,
+                has_comment,
             );
             if text_ok && type_ok {
                 matching.insert(n.path.clone());
@@ -873,6 +896,7 @@ impl Session {
                 doc,
                 n.read_only,
                 has_warning,
+                has_comment,
             ) {
                 return;
             }
