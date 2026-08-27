@@ -235,10 +235,10 @@ function appHTML(): string {
     `<button class="tbtn" data-act="open" data-i18n-title="web.toolbar.open.title" title="Open file">${TIC.open}<span class="label-hide" data-i18n="web.toolbar.open.label">Open</span></button>` +
     `<button class="tbtn primary" data-act="save" data-i18n-title="web.toolbar.save.label" title="Save">${TIC.save}<span class="label-hide" data-i18n="web.toolbar.save.label">Save</span></button>` +
     '<div class="tgroup edit-grp">' +
-    `<button class="icon-btn" data-act="undo" data-i18n-title="web.toolbar.undo.title" title="Undo" data-foldable="true">${TIC.undo}</button>` +
-    `<button class="icon-btn" data-act="redo" data-i18n-title="web.toolbar.redo.title" title="Redo" data-foldable="true">${TIC.redo}</button>` +
     `<button class="icon-btn" data-act="theme" data-i18n-title="web.toolbar.theme.title" title="Toggle theme" data-foldable="true">${TIC.theme}</button>` +
     `<button class="icon-btn" data-act="lang" data-i18n-title="web.toolbar.lang.title" title="Language" data-foldable="true"><span class="lang-label"></span></button>` +
+    // Single toggle button (label = the view it switches TO); folds into ⋯.
+    `<button class="tbtn viewtoggle" data-act="toggleview" data-i18n-title="web.toolbar.viewToggle.title" title="Toggle Tree / Raw view" data-foldable="true">Raw</button>` +
     `<button class="icon-btn" data-act="info" data-i18n-title="web.toolbar.info.title" title="Help / About" data-foldable="true">${TIC.info}</button>` +
     "</div>" +
     `<button class="tbtn more-btn" data-act="menu" data-i18n-title="web.toolbar.more.title" title="More actions">${TIC.more}</button>` +
@@ -253,9 +253,9 @@ function appHTML(): string {
     `<button class="icon-btn" data-act="expandall" data-i18n-title="web.toolbar.expandAll.title" title="Expand all" data-foldable="true">${TIC.expand}</button>` +
     `<button class="icon-btn" data-act="collapseall" data-i18n-title="web.toolbar.collapseAll.title" title="Collapse all" data-foldable="true">${TIC.collapse}</button>` +
     "</div>" +
-    // Single toggle button (label = the view it switches TO); folds into ⋯.
-    '<div class="tgroup viewtabs">' +
-    '<button class="tbtn viewtoggle" data-act="toggleview" data-i18n-title="web.toolbar.viewToggle.title" title="Toggle Tree / Raw view" data-foldable="true">Raw</button>' +
+    '<div class="tgroup hist-grp">' +
+    `<button class="icon-btn" data-act="undo" data-i18n-title="web.toolbar.undo.title" title="Undo" data-foldable="true">${TIC.undo}</button>` +
+    `<button class="icon-btn" data-act="redo" data-i18n-title="web.toolbar.redo.title" title="Redo" data-foldable="true">${TIC.redo}</button>` +
     "</div>" +
     "</div>" +
     '<div class="body">' +

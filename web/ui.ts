@@ -212,6 +212,16 @@ async function main() {
   } else if (TAURI_DESKTOP) {
     document.body.classList.add("host-tauri-desktop");
   }
+  // The Tree/Raw toggle lives in the header's #editGroup by default (left of
+  // Info), but VS Code / Tauri desktop hide the whole header (native chrome
+  // replaces Open/Save/Undo/Redo/theme/lang/info there) — without this move
+  // the toggle would vanish for those two hosts too, losing the only UI path
+  // to the webview's Raw view (unlike Undo/Redo, VS Code/Tauri have no native
+  // equivalent for it). Reattach it as the last filter-row control, its
+  // pre-relocation spot, keeping those hosts' behavior unchanged.
+  if (VSHOST || TAURI_DESKTOP) {
+    document.querySelector(".filterbar")!.appendChild($("btnViewToggle"));
+  }
   applyStaticI18n();
   updateLangUI();
   // Not awaited: menu build is several async IPC round-trips; don't delay wasm load on it.
@@ -1668,7 +1678,7 @@ function openLangMenuNear(el: HTMLElement) {
 // "⋯ More" menu, in toolbar display order. `key` is the element id
 // `isToolbarFolded` checks; the ⋯ menu is derived from this list via
 // `foldedEntries` rather than a hand-maintained parallel array, so a button
-// added to `#editGroup`/`#navGroup`/`#viewTabs` (marked `data-foldable`) can't
+// added to `#editGroup`/`#navGroup`/`#histGroup`/`#viewTabs` (marked `data-foldable`) can't
 // silently disappear when its group folds without also getting a menu entry
 // (enforced by `web/toolbar-fold.spec.mjs`).
 const TOOLBAR_ENTRIES: ToolbarEntry[] = [

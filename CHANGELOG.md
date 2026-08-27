@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-08-27T00:21:19Z
+- refactor(web): moved the desktop/touch Tree/Raw toggle button from the filter row
+  (`#viewTabs`/`.viewtabs`) up into the toolbar header (`#editGroup`/`.edit-grp`), immediately
+  left of the Info button. Filter row 2 is now `search-bar · type-filter · expand/collapse ·
+  undo/redo`; header row 1 gains `… theme · lang · raw/tree · info`. The fold breakpoint moved
+  with it (desktop `#viewTabs{display:none}` → `#btnViewToggle{display:none}` at the same
+  ≤600px; touch `.viewtabs{display:none}` → `.edit-grp [data-act="toggleview"]{display:none}`
+  at the same ≤720px), so it still folds first, same as before. VS Code and Tauri desktop hide
+  the whole toolbar header (native chrome replaces Open/Save/Undo/Redo/theme/lang/info there)
+  and have no native substitute for the webview's Raw view, so `main()` (`web/ui.ts`)
+  reattaches `#btnViewToggle` to the end of the filter row for those two hosts at startup,
+  keeping it exactly where it was before this move (touch is never hosted by either, so it
+  needs no equivalent).
+
+### Unreleased Update — 2026-08-27T00:10:47Z
+- refactor(web): moved the desktop/touch Undo/Redo buttons from the toolbar header
+  (`#editGroup`/`.edit-grp`) into the filter row (new `#histGroup`/`.hist-grp`), positioned
+  immediately left of the Tree/Raw toggle — `search-bar · type-filter · expand/collapse ·
+  undo/redo · raw-tree`. Fold-priority breakpoints (`#btnUndo`/`#btnRedo` ID selectors on
+  desktop, `.hist-grp [data-act="undo"/"redo"]` on touch) are unchanged, so Undo/Redo still
+  fold away last, narrowest-first. Added `body.host-vscode #histGroup` /
+  `body.host-tauri-desktop #histGroup { display: none }` so the VS Code webview and Tauri
+  desktop app — both of which already provide Undo/Redo through their own native entry point
+  (VS Code's z/y, Tauri's native Edit menu) and previously never showed the toolbar-header
+  copy either — keep not showing a filter-row copy now that the buttons live in the
+  always-visible filter row. Plain browser desktop/touch and the Tauri app's touch UI now show
+  Undo/Redo in the filter row.
+
 ### Unreleased Update — 2026-08-26T15:18:02Z
 - docs: doc-drift audit covering the 2026-08-26 work above (per-button toolbar fold, touch
   Ctrl/Shift-tap multi-select, and the popup/`$EDITOR` trailing-comment fix) plus a re-check of

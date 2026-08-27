@@ -639,13 +639,13 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none
 /* ---- responsive chrome collapse (mirrors desktop's right→left fold) ----
    The .app is a `container-type:inline-size` container. The toolbar/filter rows
    stay single-line (nowrap); as the container narrows, the right-side buttons fold
-   into the ⋯ menu one at a time (viewtabs → collapse/expand → info/lang/theme/redo/undo).
-   The ⋯ button is hidden until the first fold step reveals it. */
+   into the ⋯ menu one at a time (toggleview → collapse/expand → info/lang/theme →
+   redo/undo). The ⋯ button is hidden until the first fold step reveals it. */
 .toolbar,.filterbar{flex-wrap:nowrap}
 .more-btn{display:none}
 @container (max-width:720px){
   .more-btn{display:inline-flex}
-  .viewtabs{display:none}
+  .edit-grp [data-act="toggleview"]{display:none}
 }
 @container (max-width:660px){
   .nav-grp [data-act="collapseall"]{display:none}
@@ -663,8 +663,8 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none
   .edit-grp [data-act="theme"]{display:none}
 }
 @container (max-width:560px){
-  .edit-grp [data-act="redo"]{display:none}
+  .hist-grp [data-act="redo"]{display:none}
 }
 @container (max-width:540px){
-  .edit-grp [data-act="undo"]{display:none}
+  .hist-grp [data-act="undo"]{display:none}
 }

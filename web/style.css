@@ -371,7 +371,7 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
 /* 窄：≤600px — step 1: 折疊 Tree/Raw 頁籤 */
 @media (max-width:600px){
   #btnMore{display:inline-flex}
-  #viewTabs{display:none}            /* step 1: Tree/Raw tabs */
+  #btnViewToggle{display:none}       /* step 1: Tree/Raw toggle */
 }
 /* 窄：≤520px..≤500px — step 2-3: 逐一折疊 Expand/Collapse（各一顆） */
 @media (max-width:520px){
@@ -729,6 +729,16 @@ body.host-vscode header.toolbar {
    (menu.ts) instead, with the format pill + dirty-dot replaced by the native
    window title (see ui.ts's setWindowTitle call). The filter row stays. */
 body.host-tauri-desktop header.toolbar {
+  display: none;
+}
+
+/* Undo/Redo now live in the filter row (#histGroup), which stays visible even
+   when the toolbar header above is hidden (VS Code / Tauri desktop, both
+   above). Those two hosts already provide Undo/Redo via their own native
+   entry point (VS Code's z/y, Tauri's native Edit menu) — keep the filter row
+   from duplicating them. */
+body.host-vscode #histGroup,
+body.host-tauri-desktop #histGroup {
   display: none;
 }
 
