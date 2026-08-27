@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [v0.22.1] - 2026-08-27
 ### Unreleased Update — 2026-08-27T05:00:00Z
 - fix(core): document-level conversion (`model/convert.rs`, `confy convert`/TUI `C`) now
   carries a detected schema hint (`schema::hints::detect_hint` — JSON `"$schema"` root key,
