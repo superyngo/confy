@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-08-27T01:12:18Z
+- docs: added `docs/reference/CHROME.md` as the single source of truth for the web/touch
+  header + filter-row chrome — button inventory (id/`data-act`, group, i18n key), the
+  responsive fold breakpoint ladder (desktop `@media` px vs touch `@container` px, side by
+  side), the per-host chrome-trimming matrix (web desktop/touch, VS Code webview, Tauri
+  desktop/mobile), and a checklist for adding/moving a toolbar button. Trimmed the duplicated
+  descriptions this consolidates out of `WEBUI.md` (desktop + touch responsive-toolbar
+  paragraphs), `VSCODE.md` (§Chrome trimming), and `TAURI.md` (§Chrome trimming (Desktop)) —
+  each now points to `CHROME.md` instead of restating it, fixing the stale claims those three
+  had already accumulated (`VSCODE.md`/`TAURI.md` still described the Raw/Tree toggle as
+  defaulting to the filter row, no longer true since it moved into the header). Registered
+  `CHROME.md` in `docs/reference/README.md`'s index and added `toolbar-fold.ts`/`CHROME.md`
+  pointers to `CLAUDE.md`'s module map.
+
+### Unreleased Update — 2026-08-27T00:59:53Z
+- docs: moved 9 root-level developer-reference docs (`BEHAVIOR_MATRIX.md`, `CONTEXT.md`,
+  `MESSAGES.md`, `PORTING.md`, `ROW_STATE_MODEL.md`, `TAURI.md`, `TUI.md`, `VSCODE.md`,
+  `WEBUI.md`) into a new `docs/reference/` directory, keeping `CLAUDE.md`, `README.md`,
+  `CHANGELOG.md`, and `RELEASES.md` at the repo root. Added `docs/reference/README.md` as an
+  entry-point index. Updated the only real path-based Markdown links (`README.md`,
+  `RELEASES.md`) to the new paths; left the many bare-filename prose mentions elsewhere
+  (source doc-comments, ADRs, `docs/superpowers/`) unchanged since they remain unique and
+  greppable.
+
 ### Unreleased Update — 2026-08-27T00:21:19Z
 - refactor(web): moved the desktop/touch Tree/Raw toggle button from the filter row
   (`#viewTabs`/`.viewtabs`) up into the toolbar header (`#editGroup`/`.edit-grp`), immediately

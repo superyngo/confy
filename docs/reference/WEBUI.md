@@ -277,29 +277,13 @@ shapes round-trip). Key types:
 - **Theme.** A dark/light toggle (titlebar `☾`/`☀`) flips `:root[data-theme]`; CSS
   variables carry both palettes and the choice persists in `localStorage`.
 - **Responsive toolbar.** The toolbar holds a single right-side action button (**Save**,
-  opening the Save / Convert panel — the separate Convert button is gone). Undo/Redo
-  (`#histGroup`) live in the filter row, at its right edge; the Tree/Raw toggle
-  (`#btnViewToggle`) lives in the toolbar header's `#editGroup`, immediately left of Info —
-  not the filter row — so it stays visible on every width that fits the full header, and
-  (via `body.host-vscode #histGroup` / `body.host-tauri-desktop #histGroup`) Undo/Redo stay
-  hidden in the VS Code and Tauri desktop hosts, which already provide Undo/Redo through
-  their own native entry point (VS Code's z/y, Tauri's Edit menu) — see "VS Code
-  Integration" / "Tauri Desktop" below. Those same two hosts hide the whole header (their
-  native chrome replaces Open/Save/theme/lang/info), which would otherwise take the Tree/Raw
-  toggle down with it — neither host has a native substitute for it, so `main()` (`web/ui.ts`)
-  reattaches `#btnViewToggle` to the end of the filter row for `VSHOST`/`TAURI_DESKTOP`,
-  keeping it visible there exactly as before this button moved into the header. As the window
-  narrows (for the default, non-VS-Code/non-Tauri-desktop layout), secondary controls fold
-  into a `⋯ More` popup **one button at a time**, right→left in priority order, via staged
-  media queries: the Tree/Raw toggle (`#btnViewToggle`) folds first at ≤600px
-  (revealing `#btnMore`), then individually — Collapse all ≤520px, Expand all ≤500px, Help/About
-  ≤480px, Language ≤460px, Theme ≤440px, Redo ≤420px, Undo ≤400px — rather than a whole
-  Expand/Collapse or Undo/Redo/Theme group disappearing at once (`web/toolbar-fold.ts`'s
-  `foldedEntries`/`isFolded` already looked up per-button by element id, so this was a pure
-  CSS change). The More popup lists the folded secondary actions but **not** Save / Convert (that
-  lives only on the always-visible Save button, so it is never duplicated). The search box has
-  `min-width:96px` (well below its content size) so it yields space to those buttons before they
-  collapse.
+  opening the Save / Convert panel — the separate Convert button is gone). The full button
+  inventory, row/group layout, per-button fold breakpoint ladder, and VS Code/Tauri desktop
+  trimming rules are documented once in **`CHROME.md`** (shared with the touch UI) — not
+  restated here. The More popup lists the folded secondary actions but **not** Save / Convert
+  (that lives only on the always-visible Save button, so it is never duplicated). The search
+  box has `min-width:96px` (well below its content size) so it yields space to those buttons
+  before they collapse.
   **Rows stay single-line at every width:** they never wrap or hide cells — long key/value/
   comment compress with an ellipsis (`min-width:0` lets `text-overflow:ellipsis` fire inside
   the flex row). The **value compresses first**; the **key keeps its full width**
@@ -397,18 +381,13 @@ edits to the verbatim desktop CSS.
   panes: it sets a `--detail-w` flex-basis on `.app` (clamped ~240–520 px) persisted to
   `localStorage` (`confy-detail-w`); hidden `<600px` and in Raw view.
 - **Responsive chrome collapse + dynamic menu.** The `.app` is a `container-type:inline-size`
-  container; toolbar/filter buttons stay single-line (`nowrap`) and **fold into the `⋯` menu
-  right→left, one button at a time** via `@container` breakpoints — toggleview ≤720px → Collapse
-  all ≤660px → Expand all ≤640px → Help/About ≤620px → Language ≤600px → Theme ≤580px → Redo
-  ≤560px → Undo ≤540px (mirroring desktop's per-button fold, superseding the earlier per-group
-  `.nav-grp`/`.edit-grp` collapse); the `⋯` button is hidden until the first fold. Undo/Redo
-  (`.hist-grp`) live in the filter row, at its right edge; the Tree/Raw toggle
-  (`[data-act="toggleview"]`) lives in the header's `.edit-grp`, immediately left of Info —
-  mirroring desktop's `#btnViewToggle` placement in `#editGroup` (touch is never hosted by VS
-  Code/Tauri desktop, so it needs no equivalent host-specific relocation). The **menu
-  sheet is built dynamically** (`MENU_CANDIDATES` + `isFolded` = `offsetParent === null`) from
-  whichever controls are currently folded — not a hardcoded list — so it always mirrors the
-  breakpoints. Open/Save stay visible (never in the menu).
+  container; toolbar/filter buttons stay single-line (`nowrap`) and fold into the `⋯` menu
+  right→left, one at a time, via `@container` breakpoints. The full button inventory,
+  row/group layout, and fold breakpoint ladder (shared with desktop) live in **`CHROME.md`**
+  — not restated here. The **menu sheet is built dynamically**
+  (`MENU_CANDIDATES` + `isFolded` = `offsetParent === null`) from whichever controls are
+  currently folded — not a hardcoded list — so it always mirrors the breakpoints. Open/Save
+  stay visible (never in the menu).
 - **Type filter & Save/Convert use the shared modules** (`web/typefilter.ts` / `web/convert-dialog.ts`),
   the same code + markup desktop uses: the type-filter grid renders into the filter sheet via
   `typeFilterHTML`+`wireTypeFilter` (no "Done" button — the grid toggles live + has a `Clear`

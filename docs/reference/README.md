@@ -10,6 +10,9 @@ repo root; everything below lives here.
   across TOML/JSON/YAML backends.
 - **[TUI.md](TUI.md)** — ratatui TUI-specific mechanics.
 - **[WEBUI.md](WEBUI.md)** — Web UI & WASM FFI contract, web-native architecture.
+- **[CHROME.md](CHROME.md)** — header/toolbar chrome single source of truth: button
+  inventory, responsive fold order, and per-host (VS Code/Tauri desktop) trimming rules,
+  shared by desktop and touch.
 - **[TAURI.md](TAURI.md)** — desktop + mobile app shell (`confy-tauri`).
 - **[VSCODE.md](VSCODE.md)** — VS Code extension host (`editors/vscode`).
 - **[MESSAGES.md](MESSAGES.md)** — Notice/diagnostics message system, unified

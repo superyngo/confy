@@ -21,13 +21,16 @@ title's "…" More Actions menu (see Chrome trimming below).
 
 ## Chrome trimming
 
-`document.body.classList.add("host-vscode")` on boot; `style.css` hides the entire
-`header.toolbar` under `body.host-vscode` (M1.6 — previously just `#btnOpen`/`#btnSaveAs`/
-`#btnTheme`) — the document is tab-bound (VS Code owns Open), destination picks are native
-save dialogs, the theme defaults to following VS Code's own theme (overridable via the "…"
-menu's Theme submenu — see below), and undo/redo/save get no replacement UI (keyboard z / y /
-⌘S already forward to the workbench via `request-undo`/`request-redo`/`request-save`). The
-filter row below the header (search/type-filter/expand/Raw) stays.
+`document.body.classList.add("host-vscode")` on boot. The full header/filter-row trimming
+and relocation rules for this host (which controls hide, which relocate, and the exact
+CSS/JS mechanism for each) are documented once, alongside every other host, in
+**`CHROME.md`** — not restated here. In short: the whole `header.toolbar` is hidden (the
+document is tab-bound — VS Code owns Open — destination picks are native save dialogs, the
+theme defaults to following VS Code's own theme, overridable via the "…" menu's Theme
+submenu below), Undo/Redo get no replacement UI (keyboard z / y / ⌘S already forward to the
+workbench via `request-undo`/`request-redo`/`request-save`), and the filter row
+(search/type-filter/Expand-Collapse, plus the Raw/Tree toggle relocated in from the header)
+stays.
 
 Save As / Convert, Help, About, language, and theme — with no toolbar button left to click —
 move to the editor title's **"…" More Actions** menu: three commands (`confy.saveAsConvert`,

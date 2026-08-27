@@ -82,11 +82,13 @@ file, Open, Save As), and `openTauriPath(path)` (new `fs.ts` export, `read_file_
 ## Chrome trimming (Desktop)
 
 `document.body.classList.add("host-tauri-desktop")` (`ui.ts`'s `main()`, guarded by the
-module-level `TAURI_DESKTOP = isTauri() && !isTauriMobile()` flag) — `style.css` hides the
-whole `header.toolbar` under `body.host-tauri-desktop`, the same trim VS Code's `host-vscode`
-class applies (VSCODE.md §Chrome trimming): Open/Save/Save-As/Convert, Undo/Redo, theme,
-language, and Help/About all live in the native menu bar above instead. The filter row
-(search/type-filter/Expand-Collapse/Raw toggle) stays, since it isn't part of `header.toolbar`.
+module-level `TAURI_DESKTOP = isTauri() && !isTauriMobile()` flag). The full header/
+filter-row trimming and relocation rules for this host are documented once, alongside
+every other host, in **`CHROME.md`** — not restated here. In short: the whole
+`header.toolbar` is hidden, the same trim VS Code's `host-vscode` class applies
+(`CHROME.md`): Open/Save/Save-As/Convert/Undo/Redo/theme/language/Help-About all live in
+the native menu bar above instead. The filter row (search/type-filter/Expand-Collapse,
+plus the Raw/Tree toggle relocated in from the header) stays.
 
 The header also carried two pure status displays with no menu equivalent — the format pill and
 the dirty-dot — so those move to the native OS window title instead: `menu.ts`'s

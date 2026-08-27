@@ -350,8 +350,12 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
                  view toggle (`session.serialize()`), keyboard→Intent map (mirrors tui/keys.rs),
                  theme toggle, FS open/save, `#url-modal` Open-from-URL, external-edit modal,
                  paste-mode cursor target
+  toolbar-fold.ts shared header/filter-row "⋯ More" fold registry (`foldedEntries`/
+                 `ToolbarEntry`), used identically by `ui.ts` and `touch/app.ts` — button
+                 inventory, fold breakpoints, and per-host trimming are in **CHROME.md**
   index.html / style.css (design `<style>` **verbatim** + a fenced app-only appendix; dark+light
-                 via :root[data-theme]) / build.mjs (esbuild) / serve.mjs / cf-build.sh
+                 via :root[data-theme]; header/filter-row button layout — see CHROME.md) /
+                 build.mjs (esbuild) / serve.mjs / cf-build.sh
                  (Cloudflare Workers Builds build command → runtime-only web/dist; deployed with
                  root `wrangler.toml` to confy.turkeyang.net — see WEBUI.md §Deployment)
 

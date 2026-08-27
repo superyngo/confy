@@ -65,8 +65,12 @@ touch layout for coarse-pointer devices.
 **Live demo: <https://confy.turkeyang.net/>**
 
 Build/run locally: `cd web && npm install && node build.mjs` then `node serve.mjs`
-(see [WEBUI.md](WEBUI.md)). The hosted site is deployed from `web/` via Cloudflare
+(see [WEBUI.md](docs/reference/WEBUI.md)). The hosted site is deployed from `web/` via Cloudflare
 Workers Builds (`web/cf-build.sh` + `wrangler.toml`).
+
+Developer/reference documentation (architecture, per-host mechanics, message
+system, row-state model, porting notes) lives in
+[`docs/reference/`](docs/reference/README.md).
 
 ## Desktop app
 
@@ -106,7 +110,7 @@ retain a complete breadcrumb chain.
   [wenanlin.confy-vscode](https://marketplace.visualstudio.com/items?itemName=wenanlin.confy-vscode).
 - VSCodium / Cursor / Windsurf etc.: [Open VSX listing](https://open-vsx.org/extension/wenanlin/confy-vscode).
 
-See [VSCODE.md](VSCODE.md) and [editors/vscode/README.md](editors/vscode/README.md) for details.
+See [VSCODE.md](docs/reference/VSCODE.md) and [editors/vscode/README.md](editors/vscode/README.md) for details.
 Maintainer quick check: `cd editors/vscode && npm run integration-test`.
 
 ## Format support
