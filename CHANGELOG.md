@@ -14,6 +14,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `$schema`/modeline hint left the session on the stale schema until the
   next unrelated edit forced a resync.
 
+### Unreleased Update — 2026-08-27T03:00:00Z
+- fix(schema)!: `Session::sync_schema_hint` now clears the loaded schema
+  when the in-document hint disappears (deleted, or edited into plain
+  text), instead of leaving a now-stale schema in place. The prior
+  "leave untouched" behavior (2026-08-27T00:00:00Z entry above) was
+  guarding a case that turned out not to exist: the TUI's `--schema`
+  CLI flag, the only way to load a schema without a matching in-document
+  hint, is removed in this change (`crates/confy-tui/src/cli.rs`,
+  `tui/mod.rs`) — every host now loads a schema *because* of a detected
+  hint, so "no hint" can unconditionally mean "no schema".
+
 ### Unreleased Update — 2026-08-27T00:00:00Z
 - feat(schema): in-document schema hints (`$schema` / YAML modeline / TOML
   `#:schema`) now reload live as the document is edited, instead of only at
@@ -21,10 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   committed mutation and dedups against the currently loaded schema itself
   (`Session::sync_schema_hint`) — same source + prior success is a no-op,
   same source + prior failure retries, a changed source requests a fresh
-  fetch. No hint detected leaves an already-loaded schema untouched (a
-  schema loaded via an explicit override, e.g. the TUI's `--schema` flag,
-  is never cleared just because the document has no hint). This replaces
-  the VS Code extension's host-only `schemaDedup.ts`/`needsSchemaReload`
+  fetch. No hint detected leaves an already-loaded schema untouched. This
+  replaces the VS Code extension's host-only `schemaDedup.ts`/`needsSchemaReload`
   (ADR 0007) — `SchemaSessionManager.syncSchema` now just resolves whatever
   `schema_fetch_request` the snapshot already carries — and adds the same
   live-reload wiring to the TUI's event loop; the webview/Tauri/browser

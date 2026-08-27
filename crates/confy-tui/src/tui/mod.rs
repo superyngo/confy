@@ -28,7 +28,6 @@ pub fn run(
     path: &Path,
     format: crate::model::document::DocFormat,
     lang: confy_core::session::Lang,
-    schema_override: Option<String>,
 ) -> Result<()> {
     let doc = crate::load_document(path, format)?;
     let mut app = app::App::new(doc);
@@ -36,16 +35,7 @@ pub fn run(
     app.source_path = Some(path.to_path_buf());
 
     let open_file_dir = path.parent().unwrap_or_else(|| std::path::Path::new("."));
-    let source = schema_override
-        .map(|s| {
-            if s.starts_with("http://") || s.starts_with("https://") {
-                confy_core::schema::SchemaSource::Url(s)
-            } else {
-                confy_core::schema::SchemaSource::Local(s)
-            }
-        })
-        .or_else(|| app.session.detect_and_request_schema());
-    if let Some(source) = source {
+    if let Some(source) = app.session.detect_and_request_schema() {
         let text = crate::tui::schema_io::resolve_schema_source(&source, open_file_dir);
         let load_error = text.clone().err();
         app.session.apply_schema_text(source, text);

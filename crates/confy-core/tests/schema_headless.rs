@@ -708,7 +708,7 @@ fn schema_enum_commit_preserves_the_existing_trailing_comment() {
 
 #[test]
 fn dispatch_nudge_clamps_to_schema_maximum() {
-    let mut s = session_from("port = 65534\n", DocFormat::Toml);
+    let mut s = session_from("#:schema ./s.json\nport = 65534\n", DocFormat::Toml);
     let schema_text = json!({
         "type": "object",
         "properties": { "port": { "type": "integer", "minimum": 1, "maximum": 65535 } }
@@ -753,7 +753,7 @@ fn commit_edit_bypasses_schema_enum_diversion_and_writes_the_value() {
 #[test]
 fn add_node_resolving_enum_hint_is_cancellable_via_escape() {
     use confy_core::session::state::Mode;
-    let mut s = session_from("port = 1\n", DocFormat::Toml);
+    let mut s = session_from("#:schema ./s.json\nport = 1\n", DocFormat::Toml);
     let schema_text = json!({
         "type": "object",
         "properties": { "new_field": { "enum": ["a", "b"] } }
@@ -884,11 +884,12 @@ fn mutation_retries_a_previously_failed_load_for_the_same_hint() {
 }
 
 #[test]
-fn mutation_keeps_schema_loaded_when_hint_disappears() {
-    // A schema can be loaded without a matching in-document hint (e.g. the
-    // TUI's `--schema` CLI override) — "no hint detected" must never be
-    // read as "clear the schema", or an override-loaded schema would vanish
-    // on the very next edit.
+fn mutation_clears_schema_when_hint_disappears() {
+    // Every host loads a schema *because* a hint was detected — there is no
+    // longer any way to load one without a matching hint (the TUI's
+    // `--schema` CLI override, the last such path, was removed). A hint
+    // that disappears (deleted, or edited into plain text) must therefore
+    // drop the now-stale schema along with it.
     let mut s = session_from("#:schema ./s.json\nport = 1\n", DocFormat::Toml);
     s.dispatch(Intent::SchemaLoaded {
         source: SchemaSource::Local("./s.json".into()),
@@ -900,8 +901,8 @@ fn mutation_keeps_schema_loaded_when_hint_disappears() {
         text: "port = 1\n".into(),
     });
     assert!(
-        s.schema.is_some(),
-        "hint disappearing leaves a previously loaded schema in place"
+        s.schema.is_none(),
+        "hint disappearing must clear the now-stale schema"
     );
 }
 
@@ -1054,7 +1055,7 @@ fn session_schema_info_surfaces_type_and_description_alongside_edit_hint() {
 
 #[test]
 fn committing_a_schema_violating_value_sets_an_advisory_status_with_suggested_values() {
-    let mut s = session_from("level = \"debug\"\n", DocFormat::Toml);
+    let mut s = session_from("#:schema ./s.json\nlevel = \"debug\"\n", DocFormat::Toml);
     let schema_text = json!({
         "type": "object",
         "properties": { "level": { "enum": ["debug", "info"] } }
@@ -1076,7 +1077,7 @@ fn committing_a_schema_violating_value_sets_an_advisory_status_with_suggested_va
 
 #[test]
 fn committing_a_schema_compliant_value_leaves_notice_untouched() {
-    let mut s = session_from("level = \"debug\"\n", DocFormat::Toml);
+    let mut s = session_from("#:schema ./s.json\nlevel = \"debug\"\n", DocFormat::Toml);
     let schema_text = json!({
         "type": "object",
         "properties": { "level": { "enum": ["debug", "info"] } }
@@ -1108,7 +1109,7 @@ fn sentinel_violation() -> confy_core::schema::Violation {
 
 #[test]
 fn dirty_check_skips_revalidate_for_an_unconstrained_path_on_a_fully_analyzable_schema() {
-    let mut s = session_from("level = 5\nname = \"x\"\n", DocFormat::Toml);
+    let mut s = session_from("#:schema ./s.json\nlevel = 5\nname = \"x\"\n", DocFormat::Toml);
     let schema_text = json!({
         "type": "object",
         "properties": { "level": { "type": "string" } }
@@ -1140,7 +1141,7 @@ fn dirty_check_skips_revalidate_for_an_unconstrained_path_on_a_fully_analyzable_
 
 #[test]
 fn dirty_check_always_revalidates_when_the_schema_is_not_fully_analyzable() {
-    let mut s = session_from("level = 5\nname = \"x\"\n", DocFormat::Toml);
+    let mut s = session_from("#:schema ./s.json\nlevel = 5\nname = \"x\"\n", DocFormat::Toml);
     // `allOf` disqualifies the whole document from the dirty-check's simple
     // properties/items model — the conservative fallback must always engage.
     let schema_text = json!({
@@ -1171,7 +1172,7 @@ fn dirty_check_always_revalidates_when_the_schema_is_not_fully_analyzable() {
 
 #[test]
 fn dirty_check_revalidates_and_surfaces_a_new_violation_for_a_constrained_path() {
-    let mut s = session_from("port = 8080\n", DocFormat::Toml);
+    let mut s = session_from("#:schema ./s.json\nport = 8080\n", DocFormat::Toml);
     let schema_text = json!({
         "type": "object",
         "properties": { "port": { "type": "integer", "maximum": 65535 } }

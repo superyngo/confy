@@ -26,9 +26,6 @@ struct Args {
     /// file but does not write it. Falls back to the config file, then `en`.
     #[arg(long, global = true)]
     lang: Option<String>,
-    /// Path or URL to a JSON Schema, overriding in-file hint detection.
-    #[arg(long)]
-    schema: Option<String>,
 }
 
 /// Resolve the active UI language: `--lang` > config file `lang` > default.
@@ -247,14 +244,14 @@ pub fn run() -> Result<()> {
             if let Some(s) = file.to_str() {
                 if is_url(s) {
                     let (path, fmt) = open_url(s, args.format.as_deref(), lang)?;
-                    return crate::tui::run(&path, fmt, lang, args.schema);
+                    return crate::tui::run(&path, fmt, lang);
                 }
             }
             let fmt = resolve_format(args.format.as_deref(), &file, lang)?;
             if !file.exists() {
                 create_missing_file(&file, fmt, lang)?;
             }
-            crate::tui::run(&file, fmt, lang, args.schema)
+            crate::tui::run(&file, fmt, lang)
         }
     }
 }

@@ -1754,21 +1754,24 @@ impl Session {
     /// not just the one host that happened to re-run `DetectSchema` on every
     /// reparse. Same source + prior success → no-op (skip a redundant
     /// fetch); same source + prior failure → retry; different source →
-    /// request a fetch. No hint detected → leave `self.schema` exactly as
-    /// is: a schema can be loaded without a matching in-document hint (the
-    /// TUI's `--schema` CLI override), so "no hint" must never be read as
-    /// "clear the schema".
+    /// request a fetch. No hint detected → clear `self.schema`: every host
+    /// loads a schema *because* of a detected hint, so a hint that has
+    /// disappeared (deleted, or edited into plain text) must drop the
+    /// schema along with it.
     pub(crate) fn sync_schema_hint(&mut self) {
-        let Some(source) = self.detect_and_request_schema() else {
-            return;
-        };
-        match &self.schema {
-            Some(state) if state.source == source => {
-                if state.load_error.is_some() {
-                    self.pending_schema_fetch = Some(source);
+        match self.detect_and_request_schema() {
+            Some(source) => match &self.schema {
+                Some(state) if state.source == source => {
+                    if state.load_error.is_some() {
+                        self.pending_schema_fetch = Some(source);
+                    }
                 }
+                _ => self.pending_schema_fetch = Some(source),
+            },
+            None => {
+                self.schema = None;
+                self.pending_schema_fetch = None;
             }
-            _ => self.pending_schema_fetch = Some(source),
         }
     }
 
