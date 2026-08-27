@@ -1393,6 +1393,17 @@ fn dispatch_set_convert_path_then_run_writes() {
     assert!(text.contains("\"a\""), "json output:\n{text}");
 }
 
+#[test]
+fn dispatch_convert_run_carries_toml_schema_hint_to_json() {
+    let mut s = toml_session("#:schema ./s.json\na = 1\n");
+    s.dispatch(Intent::SetCursor(vec![]));
+    s.dispatch(Intent::OpenConvert);
+    s.dispatch(Intent::SetConvertFormat(DocFormat::Json));
+    let snap = s.dispatch(Intent::ConvertRun);
+    let (_, text) = snap.convert_write.expect("convert produced a write, no warnings expected");
+    assert!(text.contains("\"$schema\": \"./s.json\""), "json output:\n{text}");
+}
+
 // ── comment append-sibling: enter inline editor + Esc-cancel (separate node) ──
 
 #[test]

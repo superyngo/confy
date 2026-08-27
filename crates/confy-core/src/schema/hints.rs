@@ -51,10 +51,8 @@ fn detect_yaml(text: &str) -> Option<SchemaSource> {
             continue;
         }
         if let Some(rest) = trimmed.strip_prefix('#') {
-            if let Some(eq) = rest.trim_start().strip_prefix("yaml-language-server:") {
-                if let Some(schema) = eq.trim_start().strip_prefix("$schema=") {
-                    return to_source(schema.trim());
-                }
+            if let Some(schema) = yaml_modeline_value(rest) {
+                return to_source(schema.trim());
             }
             continue; // some other leading comment — keep scanning
         }
@@ -63,11 +61,33 @@ fn detect_yaml(text: &str) -> Option<SchemaSource> {
     None
 }
 
+/// The `$schema` path/URL from a YAML modeline's text *after* the `#`
+/// marker (leading/internal whitespace tolerated), or `None` if
+/// `after_hash` isn't a `yaml-language-server: $schema=...` line. Shared
+/// by `detect_yaml` (raw source, `#` stripped per line) and
+/// `model::convert`'s hint strip/inject (already comment-marker-stripped
+/// `Item::Comment` text) so both recognize exactly the same line.
+pub(crate) fn yaml_modeline_value(after_hash: &str) -> Option<&str> {
+    after_hash
+        .trim_start()
+        .strip_prefix("yaml-language-server:")?
+        .trim_start()
+        .strip_prefix("$schema=")
+}
+
 fn detect_toml(text: &str) -> Option<SchemaSource> {
     let first_line = text.lines().next()?;
-    let rest = first_line.strip_prefix("#:schema")?;
+    let rest = first_line.strip_prefix('#')?;
+    to_source(toml_hint_value(rest)?)
+}
+
+/// The `:schema` path/URL from a TOML first-line hint's text *after* the
+/// `#` marker, or `None` if `after_hash` isn't a `:schema <path>` line.
+/// Shared the same way as `yaml_modeline_value`.
+pub(crate) fn toml_hint_value(after_hash: &str) -> Option<&str> {
+    let rest = after_hash.strip_prefix(":schema")?;
     if !rest.is_empty() && !rest.starts_with(char::is_whitespace) {
         return None;
     }
-    to_source(rest)
+    Some(rest)
 }

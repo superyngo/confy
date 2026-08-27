@@ -18,6 +18,7 @@ use crate::model::any_doc::AnyDocument;
 use crate::model::document::{ConfigDocument, ConvertAbort, DocFormat};
 use crate::model::node::{Format, Node, NodeKind, NodeTree, ScalarType, Seg};
 use crate::model::value::{Item, Value};
+use crate::schema::{hints, SchemaSource};
 
 /// The result of a successful conversion: the rendered output text plus the
 /// up-front list of (deduplicated) lossy-normalization warnings.
@@ -32,8 +33,15 @@ pub struct ConvertResult {
 /// cannot represent (`null` → TOML, YAML opaque nodes) or the rendered output
 /// fails to re-parse. The source document is untouched.
 pub fn convert(doc: &AnyDocument, target: DocFormat) -> Result<ConvertResult, ConvertAbort> {
-    let (value, mut warnings) = doc.to_value()?;
+    let hint = hints::detect_hint(&doc.serialize(), doc.format());
+    let (mut value, mut warnings) = doc.to_value()?;
+    if hint.is_some() {
+        strip_hint_item(&mut value, doc.format());
+    }
     analyze(&value, target, &mut warnings)?;
+    if let Some(src) = &hint {
+        inject_hint(&mut value, target, hint_raw(src), &mut warnings);
+    }
 
     let text = match target {
         DocFormat::Toml => render_toml(&value)?,
@@ -46,6 +54,113 @@ pub fn convert(doc: &AnyDocument, target: DocFormat) -> Result<ConvertResult, Co
     warnings.sort();
     warnings.dedup();
     Ok(ConvertResult { text, warnings })
+}
+
+fn hint_raw(source: &SchemaSource) -> &str {
+    match source {
+        SchemaSource::Local(s) | SchemaSource::Url(s) => s,
+    }
+}
+
+fn strip_hint_item(value: &mut Value, src_format: DocFormat) {
+    match src_format {
+        DocFormat::Json => {
+            if let Value::Map(items) = value {
+                if let Some(idx) = items.iter().position(|it| {
+                    matches!(it, Item::Node { key: Some(k), .. } if k == "$schema")
+                }) {
+                    items.remove(idx);
+                }
+            }
+        }
+        DocFormat::Yaml => {
+            strip_leading_comment_line(value, |line| hints::yaml_modeline_value(line).is_some())
+        }
+        DocFormat::Toml => {
+            strip_first_line_comment(value, |line| hints::toml_hint_value(line).is_some())
+        }
+    }
+}
+
+/// YAML: the modeline may be any physical line within the leading run of
+/// standalone comments (mirrors `hints::detect_yaml`'s scan). Removes just
+/// that line, splitting its parent merged comment block when it shares one
+/// with unrelated text (consecutive `#` lines with no blank line between
+/// them merge into one `Item::Comment`); drops the whole `Item` only if the
+/// block becomes empty. Stops at the first non-`Comment` item, matching
+/// `detect_yaml`'s "first non-comment, non-blank line ends the run".
+fn strip_leading_comment_line(value: &mut Value, is_hint_line: impl Fn(&str) -> bool) {
+    let items = match value {
+        Value::Map(items) | Value::Seq(items) => items,
+        _ => return,
+    };
+    for item in items.iter_mut() {
+        let Item::Comment(text) = item else { break };
+        if let Some(pos) = text.lines().position(|l| is_hint_line(l)) {
+            remove_line(text, pos);
+            break;
+        }
+    }
+    items.retain(|it| !matches!(it, Item::Comment(t) if t.is_empty()));
+}
+
+/// TOML: the hint must be the file's literal first line (mirrors
+/// `hints::detect_toml`), so only the root's first item's first line is
+/// ever a candidate — no scan needed.
+fn strip_first_line_comment(value: &mut Value, is_hint_line: impl Fn(&str) -> bool) {
+    let items = match value {
+        Value::Map(items) => items,
+        _ => return,
+    };
+    if let Some(Item::Comment(text)) = items.first_mut() {
+        if text.lines().next().is_some_and(&is_hint_line) {
+            remove_line(text, 0);
+        }
+    }
+    items.retain(|it| !matches!(it, Item::Comment(t) if t.is_empty()));
+}
+
+/// Remove physical line `idx` from a (possibly multi-line, `\n`-joined)
+/// comment block's text in place.
+fn remove_line(text: &mut String, idx: usize) {
+    *text = text
+        .lines()
+        .enumerate()
+        .filter(|(i, _)| *i != idx)
+        .map(|(_, l)| l)
+        .collect::<Vec<_>>()
+        .join("\n");
+}
+
+fn inject_hint(value: &mut Value, target: DocFormat, raw: &str, warnings: &mut Vec<String>) {
+    match target {
+        DocFormat::Json => match value {
+            Value::Map(items) => items.insert(
+                0,
+                Item::Node {
+                    key: Some("$schema".into()),
+                    value: Value::Str(raw.to_string()),
+                    trailing: None,
+                },
+            ),
+            _ => warnings.push(
+                "schema hint dropped: JSON $schema requires an object root".into(),
+            ),
+        },
+        DocFormat::Yaml => match value {
+            Value::Map(items) | Value::Seq(items) => items.insert(
+                0,
+                Item::Comment(format!("yaml-language-server: $schema={raw}")),
+            ),
+            _ => warnings.push(
+                "schema hint dropped: YAML modeline requires a mapping or sequence root".into(),
+            ),
+        },
+        DocFormat::Toml => match value {
+            Value::Map(items) => items.insert(0, Item::Comment(format!(":schema {raw}"))),
+            _ => warnings.push("schema hint dropped: TOML root must be a table".into()),
+        },
+    }
 }
 
 // ── source → Value (generic walk) ──────────────────────────────────────────────
@@ -910,8 +1025,12 @@ fn render_toml_table(items: &[Item], prefix: &[String], out: &mut String) {
     for it in items {
         match it {
             Item::Comment(text) => {
-                for line in text.split('\n') {
-                    out.push_str("# ");
+                for (i, line) in text.split('\n').enumerate() {
+                    if i == 0 && out.is_empty() && hints::toml_hint_value(line).is_some() {
+                        out.push('#'); // schema hint: no space after `#` (Taplo convention)
+                    } else {
+                        out.push_str("# ");
+                    }
                     out.push_str(line);
                     out.push('\n');
                 }
@@ -1140,6 +1259,126 @@ mod tests {
             DocFormat::Toml,
         );
         assert_eq!(r.text, "x = 1\n\n[o]\ny = 2\n");
+    }
+
+    #[test]
+    fn json_schema_hint_becomes_yaml_modeline() {
+        let r = convert_str(
+            "{ \"$schema\": \"./s.json\", \"a\": 1 }\n",
+            DocFormat::Json,
+            DocFormat::Yaml,
+        );
+        assert!(r.text.starts_with("# yaml-language-server: $schema=./s.json\n"));
+        assert!(!r.text["# yaml-language-server: $schema=./s.json\n".len()..].contains("$schema"));
+        assert!(r.warnings.is_empty());
+    }
+
+    #[test]
+    fn json_schema_hint_becomes_toml_first_line() {
+        let r = convert_str(
+            "{ \"$schema\": \"./s.json\", \"a\": 1 }\n",
+            DocFormat::Json,
+            DocFormat::Toml,
+        );
+        assert!(r.text.starts_with("#:schema ./s.json\n"));
+    }
+
+    #[test]
+    fn yaml_modeline_becomes_json_schema_field() {
+        let r = convert_str(
+            "# yaml-language-server: $schema=./s.json\na: 1\n",
+            DocFormat::Yaml,
+            DocFormat::Json,
+        );
+        let v: serde_json::Value = serde_json::from_str(&r.text).unwrap();
+        assert_eq!(v.get("$schema").and_then(|s| s.as_str()), Some("./s.json"));
+        assert!(!r.text.contains("yaml-language-server"));
+    }
+
+    #[test]
+    fn toml_schema_hint_becomes_yaml_modeline() {
+        let r = convert_str("#:schema ./s.json\nport = 1\n", DocFormat::Toml, DocFormat::Yaml);
+        assert!(r.text.starts_with("# yaml-language-server: $schema=./s.json\n"));
+    }
+
+    #[test]
+    fn yaml_modeline_becomes_toml_first_line() {
+        let r = convert_str(
+            "# yaml-language-server: $schema=./s.json\nport: 1\n",
+            DocFormat::Yaml,
+            DocFormat::Toml,
+        );
+        assert!(r.text.starts_with("#:schema ./s.json\n"));
+    }
+
+    #[test]
+    fn toml_schema_hint_becomes_json_schema_field() {
+        let r = convert_str("#:schema ./s.json\nport = 1\n", DocFormat::Toml, DocFormat::Json);
+        let v: serde_json::Value = serde_json::from_str(&r.text).unwrap();
+        assert_eq!(v.get("$schema").and_then(|s| s.as_str()), Some("./s.json"));
+    }
+
+    #[test]
+    fn yaml_modeline_dropped_with_warning_on_sequence_root_to_json() {
+        let r = convert_str(
+            "# yaml-language-server: $schema=./s.json\n- 1\n- 2\n",
+            DocFormat::Yaml,
+            DocFormat::Json,
+        );
+        assert_eq!(r.text, "[\n  1,\n  2\n]\n");
+        assert_eq!(
+            r.warnings,
+            vec!["schema hint dropped: JSON $schema requires an object root".to_string()]
+        );
+    }
+
+    #[test]
+    fn no_hint_present_is_unaffected() {
+        let r = convert_str(
+            "a = 1\nb = \"x\"\nc = true\n",
+            DocFormat::Toml,
+            DocFormat::Json,
+        );
+        assert!(r.warnings.is_empty());
+        assert_eq!(
+            r.text,
+            "{\n  \"a\": 1,\n  \"b\": \"x\",\n  \"c\": true\n}\n"
+        );
+    }
+
+    #[test]
+    fn toml_hint_line_split_from_merged_leading_comment_block() {
+        let r = convert_str(
+            "#:schema ./s.json\n# keep me\nport = 1\n",
+            DocFormat::Toml,
+            DocFormat::Yaml,
+        );
+        assert!(r.text.starts_with("# yaml-language-server: $schema=./s.json\n"));
+        assert!(r.text.contains("keep me"));
+    }
+
+    #[test]
+    fn yaml_modeline_not_first_leading_comment_still_translates() {
+        let r = convert_str(
+            "# header\n# yaml-language-server: $schema=./s.json\nport: 1\n",
+            DocFormat::Yaml,
+            DocFormat::Json,
+        );
+        assert!(r.text.contains("\"$schema\": \"./s.json\""));
+        assert!(r.text.contains("header"));
+        assert!(!r.text.contains("yaml-language-server"));
+    }
+
+    #[test]
+    fn yaml_modeline_after_blank_line_still_translates() {
+        let r = convert_str(
+            "# header\n\n# yaml-language-server: $schema=./s.json\nport: 1\n",
+            DocFormat::Yaml,
+            DocFormat::Toml,
+        );
+        assert!(r.text.starts_with("#:schema ./s.json\n"));
+        assert!(r.text.contains("header"));
+        assert!(!r.text.contains("yaml-language-server"));
     }
 
     #[test]

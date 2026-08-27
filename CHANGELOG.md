@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Unreleased Update — 2026-08-27T05:00:00Z
+- fix(core): document-level conversion (`model/convert.rs`, `confy convert`/TUI `C`) now
+  carries a detected schema hint (`schema::hints::detect_hint` — JSON `"$schema"` root key,
+  YAML `# yaml-language-server: $schema=` modeline, TOML `#:schema` leading comment) across
+  format boundaries by *convention*, not by structure. Previously the hint's source-format
+  artifact was rendered verbatim in the target: a JSON `$schema` field became a stray YAML/TOML
+  data key (polluting the output and unrecognized by `detect_hint` on re-open), and a YAML/TOML
+  hint comment survived only as an ordinary `//`/inline comment in a JSON target. `convert()`
+  now strips the source artifact and re-authors the hint in the target's own convention;
+  when the target root shape can't carry that convention (e.g. converting into a non-object
+  JSON root), the hint is dropped with a warning via the existing `ConvertResult.warnings`
+  path instead of silently disappearing. Hint-line recognition is centralized in
+  `schema::hints` (shared by detection and conversion) and handles merged leading-comment
+  blocks correctly: TOML splits only the hint's own line out of a merged comment node, and
+  YAML scans every line of the leading comment run (not just the first), matching
+  `detect_yaml`'s own leading-run logic.
+- docs(context): added a **Schema hint** glossary entry (`docs/reference/CONTEXT.md` § Schema)
+  distinguishing the format-neutral concept from its three format-specific marker syntaxes,
+  and a clarifying note on the **Conversion** entry that a schema hint is re-authored in the
+  target's convention rather than carried across verbatim like an ordinary comment.
+- test(core): added 11 new `model::convert::tests` unit tests covering the full 6/6 directed
+  format-pair matrix, a drop+warn case, a same-hint no-op regression, and three merged-leading-
+  comment-block correctness cases; added
+  `dispatch_convert_run_carries_toml_schema_hint_to_json` to `tests/session_headless.rs`.
+
 ### Unreleased Update — 2026-08-27T01:00:00Z
 - fix(schema): `undo`/`redo` now also re-detect the in-document schema hint
   (`Session::sync_schema_hint`), matching every other mutation path. They

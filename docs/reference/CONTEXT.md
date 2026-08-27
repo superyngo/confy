@@ -169,9 +169,11 @@ Producing a new file in a *different* `DocFormat` from a loaded document (key `C
 `confy convert <in> <out>`). The document is lowered to a format-neutral **`Value`** tree, then
 re-rendered in the target's **default style** — so it is deliberately **lossy on notation/style**
 (radix, string style, inline-vs-block, dotted keys, array-of-tables are normalized, with an
-**up-front warning list**), but **comments carry across** with the target marker. A conversion
-**aborts** (writes nothing) when the source holds something the target cannot represent: a `null`
-into TOML, or a YAML **opaque node** into any target. The **source file is never modified**.
+**up-front warning list**), but **comments carry across** with the target marker — except a
+**Schema hint**, which is recognized and re-authored in the target's own convention rather than
+carried across verbatim (see Schema hint, § Schema). A conversion **aborts** (writes nothing) when
+the source holds something the target cannot represent: a `null` into TOML, or a YAML **opaque
+node** into any target. The **source file is never modified**.
 _Avoid_: confusing this with **Kind switch** (`K`), which converts one node's *notation in place*
 within the same format.
 
@@ -291,6 +293,22 @@ _Avoid_: Log entry (no `log` crate in use), trace (no `tracing` crate).
 ### Schema
 
 Validation runs on the `jsonschema` crate rather than a hand-rolled subset validator — ADR 0002.
+
+**Schema hint**:
+The in-document pointer to a JSON Schema, recognized per-`DocFormat` by
+`schema::hints::detect_hint` — a JSON root `"$schema"` string member, a
+YAML leading `# yaml-language-server: $schema=<path>` modeline, or a
+TOML first-line `#:schema <path>` comment. Distinct from **Comment**:
+even though the YAML/TOML forms are lexically comments, a Schema hint is
+recognized, stripped, and re-authored in the target's own convention
+during **Conversion** — the "comments carry across" rule never governed
+it. Distinct from **SchemaSource**: SchemaSource is the *parsed* pointer
+(`Local(path)` / `Url(url)`); Schema hint is the in-document *marker*
+that encodes one.
+_Avoid_: Comment (a Schema hint's marker form is comment-shaped in two
+of three formats, but it is never treated as one), `$schema` (that's
+specifically the JSON spelling — say Schema hint for the format-neutral
+concept).
 
 **JSON projection**:
 The `serde_json::Value` tree a document's **Value** (neutral tree) is lowered into,

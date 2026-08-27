@@ -102,7 +102,12 @@ as `tree_to_value(&self.project(), <fmt>)`. **Loss policy** (the documented loss
 notation/style that the default render drops is collected as deduplicated **warnings** during the
 walk (`style_note`: radix, string style, inline/flow, dotted, AoT, exponent); `analyze` adds the
 target-specific rules — `null`→TOML and a YAML opaque node→any target **abort** (no output;
-null paths listed), TOML datetime→JSON/YAML and non-finite floats→JSON **warn**. The three
+null paths listed), TOML datetime→JSON/YAML and non-finite floats→JSON **warn**. A detected
+**schema hint** (JSON `"$schema"` key / YAML modeline / TOML `#:schema` comment, via
+`schema::hints`) is stripped from the source and re-authored in the *target's* own convention
+rather than carried across verbatim as a stray comment or data key; if the target root shape
+can't carry that convention (e.g. a non-object JSON root), the hint is dropped with a warning
+instead. The three
 renderers emit default style only (`render_toml` scope tables + bare keys + `#`, two-phase so
 keys precede `[sub]`/`[[aot]]` headers; `render_json` 2-space multiline, `//` comments only when
 present ⇒ JSONC; `render_yaml` block + plain-where-safe scalars + `#`). A **reparse safety net**
