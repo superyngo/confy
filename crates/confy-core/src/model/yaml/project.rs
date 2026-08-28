@@ -1322,6 +1322,31 @@ mod tests {
     }
 
     #[test]
+    fn leading_comments_of_nested_block_table_project() {
+        // The first comment line(s) inside a nested block mapping are that
+        // table's own leading comments: they must project as a Comment node,
+        // not be swallowed into the parent MAP_ENTRY (where projection
+        // ignores floating trivia).
+        let t = tree("srv:\n  # c1\n  # c2\n  host: a\n");
+        let srv = t.root.children.iter().find(|c| c.key == "srv").unwrap();
+        assert_eq!(srv.children.len(), 2);
+        assert!(matches!(srv.children[0].kind, NodeKind::Comment(_)));
+        assert_eq!(srv.children[0].value.as_deref(), Some("# c1\n# c2"));
+        assert_eq!(srv.children[1].key, "host");
+    }
+
+    #[test]
+    fn leading_comment_of_block_sequence_projects() {
+        // Same shape for a block sequence's first element's leading comment.
+        let t = tree("items:\n  # c\n  - a\n  - b\n");
+        let items = t.root.children.iter().find(|c| c.key == "items").unwrap();
+        assert_eq!(items.children.len(), 3);
+        assert!(matches!(items.children[0].kind, NodeKind::Comment(_)));
+        assert_eq!(items.children[0].value.as_deref(), Some("# c"));
+        assert_eq!(items.children[1].key, "[1]");
+    }
+
+    #[test]
     fn text_range_slices_expected_substring() {
         let src = "server:\n  host: localhost\n  port: 8080\n";
         let t = tree(src);

@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Unreleased Update — 2026-08-28T23:45:38Z
+- **fix(core): JSON/JSONC remark keeps trailing comments; YAML block leading
+  comments project.** Two comment-loss bugs, both fixed with regression tests.
+  - JSON/JSONC `Remark`: commenting out a member with a trailing `//` comment
+    (`"a": 1, // t`) dropped the trailing comment entirely (the item is
+    rebuilt from the bare member text); the reverse direction re-inserted the
+    recovered member so the comma landed *after* the comment (parse error).
+    Forward now appends the trailing comment to the commented block's last
+    line (`// "a": 1  // t`); reverse splits it off via the CST and re-merges
+    it with `TRAILING_MARKER` so `rebuild_*` keeps it last, after the comma.
+  - YAML: a nested block mapping/sequence's *leading* comment lines
+    (`srv:\n  # c\n  host: a`) were skipped into the parent
+    MAP_ENTRY/SEQ_ENTRY by `parse_value`/`parse_seq_entry` before the child
+    block node started, where floating trivia is invisible to projection —
+    the table's first tree row could never be a comment. The child-block
+    decision now uses a non-consuming lookahead (`peek_line_after_trivia`)
+    that skips blank/comment-only lines; when a child block follows, its own
+    loop-start `skip_trivia_lines` floats the trivia inside the child, so
+    `walk_mapping`/`walk_sequence` project it as a proper Comment node.
+    Implicit-null entries keep the old trivia placement.
+
 ### Unreleased Update — 2026-08-28T23:10:00Z
 - **test(core): validator/resolver parity regression test.** The 2026-08-24
   (`patternProperties`) and 2026-08-29 (`additionalProperties`) schema-info

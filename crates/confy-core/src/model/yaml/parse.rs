@@ -152,6 +152,43 @@ impl Parser {
         self.peek_line().head
     }
 
+    /// Line-info of the first content (non-blank, non-comment) line at or
+    /// after the current position, scanned WITHOUT consuming; `None` at EOF.
+    /// Used to decide whether a child block follows BEFORE any trivia is
+    /// skipped: the child block's own loop-start `skip_trivia_lines` then
+    /// floats its leading comment lines inside the child block (so projection
+    /// shows them as its Comment nodes) instead of swallowing them into the
+    /// parent entry, where floating trivia is invisible to projection.
+    fn peek_line_after_trivia(&self) -> Option<LineInfo> {
+        let mut j = self.pos;
+        loop {
+            let mut indent = 0;
+            if self.get(j) == Some(SyntaxKind::INDENT) {
+                indent = self.tokens[j].1.chars().count();
+                j += 1;
+            }
+            match self.get(j) {
+                None => return None,
+                Some(SyntaxKind::NEWLINE) => j += 1,
+                // Comment-only line: not content — skip past its NEWLINE.
+                Some(SyntaxKind::COMMENT) => {
+                    while self.get(j).is_some() && self.get(j) != Some(SyntaxKind::NEWLINE) {
+                        j += 1;
+                    }
+                    j += 1;
+                }
+                Some(k) => {
+                    return Some(LineInfo {
+                        indent,
+                        head: Some(k),
+                        blank: false,
+                        comment: false,
+                    });
+                }
+            }
+        }
+    }
+
     /// Float leading blank / comment-only lines into the current container.
     fn skip_trivia_lines(&mut self) {
         loop {
@@ -279,19 +316,23 @@ impl Parser {
         }
         match self.at() {
             None | Some(SyntaxKind::NEWLINE) | Some(SyntaxKind::COMMENT) => {
-                // value on following (deeper) lines, or empty
+                // value on following (deeper) lines, or empty. Decide via a
+                // NON-consuming lookahead so leading trivia lines end up
+                // inside the child block (its own comments), not this entry.
                 self.bump_trailing();
-                self.skip_trivia_lines();
-                let li = self.peek_line();
-                if li.head == Some(SyntaxKind::DASH) && li.indent > indent {
-                    self.parse_sequence(li.indent, false);
-                } else if li.head.is_some()
-                    && !li.blank
-                    && !li.comment
-                    && li.indent > indent
-                    && li.head != Some(SyntaxKind::DASH)
-                {
-                    self.parse_mapping(li.indent, false);
+                let li = self.peek_line_after_trivia();
+                let deeper_dash = li
+                    .as_ref()
+                    .is_some_and(|l| l.head == Some(SyntaxKind::DASH) && l.indent > indent);
+                let deeper_map = li.as_ref().is_some_and(|l| {
+                    !l.blank && !l.comment && l.indent > indent && l.head != Some(SyntaxKind::DASH)
+                });
+                if deeper_dash {
+                    self.parse_sequence(li.as_ref().unwrap().indent, false);
+                } else if deeper_map {
+                    self.parse_mapping(li.as_ref().unwrap().indent, false);
+                } else {
+                    self.skip_trivia_lines();
                 }
             }
             Some(SyntaxKind::DASH) => self.parse_sequence(content_col, true),
@@ -320,19 +361,27 @@ impl Parser {
         }
         match self.at() {
             None | Some(SyntaxKind::NEWLINE) | Some(SyntaxKind::COMMENT) => {
-                // empty inline → child block on following lines (or implicit null)
+                // empty inline → child block on following lines (or implicit
+                // null). Decide via a NON-consuming lookahead so leading
+                // trivia lines end up inside the child block (its own
+                // comments), not this entry.
                 self.bump_trailing();
-                self.skip_trivia_lines();
-                let li = self.peek_line();
-                if li.head == Some(SyntaxKind::DASH) && li.indent >= parent_indent {
-                    self.parse_sequence(li.indent, false);
-                } else if li.head.is_some()
-                    && !li.blank
-                    && !li.comment
-                    && li.indent > parent_indent
-                    && li.head != Some(SyntaxKind::DASH)
-                {
-                    self.parse_mapping(li.indent, false);
+                let li = self.peek_line_after_trivia();
+                let dash_child = li
+                    .as_ref()
+                    .is_some_and(|l| l.head == Some(SyntaxKind::DASH) && l.indent >= parent_indent);
+                let map_child = li.as_ref().is_some_and(|l| {
+                    !l.blank
+                        && !l.comment
+                        && l.indent > parent_indent
+                        && l.head != Some(SyntaxKind::DASH)
+                });
+                if dash_child {
+                    self.parse_sequence(li.as_ref().unwrap().indent, false);
+                } else if map_child {
+                    self.parse_mapping(li.as_ref().unwrap().indent, false);
+                } else {
+                    self.skip_trivia_lines();
                 }
             }
             Some(SyntaxKind::BLOCK_HEADER) => self.parse_block_scalar(parent_indent),

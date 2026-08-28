@@ -961,12 +961,19 @@ fn remark(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
                 .ok_or(MutateError::NotFound)?;
             let items: Vec<String> = anchored.into_iter().map(|(s, _)| s).collect();
 
-            // Build comment text: prefix each line with "// ".
-            let commented: String = member_text
+            // Build comment text: prefix each line with "// ". A trailing
+            // same-line comment (folded into this item by
+            // `collect_items_with_anchors`) stays on the commented block's
+            // last line — replacing the item outright would drop it.
+            let mut commented: String = member_text
                 .lines()
                 .map(|l| format!("// {l}"))
                 .collect::<Vec<_>>()
                 .join("\n");
+            if let Some(trailing) = trailing_comment_of_node(&member) {
+                commented.push_str("  ");
+                commented.push_str(&trailing);
+            }
 
             let mut new_items = items.clone();
             new_items[member_pos] = commented;
@@ -1010,12 +1017,21 @@ fn remark(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
                 .collect::<Vec<_>>()
                 .join("\n");
 
-            // Validate the recovered text parses as a member.
-            parse_member_fragment(&member_text)
+            // Validate the recovered text parses as a member. The stripped
+            // text may carry a trailing same-line comment (written by the
+            // remark direction above, or by hand): split it off via the CST
+            // — the MEMBER node's text excludes it — and re-merge it with
+            // TRAILING_MARKER so `rebuild_*` keeps it last, after the comma.
+            let member_node = parse_member_fragment(&member_text)
                 .ok_or_else(|| MutateError::Fragment("comment is not a valid member".into()))?;
+            let bare = member_node.text().to_string().trim().to_string();
+            let restored = match fragment_member_trailing_comment(&member_text) {
+                Some(c) => format!("{bare}{TRAILING_MARKER}{c}"),
+                None => bare,
+            };
 
             let mut new_items = items.clone();
-            new_items[comment_pos] = member_text;
+            new_items[comment_pos] = restored;
 
             let is_multiline = container.text().to_string().contains('\n');
             let new_text = if is_multiline {
@@ -2215,6 +2231,53 @@ mod tests {
             },
         );
         assert_eq!(out, "{\n  // \"a\": 1\n}\n");
+    }
+
+    #[test]
+    fn remark_member_keeps_trailing_comment() {
+        let out = apply_str(
+            "{\n  \"a\": 1, // t\n  \"b\": 2\n}\n",
+            Mutation::Remark {
+                path: vec![Seg::Key("a".into())],
+            },
+        );
+        assert_eq!(out, "{\n  // \"a\": 1  // t\n  \"b\": 2\n}\n");
+    }
+
+    #[test]
+    fn remark_comment_with_trailing_restores_member() {
+        let out = apply_str(
+            "{\n  // \"a\": 1  // t\n  \"b\": 2\n}\n",
+            Mutation::Remark {
+                path: vec![Seg::Index(0)],
+            },
+        );
+        assert_eq!(out, "{\n  \"a\": 1,  // t\n  \"b\": 2\n}\n");
+    }
+
+    #[test]
+    fn remark_multiline_member_with_trailing_roundtrips() {
+        let out = apply_str(
+            "{\n  \"a\": {\n    \"x\": 1\n  }, // t\n  \"b\": 2\n}\n",
+            Mutation::Remark {
+                path: vec![Seg::Key("a".into())],
+            },
+        );
+        assert_eq!(
+            out,
+            "{\n  // \"a\": {\n  //     \"x\": 1\n  //   }  // t\n  \"b\": 2\n}\n"
+        );
+        // …and back: comma re-forms before the restored trailing comment.
+        let back = apply_str(
+            &out,
+            Mutation::Remark {
+                path: vec![Seg::Index(0)],
+            },
+        );
+        assert_eq!(
+            back,
+            "{\n  \"a\": {\n    \"x\": 1\n  },  // t\n  \"b\": 2\n}\n"
+        );
     }
 
     #[test]
