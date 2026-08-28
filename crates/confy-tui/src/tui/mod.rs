@@ -423,6 +423,9 @@ fn run_event_loop(
                         KeyCode::Right => app.convert_path_right(),
                         KeyCode::Home => app.convert_path_home(),
                         KeyCode::End => app.convert_path_end(),
+                        // Toggle .json <-> .jsonc (item 1). Tab, not a printable
+                        // char, so it never collides with typing the path.
+                        KeyCode::Tab => app.convert_toggle_jsonc_ext(),
                         KeyCode::Enter => app.convert_run(),
                         KeyCode::Esc => app.escape(),
                         _ => {}

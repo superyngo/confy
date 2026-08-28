@@ -46,6 +46,26 @@ pub(crate) fn cell_preview(s: &str) -> String {
     }
 }
 
+/// Wrap a quoted YAML key in display-only `"…"` so the tree row matches TOML's
+/// existing (accidental but established) behavior of showing quote marks for a
+/// quoted key — informational only, never fed back into rename/edit/collision
+/// logic (those read `Node.key`/`Seg::Key` directly, untouched by this).
+/// TOML already carries its quotes inside `key` itself (taplo lexes a quoted
+/// key's raw text, quotes included); JSON keys are unconditionally quoted, so
+/// wrapping them would just be noise on every row. YAML is the only backend
+/// that decodes its key to a bare string, hiding the quoting from the tree.
+pub(crate) fn display_key(
+    key: &str,
+    key_sign: &str,
+    format: crate::model::document::DocFormat,
+) -> String {
+    if format == crate::model::document::DocFormat::Yaml && key_sign == "quoted" {
+        format!("\"{key}\"")
+    } else {
+        key.to_string()
+    }
+}
+
 /// TYPE column cell: the precomputed fixed-pitch tag, with per-type colour. On
 /// any row that paints a background fill (`has_fill`: the cursor's blue, a
 /// clip source's green/magenta, or the armed paste-target's green `Into`
@@ -364,9 +384,10 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                 " "
             };
             let prefix = format!("{sel_marker}{indent}{marker}{warn_marker} ");
+            let disp_key = display_key(&row.key, &row.key_sign, app.doc_format());
             // Collapse the key to one line (a merged multi-line comment node's key
             // carries newlines) without disturbing the tree prefix/indent.
-            let name = format!("{prefix}{}", cell_preview(&row.key));
+            let name = format!("{prefix}{}", cell_preview(&disp_key));
             // While inline-editing the cursor row, render the live buffer of the
             // focused field (Value or Name) with the char under the cursor
             // reverse-highlighted — no caret glyph, so characters never shift. The
@@ -398,7 +419,7 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                         (Cell::from(name), val_cell)
                     } else {
                         let mut name_spans = vec![Span::raw(prefix.clone())];
-                        name_spans.extend(highlight_spans(&cell_preview(&row.key), needle));
+                        name_spans.extend(highlight_spans(&cell_preview(&disp_key), needle));
                         (Cell::from(Line::from(name_spans)), val_cell)
                     }
                 }
@@ -1260,6 +1281,40 @@ mod tests {
         );
     }
 
+
+    #[test]
+    fn display_key_wraps_quoted_yaml_keys_but_not_toml_or_bare_yaml() {
+        use crate::model::document::DocFormat;
+        assert_eq!(display_key("a b", "quoted", DocFormat::Yaml), "\"a b\"");
+        assert_eq!(display_key("a", "bare", DocFormat::Yaml), "a");
+        // TOML already carries the quotes inside `key` itself (taplo's raw
+        // token text) — this helper must not double-wrap it.
+        assert_eq!(display_key("\"a b\"", "quoted", DocFormat::Toml), "\"a b\"");
+        // JSON keys are unconditionally quoted; wrapping would be pure noise.
+        assert_eq!(display_key("a", "quoted", DocFormat::Json), "a");
+    }
+
+    #[test]
+    fn yaml_quoted_key_shows_quotes_in_tree_row() {
+        let doc = crate::model::any_doc::AnyDocument::Yaml(
+            crate::model::yaml::doc::YamlDocument::from_str("\"a b\": 1\n").unwrap(),
+        );
+        let app = App::new(doc);
+        let mut terminal = Terminal::new(TestBackend::new(60, 8)).unwrap();
+        terminal.draw(|fr| draw(fr, &app)).unwrap();
+        let joined: String = (0..8)
+            .map(|y| {
+                (0..60)
+                    .map(|x| terminal.backend().buffer()[(x, y)].symbol().to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            joined.contains("\"a b\""),
+            "quoted YAML key must show quote marks in the tree row: {joined:?}"
+        );
+    }
     #[test]
     fn title_bar_shows_filename_and_version() {
         let lines = render("port = 8080\n", 60, 8);

@@ -12,7 +12,7 @@
 // phases (kind popover, context menu, drag-reparent).
 import type { EditView, SessionSnapshot, ViewRow } from "./types.js";
 import { escapeHtml } from "./escape.js";
-import { isCommentRow, isExpanded, isPositional, kindLabelParts, valueTypeClass } from "./kind-labels.js";
+import { displayKey, isCommentRow, isExpanded, isPositional, kindLabelParts, valueTypeClass } from "./kind-labels.js";
 import { t } from "./i18n.js";
 
 // Re-export so existing importers (ui.ts / typefilter.ts / convert-dialog.ts)
@@ -101,6 +101,7 @@ export function renderRow(
   schemaEnum: { options: string[]; cursor: number } | null,
   clip: "" | " clip-copy" | " clip-cut",
   pasteInto: boolean = false,
+  docFormat: string = "Toml",
 ): string {
   const pathAttr = escapeHtml(JSON.stringify(r.path));
   const comment = isCommentRow(r);
@@ -165,7 +166,7 @@ export function renderRow(
     } else if (edit && r.is_cursor && edit.field === "Name") {
       s += `<input class="cell-input key-input mono" data-editing="name" style="${editWidthStyle(edit.buffer)}" value="${escapeHtml(edit.buffer)}" />`;
     } else if (r.key) {
-      s += `<span class="key" data-edit="key">${escapeHtml(r.key)}</span>`;
+      s += `<span class="key" data-edit="key">${escapeHtml(displayKey(r, docFormat))}</span>`;
     }
     if (r.is_branch) {
       s += `<span class="count">${r.child_count} ${r.child_count === 1 ? t("web.render.item.one") : t("web.render.item.many")}</span>`;
@@ -249,6 +250,7 @@ export function renderTree(
         schemaEnum,
         clipKeys.has(JSON.stringify(r.path)) ? clipCls : "",
         pasteIntoPath !== null && JSON.stringify(r.path) === pasteIntoPath,
+        snap.doc_format,
       ),
     });
   });

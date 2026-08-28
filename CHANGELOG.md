@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Unreleased Update — 2026-08-28T07:16:41Z
+- feat(web): Save As/Convert gains a **JSONC** option alongside JSON, TOML, and YAML —
+  the same `DocFormat::Json` target with `.jsonc` seeded instead of `.json` (core stays
+  extension-blind by design; see the 2026-08-28 comment-gate-removal work). The picked
+  pseudo-format is derived from the current output path's extension on every re-render
+  (`uiTagFor` in `web/convert-dialog.ts`), not separate host state, so it survives
+  snapshot updates without being clobbered back to plain JSON. New `web/convert-dialog.spec.mjs`.
+- feat(tui): the Convert flow's Path step gains a `Tab` key that toggles the output
+  path's extension between `.json` and `.jsonc` when the target is JSON
+  (`App::convert_toggle_jsonc_ext`) — the Format-step picker itself stays 3 options
+  (TOML/JSON/YAML) since its cursor bounds are core-driven and `DocFormat` has no
+  `Jsonc` variant. Documented in the `?` help text (`tui.help.*` catalog, en + zh-TW).
+- fix(web,tui): a **quoted YAML key** (`"a b": 1`) never showed its quote marks in the
+  tree row — only in the raw-text view — unlike TOML, whose quoted keys already show
+  quotes (an existing quirk of how `taplo` lexes them, not a deliberate feature).
+  `key_sign`/`Sign` was already tracked but only surfaced in the detail popup, never
+  the row label. Added a display-only `"…"` wrap for `key_sign === Quoted` YAML rows
+  in the tree (`web/kind-labels.ts::displayKey`, `crates/confy-tui/src/tui/ui.rs::display_key`)
+  — informational only, never fed back into rename/edit/collision logic, and skipped for
+  TOML (already quoted) and JSON (unconditionally quoted, would be pure noise). New
+  `web/render.spec.mjs` cases, `crates/confy-tui/src/tui/ui.rs` tests
+  `display_key_wraps_quoted_yaml_keys_but_not_toml_or_bare_yaml` /
+  `yaml_quoted_key_shows_quotes_in_tree_row`.
+- feat(web): added an `F2` keyboard shortcut for renaming a key's name, mirroring the
+  TUI's existing `KeyCode::F(2)` binding — previously the web tree (desktop and touch,
+  external-keyboard) had no keyboard path into `BeginRename`, only a mouse click on the
+  key label. One change in the shared `resolveKeyIntent` (`web/key-intent.ts`) covers
+  both desktop and touch. Documented in the Help overlay. New `web/key-intent.spec.mjs` case.
+
 ### Unreleased Update — 2026-08-28T06:14:27Z
 - fix(tui): the previous issue-#4 fix (external/pop-up editor comment-clear revert) only
   patched the `Intent::ApplyReplace` dispatch handler used by web/vscode/tauri — `confy-tui`'s

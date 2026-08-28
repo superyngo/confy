@@ -262,6 +262,10 @@ console.log("\n-- tree shortcuts --");
   check('"e" -> BeginEdit, preventDefault', r?.kind === "intent" && r.intent === "BeginEdit" && r.preventDefault === true, JSON.stringify(r));
 }
 {
+  const r = resolve(normalMode, "F2");
+  check('"F2" -> BeginRename, preventDefault (mirrors TUI F2)', r?.kind === "intent" && r.intent === "BeginRename" && r.preventDefault === true, JSON.stringify(r));
+}
+{
   const r = resolve(normalMode, "d");
   check('"d" -> DeleteSelected, no preventDefault', r?.kind === "intent" && r.intent === "DeleteSelected" && r.preventDefault === false, JSON.stringify(r));
 }

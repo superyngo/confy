@@ -29,9 +29,24 @@ export interface ConvertRefs {
   cancel: HTMLElement;
 }
 
-// The default output extension for a `DocFormat` tag.
+// The default output extension for a `DocFormat` tag, plus the UI-only
+// "Jsonc" pseudo-tag (item 1: Save As/Convert JSONC option). JSONC is never
+// a real `DocFormat` — it's the same core `Json` target with a `.jsonc`
+// extension seeded instead of `.json`; core stays extension-blind by design
+// (see CONTEXT.md "Comment advisory" — `.json`/`.jsonc` both compile to
+// `DocFormat::Json`), so this distinction lives entirely in this module.
 export function extForTag(tag: string): string {
-  return tag === "Json" ? ".json" : tag === "Yaml" ? ".yaml" : ".toml";
+  return tag === "Json" ? ".json" : tag === "Jsonc" ? ".jsonc" : tag === "Yaml" ? ".yaml" : ".toml";
+}
+
+// The UI-only tag to show as selected: "Jsonc" when the target is Json and
+// the (host-tracked) path already ends in `.jsonc`, else the real target.
+// Deriving this from `cv.path` — not separate host state — means it survives
+// every re-render (path is core-owned and never silently reset), so picking
+// JSONC doesn't get clobbered by the next snapshot the way a parallel
+// "last picked ui tag" field would.
+function uiTagFor(cv: ConvertView): string {
+  return cv.target === "Json" && cv.path.toLowerCase().endsWith(".jsonc") ? "Jsonc" : cv.target;
 }
 
 // Open/update the convert `<dialog>`: fill the format `<select>` (current format
@@ -46,16 +61,17 @@ export function renderConvertDialog(
   const { surface, fmt: sel, path, warns, run } = refs;
   // Unified "Save / Convert" panel: the current format leads the list (default)
   // so picking it is a plain save-as; the other two are cross-format converts.
-  const all = [snap.doc_format, ...cv.options];
+  const all = [snap.doc_format, ...cv.options].flatMap((f) => (f === "Json" ? ["Json", "Jsonc"] : [f]));
   if (!surface.isOpen()) {
     sel.innerHTML = all
       .map((f) => `<option value="${f}">${f.toUpperCase()}</option>`)
       .join("");
-    sel.value = cv.target;
+    sel.value = uiTagFor(cv);
     path.value = cv.path;
     surface.open();
   } else {
-    if (sel.value !== cv.target) sel.value = cv.target;
+    const wantTag = uiTagFor(cv);
+    if (sel.value !== wantTag) sel.value = wantTag;
     // Don't clobber the box while the user is typing the path.
     if (document.activeElement !== path) path.value = cv.path;
   }
@@ -104,10 +120,11 @@ export function wireConvertDialog(
   },
 ): void {
   refs.fmt.addEventListener("change", (e) => {
-    const tag = (e.target as HTMLSelectElement).value as DocFormat;
-    send({ SetConvertFormat: tag });
+    const uiTag = (e.target as HTMLSelectElement).value;
+    const coreTag = (uiTag === "Jsonc" ? "Json" : uiTag) as DocFormat;
+    send({ SetConvertFormat: coreTag });
     // SetConvertFormat reseeds the path to "out.<ext>"; restore the real stem.
-    send({ SetConvertPath: fileStem() + extForTag(tag) });
+    send({ SetConvertPath: fileStem() + extForTag(uiTag) });
   });
   refs.path.addEventListener("input", (e) =>
     send({ SetConvertPath: (e.target as HTMLInputElement).value }),

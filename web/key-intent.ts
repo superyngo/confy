@@ -157,6 +157,8 @@ export function resolveKeyIntent(
     // preventDefault: these open a text editor synchronously (inline input or the
     // external modal); without it the triggering keystroke leaks into the field.
     case "e": return { kind: "intent", intent: "BeginEdit", preventDefault: true };
+    // F2 rename — mirrors the TUI's `KeyCode::F(2)` binding (crates/confy-tui/src/tui/keys.rs).
+    case "F2": return { kind: "intent", intent: "BeginRename", preventDefault: true };
     case "a": return { kind: "intent", intent: "AddNode", preventDefault: true };
     case "d": case "Delete": return { kind: "intent", intent: "DeleteSelected", preventDefault: false };
     case "c": return { kind: "intent", intent: "CopySelected", preventDefault: false };

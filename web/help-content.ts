@@ -6,7 +6,7 @@ import { tArgs, getLang } from "./i18n.js";
 export const HELP_TEXT = `confy web — keys
 j/k or ↑/↓     move cursor
 Space          toggle branch / edit leaf / activate
-e              edit (inline or multiline modal)
+e              edit (inline or multiline modal) · F2 rename
 a              add node · d delete · c copy · x cut · v paste
 r              remark (toggle node ↔ comment)
 +/- or ←/→     nudge numeric value
@@ -28,7 +28,7 @@ right-click    context menu`;
 const HELP_TEXT_ZH_TW = `confy web — 按鍵
 j/k 或 ↑/↓     移動游標
 Space          展開分支／編輯葉節點／啟用
-e              編輯（inline 或多行對話框）
+e              編輯（inline 或多行對話框） · F2 重新命名
 a              新增節點 · d 刪除 · c 複製 · x 剪下 · v 貼上
 r              remark（節點 ↔ comment 切換）
 +/- 或 ←/→     微調數值
@@ -51,7 +51,7 @@ right-click    右鍵選單`;
 export const HELP_TEXT_VSCODE = `confy web — keys
 j/k or ↑/↓     move cursor
 Space          toggle branch / edit leaf / activate
-e              edit (inline or multiline modal)
+e              edit (inline or multiline modal) · F2 rename
 a              add node · d delete · c copy · x cut · v paste
 r              remark (toggle node ↔ comment)
 +/- or ←/→     nudge numeric value
@@ -75,7 +75,7 @@ right-click    context menu`;
 const HELP_TEXT_VSCODE_ZH_TW = `confy web — 按鍵
 j/k 或 ↑/↓     移動游標
 Space          展開分支／編輯葉節點／啟用
-e              編輯（inline 或多行對話框）
+e              編輯（inline 或多行對話框） · F2 重新命名
 a              新增節點 · d 刪除 · c 複製 · x 剪下 · v 貼上
 r              remark（節點 ↔ comment 切換）
 +/- 或 ←/→     微調數值

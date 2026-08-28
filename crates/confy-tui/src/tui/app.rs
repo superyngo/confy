@@ -57,6 +57,9 @@ pub struct RowSnapshot {
     pub type_label: String,
     /// Fixed-pitch TYPE-column tag, e.g. `[S:str ]` (always 8 chars).
     pub type_tag: String,
+    /// Key-sign label (`bare`/`quoted`/`dotted`/`none`) — used to display-wrap
+    /// a quoted YAML key in the tree row (see `ui.rs::display_key`).
+    pub key_sign: String,
     /// Writing style of a scalar leaf (`Plain` for branches/comments).
     pub format: Format,
     pub trailing_comment: Option<String>,
@@ -141,6 +144,7 @@ impl App {
                     type_label: vr.type_label,
                     type_tag,
                     format: vr.format,
+                    key_sign: vr.key_sign,
                     trailing_comment: vr.trailing_comment,
                     violations: vr.violations.clone(),
                     has_descendant_violation: vr.has_descendant_violation,
@@ -363,6 +367,34 @@ impl App {
     }
     pub fn convert_path_end(&mut self) {
         self.session.apply(Intent::ConvertPathEnd);
+    }
+    /// Toggle the output path's extension between `.json` and `.jsonc` on the
+    /// Convert Path step (item 1: TUI-side JSONC option — approach A from the
+    /// design discussion. The Format step's picker is core-cursor-driven with
+    /// exactly 3 entries (`DocFormat` has no `Jsonc` variant; `.json`/`.jsonc`
+    /// both compile to `DocFormat::Json` by design, see CONTEXT.md "Comment
+    /// advisory"), so a 4th list row would desync the core cursor bounds.
+    /// Editing the path extension directly avoids touching that cursor math.
+    /// Bound to `Tab` on the Path step (mod.rs) — free there since the field
+    /// only otherwise consumes printable chars + cursor/edit keys. A no-op
+    /// when the target isn't Json or the path doesn't end in `.json`/`.jsonc`.
+    pub fn convert_toggle_jsonc_ext(&mut self) {
+        let crate::tui::state::Mode::Convert(st) = &self.session.mode else {
+            return;
+        };
+        if st.target != crate::model::document::DocFormat::Json {
+            return;
+        }
+        let path = st.path.clone();
+        let lower = path.to_ascii_lowercase();
+        let new_path = if lower.ends_with(".jsonc") {
+            path[..path.len() - 1].to_string()
+        } else if lower.ends_with(".json") {
+            format!("{path}c")
+        } else {
+            return;
+        };
+        self.session.apply(Intent::SetConvertPath(new_path));
     }
     pub fn convert_run(&mut self) {
         let outcome = self.session.apply(Intent::ConvertRun);
@@ -1345,6 +1377,64 @@ mod tests {
             app.session.doc.as_ref().unwrap().serialize(),
             "a = 1\nb = \"x\"\n"
         );
+    }
+
+    #[test]
+    fn convert_toggle_jsonc_ext_flips_extension_on_json_target() {
+        let mut app = app_with("a = 1\n");
+        app.select_row(app.rows.iter().position(|r| r.path.is_empty()).unwrap());
+        app.open_convert();
+        if let Mode::Convert(st) = &mut app.session.mode {
+            st.cursor = st
+                .options
+                .iter()
+                .position(|f| *f == crate::model::document::DocFormat::Json)
+                .unwrap();
+        }
+        app.convert_pick_format();
+        let Mode::Convert(st) = &app.session.mode else {
+            panic!("should be on the path step");
+        };
+        assert!(st.path.ends_with(".json") && !st.path.ends_with(".jsonc"));
+        app.convert_toggle_jsonc_ext();
+        let Mode::Convert(st) = &app.session.mode else {
+            panic!("still on the path step");
+        };
+        assert!(st.path.ends_with(".jsonc"), "path: {}", st.path);
+        // Toggling again flips back.
+        app.convert_toggle_jsonc_ext();
+        let Mode::Convert(st) = &app.session.mode else {
+            panic!("still on the path step");
+        };
+        assert!(
+            st.path.ends_with(".json") && !st.path.ends_with(".jsonc"),
+            "path: {}",
+            st.path
+        );
+    }
+
+    #[test]
+    fn convert_toggle_jsonc_ext_is_noop_for_non_json_target() {
+        let mut app = app_with("a = 1\n");
+        app.select_row(app.rows.iter().position(|r| r.path.is_empty()).unwrap());
+        app.open_convert();
+        if let Mode::Convert(st) = &mut app.session.mode {
+            st.cursor = st
+                .options
+                .iter()
+                .position(|f| *f == crate::model::document::DocFormat::Yaml)
+                .unwrap();
+        }
+        app.convert_pick_format();
+        let Mode::Convert(st) = &app.session.mode else {
+            panic!("should be on the path step");
+        };
+        let before = st.path.clone();
+        app.convert_toggle_jsonc_ext();
+        let Mode::Convert(st) = &app.session.mode else {
+            panic!("still on the path step");
+        };
+        assert_eq!(st.path, before, "non-Json target must not be touched");
     }
 
     #[test]

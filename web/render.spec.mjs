@@ -121,6 +121,20 @@ console.log("\n-- renderRow(): branch schema-warning marker --");
   check("branch without descendant warning gets no warn-branch class", !htmlNoWarn.includes("warn-branch"));
 }
 
+// ---- renderRow: quoted YAML key shows quote marks, matching TOML (item 2) ----
+console.log("\n-- renderRow(): quoted-key display (YAML parity with TOML) --");
+{
+  const row = makeRow({ key: "a b", key_sign: "quoted" });
+  const htmlYaml = renderRow(row, 0, [row], null, null, "", false, "Yaml");
+  check('YAML quoted key renders as "a b"', htmlYaml.includes(">&quot;a b&quot;<"), htmlYaml);
+  const htmlYamlBare = renderRow(makeRow({ key: "a", key_sign: "bare" }), 0, [row], null, null, "", false, "Yaml");
+  check('YAML bare key has no added quotes', htmlYamlBare.includes('data-edit="key">a</span>'), htmlYamlBare);
+  // TOML already carries its quotes inside `key` itself; must not be double-wrapped.
+  const tomlRow = makeRow({ key: '"a b"', key_sign: "quoted" });
+  const htmlToml = renderRow(tomlRow, 0, [tomlRow], null, null, "", false, "Toml");
+  check('TOML quoted key is not double-quoted', !htmlToml.includes('""a b""'), htmlToml);
+}
+
 // ---- panelHTML: value / trailing_comment ----
 console.log("\n-- panelHTML() escaping (value/comment fields) --");
 {
