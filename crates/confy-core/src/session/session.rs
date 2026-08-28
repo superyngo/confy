@@ -4,7 +4,7 @@ use super::status_fmt::{
 };
 use crate::model::any_doc::AnyDocument;
 use crate::model::document::{ConfigDocument, DocFormat, Mutation, OnCollision, Target};
-use crate::model::node::{Format, KeySign, Node, NodeKind, NodeTree, Path, Seg, VisibleRow};
+use crate::model::node::{Format, Node, NodeKind, NodeTree, Path, Seg, VisibleRow};
 use crate::session::i18n::{tr_args, Lang};
 use crate::session::notice::Notice;
 use crate::session::search::{fuzzy_match, haystack};
@@ -196,6 +196,7 @@ impl Session {
             child_count: node.children.len(),
             trailing_comment: node.trailing_comment.clone(),
             key_sign: key_sign_label(node.key_sign).to_string(),
+            key_literal: node.key_literal.clone(),
             read_only: node.read_only,
             selected: self.selection.contains(&node.path),
             is_cursor: node.path == self.cursor,
@@ -219,19 +220,18 @@ impl Session {
 
     /// Human-readable dotted/bracketed form of `path` — `servers[1].port` —
     /// used for the "Path" field (TUI Detail popup, Web/Touch panel). Each
-    /// `Seg::Key` segment whose own node is a quoted YAML key
-    /// (`KeySign::Quoted`, YAML-only) is wrapped in display `"…"` flanks,
-    /// mirroring `display_key`/`displayKey`'s existing tree-row decoration
-    /// (commit `64db70a`) so the Path segment matches TOML's/JSON's already-
-    /// literal-quoted form instead of silently hiding the quoting.
-    /// Display-only — never fed back into rename/mutation logic (those read
-    /// `Node.key`/`Seg::Key` directly, untouched by this). Empty path →
-    /// `"(root)"`.
+    /// `Seg::Key` segment renders as its **authored spelling**
+    /// (`Node.key_literal`) when the projection captured one, so a
+    /// single-quoted YAML key shows `'a b'`, a double-quoted one `"a b"`, a
+    /// quoted TOML key its own single set of quotes, and a bare key stays
+    /// bare. No quote character is ever synthesized here — that is what used
+    /// to render every quoted key with double quotes regardless of source.
+    /// Display-only: never fed back into rename/mutation logic (those read
+    /// the decoded `Node.key`/`Seg::Key`). Empty path → `"(root)"`.
     pub(crate) fn human_path(&self, path: &Path) -> String {
         if path.is_empty() {
             return "(root)".to_string();
         }
-        let yaml = self.doc_format() == DocFormat::Yaml;
         let mut s = String::new();
         for i in 0..path.len() {
             match &path[i] {
@@ -239,17 +239,9 @@ impl Session {
                     if !s.is_empty() {
                         s.push('.');
                     }
-                    let quoted = yaml
-                        && self
-                            .tree
-                            .node_at(&path[..=i])
-                            .is_some_and(|n| n.key_sign == KeySign::Quoted);
-                    if quoted {
-                        s.push('"');
-                        s.push_str(k);
-                        s.push('"');
-                    } else {
-                        s.push_str(k);
+                    match self.tree.node_at(&path[..=i]).and_then(|n| n.key_literal.as_deref()) {
+                        Some(literal) => s.push_str(literal),
+                        None => s.push_str(k),
                     }
                 }
                 Seg::Index(idx) => s.push_str(&format!("[{idx}]")),

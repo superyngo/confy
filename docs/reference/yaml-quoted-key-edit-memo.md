@@ -1,4 +1,17 @@
-# YAML quoted-key rename/edit — status memo (2026-08-28, unfinished, handed to a new session)
+# YAML quoted-key rename/edit — status memo (RESOLVED 2026-08-28)
+
+> **RESOLVED — superseded.** The patch-by-patch line this memo documents
+> (`64db70a` → `af6adc7` → `4795e89` → `8ef6af0`) was replaced by a single
+> structural fix: a key's authored spelling is now a first-class projection
+> output (`Node.key_literal`), with `Node.key`/`Seg::Key` holding the decoded
+> key. See
+> `docs/superpowers/plans/2026-08-28-key-repr-first-class-literal.md` for the
+> plan and the CHANGELOG entry dated 2026-08-28T14:30:00Z for what landed.
+> That work also fixed three bugs this memo never identified: a single-quoted
+> YAML key displayed with double quotes, TOML→JSON corrupting a quoted key,
+> and an incomplete `\x`/`\u` escape decoder that let a duplicate-key rename
+> through. The rest of this file is kept for historical context only — its
+> `key_literal_text` mechanism no longer exists.
 
 ## User complaint (2nd round, after commit `af6adc7`)
 

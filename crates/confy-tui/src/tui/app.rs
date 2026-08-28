@@ -57,9 +57,12 @@ pub struct RowSnapshot {
     pub type_label: String,
     /// Fixed-pitch TYPE-column tag, e.g. `[S:str ]` (always 8 chars).
     pub type_tag: String,
-    /// Key-sign label (`bare`/`quoted`/`dotted`/`none`) — used to display-wrap
-    /// a quoted YAML key in the tree row (see `ui.rs::display_key`).
+    /// Key-sign label (`bare`/`quoted`/`dotted`/`none`) — the Detail popup's
+    /// "Sign" field only; never used to reconstruct a key's spelling.
     pub key_sign: String,
+    /// The key's authored spelling, or `None` for keyless rows — renders the
+    /// tree-row label via `ui.rs::display_key`.
+    pub key_literal: Option<String>,
     /// Writing style of a scalar leaf (`Plain` for branches/comments).
     pub format: Format,
     pub trailing_comment: Option<String>,
@@ -145,6 +148,7 @@ impl App {
                     type_tag,
                     format: vr.format,
                     key_sign: vr.key_sign,
+                    key_literal: vr.key_literal,
                     trailing_comment: vr.trailing_comment,
                     violations: vr.violations.clone(),
                     has_descendant_violation: vr.has_descendant_violation,

@@ -44,16 +44,10 @@ impl Session {
                 None => return,
             }
         };
-        // A quoted YAML key edits as its literal `"…"`/`'…'` source text
-        // (quotes and escapes intact) rather than the decoded `key` — see
-        // `begin_inline_rename` for the full rationale. `None` (comment/
-        // element rows, every other backend, a bare key) falls back to
-        // `key` unchanged.
-        let edit_key_text = self
-            .doc
-            .as_ref()
-            .and_then(|d| d.key_literal_text(&row.path))
-            .unwrap_or_else(|| key.clone());
+        // The key edits as its **authored spelling** (`ViewRow.key_literal`) —
+        // see `begin_inline_rename` for the full rationale. `None` (comment /
+        // element rows) falls back to the decoded `key`.
+        let edit_key_text = row.key_literal.clone().unwrap_or_else(|| key.clone());
         let orig_trailing = if is_comment {
             None
         } else {
@@ -133,18 +127,12 @@ impl Session {
         if is_comment {
             return;
         }
-        // A quoted YAML key edits as its literal `"…"`/`'…'` source text
-        // (quotes and escapes intact) rather than the decoded `key` — this
-        // makes the quote characters themselves directly editable and keeps
-        // an inside-quote trailing space from being eaten by this method's
-        // caller's `.trim()` on commit, mirroring TOML (whose `Node.key`
-        // already carries its own literal quotes). `None` for every other
-        // backend/key shape, which falls back to the decoded `key` as before.
-        let edit_text = self
-            .doc
-            .as_ref()
-            .and_then(|d| d.key_literal_text(&row.path))
-            .unwrap_or(key);
+        // The key edits as its **authored spelling** (`ViewRow.key_literal`) —
+        // quotes and escapes intact — not the decoded `key`. That makes the
+        // quote characters themselves directly editable and keeps an
+        // inside-quote trailing space from being eaten by the caller's `.trim()`
+        // on commit. `None` (keyless rows) falls back to the decoded key.
+        let edit_text = row.key_literal.clone().unwrap_or(key);
         let name_cursor = edit_text.chars().count();
         self.mode = Mode::Edit(EditState {
             path: row.path.clone(),

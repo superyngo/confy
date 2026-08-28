@@ -482,7 +482,18 @@ desktop. On the desktop side the detail `<aside>` (toggled with `i`/Enter) now r
 **reactively** — it tracks the cursor row on every snapshot and is fully editable — instead of the
 old static `detail_text` `<pre>` dump (that flat string is now only the empty-doc fallback). To
 feed the panel's Sign field, core's `ViewRow` gained a `key_sign` field (`"bare"|"quoted"|"dotted"
-|"none"`, the same mapping the TUI detail text uses).
+|"none"`, the same mapping the TUI detail text uses) — a coarse display facet only, never usable
+to reconstruct how a key was written.
+
+**Key spelling — `ViewRow.key_literal`.** `ViewRow.key` is the **decoded** key (semantic
+identity: paths, collisions, schema lookup); `key_literal` is the key **exactly as authored**,
+quote characters and escapes intact, or `undefined` for keyless rows (array elements, comments,
+root). The tree row label and the rename `<input>` both read `key_literal ?? key`, so a
+single-quoted YAML key shows `'a b'`, a double-quoted one `"a b"`, and a quoted TOML key its own
+single set of quotes. No quote character is ever synthesized in the web layer — the earlier
+`displayKey`/`isQuotedYamlKey` helpers (which hardcoded `"` and carried per-format exceptions)
+are gone. JSON rows carry no `key_literal`: their keys are unconditionally quoted, so it would be
+redundant on every row. `ViewRow.path_display` is quoted from the same source, per segment.
 
 A **Schema** field renders after Meta (Path/Children/Sign), before the Actions row (Copy/Cut/
 Delete/External-edit stay the panel's fixed trailing element), as a bordered card (mirrors

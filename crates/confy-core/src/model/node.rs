@@ -120,7 +120,24 @@ pub struct Node {
     /// style exists (Root, AoT, comments, bool, datetimes, plain floats).
     pub format: Format,
     /// How this node's own key is written; `None` for keyless nodes.
+    ///
+    /// Coarse presentation facet only (it also carries `Dotted`, which
+    /// `key_literal` cannot express). **Never** use it to reconstruct a key's
+    /// spelling — read `key_literal` for that.
     pub key_sign: KeySign,
+    /// The key exactly as authored in the source — quote characters, escape
+    /// sequences and all — while `key`/`Seg::Key` hold the **decoded** key.
+    ///
+    /// - `key` / `Seg::Key` = semantic identity: path resolution, collision
+    ///   checks, JSON-Schema property lookup, `to_value`/convert, serde.
+    /// - `key_literal` = presentation + edit identity: the tree row label, the
+    ///   Path line, the rename/edit buffer, fragment rebuilding.
+    ///
+    /// `None` for keyless nodes (array elements, AoT entries, Root, comments) —
+    /// the same nodes where `key_text_range` is `None`. Filled once during
+    /// projection from the key token already in hand, so no consumer ever has
+    /// to re-walk the CST or synthesize a quote character.
+    pub key_literal: Option<String>,
     pub trailing_comment: Option<String>,
     /// Read-only nodes (a JSONC `/* */` block comment, a Phase-3 opaque YAML
     /// node) display and copy but reject `e`/`d`/`x`/`r`/insert-into. Default false.
@@ -160,6 +177,7 @@ impl Node {
             value: None,
             format: Format::Plain,
             key_sign: KeySign::None,
+            key_literal: None,
             trailing_comment: None,
             read_only: false,
             text_range: 0..0,
@@ -180,6 +198,7 @@ impl Node {
             value: None,
             format: Format::Plain,
             key_sign: KeySign::None,
+            key_literal: None,
             trailing_comment: None,
             read_only: false,
             text_range: 0..0,

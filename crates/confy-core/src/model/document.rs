@@ -155,21 +155,6 @@ pub trait ConfigDocument: Sized {
         None
     }
 
-    /// The **literal, as-authored** text of the key at `path` — quotes and any
-    /// escape sequences intact — when it differs from the decoded `Node.key`
-    /// the tree already carries. `None` when there's no separate literal form
-    /// worth round-tripping: TOML's `Node.key` already *is* the literal text
-    /// (taplo keeps quotes in the lexed token), JSON keys are uniformly
-    /// quoted, and a bare key (any format) has nothing extra to show. Used
-    /// only to seed the inline rename/edit buffer for a quoted YAML key with
-    /// its real `"…"`/`'…'` text instead of a synthesized one — see
-    /// `Session::begin_inline_rename`/`begin_inline_edit`. Default: `None`
-    /// (every backend but YAML's quoted keys).
-    fn key_literal_text(&self, path: &[crate::model::node::Seg]) -> Option<String> {
-        let _ = path;
-        None
-    }
-
     /// Lower the whole document to the format-neutral [`Value`](crate::model::value::Value)
     /// tree for document-level conversion (spec §Phase 4), decoding every scalar
     /// to typed data and carrying standalone + trailing comments in order.

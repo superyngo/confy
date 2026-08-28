@@ -48,6 +48,7 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, YamlIndex)
         value: None,
         format: Format::Plain,
         key_sign: KeySign::None,
+        key_literal: None,
         trailing_comment: None,
         read_only: false,
         text_range: to_range(syntax.text_range()),
@@ -89,6 +90,7 @@ fn flush_comment_block(
         value: Some(text),
         format: Format::Plain,
         key_sign: KeySign::None,
+        key_literal: None,
         trailing_comment: None,
         read_only: false,
         text_range,
@@ -183,6 +185,7 @@ fn walk_root_node(
                         value: Some(raw),
                         format: Format::Plain,
                         key_sign: KeySign::None,
+                        key_literal: None,
                         trailing_comment: None,
                         read_only: false,
                         text_range: to_range(node.text_range()),
@@ -204,6 +207,7 @@ fn walk_root_node(
                         value: Some(raw),
                         format: Format::Plain,
                         key_sign: KeySign::None,
+                        key_literal: None,
                         trailing_comment: None,
                         read_only: true,
                         text_range: to_range(node.text_range()),
@@ -258,6 +262,7 @@ fn walk_mapping(
                         value: Some(raw),
                         format: Format::Plain,
                         key_sign: KeySign::None,
+                        key_literal: None,
                         trailing_comment: None,
                         read_only: true,
                         text_range: to_range(node.text_range()),
@@ -365,7 +370,7 @@ fn project_map_entry(
     out: &mut Vec<Node>,
     idx: &mut YamlIndex,
 ) {
-    let (key_name, key_sign) = key_name_and_sign(entry);
+    let (key_name, key_sign, key_literal) = key_name_and_literal(entry);
     let key_range = key_token_range(entry);
 
     let mut path = parent_path.to_vec();
@@ -395,6 +400,7 @@ fn project_map_entry(
                 value: None,
                 format: Format::Plain,
                 key_sign,
+                key_literal,
                 trailing_comment: trailing,
                 read_only: false,
                 text_range: to_range(entry.text_range()),
@@ -402,7 +408,7 @@ fn project_map_entry(
             }
         }
         Some(vc) => {
-            build_value_node_from_child(&vc, &key_name, key_sign, key_range, path, trailing, idx)
+            build_value_node_from_child(&vc, &key_name, key_sign, key_literal, key_range, path, trailing, idx)
         }
     };
 
@@ -441,13 +447,14 @@ fn project_seq_entry(
             value: None,
             format: Format::Plain,
             key_sign: KeySign::None,
+            key_literal: None,
             trailing_comment: trailing,
             read_only: false,
             text_range: to_range(entry.text_range()),
             key_text_range: None,
         },
         Some(vc) => {
-            build_value_node_from_child(&vc, &key_label, KeySign::None, None, path, trailing, idx)
+            build_value_node_from_child(&vc, &key_label, KeySign::None, None, None, path, trailing, idx)
         }
     };
 
@@ -462,6 +469,7 @@ fn build_value_node_from_child(
     child: &SyntaxNode,
     key: &str,
     key_sign: KeySign,
+    key_literal: Option<String>,
     key_range: Option<std::ops::Range<usize>>,
     path: Vec<Seg>,
     trailing: Option<String>,
@@ -477,6 +485,7 @@ fn build_value_node_from_child(
                 value: None,
                 format: Format::Block,
                 key_sign,
+                key_literal,
                 trailing_comment: trailing,
                 read_only: false,
                 text_range: to_range(child.text_range()),
@@ -494,6 +503,7 @@ fn build_value_node_from_child(
                 value: None,
                 format: Format::Block,
                 key_sign,
+                key_literal,
                 trailing_comment: trailing,
                 read_only: false,
                 text_range: to_range(child.text_range()),
@@ -512,6 +522,7 @@ fn build_value_node_from_child(
                 value: Some(repr),
                 format: Format::Inline,
                 key_sign,
+                key_literal,
                 trailing_comment: trailing,
                 read_only: false,
                 text_range: to_range(child.text_range()),
@@ -530,6 +541,7 @@ fn build_value_node_from_child(
                 value: Some(repr),
                 format: Format::Inline,
                 key_sign,
+                key_literal,
                 trailing_comment: trailing,
                 read_only: false,
                 text_range: to_range(child.text_range()),
@@ -540,7 +552,7 @@ fn build_value_node_from_child(
         }
         SyntaxKind::VALUE => {
             // VALUE wraps SCALAR, BLOCK_SCALAR, or OPAQUE.
-            build_value_node(child, key, key_sign, key_range, path, trailing, idx)
+            build_value_node(child, key, key_sign, key_literal, key_range, path, trailing, idx)
         }
         SyntaxKind::OPAQUE => {
             let raw = child.text().to_string().trim_end().to_string();
@@ -552,6 +564,7 @@ fn build_value_node_from_child(
                 value: Some(raw),
                 format: Format::Plain,
                 key_sign,
+                key_literal,
                 trailing_comment: trailing,
                 read_only: true,
                 text_range: to_range(child.text_range()),
@@ -566,6 +579,7 @@ fn build_value_node_from_child(
             value: None,
             format: Format::Plain,
             key_sign,
+            key_literal,
             trailing_comment: trailing,
             read_only: false,
             text_range: to_range(child.text_range()),
@@ -580,6 +594,7 @@ fn build_value_node(
     value: &SyntaxNode,
     key: &str,
     key_sign: KeySign,
+    key_literal: Option<String>,
     key_range: Option<std::ops::Range<usize>>,
     path: Vec<Seg>,
     trailing: Option<String>,
@@ -599,6 +614,7 @@ fn build_value_node(
                     value: Some(repr),
                     format: Format::Inline,
                     key_sign,
+                    key_literal,
                     trailing_comment: trailing,
                     read_only: false,
                     text_range: to_range(inner_node.text_range()),
@@ -617,6 +633,7 @@ fn build_value_node(
                     value: Some(repr),
                     format: Format::Inline,
                     key_sign,
+                    key_literal,
                     trailing_comment: trailing,
                     read_only: false,
                     text_range: to_range(inner_node.text_range()),
@@ -648,6 +665,7 @@ fn build_value_node(
                             value: Some(val_text),
                             format,
                             key_sign,
+                            key_literal,
                             trailing_comment: trailing,
                             read_only: false,
                             text_range: to_range(tok.text_range()),
@@ -664,6 +682,7 @@ fn build_value_node(
                             value: None,
                             format: Format::Plain,
                             key_sign,
+                            key_literal,
                             trailing_comment: trailing,
                             read_only: false,
                             text_range: to_range(inner_node.text_range()),
@@ -698,6 +717,7 @@ fn build_value_node(
                     value: Some(raw),
                     format: fmt,
                     key_sign,
+                    key_literal,
                     trailing_comment: trailing,
                     read_only: false,
                     text_range: to_range(value.text_range()),
@@ -714,6 +734,7 @@ fn build_value_node(
                     value: Some(raw),
                     format: Format::Plain,
                     key_sign,
+                    key_literal,
                     trailing_comment: trailing,
                     read_only: true,
                     text_range: to_range(inner_node.text_range()),
@@ -728,6 +749,7 @@ fn build_value_node(
                 value: None,
                 format: Format::Plain,
                 key_sign,
+                key_literal,
                 trailing_comment: trailing,
                 read_only: false,
                 text_range: to_range(inner_node.text_range()),
@@ -744,6 +766,7 @@ fn build_value_node(
                 value: None,
                 format: Format::Plain,
                 key_sign,
+                key_literal,
                 trailing_comment: trailing,
                 read_only: false,
                 text_range: to_range(value.text_range()),
@@ -767,7 +790,7 @@ fn walk_flow_map_entries(
         .children()
         .filter(|c| c.kind() == SyntaxKind::FLOW_ENTRY)
     {
-        let (key_name, key_sign) = key_name_and_sign(&entry);
+        let (key_name, key_sign, key_literal) = key_name_and_literal(&entry);
         let key_range = key_token_range(&entry);
         let mut path = parent_path.to_vec();
         path.push(Seg::Key(key_name.clone()));
@@ -790,13 +813,14 @@ fn walk_flow_map_entries(
                 value: None,
                 format: Format::Plain,
                 key_sign,
+                key_literal,
                 trailing_comment: None,
                 read_only: false,
                 text_range: to_range(entry.text_range()),
                 key_text_range: key_range,
             },
             Some(vc) => {
-                build_value_node_from_child(&vc, &key_name, key_sign, key_range, path, None, idx)
+                build_value_node_from_child(&vc, &key_name, key_sign, key_literal, key_range, path, None, idx)
             }
         };
         out.push(node);
@@ -807,11 +831,11 @@ fn walk_flow_map_entries(
 /// sequences resolved) — the same form projection puts in a `Seg::Key` path, so
 /// edit-side string matching against a path segment agrees on quoted keys.
 pub(crate) fn entry_key_name(entry: &SyntaxNode) -> String {
-    key_name_and_sign(entry).0
+    key_name_and_literal(entry).0
 }
 
-/// Extract the key name and sign from a MAP_ENTRY / FLOW_ENTRY's KEY child.
-fn key_name_and_sign(entry: &SyntaxNode) -> (String, KeySign) {
+/// Extract the key name, sign, and literal from a MAP_ENTRY / FLOW_ENTRY's KEY child.
+fn key_name_and_literal(entry: &SyntaxNode) -> (String, KeySign, Option<String>) {
     match entry.children().find(|c| c.kind() == SyntaxKind::KEY) {
         Some(kn) => {
             let inner = kn.children_with_tokens().find_map(|c| match c {
@@ -826,13 +850,17 @@ fn key_name_and_sign(entry: &SyntaxNode) -> (String, KeySign) {
                 _ => None,
             });
             match inner {
-                Some(tok) => key_text_and_sign(&tok),
-                None => (kn.text().to_string().trim().to_string(), KeySign::Bare),
+                Some(tok) => {
+                    let (name, sign) = key_text_and_sign(&tok);
+                    (name, sign, Some(tok.text().to_string()))
+                }
+                None => (kn.text().to_string().trim().to_string(), KeySign::Bare, None),
             }
         }
-        None => (String::new(), KeySign::Bare),
+        None => (String::new(), KeySign::Bare, None),
     }
 }
+
 
 /// Byte range of a MAP_ENTRY / FLOW_ENTRY's key scalar token (quotes included
 /// for quoted keys) — mirrors `key_name_and_sign`'s KEY/token discovery.
@@ -852,27 +880,6 @@ fn key_token_range(entry: &SyntaxNode) -> Option<std::ops::Range<usize>> {
     Some(to_range(tok.text_range()))
 }
 
-/// The as-authored literal text of a MAP_ENTRY's key at `path` — quotes and
-/// any escape sequences intact — but only when it's a quoted (`SINGLE`/
-/// `DOUBLE`) scalar; `None` for a bare `PLAIN` key or a path that isn't a
-/// keyed map entry. Used only to seed the inline rename/edit buffer with the
-/// real quoted text (`Session::begin_inline_rename`/`begin_inline_edit`) so a
-/// user can edit the quote characters themselves and inside-quote whitespace
-/// survives the commit's outer `.trim()` — mirrors TOML, whose `Node.key`
-/// already carries its literal quotes (taplo keeps them in the lexed token).
-pub(crate) fn key_literal_text(syntax: &SyntaxNode, path: &[Seg]) -> Option<String> {
-    let (_, idx) = walk(syntax, "");
-    let entry = idx.iter().find_map(|(p, t)| match (p == path, t) {
-        (true, Target::MapEntry(n)) => Some(n.clone()),
-        _ => None,
-    })?;
-    let key_node = entry.children().find(|c| c.kind() == SyntaxKind::KEY)?;
-    let tok = key_node.children_with_tokens().find_map(|c| match c {
-        NodeOrToken::Token(t) if matches!(t.kind(), SyntaxKind::SINGLE | SyntaxKind::DOUBLE) => Some(t),
-        _ => None,
-    })?;
-    Some(tok.text().to_string())
-}
 
 /// Walk a FLOW_SEQ node: emit elements (scalar tokens or nested nodes).
 fn walk_flow_seq(
@@ -898,6 +905,7 @@ fn walk_flow_seq(
                         value: Some(val_text),
                         format: fmt,
                         key_sign: KeySign::None,
+                        key_literal: None,
                         trailing_comment: None,
                         read_only: false,
                         text_range: to_range(tok.text_range()),
@@ -916,6 +924,7 @@ fn walk_flow_seq(
                     &node,
                     &key_label,
                     KeySign::None,
+                    None,
                     None,
                     path,
                     None,
@@ -1120,6 +1129,7 @@ mod tests {
         let n = &t.root.children[0];
         assert_eq!(n.key, "a\tb");
         assert_eq!(n.key_sign, KeySign::Quoted);
+        assert_eq!(n.key_literal.as_deref(), Some("\"a\\tb\""));
     }
 
     #[test]

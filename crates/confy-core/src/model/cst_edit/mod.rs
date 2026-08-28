@@ -19,7 +19,7 @@
 mod aot_group;
 mod convert;
 mod dotted_table;
-mod escape;
+pub(crate) mod escape;
 mod move_paste;
 mod rename;
 mod replace_delete;

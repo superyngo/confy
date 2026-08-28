@@ -34,6 +34,7 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, JsonIndex)
         value: None,
         format: Format::Plain,
         key_sign: KeySign::None,
+        key_literal: None,
         trailing_comment: None,
         read_only: false,
         text_range: to_range(syntax.text_range()),
@@ -188,6 +189,7 @@ fn build_value_node(
     trailing_anchor: &SyntaxNode,
     key: &str,
     key_sign: KeySign,
+    key_literal: Option<String>,
     key_range: Option<std::ops::Range<usize>>,
     path: Vec<Seg>,
     src_element: Target,
@@ -213,6 +215,7 @@ fn build_value_node(
                     value: repr,
                     format: fmt,
                     key_sign,
+                    key_literal: key_literal.clone(),
                     trailing_comment: trailing,
                     read_only: false,
                     text_range: to_range(container.text_range()),
@@ -236,6 +239,7 @@ fn build_value_node(
                     value: repr,
                     format: fmt,
                     key_sign,
+                    key_literal: key_literal.clone(),
                     trailing_comment: trailing,
                     read_only: false,
                     text_range: to_range(container.text_range()),
@@ -254,6 +258,7 @@ fn build_value_node(
                     value: None,
                     format: Format::Plain,
                     key_sign,
+                    key_literal,
                     trailing_comment: trailing,
                     read_only: false,
                     text_range: to_range(value.text_range()),
@@ -271,6 +276,7 @@ fn build_value_node(
                 value: Some(val_text),
                 format: fmt,
                 key_sign,
+                key_literal,
                 trailing_comment: trailing,
                 read_only: false,
                 text_range: to_range(tok.text_range()),
@@ -285,6 +291,7 @@ fn build_value_node(
             value: None,
             format: Format::Plain,
             key_sign,
+            key_literal,
             trailing_comment: trailing,
             read_only: false,
             text_range: to_range(value.text_range()),
@@ -343,6 +350,7 @@ fn walk_container_tokens(
                     value: Some(text),
                     format: Format::Plain,
                     key_sign: KeySign::None,
+                    key_literal: None,
                     trailing_comment: None,
                     read_only: false,
                     text_range,
@@ -399,6 +407,7 @@ fn walk_container_tokens(
                         value: Some(text),
                         format: Format::Plain,
                         key_sign: KeySign::None,
+                        key_literal: None,
                         trailing_comment: None,
                         read_only: true,
                         text_range: to_range(tok.text_range()),
@@ -414,6 +423,13 @@ fn walk_container_tokens(
                     // Extract key name and build child node.
                     let key_node = node.children().find(|c| c.kind() == SyntaxKind::KEY);
                     let name = key_node.as_ref().map(key_name).unwrap_or_default();
+                    // JSON keys are *unconditionally* `"…"`-quoted, so the
+                    // authored spelling carries no information the decoded key
+                    // lacks: showing it would put redundant quotes on every
+                    // single row, and seeding the rename buffer with them would
+                    // feed `"key"` into a mutation that re-quotes the name it is
+                    // given. `None` by contract — see `Node.key_literal`.
+                    let key_literal_text: Option<String> = None;
                     let mut path = parent_path.to_vec();
                     path.push(Seg::Key(name.clone()));
                     let value_node = node.children().find(|c| c.kind() == SyntaxKind::VALUE);
@@ -424,6 +440,7 @@ fn walk_container_tokens(
                             &member_node,
                             &name,
                             KeySign::Quoted,
+                            key_literal_text.clone(),
                             key_node.as_ref().map(|k| to_range(k.text_range())),
                             path,
                             Target::Member(member_node.clone()),
@@ -437,6 +454,7 @@ fn walk_container_tokens(
                             value: None,
                             format: Format::Plain,
                             key_sign: KeySign::Quoted,
+                            key_literal: key_literal_text,
                             trailing_comment: None,
                             read_only: false,
                             text_range: to_range(node.text_range()),
@@ -458,6 +476,7 @@ fn walk_container_tokens(
                         &node, // trailing_anchor = VALUE itself (COMMA/comment at ARRAY level)
                         &key_label,
                         KeySign::None,
+                        None,
                         None,
                         path,
                         Target::Element(node.clone()),
@@ -488,6 +507,7 @@ fn walk_container_tokens(
                                 &node, // trailing_anchor: VALUE's siblings in ROOT
                                 "",
                                 KeySign::None,
+                                None,
                                 None,
                                 path,
                                 Target::Element(node.clone()),
@@ -528,6 +548,9 @@ mod tests {
         let by_key = |k: &str| root.children.iter().find(|c| c.key == k).unwrap();
         assert_eq!(by_key("s").kind, NodeKind::Scalar(ScalarType::String));
         assert_eq!(by_key("s").key_sign, KeySign::Quoted);
+        // JSON keys are always `"…"`-quoted, so there is no distinct authored
+        // spelling to carry — `key_literal` stays `None` by contract.
+        assert_eq!(by_key("s").key_literal, None);
         assert_eq!(by_key("i").kind, NodeKind::Scalar(ScalarType::Integer));
         assert_eq!(by_key("i").format, Format::Decimal);
         assert_eq!(by_key("f").kind, NodeKind::Scalar(ScalarType::Float));

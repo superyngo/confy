@@ -56,6 +56,7 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
         value: None,
         format: Format::Plain,
         key_sign: KeySign::None,
+        key_literal: None,
         trailing_comment: None,
         read_only: false,
         text_range: to_range(syntax.text_range()),
@@ -130,6 +131,7 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
                 SyntaxKind::TABLE_HEADER => {
                     let path = header_path(&n);
                     let signs = header_key_signs(&n);
+                    let literals = header_key_literals(&n);
                     let key_ranges = header_key_ranges(&n);
                     let parent = path[..path.len().saturating_sub(1)].to_vec();
                     // Blocks separated from this header by a blank line trail the
@@ -137,10 +139,11 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
                     // blank) is its leading comment, attached to the header's parent.
                     let separated = std::mem::take(&mut blocks);
                     let adjacent = take_adjacent!();
-                    ensure_table_path(&mut root, &parent, &signs, &key_ranges, &n);
+                    ensure_table_path(&mut root, &parent, &signs, &literals, &key_ranges, &n);
                     flush_comments(&mut root, &current, separated, &mut idx, fresh_section);
                     flush_comments(&mut root, &parent, adjacent, &mut idx, false);
-                    fresh_section = ensure_table_path(&mut root, &path, &signs, &key_ranges, &n);
+                    fresh_section =
+                        ensure_table_path(&mut root, &path, &signs, &literals, &key_ranges, &n);
                     // A `[section]  # c` header carries its EOL comment as the
                     // table node's trailing comment (editable via SetTrailingComment).
                     if let Some(tc) = entry_trailing_comment(&n) {
@@ -154,6 +157,7 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
                 SyntaxKind::TABLE_ARRAY_HEADER => {
                     let path = header_path(&n);
                     let signs = header_key_signs(&n);
+                    let literals = header_key_literals(&n);
                     let key_ranges = header_key_ranges(&n);
                     let parent = path[..path.len().saturating_sub(1)].to_vec();
                     let aot_key = match path.last() {
@@ -166,7 +170,7 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
                     // group's parent).
                     let separated = std::mem::take(&mut blocks);
                     let adjacent = take_adjacent!();
-                    ensure_table_path(&mut root, &parent, &signs, &key_ranges, &n);
+                    ensure_table_path(&mut root, &parent, &signs, &literals, &key_ranges, &n);
                     let exists = node_at(&root, &path).is_some();
                     flush_comments(&mut root, &current, separated, &mut idx, fresh_section);
                     if exists {
@@ -181,6 +185,7 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
                             value: None,
                             format: Format::Plain,
                             key_sign: signs.last().copied().unwrap_or(KeySign::None),
+                            key_literal: literals.last().cloned(),
                             trailing_comment: None,
                             read_only: false,
                             // Synthetic group (like a Dotted table): per ADR 0006 it
@@ -207,6 +212,7 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
                         value: None,
                         format: Format::Plain,
                         key_sign: KeySign::None,
+                        key_literal: None,
                         // A `[[b]]  # c` header's EOL comment rides on the AoT entry.
                         trailing_comment: entry_trailing_comment(&n),
                         read_only: false,
@@ -253,6 +259,7 @@ fn flush_comments(
             value: Some(text),
             format: Format::Plain,
             key_sign: KeySign::None,
+            key_literal: None,
             trailing_comment: None,
             read_only: false,
             // A merged block anchors at its first line (never an envelope).
@@ -317,6 +324,7 @@ fn ensure_table_path(
     root: &mut Node,
     path: &[Seg],
     signs: &[KeySign],
+    literals: &[String],
     key_ranges: &[std::ops::Range<usize>],
     source: &SyntaxNode,
 ) -> bool {
@@ -337,6 +345,7 @@ fn ensure_table_path(
             value: None,
             format: Format::Scope,
             key_sign: signs.get(i).copied().unwrap_or(KeySign::None),
+            key_literal: literals.get(i).cloned(),
             trailing_comment: None,
             read_only: false,
             text_range: to_range(source.text_range()),
@@ -426,22 +435,54 @@ fn key_sign_of(key: &SyntaxNode) -> KeySign {
     }
 }
 
-/// The `Seg::Key` segments of a `KEY` node (its `IDENT` / quoted-string parts).
+/// The `Seg::Key` segments of a `KEY` node — the **decoded** key text (quotes
+/// stripped, basic-string escapes resolved), so a path segment is the key's
+/// semantic identity and never its source spelling. Use `key_literals` for the
+/// spelling.
+///
+/// taplo lexes a quoted key as an `IDENT` whose text *keeps* the quotes, so the
+/// `IDENT` arm must decode too — reading it raw is what used to leak `"a b"`
+/// (quotes included) into `Seg::Key`, corrupting schema lookups and conversion.
 fn key_segments(key: &SyntaxNode) -> Vec<Seg> {
     key.children_with_tokens()
         .filter_map(|c| match c {
             NodeOrToken::Token(t) => match t.kind() {
-                SyntaxKind::IDENT | SyntaxKind::IDENT_WITH_GLOB => {
-                    Some(Seg::Key(t.text().to_string()))
-                }
-                SyntaxKind::STRING | SyntaxKind::STRING_LITERAL => {
-                    Some(Seg::Key(unquote(t.text())))
-                }
+                SyntaxKind::IDENT
+                | SyntaxKind::IDENT_WITH_GLOB
+                | SyntaxKind::STRING
+                | SyntaxKind::STRING_LITERAL => Some(Seg::Key(unquote(t.text()))),
                 _ => None,
             },
             NodeOrToken::Node(_) => None,
         })
         .collect()
+}
+
+/// Per-segment **source spelling** of a `KEY` node's tokens — quote characters
+/// and escape sequences exactly as authored — aligned with `key_segments` /
+/// `key_signs` / `key_segment_ranges`. Feeds `Node.key_literal`.
+fn key_literals(key: &SyntaxNode) -> Vec<String> {
+    key.children_with_tokens()
+        .filter_map(|c| match c {
+            NodeOrToken::Token(t) => match t.kind() {
+                SyntaxKind::IDENT
+                | SyntaxKind::IDENT_WITH_GLOB
+                | SyntaxKind::STRING
+                | SyntaxKind::STRING_LITERAL => Some(t.text().trim().to_string()),
+                _ => None,
+            },
+            NodeOrToken::Node(_) => None,
+        })
+        .collect()
+}
+
+/// Per-segment key spellings of a header's `KEY` (empty if the header has none).
+fn header_key_literals(header: &SyntaxNode) -> Vec<String> {
+    header
+        .children()
+        .find(|c| c.kind() == SyntaxKind::KEY)
+        .map(|k| key_literals(&k))
+        .unwrap_or_default()
 }
 
 /// The dotted display join of a `KEY` (e.g. `a.b.c`).
@@ -456,11 +497,20 @@ fn key_display(key: &SyntaxNode) -> String {
         .join(".")
 }
 
-fn unquote(s: &str) -> String {
+/// Decode a key token's source text: drop matching surrounding quotes and, for a
+/// basic (`"…"`) string, resolve its escape sequences. A malformed escape falls
+/// back to the quote-stripped text rather than failing — projection must never
+/// reject a document the parser accepted.
+pub(crate) fn unquote(s: &str) -> String {
     let t = s.trim();
     let b = t.as_bytes();
     if b.len() >= 2 && (b[0] == b'"' || b[0] == b'\'') && b[b.len() - 1] == b[0] {
-        t[1..t.len() - 1].to_string()
+        let inner = &t[1..t.len() - 1];
+        if b[0] == b'"' {
+            return crate::model::cst_edit::escape::unescape_basic(inner, false)
+                .unwrap_or_else(|_| inner.to_string());
+        }
+        inner.to_string()
     } else {
         t.to_string()
     }
@@ -489,6 +539,14 @@ fn project_entry(entry: &SyntaxNode, scope: &[Seg], idx: &mut CstIndex) -> Node 
         Some(k) => (key_display(k), key_segments(k), key_sign_of(k)),
         None => (String::new(), Vec::new(), KeySign::None),
     };
+    // A single-segment key's spelling; a dotted key has no single literal (its
+    // `key` is the joined display form), matching `key_range` below.
+    let key_literal = key_node
+        .as_ref()
+        .and_then(|k| match key_literals(k).as_slice() {
+            [one] => Some(one.clone()),
+            _ => None,
+        });
     // The entry node spans its whole `key = value` (not just the VALUE); the key
     // range is the sole key segment's token (`project_entry` only ever sees
     // single-segment keys — dotted ones go through `project_entry_into`).
@@ -521,6 +579,7 @@ fn project_entry(entry: &SyntaxNode, scope: &[Seg], idx: &mut CstIndex) -> Node 
         ),
     };
     node.key_sign = sign;
+    node.key_literal = key_literal;
     // An inline table / array attaches its EOL comment to the ENTRY, not the VALUE,
     // so pick it up here as a fallback (a scalar already has it from its VALUE).
     if node.trailing_comment.is_none() {
@@ -555,6 +614,7 @@ fn project_entry_into(
         .as_ref()
         .map(key_segment_ranges)
         .unwrap_or_default();
+    let seg_literals = key_node.as_ref().map(key_literals).unwrap_or_default();
 
     // Single (or zero) segment: unchanged — one node directly under `scope`.
     if segs.len() <= 1 {
@@ -582,6 +642,7 @@ fn project_entry_into(
     let entry_range = to_range(entry.text_range());
     let entry_end = entry_range.end;
     let leaf_key_range = seg_ranges.last().cloned();
+    let leaf_key_literal = seg_literals.last().cloned();
     let value = entry.children().find(|c| c.kind() == SyntaxKind::VALUE);
     let mut node = match value {
         Some(v) => {
@@ -601,11 +662,12 @@ fn project_entry_into(
         ),
     };
     node.key_sign = KeySign::Dotted;
+    node.key_literal = leaf_key_literal;
     if node.trailing_comment.is_none() {
         node.trailing_comment = entry_trailing_comment(entry);
     }
 
-    ensure_dotted_chain(root, scope.len(), &full, entry, &seg_ranges);
+    ensure_dotted_chain(root, scope.len(), &full, entry, &seg_ranges, &seg_literals);
     append_child(root, &full[..full.len() - 1], node);
     if widen_scope {
         if let Some(container) = node_at_mut(root, scope) {
@@ -634,6 +696,7 @@ fn ensure_dotted_chain(
     full: &[Seg],
     source: &SyntaxNode,
     key_ranges: &[std::ops::Range<usize>],
+    key_literals: &[String],
 ) {
     for i in scope_len..full.len().saturating_sub(1) {
         if node_at(root, &full[..=i]).is_some() {
@@ -651,6 +714,7 @@ fn ensure_dotted_chain(
             value: None,
             format: Format::Dotted,
             key_sign: KeySign::Dotted,
+            key_literal: key_literals.get(i - scope_len).cloned(),
             trailing_comment: None,
             read_only: false,
             text_range: to_range(source.text_range()),
@@ -805,6 +869,7 @@ fn project_array(arr: &SyntaxNode, key: &str, path: Vec<Seg>, idx: &mut CstIndex
                                 value: Some(text),
                                 format: Format::Plain,
                                 key_sign: KeySign::None,
+                                key_literal: None,
                                 trailing_comment: None,
                                 read_only: false,
                                 // Anchors at this line (a merged group keeps its
@@ -868,6 +933,7 @@ fn project_inline(it: &SyntaxNode, key: &str, path: Vec<Seg>, idx: &mut CstIndex
             .as_ref()
             .map(key_segment_ranges)
             .unwrap_or_default();
+        let seg_literals = key_node.as_ref().map(key_literals).unwrap_or_default();
         let entry_range = to_range(c.text_range());
         let leaf_key_range = seg_ranges.last().cloned();
         let value = c.children().find(|v| v.kind() == SyntaxKind::VALUE);
@@ -889,6 +955,7 @@ fn project_inline(it: &SyntaxNode, key: &str, path: Vec<Seg>, idx: &mut CstIndex
             ),
         };
         node.key_sign = KeySign::Dotted;
+        node.key_literal = seg_literals.last().cloned();
         let mut cur = &mut n;
         for i in path.len()..full.len() - 1 {
             let sub = &full[..=i];
@@ -907,6 +974,7 @@ fn project_inline(it: &SyntaxNode, key: &str, path: Vec<Seg>, idx: &mut CstIndex
                         value: None,
                         format: Format::Dotted,
                         key_sign: KeySign::Dotted,
+                        key_literal: seg_literals.get(i - path.len()).cloned(),
                         trailing_comment: None,
                         read_only: false,
                         // ADR 0006: anchor at the first member's whole entry.
@@ -963,6 +1031,7 @@ fn leaf(
         value,
         format: Format::Plain,
         key_sign: KeySign::None,
+        key_literal: None,
         trailing_comment,
         read_only: false,
         text_range,
@@ -985,6 +1054,7 @@ fn branch(
         value: None,
         format: Format::Plain,
         key_sign: KeySign::None,
+        key_literal: None,
         trailing_comment: None,
         read_only: false,
         text_range,
@@ -1306,10 +1376,12 @@ Scalar(LocalTime) key="lt" sign=Bare val=Some("12:34:56") fmt=Plain trail=None
 
     #[test]
     fn golden_key_signs_and_new_formats() {
-        // Quoted key, inf/nan float formats, and the Inline/Multiline array facet.
+        // Quoted key (projects DECODED — the literal spelling lives in
+        // `key_literal`), inf/nan float formats, and the Inline/Multiline
+        // array facet.
         assert_projection(
             "\"q k\" = 1\npi = inf\nnn = -nan\nml = [\n  1,\n]\n",
-            r##"Scalar(Integer) key="\"q k\"" sign=Quoted val=Some("1") fmt=Decimal trail=None
+            r##"Scalar(Integer) key="q k" sign=Quoted val=Some("1") fmt=Decimal trail=None
 Scalar(Float) key="pi" sign=Bare val=Some("inf") fmt=Inf trail=None
 Scalar(Float) key="nn" sign=Bare val=Some("-nan") fmt=Nan trail=None
 Array key="ml" sign=Bare val=None fmt=Multiline trail=None

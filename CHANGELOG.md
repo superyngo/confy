@@ -6,6 +6,65 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Unreleased Update — 2026-08-28T14:30:00Z
+- **fix(core,web,tui): made a key's authored spelling a first-class projection
+  output (`Node.key_literal`), replacing the lossy `key_sign`-plus-synthesized-
+  quotes approach that four prior commits (`64db70a`, `af6adc7`, `4795e89`,
+  `8ef6af0`) kept patching site by site.** Plan:
+  `docs/superpowers/plans/2026-08-28-key-repr-first-class-literal.md`.
+
+  The three backends now agree on one contract: `Node.key`/`Seg::Key` hold the
+  **decoded** key (semantic identity — path resolution, collision checks,
+  JSON-Schema `properties` lookup, `to_value`/convert), while the new
+  `Node.key_literal: Option<String>` holds the key **exactly as authored**
+  (presentation + edit identity — tree row, Path line, rename/edit buffer).
+  Filled once during projection from the key token already in hand, so no
+  consumer re-walks the CST or invents a quote character.
+
+  Fixed, each verified on the real binary:
+  - **A single-quoted YAML key rendered with double quotes** everywhere the key
+    was displayed — Detail "Path:" line, `ViewRow.path_display`, and the tree
+    row. Three separate call sites hardcoded `'"'`
+    (`session.rs::human_path`, `confy-tui/src/tui/ui.rs::display_key`,
+    `web/kind-labels.ts::displayKey`) because `KeySign::Quoted` records *that*
+    a key was quoted, never *how*. `'a b'` now shows `'a b'`.
+  - **TOML→JSON conversion corrupted a quoted key**: `"a b" = 1` converted to
+    `{ "\"a b\"": 1 }`. taplo lexes a quoted key as an `IDENT` whose text keeps
+    the quotes, and `cst_project::key_segments` read it raw, so `Seg::Key` was
+    `"\"a b\""` (quotes included). Now decoded; converts to `{ "a b": 1 }`.
+    The same leak silently defeated JSON-Schema `properties` lookup
+    (`schema/hints_edit.rs`, `schema/dirty_check.rs`) for every quoted TOML key.
+  - **YAML's double-quoted decoder ignored `\xNN`/`\uNNNN`/`\UNNNNNNNN`**,
+    leaving the backslash sequence in the decoded key. Because YAML considers
+    `"a\x20b"` and `a b` the same key, the rename collision check could not see
+    the clash and silently wrote a document with two identical keys. Renaming
+    into that clash is now correctly rejected.
+  - `ConfigDocument::key_literal_text()` **deleted** — a YAML-only side channel
+    that re-`walk()`ed the whole tree per call (O(n)) and maintained a second,
+    drift-prone KEY-token lookup. Its two callers read `ViewRow.key_literal`.
+  - Per-format special cases **deleted**: `is_quoted_yaml_key` /
+    `isQuotedYamlKey`, the `DocFormat::Toml` "don't double-wrap" branch, and the
+    `DocFormat::Json` "don't wrap" branch. `web/kind-labels.ts::displayKey` was
+    inlined at its two call sites (project rule: no one-expression wrappers).
+  - `Seg::Key` for TOML is now decoded, so `cst_edit/tree_nav.rs::fragment_key_segs`
+    decodes identically (it had the same raw-`IDENT` bug) to keep collision
+    detection consistent. `quote_key_seg`/`path_key_display`/`prefix_section_headers`
+    already re-quoted decoded segments, confirming decoded was the original intent.
+
+  Scope notes: `Node.key_sign` is **kept** as a stored coarse facet — it also
+  carries `Dotted`, which `key_literal` cannot express — but is now documented as
+  never usable to reconstruct a spelling. JSON's `key_literal` is `None` by
+  contract: its keys are unconditionally `"…"`-quoted, so the authored spelling
+  adds no information, would put redundant quotes on every row, and would feed
+  `"key"` into a rename that re-quotes the name it is given.
+
+  `ViewRow` gained `key_literal` (additive; no `serde(deny_unknown_fields)`), and
+  the TUI's `RowSnapshot` mirrors it. Tests: `cargo test --workspace` green (31
+  binaries); the golden TOML projection expectation was updated (it pinned the
+  quote-leak bug); new coverage for single-quoted Path/tree-row rendering in
+  `session_headless.rs`, `confy-tui/src/tui/ui.rs` and `web/render.spec.mjs`, plus
+  `\x`/`\u`/`\U` decoder tests.
+
 ### Unreleased Update — 2026-08-28T09:00:00Z
 - fix(core,web,tui): completed the quoted-YAML-key rename/Path-display fix
   (see `docs/reference/yaml-quoted-key-edit-memo.md`). Reverted the earlier

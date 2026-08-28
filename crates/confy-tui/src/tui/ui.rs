@@ -46,28 +46,13 @@ pub(crate) fn cell_preview(s: &str) -> String {
     }
 }
 
-/// Wrap a quoted YAML key in display-only `"…"` so the tree row matches TOML's
-/// existing (accidental but established) behavior of showing quote marks for a
-/// quoted key — informational only, never fed back into rename/edit/collision
-/// logic (those read `Node.key`/`Seg::Key` directly, untouched by this).
-/// TOML already carries its quotes inside `key` itself (taplo lexes a quoted
-/// key's raw text, quotes included); JSON keys are unconditionally quoted, so
-/// wrapping them would just be noise on every row. YAML is the only backend
-/// that decodes its key to a bare string, hiding the quoting from the tree.
-pub(crate) fn is_quoted_yaml_key(key_sign: &str, format: crate::model::document::DocFormat) -> bool {
-    format == crate::model::document::DocFormat::Yaml && key_sign == "quoted"
-}
-
-pub(crate) fn display_key(
-    key: &str,
-    key_sign: &str,
-    format: crate::model::document::DocFormat,
-) -> String {
-    if is_quoted_yaml_key(key_sign, format) {
-        format!("\"{key}\"")
-    } else {
-        key.to_string()
-    }
+/// The tree-row label for a key: its **authored spelling** (`key_literal`) when
+/// the projection captured one, else the decoded key. Every backend goes through
+/// the same path — a quoted YAML key shows its own `"…"`/`'…'`, a quoted TOML key
+/// its own single set of quotes, a JSON key its `"…"` — so there are no
+/// per-format special cases and no synthesized quote characters here.
+pub(crate) fn display_key(key: &str, key_literal: Option<&str>) -> String {
+    key_literal.unwrap_or(key).to_string()
 }
 
 /// TYPE column cell: the precomputed fixed-pitch tag, with per-type colour. On
@@ -388,7 +373,7 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                 " "
             };
             let prefix = format!("{sel_marker}{indent}{marker}{warn_marker} ");
-            let disp_key = display_key(&row.key, &row.key_sign, app.doc_format());
+            let disp_key = display_key(&row.key, row.key_literal.as_deref());
             // Collapse the key to one line (a merged multi-line comment node's key
             // carries newlines) without disturbing the tree prefix/indent.
             let name = format!("{prefix}{}", cell_preview(&disp_key));
@@ -1331,15 +1316,14 @@ mod tests {
 
 
     #[test]
-    fn display_key_wraps_quoted_yaml_keys_but_not_toml_or_bare_yaml() {
-        use crate::model::document::DocFormat;
-        assert_eq!(display_key("a b", "quoted", DocFormat::Yaml), "\"a b\"");
-        assert_eq!(display_key("a", "bare", DocFormat::Yaml), "a");
-        // TOML already carries the quotes inside `key` itself (taplo's raw
-        // token text) — this helper must not double-wrap it.
-        assert_eq!(display_key("\"a b\"", "quoted", DocFormat::Toml), "\"a b\"");
-        // JSON keys are unconditionally quoted; wrapping would be pure noise.
-        assert_eq!(display_key("a", "quoted", DocFormat::Json), "a");
+    fn display_key_uses_the_authored_spelling_for_every_backend() {
+        // The row label is the literal when projection captured one — the quote
+        // characters come from the source, never from this helper.
+        assert_eq!(display_key("a b", Some("\"a b\"")), "\"a b\"");
+        assert_eq!(display_key("a b", Some("'a b'")), "'a b'");
+        assert_eq!(display_key("a", Some("a")), "a");
+        // Keyless rows (array elements, comments, root) have no literal.
+        assert_eq!(display_key("[0]", None), "[0]");
     }
 
     #[test]
@@ -1361,6 +1345,32 @@ mod tests {
         assert!(
             joined.contains("\"a b\""),
             "quoted YAML key must show quote marks in the tree row: {joined:?}"
+        );
+    }
+
+    #[test]
+    fn yaml_single_quoted_key_keeps_single_quotes_in_tree_row() {
+        let doc = crate::model::any_doc::AnyDocument::Yaml(
+            crate::model::yaml::doc::YamlDocument::from_str("'a b': 1\n").unwrap(),
+        );
+        let app = App::new(doc);
+        let mut terminal = Terminal::new(TestBackend::new(60, 8)).unwrap();
+        terminal.draw(|fr| draw(fr, &app)).unwrap();
+        let joined: String = (0..8)
+            .map(|y| {
+                (0..60)
+                    .map(|x| terminal.backend().buffer()[(x, y)].symbol().to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            joined.contains("'a b'"),
+            "single-quoted YAML key must keep ITS OWN quote style: {joined:?}"
+        );
+        assert!(
+            !joined.contains("\"a b\""),
+            "must not synthesize double quotes for a single-quoted key: {joined:?}"
         );
     }
     #[test]

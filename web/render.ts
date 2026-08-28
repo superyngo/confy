@@ -12,7 +12,7 @@
 // phases (kind popover, context menu, drag-reparent).
 import type { EditView, SessionSnapshot, ViewRow } from "./types.js";
 import { escapeHtml } from "./escape.js";
-import { displayKey, isCommentRow, isExpanded, isPositional, kindLabelParts, valueTypeClass } from "./kind-labels.js";
+import { isCommentRow, isExpanded, isPositional, kindLabelParts, valueTypeClass } from "./kind-labels.js";
 import { t } from "./i18n.js";
 
 // Re-export so existing importers (ui.ts / typefilter.ts / convert-dialog.ts)
@@ -164,13 +164,13 @@ export function renderRow(
     if (isPositional(r)) {
       s += `<span class="key elem">${escapeHtml(r.key)}</span>`;
     } else if (edit && r.is_cursor && edit.field === "Name") {
-      // The rename/edit buffer for a quoted YAML key now carries the
-      // literal quote characters itself (seeded from `key_literal_text` in
-      // core), so no separate decoration is drawn here — it would double
-      // the quotes. Plain input, same as any other key.
+      // The rename/edit buffer carries the key's authored spelling itself
+      // (seeded from core's `ViewRow.key_literal`), so no separate quote
+      // decoration is drawn here — it would double the quotes. Plain input,
+      // same as any other key.
       s += `<input class="cell-input key-input mono" data-editing="name" style="${editWidthStyle(edit.buffer)}" value="${escapeHtml(edit.buffer)}" />`;
     } else if (r.key) {
-      s += `<span class="key" data-edit="key">${escapeHtml(displayKey(r, docFormat))}</span>`;
+      s += `<span class="key" data-edit="key">${escapeHtml(r.key_literal ?? r.key)}</span>`;
     }
     if (r.is_branch) {
       s += `<span class="count">${r.child_count} ${r.child_count === 1 ? t("web.render.item.one") : t("web.render.item.many")}</span>`;

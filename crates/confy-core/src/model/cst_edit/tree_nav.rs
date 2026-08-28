@@ -58,8 +58,11 @@ pub(crate) fn inline_raw_member_index(idx: &CstIndex, parent: &Node, proj_index:
 }
 
 /// All key segments of the fragment's first `KEY` (`a.b.c = v` → `["a","b","c"]`),
-/// quotes stripped. A bare key yields one segment; a dotted key yields the chain —
-/// used to compute the inserted leaf's full projected path for collision detection.
+/// **decoded** — quotes stripped, basic-string escapes resolved — so the computed
+/// path matches `cst_project::key_segments` exactly. Collision detection compares
+/// these against projected `Seg::Key`s, so the two decoders must agree; taplo
+/// lexes a quoted key as an `IDENT` that keeps its quotes, hence that arm decodes
+/// too. A bare key yields one segment; a dotted key yields the chain.
 pub(crate) fn fragment_key_segs(root: &SyntaxNode) -> Vec<String> {
     let Some(key) = root.descendants().find(|n| n.kind() == SyntaxKind::KEY) else {
         return Vec::new();
@@ -67,11 +70,10 @@ pub(crate) fn fragment_key_segs(root: &SyntaxNode) -> Vec<String> {
     key.children_with_tokens()
         .filter_map(|c| match c {
             NodeOrToken::Token(t) => match t.kind() {
-                SyntaxKind::IDENT | SyntaxKind::IDENT_WITH_GLOB => Some(t.text().to_string()),
-                SyntaxKind::STRING | SyntaxKind::STRING_LITERAL => {
-                    let s = t.text().trim();
-                    Some(s[1..s.len().saturating_sub(1)].to_string())
-                }
+                SyntaxKind::IDENT
+                | SyntaxKind::IDENT_WITH_GLOB
+                | SyntaxKind::STRING
+                | SyntaxKind::STRING_LITERAL => Some(crate::model::cst_project::unquote(t.text())),
                 _ => None,
             },
             NodeOrToken::Node(_) => None,

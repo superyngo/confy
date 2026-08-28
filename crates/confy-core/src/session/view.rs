@@ -63,6 +63,11 @@ pub struct ViewRow {
     /// Key-sign label (`bare`/`quoted`/`dotted`/`none`) so a structured panel can
     /// show "Sign" without re-deriving it from the flat detail text.
     pub key_sign: String,
+    /// The key's **authored spelling** — quote characters and escapes intact —
+    /// or `None` for keyless rows (array elements, comments, root). `key` holds
+    /// the decoded form. Renders the tree-row label and seeds the rename/edit
+    /// buffer, so no host ever synthesizes a quote character.
+    pub key_literal: Option<String>,
     /// True for YAML opaque nodes and JSON block comments (read-only in the UI).
     pub read_only: bool,
     /// True when this row's path is in the session's live selection.

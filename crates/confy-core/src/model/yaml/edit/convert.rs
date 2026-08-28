@@ -637,6 +637,18 @@ pub(crate) fn decode_double(inner: &str) -> String {
                 Some('t') => out.push('\t'),
                 Some('"') => out.push('"'),
                 Some('\\') => out.push('\\'),
+                Some('x') => match decode_hex_escape('x', 2, &mut chars) {
+                    Ok(ch) => out.push(ch),
+                    Err(raw) => out.push_str(&raw),
+                },
+                Some('u') => match decode_hex_escape('u', 4, &mut chars) {
+                    Ok(ch) => out.push(ch),
+                    Err(raw) => out.push_str(&raw),
+                },
+                Some('U') => match decode_hex_escape('U', 8, &mut chars) {
+                    Ok(ch) => out.push(ch),
+                    Err(raw) => out.push_str(&raw),
+                },
                 Some(other) => {
                     out.push('\\');
                     out.push(other);
@@ -648,6 +660,29 @@ pub(crate) fn decode_double(inner: &str) -> String {
         }
     }
     out
+}
+
+fn decode_hex_escape(
+    prefix: char,
+    count: usize,
+    chars: &mut std::str::Chars,
+) -> Result<char, String> {
+    let mut buf = String::with_capacity(count);
+    for _ in 0..count {
+        if let Some(c) = chars.next() {
+            buf.push(c);
+        } else {
+            return Err(format!("\\{prefix}{buf}"));
+        }
+    }
+    if buf.chars().all(|c| c.is_ascii_hexdigit()) {
+        if let Ok(val) = u32::from_str_radix(&buf, 16) {
+            if let Some(ch) = char::from_u32(val) {
+                return Ok(ch);
+            }
+        }
+    }
+    Err(format!("\\{prefix}{buf}"))
 }
 
 pub(crate) fn convert_int(
@@ -729,4 +764,17 @@ pub(crate) fn convert_float(
         _ => unreachable!(),
     };
     splice_value_text(tree, &value, &format!("{rendered}\n"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decode_double_escapes() {
+        assert_eq!(decode_double(r#"a\x20b"#), "a b");
+        assert_eq!(decode_double(r#"a\u0020b"#), "a b");
+        assert_eq!(decode_double(r#"\U0001F600"#), "😀");
+        assert_eq!(decode_double(r#"a\xZZb"#), r#"a\xZZb"#);
+    }
 }

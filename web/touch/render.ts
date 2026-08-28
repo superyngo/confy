@@ -7,7 +7,7 @@
 // whole tree from each snapshot.
 import type { SessionSnapshot, ViewRow } from "../types.js";
 import { escapeHtml as esc } from "../escape.js";
-import { displayKey, isCommentRow, isExpanded, isPositional, kindLabelParts, valueTypeClass } from "../kind-labels.js";
+import { isCommentRow, isExpanded, isPositional, kindLabelParts, valueTypeClass } from "../kind-labels.js";
 
 // The shared quote-safe escaper, under this module's traditional short name.
 export { esc };
@@ -103,7 +103,7 @@ function rowHTML(
     // faint, full-width; swipe still reveals Edit/Delete.
     h += `<span class="comment" style="flex:1 1 auto;margin-left:0">${esc(r.value ?? "")}</span>`;
   } else {
-    h += `<span class="key${isPositional(r) ? " elem" : ""}">${esc(displayKey(r, docFormat))}</span>`;
+    h += `<span class="key${isPositional(r) ? " elem" : ""}">${esc(r.key_literal ?? r.key)}</span>`;
     if (branch) {
       h += `<span class="count">${r.child_count}</span>`;
       h += `<span class="kind" data-act="kind">${kindBadgeHTML(r)}</span>`;

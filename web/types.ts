@@ -73,6 +73,10 @@ export interface ViewRow {
   trailing_comment: string | undefined;
   // Key-sign label ("bare"/"quoted"/"dotted"/"none") for the structured "Sign" field.
   key_sign?: string;
+  // The key's authored spelling — quote characters and escapes intact — or
+  // undefined for keyless rows (array elements, comments, root). `key` holds
+  // the decoded form; this renders the tree-row label.
+  key_literal?: string | null;
   read_only: boolean;
   violations: string[] | undefined;
   selected: boolean;

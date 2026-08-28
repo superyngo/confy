@@ -2310,11 +2310,32 @@ fn detail_path_line_shows_quotes_for_quoted_yaml_key() {
 #[test]
 fn detail_path_line_does_not_double_quote_toml_key() {
     let mut s = toml_session("\"a b\" = 1\n");
-    s.cursor = vec![Seg::Key("\"a b\"".into())];
+    // The path segment is the DECODED key; the quotes live in `key_literal`.
+    s.cursor = vec![Seg::Key("a b".into())];
     s.open_detail();
     let text = s.detail_text.clone().unwrap();
     assert!(text.contains("\"a b\""), "expected single-quoted TOML key: {text}");
     assert!(!text.contains("\"\"a b\"\""), "TOML key must not be double-quoted: {text}");
+}
+
+#[test]
+fn detail_path_line_uses_the_authored_quote_style_for_yaml() {
+    // A single-quoted key must show single quotes — this is what the old
+    // synthesized `'"'` wrap got wrong for every non-double-quoted key.
+    let doc = AnyDocument::from_str_as("'a b':\n  c: 1\n", DocFormat::Yaml).unwrap();
+    let mut s = Session::new(doc);
+    s.expanded.insert(vec![Seg::Key("a b".into())]);
+    s.cursor = vec![Seg::Key("a b".into()), Seg::Key("c".into())];
+    s.open_detail();
+    let text = s.detail_text.clone().unwrap();
+    assert!(
+        text.contains("'a b'.c"),
+        "Path line must use the authored single quotes: {text}"
+    );
+    assert!(
+        !text.contains("\"a b\""),
+        "Path line must not synthesize double quotes: {text}"
+    );
 }
 
 #[test]
@@ -2335,9 +2356,23 @@ fn view_row_path_display_does_not_double_quote_toml_key() {
     let row = s
         .visible_rows()
         .into_iter()
-        .find(|r| r.key == "\"a b\"")
+        .find(|r| r.key == "a b")
         .unwrap();
     assert_eq!(row.path_display, "\"a b\"");
+    assert_eq!(row.key_literal.as_deref(), Some("\"a b\""));
+}
+
+#[test]
+fn view_row_path_display_uses_authored_single_quotes_for_yaml() {
+    let doc = AnyDocument::from_str_as("'a b': 1\n", DocFormat::Yaml).unwrap();
+    let s = Session::new(doc);
+    let row = s
+        .visible_rows()
+        .into_iter()
+        .find(|r| r.key == "a b")
+        .unwrap();
+    assert_eq!(row.path_display, "'a b'");
+    assert_eq!(row.key_literal.as_deref(), Some("'a b'"));
 }
 
 #[test]

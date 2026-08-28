@@ -121,45 +121,56 @@ console.log("\n-- renderRow(): branch schema-warning marker --");
   check("branch without descendant warning gets no warn-branch class", !htmlNoWarn.includes("warn-branch"));
 }
 
-// ---- renderRow: quoted YAML key shows quote marks, matching TOML (item 2) ----
-console.log("\n-- renderRow(): quoted-key display (YAML parity with TOML) --");
+// ---- renderRow: the key label is the authored spelling (key_literal) ----
+console.log("\n-- renderRow(): key label uses the authored spelling --");
 {
-  const row = makeRow({ key: "a b", key_sign: "quoted" });
+  const row = makeRow({ key: "a b", key_literal: '"a b"' });
   const htmlYaml = renderRow(row, 0, [row], null, null, "", false, "Yaml");
-  check('YAML quoted key renders as "a b"', htmlYaml.includes(">&quot;a b&quot;<"), htmlYaml);
-  const htmlYamlBare = renderRow(makeRow({ key: "a", key_sign: "bare" }), 0, [row], null, null, "", false, "Yaml");
-  check('YAML bare key has no added quotes', htmlYamlBare.includes('data-edit="key">a</span>'), htmlYamlBare);
-  // TOML already carries its quotes inside `key` itself; must not be double-wrapped.
-  const tomlRow = makeRow({ key: '"a b"', key_sign: "quoted" });
+  check('double-quoted key renders as "a b"', htmlYaml.includes(">&quot;a b&quot;<"), htmlYaml);
+  // A single-quoted key must keep ITS OWN quote style — the old code
+  // synthesized `"` for every quoted key regardless of source.
+  const sq = makeRow({ key: "a b", key_literal: "'a b'" });
+  const htmlSq = renderRow(sq, 0, [sq], null, null, "", false, "Yaml");
+  check("single-quoted key keeps single quotes", htmlSq.includes(">'a b'<"), htmlSq);
+  check(
+    "single-quoted key gains no double quotes",
+    !htmlSq.includes(">&quot;a b&quot;<") && !htmlSq.includes('>"a b"<'),
+    htmlSq,
+  );
+  const htmlBare = renderRow(makeRow({ key: "a", key_literal: "a" }), 0, [row], null, null, "", false, "Yaml");
+  check("bare key has no added quotes", htmlBare.includes('data-edit="key">a</span>'), htmlBare);
+  // A keyless/undefined literal falls back to the decoded key.
+  const noLit = makeRow({ key: "plain" });
+  const htmlNoLit = renderRow(noLit, 0, [noLit], null, null, "", false, "Json");
+  check("missing key_literal falls back to key", htmlNoLit.includes('data-edit="key">plain</span>'), htmlNoLit);
+  // TOML carries exactly one set of quotes; must not be double-wrapped.
+  const tomlRow = makeRow({ key: "a b", key_literal: '"a b"' });
   const htmlToml = renderRow(tomlRow, 0, [tomlRow], null, null, "", false, "Toml");
-  check('TOML quoted key is not double-quoted', !htmlToml.includes('""a b""'), htmlToml);
+  check("TOML quoted key is not double-quoted", !htmlToml.includes('""a b""'), htmlToml);
 }
 
 // ---- renderRow: quoted YAML key rename buffer carries literal quotes ----
 console.log("\n-- renderRow(): quoted-key rename input carries literal quotes --");
 {
-  // The rename buffer itself now carries the literal source text (quotes
-  // included), seeded from core's `key_literal_text` — mirroring TOML's
-  // rename buffer, which already carries its literal quotes. No separate
-  // decoration span is drawn.
-  const row = makeRow({ key: "a b", key_sign: "quoted", is_cursor: true });
+  // The rename buffer itself carries the authored spelling (quotes included),
+  // seeded from core's `ViewRow.key_literal`. No separate decoration span.
+  const row = makeRow({ key: "a b", key_literal: '"a b"', is_cursor: true });
   const edit = { field: "Name", buffer: '"a b"', cursor: 5, is_element: false, is_comment: false };
   const html = renderRow(row, 0, [row], edit, null, "", false, "Yaml");
-  check("YAML quoted-key rename input value carries literal quotes", html.includes('value="&quot;a b&quot;"'), html);
+  check("quoted-key rename input value carries literal quotes", html.includes('value="&quot;a b&quot;"'), html);
   check("no separate quote-decoration span is drawn", !html.includes("key-quote"), html);
 
-  // A bare YAML key's rename input is unaffected.
-  const bareRow = makeRow({ key: "a", key_sign: "bare", is_cursor: true });
+  // A single-quoted key's buffer carries ITS quote style.
+  const sqRow = makeRow({ key: "a b", key_literal: "'a b'", is_cursor: true });
+  const sqEdit = { field: "Name", buffer: "'a b'", cursor: 5, is_element: false, is_comment: false };
+  const sqHtml = renderRow(sqRow, 0, [sqRow], sqEdit, null, "", false, "Yaml");
+  check("single-quoted rename input keeps single quotes", sqHtml.includes("value=\"'a b'\""), sqHtml);
+
+  // A bare key's rename input is unaffected.
+  const bareRow = makeRow({ key: "a", key_literal: "a", is_cursor: true });
   const bareEdit = { field: "Name", buffer: "a", cursor: 1, is_element: false, is_comment: false };
   const bareHtml = renderRow(bareRow, 0, [bareRow], bareEdit, null, "", false, "Yaml");
-  check("YAML bare-key rename input has no quote decoration", !bareHtml.includes("key-quote"), bareHtml);
-
-  // TOML's key already carries its quotes inside `row.key`/`edit.buffer` itself
-  // (unrelated to `key_sign` display wrapping) — no extra decoration is added.
-  const tomlEditRow = makeRow({ key: '"a b"', key_sign: "quoted", is_cursor: true });
-  const tomlEdit = { field: "Name", buffer: '"a b"', cursor: 5, is_element: false, is_comment: false };
-  const tomlHtml = renderRow(tomlEditRow, 0, [tomlEditRow], tomlEdit, null, "", false, "Toml");
-  check("TOML quoted-key rename input has no extra quote decoration", !tomlHtml.includes("key-quote"), tomlHtml);
+  check("bare-key rename input has no quote decoration", !bareHtml.includes("key-quote"), bareHtml);
 }
 
 // ---- panelHTML: value / trailing_comment ----

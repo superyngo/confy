@@ -124,23 +124,6 @@ export function isPositional(r: ViewRow): boolean {
   return last !== undefined && "Index" in last;
 }
 
-// Wrap a quoted YAML key in display-only `"…"` so the tree row matches TOML's
-// existing (accidental but established) behavior of showing quote marks for a
-// quoted key — informational only, never fed back into rename/edit/collision
-// logic (those read `r.path`'s raw `Seg::Key`, untouched by this). TOML
-// already carries its quotes inside `r.key` itself (taplo lexes a quoted
-// key's raw text, quotes included); JSON keys are unconditionally quoted, so
-// wrapping them would just be noise on every row. YAML is the only backend
-// that decodes its key to a bare string, hiding the quoting from the tree.
-// Mirrors the TUI's `display_key` (crates/confy-tui/src/tui/ui.rs).
-export function isQuotedYamlKey(r: ViewRow, docFormat: string): boolean {
-  return docFormat === "Yaml" && r.key_sign === "quoted";
-}
-
-export function displayKey(r: ViewRow, docFormat: string): string {
-  return isQuotedYamlKey(r, docFormat) ? `"${r.key}"` : r.key;
-}
-
 // A branch is open iff the next visible row is one level deeper (the
 // snapshot only carries visible rows, so there's no `.expanded` flag to read
 // directly). Previously duplicated across render.ts and touch/render.ts.
