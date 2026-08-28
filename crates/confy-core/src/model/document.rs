@@ -24,9 +24,15 @@ pub trait ConfigDocument: Sized {
     fn format(&self) -> DocFormat;
     /// Line-comment leader for this format ("#" / "//").
     fn comment_prefix(&self) -> &'static str;
-    /// Whether authored comments are currently legal in this document
-    /// (false only for a pure `.json` before the JSONC upgrade, Phase 2).
-    fn supports_comments(&self) -> bool;
+    /// Whether this document already contained an authored comment when it was
+    /// loaded (content-derived, fixed at construction — never a write
+    /// permission). Used only to drive the one-shot "file already had
+    /// comments" load-time toast. Defaults `false`; only `JsonDocument`
+    /// overrides it, since TOML/YAML have no "this format silently accepted a
+    /// foreign notation" surprise to report.
+    fn had_comments_at_open(&self) -> bool {
+        false
+    }
 
     /// The kinds/notations the node at `path` can convert to via
     /// [`Mutation::ConvertKind`], as `(label, target)` pairs — the current

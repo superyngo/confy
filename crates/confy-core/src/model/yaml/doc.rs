@@ -60,10 +60,6 @@ impl ConfigDocument for YamlDocument {
         "#"
     }
 
-    fn supports_comments(&self) -> bool {
-        true
-    }
-
     fn kind_options(&self, path: &[Seg]) -> Vec<(String, KindTarget)> {
         kind_options(&self.project(), path)
     }
@@ -276,7 +272,6 @@ mod tests {
         assert!(!doc.is_dirty());
         assert_eq!(doc.format(), DocFormat::Yaml);
         assert_eq!(doc.comment_prefix(), "#");
-        assert!(doc.supports_comments());
     }
 
     #[test]

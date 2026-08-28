@@ -63,12 +63,6 @@ impl AnyDocument {
         delegate!(self, d => d.replace_from_str(s))
     }
 
-    /// Accept the JSONC upgrade (enables authored comments). No-op for TOML.
-    pub fn enable_comments(&mut self) {
-        if let AnyDocument::Json(d) = self {
-            d.enable_comments();
-        }
-    }
 }
 
 impl ConfigDocument for AnyDocument {
@@ -96,8 +90,8 @@ impl ConfigDocument for AnyDocument {
     fn comment_prefix(&self) -> &'static str {
         delegate!(self, d => d.comment_prefix())
     }
-    fn supports_comments(&self) -> bool {
-        delegate!(self, d => d.supports_comments())
+    fn had_comments_at_open(&self) -> bool {
+        delegate!(self, d => d.had_comments_at_open())
     }
     fn kind_options(&self, path: &[Seg]) -> Vec<(String, KindTarget)> {
         delegate!(self, d => d.kind_options(path))
@@ -198,11 +192,11 @@ mod tests {
     }
 
     #[test]
-    fn json_from_str_enables_comments_from_content_only() {
-        // `.jsonc`-extension enabling lives in `load`; `from_str` keys off content.
+    fn json_from_str_content_only_sets_had_comments_at_open() {
+        // `had_comments_at_open` keys off content only — no other trigger exists.
         let plain = JsonDocument::from_str("{}\n").unwrap();
-        assert!(!plain.supports_comments());
+        assert!(!plain.had_comments_at_open());
         let commented = JsonDocument::from_str("// hi\n{}\n").unwrap();
-        assert!(commented.supports_comments());
+        assert!(commented.had_comments_at_open());
     }
 }

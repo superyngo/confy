@@ -75,9 +75,6 @@ impl ConfigDocument for CstDocument {
     fn comment_prefix(&self) -> &'static str {
         "#"
     }
-    fn supports_comments(&self) -> bool {
-        true
-    }
 
     fn kind_options(&self, path: &[Seg]) -> Vec<(String, KindTarget)> {
         use crate::model::document::KindTarget as KT;
@@ -411,7 +408,6 @@ mod tests {
         let doc = cst_from_str("a = 1\n");
         assert_eq!(doc.format(), DocFormat::Toml);
         assert_eq!(doc.comment_prefix(), "#");
-        assert!(doc.supports_comments());
     }
 
     #[test]

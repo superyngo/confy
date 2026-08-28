@@ -14,11 +14,11 @@ pub struct JsonDocument {
     pub(crate) clean: bool,
     /// Display label for the projection root (host sets it from the source path).
     pub(crate) filename: String,
-    /// True once authored comments are legal: the file already contained a `//`
-    /// or `/* */` at load, OR the host enabled it for a `.jsonc` extension, OR the
-    /// user accepted the JSONC upgrade this session. A pure `.json` with no
-    /// comments starts false.
-    pub(crate) comments_enabled: bool,
+    /// True iff the file already contained a `//` or `/* */` comment when it
+    /// was loaded (content-derived at `from_str`, never written after
+    /// construction — comments are always legal to author, so there is
+    /// nothing left to "enable").
+    pub(crate) had_comments_at_open: bool,
 }
 
 impl ConfigDocument for JsonDocument {
@@ -63,8 +63,8 @@ impl ConfigDocument for JsonDocument {
         "//"
     }
 
-    fn supports_comments(&self) -> bool {
-        self.comments_enabled
+    fn had_comments_at_open(&self) -> bool {
+        self.had_comments_at_open
     }
 
     fn kind_options(&self, path: &[Seg]) -> Vec<(String, KindTarget)> {
@@ -135,10 +135,9 @@ pub(crate) fn split_value_comment(buffer: &str) -> (String, Option<String>) {
 }
 
 impl JsonDocument {
-    /// Parse a document from in-memory text (no file system). `comments_enabled`
-    /// is derived from content only (a `//` or `/* */` present); the host OR's the
-    /// `.jsonc` extension in via [`enable_comments`](Self::enable_comments). The
-    /// projection root label (`filename`) starts empty; the host sets it via
+    /// Parse a document from in-memory text (no file system). `had_comments_at_open`
+    /// is derived from content only (a `//` or `/* */` present at load).
+    /// The projection root label (`filename`) starts empty; the host sets it via
     /// [`set_filename`](Self::set_filename).
     #[allow(clippy::should_implement_trait)] // named per PORTING.md; see cst_doc.rs
     pub fn from_str(text: &str) -> anyhow::Result<Self> {
@@ -146,7 +145,7 @@ impl JsonDocument {
             .map_err(|e| anyhow::anyhow!("parsing JSON: {e}"))?;
         // Derived from the token stream, not raw text, so a `//` inside a string
         // value does not count as a comment.
-        let comments_enabled = crate::model::json::parse::lex(text).iter().any(|(k, _)| {
+        let had_comments_at_open = crate::model::json::parse::lex(text).iter().any(|(k, _)| {
             matches!(
                 k,
                 crate::model::json::syntax::SyntaxKind::LINE_COMMENT
@@ -158,7 +157,7 @@ impl JsonDocument {
             original: text.to_string(),
             clean: true,
             filename: String::new(),
-            comments_enabled,
+            had_comments_at_open,
         })
     }
 
@@ -177,11 +176,6 @@ impl JsonDocument {
         self.syntax = SyntaxNode::new_root(green);
         self.clean = false;
         Ok(())
-    }
-
-    /// Accept the JSONC upgrade: authored comments become legal for this session.
-    pub fn enable_comments(&mut self) {
-        self.comments_enabled = true;
     }
 }
 
@@ -222,14 +216,12 @@ mod tests {
     use super::*;
     use crate::model::document::{ConfigDocument, DocFormat};
 
-    /// Parse `s`, mimicking the host's `.jsonc`-extension comment-enable so the
-    /// extension-driven tests still exercise that path without touching the fs.
-    fn json_from_str(ext: &str, s: &str) -> JsonDocument {
-        let mut doc = JsonDocument::from_str(s).unwrap();
-        if ext.eq_ignore_ascii_case(".jsonc") {
-            doc.enable_comments();
-        }
-        doc
+    /// Parse `s`. The `ext` parameter is now unused (extension no longer
+    /// drives any comment-related fact) but kept so call sites read the same;
+    /// tests exercising the old `.jsonc`-extension trigger are deleted below
+    /// since that trigger no longer exists.
+    fn json_from_str(_ext: &str, s: &str) -> JsonDocument {
+        JsonDocument::from_str(s).unwrap()
     }
 
     #[test]
@@ -243,29 +235,23 @@ mod tests {
     }
 
     #[test]
-    fn pure_json_starts_without_comment_support() {
+    fn pure_json_has_no_comments_at_open() {
         let doc = json_from_str(".json", "{}\n");
-        assert!(!doc.supports_comments());
+        assert!(!doc.had_comments_at_open());
     }
 
     #[test]
-    fn jsonc_extension_supports_comments() {
-        let doc = json_from_str(".jsonc", "{}\n");
-        assert!(doc.supports_comments());
-    }
-
-    #[test]
-    fn existing_comment_enables_support() {
+    fn existing_comment_sets_had_comments_at_open() {
         let doc = json_from_str(".json", "// hi\n{}\n");
-        assert!(doc.supports_comments());
+        assert!(doc.had_comments_at_open());
     }
 
     #[test]
-    fn slashes_inside_string_do_not_enable_comments() {
+    fn slashes_inside_string_do_not_set_had_comments_at_open() {
         let doc = json_from_str(".json", "{\n  \"url\": \"https://a.com\"\n}\n");
-        assert!(!doc.supports_comments());
+        assert!(!doc.had_comments_at_open());
         let doc = json_from_str(".json", "{\n  \"glob\": \"/* not a comment */\"\n}\n");
-        assert!(!doc.supports_comments());
+        assert!(!doc.had_comments_at_open());
     }
 
     #[test]
@@ -340,14 +326,6 @@ mod tests {
     #[test]
     fn from_str_rejects_invalid() {
         assert!(JsonDocument::from_str("{ \"a\": }").is_err());
-    }
-
-    #[test]
-    fn enable_comments_then_supports() {
-        let mut doc = json_from_str(".json", "{}\n");
-        assert!(!doc.supports_comments());
-        doc.enable_comments();
-        assert!(doc.supports_comments());
     }
 
     #[test]
