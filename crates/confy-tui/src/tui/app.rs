@@ -1830,7 +1830,7 @@ mod tests {
     }
 
     #[test]
-    fn pure_json_remark_prompts_then_upgrades() {
+    fn pure_json_remark_applies_immediately_no_prompt() {
         let doc = crate::model::any_doc::AnyDocument::from_str_as(
             "{\n  \"a\": 1\n}\n",
             crate::model::document::DocFormat::Json,
@@ -1844,32 +1844,18 @@ mod tests {
         let ai = app.rows.iter().position(|r| r.key == "a").unwrap();
         app.select_row(ai);
 
-        // Remark on a live node in a pure .json must show the JSONC-upgrade prompt.
+        // Remark on a live node in a pure .json must apply immediately, same as
+        // TOML/YAML — no write-permission prompt exists anymore.
         app.remark();
         assert!(
-            matches!(
-                app.session.mode,
-                Mode::Prompt(PromptKind::JsoncUpgrade { .. })
-            ),
-            "expected JsoncUpgrade prompt, got {:?}",
+            matches!(app.session.mode, Mode::Normal),
+            "expected no prompt, got {:?}",
             std::mem::discriminant(&app.session.mode)
         );
-        // Document must be unchanged at this point.
-        assert!(
-            !app.session.doc.as_ref().unwrap().is_dirty(),
-            "doc must be clean while prompt is pending"
-        );
-
-        // Confirm with 'y' — should enable comments and apply the remark.
-        app.handle_prompt_key('y');
         let s = app.session.doc.as_ref().unwrap().serialize();
         assert!(
             s.contains("//"),
-            "after upgrade the serialized output must contain a // comment: {s:?}"
-        );
-        assert!(
-            app.session.doc.as_ref().unwrap().supports_comments(),
-            "doc must now support comments"
+            "remark must have applied a // comment: {s:?}"
         );
     }
 
@@ -3433,13 +3419,12 @@ mod tests {
     // --- Task 19: read-only guards for block-comment nodes ---
 
     fn app_with_jsonc(src: &str) -> App {
-        // Mimic the host's `.jsonc`-extension comment-enable.
-        let mut doc = crate::model::any_doc::AnyDocument::from_str_as(
+        // Comments are unconditionally legal now — no enable step needed.
+        let doc = crate::model::any_doc::AnyDocument::from_str_as(
             src,
             crate::model::document::DocFormat::Json,
         )
         .unwrap();
-        doc.enable_comments();
         App::new(doc)
     }
 

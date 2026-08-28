@@ -40,15 +40,15 @@ pub fn run(
     // extension is plain `.json` (not `.jsonc`); confy-core treats both
     // identically as `DocFormat::Json`. A one-shot toast additionally fires
     // when the file already had comments at open (the "surprise" case) —
-    // comments added later via the interactive JSONC-upgrade prompt are
-    // already self-explanatory and don't need a second notice.
+    // comments added later in-session are covered by the persistent
+    // `comment_advisory` row projection instead and don't need a second notice.
     let is_plain_json = path
         .extension()
         .and_then(|e| e.to_str())
         .is_some_and(|e| e.eq_ignore_ascii_case("json"));
     if is_plain_json {
         app.session.strict_json = true;
-        if app.session.doc.as_ref().is_some_and(|d| d.supports_comments()) {
+        if app.session.doc.as_ref().is_some_and(|d| d.had_comments_at_open()) {
             app.session.dispatch(confy_core::session::Intent::SetHostNotice {
                 key: "tui.host.json-comments-detected".to_string(),
                 args: vec![],

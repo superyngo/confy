@@ -14,9 +14,9 @@ use model::document::DocFormat;
 use std::path::Path;
 
 /// Host-side file load — the filesystem boundary. The core never reads files: this
-/// reads the bytes, parses via the headless [`AnyDocument::from_str_as`], applies
-/// the path-derived display label, and enables JSONC comments for a `.jsonc`
-/// extension (the content-based enable already happens in the core parser).
+/// reads the bytes, parses via the headless [`AnyDocument::from_str_as`], and
+/// applies the path-derived display label. Comments are unconditionally legal
+/// in every `.json`/`.jsonc` document; no extension-driven setup is needed.
 pub fn load_document(path: &Path, format: DocFormat) -> anyhow::Result<AnyDocument> {
     let text =
         std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
@@ -27,14 +27,6 @@ pub fn load_document(path: &Path, format: DocFormat) -> anyhow::Result<AnyDocume
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.display().to_string());
     doc.set_filename(filename);
-    // A `.jsonc` extension enables authored comments even on a file with none yet.
-    if path
-        .extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| e.eq_ignore_ascii_case("jsonc"))
-    {
-        doc.enable_comments();
-    }
     Ok(doc)
 }
 
@@ -60,18 +52,26 @@ mod tests {
     }
 
     #[test]
-    fn load_document_enables_comments_for_jsonc_extension() {
-        // A `.jsonc` file with no authored comments yet still gets comment support.
+    fn load_document_jsonc_extension_still_loads_correctly() {
+        // Extension no longer drives any comment-related fact; a `.jsonc` file
+        // with no authored comments yet loads exactly like `.json` would.
         let f = write_temp(".jsonc", "{}\n");
         let doc = load_document(f.path(), DocFormat::Json).unwrap();
-        assert!(doc.supports_comments());
+        assert!(!doc.had_comments_at_open());
     }
 
     #[test]
-    fn load_document_pure_json_stays_comment_free() {
+    fn load_document_json_with_existing_comment_sets_had_comments_at_open() {
+        let f = write_temp(".json", "// hi\n{}\n");
+        let doc = load_document(f.path(), DocFormat::Json).unwrap();
+        assert!(doc.had_comments_at_open());
+    }
+
+    #[test]
+    fn load_document_pure_json_has_no_comments_at_open() {
         let f = write_temp(".json", "{}\n");
         let doc = load_document(f.path(), DocFormat::Json).unwrap();
-        assert!(!doc.supports_comments());
+        assert!(!doc.had_comments_at_open());
     }
 
     #[test]
