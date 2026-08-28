@@ -30,8 +30,7 @@ pub use selection::{normalize, Selection};
 pub use session::Session;
 pub use state::{
     Clipboard, ConvertState, ConvertStep, EditField, EditKind, EditState, FilterLayer, HelpTab,
-    History, KindSwitchState, Mode, PasteSlot, PendingComment, PendingCommit, PendingExternalEdit,
-    PromptKind,
+    History, KindSwitchState, Mode, PasteSlot, PendingCommit, PendingExternalEdit, PromptKind,
 };
 pub use status_fmt::{format_label, node_type_label, node_type_label_str};
 pub use type_filter::{

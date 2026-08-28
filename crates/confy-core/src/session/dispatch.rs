@@ -560,7 +560,6 @@ fn prompt_view(pk: &PromptKind) -> PromptView {
         PromptKind::Collision { .. } => PromptView::Collision,
         PromptKind::TypeChange { .. } => PromptView::TypeChange,
         PromptKind::ArrayUpgrade { .. } => PromptView::ArrayUpgrade,
-        PromptKind::JsoncUpgrade { .. } => PromptView::JsoncUpgrade,
     }
 }
 
@@ -586,6 +585,5 @@ pub fn prompt_question(lang: Lang, pk: &PromptKind) -> String {
             tr_args(lang, "core.prompt.type-change", &[from, to])
         }
         PromptKind::ArrayUpgrade { .. } => tr_args(lang, "core.prompt.array-upgrade", &[]),
-        PromptKind::JsoncUpgrade { .. } => tr_args(lang, "core.prompt.jsonc-upgrade", &[]),
     }
 }

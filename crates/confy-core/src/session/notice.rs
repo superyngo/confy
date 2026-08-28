@@ -51,7 +51,7 @@ pub fn severity_of(key: &str) -> Severity {
         | "tui.host.convert-write-failed" | "tui.host.editor-error" | "tui.host.no-save-path"
         | "tui.host.save-error" | "tui.lang.save-failed" => Severity::Error,
 
-        "core.readonly" | "core.clipboard.action-locked" | "core.comment.unsupported"
+        "core.readonly" | "core.clipboard.action-locked"
         | "core.trailing.inline-unsupported" | "core.reveal.hidden-by-filter" | "core.move.self"
         | "core.insert.collision" | "core.rename.empty-key" | "core.value.invalid"
         | "core.comment.invalid" | "core.fragment.invalid" | "core.remark.invalid"
@@ -100,7 +100,6 @@ mod tests {
             ("core.kind-switch.error", Severity::Error),
             ("core.readonly", Severity::Warn),
             ("core.clipboard.action-locked", Severity::Warn),
-            ("core.comment.unsupported", Severity::Warn),
             ("core.trailing.inline-unsupported", Severity::Warn),
             ("core.reveal.hidden-by-filter", Severity::Warn),
             ("core.move.self", Severity::Warn),
@@ -130,7 +129,7 @@ mod tests {
             ("core.add.placeholder", Severity::Info),
             ("core.convert.aborted", Severity::Info),
         ];
-        assert_eq!(cases.len(), 42, "42 keys: §2.2's 41 (11 Error + 14 Warn + 7 Success + 9 Info) + controller-approved core.schema.violation (pass-through wrapper for the dynamic schema-violation advisory)");
+        assert_eq!(cases.len(), 41, "41 keys: §2.2's 40 (11 Error + 13 Warn + 7 Success + 9 Info) + controller-approved core.schema.violation (pass-through wrapper for the dynamic schema-violation advisory)");
         for (key, expected) in cases {
             assert_eq!(severity_of(key), *expected, "key {key} classified wrong");
         }

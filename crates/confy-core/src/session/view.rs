@@ -152,7 +152,6 @@ pub enum PromptView {
     Collision,
     TypeChange,
     ArrayUpgrade,
-    JsoncUpgrade,
 }
 
 /// The inline-edit surface projected for the UI.

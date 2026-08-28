@@ -361,11 +361,7 @@ impl Session {
             EditField::Name => (e.buffer.clone(), e.other_buffer.clone()),
         };
         let is_element = matches!(e.path.last(), Some(Seg::Index(_)));
-        let split = self
-            .doc
-            .as_ref()
-            .filter(|d| d.supports_comments())
-            .map(|d| d.split_value_comment(&raw_value));
+        let split = self.doc.as_ref().map(|d| d.split_value_comment(&raw_value));
         let (value_str, new_trailing) = match split {
             Some((v, c)) => (v, c),
             None => (raw_value.clone(), None),
@@ -908,10 +904,6 @@ impl Session {
             Some(d) => d,
             None => return,
         };
-        if !doc.supports_comments() {
-            self.set_notice(Notice::core(self.lang, "core.comment.unsupported", &[]));
-            return;
-        }
         // A leading blank line keeps the new comment a *separate* single-line node
         // instead of merging into the adjacent comment (consecutive `#` lines
         // project as one node; a blank splits them).

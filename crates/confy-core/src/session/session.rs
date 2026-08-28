@@ -11,7 +11,7 @@ use crate::session::search::{fuzzy_match, haystack};
 use crate::session::selection::Selection;
 use crate::session::state::{
     Clipboard, EditKind, EditState, FilterLayer, HelpTab, History, KindSwitchState, Mode,
-    PasteSlot, PendingComment, PendingCommit, PendingExternalEdit, PromptKind,
+    PasteSlot, PendingCommit, PendingExternalEdit, PromptKind,
 };
 use crate::session::type_filter::TypeFilter;
 use crate::session::view::{ChildView, OutlineNode, ViewRow};
@@ -1959,26 +1959,6 @@ impl Session {
                 match self.clipboard.take() {
                     Some(cb) => self.do_paste(cb, target, oc, true),
                     None => self.notice = None,
-                }
-                false
-            }
-            Mode::Prompt(PromptKind::JsoncUpgrade { .. }) => {
-                match c {
-                    'y' | 'Y' => {
-                        if let Mode::Prompt(PromptKind::JsoncUpgrade { pending }) =
-                            std::mem::replace(&mut self.mode, Mode::Normal)
-                        {
-                            if let Some(d) = self.doc.as_mut() {
-                                d.enable_comments();
-                            }
-                            match pending {
-                                PendingComment::Remark { path } => self.do_remark(path),
-                            }
-                        }
-                    }
-                    _ => {
-                        self.mode = self.resting_mode();
-                    }
                 }
                 false
             }

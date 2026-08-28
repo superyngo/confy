@@ -5,7 +5,7 @@
 use crate::model::document::{ConfigDocument, MutateError, Mutation, OnCollision, Target};
 use crate::model::node::{NodeKind, Path};
 use crate::session::notice::Notice;
-use crate::session::state::{Clipboard, Mode, PendingComment, PromptKind};
+use crate::session::state::{Clipboard, Mode, PromptKind};
 
 use super::session::Session;
 
@@ -443,22 +443,6 @@ impl Session {
             Some(r) => r.path,
             None => return,
         };
-        let authoring = self
-            .tree
-            .node_at(&path)
-            .map(|n| !matches!(n.kind, NodeKind::Comment(_)))
-            .unwrap_or(false);
-        let supports = self
-            .doc
-            .as_ref()
-            .map(|d| d.supports_comments())
-            .unwrap_or(true);
-        if authoring && !supports {
-            self.mode = Mode::Prompt(PromptKind::JsoncUpgrade {
-                pending: PendingComment::Remark { path },
-            });
-            return;
-        }
         self.do_remark(path);
     }
 

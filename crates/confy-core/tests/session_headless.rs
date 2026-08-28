@@ -1492,6 +1492,44 @@ fn add_comment_sibling_jsonc() {
 }
 
 #[test]
+fn remark_never_prompts_on_clean_json() {
+    // Remarking a live node on a pure `.json` (no prior comments) applies
+    // immediately — no JsoncUpgrade prompt exists anymore.
+    let doc = AnyDocument::from_str_as("{\n  \"a\": 1\n}\n", DocFormat::Json).unwrap();
+    let mut s = Session::new(doc);
+    s.dispatch(Intent::SetCursor(vec![Seg::Key("a".into())]));
+    let snap = s.dispatch(Intent::Remark);
+    assert!(
+        matches!(snap.mode, ModeView::Normal),
+        "expected no prompt, got {:?}",
+        snap.mode
+    );
+    assert!(snap.notice.is_none(), "no notice should be set");
+    assert!(s.serialize().unwrap().contains("//"));
+}
+
+#[test]
+fn add_comment_sibling_never_blocked_on_clean_json() {
+    // A pure `.json` with no comments at load: remark the first node into a
+    // comment (unconditionally legal, per the test above), then add a
+    // sibling comment next to it — also unconditionally legal, no notice.
+    let doc = AnyDocument::from_str_as("{\n  \"a\": 1,\n  \"b\": 2\n}\n", DocFormat::Json).unwrap();
+    let mut s = Session::new(doc);
+    s.dispatch(Intent::SetCursor(vec![Seg::Key("a".into())]));
+    s.dispatch(Intent::Remark);
+    // Cursor now sits on the freshly-created comment row (same visible index).
+    let snap = s.dispatch(Intent::AddSibling);
+    assert!(matches!(&snap.mode, ModeView::Edit(e) if e.is_comment));
+    assert!(snap.notice.is_none(), "no notice should be set");
+    s.dispatch(Intent::CommitEdit {
+        value: Some("// hi".into()),
+        name: None,
+    });
+    let out = s.serialize().unwrap();
+    assert_eq!(out.matches("//").count(), 2, "two comment nodes: {out:?}");
+}
+
+#[test]
 fn enter_help_defaults_to_help_tab_and_toggle_flips_to_about() {
     let mut s = toml_session("a = 1\n");
     s.dispatch(Intent::EnterHelp);

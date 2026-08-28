@@ -164,13 +164,6 @@ pub enum PromptKind {
         target: Target,
         on_collision: crate::model::document::OnCollision,
     },
-    JsoncUpgrade {
-        pending: PendingComment,
-    },
-}
-
-pub enum PendingComment {
-    Remark { path: Path },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
