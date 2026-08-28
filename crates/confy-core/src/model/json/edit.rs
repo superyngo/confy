@@ -192,14 +192,14 @@ fn parse_member_fragment(fragment: &str) -> Option<SyntaxNode> {
 /// member (`"key": value  // c`), if it wrote one. Used so an edited comment
 /// coming back from the popup editor / `$EDITOR` actually applies, instead of
 /// `replace()`'s default of leaving the pre-edit comment untouched.
-fn fragment_member_trailing_comment(fragment: &str) -> Option<String> {
+pub(crate) fn fragment_member_trailing_comment(fragment: &str) -> Option<String> {
     fragment_trailing_comment(&format!("{{{fragment}\n}}"))
 }
 
 /// Same as `fragment_member_trailing_comment` for a bare array-element
 /// fragment (`value  // c`, no key) — wrapped under a synthetic key so the
 /// same VALUE/COMMA/COMMENT position rules apply.
-fn fragment_element_trailing_comment(fragment: &str) -> Option<String> {
+pub(crate) fn fragment_element_trailing_comment(fragment: &str) -> Option<String> {
     fragment_trailing_comment(&format!("{{\"__elem__\": {fragment}\n}}"))
 }
 
@@ -560,13 +560,39 @@ fn key_name_of(key_node: &SyntaxNode) -> String {
 /// identity (not text) so duplicate-text siblings resolve correctly.
 type ItemAnchor = rowan::NodeOrToken<SyntaxNode, SyntaxToken>;
 
+/// Sentinel separating a merged item's own text from its trailing same-line
+/// comment (see `collect_items_with_anchors`) — never appears in real JSON
+/// text, so it's safe as an internal-only marker between `collect_items*`
+/// and `rebuild_multiline`/`rebuild_inline`.
+const TRAILING_MARKER: char = '\u{0}';
+
+/// Split an item produced by `collect_items_with_anchors` into its own text
+/// and, if it carries one, its merged trailing same-line comment.
+fn split_trailing_marker(item: &str) -> (&str, Option<&str>) {
+    match item.split_once(TRAILING_MARKER) {
+        Some((main, comment)) => (main, Some(comment)),
+        None => (item, None),
+    }
+}
+
 /// Collect items (members/elements/comments) as verbatim trimmed strings, each
 /// paired with its identity anchor. Order matches projection order (same as
 /// children_with_tokens order for MEMBER/VALUE/comment tokens, skipping
 /// punctuation and trivia).
+///
+/// A trailing same-line comment (`"a": 1  // c`) is merged into its owning
+/// member/element's item (separated internally by `TRAILING_MARKER`) rather
+/// than becoming its own item — the row/`Node` projection folds it into its
+/// owning member's single row (`Node.trailing_comment`), never a row of its
+/// own, so item-space must match that one-node-one-slot shape. Without this,
+/// `MutTarget::index` (a projected slot index) and `items.len()` disagree by
+/// one whenever a trailing comment is present, and an insert anchored right
+/// after such a row lands between the value and its comment instead of after
+/// the whole line. `rebuild_multiline`/`rebuild_inline` un-merge via
+/// `split_trailing_marker` to place the comma before the comment, not after.
 fn collect_items_with_anchors(container: &SyntaxNode) -> Vec<(String, ItemAnchor)> {
     use crate::model::json::project::is_standalone_line_comment;
-    let mut items = Vec::new();
+    let mut items: Vec<(String, ItemAnchor)> = Vec::new();
     // Pending standalone `//` block: consecutive LINE_COMMENTs separated by a
     // single NEWLINE merge into ONE item (a blank line — a second NEWLINE — ends
     // the block). This mirrors the projection's comment merging so item-space
@@ -598,10 +624,22 @@ fn collect_items_with_anchors(container: &SyntaxNode) -> Vec<(String, ItemAnchor
                     block.push(t.text().trim_end().to_string());
                     seen_newline = false;
                 } else {
-                    // Trailing comment (after a member/element on the same line) —
-                    // its own item, as before.
-                    flush_block!();
-                    items.push((t.text().trim_end().to_string(), child.clone()));
+                    // Trailing comment (after a member/element on the same
+                    // line) — merge into the owning item's text instead of
+                    // pushing a separate item (see the doc comment above).
+                    match items.last_mut() {
+                        Some(last) => {
+                            last.0.push(TRAILING_MARKER);
+                            last.0.push_str(t.text().trim_end());
+                        }
+                        None => {
+                            // No preceding item to attach to (shouldn't happen
+                            // for a well-formed document) — fall back to a
+                            // standalone item rather than losing the comment.
+                            flush_block!();
+                            items.push((t.text().trim_end().to_string(), child.clone()));
+                        }
+                    }
                 }
             }
             rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::BLOCK_COMMENT => {
@@ -732,10 +770,18 @@ fn rebuild_multiline(container: &SyntaxNode, items: &[String]) -> String {
                 lines.push(format!("{item_indent}{line}"));
             }
         } else {
-            // Non-comment: comma if there is a later non-comment item.
+            // Non-comment: comma if there is a later non-comment item. A
+            // merged trailing comment (see `collect_items_with_anchors`)
+            // must stay LAST on the line, after the comma — otherwise the
+            // comma would land inside the `//` comment and vanish from the
+            // real syntax.
+            let (main, trailing) = split_trailing_marker(item);
             let has_later = items[i + 1..].iter().any(|it| !is_comment_item(it));
             let comma = if has_later { "," } else { "" };
-            lines.push(format!("{item_indent}{item}{comma}"));
+            match trailing {
+                Some(comment) => lines.push(format!("{item_indent}{main}{comma}  {comment}")),
+                None => lines.push(format!("{item_indent}{main}{comma}")),
+            }
         }
     }
 

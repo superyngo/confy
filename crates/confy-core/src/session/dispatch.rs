@@ -224,6 +224,30 @@ impl super::Session {
                 } else {
                     text
                 };
+                // The external/pop-up editor's returned `text` is the
+                // fragment's complete, authoritative representation (unlike
+                // the inline editor's value-only fragment, which manages the
+                // comment separately via `pending_trailing`). If the node had
+                // a trailing comment before this edit and the returned
+                // fragment doesn't write one, the user explicitly deleted it
+                // in their editor — force the clear rather than falling
+                // through to `Replace`'s "preserve the old comment when the
+                // fragment is silent about it" default (comment-advisory
+                // follow-up issue #4: JSON/TOML would otherwise silently
+                // restore the deleted comment).
+                let had_comment = self
+                    .tree
+                    .node_at(&path)
+                    .and_then(|n| n.trailing_comment.clone());
+                if had_comment.is_some() {
+                    let new_comment = self
+                        .doc
+                        .as_ref()
+                        .and_then(|d| d.fragment_trailing_comment(&path, &text));
+                    if new_comment.is_none() {
+                        self.pending_trailing = Some(None);
+                    }
+                }
                 self.apply_replace(path, text);
             }
             Intent::ApplyEditComment { path, text } => {
@@ -308,7 +332,14 @@ impl super::Session {
         ApplyOutcome {
             convert_write,
             quit,
-            schema_fetch_request: self.pending_schema_fetch.take(),
+            // Peek, not drain: `pending_schema_fetch` must survive dispatches
+            // that have nothing to do with schema fetching (mirrors
+            // `pending_external_edit`'s non-draining pattern) — cleared only
+            // when `apply_schema_text` actually resolves it. Draining it here
+            // on every intent let an unrelated dispatch (e.g. `SetLang`,
+            // `SetHostNotice`) silently swallow a just-detected fetch request
+            // before the host ever saw it.
+            schema_fetch_request: self.pending_schema_fetch.clone(),
         }
     }
 

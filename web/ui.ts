@@ -88,6 +88,13 @@ let suppressClick = false;
 // by a real on-disk file opened/saved through the File System Access API.
 let fileHandle: FsHandle | null = null;
 let fileName: string | null = null;
+// Guards `schema_fetch_request` (§comment-advisory follow-up issue #2): the
+// request now persists across dispatches until `apply_schema_text` resolves
+// it (no longer drained on every unrelated dispatch), so `render()` can be
+// called again for an unrelated reason while a fetch is still in flight —
+// without this flag it would fire a duplicate concurrent fetch for the same
+// source.
+let schemaFetchInFlight = false;
 
 // ---- DOM ----
 function $<T extends HTMLElement = HTMLElement>(id: string): T {
@@ -285,8 +292,12 @@ function openText(
   // `strict_json` drives the per-row comment-advisory decoration — only the
   // host knows the real extension; the wasm core treats .json/.jsonc
   // identically. Set before the first dispatch so the initial snapshot's
-  // rows already reflect it.
-  const isPlainJson = !!name && /\.json$/i.test(name);
+  // rows already reflect it. Sample docs have no real filename (`name` is
+  // the literal "sample"), so a `.json` sample is detected via `format`
+  // instead of the name regex — otherwise it never sets strict_json/never
+  // gets the comment advisory (issue: sample JSON exempt from the check).
+  const isPlainJson =
+    format === "json" && (asSample || (!!name && /\.json$/i.test(name)));
   if (isPlainJson) session.setStrictJson(true);
   // A fresh Session always boots at core's default lang (`en`) — sync it to the
   // selector's persisted choice so status/error/About text match immediately.
@@ -475,9 +486,11 @@ function render() {
       void doConvertWrite(io, snap.convert_write[0], snap.convert_write[1]);
     }
   }
-  if (snap.schema_fetch_request) {
+  if (snap.schema_fetch_request && !schemaFetchInFlight) {
+    schemaFetchInFlight = true;
     void resolveSchemaFetchRequest(io, session!, snap.schema_fetch_request, fileHandle?.path ?? null).then(
       (next) => {
+        schemaFetchInFlight = false;
         snap = next;
         if (snap.schema_status?.load_error) {
           snap = session!.dispatch({

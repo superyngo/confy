@@ -127,6 +127,9 @@ impl ConfigDocument for AnyDocument {
     fn replace_preserves_trailing_comment(&self) -> bool {
         delegate!(self, d => d.replace_preserves_trailing_comment())
     }
+    fn fragment_trailing_comment(&self, path: &[crate::model::node::Seg], fragment: &str) -> Option<String> {
+        delegate!(self, d => d.fragment_trailing_comment(path, fragment))
+    }
     fn to_value(
         &self,
     ) -> Result<(crate::model::value::Value, Vec<String>), crate::model::document::ConvertAbort>

@@ -222,6 +222,20 @@ impl ConfigDocument for CstDocument {
         split_value_comment(buffer)
     }
 
+    fn fragment_trailing_comment(&self, path: &[crate::model::node::Seg], fragment: &str) -> Option<String> {
+        // Only meaningful for a plain-scalar `Entry`/`ArrayElement` target —
+        // mirrors `cst_edit::replace_delete::replace_value`'s own extraction
+        // of a fragment's explicit trailing comment, minus the actual splice.
+        use crate::model::cst_project::{walk, Target};
+        let (_, idx) = walk(&self.syntax, "");
+        match idx.iter().find(|(p, _)| p == path).map(|(_, t)| t.clone()) {
+            Some(Target::Entry(_)) | Some(Target::ArrayElement(_)) => {
+                fragment_trailing_comment(fragment)
+            }
+            _ => None,
+        }
+    }
+
     fn to_value(
         &self,
     ) -> Result<(crate::model::value::Value, Vec<String>), crate::model::document::ConvertAbort>
@@ -250,6 +264,24 @@ pub(crate) fn split_value_comment(buffer: &str) -> (String, Option<String>) {
         ),
         None => (buffer.to_string(), None),
     }
+}
+
+/// The fragment's own explicit trailing comment (a full `key = value  # c`
+/// or `__elem__ = value  # c` TOML entry, as passed to `Mutation::Replace`),
+/// if it wrote one. Mirrors `cst_edit::replace_delete::replace_value`'s own
+/// extraction, minus the splice — used by `ConfigDocument::fragment_trailing_comment`.
+pub(crate) fn fragment_trailing_comment(fragment: &str) -> Option<String> {
+    let parse = taplo::parser::parse(fragment);
+    if !parse.errors.is_empty() {
+        return None;
+    }
+    let frag = parse.into_syntax();
+    crate::model::cst_project::walk(&frag, "")
+        .0
+        .root
+        .children
+        .first()
+        .and_then(|n| n.trailing_comment.clone())
 }
 
 impl CstDocument {

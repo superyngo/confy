@@ -138,6 +138,23 @@ pub trait ConfigDocument: Sized {
         true
     }
 
+    /// Whether `fragment` (as it would be passed to `Mutation::Replace` at
+    /// `path`) explicitly writes its own trailing same-line comment. `Some`
+    /// means the fragment carries one (its text, prefix included); `None`
+    /// means it doesn't say anything about a comment either way. Used by the
+    /// external/pop-up editor's replace-resolution path (`Intent::ApplyReplace`)
+    /// to tell "the user explicitly cleared the comment" (fragment omits one)
+    /// apart from "this fragment never carries comments to begin with" (e.g.
+    /// the inline editor's value-only fragment, which manages the comment
+    /// separately via `Mutation::SetTrailingComment`/`pending_trailing`).
+    /// Default: never (a comment-less backend, or one where `Replace` already
+    /// derives the comment fresh from the fragment either way — see YAML's
+    /// `replace_preserves_trailing_comment() == false`).
+    fn fragment_trailing_comment(&self, path: &[crate::model::node::Seg], fragment: &str) -> Option<String> {
+        let _ = (path, fragment);
+        None
+    }
+
     /// Lower the whole document to the format-neutral [`Value`](crate::model::value::Value)
     /// tree for document-level conversion (spec §Phase 4), decoding every scalar
     /// to typed data and carrying standalone + trailing comments in order.

@@ -1543,6 +1543,13 @@ impl Session {
         source: crate::schema::SchemaSource,
         text: Result<String, String>,
     ) {
+        // Resolved (success or failure) — mirrors how `ApplyReplace`/
+        // `ApplyEditComment` explicitly clear `pending_external_edit` once
+        // its outstanding request is answered. Must NOT be drained on every
+        // unrelated `dispatch()` call (see `apply()`'s `ApplyOutcome`
+        // construction) or a host that issues other dispatches before ever
+        // looking at `schema_fetch_request` loses the request outright.
+        self.pending_schema_fetch = None;
         let state = match text {
             Ok(text) => match parse_schema_json(&text) {
                 Ok(raw) => match jsonschema::Validator::new(&raw) {

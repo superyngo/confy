@@ -1,7 +1,28 @@
-# Comment-advisory follow-up issues (memo, not yet investigated)
+# Comment-advisory follow-up issues (memo, resolved 2026-08-28)
 
-Status: **note only** — captured for a future session, no root-cause analysis
-done yet. Do not assume any of the hypotheses below are confirmed.
+Status: **resolved**. All three issues below (plus a fourth, discovered in
+the same session: external/pop-up editor comment-clear revert on JSON/TOML)
+were root-caused and fixed. See CHANGELOG "Unreleased Update — 2026-08-28"
+entries for the fixes and their regression tests. Root causes, in brief:
+
+1. Not a `comment_advisory` recompute bug at all — `web/touch/app.ts`'s
+   `openText()` was missing the `strict_json` wiring entirely, and
+   `web/ui.ts`'s `isPlainJson` filename regex never matched a `.json`
+   *sample* document (`openSample` passes the literal name `"sample"`, no
+   `.json` suffix). Fixed in both hosts.
+2. `Session::apply()` drained `pending_schema_fetch` via `.take()` on every
+   dispatched intent; a host issuing more than one dispatch right after open
+   (e.g. `SetLang` then the comment-advisory `SetHostNotice`) lost the fetch
+   request before ever reading it. Now persists like `pending_external_edit`
+   until `apply_schema_text()` actually resolves it.
+3. JSON's `collect_items_with_anchors()` gave a same-line trailing comment
+   its own CST-level item/slot — one more than the row projection exposed
+   for that node — so an insert anchored on that row landed one slot early.
+   Trailing comments are now merged into their owning item.
+4. (new) The external/pop-up editor's `Intent::ApplyReplace` never told the
+   session an explicit comment deletion had happened, so `Mutation::Replace`'s
+   "preserve the old comment when the fragment is silent" default (correct
+   for the *inline* editor) silently restored a deleted comment on JSON/TOML.
 
 Context: after landing the JSONC-schema-parsing fix + comment-advisory UI
 (commits around 2026-08-27, see CHANGELOG "Unreleased Update" entries for

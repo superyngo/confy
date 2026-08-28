@@ -94,6 +94,9 @@ let session: Session | null = null;
 let snap: SessionSnapshot | null = null;
 let fileHandle: FsHandle | null = null;
 let fileName: string | null = "sample";
+// Guards `schema_fetch_request` (§comment-advisory follow-up issue #2): see
+// web/ui.ts's identical flag for the rationale.
+let schemaFetchInFlight = false;
 let rawView = false;
 let searchTimer: number | undefined;
 
@@ -520,9 +523,11 @@ function render() {
   // Async host I/O the snapshot requested.
   if (snap.external_edit) openExternalEdit(snap.external_edit);
   if (snap.convert_write) void doConvertWrite(io, snap.convert_write[0], snap.convert_write[1]);
-  if (snap.schema_fetch_request) {
+  if (snap.schema_fetch_request && !schemaFetchInFlight) {
+    schemaFetchInFlight = true;
     void resolveSchemaFetchRequest(io, session!, snap.schema_fetch_request, fileHandle?.path ?? null).then(
       (next) => {
+        schemaFetchInFlight = false;
         snap = next;
         if (snap.schema_status?.load_error) {
           snap = session!.dispatch({
@@ -1492,9 +1497,24 @@ function openText(
   fileName = name;
   setSampleMode(asSample);
   resetAnchor(); // a stale shift-range anchor must not survive the document swap
+  // `strict_json` drives the per-row comment-advisory decoration — only the
+  // host knows the real extension; the wasm core treats .json/.jsonc
+  // identically. Set before the first dispatch so the initial snapshot's
+  // rows already reflect it. Sample docs have no real filename (`name` is
+  // the literal "sample"), so a `.json` sample is detected via `format`.
+  const isPlainJson =
+    format === "json" && (asSample || (!!name && /\.json$/i.test(name)));
+  if (isPlainJson) session.setStrictJson(true);
   // A fresh Session always boots at core's default lang (`en`) — sync it to
   // the selector's persisted choice so status/error/About text match.
   snap = session.dispatch({ SetLang: getLang() });
+  // One-shot advisory when the file already had comments at open (a JSONC
+  // upgrade the user didn't ask for) — mirrors web/ui.ts's openText.
+  if (isPlainJson && session.hadCommentsAtOpen()) {
+    snap = session.dispatch({
+      SetHostNotice: { key: "web.host.json-comments-detected", args: [], source: "host-web" },
+    });
+  }
   rawView = false;
   render();
 }

@@ -6,6 +6,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Unreleased Update — 2026-08-28T05:20:52Z
+- fix(web): `.json`-format **sample** documents (opened via New/loadSample, no real
+  filename — `openSample` passes the literal name `"sample"`) never set `strict_json`,
+  so `comment_advisory` never lit up when authoring a comment into one — the filename-regex
+  check (`/\.json$/i.test(name)`) never matched. `web/ui.ts` and `web/touch/app.ts`'s
+  `openText()` now derive `isPlainJson` from `format === "json" && (asSample || …)`. Real
+  `.json` files were never affected (confirmed unrelated to the gate-removal work). Also
+  fixed `web/touch/app.ts::openText()` missing the `strict_json`/one-shot
+  `json-comments-detected` toast wiring entirely (present in `web/ui.ts`, absent on touch).
+  New `web/sample-strict-json.spec.mjs`.
+- fix(core): `Session::apply()`'s `ApplyOutcome` unconditionally drained `pending_schema_fetch`
+  via `.take()` on *every* dispatched intent, and `dispatch()` overwrote the snapshot's
+  `schema_fetch_request` with that drained value. A host that issues more than one dispatch
+  right after opening a document (e.g. `web/ui.ts`'s `openText()`: `SetLang`, then
+  conditionally `SetHostNotice` for the comment-advisory toast) before ever reading a
+  snapshot's `schema_fetch_request` silently lost the schema fetch the very first of those
+  dispatches drained it on — schema validation only "came back to life" once the user's first
+  edit re-triggered detection via `sync_schema_hint()`. `pending_schema_fetch` now behaves like
+  the already-correct `pending_external_edit`: it persists across unrelated dispatches
+  (`.clone()`, not `.take()`) and is cleared only once `apply_schema_text()` actually resolves
+  it. Added a `schemaFetchInFlight` guard in `web/ui.ts`/`web/touch/app.ts` so a still-pending
+  request surviving across dispatches can't trigger a duplicate concurrent fetch. New
+  `tests/session_schema_fetch_request.rs`.
+- fix(core): JSON `insert` (`Intent::AddSibling`/`AddChild`) anchored on a node with a
+  same-line trailing comment (`"a": 1  // c`) landed the new sibling *between* the value and
+  its comment, detaching the comment into an independent standalone comment node —
+  `model/json/edit.rs::collect_items_with_anchors()` gave a trailing comment its own
+  CST-level item/slot, one more than the row projection ever exposed for that node (which
+  folds a trailing comment into its owning row). A trailing comment is now merged into its
+  owning member/element's item (an internal `TRAILING_MARKER` sentinel keeps the comma
+  placement correct on rebuild), matching how TOML/YAML never gave a trailing comment its own
+  slot in the first place — TOML and YAML were never affected. New
+  `tests/insert_after_trailing_comment.rs`.
+- fix(core): the external/pop-up editor's `Intent::ApplyReplace` never set `pending_trailing`,
+  so clearing a node's trailing comment in the editor's bundled "value  # comment" text and
+  saving silently brought the old comment back on JSON and TOML (not YAML) — `Mutation::Replace`
+  defaults to preserving an existing trailing comment when the new fragment doesn't write one
+  (`ConfigDocument::replace_preserves_trailing_comment() == true`, correct for the *inline*
+  editor's value-only fragments, wrong for the external editor's authoritative full-fragment
+  text). New `ConfigDocument::fragment_trailing_comment(path, fragment)` (implemented for JSON
+  and TOML, delegating to the same fragment-parsing `Mutation::Replace` already uses
+  internally) lets `ApplyReplace` detect an explicit clear and force it via
+  `pending_trailing = Some(None)`. New `tests/external_edit_clears_trailing_comment.rs`.
 
 ## [v0.22.1] - 2026-08-27
 ### Unreleased Update — 2026-08-28T03:32:21Z

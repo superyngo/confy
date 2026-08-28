@@ -67,6 +67,18 @@ impl ConfigDocument for JsonDocument {
         self.had_comments_at_open
     }
 
+    fn fragment_trailing_comment(&self, path: &[Seg], fragment: &str) -> Option<String> {
+        match crate::model::json::edit::resolve(&self.syntax, path) {
+            Some(crate::model::json::project::Target::Member(_)) => {
+                crate::model::json::edit::fragment_member_trailing_comment(fragment)
+            }
+            Some(crate::model::json::project::Target::Element(_)) => {
+                crate::model::json::edit::fragment_element_trailing_comment(fragment)
+            }
+            _ => None,
+        }
+    }
+
     fn kind_options(&self, path: &[Seg]) -> Vec<(String, KindTarget)> {
         kind_options(&self.project(), path)
     }
