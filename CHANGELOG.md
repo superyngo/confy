@@ -6,6 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Unreleased Update - 2026-08-28T18:00:00Z
+- **fix(core): renaming a key to add quotes no longer raises a bogus type-change
+  prompt and a following "path not found"** (reported on both TUI and Web).
+  Follow-up to the `key_literal` refactor below, which taught the rename buffer
+  to carry a key's authored spelling but left the **inverse** direction unfixed:
+  after `Mutation::Rename` the session set the path's leaf segment to the raw
+  literal (`Seg::Key("\"a\"")`) while projection builds paths from **decoded**
+  keys (`Seg::Key("a")`). Every later `node_at` on that path missed, so
+  - the type-change check read the node's kind as `Root` instead of its real
+    type, and any key/value commit (the detail panel's, which is not
+    `rename_only`) tripped a `PromptKind::TypeChange` confirmation, and
+  - confirming it ran `apply_replace` on the stale path -> `path not found`.
+
+  The rename itself had already succeeded, which is why the file still ended up
+  correct - the failure was pure path bookkeeping. New `ConfigDocument::
+  rename_key_segs()` decodes a rename's literal with the backend's own key lexer
+  (TOML reuses `cst_project::key_segments` via `decode_key_source`; YAML reuses
+  the same `parse_map_entry_fragment` + `entry_key_name` pair its `rename`
+  mutation already uses for collision checks; JSON takes the default, its keys
+  being decoded by contract). The two hand-rolled path remaps collapsed into one
+  `remap_renamed_path` helper.
+
+  This also removes a pre-existing `new_name.split('.')` in
+  `apply_deferred_rename` that shattered a quoted key containing a dot
+  (`"a.b"` became two segments and wrote a mangled leaf).
+- **fix(web): the detail panel's Key field shows a key's authored spelling.**
+  `panel.ts` still seeded the editable Key input from the decoded `row.key`, so
+  a quoted key's quotes were invisible there and reopening the panel appeared to
+  have lost them. Worse, the field is committed verbatim: an otherwise untouched
+  panel commit would silently restyle a quoted key to bare. Now reads
+  `key_literal ?? key`, matching the tree row and the rename input. Covers the
+  shared touch + desktop panel; the TUI Detail popup has no separate Key field
+  (its "Path:" line already uses `path_display`).
+- test: `crates/confy-core/tests/key_repr.rs` gained four cases (F2 and
+  detail-panel quote-adding renames across TOML/YAML, the unquote and requote
+  directions, and `rename_key_segs` decoding without splitting a quoted dot);
+  `web/render.spec.mjs` gained three `panelHTML()` Key-field cases.
+
 ### Unreleased Update — 2026-08-28T14:30:00Z
 - **fix(core,web,tui): made a key's authored spelling a first-class projection
   output (`Node.key_literal`), replacing the lossy `key_sign`-plus-synthesized-

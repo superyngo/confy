@@ -211,5 +211,37 @@ console.log("\n-- panelHTML(): Path field shows quoted YAML key segments --");
   check("Path field falls back to plain dotted path without path_display", plainHtml.includes(">a.b<"), plainHtml);
 }
 
+// ---- panelHTML: the editable Key field carries the authored spelling ----
+console.log("\n-- panelHTML(): Key field is the authored spelling, not the decoded key --");
+{
+  // The panel's Key input is editable and committed verbatim, so seeding it
+  // with the decoded key would silently restyle a quoted key to bare on an
+  // otherwise untouched commit — and the quotes would vanish on reopen.
+  const dq = makeRow({ key: "a b", key_literal: '"a b"' });
+  const dqHtml = panelHTML(dq, false, "None");
+  check(
+    "double-quoted key field keeps its quotes",
+    dqHtml.includes('data-field="name" value="&quot;a b&quot;"'),
+    dqHtml,
+  );
+
+  const sq = makeRow({ key: "a b", key_literal: "'a b'" });
+  const sqHtml = panelHTML(sq, false, "None");
+  check(
+    "single-quoted key field keeps ITS quote style",
+    sqHtml.includes(`data-field="name" value="'a b'"`) && !sqHtml.includes("&quot;a b&quot;"),
+    sqHtml,
+  );
+
+  // A row with no literal (JSON, keyless) falls back to the decoded key.
+  const noLit = makeRow({ key: "plain" });
+  const noLitHtml = panelHTML(noLit, false, "None");
+  check(
+    "missing key_literal falls back to the decoded key",
+    noLitHtml.includes('data-field="name" value="plain"'),
+    noLitHtml,
+  );
+}
+
 console.log(failures === 0 ? "\nALL RENDER-ESCAPING CHECKS PASSED" : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

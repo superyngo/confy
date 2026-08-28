@@ -264,3 +264,127 @@ fn external_edit_round_trips_under_a_quoted_container_key() {
         assert!(out.contains("z: 9"), "sibling lost: {out}");
     }
 }
+
+// ── Re-anchoring the path after a rename ────────────────────────────────────
+//
+// A rename writes `new_key` VERBATIM but a projected path is built from DECODED
+// segments. Setting the path's leaf to the raw literal made every later
+// `node_at` miss, which surfaced as a spurious type-change prompt followed by
+// "path not found" — while the file itself was already correctly modified.
+
+#[test]
+fn adding_quotes_to_a_key_leaves_the_cursor_on_the_decoded_path() {
+    for (src, fmt, typed, expect) in [
+        ("a = 1\n", DocFormat::Toml, "\"a\"", "\"a\" = 1\n"),
+        ("a: 1\n", DocFormat::Yaml, "\"a\"", "\"a\": 1\n"),
+        ("a: 1\n", DocFormat::Yaml, "'a'", "'a': 1\n"),
+    ] {
+        let mut s = session(src, fmt);
+        s.cursor = vec![Seg::Key("a".into())];
+        s.begin_inline_rename();
+        for _ in 0..8 {
+            s.edit_backspace();
+        }
+        for c in typed.chars() {
+            s.edit_input_char(c);
+        }
+        s.edit_commit();
+        assert_eq!(s.serialize().unwrap(), expect, "output for {src:?} + {typed:?}");
+        assert_eq!(
+            s.cursor,
+            vec![Seg::Key("a".into())],
+            "cursor must hold the DECODED key after {typed:?}"
+        );
+        assert!(
+            s.snapshot().error_text().is_none(),
+            "unexpected notice for {typed:?}: {:?}",
+            s.snapshot().error_text()
+        );
+    }
+}
+
+#[test]
+fn panel_rename_adding_quotes_does_not_prompt_or_fail() {
+    // The detail panel commits key+value together (not `rename_only`), so it
+    // walked straight into the stale-path type check. Every format regressed.
+    for (src, fmt, typed, value, expect) in [
+        ("a = 1\n", DocFormat::Toml, "\"a\"", "1", "\"a\" = 1\n"),
+        ("a: 1\n", DocFormat::Yaml, "\"a\"", "1", "\"a\": 1\n"),
+        ("a: 1\n", DocFormat::Yaml, "'a'", "1", "'a': 1\n"),
+        (
+            "a = \"hi\"\n",
+            DocFormat::Toml,
+            "\"a\"",
+            "\"hi\"",
+            "\"a\" = \"hi\"\n",
+        ),
+    ] {
+        let mut s = session(src, fmt);
+        s.cursor = vec![Seg::Key("a".into())];
+        s.begin_inline_edit();
+        s.commit_edit(Some(value.to_string()), Some(typed.to_string()));
+        assert!(
+            !matches!(s.mode, Mode::Prompt(_)),
+            "quoting a key is not a type change; got a prompt for {src:?} + {typed:?}"
+        );
+        assert_eq!(
+            s.snapshot().error_text(),
+            None,
+            "unexpected error for {src:?} + {typed:?}"
+        );
+        assert_eq!(s.serialize().unwrap(), expect, "output for {src:?} + {typed:?}");
+    }
+}
+
+#[test]
+fn removing_quotes_and_requoting_both_re_anchor_correctly() {
+    // Reverse direction, and quoted -> differently-quoted.
+    let mut s = session("\"a\" = 1\n", DocFormat::Toml);
+    s.cursor = vec![Seg::Key("a".into())];
+    s.begin_inline_rename();
+    for _ in 0..8 {
+        s.edit_backspace();
+    }
+    s.edit_input_char('a');
+    s.edit_commit();
+    assert_eq!(s.serialize().unwrap(), "a = 1\n");
+    assert_eq!(s.cursor, vec![Seg::Key("a".into())]);
+
+    let mut y = session("'a b': 1\n", DocFormat::Yaml);
+    y.cursor = vec![Seg::Key("a b".into())];
+    y.begin_inline_rename();
+    for _ in 0..8 {
+        y.edit_backspace();
+    }
+    for c in "'c d'".chars() {
+        y.edit_input_char(c);
+    }
+    y.edit_commit();
+    assert_eq!(y.serialize().unwrap(), "'c d': 1\n");
+    assert_eq!(
+        y.cursor,
+        vec![Seg::Key("c d".into())],
+        "cursor must follow to the new DECODED key"
+    );
+}
+
+#[test]
+fn rename_key_segs_decodes_without_splitting_a_quoted_dot() {
+    use confy_core::model::document::ConfigDocument;
+    let toml = AnyDocument::from_str_as("x = 1\n", DocFormat::Toml).unwrap();
+    // A dotted rename really is several segments...
+    assert_eq!(
+        toml.rename_key_segs("a.b"),
+        vec!["a".to_string(), "b".to_string()]
+    );
+    // ...but a quoted key containing a dot is ONE (the old `split('.')` broke
+    // this, shattering the path and mangling the written leaf).
+    assert_eq!(toml.rename_key_segs("\"a.b\""), vec!["a.b".to_string()]);
+    assert_eq!(toml.rename_key_segs("\"a b\""), vec!["a b".to_string()]);
+
+    let yaml = AnyDocument::from_str_as("x: 1\n", DocFormat::Yaml).unwrap();
+    assert_eq!(yaml.rename_key_segs("'a.b'"), vec!["a.b".to_string()]);
+    assert_eq!(yaml.rename_key_segs("\"a\\x20b\""), vec!["a b".to_string()]);
+    // YAML keys carry no structure: a dot is just a character.
+    assert_eq!(yaml.rename_key_segs("a.b"), vec!["a.b".to_string()]);
+}

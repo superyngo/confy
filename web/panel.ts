@@ -92,15 +92,19 @@ export function panelHTML(
     return h;
   }
 
-  // Key (array-element index is positional, not renamable).
+  // Key (array-element index is positional, not renamable). Like the tree row
+  // and the rename input, this shows the key's **authored spelling** — the
+  // editable field must round-trip what the file actually holds, or committing
+  // an untouched panel would silently restyle a quoted key to bare.
+  const keyText = r.key_literal ?? r.key;
   h += `<div class="field-label">${t("web.panel.field.key")}</div>`;
   if (elem) {
-    h += `<input class="v-edit" value="${esc(r.key)}" disabled />`;
+    h += `<input class="v-edit" value="${esc(keyText)}" disabled />`;
     h += `<div class="hint-line">${t("web.panel.hint.positionalKey")}</div>`;
   } else if (!r.read_only) {
-    h += `<input class="k-edit" data-field="name" value="${esc(r.key)}" autocomplete="off" spellcheck="false" />`;
+    h += `<input class="k-edit" data-field="name" value="${esc(keyText)}" autocomplete="off" spellcheck="false" />`;
   } else {
-    h += `<input class="v-edit" value="${esc(r.key)}" disabled />`;
+    h += `<input class="v-edit" value="${esc(keyText)}" disabled />`;
   }
 
   // Value (scalars only). A schema-enum-constrained value swaps in the

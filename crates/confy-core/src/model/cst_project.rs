@@ -458,6 +458,32 @@ fn key_segments(key: &SyntaxNode) -> Vec<Seg> {
         .collect()
 }
 
+/// Decode a key's **source text** — as typed into the rename buffer — into its
+/// decoded segments. Runs the real lexer and the same `key_segments` projection
+/// reads, so a rename's re-anchored path can never disagree with the path
+/// projection is about to produce. Empty when `new_key` doesn't parse as a key
+/// (the caller's `Mutation::Rename` rejects it on the same grounds).
+pub(crate) fn decode_key_source(new_key: &str) -> Vec<String> {
+    let parse = taplo::parser::parse(&format!("{new_key} = 0\n"));
+    if !parse.errors.is_empty() {
+        return Vec::new();
+    }
+    parse
+        .into_syntax()
+        .descendants()
+        .find(|n| n.kind() == SyntaxKind::KEY)
+        .map(|k| {
+            key_segments(&k)
+                .into_iter()
+                .filter_map(|s| match s {
+                    Seg::Key(k) => Some(k),
+                    _ => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Per-segment **source spelling** of a `KEY` node's tokens — quote characters
 /// and escape sequences exactly as authored — aligned with `key_segments` /
 /// `key_signs` / `key_segment_ranges`. Feeds `Node.key_literal`.

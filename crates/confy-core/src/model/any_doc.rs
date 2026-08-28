@@ -118,6 +118,9 @@ impl ConfigDocument for AnyDocument {
     fn rename_can_change_type(&self) -> bool {
         delegate!(self, d => d.rename_can_change_type())
     }
+    fn rename_key_segs(&self, new_key: &str) -> Vec<String> {
+        delegate!(self, d => d.rename_key_segs(new_key))
+    }
     fn value_kind(&self, value: &str) -> Result<crate::model::node::NodeKind, String> {
         delegate!(self, d => d.value_kind(value))
     }

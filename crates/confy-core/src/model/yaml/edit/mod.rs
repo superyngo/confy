@@ -14,6 +14,7 @@ mod resolve;
 // Re-exported so external callers (yaml/doc.rs, model/convert.rs,
 // yaml/project.rs) keep their existing crate::model::yaml::edit::X paths --
 // pure code motion, the split shouldn't ripple into unrelated files.
+pub(crate) use block::parse_map_entry_fragment;
 pub(crate) use convert::decode_double;
 pub use mutations::serialize_fragment;
 

@@ -455,17 +455,12 @@ impl Session {
                 match res {
                     Ok(()) => {
                         self.on_mutation_success(None);
-                        let old_path = e.path.clone();
-                        if let Some(last) = e.path.last_mut() {
-                            *last = Seg::Key(new_name.clone());
-                        }
-                        // Keep the cursor -- and any selected/anchored paths
-                        // under it -- on the renamed node (its identity is its
-                        // path) instead of letting them go stale or snap away.
-                        if self.cursor == old_path {
-                            self.cursor = e.path.clone();
-                        }
-                        self.selection.remap_prefix(&old_path, &e.path);
+                        // The document now holds `new_name` verbatim, but a
+                        // projected path is built from DECODED keys -- so the
+                        // cursor/selection must be re-anchored on the decoded
+                        // form, or every later `node_at` misses (a spurious
+                        // type-change prompt, then "path not found").
+                        self.remap_renamed_path(&mut e.path, &new_name);
                         e.key = new_name.clone();
                         frag_key = new_name;
                     }
@@ -517,6 +512,41 @@ impl Session {
         self.apply_replace(e.path, fragment);
     }
 
+    /// Re-anchor `path` — and the cursor/selection riding on it — onto a node
+    /// just renamed to the **literal** `new_key`.
+    ///
+    /// The document stores `new_key` verbatim (quotes, escapes and all), while a
+    /// projected path is made of DECODED segments, so the backend's own key
+    /// lexer supplies the new segments. Never `split('.')` here: a quoted key is
+    /// allowed to contain a dot.
+    fn remap_renamed_path(&mut self, path: &mut Vec<Seg>, new_key: &str) {
+        if path.is_empty() {
+            return;
+        }
+        let segs: Vec<Seg> = self
+            .doc
+            .as_ref()
+            .map(|d| d.rename_key_segs(new_key))
+            .unwrap_or_default()
+            .into_iter()
+            .map(Seg::Key)
+            .collect();
+        // An unparseable key can't reach here (`Mutation::Rename` rejected it
+        // first), but never corrupt the path if it somehow does.
+        if segs.is_empty() {
+            return;
+        }
+        let old_path = path.clone();
+        path.truncate(old_path.len() - 1);
+        path.extend(segs);
+        // The renamed node's identity IS its path, so anything anchored on the
+        // old one follows it instead of going stale or snapping away.
+        if self.cursor == old_path {
+            self.cursor = path.clone();
+        }
+        self.selection.remap_prefix(&old_path, path);
+    }
+
     pub(crate) fn apply_deferred_rename(
         &mut self,
         mut e: EditState,
@@ -535,24 +565,20 @@ impl Session {
             return;
         }
         self.on_mutation_success(None);
-        let old_path = e.path.clone();
-        let parent_len = e.path.len() - 1;
-        let new_segs: Vec<Seg> = new_name
-            .split('.')
-            .map(|s| Seg::Key(s.to_string()))
-            .collect();
-        let leaf_key = match new_segs.last() {
-            Some(Seg::Key(k)) => k.clone(),
-            _ => new_name.clone(),
+        // The re-written fragment needs the LEAF's literal spelling. A
+        // single-segment rename is its own leaf (exact even when the key is
+        // quoted around a dot); only a dotted TOML rename has to be split.
+        let seg_count = self
+            .doc
+            .as_ref()
+            .map(|d| d.rename_key_segs(&new_name).len())
+            .unwrap_or(1);
+        let leaf_key = if seg_count <= 1 {
+            new_name.clone()
+        } else {
+            new_name.rsplit('.').next().unwrap_or(&new_name).to_string()
         };
-        e.path.truncate(parent_len);
-        e.path.extend(new_segs);
-        // Keep the cursor -- and any selected/anchored paths under it -- on
-        // the renamed node (path identity changed).
-        if self.cursor == old_path {
-            self.cursor = e.path.clone();
-        }
-        self.selection.remap_prefix(&old_path, &e.path);
+        self.remap_renamed_path(&mut e.path, &new_name);
         self.apply_replace(e.path, format!("{leaf_key} = {value}\n"));
     }
 

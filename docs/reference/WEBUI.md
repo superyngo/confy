@@ -488,12 +488,19 @@ to reconstruct how a key was written.
 **Key spelling — `ViewRow.key_literal`.** `ViewRow.key` is the **decoded** key (semantic
 identity: paths, collisions, schema lookup); `key_literal` is the key **exactly as authored**,
 quote characters and escapes intact, or `undefined` for keyless rows (array elements, comments,
-root). The tree row label and the rename `<input>` both read `key_literal ?? key`, so a
-single-quoted YAML key shows `'a b'`, a double-quoted one `"a b"`, and a quoted TOML key its own
-single set of quotes. No quote character is ever synthesized in the web layer — the earlier
-`displayKey`/`isQuotedYamlKey` helpers (which hardcoded `"` and carried per-format exceptions)
-are gone. JSON rows carry no `key_literal`: their keys are unconditionally quoted, so it would be
-redundant on every row. `ViewRow.path_display` is quoted from the same source, per segment.
+root). The tree row label, the panel's editable **Key** field and the rename `<input>` all read
+`key_literal ?? key`, so a single-quoted YAML key shows `'a b'`, a double-quoted one `"a b"`, and
+a quoted TOML key its own single set of quotes. No quote character is ever synthesized in the web
+layer — the earlier `displayKey`/`isQuotedYamlKey` helpers (which hardcoded `"` and carried
+per-format exceptions) are gone. JSON rows carry no `key_literal`: their keys are unconditionally
+quoted, so it would be redundant on every row. `ViewRow.path_display` is quoted from the same
+source, per segment.
+
+Every one of those surfaces is **committed verbatim**, so seeding any of them from the decoded
+`key` is a correctness bug, not a cosmetic one: an untouched commit would restyle a quoted key to
+bare. The inverse holds in core — a rename writes the literal but re-anchors the cursor on the
+**decoded** segments from `ConfigDocument::rename_key_segs()`, since a projected path never
+carries quotes.
 
 A **Schema** field renders after Meta (Path/Children/Sign), before the Actions row (Copy/Cut/
 Delete/External-edit stay the panel's fixed trailing element), as a bordered card (mirrors

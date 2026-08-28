@@ -204,6 +204,12 @@ impl ConfigDocument for CstDocument {
         true
     }
 
+    /// TOML accepts a **dotted** rename (`foo` -> `foo.x`), so this can return
+    /// several segments; each is unquoted by the projection's own decoder.
+    fn rename_key_segs(&self, new_key: &str) -> Vec<String> {
+        crate::model::cst_project::decode_key_source(new_key)
+    }
+
     fn value_kind(&self, value: &str) -> Result<NodeKind, String> {
         let parse = taplo::parser::parse(&format!("__k__ = {value}\n"));
         if let Some(err) = parse.errors.first() {

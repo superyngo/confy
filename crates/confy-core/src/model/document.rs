@@ -112,6 +112,19 @@ pub trait ConfigDocument: Sized {
         false
     }
 
+    /// The **decoded** path segments a successful `Mutation::Rename { new_key }`
+    /// produces. `new_key` arrives as the rename buffer's literal text (quotes
+    /// and escapes included, per [`Node::key_literal`]) and is written to the
+    /// document verbatim, but a *projected* path is built from decoded keys — so
+    /// the session must decode it before re-anchoring the cursor/selection.
+    ///
+    /// Backends answer with their own key lexer (never a `split('.')`, which
+    /// would shatter a quoted key containing a dot). One segment for JSON/YAML;
+    /// TOML returns several for a dotted rename (`foo` -> `foo.x`).
+    fn rename_key_segs(&self, new_key: &str) -> Vec<String> {
+        vec![new_key.to_string()]
+    }
+
     /// The [`NodeKind`] a bare `value` repr projects to in this format — used by
     /// the inline editor's type-change detection. `Err` (with the parse message)
     /// when the value doesn't parse, so the editor can stay open on a bad edit.

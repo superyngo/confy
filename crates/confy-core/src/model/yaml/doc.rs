@@ -36,6 +36,15 @@ impl ConfigDocument for YamlDocument {
         crate::model::yaml::edit::serialize_fragment(&self.syntax, path)
     }
 
+    /// A YAML key is always one segment, but a quoted one must be decoded (its
+    /// quotes stripped, `\xNN`/`\uNNNN` escapes resolved) exactly as
+    /// `Mutation::Rename` decodes it for its own collision check.
+    fn rename_key_segs(&self, new_key: &str) -> Vec<String> {
+        crate::model::yaml::edit::parse_map_entry_fragment(&format!("{new_key}: 0\n"))
+            .map(|e| vec![crate::model::yaml::project::entry_key_name(&e)])
+            .unwrap_or_default()
+    }
+
     fn serialize_fragment_relative(&self, path: &[Seg]) -> String {
         // YAML has no dotted scope tables; relative == absolute fragment.
         self.serialize_fragment(path)
