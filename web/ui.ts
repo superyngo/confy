@@ -293,9 +293,9 @@ function openText(
   snap = session.dispatch({ SetLang: getLang() });
   // One-shot advisory when the file already had comments at open (a JSONC
   // upgrade the user didn't ask for) — dispatched after SetLang, which
-  // clears any pending notice. Comments added later via the interactive
-  // JSONC-upgrade prompt are already self-explanatory and don't need this.
-  if (isPlainJson && session.supportsComments()) {
+  // clears any pending notice. Comments added later in-session are covered
+  // by the persistent `comment_advisory` row projection and don't need this.
+  if (isPlainJson && session.hadCommentsAtOpen()) {
     snap = session.dispatch({
       SetHostNotice: { key: "web.host.json-comments-detected", args: [], source: "host-web" },
     });

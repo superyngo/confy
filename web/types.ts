@@ -93,8 +93,7 @@ export type PromptView =
   | "ConfirmQuit"
   | "Collision"
   | "TypeChange"
-  | "ArrayUpgrade"
-  | "JsoncUpgrade";
+  | "ArrayUpgrade";
 
 export type EditField = "Value" | "Name";
 export type ConvertStep = "Format" | "Path" | "Confirm";

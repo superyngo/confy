@@ -80,12 +80,11 @@ export class Session {
   }
 
   /**
-   * Whether authored comments are currently legal in the open document —
-   * true from load if the raw text already contained a `//` line comment
-   * or a block comment.
+   * Whether the open document already contained a comment when it was
+   * loaded — drives the one-shot "file already had comments" toast.
    */
-  supportsComments(): boolean {
-    return this.raw.supports_comments();
+  hadCommentsAtOpen(): boolean {
+    return this.raw.had_comments_at_open();
   }
 
   docFormat(): string {
