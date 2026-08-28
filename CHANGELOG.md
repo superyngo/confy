@@ -8,6 +8,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ## [v0.22.1] - 2026-08-27
+### Unreleased Update — 2026-08-28T03:32:21Z
+- feat(core)!: removed the JSON/JSONC comment write-permission gate. Authoring a comment into
+  any `.json` document — via `remark` (turning a value into a comment) or `AddSibling`/
+  `AddChild` next to an existing comment node — is now unconditionally legal, matching TOML/YAML,
+  instead of being blocked until the file already had a `//`/`/* */` comment, a `.jsonc`
+  extension, or the user accepted an interactive `JsoncUpgrade` `y`/`n` prompt.
+  - `ConfigDocument::supports_comments()` and `JsonDocument.comments_enabled` are gone. In their
+    place, `ConfigDocument::had_comments_at_open()` (default `false`; overridden by
+    `JsonDocument`) reports a fixed, content-derived, non-writable fact — whether the file
+    already contained a comment when it was loaded — used solely to drive the existing one-shot
+    "this file already had comments" load-time toast (`tui.host.json-comments-detected` /
+    `web.host.json-comments-detected`), decoupled from write permission.
+  - Removed `PromptKind::JsoncUpgrade`, `PendingComment`, `PromptView::JsoncUpgrade`, the
+    `Mode::Prompt(JsoncUpgrade)` accept-branch in `session.rs`, and the gate checks in
+    `clipboard.rs::remark()`, `inline_edit.rs::add_comment_sibling()`, and
+    `inline_edit.rs`'s `split_value_comment` call. Removed `AnyDocument::enable_comments()`,
+    `confy-tui`'s `.jsonc`-extension `enable_comments()` call in `load_document`, and the
+    `confy-ffi`/`web` `supports_comments`/`supportsComments` bindings (replaced by
+    `had_comments_at_open`/`hadCommentsAtOpen`). Removed the now-dead i18n keys
+    (`core.comment.unsupported`, `core.prompt.jsonc-upgrade`, `tui.prompt.jsonc-upgrade*`,
+    `web.prompt.title.jsoncUpgrade`, `web.prompt.q.jsoncUpgrade`, `web.prompt.btn.upgradeJsonc`)
+    and the `PromptView`/button-map entries in `web/types.ts`/`web/prompt.ts`.
+  - Updated `CLAUDE.md` and `docs/reference/CONTEXT.md`'s "JSONC upgrade" glossary entry to
+    describe the new always-legal behavior.
+- test(core): added `remark_never_prompts_on_clean_json` / `add_comment_sibling_never_blocked_on_clean_json`
+  (`tests/session_headless.rs`) exercising a pure `.json` with zero comments at load; rewrote
+  every unit test asserting the old `supports_comments`/`enable_comments` semantics across
+  `model/{json,yaml,cst_doc,any_doc}.rs`, `confy-tui/src/lib.rs`, and `confy-tui/src/tui/app.rs`
+  to assert `had_comments_at_open`/no-prompt behavior instead.
+
 ### Unreleased Update — 2026-08-27T08:08:42Z
 - feat(ui): comment-advisory UI rendering, web and TUI.
   - Web: a comment/trailing-comment span with `comment_advisory` set gets a red wavy underline

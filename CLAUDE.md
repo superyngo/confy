@@ -31,9 +31,9 @@ atomic-commit; a `validate_semantics` post-check (DOM re-parse for duplicate key
 TOML backstop. JSONC extends `.json` with `//` line comments — which project as first-class
 Comment nodes (consecutive lines merge; a blank splits them) or `trailing_comment` — and `/* */`
 block comments, which project as **read-only** Comment nodes (new `Node.read_only` flag:
-displayed and copyable, but edit/delete/cut/remark reject them). A pure `.json` file whose first
-remark is triggered prompts `Mode::Prompt(JsoncUpgrade)`; `y` flips `supports_comments()` true
-and `//` is used thereafter (the file extension is never rewritten). Trailing commas are accepted
+displayed and copyable, but edit/delete/cut/remark reject them). Comments are always legal to
+author into any `.json` document -- no upgrade prompt gates it; `//` is used from the first
+remark or inserted comment. Trailing commas are accepted
 on parse but never emitted by splices. `K` switch covers object/array Inline↔Multiline and float
 Plain↔Exponent; the `f` type-filter shows only JSON-reachable facets (`(Q)`/`(-)` key signs,
 no `[A/T]`/`[T/D]`/`[T/S]`, no radix/string-style/datetime rows). JSON omits TOML-only

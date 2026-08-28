@@ -152,12 +152,6 @@ The YAML splice core — the analogue of JSON's comma/brace normalization. It re
 its captured source indentation to the destination's indent level when inserting/moving, so block
 structure stays well-formed without per-call token surgery.
 
-**JSONC upgrade**:
-The prompt shown when a user triggers `r` (remark) on a node in a pure `.json` file (one loaded
-without `supports_comments()` true). Confirming (`y`) flips the document's comment support on,
-so the remarked node is written with a `//` prefix and subsequent remarks work without prompting.
-The file extension is never rewritten; `.json` files with `//` comments are valid JSONC.
-
 **DocFormat**:
 The backend's self-reported syntax, one of `Toml` / `Json` / `Yaml`. Returned by
 `ConfigDocument::format()` and used by the TUI to select format-appropriate help text, `K`
