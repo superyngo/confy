@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Unreleased Update — 2026-08-28T22:47:27Z
+- **fix(core): schema info resolves through `additionalProperties`.** The
+  Detail panel's `Schema:` info section (description/`Type:` line) silently
+  vanished for any node defined under a dictionary-style schema's
+  `additionalProperties` — the compiled-validator path (`validate.rs`) always
+  enforced that keyword, but the best-effort hint/info resolver
+  (`hints_edit.rs::resolve_subschema`) only walked
+  `properties`/`patternProperties`/`items`/`$ref`, so task-level entries
+  resolved to "no info" while violations still rendered. Added
+  `additionalProperties` as a `Seg::Key` fallback (a JSON-schema bool there
+  harmlessly yields no info). Surfaced most visibly in the TUI `i` Detail
+  popup; verified live on a dictionary-of-tasks fixture (`put_in_key` now
+  shows `Schema: / Type: object`). Two new `schema_headless` tests cover the
+  schema-object and bool forms.
+
 ### Unreleased Update — 2026-08-28T22:11:36Z
 - **chore: audit remediation — Rust hygiene, panic hardening, CI gates.** Fixed
   every quick-win/medium finding from the 2026-08-29 codebase audit (version

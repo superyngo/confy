@@ -79,7 +79,13 @@ fn resolve_subschema<'a>(root: &'a Json, current: &'a Json, path: &[Seg]) -> Opt
             let next = current
                 .get("properties")
                 .and_then(|p| p.get(k))
-                .or_else(|| pattern_property_match(current, k))?;
+                .or_else(|| pattern_property_match(current, k))
+                // Dictionary-of-tasks idiom: `additionalProperties` carrying
+                // the per-entry subschema (a JSON-schema bool here yields no
+                // description/type keywords downstream, so it harmlessly
+                // resolves to "no info"). `validate.rs` always enforced this
+                // keyword; only the hint/info resolver skipped it.
+                .or_else(|| current.get("additionalProperties"))?;
             resolve_subschema(root, next, rest)
         }
         Some((Seg::Index(_), rest)) => {

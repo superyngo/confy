@@ -489,6 +489,45 @@ fn resolve_schema_info_via_pattern_properties() {
     assert_eq!(info.as_deref(), Some("Task kind\nType: string"));
 }
 
+#[test]
+fn resolve_schema_info_via_additional_properties() {
+    // Dictionary-of-tasks idiom (tasks.schema.json): every entry lives under
+    // `additionalProperties`, not `properties`/`patternProperties`. The
+    // compiled-validator path (validate.rs) always enforced it; the hint/info
+    // resolver used to decline here, leaving the Detail popup's Schema:
+    // section empty of info while violations still rendered.
+    let schema = json!({
+        "type": "object",
+        "additionalProperties": {
+            "type": "object",
+            "description": "Task definition",
+            "properties": {
+                "timeout_seconds": { "type": "integer", "minimum": 0 }
+            }
+        }
+    });
+    let info = resolve_schema_info(
+        &schema,
+        &vec![
+            Seg::Key("put_in_key".into()),
+            Seg::Key("timeout_seconds".into()),
+        ],
+    );
+    assert_eq!(info.as_deref(), Some("Type: integer"));
+    // The entry node itself resolves through the same keyword.
+    let entry = resolve_schema_info(&schema, &vec![Seg::Key("put_in_key".into())]);
+    assert_eq!(entry.as_deref(), Some("Task definition\nType: object"));
+}
+
+#[test]
+fn resolve_schema_info_bool_additional_properties_yields_none() {
+    // `additionalProperties: true/false` (a JSON-schema bool, not a schema
+    // object) resolves but carries no description/type keywords — no info.
+    let schema = json!({ "type": "object", "additionalProperties": true });
+    let info = resolve_schema_info(&schema, &vec![Seg::Key("anything".into())]);
+    assert_eq!(info, None);
+}
+
 use confy_core::session::Session;
 
 fn session_from(src: &str, format: DocFormat) -> Session {
