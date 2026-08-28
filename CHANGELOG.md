@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Unreleased Update — 2026-08-28T23:10:00Z
+- **test(core): validator/resolver parity regression test.** The 2026-08-24
+  (`patternProperties`) and 2026-08-29 (`additionalProperties`) schema-info
+  fixes were the same bug twice — `hints_edit.rs::resolve_subschema`'s
+  keyword whitelist lagging behind `validate.rs`'s full jsonschema validator.
+  New `#[cfg(test)]` parity tests in `hints_edit.rs` lock the invariant
+  directly: a schema exercising every applicability keyword
+  (`properties`/`patternProperties`/`additionalProperties`/`items`/`$ref`)
+  is compiled with the real validator, and every path it flags must resolve
+  through the hint walker. Future keyword-whitelist gaps now fail a test
+  instead of silently dropping detail-panel schema info.
+
 ### Unreleased Update — 2026-08-28T22:47:27Z
 - **fix(core): schema info resolves through `additionalProperties`.** The
   Detail panel's `Schema:` info section (description/`Type:` line) silently

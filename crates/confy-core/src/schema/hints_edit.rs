@@ -187,3 +187,107 @@ fn display_label(v: &Json) -> String {
         other => other.to_string(),
     }
 }
+
+#[cfg(test)]
+mod parity_tests {
+    //! Guards against the resolver's keyword whitelist falling behind the
+    //! compiled validator again. The 2026-08-24 (`patternProperties`) and
+    //! 2026-08-29 (`additionalProperties`) fixes were the same bug twice:
+    //! `validate.rs`'s full `jsonschema` crate enforced a keyword and produced
+    //! violations at paths the hint/info walker silently declined. This test
+    //! asserts the invariant directly — every path the validator flags must
+    //! resolve to *some* subschema here.
+    use super::resolve_subschema;
+    use crate::model::node::Seg;
+    use jsonschema::Validator;
+    use serde_json::json;
+
+    /// Convert a validator `instance_path` (JSON-Pointer segments) to a
+    /// `Path` — keys as `Seg::Key`, array positions as `Seg::Index`.
+    fn pointer_to_path(pointer: &str) -> Vec<Seg> {
+        pointer
+            .split('/')
+            .skip(1) // leading empty segment before the first '/'
+            .map(|seg| match seg.parse::<usize>() {
+                Ok(i) => Seg::Index(i),
+                Err(_) => Seg::Key(seg.to_string()),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn every_flagged_path_resolves_through_the_hint_walker() {
+        // One schema exercising every applicability keyword the walker must
+        // understand: `properties`, `patternProperties`,
+        // `additionalProperties` (the dictionary-of-tasks idiom), `items`,
+        // and a same-document `$ref`.
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "plain": { "type": "string" }
+            },
+            "patternProperties": {
+                "^host_[0-9]+$": {
+                    "type": "array",
+                    "items": { "type": "string" }
+                }
+            },
+            "additionalProperties": {
+                "type": "object",
+                "properties": {
+                    "timeout_seconds": { "type": "integer", "minimum": 0 },
+                    "subscribers": { "$ref": "#/$defs/email_list" }
+                },
+                "required": ["timeout_seconds"]
+            },
+            "$defs": {
+                "email_list": {
+                    "type": "array",
+                    "items": { "type": "string", "minLength": 3 }
+                }
+            }
+        });
+        let compiled = Validator::new(&schema).unwrap();
+
+        // A projection violating one constraint per keyword region.
+        let doc = json!({
+            "plain": 123,
+            "host_1": [7],
+            "task_a": { "timeout_seconds": -5, "subscribers": ["ab"] }
+        });
+        let errors: Vec<_> = compiled.iter_errors(&doc).collect();
+        let summary: Vec<String> = errors
+            .iter()
+            .map(|e| format!("{} ({})", e.instance_path, e.schema_path))
+            .collect();
+        // Exactly one violation per region: properties/plain,
+        // patternProperties/host_1/items, additionalProperties/…/minimum,
+        // and additionalProperties → $ref → items/minLength.
+        assert_eq!(errors.len(), 4, "regions violated: {summary:?}");
+        for err in &errors {
+            let path = pointer_to_path(&err.instance_path.to_string());
+            assert!(
+                resolve_subschema(&schema, &schema, &path).is_some(),
+                "validator flagged {path:?} ({}) but the hint walker cannot \
+                 resolve it — the keyword whitelist has fallen behind again",
+                err.instance_path
+            );
+        }
+    }
+
+    #[test]
+    fn pointer_to_path_splits_keys_and_indices() {
+        assert_eq!(pointer_to_path(""), Vec::new());
+        assert_eq!(
+            pointer_to_path("/task_a/timeout_seconds"),
+            vec![
+                Seg::Key("task_a".into()),
+                Seg::Key("timeout_seconds".into())
+            ]
+        );
+        assert_eq!(
+            pointer_to_path("/host_1/0"),
+            vec![Seg::Key("host_1".into()), Seg::Index(0)]
+        );
+    }
+}
