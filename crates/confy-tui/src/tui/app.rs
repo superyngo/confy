@@ -663,8 +663,13 @@ impl App {
 
     // ---- Mutations ----
 
+    /// $EDITOR commit (`edit_node`'s external-edit branch). `session`'s
+    /// `apply_external_replace` (not the bare `apply_replace` the inline
+    /// editor's commit path uses) treats `edited` as the fragment's complete,
+    /// authoritative text so an explicit trailing-comment deletion in the
+    /// popped-open editor sticks (comment-advisory follow-up issue #4).
     pub(crate) fn apply_replace(&mut self, path: Path, edited: String) {
-        self.session.apply_replace(path, edited);
+        self.session.apply_external_replace(path, edited);
         self.rebuild_rows();
     }
     pub(crate) fn apply_edit_comment(&mut self, path: Path, text: String) {
@@ -1642,6 +1647,29 @@ mod tests {
         // history advanced: undo restores the pre-edit snapshot
         let restored = app.session.history.as_mut().unwrap().undo().unwrap();
         assert!(restored.contains("8080"));
+    }
+
+    #[test]
+    fn external_edit_apply_replace_can_clear_toml_trailing_comment() {
+        // Regression test for comment-advisory follow-up issue #4 (TUI half):
+        // `App::apply_replace` is the `$EDITOR` commit path (`edit_node`'s
+        // external-edit branch) — it must treat the returned text as the
+        // fragment's complete, authoritative representation and let an
+        // explicit trailing-comment deletion in the popped-open editor stick,
+        // not silently restore the old comment via `Replace`'s
+        // preserve-when-silent default (correct only for the *inline* editor).
+        let mut app = app_with("a = 1 # old\n");
+        app.apply_replace(vec![Seg::Key("a".into())], "a = 1\n".into());
+        let out = app.session.doc.as_ref().unwrap().serialize();
+        assert!(!out.contains("# old"), "comment should stay cleared: {out:?}");
+    }
+
+    #[test]
+    fn external_edit_apply_replace_can_clear_json_trailing_comment() {
+        let mut app = app_with_json("{\n  \"a\": 1 // old\n}\n");
+        app.apply_replace(vec![Seg::Key("a".into())], "\"a\": 1".into());
+        let out = app.session.doc.as_ref().unwrap().serialize();
+        assert!(!out.contains("// old"), "comment should stay cleared: {out:?}");
     }
 
     #[test]

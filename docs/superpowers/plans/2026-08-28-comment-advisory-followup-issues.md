@@ -23,6 +23,11 @@ entries for the fixes and their regression tests. Root causes, in brief:
    session an explicit comment deletion had happened, so `Mutation::Replace`'s
    "preserve the old comment when the fragment is silent" default (correct
    for the *inline* editor) silently restored a deleted comment on JSON/TOML.
+   The first pass of this fix only patched the `Intent::ApplyReplace`
+   dispatch handler (web/vscode/tauri); `confy-tui`'s `$EDITOR` commit calls
+   `Session::apply_replace()` directly, bypassing the `Intent` enum, and kept
+   reverting the clear until a follow-up patch extracted the detection into
+   a shared `Session::apply_external_replace()` used by both call sites.
 
 Context: after landing the JSONC-schema-parsing fix + comment-advisory UI
 (commits around 2026-08-27, see CHANGELOG "Unreleased Update" entries for

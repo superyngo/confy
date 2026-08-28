@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Unreleased Update — 2026-08-28T06:14:27Z
+- fix(tui): the previous issue-#4 fix (external/pop-up editor comment-clear revert) only
+  patched the `Intent::ApplyReplace` dispatch handler used by web/vscode/tauri — `confy-tui`'s
+  `edit_node()` `$EDITOR` commit calls `App::apply_replace` → `Session::apply_replace()`
+  directly (a plain Rust method call, bypassing the `Intent` enum entirely), so TUI's external
+  editor still silently restored a deleted trailing comment on JSON/TOML. Extracted the
+  explicit-clear detection into a new shared `Session::apply_external_replace(path, text)`
+  (wraps `apply_replace`, used only for the *external*-editor's authoritative full-fragment
+  text — the pre-existing `apply_replace` keeps its "preserve unless `pending_trailing` set"
+  semantics for the *inline* editor's value-only commits); both `dispatch.rs`'s
+  `Intent::ApplyReplace` handler and TUI's `App::apply_replace` now call it. New TUI tests
+  `external_edit_apply_replace_can_clear_{toml,json}_trailing_comment` (confirmed failing
+  against the pre-fix `apply_replace` call, passing against `apply_external_replace`).
+
 ### Unreleased Update — 2026-08-28T05:20:52Z
 - fix(web): `.json`-format **sample** documents (opened via New/loadSample, no real
   filename — `openSample` passes the literal name `"sample"`) never set `strict_json`,
