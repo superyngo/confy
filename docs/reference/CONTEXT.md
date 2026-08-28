@@ -184,6 +184,25 @@ confy's first-class comments (standalone + trailing) in document order, but **no
 The act of (re)building the Node tree from the backing document after every change. The backing
 document — not the Node tree — is the single source of truth.
 
+**Parser backend**:
+The per-`DocFormat` implementation that turns text into the lossless rowan
+`GreenNode`/`SyntaxNode` CST every projection reads. Not one shared parser —
+JSON/JSONC (`model/json/parse.rs`) and YAML (`model/yaml/parse.rs`) are
+project-owned, hand-rolled lexer + recursive-descent (JSON) / indentation-
+driven (YAML) parsers; TOML (`model/cst_doc.rs`) instead delegates to the
+external `taplo` crate (also rowan-based) — the original hand-written
+`toml_edit`-based backend was retired once `taplo` reached parity, so no
+project-owned TOML tokenizer exists anymore. Consequence: a JSON or YAML
+parsing bug is fixable directly in this repo; a TOML tokenize/parse-stage bug
+can only be worked around at the `confy-core` integration layer
+(`cst_doc.rs`, `cst_edit/*`) or reported upstream to `taplo`. `.json` vs
+`.jsonc` is **not** a parser distinction — both compile to `DocFormat::Json`
+through the same parser; the extension only matters to host-side policy (see
+**Comment advisory** below). `AnyDocument::from_str_as` (`model/any_doc.rs`)
+is the format-dispatch entry point.
+_Avoid_: assuming a bug in one format's parser generalizes to another — the
+three backends share only the CST shape, not an implementation.
+
 **Remark**:
 The toggle that turns a live Node into a **Comment** (and back). Canonical name for what the
 `r` key does.

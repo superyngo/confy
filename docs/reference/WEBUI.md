@@ -190,7 +190,7 @@ shapes round-trip). Key types:
   isn't routed as navigation.
 - **Confirm prompts are buttons** (shared `web/prompt.ts`). `Mode::Prompt` renders per-kind
   answer buttons (`data-pk` → `PromptKey`): Yes/Cancel pairs for TypeChange / ArrayUpgrade /
-  JsoncUpgrade / ConfirmQuit, and Overwrite / Rename / Cancel for a paste Collision. The
+  ConfirmQuit, and Overwrite / Rename / Cancel for a paste Collision. The
   question line is `snap.status ?? snap.error` with the TUI's trailing key legend stripped
   (`promptQuestion`), with per-kind fallbacks for prompts core raises without a status. Desktop
   keeps the keyboard path (y/n/Enter/Esc, plus o/r for Collision) alongside the buttons; the

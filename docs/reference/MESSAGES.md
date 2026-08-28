@@ -51,8 +51,8 @@ Error-only "never hidden" invariant, just generalized to all four severities.
 ### 1.2 Prompt question
 
 `ModeView::Prompt { kind, question }` — the question text of an open y/n or
-o/r/c prompt (`Collision`, `ConfirmQuit`, `TypeChange`, `ArrayUpgrade`,
-`JsoncUpgrade` — 5 kinds), rendered **core-side** from `PromptKind` +
+o/r/c prompt (`Collision`, `ConfirmQuit`, `TypeChange`, `ArrayUpgrade` — 4
+kinds), rendered **core-side** from `PromptKind` +
 `Session.lang` via `prompt_question(lang, pk)` (`dispatch.rs:581`), one localized
 `core.prompt.<kind>` key per kind, legend-free. **Hosts never reconstruct or
 parse this text** — the pre-refactor pattern (TUI parsing `status` for prompt
@@ -88,8 +88,8 @@ Four levels, one meaning each:
 `severity_of(key: &str) -> Severity` (`notice.rs:45`) is the single source of
 truth for every `core.*` and host-notice key — there is no explicit-severity
 constructor and no escape hatch; a key not yet in the table panics rather than
-silently defaulting, so a new Notice call site can't ship unclassified. 42
-`core.*` keys are classified today (11 Error + 14 Warn + 7 Success + 9 Info,
+silently defaulting, so a new Notice call site can't ship unclassified. 41
+`core.*` keys are classified today (11 Error + 13 Warn + 7 Success + 9 Info,
 plus one controller-approved pass-through wrapper, `core.schema.violation`,
 for the dynamic schema-violation advisory text) — see `notice.rs`'s own
 `severity_of_covers_the_full_catalog_table` test for the byte-identical,
@@ -324,7 +324,39 @@ message model the rest of this document covers.
   (`ModeView::Prompt.question`), closing the pre-refactor pattern where prompt
   text and status text shared one field and periodically collided.
 
-## 7. Known follow-ups (non-blocking, recorded for later)
+## 7. Adjacent channels this document does not cover
+
+Two more user-facing text mechanisms exist in the codebase, entirely outside
+the Notice/Prompt-question/Diagnostic-event model above — noted here (closing
+a gap `docs/superpowers/plans/2026-08-28-json-jsonc-parser-simplification-ssot.md`
+found: neither had a home in this document) so a future audit doesn't mistake
+their absence above for an oversight in §1's "two channels" claim, which is
+scoped to the Notice-system model only.
+
+### 7.1 Comment advisory (`ViewRow.comment_advisory`)
+
+A **persistent per-row projection**, not a Notice: `Option<String>`, plain
+translated text, no `Severity`, no `NoticeSource`, recomputed on every row
+rebuild alongside the rest of `ViewRow` rather than written through
+`set_notice`/`Intent::SetHostNotice`. See `CONTEXT.md`'s "Comment advisory"
+glossary entry for its trigger condition (`Session.strict_json` + node
+facets). Because it lives on the row, not in the single-slot `Session.notice`
+field, it cannot collide with or be cleared by anything in §1.1's Notice
+lifecycle — the two mechanisms happen to render near each other in some UIs
+but never contend for the same storage.
+
+### 7.2 Convert warnings (`ConvertResult.warnings`)
+
+A `Vec<String>` of **raw, untranslated** English strings returned by
+cross-format convert/save-as (lossy-conversion notes — e.g. "comments will be
+dropped", "duplicate key merged"). Rendered as an ad hoc bullet list by each
+host's own convert-confirm surface (CLI stderr, TUI's `overlay_convert`, web's
+convert-dialog) rather than through `tr`/`tr_args` — this channel bypasses
+i18n entirely, unlike every other user-facing string in this document.
+Unifying it into the catalog/Notice model is a known, explicitly out-of-scope
+follow-up (not tracked by an issue as of this writing).
+
+## 8. Known follow-ups (non-blocking, recorded for later)
 
 - **Web `?diag=1`'s `lastSeenSeq` doesn't reset on a file swap.** Opening a new
   file via `openText()` replaces the underlying `ConfySession` (and therefore
