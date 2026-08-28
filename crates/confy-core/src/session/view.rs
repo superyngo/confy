@@ -40,6 +40,11 @@ pub struct OutlineNode {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ViewRow {
     pub path: Path,
+    /// Human dotted/bracketed form of `path`, with quoted-YAML key segments
+    /// wrapped in display `"…"` flanks (see `Session::human_path`). Drives
+    /// the Web/Touch panel's "Path" field so it doesn't need to re-derive
+    /// quoting client-side.
+    pub path_display: String,
     pub depth: usize,
     pub is_branch: bool,
     pub key: String,

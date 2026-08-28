@@ -119,3 +119,43 @@ protected by the quotes from the outer `.trim()`), and `Mutation::Rename`'s
    editing/removing the quote chars, an intentional trailing space inside
    quotes, committing an unchanged rename (must not fire a mutation), and a
    collision against an existing sibling (typed with and without quotes).
+
+## Resolution (2026-08-28, follow-up session)
+
+All three user-reported problems and the memo's "NOT yet done" list are now
+addressed:
+
+1. **Decoration reverted.** `af6adc7`'s static `"…"` flanking spans
+   (`web/render.ts`'s `.key-quote` span, `crates/confy-tui/src/tui/ui.rs`'s
+   matching span pair) are removed — the rename/edit buffer itself now
+   carries the literal quote characters (from the earlier `key_literal_text`
+   fix), so decorating it further would double the quotes. Rename input is
+   now a plain field, same as any other key; quote chars are ordinary,
+   editable buffer content, and protect an intentional inside-quote trailing
+   space from `edit_commit`'s outer `.trim()` — mirroring TOML exactly.
+2. **Path display fixed.** New `Session::human_path(&self, path) -> String`
+   (`crates/confy-core/src/session/session.rs`) builds the dotted/bracketed
+   path, wrapping a quoted-YAML-key segment in `"…"` display flanks (looked
+   up per-ancestor via `self.tree.node_at(prefix).key_sign`, not the CST —
+   read-only, doesn't need to be commit-safe, matching the memo's original
+   suggestion). Used by TUI's `open_detail` (fixes the Detail popup's
+   "Path:" line) and exposed as a new `ViewRow.path_display: String` field
+   computed once per row (fixes the Web/Touch panel's "Path" field via
+   `panel.ts::humanPath`, which now prefers `row.path_display` and falls
+   back to its old plain client-side join when absent).
+3. **Value-only-edit key-drop bug** (found as a side effect of the earlier
+   `key_literal_text` fix) covered by a new regression test.
+4. **Regression tests rewritten/added**: the two decoration-focused tests
+   (`web/render.spec.mjs`, `crates/confy-tui/src/tui/ui.rs`) now assert the
+   buffer/input value itself carries the literal quotes; ten new
+   `crates/confy-core/tests/session_headless.rs` tests cover
+   `path_display`/Path-line quoting (YAML quoted/bare, TOML no-double-quote),
+   the value-only-edit fix, and the four manual-test scenarios from the
+   "Suggested next steps" list below (quote-char editing + inside-quote
+   trailing space, no-op commit, collision typed with/without quotes —
+   collision rejects the rename with an error notice and stays in Edit mode,
+   not a `PromptKind::Collision` prompt, which is paste-only).
+5. `cargo test --workspace` passes in full (no failures); `web/render.spec.mjs`
+   and the rest of the `web/*.spec.mjs` suite pass; `tsc --noEmit` clean.
+
+No known-broken items remain from this memo.

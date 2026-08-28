@@ -2271,3 +2271,171 @@ fn copy_scalar_out_of_nested_unkeyed_array_falls_back_to_placeholder() {
         "unkeyed/nested-array scalar keeps the generic placeholder key"
     );
 }
+
+// ---- YAML quoted-key edit/Path regression tests (2026-08-28 follow-up) ----
+
+#[test]
+fn value_only_edit_keeps_quoted_yaml_key_intact() {
+    // Editing just the Value of a quoted-key YAML entry must not silently
+    // drop the key's quotes from the rebuilt "key: value" fragment — a bug
+    // found and fixed as a side effect of the `key_literal_text` rename fix
+    // (`begin_inline_edit_impl` previously always seeded `frag_key` with
+    // YAML's *decoded* key).
+    let doc = AnyDocument::from_str_as("\"a b\": 1\n", DocFormat::Yaml).unwrap();
+    let mut s = Session::new(doc);
+    s.cursor = vec![Seg::Key("a b".into())];
+    s.begin_inline_edit();
+    s.edit_backspace();
+    for c in "2".chars() {
+        s.edit_input_char(c);
+    }
+    s.edit_commit();
+    assert_eq!(s.serialize().unwrap(), "\"a b\": 2\n");
+}
+
+#[test]
+fn detail_path_line_shows_quotes_for_quoted_yaml_key() {
+    let doc = AnyDocument::from_str_as("\"a b\":\n  c: 1\n", DocFormat::Yaml).unwrap();
+    let mut s = Session::new(doc);
+    s.expanded.insert(vec![Seg::Key("a b".into())]);
+    s.cursor = vec![Seg::Key("a b".into()), Seg::Key("c".into())];
+    s.open_detail();
+    let text = s.detail_text.clone().unwrap();
+    assert!(
+        text.contains("\"a b\".c"),
+        "Path line should show the quoted ancestor key: {text}"
+    );
+}
+
+#[test]
+fn detail_path_line_does_not_double_quote_toml_key() {
+    let mut s = toml_session("\"a b\" = 1\n");
+    s.cursor = vec![Seg::Key("\"a b\"".into())];
+    s.open_detail();
+    let text = s.detail_text.clone().unwrap();
+    assert!(text.contains("\"a b\""), "expected single-quoted TOML key: {text}");
+    assert!(!text.contains("\"\"a b\"\""), "TOML key must not be double-quoted: {text}");
+}
+
+#[test]
+fn view_row_path_display_shows_quotes_for_quoted_yaml_key() {
+    let doc = AnyDocument::from_str_as("\"a b\": 1\n", DocFormat::Yaml).unwrap();
+    let s = Session::new(doc);
+    let row = s
+        .visible_rows()
+        .into_iter()
+        .find(|r| r.key == "a b")
+        .unwrap();
+    assert_eq!(row.path_display, "\"a b\"");
+}
+
+#[test]
+fn view_row_path_display_does_not_double_quote_toml_key() {
+    let s = toml_session("\"a b\" = 1\n");
+    let row = s
+        .visible_rows()
+        .into_iter()
+        .find(|r| r.key == "\"a b\"")
+        .unwrap();
+    assert_eq!(row.path_display, "\"a b\"");
+}
+
+#[test]
+fn view_row_path_display_leaves_bare_yaml_key_unquoted() {
+    let doc = AnyDocument::from_str_as("a: 1\n", DocFormat::Yaml).unwrap();
+    let s = Session::new(doc);
+    let row = s.visible_rows().into_iter().find(|r| r.key == "a").unwrap();
+    assert_eq!(row.path_display, "a");
+}
+
+
+// ---- Scripted end-to-end verification: F2 rename on a quoted YAML key ----
+// (manual-test substitute — no interactive TUI/browser available here)
+
+#[test]
+fn rename_buffer_editing_quote_chars_and_trailing_space_inside_quotes_works() {
+    let doc = AnyDocument::from_str_as("\"a b\": 1\n", DocFormat::Yaml).unwrap();
+    let mut s = Session::new(doc);
+    s.cursor = vec![Seg::Key("a b".into())];
+    s.begin_inline_rename();
+    assert_eq!(
+        match &s.mode {
+            Mode::Edit(e) => e.buffer.clone(),
+            _ => panic!("expected Edit mode"),
+        },
+        "\"a b\""
+    );
+    // Move left past the closing quote and type an intentional trailing
+    // space *inside* the quotes — the quote chars are now ordinary,
+    // editable buffer content, and protect the inside space from
+    // `edit_commit`'s outer `.trim()`.
+    s.edit_cursor_left();
+    s.edit_input_char(' ');
+    s.edit_commit();
+    assert_eq!(s.serialize().unwrap(), "\"a b \": 1\n");
+}
+
+#[test]
+fn commit_unchanged_quoted_yaml_rename_is_a_noop() {
+    let doc = AnyDocument::from_str_as("\"a b\": 1\n", DocFormat::Yaml).unwrap();
+    let mut s = Session::new(doc);
+    s.cursor = vec![Seg::Key("a b".into())];
+    let before = s.serialize().unwrap();
+    s.begin_inline_rename();
+    s.edit_commit(); // no edits made
+    assert_eq!(s.serialize().unwrap(), before, "unchanged rename must not rewrite the document");
+    assert!(!s.is_dirty(), "unchanged rename must not mark the document dirty");
+}
+
+#[test]
+fn rename_collision_check_compares_decoded_names_quoted_or_not() {
+    // Typing the new name *with* explicit quotes must still collision-match
+    // an existing sibling compared by its decoded name: the rename is
+    // rejected (stays in Edit mode with an error notice, document
+    // untouched) rather than silently overwriting/renaming past it.
+    let doc = AnyDocument::from_str_as("\"a b\": 1\ncd: 2\n", DocFormat::Yaml).unwrap();
+    let mut s = Session::new(doc);
+    s.cursor = vec![Seg::Key("cd".into())];
+    s.begin_inline_rename();
+    for _ in 0.."cd".chars().count() {
+        s.edit_backspace();
+    }
+    for c in "\"a b\"".chars() {
+        s.edit_input_char(c);
+    }
+    s.edit_commit();
+    assert!(
+        matches!(s.mode, Mode::Edit(_)),
+        "collision must reject the rename and stay in Edit mode"
+    );
+    assert_eq!(
+        s.serialize().unwrap(),
+        "\"a b\": 1\ncd: 2\n",
+        "colliding rename must not touch the document"
+    );
+}
+
+#[test]
+fn rename_collision_check_matches_bare_typed_name_too() {
+    // Same collision, but typed without quotes.
+    let doc = AnyDocument::from_str_as("\"a b\": 1\ncd: 2\n", DocFormat::Yaml).unwrap();
+    let mut s = Session::new(doc);
+    s.cursor = vec![Seg::Key("cd".into())];
+    s.begin_inline_rename();
+    for _ in 0.."cd".chars().count() {
+        s.edit_backspace();
+    }
+    for c in "a b".chars() {
+        s.edit_input_char(c);
+    }
+    s.edit_commit();
+    assert!(
+        matches!(s.mode, Mode::Edit(_)),
+        "collision must reject the rename and stay in Edit mode"
+    );
+    assert_eq!(
+        s.serialize().unwrap(),
+        "\"a b\": 1\ncd: 2\n",
+        "colliding rename must not touch the document"
+    );
+}

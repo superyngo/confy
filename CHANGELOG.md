@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Unreleased Update — 2026-08-28T09:00:00Z
+- fix(core,web,tui): completed the quoted-YAML-key rename/Path-display fix
+  (see `docs/reference/yaml-quoted-key-edit-memo.md`). Reverted the earlier
+  decoration-only patch (`af6adc7`) now that the rename/edit buffer itself
+  carries the literal quote characters (`key_literal_text`, prior commit) —
+  the quote marks are ordinary, directly editable buffer content, mirroring
+  TOML exactly (editable quotes, an inside-quote trailing space survives
+  `edit_commit`'s `.trim()`). `web/render.ts`'s `.key-quote` decoration span
+  and CSS rule and `crates/confy-tui/src/tui/ui.rs`'s matching span pair are
+  removed. New `Session::human_path()` (`crates/confy-core/src/session/session.rs`)
+  wraps a quoted-YAML-key path segment in display `"…"` flanks; used by
+  TUI's Detail popup "Path:" line and a new `ViewRow.path_display` field
+  consumed by `web/panel.ts`'s Path field — TOML/JSON unaffected (gated on
+  YAML + `KeySign::Quoted`). Also fixes a value-only edit silently dropping
+  a quoted key's quotes (found as a side effect of the prior commit). Ten
+  new `crates/confy-core/tests/session_headless.rs` tests cover Path-line/
+  `path_display` quoting, the value-only-edit fix, and scripted end-to-end
+  scenarios (quote-char editing + inside-quote trailing space, no-op
+  commit, collision typed with/without quotes). Rewrote the two
+  decoration-focused regression tests to assert the literal-quoted buffer
+  value instead.
+
 ### Unreleased Update — 2026-08-28T07:31:25Z
 - fix(web,tui): follow-up to the quoted-YAML-key tree display fix above — the
   quote marks it added were still momentarily invisible the instant `F2`/rename

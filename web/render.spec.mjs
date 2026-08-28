@@ -135,21 +135,20 @@ console.log("\n-- renderRow(): quoted-key display (YAML parity with TOML) --");
   check('TOML quoted key is not double-quoted', !htmlToml.includes('""a b""'), htmlToml);
 }
 
-// ---- renderRow: quoted YAML key rename shows quote flanks around the edit input ----
-console.log("\n-- renderRow(): quoted-key rename input keeps quote flanks --");
+// ---- renderRow: quoted YAML key rename buffer carries literal quotes ----
+console.log("\n-- renderRow(): quoted-key rename input carries literal quotes --");
 {
+  // The rename buffer itself now carries the literal source text (quotes
+  // included), seeded from core's `key_literal_text` — mirroring TOML's
+  // rename buffer, which already carries its literal quotes. No separate
+  // decoration span is drawn.
   const row = makeRow({ key: "a b", key_sign: "quoted", is_cursor: true });
-  const edit = { field: "Name", buffer: "a b", cursor: 3, is_element: false, is_comment: false };
+  const edit = { field: "Name", buffer: '"a b"', cursor: 5, is_element: false, is_comment: false };
   const html = renderRow(row, 0, [row], edit, null, "", false, "Yaml");
-  check(
-    "YAML quoted-key rename input flanked by static quote decoration",
-    html.includes('<span class="key-quote">"</span><input') &&
-      html.includes('/><span class="key-quote">"</span>'),
-    html,
-  );
-  check("rename input value itself stays decoded (unquoted)", html.includes('value="a b"'), html);
+  check("YAML quoted-key rename input value carries literal quotes", html.includes('value="&quot;a b&quot;"'), html);
+  check("no separate quote-decoration span is drawn", !html.includes("key-quote"), html);
 
-  // A bare YAML key's rename input gets no quote decoration.
+  // A bare YAML key's rename input is unaffected.
   const bareRow = makeRow({ key: "a", key_sign: "bare", is_cursor: true });
   const bareEdit = { field: "Name", buffer: "a", cursor: 1, is_element: false, is_comment: false };
   const bareHtml = renderRow(bareRow, 0, [bareRow], bareEdit, null, "", false, "Yaml");
@@ -185,6 +184,20 @@ console.log("\n-- panelHTML() escaping (value/comment fields) --");
   });
   const html = panelHTML(row, false, "None");
   assertEscaped(html, VALUE_PAYLOAD, "panel comment-row value");
+}
+
+// ---- panelHTML: Path field uses server-computed path_display ----
+console.log("\n-- panelHTML(): Path field shows quoted YAML key segments --");
+{
+  const quotedRow = makeRow({ path: [{ Key: "a b" }], path_display: '"a b"', key_sign: "quoted" });
+  const html = panelHTML(quotedRow, false, "None");
+  check("Path field shows literal quotes from path_display", html.includes(">&quot;a b&quot;<"), html);
+
+  // Fallback: no path_display supplied → plain client-side join (unaffected
+  // synthetic fixtures / non-YAML rows keep working unchanged).
+  const plainRow = makeRow({ path: [{ Key: "a" }, { Key: "b" }] });
+  const plainHtml = panelHTML(plainRow, false, "None");
+  check("Path field falls back to plain dotted path without path_display", plainHtml.includes(">a.b<"), plainHtml);
 }
 
 console.log(failures === 0 ? "\nALL RENDER-ESCAPING CHECKS PASSED" : `\n${failures} FAILURES`);

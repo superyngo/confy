@@ -404,26 +404,16 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                         edit_value_cell(e, value_col_width(area.width)),
                     ),
                     crate::tui::state::EditField::Name => {
-                        // A quoted YAML key shows its `"…"` flanks as static
-                        // decoration around the editable buffer (which stays
-                        // the decoded, unquoted text) so the quote marks
-                        // don't visibly vanish the instant rename starts —
-                        // they were part of `display_key`'s row rendering a
-                        // moment ago. Decoration only: `e.buffer`/commit are
-                        // untouched, so rename semantics are unchanged.
-                        let quoted = is_quoted_yaml_key(&row.key_sign, app.doc_format());
-                        let quote_cols = if quoted { 2 } else { 0 };
+                        // The rename/edit buffer for a quoted YAML key now
+                        // carries the literal quote characters itself (seeded
+                        // from `key_literal_text`, see `inline_edit.rs`), so
+                        // no separate decoration is drawn here — it would
+                        // double the quotes. Plain edit rendering, same as
+                        // any other key.
                         let avail = (name_col_width(area.width) as usize)
-                            .saturating_sub(prefix.chars().count())
-                            .saturating_sub(quote_cols);
+                            .saturating_sub(prefix.chars().count());
                         let mut spans = vec![Span::raw(prefix)];
-                        if quoted {
-                            spans.push(Span::raw("\""));
-                        }
                         spans.extend(edit_field_spans(&e.buffer, e.cursor, e.scroll, avail));
-                        if quoted {
-                            spans.push(Span::raw("\""));
-                        }
                         (Cell::from(Line::from(spans)), value_cell(row))
                     }
                 },
@@ -948,13 +938,24 @@ mod tests {
     }
 
     #[test]
-    fn quoted_yaml_key_rename_shows_quote_flanks_around_edit_buffer() {
+    fn quoted_yaml_key_rename_shows_literal_quotes_in_edit_buffer() {
         let doc = crate::model::any_doc::AnyDocument::Yaml(
             crate::model::yaml::doc::YamlDocument::from_str("\"a b\": 1\n").unwrap(),
         );
         let mut app = App::new(doc);
         app.select_row(1); // on "a b"
         app.begin_inline_rename();
+        // The rename buffer itself now carries the literal source text
+        // (quotes included), seeded from `key_literal_text` — the quote
+        // characters are just ordinary, editable buffer content, mirroring
+        // TOML's rename buffer (which already carries its literal quotes).
+        assert_eq!(
+            match &app.session.mode {
+                Mode::Edit(e) => e.buffer.as_str(),
+                _ => panic!("should be in rename mode"),
+            },
+            "\"a b\""
+        );
         let mut terminal = Terminal::new(TestBackend::new(60, 8)).unwrap();
         terminal.draw(|fr| draw(fr, &app)).unwrap();
         let buf = terminal.backend().buffer().clone();
@@ -962,26 +963,15 @@ mod tests {
             .map(|y| (0..60).map(|x| buf[(x, y)].symbol()).collect::<String>())
             .collect::<Vec<_>>()
             .join("\n");
-        // The quote marks must still flank the buffer during rename — they
-        // were visible in the row a moment ago (`display_key`) and must not
-        // appear to vanish just because rename mode started.
+        // The rendered row shows the quotes as ordinary buffer chars, not a
+        // separate decoration span — no double-quoting (`""a b""`).
         assert!(
-            joined.contains("\"a b"),
-            "opening quote flank missing before rename buffer: {joined:?}"
+            joined.contains("\"a b") || joined.contains("a b\""),
+            "quote flank missing from rename buffer render: {joined:?}"
         );
-        // The cursor sits at end-of-buffer, rendered as a reverse-video
-        // trailing space, so the closing quote may be one char further out.
         assert!(
-            joined.contains("b \"") || joined.contains("b\""),
-            "closing quote flank missing after rename buffer: {joined:?}"
-        );
-        // Decoration only: the underlying buffer stays the decoded text.
-        assert_eq!(
-            match &app.session.mode {
-                Mode::Edit(e) => e.buffer.as_str(),
-                _ => panic!("should be in rename mode"),
-            },
-            "a b"
+            !joined.contains("\"\"a b\"\""),
+            "rename buffer must not be double-quoted: {joined:?}"
         );
     }
 

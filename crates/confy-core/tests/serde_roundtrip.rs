@@ -111,6 +111,7 @@ fn move_selection_to_cut_defaults_to_true_when_omitted() {
 fn view_row_roundtrips() {
     let row = ViewRow {
         path: sample_path(),
+        path_display: "a.b.name".into(),
         depth: 2,
         is_branch: false,
         key: "name".into(),
@@ -132,6 +133,7 @@ fn view_row_roundtrips() {
 
     let branch = ViewRow {
         path: vec![Seg::Key("plugins".into())],
+        path_display: "plugins".into(),
         depth: 0,
         is_branch: true,
         key: "plugins".into(),

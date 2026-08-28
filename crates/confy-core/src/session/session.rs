@@ -4,7 +4,7 @@ use super::status_fmt::{
 };
 use crate::model::any_doc::AnyDocument;
 use crate::model::document::{ConfigDocument, DocFormat, Mutation, OnCollision, Target};
-use crate::model::node::{Format, Node, NodeKind, NodeTree, Path, Seg, VisibleRow};
+use crate::model::node::{Format, KeySign, Node, NodeKind, NodeTree, Path, Seg, VisibleRow};
 use crate::session::i18n::{tr_args, Lang};
 use crate::session::notice::Notice;
 use crate::session::search::{fuzzy_match, haystack};
@@ -185,6 +185,7 @@ impl Session {
         };
         ViewRow {
             path: node.path.clone(),
+            path_display: self.human_path(&node.path),
             depth,
             is_branch: node.is_branch(),
             key: node.key.clone(),
@@ -214,6 +215,47 @@ impl Session {
                     .is_some_and(|s| s.warning_ancestors.contains(&node.path)),
             comment_advisory: self.comment_advisory_for(node),
         }
+    }
+
+    /// Human-readable dotted/bracketed form of `path` — `servers[1].port` —
+    /// used for the "Path" field (TUI Detail popup, Web/Touch panel). Each
+    /// `Seg::Key` segment whose own node is a quoted YAML key
+    /// (`KeySign::Quoted`, YAML-only) is wrapped in display `"…"` flanks,
+    /// mirroring `display_key`/`displayKey`'s existing tree-row decoration
+    /// (commit `64db70a`) so the Path segment matches TOML's/JSON's already-
+    /// literal-quoted form instead of silently hiding the quoting.
+    /// Display-only — never fed back into rename/mutation logic (those read
+    /// `Node.key`/`Seg::Key` directly, untouched by this). Empty path →
+    /// `"(root)"`.
+    pub(crate) fn human_path(&self, path: &Path) -> String {
+        if path.is_empty() {
+            return "(root)".to_string();
+        }
+        let yaml = self.doc_format() == DocFormat::Yaml;
+        let mut s = String::new();
+        for i in 0..path.len() {
+            match &path[i] {
+                Seg::Key(k) => {
+                    if !s.is_empty() {
+                        s.push('.');
+                    }
+                    let quoted = yaml
+                        && self
+                            .tree
+                            .node_at(&path[..=i])
+                            .is_some_and(|n| n.key_sign == KeySign::Quoted);
+                    if quoted {
+                        s.push('"');
+                        s.push_str(k);
+                        s.push('"');
+                    } else {
+                        s.push_str(k);
+                    }
+                }
+                Seg::Index(idx) => s.push_str(&format!("[{idx}]")),
+            }
+        }
+        s
     }
 
     /// `Some(message)` when `node` is a standalone comment or carries a
@@ -1258,23 +1300,7 @@ impl Session {
             Some(r) => r.node,
             None => return,
         };
-        let dotted = if node.path.is_empty() {
-            "(root)".to_string()
-        } else {
-            let mut s = String::new();
-            for seg in &node.path {
-                match seg {
-                    Seg::Key(k) => {
-                        if !s.is_empty() {
-                            s.push('.');
-                        }
-                        s.push_str(k);
-                    }
-                    Seg::Index(i) => s.push_str(&format!("[{i}]")),
-                }
-            }
-            s
-        };
+        let dotted = self.human_path(&node.path);
         let mut detail = if node.is_branch() {
             let (type_str, fmt_str) = branch_type_format(&node.kind);
             let children = node.children.len().to_string();

@@ -54,6 +54,10 @@ export type DocFormat = "Toml" | "Json" | "Yaml";
 // ---- View row (session::view::ViewRow) ----
 export interface ViewRow {
   path: Path;
+  // Human dotted/bracketed form of `path`, quoted-YAML key segments wrapped
+  // in display `"…"` flanks (core `Session::human_path`). Optional so older
+  // synthetic test fixtures without it still type-check.
+  path_display?: string;
   depth: number;
   is_branch: boolean;
   key: string;

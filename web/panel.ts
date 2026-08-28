@@ -16,7 +16,7 @@
 //     `wireDetail` — are actually wired here.
 //   · Every `send(...)` result is inspected for `SessionSnapshot.notice` (Error severity);
 //     a non-empty error is surfaced via `onError` (no more silent failures).
-import type { ViewRow, Intent, SessionSnapshot, Path, EditHint } from "./types";
+import type { ViewRow, Intent, SessionSnapshot, EditHint } from "./types";
 import { escapeHtml as esc } from "./escape.js";
 import { isCommentRow, isPositional, notationGlyph, valueHue } from "./kind-labels.js";
 import { t, tArgs } from "./i18n.js";
@@ -33,9 +33,16 @@ function isMultilineValue(r: ViewRow): boolean {
 
 // Human dotted/bracketed path: `{Key:n}` → `.n` (no leading dot on the first
 // segment), `{Index:i}` → `[i]`. e.g. `server.host`, `servers[1].port`.
-function humanPath(path: Path): string {
+// Prefers the server-computed `row.path_display` (core's `Session::human_path`),
+// which wraps a quoted YAML key segment in `"…"` — mirroring TOML's/JSON's
+// already-literal-quoted `Path` — since a plain client-side join of
+// `row.path` can't know which ancestor keys were quoted (`Seg::Key` decodes
+// YAML keys). Falls back to a plain client-side join when `path_display` is
+// absent (e.g. older/synthetic `ViewRow` fixtures).
+function humanPath(row: ViewRow): string {
+  if (row.path_display !== undefined) return row.path_display;
   let s = "";
-  for (const seg of path) {
+  for (const seg of row.path) {
     if ("Key" in seg) s += s === "" ? seg.Key : "." + seg.Key;
     else s += `[${seg.Index}]`;
   }
@@ -75,7 +82,7 @@ export function panelHTML(
     } else {
       h += `<input class="c-edit" data-field="comment-node" value="${esc(r.value ?? "")}" autocomplete="off" spellcheck="false" />`;
     }
-    h += `<dl><dt>${t("web.panel.field.path")}</dt><dd>${esc(humanPath(r.path))}</dd></dl>`;
+    h += `<dl><dt>${t("web.panel.field.path")}</dt><dd>${esc(humanPath(r))}</dd></dl>`;
     h +=
       '<div class="row-btns">' +
       `<button class="btn" data-act="editexternal">${t("web.panel.editExternal")}</button>` +
@@ -142,7 +149,7 @@ export function panelHTML(
   }
 
   // Meta: Path (human form) / Children (branches) / Sign.
-  h += `<dl><dt>${t("web.panel.field.path")}</dt><dd>${esc(humanPath(r.path))}</dd>`;
+  h += `<dl><dt>${t("web.panel.field.path")}</dt><dd>${esc(humanPath(r))}</dd>`;
   if (branch) h += `<dt>${t("web.panel.field.children")}</dt><dd>${r.child_count}</dd>`;
   h += `<dt>${t("web.panel.field.sign")}</dt><dd>${esc(r.key_sign ?? t("web.panel.sign.none"))}</dd>`;
   h += "</dl>";
