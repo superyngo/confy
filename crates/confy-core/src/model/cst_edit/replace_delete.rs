@@ -467,7 +467,12 @@ pub(crate) fn replace_value(
     let i = old_content.index();
     new_content.detach();
     value.splice_children(i..i + 1, vec![new_content]);
-    let frag_comment = walk(&frag, "").0.root.children.first().and_then(|n| n.trailing_comment.clone());
+    let frag_comment = walk(&frag, "")
+        .0
+        .root
+        .children
+        .first()
+        .and_then(|n| n.trailing_comment.clone());
     Ok(frag_comment)
 }
 

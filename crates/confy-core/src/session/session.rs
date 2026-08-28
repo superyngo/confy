@@ -239,7 +239,11 @@ impl Session {
                     if !s.is_empty() {
                         s.push('.');
                     }
-                    match self.tree.node_at(&path[..=i]).and_then(|n| n.key_literal.as_deref()) {
+                    match self
+                        .tree
+                        .node_at(&path[..=i])
+                        .and_then(|n| n.key_literal.as_deref())
+                    {
                         Some(literal) => s.push_str(literal),
                         None => s.push_str(k),
                     }
@@ -257,7 +261,8 @@ impl Session {
         if !self.strict_json {
             return None;
         }
-        let is_comment = matches!(node.kind, NodeKind::Comment(_)) || node.trailing_comment.is_some();
+        let is_comment =
+            matches!(node.kind, NodeKind::Comment(_)) || node.trailing_comment.is_some();
         is_comment.then(|| tr_args(self.lang, "core.comment.advisory", &[]))
     }
 
@@ -869,6 +874,10 @@ impl Session {
             .as_ref()
             .map(|s| s.violations.iter().map(|v| v.path.clone()).collect())
             .unwrap_or_default();
+        // Recursive tree-walk accumulator: each parameter is a distinct
+        // mutable/read-only accumulator or filter input threaded through every
+        // recursive call; bundling would only relocate them into a struct.
+        #[allow(clippy::too_many_arguments)]
         fn walk(
             n: &crate::model::node::Node,
             ancestor_paths: &mut Vec<Path>,
@@ -1054,11 +1063,17 @@ impl Session {
         }) {
             Ok(()) => {
                 self.on_mutation_success(None);
-                self.set_notice(Notice::core(self.lang, "core.kind-switch.converted", &[&label]));
+                self.set_notice(Notice::core(
+                    self.lang,
+                    "core.kind-switch.converted",
+                    &[&label],
+                ));
             }
-            Err(e) => {
-                self.set_notice(Notice::core(self.lang, "core.kind-switch.error", &[&e.to_string()]))
-            }
+            Err(e) => self.set_notice(Notice::core(
+                self.lang,
+                "core.kind-switch.error",
+                &[&e.to_string()],
+            )),
         }
     }
 
@@ -1082,11 +1097,17 @@ impl Session {
         match doc.apply(Mutation::ConvertKind { path, target }) {
             Ok(()) => {
                 self.on_mutation_success(None);
-                self.set_notice(Notice::core(self.lang, "core.kind-switch.converted-generic", &[]));
+                self.set_notice(Notice::core(
+                    self.lang,
+                    "core.kind-switch.converted-generic",
+                    &[],
+                ));
             }
-            Err(e) => {
-                self.set_notice(Notice::core(self.lang, "core.kind-switch.error", &[&e.to_string()]))
-            }
+            Err(e) => self.set_notice(Notice::core(
+                self.lang,
+                "core.kind-switch.error",
+                &[&e.to_string()],
+            )),
         }
     }
 
@@ -1250,7 +1271,11 @@ impl Session {
                 }
             }
             Err(abort) => {
-                self.set_notice(Notice::core(self.lang, "core.convert.aborted", &[&abort.to_string()]));
+                self.set_notice(Notice::core(
+                    self.lang,
+                    "core.convert.aborted",
+                    &[&abort.to_string()],
+                ));
                 self.mode = self.resting_mode();
                 None
             }

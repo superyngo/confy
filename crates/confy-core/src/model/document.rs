@@ -163,7 +163,11 @@ pub trait ConfigDocument: Sized {
     /// Default: never (a comment-less backend, or one where `Replace` already
     /// derives the comment fresh from the fragment either way — see YAML's
     /// `replace_preserves_trailing_comment() == false`).
-    fn fragment_trailing_comment(&self, path: &[crate::model::node::Seg], fragment: &str) -> Option<String> {
+    fn fragment_trailing_comment(
+        &self,
+        path: &[crate::model::node::Seg],
+        fragment: &str,
+    ) -> Option<String> {
         let _ = (path, fragment);
         None
     }

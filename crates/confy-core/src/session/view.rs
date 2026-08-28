@@ -116,7 +116,7 @@ pub enum ModeView {
         kind: PromptView,
         /// The localized question text, rendered core-side from `PromptKind`
         /// + `Session::lang` per snapshot (`core.prompt.*` keys) so every
-        /// host renders identical prose.
+        ///   host renders identical prose.
         question: String,
     },
     /// Typing a `/` filter query.

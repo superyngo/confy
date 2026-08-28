@@ -18,9 +18,11 @@ fn armed_session() -> Session {
 }
 
 fn armed_session_with_table() -> Session {
-    let doc =
-        AnyDocument::from_str_as("[server]\nport = 8080\nhost = \"localhost\"\n", DocFormat::Toml)
-            .unwrap();
+    let doc = AnyDocument::from_str_as(
+        "[server]\nport = 8080\nhost = \"localhost\"\n",
+        DocFormat::Toml,
+    )
+    .unwrap();
     let mut s = Session::new(doc);
     // Expand [server] so its children are visible
     s.cursor_down(); // on "server"
@@ -84,9 +86,21 @@ fn delete_selected_locked_while_clipboard_armed() {
 #[test]
 fn nudge_locked_while_clipboard_armed() {
     let mut s = armed_session();
-    let val_before = s.visible_rows().iter().find(|r| r.key == "a").unwrap().value.clone();
+    let val_before = s
+        .visible_rows()
+        .iter()
+        .find(|r| r.key == "a")
+        .unwrap()
+        .value
+        .clone();
     s.nudge(1);
-    let val_after = s.visible_rows().iter().find(|r| r.key == "a").unwrap().value.clone();
+    let val_after = s
+        .visible_rows()
+        .iter()
+        .find(|r| r.key == "a")
+        .unwrap()
+        .value
+        .clone();
     assert_eq!(val_before, val_after, "value unchanged");
     assert!(has_locked_status(&s));
 }
@@ -114,7 +128,10 @@ fn begin_inline_edit_locked_while_clipboard_armed() {
 fn begin_external_edit_locked_while_clipboard_armed() {
     let mut s = armed_session();
     s.apply(Intent::BeginEditExternal);
-    assert!(s.pending_external_edit.is_none(), "must not set pending external edit");
+    assert!(
+        s.pending_external_edit.is_none(),
+        "must not set pending external edit"
+    );
     assert!(has_locked_status(&s));
 }
 
@@ -132,7 +149,10 @@ fn begin_inline_rename_locked_while_clipboard_armed() {
 fn open_kind_switch_locked_while_clipboard_armed() {
     let mut s = armed_session();
     s.open_kind_switch();
-    assert!(!matches!(s.mode, Mode::KindSwitch(_)), "must not enter KindSwitch");
+    assert!(
+        !matches!(s.mode, Mode::KindSwitch(_)),
+        "must not enter KindSwitch"
+    );
     assert!(has_locked_status(&s));
 }
 
@@ -144,7 +164,10 @@ fn open_convert_locked_while_clipboard_armed() {
     // Move cursor to root for convert
     s.cursor = vec![];
     s.open_convert();
-    assert!(!matches!(s.mode, Mode::Convert(_)), "must not enter Convert");
+    assert!(
+        !matches!(s.mode, Mode::Convert(_)),
+        "must not enter Convert"
+    );
     assert!(has_locked_status(&s));
 }
 
@@ -162,7 +185,10 @@ fn enter_filter_locked_while_clipboard_armed() {
 fn enter_type_filter_locked_while_clipboard_armed() {
     let mut s = armed_session();
     s.enter_type_filter();
-    assert!(!matches!(s.mode, Mode::TypeFilter), "must not enter TypeFilter");
+    assert!(
+        !matches!(s.mode, Mode::TypeFilter),
+        "must not enter TypeFilter"
+    );
     assert!(has_locked_status(&s));
 }
 
@@ -207,7 +233,12 @@ fn move_selection_to_locked_while_clipboard_armed() {
     let mut s = armed_session_with_table();
     let keys_before: Vec<String> = s.visible_rows().iter().map(|r| r.key.clone()).collect();
     let target = vec![];
-    s.move_selection_to(vec![vec![Seg::Key("server".into()), Seg::Key("port".into())]], target, 0, true);
+    s.move_selection_to(
+        vec![vec![Seg::Key("server".into()), Seg::Key("port".into())]],
+        target,
+        0,
+        true,
+    );
     let keys_after: Vec<String> = s.visible_rows().iter().map(|r| r.key.clone()).collect();
     assert_eq!(keys_before, keys_after, "tree unchanged");
     assert!(has_locked_status(&s));
@@ -217,15 +248,17 @@ fn move_selection_to_locked_while_clipboard_armed() {
 
 #[test]
 fn toggle_expand_allowed_while_clipboard_armed() {
-    let doc =
-        AnyDocument::from_str_as("[server]\nport = 8080\n", DocFormat::Toml).unwrap();
+    let doc = AnyDocument::from_str_as("[server]\nport = 8080\n", DocFormat::Toml).unwrap();
     let mut s = Session::new(doc);
     s.cursor_down(); // on "server"
     s.copy_selected();
     assert!(s.clipboard.is_some());
     // server is collapsed by default; toggle should expand it
     s.toggle_expand();
-    assert!(s.visible_rows().len() >= 3, "expand must succeed: root + server + port");
+    assert!(
+        s.visible_rows().len() >= 3,
+        "expand must succeed: root + server + port"
+    );
 }
 
 // ---- 13. commit_kind ----

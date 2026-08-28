@@ -1,10 +1,10 @@
+use crate::model::any_doc::detect_format;
+use crate::model::document::DocFormat;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use confy_core::session::{tr, tr_args, Lang};
 use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
-use crate::model::any_doc::detect_format;
-use crate::model::document::DocFormat;
 
 #[derive(Parser)]
 #[command(
@@ -12,7 +12,10 @@ use crate::model::document::DocFormat;
     version,
     about = "TUI editor for structured config files"
 )]
-#[command(args_conflicts_with_subcommands = true, subcommand_precedence_over_arg = true)]
+#[command(
+    args_conflicts_with_subcommands = true,
+    subcommand_precedence_over_arg = true
+)]
 struct Args {
     #[command(subcommand)]
     command: Option<Command>,
@@ -238,9 +241,9 @@ pub fn run() -> Result<()> {
         }
         None => {
             let lang = resolve_lang(args.lang.as_deref());
-            let file = args.file.ok_or_else(|| {
-                anyhow::anyhow!("{}", tr(lang, "cli.no-file"))
-            })?;
+            let file = args
+                .file
+                .ok_or_else(|| anyhow::anyhow!("{}", tr(lang, "cli.no-file")))?;
             if let Some(s) = file.to_str() {
                 if is_url(s) {
                     let (path, fmt) = open_url(s, args.format.as_deref(), lang)?;
@@ -284,11 +287,7 @@ fn run_convert(
             // Conversion aborted: nothing is written.
             anyhow::bail!(
                 "{}",
-                tr_args(
-                    lang,
-                    "cli.convert.aborted",
-                    &[&abort.to_string()]
-                )
+                tr_args(lang, "cli.convert.aborted", &[&abort.to_string()])
             );
         }
     };
@@ -339,11 +338,7 @@ fn run_convert(
     })?;
     eprintln!(
         "{}",
-        tr_args(
-            lang,
-            "cli.convert.wrote",
-            &[&output.display().to_string()]
-        )
+        tr_args(lang, "cli.convert.wrote", &[&output.display().to_string()])
     );
     Ok(())
 }
@@ -514,6 +509,9 @@ mod tests {
         assert_eq!(err.to_string(), "無法識別的設定檔格式：a.unknown_ext");
         let err_en = super::resolve_format(None, std::path::Path::new("a.unknown_ext"), Lang::En)
             .unwrap_err();
-        assert_eq!(err_en.to_string(), "unrecognized config format: a.unknown_ext");
+        assert_eq!(
+            err_en.to_string(),
+            "unrecognized config format: a.unknown_ext"
+        );
     }
 }

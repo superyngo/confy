@@ -241,7 +241,11 @@ fn external_edit_round_trips_under_a_quoted_key() {
 
         // Committing the fragment unchanged must be a no-op.
         s.apply_external_replace(path.clone(), seed.clone());
-        assert_eq!(s.serialize().unwrap(), src, "unchanged external edit of {src:?}");
+        assert_eq!(
+            s.serialize().unwrap(),
+            src,
+            "unchanged external edit of {src:?}"
+        );
 
         // Changing only the value must keep the key's spelling and the sibling.
         let mut s2 = session(src, DocFormat::Yaml);
@@ -260,7 +264,11 @@ fn external_edit_round_trips_under_a_quoted_container_key() {
         let seed = s.doc.as_ref().unwrap().serialize_fragment(&path);
         s.apply_external_replace(path, seed.replace("c: 1", "c: 2"));
         let out = s.serialize().unwrap();
-        assert_eq!(out, src.replace("c: 1", "c: 2"), "container edit of {src:?}");
+        assert_eq!(
+            out,
+            src.replace("c: 1", "c: 2"),
+            "container edit of {src:?}"
+        );
         assert!(out.contains("z: 9"), "sibling lost: {out}");
     }
 }
@@ -289,7 +297,11 @@ fn adding_quotes_to_a_key_leaves_the_cursor_on_the_decoded_path() {
             s.edit_input_char(c);
         }
         s.edit_commit();
-        assert_eq!(s.serialize().unwrap(), expect, "output for {src:?} + {typed:?}");
+        assert_eq!(
+            s.serialize().unwrap(),
+            expect,
+            "output for {src:?} + {typed:?}"
+        );
         assert_eq!(
             s.cursor,
             vec![Seg::Key("a".into())],
@@ -332,7 +344,11 @@ fn panel_rename_adding_quotes_does_not_prompt_or_fail() {
             None,
             "unexpected error for {src:?} + {typed:?}"
         );
-        assert_eq!(s.serialize().unwrap(), expect, "output for {src:?} + {typed:?}");
+        assert_eq!(
+            s.serialize().unwrap(),
+            expect,
+            "output for {src:?} + {typed:?}"
+        );
     }
 }
 

@@ -62,7 +62,6 @@ impl AnyDocument {
     pub fn replace_from_str(&mut self, s: &str) -> Result<(), MutateError> {
         delegate!(self, d => d.replace_from_str(s))
     }
-
 }
 
 impl ConfigDocument for AnyDocument {
@@ -130,7 +129,11 @@ impl ConfigDocument for AnyDocument {
     fn replace_preserves_trailing_comment(&self) -> bool {
         delegate!(self, d => d.replace_preserves_trailing_comment())
     }
-    fn fragment_trailing_comment(&self, path: &[crate::model::node::Seg], fragment: &str) -> Option<String> {
+    fn fragment_trailing_comment(
+        &self,
+        path: &[crate::model::node::Seg],
+        fragment: &str,
+    ) -> Option<String> {
         delegate!(self, d => d.fragment_trailing_comment(path, fragment))
     }
     fn to_value(

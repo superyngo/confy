@@ -212,6 +212,7 @@
   "scripts": {
     "build": "node build.mjs",
     "check": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test src/*.test.ts",
     "integration-test": "node ./test-integration/runTest.mjs",
     "package": "vsce package --allow-missing-repository"
   },

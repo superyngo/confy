@@ -30,7 +30,11 @@ impl Session {
         };
         for p in &paths {
             if let Err(e) = doc.apply(Mutation::Delete { path: p.clone() }) {
-                self.set_notice(Notice::core(self.lang, "core.delete.error", &[&e.to_string()]));
+                self.set_notice(Notice::core(
+                    self.lang,
+                    "core.delete.error",
+                    &[&e.to_string()],
+                ));
                 return;
             }
         }
@@ -136,7 +140,9 @@ impl Session {
             self.set_notice(Notice::core(self.lang, "core.move.self", &[]));
             return;
         }
-        let doc = self.doc.as_ref().unwrap();
+        let Some(doc) = self.doc.as_ref() else {
+            return;
+        };
         let fragments: Vec<String> = sources
             .iter()
             .map(|p| doc.serialize_fragment_relative(p))
@@ -263,7 +269,11 @@ impl Session {
                     }
                     Err(e) => {
                         self.clipboard = Some(rebuild(is_cut, &node_entries, &comment_entries));
-                        self.set_notice(Notice::core(self.lang, "core.paste.error", &[&e.to_string()]));
+                        self.set_notice(Notice::core(
+                            self.lang,
+                            "core.paste.error",
+                            &[&e.to_string()],
+                        ));
                         return;
                     }
                 }
@@ -327,7 +337,11 @@ impl Session {
                         self.on_mutation_success(None);
                         self.clipboard =
                             Some(rebuild(is_cut, &node_entries[i..], &comment_entries));
-                        self.set_notice(Notice::core(self.lang, "core.paste.error", &[&e.to_string()]));
+                        self.set_notice(Notice::core(
+                            self.lang,
+                            "core.paste.error",
+                            &[&e.to_string()],
+                        ));
                         return;
                     }
                 }
@@ -370,7 +384,11 @@ impl Session {
                 if let Err(e) = doc.apply(Mutation::Delete { path: src.clone() }) {
                     self.on_mutation_success(None);
                     self.clipboard = Some(rebuild(is_cut, &[], &comment_entries[..=oi]));
-                    self.set_notice(Notice::core(self.lang, "core.paste.error", &[&e.to_string()]));
+                    self.set_notice(Notice::core(
+                        self.lang,
+                        "core.paste.error",
+                        &[&e.to_string()],
+                    ));
                     return;
                 }
             }
@@ -382,7 +400,11 @@ impl Session {
                 let end = if is_cut { oi } else { oi + 1 };
                 self.on_mutation_success(None);
                 self.clipboard = Some(rebuild(is_cut, &[], &comment_entries[..end]));
-                self.set_notice(Notice::core(self.lang, "core.paste.error", &[&e.to_string()]));
+                self.set_notice(Notice::core(
+                    self.lang,
+                    "core.paste.error",
+                    &[&e.to_string()],
+                ));
                 return;
             }
         }
@@ -469,7 +491,11 @@ impl Session {
             Err(MutateError::Fragment(_)) => {
                 self.set_notice(Notice::core(self.lang, "core.remark.invalid", &[]));
             }
-            Err(e) => self.set_notice(Notice::core(self.lang, "core.remark.error", &[&e.to_string()])),
+            Err(e) => self.set_notice(Notice::core(
+                self.lang,
+                "core.remark.error",
+                &[&e.to_string()],
+            )),
         }
     }
 }

@@ -171,8 +171,8 @@ mod tests {
 
     #[test]
     fn armed_clipboard_guards_lang_picker_and_edit_node() {
-        use crate::tui::app::App;
         use crate::model::node::Seg;
+        use crate::tui::app::App;
         use confy_core::session::Clipboard;
 
         let mut app = App::new(crate::model::any_doc::AnyDocument::Toml(
@@ -203,7 +203,7 @@ mod tests {
             Some(confy_core::session::tr(
                 app.session.lang,
                 "core.clipboard.action-locked"
-            ).as_ref())
+            ))
         );
 
         // Edit external / edit node is blocked
@@ -214,7 +214,7 @@ mod tests {
             Some(confy_core::session::tr(
                 app.session.lang,
                 "core.clipboard.action-locked"
-            ).as_ref())
+            ))
         );
     }
 }

@@ -7,7 +7,12 @@ use confy_core::session::{Intent, Session};
 // current "value  <comment>" bundled text, the user deletes the comment
 // portion, and the host dispatches ApplyReplace with the comment-free text
 // (mirrors confy-tui's editor.rs / web's openExternalEdit -> ApplyReplace).
-fn external_edit_clears_comment(src: &str, fmt: DocFormat, path: Vec<Seg>, new_text: &str) -> String {
+fn external_edit_clears_comment(
+    src: &str,
+    fmt: DocFormat,
+    path: Vec<Seg>,
+    new_text: &str,
+) -> String {
     let doc = AnyDocument::from_str_as(src, fmt).unwrap();
     let mut s = Session::new(doc);
     s.dispatch(Intent::SetCursor(path.clone()));
@@ -46,7 +51,6 @@ fn toml_external_edit_can_clear_trailing_comment() {
     assert_eq!(out, "a = 1\n", "full output: {out:?}");
 }
 
-
 #[test]
 fn yaml_external_edit_can_clear_trailing_comment() {
     let out = external_edit_clears_comment(
@@ -56,5 +60,8 @@ fn yaml_external_edit_can_clear_trailing_comment() {
         "a: 1",
     );
     eprintln!("YAML result:\n{out}");
-    assert!(!out.contains("# old"), "YAML: comment should be cleared: {out:?}");
+    assert!(
+        !out.contains("# old"),
+        "YAML: comment should be cleared: {out:?}"
+    );
 }

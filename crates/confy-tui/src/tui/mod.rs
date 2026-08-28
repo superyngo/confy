@@ -4,8 +4,8 @@ pub mod insertion;
 pub mod keys;
 pub mod overlay_convert;
 pub mod overlay_detail;
-pub mod overlay_help;
 pub mod overlay_diag;
+pub mod overlay_help;
 pub mod overlay_kind_switch;
 pub mod overlay_lang_picker;
 pub mod overlay_schema_enum;
@@ -48,12 +48,18 @@ pub fn run(
         .is_some_and(|e| e.eq_ignore_ascii_case("json"));
     if is_plain_json {
         app.session.strict_json = true;
-        if app.session.doc.as_ref().is_some_and(|d| d.had_comments_at_open()) {
-            app.session.dispatch(confy_core::session::Intent::SetHostNotice {
-                key: "tui.host.json-comments-detected".to_string(),
-                args: vec![],
-                source: confy_core::session::notice::NoticeSource::HostTui,
-            });
+        if app
+            .session
+            .doc
+            .as_ref()
+            .is_some_and(|d| d.had_comments_at_open())
+        {
+            app.session
+                .dispatch(confy_core::session::Intent::SetHostNotice {
+                    key: "tui.host.json-comments-detected".to_string(),
+                    args: vec![],
+                    source: confy_core::session::notice::NoticeSource::HostTui,
+                });
         }
     }
     let open_file_dir = path.parent().unwrap_or_else(|| std::path::Path::new("."));
@@ -62,11 +68,12 @@ pub fn run(
         let load_error = text.clone().err();
         app.session.apply_schema_text(source, text);
         if let Some(err) = load_error {
-            app.session.dispatch(confy_core::session::Intent::SetHostNotice {
-                key: "tui.host.schema-load-error".to_string(),
-                args: vec![err],
-                source: confy_core::session::notice::NoticeSource::HostTui,
-            });
+            app.session
+                .dispatch(confy_core::session::Intent::SetHostNotice {
+                    key: "tui.host.schema-load-error".to_string(),
+                    args: vec![err],
+                    source: confy_core::session::notice::NoticeSource::HostTui,
+                });
         }
         app.rebuild_rows();
     }
@@ -131,11 +138,12 @@ fn run_event_loop(
             let load_error = text.clone().err();
             app.session.apply_schema_text(source, text);
             if let Some(err) = load_error {
-                app.session.dispatch(confy_core::session::Intent::SetHostNotice {
-                    key: "tui.host.schema-load-error".to_string(),
-                    args: vec![err],
-                    source: confy_core::session::notice::NoticeSource::HostTui,
-                });
+                app.session
+                    .dispatch(confy_core::session::Intent::SetHostNotice {
+                        key: "tui.host.schema-load-error".to_string(),
+                        args: vec![err],
+                        source: confy_core::session::notice::NoticeSource::HostTui,
+                    });
             }
             app.rebuild_rows();
         }
@@ -507,11 +515,12 @@ fn run_event_loop(
                 keys::KeyAction::Info => app.toggle_detail(),
                 keys::KeyAction::EditNode => {
                     if app.session.clipboard.is_some() {
-                        app.session.dispatch(confy_core::session::Intent::SetHostNotice {
-                            key: "core.clipboard.action-locked".to_string(),
-                            args: vec![],
-                            source: confy_core::session::notice::NoticeSource::HostTui,
-                        });
+                        app.session
+                            .dispatch(confy_core::session::Intent::SetHostNotice {
+                                key: "core.clipboard.action-locked".to_string(),
+                                args: vec![],
+                                source: confy_core::session::notice::NoticeSource::HostTui,
+                            });
                         continue;
                     }
                     if app.edit_target_kind() == crate::tui::app::EditKind::Inline {
@@ -527,11 +536,12 @@ fn run_event_loop(
                 }
                 keys::KeyAction::EditExternal => {
                     if app.session.clipboard.is_some() {
-                        app.session.dispatch(confy_core::session::Intent::SetHostNotice {
-                            key: "core.clipboard.action-locked".to_string(),
-                            args: vec![],
-                            source: confy_core::session::notice::NoticeSource::HostTui,
-                        });
+                        app.session
+                            .dispatch(confy_core::session::Intent::SetHostNotice {
+                                key: "core.clipboard.action-locked".to_string(),
+                                args: vec![],
+                                source: confy_core::session::notice::NoticeSource::HostTui,
+                            });
                         continue;
                     }
                     let _ = disable_raw_mode();
@@ -561,11 +571,12 @@ fn run_event_loop(
                 keys::KeyAction::Rename => app.begin_inline_rename(),
                 keys::KeyAction::LangPicker => {
                     if app.session.clipboard.is_some() {
-                        app.session.dispatch(confy_core::session::Intent::SetHostNotice {
-                            key: "core.clipboard.action-locked".to_string(),
-                            args: vec![],
-                            source: confy_core::session::notice::NoticeSource::HostTui,
-                        });
+                        app.session
+                            .dispatch(confy_core::session::Intent::SetHostNotice {
+                                key: "core.clipboard.action-locked".to_string(),
+                                args: vec![],
+                                source: confy_core::session::notice::NoticeSource::HostTui,
+                            });
                         continue;
                     }
                     // Don't open lang picker while diag overlay is active.

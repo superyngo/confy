@@ -407,9 +407,16 @@ fn project_map_entry(
                 key_text_range: key_range,
             }
         }
-        Some(vc) => {
-            build_value_node_from_child(&vc, &key_name, key_sign, key_literal, key_range, path, trailing, idx)
-        }
+        Some(vc) => build_value_node_from_child(
+            &vc,
+            &key_name,
+            key_sign,
+            key_literal,
+            key_range,
+            path,
+            trailing,
+            idx,
+        ),
     };
 
     out.push(node);
@@ -453,9 +460,16 @@ fn project_seq_entry(
             text_range: to_range(entry.text_range()),
             key_text_range: None,
         },
-        Some(vc) => {
-            build_value_node_from_child(&vc, &key_label, KeySign::None, None, None, path, trailing, idx)
-        }
+        Some(vc) => build_value_node_from_child(
+            &vc,
+            &key_label,
+            KeySign::None,
+            None,
+            None,
+            path,
+            trailing,
+            idx,
+        ),
     };
 
     out.push(node);
@@ -465,6 +479,10 @@ fn project_seq_entry(
 /// Note: under a MAP_ENTRY, FLOW_MAP/FLOW_SEQ arrive VALUE-wrapped (via
 /// `parse_value`); under a SEQ_ENTRY they arrive unwrapped (via
 /// `parse_flow_or_opaque`), so the FLOW_MAP/FLOW_SEQ arms below are reachable.
+// Every parameter is a distinct piece of already-resolved node metadata
+// threaded through from the caller; bundling would just relocate the same
+// fields into a struct every call site would have to construct anyway.
+#[allow(clippy::too_many_arguments)]
 fn build_value_node_from_child(
     child: &SyntaxNode,
     key: &str,
@@ -552,7 +570,16 @@ fn build_value_node_from_child(
         }
         SyntaxKind::VALUE => {
             // VALUE wraps SCALAR, BLOCK_SCALAR, or OPAQUE.
-            build_value_node(child, key, key_sign, key_literal, key_range, path, trailing, idx)
+            build_value_node(
+                child,
+                key,
+                key_sign,
+                key_literal,
+                key_range,
+                path,
+                trailing,
+                idx,
+            )
         }
         SyntaxKind::OPAQUE => {
             let raw = child.text().to_string().trim_end().to_string();
@@ -590,6 +617,10 @@ fn build_value_node_from_child(
 
 /// Build a leaf or container Node from a VALUE wrapper node.
 /// VALUE → SCALAR(PLAIN|SINGLE|DOUBLE) | BLOCK_SCALAR | OPAQUE | FLOW_MAP | FLOW_SEQ
+// Every parameter is a distinct piece of already-resolved node metadata
+// threaded through from the caller; bundling would just relocate the same
+// fields into a struct every call site would have to construct anyway.
+#[allow(clippy::too_many_arguments)]
 fn build_value_node(
     value: &SyntaxNode,
     key: &str,
@@ -819,9 +850,16 @@ fn walk_flow_map_entries(
                 text_range: to_range(entry.text_range()),
                 key_text_range: key_range,
             },
-            Some(vc) => {
-                build_value_node_from_child(&vc, &key_name, key_sign, key_literal, key_range, path, None, idx)
-            }
+            Some(vc) => build_value_node_from_child(
+                &vc,
+                &key_name,
+                key_sign,
+                key_literal,
+                key_range,
+                path,
+                None,
+                idx,
+            ),
         };
         out.push(node);
     }
@@ -854,13 +892,16 @@ fn key_name_and_literal(entry: &SyntaxNode) -> (String, KeySign, Option<String>)
                     let (name, sign) = key_text_and_sign(&tok);
                     (name, sign, Some(tok.text().to_string()))
                 }
-                None => (kn.text().to_string().trim().to_string(), KeySign::Bare, None),
+                None => (
+                    kn.text().to_string().trim().to_string(),
+                    KeySign::Bare,
+                    None,
+                ),
             }
         }
         None => (String::new(), KeySign::Bare, None),
     }
 }
-
 
 /// Byte range of a MAP_ENTRY / FLOW_ENTRY's key scalar token (quotes included
 /// for quoted keys) — mirrors `key_name_and_sign`'s KEY/token discovery.
@@ -879,7 +920,6 @@ fn key_token_range(entry: &SyntaxNode) -> Option<std::ops::Range<usize>> {
     })?;
     Some(to_range(tok.text_range()))
 }
-
 
 /// Walk a FLOW_SEQ node: emit elements (scalar tokens or nested nodes).
 fn walk_flow_seq(

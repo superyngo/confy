@@ -32,10 +32,11 @@ fn prompt_question_renders_from_kind_not_status() {
             assert!(question.contains("port"), "question was {question:?}");
             // `status_text()`/`error_text()` may carry the preceding
             // clipboard notice, but never the prompt question text.
-            for slot in [snap.status_text(), snap.error_text()] {
-                if let Some(text) = slot {
-                    assert_ne!(text, question.as_str());
-                }
+            for text in [snap.status_text(), snap.error_text()]
+                .into_iter()
+                .flatten()
+            {
+                assert_ne!(text, question.as_str());
             }
         }
         other => panic!("expected Prompt mode, got {other:?}"),

@@ -28,15 +28,20 @@ mod tree_nav;
 use crate::model::cst_project::{walk, Target};
 use crate::model::document::{MutateError, Mutation};
 use crate::model::node::{NodeKind, Seg};
+use aot_group::{aot_entry_member_fragments, aot_group_span};
+use convert::convert_kind;
+use dotted_table::{
+    dotted_ancestor_prefix_len, inline_ancestor_len, inline_member_entries, strip_key_prefix,
+};
+use move_paste::{insert, move_nodes};
+use rename::rename;
+use replace_delete::{
+    delete, edit_comment, insert_comment, remark, reparse_document, replace_value, section_text,
+    set_trailing_comment, table_fragment,
+};
 use taplo::rowan::NodeOrToken;
 use taplo::syntax::{SyntaxKind, SyntaxNode};
-use aot_group::{aot_entry_member_fragments, aot_group_span};
-use convert::{convert_kind};
-use dotted_table::{dotted_ancestor_prefix_len, inline_ancestor_len, inline_member_entries, strip_key_prefix};
-use move_paste::{insert, move_nodes};
-use rename::{rename};
-use replace_delete::{delete, edit_comment, insert_comment, remark, reparse_document, replace_value, section_text, set_trailing_comment, table_fragment};
-use tree_nav::{node_at};
+use tree_nav::node_at;
 
 /// Apply `m` to a copy of `syntax`, returning the new tree. The original is never
 /// mutated, so the caller commits only on `Ok`.
@@ -75,7 +80,13 @@ pub(crate) fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<SyntaxNode, Muta
             on_collision,
             suggested_key,
         } => {
-            insert(&tree, &target, &toml, on_collision, suggested_key.as_deref())?;
+            insert(
+                &tree,
+                &target,
+                &toml,
+                on_collision,
+                suggested_key.as_deref(),
+            )?;
             tree
         }
         Mutation::Rename { path, new_key } => {
@@ -253,16 +264,9 @@ pub fn joinable_entry(text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
-    
-    
-    
-    
-    
-    
-    
-    use crate::model::document::{OnCollision, Target as InsTarget};
+
     use crate::model::document::ConfigDocument;
+    use crate::model::document::{OnCollision, Target as InsTarget};
 
     fn doc(src: &str) -> crate::model::cst_doc::CstDocument {
         crate::model::cst_doc::CstDocument::from_str(src).unwrap()

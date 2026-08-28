@@ -71,11 +71,15 @@ fn url_schema_source_fetches_over_http() {
 
 #[test]
 fn url_schema_source_non_200_is_a_soft_error() {
-    let response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string();
+    let response =
+        "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string();
     let url = spawn_one_shot_http_server(response);
     let source = SchemaSource::Url(url);
     let result = resolve_schema_source(&source, std::env::temp_dir().as_path());
-    assert!(result.is_err(), "a 404 must resolve as a soft error, not Ok");
+    assert!(
+        result.is_err(),
+        "a 404 must resolve as a soft error, not Ok"
+    );
 }
 
 #[test]

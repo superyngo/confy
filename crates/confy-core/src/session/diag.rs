@@ -33,7 +33,12 @@ impl DiagRing {
         if self.events.len() == CAPACITY {
             self.events.pop_front();
         }
-        self.events.push_back(DiagEvent { seq: self.next_seq, level, kind, detail });
+        self.events.push_back(DiagEvent {
+            seq: self.next_seq,
+            level,
+            kind,
+            detail,
+        });
         self.next_seq += 1;
     }
 
@@ -41,7 +46,6 @@ impl DiagRing {
         self.events.iter()
     }
 }
-
 
 #[cfg(test)]
 mod tests {

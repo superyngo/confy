@@ -23,7 +23,7 @@ use crate::model::node::Seg;
 use crate::model::yaml::project::walk;
 use crate::model::yaml::syntax::SyntaxNode;
 use block::{delete, insert, replace};
-use convert::{convert_kind};
+use convert::convert_kind;
 use mutations::{edit_comment, insert_comment, move_nodes, remark, rename, set_trailing_comment};
 use resolve::is_opaque;
 
@@ -101,7 +101,13 @@ pub fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<SyntaxNode, MutateError
             fragment,
             on_collision,
             suggested_key,
-        } => insert(&tree, &target, &fragment, suggested_key.as_deref(), on_collision)?,
+        } => insert(
+            &tree,
+            &target,
+            &fragment,
+            suggested_key.as_deref(),
+            on_collision,
+        )?,
         Mutation::Rename { path, new_key } => rename(&idx, &path, &new_key)?,
         Mutation::Remark { path } => remark(&tree, &idx, &path)?,
         Mutation::EditComment { path, text } => edit_comment(&tree, &idx, &path, &text)?,
@@ -144,11 +150,9 @@ pub(crate) fn apply_str(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::block::*;
-    
-    
-    
+    use super::*;
+
     use super::resolve::*;
     use crate::model::document::{MutateError, Mutation, OnCollision};
     use crate::model::node::Seg;
@@ -910,7 +914,6 @@ mod tests {
         assert!(matches!(res, Err(MutateError::NotFound)));
     }
 
-
     #[test]
     fn insert_keyed_fragment_into_sequence() {
         use crate::model::document::{OnCollision, Target};
@@ -1101,10 +1104,7 @@ mod tests {
             },
         )
         .expect("move array scalar into mapping");
-        assert_eq!(
-            out,
-            "arr:\n  - 10\n  - 30\ndest:\n  x: 1\n  arr_1: 20\n"
-        );
+        assert_eq!(out, "arr:\n  - 10\n  - 30\ndest:\n  x: 1\n  arr_1: 20\n");
     }
 
     #[test]
@@ -1138,11 +1138,7 @@ mod tests {
         let out = apply_str(
             src,
             Mutation::Move {
-                sources: vec![vec![
-                    Seg::Key("data".into()),
-                    Seg::Index(0),
-                    Seg::Index(1),
-                ]],
+                sources: vec![vec![Seg::Key("data".into()), Seg::Index(0), Seg::Index(1)]],
                 target: crate::model::document::Target {
                     parent: vec![Seg::Key("dest".into())],
                     index: 1,
@@ -1151,10 +1147,7 @@ mod tests {
             },
         )
         .expect("move nested array scalar into mapping");
-        assert_eq!(
-            out,
-            "data:\n  - - 1\ndest:\n  x: 1\n  placeholder: 2\n"
-        );
+        assert_eq!(out, "data:\n  - - 1\ndest:\n  x: 1\n  placeholder: 2\n");
     }
 
     #[test]

@@ -16,6 +16,7 @@ pub fn resolve_schema_source(
             std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))
         }
         SchemaSource::Url(url) => ureq::get(url)
+            .timeout(std::time::Duration::from_secs(10))
             .call()
             .map_err(|e| format!("{url}: {e}"))?
             .into_string()

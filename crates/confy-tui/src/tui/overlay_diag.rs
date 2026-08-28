@@ -15,7 +15,7 @@ pub(crate) fn draw_diag_overlay(f: &mut Frame, app: &App) {
     }
 
     let events: Vec<_> = app.session.diag.iter().collect();
-    
+
     let lines: Vec<Line> = events
         .iter()
         .map(|e| {
@@ -35,7 +35,7 @@ pub(crate) fn draw_diag_overlay(f: &mut Frame, app: &App) {
     let content_height = lines.len().min(20) as u16;
     let height = (content_height + 2).min(f.area().height);
     let area = centered_rect(80, height, f.area());
-    
+
     f.render_widget(Clear, area);
     let block = Block::default()
         .title(" Diagnostics ")

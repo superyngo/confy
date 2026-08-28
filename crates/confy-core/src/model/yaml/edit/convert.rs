@@ -2,13 +2,13 @@
 //! scalar notation conversion — split out of `yaml/edit.rs` (Task 15,
 //! 2026-08-11 audit remediation).
 
+use super::block::{commit_reparse, entry_has_opaque_value, entry_indent_depth, entry_key_text};
+use super::flow::node_in_flow;
+use super::resolve::resolve_in;
 use crate::model::document::MutateError;
 use crate::model::node::{NodeKind, ScalarType, Seg};
 use crate::model::yaml::project::{Target, YamlIndex};
 use crate::model::yaml::syntax::{SyntaxKind, SyntaxNode};
-use super::block::{commit_reparse, entry_has_opaque_value, entry_indent_depth, entry_key_text};
-use super::flow::{node_in_flow};
-use super::resolve::{resolve_in};
 
 pub(crate) fn convert_kind(
     tree: &SyntaxNode,
@@ -242,7 +242,10 @@ pub(crate) fn splice_entry_text(
 /// Build single-line flow members from a block collection's entries.
 /// Map members are `key: value`; sequence members are bare `value`. Rejects a
 /// member whose own text spans multiple lines.
-pub(crate) fn flow_members_from_block(coll: &SyntaxNode, is_map: bool) -> Result<Vec<String>, MutateError> {
+pub(crate) fn flow_members_from_block(
+    coll: &SyntaxNode,
+    is_map: bool,
+) -> Result<Vec<String>, MutateError> {
     let entry_kind = if is_map {
         SyntaxKind::MAP_ENTRY
     } else {
@@ -291,7 +294,10 @@ pub(crate) fn flow_members_from_block(coll: &SyntaxNode, is_map: bool) -> Result
 
 /// Build block members (each a single-line `key: value` or bare value) from a
 /// flow collection by reusing the projection, which already parses flow members.
-pub(crate) fn block_members_from_flow(coll: &SyntaxNode, is_map: bool) -> Result<Vec<String>, MutateError> {
+pub(crate) fn block_members_from_flow(
+    coll: &SyntaxNode,
+    is_map: bool,
+) -> Result<Vec<String>, MutateError> {
     // Re-derive the members from the flow source between the braces/brackets.
     let src = coll.text().to_string();
     let inner = src.trim();

@@ -2,12 +2,16 @@
 //! `SetTrailingComment` — split out of `yaml/edit.rs` (Task 15, 2026-08-11
 //! audit remediation).
 
+use super::block::{
+    collect_items, commit_reparse, container_indent, delete, ensure_newline,
+    entry_has_opaque_value, find_container, fragment_indent, insert, item_index_of_node,
+    parse_map_entry_fragment, rebuild_and_splice, root_prefix_offset,
+};
+use super::resolve::{reindent, resolve, resolve_in};
 use crate::model::document::{MutateError, OnCollision, Target as MutTarget};
 use crate::model::node::Seg;
 use crate::model::yaml::project::{entry_key_name, walk, Target, YamlIndex};
 use crate::model::yaml::syntax::{SyntaxKind, SyntaxNode};
-use super::block::{collect_items, commit_reparse, container_indent, delete, ensure_newline, entry_has_opaque_value, find_container, fragment_indent, insert, item_index_of_node, parse_map_entry_fragment, rebuild_and_splice, root_prefix_offset};
-use super::resolve::{reindent, resolve, resolve_in};
 
 pub(crate) fn rename(idx: &YamlIndex, path: &[Seg], new_key: &str) -> Result<(), MutateError> {
     let entry = match resolve_in(idx, path).ok_or(MutateError::NotFound)? {
@@ -155,7 +159,9 @@ pub(crate) fn remark(tree: &SyntaxNode, idx: &YamlIndex, path: &[Seg]) -> Result
 /// line, so replacing just that slice leaves every sibling — including a
 /// ROOT-level MAPPING/SEQUENCE that sits beside a leading comment — untouched.
 /// Mirrors the consecutive-comment grouping in `comment_block_text`.
-pub(crate) fn comment_block_bounds(first: &crate::model::yaml::syntax::SyntaxToken) -> (usize, usize, usize) {
+pub(crate) fn comment_block_bounds(
+    first: &crate::model::yaml::syntax::SyntaxToken,
+) -> (usize, usize, usize) {
     use rowan::NodeOrToken;
     let mut start = usize::from(first.text_range().start());
     let mut indent = 0usize;
@@ -236,7 +242,11 @@ pub(crate) fn edit_comment(
     splice_comment_block(tree, &first_tok, text)
 }
 
-pub(crate) fn insert_comment(tree: &SyntaxNode, target: &MutTarget, text: &str) -> Result<(), MutateError> {
+pub(crate) fn insert_comment(
+    tree: &SyntaxNode,
+    target: &MutTarget,
+    text: &str,
+) -> Result<(), MutateError> {
     // Validate: every non-blank line must start with `#` (after leading
     // whitespace). A blank line is allowed so a fragment can carry a separator
     // (used to keep an inserted comment a distinct node, not merged into a

@@ -360,7 +360,11 @@ impl Session {
                     self.mode = Mode::Edit(e);
                 }
                 Err(err) => {
-                    self.set_notice(Notice::core(self.lang, "core.error.generic", &[&err.to_string()]));
+                    self.set_notice(Notice::core(
+                        self.lang,
+                        "core.error.generic",
+                        &[&err.to_string()],
+                    ));
                     self.mode = Mode::Edit(e);
                 }
             }
@@ -387,7 +391,11 @@ impl Session {
                     .unwrap_or(false)
             });
             if in_inline {
-                self.set_notice(Notice::core(self.lang, "core.trailing.inline-unsupported", &[]));
+                self.set_notice(Notice::core(
+                    self.lang,
+                    "core.trailing.inline-unsupported",
+                    &[],
+                ));
                 self.mode = Mode::Edit(e);
                 return;
             }
@@ -465,7 +473,11 @@ impl Session {
                         frag_key = new_name;
                     }
                     Err(err) => {
-                        self.set_notice(Notice::core(self.lang, "core.rename.failed", &[&err.to_string()]));
+                        self.set_notice(Notice::core(
+                            self.lang,
+                            "core.rename.failed",
+                            &[&err.to_string()],
+                        ));
                         self.mode = Mode::Edit(e);
                         return;
                     }
@@ -561,7 +573,11 @@ impl Session {
             None => return,
         };
         if let Err(err) = res {
-            self.set_notice(Notice::core(self.lang, "core.rename.failed", &[&err.to_string()]));
+            self.set_notice(Notice::core(
+                self.lang,
+                "core.rename.failed",
+                &[&err.to_string()],
+            ));
             return;
         }
         self.on_mutation_success(None);
@@ -591,9 +607,15 @@ impl Session {
     /// through to `Replace`'s "preserve the old comment when the fragment is
     /// silent about it" default (comment-advisory follow-up issue #4).
     pub fn apply_external_replace(&mut self, path: Path, text: String) {
-        let had_comment = self.tree.node_at(&path).and_then(|n| n.trailing_comment.clone());
+        let had_comment = self
+            .tree
+            .node_at(&path)
+            .and_then(|n| n.trailing_comment.clone());
         if had_comment.is_some() {
-            let new_comment = self.doc.as_ref().and_then(|d| d.fragment_trailing_comment(&path, &text));
+            let new_comment = self
+                .doc
+                .as_ref()
+                .and_then(|d| d.fragment_trailing_comment(&path, &text));
             if new_comment.is_none() {
                 self.pending_trailing = Some(None);
             }
@@ -618,18 +640,28 @@ impl Session {
                         path: path.clone(),
                         comment,
                     }) {
-                        self.set_notice(Notice::core(self.lang, "core.trailing.update-failed", &[&e.to_string()]));
+                        self.set_notice(Notice::core(
+                            self.lang,
+                            "core.trailing.update-failed",
+                            &[&e.to_string()],
+                        ));
                     }
                 }
                 self.on_mutation_success(Some(&path));
                 self.note_schema_violation(&path);
             }
             Err(MutateError::Fragment(msg)) => {
-                self.set_notice(Notice::core(self.lang, "core.fragment.invalid", &[fmt, &msg]));
+                self.set_notice(Notice::core(
+                    self.lang,
+                    "core.fragment.invalid",
+                    &[fmt, &msg],
+                ));
             }
-            Err(e) => {
-                self.set_notice(Notice::core(self.lang, "core.error.generic", &[&e.to_string()]))
-            }
+            Err(e) => self.set_notice(Notice::core(
+                self.lang,
+                "core.error.generic",
+                &[&e.to_string()],
+            )),
         }
     }
 
@@ -660,7 +692,11 @@ impl Session {
         match doc.apply(Mutation::SetTrailingComment { path, comment }) {
             Ok(()) => self.on_mutation_success(None),
             Err(e) => {
-                self.set_notice(Notice::core(self.lang, "core.trailing.update-failed", &[&e.to_string()]));
+                self.set_notice(Notice::core(
+                    self.lang,
+                    "core.trailing.update-failed",
+                    &[&e.to_string()],
+                ));
             }
         }
     }
@@ -675,9 +711,11 @@ impl Session {
             Err(MutateError::Fragment(msg)) => {
                 self.set_notice(Notice::core(self.lang, "core.comment.invalid", &[&msg]));
             }
-            Err(e) => {
-                self.set_notice(Notice::core(self.lang, "core.error.generic", &[&e.to_string()]))
-            }
+            Err(e) => self.set_notice(Notice::core(
+                self.lang,
+                "core.error.generic",
+                &[&e.to_string()],
+            )),
         }
     }
 
@@ -1016,11 +1054,19 @@ impl Session {
                 false
             }
             Err(MutateError::Fragment(msg)) => {
-                self.set_notice(Notice::core(self.lang, "core.fragment.invalid", &[fmt, &msg]));
+                self.set_notice(Notice::core(
+                    self.lang,
+                    "core.fragment.invalid",
+                    &[fmt, &msg],
+                ));
                 false
             }
             Err(e) => {
-                self.set_notice(Notice::core(self.lang, "core.error.generic", &[&e.to_string()]));
+                self.set_notice(Notice::core(
+                    self.lang,
+                    "core.error.generic",
+                    &[&e.to_string()],
+                ));
                 false
             }
         }

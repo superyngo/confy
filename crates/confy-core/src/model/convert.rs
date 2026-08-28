@@ -66,9 +66,10 @@ fn strip_hint_item(value: &mut Value, src_format: DocFormat) {
     match src_format {
         DocFormat::Json => {
             if let Value::Map(items) = value {
-                if let Some(idx) = items.iter().position(|it| {
-                    matches!(it, Item::Node { key: Some(k), .. } if k == "$schema")
-                }) {
+                if let Some(idx) = items
+                    .iter()
+                    .position(|it| matches!(it, Item::Node { key: Some(k), .. } if k == "$schema"))
+                {
                     items.remove(idx);
                 }
             }
@@ -96,7 +97,7 @@ fn strip_leading_comment_line(value: &mut Value, is_hint_line: impl Fn(&str) -> 
     };
     for item in items.iter_mut() {
         let Item::Comment(text) = item else { break };
-        if let Some(pos) = text.lines().position(|l| is_hint_line(l)) {
+        if let Some(pos) = text.lines().position(&is_hint_line) {
             remove_line(text, pos);
             break;
         }
@@ -143,9 +144,7 @@ fn inject_hint(value: &mut Value, target: DocFormat, raw: &str, warnings: &mut V
                     trailing: None,
                 },
             ),
-            _ => warnings.push(
-                "schema hint dropped: JSON $schema requires an object root".into(),
-            ),
+            _ => warnings.push("schema hint dropped: JSON $schema requires an object root".into()),
         },
         DocFormat::Yaml => match value {
             Value::Map(items) | Value::Seq(items) => items.insert(
@@ -1268,7 +1267,9 @@ mod tests {
             DocFormat::Json,
             DocFormat::Yaml,
         );
-        assert!(r.text.starts_with("# yaml-language-server: $schema=./s.json\n"));
+        assert!(r
+            .text
+            .starts_with("# yaml-language-server: $schema=./s.json\n"));
         assert!(!r.text["# yaml-language-server: $schema=./s.json\n".len()..].contains("$schema"));
         assert!(r.warnings.is_empty());
     }
@@ -1297,8 +1298,14 @@ mod tests {
 
     #[test]
     fn toml_schema_hint_becomes_yaml_modeline() {
-        let r = convert_str("#:schema ./s.json\nport = 1\n", DocFormat::Toml, DocFormat::Yaml);
-        assert!(r.text.starts_with("# yaml-language-server: $schema=./s.json\n"));
+        let r = convert_str(
+            "#:schema ./s.json\nport = 1\n",
+            DocFormat::Toml,
+            DocFormat::Yaml,
+        );
+        assert!(r
+            .text
+            .starts_with("# yaml-language-server: $schema=./s.json\n"));
     }
 
     #[test]
@@ -1313,7 +1320,11 @@ mod tests {
 
     #[test]
     fn toml_schema_hint_becomes_json_schema_field() {
-        let r = convert_str("#:schema ./s.json\nport = 1\n", DocFormat::Toml, DocFormat::Json);
+        let r = convert_str(
+            "#:schema ./s.json\nport = 1\n",
+            DocFormat::Toml,
+            DocFormat::Json,
+        );
         let v: serde_json::Value = serde_json::from_str(&r.text).unwrap();
         assert_eq!(v.get("$schema").and_then(|s| s.as_str()), Some("./s.json"));
     }
@@ -1353,7 +1364,9 @@ mod tests {
             DocFormat::Toml,
             DocFormat::Yaml,
         );
-        assert!(r.text.starts_with("# yaml-language-server: $schema=./s.json\n"));
+        assert!(r
+            .text
+            .starts_with("# yaml-language-server: $schema=./s.json\n"));
         assert!(r.text.contains("keep me"));
     }
 

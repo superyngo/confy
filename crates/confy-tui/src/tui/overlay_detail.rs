@@ -118,7 +118,10 @@ pub(crate) fn draw_detail_overlay(f: &mut Frame, app: &App) {
             }
         }
         if let Some(hint) = hint_line {
-            lines.push(Line::from(Span::styled(hint, Style::default().fg(Color::Cyan))));
+            lines.push(Line::from(Span::styled(
+                hint,
+                Style::default().fg(Color::Cyan),
+            )));
         }
         if let Some(msgs) = violations {
             for msg in msgs {

@@ -417,11 +417,12 @@ impl App {
     fn convert_write(&mut self, path: &str, text: &str) {
         match std::fs::write(path, text) {
             Ok(()) => {
-                self.session.dispatch(confy_core::session::Intent::SetHostNotice {
-                    key: "tui.host.convert-success".to_string(),
-                    args: vec![path.to_string()],
-                    source: confy_core::session::notice::NoticeSource::HostTui,
-                });
+                self.session
+                    .dispatch(confy_core::session::Intent::SetHostNotice {
+                        key: "tui.host.convert-success".to_string(),
+                        args: vec![path.to_string()],
+                        source: confy_core::session::notice::NoticeSource::HostTui,
+                    });
                 self.session.mode = if self.session.filtered_paths.is_some() {
                     Mode::FilterResults
                 } else {
@@ -429,11 +430,12 @@ impl App {
                 };
             }
             Err(e) => {
-                self.session.dispatch(confy_core::session::Intent::SetHostNotice {
-                    key: "tui.host.convert-write-failed".to_string(),
-                    args: vec![e.to_string()],
-                    source: confy_core::session::notice::NoticeSource::HostTui,
-                });
+                self.session
+                    .dispatch(confy_core::session::Intent::SetHostNotice {
+                        key: "tui.host.convert-write-failed".to_string(),
+                        args: vec![e.to_string()],
+                        source: confy_core::session::notice::NoticeSource::HostTui,
+                    });
                 self.session.mode = Mode::Normal;
             }
         }
@@ -502,11 +504,12 @@ impl App {
     /// Open the popup with the cursor on the currently active language.
     pub fn open_lang_picker(&mut self) {
         if self.session.clipboard.is_some() {
-            self.session.dispatch(confy_core::session::Intent::SetHostNotice {
-                key: "core.clipboard.action-locked".to_string(),
-                args: vec![],
-                source: confy_core::session::notice::NoticeSource::HostTui,
-            });
+            self.session
+                .dispatch(confy_core::session::Intent::SetHostNotice {
+                    key: "core.clipboard.action-locked".to_string(),
+                    args: vec![],
+                    source: confy_core::session::notice::NoticeSource::HostTui,
+                });
             return;
         }
         let cursor = LANG_OPTIONS
@@ -536,18 +539,20 @@ impl App {
         };
         match crate::config::save_config(&cfg) {
             Ok(()) => {
-                self.session.dispatch(confy_core::session::Intent::SetHostNotice {
-                    key: "tui.lang.saved".to_string(),
-                    args: vec![lang.code().to_string()],
-                    source: confy_core::session::notice::NoticeSource::HostTui,
-                });
+                self.session
+                    .dispatch(confy_core::session::Intent::SetHostNotice {
+                        key: "tui.lang.saved".to_string(),
+                        args: vec![lang.code().to_string()],
+                        source: confy_core::session::notice::NoticeSource::HostTui,
+                    });
             }
             Err(e) => {
-                self.session.dispatch(confy_core::session::Intent::SetHostNotice {
-                    key: "tui.lang.save-failed".to_string(),
-                    args: vec![e.to_string()],
-                    source: confy_core::session::notice::NoticeSource::HostTui,
-                });
+                self.session
+                    .dispatch(confy_core::session::Intent::SetHostNotice {
+                        key: "tui.lang.save-failed".to_string(),
+                        args: vec![e.to_string()],
+                        source: confy_core::session::notice::NoticeSource::HostTui,
+                    });
             }
         }
     }
@@ -583,19 +588,21 @@ impl App {
     /// scalars and comment nodes use the inline editor. HOST SPLIT: spawns $EDITOR.
     pub fn edit_node(&mut self) {
         if self.session.clipboard.is_some() {
-            self.session.dispatch(confy_core::session::Intent::SetHostNotice {
-                key: "core.clipboard.action-locked".to_string(),
-                args: vec![],
-                source: confy_core::session::notice::NoticeSource::HostTui,
-            });
+            self.session
+                .dispatch(confy_core::session::Intent::SetHostNotice {
+                    key: "core.clipboard.action-locked".to_string(),
+                    args: vec![],
+                    source: confy_core::session::notice::NoticeSource::HostTui,
+                });
             return;
         }
         if self.cursor_is_read_only() {
-            self.session.dispatch(confy_core::session::Intent::SetHostNotice {
-                key: "tui.host.readonly-comment".to_string(),
-                args: vec![],
-                source: confy_core::session::notice::NoticeSource::HostTui,
-            });
+            self.session
+                .dispatch(confy_core::session::Intent::SetHostNotice {
+                    key: "tui.host.readonly-comment".to_string(),
+                    args: vec![],
+                    source: confy_core::session::notice::NoticeSource::HostTui,
+                });
             return;
         }
         let cursor_row = match self.cursor_row() {
@@ -609,11 +616,12 @@ impl App {
                     let edited = match crate::tui::editor::edit_text(&initial) {
                         Ok(t) => t,
                         Err(e) => {
-                            self.session.dispatch(confy_core::session::Intent::SetHostNotice {
-                                key: "tui.host.editor-error".to_string(),
-                                args: vec![e.to_string()],
-                                source: confy_core::session::notice::NoticeSource::HostTui,
-                            });
+                            self.session
+                                .dispatch(confy_core::session::Intent::SetHostNotice {
+                                    key: "tui.host.editor-error".to_string(),
+                                    args: vec![e.to_string()],
+                                    source: confy_core::session::notice::NoticeSource::HostTui,
+                                });
                             return;
                         }
                     };
@@ -630,11 +638,12 @@ impl App {
         let edited = match crate::tui::editor::edit_text(&fragment) {
             Ok(t) => t,
             Err(e) => {
-                self.session.dispatch(confy_core::session::Intent::SetHostNotice {
-                    key: "tui.host.editor-error".to_string(),
-                    args: vec![e.to_string()],
-                    source: confy_core::session::notice::NoticeSource::HostTui,
-                });
+                self.session
+                    .dispatch(confy_core::session::Intent::SetHostNotice {
+                        key: "tui.host.editor-error".to_string(),
+                        args: vec![e.to_string()],
+                        source: confy_core::session::notice::NoticeSource::HostTui,
+                    });
                 return;
             }
         };
@@ -761,11 +770,12 @@ impl App {
 
     pub fn save(&mut self) {
         let Some(ref path) = self.source_path else {
-            self.session.dispatch(confy_core::session::Intent::SetHostNotice {
-                key: "tui.host.no-save-path".to_string(),
-                args: vec![],
-                source: confy_core::session::notice::NoticeSource::HostTui,
-            });
+            self.session
+                .dispatch(confy_core::session::Intent::SetHostNotice {
+                    key: "tui.host.no-save-path".to_string(),
+                    args: vec![],
+                    source: confy_core::session::notice::NoticeSource::HostTui,
+                });
             return;
         };
         let path = path.clone();
@@ -774,29 +784,32 @@ impl App {
             None => return,
         };
         if !doc.is_dirty() {
-            self.session.dispatch(confy_core::session::Intent::SetHostNotice {
-                key: "tui.host.no-changes".to_string(),
-                args: vec![],
-                source: confy_core::session::notice::NoticeSource::HostTui,
-            });
+            self.session
+                .dispatch(confy_core::session::Intent::SetHostNotice {
+                    key: "tui.host.no-changes".to_string(),
+                    args: vec![],
+                    source: confy_core::session::notice::NoticeSource::HostTui,
+                });
             return;
         }
         let text = doc.serialize();
         match std::fs::write(&path, text) {
             Ok(()) => {
                 doc.mark_saved();
-                self.session.dispatch(confy_core::session::Intent::SetHostNotice {
-                    key: "tui.host.saved".to_string(),
-                    args: vec![],
-                    source: confy_core::session::notice::NoticeSource::HostTui,
-                });
+                self.session
+                    .dispatch(confy_core::session::Intent::SetHostNotice {
+                        key: "tui.host.saved".to_string(),
+                        args: vec![],
+                        source: confy_core::session::notice::NoticeSource::HostTui,
+                    });
             }
             Err(e) => {
-                self.session.dispatch(confy_core::session::Intent::SetHostNotice {
-                    key: "tui.host.save-error".to_string(),
-                    args: vec![e.to_string()],
-                    source: confy_core::session::notice::NoticeSource::HostTui,
-                });
+                self.session
+                    .dispatch(confy_core::session::Intent::SetHostNotice {
+                        key: "tui.host.save-error".to_string(),
+                        args: vec![e.to_string()],
+                        source: confy_core::session::notice::NoticeSource::HostTui,
+                    });
             }
         }
     }
@@ -1230,7 +1243,11 @@ mod tests {
         // root, but must stop short of collapsing the root itself.
         app.collapse_level();
         app.rebuild_rows();
-        assert_eq!(app.visible_keys()[1..], ["a"], "top-level nodes stay visible");
+        assert_eq!(
+            app.visible_keys()[1..],
+            ["a"],
+            "top-level nodes stay visible"
+        );
         assert!(
             app.session.expanded.contains(&Vec::new()),
             "root must remain expanded"
@@ -1332,7 +1349,13 @@ mod tests {
         app.select_row(app.rows.iter().position(|r| r.key == "a").unwrap());
         app.open_convert();
         assert!(matches!(app.session.mode, Mode::Normal));
-        assert!(app.session.notice.as_ref().map(|n| n.text.as_str()).unwrap_or("").contains("root"));
+        assert!(app
+            .session
+            .notice
+            .as_ref()
+            .map(|n| n.text.as_str())
+            .unwrap_or("")
+            .contains("root"));
         // On the root node it opens with the other two formats offered.
         app.session.notice = None;
         app.select_row(app.rows.iter().position(|r| r.path.is_empty()).unwrap());
@@ -1483,7 +1506,10 @@ mod tests {
             "popup must not open"
         );
         assert!(app
-            .session.notice.as_ref().map(|n| n.text.as_str())
+            .session
+            .notice
+            .as_ref()
+            .map(|n| n.text.as_str())
             .unwrap_or("")
             .contains("cannot"));
     }
@@ -1504,7 +1530,10 @@ mod tests {
             "popup must not open"
         );
         assert!(app
-            .session.notice.as_ref().map(|n| n.text.as_str())
+            .session
+            .notice
+            .as_ref()
+            .map(|n| n.text.as_str())
             .unwrap_or("")
             .contains("cannot"));
     }
@@ -1755,7 +1784,10 @@ mod tests {
         let mut app = app_with("a = 1 # old\n");
         app.apply_replace(vec![Seg::Key("a".into())], "a = 1\n".into());
         let out = app.session.doc.as_ref().unwrap().serialize();
-        assert!(!out.contains("# old"), "comment should stay cleared: {out:?}");
+        assert!(
+            !out.contains("# old"),
+            "comment should stay cleared: {out:?}"
+        );
     }
 
     #[test]
@@ -1763,7 +1795,10 @@ mod tests {
         let mut app = app_with_json("{\n  \"a\": 1 // old\n}\n");
         app.apply_replace(vec![Seg::Key("a".into())], "\"a\": 1".into());
         let out = app.session.doc.as_ref().unwrap().serialize();
-        assert!(!out.contains("// old"), "comment should stay cleared: {out:?}");
+        assert!(
+            !out.contains("// old"),
+            "comment should stay cleared: {out:?}"
+        );
     }
 
     #[test]
@@ -3098,7 +3133,10 @@ mod tests {
             "clipboard must survive an illegal paste"
         );
         assert!(
-            app.session.notice.as_ref().map(|n| n.text.as_str())
+            app.session
+                .notice
+                .as_ref()
+                .map(|n| n.text.as_str())
                 .unwrap_or("")
                 .contains("paste error"),
             "error: {:?}",
@@ -4056,7 +4094,10 @@ mod tests {
         inline_set_value(&mut app, "1  // nope");
         assert!(matches!(app.session.mode, Mode::Edit(_)), "stays in editor");
         assert!(app
-            .session.notice.as_ref().map(|n| n.text.as_str())
+            .session
+            .notice
+            .as_ref()
+            .map(|n| n.text.as_str())
             .unwrap_or("")
             .contains("inline collection"));
         assert_eq!(
@@ -4113,7 +4154,10 @@ mod tests {
         assert!(app.cursor_is_read_only(), "block comment must be read_only");
         app.delete_selected();
         assert!(
-            app.session.notice.as_ref().map(|n| n.text.as_str())
+            app.session
+                .notice
+                .as_ref()
+                .map(|n| n.text.as_str())
                 .unwrap_or("")
                 .contains("read-only"),
             "expected read-only status, got: {:?}",
@@ -4144,7 +4188,10 @@ mod tests {
         app.select_row(ci);
         app.edit_node();
         assert!(
-            app.session.notice.as_ref().map(|n| n.text.as_str())
+            app.session
+                .notice
+                .as_ref()
+                .map(|n| n.text.as_str())
                 .unwrap_or("")
                 .contains("read-only"),
             "expected read-only status, got: {:?}",
@@ -4165,7 +4212,10 @@ mod tests {
         app.select_row(ci);
         app.cut_selected();
         assert!(
-            app.session.notice.as_ref().map(|n| n.text.as_str())
+            app.session
+                .notice
+                .as_ref()
+                .map(|n| n.text.as_str())
                 .unwrap_or("")
                 .contains("read-only"),
             "expected read-only status, got: {:?}",
@@ -4190,7 +4240,10 @@ mod tests {
         app.select_row(ci);
         app.remark();
         assert!(
-            app.session.notice.as_ref().map(|n| n.text.as_str())
+            app.session
+                .notice
+                .as_ref()
+                .map(|n| n.text.as_str())
                 .unwrap_or("")
                 .contains("read-only"),
             "expected read-only status, got: {:?}",
@@ -4325,10 +4378,16 @@ mod tests {
         use confy_core::session::diag::DiagLevel;
         let mut app = sample();
         // Push some events
-        app.session.diag.push(DiagLevel::Info, "dispatch", "test info".to_string());
-        app.session.diag.push(DiagLevel::Warn, "schema", "test warn".to_string());
-        app.session.diag.push(DiagLevel::Error, "mutation", "test error".to_string());
-        
+        app.session
+            .diag
+            .push(DiagLevel::Info, "dispatch", "test info".to_string());
+        app.session
+            .diag
+            .push(DiagLevel::Warn, "schema", "test warn".to_string());
+        app.session
+            .diag
+            .push(DiagLevel::Error, "mutation", "test error".to_string());
+
         // Verify we can read them
         let events: Vec<_> = app.session.diag.iter().collect();
         assert_eq!(events.len(), 3);

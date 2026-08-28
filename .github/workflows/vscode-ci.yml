@@ -1,0 +1,38 @@
+name: VS Code CI
+
+# Fast pass/fail feedback on every push/PR touching the extension source.
+# Visibility only — not a required status check (see web-ci.yml for the
+# same single-committer-repo rationale). Runs the unit test suite that
+# previously had no CI wiring at all.
+
+on:
+  push:
+    paths:
+      - "editors/vscode/**"
+  pull_request:
+    paths:
+      - "editors/vscode/**"
+
+jobs:
+  vscode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: "editors/vscode/package-lock.json"
+
+      - name: Install dependencies
+        working-directory: editors/vscode
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: editors/vscode
+        run: npm run check
+
+      - name: Unit tests
+        working-directory: editors/vscode
+        run: npm test

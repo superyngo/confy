@@ -19,11 +19,7 @@ pub fn validate(projection: &Json, compiled: &Validator, map: &PointerMap) -> Ve
         .map(|err| {
             let pointer = err.instance_path.to_string();
             let schema_path = err.schema_path.to_string();
-            let keyword = schema_path
-                .rsplit('/')
-                .next()
-                .unwrap_or("")
-                .to_string();
+            let keyword = schema_path.rsplit('/').next().unwrap_or("").to_string();
             let path = map.resolve(&pointer).cloned().unwrap_or_default();
             let message = err.to_string();
             // A `type: null` mismatch against a TOML-sourced document is a

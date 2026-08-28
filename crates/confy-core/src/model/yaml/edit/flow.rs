@@ -2,9 +2,9 @@
 //! (Task 15, 2026-08-11 audit remediation). Already a clearly delimited
 //! section per the original file's own `flow_*`/`*_flow_*` naming.
 
+use super::block::{commit_reparse, entry_key_text, item_key_name};
 use crate::model::document::{MutateError, OnCollision, Target as MutTarget};
 use crate::model::yaml::syntax::{SyntaxKind, SyntaxNode};
-use super::block::{commit_reparse, entry_key_text, item_key_name};
 
 /// `true` if `node` sits inside an inline flow collection (so block-producing
 /// edits — block expansion, literal/folded scalars — would break the one line).
@@ -120,7 +120,10 @@ pub(crate) fn replace_flow_entry(
 }
 
 /// Delete a flow-map member by rebuilding the `{…}` without it.
-pub(crate) fn delete_flow_member(tree: &SyntaxNode, member: &SyntaxNode) -> Result<(), MutateError> {
+pub(crate) fn delete_flow_member(
+    tree: &SyntaxNode,
+    member: &SyntaxNode,
+) -> Result<(), MutateError> {
     let flow = member.parent().expect("flow member has a FLOW_MAP parent");
     let members: Vec<String> = flow
         .children()

@@ -55,7 +55,13 @@ export class SchemaSessionManager {
     const doc = this.docs.get(key);
     if (!doc) return undefined;
     doc.generation += 1;
-    const snap = doc.session.dispatch({ ApplyReplace: { path: [], text } }) as SessionSnapshot & { error?: string };
+    let snap: SessionSnapshot & { error?: string };
+    try {
+      snap = doc.session.dispatch({ ApplyReplace: { path: [], text } }) as SessionSnapshot & { error?: string };
+    } catch (err) {
+      console.error("[confy-vscode] schema session reparse dispatch failed", err);
+      return { violations: [], loadError: undefined, invalidSyntax: true };
+    }
     if (snap.error) {
       // Mid-edit invalid syntax: the session's tree (and therefore its
       // violations/text_range) is untouched at the last valid parse, whose
@@ -89,7 +95,11 @@ export class SchemaSessionManager {
       // handling").
       const stillCurrent = this.docs.get(key) === doc && doc.generation === generation;
       if (stillCurrent) {
-        snap = doc.session.dispatch({ SchemaLoaded: { source: detected, text } }) as SessionSnapshot;
+        try {
+          snap = doc.session.dispatch({ SchemaLoaded: { source: detected, text } }) as SessionSnapshot;
+        } catch (err) {
+          console.error("[confy-vscode] schema session SchemaLoaded dispatch failed", err);
+        }
       }
     }
     return {

@@ -85,7 +85,12 @@ pub fn value_to_json(value: &Value) -> Json {
         Value::Map(items) => {
             let mut obj = Map::new();
             for it in items {
-                if let Item::Node { key: Some(k), value, .. } = it {
+                if let Item::Node {
+                    key: Some(k),
+                    value,
+                    ..
+                } = it
+                {
                     obj.insert(k.clone(), value_to_json(value));
                 }
             }
@@ -123,7 +128,9 @@ fn walk(node: &Node, value: &Value, pointer: &str, map: &mut PointerMap) -> Json
                 .iter()
                 .filter(|c| !matches!(c.kind, NodeKind::Comment(_)));
             for it in items {
-                let Item::Node { value, .. } = it else { continue };
+                let Item::Node { value, .. } = it else {
+                    continue;
+                };
                 if let Some(child) = child_nodes.next() {
                     let child_pointer = format!("{pointer}/{idx}");
                     arr.push(walk(child, value, &child_pointer, map));
@@ -139,7 +146,14 @@ fn walk(node: &Node, value: &Value, pointer: &str, map: &mut PointerMap) -> Json
                 .iter()
                 .filter(|c| !matches!(c.kind, NodeKind::Comment(_)));
             for it in items {
-                let Item::Node { key: Some(k), value, .. } = it else { continue };
+                let Item::Node {
+                    key: Some(k),
+                    value,
+                    ..
+                } = it
+                else {
+                    continue;
+                };
                 if let Some(child) = child_nodes.next() {
                     let child_pointer = format!("{pointer}/{}", escape_pointer_segment(k));
                     obj.insert(k.clone(), walk(child, value, &child_pointer, map));

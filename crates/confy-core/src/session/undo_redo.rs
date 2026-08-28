@@ -29,7 +29,11 @@ impl Session {
                 self.revalidate_schema();
                 self.sync_schema_hint();
             }
-            Err(e) => self.set_notice(Notice::core(self.lang, "core.undo.error", &[&e.to_string()])),
+            Err(e) => self.set_notice(Notice::core(
+                self.lang,
+                "core.undo.error",
+                &[&e.to_string()],
+            )),
         }
     }
 
@@ -55,7 +59,11 @@ impl Session {
                 self.revalidate_schema();
                 self.sync_schema_hint();
             }
-            Err(e) => self.set_notice(Notice::core(self.lang, "core.redo.error", &[&e.to_string()])),
+            Err(e) => self.set_notice(Notice::core(
+                self.lang,
+                "core.redo.error",
+                &[&e.to_string()],
+            )),
         }
     }
 }

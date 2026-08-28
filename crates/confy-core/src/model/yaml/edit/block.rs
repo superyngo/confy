@@ -2,13 +2,16 @@
 //! `Insert` and the container/fragment-adaptation machinery they share —
 //! split out of `yaml/edit.rs` (Task 15, 2026-08-11 audit remediation).
 
+use super::flow::{
+    delete_flow_member, delete_flow_seq_element, flow_seq_element_node, insert_flow,
+    replace_flow_entry, replace_flow_seq_element,
+};
+use super::mutations::comment_block_bounds;
+use super::resolve::{reindent, resolve_in};
 use crate::model::document::{MutateError, OnCollision, Target as MutTarget};
 use crate::model::node::Seg;
 use crate::model::yaml::project::{entry_key_name, Target, YamlIndex};
 use crate::model::yaml::syntax::{SyntaxKind, SyntaxNode};
-use super::flow::{delete_flow_member, delete_flow_seq_element, flow_seq_element_node, insert_flow, replace_flow_entry, replace_flow_seq_element};
-use super::mutations::comment_block_bounds;
-use super::resolve::{reindent, resolve_in};
 
 /// Replace the value at `path` with `fragment`.
 ///
@@ -450,7 +453,10 @@ pub(crate) fn delete_comment_block(
 /// Find the MAPPING or SEQUENCE container that is the child collection for `parent_path`.
 /// For root level, returns the top-level MAPPING or SEQUENCE child of ROOT.
 /// For deeper levels, walks the path to find the innermost container.
-pub(crate) fn find_container(tree: &SyntaxNode, parent_path: &[Seg]) -> Result<SyntaxNode, MutateError> {
+pub(crate) fn find_container(
+    tree: &SyntaxNode,
+    parent_path: &[Seg],
+) -> Result<SyntaxNode, MutateError> {
     // Top-level container is the direct child of ROOT that is MAPPING or SEQUENCE.
     let top = tree
         .children()
@@ -768,8 +774,16 @@ fn insert_into_empty_document(
     let is_mapping = !fragment.trim_start().starts_with("- ");
     let (new_item, _) = adapt_fragment(fragment, is_mapping, 0, suggested_key)?;
     let full_text = tree.to_string();
-    let sep = if full_text.is_empty() || full_text.ends_with('\n') { "" } else { "\n" };
-    commit_reparse(tree, &format!("{full_text}{sep}{new_item}"), MutateError::Fragment)
+    let sep = if full_text.is_empty() || full_text.ends_with('\n') {
+        ""
+    } else {
+        "\n"
+    };
+    commit_reparse(
+        tree,
+        &format!("{full_text}{sep}{new_item}"),
+        MutateError::Fragment,
+    )
 }
 
 /// Insert a new member/element into the container at `target`.
@@ -797,7 +811,14 @@ pub(crate) fn insert(
         container.kind(),
         SyntaxKind::FLOW_MAP | SyntaxKind::FLOW_SEQ
     ) {
-        return insert_flow(tree, &container, target, fragment, suggested_key, on_collision);
+        return insert_flow(
+            tree,
+            &container,
+            target,
+            fragment,
+            suggested_key,
+            on_collision,
+        );
     }
     let is_mapping = container.kind() == SyntaxKind::MAPPING;
     let dest_indent = container_indent(&container);

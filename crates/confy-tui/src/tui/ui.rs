@@ -568,35 +568,35 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
                     .add_modifier(Modifier::BOLD),
             )
         } else {
-                // When the value overflows the VALUE column, append a compact
-                // hint of which char range is visible out of the total.
-                let len = e.buffer.chars().count();
-                // Always show absolute cursor position col/len (1-based).
-                let pos_hint = format!("  {}/{}", e.cursor + 1, len);
-                let overflow = edit_overflow_hint(e.scroll, len, value_col_width(area.width))
-                    .map(|h| format!("  {h}"))
-                    .unwrap_or_default();
-                let hint = format!("{pos_hint}{overflow}");
-                // The field label / Tab hint only applies when there is a name to
-                // switch to (array elements have no key).
-                let field = if e.is_comment {
-                    "comment"
-                } else {
-                    match e.field {
-                        crate::tui::state::EditField::Value => "value",
-                        crate::tui::state::EditField::Name => "name",
-                    }
-                };
-                let tab = if e.is_element || e.is_comment || e.rename_only {
-                    ""
-                } else {
-                    "  Tab:name/value"
-                };
-                let field = if e.rename_only {
-                    "name (rename)"
-                } else {
-                    field
-                };
+            // When the value overflows the VALUE column, append a compact
+            // hint of which char range is visible out of the total.
+            let len = e.buffer.chars().count();
+            // Always show absolute cursor position col/len (1-based).
+            let pos_hint = format!("  {}/{}", e.cursor + 1, len);
+            let overflow = edit_overflow_hint(e.scroll, len, value_col_width(area.width))
+                .map(|h| format!("  {h}"))
+                .unwrap_or_default();
+            let hint = format!("{pos_hint}{overflow}");
+            // The field label / Tab hint only applies when there is a name to
+            // switch to (array elements have no key).
+            let field = if e.is_comment {
+                "comment"
+            } else {
+                match e.field {
+                    crate::tui::state::EditField::Value => "value",
+                    crate::tui::state::EditField::Name => "name",
+                }
+            };
+            let tab = if e.is_element || e.is_comment || e.rename_only {
+                ""
+            } else {
+                "  Tab:name/value"
+            };
+            let field = if e.rename_only {
+                "name (rename)"
+            } else {
+                field
+            };
             (
                 format!(
                     " editing {field} — Enter:save  Esc:cancel  ←/→/Home/End:move  Bksp/Del:erase{tab}{hint}"
@@ -628,7 +628,11 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
         let lang = app.session.lang;
         let (status, status_color) = if let Some(notice) = &app.session.notice {
             (
-                tr_args(lang, "tui.status.filter-results-notice", &[&tags, &notice.text]),
+                tr_args(
+                    lang,
+                    "tui.status.filter-results-notice",
+                    &[&tags, &notice.text],
+                ),
                 notice_color(notice.severity),
             )
         } else if let Some(cb) = &app.session.clipboard {
@@ -699,7 +703,14 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
         Paragraph::new(Line::from(vec![
             Span::raw(status),
             Span::styled(
-                format!(" · {}", tr_args(app.session.lang, "core.schema.count", &[&violation_count.to_string()])),
+                format!(
+                    " · {}",
+                    tr_args(
+                        app.session.lang,
+                        "core.schema.count",
+                        &[&violation_count.to_string()]
+                    )
+                ),
                 Style::default().fg(Color::Yellow),
             ),
         ]))
@@ -999,9 +1010,21 @@ mod tests {
         let mut app = App::new(doc);
         let lang = app.session.lang;
         let cases = [
-            ("core.save.saved", confy_core::session::notice::Severity::Success, Color::Green),
-            ("core.readonly", confy_core::session::notice::Severity::Warn, Color::Yellow),
-            ("core.save.nothing", confy_core::session::notice::Severity::Info, Color::White),
+            (
+                "core.save.saved",
+                confy_core::session::notice::Severity::Success,
+                Color::Green,
+            ),
+            (
+                "core.readonly",
+                confy_core::session::notice::Severity::Warn,
+                Color::Yellow,
+            ),
+            (
+                "core.save.nothing",
+                confy_core::session::notice::Severity::Info,
+                Color::White,
+            ),
         ];
         for (key, expected_severity, expected_color) in cases {
             let notice = confy_core::session::notice::Notice::core(lang, key, &[]);
@@ -1210,9 +1233,12 @@ mod tests {
             .find(|&y| buf[(KEY_X, y)].symbol() == "a")
             .expect("`a` row not found in rendered buffer");
         let value_x = name_col_width(60) + TYPE_WIDTH + 2;
-        let underlined = (value_x..60)
-            .any(|x| buf[(x, row_y)].modifier.contains(Modifier::UNDERLINED));
-        assert!(underlined, "trailing comment_advisory must render underlined");
+        let underlined =
+            (value_x..60).any(|x| buf[(x, row_y)].modifier.contains(Modifier::UNDERLINED));
+        assert!(
+            underlined,
+            "trailing comment_advisory must render underlined"
+        );
 
         // Without `strict_json`, the same document's comment stays plain dim.
         let doc2 = crate::model::any_doc::AnyDocument::Json(
@@ -1226,9 +1252,12 @@ mod tests {
         let row_y2 = (0..8)
             .find(|&y| buf2[(KEY_X, y)].symbol() == "a")
             .expect("`a` row not found in rendered buffer");
-        let underlined2 = (value_x..60)
-            .any(|x| buf2[(x, row_y2)].modifier.contains(Modifier::UNDERLINED));
-        assert!(!underlined2, "plain .jsonc-equivalent doc must not underline");
+        let underlined2 =
+            (value_x..60).any(|x| buf2[(x, row_y2)].modifier.contains(Modifier::UNDERLINED));
+        assert!(
+            !underlined2,
+            "plain .jsonc-equivalent doc must not underline"
+        );
     }
 
     #[test]
@@ -1313,7 +1342,6 @@ mod tests {
             "merged comment not collapsed in column: {joined:?}"
         );
     }
-
 
     #[test]
     fn display_key_uses_the_authored_spelling_for_every_backend() {
@@ -1577,7 +1605,8 @@ mod tests {
             confy_core::schema::SchemaSource::Local("/tmp/s.json".into()),
             Ok(r#"{"type":"object","properties":{"server":{"type":"object","properties":{"port":{"type":"integer"}}}}}"#.to_string()),
         );
-        let server_path: crate::model::node::Path = vec![crate::model::node::Seg::Key("server".into())];
+        let server_path: crate::model::node::Path =
+            vec![crate::model::node::Seg::Key("server".into())];
         // Collapsed: the marker must show.
         app.session.expanded.remove(&server_path);
         app.rebuild_rows();
@@ -1615,9 +1644,6 @@ mod tests {
             hollow_count, 2,
             "root and server only summarize a descendant violation"
         );
-        assert_eq!(
-            filled_count, 1,
-            "only port itself violates"
-        );
+        assert_eq!(filled_count, 1, "only port itself violates");
     }
 }

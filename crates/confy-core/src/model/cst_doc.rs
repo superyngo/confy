@@ -228,7 +228,11 @@ impl ConfigDocument for CstDocument {
         split_value_comment(buffer)
     }
 
-    fn fragment_trailing_comment(&self, path: &[crate::model::node::Seg], fragment: &str) -> Option<String> {
+    fn fragment_trailing_comment(
+        &self,
+        path: &[crate::model::node::Seg],
+        fragment: &str,
+    ) -> Option<String> {
         // Only meaningful for a plain-scalar `Entry`/`ArrayElement` target —
         // mirrors `cst_edit::replace_delete::replace_value`'s own extraction
         // of a fragment's explicit trailing comment, minus the actual splice.

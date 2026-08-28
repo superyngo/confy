@@ -70,12 +70,8 @@ fn bridge_maps_non_finite_floats_to_strings_not_null() {
     let tree = doc.project();
     let (value, _warnings) = doc.to_value().unwrap();
     let (json, _map) = bridge(&tree.root, &value);
-    assert_eq!(
-        json,
-        json!({ "x": "nan", "y": "inf", "z": "-inf" })
-    );
+    assert_eq!(json, json!({ "x": "nan", "y": "inf", "z": "-inf" }));
 }
-
 
 use confy_core::schema::hints::detect_hint;
 
@@ -303,7 +299,11 @@ fn resolve_edit_hint_finds_bounded_numeric() {
     let hint = resolve_edit_hint(&schema, &vec![Seg::Key("port".into())]);
     assert_eq!(
         hint,
-        EditHint::Bounded { minimum: Some(1.0), maximum: Some(65535.0), multiple_of: None }
+        EditHint::Bounded {
+            minimum: Some(1.0),
+            maximum: Some(65535.0),
+            multiple_of: None
+        }
     );
 }
 
@@ -364,7 +364,10 @@ fn resolve_edit_hint_resolves_array_items_and_local_ref() {
     let hint = resolve_edit_hint(&schema, &vec![Seg::Key("tags".into()), Seg::Index(0)]);
     match hint {
         EditHint::Enum(opts) => {
-            assert_eq!(opts.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>(), vec!["a", "b"]);
+            assert_eq!(
+                opts.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>(),
+                vec!["a", "b"]
+            );
         }
         other => panic!("expected Enum via items+$ref, got {other:?}"),
     }
@@ -536,9 +539,16 @@ fn session_apply_schema_text_accepts_jsonc_authored_schema() {
     // `load_error: "schema is not valid JSON"`.
     let mut s = session_from("port = \"nope\"\n", DocFormat::Toml);
     let schema_text = "{\n  // port must be numeric\n  \"type\": \"object\",\n  \"properties\": { \"port\": { \"type\": \"integer\" } }\n}\n";
-    s.apply_schema_text(SchemaSource::Local("./s.json".into()), Ok(schema_text.into()));
+    s.apply_schema_text(
+        SchemaSource::Local("./s.json".into()),
+        Ok(schema_text.into()),
+    );
     let state = s.schema.as_ref().expect("schema loaded");
-    assert!(state.load_error.is_none(), "load_error: {:?}", state.load_error);
+    assert!(
+        state.load_error.is_none(),
+        "load_error: {:?}",
+        state.load_error
+    );
     assert_eq!(state.violations.len(), 1);
     assert_eq!(state.violations[0].keyword, "type");
 }
@@ -550,7 +560,10 @@ fn session_apply_schema_text_load_error_is_soft() {
         SchemaSource::Local("./missing.json".into()),
         Err("file not found".into()),
     );
-    let state = s.schema.as_ref().expect("schema state present even on load error");
+    let state = s
+        .schema
+        .as_ref()
+        .expect("schema state present even on load error");
     assert!(state.load_error.is_some());
     assert!(state.compiled.is_none());
     // The document is still fully editable — no error on the session itself.
@@ -672,7 +685,11 @@ fn schema_enum_commit_defers_to_type_change_prompt_when_the_picked_value_changes
         "expected a TypeChange prompt"
     );
     let node = s.tree.node_at(&[Seg::Key("level".into())]).unwrap();
-    assert_eq!(node.value.as_deref(), Some("\"debug\""), "not yet committed");
+    assert_eq!(
+        node.value.as_deref(),
+        Some("\"debug\""),
+        "not yet committed"
+    );
 
     // 'y' applies the value and settles back on Normal (no live editor / no
     // Detail panel to fall back into — matches the pre-existing "always
@@ -697,7 +714,10 @@ fn schema_enum_commit_type_change_prompt_declined_leaves_the_document_unchanged(
     s.begin_inline_edit();
     s.schema_enum_move(1);
     s.schema_enum_commit();
-    assert!(matches!(s.mode, Mode::Prompt(PromptKind::TypeChange { .. })));
+    assert!(matches!(
+        s.mode,
+        Mode::Prompt(PromptKind::TypeChange { .. })
+    ));
     assert!(!s.handle_prompt_key('n'));
     assert!(
         matches!(s.mode, Mode::Normal),
@@ -799,8 +819,14 @@ fn add_node_resolving_enum_hint_is_cancellable_via_escape() {
     s.dispatch(confy_core::session::Intent::Escape);
     assert!(matches!(s.mode, Mode::Normal));
     let text = s.serialize().unwrap();
-    assert!(!text.contains("new_field"), "placeholder removed on cancel: {text}");
-    assert!(text.contains("port = 1"), "pre-existing node intact: {text}");
+    assert!(
+        !text.contains("new_field"),
+        "placeholder removed on cancel: {text}"
+    );
+    assert!(
+        text.contains("port = 1"),
+        "pre-existing node intact: {text}"
+    );
 }
 
 use confy_core::session::Intent;
@@ -840,7 +866,10 @@ fn revalidate_schema_marks_ancestors_of_violating_paths() {
     .to_string();
     s.apply_schema_text(SchemaSource::Local("/tmp/s.json".into()), Ok(schema_text));
     let state = s.schema.as_ref().unwrap();
-    assert!(!state.violations.is_empty(), "port must violate (string vs integer)");
+    assert!(
+        !state.violations.is_empty(),
+        "port must violate (string vs integer)"
+    );
     let server_path: Path = vec![Seg::Key("server".into())];
     assert!(
         state.warning_ancestors.contains(&server_path),
@@ -1050,7 +1079,11 @@ fn edit_hint_exposes_enum_and_bounded_constraints_without_entering_edit_mode() {
     );
     assert_eq!(
         s.edit_hint(&vec![Seg::Key("port".into())]),
-        EditHint::Bounded { minimum: Some(1.0), maximum: Some(65535.0), multiple_of: None }
+        EditHint::Bounded {
+            minimum: Some(1.0),
+            maximum: Some(65535.0),
+            multiple_of: None
+        }
     );
     // Mode untouched — this is a read-only query, not an edit-mode entry.
     assert!(matches!(s.mode, confy_core::session::state::Mode::Normal));
@@ -1092,13 +1125,24 @@ fn committing_a_schema_violating_value_sets_an_advisory_status_with_suggested_va
     // commit_edit's one-shot path bypasses the picker (existing precedent
     // above) — write an out-of-enum value directly, as the free-form popup
     // editor (BeginEditExternal) would.
-    s.dispatch(Intent::CommitEdit { value: Some("\"trace\"".into()), name: None });
+    s.dispatch(Intent::CommitEdit {
+        value: Some("\"trace\"".into()),
+        name: None,
+    });
     // Soft constraint: the write still succeeds.
     assert!(s.serialize().unwrap().contains("level = \"trace\""));
     assert_eq!(s.schema.as_ref().unwrap().violations.len(), 1);
     let notice = s.notice.as_ref().expect("advisory notice set on violation");
-    assert!(notice.text.contains("debug"), "notice suggests valid values: {}", notice.text);
-    assert!(notice.text.contains("info"), "notice suggests valid values: {}", notice.text);
+    assert!(
+        notice.text.contains("debug"),
+        "notice suggests valid values: {}",
+        notice.text
+    );
+    assert!(
+        notice.text.contains("info"),
+        "notice suggests valid values: {}",
+        notice.text
+    );
 }
 
 #[test]
@@ -1111,7 +1155,10 @@ fn committing_a_schema_compliant_value_leaves_notice_untouched() {
     .to_string();
     s.apply_schema_text(SchemaSource::Local("./s.json".into()), Ok(schema_text));
     s.cursor = vec![Seg::Key("level".into())];
-    s.dispatch(Intent::CommitEdit { value: Some("\"info\"".into()), name: None });
+    s.dispatch(Intent::CommitEdit {
+        value: Some("\"info\"".into()),
+        name: None,
+    });
     assert!(s.schema.as_ref().unwrap().violations.is_empty());
     assert!(s.notice.is_none());
 }
@@ -1135,7 +1182,10 @@ fn sentinel_violation() -> confy_core::schema::Violation {
 
 #[test]
 fn dirty_check_skips_revalidate_for_an_unconstrained_path_on_a_fully_analyzable_schema() {
-    let mut s = session_from("#:schema ./s.json\nlevel = 5\nname = \"x\"\n", DocFormat::Toml);
+    let mut s = session_from(
+        "#:schema ./s.json\nlevel = 5\nname = \"x\"\n",
+        DocFormat::Toml,
+    );
     let schema_text = json!({
         "type": "object",
         "properties": { "level": { "type": "string" } }
@@ -1167,7 +1217,10 @@ fn dirty_check_skips_revalidate_for_an_unconstrained_path_on_a_fully_analyzable_
 
 #[test]
 fn dirty_check_always_revalidates_when_the_schema_is_not_fully_analyzable() {
-    let mut s = session_from("#:schema ./s.json\nlevel = 5\nname = \"x\"\n", DocFormat::Toml);
+    let mut s = session_from(
+        "#:schema ./s.json\nlevel = 5\nname = \"x\"\n",
+        DocFormat::Toml,
+    );
     // `allOf` disqualifies the whole document from the dirty-check's simple
     // properties/items model — the conservative fallback must always engage.
     let schema_text = json!({
@@ -1206,7 +1259,10 @@ fn dirty_check_revalidates_and_surfaces_a_new_violation_for_a_constrained_path()
     .to_string();
     s.apply_schema_text(SchemaSource::Local("./s.json".into()), Ok(schema_text));
     assert!(s.schema.as_ref().unwrap().fully_analyzable);
-    assert!(s.schema.as_ref().unwrap().violations.is_empty(), "8080 conforms");
+    assert!(
+        s.schema.as_ref().unwrap().violations.is_empty(),
+        "8080 conforms"
+    );
     s.schema.as_mut().unwrap().violations = vec![sentinel_violation()];
     s.cursor = vec![Seg::Key("port".into())];
     // "port" IS in `properties` with a `maximum` — a constrained path, so the

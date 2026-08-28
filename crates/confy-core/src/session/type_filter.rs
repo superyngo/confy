@@ -169,7 +169,6 @@ impl Cell {
     }
 }
 
-
 fn token_label(t: TypeToken) -> &'static str {
     use TypeToken::*;
     match t {
@@ -362,7 +361,10 @@ pub struct TypeFilter {
 
 impl TypeFilter {
     pub fn is_active(&self) -> bool {
-        !self.key_signs.is_empty() || !self.types.is_empty() || self.warning_only || self.comment_only
+        !self.key_signs.is_empty()
+            || !self.types.is_empty()
+            || self.warning_only
+            || self.comment_only
     }
 
     pub fn clear(&mut self) {
@@ -379,6 +381,9 @@ impl TypeFilter {
     /// decide whether an excluded container's whole subtree should be pruned
     /// (see `session.rs`), since a plain post-reverse `false` doesn't tell you
     /// *why* the node failed.
+    // Shared node-facet shape forwarded verbatim between base_match/
+    // is_reverse_excluded/matches; every parameter is a distinct filter facet.
+    #[allow(clippy::too_many_arguments)]
     fn base_match(
         &self,
         key_sign: KeySign,
@@ -401,6 +406,9 @@ impl TypeFilter {
     /// facet match (`base_match`) while `reverse` is active — i.e. `matches()`
     /// returns `false` for it *because* it was selected, not merely because
     /// nothing selected it.
+    // Shared node-facet shape forwarded verbatim between base_match/
+    // is_reverse_excluded/matches; every parameter is a distinct filter facet.
+    #[allow(clippy::too_many_arguments)]
     pub fn is_reverse_excluded(
         &self,
         key_sign: KeySign,
@@ -413,9 +421,20 @@ impl TypeFilter {
     ) -> bool {
         self.reverse
             && self.is_active()
-            && self.base_match(key_sign, kind, format, doc, read_only, has_warning, has_comment)
+            && self.base_match(
+                key_sign,
+                kind,
+                format,
+                doc,
+                read_only,
+                has_warning,
+                has_comment,
+            )
     }
 
+    // Shared node-facet shape forwarded verbatim between base_match/
+    // is_reverse_excluded/matches; every parameter is a distinct filter facet.
+    #[allow(clippy::too_many_arguments)]
     pub fn matches(
         &self,
         key_sign: KeySign,
@@ -426,7 +445,15 @@ impl TypeFilter {
         has_warning: bool,
         has_comment: bool,
     ) -> bool {
-        let base = self.base_match(key_sign, kind, format, doc, read_only, has_warning, has_comment);
+        let base = self.base_match(
+            key_sign,
+            kind,
+            format,
+            doc,
+            read_only,
+            has_warning,
+            has_comment,
+        );
         // A no-op while nothing is selected: `base` is unconditionally `true`
         // with an empty selection, so inverting it would blank the whole tree
         // the moment `reverse` is toggled on, before the user picked a facet.

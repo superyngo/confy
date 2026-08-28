@@ -138,7 +138,11 @@ fn hint_from_subschema(root: &Json, sub: &Json) -> EditHint {
     let maximum = sub.get("maximum").and_then(Json::as_f64);
     let multiple_of = sub.get("multipleOf").and_then(Json::as_f64);
     if minimum.is_some() || maximum.is_some() || multiple_of.is_some() {
-        return EditHint::Bounded { minimum, maximum, multiple_of };
+        return EditHint::Bounded {
+            minimum,
+            maximum,
+            multiple_of,
+        };
     }
     EditHint::None
 }

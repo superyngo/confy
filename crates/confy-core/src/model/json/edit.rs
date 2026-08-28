@@ -26,12 +26,14 @@ pub fn serialize_fragment(syntax: &SyntaxNode, path: &[Seg]) -> String {
 /// index-based lookups that already hold a `Target`).
 fn fragment_of(target: Option<Target>) -> String {
     match target {
-        Some(Target::Member(m)) => {
-            with_comment(m.text().to_string().trim().to_string(), trailing_comment_of_node(&m))
-        }
-        Some(Target::Element(v)) => {
-            with_comment(v.text().to_string().trim().to_string(), trailing_comment_of_node(&v))
-        }
+        Some(Target::Member(m)) => with_comment(
+            m.text().to_string().trim().to_string(),
+            trailing_comment_of_node(&m),
+        ),
+        Some(Target::Element(v)) => with_comment(
+            v.text().to_string().trim().to_string(),
+            trailing_comment_of_node(&v),
+        ),
         Some(Target::Comment(tok)) => comment_block_text(&tok),
         Some(Target::Block(tok)) => tok.text().to_string(),
         None => String::new(),
@@ -1678,7 +1680,10 @@ mod tests {
                 fragment: "\"a\": 2".into(),
             },
         );
-        assert!(out.contains("// old"), "value-only edit keeps old comment: {out}");
+        assert!(
+            out.contains("// old"),
+            "value-only edit keeps old comment: {out}"
+        );
     }
 
     #[test]

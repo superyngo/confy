@@ -29,13 +29,25 @@ pub struct Notice {
 
 impl Notice {
     pub fn core(lang: Lang, key: &str, args: &[&str]) -> Self {
-        Notice { severity: severity_of(key), text: tr_args(lang, key, args), source: NoticeSource::Core }
+        Notice {
+            severity: severity_of(key),
+            text: tr_args(lang, key, args),
+            source: NoticeSource::Core,
+        }
     }
     pub fn host_tui(lang: Lang, key: &str, args: &[&str]) -> Self {
-        Notice { severity: severity_of(key), text: tr_args(lang, key, args), source: NoticeSource::HostTui }
+        Notice {
+            severity: severity_of(key),
+            text: tr_args(lang, key, args),
+            source: NoticeSource::HostTui,
+        }
     }
     pub fn host_web(lang: Lang, key: &str, args: &[&str]) -> Self {
-        Notice { severity: severity_of(key), text: tr_args(lang, key, args), source: NoticeSource::HostWeb }
+        Notice {
+            severity: severity_of(key),
+            text: tr_args(lang, key, args),
+            source: NoticeSource::HostWeb,
+        }
     }
 }
 
@@ -44,38 +56,76 @@ impl Notice {
 /// a `Notice::*` constructor — there is no explicit-severity escape hatch.
 pub fn severity_of(key: &str) -> Severity {
     match key {
-        "core.error.generic" | "core.add.error" | "core.delete.error" | "core.paste.error"
-        | "core.paste.comment-illegal" | "core.remark.error" | "core.rename.failed"
-        | "core.trailing.update-failed" | "core.undo.error" | "core.redo.error"
+        "core.error.generic"
+        | "core.add.error"
+        | "core.delete.error"
+        | "core.paste.error"
+        | "core.paste.comment-illegal"
+        | "core.remark.error"
+        | "core.rename.failed"
+        | "core.trailing.update-failed"
+        | "core.undo.error"
+        | "core.redo.error"
         | "core.kind-switch.error"
-        | "tui.host.convert-write-failed" | "tui.host.editor-error" | "tui.host.no-save-path"
-        | "tui.host.save-error" | "tui.lang.save-failed" => Severity::Error,
+        | "tui.host.convert-write-failed"
+        | "tui.host.editor-error"
+        | "tui.host.no-save-path"
+        | "tui.host.save-error"
+        | "tui.lang.save-failed" => Severity::Error,
 
-        "core.readonly" | "core.clipboard.action-locked"
-        | "core.trailing.inline-unsupported" | "core.reveal.hidden-by-filter" | "core.move.self"
-        | "core.insert.collision" | "core.rename.empty-key" | "core.value.invalid"
-        | "core.comment.invalid" | "core.fragment.invalid" | "core.remark.invalid"
-        | "core.convert.root-only" | "core.kind-switch.unsupported" | "core.schema.violation"
-        | "web.host.fxios-save-hint" | "tui.host.readonly-comment"
-        | "web.host.schema.load-error" | "tui.host.schema-load-error"
-        | "web.host.json-comments-detected" | "tui.host.json-comments-detected" => Severity::Warn,
+        "core.readonly"
+        | "core.clipboard.action-locked"
+        | "core.trailing.inline-unsupported"
+        | "core.reveal.hidden-by-filter"
+        | "core.move.self"
+        | "core.insert.collision"
+        | "core.rename.empty-key"
+        | "core.value.invalid"
+        | "core.comment.invalid"
+        | "core.fragment.invalid"
+        | "core.remark.invalid"
+        | "core.convert.root-only"
+        | "core.kind-switch.unsupported"
+        | "core.schema.violation"
+        | "web.host.fxios-save-hint"
+        | "tui.host.readonly-comment"
+        | "web.host.schema.load-error"
+        | "tui.host.schema-load-error"
+        | "web.host.json-comments-detected"
+        | "tui.host.json-comments-detected" => Severity::Warn,
 
-        "core.save.saved" | "core.kind-switch.converted" | "core.kind-switch.converted-generic"
-        | "core.clipboard.cut" | "core.clipboard.copied" | "core.clipboard.cut-changed"
+        "core.save.saved"
+        | "core.kind-switch.converted"
+        | "core.kind-switch.converted-generic"
+        | "core.clipboard.cut"
+        | "core.clipboard.copied"
+        | "core.clipboard.cut-changed"
         | "core.clipboard.copied-changed"
-        | "web.host.save-ok" | "web.host.download-ok" | "web.host.delete.ok"
-        | "web.host.add.node" | "web.host.add.child" | "web.host.add.sibling"
-        | "web.host.kind.changed" | "web.host.value.changed"
-        | "tui.host.saved" | "tui.host.convert-success" => Severity::Success,
+        | "web.host.save-ok"
+        | "web.host.download-ok"
+        | "web.host.delete.ok"
+        | "web.host.add.node"
+        | "web.host.add.child"
+        | "web.host.add.sibling"
+        | "web.host.kind.changed"
+        | "web.host.value.changed"
+        | "tui.host.saved"
+        | "tui.host.convert-success" => Severity::Success,
 
-        "core.save.nothing" | "core.clipboard.empty" | "core.clipboard.cleared"
-        | "core.selection.cleared" | "core.undo.empty" | "core.redo.empty"
-        | "core.paste.cancelled" | "core.add.placeholder" | "core.convert.aborted"
-        | "web.host.kind.no-options" | "tui.host.no-changes" => Severity::Info,
+        "core.save.nothing"
+        | "core.clipboard.empty"
+        | "core.clipboard.cleared"
+        | "core.selection.cleared"
+        | "core.undo.empty"
+        | "core.redo.empty"
+        | "core.paste.cancelled"
+        | "core.add.placeholder"
+        | "core.convert.aborted"
+        | "web.host.kind.no-options"
+        | "tui.host.no-changes" => Severity::Info,
         _ => panic!("severity_of: unmapped notice key {key:?} — add it to the table in notice.rs"),
     }
 }
-
 
 #[cfg(test)]
 mod tests {

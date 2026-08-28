@@ -120,11 +120,7 @@ fn convert_cli_respects_lang_flag_zh_tw() {
     let output = dir.path().join("out.yaml");
     fs::write(&input, "{ \"a\": 1 }\n").unwrap();
 
-    let expected_wrote = tr_args(
-        Lang::ZhTw,
-        "cli.convert.wrote",
-        &[output.to_str().unwrap()],
-    );
+    let expected_wrote = tr_args(Lang::ZhTw, "cli.convert.wrote", &[output.to_str().unwrap()]);
 
     confy()
         .args([
@@ -175,19 +171,11 @@ fn convert_cli_respects_config_file_lang_when_no_flag() {
     fs::create_dir_all(&config_dir).unwrap();
     fs::write(config_dir.join("config.toml"), "lang = \"zh-TW\"\n").unwrap();
 
-    let expected_wrote = tr_args(
-        Lang::ZhTw,
-        "cli.convert.wrote",
-        &[output.to_str().unwrap()],
-    );
+    let expected_wrote = tr_args(Lang::ZhTw, "cli.convert.wrote", &[output.to_str().unwrap()]);
 
     confy()
         .env("XDG_CONFIG_HOME", dir.path())
-        .args([
-            "convert",
-            input.to_str().unwrap(),
-            output.to_str().unwrap(),
-        ])
+        .args(["convert", input.to_str().unwrap(), output.to_str().unwrap()])
         .assert()
         .success()
         .stderr(contains(&expected_wrote));

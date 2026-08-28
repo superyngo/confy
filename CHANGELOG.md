@@ -6,6 +6,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Unreleased Update — 2026-08-28T22:11:36Z
+- **chore: audit remediation — Rust hygiene, panic hardening, CI gates.** Fixed
+  every quick-win/medium finding from the 2026-08-29 codebase audit (version
+  drift out of scope, tracked separately by the maintainer).
+  - `cargo fmt --all` across ~25 previously-unformatted files; fixed the 4
+    mechanical `cargo clippy` warnings (`redundant_closure` in `convert.rs`,
+    `doc_lazy_continuation` in `view.rs`, `useless_asref` ×2 in `keys.rs`,
+    `manual_flatten` in `tests/prompt_question.rs`); annotated the 6
+    `too_many_arguments` sites (`yaml/project.rs`, `session.rs`,
+    `type_filter.rs`) with `#[allow(...)]` + a justification comment.
+    `cargo clippy --workspace --all-targets -- -D warnings` is now 0
+    warnings.
+  - `crates/confy-tui/src/tui/schema_io.rs`: added a 10s `.timeout()` to the
+    blocking schema-URL fetch so a slow/unresponsive host can no longer
+    freeze the TUI indefinitely.
+  - `crates/confy-core/src/session/clipboard.rs`: `move_selection_to`'s
+    `self.doc.unwrap()` converted to a local `let-else` guard, matching the
+    pattern already used by every other function in the file.
+  - `web/confy.ts`'s `Session.dispatch()` and
+    `editors/vscode/src/schemaSessionManager.ts`'s `reparse()`/`syncSchema()`
+    wasm dispatch calls now catch and log core-side panics instead of
+    surfacing an unlabeled wasm trap.
+  - `crates/tauri-plugin-confy-picker/Cargo.toml` now inherits
+    `authors`/`license` from the workspace and has a real `description`.
+  - Added `.github/workflows/rust-ci.yml` (fmt --check, clippy -D warnings,
+    cargo test) and `.github/workflows/vscode-ci.yml` (typecheck + the new
+    `npm test` script) — both visibility-only, mirroring `web-ci.yml`'s
+    single-committer-repo rationale. Wired `editors/vscode`'s existing
+    `src/*.test.ts` suite into a `package.json` `test` script (28/28
+    passing); it previously ran only via manual `node
+    --experimental-strip-types --test`.
+
 ### Unreleased Update — 2026-08-28T21:00:00Z
 - **docs: repo-wide documentation accuracy + organization pass.** Audited every
   current-state doc against the code and corrected what had drifted; historical

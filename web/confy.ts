@@ -46,7 +46,12 @@ export class Session {
 
   /** The one command channel. */
   dispatch(i: Intent): SessionSnapshot {
-    return this.raw.dispatch(i) as SessionSnapshot;
+    try {
+      return this.raw.dispatch(i) as SessionSnapshot;
+    } catch (err) {
+      console.error("[confy] core dispatch failed", i, err);
+      throw new Error(`confy core failed handling intent: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   snapshot(): SessionSnapshot {

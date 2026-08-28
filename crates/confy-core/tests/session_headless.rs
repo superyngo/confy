@@ -617,7 +617,11 @@ fn dispatch_set_trailing_comment_marks_raw_text() {
         path: a,
         comment: Some("hello".into()),
     });
-    assert!(snap.error_text().is_none(), "no error: {:?}", snap.error_text());
+    assert!(
+        snap.error_text().is_none(),
+        "no error: {:?}",
+        snap.error_text()
+    );
     assert_eq!(s.serialize().unwrap(), "a = 1  # hello\n");
 
     // Already-marked text is left as-is (no double "# #").
@@ -647,7 +651,11 @@ fn dispatch_set_trailing_comment_json_and_yaml() {
         path: a,
         comment: Some("note".into()),
     });
-    assert!(snap.error_text().is_none(), "json no error: {:?}", snap.error_text());
+    assert!(
+        snap.error_text().is_none(),
+        "json no error: {:?}",
+        snap.error_text()
+    );
     assert!(
         s.serialize().unwrap().contains("// note"),
         "json: {}",
@@ -661,7 +669,11 @@ fn dispatch_set_trailing_comment_json_and_yaml() {
         path: a,
         comment: Some("note".into()),
     });
-    assert!(snap.error_text().is_none(), "yaml no error: {:?}", snap.error_text());
+    assert!(
+        snap.error_text().is_none(),
+        "yaml no error: {:?}",
+        snap.error_text()
+    );
     assert_eq!(s.serialize().unwrap(), "a: 1  # note\n");
 }
 
@@ -786,7 +798,9 @@ fn dispatch_external_edit_applies_edited_trailing_comment() {
     let mut s = toml_session("port = 8080  # http\n");
     s.dispatch(Intent::CursorDown); // onto 'port'
     let snap = s.dispatch(Intent::BeginEditExternal);
-    let ext = snap.external_edit.expect("BeginEditExternal always routes external");
+    let ext = snap
+        .external_edit
+        .expect("BeginEditExternal always routes external");
     assert!(
         ext.initial.contains("# http"),
         "initial text shows the trailing comment: {:?}",
@@ -1400,8 +1414,13 @@ fn dispatch_convert_run_carries_toml_schema_hint_to_json() {
     s.dispatch(Intent::OpenConvert);
     s.dispatch(Intent::SetConvertFormat(DocFormat::Json));
     let snap = s.dispatch(Intent::ConvertRun);
-    let (_, text) = snap.convert_write.expect("convert produced a write, no warnings expected");
-    assert!(text.contains("\"$schema\": \"./s.json\""), "json output:\n{text}");
+    let (_, text) = snap
+        .convert_write
+        .expect("convert produced a write, no warnings expected");
+    assert!(
+        text.contains("\"$schema\": \"./s.json\""),
+        "json output:\n{text}"
+    );
 }
 
 // ── comment append-sibling: enter inline editor + Esc-cancel (separate node) ──
@@ -1593,7 +1612,10 @@ fn reveal_path_ignores_unknown_path() {
     let before = s.visible_rows().len();
     let snap = s.dispatch(Intent::RevealPath(vec![Seg::Key("nope".into())]));
     assert_eq!(s.visible_rows().len(), before, "no expansion happened");
-    assert!(snap.status_text().is_none(), "unknown path is a silent no-op");
+    assert!(
+        snap.status_text().is_none(),
+        "unknown path is a silent no-op"
+    );
     let rows = s.visible_rows();
     let cursor_row = rows.iter().find(|r| r.is_cursor).unwrap();
     assert_eq!(cursor_row.key, "", "cursor stays on root");
@@ -1788,10 +1810,7 @@ fn paste_partial_failure_reprojects_tree_before_returning() {
         "the second fragment's collision must surface"
     );
     // The first fragment's insert already committed to the document...
-    assert_eq!(
-        s.serialize().unwrap(),
-        "a = 1\nb = 2\n[t]\nb = 99\na = 1\n"
-    );
+    assert_eq!(s.serialize().unwrap(), "a = 1\nb = 2\n[t]\nb = 99\na = 1\n");
     // ...and `self.tree` must already reflect it, not the pre-paste snapshot.
     let t_node = s.tree.node_at(&t_path).unwrap();
     let a_path = vec![Seg::Key("t".into()), Seg::Key("a".into())];
@@ -1930,8 +1949,14 @@ fn rename_remaps_stale_selection_so_the_next_copy_targets_the_right_node() {
     // fragment resolved from the pre-rename path.
     s.copy_selected();
     match &s.clipboard {
-        Some(Clipboard { sources, fragments, .. }) => {
-            assert_eq!(sources, &vec![inner_path.clone()], "copy must target the renamed node's real path");
+        Some(Clipboard {
+            sources, fragments, ..
+        }) => {
+            assert_eq!(
+                sources,
+                &vec![inner_path.clone()],
+                "copy must target the renamed node's real path"
+            );
             assert_eq!(fragments, &vec!["\"inner\": {\"a\":1}".to_string()]);
         }
         None => panic!("copy_selected must arm the clipboard"),
@@ -2117,7 +2142,10 @@ fn dispatch_set_paste_slot_intent_arms_the_target_for_paste() {
     // cursor onto the slot's row, mirroring the TUI's keyboard-driven
     // `PasteSlot` stepping — otherwise the cursor-styled row indicator
     // (`.paste-mode .row.cursor`) goes stale under mouse/touch targeting.
-    assert_eq!(snap.cursor, b, "cursor should follow the pointer-driven target");
+    assert_eq!(
+        snap.cursor, b,
+        "cursor should follow the pointer-driven target"
+    );
 }
 
 // ---- AoT-entry move into another `[A/T]` group (ADR 0004 §3) ----
@@ -2168,7 +2196,11 @@ fn move_aot_entry_into_another_group_preserves_nested_section() {
         .tree
         .node_at(&physical)
         .expect("nested `physical` table survives the atomic move");
-    assert_eq!(node.format, Format::Scope, "sub-section stays a real nested table");
+    assert_eq!(
+        node.format,
+        Format::Scope,
+        "sub-section stays a real nested table"
+    );
 
     let mut color = physical.clone();
     color.push(Seg::Key("color".into()));
@@ -2178,7 +2210,10 @@ fn move_aot_entry_into_another_group_preserves_nested_section() {
     );
 
     // Moved (cut), so `fruit` no longer has the entry.
-    assert!(s.tree.node_at(&fruit0).is_none(), "cut removed the source entry");
+    assert!(
+        s.tree.node_at(&fruit0).is_none(),
+        "cut removed the source entry"
+    );
 }
 
 // ---- Copy (not cut) of a bare-scalar array element derives
@@ -2314,8 +2349,14 @@ fn detail_path_line_does_not_double_quote_toml_key() {
     s.cursor = vec![Seg::Key("a b".into())];
     s.open_detail();
     let text = s.detail_text.clone().unwrap();
-    assert!(text.contains("\"a b\""), "expected single-quoted TOML key: {text}");
-    assert!(!text.contains("\"\"a b\"\""), "TOML key must not be double-quoted: {text}");
+    assert!(
+        text.contains("\"a b\""),
+        "expected single-quoted TOML key: {text}"
+    );
+    assert!(
+        !text.contains("\"\"a b\"\""),
+        "TOML key must not be double-quoted: {text}"
+    );
 }
 
 #[test]
@@ -2383,7 +2424,6 @@ fn view_row_path_display_leaves_bare_yaml_key_unquoted() {
     assert_eq!(row.path_display, "a");
 }
 
-
 // ---- Scripted end-to-end verification: F2 rename on a quoted YAML key ----
 // (manual-test substitute — no interactive TUI/browser available here)
 
@@ -2418,8 +2458,15 @@ fn commit_unchanged_quoted_yaml_rename_is_a_noop() {
     let before = s.serialize().unwrap();
     s.begin_inline_rename();
     s.edit_commit(); // no edits made
-    assert_eq!(s.serialize().unwrap(), before, "unchanged rename must not rewrite the document");
-    assert!(!s.is_dirty(), "unchanged rename must not mark the document dirty");
+    assert_eq!(
+        s.serialize().unwrap(),
+        before,
+        "unchanged rename must not rewrite the document"
+    );
+    assert!(
+        !s.is_dirty(),
+        "unchanged rename must not mark the document dirty"
+    );
 }
 
 #[test]
