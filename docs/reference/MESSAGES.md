@@ -11,9 +11,10 @@ notice rendering live in `WEBUI.md` §*Diagnostics*.
 
 ## 1. The model
 
-Two independent, non-overlapping channels carry user- and developer-facing text.
-Neither is a queue — each holds at most one live value, replaced (not appended to)
-by the next write.
+Two independent, non-overlapping channels carry user-facing text, and a third carries
+developer-facing diagnostics. Neither *user-facing* channel is a queue — each holds at most one
+live value, replaced (not appended to) by the next write; the diagnostic ring is the exception,
+retaining the last 256 events (§1.3).
 
 | Channel | Core field | Audience | Never contains |
 |---|---|---|---|
@@ -330,7 +331,7 @@ Two more user-facing text mechanisms exist in the codebase, entirely outside
 the Notice/Prompt-question/Diagnostic-event model above — noted here (closing
 a gap `docs/superpowers/plans/2026-08-28-json-jsonc-parser-simplification-ssot.md`
 found: neither had a home in this document) so a future audit doesn't mistake
-their absence above for an oversight in §1's "two channels" claim, which is
+their absence above for an oversight in §1's channel inventory, which is
 scoped to the Notice-system model only.
 
 ### 7.1 Comment advisory (`ViewRow.comment_advisory`)

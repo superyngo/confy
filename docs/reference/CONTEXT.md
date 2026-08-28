@@ -57,6 +57,29 @@ surfaced for a decomposed chain). A dotted key *inside an inline table* decompos
 `t = { x.y = 1, x.z = 2 }` projects a synthetic **Dotted table** `x` under the inline table, and
 operations on it route through the inline-table machinery (members stay `{ … }` entries).
 
+**Key literal / decoded key**:
+The two forms a key is projected in. The **decoded key** (`Node.key`, `Seg::Key`) is the key's
+*semantic identity* — quotes stripped and escapes resolved — and is what path resolution,
+duplicate-key collision checks, JSON-Schema `properties` lookup and `to_value`/convert compare
+against. The **key literal** (`Node.key_literal: Option<String>`) is the key *exactly as
+authored*, quote characters and escape sequences intact, and is the *presentation and edit
+identity*: the tree-row label, the **Path line**, the rename/edit buffer, and fragment rebuilding
+all read it. `None` means the key was authored bare, so the decoded key already *is* the literal.
+Both are filled in one pass during projection from the key token already in hand — no consumer
+re-walks the source or synthesizes a quote character. The inverse direction is
+`ConfigDocument::rename_key_segs(new_key)`, which decodes a rename's literal with the backend's
+own key lexer so the rebuilt path uses decoded segments and a quoted key containing a dot is not
+split apart.
+_Avoid_: "display key", "raw key" — earlier ad-hoc names for a synthesized `"${key}"` wrap, which
+guessed the quote character instead of preserving the authored one.
+
+**Path line**:
+The human-readable dotted/bracketed rendering of a Node's path (`a.b[2].c`), produced by
+`Session::human_path` and precomputed per row as `ViewRow.path_display`. It re-wraps a quoted-YAML
+key segment in its authored `"…"`/`'…'` flanks, so the displayed path matches what the file
+actually says. Read-only: it is a display string, never parsed back into a path. Shown on the TUI
+Detail popup's `Path:` line and the web/touch panel's Path field.
+
 **Member spans**:
 The discrete pieces of source that *constitute* a table: its own `[a]` section (if written),
 every descendant `[a.sub]` / `[[a.list]]` section — wherever it sits in the file — and any flat

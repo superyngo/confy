@@ -1,5 +1,7 @@
 # JSON/JSONC comment write-gate removal Implementation Plan
 
+✅ **Shipped — historical reference.** See `CHANGELOG.md` for current behavior; this plan is kept for context, not as a live task list.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Remove the JSON/JSONC write-permission gate (`JsonDocument.comments_enabled` / `ConfigDocument::supports_comments()` / the `PromptKind::JsoncUpgrade` interactive prompt) across `confy-core`, `confy-ffi`, `confy-tui`, and `web`, so authoring a comment into any `.json` document is always mechanically legal, matching TOML/YAML. A new content-only fact, `had_comments_at_open()`, replaces `supports_comments()` as the sole reader for the existing one-shot "file already had comments" load-time toast — this is a rewire, not a new behavior.

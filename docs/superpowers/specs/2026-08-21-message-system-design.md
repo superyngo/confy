@@ -1,5 +1,7 @@
 # Message System Integration — Design
 
+✅ **Shipped — historical reference.** See `CHANGELOG.md` for current behavior; this design record is kept for context, not as a live specification.
+
 **Date:** 2026-08-21
 **Status:** Approved (chat 2026-08-21); first spec review 2026-08-21 — decisions in §11; second review 2026-08-21 — decisions in §12
 **Scope:** confy-core message model, SessionSnapshot wire contract, all hosts (TUI / Web desktop / Touch / VS Code), CLI i18n, new diagnostics layer

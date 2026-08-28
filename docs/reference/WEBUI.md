@@ -51,6 +51,14 @@ All cross-boundary values use `serde-wasm-bindgen` so the Rust `Serialize`/`
 Deserialize` derives (Phase E + Stage 2 §8.1) are the wire contract — there is no
 hand-maintained field-by-field marshalling.
 
+**Two naming layers — mind the difference.** `wasm-bindgen` exports the methods under their
+**Rust snake_case** names (`schema_hint`, `schema_violations`, `had_comments_at_open`); the
+generated `pkg/confy_ffi.js` glue is the proof. `web/confy.ts` then wraps that raw class in a
+`Session` class exposing **camelCase** (`schemaHint`, `hadCommentsAtOpen`), which is what the
+table below and the rest of the web code use. The VS Code extension deliberately bypasses the
+wrapper and types the raw class directly (`editors/vscode/src/wasmSession.ts`), so it calls the
+**snake_case** names — renaming an FFI method means updating both spellings.
+
 | Method | Signature (TS) | Notes |
 |---|---|---|
 | `ConfySession.fromText` | `(text: string, format: DocFormat) => ConfySession` | constructor; parses via `AnyDocument::from_str_as`. Throws on parse error. |
@@ -64,6 +72,14 @@ hand-maintained field-by-field marshalling.
 | `children` | `(path: Seg[]) => ChildView[]` | immediate children of the node at `path` as `ChildView[]` (`{ key, path, type_label, is_branch }`), independent of expansion state; feeds the breadcrumb mini-tree's lazy expansion. |
 | `externalEdit` | `() => { initial, kind } \| undefined` | the current external-edit request, if any (§8.2). |
 | `diagLog` | `() => DiagEvent[]` | full event list from the Session's bounded 256-event ring buffer; feeds `?diag=1` console drain. |
+| `setStrictJson` | `(v: boolean) => void` | host-supplied: true iff the open file's real extension is plain `.json` (not `.jsonc`) — core is extension-blind, so only the host knows. Drives `ViewRow.comment_advisory`. Called once right after `fromText`, before the first `snapshot()`. |
+| `hadCommentsAtOpen` | `() => boolean` | whether the document already contained a comment when loaded — drives the one-shot "file already had comments" toast. `false` for non-JSON. Replaced the deleted `supportsComments()` write-gate binding. |
+| `aboutText` | `() => string` | About-tab body for the session's current language, from core's `about_text` — the host never hand-mirrors it. |
+| `schemaHint` | `(path: Seg[]) => EditHint` | schema-driven editing hint (enum/const options or numeric bounds; `None` when unconstrained). Read-only, does not enter edit mode. |
+| `schemaInfo` | `(path: Seg[]) => SchemaInfo \| undefined` | `description`/`type`/`format`/`pattern` from the resolved subschema. Orthogonal to `schemaHint`: covers the plain-typed field that hint leaves at `None`. |
+| `schemaViolations` | `() => Violation[]` | current violations with resolved `text_range`s — the native-editor Diagnostics data source. |
+| `outline` | `() => OutlineNode[]` | read-only symbol tree for editor Outline/breadcrumb integrations, independent of cursor/expansion state. |
+| `pointerSlot` | `(path: Seg[], relY: number) => PasteSlot \| undefined` | pointer-drop classification (row + relative vertical position → the `PasteSlot` it represents). Every pointer surface calls this instead of hand-rolling it (ADR 0004 §1). |
 
 `external_edit` in the snapshot is the async handshake (§8.2): the UI opens its
 multi-line modal with `initial`, awaits the result, and re-dispatches
@@ -87,7 +103,8 @@ shapes round-trip). Key types:
   `SetConvertFormat(DocFormat)`, `SetConvertPath(String)`.
 - **`SessionSnapshot`** — full renderable state: `mode: ModeView`, `rows: ViewRow[]`,
   `cursor: Seg[]`, `notice: Notice | undefined`, `detail_text`, `external_edit`, `convert_write`,
-  `clipboard_count`, `quit`, `doc_format`, `is_dirty`.
+  `clipboard_count`, `clipboard_cut`, `clipboard_paths`, `paste_slot`, `quit`, `doc_format`,
+  `is_dirty`.
 - **`ModeView`** — a serializable projection of `Mode` + the modal edit surfaces:
   `Normal | Prompt | Filter {text,cursor} | FilterResults | TypeFilter {…grid…} |
   KindSwitch {cursor,options} | Convert {…} | Detail | Help | Edit
@@ -97,10 +114,16 @@ shapes round-trip). Key types:
   re-derives the per-format facet set: `rows: (Header | Cells[…])[]`, `cursor_row`,
   `cursor_col`, `active`. Each cell carries `label`, tri-state `state`
   (`On`/`Partial`/`Off`), and `is_cursor`.
-- **`ViewRow`** — one visible tree row (`path`, `depth`, `is_branch`, `key`, `value`,
-  `scalar_type`, `format`, `type_label`, `child_count`, `trailing_comment`, `read_only`,
-  `selected`, `is_cursor`). `type_label` (the core node-kind label) and `child_count` let
+- **`ViewRow`** — one visible tree row (`path`, `path_display`, `depth`, `is_branch`, `key`,
+  `key_literal`, `key_sign`, `value`, `scalar_type`, `format`, `type_label`, `child_count`,
+  `trailing_comment`, `comment_advisory`, `read_only`, `selected`, `is_cursor`, `violations`,
+  `has_descendant_violation`). `type_label` (the core node-kind label) and `child_count` let
   the web render the true container kind + item count instead of guessing from `is_branch`.
+  `key` is the **decoded** key while `key_literal` is the key **as authored** (quotes intact,
+  `null` when bare) — render and seed edit buffers from `key_literal ?? key`, never from `key`
+  alone, or a quoted key silently restyles to bare on commit. `path_display` is the ready-made
+  Path string (see CONTEXT.md *Path line*); prefer it over joining `path` client-side.
+  `comment_advisory` is a per-row projection, not a Notice — see MESSAGES.md §7.1.
 - **`Seg`** = `{ Key: string } | { Index: number }`; **`Path`** = `Seg[]`.
 
 ## Serialization format decisions

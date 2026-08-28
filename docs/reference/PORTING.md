@@ -85,6 +85,11 @@ file touches:
 | A4 | `self.path: PathBuf` field on each doc | Remove — document becomes a pure bytes-in → string-out value. |
 | A5 | `AnyDocument::{save, mark_saved, replace_from_str, enable_comments}` (inherent, not on the trait) | Only `save` is an env op → host. The other three are pure → keep on the core session. |
 
+> This table records the **pre-port** surface as it stood when the extraction was planned; it is
+> not an inventory of today's API. `enable_comments` in A5 has since been deleted outright along
+> with the JSON comment write-gate (2026-08-28) — authoring a comment is now unconditionally
+> legal on every backend, so there is nothing left to enable.
+
 CI gate for "headless": `confy-core` must contain **no** `std::fs`, `std::process`, `std::env`,
 `tempfile`, `crossterm`, `ratatui`.
 

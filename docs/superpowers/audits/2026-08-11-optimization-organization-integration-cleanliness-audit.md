@@ -1,5 +1,7 @@
 # Code Audit Report — confy
 
+✅ **Resolved — historical reference.** All findings below were addressed; see `CHANGELOG.md`. Kept for the development record, not as an open action list.
+
 Date: 2026-08-11
 Scope: `.worktrees/json-schema-support` (clean, 57 commits ahead of `main`, most current tree — audited this, not `main`'s dirty WIP). Rust workspace (5 crates, 38.1k LOC) + web frontend (22 TS files, 7.5k LOC). 6 parallel scouts + direct verification (`cargo clippy`, `tsc --noEmit`, `cargo test -p confy-core`, `cargo tree --duplicates`, `git ls-files`).
 

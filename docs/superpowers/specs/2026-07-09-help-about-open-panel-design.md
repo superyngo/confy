@@ -1,5 +1,7 @@
 # Help/About panel, header info button, overlay z-index fix, unified Open popup
 
+✅ **Shipped — historical reference.** See `CHANGELOG.md` for current behavior; this design record is kept for context, not as a live specification.
+
 Date: 2026-07-09
 
 ## Context

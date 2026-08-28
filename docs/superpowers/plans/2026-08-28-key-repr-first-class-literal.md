@@ -1,8 +1,10 @@
 # Plan — make a key's *authored spelling* a first-class projection output
 
-**Status:** proposed, NOT started. Awaiting approval.
+✅ **Shipped — historical reference.** See `CHANGELOG.md` for current behavior; this plan is kept
+for context, not as a live task list. Landed 2026-08-28 (CHANGELOG entries
+`2026-08-28T14:30:00Z` and `2026-08-28T18:00:00Z`).
 **Supersedes the patch line:** `64db70a` → `af6adc7` → `4795e89` → `8ef6af0`
-(`docs/reference/yaml-quoted-key-edit-memo.md`).
+(`../debug/2026-08-28-yaml-quoted-key-edit-memo.md`).
 
 ## Problem statement
 

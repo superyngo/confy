@@ -1,5 +1,7 @@
 # Copy/cut/paste row-state integration audit — TUI / desktop / touch
 
+✅ **Resolved — historical reference.** All findings below were addressed; see `CHANGELOG.md`. Kept for the development record, not as an open action list.
+
 **Date:** 2026-08-19
 **Scope:** every row-state facet touched by copy/cut/paste across the three hosts —
 targeting, commit, post-commit highlight, and the armed-clipboard modal lock.

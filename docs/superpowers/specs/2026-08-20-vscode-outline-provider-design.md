@@ -1,5 +1,7 @@
 # VS Code `DocumentSymbolProvider` (Outline / Breadcrumbs) — Design
 
+✅ **Shipped — historical reference.** See `CHANGELOG.md` for current behavior; this design record is kept for context, not as a live specification.
+
 Status: approved for planning (design phase)
 Date: 2026-08-20
 

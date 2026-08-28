@@ -1,5 +1,7 @@
 # Clipboard/paste bugs found while grilling ADR 0004
 
+✅ **Resolved — historical reference.** All findings below were addressed; see `CHANGELOG.md`. Kept for the development record, not as an open action list.
+
 Found during the `grilling` session that produced
 `docs/adr/0004-unified-clipboard-move-targeting.md`. None of these are design tradeoffs — plain
 correctness bugs — so they're tracked here, not as ADRs, and don't gate ADR 0004's implementation.

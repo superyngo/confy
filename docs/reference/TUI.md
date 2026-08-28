@@ -31,9 +31,11 @@ multiline one `[T/M]` — and adds `[S:null]` (null scalar) and `[F:exp ]` (expo
 (out-of-subset read-only). The **key-sign facet** (`(B)/(Q)/(D)/(-)`) is no longer in the column —
 it reads as a word on the detail popup's `Sign:` line. `type_tag` (and the type-filter's `classify`) take `(doc: DocFormat,
 read_only)` so the rendered slot is backend-aware — the YAML opaque gate (`read_only && doc==Yaml`)
-tags `[opaq ]` whatever the underlying kind. The detail popup keeps word labels (its `Path:` line
-includes positional indices, e.g. `a.b[2].c`), and `node_type_label`
-still drives the inline editor's type-change comparison.
+tags `[opaq ]` whatever the underlying kind. The detail popup keeps word labels; its `Path:` line
+is `ViewRow.path_display` (built by `Session::human_path`), which includes positional indices and
+re-wraps a quoted-YAML key segment in its authored flanks — `a.b[2].c`, but `servers."web 1".port`
+for a key written with quotes, so the displayed path matches the file (CONTEXT.md *Path line*).
+`node_type_label` still drives the inline editor's type-change comparison.
 
 ## Editing
 

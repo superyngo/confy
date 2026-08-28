@@ -6,6 +6,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Unreleased Update — 2026-08-28T21:00:00Z
+- **docs: repo-wide documentation accuracy + organization pass.** Audited every
+  current-state doc against the code and corrected what had drifted; historical
+  records (plans/specs/audits/ADRs and this changelog) were left intact, gaining
+  only status banners.
+
+  Corrected factual errors:
+  - `CLAUDE.md` still listed `supports_comments()` as a live `ConfigDocument`
+    format facet and claimed `load_document` "enables JSONC comments for a
+    `.jsonc` extension" — both removed with the comment write-gate
+    (`7b5cfda`/`23e6731`). Now documents `had_comments_at_open()` and the
+    extension-blind load path. The trait's method list also dropped a
+    nonexistent `load` and gained `to_value()`.
+  - `PRIVACY.md` (+ its `web/privacy.html` mirror) claimed the "only network
+    request" was the optional Open-from-URL feature. It missed the **JSON Schema
+    fetch** (`tui/schema_io.rs`, `web/ui.ts`), which fires automatically when an
+    opened document declares a schema by URL. Both egress paths are now
+    disclosed, and "runs entirely offline" is restated accurately. Store
+    listings point at this text, so the omission was material.
+  - `MESSAGES.md` §1 said "two channels" while its own table listed three, and
+    asserted every channel holds one value — untrue of the 256-entry `DiagRing`.
+  - `RELEASES.md` still advertised v0.22.0 as current on four channels; the
+    released tag is v0.22.1.
+  - `docs/superpowers/plans/2026-08-28-key-repr-first-class-literal.md` was still
+    marked "proposed, NOT started" after shipping.
+
+  Documented what the last three commits added but never wrote down: the
+  decoded-vs-authored key contract (`Node.key_literal`, `rename_key_segs`), the
+  Path line (`Session::human_path`, `ViewRow.path_display`) — new CLAUDE.md
+  *Key representation* section and two CONTEXT.md glossary entries, plus TUI.md's
+  `Path:` line. `WEBUI.md`'s FFI table gained the 8 missing bindings, its
+  `ViewRow`/`SessionSnapshot` field lists were completed, and a new note records
+  that wasm-bindgen exports **snake_case** while `web/confy.ts` wraps it in
+  **camelCase** — the VS Code extension binds the raw snake_case names, so both
+  spellings must move together.
+
+  Organization: `yaml-quoted-key-edit-memo.md` (self-declared RESOLVED, describing
+  a `key_literal_text` mechanism that no longer exists) moved out of the
+  current-state `docs/reference/` into `docs/superpowers/debug/`; the false-start
+  record is preserved, its inbound links repointed. Added
+  `docs/superpowers/README.md` and `docs/adr/README.md` indexes (previously none),
+  and the standard status banner to the 10 finished docs that lacked one — so an
+  unbannered file now reliably means live work (currently just the JSON/JSONC
+  parser-simplification SSOT plan).
+
 ### Unreleased Update - 2026-08-28T18:00:00Z
 - **fix(core): renaming a key to add quotes no longer raises a bogus type-change
   prompt and a following "path not found"** (reported on both TUI and Web).
@@ -105,7 +150,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Unreleased Update — 2026-08-28T09:00:00Z
 - fix(core,web,tui): completed the quoted-YAML-key rename/Path-display fix
-  (see `docs/reference/yaml-quoted-key-edit-memo.md`). Reverted the earlier
+  (see `docs/superpowers/debug/2026-08-28-yaml-quoted-key-edit-memo.md`). Reverted the earlier
   decoration-only patch (`af6adc7`) now that the rename/edit buffer itself
   carries the literal quote characters (`key_literal_text`, prior commit) —
   the quote marks are ordinary, directly editable buffer content, mirroring

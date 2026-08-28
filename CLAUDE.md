@@ -70,9 +70,9 @@ syntax for the type-change check.
 
 **`ConfigDocument` trait** abstracts the storage backend so YAML/JSON can be added later; the
 concrete backends are `CstDocument` (TOML), `JsonDocument` (JSON/JSONC), and `YamlDocument`
-(YAML subset) (the original `toml_edit`-based `TomlDocument` was retired after reaching parity). The trait exposes `load`, `project`, `serialize`, `serialize_fragment`,
-`serialize_fragment_relative`, `is_dirty`, `apply(Mutation)`, and three **format facets** —
-`format() -> DocFormat`, `comment_prefix()`, `supports_comments()` — plus `kind_options(path)`,
+(YAML subset) (the original `toml_edit`-based `TomlDocument` was retired after reaching parity). The trait exposes `project`, `serialize`, `serialize_fragment`,
+`serialize_fragment_relative`, `is_dirty`, `apply(Mutation)`, `to_value()`, and three **format facets** —
+`format() -> DocFormat`, `comment_prefix()`, `had_comments_at_open()` — plus `kind_options(path)`,
 which serves the `K` popup's per-node convertible-kind list (`(label, KindTarget)` pairs) so the
 TUI never hard-codes a backend's notations, and two **fragment facets** the inline editor/`nudge`/`a`
 use so they don't hard-code a notation either: `scalar_fragment(key, value)` (wraps a value repr as
@@ -136,6 +136,21 @@ and Illegal table moves are in CONTEXT.md (*Dotted table*, *Member spans*, *Mixe
 *Insert / move legality*, *Mutation mechanics*). `ScalarType`, `Format` enum values,
 `KeySign` facet, the `value` repr field, and KIND column rendering (`type_tag`) are in
 TUI.md §*Rendering*.
+
+**Key representation.** A key has two projected forms, and every backend agrees on the split:
+`Node.key`/`Seg::Key` hold the **decoded** key (semantic identity — path resolution, collision
+checks, JSON-Schema `properties` lookup, `to_value`/convert), while `Node.key_literal:
+Option<String>` holds it **exactly as authored**, quote characters and escapes intact
+(presentation + edit identity — tree row label, Path line, rename/edit buffer, fragment
+rebuilding). It is filled once during projection from the key token already in hand, so no
+consumer re-walks the CST or synthesizes a quote character; `None` means "authored bare, the
+decoded key is the literal". `Node.key_sign` (`KeySign`) survives as a coarse facet for the `f`
+type filter, which classifies quoted-vs-bare without needing the text. Going the other way,
+`ConfigDocument::rename_key_segs(new_key)` decodes a rename's literal with the backend's own key
+lexer, so the post-rename path is rebuilt from decoded segments and a quoted key containing a dot
+is never split. `Session::human_path(path)` renders the dotted/bracketed display form, re-wrapping
+a quoted-YAML segment in its `"…"` flanks; it is precomputed per row as `ViewRow.path_display` and
+drives the TUI Detail popup's `Path:` line and the web panel's Path field.
 
 **Editing.** `e` dispatches via `edit_target_kind`. The **inline-vs-`$EDITOR` boundary** is
 governed by BEHAVIOR_MATRIX §6 (universal single-line-scalar inline editing across all scopes;
@@ -514,7 +529,8 @@ Linux is not targeted yet, nor is iOS.
 constructor is `from_str(text)` / `AnyDocument::from_str_as(text, format)`; there is no `load`/`save`
 and no `path` field (backends keep a host-set `filename` display label via `set_filename`). **The
 host owns all file I/O:** `confy_tui::load_document(path, format)` reads the bytes, parses via
-`from_str_as`, sets the path-derived label, and enables JSONC comments for a `.jsonc` extension;
+`from_str_as`, and sets the path-derived label (the extension drives no comment-related setup —
+comments are legal in every `.json`/`.jsonc` document);
 `App::save` serializes and writes to `App::source_path`. `detect_format(path)` (pure extension
 match, no I/O) stays in core. The headless-core port (§3 cursor reshape, §5 state-machine lift)
 is complete — see `PORTING.md`.

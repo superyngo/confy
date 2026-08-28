@@ -1,5 +1,7 @@
 # Debug Handoff: VS Code Native-Editor Features Not Working
 
+✅ **Resolved — historical reference.** The behavior investigated below now works; see `CHANGELOG.md`. Kept for the development record, not as an open issue.
+
 **Date:** 2026-08-21  
 **Branch/Commit:** `main` @ `3bd4060`  
 **Features affected:** DocumentSymbolProvider (Outline/breadcrumbs) + Schema Diagnostics/Hover

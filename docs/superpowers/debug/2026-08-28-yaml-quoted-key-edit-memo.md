@@ -1,6 +1,10 @@
 # YAML quoted-key rename/edit — status memo (RESOLVED 2026-08-28)
 
-> **RESOLVED — superseded.** The patch-by-patch line this memo documents
+> ✅ **Resolved — historical reference.** Kept for the development record, not as a live task
+> list; nothing here describes current behavior. Moved out of `docs/reference/` (which documents
+> only current state) on 2026-08-28.
+>
+> **Superseded.** The patch-by-patch line this memo documents
 > (`64db70a` → `af6adc7` → `4795e89` → `8ef6af0`) was replaced by a single
 > structural fix: a key's authored spelling is now a first-class projection
 > output (`Node.key_literal`), with `Node.key`/`Seg::Key` holding the decoded

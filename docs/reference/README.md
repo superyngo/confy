@@ -4,6 +4,10 @@ Entry point for confy's developer-facing reference documentation. Root-level
 docs (`README.md`, `CLAUDE.md`, `CHANGELOG.md`, `RELEASES.md`) stay at the
 repo root; everything below lives here.
 
+**These docs describe current behavior only.** Anything historical — a
+superseded design, a shipped plan, a resolved investigation — belongs in
+[`../superpowers/`](../superpowers/README.md), not here.
+
 - **[CONTEXT.md](CONTEXT.md)** — canonical model glossary (Node/Root/Branch/Leaf/
   Scalar/Comment, Mutation mechanics, Insert/move legality, Schema vocabulary).
 - **[BEHAVIOR_MATRIX.md](BEHAVIOR_MATRIX.md)** — the full nested-behavior matrix
@@ -22,5 +26,6 @@ repo root; everything below lives here.
 - **[PORTING.md](PORTING.md)** — Headless Core extraction & multi-platform port
   design record.
 
-See also [`../adr/`](../adr/) for Architecture Decision Records and
-[`../superpowers/`](../superpowers/) for design specs, plans, and audits.
+See also [`../adr/`](../adr/README.md) for Architecture Decision Records and
+[`../superpowers/`](../superpowers/README.md) for design specs, plans, audits,
+and debug notes.

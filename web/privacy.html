@@ -27,18 +27,32 @@
   <body>
     <main>
       <h1>Privacy Policy — Confy — TOML/JSON/YAML Editor</h1>
-      <p class="updated">Last updated: 2026-07-22</p>
+      <p class="updated">Last updated: 2026-08-28</p>
 
-      <p>Confy ("the app") runs entirely offline.</p>
+      <p>Confy ("the app") works offline. It has no backend: there is no Confy server to talk
+        to, and the only requests it ever makes go to URLs written by you or by the file you
+        opened (see <strong>Network activity</strong> below).</p>
 
       <ul>
         <li><strong>No telemetry.</strong> The app does not collect, log, or transmit any usage
           data, analytics, or diagnostics.</li>
         <li><strong>No data transmission.</strong> Files you open and edit stay on your device
           (or, for the web build, in your browser). Confy never uploads file contents anywhere.</li>
-        <li><strong>Network activity.</strong> The only network request the app ever makes is the
-          optional "Open from URL" feature, which fetches a URL you explicitly supply. No other
-          network activity occurs.</li>
+        <li><strong>Network activity.</strong> Confy makes network requests in exactly two
+          cases, both driven by content you choose to open, and never to any Confy-operated
+          server:
+          <ol>
+            <li><strong>Open from URL</strong> — fetching a config file from a URL you
+              explicitly supply (<code>confy &lt;url&gt;</code>, or the web build's
+              open-from-URL action).</li>
+            <li><strong>JSON Schema fetch</strong> — if an opened document declares a schema by
+              URL (a JSON <code>"$schema"</code> key, a YAML
+              <code># yaml-language-server:</code> modeline, or a TOML <code>#:schema</code>
+              comment), Confy fetches that schema so it can show validation hints. The request
+              goes to the URL written in your file; only that URL is requested, and no part of
+              your file is sent with it.</li>
+          </ol>
+          Both are plain GET requests. No other network activity occurs.</li>
         <li><strong>Local preferences only.</strong> Language and theme preferences are stored
           locally (a config file on desktop/TUI, <code>localStorage</code> on the web build) and
           are never transmitted.</li>
