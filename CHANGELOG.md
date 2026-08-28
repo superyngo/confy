@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Unreleased Update — 2026-08-28T07:31:25Z
+- fix(web,tui): follow-up to the quoted-YAML-key tree display fix above — the
+  quote marks it added were still momentarily invisible the instant `F2`/rename
+  started, because the Name-edit `<input>`/buffer only ever held the decoded,
+  unquoted key text (unlike TOML, whose key string carries its quotes inline,
+  so its rename input never visually changes). Added a display-only `"…"`
+  flank around the editable field for a quoted YAML key — static decoration,
+  not part of the input's value, so rename commit/collision logic is
+  untouched. `web/render.ts::renderRow` (new `.key-quote` span + CSS),
+  `crates/confy-tui/src/tui/ui.rs`'s Name-field render branch. New shared
+  `isQuotedYamlKey` helper (`web/kind-labels.ts`) backing both `displayKey`
+  and the new decoration. New `web/render.spec.mjs` cases,
+  `crates/confy-tui/src/tui/ui.rs::quoted_yaml_key_rename_shows_quote_flanks_around_edit_buffer`.
+
 ### Unreleased Update — 2026-08-28T07:16:41Z
 - feat(web): Save As/Convert gains a **JSONC** option alongside JSON, TOML, and YAML —
   the same `DocFormat::Json` target with `.jsonc` seeded instead of `.json` (core stays

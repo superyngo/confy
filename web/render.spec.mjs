@@ -135,6 +135,34 @@ console.log("\n-- renderRow(): quoted-key display (YAML parity with TOML) --");
   check('TOML quoted key is not double-quoted', !htmlToml.includes('""a b""'), htmlToml);
 }
 
+// ---- renderRow: quoted YAML key rename shows quote flanks around the edit input ----
+console.log("\n-- renderRow(): quoted-key rename input keeps quote flanks --");
+{
+  const row = makeRow({ key: "a b", key_sign: "quoted", is_cursor: true });
+  const edit = { field: "Name", buffer: "a b", cursor: 3, is_element: false, is_comment: false };
+  const html = renderRow(row, 0, [row], edit, null, "", false, "Yaml");
+  check(
+    "YAML quoted-key rename input flanked by static quote decoration",
+    html.includes('<span class="key-quote">"</span><input') &&
+      html.includes('/><span class="key-quote">"</span>'),
+    html,
+  );
+  check("rename input value itself stays decoded (unquoted)", html.includes('value="a b"'), html);
+
+  // A bare YAML key's rename input gets no quote decoration.
+  const bareRow = makeRow({ key: "a", key_sign: "bare", is_cursor: true });
+  const bareEdit = { field: "Name", buffer: "a", cursor: 1, is_element: false, is_comment: false };
+  const bareHtml = renderRow(bareRow, 0, [bareRow], bareEdit, null, "", false, "Yaml");
+  check("YAML bare-key rename input has no quote decoration", !bareHtml.includes("key-quote"), bareHtml);
+
+  // TOML's key already carries its quotes inside `row.key`/`edit.buffer` itself
+  // (unrelated to `key_sign` display wrapping) — no extra decoration is added.
+  const tomlEditRow = makeRow({ key: '"a b"', key_sign: "quoted", is_cursor: true });
+  const tomlEdit = { field: "Name", buffer: '"a b"', cursor: 5, is_element: false, is_comment: false };
+  const tomlHtml = renderRow(tomlEditRow, 0, [tomlEditRow], tomlEdit, null, "", false, "Toml");
+  check("TOML quoted-key rename input has no extra quote decoration", !tomlHtml.includes("key-quote"), tomlHtml);
+}
+
 // ---- panelHTML: value / trailing_comment ----
 console.log("\n-- panelHTML() escaping (value/comment fields) --");
 {

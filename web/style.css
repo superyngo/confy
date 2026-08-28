@@ -242,6 +242,10 @@ body:not(.paste-mode) .row.cursor{background:var(--cursor-bg)}
   min-width:80px;max-width:46vw;
 }
 .key-input{font-weight:600}
+/* Static "…" flanking a quoted-YAML-key Name-edit <input> (see render.ts) —
+   matches .key's font/weight so the quote marks read as part of the label,
+   not the input's own border/background. */
+.key-quote{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--fg)}
 
 .drop-line{position:absolute;left:0;right:8px;height:2px;background:var(--drop);border-radius:2px;z-index:6;pointer-events:none;display:none}
 

@@ -54,12 +54,16 @@ pub(crate) fn cell_preview(s: &str) -> String {
 /// key's raw text, quotes included); JSON keys are unconditionally quoted, so
 /// wrapping them would just be noise on every row. YAML is the only backend
 /// that decodes its key to a bare string, hiding the quoting from the tree.
+pub(crate) fn is_quoted_yaml_key(key_sign: &str, format: crate::model::document::DocFormat) -> bool {
+    format == crate::model::document::DocFormat::Yaml && key_sign == "quoted"
+}
+
 pub(crate) fn display_key(
     key: &str,
     key_sign: &str,
     format: crate::model::document::DocFormat,
 ) -> String {
-    if format == crate::model::document::DocFormat::Yaml && key_sign == "quoted" {
+    if is_quoted_yaml_key(key_sign, format) {
         format!("\"{key}\"")
     } else {
         key.to_string()
@@ -400,10 +404,26 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                         edit_value_cell(e, value_col_width(area.width)),
                     ),
                     crate::tui::state::EditField::Name => {
+                        // A quoted YAML key shows its `"…"` flanks as static
+                        // decoration around the editable buffer (which stays
+                        // the decoded, unquoted text) so the quote marks
+                        // don't visibly vanish the instant rename starts —
+                        // they were part of `display_key`'s row rendering a
+                        // moment ago. Decoration only: `e.buffer`/commit are
+                        // untouched, so rename semantics are unchanged.
+                        let quoted = is_quoted_yaml_key(&row.key_sign, app.doc_format());
+                        let quote_cols = if quoted { 2 } else { 0 };
                         let avail = (name_col_width(area.width) as usize)
-                            .saturating_sub(prefix.chars().count());
+                            .saturating_sub(prefix.chars().count())
+                            .saturating_sub(quote_cols);
                         let mut spans = vec![Span::raw(prefix)];
+                        if quoted {
+                            spans.push(Span::raw("\""));
+                        }
                         spans.extend(edit_field_spans(&e.buffer, e.cursor, e.scroll, avail));
+                        if quoted {
+                            spans.push(Span::raw("\""));
+                        }
                         (Cell::from(Line::from(spans)), value_cell(row))
                     }
                 },
@@ -924,6 +944,44 @@ mod tests {
         assert!(
             !joined.contains('▏'),
             "caret glyph must not be inserted into the buffer: {joined:?}"
+        );
+    }
+
+    #[test]
+    fn quoted_yaml_key_rename_shows_quote_flanks_around_edit_buffer() {
+        let doc = crate::model::any_doc::AnyDocument::Yaml(
+            crate::model::yaml::doc::YamlDocument::from_str("\"a b\": 1\n").unwrap(),
+        );
+        let mut app = App::new(doc);
+        app.select_row(1); // on "a b"
+        app.begin_inline_rename();
+        let mut terminal = Terminal::new(TestBackend::new(60, 8)).unwrap();
+        terminal.draw(|fr| draw(fr, &app)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let joined: String = (0..8)
+            .map(|y| (0..60).map(|x| buf[(x, y)].symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n");
+        // The quote marks must still flank the buffer during rename — they
+        // were visible in the row a moment ago (`display_key`) and must not
+        // appear to vanish just because rename mode started.
+        assert!(
+            joined.contains("\"a b"),
+            "opening quote flank missing before rename buffer: {joined:?}"
+        );
+        // The cursor sits at end-of-buffer, rendered as a reverse-video
+        // trailing space, so the closing quote may be one char further out.
+        assert!(
+            joined.contains("b \"") || joined.contains("b\""),
+            "closing quote flank missing after rename buffer: {joined:?}"
+        );
+        // Decoration only: the underlying buffer stays the decoded text.
+        assert_eq!(
+            match &app.session.mode {
+                Mode::Edit(e) => e.buffer.as_str(),
+                _ => panic!("should be in rename mode"),
+            },
+            "a b"
         );
     }
 

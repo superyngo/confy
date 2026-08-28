@@ -12,7 +12,7 @@
 // phases (kind popover, context menu, drag-reparent).
 import type { EditView, SessionSnapshot, ViewRow } from "./types.js";
 import { escapeHtml } from "./escape.js";
-import { displayKey, isCommentRow, isExpanded, isPositional, kindLabelParts, valueTypeClass } from "./kind-labels.js";
+import { displayKey, isCommentRow, isExpanded, isPositional, isQuotedYamlKey, kindLabelParts, valueTypeClass } from "./kind-labels.js";
 import { t } from "./i18n.js";
 
 // Re-export so existing importers (ui.ts / typefilter.ts / convert-dialog.ts)
@@ -164,7 +164,15 @@ export function renderRow(
     if (isPositional(r)) {
       s += `<span class="key elem">${escapeHtml(r.key)}</span>`;
     } else if (edit && r.is_cursor && edit.field === "Name") {
+      // A quoted YAML key shows its `"…"` flanks as static decoration around
+      // the editable `<input>` (whose value stays the decoded, unquoted
+      // text) so the quote marks don't visibly vanish the instant rename
+      // starts — they were part of `displayKey`'s row rendering a moment
+      // ago. Decoration only: the input's value/commit are untouched.
+      const quoted = isQuotedYamlKey(r, docFormat);
+      if (quoted) s += `<span class="key-quote">"</span>`;
       s += `<input class="cell-input key-input mono" data-editing="name" style="${editWidthStyle(edit.buffer)}" value="${escapeHtml(edit.buffer)}" />`;
+      if (quoted) s += `<span class="key-quote">"</span>`;
     } else if (r.key) {
       s += `<span class="key" data-edit="key">${escapeHtml(displayKey(r, docFormat))}</span>`;
     }

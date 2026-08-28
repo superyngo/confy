@@ -133,8 +133,12 @@ export function isPositional(r: ViewRow): boolean {
 // wrapping them would just be noise on every row. YAML is the only backend
 // that decodes its key to a bare string, hiding the quoting from the tree.
 // Mirrors the TUI's `display_key` (crates/confy-tui/src/tui/ui.rs).
+export function isQuotedYamlKey(r: ViewRow, docFormat: string): boolean {
+  return docFormat === "Yaml" && r.key_sign === "quoted";
+}
+
 export function displayKey(r: ViewRow, docFormat: string): string {
-  return docFormat === "Yaml" && r.key_sign === "quoted" ? `"${r.key}"` : r.key;
+  return isQuotedYamlKey(r, docFormat) ? `"${r.key}"` : r.key;
 }
 
 // A branch is open iff the next visible row is one level deeper (the
