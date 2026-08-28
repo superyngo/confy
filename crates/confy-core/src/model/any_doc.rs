@@ -130,6 +130,9 @@ impl ConfigDocument for AnyDocument {
     fn fragment_trailing_comment(&self, path: &[crate::model::node::Seg], fragment: &str) -> Option<String> {
         delegate!(self, d => d.fragment_trailing_comment(path, fragment))
     }
+    fn key_literal_text(&self, path: &[Seg]) -> Option<String> {
+        delegate!(self, d => d.key_literal_text(path))
+    }
     fn to_value(
         &self,
     ) -> Result<(crate::model::value::Value, Vec<String>), crate::model::document::ConvertAbort>

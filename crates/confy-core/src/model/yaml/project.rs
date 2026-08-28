@@ -852,6 +852,28 @@ fn key_token_range(entry: &SyntaxNode) -> Option<std::ops::Range<usize>> {
     Some(to_range(tok.text_range()))
 }
 
+/// The as-authored literal text of a MAP_ENTRY's key at `path` — quotes and
+/// any escape sequences intact — but only when it's a quoted (`SINGLE`/
+/// `DOUBLE`) scalar; `None` for a bare `PLAIN` key or a path that isn't a
+/// keyed map entry. Used only to seed the inline rename/edit buffer with the
+/// real quoted text (`Session::begin_inline_rename`/`begin_inline_edit`) so a
+/// user can edit the quote characters themselves and inside-quote whitespace
+/// survives the commit's outer `.trim()` — mirrors TOML, whose `Node.key`
+/// already carries its literal quotes (taplo keeps them in the lexed token).
+pub(crate) fn key_literal_text(syntax: &SyntaxNode, path: &[Seg]) -> Option<String> {
+    let (_, idx) = walk(syntax, "");
+    let entry = idx.iter().find_map(|(p, t)| match (p == path, t) {
+        (true, Target::MapEntry(n)) => Some(n.clone()),
+        _ => None,
+    })?;
+    let key_node = entry.children().find(|c| c.kind() == SyntaxKind::KEY)?;
+    let tok = key_node.children_with_tokens().find_map(|c| match c {
+        NodeOrToken::Token(t) if matches!(t.kind(), SyntaxKind::SINGLE | SyntaxKind::DOUBLE) => Some(t),
+        _ => None,
+    })?;
+    Some(tok.text().to_string())
+}
+
 /// Walk a FLOW_SEQ node: emit elements (scalar tokens or nested nodes).
 fn walk_flow_seq(
     flow_seq: &SyntaxNode,

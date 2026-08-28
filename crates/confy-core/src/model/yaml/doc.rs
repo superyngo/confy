@@ -96,6 +96,10 @@ impl ConfigDocument for YamlDocument {
         false
     }
 
+    fn key_literal_text(&self, path: &[Seg]) -> Option<String> {
+        crate::model::yaml::project::key_literal_text(&self.syntax, path)
+    }
+
     fn array_elements_addressable(&self) -> bool {
         // `resolve` descends `Index`→`Key`, so every block/flow element and the
         // scalars under it are individually `Replace`-addressable.

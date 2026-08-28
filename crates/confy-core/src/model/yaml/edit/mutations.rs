@@ -15,6 +15,18 @@ pub(crate) fn rename(idx: &YamlIndex, path: &[Seg], new_key: &str) -> Result<(),
         _ => return Err(MutateError::Illegal("rename requires a key".into())),
     };
 
+    // Build a replacement scalar token by parsing a probe `new_key: 0` up
+    // front — both the collision check below and the token swap need it.
+    // Parsing also *decodes* `new_key`, which the caller may now pass as a
+    // literal quoted YAML key (e.g. `"a b"`, quotes included, straight from
+    // the rename buffer) rather than a bare name, so the collision check can
+    // compare it against siblings' *decoded* names on equal footing.
+    let probe = format!("{new_key}: 0\n");
+    let new_entry = parse_map_entry_fragment(&probe).ok_or(MutateError::Illegal(
+        "new key does not parse as a map entry".into(),
+    ))?;
+    let decoded_new_key = entry_key_name(&new_entry);
+
     // Sibling collision check against the other keyed members in the same parent
     // (block MAP_ENTRY or flow FLOW_ENTRY).
     let parent = entry.parent().expect("entry has parent");
@@ -25,8 +37,8 @@ pub(crate) fn rename(idx: &YamlIndex, path: &[Seg], new_key: &str) -> Result<(),
         if sib == entry {
             continue;
         }
-        if entry_key_name(&sib) == new_key {
-            return Err(MutateError::Collision(new_key.to_string()));
+        if entry_key_name(&sib) == decoded_new_key {
+            return Err(MutateError::Collision(decoded_new_key));
         }
     }
 
@@ -44,11 +56,6 @@ pub(crate) fn rename(idx: &YamlIndex, path: &[Seg], new_key: &str) -> Result<(),
         })
         .ok_or(MutateError::NotFound)?;
 
-    // Build a replacement scalar token by parsing a probe `new_key: 0`.
-    let probe = format!("{new_key}: 0\n");
-    let new_entry = parse_map_entry_fragment(&probe).ok_or(MutateError::Illegal(
-        "new key does not parse as a map entry".into(),
-    ))?;
     let new_tok = new_entry
         .children()
         .find(|n| n.kind() == SyntaxKind::KEY)
