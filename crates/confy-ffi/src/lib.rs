@@ -92,17 +92,14 @@ impl ConfySession {
         self.session.strict_json = v;
     }
 
-    /// Whether authored comments are currently legal in the open document —
-    /// true from load if the raw text already contained a `//` line comment
-    /// or a block comment. The host uses this alongside its own extension
-    /// check to decide whether to fire the one-shot "this .json file has
-    /// comments" advisory (see `set_strict_json`); `false` for a non-JSON
-    /// document.
-    pub fn supports_comments(&self) -> bool {
+    /// Whether the open document already contained a comment when it was
+    /// loaded — drives the host's one-shot "file already had comments" toast.
+    /// `false` for a non-JSON document.
+    pub fn had_comments_at_open(&self) -> bool {
         self.session
             .doc
             .as_ref()
-            .is_some_and(|d| d.supports_comments())
+            .is_some_and(|d| d.had_comments_at_open())
     }
 
     pub fn doc_format(&self) -> String {
