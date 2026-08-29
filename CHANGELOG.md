@@ -10,6 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.23.0] - 2026-08-29
 
+### Unreleased Update — 2026-08-29T23:55:43Z
+- **fix(core/json): `Insert` on an empty or comment-only `.json` document no
+  longer fails with `NotFound`.** JSON's `find_container` had nothing to walk
+  into on a document with no top-level VALUE node, so pressing "Add" on a
+  brand-new/empty `.json` file always failed — TOML and YAML both already
+  synthesized a root container in this case. Added `insert_into_empty_document`
+  (mirrors YAML's `insert_into_empty_document`), wired into `insert()`'s
+  `find_container` call the same way YAML does. Defaults to an object root
+  (`{}`), matching TOML's root-is-always-Table convention.
+
 ### Unreleased Update — 2026-08-29T14:35:23Z
 - **perf(core): drop the redundant full-document serialize on every
   mutation's undo snapshot.** `ConfigDocument::apply` already computes the

@@ -449,7 +449,13 @@ fn insert(
     suggested_key: Option<&str>,
 ) -> Result<(), MutateError> {
     // ── 1. Locate the container OBJECT or ARRAY node ────────────────────────
-    let container = find_container(tree, &target.parent)?;
+    let container = match find_container(tree, &target.parent) {
+        Ok(c) => c,
+        Err(MutateError::NotFound) if target.parent.is_empty() => {
+            return insert_into_empty_document(tree, fragment, suggested_key);
+        }
+        Err(e) => return Err(e),
+    };
 
     let is_object = container.kind() == SyntaxKind::OBJECT;
     let is_multiline = container.text().to_string().contains('\n');
@@ -586,6 +592,30 @@ fn find_container(tree: &SyntaxNode, parent: &[Seg]) -> Result<SyntaxNode, Mutat
         container = inner;
     }
     Ok(container)
+}
+
+/// Fallback for a root-level Insert when the document has no top-level VALUE
+/// node yet (empty or comment-only file) — `find_container` has nothing to
+/// walk into, so a root Insert always failed with `NotFound` even though
+/// appending the first key/element is exactly what "Add" on an empty
+/// document should do. Mirrors YAML's `insert_into_empty_document`
+/// (`yaml/edit/block.rs`). Defaults to an object root (`{}`), matching
+/// TOML's root-is-always-Table convention — a brand-new JSON config is
+/// overwhelmingly the common case; a bare-array fragment still adapts
+/// correctly via `adapt_fragment`'s `is_object` branch.
+fn insert_into_empty_document(
+    tree: &SyntaxNode,
+    fragment: &str,
+    suggested_key: Option<&str>,
+) -> Result<(), MutateError> {
+    let (item_text, _) = adapt_fragment(fragment, true, suggested_key)?;
+    let new_text = format!("{{ {item_text} }}");
+    let green = crate::model::json::parse::parse(&new_text).map_err(MutateError::Fragment)?;
+    let new_root = SyntaxNode::new_root(green).clone_for_update();
+    let n = tree.children_with_tokens().count();
+    let new_children: Vec<_> = new_root.children_with_tokens().collect();
+    tree.splice_children(0..n, new_children);
+    Ok(())
 }
 
 fn key_name_of(key_node: &SyntaxNode) -> String {
@@ -2263,6 +2293,48 @@ mod tests {
             },
         );
         assert!(matches!(r, Err(MutateError::Collision(_))));
+    }
+
+    #[test]
+    fn insert_member_into_empty_document() {
+        let out = apply_str(
+            "",
+            Mutation::Insert {
+                target: MTarget {
+                    parent: vec![],
+                    index: 0,
+                },
+                fragment: "\"a\": 1".into(),
+                on_collision: OnCollision::Cancel,
+                suggested_key: None,
+            },
+        );
+        let v: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
+        assert_eq!(v, serde_json::json!({ "a": 1 }));
+    }
+
+    #[test]
+    fn insert_member_into_comment_only_document() {
+        let out = apply_str(
+            "// just a comment\n",
+            Mutation::Insert {
+                target: MTarget {
+                    parent: vec![],
+                    index: 0,
+                },
+                fragment: "\"a\": 1".into(),
+                on_collision: OnCollision::Cancel,
+                suggested_key: None,
+            },
+        );
+        // The whole-document splice used to synthesize the root replaces ALL
+        // existing ROOT children, so the standalone leading comment is
+        // dropped — not part of the audited drift or the product decision to
+        // fix empty-document insert, so this documents actual behavior
+        // rather than attempting to also preserve the comment.
+        let v: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
+        assert_eq!(v, serde_json::json!({ "a": 1 }));
+        assert!(!out.contains("just a comment"));
     }
 
     #[test]
