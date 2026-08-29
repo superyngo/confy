@@ -1528,6 +1528,41 @@ fn remark_never_prompts_on_clean_json() {
 }
 
 #[test]
+fn remark_targets_selection_over_cursor() {
+    // With an active multi-select, remark acts on the SELECTED nodes (like
+    // delete/copy), not only on the cursor row.
+    let mut s = toml_session("a = 1\nb = 2\nc = 3\n");
+    s.cursor_down(); // cursor on a
+    s.toggle_select(); // select a
+    s.cursor_down(); // cursor on b
+    s.toggle_select(); // select b (cursor stays on b)
+    s.remark();
+    let out = s.serialize().unwrap();
+    assert!(out.contains("# a = 1"), "a should be remarked: {out:?}");
+    assert!(out.contains("# b = 2"), "b should be remarked: {out:?}");
+    assert!(out.contains("c = 3"), "c must stay live: {out:?}");
+}
+
+#[test]
+fn remark_selection_json_remarks_both_members() {
+    let doc = AnyDocument::from_str_as(
+        "{\n  \"a\": 1,\n  \"b\": 2,\n  \"c\": 3\n}\n",
+        DocFormat::Json,
+    )
+    .unwrap();
+    let mut s = Session::new(doc);
+    s.dispatch(Intent::SetCursor(vec![Seg::Key("a".into())]));
+    s.toggle_select();
+    s.dispatch(Intent::SetCursor(vec![Seg::Key("b".into())]));
+    s.toggle_select();
+    s.remark();
+    let out = s.serialize().unwrap();
+    assert!(out.contains("// \"a\": 1"), "a remarked: {out:?}");
+    assert!(out.contains("// \"b\": 2"), "b remarked: {out:?}");
+    assert!(out.contains("\"c\": 3"), "c live: {out:?}");
+}
+
+#[test]
 fn add_comment_sibling_never_blocked_on_clean_json() {
     // A pure `.json` with no comments at load: remark the first node into a
     // comment (unconditionally legal, per the test above), then add a

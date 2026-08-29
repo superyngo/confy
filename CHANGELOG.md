@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Unreleased Update — 2026-08-29T00:21:42Z
+### Unreleased Update — 2026-08-29T01:25:49Z
+- **fix(core): remark now acts on the active multi-select.** `Session::remark`
+  only ever targeted the cursor row, unlike `delete_selected`/copy/cut which
+  prefer an active selection (`selected_paths()` falling back to the cursor).
+  Remark now follows the same contract: with `s`/Shift-range selection active,
+  all selected nodes toggle Node<->Comment (applied deepest-first so a
+  container's re-addressing — key<->positional — cannot orphan a still-pending
+  descendant; per-node Fragment errors like prose comment blocks surface as
+  the usual "kept as-is" notice while the rest still apply). TOML and
+  JSON/JSONC covered by headless regression tests; TUI/web dispatch untouched
+  (both forward `Intent::Remark`).
+
 - **fix(core): un-remark of a merged multi-node comment block works in
   JSON/JSONC and YAML.** Remarking several consecutive nodes merges their
   comment lines into ONE Comment node; un-remarking that node failed with

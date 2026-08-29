@@ -461,11 +461,18 @@ impl Session {
             self.set_notice(Notice::core(self.lang, "core.readonly", &[]));
             return;
         }
-        let path = match self.cursor_row() {
-            Some(r) => r.path,
-            None => return,
-        };
-        self.do_remark(path);
+        let paths = self.selected_paths();
+        if paths.is_empty() {
+            return;
+        }
+        // Same contract as `delete_selected`: an active multi-select wins
+        // over the cursor. Deepest-first so remarking a container does not
+        // re-address (key<->positional) a still-pending descendant.
+        let mut paths = paths;
+        paths.sort_by_key(|b| std::cmp::Reverse(b.len()));
+        for p in &paths {
+            self.do_remark(p.clone());
+        }
     }
 
     pub(crate) fn do_remark(&mut self, path: Path) {
