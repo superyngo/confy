@@ -1624,8 +1624,7 @@ mod tests {
         let script = tempfile::Builder::new().suffix(".sh").tempfile().unwrap();
         std::fs::write(script.path(), "#!/bin/sh\nexit 0\n").unwrap();
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(script.path(), std::fs::Permissions::from_mode(0o755))
-            .unwrap();
+        std::fs::set_permissions(script.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
         std::env::set_var("EDITOR", script.path());
         app.edit_node();
         assert!(
