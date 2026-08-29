@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.23.0] - 2026-08-29
+
 ### Unreleased Update — 2026-08-29T00:00:00Z
 - **fix(tui/core/yaml): `$EDITOR` on a comment node keeps nested indentation;
   quit-without-save no longer mutates the document.** Follow-up to the
