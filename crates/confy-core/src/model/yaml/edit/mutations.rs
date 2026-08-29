@@ -137,14 +137,19 @@ pub(crate) fn remark(tree: &SyntaxNode, idx: &YamlIndex, path: &[Seg]) -> Result
             let block_text = comment_block_text(&first_tok);
             // Recover the live text by stripping the comment leader.
             let recovered = uncomment(&block_text);
-            let recovered_nl = ensure_newline(&recovered);
+            // Dedent to the block's own first-line indent: live entries parse
+            // at column 0, and `splice_comment_block` reindents the dedented
+            // text back to the block's indent — preserving inner, deeper
+            // indentation (e.g. a remarked nested `subscribers:` subtree).
+            let dedented = reindent(&recovered, fragment_indent(&recovered), 0);
+            let recovered_nl = ensure_newline(&dedented);
             if !parses_as_live_entries(&recovered_nl) {
                 return Err(MutateError::Fragment(
                     "comment does not parse as a map entry or sequence element".into(),
                 ));
             }
 
-            splice_comment_block(tree, &first_tok, &recovered)
+            splice_comment_block(tree, &first_tok, &dedented)
         }
         Target::Opaque(_) => Err(MutateError::Unsupported),
     }
@@ -389,22 +394,39 @@ pub(crate) fn comment_block_text(first: &crate::model::yaml::syntax::SyntaxToken
     use crate::model::yaml::syntax::SyntaxKind;
     use rowan::NodeOrToken;
 
-    let mut out = vec![first.text().trim_end().to_string()];
+    // The block's own leading indent (the INDENT token before `first`) opens
+    // the first line, so every line carries consistent per-line indentation.
+    let mut first_indent = String::new();
+    if let Some(NodeOrToken::Token(prev)) = first.prev_sibling_or_token() {
+        if prev.kind() == SyntaxKind::INDENT {
+            first_indent.push_str(prev.text());
+        }
+    }
+    let mut out = vec![format!("{}{}", first_indent, first.text().trim_end())];
     let mut sib = first.next_sibling_or_token();
     let mut newlines = 0u32;
+    let mut pending_indent = String::new();
     while let Some(el) = sib {
         match el.kind() {
-            SyntaxKind::WHITESPACE | SyntaxKind::INDENT => {}
+            SyntaxKind::WHITESPACE | SyntaxKind::INDENT => {
+                if newlines == 1 {
+                    if let NodeOrToken::Token(tok) = &el {
+                        pending_indent.push_str(tok.text());
+                    }
+                }
+            }
             SyntaxKind::NEWLINE => {
                 newlines += 1;
                 if newlines >= 2 {
                     break;
                 }
+                pending_indent.clear();
             }
             SyntaxKind::COMMENT if newlines == 1 => {
                 if let NodeOrToken::Token(tok) = &el {
-                    out.push(tok.text().trim_end().to_string());
+                    out.push(format!("{}{}", pending_indent, tok.text().trim_end()));
                 }
+                pending_indent.clear();
                 newlines = 0;
             }
             _ => break,

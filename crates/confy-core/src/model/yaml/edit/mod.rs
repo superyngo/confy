@@ -1979,4 +1979,56 @@ mod tests {
         .expect("insert into nested block mapping");
         assert_eq!(out, "srv:\n  host: a\n  port: 80\n");
     }
+    #[test]
+    fn remark_nested_block_unremark_preserves_inner_indent() {
+        // Remarking a nested block entry then un-remarking it must restore the
+        // original per-line indentation (`error:` under `subscribers:` under `t:`),
+        // not flatten every line to the block's first-line indent.
+        let src = "t:\n  subscribers:\n    error:\n      - w@x.com\n";
+        let remarked = apply_str(
+            src,
+            Mutation::Remark {
+                path: vec![Seg::Key("t".into()), Seg::Key("subscribers".into())],
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            remarked,
+            "t:\n  # subscribers:\n    # error:\n      # - w@x.com\n"
+        );
+        let restored = apply_str(
+            &remarked,
+            Mutation::Remark {
+                path: vec![Seg::Key("t".into()), Seg::Index(0)],
+            },
+        )
+        .unwrap();
+        assert_eq!(restored, src);
+    }
+    #[test]
+    fn remark_real_tasks_yaml_subscribers_roundtrip() {
+        // End-to-end check against the real reported file: remark the
+        // `put_in_key.subscribers` subtree and un-remark it back byte-exact.
+        let Ok(src) = std::fs::read_to_string("/tmp/verify-test/tasks.yaml") else {
+            return; // fixture not present on this machine
+        };
+        let path = vec![
+            Seg::Key("put_in_key".into()),
+            Seg::Key("subscribers".into()),
+        ];
+        let remarked = apply_str(&src, Mutation::Remark { path: path.clone() }).unwrap();
+        assert!(
+            remarked.contains("  # subscribers:\n    # error:\n      # - wenyang@cht.com.tw"),
+            "remarked with indents: {remarked:?}"
+        );
+        // `subscribers` is the 8th (last) key of put_in_key → Index(7).
+        let restored = apply_str(
+            &remarked,
+            Mutation::Remark {
+                path: vec![Seg::Key("put_in_key".into()), Seg::Index(7)],
+            },
+        )
+        .unwrap();
+        assert_eq!(restored, src, "roundtrip must be byte-exact");
+    }
 }

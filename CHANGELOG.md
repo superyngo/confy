@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ## [Unreleased]
+
+### Unreleased Update — 2026-08-29T00:00:00Z
+- **fix(core/yaml): un-remark preserves nested indentation.** Remarking a
+  nested block entry (e.g. a `subscribers:` subtree) and un-remarking it
+  flattened every line to the comment block's first-line indent, turning
+  `subscribers` into `null` and lifting `error:` one level up. Root cause:
+  `comment_block_text` dropped each line's INDENT token when collecting a
+  merged `#` block, and the reverse splice reindented the indent-less text
+  uniformly. `comment_block_text` now keeps per-line leading indent, and the
+  reverse-remark path dedents relative to the block's own first-line indent
+  before the parse check and re-splice. Round-trip verified byte-exact against
+  the reported fixture (`/tmp/verify-test/tasks.yaml`).
+
 ### Unreleased Update — 2026-08-29T08:11:21Z
 - **perf(core): stop rescanning the whole document per section span; benchmark
   Move and locate the remaining bottleneck.** Adding a multi-source `Move`
