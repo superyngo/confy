@@ -10,6 +10,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.23.0] - 2026-08-29
 
+### Unreleased Update — 2026-08-29T14:34:50Z
+- **perf(core/toml): `Move`/`Insert` no longer re-walk the tree twice per
+  fragment.** `move_nodes`'s per-fragment reinsertion loop, and `insert`'s own
+  per-table-member loop, each computed a fresh projection via `walk(tree, "")`
+  to locate the next insertion index and then called `insert`, which
+  immediately re-walked the same unchanged tree before doing anything with
+  it — doubling the walk count in both hot loops. `insert` is now split into
+  a thin public wrapper and a private `insert_with` that takes the caller's
+  already-computed projection/index instead of recomputing them; both loops
+  call `insert_with` directly. Verified with the perf harness's `apply(Move
+  N source(s))` cases: `apply(Move 1 source(s))` dropped from 87.5ms to
+  71.8ms at 2,801 nodes and from 752ms to 579.8ms at 7,001 nodes.
+
 ### Unreleased Update — 2026-08-29T00:00:00Z
 - **fix(tui/core/yaml): `$EDITOR` on a comment node keeps nested indentation;
   quit-without-save no longer mutates the document.** Follow-up to the

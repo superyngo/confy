@@ -19,7 +19,7 @@ use super::tree_nav::{
 };
 use crate::model::cst_project::{walk, CstIndex, Target};
 use crate::model::document::{MutateError, OnCollision, Target as InsTarget};
-use crate::model::node::{Format, Node, NodeKind, Seg};
+use crate::model::node::{Format, Node, NodeKind, NodeTree, Seg};
 use std::collections::HashSet;
 use taplo::rowan::NodeOrToken;
 use taplo::syntax::{SyntaxKind, SyntaxNode};
@@ -40,13 +40,25 @@ pub(crate) fn insert(
     on_collision: OnCollision,
     suggested_key: Option<&str>,
 ) -> Result<(), MutateError> {
+    let (proj, idx) = walk(tree, "");
+    insert_with(tree, &proj, &idx, target, toml, on_collision, suggested_key)
+}
+
+fn insert_with(
+    tree: &SyntaxNode,
+    proj: &NodeTree,
+    idx: &CstIndex,
+    target: &InsTarget,
+    toml: &str,
+    on_collision: OnCollision,
+    suggested_key: Option<&str>,
+) -> Result<(), MutateError> {
     let frag_text = if toml.ends_with('\n') {
         toml.to_string()
     } else {
         format!("{toml}\n")
     };
 
-    let (proj, idx) = walk(tree, "");
     let parent = node_at(&proj.root, &target.parent).ok_or(MutateError::NotFound)?;
     let parent_is_array = matches!(parent.kind, crate::model::node::NodeKind::Array);
     let parent_is_inline = matches!(parent.kind, crate::model::node::NodeKind::InlineTable);
@@ -56,7 +68,7 @@ pub(crate) fn insert(
     let parent_spans = if matches!(parent.kind, NodeKind::Table)
         && matches!(target.parent.last(), Some(Seg::Key(_)))
     {
-        table_member_spans(tree, &idx, &target.parent)
+        table_member_spans(tree, idx, &target.parent)
     } else {
         Vec::new()
     };
@@ -67,7 +79,7 @@ pub(crate) fn insert(
         .iter()
         .any(|s| matches!(s, MemberSpan::Section(_)));
     let parent_headerless =
-        !target.parent.is_empty() && is_headerless_table(&idx, &proj.root, &target.parent);
+        !target.parent.is_empty() && is_headerless_table(idx, &proj.root, &target.parent);
     // An *implicit* scope table (only `[a.sub]` sections were written, no dotted
     // members): an entry child gets the table's own `[a]` section synthesized at
     // its first definition instead of a dotted prefix.
@@ -87,7 +99,7 @@ pub(crate) fn insert(
         for i in (0..target.parent.len()).rev() {
             let anc_path = &target.parent[..=i];
             node_at(&proj.root, anc_path).ok_or(MutateError::NotFound)?;
-            if !is_headerless_table(&idx, &proj.root, anc_path) {
+            if !is_headerless_table(idx, &proj.root, anc_path) {
                 break;
             }
             if let Seg::Key(k) = &target.parent[i] {
@@ -114,7 +126,15 @@ pub(crate) fn insert(
     // the element form is kept.
     if synthesized_key && !parent_is_array {
         if let Some(entries) = unpack_inline_table(frag_text.trim()) {
-            return insert(tree, target, &entries.concat(), on_collision, None);
+            return insert_with(
+                tree,
+                proj,
+                idx,
+                target,
+                &entries.concat(),
+                on_collision,
+                None,
+            );
         }
     }
 
@@ -168,7 +188,7 @@ pub(crate) fn insert(
         } else {
             wrap_keyed_as_inline_element(&frag_text)?
         };
-        return array_insert(&idx, &target.parent, target.index, &element);
+        return array_insert(idx, &target.parent, target.index, &element);
     }
 
     if matches!(parent.kind, NodeKind::ArrayOfTables) {
@@ -183,7 +203,7 @@ pub(crate) fn insert(
         }
         return aot_group_insert(
             tree,
-            &idx,
+            idx,
             parent,
             &target.parent,
             target.index,
@@ -214,8 +234,8 @@ pub(crate) fn insert(
             .map(|c| c.path.clone());
         for e in &top_entries {
             let entry_text = format!("{}\n", e.to_string().trim());
+            let (proj2, idx2) = walk(tree, "");
             let index = {
-                let (proj2, _) = walk(tree, "");
                 let parent2 = node_at(&proj2.root, &target.parent).ok_or(MutateError::NotFound)?;
                 match &anchor_path {
                     Some(ap) => parent2
@@ -226,8 +246,10 @@ pub(crate) fn insert(
                     None => parent2.children.len(),
                 }
             };
-            insert(
+            insert_with(
                 tree,
+                &proj2,
+                &idx2,
                 &InsTarget {
                     parent: target.parent.clone(),
                     index,
@@ -279,8 +301,8 @@ pub(crate) fn insert(
         if node_at(&proj.root, &full).is_some() {
             return Err(MutateError::Collision(new_segs.join(".")));
         }
-        let raw_index = inline_raw_member_index(&idx, parent, target.index);
-        return inline_table_insert(&idx, &target.parent[..inline_len], raw_index, &frag);
+        let raw_index = inline_raw_member_index(idx, parent, target.index);
+        return inline_table_insert(idx, &target.parent[..inline_len], raw_index, &frag);
     }
 
     let frag_segs = fragment_key_segs(&frag);
@@ -416,7 +438,7 @@ pub(crate) fn insert(
         resolve_insert_at(
             tree,
             &proj.root,
-            &idx,
+            idx,
             &InsTarget {
                 parent: target.parent.clone(),
                 index: eff_index,
@@ -1110,8 +1132,10 @@ pub(crate) fn move_nodes(
                 on_collision,
             )?;
         } else {
-            insert(
+            insert_with(
                 tree,
+                &proj2,
+                &idx2,
                 &InsTarget {
                     parent: target.parent.clone(),
                     index,
