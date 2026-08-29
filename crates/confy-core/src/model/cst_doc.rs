@@ -21,11 +21,14 @@ pub struct CstDocument {
     /// The rowan syntax tree root — the single source of truth.
     pub(crate) syntax: SyntaxNode,
     pub(crate) original: String,
-    /// True while `syntax` is byte-identical to `original` (fresh load or just
-    /// saved), so `is_dirty` can answer without serializing. Cleared on any
-    /// syntax change; a change back to `original` still falls through to the
-    /// exact text compare, preserving the edit-then-undo-is-clean semantic.
-    pub(crate) clean: bool,
+    /// True while `syntax` differs from `original`. Recomputed at each of the
+    /// four points that can change the text (`from_str`, `mark_saved`, `apply`,
+    /// `replace_from_str`) — each already has the new serialization in hand, so
+    /// this costs nothing and keeps `is_dirty` O(1) instead of re-serializing
+    /// the whole document on every call (it is read once per keystroke via the
+    /// session snapshot). An edit back to `original` still reads clean, because
+    /// the comparison is against the baseline text, not a sticky flag.
+    pub(crate) dirty: bool,
     /// Display label for the projection root (the host sets it from the source
     /// path on load); not a filesystem handle.
     pub(crate) filename: String,
@@ -41,7 +44,7 @@ impl ConfigDocument for CstDocument {
     }
 
     fn is_dirty(&self) -> bool {
-        !self.clean && self.serialize() != self.original
+        self.dirty
     }
 
     fn serialize_fragment(&self, path: &[crate::model::node::Seg]) -> String {
@@ -64,8 +67,9 @@ impl ConfigDocument for CstDocument {
         // an immutable tree (re-parse is byte-identical) so the next `apply` can
         // `clone_for_update` again.
         let new = crate::model::cst_edit::apply(&self.syntax, m)?;
-        self.syntax = taplo::parser::parse(&new.to_string()).into_syntax();
-        self.clean = false;
+        let text = new.to_string();
+        self.dirty = text != self.original;
+        self.syntax = taplo::parser::parse(&text).into_syntax();
         Ok(())
     }
 
@@ -311,7 +315,7 @@ impl CstDocument {
         Ok(CstDocument {
             syntax: parse.into_syntax(),
             original: text.to_string(),
-            clean: true,
+            dirty: false,
             filename: String::new(),
         })
     }
@@ -325,7 +329,7 @@ impl CstDocument {
     /// Reset the dirty baseline so `is_dirty()` returns false.
     pub fn mark_saved(&mut self) {
         self.original = self.serialize();
-        self.clean = true;
+        self.dirty = false;
     }
 
     /// Re-parse the document from a serialized snapshot string (undo/redo restore).
@@ -336,7 +340,7 @@ impl CstDocument {
             return Err(MutateError::Fragment(e.to_string()));
         }
         self.syntax = parse.into_syntax();
-        self.clean = false;
+        self.dirty = s != self.original;
         Ok(())
     }
 }

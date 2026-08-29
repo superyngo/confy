@@ -168,24 +168,76 @@ impl Session {
 
     /// Pure: flatten the tree through the expand set and filter, baking in
     /// selection + cursor flags. No side effects.
+    ///
+    /// `path_display` is built **incrementally** down the ancestor chain — each
+    /// row's display path is its parent's plus its own segment. Calling
+    /// `human_path` per row instead re-descended the tree once per path segment
+    /// (`node_at` is a linear child scan, so that is O(depth² · siblings) per
+    /// row); it dominated this function at ~92% of its cost on a 2800-node
+    /// document. This is sound because `flatten` is pre-order: a row is only
+    /// yielded once every ancestor is expanded, so its ancestors always precede
+    /// it and `chain` is populated. The chain is therefore built over the
+    /// *unfiltered* flatten and the filter applied afterwards — filtering first
+    /// would punch holes in the ancestor chain.
     pub fn visible_rows(&self) -> Vec<ViewRow> {
-        self.visible_nodes()
-            .into_iter()
-            .map(|r| self.to_view_row(r.node, r.depth))
-            .collect()
+        let expanded = &self.expanded;
+        let all = self.tree.flatten(&|p| expanded.contains(p));
+        // Cumulative display path at each depth; `chain[d]` is the display path
+        // of the current row at depth `d`.
+        let mut chain: Vec<String> = Vec::with_capacity(16);
+        let mut out = Vec::with_capacity(all.len());
+        for r in all {
+            chain.truncate(r.depth);
+            let mut disp = chain.last().cloned().unwrap_or_default();
+            // Each child's path is its parent's plus exactly one segment (a
+            // projection invariant), so only the last segment is new. Mirrors
+            // `human_path`: a Key is dot-joined and prefers the authored
+            // spelling, an Index is appended bare.
+            match r.node.path.last() {
+                Some(Seg::Key(k)) => {
+                    if !disp.is_empty() {
+                        disp.push('.');
+                    }
+                    disp.push_str(r.node.key_literal.as_deref().unwrap_or(k));
+                }
+                Some(Seg::Index(i)) => {
+                    use std::fmt::Write as _;
+                    let _ = write!(disp, "[{i}]");
+                }
+                // The root's path is empty — nothing to append.
+                None => {}
+            }
+            chain.push(disp);
+            if let Some(fp) = &self.filtered_paths {
+                if !fp.contains(&r.node.path) {
+                    continue;
+                }
+            }
+            let display = if r.node.path.is_empty() {
+                "(root)".to_string()
+            } else {
+                // Safe: just pushed.
+                chain[r.depth].clone()
+            };
+            out.push(self.to_view_row(r.node, r.depth, display));
+        }
+        out
     }
 
     /// Build one `ViewRow` transport struct from a tree `Node` + its depth.
     /// Single source of truth for `visible_rows()`'s per-row projection and
     /// `view_row_at()`'s direct single-path lookup — the two must never drift.
-    fn to_view_row(&self, node: &Node, depth: usize) -> ViewRow {
+    /// `path_display` is passed in because the two callers derive it
+    /// differently: bulk rows build it incrementally down the ancestor chain,
+    /// while a single-row lookup has no chain and uses `human_path`.
+    fn to_view_row(&self, node: &Node, depth: usize, path_display: String) -> ViewRow {
         let scalar_type = match &node.kind {
             NodeKind::Scalar(st) => Some(*st),
             _ => None,
         };
         ViewRow {
             path: node.path.clone(),
-            path_display: self.human_path(&node.path),
+            path_display,
             depth,
             is_branch: node.is_branch(),
             key: node.key.clone(),
@@ -292,7 +344,9 @@ impl Session {
             return None;
         }
         let node = self.tree.node_at(path)?;
-        Some(self.to_view_row(node, path.len()))
+        // No ancestor chain available here, so derive it directly. One row, so
+        // `human_path`'s per-segment tree descent is irrelevant.
+        Some(self.to_view_row(node, path.len(), self.human_path(path)))
     }
 
     /// `view_row_at(&self.cursor)` — the single most common single-row lookup.

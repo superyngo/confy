@@ -21,6 +21,10 @@ const esbuildOpts = {
   bundle: true,
   format: "esm",
   target: "es2022",
+  // esbuild does NOT minify by default, not even in bundle mode — the shipped
+  // ui.js was going out as ~5200 lines of indented, commented source. The
+  // sourcemap keeps it debuggable.
+  minify: true,
   sourcemap: true,
   define: { __APP_VERSION__: JSON.stringify(version) },
 };

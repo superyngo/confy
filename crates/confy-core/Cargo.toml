@@ -11,6 +11,13 @@ repository.workspace = true
 name = "confy_core"
 path = "src/lib.rs"
 
+# Dependency-free perf harness (audit 2026-08-29). `harness = false` because it
+# is a plain `main()` with manual timing, not a libtest/criterion suite — this
+# crate intentionally adds no dev-dependency for it.
+[[bench]]
+name = "perf"
+harness = false
+
 [dependencies]
 anyhow.workspace = true
 thiserror.workspace = true

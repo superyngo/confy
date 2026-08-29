@@ -9,6 +9,10 @@ cargo clippy -- -D warnings   # lint (must be clean before commit)
 cargo fmt                     # format
 cargo fmt --check             # check formatting without modifying
 cargo run -- <file.toml>      # run against a TOML file
+cargo bench -p confy-core     # perf harness (no criterion; plain main() + medians)
+# Bigger synthetic document. `--bench perf` is required: without it the args
+# reach the lib test binary first, which rejects `--nodes`.
+cargo bench -p confy-core --bench perf -- --nodes 5000
 ```
 
 ## Architecture
@@ -517,9 +521,13 @@ picked from Android's "Open with" chooser through the same `openTauriPath`-style
 A plain `cargo build -p confy-tauri --release` must add `--features custom-protocol` (embeds
 `web/dist`; without it the exe loads devUrl → "localhost refused"); `cargo tauri build`/
 `cargo tauri android build` enable it automatically. Build a desktop bundle with `cargo tauri
-build` from `crates/confy-tauri` (the workspace `[profile.release]` is aggressive —
-`lto`+`codegen-units=1`+`opt-level z` — so the release bundle is slow; `--debug` is fast for
-local checks). macOS produces `.app`/`.dmg`; **Windows must be built on a Windows host** (the
+build` from `crates/confy-tauri` (the workspace `[profile.release]` uses
+`opt-level 3`+`lto`+`codegen-units=1` — optimized for **runtime speed**, so the build
+itself is slow; `--debug` is fast for local checks. Only the wasm leg wants a small
+artifact, so `web/cf-build.sh` overrides that one build with
+`CARGO_PROFILE_RELEASE_OPT_LEVEL=z`; dropping the override inflates the wasm by ~39%,
+and applying `z` everywhere used to cost ~2.2x native runtime).
+macOS produces `.app`/`.dmg`; **Windows must be built on a Windows host** (the
 webview is WebView2; no cross-build); Android needs the SDK/NDK + `cargo tauri android build
 --debug --apk` for a sideload-able debug APK (no keystore setup needed — debug builds auto-sign).
 Linux is not targeted yet, nor is iOS.

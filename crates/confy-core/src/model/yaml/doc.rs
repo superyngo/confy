@@ -7,11 +7,12 @@ use crate::model::yaml::syntax::SyntaxNode;
 pub struct YamlDocument {
     pub(crate) syntax: SyntaxNode,
     pub(crate) original: String,
-    /// True while `syntax` is byte-identical to `original` (fresh load or just
-    /// saved), so `is_dirty` can answer without serializing. Cleared on any
-    /// syntax change; a change back to `original` still falls through to the
-    /// exact text compare.
-    pub(crate) clean: bool,
+    /// True while `syntax` differs from `original`. Recomputed at each of the
+    /// four points that can change the text (`from_str`, `mark_saved`, `apply`,
+    /// `replace_from_str`), each of which already has the new serialization in
+    /// hand — so `is_dirty` is O(1) rather than re-serializing the whole
+    /// document per call. See `cst_doc.rs` for the full rationale.
+    pub(crate) dirty: bool,
     /// Display label for the projection root (host sets it from the source path).
     pub(crate) filename: String,
 }
@@ -26,7 +27,7 @@ impl ConfigDocument for YamlDocument {
     }
 
     fn is_dirty(&self) -> bool {
-        !self.clean && self.serialize() != self.original
+        self.dirty
     }
 
     fn serialize_fragment(&self, path: &[Seg]) -> String {
@@ -57,7 +58,7 @@ impl ConfigDocument for YamlDocument {
         let text = new.to_string();
         let green = crate::model::yaml::parse::parse(&text).map_err(MutateError::Fragment)?;
         self.syntax = SyntaxNode::new_root(green);
-        self.clean = false;
+        self.dirty = text != self.original;
         Ok(())
     }
 
@@ -151,7 +152,7 @@ impl YamlDocument {
         Ok(YamlDocument {
             syntax: SyntaxNode::new_root(green),
             original: text.to_string(),
-            clean: true,
+            dirty: false,
             filename: String::new(),
         })
     }
@@ -163,13 +164,13 @@ impl YamlDocument {
 
     pub fn mark_saved(&mut self) {
         self.original = self.serialize();
-        self.clean = true;
+        self.dirty = false;
     }
 
     pub fn replace_from_str(&mut self, s: &str) -> Result<(), MutateError> {
         let green = crate::model::yaml::parse::parse(s).map_err(MutateError::Fragment)?;
         self.syntax = SyntaxNode::new_root(green);
-        self.clean = false;
+        self.dirty = s != self.original;
         Ok(())
     }
 }

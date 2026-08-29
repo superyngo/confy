@@ -27,7 +27,17 @@ serde-wasm-bindgen = "0.6"
 confy-core = { path = "crates/confy-core" }
 
 [profile.release]
-opt-level = 'z'
+# Speed, not size. This profile is what the *native* artifacts are built with
+# (the `confy` TUI and the Tauri desktop app), where runtime performance is what
+# users feel and a few hundred KB of binary is irrelevant. `opt-level = 'z'`
+# used to apply here too, which cost native speed to shrink a binary nobody
+# downloads over a slow link.
+#
+# Only the wasm bundle genuinely wants a small artifact, so `web/cf-build.sh`
+# overrides this one setting via `CARGO_PROFILE_RELEASE_OPT_LEVEL=z` for the
+# wasm-pack leg — the same env-var override idiom `.github/workflows/release.yml`
+# already uses to relax this profile for the Windows builds.
+opt-level = 3
 lto = true
 codegen-units = 1
 strip = true

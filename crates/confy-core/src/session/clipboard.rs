@@ -25,12 +25,17 @@ impl Session {
         let mut paths = paths;
         paths.sort_by_key(|b| std::cmp::Reverse(b.len()));
         // Row index of the topmost deletion target — the cursor snaps back
-        // here below when its own path was among the deleted nodes.
+        // here below when its own path was among the deleted nodes. Without
+        // this, `compute_rows` sees an unresolvable cursor and falls back to
+        // `rows.first()`, throwing the cursor to the top of the document.
         let rows_before = self.visible_rows();
         let first_idx = paths
             .iter()
             .filter_map(|p| rows_before.iter().position(|r| &r.path == p))
             .min();
+        // A cursor *inside* a deleted subtree dies with it, so test by prefix
+        // rather than equality.
+        let cursor_deleted = paths.iter().any(|p| self.cursor.starts_with(p));
         let doc = match self.doc.as_mut() {
             Some(d) => d,
             None => return,
@@ -57,6 +62,15 @@ impl Session {
             .iter()
             .filter(|p| rows.iter().any(|r| r.path == **p))
             .collect();
+        // Snap the cursor back to where the deletion started. `first_idx` is a
+        // pre-delete row index, so clamp it to the shortened list; deleting the
+        // tail lands on the new last row, and deleting everything leaves the
+        // empty-document cursor `compute_rows` already set.
+        if cursor_deleted && !rows.is_empty() {
+            if let Some(i) = first_idx {
+                self.cursor = rows[i.min(rows.len() - 1)].path.clone();
+            }
+        }
         if alive.is_empty() {
             self.selection.clear();
             self.last_action_was_shift_select = false;

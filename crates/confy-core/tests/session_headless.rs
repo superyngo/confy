@@ -188,13 +188,22 @@ fn cursor_row_tracks_cursor_across_a_mutation() {
     s.cursor_down();
     s.cursor_down(); // cursor on 'c'
     assert_eq!(s.cursor_row().unwrap().key, "c");
-    s.delete_selected(); // deletes 'c' (empty selection targets the cursor)
-    assert!(
-        s.cursor_row().is_none(),
-        "cursor still points at the just-deleted path — no false positive"
-    );
-    s.compute_rows(); // hosts call this after every mutation to snap the cursor
+    let dead: Vec<Seg> = vec![Seg::Key("c".into())];
+    // deletes 'c' (empty selection targets the cursor)
+    s.delete_selected();
+    // `delete_selected` now snaps the cursor to the deletion point itself, so
+    // the cursor is live immediately rather than dangling until the host calls
+    // `compute_rows()`. 'c' was the last row, so the snap clamps to 'b'.
     let after = s.cursor_row().expect("cursor snapped to a visible row");
+    assert_eq!(after.key, "b", "cursor clamped to the new last row");
+    // The invariant this test exists for: a lookup of the just-deleted path
+    // must report absence rather than fabricating a stale row.
+    assert!(
+        s.view_row_at(&dead).is_none(),
+        "no false positive for the just-deleted path"
+    );
+    s.compute_rows(); // hosts still call this after every mutation
+    let after = s.cursor_row().expect("cursor still on a visible row");
     assert_ne!(after.key, "c", "deleted row is gone");
     // No staleness: matches a fresh full scan of the post-snap tree.
     let scanned = s.visible_rows().into_iter().find(|r| r.is_cursor).unwrap();
@@ -1668,17 +1677,62 @@ fn delete_selected_drops_stale_paths() {
     assert_eq!(s.serialize().unwrap(), "c = 3\nd = 4\n");
     // The dead selected paths are dropped (before the fix they stayed in the
     // selection and silently blocked every later operation until Esc).
+    // Assert on the selection itself, not `selected_paths()` — the latter
+    // falls back to the cursor row when the selection is empty.
     assert!(
-        s.selected_paths().is_empty(),
+        s.selection.is_empty(),
         "dead paths dropped: {:?}",
-        s.selected_paths()
+        s.selection.iter().collect::<Vec<_>>()
     );
-    // Host flow: snap the cursor (lands on the root row), navigate back onto
-    // content, and the next delete works normally.
+    // The cursor snapped back to the deletion point — 'c', the row that took
+    // the deleted rows' place — rather than the top of the document, so the
+    // next delete acts on content immediately with no re-navigation.
     s.compute_rows();
-    s.cursor_down();
     s.delete_selected();
     assert_eq!(s.serialize().unwrap(), "d = 4\n");
+}
+
+#[test]
+fn delete_selected_snaps_cursor_to_deletion_point() {
+    // Regression: `delete_selected` computed the topmost deleted row index but
+    // never used it, so `compute_rows`'s unresolvable-cursor fallback threw the
+    // cursor to row 0. Deleting deep in a large file sent the user to the top.
+    let mut s = toml_session("a = 1\nb = 2\nc = 3\nd = 4\ne = 5\n");
+    // Select 'c' and 'd' (rows 3 and 4; row 0 is the root).
+    for _ in 0..3 {
+        s.cursor_down();
+    }
+    s.toggle_select();
+    s.cursor_down();
+    s.toggle_select();
+    s.delete_selected();
+    assert_eq!(s.serialize().unwrap(), "a = 1\nb = 2\ne = 5\n");
+    // 'e' now occupies the deleted rows' position — not 'a', and not the root.
+    let rows = s.visible_rows();
+    let cursor = rows.iter().find(|r| r.is_cursor).expect("a cursor row");
+    assert_eq!(
+        cursor.key.as_str(),
+        "e",
+        "cursor snaps to the deletion point"
+    );
+}
+
+#[test]
+fn delete_selected_at_tail_clamps_cursor_to_last_row() {
+    // Deleting the final rows leaves `first_idx` past the end of the shortened
+    // list; it must clamp instead of panicking or falling back to row 0.
+    let mut s = toml_session("a = 1\nb = 2\nc = 3\n");
+    for _ in 0..2 {
+        s.cursor_down();
+    }
+    s.toggle_select();
+    s.cursor_down();
+    s.toggle_select();
+    s.delete_selected();
+    assert_eq!(s.serialize().unwrap(), "a = 1\n");
+    let rows = s.visible_rows();
+    let cursor = rows.iter().find(|r| r.is_cursor).expect("a cursor row");
+    assert_eq!(cursor.key.as_str(), "a", "clamped to the new last row");
 }
 
 #[test]

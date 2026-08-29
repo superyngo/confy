@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ## [Unreleased]
+### Unreleased Update — 2026-08-29T06:42:44Z
+- **perf: cut per-keystroke core cost ~14x and native runtime ~2.2x; add a
+  perf harness.** A read-only optimization audit found the interactive hot
+  path doing whole-document work per keystroke, and the size-optimized
+  release profile applying to native binaries. Measured on a 43 KB /
+  2801-node TOML document (`cargo bench -p confy-core`):
+  - `Session::visible_rows()` **6.32ms → 521µs**. `path_display` was built
+    by `human_path`, which calls `NodeTree::node_at` once per path segment
+    — a linear child scan each time, so O(depth² · siblings) *per row*, ~92%
+    of the function's cost. It is now built incrementally down the ancestor
+    chain (each row's display path is its parent's plus its own segment),
+    which is sound because `flatten` is pre-order so ancestors always precede
+    a row. The chain is built over the unfiltered flatten and the filter
+    applied after, so an active filter can't punch holes in it.
+    `to_view_row` now takes `path_display` as a parameter; `view_row_at`
+    (single-row, no chain) still uses `human_path`.
+  - `ConfigDocument::is_dirty()` **900µs → 0ns**. It re-serialized the entire
+    document and string-compared it on every call, and the `clean` fast-path
+    flag stopped covering the case that matters — it is cleared on the first
+    edit and only restored on save, so every keystroke of an editing session
+    paid a full serialization (it is read per-dispatch via `SessionSnapshot`).
+    All three backends now recompute a `dirty` flag at the four points that
+    change the text; `apply`/`replace_from_str` already had the new
+    serialization in hand, so the comparison is free. Edit-then-undo still
+    reads clean (compared against the baseline text, not a sticky flag).
+  - Native `[profile.release]` **`opt-level = 'z'` → `3`**, worth ~2.2x
+    runtime: `apply(Replace)` 16.67ms → 7.59ms, `project()` 8.08ms → 3.31ms,
+    `serialize()` 948µs → 482µs. Size-optimizing the TUI and desktop binaries
+    bought nothing users feel. The wasm bundle is the one artifact where size
+    wins, so `web/cf-build.sh` overrides just that leg with
+    `CARGO_PROFILE_RELEASE_OPT_LEVEL=z` (the same env-var idiom
+    `release.yml` already uses for the Windows builds). Verified: without the
+    override the wasm grows 2795 KB → 3876 KB.
+  - `web/build.mjs` now sets esbuild `minify: true`. esbuild does **not**
+    minify by default even in bundle mode, so `ui.js` was shipping as ~5200
+    lines of indented, commented source: 212 KB → 144 KB (brotli 41 → 33 KB),
+    `touch/app.js` 201 KB → 142 KB (brotli 37 → 31 KB).
+  - New `crates/confy-core/benches/perf.rs` (`[[bench]]`, `harness = false`,
+    **no new dependency** — a plain `main()` with median-of-N timing rather
+    than criterion, to keep the dependency graph tight). Covers parse,
+    project, serialize, `is_dirty`, `apply`, and `visible_rows`; takes
+    `-- --nodes N`. There was previously no benchmark or large-document
+    fixture anywhere in the workspace, so no optimization claim was checkable.
+- **fix(core): `delete_selected` snaps the cursor to the deletion point.**
+  It computed the topmost deleted row index into `first_idx` and then never
+  used it (the sole `cargo clippy` warning in the workspace, so
+  `clippy -D warnings` was failing its documented pre-commit gate), leaving
+  `compute_rows`'s unresolvable-cursor fallback to dump the cursor on row 0 —
+  deleting deep in a large file sent the user to the top. The cursor now lands
+  on the row that took the deleted rows' place, clamping to the last row when
+  the tail was deleted. **Supersedes the vanish-on-delete contract** recorded
+  in the `2026-08-29T00:21:42Z` entry: `cursor_row()` is now live immediately
+  after `delete_selected` instead of returning `None` until the host's
+  `compute_rows()`. Hosts calling `compute_rows()` are unaffected (it leaves
+  an already-valid cursor alone). `cursor_row_tracks_cursor_across_a_mutation`
+  keeps asserting the invariant it was written for — a dead path must not
+  yield a stale row — via `view_row_at(&deleted_path).is_none()`.
+
 ### Unreleased Update — 2026-08-29T04:19:44Z
 - **docs(core): consolidate multi-selection semantics into
   `ROW_STATE_MODEL.md` §1c as the SSOT.** New section records the
