@@ -16,7 +16,7 @@ the ones before it; a row can be in several at once.
 | # | Canonical name | 中文 | Core field | Who can enter it |
 |---|---|---|---|---|
 | 1 | Cursor | 提示定位 | `Session.cursor: Path` (`session.rs:23`) | TUI keyboard, desktop keyboard. Desktop mouse **hover** is a separate, core-invisible signal — see §1a. Touch has no equivalent. |
-| 2 | Focal row | 選取 | Derived: `selected_paths()`'s target for single-row mutating ops (`session.rs:1365`) | Always equals `cursor`, or the last/focal member of a non-empty `Selection` (`set_selection` keeps the clicked/typed path last). |
+| 2 | Focal row | 選取 | Derived: `selected_paths()`'s target for single-row mutating ops — edit value/key/comment (`session.rs:1365`) | Always equals `cursor`, or the last/focal member of a non-empty `Selection` (`set_selection` keeps the clicked/typed path last). Remark, delete, and copy/cut are **not** in this group — they consume the whole `Selection` (§1c). |
 | 3 | Locked selection | 鎖定選取 | `Session.selection: Selection` non-empty (`session.rs:25`, `selection/selection.rs:25-30`) | TUI: `s` (`ToggleSelect`) / Shift+↑↓ (`ExtendSelectUp/Down`). Desktop: Ctrl/Shift+click, marquee (`web/select.ts`). Touch: **none** — `selectOnly()` (`web/touch/app.ts:495-498`) only ever sets a 1-path selection. |
 | 4 | Clipboard-armed (cut/copy mode) | 剪下複製模式 | `Session.clipboard.is_some()` (`session.rs:33`, `state.rs:205-209`) | `c`/`x`/Copy/Cut on any surface. Freezes state #3 (four guards: `session.rs:1304-1305, 1316-1317, 1330-1331, 1348-1349`) — entering #4 does not require #3 to be non-empty first; a bare cursor with an empty `Selection` can still be copied/cut via the fallback in `selected_paths()`. |
 | 5 | Clipboard source | cut/copy source | `Session.clipboard.sources: Vec<Path>`, colored by `clipboard.cut: bool` (`state.rs:207-208`) | Only meaningful while #4 is active. |
@@ -35,6 +35,47 @@ A desktop plain click and a TUI/desktop multi-select gesture both write the same
 marker (§3) therefore applies uniformly starting at one member; there is no "N ≥ 2"
 threshold anywhere in this model. This is also why the plain-click case, not a
 dedicated flag, is what explains the ESC asymmetry in §4.
+
+### 1c. Multi-selection semantics — which ops consume it, and how it stays valid
+
+This is the single source of truth for how state #3 (Locked selection) interacts with
+mutating operations. The governing contract is `selected_paths()` (`session.rs`): an
+active `Selection` **outranks the cursor** for every selection-aware op; when empty, the
+op falls back to the cursor singleton. `normalize()` drops any selected path that is a
+descendant of another selected one (§6.2 of the selection module), so an op never
+processes both a container and its own child.
+
+Selection-aware ops, and what each leaves behind (the post-op guarantee):
+
+| Op | Reads | Post-op selection | Post-op cursor |
+|---|---|---|---|
+| Delete | `selected_paths()` | **Drops dead paths** — deleted paths are removed; co-selected paths that still resolve are kept. Positional paths shifted by a deleted sibling are dropped as unresolvable (under-select, never mis-select). | Keeps its existing vanish contract: if the cursor's own row was deleted, `cursor_row()` returns `None` until the host's `compute_rows()` snap. |
+| Copy / Cut | `selected_paths()` | Untouched — entering Clipboard-armed (state #4) froze it (§5/§1). | Unchanged. |
+| Remark (`r`) | `selected_paths()` (deepest-first order is irrelevant; **top-down row order** is what matters, see below) | **Remapped onto the remark's post-image** — see the three shapes below. With an empty `Selection`, the cursor fallback applies and `do_remark`'s own row re-anchor suffices. | Anchored to the topmost remapped row when a selection was active; `do_remark`'s index re-anchor otherwise. |
+| Rename | `remap_prefix` | **Remapped** — any selected path under the renamed prefix follows it (`selection.rs`). | Remapped at each rename call site, mirroring the selection. |
+| Paste / Move | — | **Cleared unconditionally** (§6d — a stale post-paste selection was the `e6f4965`/`27f1b50` bug). | Placed on the first pasted/moved node. |
+
+**Remark's three post-image shapes** (the invariant added by the multi-select remap):
+remarking a row can (a) swap its kind in place (Node ↔ Comment — row count unchanged, but
+the addressing changes Key ↔ positional), (b) merge it into an adjacent comment block
+(row count shrinks), or (c) split a selected block back into 1+d live rows when
+un-remarking (row count grows). `Session::remark` therefore anchors each selected path to
+its visible row index **before** the mutation and remaps **after**, producing:
+
+- in-place swap → the selection follows the swapped address;
+- merge → the selection collapses onto the merged block. Round trip works: select a,b →
+  remark → the merged block is selected → remark → both rows restored and selected;
+- split → the selection **expands** onto every restored row.
+
+Processing order is **top-down by row**: remarking an earlier row before a later one means
+each remark can only merge *upward* into a block above it, so an already-recorded
+post-image can never be invalidated by a later merge. (`normalize()` has already removed
+ancestor/descendant pairs, so depth order is irrelevant.) Regression tests:
+`remark_selection_remaps_to_merged_block_and_back`,
+`remark_selection_expands_when_unremarking_merged_block`,
+`remark_selection_json_remaps_through_collapse`,
+`remark_selection_remaps_scattered_rows`, `delete_selected_drops_stale_paths`
+(`crates/confy-core/tests/session_headless.rs`).
 
 ## 2. Escape ladder (unchanged — recorded, not redesigned)
 

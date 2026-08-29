@@ -228,7 +228,10 @@ three backends share only the CST shape, not an implementation.
 
 **Remark**:
 The toggle that turns a live Node into a **Comment** (and back). Canonical name for what the
-`r` key does.
+`r` key does. Selection-aware: with a Locked selection active it acts on the whole
+selection (adjacent rows merge into one comment block; un-remarking a selected block
+expands the selection onto every restored row — see `ROW_STATE_MODEL.md` §1c); otherwise
+it targets the cursor row.
 _Avoid_: Disable/enable, comment-out (use these only as verbs in prose, never as the concept
 name).
 
@@ -263,8 +266,10 @@ _Avoid_: focus, highlight (too generic — Cursor is one specific field).
 A non-empty `Session.selection: Selection`, built by `s`/Shift-range (TUI) or
 Ctrl/Shift-click/marquee (desktop); Touch has no equivalent gesture. Cross-platform —
 not TUI-only, despite desktop's version being reached by a different gesture. Applies
-uniformly from one member up; there is no multi-member threshold. Canonical,
-cross-platform vocabulary (ADR 0005).
+uniformly from one member up; there is no multi-member threshold. Selection-aware ops
+(delete, copy/cut, remark) consume it in place of the cursor; mutating operations
+remap it onto their post-image so it never goes stale — the op-by-op contract is
+`ROW_STATE_MODEL.md` §1c. Canonical, cross-platform vocabulary (ADR 0005).
 _Avoid_: multi-select (describes the gesture, not the resulting state).
 
 **Clipboard-armed**:

@@ -245,6 +245,15 @@ a follow-up in `ROW_STATE_MODEL.md`, not part of this ADR's implementation.
   per-phase checklist, now fully ticked. Auto-scroll-on-edge-drag (§6, out of
   scope) remains an unscheduled follow-up, not a gap in this ADR's own scope.
 
+**Later revision (2026-08-29, multi-selection remap):** the Decision §1 table and this
+document's framing of *remark* as a single-focal-row (state #2) op are superseded.
+Remark, like delete/copy/cut, now consumes the whole Locked selection (`selected_paths()`)
+and remaps it onto the remark's post-image: in-place kind swaps track the Key↔positional
+address change, adjacent-row merges collapse the selection onto the merged block, and
+un-remarking a selected block expands it onto every restored row; `delete_selected` drops
+paths that no longer resolve. The full op-by-op contract lives in
+`ROW_STATE_MODEL.md` §1c, the SSOT for multi-selection semantics.
+
 ## Considered options
 
 - **Leave the visual/keybinding scheme divergent per platform (status quo)** —

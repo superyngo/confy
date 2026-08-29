@@ -5,7 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+
 ## [Unreleased]
+### Unreleased Update — 2026-08-29T04:19:44Z
+- **docs(core): consolidate multi-selection semantics into
+  `ROW_STATE_MODEL.md` §1c as the SSOT.** New section records the
+  `selected_paths()` contract (selection outranks cursor;
+  `normalize()` drops descendants), the selection-aware op table
+  (delete dead-path drop / copy-cut freeze / remark post-image remap /
+  rename prefix remap / paste clear) and remark's three post-image
+  shapes with the top-down processing invariant and regression-test
+  pointers. Fixes drift from `44a0f8b`: ADR 0005 gains a
+  later-revision note superseding its single-focal-row framing of
+  remark; `ROW_STATE_MODEL.md` §1 state #2 and `CONTEXT.md`'s
+  Remark/Locked-selection glossary entries now describe the
+  selection-aware behavior.
+
 ### Unreleased Update — 2026-08-29T00:21:42Z
 ### Unreleased Update — 2026-08-29T04:19:44Z
 - **fix(core): multi-select now follows remark collapse/expansion;
