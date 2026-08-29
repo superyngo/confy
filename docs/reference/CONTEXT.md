@@ -475,8 +475,10 @@ document is untouched. A single-span (contiguous) edit keeps the old unchecked-s
 
 Per-variant behaviour of the closed `Mutation` set (the model layer's only document operations).
 Each variant is a rowan green-tree splice with newline/indent normalization; **every mutation is
-atomic** (edited on a `clone_for_update` copy, committed only on success, then
-`validate_semantics`-checked). KIND tags are the KIND-column vocabulary.
+atomic** (edited on a `clone_for_update` copy, committed only on success, then semantically
+validated). Validation's serialize + re-parse doubles as the normalization back to an immutable
+tree, so `apply` returns `(SyntaxNode, String)` and the caller commits both — one serialize and
+one parse per mutation, not two. KIND tags are the KIND-column vocabulary.
 
 | Variant | Behaviour |
 |---|---|

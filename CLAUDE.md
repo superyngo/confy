@@ -23,10 +23,14 @@ positions, so `serialize()` is plain token concatenation and an untouched file r
 byte-identically. The Node tree is a *projection* (`cst_project.rs`) rebuilt after every
 mutation — it is never mutated directly. `apply` edits a `clone_for_update` copy of the tree and
 commits only on success, so **every mutation is atomic** (failure leaves the document untouched).
-Every successful mutation is also **semantically validated before commit** (`validate_semantics`:
-taplo DOM validation — duplicate sections/keys reject as `Collision`, other semantic errors as
+Every successful mutation is also **semantically validated before commit** (taplo DOM
+validation — duplicate sections/keys reject as `Collision`, other semantic errors as
 `Illegal`), a backstop for edits the targeted pre-checks can't see (e.g. a whole-document or block
-`$EDITOR` rewrite introducing a duplicate `[a]`).
+`$EDITOR` rewrite introducing a duplicate `[a]`). Validation needs a serialize + re-parse, and
+that re-parse *is* the normalization turning the mutable `clone_for_update` tree back into an
+immutable one — so it is done **once**: `apply` returns `(SyntaxNode, String)` and the caller
+commits both rather than recomputing either. All three backends share this shape; doing the two
+jobs separately used to serialize and re-parse the whole document twice per keystroke.
 
 **JSON/JSONC backend.** `JsonDocument` (`model/json/`) is a second concrete `ConfigDocument`
 built on a hand-rolled lossless lexer + recursive-descent parser that emits a `rowan` green tree

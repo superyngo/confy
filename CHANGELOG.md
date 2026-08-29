@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ## [Unreleased]
+### Unreleased Update — 2026-08-29T07:37:33Z
+- **perf(core): make `project()` linear and drop one of the two
+  serialize+reparse cycles every mutation ran.** Follow-up to the
+  `06:42:44Z` audit entry, which left `apply` as the dominant cost and
+  flagged `project()` as unexpectedly superlinear. A scaling sweep confirmed
+  it: `project()` grew **3.1–3.5× per doubling** of document size (≈O(n^1.7)),
+  not 2×. Two independent causes, both now fixed. Measured with
+  `cargo bench -p confy-core --bench perf -- --nodes N`:
+
+  | | 200 sec | 400 sec | 800 sec | 1600 sec |
+  |---|---|---|---|---|
+  | `project()` before | 2.99ms | 8.38ms | 29.07ms | 90.62ms |
+  | `project()` after | 2.55ms | 4.97ms | 9.10ms | **19.97ms** |
+  | `apply(Replace)` before | 7.28ms | 18.05ms | 49.68ms | 143.63ms |
+  | `apply(Replace)` after | 5.65ms | 11.37ms | 25.43ms | **59.34ms** |
+
+  Per-doubling growth for `project()` is now 1.95 / 1.83 / 2.19 — linear.
+  - **The quadratic term was `cst_project::node_at_mut`'s descent.**
+    `append_child` calls it once per projected entry to find the enclosing
+    scope, and it scanned `root.children` — one child per section — linearly,
+    so the cost was O(sections² × entries) `Vec<Seg>` comparisons, each one
+    comparing `String` key segments. Two fixes, both licensed by the existing
+    "every child's path is its parent's path plus one segment" projection
+    invariant (already documented on `NodeTree::node_at` and relied on by
+    `visible_rows`): compare only the **last** segment rather than re-walking
+    the whole `path[..=i]` prefix the parent already matched, and scan children
+    from the **back**, since the walk fills the tree in source order and the
+    target scope is almost always the most recently appended child. Sibling
+    paths are unique, so scan direction cannot change which node is found.
+  - **Every mutation serialized and re-parsed the whole document twice.**
+    `validate_semantics` needed a serialize + re-parse for its duplicate-key
+    check, and the document's `apply` then needed a serialize + re-parse to
+    normalize the `clone_for_update` tree back to an immutable one — the same
+    work, back to back. The validation re-parse *already produces exactly the
+    normalized tree the caller wants*, so it is no longer thrown away:
+    `apply` now returns `(SyntaxNode, String)` and the caller commits both.
+    Applied to all three backends (`cst_edit`, `json::edit`, `yaml::edit`).
+    For TOML the DOM check and the normalized tree now share one parse via a
+    `Parse` clone (only a green-node refcount bump).
+  - The doc-level re-parse used to map failures to `MutateError::Fragment`,
+    but `validate_semantics` had already parsed the identical text and
+    returned `Illegal` on failure, so that arm was unreachable — no behavior
+    change. `yaml::edit::apply_str` and the JSON `apply_str` test helper get
+    simpler, returning the serialization `apply` now hands back instead of
+    re-serializing.
+
 ### Unreleased Update — 2026-08-29T06:42:44Z
 - **perf: cut per-keystroke core cost ~14x and native runtime ~2.2x; add a
   perf harness.** A read-only optimization audit found the interactive hot

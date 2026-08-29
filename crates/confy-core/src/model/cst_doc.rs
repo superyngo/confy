@@ -62,14 +62,13 @@ impl ConfigDocument for CstDocument {
     }
 
     fn apply(&mut self, m: Mutation) -> Result<(), MutateError> {
-        // Mutate a copy and commit only on success (free atomic rollback). The edit
-        // works on a `clone_for_update` (mutable) tree; normalize the result back to
-        // an immutable tree (re-parse is byte-identical) so the next `apply` can
-        // `clone_for_update` again.
-        let new = crate::model::cst_edit::apply(&self.syntax, m)?;
-        let text = new.to_string();
+        // Mutate a copy and commit only on success (free atomic rollback).
+        // `cst_edit::apply` returns the already-normalized immutable tree and its
+        // serialization, both produced by the single serialize + re-parse it needs
+        // for its DOM validation — so there is nothing left to recompute here.
+        let (syntax, text) = crate::model::cst_edit::apply(&self.syntax, m)?;
         self.dirty = text != self.original;
-        self.syntax = taplo::parser::parse(&text).into_syntax();
+        self.syntax = syntax;
         Ok(())
     }
 

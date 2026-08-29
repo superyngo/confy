@@ -43,9 +43,18 @@ use taplo::rowan::NodeOrToken;
 use taplo::syntax::{SyntaxKind, SyntaxNode};
 use tree_nav::node_at;
 
-/// Apply `m` to a copy of `syntax`, returning the new tree. The original is never
-/// mutated, so the caller commits only on `Ok`.
-pub(crate) fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<SyntaxNode, MutateError> {
+/// Apply `m` to a copy of `syntax`, returning the new **immutable** tree and its
+/// serialization. The original is never mutated, so the caller commits only on
+/// `Ok`.
+///
+/// The mutation runs on a `clone_for_update` (mutable) tree, which must be
+/// normalized back to an immutable tree so the next `apply` can
+/// `clone_for_update` again. That normalization is a serialize + re-parse — and
+/// `validate_semantics` needed exactly the same serialize + re-parse for its DOM
+/// check, so the two used to run back-to-back on every mutation, doing the whole
+/// job twice. They now share one serialize and one parse; the caller gets both
+/// results back rather than recomputing them.
+pub(crate) fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<(SyntaxNode, String), MutateError> {
     let tree = syntax.clone_for_update();
     let result = match m {
         Mutation::Replace {
@@ -113,8 +122,13 @@ pub(crate) fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<SyntaxNode, Muta
             set_trailing_comment(&tree, &path, comment.as_deref())?
         }
     };
-    validate_semantics(&result)?;
-    Ok(result)
+    // One serialize, one parse, used for both the DOM check and the normalized
+    // tree the caller commits. Cloning `Parse` only bumps the green node's
+    // refcount, so both consuming views are effectively free.
+    let text = result.to_string();
+    let parse = taplo::parser::parse(&text);
+    validate_dom(parse.clone().into_dom())?;
+    Ok((parse.into_syntax(), text))
 }
 
 /// Semantic backstop run on every successful mutation before commit: taplo's
@@ -125,8 +139,10 @@ pub(crate) fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<SyntaxNode, Muta
 /// `fruit.apple` mixed pattern). Catches duplicates the targeted pre-checks
 /// can't see — e.g. a whole-document or block `$EDITOR` rewrite that introduces
 /// a duplicate section.
-pub(crate) fn validate_semantics(tree: &SyntaxNode) -> Result<(), MutateError> {
-    let dom = taplo::parser::parse(&tree.to_string()).into_dom();
+///
+/// Takes an already-built DOM so the mutation path can share its single parse
+/// with the normalization re-parse (see `apply`).
+fn validate_dom(dom: taplo::dom::Node) -> Result<(), MutateError> {
     if let Err(errors) = dom.validate() {
         if let Some(e) = errors.into_iter().next() {
             return Err(match &e {

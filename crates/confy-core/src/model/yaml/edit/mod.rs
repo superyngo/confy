@@ -30,14 +30,19 @@ use resolve::is_opaque;
 /// Backstop after a splice: re-parse and reject duplicate mapping keys
 /// (Collision) or structural breakage (Illegal). Mirrors json/edit.rs's DOM
 /// check using YAML re-parse + walk-based duplicate-key detection.
-pub(crate) fn validate_semantics(tree: &SyntaxNode) -> Result<(), MutateError> {
+///
+/// Returns the re-parsed **immutable** tree and its serialization. The mutation
+/// runs on a `clone_for_update` tree that must be normalized back to an immutable
+/// one anyway, and this re-parse already produces exactly that — so the caller
+/// commits these instead of repeating the serialize + parse.
+pub(crate) fn validate_semantics(tree: &SyntaxNode) -> Result<(SyntaxNode, String), MutateError> {
     let text = tree.to_string();
     let green = crate::model::yaml::parse::parse(&text).map_err(MutateError::Illegal)?;
     let reparsed = SyntaxNode::new_root(green);
     // Re-walk and check for duplicate keys at every mapping level.
     let (node_tree, _idx) = walk(&reparsed, "");
     check_duplicate_keys(&node_tree.root.children)?;
-    Ok(())
+    Ok((reparsed, text))
 }
 
 /// Recursively check for duplicate key names among siblings at each level.
@@ -78,7 +83,10 @@ pub(crate) fn mutation_paths(m: &Mutation) -> Vec<&Vec<Seg>> {
     }
 }
 
-pub fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<SyntaxNode, MutateError> {
+/// Apply `m` to a copy of `syntax`, returning the new **immutable** tree and its
+/// serialization — both produced by the single serialize + re-parse that
+/// `validate_semantics` needs anyway, so the caller repeats neither.
+pub fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<(SyntaxNode, String), MutateError> {
     // One projection walk shared by the opaque pre-check and every variant's
     // initial (pre-mutation) resolve. Built on the clone so `Target`s point into
     // the tree the splices mutate. Post-splice lookups still re-resolve — the
@@ -122,8 +130,7 @@ pub fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<SyntaxNode, MutateError
             set_trailing_comment(&tree, &idx, &path, comment.as_deref())?
         }
     }
-    validate_semantics(&tree)?;
-    Ok(tree)
+    validate_semantics(&tree)
 }
 
 // ── Test helpers (pub(crate) so later chunk tests can import them) ────────────
@@ -143,7 +150,7 @@ pub(crate) fn apply_str(
     m: crate::model::document::Mutation,
 ) -> Result<String, crate::model::document::MutateError> {
     let t = parse_syntax(src);
-    apply(&t, m).map(|tree| tree.to_string())
+    apply(&t, m).map(|(_, text)| text)
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -178,7 +185,7 @@ mod tests {
             },
         )
         .unwrap()
-        .to_string();
+        .1;
         assert_eq!(
             out,
             "# 1\nempty_string: \"\"\nmultiline_literal: \"x\"\n# section\ndecimal: 42\n"
@@ -198,7 +205,7 @@ mod tests {
             },
         )
         .unwrap()
-        .to_string();
+        .1;
         assert_eq!(out, "k: 1\n");
     }
 

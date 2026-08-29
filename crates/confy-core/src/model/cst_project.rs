@@ -294,18 +294,37 @@ fn widen_end(node: &mut Node, end: usize) {
     }
 }
 
+/// Descend to `path`. Two properties of the projection make this cheap, and
+/// both matter: at 1600 sections the naive form was ~60% of `project()`.
+///
+/// 1. Every child's path is its parent's path plus exactly one segment (a
+///    projection invariant), so only the **last** segment can differ — the
+///    leading `i` segments were already matched by the parent. Comparing the
+///    full `path[..=i]` prefix re-walked them on every child visited.
+/// 2. The walk fills the tree in source order, so the scope being descended
+///    into is almost always the most recently appended child. Scanning from
+///    the back makes the common case O(1) instead of O(children). Sibling
+///    paths are unique, so the direction cannot change *which* node is found.
+fn child_at(cur: &Node, seg: &Seg, depth: usize) -> Option<usize> {
+    cur.children
+        .iter()
+        .rposition(|c| c.path.len() == depth + 1 && &c.path[depth] == seg)
+}
+
 fn node_at<'a>(root: &'a Node, path: &[Seg]) -> Option<&'a Node> {
     let mut cur = root;
-    for i in 0..path.len() {
-        cur = cur.children.iter().find(|c| c.path == path[..=i])?;
+    for (i, seg) in path.iter().enumerate() {
+        let at = child_at(cur, seg, i)?;
+        cur = &cur.children[at];
     }
     Some(cur)
 }
 
 fn node_at_mut<'a>(root: &'a mut Node, path: &[Seg]) -> Option<&'a mut Node> {
     let mut cur = root;
-    for i in 0..path.len() {
-        cur = cur.children.iter_mut().find(|c| c.path == path[..=i])?;
+    for (i, seg) in path.iter().enumerate() {
+        let at = child_at(cur, seg, i)?;
+        cur = &mut cur.children[at];
     }
     Some(cur)
 }

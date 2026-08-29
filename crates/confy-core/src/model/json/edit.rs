@@ -80,7 +80,12 @@ fn comment_block_text(first: &SyntaxToken) -> String {
 
 /// Backstop after a splice: re-parse and reject duplicate object keys (Collision)
 /// or structural breakage (Illegal). Mirrors cst_edit's DOM check.
-fn validate_semantics(tree: &SyntaxNode) -> Result<(), MutateError> {
+///
+/// Returns the re-parsed **immutable** tree and its serialization. The mutation
+/// runs on a `clone_for_update` tree that must be normalized back to an immutable
+/// one anyway, and this re-parse already produces exactly that — so the caller
+/// commits these instead of repeating the serialize + parse.
+fn validate_semantics(tree: &SyntaxNode) -> Result<(SyntaxNode, String), MutateError> {
     let text = tree.to_string();
     let green = crate::model::json::parse::parse(&text).map_err(MutateError::Illegal)?;
     let reparsed = SyntaxNode::new_root(green);
@@ -98,7 +103,7 @@ fn validate_semantics(tree: &SyntaxNode) -> Result<(), MutateError> {
             }
         }
     }
-    Ok(())
+    Ok((reparsed, text))
 }
 
 // ── Per-variant stubs (filled in by later tasks) ────────────────────────────
@@ -1550,7 +1555,10 @@ fn find_float_token(tree: &SyntaxNode, path: &[Seg]) -> Result<SyntaxToken, Muta
 
 // ── Atomic dispatcher ────────────────────────────────────────────────────────
 
-pub fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<SyntaxNode, MutateError> {
+/// Apply `m` to a copy of `syntax`, returning the new **immutable** tree and its
+/// serialization — both produced by the single serialize + re-parse that
+/// `validate_semantics` needs anyway, so the caller repeats neither.
+pub fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<(SyntaxNode, String), MutateError> {
     let tree = syntax.clone_for_update();
     match m {
         Mutation::Replace { path, fragment } => replace(&tree, &path, &fragment)?,
@@ -1581,8 +1589,7 @@ pub fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<SyntaxNode, MutateError
             set_trailing_comment(&tree, &path, comment.as_deref())?
         }
     }
-    validate_semantics(&tree)?;
-    Ok(tree)
+    validate_semantics(&tree)
 }
 
 /// `Mutation::SetTrailingComment` — set/change/clear the EOL `//` comment of the
@@ -1679,7 +1686,7 @@ mod tests {
 
     fn apply_str(src: &str, m: Mutation) -> String {
         let t = parse(src);
-        super::apply(&t, m).unwrap().to_string()
+        super::apply(&t, m).unwrap().1
     }
 
     #[test]
