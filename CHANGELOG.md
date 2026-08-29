@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Unreleased Update — 2026-08-29T00:21:42Z
+### Unreleased Update — 2026-08-29T04:19:44Z
+- **fix(core): multi-select now follows remark collapse/expansion;
+  delete no longer leaves a dead selection.** Remarking adjacent selected
+  rows merges them into one comment block, and un-remarking a selected block
+  splits it back into several rows — but the selection kept the stale
+  pre-mutation paths, so every later operation (remark/copy/paste) silently
+  hit NotFound until Esc. `Session::remark` now remaps the selection onto
+  each remark's post-image, processed top-down so merges only ever fold
+  upward: in-place kind swaps (Key↔Index) track the swapped address, an
+  adjacent-row merge remaps onto the merged block (select a,b → remark →
+  block selected → remark → both restored), and un-remarking a selected
+  block expands the selection onto all restored rows. `delete_selected`
+  drops selected paths that no longer resolve (co-selected live paths are
+  kept). The cursor keeps its existing vanish-on-delete contract
+  (`cursor_row()` returns None until the host's `compute_rows()` snap).
+
 ### Unreleased Update — 2026-08-29T01:25:49Z
 - **fix(core): remark now acts on the active multi-select.** `Session::remark`
   only ever targeted the cursor row, unlike `delete_selected`/copy/cut which

@@ -24,6 +24,13 @@ impl Session {
         }
         let mut paths = paths;
         paths.sort_by_key(|b| std::cmp::Reverse(b.len()));
+        // Row index of the topmost deletion target — the cursor snaps back
+        // here below when its own path was among the deleted nodes.
+        let rows_before = self.visible_rows();
+        let first_idx = paths
+            .iter()
+            .filter_map(|p| rows_before.iter().position(|r| &r.path == p))
+            .min();
         let doc = match self.doc.as_mut() {
             Some(d) => d,
             None => return,
@@ -39,6 +46,23 @@ impl Session {
             }
         }
         self.on_mutation_success(None);
+        // Drop selected paths that no longer resolve — deleted nodes must not
+        // leave a dead selection that silently blocks the next operation
+        // (copy/remark/paste all read `selected_paths()`). Co-selected paths
+        // that still resolve are kept; positional paths below a deleted
+        // sibling may shift index and are dropped as unresolvable.
+        let rows = self.visible_rows();
+        let alive: Vec<Path> = self
+            .selection
+            .iter()
+            .filter(|p| rows.iter().any(|r| r.path == **p))
+            .collect();
+        if alive.is_empty() {
+            self.selection.clear();
+            self.last_action_was_shift_select = false;
+        } else {
+            self.selection.set_all(alive);
+        }
     }
 
     pub fn copy_selected(&mut self) {
@@ -466,12 +490,75 @@ impl Session {
             return;
         }
         // Same contract as `delete_selected`: an active multi-select wins
-        // over the cursor. Deepest-first so remarking a container does not
-        // re-address (key<->positional) a still-pending descendant.
-        let mut paths = paths;
-        paths.sort_by_key(|b| std::cmp::Reverse(b.len()));
-        for p in &paths {
+        // over the cursor. Process in top-down row order: each remark can
+        // then only merge into a block ABOVE it (never invalidate an already
+        // recorded post-image below), and `normalize()` has already removed
+        // any ancestor/descendant pairs, so depth order is irrelevant.
+        let had_selection = !self.selection.is_empty();
+        let rows = self.visible_rows();
+        let mut targets: Vec<Path> = paths
+            .into_iter()
+            .filter(|p| rows.iter().any(|r| &r.path == p))
+            .collect();
+        targets.sort_by_key(|p| rows.iter().position(|r| &r.path == p));
+        let mut remapped: Vec<(usize, Path)> = Vec::new();
+        for p in &targets {
+            let rows = self.visible_rows();
+            let Some(idx) = rows.iter().position(|r| r.path == *p) else {
+                continue; // already-stale selected path: drop it, self-heal
+            };
+            let is_branch = rows[idx].is_branch;
+            // A comment row: the projected tree node's kind is Comment (the
+            // row's `value` carries the comment text, so it can't be used).
+            let above_is_comment = idx > 0
+                && self
+                    .tree
+                    .node_at(&rows[idx - 1].path)
+                    .is_some_and(|n| matches!(n.kind, NodeKind::Comment(_)));
+            let n_before = rows.len();
             self.do_remark(p.clone());
+            if !had_selection {
+                continue; // plain cursor remark: do_remark's re-anchor suffices
+            }
+            // Remap the selection onto the remark's post-image so it survives
+            // the three shapes a remark can take: in-place kind swap
+            // (Key<->Index, row count unchanged), merge of adjacent comment
+            // rows into one block (count shrinks — an adjacent block absorbs
+            // the row), and un-remark splitting a block back into 1+d live
+            // rows (count grows).
+            let rows = self.visible_rows();
+            let delta = rows.len() as isize - n_before as isize;
+            let clamp = |i: usize| i.min(rows.len().saturating_sub(1));
+            if delta > 0 {
+                for (off, r) in rows.iter().skip(idx).take(1 + delta as usize).enumerate() {
+                    remapped.push((idx + off, r.path.clone()));
+                }
+            } else if delta < 0 && !is_branch && above_is_comment {
+                // leaf merged into the comment block right above it
+                let i = clamp(idx.saturating_sub(1));
+                remapped.push((i, rows[i].path.clone()));
+            } else if let Some(r) = rows.get(clamp(idx)) {
+                // in-place swap, container collapse, or merge-down
+                remapped.push((clamp(idx), r.path.clone()));
+            }
+        }
+        if remapped.is_empty() {
+            if !self.selection.is_empty() {
+                // nothing survived remapping — a dead selection must not
+                // silently block the next operation
+                self.selection.clear();
+                self.last_action_was_shift_select = false;
+            }
+            return;
+        }
+        remapped.sort_by_key(|(i, _)| *i);
+        remapped.dedup_by(|a, b| a.0 == b.0);
+        let paths: Vec<Path> = remapped.into_iter().map(|(_, p)| p).collect();
+        self.selection.set_all(paths.iter().cloned());
+        // Anchor the cursor on the topmost remapped row (mirrors paste
+        // anchoring the cursor on the first pasted node).
+        if let Some(r) = self.visible_rows().iter().find(|r| r.path == paths[0]) {
+            self.cursor = r.path.clone();
         }
     }
 

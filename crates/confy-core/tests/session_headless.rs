@@ -1563,6 +1563,125 @@ fn remark_selection_json_remarks_both_members() {
 }
 
 #[test]
+fn remark_selection_remaps_to_merged_block_and_back() {
+    // Adjacent selected rows collapse into ONE merged comment block; the
+    // selection must remap onto that block (not keep the stale Key paths,
+    // which silently no-op every later operation).
+    let mut s = toml_session("a = 1\nb = 2\nc = 3\n");
+    s.cursor_down();
+    s.toggle_select();
+    s.cursor_down();
+    s.toggle_select();
+    s.remark();
+    assert_eq!(
+        s.selected_paths(),
+        vec![vec![Seg::Index(0)]],
+        "selection should follow the merged block: {:?}",
+        s.selected_paths()
+    );
+    // The block is selected, so remarking again restores BOTH entries.
+    s.remark();
+    assert_eq!(s.serialize().unwrap(), "a = 1\nb = 2\nc = 3\n");
+}
+
+#[test]
+fn remark_selection_expands_when_unremarking_merged_block() {
+    // Reverse direction: un-remarking a selected merged block splits it back
+    // into N live rows; the selection must expand onto all of them.
+    let mut s = toml_session("# a = 1\n# b = 2\nc = 3\n");
+    s.cursor_down(); // first content row = the merged comment block
+    s.toggle_select();
+    s.remark();
+    let sel = s.selected_paths();
+    assert_eq!(sel.len(), 2, "selection expands to restored rows: {sel:?}");
+    assert!(
+        sel.contains(&vec![Seg::Key("a".into())]),
+        "a selected: {sel:?}"
+    );
+    assert!(
+        sel.contains(&vec![Seg::Key("b".into())]),
+        "b selected: {sel:?}"
+    );
+    // Round trip: remarking the expanded selection re-merges both.
+    s.remark();
+    assert_eq!(s.serialize().unwrap(), "# a = 1\n# b = 2\nc = 3\n");
+    assert_eq!(s.selected_paths(), vec![vec![Seg::Index(0)]]);
+}
+
+#[test]
+fn remark_selection_tracks_scattered_rows() {
+    // Non-adjacent selection: each remark is an in-place kind swap
+    // (Key<->Index); the selection must follow the swapped addresses so a
+    // second remark still resolves (un-comments both).
+    let mut s = toml_session("a = 1\nb = 2\nc = 3\n");
+    s.cursor_down();
+    s.toggle_select(); // a
+    s.cursor_down();
+    s.cursor_down();
+    s.toggle_select(); // c
+    s.remark();
+    let out = s.serialize().unwrap();
+    assert!(
+        out.contains("# a = 1") && out.contains("# c = 3") && out.contains("b = 2"),
+        "{out:?}"
+    );
+    s.remark();
+    assert_eq!(s.serialize().unwrap(), "a = 1\nb = 2\nc = 3\n");
+}
+
+#[test]
+fn remark_selection_json_remaps_through_collapse() {
+    let doc = AnyDocument::from_str_as(
+        "{\n  \"a\": 1,\n  \"b\": 2,\n  \"c\": 3\n}\n",
+        DocFormat::Json,
+    )
+    .unwrap();
+    let mut s = Session::new(doc);
+    s.dispatch(Intent::SetCursor(vec![Seg::Key("a".into())]));
+    s.toggle_select();
+    s.dispatch(Intent::SetCursor(vec![Seg::Key("b".into())]));
+    s.toggle_select();
+    s.remark();
+    assert_eq!(
+        s.selected_paths(),
+        vec![vec![Seg::Index(0)]],
+        "json selection follows merged block: {:?}",
+        s.selected_paths()
+    );
+    s.remark();
+    let out = s.serialize().unwrap();
+    assert!(out.contains("\"a\": 1"), "a restored: {out:?}");
+    assert!(out.contains("\"b\": 2"), "b restored: {out:?}");
+}
+
+#[test]
+fn delete_selected_drops_stale_paths() {
+    // After deleting the selected rows the selection must not keep their
+    // (now dead) paths — a dead selection silently blocks the next
+    // operation until Esc clears it.
+    let mut s = toml_session("a = 1\nb = 2\nc = 3\nd = 4\n");
+    s.cursor_down();
+    s.toggle_select();
+    s.cursor_down();
+    s.toggle_select();
+    s.delete_selected();
+    assert_eq!(s.serialize().unwrap(), "c = 3\nd = 4\n");
+    // The dead selected paths are dropped (before the fix they stayed in the
+    // selection and silently blocked every later operation until Esc).
+    assert!(
+        s.selected_paths().is_empty(),
+        "dead paths dropped: {:?}",
+        s.selected_paths()
+    );
+    // Host flow: snap the cursor (lands on the root row), navigate back onto
+    // content, and the next delete works normally.
+    s.compute_rows();
+    s.cursor_down();
+    s.delete_selected();
+    assert_eq!(s.serialize().unwrap(), "d = 4\n");
+}
+
+#[test]
 fn add_comment_sibling_never_blocked_on_clean_json() {
     // A pure `.json` with no comments at load: remark the first node into a
     // comment (unconditionally legal, per the test above), then add a
