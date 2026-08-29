@@ -2,7 +2,7 @@
 //! the table/section/member-span machinery they share — split out of
 //! `cst_edit.rs` (Task 15, 2026-08-11 audit remediation).
 
-use super::aot_group::{aot_entry_end, aot_group_span, idx_target_is_aot};
+use super::aot_group::{aot_entry_end_from, aot_group_span, idx_target_is_aot};
 use super::convert::struct_node;
 use super::dotted_table::{
     dotted_ancestor_prefix_len, dotted_member_entries, inline_ancestor_len, inline_member_entries,
@@ -111,7 +111,7 @@ pub(crate) fn table_member_spans(
     let sec_ranges: Vec<(usize, usize)> = spans
         .iter()
         .map(|s| match s {
-            MemberSpan::Section(h) => (h.index(), section_end_strict(tree, h.index())),
+            MemberSpan::Section(h) => (h.index(), section_end_strict_from(h)),
             MemberSpan::Entry(_) => unreachable!(),
         })
         .collect();
@@ -129,7 +129,7 @@ pub(crate) fn table_member_spans(
 /// the next header of any kind).
 pub(crate) fn section_span_text(tree: &SyntaxNode, header: &SyntaxNode) -> String {
     let i = header.index();
-    let end = section_end_strict(tree, i);
+    let end = section_end_strict_from(header);
     let els: Vec<_> = tree.children_with_tokens().collect();
     els[i..end]
         .iter()
@@ -347,7 +347,7 @@ pub(crate) fn replace_table_spans(
             MemberSpan::Entry(e) => detach_entry_line(e),
             MemberSpan::Section(h) if *h != anchor => {
                 let i = h.index();
-                let end = section_end_strict(tree, i);
+                let end = section_end_strict_from(h);
                 tree.splice_children(i..end, vec![]);
             }
             MemberSpan::Section(_) => {}
@@ -358,7 +358,7 @@ pub(crate) fn replace_table_spans(
         e.detach();
     }
     let i = anchor.index();
-    let end = section_end_strict(tree, i);
+    let end = section_end_strict_from(&anchor);
     tree.splice_children(i..end, els);
     Ok(())
 }
@@ -420,9 +420,9 @@ pub(crate) fn replace_value(
         }
         let i = header.index();
         let end = if header.kind() == SyntaxKind::TABLE_ARRAY_HEADER {
-            section_end_strict(tree, i)
+            section_end_strict_from(header)
         } else {
-            section_end(tree, path, i)
+            section_end_from(header, path)
         };
         tree.splice_children(i..end, els);
         return Ok(None);
@@ -617,7 +617,7 @@ pub(crate) fn delete(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError>
                     MemberSpan::Entry(e) => detach_entry_line(e),
                     MemberSpan::Section(h) => {
                         let i = h.index();
-                        let end = section_end_strict(tree, i);
+                        let end = section_end_strict_from(h);
                         tree.splice_children(i..end, vec![]);
                     }
                 }
@@ -699,7 +699,7 @@ pub(crate) fn delete(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError>
         // Delete a whole `[table]` section (header + entries + nested sub-tables).
         Target::Header(header) => {
             let i = header.index();
-            let end = section_end(tree, path, i);
+            let end = section_end_from(&header, path);
             tree.splice_children(i..end, vec![]);
             Ok(())
         }
@@ -708,7 +708,7 @@ pub(crate) fn delete(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError>
         // a foreign header.
         Target::AotEntry(header) => {
             let i = header.index();
-            let end = aot_entry_end(tree, &header_path(&header), i);
+            let end = aot_entry_end_from(&header, &header_path(&header));
             tree.splice_children(i..end, vec![]);
             Ok(())
         }
@@ -730,6 +730,58 @@ pub(crate) fn section_end_strict(tree: &SyntaxNode, header_idx: usize) -> usize 
         }
     }
     els.len()
+}
+
+/// [`section_end_strict`] starting from the header **node**.
+///
+/// The index-based form collects *every* ROOT child into a `Vec` — building a
+/// rowan cursor for each — just to scan forward from one header. That made a
+/// single-section Move O(document) per member: profiling a 400-section Move put
+/// 38% of the whole mutation in this one function. Walking `next_sibling_or_token`
+/// from the header instead visits only the elements between it and the next
+/// header. Same scan, same predicate, same result — it just starts where the
+/// answer is. `SyntaxNode::index()` is O(1) (stored in the cursor).
+///
+/// `header` must be a direct child of the tree the caller splices, which is the
+/// assumption the index-based form already made (it used `header.index()` as an
+/// index into the tree's own child list).
+pub(crate) fn section_end_strict_from(header: &SyntaxNode) -> usize {
+    let mut k = header.index() + 1;
+    let mut sib = header.next_sibling_or_token();
+    while let Some(el) = sib {
+        if let NodeOrToken::Node(n) = &el {
+            if matches!(
+                n.kind(),
+                SyntaxKind::TABLE_HEADER | SyntaxKind::TABLE_ARRAY_HEADER
+            ) {
+                return k;
+            }
+        }
+        k += 1;
+        sib = el.next_sibling_or_token();
+    }
+    k
+}
+
+/// [`section_end`] starting from the header **node** — see
+/// [`section_end_strict_from`] for why the index-based form is slow.
+pub(crate) fn section_end_from(header: &SyntaxNode, t_path: &[Seg]) -> usize {
+    let mut k = header.index() + 1;
+    let mut sib = header.next_sibling_or_token();
+    while let Some(el) = sib {
+        if let NodeOrToken::Node(n) = &el {
+            if matches!(
+                n.kind(),
+                SyntaxKind::TABLE_HEADER | SyntaxKind::TABLE_ARRAY_HEADER
+            ) && !header_path(n).starts_with(t_path)
+            {
+                return k;
+            }
+        }
+        k += 1;
+        sib = el.next_sibling_or_token();
+    }
+    k
 }
 
 /// The end (exclusive ROOT-child index) of the `[table]` section that starts at
@@ -1098,9 +1150,9 @@ pub(crate) fn remark(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError>
             let strict = idx_target_is_aot(&header);
             let i = header.index();
             let end = if strict {
-                section_end_strict(tree, i)
+                section_end_strict_from(&header)
             } else {
-                section_end(tree, path, i)
+                section_end_from(&header, path)
             };
             comment_out_section(tree, i, end)
         }
@@ -1125,7 +1177,7 @@ fn remark_table_spans(tree: &SyntaxNode, spans: &[MemberSpan]) -> Result<(), Mut
             }
             MemberSpan::Section(header) => {
                 let i = header.index();
-                let end = section_end_strict(tree, i);
+                let end = section_end_strict_from(header);
                 comment_out_section(tree, i, end)?;
             }
         }

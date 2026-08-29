@@ -16,7 +16,7 @@
 use std::time::{Duration, Instant};
 
 use confy_core::model::any_doc::AnyDocument;
-use confy_core::model::document::{ConfigDocument, DocFormat, Mutation};
+use confy_core::model::document::{ConfigDocument, DocFormat, Mutation, OnCollision, Target};
 use confy_core::model::node::Seg;
 use confy_core::session::session::Session;
 
@@ -134,6 +134,28 @@ fn main() {
         })
         .expect("rename must succeed");
     });
+    // A multi-source Move is the one gesture that re-projects per source
+    // (`move_paste.rs` walks once up front, then once per fragment, because an
+    // inserted dotted member can merge into one projected child and a cached
+    // index would drift). Measured to see whether those N+1 walks are worth
+    // the incremental-index complexity they would cost to remove.
+    for srcs in [1usize, 4, 8] {
+        let sources: Vec<Vec<Seg>> = (0..srcs)
+            .map(|i| vec![Seg::Key(format!("svc_{i}"))])
+            .collect();
+        bench(&format!("apply(Move {srcs} source(s))"), 10, || {
+            let mut d = AnyDocument::from_str_as(&src, DocFormat::Toml).unwrap();
+            d.apply(Mutation::Move {
+                sources: sources.clone(),
+                target: Target {
+                    parent: vec![],
+                    index: sections - 1,
+                },
+                on_collision: OnCollision::Cancel,
+            })
+            .expect("move must succeed");
+        });
+    }
 
     // ---- session view projection (audit A4/B2/B3) --------------------------
     println!("\nsession view:");

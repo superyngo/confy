@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ## [Unreleased]
+### Unreleased Update — 2026-08-29T08:11:21Z
+- **perf(core): stop rescanning the whole document per section span; benchmark
+  Move and locate the remaining bottleneck.** Adding a multi-source `Move`
+  case to the perf harness exposed a gesture far slower than anything the
+  audit had predicted: on a 400-section / 87 KB document a **single-section
+  Move took 636ms**, and an 8-source Move 5.07s. Profiling (macOS `sample`
+  against a release build with symbols) put 38% of it in one function.
+  - `section_end_strict` / `section_end` / `aot_entry_end` each did
+    `tree.children_with_tokens().collect()` — materializing a rowan cursor for
+    **every** top-level element in the document — only to scan forward from one
+    header. `table_member_spans` calls that once per member, so a
+    single-section delete was O(document × members). Added
+    `section_end_strict_from` / `section_end_from` / `aot_entry_end_from`,
+    which walk `next_sibling_or_token` from the header node and so visit only
+    the elements between it and the next header. Same scan, same predicate,
+    same result — it just starts where the answer is. Migrated the 11 call
+    sites that already hold the header node (delete, remark, replace-spans,
+    section-span-text, AoT entry body); the index-only callers in
+    `aot_group.rs` keep the original form. `Move 1` **636ms → 419ms**,
+    `Move 8` **5.07s → 3.29s**.
+  - **The remaining cost is architectural, and now measured.** `apply` walks
+    the `clone_for_update` (mutable) tree, and rowan's mutable cursors are
+    far more expensive than immutable ones: instrumenting `walk` showed
+    **47.5ms per walk on the mutable tree vs 3.9ms on the immutable one — 12x**
+    — so the 4 walks a single Move performs account for ~190ms of it, and
+    `NodeData::new` is 93% of the whole mutation. The walks cannot simply be
+    hoisted: the `CstIndex` they build holds `SyntaxNode`s that must point into
+    the tree being spliced. Making Move fast needs a design change (resolve
+    paths to child indices on the immutable tree, then navigate the mutable
+    tree positionally), not another local fix — recorded here rather than
+    attempted, since it touches the most correctness-critical code in the
+    crate. Per-keystroke paths are unaffected: `Replace`/`Rename` are ~11ms
+    and `visible_rows()` ~1ms at this size.
+  - The harness gains `apply(Move N source(s))` for N = 1/4/8 so the above is
+    falsifiable and regressions are visible.
+
 ### Unreleased Update — 2026-08-29T07:37:33Z
 - **perf(core): make `project()` linear and drop one of the two
   serialize+reparse cycles every mutation ran.** Follow-up to the

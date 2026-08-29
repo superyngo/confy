@@ -148,26 +148,30 @@ pub(crate) fn remove_entry_line(frag: &SyntaxNode, entry: &SyntaxNode) {
 }
 
 /// End (exclusive ROOT-child index) of the **full extent** of the `[[…]]` entry
-/// at `header_idx`: its own strict section plus any following sub-sections under
-/// the group path (`[fruit.physical]` after `[[fruit]]` belongs to that entry),
-/// stopping at the group's next `[[…]]` entry or a foreign header.
-pub(crate) fn aot_entry_end(tree: &SyntaxNode, group_path: &[Seg], header_idx: usize) -> usize {
-    let els: Vec<_> = tree.children_with_tokens().collect();
-    for (k, el) in els.iter().enumerate().skip(header_idx + 1) {
-        if let NodeOrToken::Node(n) = el {
-            if !matches!(
+/// starting at the header **node**: its own strict section plus any following
+/// sub-sections under the group path (`[fruit.physical]` after `[[fruit]]`
+/// belongs to that entry), stopping at the group's next `[[…]]` entry or a
+/// foreign header. Walks forward from the header rather than collecting every
+/// ROOT child first — see `replace_delete::section_end_strict_from` for why.
+pub(crate) fn aot_entry_end_from(header: &SyntaxNode, group_path: &[Seg]) -> usize {
+    let mut k = header.index() + 1;
+    let mut sib = header.next_sibling_or_token();
+    while let Some(el) = sib {
+        if let NodeOrToken::Node(n) = &el {
+            if matches!(
                 n.kind(),
                 SyntaxKind::TABLE_HEADER | SyntaxKind::TABLE_ARRAY_HEADER
             ) {
-                continue;
-            }
-            let p = header_path(n);
-            if p == group_path || !p.starts_with(group_path) {
-                return k;
+                let p = header_path(n);
+                if p == group_path || !p.starts_with(group_path) {
+                    return k;
+                }
             }
         }
+        k += 1;
+        sib = el.next_sibling_or_token();
     }
-    els.len()
+    k
 }
 
 /// One member event within a `[[…]]` entry's body span: a nested `[table]`
@@ -189,7 +193,7 @@ fn walk_aot_entry_body(
 ) -> Result<Vec<EntryEvent>, MutateError> {
     let group_path = header_path(header);
     let i = header.index();
-    let end = aot_entry_end(tree, &group_path, i);
+    let end = aot_entry_end_from(header, &group_path);
     let els: Vec<_> = tree.children_with_tokens().collect();
     let mut events = Vec::new();
     for el in &els[i + 1..end] {
