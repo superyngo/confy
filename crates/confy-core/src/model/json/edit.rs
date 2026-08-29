@@ -971,49 +971,82 @@ fn rename(tree: &SyntaxNode, path: &[Seg], new_key: &str) -> Result<(), MutateEr
         _ => return Err(MutateError::Illegal("rename requires a member".into())),
     };
 
-    // Sibling collision check: find parent container and check other members' keys.
-    let parent = member.parent().expect("member has parent");
-    for sib in parent.children().filter(|n| n.kind() == SyntaxKind::MEMBER) {
-        if sib == member {
-            continue;
-        }
-        if let Some(key_node) = sib.children().find(|n| n.kind() == SyntaxKind::KEY) {
-            if key_name_of(&key_node) == new_key {
-                return Err(MutateError::Collision(new_key.to_string()));
-            }
-        }
-    }
-
     // Locate the KEY node inside the member, then find its STRING token.
     let key_node = member
         .children()
         .find(|n| n.kind() == SyntaxKind::KEY)
         .ok_or(MutateError::NotFound)?;
-
-    // Find the STRING token's index among KEY's children_with_tokens.
     let children: Vec<_> = key_node.children_with_tokens().collect();
     let str_idx = children
         .iter()
         .position(|c| matches!(c, rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::STRING))
         .ok_or(MutateError::NotFound)?;
 
+    // Build the probe key literal the same way TOML/YAML treat rename input:
+    // as syntax that may already be quoted, not raw text to wrap blindly. An
+    // already-quoted new_key (e.g. round-tripped from `Node::key_literal`) is
+    // used as-is; a bare (unquoted) new_key is escaped and wrapped.
+    let key_literal = if new_key.len() >= 2 && new_key.starts_with('"') && new_key.ends_with('"') {
+        new_key.to_string()
+    } else {
+        format!("\"{}\"", json_escape(new_key))
+    };
+
     // Build a new STRING token by parsing a minimal object and extracting its KEY's STRING.
-    let probe = format!("{{\"{new_key}\": 0}}");
+    let probe = format!("{{{key_literal}: 0}}");
     let new_green = crate::model::json::parse::parse(&probe).map_err(MutateError::Fragment)?;
     let new_root = SyntaxNode::new_root(new_green).clone_for_update();
-    let new_str_tok = new_root
+    let new_key_node = new_root
         .descendants()
         .find(|n| n.kind() == SyntaxKind::KEY)
-        .and_then(|kn| {
-            kn.children_with_tokens().find_map(|c| match c {
-                rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::STRING => Some(t),
-                _ => None,
-            })
+        .ok_or_else(|| MutateError::Fragment("new key does not parse as a member".into()))?;
+    let decoded_new_key = key_name_of(&new_key_node);
+
+    // Sibling collision check: compare decoded-to-decoded (matches YAML's
+    // `entry_key_name(&sib) == decoded_new_key` pattern), not raw new_key
+    // against decoded siblings.
+    let parent = member.parent().expect("member has parent");
+    for sib in parent.children().filter(|n| n.kind() == SyntaxKind::MEMBER) {
+        if sib == member {
+            continue;
+        }
+        if let Some(sib_key_node) = sib.children().find(|n| n.kind() == SyntaxKind::KEY) {
+            if key_name_of(&sib_key_node) == decoded_new_key {
+                return Err(MutateError::Collision(decoded_new_key));
+            }
+        }
+    }
+
+    let new_str_tok = new_key_node
+        .children_with_tokens()
+        .find_map(|c| match c {
+            rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::STRING => Some(t),
+            _ => None,
         })
         .ok_or(MutateError::NotFound)?;
 
     key_node.splice_children(str_idx..str_idx + 1, vec![new_str_tok.into()]);
     Ok(())
+}
+
+/// Escape the characters that would break a JSON string literal if `s` is
+/// interpolated verbatim between quotes. Minimal on purpose (matches
+/// `key_name_of`'s own minimal quote-stripping, not full JSON unescaping):
+/// only the characters that can corrupt or prematurely terminate the probe
+/// string are escaped.
+fn json_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            _ => out.push(c),
+        }
+    }
+    out
 }
 
 fn remark(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
@@ -2335,6 +2368,39 @@ mod tests {
         let v: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
         assert_eq!(v, serde_json::json!({ "a": 1 }));
         assert!(!out.contains("just a comment"));
+    }
+
+    #[test]
+    fn rename_with_internal_quote_roundtrips() {
+        let out = apply_str(
+            "{ \"a\": 1 }\n",
+            Mutation::Rename {
+                path: vec![Seg::Key("a".into())],
+                new_key: "foo\"bar".into(),
+            },
+        );
+        let v: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
+        assert!(
+            v.get("foo\"bar").is_some(),
+            "expected decoded key foo\"bar in {v:?}"
+        );
+    }
+
+    #[test]
+    fn rename_collision_compares_decoded_keys() {
+        // new_key arrives pre-quoted (e.g. round-tripped from Node::key_literal);
+        // its DECODED form ("b") collides with the existing sibling "b" even
+        // though the raw strings "b" and "\"b\"" differ — this is exactly the
+        // raw-vs-decoded mismatch the fix addresses.
+        let t = parse("{ \"a\": 1, \"b\": 2 }\n");
+        let r = super::apply(
+            &t,
+            Mutation::Rename {
+                path: vec![Seg::Key("a".into())],
+                new_key: "\"b\"".into(),
+            },
+        );
+        assert!(matches!(r, Err(MutateError::Collision(_))));
     }
 
     #[test]

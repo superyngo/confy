@@ -10,6 +10,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.23.0] - 2026-08-29
 
+### Unreleased Update — 2026-08-29T23:56:26Z
+- **fix(core/json): `Rename` no longer corrupts a key containing a quote or
+  backslash, and its collision check now compares decoded keys.** `rename`
+  built its probe fragment by blindly interpolating the raw `new_key` between
+  quotes (`format!("{{\"{new_key}\": 0}}")`), so a `new_key` that already
+  carried a `"` produced malformed/double-quoted JSON; the sibling-collision
+  check also compared the raw `new_key` against decoded sibling names instead
+  of decoded-to-decoded. `rename` now escapes/wraps a bare `new_key` (or uses
+  an already-quoted one as-is), parses the probe first, decodes the new key
+  via the existing `key_name_of` helper, and only then runs the collision
+  check against other decoded sibling keys — matching TOML/YAML's existing
+  behavior.
+
 ### Unreleased Update — 2026-08-29T23:55:43Z
 - **fix(core/json): `Insert` on an empty or comment-only `.json` document no
   longer fails with `NotFound`.** JSON's `find_container` had nothing to walk
