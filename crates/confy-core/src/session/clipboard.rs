@@ -40,17 +40,21 @@ impl Session {
             Some(d) => d,
             None => return,
         };
+        let mut text = String::new();
         for p in &paths {
-            if let Err(e) = doc.apply(Mutation::Delete { path: p.clone() }) {
-                self.set_notice(Notice::core(
-                    self.lang,
-                    "core.delete.error",
-                    &[&e.to_string()],
-                ));
-                return;
+            match doc.apply(Mutation::Delete { path: p.clone() }) {
+                Ok(t) => text = t,
+                Err(e) => {
+                    self.set_notice(Notice::core(
+                        self.lang,
+                        "core.delete.error",
+                        &[&e.to_string()],
+                    ));
+                    return;
+                }
             }
         }
-        self.on_mutation_success(None);
+        self.on_mutation_success(None, text);
         // Drop selected paths that no longer resolve — deleted nodes must not
         // leave a dead selection that silently blocks the next operation
         // (copy/remark/paste all read `selected_paths()`). Co-selected paths
@@ -289,6 +293,7 @@ impl Session {
                 }
             }
         }
+        let mut text = self.doc.as_ref().map(|d| d.serialize()).unwrap_or_default();
         // ---- NODE PHASE ----
         if is_cut {
             let node_sources: Vec<Path> = node_entries.iter().map(|(_, s)| s.clone()).collect();
@@ -299,7 +304,7 @@ impl Session {
                     target: target.clone(),
                     on_collision,
                 }) {
-                    Ok(()) => {}
+                    Ok(t) => text = t,
                     Err(MutateError::Collision(key)) => {
                         self.clipboard = Some(rebuild(is_cut, &node_entries, &comment_entries));
                         self.mode = Mode::Prompt(PromptKind::Collision { key });
@@ -359,20 +364,20 @@ impl Session {
                         .as_deref()
                         .and_then(crate::model::node::array_element_suggested_key),
                 }) {
-                    Ok(()) => {}
+                    Ok(t) => text = t,
                     Err(MutateError::Collision(key)) => {
                         // Earlier entries in this loop may have already mutated
                         // `self.doc` — re-project `self.tree` before returning so it
                         // doesn't go stale relative to the real document (the same
                         // reason the comment phase below already does this).
-                        self.on_mutation_success(None);
+                        self.on_mutation_success(None, text);
                         self.clipboard =
                             Some(rebuild(is_cut, &node_entries[i..], &comment_entries));
                         self.mode = Mode::Prompt(PromptKind::Collision { key });
                         return;
                     }
                     Err(e) => {
-                        self.on_mutation_success(None);
+                        self.on_mutation_success(None, text);
                         self.clipboard =
                             Some(rebuild(is_cut, &node_entries[i..], &comment_entries));
                         self.set_notice(Notice::core(
@@ -419,9 +424,30 @@ impl Session {
             };
             if is_cut {
                 let doc = self.doc.as_mut().unwrap();
-                if let Err(e) = doc.apply(Mutation::Delete { path: src.clone() }) {
-                    self.on_mutation_success(None);
-                    self.clipboard = Some(rebuild(is_cut, &[], &comment_entries[..=oi]));
+                match doc.apply(Mutation::Delete { path: src.clone() }) {
+                    Ok(t) => text = t,
+                    Err(e) => {
+                        self.on_mutation_success(None, text);
+                        self.clipboard = Some(rebuild(is_cut, &[], &comment_entries[..=oi]));
+                        self.set_notice(Notice::core(
+                            self.lang,
+                            "core.paste.error",
+                            &[&e.to_string()],
+                        ));
+                        return;
+                    }
+                }
+            }
+            let doc = self.doc.as_mut().unwrap();
+            match doc.apply(Mutation::InsertComment {
+                target: ctarget.clone(),
+                text: frag.clone(),
+            }) {
+                Ok(t) => text = t,
+                Err(e) => {
+                    let end = if is_cut { oi } else { oi + 1 };
+                    self.on_mutation_success(None, text);
+                    self.clipboard = Some(rebuild(is_cut, &[], &comment_entries[..end]));
                     self.set_notice(Notice::core(
                         self.lang,
                         "core.paste.error",
@@ -430,23 +456,8 @@ impl Session {
                     return;
                 }
             }
-            let doc = self.doc.as_mut().unwrap();
-            if let Err(e) = doc.apply(Mutation::InsertComment {
-                target: ctarget.clone(),
-                text: frag.clone(),
-            }) {
-                let end = if is_cut { oi } else { oi + 1 };
-                self.on_mutation_success(None);
-                self.clipboard = Some(rebuild(is_cut, &[], &comment_entries[..end]));
-                self.set_notice(Notice::core(
-                    self.lang,
-                    "core.paste.error",
-                    &[&e.to_string()],
-                ));
-                return;
-            }
         }
-        self.on_mutation_success(None);
+        self.on_mutation_success(None, text);
         // Drop the source selection and clear any leftover selection, then move
         // the cursor onto the first freshly-pasted/moved node so it's clearly
         // visible -- expanding every collapsed ancestor of the destination, not
@@ -590,8 +601,8 @@ impl Session {
             None => return,
         };
         match doc.apply(Mutation::Remark { path }) {
-            Ok(()) => {
-                self.on_mutation_success(None);
+            Ok(text) => {
+                self.on_mutation_success(None, text);
                 if let Some(row) = row_index.and_then(|i| self.visible_rows().get(i).cloned()) {
                     self.cursor = row.path;
                 }

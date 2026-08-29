@@ -5,7 +5,7 @@ pub trait ConfigDocument: Sized {
     fn project(&self) -> NodeTree;
     fn serialize(&self) -> String;
     fn is_dirty(&self) -> bool;
-    fn apply(&mut self, m: Mutation) -> Result<(), MutateError>;
+    fn apply(&mut self, m: Mutation) -> Result<String, MutateError>;
 
     /// Serialize the node at `path` as a standalone fragment (for the clipboard and
     /// `$EDITOR`), starting at the node's own header/value line — an adjacent

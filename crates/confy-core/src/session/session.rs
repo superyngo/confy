@@ -1115,8 +1115,8 @@ impl Session {
             path: st.path,
             target,
         }) {
-            Ok(()) => {
-                self.on_mutation_success(None);
+            Ok(text) => {
+                self.on_mutation_success(None, text);
                 self.set_notice(Notice::core(
                     self.lang,
                     "core.kind-switch.converted",
@@ -1149,8 +1149,8 @@ impl Session {
             return;
         };
         match doc.apply(Mutation::ConvertKind { path, target }) {
-            Ok(()) => {
-                self.on_mutation_success(None);
+            Ok(text) => {
+                self.on_mutation_success(None, text);
                 self.set_notice(Notice::core(
                     self.lang,
                     "core.kind-switch.converted-generic",
@@ -1863,9 +1863,9 @@ impl Session {
     /// finding). `None` for multi-path operations (paste, delete-selected,
     /// structural inserts) — always revalidates, identical to pre-Task-14
     /// behavior. See `schema::dirty_check` for the skip condition itself.
-    pub(crate) fn on_mutation_success(&mut self, touched: Option<&Path>) {
+    pub(crate) fn on_mutation_success(&mut self, touched: Option<&Path>, text: String) {
         if let Some(doc) = self.doc.as_ref() {
-            let snapshot = doc.serialize();
+            let snapshot = text;
             let tree = doc.project();
             if let Some(h) = self.history.as_mut() {
                 h.push(snapshot);

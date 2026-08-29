@@ -61,7 +61,7 @@ impl ConfigDocument for CstDocument {
         crate::model::cst_edit::serialize_fragment_relative(&self.syntax, path)
     }
 
-    fn apply(&mut self, m: Mutation) -> Result<(), MutateError> {
+    fn apply(&mut self, m: Mutation) -> Result<String, MutateError> {
         // Mutate a copy and commit only on success (free atomic rollback).
         // `cst_edit::apply` returns the already-normalized immutable tree and its
         // serialization, both produced by the single serialize + re-parse it needs
@@ -69,7 +69,7 @@ impl ConfigDocument for CstDocument {
         let (syntax, text) = crate::model::cst_edit::apply(&self.syntax, m)?;
         self.dirty = text != self.original;
         self.syntax = syntax;
-        Ok(())
+        Ok(text)
     }
 
     fn format(&self) -> DocFormat {

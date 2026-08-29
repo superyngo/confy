@@ -351,10 +351,10 @@ impl Session {
                     path: e.path.clone(),
                     text,
                 }),
-                None => Ok(()),
+                None => Ok(String::new()),
             };
             match ok {
-                Ok(()) => self.on_mutation_success(None),
+                Ok(text) => self.on_mutation_success(None, text),
                 Err(MutateError::Fragment(msg)) => {
                     self.set_notice(Notice::core(self.lang, "core.comment.invalid", &[&msg]));
                     self.mode = Mode::Edit(e);
@@ -458,11 +458,11 @@ impl Session {
                         path: e.path.clone(),
                         new_key: new_name.clone(),
                     }),
-                    None => Ok(()),
+                    None => Ok(String::new()),
                 };
                 match res {
-                    Ok(()) => {
-                        self.on_mutation_success(None);
+                    Ok(text) => {
+                        self.on_mutation_success(None, text);
                         // The document now holds `new_name` verbatim, but a
                         // projected path is built from DECODED keys -- so the
                         // cursor/selection must be re-anchored on the decoded
@@ -572,15 +572,18 @@ impl Session {
             }),
             None => return,
         };
-        if let Err(err) = res {
-            self.set_notice(Notice::core(
-                self.lang,
-                "core.rename.failed",
-                &[&err.to_string()],
-            ));
-            return;
-        }
-        self.on_mutation_success(None);
+        let text = match res {
+            Ok(t) => t,
+            Err(err) => {
+                self.set_notice(Notice::core(
+                    self.lang,
+                    "core.rename.failed",
+                    &[&err.to_string()],
+                ));
+                return;
+            }
+        };
+        self.on_mutation_success(None, text);
         // The re-written fragment needs the LEAF's literal spelling. A
         // single-segment rename is its own leaf (exact even when the key is
         // quoted around a dot); only a dotted TOML rename has to be split.
@@ -634,20 +637,23 @@ impl Session {
             path: path.clone(),
             fragment: edited,
         }) {
-            Ok(()) => {
+            Ok(mut text) => {
                 if let Some(comment) = trailing {
-                    if let Err(e) = doc.apply(Mutation::SetTrailingComment {
+                    match doc.apply(Mutation::SetTrailingComment {
                         path: path.clone(),
                         comment,
                     }) {
-                        self.set_notice(Notice::core(
-                            self.lang,
-                            "core.trailing.update-failed",
-                            &[&e.to_string()],
-                        ));
+                        Ok(t2) => text = t2,
+                        Err(e) => {
+                            self.set_notice(Notice::core(
+                                self.lang,
+                                "core.trailing.update-failed",
+                                &[&e.to_string()],
+                            ));
+                        }
                     }
                 }
-                self.on_mutation_success(Some(&path));
+                self.on_mutation_success(Some(&path), text);
                 self.note_schema_violation(&path);
             }
             Err(MutateError::Fragment(msg)) => {
@@ -690,7 +696,7 @@ impl Session {
             }
         });
         match doc.apply(Mutation::SetTrailingComment { path, comment }) {
-            Ok(()) => self.on_mutation_success(None),
+            Ok(text) => self.on_mutation_success(None, text),
             Err(e) => {
                 self.set_notice(Notice::core(
                     self.lang,
@@ -707,7 +713,7 @@ impl Session {
             None => return,
         };
         match doc.apply(Mutation::EditComment { path, text }) {
-            Ok(()) => self.on_mutation_success(None),
+            Ok(text) => self.on_mutation_success(None, text),
             Err(MutateError::Fragment(msg)) => {
                 self.set_notice(Notice::core(self.lang, "core.comment.invalid", &[&msg]));
             }
@@ -1005,7 +1011,7 @@ impl Session {
             target: target.clone(),
             text,
         }) {
-            Ok(()) => self.on_mutation_success(None),
+            Ok(text) => self.on_mutation_success(None, text),
             Err(e) => {
                 self.set_notice(Notice::core(self.lang, "core.add.error", &[&e.to_string()]));
                 return;
@@ -1045,8 +1051,8 @@ impl Session {
             // exactly the pre-feature behavior.
             suggested_key: None,
         }) {
-            Ok(()) => {
-                self.on_mutation_success(None);
+            Ok(text) => {
+                self.on_mutation_success(None, text);
                 true
             }
             Err(MutateError::Collision(key)) => {

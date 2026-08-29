@@ -74,7 +74,7 @@ impl ConfigDocument for AnyDocument {
     fn is_dirty(&self) -> bool {
         delegate!(self, d => d.is_dirty())
     }
-    fn apply(&mut self, m: Mutation) -> Result<(), MutateError> {
+    fn apply(&mut self, m: Mutation) -> Result<String, MutateError> {
         delegate!(self, d => d.apply(m))
     }
     fn serialize_fragment(&self, path: &[Seg]) -> String {

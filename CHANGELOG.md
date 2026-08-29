@@ -10,6 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.23.0] - 2026-08-29
 
+### Unreleased Update — 2026-08-29T14:35:23Z
+- **perf(core): drop the redundant full-document serialize on every
+  mutation's undo snapshot.** `ConfigDocument::apply` already computes the
+  post-mutation serialized text internally (for its own DOM
+  validation/reparse) and threw it away; `Session::on_mutation_success` then
+  called `doc.serialize()` again to build the undo-history snapshot — a
+  second full-tree-to-string pass on every keystroke that commits a
+  mutation. `apply` now returns that text (`Result<String, MutateError>`
+  instead of `Result<(), MutateError>`), and `on_mutation_success` takes it
+  as a parameter instead of recomputing it. No behavior change: `cargo test
+  --workspace` and `cargo clippy --workspace -- -D warnings` both green.
+
 ### Unreleased Update — 2026-08-29T14:34:50Z
 - **perf(core/toml): `Move`/`Insert` no longer re-walk the tree twice per
   fragment.** `move_nodes`'s per-fragment reinsertion loop, and `insert`'s own

@@ -51,7 +51,7 @@ impl ConfigDocument for YamlDocument {
         self.serialize_fragment(path)
     }
 
-    fn apply(&mut self, m: Mutation) -> Result<(), MutateError> {
+    fn apply(&mut self, m: Mutation) -> Result<String, MutateError> {
         // `edit::apply` returns the already-normalized immutable tree and its
         // serialization (or an error, leaving `self` untouched), both produced by
         // the single serialize + re-parse it needs for its duplicate-key check —
@@ -59,7 +59,7 @@ impl ConfigDocument for YamlDocument {
         let (syntax, text) = crate::model::yaml::edit::apply(&self.syntax, m)?;
         self.dirty = text != self.original;
         self.syntax = syntax;
-        Ok(())
+        Ok(text)
     }
 
     fn format(&self) -> DocFormat {
