@@ -610,9 +610,20 @@ impl App {
             None => return,
         };
         if let Some(node) = self.session.tree.node_at(&cursor_row.path) {
-            if let NodeKind::Comment(text) = &node.kind {
+            if let NodeKind::Comment(_) = &node.kind {
                 if self.session.no_array_ancestor(&cursor_row.path) {
-                    let initial = format!("{text}\n");
+                    // $EDITOR initial = the CST fragment (raw block text with
+                    // per-line indent), NOT the DOM projection text: the
+                    // projection's comment merge drops each line's leading
+                    // INDENT, which flattened a nested remarked block on open.
+                    let fragment = match self.session.doc.as_ref() {
+                        Some(d) => d.serialize_fragment(&cursor_row.path),
+                        None => return,
+                    };
+                    if fragment.is_empty() {
+                        return;
+                    }
+                    let initial = format!("{fragment}\n");
                     let edited = match crate::tui::editor::edit_text(&initial) {
                         Ok(t) => t,
                         Err(e) => {
@@ -625,6 +636,11 @@ impl App {
                             return;
                         }
                     };
+                    // Unmodified buffer = quit without saving: cancel instead
+                    // of splicing the text back (which would dirty the doc).
+                    if edited == initial {
+                        return;
+                    }
                     self.apply_edit_comment(cursor_row.path.clone(), edited);
                     return;
                 }
@@ -1590,6 +1606,38 @@ mod tests {
                     .unwrap_or(false)
             })
             .unwrap()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn edit_node_comment_unmodified_editor_is_a_noop() {
+        // The exact reported scenario: open a nested remarked block in $EDITOR
+        // and quit WITHOUT saving. The editor hands back the untouched buffer,
+        // which must be treated as cancel — not spliced back into the
+        // document (that splice used to flatten the nested indentation).
+        let src = "t:\n  # subscribers:\n    # error:\n      # - w@x.com\n";
+        let mut app = app_with_yaml(src);
+        app.expand_all();
+        app.rebuild_rows();
+        let ci = comment_row(&app);
+        app.session.cursor = app.rows[ci].path.clone();
+        let script = tempfile::Builder::new().suffix(".sh").tempfile().unwrap();
+        std::fs::write(script.path(), "#!/bin/sh\nexit 0\n").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(script.path(), std::fs::Permissions::from_mode(0o755))
+            .unwrap();
+        std::env::set_var("EDITOR", script.path());
+        app.edit_node();
+        assert!(
+            app.session.notice.is_none(),
+            "no-op exit must not error: {:?}",
+            app.session.notice
+        );
+        assert_eq!(
+            app.session.doc.as_ref().unwrap().serialize(),
+            src,
+            "quit-without-save must leave the document byte-exact"
+        );
     }
 
     #[test]

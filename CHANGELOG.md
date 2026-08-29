@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Unreleased Update — 2026-08-29T00:00:00Z
+- **fix(tui/core/yaml): `$EDITOR` on a comment node keeps nested indentation;
+  quit-without-save no longer mutates the document.** Follow-up to the
+  un-remark indentation fix: the external-editor *initial text* for a comment
+  node came from the DOM projection, whose comment merge drops each line's
+  leading INDENT — so opening a nested remarked block from the (collapsed)
+  comment row showed every line flattened, and exiting the editor handed that
+  flattened buffer back, which was spliced in even though nothing was saved.
+  Both the TUI `edit_node` comment branch and the core `external_edit_view`
+  handshake now source the initial from the document's CST
+  `serialize_fragment` (per-line indent preserved), and an unmodified buffer
+  is treated as cancel (no splice, no dirty flag).
+
+### Unreleased Update — 2026-08-29T00:00:00Z
 - **fix(core/yaml): un-remark preserves nested indentation.** Remarking a
   nested block entry (e.g. a `subscribers:` subtree) and un-remarking it
   flattened every line to the comment block's first-line indent, turning

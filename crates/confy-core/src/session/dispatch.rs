@@ -535,10 +535,19 @@ impl super::Session {
     fn external_edit_view(&self) -> Option<ExternalEdit> {
         let pe = self.pending_external_edit.as_ref()?;
         if pe.is_comment {
-            let initial = match self.tree.node_at(&pe.path).map(|n| &n.kind) {
-                Some(NodeKind::Comment(t)) => format!("{t}\n"),
-                _ => String::new(),
-            };
+            // The initial must come from the document's CST fragment, not the
+            // DOM projection: the projection's comment merge drops each line's
+            // leading INDENT, which flattened a nested remarked block on open —
+            // and spliced that flattening back in when the host returned the
+            // untouched buffer (`serialize_fragment` keeps per-line indent).
+            let mut initial = self
+                .doc
+                .as_ref()
+                .map(|d| d.serialize_fragment(&pe.path))
+                .unwrap_or_default();
+            if !initial.is_empty() {
+                initial.push('\n');
+            }
             Some(ExternalEdit {
                 initial,
                 kind: ExternalEditKind::Comment {

@@ -782,6 +782,36 @@ fn dispatch_multiline_edit_signals_external_edit_then_applies() {
 }
 
 #[test]
+fn external_edit_comment_initial_keeps_nested_indent() {
+    // The $EDITOR initial for a nested remarked block must be the CST
+    // fragment (per-line indent kept). The DOM projection text flattens
+    // every line, and an unmodified apply-back used to splice that
+    // flattening into the document (quit-without-save corruption).
+    let src = "t:\n  # subscribers:\n    # error:\n      # - w@x.com\n";
+    let doc = AnyDocument::from_str_as(src, DocFormat::Yaml).unwrap();
+    let mut s = Session::new(doc);
+    let cpath = vec![Seg::Key("t".into()), Seg::Index(0)];
+    s.dispatch(Intent::RevealPath(cpath.clone()));
+    let snap = s.dispatch(Intent::BeginEditExternal);
+    let ext = snap.external_edit.expect("comment routes external");
+    assert_eq!(
+        ext.initial, "  # subscribers:\n    # error:\n      # - w@x.com\n",
+        "initial must keep per-line indent: {ext:?}"
+    );
+    // Quitting without saving hands the untouched buffer back; that must
+    // not mutate the document.
+    s.dispatch(Intent::ApplyEditComment {
+        path: cpath,
+        text: ext.initial,
+    });
+    assert_eq!(
+        s.serialize().unwrap(),
+        src,
+        "unmodified apply-back must be a byte-exact no-op"
+    );
+}
+
+#[test]
 fn dispatch_escape_cancels_pending_external_edit() {
     // The host's multi-line editor Cancel sends Escape; it must discard the
     // pending external edit so the snapshot stops requesting the modal (else the
