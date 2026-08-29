@@ -420,6 +420,92 @@ mod tests {
     }
 
     #[test]
+    fn remark_two_entries_merge_then_uncomment_restores_both() {
+        // Remarking consecutive entries merges their `#` lines into ONE
+        // Comment node; un-remarking that node must restore BOTH entries.
+        let out = apply_str(
+            "a: 1\nb: 2\nc: 3\n",
+            Mutation::Remark {
+                path: vec![Seg::Key("b".into())],
+            },
+        )
+        .unwrap();
+        assert_eq!(out, "a: 1\n# b: 2\nc: 3\n");
+        let out = apply_str(
+            &out,
+            Mutation::Remark {
+                path: vec![Seg::Key("c".into())],
+            },
+        )
+        .unwrap();
+        assert_eq!(out, "a: 1\n# b: 2\n# c: 3\n");
+        let back = apply_str(
+            &out,
+            Mutation::Remark {
+                path: vec![Seg::Index(1)],
+            },
+        )
+        .expect("merged comment block should un-comment");
+        assert_eq!(back, "a: 1\nb: 2\nc: 3\n");
+    }
+
+    #[test]
+    fn remark_nested_pair_merge_then_uncomment_restores_both() {
+        let out = apply_str(
+            "srv:\n  host: a\n  port: 1\n",
+            Mutation::Remark {
+                path: vec![Seg::Key("srv".into()), Seg::Key("host".into())],
+            },
+        )
+        .unwrap();
+        assert_eq!(out, "srv:\n  # host: a\n  port: 1\n");
+        let out = apply_str(
+            &out,
+            Mutation::Remark {
+                path: vec![Seg::Key("srv".into()), Seg::Key("port".into())],
+            },
+        )
+        .unwrap();
+        assert_eq!(out, "srv:\n  # host: a\n  # port: 1\n");
+        let back = apply_str(
+            &out,
+            Mutation::Remark {
+                path: vec![Seg::Key("srv".into()), Seg::Index(0)],
+            },
+        )
+        .expect("merged nested comment block should un-comment");
+        assert_eq!(back, "srv:\n  host: a\n  port: 1\n");
+    }
+
+    #[test]
+    fn remark_seq_pair_merge_then_uncomment_restores_both() {
+        let out = apply_str(
+            "- a\n- b\n- c\n",
+            Mutation::Remark {
+                path: vec![Seg::Index(0)],
+            },
+        )
+        .unwrap();
+        assert_eq!(out, "# - a\n- b\n- c\n");
+        let out = apply_str(
+            &out,
+            Mutation::Remark {
+                path: vec![Seg::Index(1)],
+            },
+        )
+        .unwrap();
+        assert_eq!(out, "# - a\n# - b\n- c\n");
+        let back = apply_str(
+            &out,
+            Mutation::Remark {
+                path: vec![Seg::Index(0)],
+            },
+        )
+        .expect("merged seq comment block should un-comment");
+        assert_eq!(back, "- a\n- b\n- c\n");
+    }
+
+    #[test]
     fn remark_nested_entry_preserves_indent() {
         let src = "srv:\n  host: a\n  port: 80\n";
         let out = apply_str(

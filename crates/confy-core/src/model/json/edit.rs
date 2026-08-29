@@ -190,6 +190,42 @@ fn parse_member_fragment(fragment: &str) -> Option<SyntaxNode> {
     }
 }
 
+/// Split a recovered (un-`//`-prefixed) comment block into member item texts.
+/// Each commented member contributed one or more `//` lines — a multi-line
+/// member spans several — so accumulate greedily: extend the candidate until
+/// it parses as a single member. A JSON value is self-delimiting (no proper
+/// prefix of a member ever parses), so the greedy split is exact. Each
+/// fragment's own trailing `//` comment (written by the remark direction or
+/// by hand) splits off via the CST and re-merges with `TRAILING_MARKER` so
+/// `rebuild_*` keeps it last, after the comma. Returns `None` if the block's
+/// tail doesn't parse (e.g. an ordinary prose comment block).
+fn member_fragments(text: &str) -> Option<Vec<String>> {
+    let mut frags: Vec<String> = Vec::new();
+    let mut candidate = String::new();
+    for line in text.lines() {
+        if candidate.is_empty() {
+            candidate = line.to_string();
+        } else {
+            candidate.push('\n');
+            candidate.push_str(line);
+        }
+        if let Some(node) = parse_member_fragment(&candidate) {
+            let bare = node.text().to_string().trim().to_string();
+            let frag = match fragment_member_trailing_comment(&candidate) {
+                Some(c) => format!("{bare}{TRAILING_MARKER}{c}"),
+                None => bare,
+            };
+            frags.push(frag);
+            candidate = String::new();
+        }
+    }
+    if candidate.trim().is_empty() {
+        Some(frags)
+    } else {
+        None
+    }
+}
+
 /// The external-edit fragment's own trailing `//` comment for an object
 /// member (`"key": value  // c`), if it wrote one. Used so an edited comment
 /// coming back from the popup editor / `$EDITOR` actually applies, instead of
@@ -1017,21 +1053,21 @@ fn remark(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
                 .collect::<Vec<_>>()
                 .join("\n");
 
-            // Validate the recovered text parses as a member. The stripped
-            // text may carry a trailing same-line comment (written by the
-            // remark direction above, or by hand): split it off via the CST
-            // — the MEMBER node's text excludes it — and re-merge it with
-            // TRAILING_MARKER so `rebuild_*` keeps it last, after the comma.
-            let member_node = parse_member_fragment(&member_text)
-                .ok_or_else(|| MutateError::Fragment("comment is not a valid member".into()))?;
-            let bare = member_node.text().to_string().trim().to_string();
-            let restored = match fragment_member_trailing_comment(&member_text) {
-                Some(c) => format!("{bare}{TRAILING_MARKER}{c}"),
-                None => bare,
-            };
+            // Split the recovered text into member fragments (a merged block
+            // holds SEVERAL remarked members). Each fragment may carry a
+            // trailing same-line comment (written by the remark direction
+            // above, or by hand): split it off via the CST — the MEMBER
+            // node's text excludes it — and re-merge it with TRAILING_MARKER
+            // so `rebuild_*` keeps it last, after the comma.
+            let not_a_member = || MutateError::Fragment("comment is not a valid member".into());
+            let frags = member_fragments(&member_text).ok_or_else(not_a_member)?;
+            let first = frags.first().ok_or_else(not_a_member)?;
 
             let mut new_items = items.clone();
-            new_items[comment_pos] = restored;
+            new_items[comment_pos] = first.clone();
+            for (k, frag) in frags.iter().skip(1).enumerate() {
+                new_items.insert(comment_pos + 1 + k, frag.clone());
+            }
 
             let is_multiline = container.text().to_string().contains('\n');
             let new_text = if is_multiline {
@@ -2277,6 +2313,70 @@ mod tests {
         assert_eq!(
             back,
             "{\n  \"a\": {\n    \"x\": 1\n  },  // t\n  \"b\": 2\n}\n"
+        );
+    }
+
+    #[test]
+    fn remark_two_members_merge_then_uncomment_restores_both() {
+        // Remarking consecutive members merges their `//` lines into ONE
+        // Comment node; un-remarking that node must restore BOTH members.
+        let out = apply_str(
+            "{\n  \"a\": 1,\n  \"b\": 2,\n  \"c\": 3\n}\n",
+            Mutation::Remark {
+                path: vec![Seg::Key("a".into())],
+            },
+        );
+        assert_eq!(out, "{\n  // \"a\": 1\n  \"b\": 2,\n  \"c\": 3\n}\n");
+        let out = apply_str(
+            &out,
+            Mutation::Remark {
+                path: vec![Seg::Key("b".into())],
+            },
+        );
+        assert_eq!(out, "{\n  // \"a\": 1\n  // \"b\": 2\n  \"c\": 3\n}\n");
+        let back = apply_str(
+            &out,
+            Mutation::Remark {
+                path: vec![Seg::Index(0)],
+            },
+        );
+        assert_eq!(back, "{\n  \"a\": 1,\n  \"b\": 2,\n  \"c\": 3\n}\n");
+    }
+
+    #[test]
+    fn remark_multiline_member_and_member_merge_then_uncomment() {
+        // A multi-line member spans several `//` lines; the greedy reverse
+        // split must reassemble it before restoring, then restore the next
+        // single-line member as its own item.
+        let out = apply_str(
+            "{\n  \"a\": {\n    \"x\": 1\n  },\n  \"b\": 2,\n  \"c\": 3\n}\n",
+            Mutation::Remark {
+                path: vec![Seg::Key("a".into())],
+            },
+        );
+        assert_eq!(
+            out,
+            "{\n  // \"a\": {\n  //     \"x\": 1\n  //   }\n  \"b\": 2,\n  \"c\": 3\n}\n"
+        );
+        let out = apply_str(
+            &out,
+            Mutation::Remark {
+                path: vec![Seg::Key("b".into())],
+            },
+        );
+        assert_eq!(
+            out,
+            "{\n  // \"a\": {\n  //     \"x\": 1\n  //   }\n  // \"b\": 2\n  \"c\": 3\n}\n"
+        );
+        let back = apply_str(
+            &out,
+            Mutation::Remark {
+                path: vec![Seg::Index(0)],
+            },
+        );
+        assert_eq!(
+            back,
+            "{\n  \"a\": {\n    \"x\": 1\n  },\n  \"b\": 2,\n  \"c\": 3\n}\n"
         );
     }
 

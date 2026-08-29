@@ -189,6 +189,28 @@ impl Parser {
         }
     }
 
+    /// Is there a comment-only line among the pending trivia (before the next
+    /// content line / EOF) indented deeper than `parent_indent`? The FIRST
+    /// comment line decides. Used to wrap a valueless entry's leftover trivia
+    /// in a comment-only child block (so it projects as that entry's own
+    /// rows) instead of floating it at the parent level.
+    fn pending_deeper_comment(&self, parent_indent: usize) -> bool {
+        let mut j = self.pos;
+        loop {
+            let mut indent = 0;
+            if self.get(j) == Some(SyntaxKind::INDENT) {
+                indent = self.tokens[j].1.chars().count();
+                j += 1;
+            }
+            match self.get(j) {
+                None => return false,
+                Some(SyntaxKind::NEWLINE) => j += 1,
+                Some(SyntaxKind::COMMENT) => return indent > parent_indent,
+                Some(_) => return false,
+            }
+        }
+    }
+
     /// Float leading blank / comment-only lines into the current container.
     fn skip_trivia_lines(&mut self) {
         loop {
@@ -331,8 +353,14 @@ impl Parser {
                     self.parse_sequence(li.as_ref().unwrap().indent, false);
                 } else if deeper_map {
                     self.parse_mapping(li.as_ref().unwrap().indent, false);
-                } else {
+                } else if self.pending_deeper_comment(indent) {
+                    // Same comment-only child wrap as `parse_value`: a `- `
+                    // entry whose deeper trivia holds only comment lines
+                    // (e.g. all sibling elements were remarked) keeps them
+                    // visible and re-addressable as its own child block.
+                    self.builder.start_node(SyntaxKind::MAPPING.into());
                     self.skip_trivia_lines();
+                    self.builder.finish_node(); // MAPPING
                 }
             }
             Some(SyntaxKind::DASH) => self.parse_sequence(content_col, true),
@@ -380,8 +408,16 @@ impl Parser {
                     self.parse_sequence(li.as_ref().unwrap().indent, false);
                 } else if map_child {
                     self.parse_mapping(li.as_ref().unwrap().indent, false);
-                } else {
+                } else if self.pending_deeper_comment(parent_indent) {
+                    // No live child block follows, but deeper comment-only
+                    // trivia does (e.g. every entry of a nested table was
+                    // remarked). Wrap it in a comment-only child MAPPING so
+                    // it projects as this entry's own rows — visible and
+                    // re-addressable (un-remark) — instead of being swallowed
+                    // invisibly into this entry.
+                    self.builder.start_node(SyntaxKind::MAPPING.into());
                     self.skip_trivia_lines();
+                    self.builder.finish_node(); // MAPPING
                 }
             }
             Some(SyntaxKind::BLOCK_HEADER) => self.parse_block_scalar(parent_indent),

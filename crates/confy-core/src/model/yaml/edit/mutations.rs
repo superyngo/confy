@@ -5,7 +5,7 @@
 use super::block::{
     collect_items, commit_reparse, container_indent, delete, ensure_newline,
     entry_has_opaque_value, find_container, fragment_indent, insert, item_index_of_node,
-    parse_map_entry_fragment, rebuild_and_splice, root_prefix_offset,
+    parse_map_entry_fragment, parses_as_live_entries, rebuild_and_splice, root_prefix_offset,
 };
 use super::resolve::{reindent, resolve, resolve_in};
 use crate::model::document::{MutateError, OnCollision, Target as MutTarget};
@@ -137,11 +137,8 @@ pub(crate) fn remark(tree: &SyntaxNode, idx: &YamlIndex, path: &[Seg]) -> Result
             let block_text = comment_block_text(&first_tok);
             // Recover the live text by stripping the comment leader.
             let recovered = uncomment(&block_text);
-            // Validate it parses as a map entry or a `- ` sequence element.
             let recovered_nl = ensure_newline(&recovered);
-            let valid = parse_map_entry_fragment(&recovered_nl).is_some()
-                || recovered.trim_start().starts_with("- ");
-            if !valid {
+            if !parses_as_live_entries(&recovered_nl) {
                 return Err(MutateError::Fragment(
                     "comment does not parse as a map entry or sequence element".into(),
                 ));

@@ -332,6 +332,24 @@ pub(crate) fn parse_map_entry_fragment(fragment: &str) -> Option<SyntaxNode> {
     }
 }
 
+/// Does the recovered (un-`#`-prefixed) block reparse as live entries — at
+/// least one MAP_ENTRY or SEQ_ENTRY at top level? A comment block holding
+/// SEVERAL remarked entries (projection merges consecutive `#` lines into ONE
+/// Comment node) must un-comment wholesale, mirroring TOML's reverse remark
+/// (strip + reparse, no single-entry requirement). Ordinary prose comments
+/// parse as scalar-only documents — no entries/elements — and stay comments.
+pub(crate) fn parses_as_live_entries(recovered_nl: &str) -> bool {
+    let Ok(green) = crate::model::yaml::parse::parse(recovered_nl) else {
+        return false;
+    };
+    let root = SyntaxNode::new_root(green);
+    root.children().any(|n| match n.kind() {
+        SyntaxKind::MAPPING => n.children().any(|c| c.kind() == SyntaxKind::MAP_ENTRY),
+        SyntaxKind::SEQUENCE => n.children().any(|c| c.kind() == SyntaxKind::SEQ_ENTRY),
+        _ => false,
+    })
+}
+
 /// Parse `fragment` as a bare YAML value (MAPPING, SEQUENCE, or scalar).
 /// Returns the inner value SyntaxNode (MAPPING, SEQUENCE, or VALUE).
 pub(crate) fn parse_value_fragment(fragment: &str) -> Result<SyntaxNode, MutateError> {
@@ -582,18 +600,37 @@ pub(crate) fn slot_elements(
 }
 
 /// Collect the slot items as verbatim text strings, newline-terminated.
-/// Order matches projection order (same traversal as project.rs). A COMMENT token
-/// excludes its line's trailing NEWLINE (a separate token), so re-add it to keep
-/// comment items newline-terminated like entry items — else concatenation in
-/// `rebuild_and_splice` would run lines together.
+/// Order matches projection order (same traversal as project.rs). A COMMENT
+/// token excludes its line's trailing NEWLINE (a separate token), so re-add it
+/// to keep comment items newline-terminated like entry items — else
+/// concatenation in `rebuild_and_splice` would run lines together. The
+/// comment line's leading INDENT is a separate container-level token, so it
+/// is prepended here (entry nodes include their own); without it a
+/// previously-existing comment item is re-emitted at column 0, corrupting
+/// nested-block indentation on the next rebuild in the same container.
 pub(crate) fn collect_items(container: &SyntaxNode) -> Vec<String> {
-    slot_elements(container)
-        .iter()
-        .map(|el| match el {
-            rowan::NodeOrToken::Node(n) => n.text().to_string(),
-            rowan::NodeOrToken::Token(t) => format!("{}\n", t.text().trim_end()),
-        })
-        .collect()
+    let mut items: Vec<String> = Vec::new();
+    let mut pending = String::new();
+    for el in container.children_with_tokens() {
+        match el {
+            rowan::NodeOrToken::Node(n)
+                if matches!(n.kind(), SyntaxKind::MAP_ENTRY | SyntaxKind::SEQ_ENTRY) =>
+            {
+                items.push(n.text().to_string());
+                pending.clear();
+            }
+            rowan::NodeOrToken::Token(t) => match t.kind() {
+                SyntaxKind::COMMENT => {
+                    items.push(format!("{pending}{}\n", t.text().trim_end()));
+                    pending.clear();
+                }
+                SyntaxKind::WHITESPACE | SyntaxKind::INDENT => pending.push_str(t.text()),
+                _ => pending.clear(),
+            },
+            _ => {}
+        }
+    }
+    items
 }
 
 /// Position of an entry `node` among the slot items, matched by node identity (not

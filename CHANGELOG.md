@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Unreleased Update — 2026-08-29T00:21:42Z
+- **fix(core): un-remark of a merged multi-node comment block works in
+  JSON/JSONC and YAML.** Remarking several consecutive nodes merges their
+  comment lines into ONE Comment node; un-remarking that node failed with
+  "not valid comment, kept as-is" for JSON/JSONC and YAML (TOML was fine —
+  its reverse remark strips and reparses the whole block with no
+  single-entry requirement). Both reverse paths now mirror TOML:
+  - JSON/JSONC: the recovered block is split into member fragments
+    greedily — extend the candidate until it parses as a single member
+    (`parse_member_fragment` already enforces exactly one), which is exact
+    because no proper prefix of a JSON member ever parses. Every fragment
+    is re-inserted as its own item, each keeping its trailing `//` comment
+    via `TRAILING_MARKER`; multi-line members reassemble from their
+    multiple `//` lines.
+  - YAML: the reverse validation required the recovered block to parse as
+    exactly ONE map entry (`parse_map_entry_fragment`'s count check); it
+    now accepts any block that reparses with at least one MAP_ENTRY or
+    SEQ_ENTRY at top level (`parses_as_live_entries`), and the existing
+    byte-splice restores all of them at the block's original indent.
+  - YAML forward rounding also fixed: remarking further entries in a
+    container that already holds a comment re-emitted that older comment
+    at column 0 (`collect_items` dropped the comment line's INDENT token
+    while entry items keep theirs), corrupting nested-block indentation;
+    and after remarking a nested table's LAST entry the remaining comments
+    were swallowed invisibly into the valueless entry — the parser now
+    wraps deeper comment-only trivia in a comment-only child MAPPING so
+    the rows stay visible and re-addressable (same-indent trivia still
+    floats at the parent level).
+  Regression tests cover root pair, nested pair, sequence pair (YAML) and
+  single-line plus multi-line merged blocks (JSONC), forward and back.
+
 ### Unreleased Update — 2026-08-28T23:45:38Z
 - **fix(core): JSON/JSONC remark keeps trailing comments; YAML block leading
   comments project.** Two comment-loss bugs, both fixed with regression tests.
