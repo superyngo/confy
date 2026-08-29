@@ -10,6 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.23.0] - 2026-08-29
 
+### Unreleased Update — 2026-08-29T23:56:48Z
+- **docs: document array-element `Remark` as YAML-only by design.**
+  `Remark` on an array/sequence element is supported by YAML (comments are
+  first-class per-item tokens) but returns `Unsupported`/`Illegal` on
+  TOML/JSON, whose array syntax has no natural per-element comment slot.
+  Recorded as an intentional format-capability difference, not a bug, in
+  `docs/reference/CONTEXT.md`'s Mutation mechanics table.
+
 ### Unreleased Update — 2026-08-29T23:56:26Z
 - **fix(core/json): `Rename` no longer corrupts a key containing a quote or
   backslash, and its collision check now compares decoded keys.** `rename`
