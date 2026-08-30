@@ -10,6 +10,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.23.0] - 2026-08-29
 
+### Unreleased Update — 2026-08-30T05:30:54Z
+- **fix(core): map `tui.lang.saved` in `severity_of` to stop a TUI
+  language-picker panic.** Applying a language via the TUI's language
+  picker (`l`, select, `Enter`) crashed: `lang_picker_commit` dispatches
+  `Intent::SetHostNotice { key: "tui.lang.saved", .. }` after a successful
+  config save, but `session::notice::severity_of`'s match table had no
+  arm for that key, so it fell through to the fallback
+  `panic!("severity_of: unmapped notice key ...")`. The i18n catalogs
+  (`i18n/en.json`, `i18n/zh-TW.json`) already had correct text for the
+  key; only the severity mapping was missing. Added `"tui.lang.saved"`
+  to the `Severity::Success` arm, alongside its existing sibling
+  `"tui.host.saved"` and pairing with `"tui.lang.save-failed"`'s
+  existing `Severity::Error`. Added a regression test,
+  `set_host_notice_tui_lang_saved_does_not_panic`, to
+  `session_snapshot_notice.rs`, confirmed it panicked against the
+  unfixed table before the fix and passes after. Manually reproduced
+  and re-verified on the real `confy` binary (isolated
+  `XDG_CONFIG_HOME` scratch dir): before the fix, selecting 繁體中文
+  (zh-TW) in the language picker crashed the process; after the fix,
+  the status line shows "語言已設定為 zh-TW" and the app keeps running.
+  Found during an earlier audit follow-up's manual verification but
+  deliberately deferred as out of that batch's scope; fixed here at the
+  user's explicit request to resolve the noted ambiguity.
+
 ### Unreleased Update — 2026-08-30T05:30:00Z
 - **refactor(core): deduplicate the 5 collision-suffix-loop implementations
   into `node::next_available_key`.** Audit follow-up (batch 4). All 5

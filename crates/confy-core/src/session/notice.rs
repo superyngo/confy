@@ -110,6 +110,7 @@ pub fn severity_of(key: &str) -> Severity {
         | "web.host.kind.changed"
         | "web.host.value.changed"
         | "tui.host.saved"
+        | "tui.lang.saved"
         | "tui.host.convert-success" => Severity::Success,
 
         "core.save.nothing"

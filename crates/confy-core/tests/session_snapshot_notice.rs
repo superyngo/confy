@@ -84,6 +84,24 @@ fn set_host_notice_intent_goes_through_dispatch() {
 }
 
 #[test]
+fn set_host_notice_tui_lang_saved_does_not_panic() {
+    // Regression test: `tui.lang.saved` (dispatched by
+    // `confy-tui/src/tui/app.rs::lang_picker_commit` after a successful
+    // config-file save) was missing from `severity_of`'s table, which
+    // panics on any unmapped key.
+    let mut s = toml_session("a = 1\n");
+    let snap = s.dispatch(Intent::SetHostNotice {
+        key: "tui.lang.saved".into(),
+        args: vec!["zh-TW".to_string()],
+        source: NoticeSource::HostTui,
+    });
+    assert_eq!(snap.notice.as_ref().unwrap().source, NoticeSource::HostTui);
+    assert_eq!(snap.notice.as_ref().unwrap().severity, Severity::Success);
+    assert!(snap.status_text().is_some());
+    assert!(snap.error_text().is_none());
+}
+
+#[test]
 fn set_host_notice_core_source_is_a_defensive_no_op() {
     // `NoticeSource::Core` in a SetHostNotice is a caller bug (core code
     // never dispatches host notices) — it must not panic in release and
