@@ -35,23 +35,17 @@ fn json_add_sibling_keeps_trailing_comment_attached() {
 }
 
 #[test]
-fn toml_keeps_trailing_comment_attached() {
-    let out = add_sibling_after("a = 1  # c\n", DocFormat::Toml, vec![Seg::Key("a".into())]);
-    eprintln!("TOML result:\n{out}");
-    let a_line = out.lines().find(|l| l.starts_with("a ")).unwrap();
-    assert!(
-        a_line.contains("# c"),
-        "TOML: comment stays attached: {a_line:?}"
-    );
-}
-
-#[test]
-fn yaml_keeps_trailing_comment_attached() {
-    let out = add_sibling_after("a: 1  # c\n", DocFormat::Yaml, vec![Seg::Key("a".into())]);
-    eprintln!("YAML result:\n{out}");
-    let a_line = out.lines().find(|l| l.starts_with("a:")).unwrap();
-    assert!(
-        a_line.contains("# c"),
-        "YAML: comment stays attached: {a_line:?}"
-    );
+fn toml_and_yaml_keep_trailing_comment_attached() {
+    for (fmt, src, prefix) in [
+        (DocFormat::Toml, "a = 1  # c\n", "a "),
+        (DocFormat::Yaml, "a: 1  # c\n", "a:"),
+    ] {
+        let out = add_sibling_after(src, fmt, vec![Seg::Key("a".into())]);
+        eprintln!("{fmt:?} result:\n{out}");
+        let a_line = out.lines().find(|l| l.starts_with(prefix)).unwrap();
+        assert!(
+            a_line.contains("# c"),
+            "{fmt:?}: comment stays attached: {a_line:?}"
+        );
+    }
 }

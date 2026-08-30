@@ -10,6 +10,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.23.0] - 2026-08-29
 
+### Unreleased Update — 2026-08-30T03:45:00Z
+- **test(core): convert two 3-way format-parity test files to table-driven
+  loops.** `tests/external_edit_clears_trailing_comment.rs` and
+  `tests/insert_after_trailing_comment.rs` each had 3 near-identical
+  per-format `#[test]` fns differing only in fixture strings/`DocFormat`/
+  assertion specifics — the shape the 2026-08-29 audit's "table-driven
+  parity test" P2 finding was about. `external_edit_can_clear_trailing_comment`
+  now loops JSON+TOML (exact-string assertions) and asserts YAML separately
+  (its own pre-existing "comment absent" negation, not an exact string, since
+  the CST doesn't guarantee identical post-splice whitespace there).
+  `toml_and_yaml_keep_trailing_comment_attached` loops TOML+YAML (identical
+  "find the line, assert it still carries the comment" shape); JSON's
+  `json_add_sibling_keeps_trailing_comment_attached` stays a standalone
+  `#[test]` since it pins a JSON-specific regression with an exact
+  full-string `assert_eq!`, not the same assertion shape. Same inputs, same
+  expected outputs, no behavior change to the code under test. Verified
+  each loop actually exercises every format by temporarily corrupting one
+  iteration's expected value in each file and confirming the test fails
+  (then reverting); `cargo test --workspace` stays at the 550-test
+  confy-core baseline; clippy/fmt clean.
+
 ### Unreleased Update — 2026-08-30T03:30:00Z
 - **refactor(core): extract two 80%+-inline-test modules to sibling
   `tests.rs` files.** `model/cst_edit/mod.rs` (3,383 lines, 3,104 of them

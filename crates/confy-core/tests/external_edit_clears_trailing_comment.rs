@@ -24,35 +24,30 @@ fn external_edit_clears_comment(
 }
 
 #[test]
-fn json_external_edit_can_clear_trailing_comment() {
+fn external_edit_can_clear_trailing_comment() {
     // Regression test for comment-advisory follow-up issue #4: the external
     // pop-up editor's returned text is the authoritative full fragment: if
     // the user deletes the trailing comment from it, `Mutation::Replace`'s
     // "preserve the old comment when the fragment is silent" default (needed
     // for the *inline* editor's value-only fragments) must not silently
     // restore it.
-    let out = external_edit_clears_comment(
-        "{\n  \"a\": 1  // old\n}\n",
-        DocFormat::Json,
-        vec![Seg::Key("a".into())],
-        "\"a\": 1",
-    );
-    assert_eq!(out, "{\n  \"a\": 1\n}\n", "full output: {out:?}");
-}
+    for (fmt, src, new_text, expect) in [
+        (
+            DocFormat::Json,
+            "{\n  \"a\": 1  // old\n}\n",
+            "\"a\": 1",
+            "{\n  \"a\": 1\n}\n",
+        ),
+        (DocFormat::Toml, "a = 1  # old\n", "a = 1", "a = 1\n"),
+    ] {
+        let out = external_edit_clears_comment(src, fmt, vec![Seg::Key("a".into())], new_text);
+        assert_eq!(out, expect, "{fmt:?}: full output: {out:?}");
+    }
 
-#[test]
-fn toml_external_edit_can_clear_trailing_comment() {
-    let out = external_edit_clears_comment(
-        "a = 1  # old\n",
-        DocFormat::Toml,
-        vec![Seg::Key("a".into())],
-        "a = 1",
-    );
-    assert_eq!(out, "a = 1\n", "full output: {out:?}");
-}
-
-#[test]
-fn yaml_external_edit_can_clear_trailing_comment() {
+    // YAML asserted separately: its expectation is "comment absent", not an
+    // exact string (existing test's own choice — the CST doesn't guarantee
+    // identical whitespace after the splice the way JSON/TOML's exact
+    // literal match does).
     let out = external_edit_clears_comment(
         "a: 1  # old\n",
         DocFormat::Yaml,
