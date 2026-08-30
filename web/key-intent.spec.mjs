@@ -11,9 +11,9 @@
 // Table-driven: at least one case per guard clause in `ui.ts`'s original
 // `onKey` (now `resolveKeyIntent`'s branches), covering every mode in the
 // documented precedence order — Edit > Prompt > Convert > TypeFilter >
-// KindSwitch > SchemaEnum > Help > tree shortcuts — plus the ctrl/rawView
-// escape hatches and the `nav`/`native`/`typefilter-page` non-plain-Intent
-// results.
+// KindSwitch > ActionMenu > SchemaEnum > Help > tree shortcuts — plus the
+// ctrl/rawView escape hatches and the `nav`/`native`/`typefilter-page`
+// non-plain-Intent results.
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as esbuild from "esbuild";
@@ -59,6 +59,25 @@ const typeFilterGrid = {
 };
 const typeFilterMode = { TypeFilter: typeFilterGrid };
 const kindSwitchMode = { KindSwitch: { cursor: 0, options: [] } };
+// cursor: 2 sits mid-list; items[1] and items[4] are disabled so Home/End
+// deltas land on the first/last *enabled* slots (0 and 7), not the raw ends.
+const actionMenuMode = {
+  ActionMenu: {
+    cursor: 2,
+    items: [
+      { label: "Edit", enabled: true },
+      { label: "Add child", enabled: false },
+      { label: "Append sibling", enabled: true },
+      { label: "Copy", enabled: true },
+      { label: "Cut", enabled: false },
+      { label: "Toggle comment", enabled: true },
+      { label: "Detail", enabled: true },
+      { label: "Delete", enabled: true },
+    ],
+    target_count: 1,
+    target_label: "server",
+  },
+};
 const schemaEnumMode = { SchemaEnum: { options: ["a", "b", "c"], cursor: 0 } };
 const helpMode = { Help: { tab: "Help" } };
 const normalMode = "Normal";
@@ -177,6 +196,38 @@ console.log("\n-- KindSwitch mode --");
 {
   const r = resolve(kindSwitchMode, "Escape");
   check("Escape -> ExitKindSwitch", r?.kind === "intent" && r.intent === "ExitKindSwitch", JSON.stringify(r));
+}
+
+
+// ---- ActionMenu mode ----
+console.log("\n-- ActionMenu mode --");
+{
+  const r = resolve(actionMenuMode, "ArrowUp");
+  check("ArrowUp -> ActionMenuMove:-1, no preventDefault", r?.kind === "intent" && r.intent?.ActionMenuMove === -1 && r.preventDefault === false, JSON.stringify(r));
+}
+{
+  const r = resolve(actionMenuMode, "Home");
+  check("Home -> ActionMenuMove to first enabled (0−2)", r?.kind === "intent" && r.intent?.ActionMenuMove === -2, JSON.stringify(r));
+}
+{
+  const r = resolve(actionMenuMode, "End");
+  check("End -> ActionMenuMove to last enabled (7−2)", r?.kind === "intent" && r.intent?.ActionMenuMove === 5, JSON.stringify(r));
+}
+{
+  const r = resolve(actionMenuMode, "PageUp");
+  check("PageUp -> ActionMenuMove:-5, preventDefault", r?.kind === "intent" && r.intent?.ActionMenuMove === -5 && r.preventDefault === true, JSON.stringify(r));
+}
+{
+  const r = resolve(actionMenuMode, "PageDown");
+  check("PageDown -> ActionMenuMove:5, preventDefault", r?.kind === "intent" && r.intent?.ActionMenuMove === 5 && r.preventDefault === true, JSON.stringify(r));
+}
+{
+  const r = resolve(actionMenuMode, "Enter");
+  check("Enter -> ActionMenuCommit, no preventDefault", r?.kind === "intent" && r.intent === "ActionMenuCommit" && r.preventDefault === false, JSON.stringify(r));
+}
+{
+  const r = resolve(actionMenuMode, "Escape");
+  check("Escape -> Escape intent", r?.kind === "intent" && r.intent === "Escape", JSON.stringify(r));
 }
 
 // ---- SchemaEnum mode ----

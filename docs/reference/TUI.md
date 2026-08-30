@@ -185,6 +185,11 @@ item's `enabled` flag fresh from `selected_paths()` every frame — a single-pat
 the four set-applying items (Copy / Cut / Toggle comment / Delete) dim only if any
 targeted node is read-only. Disabled items stay visible (dimmed), never hidden, so
 cursor position is stable. Up/Down (or j/k) move the cursor, skipping disabled items;
+Home/End jump to the first/last enabled item (`App::action_menu_jump_edge` — core's
+stride-by-delta move means the host sends the exact `target − cursor` offset), and
+PageUp/PageDown page by `ACTION_MENU_PAGE_STEP` (5); all wrap like the arrows. Web's
+popup/sheet mirrors this in `web/key-intent.ts` (`actionMenuEdgeDelta` /
+`ACTION_MENU_PAGE_STEP`), so external keyboards on touch behave identically.
 Enter (`action_menu_commit`) always exits the menu first (`resting_mode()`), then
 dispatches the picked item's intent if it was enabled, else surfaces
 `core.action.unavailable`; Esc cancels without dispatching. Opening the menu while the

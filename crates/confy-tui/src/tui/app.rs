@@ -76,6 +76,12 @@ pub enum PromptOutcome {
     Quit,
 }
 
+
+/// PageUp/PageDown stride for the Action menu popup — eight items, always
+/// fully visible, so a fixed step (same convention as web's
+/// `ACTION_MENU_PAGE_STEP` in `web/key-intent.ts`).
+pub(crate) const ACTION_MENU_PAGE_STEP: i32 = 5;
+
 impl App {
     /// Construct an App backed by a real document (interactive mode).
     pub fn new(doc: crate::model::any_doc::AnyDocument) -> Self {
@@ -342,6 +348,28 @@ impl App {
     pub fn action_menu_move(&mut self, delta: i32) {
         self.session.apply(Intent::ActionMenuMove(delta));
     }
+    /// Home/End for the Action menu popup. Core's `action_menu_move` strides
+    /// by `delta` modulo the item count (skipping disabled), so a fixed
+    /// `±items.len()` delta would wrap back to a no-op — landing on the
+    /// first/last *enabled* item takes the exact offset `target − cursor`,
+    /// which the stride loop reaches in one hop. Mirrors web's
+    /// `actionMenuEdgeDelta` (`web/key-intent.ts`).
+    pub fn action_menu_jump_edge(&mut self, last: bool) {
+        let Mode::ActionMenu { cursor } = &self.session.mode else {
+            return;
+        };
+        let cursor = *cursor;
+        let items = self.session.action_menu_items();
+        let target = if last {
+            items.iter().rposition(|it| it.enabled)
+        } else {
+            items.iter().position(|it| it.enabled)
+        };
+        if let Some(t) = target {
+            self.action_menu_move(t as i32 - cursor as i32);
+        }
+    }
+
     pub fn action_menu_commit(&mut self) {
         self.session.apply(Intent::ActionMenuCommit);
         // The menu's Edit item resolves to `Session::begin_external_edit`

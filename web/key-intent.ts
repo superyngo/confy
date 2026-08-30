@@ -46,6 +46,27 @@ export function navRowCount(grid: TypeFilterView): number {
   return grid.rows.filter((r) => "Cells" in r).length;
 }
 
+// PageUp/PageDown stride for the Action menu popup — eight items, always
+// fully visible, so a fixed step (same convention as SchemaEnum's page below)
+// rather than a DOM-measured screenful.
+const ACTION_MENU_PAGE_STEP = 5;
+
+/** Home/End deltas for the Action menu. Core's `action_menu_move` strides by
+ * `delta` modulo `items.length` (skipping disabled), so a SchemaEnum-style
+ * `-items.length` would wrap back to a no-op — landing on the first/last
+ * *enabled* item takes the exact offset `target − cursor`, which the stride
+ * loop reaches in one hop. */
+function actionMenuEdgeDelta(
+  am: { cursor: number; items: { enabled: boolean }[] },
+  last: boolean,
+): number {
+  const idx = last
+    ? am.items.map((it) => it.enabled).lastIndexOf(true)
+    : am.items.findIndex((it) => it.enabled);
+  return idx - am.cursor;
+}
+
+
 export function resolveKeyIntent(
   mode: ModeView,
   key: string,
@@ -111,9 +132,14 @@ export function resolveKeyIntent(
     if (key === "Escape") return { kind: "intent", intent: "ExitKindSwitch", preventDefault: false };
     return null;
   }
-  if (modeTag(m) === "ActionMenu") {
+  if (typeof m === "object" && "ActionMenu" in m) {
+    const am = m.ActionMenu;
     if (key === "ArrowUp") return { kind: "intent", intent: { ActionMenuMove: -1 }, preventDefault: false };
     if (key === "ArrowDown") return { kind: "intent", intent: { ActionMenuMove: 1 }, preventDefault: false };
+    if (key === "Home") return { kind: "intent", intent: { ActionMenuMove: actionMenuEdgeDelta(am, false) }, preventDefault: true };
+    if (key === "End") return { kind: "intent", intent: { ActionMenuMove: actionMenuEdgeDelta(am, true) }, preventDefault: true };
+    if (key === "PageUp") return { kind: "intent", intent: { ActionMenuMove: -ACTION_MENU_PAGE_STEP }, preventDefault: true };
+    if (key === "PageDown") return { kind: "intent", intent: { ActionMenuMove: ACTION_MENU_PAGE_STEP }, preventDefault: true };
     if (key === "Enter") return { kind: "intent", intent: "ActionMenuCommit", preventDefault: false };
     if (key === "Escape") return { kind: "intent", intent: "Escape", preventDefault: false };
     return null;

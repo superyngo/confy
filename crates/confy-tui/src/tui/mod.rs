@@ -368,13 +368,19 @@ fn run_event_loop(
                 continue;
             }
             // Action menu popup: Up/Down (or j/k) move the cursor (skipping
-            // disabled items), Enter commits, Esc cancels. Modal — other
-            // keys swallowed.
+            // disabled items), Home/End jump to the first/last enabled item,
+            // PageUp/PageDown page by `ACTION_MENU_PAGE_STEP` — all wrap,
+            // same stride-skip semantics as the arrows. Enter commits, Esc
+            // cancels. Modal — other keys swallowed.
             if matches!(app.session.mode, crate::tui::state::Mode::ActionMenu { .. }) {
                 use crossterm::event::KeyCode;
                 match key.code {
                     KeyCode::Up | KeyCode::Char('k') => app.action_menu_move(-1),
                     KeyCode::Down | KeyCode::Char('j') => app.action_menu_move(1),
+                    KeyCode::Home => app.action_menu_jump_edge(false),
+                    KeyCode::End => app.action_menu_jump_edge(true),
+                    KeyCode::PageUp => app.action_menu_move(-app::ACTION_MENU_PAGE_STEP),
+                    KeyCode::PageDown => app.action_menu_move(app::ACTION_MENU_PAGE_STEP),
                     KeyCode::Enter => app.action_menu_commit(),
                     KeyCode::Esc => app.escape(),
                     _ => {}

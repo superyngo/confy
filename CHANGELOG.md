@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ## [Unreleased]
+### Unreleased Update — 2026-08-30T14:05:00Z
+- **feat(tui,web): Action menu nav keys — Home/End/PageUp/PageDown alongside
+  the arrows.** Core's `action_menu_move` already wraps and skips disabled
+  items, but only via host-sent deltas, so each host now maps the full nav
+  set: Up/Down ±1 (existing), Home/End jump to the first/last *enabled* item
+  and PageUp/PageDown stride 5 (`ACTION_MENU_PAGE_STEP`, SchemaEnum's page
+  convention). Because the core move strides by `delta` modulo the item
+  count, a SchemaEnum-style `±len` Home/End would wrap back to a no-op — the
+  hosts compute the exact `target − cursor` offset instead (web's
+  `actionMenuEdgeDelta`, TUI's `App::action_menu_jump_edge`), which the
+  stride loop reaches in one hop. Wired in `web/key-intent.ts` (shared by the
+  desktop popover and touch external keyboards via `resolveKeyIntent`,
+  `preventDefault` on the jump keys so the page never scrolls) and the TUI's
+  Action-menu modal block (`crates/confy-tui/src/tui/mod.rs`); documented in
+  `docs/reference/TUI.md`; 7 new `web/key-intent.spec.mjs` checks.
+
 ### Unreleased Update — 2026-08-30T13:20:00Z
 - **fix(core,tui,web): Action menu follow-ups — TUI external edit, touch Detail
   routing, touch FAB position/icon, dimmed disabled items.**
