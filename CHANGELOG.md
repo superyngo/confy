@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ## [Unreleased]
+### Unreleased Update — 2026-08-30T09:54:26Z
+- **docs(design): Action menu — centralized node operations across desktop,
+  touch, and TUI.** Approved design spec for replacing the per-row desktop `⋮`
+  menu (`web/render.ts` + `buildCtxMenu` in `web/ui.ts`), the floating `+`
+  (`web/fab.ts`), and the detail panel's four action buttons (`web/panel.ts`)
+  with one **Action menu** whose item model, eligibility, and open state are
+  owned by `confy-core` as a new `ModeView::ActionMenu` variant and rendered
+  three ways: desktop popup, touch bottom sheet, and a new TUI overlay on `m`.
+  Establishes the terminology split the codebase was missing — **Overflow
+  menu** (the RWD-folded toolbar menu derived from `foldedEntries`) vs
+  **Action menu** vs **Action button** — resolving the `data-act="menu"`
+  collision where the same attribute meant the overflow sheet on touch and the
+  per-row node menu on desktop. Node rows keep only a move grip on both web
+  surfaces; the detail panel keeps every editing affordance and loses only its
+  actions; touch multi-selection gains its first usable operation surface via
+  core-computed per-item eligibility over `selected_paths()`. Two findings from
+  the design pass: the menu's Paste item is unreachable by construction
+  (opening is refused while Clipboard-armed) and today's context-menu Paste
+  entry is therefore *already* dead code; and the Action button's status-bar
+  overlap is fixed structurally with a non-scrolling wrapper around the tree
+  scroller rather than a hardcoded offset, which also keeps the button clear of
+  the open detail panel. No code changes yet — spec only, at
+  `docs/superpowers/specs/2026-08-30-action-menu-design.md`; implementation
+  plan next.
+
 ### Unreleased Update — 2026-08-30T06:05:13Z
 - **feat(web): touch UI parity — comment-advisory card, wavy underline,
   swipe-to-remark.** Three touch-UI gaps vs. desktop, closed: (1) the detail
