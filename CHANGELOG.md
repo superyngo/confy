@@ -10,6 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.23.0] - 2026-08-29
 
+### Unreleased Update — 2026-08-30T03:00:00Z
+- **docs: correct the record on the `quick-xml` RUSTSEC findings — already
+  moot for CI, not a pending fix.** The prior entry (below) reported
+  `cargo audit` flagging `quick-xml` 0.39.4 (RUSTSEC-2026-0194/0195, high
+  severity, via `plist` 1.9.0) and said it "audits the checked-in
+  `Cargo.lock` directly" — but `Cargo.lock` is `.gitignore`d and has never
+  been committed (confirmed: `git ls-files` / `git log -- Cargo.lock` are
+  both empty), so that description was wrong and the finding was an
+  artifact of a stale `Cargo.lock` left on disk in this dev environment,
+  not something CI's `cargo audit` step (which always resolves a fresh
+  lockfile on checkout) would ever see. Verified directly: deleting
+  `Cargo.lock` and running `cargo generate-lockfile` — what CI effectively
+  does — resolves `plist` straight to 1.10.0 / `quick-xml` to 0.41.0,
+  since every parent crate's `plist = "1"` constraint already permits it.
+  No repo file changed; recorded here so the false "pending fix" isn't
+  carried forward.
+
 ### Unreleased Update — 2026-08-30T02:30:00Z
 - **ci(rust): add a `cargo audit` step; docs: document the `taplo`
   unmaintained-upstream risk.** `.github/workflows/rust-ci.yml` had no
