@@ -2,10 +2,15 @@
 
 Date: 2026-08-30
 Status: approved design, pending implementation plan
+ADR: [`../../adr/0009-centralized-action-menu-core-owned.md`](../../adr/0009-centralized-action-menu-core-owned.md)
+
+Revised after a grilling pass that corrected two factual errors in the first draft (§2's
+Append-comment claim and §5's desktop reachability claim) and dropped three items from the
+item model. Where a claim below cites a file:line, it was verified rather than assumed.
 
 ## Problem
 
-Node operations are reachable through four unrelated surfaces that disagree with each
+Node operations are reachable through **five** unrelated surfaces that disagree with each
 other:
 
 - Desktop rows carry a per-row `⋮` button (`web/render.ts:201`) opening a 10-item menu
@@ -19,8 +24,11 @@ other:
 - The floating `+` (`web/fab.ts`) performs a context-aware add, and overlaps the status
   bar because `.fab` is `position:fixed; bottom:18px` (`web/style.css:822`) while
   `.footer` occupies the same corner.
+- The Tauri **native Edit menu** (`web/menu.ts:333-347`) holds *Copy Node* / *Cut Node* /
+  *Paste Node*, dispatching `CopySelected` / `CutSelected` / `Paste` with no eligibility
+  at all.
 
-The TUI has no menu surface at all; every operation is a single keystroke.
+The TUI has no menu surface; every operation is a single keystroke.
 
 Consequence: the same logical operation is implemented three times with three different
 eligibility rules, and neither touch multi-selection nor TUI menu discovery is served.
@@ -35,35 +43,21 @@ information only. The TUI gains an equivalent overlay on `m`.
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Item model ownership | Core-owned items **and** open state (`ModeView` variant) | One eligibility computation, one i18n source, and the web menus gain the arrow-key navigation they have never had |
+| Item model ownership | Core-owned items **and** open state (`ModeView` variant) | One eligibility computation, one i18n source, and the web menus gain arrow-key navigation they have never had |
 | Terminology | Overflow menu / Action menu / Action button | Distinguishes the RWD-folded toolbar menu from the new node-operations surface |
+| Membership | Single core intent over the target set, unless the node already has a dedicated always-visible control | Makes the item list derived rather than inherited from `buildCtxMenu` |
 | Desktop right-click | Kept, opens the same Action menu at the pointer | Desktop-idiomatic, already documented in `web/help-content.ts`, near-zero extra code |
+| Desktop keyboard | `m`, same as the TUI | The menu is otherwise the one surface a desktop keyboard user cannot reach |
 | Button position | Non-scrolling wrapper around the tree scroller | Magic-number-free and resize-aware (ui-design-principles §19) |
-| TUI trigger | `m` | Free lowercase key, mnemonic "menu" |
-| Detail panel | All four action buttons removed | Anatomy parity with the TUI detail popup; every operation stays reachable via the Action menu |
+| Detail panel | All four action buttons removed; every editing affordance kept | Anatomy parity with the TUI detail popup |
+| Native Edit menu | Exempt | OS convention, reached by muscle memory not discovery (ADR 0009) |
 
-## §1 Terminology (CONTEXT.md)
+## §1 Terminology
 
-Three entries added to CONTEXT.md's Language section, in the style of the existing
-cross-platform entries (Cursor, Locked selection, Clipboard-armed).
-
-**Overflow menu**:
-Chrome only. Lists exactly the toolbar controls the current viewport width has folded
-away (`foldedEntries`, `web/toolbar-fold.ts:24`). Desktop `⋯` popup, touch `⋯` sheet.
-Never holds node operations.
-_Avoid_: More menu, dynamic menu, menu sheet.
-
-**Action menu**:
-The single surface listing every operation available on the current **Cursor** or
-**Locked selection**. One item model in core; three renderings — desktop popup, touch
-bottom sheet, TUI overlay. Opened by the **Action button**, by desktop right-click, or by
-the TUI's `m`.
-_Avoid_: context menu (that is one desktop gesture that opens it), node menu, `⋮` menu.
-
-**Action button**:
-The floating trigger that opens the **Action menu**. While **Clipboard-armed** it is
-instead the **Paste button**, with a ✕ cancel above it.
-_Avoid_: FAB, `+` button.
+Four entries added to `docs/reference/CONTEXT.md`'s Language section (**Overflow menu**,
+**Action menu**, **Action button**, **Native menu bar**), plus a line on the **Remark**
+entry recording that its user-facing label is "Toggle comment" on every host. Already
+written.
 
 Code hygiene that follows: today `data-act="menu"` means *overflow menu* on touch
 (`web/touch/app.ts:247`) and *per-row node menu* on desktop (`web/ui.ts:1233`) — the exact
@@ -77,8 +71,7 @@ New view type and `ModeView` variant beside `KindSwitch`, following its shape
 
 ```rust
 pub enum ActionId {
-    Edit, AddChild, AddSibling, Copy, Cut,
-    Remark, AppendComment, Detail, Delete,
+    Edit, AddChild, AddSibling, Copy, Cut, Remark, Detail, Delete,
 }
 
 pub struct ActionItemView {
@@ -86,9 +79,9 @@ pub struct ActionItemView {
     /// Localized core-side via `tr(self.lang, "core.action.*")`, exactly as
     /// `ModeView::Prompt.question` is — hosts never reconstruct label prose.
     pub label: String,
-    /// Localized section header rendered *before* this item, when present.
-    pub section: Option<String>,
     pub enabled: bool,
+    /// Render a separator above this item. `Delete` only.
+    pub separator_before: bool,
     /// `Delete` only — hosts render it as destructive.
     pub danger: bool,
 }
@@ -96,127 +89,160 @@ pub struct ActionItemView {
 ModeView::ActionMenu {
     cursor: usize,
     items: Vec<ActionItemView>,
-    /// `selected_paths().len()` — hosts show "N nodes" rather than recomputing it.
+    /// `selected_paths().len()`.
     target_count: usize,
+    /// The node's key when `target_count == 1`, else the localized
+    /// "N nodes" — hosts render verbatim, never recompute.
+    target_label: String,
 }
 ```
 
 `Session::action_menu()` builds the list from `selected_paths()`
 (`crates/confy-core/src/session/session.rs:1502`), the existing universal
-Locked-selection-else-Cursor resolver. Targeting therefore needs **no new logic**: the
-desktop right-click path keeps calling today's `selectForMenu` (`web/ui.ts:2062`) to
-retarget first, then opens the menu.
+Locked-selection-else-Cursor resolver — which returns the cursor as a one-element set when
+the selection is empty. Targeting therefore needs **no new logic**: the desktop
+right-click path keeps calling today's `selectForMenu` (`web/ui.ts:2062`) to retarget
+first, then opens the menu.
 
-The web wire types mirror this by hand: `web/types.ts` gains the
-`{ ActionMenu: { cursor: number; items: ActionItemView[]; target_count: number } }`
-arm on its `ModeView` union (`types.ts:161`) plus an `ActionItemView` interface, and the
-four new intents on its `Intent` union. No new FFI entry point is needed — the menu rides
-the existing `SessionSnapshot.mode` projection, exactly as `KindSwitch` does.
+`target_label` exists because detaching the trigger from the row is this change's one real
+ergonomic loss: the menu no longer opens *at* the node it acts on, so it must name it.
+
+The web wire types mirror this by hand: `web/types.ts` gains the `ActionMenu` arm on its
+`ModeView` union (`types.ts:161`) plus an `ActionItemView` interface, and the five new
+intents on its `Intent` union. No new FFI entry point is needed — the menu rides the
+existing `SessionSnapshot.mode` projection, exactly as `KindSwitch` does.
+
+### Items
+
+Eight, derived from the membership rule (§1 / ADR 0009), in this order:
+
+1. Edit in editor
+2. Add child
+3. Append sibling
+4. Copy
+5. Cut
+6. Toggle comment
+7. Detail
+8. — separator — Delete
+
+**Not included, and why:**
+
+- **Paste** — legal only while **Clipboard-armed**, and `OpenActionMenu` is refused in
+  that state, so it could never be reached. Today's `⋮` Paste entry (`ui.ts:1641`, item 6)
+  is *already* dead code: both triggers bail out while armed (`ui.ts:1234`, `ui.ts:2029`)
+  and `.paste-mode .row-actions` hides the `⋮` outright.
+- **Kind switch** — the node already carries a dedicated always-visible control: the kind
+  badge (`render.ts:90-94`), routed on desktop at `ui.ts:1254` and present in both
+  panels as `.kindbtn`. §5 and §8 make preserving it a verified requirement.
+- **Append comment** — no single intent exists (`EditField` has only `Value` and `Name`,
+  `state.rs:170`); the TUI cannot create a trailing comment at all (`app.rs:589-653`); and
+  both web hosts already create/change/clear one via the panel's trailing input
+  (`panel.ts:132-143`, committed at `350-352`), which §5 keeps. `ExternalEditKind::Comment`
+  (`view.rs:227-232`) edits a **comment node's text** via `ApplyEditComment`, *not* a
+  trailing comment — the first draft claimed otherwise and was wrong.
+
+**Delete moves to the end below a separator** rather than sitting beside Cut as it does
+today: the same list is now a full-width touch sheet where a mis-tap is cheap. Accepted
+cost: existing desktop muscle memory.
 
 ### Eligibility
 
-Computed once, in core. This is what gives touch multi-selection a usable surface.
+Computed once, in core, and **derived from the type signatures rather than enumerated**:
 
-| Item | `enabled` when |
-|---|---|
-| Edit | `target_count == 1`, not read-only |
-| Add child | `target_count == 1`, row is a branch |
-| Append sibling | `target_count == 1`, `path.len() > 0` |
-| Copy | always |
-| Cut | no read-only node in the target set |
-| Toggle comment | no read-only node in the target set |
-| Append comment | `target_count == 1`, not a comment, no existing trailing comment, parent not inline |
-| Detail | `target_count == 1` |
-| Delete | no read-only node in the target set |
+> An item is single-node-only exactly when the core state behind it carries one `Path`.
+
+| Item | `enabled` when | Multi-select |
+|---|---|---|
+| Edit in editor | `target_count == 1`, not read-only | dimmed — `ExternalEditKind{path}` is one path |
+| Add child | `target_count == 1`, row is a branch | dimmed — one parent needed |
+| Append sibling | `target_count == 1`, `path.len() > 0` | dimmed — a normalized selection may span several parents |
+| Copy | always | **enabled** |
+| Cut | no read-only node in the target set | **enabled** |
+| Toggle comment | no read-only node in the target set | **enabled** |
+| Detail | `target_count == 1` | dimmed — the panel renders one `ViewRow` |
+| Delete | no read-only node in the target set | **enabled** |
+
+So a multi-node selection dims **4 of 8**; a selection containing a read-only node leaves
+only Copy enabled — **7 of 8**. That worst case is the reason ineligible items are shown
+**disabled rather than hidden**: a menu that silently collapsed to one row explains
+nothing, whereas dimming shows four operations that a narrower selection would unlock.
 
 Read-only rejection already exists in core (CONTEXT.md **Read-only node**: rejects edit,
-delete, cut, remark); `action_menu()` reuses those same predicates rather than restating
-them.
-
-**Paste is deliberately absent.** Paste is only legal while **Clipboard-armed**, and
-`OpenActionMenu` refuses in that state (see Intents below) — so a Paste item could never
-be reached. This is not a regression: today's context-menu Paste entry
-(`web/ui.ts:1641`, item 6) is *already* dead code, because both of its triggers are
-blocked while armed (`ui.ts:1234` and `ui.ts:2029` both bail out with the action-locked
-notice, and `.paste-mode .row-actions` hides the `⋮` outright). Pasting stays where it
-works: the Action button's armed Paste state, tap/click-to-target, and `v`.
+delete, cut, remark); `action_menu()` reuses those predicates rather than restating them.
 
 **Invariant: the menu is never empty and never fully disabled.** Copy is unconditionally
-enabled — a **Read-only node** is explicitly copyable (CONTEXT.md) — so there is always at
-least one enabled item for the cursor to land on, and `action_menu()` never needs an
-"empty menu" refusal path.
+enabled — a **Read-only node** is explicitly copyable — so the cursor always has a
+landing row and `action_menu()` needs no "empty menu" refusal path.
+
+`enabled` means "core will attempt it", not "it will succeed". `Remark` on a comment whose
+text is not valid TOML fails with a Fragment error (`replace_delete.rs:1081-1153`, and
+equivalently in the JSON/YAML backends); predicting that would require a speculative
+reparse of every comment node per snapshot, and `ViewRow.comment_advisory` cannot help —
+it means something else entirely (comments in a plain `.json` file, `session.rs:316`).
+The failure surfaces as an `Error` **Notice**, exactly as pressing `r` does today.
 
 ### Intent mapping
 
 | `ActionId` | Effect |
 |---|---|
-| Edit | `BeginEditExternal` — same as today's context-menu item 1. Inline editing is unchanged and stays on click / `e` / the detail panel |
+| Edit | `BeginEditExternal` |
 | AddChild | `AddChild` |
 | AddSibling | `AddSibling` |
 | Copy | `CopySelected` |
 | Cut | `CutSelected` |
-| Remark | `Remark` (labeled "Toggle comment") |
-| AppendComment | **host-mapped** — see below |
+| Remark | `Remark` |
 | Detail | `ToggleDetail` |
 | Delete | `DeleteSelected` |
 
-`AppendComment` is the one item core does not dispatch itself. `EditField` has only
-`Value` and `Name` (`state.rs:170`), so beginning a trailing-comment edit is a host
-affordance today: desktop calls `beginTrailingEdit` (`web/ui.ts:1482`, a DOM-only inline
-input that commits through `SetTrailing`), touch routes to the detail panel's trailing
-field, and the TUI uses `BeginEditExternal` with `ExternalEditKind::Comment`. Core still
-owns **whether the item is offered and what it is called**; only the editor's appearance
-is host-side — the same split as the detail panel's `openKind` callback. Unifying it
-behind a new `EditField::Trailing` is listed in Out of scope.
-
-### Order
-
-Today's order is preserved and grouped, with one deliberate change: **Delete moves to the
-end, below a separator**, so it is not adjacent to Cut on a touch sheet.
-
-1. *(Edit)* — Edit
-2. *(Add)* — Add child, Append sibling
-3. *(Clipboard)* — Copy, Cut
-4. *(Comment)* — Toggle comment, Append comment
-5. *(View)* — Detail
-6. *(Danger)* — Delete
+Every item is one core intent — no host-mapped exceptions. The `Edit` item is labeled
+**"Edit in editor"** because it dispatches `BeginEditExternal` (the TUI's `E`, not `e`);
+inline editing is unchanged and stays on click / `e` / the panel.
 
 ### Intents
 
 Added to `crates/confy-core/src/session/intent.rs`:
 
 - `OpenActionMenu`
-- `ActionMenuMove(i32)` — wraps, and **skips both section headers and disabled items**
-  (`type_filter::nav_rows` precedent)
+- `ActionMenuMove(i32)` — wraps, and **skips disabled items**
 - `ActionMenuCommit` — TUI: applies `items[cursor]`
 - `ActionMenuPick(ActionId)` — pointer hosts: applies a directly-chosen id
 - `ExitActionMenu`
 
+**`ActionMenuCommit` / `ActionMenuPick` exit to `resting_mode()` first, then dispatch the
+mapped intent.** One implementation in core, so no host can forget to close its popup, and
+so `Edit` / `AddChild` / `Detail` — each of which sets its own `Mode` — do not have to
+overwrite `Mode::ActionMenu` as a side effect. Without this, `Copy` / `Cut` / `Delete`
+would leave the menu open holding a stale item list (post-Cut, the clipboard is armed and
+every remaining item should have flipped to disabled).
+
 `Escape` peels `Mode::ActionMenu` to `resting_mode()`, inserted into the existing peel
-chain in `dispatch.rs`. `ActionMenuCommit` / `ActionMenuPick` on a disabled item is a
-no-op that sets a `Warn` notice (`core.action.unavailable`) rather than silently ignoring
-the input.
+chain in `dispatch.rs`. Commit/Pick on a **disabled** item is a no-op that sets a `Warn`
+notice (`core.action.unavailable`) rather than silently ignoring the input — the dimming
+and the notice are the same affordance.
 
 `OpenActionMenu` while **Clipboard-armed** refuses and sets the existing
-`core.clipboard.action-locked` notice. This is not a special case bolted on — it is why
-the Action button flips to Paste while armed: armed already blocks mutations (ADR 0005
-§5), so a menu of blocked operations would be dishonest.
+`core.clipboard.action-locked` notice (`session.rs:804-811`, `guard_clipboard_locked`).
+This is not a special case bolted on — it is why the Action button flips to Paste while
+armed: armed already blocks mutations (ADR 0005 §5), so a menu of blocked operations would
+be dishonest.
 
 ### i18n keys
 
-Added to **both** `i18n/en.json` and `i18n/zh-TW.json` (the catalog test at
+Eleven, added to **both** `i18n/en.json` and `i18n/zh-TW.json` (the catalog test at
 `crates/confy-core/src/session/i18n.rs:142` panics on a zh-TW key missing from `en`):
 
 `core.action.title`, `core.action.targets`, `core.action.unavailable`,
 `core.action.edit`, `core.action.add-child`, `core.action.add-sibling`,
-`core.action.copy`, `core.action.cut`, `core.action.remark`,
-`core.action.append-comment`, `core.action.detail`, `core.action.delete`,
-`core.action.section.edit`, `core.action.section.add`,
-`core.action.section.clipboard`, `core.action.section.comment`,
-`core.action.section.view`, `core.action.section.danger`.
+`core.action.copy`, `core.action.cut`, `core.action.remark`, `core.action.detail`,
+`core.action.delete`.
 
-Removed: `web.render.moreActions.title`, and the `web.panel.editExternal` usage in
-`panel.ts` (§5).
+`core.action.targets` follows the existing `"…{0} node(s)"` plural style
+(`core.clipboard.copied`). No `core.action.section.*` keys — `separator_before` replaced
+section headers, which cost six keys per catalog and six non-navigable rows to distinguish
+groups that eight self-describing labels already distinguish.
+
+Removed: `web.render.moreActions.title`, the `web.panel.editExternal` usage (§5), and the
+`web.fab.*` notice keys `fabAddAction` fed (§3).
 
 Shortcut hints stay **host-side**: the same action is `E` in the TUI and `e` on desktop,
 so each host maps `ActionId` to its own key hint. Core supplies no keystrokes.
@@ -226,12 +252,16 @@ so each host maps `ActionId` to its own key hint. Core supplies no keystrokes.
 - `web/render.ts:201` loses the `⋮` button, along with `IC_MORE` (`render.ts:29`) and the
   `web.render.moreActions.title` key. `.row-actions` becomes **grip only**.
   `.paste-mode .row-actions{display:none}` (`web/style.css:527`) is unchanged and now
-  hides just the grip.
+  hides just the grip. **The kind badge is a sibling in the same flex row and must survive
+  untouched** — `render.ts:85` carries an explicit warning that this flexbox area is
+  fragile ("push the kind badge off, making it unclickable").
 - `buildCtxMenu`, `openCtxMenuAt`, and `ctxMenuPath` (`web/ui.ts:1641`, `1685`, `1552`)
   are deleted. `buildActionMenu()` renders from `snapshot.mode` instead of from a path.
-- Existing CSS already covers the new item shapes: `.pop`, `.menu-item`, `.menu-item:disabled`
-  (opacity .35), `.menu-sep`, `.menu-label` (`web/style.css:292-311`). One rule is added:
-  `.menu-item.danger`.
+  The separate kind popover (`openKindMenuAt`, `kindMenuPath`, `ui.ts:1586-1614`) is
+  **not** touched.
+- Existing CSS already covers the item shapes: `.pop`, `.menu-item`,
+  `.menu-item:disabled` (opacity .35), `.menu-sep`, `.menu-label`
+  (`web/style.css:292-311`). One rule is added: `.menu-item.danger`.
 - Open state now lives in core, so `render()` shows/hides the popup; the host retains only
   the anchor coordinates. Anchored **upward** from the Action button
   (`x = rect.right − popWidth`, `y = rect.top − height − 8`); `placePopAt`'s existing
@@ -241,15 +271,16 @@ so each host maps `ActionId` to its own key hint. Core supplies no keystrokes.
 - `↑`/`↓` → `ActionMenuMove`, `Enter` → `ActionMenuCommit`, `Esc` → `Escape`. This is
   keyboard navigation the desktop menus do not currently have (`placePopAt` has no arrow
   handling and no focus trap today).
+- `m` → `OpenActionMenu` in `web/key-intent.ts`, plus a `help-content.ts` row. Cross-host
+  key parity with the TUI, and the only way a desktop keyboard user reaches the menu.
 - Action button click: armed → `Paste`; otherwise → `OpenActionMenu`. Because `fab.ts` is
   the **shared** module, this touches both surfaces: `fabHTML`'s `data-act="add"` becomes
   `data-act="actions"`, `syncFab` keeps its paste-copy/paste-cut variants unchanged, and
-  the context-aware-add decision logic `fabAddAction` (`fab.ts:50`) is **deleted** — Add
-  child / Append sibling are now explicit menu items, so no host-side heuristic picks
-  between them, and the `web.fab.*` notice keys it fed become unused.
+  the context-aware-add heuristic `fabAddAction` (`fab.ts:50`) is **deleted** — Add child
+  and Append sibling are now explicit items, so nothing guesses between them.
 
-Accepted cost: the hover-to-act affordance on each row is gone. Right-click and the Action
-button both cover it, and rows get visually quieter.
+Accepted cost: the hover-to-act affordance on each row is gone. Right-click, `m`, and the
+Action button all cover it, and rows get visually quieter.
 
 ## §4 Touch
 
@@ -259,14 +290,19 @@ button both cover it, and rows get visually quieter.
   (`openSheet`, `app.ts:356`).
 - `dismissSheets()` (`app.ts:1926`) gains an `ActionMenu → ExitActionMenu` arm, matching
   how every other mode peels itself on dismiss.
-- `.menu-item` gains disabled and `.danger` styling; section headers get a `.menu-sec`
-  rule. Touch's `mi()` already renders a shortcut `<span class="sc">`, which stays empty
-  on touch.
-- The sheet header shows `target_count` ("N nodes"), so a multi-node Locked selection
-  finally has a visible, operable surface.
+- `.menu-item` gains disabled and `.danger` styling, plus a `.menu-sep` rule for the
+  Delete separator. Touch's `mi()` already renders a shortcut `<span class="sc">`, which
+  stays empty on touch.
+- The sheet header shows `target_label`, so a multi-node Locked selection finally has a
+  visible, operable surface — and a single-node selection names the node.
 - Swipe-left delete and swipe-right remark are **unchanged**, as are their armed-clipboard
-  guards (`app.ts:1290`).
+  guards (`app.ts:1290`). They do not duplicate the menu's Delete/Toggle comment for
+  membership-rule purposes: swipe actions are hidden at rest.
 - Touch rows are already grip-only, so desktop now matches touch rather than the reverse.
+- The touch row kind badge is **not** tappable today (no `data-kind` routing in
+  `touch/app.ts`, no `.kind` rule in `touch/style.css`); touch reaches Kind switch through
+  the panel's `.kindbtn` → `openKindRow` → `openKindSheet` (`app.ts:178, 603-634`). That
+  asymmetry is pre-existing and explicitly **out of scope** here.
 
 ## §5 Detail panel
 
@@ -276,10 +312,17 @@ helper, which becomes orphaned. Dead CSS to remove: `#detailBody .row-btns`,
 `#detailBody .row-btns .btn` (`web/style.css:703-704`) and `#detailBody .btn.danger`
 (`702`). `#detailBody .btn` itself stays — `.kindbtn` uses it.
 
-`wirePanel`'s `afterMutation` parameter (`panel.ts:223`) exists only to confirm-and-dismiss
-after Delete / Copy / Cut, so it is orphaned too: drop it from the signature and from both
-call sites (`web/ui.ts`, `web/touch/app.ts`). `batch`/`run`, `onError`, and `openKind` all
-stay — the remaining editing handlers still use them.
+**Positional-argument hazard.** `wirePanel(container, row, send, openKind, onError,
+afterMutation, batch, schemaEnum)` is positional, and `afterMutation` (`panel.ts:223`)
+exists only to confirm-and-dismiss after Delete / Copy / Cut, so it is orphaned too.
+Dropping the 6th parameter shifts every trailing argument at all three call sites —
+`web/ui.ts:560-568`, and touch at `app.ts:487` (`…, afterPanelMutation, undefined,
+schemaEnum`) and `app.ts:584` (`…, afterPanelMutation`). Both trailing parameters are
+optional, so a missed call site may not fail to compile; it would fail *silently* as a
+dead kind button or a dead schema `<select>`. §8 verifies this explicitly.
+
+`batch`/`run`, `onError`, and `openKind` all stay — the remaining editing handlers use
+them, and `openKind` is what keeps Kind switch alive in the panel.
 
 **Every editing affordance stays.** The panel remains fully editable; only actions leave:
 
@@ -289,13 +332,13 @@ stay — the remaining editing handlers still use them.
 | Value input `.c-edit` | inline | `CommitEdit` |
 | Multi-line value button `editvalue` | 342-348 | `BeginEdit` |
 | Schema enum `<select>` | 315-323 | `SchemaEnumMove` + `SchemaEnumCommit` |
-| Trailing comment input | 349-352 | `SetTrailing` |
+| Trailing comment input | 132-143, 349-352 | `SetTrailing` (create, change, and clear) |
 | Comment-node input | 353-356 | `ApplyEditComment` |
-| Kind badge `kindswitch` | 358 | host kind-switch surface |
+| **Kind badge `kindswitch`** | 358 | host kind-switch surface — desktop `openKindForRow` (`ui.ts:585`), touch `openKindSheet` (`app.ts:603`) |
 
 | Removed action | `panel.ts` | Now reached via |
 |---|---|---|
-| `editexternal` | 200 | Action menu → Edit (`BeginEditExternal`) |
+| `editexternal` | 200 | Action menu → Edit in editor (`BeginEditExternal`) |
 | `copy` | 201 | Action menu → Copy |
 | `cut` | 202 | Action menu → Cut |
 | `del` | 203 | Action menu → Delete |
@@ -303,35 +346,42 @@ stay — the remaining editing handlers still use them.
 Note on req 1: `editexternal` existed to "unconditionally force the external popup editor,
 bypassing the schema-select branch `BeginEdit` takes for an enum-constrained scalar"
 (`panel.ts:331-333`). That escape hatch moves to the Action menu's Edit item, which
-dispatches the same `BeginEditExternal`. It is therefore preserved as a capability, but no
-longer inside the panel.
+dispatches the same `BeginEditExternal` — preserved as a capability, no longer inside the
+panel.
 
 `panel-schema.spec.mjs:122-130` asserts the Schema block renders *before* `row-btns`;
 after this change Schema (then Comment advisory) is the panel's trailing block, and the
-spec must be updated to assert that instead.
+spec must assert that instead.
 
-### Reachability while the panel is open
+### The panel closes when the menu opens — on **both** hosts
 
-Because the panel is now the only surface without its own actions, the Action button's
-availability matters:
+The first draft claimed desktop kept the panel visible. That is true of pixels and false
+of behavior:
 
-- **Desktop**: `.detail` is a flex sibling inside `.main` (`web/index.html:127`), so the
-  §7 wrapper keeps the Action button over the tree and to the *left* of the open panel —
-  visible and clickable throughout.
-- **Touch**: the detail is a `.sheet` behind a scrim (`z-index` 45 over the button's 40),
-  one sheet at a time, so the button is genuinely unreachable while it is open. Accepted:
-  dismiss the sheet, then act — the Cursor is unchanged, so the Action menu targets the
-  same node. Explicitly rejected alternative: an "Actions" row inside the detail sheet,
-  which would reintroduce precisely what this change removes.
+- `Mode` is a **single-slot enum** (`state.rs:44-63`) and core has no mode stack or
+  return-mode field anywhere.
+- **Desktop**: the panel is `Mode::Detail`-driven — `renderDetailPanel` closes it whenever
+  `tag !== "Detail"` (`ui.ts:543`). Entering `Mode::ActionMenu` therefore closes it.
+- **Touch**: the detail sheet is *host-local* state, not core-mode-backed (`app.ts:1619-
+  1620`, explicitly commented "unlike desktop's `Mode::Detail`"), but the
+  one-sheet-at-a-time rule closes it just the same.
+
+Accepted, because it is **already the shipped behavior for the panel's own kind badge**:
+`openKindForRow` (`ui.ts:585-594`) dispatches `OpenKindSwitch` → `Mode::KindSwitch` → the
+panel closes. The Cursor is unchanged, so the menu targets the same node. Rejected
+alternatives: a return-mode on `Mode::ActionMenu` (invents core's first mode stack for one
+case, and would make the long-shipped kind-badge behavior look like a bug), and an
+"Actions" row inside the detail sheet (reintroduces precisely what this change removes).
 
 ## §6 TUI
 
 - New `crates/confy-tui/src/tui/overlay_action_menu.rs` drawing `Mode::ActionMenu` in the
   `overlay_kind_switch.rs` shape: `›` cursor marker, `Modifier::REVERSED` cursor row,
-  `centered_rect(40, …)`, `Clear` first, `title_bottom` key hints.
-- Disabled items render dimmed (`Color::DarkGray`) and are skipped by navigation; section
-  headers render cyan + bold and are non-navigable (`overlay_type_filter.rs`
-  `LayoutRow::Header` precedent).
+  `centered_rect(40, …)`, `Clear` first, `title_bottom` key hints. Header shows
+  `target_label`.
+- Disabled items render dimmed (`Color::DarkGray`) and are skipped by navigation; the
+  Delete separator renders as a plain rule (no `LayoutRow::Header` machinery is needed now
+  that section headers are gone).
 - Scrolling follows `overlay_schema_enum.rs` (`schema_enum_scroll_offset` analogue) so a
   list taller than the terminal stays navigable (ui-design-principles §11).
 - `keys.rs` binds `m` → `KeyAction::ActionMenu`; the keybinding-contract test at
@@ -342,8 +392,8 @@ availability matters:
 - Armed clipboard guards `m` exactly as it guards `lang_picker`
   (`keys.rs:173-220`, `armed_clipboard_guards_lang_picker_and_edit_node`).
 
-The single-key shortcuts (`a`, `d`, `c`, `x`, `v`, `r`, `e`, `E`) are unchanged; the menu
-is a discovery surface layered over them, not a replacement.
+The single-key shortcuts (`a`, `d`, `c`, `x`, `v`, `r`, `e`, `E`, `K`) are unchanged; the
+menu is a discovery surface layered over them, not a replacement.
 
 ## §7 Action button position
 
@@ -382,51 +432,72 @@ Touch applies the same wrapper around `.tree-pane`, keeping
 Green unit tests are not sufficient; both real binaries are exercised.
 
 **Core (`confy-core`)**
-- `action_menu()` item set and order for: scalar leaf, branch, comment, root, read-only
-  node, array element.
-- Multi-node Locked selection disables the single-node items and keeps the
-  selection-aware ones enabled; `target_count` matches `selected_paths().len()`.
+- `action_menu()` item set, order, and `target_label` for: scalar leaf, branch, comment,
+  root, read-only node, array element.
+- Multi-node Locked selection: exactly Edit / Add child / Append sibling / Detail are
+  disabled and the four set-applying items stay enabled; `target_count` matches
+  `selected_paths().len()`.
+- A multi-node selection **containing a read-only node** leaves only Copy enabled.
 - `OpenActionMenu` while Clipboard-armed refuses and sets `core.clipboard.action-locked`.
-- `ActionMenuMove` skips headers and disabled items, and wraps.
+- `ActionMenuMove` skips disabled items and wraps.
 - `ActionMenuPick` on a disabled id is a no-op setting `core.action.unavailable`.
+- **After `Pick`/`Commit` on an enabled item, `mode` is no longer `ActionMenu`** — the
+  exit-then-dispatch ordering.
 - `Escape` peels `Mode::ActionMenu` to `resting_mode()`.
-- Every `ActionId` label and section resolves in both catalogs (extends the existing
-  i18n catalog test).
+- Every `ActionId` label resolves in both catalogs (extends the existing i18n test).
 
 **TUI (`crates/confy-tui/src/tui/tests.rs`)**
 - `m` opens the overlay; `Enter` on each enabled item dispatches the expected mutation
   (asserted through `serialize()`, per the established style).
 - `Esc` closes to `resting_mode()`; `m` while armed does not open.
+- `K` still opens the kind switch.
 
 **Web**
-- New `web/action-menu.spec.mjs` in the existing esbuild-extraction style: desktop
-  upward anchoring, toggle-closed on second trigger click, arrow/Enter navigation, and
-  the touch sheet's item/section/disabled rendering.
+- New `web/action-menu.spec.mjs` in the existing esbuild-extraction style: desktop upward
+  anchoring, toggle-closed on second trigger click, arrow/Enter navigation, `m`, and the
+  touch sheet's item / separator / disabled rendering.
 - Update `web/panel-schema.spec.mjs` for the new trailing block.
 - Extend `web/touch-modal-lock.spec.mjs` with the armed-clipboard `ActionMenu` refusal.
 
+**Kind switch must still work** (explicit, because §3/§5 both edit code adjacent to it)
+- Desktop row kind badge still opens the popover and still toggles closed on a second
+  click after `.row-actions` loses the `⋮` (`render.ts:85`'s flexbox warning).
+- The panel's `.kindbtn` still opens the popover on desktop and the sheet on touch, from
+  all three `wirePanel` call sites, **after `afterMutation` is dropped from the signature**
+  — i.e. no argument slid into the `batch` or `schemaEnum` slot.
+- The panel's schema `<select>` still works, for the same reason.
+
 **Real binaries**
-- TUI: press `m` on a scalar, a branch, a comment, a multi-node selection, and while
-  armed; confirm the overlay, dispatch, and refusal.
-- Web dev server: desktop click and right-click, then touch emulation, each in normal and
-  armed states; confirm the button never covers the status bar at wide, narrow, and
-  footer-wrapped widths, and stays visible beside an open detail panel.
+- TUI: press `m` on a scalar, a branch, a comment, a multi-node selection, a selection
+  containing a read-only node, and while armed; confirm the overlay, dispatch, and
+  refusal.
+- Web dev server: desktop click, right-click, and `m`, then touch emulation, each in
+  normal and armed states; confirm the button never covers the status bar at wide, narrow,
+  and footer-wrapped widths, and that the kind badge and panel kind button both still
+  open.
+- VS Code webview: confirm right-click reaches the Action menu rather than being swallowed
+  by the webview host (`web/vscode.ts` is a message-passing adapter over this same UI, so
+  it inherits the change untested otherwise).
 
 **Docs and record**
-- CONTEXT.md — the three §1 terms.
+- CONTEXT.md — the four §1 terms and the Remark label line. **Done.**
+- ADR 0009 + index row. **Done.**
 - WEBUI.md — row anatomy (`:146-155`), the FAB bullet (`:156-160`), the detail-panel
   buttons, and Overflow-menu naming (`:409-416`).
 - TUI.md — key table and the new overlay.
 - CHANGELOG.md — one `Unreleased Update` entry.
-- A new ADR: this is hard to reverse, surprising without context, and a real trade-off
-  (per-row affordance and one-tap add given up for cross-host consistency and core-owned
-  eligibility).
 
 ## Out of scope
 
-- Kind switch (`K`) as an Action menu item — reachable from the panel's kind badge and the
-  TUI key; adding it is a separate decision.
-- Long-press on the Action button for a direct add (the one-tap add regression is accepted
-  rather than mitigated).
+- Making touch's row kind badge tappable (pre-existing asymmetry; §4).
+- Driving the native Edit menu's items from core eligibility (ADR 0009; a follow-up ADR if
+  the read-only inconsistency proves to matter).
+- Long-press on the Action button for a direct add — the one-tap add regression is
+  accepted rather than mitigated.
+- `EditField::Trailing` + a `BeginTrailingEdit` intent, which is what "Append comment"
+  would need to become a real cross-host item.
 - Making the schema enum `<select>` offer free-text entry (the deeper fix for req 1).
 - Any change to the Overflow menu's contents or the swipe gestures.
+- `docs/reference/CHROME.md` documents a host that does not exist in the repo (no
+  `extension/`, no manifest). Unrelated doc-accuracy cleanup, noted here only so the next
+  reader does not treat it as a surface this change missed.

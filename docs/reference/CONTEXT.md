@@ -232,6 +232,9 @@ The toggle that turns a live Node into a **Comment** (and back). Canonical name 
 selection (adjacent rows merge into one comment block; un-remarking a selected block
 expands the selection onto every restored row — see `ROW_STATE_MODEL.md` §1c); otherwise
 it targets the cursor row.
+Its user-facing label is **"Toggle comment"** on every host (menus, help text); *Remark* is
+the term of art the code and these docs use. Both are correct in their own register — do
+not let either drift into the other's.
 _Avoid_: Disable/enable, comment-out (use these only as verbs in prose, never as the concept
 name).
 
@@ -279,6 +282,36 @@ holds. Canonical, cross-platform vocabulary (ADR 0005) for what prose elsewhere 
 "cut/copy mode" or "paste mode."
 _Avoid_: paste mode alone (ambiguous with PasteSlot navigation, which is available
 whenever Clipboard-armed is true but is a distinct concept).
+
+**Overflow menu**:
+Chrome only. Lists exactly the toolbar controls the current viewport width has folded
+away. Desktop `⋯` popup, touch `⋯` sheet. Never holds Node operations.
+_Avoid_: More menu, dynamic menu, menu sheet.
+
+**Action menu**:
+The single surface listing every operation available on the current **Cursor** or
+**Locked selection**. One item model owned by core; three renderings — desktop popup,
+touch bottom sheet, TUI overlay. Opened by the **Action button**, by desktop right-click,
+or by `m`.
+Membership rule: an operation belongs to the Action menu when core can express it as a
+single intent over the target set, **unless the Node already carries a dedicated,
+always-visible control for it** (the kind badge is the one such control, so **Kind
+switch** is deliberately absent). In-place text entry — renaming, values, trailing
+comments — belongs to the detail panel, never here.
+An item is single-Node-only exactly when the core state behind it carries one Path; the
+set-applying operations (**Copy**, **Cut**, **Remark**, delete) stay available on a
+multi-Node **Locked selection**. Ineligible items are shown disabled, never hidden.
+_Avoid_: context menu (that is one desktop gesture that opens it), node menu, `⋮` menu.
+
+**Action button**:
+The floating trigger that opens the **Action menu**. While **Clipboard-armed** it is
+instead the **Paste button**, with a cancel affordance above it.
+_Avoid_: FAB, `+` button.
+
+**Native menu bar** (Tauri desktop):
+Chrome, like the **Overflow menu**. Its Edit menu's Copy/Cut/Paste Node items are
+OS-convention accelerators, deliberately outside the **Action menu**'s item model and
+outside its eligibility computation. Not a surface to "unify" later.
 
 **Type filter** (`f`) vs **Text filter** (`/`):
 Two independent ways to narrow the visible tree. The **Text filter** (`/`) fuzzy-matches a Node's

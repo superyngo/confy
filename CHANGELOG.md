@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ## [Unreleased]
+### Unreleased Update — 2026-08-30T10:48:27Z
+- **docs(design): grill the Action menu design; ADR 0009 + CONTEXT.md terms.** A
+  question-driven review pass over the design spec added
+  `docs/adr/0009-centralized-action-menu-core-owned.md`, four glossary entries
+  to `docs/reference/CONTEXT.md` (**Overflow menu**, **Action menu**, **Action
+  button**, **Native menu bar**) plus a line on **Remark** recording that its
+  user-facing label is "Toggle comment" on every host, and rewrote the spec
+  around evidence. Two claims in the first draft were verified false and are
+  now corrected: (1) the desktop detail panel does **not** stay open when the
+  Action menu opens — `Mode` is a single-slot enum with no mode stack
+  (`state.rs:44-63`) and the desktop panel is `Mode::Detail`-driven
+  (`ui.ts:543`), so both web hosts close it; accepted because the panel's own
+  kind badge already does exactly this via `Mode::KindSwitch`
+  (`ui.ts:585-594`). (2) `ExternalEditKind::Comment` (`view.rs:227-232`) edits a
+  **comment node's text** via `ApplyEditComment`, not a trailing comment, so the
+  claimed TUI route for "Append comment" never existed — and the TUI has no
+  trailing-comment creation path at all (`app.rs:589-653`). The item model
+  shrank from 10 to **8**, each exactly one core intent with no host-mapped
+  exceptions: Paste was already unreachable (opening is refused while
+  Clipboard-armed, so today's `⋮` Paste entry is dead code), Append comment was
+  dropped (both web hosts already create/change/clear a trailing comment through
+  the panel input `panel.ts:132-143`, which is kept), and Kind switch was
+  dropped because the node carries a dedicated always-visible control — the kind
+  badge (`render.ts:90-94`, routed at `ui.ts:1254`). That exclusion is now a
+  written membership rule rather than a case-by-case judgement: an operation
+  belongs to the Action menu when core can express it as a single intent over
+  the target set, unless the node already has a dedicated always-visible control
+  for it; in-place text entry belongs to the detail panel. Eligibility likewise
+  became derived rather than enumerated — an item is single-node-only exactly
+  when the core state behind it carries one `Path` — which yields 4 of 8 dimmed
+  on a multi-node selection and 7 of 8 when the selection contains a read-only
+  node, the reason ineligible items are shown disabled rather than hidden. Also
+  resolved: six section headers replaced by one `separator_before` flag above
+  Delete (i18n keys down from 19 to 11), a core-supplied `target_label` naming
+  the node when a single one is targeted (the menu no longer opens *at* the
+  row), `ActionMenuCommit`/`Pick` exit to `resting_mode()` **before**
+  dispatching, desktop gains `m` for key parity with the TUI, the `Edit` item is
+  labeled "Edit in editor" since it dispatches `BeginEditExternal`, and the
+  Tauri native Edit menu's Copy/Cut/Paste Node items (`web/menu.ts:333-347` — a
+  fifth node-op surface the first draft never counted) are documented as an
+  exempt OS-convention surface. Recorded a silent-failure hazard for the
+  implementation: `wirePanel` is positional, so dropping its `afterMutation`
+  parameter shifts trailing args at all three call sites and would break the
+  panel's kind button or schema `<select>` without a compile error. No code
+  changes yet.
+
 ### Unreleased Update — 2026-08-30T09:54:26Z
 - **docs(design): Action menu — centralized node operations across desktop,
   touch, and TUI.** Approved design spec for replacing the per-row desktop `⋮`

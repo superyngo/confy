@@ -18,6 +18,7 @@ the old one superseded.
 | [0006](0006-outline-symbol-representative-span-anchoring.md) | Editor-outline symbol ranges for scattered-definition nodes anchor at the first member, never an envelope | Implemented (2026-08-20) |
 | [0007](0007-vscode-schema-session-in-place-replace.md) | VS Code native-editor schema session updates in place via `ApplyReplace`, never rebuilt per keystroke | Implemented (2026-08-21) |
 | [0008](0008-in-session-diagnostic-ring-over-tracing.md) | Diagnostics are an in-Session ring buffer, not `tracing` | Implemented (2026-08-21) |
+| [0009](0009-centralized-action-menu-core-owned.md) | Node operations are centralized in one core-owned Action menu, replacing the per-row `⋮`, the detail panel's action buttons, and the `+` FAB | Accepted (2026-08-30), implementation pending |
 
 No ADR has been superseded to date.
 
