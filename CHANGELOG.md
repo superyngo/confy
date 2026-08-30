@@ -10,6 +10,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.23.0] - 2026-08-29
 
+### Unreleased Update — 2026-08-30T03:15:00Z
+- **ci(web): wire `crates/confy-ffi/functional_smoke.mjs` into the build
+  pipeline — it was never actually running.** `web/run-tests.mjs` only
+  discovers `*.spec.mjs` files inside `web/`, so this Stage-2 wasm
+  functional-smoke test (wrong directory, wrong filename pattern) was
+  silently skipped by both `web-ci.yml` and every real Cloudflare Pages
+  deploy. Added `( cd crates/confy-ffi && node functional_smoke.mjs )` to
+  `web/cf-build.sh`, right after the `wasm-pack build` step that produces
+  the `pkg/` output it imports and before the `web/` typecheck+test+bundle
+  step — a failure here now aborts the build the same way a typecheck or
+  test regression already does (`set -euo pipefail`). Verified end-to-end:
+  ran the full `bash web/cf-build.sh` locally (completes with
+  `cf-build: assembled web/dist`) and separately ran
+  `node functional_smoke.mjs` standalone after a fresh `wasm-pack build`,
+  confirming all 111 checks pass and it prints `ALL FUNCTIONAL CHECKS
+  PASSED` / exits 0 (confirmed the script's own `process.exit(failures ===
+  0 ? 0 : 1)` already fails the build correctly on a real failure — no
+  further fix needed there).
+
 ### Unreleased Update — 2026-08-30T03:00:00Z
 - **docs: correct the record on the `quick-xml` RUSTSEC findings — already
   moot for CI, not a pending fix.** The prior entry (below) reported

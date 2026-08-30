@@ -29,6 +29,7 @@ fi
 #    size-optimize just this leg. Same env-var override idiom that
 #    `.github/workflows/release.yml` uses to relax the profile for Windows.
 ( cd crates/confy-ffi && CARGO_PROFILE_RELEASE_OPT_LEVEL=z wasm-pack build --target web )
+( cd crates/confy-ffi && node functional_smoke.mjs )
 ( cd web && npm ci && node build.mjs && npm run typecheck && npm test )
 
 # 4. Assemble a clean output dir with only the runtime files.
