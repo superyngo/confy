@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ## [Unreleased]
+### Unreleased Update — 2026-08-30T06:05:13Z
+- **feat(web): touch UI parity — comment-advisory card, wavy underline,
+  swipe-to-remark.** Three touch-UI gaps vs. desktop, closed: (1) the detail
+  panel's `comment-advisory` note now gets a warn-bordered card
+  (`.detail .comment-advisory` in `web/touch/style.css`, matching
+  `.detail .schema-info`'s box language) instead of rendering as bare text —
+  `web/panel.ts` already emitted the markup, touch just had no CSS for it.
+  (2) Tree rows with `ViewRow.comment_advisory` set now get desktop's wavy
+  warning underline on the comment/trailing-comment span
+  (`.comment.comment-advisory` in `web/touch/render.ts` +
+  `web/touch/style.css`); desktop's own `.comment-advisory` selector
+  (`web/style.css`) is now scoped to `.comment.comment-advisory` so the rule
+  no longer also (accidentally) applies inside the desktop detail panel's
+  advisory card, which never had a text-decoration reset. (3) Touch gains a
+  right-swipe gesture revealing a neutral `.row-remark` button (mirrors the
+  existing left-swipe `.row-del`), dispatching `Intent::Remark` — the
+  desktop-only `r` key / "Toggle comment" menu item was previously
+  unreachable on touch. `web/touch/app.ts`'s swipe state generalized from
+  one-sided (`-SWIPE_W`..`0`) to bidirectional (`-SWIPE_W`..`SWIPE_W`,
+  clamped per-row to whichever actions the row actually carries);
+  `setDelRevealed` renamed `setSwipeRevealed` (not action-specific). Fixed a
+  latent tap-routing gap while implementing this: `pointerdown`'s
+  `.row-main`/`.row-del` `closest()` fallback for an already-swiped-open row
+  now also checks `.row-remark`, or a tap on the revealed remark button
+  would resolve to no row. Added `web/touch-comment-advisory.spec.mjs`;
+  synced the renamed/extended swipe state into
+  `web/touch-modal-lock.spec.mjs` and `web/touch-paste-drag.spec.mjs`,
+  which extract `installTreeGestures` verbatim from `touch/app.ts`. Verified
+  end-to-end: `crates/confy-ffi` rebuilt via `wasm-pack`, `web/build.mjs`
+  bundled cleanly, the dev server served the built `touch/app.js` and
+  `touch/style.css`/`style.css` containing the new markup/rules, `tsc
+  --noEmit` and the full `web` test suite (existing + new) pass, and
+  `cargo test -p confy-core` passes (no Rust files touched).
 
 ## [v0.23.0] - 2026-08-29
 

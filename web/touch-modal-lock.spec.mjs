@@ -37,7 +37,7 @@ const installGesturesBlock = appTs.match(/^function installTreeGestures\(\) \{[\
 check("installTreeGestures found in source", installGesturesBlock.length > 0);
 check(
   "installTreeGestures swipe-to-delete guards armed clipboard",
-  /swipeMain\s*=[\s\S]*?clipboard_count/.test(installGesturesBlock),
+  /clipboard_count[\s\S]*?swipeMain\s*=/.test(installGesturesBlock),
 );
 
 const touchCss = readFileSync(path.join(here, "touch/style.css"), "utf8");
@@ -107,9 +107,12 @@ let edgeScrollY = 0;
 let edgeScrollRAF = null;
 let swiping = false;
 let swipeMain = null;
+let swipeHasDel = false;
+let swipeHasRemark = false;
 let swipeBase = 0;
 let swipeOff = 0;
 let openSwipeMain = null;
+let openSwipeOff = 0;
 const SWIPE_W = 72;
 const treeListeners = {};
 const appListeners = {};
@@ -158,7 +161,7 @@ const openKindRow = () => {};
 const afterPanelMutation = () => {};
 const IC = { close: "" };
 const rowFor = (p) => snap?.rows?.find((r) => JSON.stringify(r.path) === JSON.stringify(p)) ?? null;
-const setDelRevealed = (m, on) => H.ops.push("setDelRevealed " + on);
+const setSwipeRevealed = (m, on) => H.ops.push("setSwipeRevealed " + on);
 const onReorderMove = () => {};
 const handleTap = () => {};
 const onPasteDragMove = () => {};
@@ -272,7 +275,7 @@ export ${fns[4]}
 
   mod.triggerPointerMove({ clientX: 50, clientY: 100, preventDefault: () => {} });
   check("pointermove when armed does not set swiping", mod.getSwiping() === false);
-  check("pointermove when armed does not call setDelRevealed", !H.ops.some((o) => o.startsWith("setDelRevealed")));
+  check("pointermove when armed does not call setSwipeRevealed", !H.ops.some((o) => o.startsWith("setSwipeRevealed")));
 }
 
 // 5. Swipe-to-delete when unarmed: allows swipe
@@ -293,7 +296,7 @@ export ${fns[4]}
 
   mod.triggerPointerMove({ clientX: 50, clientY: 100, preventDefault: () => {} });
   check("pointermove when unarmed sets swiping", mod.getSwiping() === true);
-  check("pointermove when unarmed calls setDelRevealed", H.ops.some((o) => o.startsWith("setDelRevealed")));
+  check("pointermove when unarmed calls setSwipeRevealed", H.ops.some((o) => o.startsWith("setSwipeRevealed")));
 }
 
 // 6. Double tap (openPanel) when clipboard_count > 0: does not open detail sheet, emits toast

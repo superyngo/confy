@@ -123,7 +123,7 @@ function kickEdgeAutoScroll() {}
 function requestAnimationFrame(fn) { return 0; }
 let lastTapKey = null, lastTapTime = 0;
 const DOUBLE_TAP_MS = 300;
-let swiping = false, swipeMain = null, swipeBase = 0, swipeOff = 0, openSwipeMain = null;
+let swiping = false, swipeMain = null, swipeHasDel = false, swipeHasRemark = false, swipeBase = 0, swipeOff = 0, openSwipeMain = null, openSwipeOff = 0;
 const SWIPE_W = 96;
 let reordering = false;
 const H = globalThis.__touchHooks;
@@ -133,7 +133,7 @@ const selectOnly = (p) => H.ops.push("selectOnly " + JSON.stringify(p));
 const openPanel = (p) => H.ops.push("openPanel " + JSON.stringify(p));
 const toast = (m) => H.ops.push("toast " + m);
 const t = (k) => k;
-const setDelRevealed = (m, on) => H.ops.push("setDelRevealed " + on);
+const setSwipeRevealed = (m, on) => H.ops.push("setSwipeRevealed " + on);
 function startReorder() {}
 function onReorderMove() {}
 function endReorder() {}

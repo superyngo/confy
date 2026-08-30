@@ -366,8 +366,11 @@ edits to the verbatim desktop CSS.
   key / `=` / typed value / count / kind badge / comment / grip) but every row is a real
   `ViewRow`; flat list (the snapshot is the visible-row projection, so collapsed branches omit
   descendants — no `.children` nesting), root row skipped, `data-path` attribute-safe. The
-  prototype's right-side branch `>` chevron is dropped. Each non-read-only row carries a hidden
-  `.row-del` button behind `.row-main`, revealed by a **left-swipe-to-delete** gesture (see below).
+  prototype's right-side branch `>` chevron is dropped. A comment/trailing-comment span gets the
+  `comment-advisory` class (wavy underline, matching desktop) when `ViewRow.comment_advisory` is
+  set. Each non-read-only row carries two hidden buttons behind `.row-main`: `.row-del` (revealed
+  by a **left-swipe-to-delete**) and `.row-remark` (revealed by a **right-swipe-to-remark**, toggle
+  node ↔ comment) — see below.
 - `touch/app.ts` — orchestrator: boots the Session (`load` + `Session.fromText`), generates the
   shell (ported `appHTML`), renders snapshots, and re-points every gesture to an Intent.
 
@@ -435,11 +438,14 @@ edits to the verbatim desktop CSS.
   from an external/Bluetooth keyboard on a touch device. Guarded against focused
   `INPUT`/`TEXTAREA`/`SELECT` fields and the URL/external-edit sheets so typing in a form
   field is never hijacked.
-- **Swipe-to-delete.** A left-swipe on a row's `.row-main` slides it open to reveal a single
-  red Delete action (`.row-del`); one row is open at a time. The pointer flow **locks the axis**
+- **Swipe actions.** A left-swipe on a row's `.row-main` slides it open to reveal a red Delete
+  action (`.row-del`); a right-swipe slides it the other way to reveal a neutral Remark action
+  (`.row-remark`, toggles the node to/from a comment — desktop's `r` key). One row is open at a
+  time, and either side auto-closes when the other opens. The pointer flow **locks the axis**
   (horizontal >8px & > vertical → swipe; vertical → scroll/tap-cancel) so it coexists with grip-drag
-  reorder and list scroll; read-only rows opt out (no `.row-del`). The open row's transform is reset
-  on the next full re-render (the tree `innerHTML` is rebuilt), so a Delete (or any tap) closes it.
+  reorder and list scroll; a swipe direction is only offered when the row carries the matching
+  action (read-only rows opt out of both). The open row's transform is reset on the next full
+  re-render (the tree `innerHTML` is rebuilt), so a Delete/Remark tap (or any tap) closes it.
 - the **Save button** (single plain `.tbtn`, not a split-button pill — see Mobile section below
   for why that design was tried and reverted) always opens a small **save-choice sheet**
   (`openSaveSheet`, same anatomy as the language/menu sheets) offering "Save" (→ `doQuickSave`,

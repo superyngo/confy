@@ -471,6 +471,7 @@ function render() {
     treePane.scrollTop = st;
     // The rebuild detaches any swipe-opened row — drop the stale reference.
     openSwipeMain = null;
+    openSwipeOff = 0;
     app.classList.remove("raw");
   }
 
@@ -1038,16 +1039,19 @@ const DOUBLE_TAP_MS = 300;
 // to reveal a single Delete action (`.row-del`). One row is open at a time.
 let swiping = false;
 let swipeMain: HTMLElement | null = null;
+let swipeHasDel = false;
+let swipeHasRemark = false;
 let swipeBase = 0;
 let swipeOff = 0;
 let openSwipeMain: HTMLElement | null = null;
+let openSwipeOff = 0;
 const SWIPE_W = 96;
 
 // Reveal / hide the red Delete behind a row (`.row.swiping` — CSS keeps
 // `.row-del` visibility:hidden at rest so scroll repaints can't flash red
 // slivers at the rounded corners). Hiding waits out the close animation so the
 // button slides behind the row instead of vanishing mid-slide.
-function setDelRevealed(main: HTMLElement | null, on: boolean) {
+function setSwipeRevealed(main: HTMLElement | null, on: boolean) {
   const row = main?.closest<HTMLElement>(".row");
   if (!row) return;
   if (on) {
@@ -1273,17 +1277,20 @@ function installTreeGestures() {
     if (pasteDragActive) kickEdgeAutoScroll(e.clientY);
     const tgt = e.target as HTMLElement;
     // A tap can land on the visible row-main OR (when already swiped open) on the
-    // revealed `.row-del` behind it — both map to the same row.
-    const main = tgt.closest<HTMLElement>(".row-main") ?? tgt.closest<HTMLElement>(".row-del");
+    // revealed `.row-del`/`.row-remark` behind it — all map to the same row.
+    const main =
+      tgt.closest<HTMLElement>(".row-main") ??
+      tgt.closest<HTMLElement>(".row-del") ??
+      tgt.closest<HTMLElement>(".row-remark");
     const rowEl = main?.closest<HTMLElement>(".row");
     if (!rowEl) return;
     dragRow = rowEl;
     // Swipe only when the row carries a Delete action (read-only rows don't) and clipboard is not armed.
-    swipeMain =
-      (snap?.clipboard_count ?? 0) <= 0 && rowEl.querySelector<HTMLElement>(".row-del")
-        ? rowEl.querySelector<HTMLElement>(".row-main")
-        : null;
-    swipeBase = swipeMain && openSwipeMain === swipeMain ? -SWIPE_W : 0;
+    const clipboardArmed = (snap?.clipboard_count ?? 0) > 0;
+    swipeHasDel = !clipboardArmed && !!rowEl.querySelector<HTMLElement>(".row-del");
+    swipeHasRemark = !clipboardArmed && !!rowEl.querySelector<HTMLElement>(".row-remark");
+    swipeMain = swipeHasDel || swipeHasRemark ? rowEl.querySelector<HTMLElement>(".row-main") : null;
+    swipeBase = swipeMain && openSwipeMain === swipeMain ? openSwipeOff : 0;
     sx = e.clientX;
     sy = e.clientY;
     dragging = true;
@@ -1307,14 +1314,14 @@ function installTreeGestures() {
     // Lock the axis once the gesture is decisive: horizontal → swipe, vertical →
     // a scroll (which also cancels the pending tap).
     if (!swiping && !moved) {
-      if ((snap?.clipboard_count ?? 0) <= 0 && swipeMain && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) {
+      if (swipeMain && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) {
         swiping = true;
-        setDelRevealed(swipeMain, true);
+        setSwipeRevealed(swipeMain, true);
         if (openSwipeMain && openSwipeMain !== swipeMain) {
           const other = openSwipeMain;
           other.style.transform = "";
           openSwipeMain = null;
-          setDelRevealed(other, false);
+          setSwipeRevealed(other, false);
         }
         if (swipeMain) swipeMain.style.transition = "none";
       } else if (Math.abs(dy) > 8) {
@@ -1323,7 +1330,9 @@ function installTreeGestures() {
     }
     if (swiping && swipeMain) {
       e.preventDefault();
-      swipeOff = Math.max(-SWIPE_W, Math.min(0, swipeBase + dx));
+      const lo = swipeHasDel ? -SWIPE_W : 0;
+      const hi = swipeHasRemark ? SWIPE_W : 0;
+      swipeOff = Math.max(lo, Math.min(hi, swipeBase + dx));
       swipeMain.style.transform = `translateX(${swipeOff}px)`;
     }
   });
@@ -1335,12 +1344,13 @@ function installTreeGestures() {
     if (swiping && swipeMain) {
       // Snap open / closed past the halfway point (CSS transition animates it).
       swipeMain.style.transition = "";
-      const open = swipeOff < -SWIPE_W / 2;
-      swipeMain.style.transform = open ? `translateX(${-SWIPE_W}px)` : "";
-      openSwipeMain = open ? swipeMain : null;
+      const settleOff = swipeOff < -SWIPE_W / 2 ? -SWIPE_W : swipeOff > SWIPE_W / 2 ? SWIPE_W : 0;
+      swipeMain.style.transform = settleOff !== 0 ? `translateX(${settleOff}px)` : "";
+      openSwipeMain = settleOff !== 0 ? swipeMain : null;
+      openSwipeOff = settleOff;
       const main = swipeMain;
       swiping = false;
-      setDelRevealed(main, open);
+      setSwipeRevealed(main, settleOff !== 0);
     } else if (pasteDragActive && pasteDragMoved) {
       finishPasteDrag(e.clientY);
     } else if (dragging && dragRow && !moved) {
@@ -1362,10 +1372,10 @@ function installTreeGestures() {
     if (swiping && swipeMain) {
       swipeMain.style.transition = "";
       const open = openSwipeMain === swipeMain;
-      swipeMain.style.transform = open ? `translateX(${-SWIPE_W}px)` : "";
+      swipeMain.style.transform = open ? `translateX(${openSwipeOff}px)` : "";
       const main = swipeMain;
       swiping = false;
-      setDelRevealed(main, open);
+      setSwipeRevealed(main, open);
     }
     if (pasteDragMoved && snap) renderPasteSlotCue(snap);
     pasteDragActive = false;
@@ -1417,11 +1427,24 @@ function handleTap(target: HTMLElement, row: HTMLElement, clientY: number, mods:
         return;
       }
       openSwipeMain = null;
+      openSwipeOff = 0;
       send({ SetCursor: path });
       send({ SetSelection: { paths: [path] } });
       const after = sendR("DeleteSelected");
       const isErr = after.notice?.severity === "error";
       send({ SetHostNotice: { key: isErr ? "core.delete.error" : "web.host.delete.ok", args: isErr ? [after.notice!.text] : [], source: "host-web" } });
+      return;
+    }
+    if (act === "rowremark") {
+      if ((snap?.clipboard_count ?? 0) > 0) {
+        send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
+        return;
+      }
+      openSwipeMain = null;
+      openSwipeOff = 0;
+      send({ SetCursor: path });
+      send({ SetSelection: { paths: [path] } });
+      send("Remark");
       return;
     }
     if (act === "caret") {
@@ -1444,7 +1467,7 @@ function handleTap(target: HTMLElement, row: HTMLElement, clientY: number, mods:
     const wasOpen = openSwipeMain;
     openSwipeMain.style.transform = "";
     openSwipeMain = null;
-    setDelRevealed(wasOpen, false);
+    setSwipeRevealed(wasOpen, false);
     if (wasOpen === row.querySelector(".row-main")) return;
   }
   const key = JSON.stringify(path);

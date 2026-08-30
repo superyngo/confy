@@ -24,6 +24,7 @@ export const IC = {
   edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/></svg>',
   dup: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg>',
   del: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>',
+  remark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v12H8l-4 4z"/></svg>',
   check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L19 7"/></svg>',
   undo: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7L4 12l5 5"/><path d="M4 12h11a5 5 0 0 1 0 10h-3"/></svg>',
   redo: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 7l5 5-5 5"/><path d="M20 12H9a5 5 0 0 0 0 10h3"/></svg>',
@@ -101,7 +102,8 @@ function rowHTML(
   if (comment) {
     // Standalone comment node (no analogue in the prototype): show the text
     // faint, full-width; swipe still reveals Edit/Delete.
-    h += `<span class="comment" style="flex:1 1 auto;margin-left:0">${esc(r.value ?? "")}</span>`;
+    const advCls = r.comment_advisory ? " comment-advisory" : "";
+    h += `<span class="comment${advCls}" style="flex:1 1 auto;margin-left:0">${esc(r.value ?? "")}</span>`;
   } else {
     h += `<span class="key${isPositional(r) ? " elem" : ""}">${esc(r.key_literal ?? r.key)}</span>`;
     if (branch) {
@@ -109,7 +111,7 @@ function rowHTML(
       h += `<span class="kind" data-act="kind">${kindBadgeHTML(r)}</span>`;
       // Core's `trailing_comment` already carries its marker (`#` / `//`) —
       // render it raw, exactly like the desktop render.ts.
-      h += `<span class="comment">${esc(r.trailing_comment ?? "")}</span>`;
+      h += `<span class="comment${r.comment_advisory && r.trailing_comment ? " comment-advisory" : ""}">${esc(r.trailing_comment ?? "")}</span>`;
     } else {
       h += `<span class="eq">=</span>`;
       h += `<span class="val ${valueTypeClass(r)}">${esc(r.value ?? "")}</span>`;
@@ -117,13 +119,17 @@ function rowHTML(
       // (key = value type·note #comment) — previously touch put the comment
       // first, so the two surfaces disagreed on where the badge sits.
       if (!r.read_only) h += `<span class="kind" data-act="kind">${kindBadgeHTML(r)}</span>`;
-      h += `<span class="comment">${esc(r.trailing_comment ?? "")}</span>`;
+      h += `<span class="comment${r.comment_advisory && r.trailing_comment ? " comment-advisory" : ""}">${esc(r.trailing_comment ?? "")}</span>`;
     }
   }
   // Drag grip (omitted on read-only/opaque rows — they reject moves in core).
   if (!r.read_only)
     h += `<button class="drag-handle" data-act="grip" aria-label="reorder">${IC.grip}</button>`;
   h += "</div>"; // row-main
+  // Swipe-reveal Remark action, hidden behind row-main (revealed by a right-swipe;
+  // omitted on read-only rows, which reject remark toggling in core).
+  if (!r.read_only)
+    h += `<button class="row-remark" data-act="rowremark" tabindex="-1" aria-label="remark">${IC.remark}</button>`;
   // Swipe-reveal Delete action, hidden behind row-main (revealed by a left-swipe;
   // omitted on read-only rows, which reject deletes in core).
   if (!r.read_only)

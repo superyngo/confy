@@ -665,7 +665,7 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
    constraint); a wavy underline on the comment text itself, not a row-level
    marker, plus a native `title` tooltip set in `render.ts` (desktop hover
    only, matching the schema hover-tooltip convention). */
-.comment-advisory { text-decoration: underline wavy var(--warn); text-decoration-skip-ink: none; }
+.comment.comment-advisory { text-decoration: underline wavy var(--warn); text-decoration-skip-ink: none; }
 
 /* The format pill is interactive only for the built-in sample (cycles backends);
    for a loaded file it's a static label. `.toggleable` carries the affordance. */
