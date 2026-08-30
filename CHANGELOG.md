@@ -10,6 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.23.0] - 2026-08-29
 
+### Unreleased Update — 2026-08-30T05:05:00Z
+- **refactor(tui): extract `app.rs`'s inline tests to a sibling `tests.rs`.**
+  Audit follow-up (batch 4), the third and last instance of the
+  `#[path = "tests.rs"] mod tests;` convention batch 3 introduced for
+  `confy-core`'s `cst_edit/mod.rs` and `yaml/edit/mod.rs`.
+  `crates/confy-tui/src/tui/app.rs` was 4,446 lines, with a single
+  `#[cfg(test)] mod tests { ... }` block spanning lines 921-4446. The
+  tests called exactly one private item outside the module — `fn
+  type_tag` — so widened it to `pub(crate) fn type_tag` (no signature
+  change) and moved the test module body to a new
+  `crates/confy-tui/src/tui/tests.rs`, leaving
+  `#[cfg(test)] #[path = "tests.rs"] mod tests;` in `app.rs`.
+  `app.rs` is now 923 lines (production code only); `tests.rs` holds
+  the moved tests. Verified: `cargo build -p confy-tui` compiles clean;
+  `cargo test -p confy-tui --lib` holds at the pre-move 210-test
+  baseline; clippy/fmt clean.
+
 ### Unreleased Update — 2026-08-30T04:56:00Z
 - **chore(deps): upgrade `unicode-width` from 0.1 to 0.2 in `confy-tui`.**
   Audit follow-up (batch 4). `UnicodeWidthStr`/`UnicodeWidthChar` trait
