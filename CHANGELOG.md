@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ## [Unreleased]
+### Unreleased Update — 2026-08-30T12:30:00Z
+- **docs: full documentation audit — sync all reference/root docs with the code.**
+  Eight parallel verification passes cross-checked every committed doc against the
+  working tree; ~40 wrong/outdated claims fixed in place, nothing deleted (the
+  `docs/superpowers/` frozen-history policy and the ADR record are preserved
+  untouched except for status lines). Action-menu fallout (commit `3ebb397`) synced
+  into `README.md` (keybindings: `m` is now the Action menu, not Move; added the
+  missing `1`/`2`, `f`, `F2`, `~` rows), `WEBUI.md` (ModeView gains
+  `ActionMenu`/`SchemaEnum`; row anatomy is grip-only; FAB opens the Action menu /
+  pastes when armed; double-click toggles Detail; right-click opens the Action menu;
+  prompt question comes from `snap.mode.Prompt.question`; shared panel is
+  editing-only, `afterMutation` gone; touch panel/FAB updated; `m` added to the
+  external-keyboard list), and `ROW_STATE_MODEL.md` (Touch's selection row, Action
+  menu in the modal-lock list, refreshed `session.rs` guard line refs, §2/§8
+  cross-reference fixes). State-lift renames applied in `TUI.md` (`App.*` fields are
+  `Session.*` since the headless-core lift) and CLAUDE.md (filter haystack now
+  includes scalar values; `l` picker key case). `MESSAGES.md` severity count
+  corrected to 42 `core.*` keys (11E + 14W + 7S + 9I, incl. `core.action.unavailable`).
+  `VSCODE.md` gained the missing `convert-save` protocol row and dropped the stale
+  "(0.2.1)" header tag; `editors/vscode/README.md` names the real
+  `publish-gate-vscode` environment and the Theme submenu. `TAURI.md`: About is a
+  custom MenuItem (only Quit is Predefined), the Edit menu has no Predefined
+  text-edit items, `openTauriPath` goes through `tauri-plugin-fs`'s
+  `fs.readTextFile`, and the mobile no-op guard no longer claims a `canSaveAs()`
+  link (M2 made it unconditional). `BEHAVIOR_MATRIX.md` backend splice paths fixed to
+  the `cst_edit/`/`yaml/edit/` module dirs; `CONTEXT.md` Type-filter glossary now
+  covers Flags + Reverse and points at `docs/reference/BEHAVIOR_MATRIX.md` (not
+  "repo root"); `PORTING.md` gets an explicit "port is COMPLETE" status banner;
+  ADR 0009 + `docs/adr/README.md` marked Implemented (2026-08-30) instead of
+  "implementation pending". Also: 25 post-tag "Unreleased Update" entries
+  (2026-08-29T14:34Z → 2026-08-30T05:30Z) that had been misfiled under
+  `## [v0.23.0]` moved up into `## [Unreleased]` (verified against
+  `git show v0.23.0:CHANGELOG.md`; tag was cut at 13:28Z), and `web/cf-build.sh`'s
+  header comment says Workers Builds, not Pages. Docs-only change — no code touched;
+  verified with a repo-wide stale-claim sweep and a relative-link check (all resolve).
+
 ### Unreleased Update — 2026-08-30T11:24:59Z
 - **feat(core,tui,web): centralized Action menu — one core-owned node-operation
   menu replacing five disagreeing surfaces.** Implements the approved design
@@ -153,8 +189,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `touch/style.css`/`style.css` containing the new markup/rules, `tsc
   --noEmit` and the full `web` test suite (existing + new) pass, and
   `cargo test -p confy-core` passes (no Rust files touched).
-
-## [v0.23.0] - 2026-08-29
 
 ### Unreleased Update — 2026-08-30T05:30:54Z
 - **fix(core): map `tui.lang.saved` in `severity_of` to stop a TUI
@@ -607,6 +641,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   call `insert_with` directly. Verified with the perf harness's `apply(Move
   N source(s))` cases: `apply(Move 1 source(s))` dropped from 87.5ms to
   71.8ms at 2,801 nodes and from 752ms to 579.8ms at 7,001 nodes.
+
+## [v0.23.0] - 2026-08-29
 
 ### Unreleased Update — 2026-08-29T00:00:00Z
 - **fix(tui/core/yaml): `$EDITOR` on a comment node keeps nested indentation;

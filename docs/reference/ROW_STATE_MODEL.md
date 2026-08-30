@@ -17,8 +17,8 @@ the ones before it; a row can be in several at once.
 |---|---|---|---|---|
 | 1 | Cursor | 提示定位 | `Session.cursor: Path` (`session.rs:23`) | TUI keyboard, desktop keyboard. Desktop mouse **hover** is a separate, core-invisible signal — see §1a. Touch has no equivalent. |
 | 2 | Focal row | 選取 | Derived: `selected_paths()`'s target for single-row mutating ops — edit value/key/comment (`session.rs:1365`) | Always equals `cursor`, or the last/focal member of a non-empty `Selection` (`set_selection` keeps the clicked/typed path last). Remark, delete, and copy/cut are **not** in this group — they consume the whole `Selection` (§1c). |
-| 3 | Locked selection | 鎖定選取 | `Session.selection: Selection` non-empty (`session.rs:25`, `selection/selection.rs:25-30`) | TUI: `s` (`ToggleSelect`) / Shift+↑↓ (`ExtendSelectUp/Down`). Desktop: Ctrl/Shift+click, marquee (`web/select.ts`). Touch: **none** — `selectOnly()` (`web/touch/app.ts:495-498`) only ever sets a 1-path selection. |
-| 4 | Clipboard-armed (cut/copy mode) | 剪下複製模式 | `Session.clipboard.is_some()` (`session.rs:33`, `state.rs:205-209`) | `c`/`x`/Copy/Cut on any surface. Freezes state #3 (four guards: `session.rs:1304-1305, 1316-1317, 1330-1331, 1348-1349`) — entering #4 does not require #3 to be non-empty first; a bare cursor with an empty `Selection` can still be copied/cut via the fallback in `selected_paths()`. |
+| 3 | Locked selection | 鎖定選取 | `Session.selection: Selection` non-empty (`session.rs:25`, `selection/selection.rs:25-30`) | TUI: `s` (`ToggleSelect`) / Shift+↑↓ (`ExtendSelectUp/Down`). Desktop: Ctrl/Shift+click, marquee (`web/select.ts`). Touch: single-tap `selectOnly()` writes a 1-path `Selection`; modifier taps go through `resolveClick` (range/toggle); post-paste re-selects the landed batch (§6d). All surfaces show the leading-bar marker. |
+| 4 | Clipboard-armed (cut/copy mode) | 剪下複製模式 | `Session.clipboard.is_some()` (`session.rs:33`, `state.rs:205-209`) | `c`/`x`/Copy/Cut on any surface. Freezes state #3 (four guards: `session.rs:1441, 1453, 1467, 1485`) — entering #4 does not require #3 to be non-empty first; a bare cursor with an empty `Selection` can still be copied/cut via the fallback in `selected_paths()`. |
 | 5 | Clipboard source | cut/copy source | `Session.clipboard.sources: Vec<Path>`, colored by `clipboard.cut: bool` (`state.rs:207-208`) | Only meaningful while #4 is active. |
 
 ### 1a. Hover is not a core state
@@ -34,7 +34,7 @@ A desktop plain click and a TUI/desktop multi-select gesture both write the same
 `Selection` struct — the only difference is how many paths end up in it. State #3's
 marker (§3) therefore applies uniformly starting at one member; there is no "N ≥ 2"
 threshold anywhere in this model. This is also why the plain-click case, not a
-dedicated flag, is what explains the ESC asymmetry in §4.
+dedicated flag, is what explains the ESC asymmetry in §2.
 
 ### 1c. Multi-selection semantics — which ops consume it, and how it stays valid
 
@@ -164,10 +164,9 @@ three surfaces:
 
 - Move/reorder — including touch's reorder-grip drag (`web/touch/app.ts:1045-1135`).
   It is itself a paste-equivalent operation and conflicts with mid-target-selection.
-- Context menu, kind-switch, convert.
+- Action menu, kind-switch, convert.
 - Inline edit of value/key/comment/remark (all surfaces' equivalents: TUI `e`/`E`/`r`/
-  F2, desktop click-to-edit/context-menu items, touch tap-to-edit/edit sheet).
-
+  F2, desktop click-to-edit and the Action menu's Edit item, touch tap-to-edit/edit sheet).
 A disabled affordance shows a transient toast/status message (e.g. reusing the
 existing `status`/i18n pattern ADR 0004 §6 already established for paste
 collision/error text) rather than silently doing nothing — this is new modal behavior
@@ -271,7 +270,7 @@ gesture that follows it, unlike the reverted bug. It is a client-side echo of
 
 - **Touch** now has this too — `web/touch/app.ts`'s `send()` mirrors desktop's
   compensator verbatim, safe for the identical reason: touch's own tap handling
-  (`selectOnly()`, `web/touch/app.ts:501-505`) already collapses `Selection` to a
+  (`selectOnly()` in `web/touch/app.ts`) already collapses `Selection` to a
   single path on every tap, the same self-clearing guarantee desktop relies on.
 - **TUI cannot adopt the identical pattern safely.** `cursor_down`/`cursor_up`
   (`session.rs:299-332`) never touch `Selection` at all — a Locked selection set
@@ -298,7 +297,7 @@ read as "it always hits the source row" (the source row is usually where cursor 
 last sitting when `c`/`x` was pressed).
 
 Fixed by sending an explicit `SetCursor` before `ToggleExpand` in both hosts
-(`web/ui.ts:1213-1216`, `web/touch/app.ts:1393-1406`).
+(`navSelect` in `web/ui.ts`; touch `handleTap`'s caret branch in `web/touch/app.ts`).
 
 **Formal invariant this model adds**: any `Intent` defined against state #1 (`cursor`)
 must resolve against the row the user actually invoked it on, even while state #4 is

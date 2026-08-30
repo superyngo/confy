@@ -18,7 +18,8 @@ and build commands (`cargo tauri build` / `cargo tauri android build`), and
 (`isTauri()` guard) and is called from the top of `ui.ts`'s `main()`, **before** `await
 load(wasmUrl)` and **not awaited** — menu construction is several async IPC round-trips and
 must not delay the wasm boot; this also means the menu is visible during the startup gap, and
-Quit/About use `PredefinedMenuItem` so they still work if wasm init fails. `rebuildMenu()`
+Quit uses `PredefinedMenuItem` so it still works if wasm init fails (About is a custom item that
+needs the wasm Session — see below). `rebuildMenu()`
 rebuilds and reinstalls it (`setAsAppMenu()`) on language change and after every recent-files
 mutation, re-reading labels via `t()`, the recent list, and `getLang()` each time; an in-flight
 flag drops concurrent rebuilds.
@@ -29,8 +30,9 @@ fallback `main()` takes with no startup file/URL; no confirmation, matching a br
 Open ▸ Browse Local File `CmdOrCtrl+O` (native picker, unchanged `doOpen`) / Open from URL…
 (the existing combined open modal, `openUrlModal()` focuses the URL field directly instead of
 the Browse button) / Open Recent ▸ dynamic submenu / Save `CmdOrCtrl+S`),
-Edit (native `Predefined` Cut/Copy/Paste/Undo/Redo/SelectAll acting on focused text fields,
-plus node-op items Undo/Redo/Copy/Cut/Paste Node), View (Toggle Theme / Zoom In-Out-Reset /
+Edit (node-op items only — Undo/Redo/Copy/Cut/Paste Node as custom `MenuItem`s dispatching
+Session intents; deliberately **no** native `Predefined` Cut/Copy/Paste/SelectAll, which would
+compete with the webview's own focused-text-field handling), View (Toggle Theme / Zoom In-Out-Reset /
 Language ▸ one `CheckMenuItem` per `availableLangs()`, checked = `getLang()`), Help (Help /
 About — both send `EnterHelp`, About additionally sends `ToggleHelpTab` to flip onto the About
 tab, mirroring `enter_help`/`toggle_help_tab` in `session.rs`). macOS gets a rebuilt app
@@ -75,8 +77,8 @@ there), most-recent-first, cap 8, deduped by path. `fs.ts`'s `OpenedFile`/`FsHan
 an optional `path` field (populated only on the Tauri branches of `tauriStartupFile`,
 `pickOpenFile`, and `tauriHandle` — so `pickSaveFile`'s returned handle carries it too);
 `ui.ts` calls `recentAdd` + `rebuildMenu()` wherever a Tauri path becomes newly known (startup
-file, Open, Save As), and `openTauriPath(path)` (new `fs.ts` export, `read_file_text` via
-`invoke`) backs the menu's `openRecentPath` handler — a missing/unreadable file calls
+file, Open, Save As), and `openTauriPath(path)` (`fs.ts` export, `fs.readTextFile` via
+`tauri-plugin-fs`) backs the menu's `openRecentPath` handler — a missing/unreadable file calls
 `recentRemove` + `rebuildMenu()` + an error status instead of opening.
 
 ## Chrome trimming (Desktop)
@@ -111,8 +113,8 @@ command instead of `dialog.open()` — stock `tauri-plugin-dialog`'s Android pic
 with" chooser instead arrives through `tauri.android.conf.json`'s `fileAssociations` (Rust-side
 `opened_urls`/`"opened"` event) and reads through the same `openTauriPath`-style path — no plugin
 needed there, since a file-association launch intent's own grant covers the receiving activity's
-lifetime. `menu.ts`'s native menu bar no-ops on Tauri mobile (same `isTauriMobile()` guard as
-`canSaveAs()`) — there's no menu bar on Android.
+lifetime. `menu.ts`'s native menu bar no-ops on Tauri mobile (its own `isTauriMobile()` guard at
+`setupAppMenu`/`rebuildMenu`) — there's no menu bar on Android.
 
 **Save As (M2, 2026-08-06).** `canSaveAs()` now returns `true` on every platform — picking a *new*
 save destination (Save As, first Save after File-New-equivalent, Convert's output path) was

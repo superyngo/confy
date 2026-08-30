@@ -80,6 +80,7 @@ the mode is `"auto"`. The persisted choice rides back on every `init` (same prin
 | webview→host | `edit { text }` | A Session mutation happened: `text` is `session.serialize()`. The host applies it as a minimal-span `WorkspaceEdit` (common prefix/suffix trim) — VS Code's dirty/undo/save machinery takes over from there |
 | webview→host | `request-undo` / `request-redo` | Webview keyboard/toolbar undo/redo forward to the workbench, which owns the text document's stacks |
 | webview→host | `request-save` | Webview Save / ⌘S → workbench save |
+| webview→host | `convert-save { suggestedName, text }` | Convert (or same-format save-a-copy) output: the destination pick is the host's job — it shows a save dialog (`editorProvider.ts`'s `convertSave`) and writes the file |
 | webview→host | `read-schema-file { relativePath }` | Local `$schema` file read: the webview has **no filesystem access**, so the host resolves the path (absolute, or relative to `document.uri`'s directory) and reads it via `vscode.workspace.fs`. Reply: `schema-file { text }` or `schema-file-error { message }` |
 | webview→host | `read-schema-url { url }` | Remote `$schema: "https://…"` fetch: the webview's CSP `connect-src ${webview.cspSource}` blocks external origins, so the unsandboxed host fetches it instead (Node `fetch`, error format `HTTP {status} {statusText}` — parity with the browser/Tauri hosts). Reply: `schema-url { text }` or `schema-url-error { message }` |
 | webview→host | `parse-error { message }` | Initial text failed to parse: host offers the default text editor instead of a white screen |
@@ -121,7 +122,7 @@ order, so expanding in order always finds the child row once its parent is open.
 in-flight inline edit, modal, selection, or filter is discarded by the reload; this is
 accepted (it matches revert semantics).
 
-## Title-bar tab swap (0.2.1)
+## Title-bar tab swap
 
 The **Open with confy** / **Reopen as Text Editor** title-bar buttons
 (`confy.openWithConfy`/`confy.reopenAsText`) must truly replace the active tab, not

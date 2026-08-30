@@ -184,7 +184,7 @@ TUI.md §*Comments (TUI)*.
 `collapse_all`, `1`/`2` level-at-a-time ascend) — TUI.md §*Navigation*.
 
 **Filter.** Three-state flow, FilterResults dispatch, `last_filter` prefill, Esc peel,
-haystack semantics (key/path + Comment text; value never matched), and highlight — TUI.md §*Filter*.
+haystack semantics (key/path + Comment text + a scalar leaf's own value), and highlight — TUI.md §*Filter*.
 
 **Type filter.** TypeToken/classify popup, tristate groups, AND-intersection of text∩type,
 FilterLayer peel — TUI.md §*Type filter*.
@@ -228,7 +228,7 @@ composes; `Intent::SetLang(String)` (a string, not the enum, to keep the wasm wi
 simple) is routed in `dispatch.rs`, and `SessionSnapshot.lang: String` mirrors it back to hosts.
 Each host layers its own strings on top: the TUI's `crates/confy-tui/src/config.rs` persists a
 `lang` preference to `~/.config/confy/config.toml` (`%APPDATA%\confy\config.toml` on Windows),
-exposes `--lang` (session-only override; precedence `--lang` > config file > `en`), and a `L`
+exposes `--lang` (session-only override; precedence `--lang` > config file > `en`), and an `l`
 picker (TUI.md §*Language / i18n (TUI)*); `web/i18n.ts` imports both catalog JSON files directly
 (esbuild bundles them), exposes `t()`/`tArgs()` with the identical fallback chain, and persists
 the choice in `localStorage["confy-lang"]` (WEBUI.md §*Language / i18n (Web)*).

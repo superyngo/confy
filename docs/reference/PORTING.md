@@ -30,6 +30,11 @@ This file is the durable companion to the doc set: `CONTEXT.md` (model glossary)
 >
 > Full suite: 662 tests pass, clippy/fmt clean. The `confy` TUI binary still builds and runs
 > unchanged; the wasm crate builds to `wasm32-unknown-unknown` (`wasm-pack build --target web`).
+>
+> **Status (2026-08-30): the port is COMPLETE.** Every slice below landed as designed —
+> the headless `Session` owns all editor state; the TUI, web UI, VS Code extension, and
+> Tauri desktop/Android shells are all thin hosts over it. Current mechanics live in
+> `CLAUDE.md`'s module map; the sections below are kept as the design record.
 
 ---
 
@@ -97,12 +102,9 @@ CI gate for "headless": `confy-core` must contain **no** `std::fs`, `std::proces
 
 ## 3. The identity reshape: row-index → Path
 
-Today `App.cursor: usize` indexes `rows: Vec<RowSnapshot>` — the *rendered* visible list — and
-`Selection` is a set of `usize`. Nearly every navigation/selection/edit/mutation function reads
-`self.cursor` / `self.rows[cursor]`. A declarative UI re-renders from a projection, so an index
-cursor cannot survive.
+**Reshape (landed as Slice 3; pre-port this was `App.cursor: usize` indexing
+`rows: Vec<RowSnapshot>`, with `Selection` a set of `usize`):**
 
-**Reshape:**
 - Core holds `cursor: Path` and `selection: HashSet<Path>` (plus the existing `expanded: HashSet<Path>`).
 - Core computes **`visible_rows() -> Vec<ViewRow>`** (tree × expanded × filter → ordered semantic rows).
 - Index ↔ Path translation lives in the **UI** (`ViewRow` carries its `Path`; the UI maps a
@@ -262,7 +264,7 @@ pub struct ViewRow {
 }
 ```
 
-The TUI's `tui/mod.rs` event loop becomes a thin **key → Intent** translator + a `Host` impl +
+The TUI's `tui/mod.rs` event loop **is** a thin **key → Intent** translator + a `Host` impl +
 ratatui rendering of `visible_rows()`. The Web UI does the same in TypeScript over the WASM
 boundary. No editor logic lives in either UI.
 

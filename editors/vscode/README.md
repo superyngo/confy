@@ -49,7 +49,7 @@ regression guard for native editor symbol/diagnostic/hover behavior.
    vX.Y.Z` commit).
 2. Cut the app release as usual (`git tag vX.Y.Z && git push --tags`).
 3. Once `.github/workflows/release.yml` succeeds, `publish-gate.yml` pauses
-   for one manual approval (`publish-gate` environment), then dispatches
+   for one manual approval (`publish-gate-vscode` environment), then dispatches
    `.github/workflows/publish-vscode.yml` with that tag — it checks out the
    tag, verifies `package.json`'s version matches it, and publishes to the
    VS Marketplace + Open VSX (account/secret setup: `VSCODE.md` § Publishing).
@@ -71,6 +71,6 @@ regression guard for native editor symbol/diagnostic/hover behavior.
   backed by a shared `TextDocument` — switching editors carries unsaved
   changes, and side-by-side text editing syncs live in both directions.
 - The confy toolbar header is hidden in this host — **Save As / Convert…**,
-  **Help**, **About**, and the **Language** submenu live in the editor
+  **Help**, **About**, and the **Language** and **Theme** submenus live in the editor
   tab's **"…" More Actions** menu (command palette works too). ⇧⌘S
   (Ctrl-Shift-S) is the keyboard shortcut for Save As / Convert.

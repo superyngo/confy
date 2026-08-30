@@ -79,7 +79,7 @@ is **shown in-row** (dimmed, after the value, in the VALUE cell — `value_cell`
 **edited inline together with the value**: `begin_inline_edit` seeds the Value buffer as
 `value  # comment`, and `edit_commit` splits it back via `ConfigDocument::split_value_comment`
 (which lexes through the backend so a `#`/`//` *inside a string* is not the comment). A change
-from the baseline (`EditState.orig_trailing`) is staged in `App.pending_trailing` and applied by
+from the baseline (`EditState.orig_trailing`) is staged in `Session.pending_trailing` and applied by
 `apply_replace` as a `Mutation::SetTrailingComment { path, comment: Option<String> }` right after
 the value `Replace` (one undo step); `edit_cancel` clears the stage so it can't leak onto a later
 nudge. `SetTrailingComment` is a uniform text-splice in each backend's `edit.rs` (replace the span
@@ -101,9 +101,9 @@ comment (`d`) is a plain token removal at its `Seg::Index` slot.
 
 ## Navigation
 
-Expand/collapse state is an `App.expanded: HashSet<Path>` of open branch paths. The
+Expand/collapse state is a `Session.expanded: HashSet<Path>` of open branch paths. The
 **root/file node has the empty path** and is collapsible like any branch — `flatten` treats it
-uniformly; the App seeds `[]` into `expanded` so it starts open, and `collapse_all` (`0`) re-inserts
+uniformly; the Session seeds `[]` into `expanded` so it starts open, and `collapse_all` (`0`) re-inserts
 `[]` so it keeps the file node open (only an explicit toggle on the root row hides everything).
 Beyond the all-at-once `9`/`0`, **`1`/`2` work one level at a time**: `expand_level` (`1`) inserts
 the shallowest not-yet-expanded depth of the cursor branch's subtree per press; `collapse_level`
@@ -114,7 +114,7 @@ that (repeated presses ascend). Both re-find the cursor by path after `rebuild_r
 
 `/` is a three-state flow: `Mode::Filter` (the inline `/` input field) → **Enter** →
 `Mode::FilterResults` (browse/select/edit the locked-in filtered list, status shows `[filter: …]`),
-or **Esc** clears the filter back to `Mode::Normal`. `App.last_filter` remembers the last committed
+or **Esc** clears the filter back to `Mode::Normal`. `Session.last_filter` remembers the last committed
 query so `/` (`enter_filter`) prefills it and re-applies the live filter. `FilterResults` reuses the
 Normal key dispatch (no early-return block); its only differences are mode-aware `escape`
 (`exit_filter_results`, keeps `last_filter`) and `/` (`enter_filter`, to refine). Esc peels **one**
@@ -127,7 +127,7 @@ values alike. While a filter is active the matched chars are
 highlighted in the **NAME cell** (`search::fuzzy_indices` → `ui::highlight_spans`; gated on a non-empty
 query, not the mode, so the highlight survives an inline edit / detail popup; a Comment node's NAME
 shows its text, so its match highlights there too). Transient overlays (detail popup,
-inline editor) close back into the filtered selection via `App::resting_mode` (`FilterResults` when
+inline editor) close back into the filtered selection via `Session::resting_mode` (`FilterResults` when
 `filtered_paths.is_some()`, else `Normal`) — `exit_detail`/`edit_cancel`/`edit_commit` use it.
 
 ## Type filter
@@ -136,17 +136,18 @@ inline editor) close back into the filtered selection via `App::resting_mode` (`
 filters by a node's **type facets** — the same `KeySign`/`NodeKind`/`Format` the KIND column shows.
 `TypeToken` enumerates one leaf atom per KIND slot and `classify(kind, format, doc, read_only)` is
 the arm-for-arm inverse of `type_tag` (so popup and column can't drift; `layout(doc)` shows only the
-loaded backend's reachable facets — JSON/YAML omit TOML-only rows, YAML adds block/flow + opaque). The popup has two halves — **key sign**
-(`(B)/(Q)/(D)/(-)`) and **type** (root/comment + array/table/string/integer/float/bool/date groups,
-`[A/T]` grouped under tables) — each multi-format group carrying an **`all`** quick-toggle row that
+loaded backend's reachable facets — JSON/YAML omit TOML-only rows, YAML adds block/flow + opaque). The popup groups three facet sets —
+**key sign**
+(`(B)/(Q)/(D)/(-)`), **type** (root/comment + array/table/string/integer/float/bool/date groups,
+`[A/T]` grouped under tables), and **Flags** (`(!) has warning` / `has comment`) — each multi-format group carrying an **`all`** quick-toggle row that
 is **tristate** (`group_state`: `[x]` all / `[~]` some / `[ ]` none; Space selects-or-clears the
-whole group). `TypeFilter::matches` ANDs the two halves and unions within each; an empty half is no
+whole group). `TypeFilter::matches` ANDs the three facet sets and unions within each; an empty set is no
 constraint (`is_active` gates the whole filter). `layout()` is the single source of truth for both
 render and nav; `nav_rows()` drops headers so the `(row,col)` cursor only lands on cells. A
 `Reverse` header/cell sits first in every `layout()` (row 0, so opening the popup starts there) —
 toggling it inverts `matches`' combined result (`base = sign_ok && type_ok`), but only once
 `is_active()` is true; with nothing else selected `reverse` is a deliberate no-op, not a "hide
-everything" trap. `clear()` resets it alongside the two halves. Cursor movement isn't limited to
+everything" trap. `clear()` resets it alongside the three facet sets. Cursor movement isn't limited to
 arrows: Home/End jump to the first/last nav row (col clamps into the new row's width, same as any
 vertical move); PageUp/PageDown jump by `ui::type_filter_page_step` — how many nav rows fit in the
 popup's visible height, *not* the raw line count (headers don't count as cursor stops, so using line
@@ -161,14 +162,14 @@ otherwise a descendant that legitimately passes the reversed filter would drag t
 back in via ancestor-context — the bug that made `reverse` look like a no-op on Table/Array while
 working fine on Scalar/Comment, which have no children to trigger the resurrection). When both
 filters are active, Esc in `FilterResults` peels **one layer at a time**
-via `App.last_filter_applied: Option<FilterLayer>` (most-recently-applied first); the status bar
+via `Session.last_filter_applied: Option<FilterLayer>` (most-recently-applied first); the status bar
 shows `[filter: …]` and/or `[type: N]` (`N` counts only `key_signs`/`types`, never `reverse`).
 
 ## Multi-select
 
 `Selection` holds `committed` (finalized rows + `s` toggles) and an in-progress
 `round` (`anchor..=cursor`); the live set is their union. A Shift+Arrow run extends `round`; the next
-Shift+Arrow after any non-shift key (tracked by `App.last_action_was_shift_select`, reset in the event
+Shift+Arrow after any non-shift key (tracked by `Session.last_action_was_shift_select`, reset in the event
 loop) starts a fresh round, folding the old one into `committed` — so runs union (separate or
 overlapping) rather than re-extending the first anchor.
 
@@ -215,7 +216,7 @@ popup were manually eyeballed for the double-width alignment risk noted in the i
 See ADR 0004 for the cross-platform `PasteSlot` targeting model these mechanics implement,
 and `ROW_STATE_MODEL.md` for the full cross-platform row cursor/selection/clipboard state model.
 
-`copy_selected` (`c`) and `cut_selected` (`x`) load `App.clipboard`
+`copy_selected` (`c`) and `cut_selected` (`x`) load `Session.clipboard`
 (`Option<Clipboard>`) from `selected_paths()` (the selection, or the cursor row when none). Both
 capture **scope-relative** fragments: a node copied/cut out of a `[T/D]` table drops its leading
 dotted-ancestor key segments (`serialize_fragment_relative` for copy; `Mutation::Move` strips at

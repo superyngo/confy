@@ -315,10 +315,12 @@ outside its eligibility computation. Not a surface to "unify" later.
 
 **Type filter** (`f`) vs **Text filter** (`/`):
 Two independent ways to narrow the visible tree. The **Text filter** (`/`) fuzzy-matches a Node's
-key/path (and a Comment's text). The **Type filter** (`f`) is a checkbox menu selecting **type
-facets** — **Key sign** and **Format/kind** (the KIND-column vocabulary). Both narrow the same
-filtered list and **intersect** (a Node must pass both); selections *within* the Type filter's two
-halves union. _Avoid_: calling either one "search" exclusively — both are filters.
+key/path (and a Comment's text, and a scalar's own value). The **Type filter** (`f`) is a checkbox
+menu selecting **type facets** — **Key sign**, **Format/kind** (the KIND-column vocabulary), and
+**Flags** (`(!) has warning`, `has comment`) — plus a **Reverse** toggle that inverts the combined
+facet match. Both narrow the same filtered list and **intersect** (a Node must pass the Text filter
+and every Type-filter facet); selections *within* each facet group union. _Avoid_: calling either
+one "search" exclusively — both are filters.
 
 
 ### Messages & diagnostics
@@ -545,7 +547,7 @@ Scalars switch **within their own type, never across types**.
 
 ## Nested behavior matrix
 
-> The full, self-contained reference is **`BEHAVIOR_MATRIX.md`** at the repo root (scopes, tables
+> The full, self-contained reference is **`BEHAVIOR_MATRIX.md`** in `docs/reference/` (scopes, tables
 > A/B/C, criteria, the facet layer, invariants). This section is the condensed in-context form.
 
 A normalized cross-backend (TOML/JSON/YAML) account of how the nesting **scope** governs each

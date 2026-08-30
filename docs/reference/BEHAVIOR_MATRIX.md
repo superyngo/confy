@@ -3,7 +3,7 @@
 A normalized, cross-backend (TOML / JSON / JSONC / YAML) account of how a node's **nesting scope**
 governs each editing behavior in the TUI. This is the canonical, self-contained reference; the
 condensed form also lives in `CONTEXT.md § Nested behavior matrix`, and the per-row mechanics live in
-each backend's `edit.rs` (`cst_edit.rs`, `json/edit.rs`, `yaml/edit.rs`).
+each backend's splice engine (`cst_edit/`, `json/edit.rs`, `yaml/edit/`).
 
 The goal of the matrix is **one model for three formats**: the TUI implements each behavior *once* and
 parameterizes the cross-backend differences through `ConfigDocument` facets — so the TUI never
@@ -166,8 +166,8 @@ format is purely additive:
 | `kind_options(path)` | the `K` flow↔block popup list | per-node | per-node | per-node |
 | `split_value_comment(buffer)` / `replace_preserves_trailing_comment()` | trailing-comment edit | `#` lexer / `true` | `//` lexer / `true` | `#` lexer / `false` |
 
-**Not abstracted, by design:** the per-backend splice engines (`cst_edit.rs`, `json/edit.rs`,
-`yaml/edit.rs`) share a **contract** (the `Mutation` enum), not a **mechanism** — the three `rowan`
+**Not abstracted, by design:** the per-backend splice engines (`cst_edit/`, `json/edit.rs`,
+`yaml/edit/`) share a **contract** (the `Mutation` enum), not a **mechanism** — the three `rowan`
 green trees have different shapes (taplo vs hand-rolled JSON vs YAML reindent). The `Mutation` enum
 *is* the abstraction; a shared splice core would add complexity for no behavior gain.
 

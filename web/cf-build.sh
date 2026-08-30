@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Cloudflare Pages build command for the confy web UI (Git-integration deploy).
-# Configure in the CF Pages dashboard:
+# Cloudflare Workers Builds build command for the confy web UI (Git-integration deploy).
+# Configure in the CF Workers Builds dashboard:
 #   Build command:           bash web/cf-build.sh
 #   Build output directory:  web/dist
 # Builds the wasm core, bundles the TS, and assembles a clean runtime-only

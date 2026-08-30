@@ -140,17 +140,19 @@ Maintainer quick check: `cd editors/vscode && npm run integration-test`.
 | `Enter` / `i` | Toggle the detail/info popup for the cursor row (shows kind + child count; scroll with ↑/↓/PgUp/PgDn/Home/End) |
 | `0` | Collapse all |
 | `9` | Expand all |
+| `1` / `2` | Expand / collapse one level at a time from the cursor branch |
 | `s` | Toggle selection on the cursor row |
 | `Shift+↑` / `Shift+↓` | Extend range selection |
 | `←` / `→` | Toggle a bool, or step a number by ±1 (preserves base/precision) |
 | `a` | Add node (inserts `new_field = ""` below the cursor, opens the inline editor) |
 | `e` | Edit value — inline for a plain scalar, `$EDITOR` for nested array/table |
 | `E` | Edit any node in `$EDITOR` (force external) |
+| `F2` | Rename the cursor row's key |
 | `d` | Delete selected node(s) |
 | `c` | Copy selected node(s) |
 | `x` | Cut selected node(s) |
 | `v` | Paste clipboard |
-| `m` | Move selected node(s) |
+| `m` | Action menu — edit / add child / add sibling / copy / cut / toggle comment / detail / delete for the cursor row or selection |
 | `r` | Remark (toggle comment-out) |
 | `K` | Kind switch (scalar notation / container style) |
 | `C` | Convert document to another format (Root node) |
@@ -158,7 +160,9 @@ Maintainer quick check: `cd editors/vscode && npm run integration-test`.
 | `z` | Undo |
 | `y` | Redo |
 | `/` | Filter (fuzzy search) |
+| `f` | Type filter (facet checkbox popup) |
 | `?` | Help |
+| `~` | Diagnostics overlay (developer-facing event ring) |
 | `Esc` | Cancel prompt / clear filter / close overlay |
 | `w` / `Ctrl+s` | Save |
 | `q` | Quit (confirms if there are unsaved changes) |

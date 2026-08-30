@@ -89,8 +89,8 @@ Four levels, one meaning each:
 `severity_of(key: &str) -> Severity` (`notice.rs:45`) is the single source of
 truth for every `core.*` and host-notice key — there is no explicit-severity
 constructor and no escape hatch; a key not yet in the table panics rather than
-silently defaulting, so a new Notice call site can't ship unclassified. 41
-`core.*` keys are classified today (11 Error + 13 Warn + 7 Success + 9 Info,
+silently defaulting, so a new Notice call site can't ship unclassified. 42
+`core.*` keys are classified today (11 Error + 14 Warn + 7 Success + 9 Info,
 plus one controller-approved pass-through wrapper, `core.schema.violation`,
 for the dynamic schema-violation advisory text) — see `notice.rs`'s own
 `severity_of_covers_the_full_catalog_table` test for the byte-identical,
@@ -156,7 +156,7 @@ not the `tracing`/`log` crates — kept as ordinary, headlessly-testable data so
 compiles unchanged for TUI/wasm/VS Code; a global `tracing` subscriber would
 fight that). Capacity 256, oldest evicted, monotonic `seq: u64` (never resets,
 even across a VS Code file-swap — see the Task 17 review's one Minor finding,
-still open as a follow-up, §7).
+still open as a follow-up, §8).
 
 ```rust
 pub struct DiagEvent {

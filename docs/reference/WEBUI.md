@@ -107,8 +107,9 @@ shapes round-trip). Key types:
   `is_dirty`.
 - **`ModeView`** — a serializable projection of `Mode` + the modal edit surfaces:
   `Normal | Prompt | Filter {text,cursor} | FilterResults | TypeFilter {…grid…} |
-  KindSwitch {cursor,options} | Convert {…} | Detail | Help | Edit
-  {field,buffer,cursor,…}`. This is the UI's only view of internal state; heavy
+  KindSwitch {cursor,options} | ActionMenu {cursor,items,target_count,target_label} |
+  Convert {…} | Detail | Help | Edit {field,buffer,cursor,…} | SchemaEnum {options,cursor}`.
+  This is the UI's only view of internal state; heavy
   internals (`History`, `Clipboard` — except its `clipboard_count`) never cross.
 - **`TypeFilterView`** — the `f` popup grid, projected from core so the host never
   re-derives the per-format facet set: `rows: (Header | Cells[…])[]`, `cursor_row`,
@@ -148,16 +149,18 @@ shapes round-trip). Key types:
   elements) / `=` / value (value-type colored) or item count, a per-row **kind badge**
   (friendly label + notation suffix + chevron — `table·scope`/`table·dotted`/`array·multi`,
   YAML `·block`/`·flow`, scalar `·"…"`/`·0x`/`·1e`/…), comment/trailing decoration, and
-  hover action buttons flush right — drag grip + `⋮` more (mirrors touch's row-actions
-  layout; `⋮`'s "Add child"/"Append sibling" cover the standalone per-row `＋` this replaced,
-  so there is no separate per-row add button — see the global FAB below instead). Each row
+  hover action buttons flush right — a **drag grip only**: node operations live in the
+  centralized **Action menu**, opened by right-clicking a row, the `m` key, or the floating
+  Action button below (ADR 0009 — the old per-row `⋮` menu is gone; there is no separate
+  per-row add button either). Each row
   carries `data-path` (attribute-safe JSON) so the
   pointer layer maps a click back to a node without re-deriving structure.
-- **Floating add/paste action (FAB).** A bottom-right floating button, shared with touch via
-  `web/fab.ts` (glyphs, markup, and the add/paste decision logic — see the Touch UI section's
-  FAB bullet below for the behavior, identical on both surfaces). Desktop wires it in
-  `web/ui.ts`; the armed `+` calls `Paste` directly (same as touch's own tap-to-paste path)
-  rather than going through the add-decision logic. Hidden in Raw view (`body.raw-view`).
+- **Floating action/paste button (FAB).** A bottom-right floating button, shared with touch via
+  `web/fab.ts` (glyphs + markup — `data-act="actions"`). When the clipboard is unarmed it opens
+  the centralized **Action menu** (desktop popover, `openActionMenuAt`); while armed it becomes
+  the **Paste** button (tap = `Paste`, with a cancel affordance above). Desktop wires it in
+  `web/ui.ts`; behavior is identical on touch (see the Touch UI section). Hidden in Raw view
+  (`body.raw-view`).
 - **Pointer selection (`select.ts`).** Pure logic resolving a click into the next full
   selection set → `SetSelection`: plain click = that row; ⇧-click = contiguous range from
   an anchor, **unioned onto a base snapshot** so earlier segments survive (segmented
@@ -166,7 +169,7 @@ shapes round-trip). Key types:
   cursor follows it. Plain `j/k`/arrow nav collapses the selection onto the new cursor.
   A **double-click on a row's empty area** (detected manually by timing two plain body
   clicks on the same path — native `dblclick` is unreliable after the first click
-  re-renders) toggles: a branch expands/collapses, a boolean leaf flips its value. Only
+  re-renders) toggles the **Detail panel** (`SetCursor` + `ToggleDetail`). Only
   empty-space clicks reach it (key→rename, value→edit, caret→expand all return first).
   With a **multi-selection**, `Space` toggles every selected branch independently (cursor-walks
   the selected branch rows dispatching `ToggleExpand`, then restores the selection); a single
@@ -183,18 +186,18 @@ shapes round-trip). Key types:
   edit buffer, Enter/blur → `CommitEdit`, **sized to its content** — `editWidthCh` seeds a
   `width:…ch` and an `input` listener grows it while typing, CSS min/max-width clamping);
   a key → a rename input; the kind badge → a
-  popover built from `kindOptions(path)` → `CommitKind`; `⋮`/right-click →
-  a context menu. All popovers share one synchronous closer (a single outside-click
+  popover built from `kindOptions(path)` → `CommitKind`; right-click on a row → the
+  centralized **Action menu** (`openActionMenuAt`). All popovers share one synchronous closer (a single outside-click
   listener) and are scoped per popover so they don't open/close together. **Every menu
   button toggles** — a second click on the `⋯` More button (tracked by `.open`) or the
-  per-row `⋮` (tracked by `ctxMenuPath`, the ctx-menu analogue of `kindMenuPath`) closes
+  Action button closes
   the menu, matching the already-toggling type-filter button and kind badge. **Every popup
   closes on Esc** — the click-menus via `anyClickMenuOpen`, `#tfPop`/overlay/`#convDlg`/
   inline editor/external-edit modal each in their own path, and the load-modal via its own
   keydown handler (it early-returns from `onKey`, so it needs one). A **comment row's
   click target is the text only** (`.comment-row .comment` is `flex:0 1 auto` — no grow — so
   the empty space past the text no longer opens the editor; shrink is retained for the
-  narrow-width ellipsis). **"Append sibling" on a comment** (context menu / `AddSibling`)
+  narrow-width ellipsis). **"Append sibling" on a comment** (Action menu / `AddSibling`)
   inserts a *separate* single-line comment and opens it in the inline editor; **Esc removes
   it** — the core `add_comment_sibling` path (blank-separated node + `created_on_add`).
 - **Native modal widgets replace the keyboard overlay.** The always-visible **search box**
@@ -213,9 +216,9 @@ shapes round-trip). Key types:
   isn't routed as navigation.
 - **Confirm prompts are buttons** (shared `web/prompt.ts`). `Mode::Prompt` renders per-kind
   answer buttons (`data-pk` → `PromptKey`): Yes/Cancel pairs for TypeChange / ArrayUpgrade /
-  ConfirmQuit, and Overwrite / Rename / Cancel for a paste Collision. The
-  question line is `snap.status ?? snap.error` with the TUI's trailing key legend stripped
-  (`promptQuestion`), with per-kind fallbacks for prompts core raises without a status. Desktop
+  ConfirmQuit, and Overwrite / Rename / Cancel for a paste Collision. The question line is
+  `snap.mode.Prompt.question` verbatim — core composes and localizes it (`prompt_question`),
+  and the old host-side status-stripping `promptQuestion` helper is deleted. Desktop
   keeps the keyboard path (y/n/Enter/Esc, plus o/r for Collision) alongside the buttons; the
   **touch UI renders a prompt bottom sheet** (`.prompt-sheet`) whose scrim/×/grab dismissal
   answers `n` — a prompt is always *answered*, never just hidden (peel-on-dismiss). The desktop
@@ -251,9 +254,9 @@ shapes round-trip). Key types:
   `preventDefault` fires only over an adjustable value so other rows scroll normally. The keyboard
   `+`/`-` and `←`/`→` Nudge keys are unchanged. The **same wheel-adjust works on the shared
   panel's value field** (`web/panel.ts`), so it applies in the desktop Detail aside and the touch
-  edit sheet too. The shared panel's actions are **Copy / Cut / Delete**; on success each fires the
-  panel's optional `afterMutation` callback so the host **confirms (message) and dismisses** the
-  panel (desktop `ExitDetail`, touch `closeSheets`). Panel **key/value edits are one-shot
+  edit sheet too. The shared panel is **editing-and-information only** (ADR 0009): it holds no
+  Copy/Cut/Delete buttons — node operations live in the Action menu, and the panel's former
+  `afterMutation` dismiss callback is gone. Panel **key/value edits are one-shot
   commits** (`CommitEdit`): success and failure both resolve back to the Detail panel (core
   `commit_edit` epilogue — no dangling `Mode::Edit`/tree editor; a **branch node's rename is
   rename-only**, skipping the value-replace step a branch has no scalar value for), and **Esc
@@ -398,11 +401,10 @@ edits to the verbatim desktop CSS.
   aside uses, so both UIs show one locked field order **Key / Value / Trailing comment / Kind /
   Path / Children / Sign** (Path is the human dotted/bracketed form, e.g. `servers[1].port`; Sign
   from `ViewRow.key_sign`). Key → `CommitEdit {name}`, value → `CommitEdit {value}`, trailing →
-  `SetTrailing`, comment node → `ApplyEditComment`, kind button → kind sheet, **Delete** →
-  `SetCursor`+`SetSelection`+`DeleteSelected`, **Copy** → `…`+`CopySelected`, **Cut** →
-  `…`+`CutSelected` (Copy/Cut arm the clipboard; the FAB pastes — see below). After each
-  dispatch `wirePanel` surfaces `snapshot.error` via the host toast (the panel buttons were dead in
-  the first cut — never wired — so failures are now reported, not silent).
+  `SetTrailing`, comment node → `ApplyEditComment`, kind button → kind sheet. The panel has no
+  Delete/Copy/Cut buttons — node operations live in the Action menu (ADR 0009). After each
+  dispatch `wirePanel` surfaces `snapshot.error` via the host toast (failures are reported,
+  not silent).
 - on `≥600px` the persistent side pane has a **draggable splitter** between the tree and detail
   panes: it sets a `--detail-w` flex-basis on `.app` (clamped ~240–520 px) persisted to
   `localStorage` (`confy-detail-w`); hidden `<600px` and in Raw view.
@@ -423,18 +425,19 @@ edits to the verbatim desktop CSS.
   `snapshot.mode` (`TypeFilterView` / `ConvertView`); the `convert_write` snapshot field is written
   via `fs.ts`. `dismissSheets` peels each mode on close (TypeFilter→`CommitTypeFilter`,
   Convert→`ExitConvert`, external-edit→`Escape`) so the next render doesn't re-open it.
-- **FAB is context-aware** (like the TUI `a`; decision logic shared with desktop's FAB above via
-  `web/fab.ts`): when the cursor row is an expanded branch → `AddChild`;
-  otherwise (scalar or collapsed branch) → `AddSibling` (falls back to parameterless `AddNode` with
-  no cursor row). When the **clipboard is armed** (`clipboard_count > 0`, after panel Copy/Cut) the
-  FAB switches to a **paste glyph tinted by copy vs cut** (`clipboard_cut`) and a tap dispatches
-  `Paste` at the cursor; tapping the status-bar clipboard badge clears it (`Escape`).
+- **FAB opens the Action menu** (shared with desktop via `web/fab.ts`, `data-act="actions"`):
+  a tap opens the touch **Action menu bottom sheet** (`openActionMenuSheet`, driven by
+  `snap.mode`'s `ActionMenu` view like the TypeFilter/Convert/Prompt sheets — ADR 0009; the old
+  context-aware add heuristic is gone, `Add child`/`Add sibling` are Action-menu items). When the
+  **clipboard is armed** (`clipboard_count > 0`) the FAB switches to a **paste glyph tinted by
+  copy vs cut** (`clipboard_cut`) and a tap dispatches `Paste` at the cursor; tapping the
+  status-bar clipboard badge clears it (`Escape`).
 - **External-keyboard shortcut parity.** A `document.body` `keydown` listener (`onKey`,
   `web/touch/app.ts`) resolves every key through the same `web/key-intent.ts`
   `resolveKeyIntent` desktop uses (shared verbatim, no touch-only fork) — navigation
   (j/k/g/G, arrows, Home/End, Shift+↑/↓ range-select), edit actions (a/d/c/x/v/r/s),
   expand/collapse (1/2/0/9), Nudge (+/-), `/` focus-search, `f`/`C` TypeFilter/Convert,
-  `?` Help, Ctrl+S/Ctrl+O save/open, z/y undo/redo, and Space multi-branch toggle all work
+  `m` Action menu, `?` Help, Ctrl+S/Ctrl+O save/open, z/y undo/redo, and Space multi-branch toggle all work
   from an external/Bluetooth keyboard on a touch device. Guarded against focused
   `INPUT`/`TEXTAREA`/`SELECT` fields and the URL/external-edit sheets so typing in a form
   field is never hijacked.
