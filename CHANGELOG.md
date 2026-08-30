@@ -10,6 +10,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.23.0] - 2026-08-29
 
+### Unreleased Update — 2026-08-30T04:41:18Z
+- **chore(deps): upgrade `thiserror` from 1 to 2.**
+  Audit follow-up (batch 4). Confirmed via thiserror's 2.0.0 release notes
+  that none of its breaking changes apply here: all 4
+  `#[derive(thiserror::Error)]` usages (`confy-core`'s `ConvertAbort`,
+  `MutateError`, `ParseError`; `tauri-plugin-confy-picker`'s `Error`) use
+  only plain `#[error("...")]` string literals and
+  `#[error(transparent)]` + `#[from]`, none of the attribute/API surface
+  2.0 changed. Bumped `thiserror = "1"` to `"2"` in the workspace
+  `[workspace.dependencies]`. `taplo` (an existing transitive dependency,
+  already documented as unmaintained in this changelog) and its
+  `json-patch`/tauri chain still pull `thiserror` 1.0.69 internally, so
+  `cargo tree` now shows both major versions resolved side by side — this
+  is expected and harmless (Cargo compiles distinct majors independently);
+  `confy-core`, `confy-tui`, and `tauri-plugin-confy-picker` all resolve
+  `thiserror` 2.0.20 directly, confirmed via `cargo tree -i thiserror@2.0.20`.
+  Verified: `cargo build --workspace` compiles clean with zero source
+  edits beyond the one `Cargo.toml` version bump; `cargo test -p
+  confy-core --lib` (550 passed) and `cargo test -p confy-tui --lib` (210
+  passed) both hold at their pre-bump baselines; clippy/fmt clean.
+
+
 ### Unreleased Update — 2026-08-30T04:10:00Z
 - **chore(tui): dedupe the `dirs` dependency to a single resolved version.**
   `confy-tui` declared `dirs = "5"` while `tauri`'s own dependency chain

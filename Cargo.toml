@@ -11,7 +11,7 @@ repository = "https://github.com/superyngo/confy"
 
 [workspace.dependencies]
 anyhow = "1"
-thiserror = "1"
+thiserror = "2"
 taplo = "0.14"            # lossless rowan CST backend (comments as real nodes)
 rowan = "=0.15.18"        # lossless hand-rolled JSON/JSONC CST (same version taplo uses)
 tempfile = "3"
