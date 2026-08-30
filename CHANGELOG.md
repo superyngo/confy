@@ -10,6 +10,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.23.0] - 2026-08-29
 
+### Unreleased Update — 2026-08-30T03:30:00Z
+- **refactor(core): extract two 80%+-inline-test modules to sibling
+  `tests.rs` files.** `model/cst_edit/mod.rs` (3,383 lines, 3,104 of them
+  `#[cfg(test)] mod tests { ... }`) and `model/yaml/edit/mod.rs` (2,034
+  lines, 1,877 of them tests) buried their small runtime bodies (279 and
+  157 lines respectively) under a much larger inline test module. Moved
+  each test module's body verbatim into a sibling `tests.rs`
+  (`#[cfg(test)] #[path = "tests.rs"] mod tests;` stub left in `mod.rs`),
+  matching the standard Rust idiom for large inline test modules; no test
+  code changed, only its file location (`cargo fmt` then re-dedents the
+  moved content from module-body indent to top-level). Left
+  `confy-tui/src/tui/app.rs`'s inline tests (3,526 lines) alone — its test
+  module calls the private fn `type_tag`, which this batch doesn't touch.
+  Fallout: `tests/no_fs_gate.rs`'s PORTING.md §7 boundary-gate scan finds
+  each file's "runtime" prefix by slicing at the first `#[cfg(test)]`
+  token — since that marker now lives in `mod.rs`, not in the extracted
+  `tests.rs`, the gate started scanning `yaml/edit/tests.rs` as if it were
+  runtime code and failed on a legitimate `std::fs::read_to_string` inside
+  a test fixture. Fixed by skipping any file literally named `tests.rs` in
+  the gate's directory walk (documented as part of the sibling-test-file
+  convention in both the scan loop and the file's top doc comment).
+  Verified: `cargo test -p confy-core --lib model::cst_edit::` (194 pass)
+  and `--lib model::yaml::edit::` (116 pass) individually, then
+  `cargo test --workspace` at the unchanged 550-test confy-core baseline
+  including `no_fs_gate` passing again; `cargo clippy --workspace
+  --all-targets -- -D warnings` and `cargo fmt --all --check` both clean.
+
 ### Unreleased Update — 2026-08-30T03:15:00Z
 - **ci(web): wire `crates/confy-ffi/functional_smoke.mjs` into the build
   pipeline — it was never actually running.** `web/run-tests.mjs` only

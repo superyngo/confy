@@ -3,9 +3,10 @@
 //! (confy-tui / a future WASM shim) owns all I/O; the core is pure.
 //!
 //! This walks `confy-core/src`, skips each file's trailing `#[cfg(test)]` module
-//! (unit tests legitimately read fixtures), and fails on a forbidden token in the
-//! remaining runtime code. Living in the `tests/` crate, this file's own `std::fs`
-//! use is outside the scanned tree.
+//! (unit tests legitimately read fixtures) and any sibling `tests.rs` file (whole
+//! file is test code by the `#[path = "tests.rs"] mod tests;` convention), and
+//! fails on a forbidden token in the remaining runtime code. Living in the
+//! `tests/` crate, this file's own `std::fs` use is outside the scanned tree.
 
 use std::fs;
 use std::path::Path;
@@ -41,6 +42,12 @@ fn scan(dir: &Path, out: &mut Vec<String>) {
             continue;
         }
         if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+            continue;
+        }
+        // `tests.rs` is a whole-file sibling test module (`#[path = "tests.rs"]
+        // mod tests;`); its `#[cfg(test)]` marker lives in the parent `mod.rs`,
+        // not in this file, so it's entirely test code and out of scope here.
+        if path.file_name().and_then(|f| f.to_str()) == Some("tests.rs") {
             continue;
         }
         let text = fs::read_to_string(&path).unwrap();
