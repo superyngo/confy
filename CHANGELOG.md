@@ -10,6 +10,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.23.0] - 2026-08-29
 
+### Unreleased Update — 2026-08-30T04:00:00Z
+- **test(core): add a fixture-seeded round-trip property test per backend.**
+  Added `proptest = "1"` (`confy-core`'s dev-dependencies were empty until
+  now) and `tests/roundtrip_proptest.rs`: one `proptest!` fn per backend
+  (`toml_fixture_roundtrips`/`json_fixture_roundtrips`/
+  `yaml_fixture_roundtrips`), each sampling (`prop::sample::select`) over
+  the same curated fixture set already on disk that
+  `roundtrip.rs`/`roundtrip_json.rs`/`roundtrip_yaml.rs` already trust —
+  no synthetic config-syntax generator, so proptest's harness
+  (shrinking/seed-reporting on failure) runs over a corpus already known to
+  be format-valid rather than fighting each format's grammar. Cross-checked
+  the fixture lists against the existing round-trip tests' own
+  enumerations before finalizing: dropped `yaml/multi-doc.yaml` (already
+  documented in `roundtrip_yaml.rs` as intentionally excluded — rejected at
+  parse, not a round-trip candidate). All listed fixtures verified to
+  actually round-trip by running the new tests directly (all 3 pass at the
+  default 256 cases each, no `proptest-regressions` file produced).
+  `cargo test --workspace` stays at the 550-test confy-core baseline plus
+  3 new passing tests; clippy/fmt clean.
+
 ### Unreleased Update — 2026-08-30T03:45:00Z
 - **test(core): convert two 3-way format-parity test files to table-driven
   loops.** `tests/external_edit_clears_trailing_comment.rs` and
