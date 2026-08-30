@@ -489,16 +489,9 @@ fn insert(
                         }
                     }
                     OnCollision::Rename => {
-                        // Find a free name: key_2, key_3, …
-                        let mut n = 2usize;
-                        loop {
-                            let candidate = format!("{key}_{n}");
-                            if !existing_keys.iter().any(|k| k == &candidate) {
-                                final_key = Some(candidate.clone());
-                                break;
-                            }
-                            n += 1;
-                        }
+                        final_key = Some(crate::model::node::next_available_key(key, |c| {
+                            existing_keys.iter().any(|k| k == c)
+                        }));
                     }
                 }
             }

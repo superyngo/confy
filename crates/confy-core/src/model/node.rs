@@ -26,6 +26,19 @@ pub fn array_element_suggested_key(path: &[Seg]) -> Option<String> {
     }
 }
 
+/// The first `"{base}_2"`, `"{base}_3"`, … candidate for which `is_taken` returns
+/// `false`. Shared by every backend's `OnCollision::Rename` handling.
+pub fn next_available_key(base: &str, is_taken: impl Fn(&str) -> bool) -> String {
+    let mut n = 2;
+    loop {
+        let candidate = format!("{base}_{n}");
+        if !is_taken(&candidate) {
+            return candidate;
+        }
+        n += 1;
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ScalarType {
     String,

@@ -10,6 +10,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.23.0] - 2026-08-29
 
+### Unreleased Update — 2026-08-30T05:30:00Z
+- **refactor(core): deduplicate the 5 collision-suffix-loop implementations
+  into `node::next_available_key`.** Audit follow-up (batch 4). All 5
+  `OnCollision::Rename` handlers (`json/edit.rs`, `yaml/edit/block.rs`,
+  `yaml/edit/flow.rs`, `cst_edit/move_paste.rs`, `cst_edit/aot_group.rs`)
+  independently reimplemented the same `key_2`, `key_3`, … candidate
+  search. Added `pub fn next_available_key(base: &str, is_taken: impl
+  Fn(&str) -> bool) -> String` to `model::node` and converted all 5 call
+  sites to it, each keeping its own existing "taken" predicate (`Vec`
+  scan for JSON/YAML, tree lookup via `node_at` for the two TOML CST
+  sites) and its own post-selection logic (comment/value rebuilding)
+  unchanged.
+
+  `cst_edit/move_paste.rs`'s call site needed a different closure shape
+  than originally planned: a closure that mutates its captured `segs` to
+  build each candidate path would need `FnMut`, but
+  `next_available_key`'s `is_taken` parameter is a plain `Fn` — so used a
+  clone-based closure instead (builds a fresh candidate `Vec` per check,
+  same idiom already used at the `aot_group.rs` site), which compiles
+  and is not fragile.
+
+  Verified: `cargo build -p confy-core` compiles clean at all 5 sites;
+  `cargo test -p confy-core --lib` — the full 35-test
+  `rename`/`collision`-filtered run and the full 550-test suite — both
+  pass at baseline, confirming `next_available_key`'s extracted logic
+  produces byte-identical output to the 5 original inline loops;
+  clippy/fmt clean.
+
 ### Unreleased Update — 2026-08-30T05:15:00Z
 - **refactor(core): add `ConfigDocument` trait defaults for `to_value` and
   `serialize_fragment_relative`.** Audit follow-up (batch 4). All three

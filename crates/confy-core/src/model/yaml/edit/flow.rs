@@ -218,15 +218,10 @@ pub(crate) fn insert_flow(
                             .map(|x| x.1)
                             .unwrap_or("")
                             .to_string();
-                        let mut n = 2usize;
-                        let renamed = loop {
-                            let candidate = format!("{key}_{n}");
-                            if !existing.iter().any(|k| k == &candidate) {
-                                break format!("{candidate}: {val}");
-                            }
-                            n += 1;
-                        };
-                        final_member = renamed;
+                        let candidate = crate::model::node::next_available_key(key, |c| {
+                            existing.iter().any(|k| k == c)
+                        });
+                        final_member = format!("{candidate}: {val}");
                     }
                 }
             }

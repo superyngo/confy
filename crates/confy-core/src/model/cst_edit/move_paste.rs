@@ -392,15 +392,13 @@ fn insert_with(
                 // Append _2, _3, … to the **last** segment until the full path is free.
                 let base = frag_segs.last().cloned().unwrap_or_default();
                 let mut segs = frag_segs.clone();
-                let mut n = 2;
-                loop {
-                    let last = segs.len() - 1;
-                    segs[last] = format!("{base}_{n}");
-                    if node_at(&proj.root, &full_path(&segs)).is_none() {
-                        break;
-                    }
-                    n += 1;
-                }
+                let last = segs.len() - 1;
+                let candidate = crate::model::node::next_available_key(&base, |c| {
+                    let mut cand = segs.clone();
+                    cand[last] = c.to_string();
+                    node_at(&proj.root, &full_path(&cand)).is_some()
+                });
+                segs[last] = candidate;
                 rewrite_last_key(&frag, segs.last().unwrap())?;
             }
         }

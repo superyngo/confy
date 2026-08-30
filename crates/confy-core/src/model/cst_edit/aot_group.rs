@@ -82,15 +82,13 @@ pub(crate) fn aot_group_insert(
             OnCollision::Rename => {
                 let segs = fragment_key_segs(&entries[i]);
                 let base = segs.last().cloned().unwrap_or_default();
-                let mut n = 2;
-                let new_last = loop {
+                let candidate = crate::model::node::next_available_key(&base, |c| {
                     let mut cand = segs.clone();
-                    *cand.last_mut().unwrap() = format!("{base}_{n}");
-                    if !keys.contains(&cand.join(".")) {
-                        break cand;
-                    }
-                    n += 1;
-                };
+                    *cand.last_mut().unwrap() = c.to_string();
+                    keys.contains(&cand.join("."))
+                });
+                let mut new_last = segs.clone();
+                *new_last.last_mut().unwrap() = candidate;
                 rewrite_last_key(&entries[i], new_last.last().unwrap())?;
                 keys[i] = new_last.join(".");
             }

@@ -886,30 +886,25 @@ pub(crate) fn insert(
                         }
                     }
                     OnCollision::Rename => {
-                        let mut n = 2usize;
-                        loop {
-                            let candidate = format!("{key}_{n}");
-                            if !existing.iter().any(|k| k == &candidate) {
-                                // Rebuild item with renamed key. Derive the
-                                // value from the already-adapted item, not the
-                                // raw fragment: a moved seq element (`- 20`)
-                                // has already been normalized to `key: value`
-                                // by `adapt_fragment`, and splitting the raw
-                                // `- 20` on `: ` would leave the dash in the
-                                // rebuilt value.
-                                let spaces = " ".repeat(dest_indent);
-                                let adapted = final_item.trim_start();
-                                let val_part = adapted
-                                    .split_once(": ")
-                                    .map(|x| x.1)
-                                    .unwrap_or(adapted)
-                                    .trim_end_matches('\n');
-                                let renamed = format!("{spaces}{candidate}: {val_part}\n");
-                                final_item = renamed;
-                                break;
-                            }
-                            n += 1;
-                        }
+                        let candidate = crate::model::node::next_available_key(key, |c| {
+                            existing.iter().any(|k| k == c)
+                        });
+                        // Rebuild item with renamed key. Derive the value
+                        // from the already-adapted item, not the raw
+                        // fragment: a moved seq element (`- 20`) has
+                        // already been normalized to `key: value` by
+                        // `adapt_fragment`, and splitting the raw `- 20`
+                        // on `: ` would leave the dash in the rebuilt
+                        // value.
+                        let spaces = " ".repeat(dest_indent);
+                        let adapted = final_item.trim_start();
+                        let val_part = adapted
+                            .split_once(": ")
+                            .map(|x| x.1)
+                            .unwrap_or(adapted)
+                            .trim_end_matches('\n');
+                        let renamed = format!("{spaces}{candidate}: {val_part}\n");
+                        final_item = renamed;
                     }
                 }
             }
