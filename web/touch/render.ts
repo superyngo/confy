@@ -7,7 +7,7 @@
 // whole tree from each snapshot.
 import type { SessionSnapshot, ViewRow } from "../types.js";
 import { escapeHtml as esc } from "../escape.js";
-import { isCommentRow, isExpanded, isPositional, kindLabelParts, valueTypeClass } from "../kind-labels.js";
+import { isCommentRow, isExpanded, isPositional, valueTypeClass } from "../kind-labels.js";
 
 // The shared quote-safe escaper, under this module's traditional short name.
 export { esc };
@@ -52,7 +52,7 @@ function containerKind(r: ViewRow): "array" | "table" {
 // `.kind-note` span so both surfaces dim `·dec`/`·scope` identically instead
 // of touch rendering the whole "int·dec" pill at one uniform brightness.
 function kindBadgeHTML(r: ViewRow): string {
-  const { label, note } = kindLabelParts(r);
+  const { badge_label: label, badge_note: note } = r;
   const suffix = note ? `<span class="kind-note">·${esc(note)}</span>` : "";
   return `${esc(label)}${suffix}`;
 }

@@ -55,6 +55,8 @@ function makeRow(overrides = {}) {
     scalar_type: "String",
     format: "String",
     type_label: "string",
+    badge_label: "str",
+    badge_note: "",
     child_count: 0,
     trailing_comment: undefined,
     read_only: false,

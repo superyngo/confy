@@ -45,6 +45,8 @@ function makeRow(overrides = {}) {
     scalar_type: undefined,
     format: "Table",
     type_label: "table",
+    badge_label: "table",
+    badge_note: "",
     child_count: 0,
     trailing_comment: undefined,
     read_only: false,

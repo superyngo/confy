@@ -12,7 +12,7 @@
 // phases (kind popover, context menu, drag-reparent).
 import type { EditView, SessionSnapshot, ViewRow } from "./types.js";
 import { escapeHtml } from "./escape.js";
-import { isCommentRow, isExpanded, isPositional, kindLabelParts, valueTypeClass } from "./kind-labels.js";
+import { isCommentRow, isExpanded, isPositional, valueTypeClass } from "./kind-labels.js";
 import { t } from "./i18n.js";
 
 // Re-export so existing importers (ui.ts / typefilter.ts / convert-dialog.ts)
@@ -36,13 +36,14 @@ const IC_WARN_FILL =
 const IC_WARN_HOLLOW =
   `<svg class="warn-dot warn-dot-hollow" viewBox="0 0 10 10" width="7" height="7"><polygon points="5,0.9 9.2,8.6 0.8,8.6"/></svg>`;
 
-// KIND_SHORT / NOTATION_SHORT / CONTAINER_NOTE / kindLabelParts / valueTypeClass
-// live in the shared kind-labels.ts (also used by panel.ts and touch/render.ts).
+// KIND_SHORT / NOTATION_SHORT / CONTAINER_NOTE now live in core as
+// `ViewRow.badge_label`/`.badge_note` (session/status_fmt.rs); this file only
+// renders them.
 
 // Plain-text "label · notation" for the kind popup's disabled "Current:" header
 // (design's `目前：…` row). Suppresses a notation that just repeats the label.
 export function currentKindLabel(r: ViewRow): string {
-  const { label, note } = kindLabelParts(r);
+  const { badge_label: label, badge_note: note } = r;
   return note ? `${label} · ${note}` : label;
 }
 
@@ -88,7 +89,7 @@ function renderValue(r: ViewRow, edit: EditView | null, schemaEnum: { options: s
 
 // The per-row kind badge: friendly kind label + notation suffix + chevron.
 function renderKindBadge(r: ViewRow): string {
-  const { label, note } = kindLabelParts(r);
+  const { badge_label: label, badge_note: note } = r;
   const suffix = note ? `<span class="kind-note">·${escapeHtml(note)}</span>` : "";
   return `<button class="kind" data-kind="1">${escapeHtml(label)}${suffix} ${IC_CHEV}</button>`;
 }

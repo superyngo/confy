@@ -25,6 +25,84 @@ pub fn node_type_label_str(kind: &NodeKind) -> &'static str {
     }
 }
 
+/// Friendly short kind-badge label (design's `KIND_SHORT`, e.g. `"table"`,
+/// `"AoT"`, `"str"`), and its notation-suffix note (e.g. `"scope"`, `"0x"`,
+/// `"dec"`; empty when it would just repeat the label). Computed once here
+/// so every host renders the identical badge without re-deriving
+/// type/format heuristics client-side (previously duplicated across
+/// `web/kind-labels.ts`'s `kindLabelParts`/`notationGlyph`, `panel.ts`,
+/// `render.ts`, `touch/render.ts`).
+pub fn badge_label_note(
+    kind: &NodeKind,
+    format: Format,
+    is_branch: bool,
+    scalar_type: Option<ScalarType>,
+) -> (&'static str, &'static str) {
+    let label = match node_type_label_str(kind) {
+        "table" => "table",
+        "array-of-tables" => "AoT",
+        "array" => "array",
+        "inline" => "inline",
+        "string" => "str",
+        "integer" => "int",
+        "float" => "float",
+        "bool" => "bool",
+        "null" => "null",
+        "offsetdatetime" | "localdatetime" | "localdate" => "date",
+        "localtime" => "time",
+        other => other, // "" (root), "comment" pass through unchanged
+    };
+    let container_note = |fmt: Format| -> &'static str {
+        match fmt {
+            Format::Scope => "scope",
+            Format::Dotted => "dotted",
+            Format::Inline => "inline",
+            Format::Multiline => "multi",
+            Format::Block => "block",
+            _ => "",
+        }
+    };
+    let notation_short = |fmt: Format| -> &'static str {
+        match fmt {
+            Format::BasicString => "\"…\"",
+            Format::Decimal => "dec",
+            Format::Literal => "'…'",
+            Format::MultilineBasic => "\"\"\"",
+            Format::MultilineLiteral => "'''",
+            Format::Multiline => "\"\"\"",
+            Format::Hex => "0x",
+            Format::Octal => "0o",
+            Format::Binary => "0b",
+            Format::Exponent => "1e",
+            Format::SingleQuoted => "'…'",
+            Format::DoubleQuoted => "\"…\"",
+            Format::LiteralBlock => "|",
+            Format::Folded => ">",
+            Format::Inf => "inf",
+            Format::Nan => "nan",
+            _ => "",
+        }
+    };
+    let notation_glyph = if is_branch {
+        container_note(format)
+    } else {
+        let s = notation_short(format);
+        if !s.is_empty() {
+            s
+        } else if scalar_type == Some(ScalarType::Float) && format == Format::Plain {
+            "dec"
+        } else {
+            ""
+        }
+    };
+    let note = if container_note(format) == label {
+        ""
+    } else {
+        notation_glyph
+    };
+    (label, note)
+}
+
 /// The full type label for a node kind (matches node_type_label in app.rs).
 pub fn node_type_label(kind: &NodeKind) -> String {
     match kind {

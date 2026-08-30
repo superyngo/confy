@@ -49,6 +49,8 @@ function baseRow(overrides = {}) {
     is_branch: false,
     key: "port",
     type_label: "integer",
+    badge_label: "int",
+    badge_note: "",
     format: "Plain",
     value: "8080",
     key_sign: "Bare",

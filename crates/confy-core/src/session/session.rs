@@ -1,6 +1,6 @@
 use super::status_fmt::{
-    branch_type_format, char_byte_idx, default_ext, format_label, key_sign_label, node_type_label,
-    node_type_label_str,
+    badge_label_note, branch_type_format, char_byte_idx, default_ext, format_label, key_sign_label,
+    node_type_label, node_type_label_str,
 };
 use crate::model::any_doc::AnyDocument;
 use crate::model::document::{ConfigDocument, DocFormat, Mutation, OnCollision, Target};
@@ -235,6 +235,8 @@ impl Session {
             NodeKind::Scalar(st) => Some(*st),
             _ => None,
         };
+        let (badge_label, badge_note) =
+            badge_label_note(&node.kind, node.format, node.is_branch(), scalar_type);
         ViewRow {
             path: node.path.clone(),
             path_display,
@@ -245,6 +247,8 @@ impl Session {
             scalar_type,
             format: node.format,
             type_label: node_type_label_str(&node.kind).into(),
+            badge_label: badge_label.into(),
+            badge_note: badge_note.into(),
             child_count: node.children.len(),
             trailing_comment: node.trailing_comment.clone(),
             key_sign: key_sign_label(node.key_sign).into(),

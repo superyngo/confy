@@ -57,6 +57,14 @@ pub struct ViewRow {
     /// so the Web UI can render the per-row kind badge without re-deriving the
     /// container kind (which `is_branch` alone can't distinguish).
     pub type_label: Cow<'static, str>,
+    /// Friendly short kind-badge label (design's `KIND_SHORT`, e.g. `"table"`,
+    /// `"AoT"`, `"str"`), and its notation-suffix note (e.g. `"scope"`,
+    /// `"0x"`, `"dec"`; empty when it would just repeat the label). Computed
+    /// once in core so every host renders the identical badge without
+    /// re-deriving type/format heuristics (previously duplicated in
+    /// `web/kind-labels.ts`).
+    pub badge_label: Cow<'static, str>,
+    pub badge_note: Cow<'static, str>,
     /// Immediate child count — drives the branch row's "N" item-count badge
     /// (meaningful for branches; 0 for scalars/comments).
     pub child_count: usize,

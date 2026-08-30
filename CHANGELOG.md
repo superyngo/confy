@@ -10,6 +10,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.23.0] - 2026-08-29
 
+### Unreleased Update — 2026-08-30T01:45:00Z
+- **refactor(core, web): compute the kind badge's label/note once in core;
+  stop re-deriving it in three web files.** `web/kind-labels.ts`'s
+  `KIND_SHORT`/`NOTATION_SHORT`/`CONTAINER_NOTE`/`notationGlyph`/
+  `kindLabelParts` re-derived the same "table"/"AoT"/"str"/… friendly
+  label and "·scope"/"·0x"/"·dec"/… notation note from `ViewRow.type_label`
+  + `.format` independently in `render.ts`, `panel.ts`, and
+  `touch/render.ts`. Added `Session::to_view_row`-computed
+  `ViewRow.badge_label`/`.badge_note` (`Cow<'static, str>`, same
+  `Deserialize`-derive reason as the prior `type_label`/`key_sign` change)
+  via a new `status_fmt::badge_label_note`, a line-for-line Rust port of
+  the deleted TS logic. All three web files now destructure
+  `r.badge_label`/`r.badge_note` directly; `kind-labels.ts` keeps only
+  `valueHue`/`valueTypeClass`/`isCommentRow`/`isPositional`/`isExpanded`,
+  which aren't derivable from the new fields. Verified the ported logic
+  against `visible_rows()` output for 9 real TOML/YAML documents
+  (`[header]` scope table, dotted table, inline table, multiline array,
+  float, basic string, array-of-tables, YAML block map, YAML flow map) —
+  every label/note pair matches the deleted TS code's output for the
+  same shape.
+
 ### Unreleased Update — 2026-08-30T01:20:00Z
 - **refactor(core): replace `anyhow::Result` with a structured `ParseError`
   in the four document `from_str` constructors.** `CstDocument::from_str`,

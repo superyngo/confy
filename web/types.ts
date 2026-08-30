@@ -68,6 +68,13 @@ export interface ViewRow {
   // Node-kind label ("table"/"array"/"inline"/"array-of-tables"/"string"/…)
   // for the per-row kind badge.
   type_label: string;
+  // Friendly short kind-badge label + notation-suffix note (design's
+  // KIND_SHORT/NOTATION_SHORT/CONTAINER_NOTE), computed once in core so
+  // every host renders the identical badge without re-deriving
+  // type/format heuristics. `badge_note` is `""` when it would just
+  // repeat `badge_label`.
+  badge_label: string;
+  badge_note: string;
   // Immediate child count (drives the branch item-count badge; 0 for scalars).
   child_count: number;
   trailing_comment: string | undefined;
