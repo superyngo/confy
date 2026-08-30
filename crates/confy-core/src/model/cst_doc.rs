@@ -306,10 +306,10 @@ impl CstDocument {
     // without importing `FromStr`; a real `FromStr` impl is a poor fit (anyhow
     // error, JSON's content-derived state on the sibling backend).
     #[allow(clippy::should_implement_trait)]
-    pub fn from_str(text: &str) -> anyhow::Result<Self> {
+    pub fn from_str(text: &str) -> Result<Self, crate::model::document::ParseError> {
         let parse = taplo::parser::parse(text);
         if let Some(err) = parse.errors.first() {
-            anyhow::bail!("parsing TOML: {err}");
+            return Err(crate::model::document::ParseError::Toml(err.to_string()));
         }
         Ok(CstDocument {
             syntax: parse.into_syntax(),

@@ -146,9 +146,9 @@ impl YamlDocument {
     /// label (`filename`) starts empty; the host sets it via
     /// [`set_filename`](Self::set_filename).
     #[allow(clippy::should_implement_trait)] // named per PORTING.md; see cst_doc.rs
-    pub fn from_str(text: &str) -> anyhow::Result<Self> {
+    pub fn from_str(text: &str) -> Result<Self, crate::model::document::ParseError> {
         let green = crate::model::yaml::parse::parse(text)
-            .map_err(|e| anyhow::anyhow!("parsing YAML: {e}"))?;
+            .map_err(crate::model::document::ParseError::Yaml)?;
         Ok(YamlDocument {
             syntax: SyntaxNode::new_root(green),
             original: text.to_string(),

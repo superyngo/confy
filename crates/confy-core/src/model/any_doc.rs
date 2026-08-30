@@ -2,7 +2,9 @@
 //! concrete type and a new format is one more variant (spec §Phase 1.1).
 
 use crate::model::cst_doc::CstDocument;
-use crate::model::document::{ConfigDocument, DocFormat, KindTarget, MutateError, Mutation};
+use crate::model::document::{
+    ConfigDocument, DocFormat, KindTarget, MutateError, Mutation, ParseError,
+};
 use crate::model::json::JsonDocument;
 use crate::model::node::{NodeTree, Seg};
 use crate::model::yaml::YamlDocument;
@@ -39,7 +41,7 @@ impl AnyDocument {
     /// constructor. The host reads the bytes and resolves `format` (extension or
     /// override), then calls this; the conversion reparse-net and future WASM/web
     /// hosts use it directly.
-    pub fn from_str_as(text: &str, format: DocFormat) -> anyhow::Result<Self> {
+    pub fn from_str_as(text: &str, format: DocFormat) -> Result<Self, ParseError> {
         match format {
             DocFormat::Toml => Ok(Self::Toml(CstDocument::from_str(text)?)),
             DocFormat::Json => Ok(Self::Json(JsonDocument::from_str(text)?)),

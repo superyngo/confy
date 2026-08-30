@@ -19,7 +19,7 @@ fn dump(n: &confy_core::model::node::Node, depth: usize) {
 }
 
 fn load_str(src: &str) -> anyhow::Result<YamlDocument> {
-    YamlDocument::from_str(src)
+    Ok(YamlDocument::from_str(src)?)
 }
 
 #[test]

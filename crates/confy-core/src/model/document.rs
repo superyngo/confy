@@ -350,3 +350,17 @@ pub enum MutateError {
     #[error("operation not supported by this format")]
     Unsupported,
 }
+
+/// A document failed to parse. One variant per backend, carrying the
+/// underlying parser's message. Returned by `AnyDocument::from_str_as` and
+/// each backend's `from_str`, replacing an untyped `anyhow::Result` so
+/// library consumers can match on it without downcasting.
+#[derive(Debug, thiserror::Error)]
+pub enum ParseError {
+    #[error("parsing TOML: {0}")]
+    Toml(String),
+    #[error("parsing JSON: {0}")]
+    Json(String),
+    #[error("parsing YAML: {0}")]
+    Yaml(String),
+}

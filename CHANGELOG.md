@@ -10,6 +10,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.23.0] - 2026-08-29
 
+### Unreleased Update — 2026-08-30T01:20:00Z
+- **refactor(core): replace `anyhow::Result` with a structured `ParseError`
+  in the four document `from_str` constructors.** `CstDocument::from_str`,
+  `JsonDocument::from_str`, `YamlDocument::from_str`, and
+  `AnyDocument::from_str_as` all returned untyped `anyhow::Result<Self>`,
+  so a library consumer had no way to match on "TOML/JSON/YAML parse
+  failure" without downcasting a `dyn Error`. Added
+  `document::ParseError` (`Toml`/`Json`/`Yaml` variants, `thiserror`,
+  same message text each backend already produced) alongside the
+  existing `MutateError`, and switched all four constructors to return
+  it directly. Every one of the ~60 existing call sites across the
+  workspace only used `?`, `.unwrap()`/`.expect()`, Display formatting,
+  or `anyhow::Context::with_context` (which still works unchanged, since
+  `anyhow::Context` accepts any `std::error::Error + Send + Sync +
+  'static`), so only one file needed a change: a test helper in
+  `tests/yaml_scratch.rs` that returned the bare `Result` instead of
+  propagating it through `?`. Verified on the real `confy-tui` binary
+  that a malformed TOML file's reported error text is unchanged.
+
 ### Unreleased Update — 2026-08-30T01:10:26Z
 - **perf(core): `ViewRow.type_label`/`.key_sign` stop allocating a `String`
   on every visible row.** `to_view_row` called `.to_string()` on
