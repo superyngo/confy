@@ -813,14 +813,17 @@ body.stale-tree #tree { opacity: 0.45; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
-/* Floating add / paste action — visual twin of the touch FAB
-   (web/touch/style.css §.fab). `fixed`, not `absolute`: the desktop shell has
-   no absolutely-positioned app root. z-index 40 keeps it above the `.detail`
-   drawer (z-index 30), exactly as on touch. `.tree-wrap` already reserves
-   `padding-bottom:80px`, so no tree row can hide underneath it, and the
-   footer's own content is left-aligned so the bottom-right corner is free. */
+/* Floating actions / paste button — visual twin of the touch FAB
+   (web/touch/style.css §.fab). Nested inside `.main` (index.html) and
+   `position:absolute` against it — `.main` is already `position:relative`
+   and sits above `.footer` in the page's flex column, so `bottom:18px`
+   here can never land on/under the footer/status bar, even when the footer
+   wraps to two lines (unlike the old `position:fixed` viewport anchor).
+   z-index 40 keeps it above the `.detail` drawer (z-index 30), exactly as
+   on touch. `.tree-wrap` already reserves `padding-bottom:80px`, so no tree
+   row can hide underneath it. */
 .fab{
-  position:fixed;right:18px;bottom:calc(18px + env(safe-area-inset-bottom,0));z-index:40;
+  position:absolute;right:18px;bottom:calc(18px + env(safe-area-inset-bottom,0));z-index:40;
   width:44px;height:44px;border-radius:14px;display:grid;place-items:center;border:0;cursor:pointer;
   background:var(--accent);color:oklch(18% 0.02 250);
   box-shadow:0 10px 28px oklch(0% 0 0/.4),0 0 0 1px oklch(80% 0.1 250/.2);
@@ -830,7 +833,7 @@ body.stale-tree #tree { opacity: 0.45; }
 .fab.paste-copy{background:var(--t-string)}
 .fab.paste-cut{background:var(--t-bool)}
 .fab-clear{
-  position:fixed;right:24px;z-index:41;display:none;place-items:center;cursor:pointer;
+  position:absolute;right:24px;z-index:41;display:none;place-items:center;cursor:pointer;
   bottom:calc(18px + 44px + 12px + env(safe-area-inset-bottom,0));
   width:32px;height:32px;border-radius:50%;
   background:var(--surface);border:1px solid var(--border-strong);color:var(--muted);box-shadow:var(--shadow);

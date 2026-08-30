@@ -29,6 +29,7 @@ import type {
   ConvertView,
   PasteSlot,
   Notice,
+  ActionItemView,
 } from "../types.js";
 import {
   canSaveAs,
@@ -63,7 +64,7 @@ import {
   type SampleFormat,
 } from "../samples.js";
 import { IC, esc, treeHTML } from "./render.js";
-import { fabHTML, syncFab, fabAddAction } from "../fab.js";
+import { fabHTML, syncFab } from "../fab.js";
 import { parentOf, pathEq, siblingIndex } from "../path-utils.js";
 import { resolveClick, resetAnchor, type Mods } from "../select.js";
 import { panelHTML, wirePanel, schemaHintText } from "../panel.js";
@@ -80,6 +81,7 @@ import {
   wireConvertDialog,
 } from "../convert-dialog.js";
 import { resolveKeyIntent, navRowCount } from "../key-intent.js";
+import { actionItemHTML } from "../action-menu-items.js";
 
 type FsHandle = OpenedFile["handle"];
 
@@ -275,6 +277,7 @@ function appHTML(): string {
     '<div class="scrim" data-act="scrim"></div>' +
     '<div class="sheet detail-sheet"></div>' +
     '<div class="sheet menu-sheet"></div>' +
+    '<div class="sheet actions-sheet"></div>' +
     '<div class="sheet filter-sheet"></div>' +
     '<div class="sheet kind-sheet"></div>' +
     '<div class="sheet lang-sheet"></div>' +
@@ -484,7 +487,7 @@ function render() {
       const schemaEnum =
         typeof snap.mode === "object" && "SchemaEnum" in snap.mode ? snap.mode.SchemaEnum : undefined;
       dpBody.innerHTML = panelHTML(cur, parentIsInline(cur.path), hint, schemaEnum, info);
-      wirePanel(dpBody, cur, sendR, openKindRow, (msg: string) => renderNotice({ severity: "error", text: msg, source: "core" }), afterPanelMutation, undefined, schemaEnum);
+      wirePanel(dpBody, cur, sendR, openKindRow, (msg: string) => renderNotice({ severity: "error", text: msg, source: "core" }), undefined, schemaEnum);
     } else {
       dpBody.innerHTML = '<div class="dp-empty">Tap any node<br>to edit its value and metadata here</div>';
     }
@@ -514,6 +517,12 @@ function render() {
         (snap.mode as { SchemaEnum: { options: string[]; cursor: number } }).SchemaEnum.options,
       );
     }
+  }
+  if (tag === "ActionMenu") {
+    const am = (snap.mode as { ActionMenu: { items: ActionItemView[]; target_label: string } }).ActionMenu;
+    openActionMenuSheet(am);
+  } else if (sheets.actions.classList.contains("open")) {
+    closeSheets();
   }
   renderHelpSheet();
   if (tag !== "TypeFilter" && !anySheetOpen()) scrim.classList.remove("show");
@@ -547,13 +556,6 @@ function render() {
 function anySheetOpen(): boolean {
   return Object.values(sheets).some((s) => s.classList.contains("open"));
 }
-// After a successful panel Delete / Copy / Cut: dismiss the detail sheet.
-// Core's own notice (e.g., core.clipboard.copied, core.delete.error) now
-// renders via the severity-driven renderNotice() in render(), so the
-// confirmation toast that was here is no longer needed (it was a duplicate).
-function afterPanelMutation(msg: string) {
-  closeSheets();
-}
 // Single tap = select only (cursor + selection); the wide-mode side pane
 // reactively shows it. The detail sheet opens on double-tap (openPanel).
 function selectOnly(path: Path) {
@@ -581,7 +583,7 @@ function openPanel(path: Path) {
       '<div class="grab"></div>' +
       `<div class="sheet-head"><h3>${esc(title)}</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
       `<div class="sheet-body detail-wrap">${panelHTML(r, parentIsInline(r.path), hint, undefined, info)}</div>`;
-    wirePanel(sheets.detail, r, sendR, openKindRow, (msg: string) => renderNotice({ severity: "error", text: msg, source: "core" }), afterPanelMutation);
+    wirePanel(sheets.detail, r, sendR, openKindRow, (msg: string) => renderNotice({ severity: "error", text: msg, source: "core" }));
     openSheet("detail");
   }
 }
@@ -803,6 +805,28 @@ function openMenuSheet() {
     });
   });
   openSheet("menu");
+}
+
+// ---- Action menu sheet (Mode::ActionMenu — centralized node operations,
+// design doc `docs/superpowers/specs/2026-08-30-action-menu-design.md` §7,
+// ADR 0009). Mirrors `openMenuSheet`'s shape but is driven by `snap.mode`
+// like the other mode-driven sheets (TypeFilter/Convert/Prompt/SchemaEnum)
+// rather than a fire-once host-local list.
+function openActionMenuSheet(am: { items: ActionItemView[]; target_label: string }) {
+  sheets.actions.innerHTML =
+    '<div class="grab"></div>' +
+    `<div class="sheet-head"><h3>${esc(am.target_label)}</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
+    '<div class="sheet-body">' +
+    am.items.map((it, i) => actionItemHTML(it, i)).join("") +
+    "</div>";
+  sheets.actions.querySelectorAll<HTMLElement>(".menu-item:not([disabled])").forEach((b) => {
+    const i = Number(b.dataset.i);
+    b.addEventListener("click", () => {
+      closeSheets();
+      send({ ActionMenuPick: am.items[i].id });
+    });
+  });
+  openSheet("actions");
 }
 
 // ---- type-filter sheet (driven by snapshot.mode TypeFilterView) ----
@@ -1485,21 +1509,6 @@ function handleTap(target: HTMLElement, row: HTMLElement, clientY: number, mods:
   else send({ SetSelection: { paths: resolveClick(snap, path, mods) } });
 }
 
-// ---- context-aware add (FAB) ----
-// On an expanded branch → AddChild; on a scalar or collapsed branch → AddSibling.
-// No cursor row → fall back to AddNode (the cursor-relative default). Decision
-// logic lives in the shared `fab.ts` so desktop mirrors it exactly.
-function addContextual() {
-  const a = fabAddAction(snap);
-  if (!a) return;
-  if (a.kind === "locked") {
-    send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
-    return;
-  }
-  send(a.intent);
-  send({ SetHostNotice: { key: a.noticeKey, args: [], source: "host-web" } });
-}
-
 // ---- file I/O (host-owned, via fs.ts; the shared flows live in host-io.ts) ----
 // Opener the shared sample helpers (samples.ts) call back into.
 function openSample(text: string, format: SampleFormat) {
@@ -1744,11 +1753,11 @@ function installShellHandlers() {
         }
         openOpenSheet();
         break;
-      case "add":
+      case "actions":
         // Paste-armed (after Copy/Cut) → the FAB pastes at the cursor; otherwise
-        // it adds a node contextually.
+        // it opens the centralized Action menu (design doc §7, ADR 0009).
         if ((snap?.clipboard_count ?? 0) > 0) send("Paste");
-        else addContextual();
+        else send("OpenActionMenu");
         break;
       case "cyclefmt":
         if ((snap?.clipboard_count ?? 0) > 0) {
@@ -1930,6 +1939,10 @@ function dismissSheets() {
     return send("Escape");
   }
   if (tag === "TypeFilter") return send("CommitTypeFilter");
+  if (tag === "ActionMenu") {
+    closeSheets();
+    return send("ExitActionMenu");
+  }
   if (tag === "Convert") return send("ExitConvert");
   // A prompt must be *answered*, not hidden — scrim/grab dismissal = "no"
   // (peel-on-dismiss; otherwise core stays stuck in Mode::Prompt).
@@ -1978,6 +1991,7 @@ async function main() {
   });
   sheets.detail = app.querySelector(".detail-sheet")!;
   sheets.menu = app.querySelector(".menu-sheet")!;
+  sheets.actions = app.querySelector(".actions-sheet")!;
   sheets.filter = app.querySelector(".filter-sheet")!;
   sheets.kind = app.querySelector(".kind-sheet")!;
   sheets.lang = app.querySelector(".lang-sheet")!;

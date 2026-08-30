@@ -345,17 +345,17 @@ for (const act of disabledActs) {
   );
 }
 
-// 8. FAB [data-act="add"] when armed sends Paste (allowed invariant)
+// 8. FAB [data-act="actions"] when armed sends Paste (allowed invariant)
 {
   H.sent.length = 0;
   mod.setEnv({ snap: { clipboard_count: 1 } });
   const btn = {
-    dataset: { act: "add" },
+    dataset: { act: "actions" },
     closest: (sel) => (sel === "[data-act]" ? btn : null),
     __inTree: false,
   };
   mod.triggerAppClick(btn);
-  check("FAB add when armed sends Paste", H.sent.includes("Paste"), JSON.stringify(H.sent));
+  check("FAB actions when armed sends Paste", H.sent.includes("Paste"), JSON.stringify(H.sent));
 }
 
 // 9. [data-act="pastecancel"] when armed sends Escape (allowed invariant)

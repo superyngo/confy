@@ -13,14 +13,14 @@ r              remark (toggle node ↔ comment)
 z / y          undo / redo
 s              toggle select · 0 collapse-all · 9 expand-all
 1 / 2          expand / collapse one level
-/              filter · f type-filter · K kind-switch · C convert
+/              filter · f type-filter · K kind-switch · C convert · m actions
 Enter / i      detail popup · ? this help · Ctrl-s save · Ctrl-o open
 q              quit (prompts if dirty)
 
 ── pointer ──────────────────────────────────────
 click          select          ⇧click   range-select
 ⌘click         multi-select    drag     marquee / move
-right-click    context menu`;
+right-click    Action menu`;
 
 // zh-TW translation of HELP_TEXT (Phase 4). Shortcut key names (j/k, Ctrl-s,
 // …) and mouse-button names stay untranslated — project/platform vocabulary,
@@ -35,14 +35,14 @@ r              remark（節點 ↔ comment 切換）
 z / y          復原／重做
 s              切換選取 · 0 全部摺疊 · 9 全部展開
 1 / 2          展開／摺疊一層
-/              篩選 · f 類型篩選 · K kind 切換 · C 轉換格式
+/              篩選 · f 類型篩選 · K kind 切換 · C 轉換格式 · m 動作選單
 Enter / i      詳細資訊彈出視窗 · ? 本說明 · Ctrl-s 儲存 · Ctrl-o 開啟
 q              離開（若有未儲存變更會提示）
 
 ── 指標裝置 ──────────────────────────────────────
 click          選取            ⇧click   範圍選取
 ⌘click         多選            drag     套索選取／拖曳移動
-right-click    右鍵選單`;
+right-click    動作選單`;
 
 // VS Code host variant (M1.6): the confy toolbar header is hidden there
 // (VSCODE.md § Chrome trimming), so `Ctrl-o open`/`q quit` don't apply — VS
@@ -58,7 +58,7 @@ r              remark (toggle node ↔ comment)
 z / y          undo / redo (shared with VS Code — the workbench owns the stack)
 s              toggle select · 0 collapse-all · 9 expand-all
 1 / 2          expand / collapse one level
-/              filter · f type-filter · K kind-switch · C convert
+/              filter · f type-filter · K kind-switch · C convert · m actions
 Enter / i      detail popup · ? this help
 Ctrl-s         save (shared with VS Code)
 ⇧⌘S / Ctrl-⇧S  Save As / Convert…
@@ -69,7 +69,7 @@ Save As / Convert, Help, About, and language live in the tab's "…" More Action
 ── pointer ──────────────────────────────────────
 click          select          ⇧click   range-select
 ⌘click         multi-select    drag     marquee / move
-right-click    context menu`;
+right-click    Action menu`;
 
 // zh-TW translation of HELP_TEXT_VSCODE.
 const HELP_TEXT_VSCODE_ZH_TW = `confy web — 按鍵
@@ -82,7 +82,7 @@ r              remark（節點 ↔ comment 切換）
 z / y          復原／重做（與 VS Code 共用 — workbench 掌管復原堆疊）
 s              切換選取 · 0 全部摺疊 · 9 全部展開
 1 / 2          展開／摺疊一層
-/              篩選 · f 類型篩選 · K kind 切換 · C 轉換格式
+/              篩選 · f 類型篩選 · K kind 切換 · C 轉換格式 · m 動作選單
 Enter / i      詳細資訊彈出視窗 · ? 本說明
 Ctrl-s         儲存（與 VS Code 共用）
 ⇧⌘S / Ctrl-⇧S  另存新檔／轉換格式…
@@ -93,7 +93,7 @@ Ctrl-s         儲存（與 VS Code 共用）
 ── 指標裝置 ──────────────────────────────────────
 click          選取            ⇧click   範圍選取
 ⌘click         多選            drag     套索選取／拖曳移動
-right-click    右鍵選單`;
+right-click    動作選單`;
 
 // Per-format KIND legend appended to the Help overlay, keyed by `doc_format`
 // (ported from the TUI's TOML_HELP/JSON_HELP/YAML_HELP KIND column). The kind

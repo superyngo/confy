@@ -52,6 +52,14 @@ pub enum Mode {
     TypeFilter,
     /// The `K` kind-switch popup is open.
     KindSwitch(KindSwitchState),
+    /// The Action menu is open (design doc `docs/superpowers/specs/2026-08-30-action-menu-design.md`
+    /// §2, ADR 0009). No sub-state needed — the menu re-derives
+    /// `items`/`target_count`/`target_label` from `selected_paths()` on every
+    /// `mode_view()` call, so `Escape`/Commit never need to restore anything
+    /// beyond `resting_mode()`.
+    ActionMenu {
+        cursor: usize,
+    },
     /// The schema-enum picker popup is open (spec §3: reuses the `K`
     /// kind-switch popup's shape on every host).
     SchemaEnum(SchemaEnumState),

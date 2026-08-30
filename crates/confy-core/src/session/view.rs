@@ -116,6 +116,32 @@ pub struct KindOptionView {
     pub target: KindTarget,
 }
 
+/// One node operation in the Action menu (design doc §2, ADR 0009).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ActionId {
+    Edit,
+    AddChild,
+    AddSibling,
+    Copy,
+    Cut,
+    Remark,
+    Detail,
+    Delete,
+}
+
+/// One row of the Action menu.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActionItemView {
+    pub id: ActionId,
+    /// Localized via `tr(self.lang, "core.action.<id>")`.
+    pub label: String,
+    pub enabled: bool,
+    /// `true` only for `Delete` (renders a rule above it).
+    pub separator_before: bool,
+    /// `true` only for `Delete` (renders destructive-styled).
+    pub danger: bool,
+}
+
 /// The serializable projection of `Mode` + the modal edit surfaces the UI renders.
 /// Heavy internals (`History`, `Clipboard`) never cross the boundary.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -143,6 +169,13 @@ pub enum ModeView {
     KindSwitch {
         cursor: usize,
         options: Vec<KindOptionView>,
+    },
+    /// The Action menu is open (design doc §2, ADR 0009).
+    ActionMenu {
+        cursor: usize,
+        items: Vec<ActionItemView>,
+        target_count: usize,
+        target_label: String,
     },
     /// The schema-enum picker popup is open (spec §3). `options` are the
     /// display labels; the chosen value is committed core-side by

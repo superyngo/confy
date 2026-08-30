@@ -1,4 +1,5 @@
 use crate::tui::app::{App, RowSnapshot};
+use crate::tui::overlay_action_menu::draw_action_menu_overlay;
 use crate::tui::overlay_convert::draw_convert_overlay;
 use crate::tui::overlay_detail::draw_detail_overlay;
 use crate::tui::overlay_diag::draw_diag_overlay;
@@ -250,6 +251,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     draw_help_overlay(f, app);
     draw_type_filter_overlay(f, app);
     draw_kind_switch_overlay(f, app);
+    draw_action_menu_overlay(f, app);
     draw_convert_overlay(f, app);
     draw_schema_enum_overlay(f, app);
     draw_lang_picker_overlay(f, app);

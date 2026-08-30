@@ -133,6 +133,13 @@ impl super::Session {
             Intent::KindSwitchCommit => self.kind_switch_commit(),
             Intent::ExitKindSwitch => self.exit_kind_switch(),
 
+            // ---- Action menu (m) ----
+            Intent::OpenActionMenu => self.open_action_menu(),
+            Intent::ActionMenuMove(d) => self.action_menu_move(d),
+            Intent::ActionMenuCommit => self.action_menu_commit(),
+            Intent::ActionMenuPick(id) => self.action_menu_pick(id),
+            Intent::ExitActionMenu => self.exit_action_menu(),
+
             // ---- Convert (C) ----
             Intent::OpenConvert => self.open_convert(),
             Intent::ConvertMove(d) => self.convert_move(d),
@@ -406,7 +413,7 @@ impl super::Session {
     /// Resolve an edit intent that routed external: record the target so the
     /// follow-up `ApplyReplace`/`ApplyEditComment` can complete. Mirrors
     /// `App::edit_node` minus the spawn (§8.2).
-    fn begin_external_edit(&mut self) {
+    pub(crate) fn begin_external_edit(&mut self) {
         if self.guard_clipboard_locked() {
             return;
         }
@@ -468,6 +475,15 @@ impl super::Session {
                     })
                     .collect(),
             },
+            Mode::ActionMenu { cursor } => {
+                let (target_count, target_label) = self.action_menu_targets();
+                ModeView::ActionMenu {
+                    cursor: *cursor,
+                    items: self.action_menu_items(),
+                    target_count,
+                    target_label,
+                }
+            }
             Mode::SchemaEnum(st) => ModeView::SchemaEnum {
                 cursor: st.cursor,
                 options: st.options.iter().map(|(label, _)| label.clone()).collect(),

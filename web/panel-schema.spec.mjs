@@ -119,16 +119,16 @@ check(
   all.indexOf("Deployment environment") < all.indexOf("Valid values"),
 );
 
-// Schema block renders after Kind (locked field order), before the row-btns
-// actions (Actions stays the panel's fixed trailing element).
+// Schema block renders after Kind (locked field order); the row-btns action
+// buttons no longer exist (Action menu unification, ADR 0009), so Schema is
+// now the panel's fixed trailing element.
 const orderIdx = {
   kind: both.indexOf('data-act="kindswitch"'),
-  rowBtns: both.indexOf("row-btns"),
   schema: both.indexOf(">Schema<"),
 };
 check(
-  "Schema block appears after Kind and before the row-btns actions",
-  orderIdx.kind !== -1 && orderIdx.rowBtns !== -1 && orderIdx.schema > orderIdx.kind && orderIdx.schema < orderIdx.rowBtns,
+  "Schema block appears after Kind",
+  orderIdx.kind !== -1 && orderIdx.schema > orderIdx.kind,
   JSON.stringify(orderIdx),
 );
 

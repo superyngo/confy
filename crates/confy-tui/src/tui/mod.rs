@@ -2,6 +2,7 @@ pub mod app;
 pub mod editor;
 pub mod insertion;
 pub mod keys;
+pub mod overlay_action_menu;
 pub mod overlay_convert;
 pub mod overlay_detail;
 pub mod overlay_diag;
@@ -366,6 +367,20 @@ fn run_event_loop(
                 }
                 continue;
             }
+            // Action menu popup: Up/Down (or j/k) move the cursor (skipping
+            // disabled items), Enter commits, Esc cancels. Modal — other
+            // keys swallowed.
+            if matches!(app.session.mode, crate::tui::state::Mode::ActionMenu { .. }) {
+                use crossterm::event::KeyCode;
+                match key.code {
+                    KeyCode::Up | KeyCode::Char('k') => app.action_menu_move(-1),
+                    KeyCode::Down | KeyCode::Char('j') => app.action_menu_move(1),
+                    KeyCode::Enter => app.action_menu_commit(),
+                    KeyCode::Esc => app.escape(),
+                    _ => {}
+                }
+                continue;
+            }
             // Schema-constrained enum/const picker (modal): Up/Down (or j/k)
             // move the selection by one (wraps — `schema_enum_move`), Home/End
             // jump to the first/last option, PageUp/PageDown jump a screenful
@@ -586,6 +601,7 @@ fn run_event_loop(
                 keys::KeyAction::Filter => app.enter_filter(),
                 keys::KeyAction::TypeFilter => app.enter_type_filter(),
                 keys::KeyAction::KindSwitch => app.open_kind_switch(),
+                keys::KeyAction::ActionMenu => app.open_action_menu(),
                 keys::KeyAction::Convert => app.open_convert(),
                 keys::KeyAction::Help => app.enter_help(),
                 keys::KeyAction::Rename => app.begin_inline_rename(),

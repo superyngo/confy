@@ -41,7 +41,8 @@ import {
   type SampleFormat,
 } from "./samples.js";
 import { currentKindLabel, editWidthCh, escapeHtml, IC_CARET, renderTree } from "./render.js";
-import { syncFab, fabAddAction, FAB_CLOSE_IC } from "./fab.js";
+import { syncFab, FAB_CLOSE_IC } from "./fab.js";
+import { actionItemHTML } from "./action-menu-items.js";
 import { helpBodyHTML } from "./help-content.js";
 import { applyStaticI18n, availableLangs, getLang, LANG_DISPLAY_NAMES, setLang, t, tArgs } from "./i18n.js";
 import type { Lang } from "./i18n.js";
@@ -470,6 +471,7 @@ function render() {
   renderDetailPanel();
   renderTypeFilterPop();
   renderConvertDialog();
+  renderActionMenu();
   renderOverlay();
   renderFooter();
   updateSaveLabel();
@@ -560,10 +562,6 @@ function renderDetailPanel() {
       panelSend,
       openKindForRow,
       (msg) => setStatus("", msg),
-      (msg) => {
-        setStatus("", msg);
-        send("ExitDetail");
-      },
       undefined,
       schemaEnum,
     );
@@ -764,6 +762,7 @@ function onKey(ev: KeyboardEvent) {
   switch (result.kind) {
     case "intent":
       if (result.preventDefault) ev.preventDefault();
+      if (result.intent === "OpenActionMenu") return openActionMenuFromKeyboard();
       return send(result.intent);
     case "nav":
       if (result.preventDefault) ev.preventDefault();
@@ -1230,25 +1229,6 @@ function onTreeClick(ev: MouseEvent) {
   if (raw === undefined) return;
   const path = JSON.parse(raw) as Path;
 
-  if (target.closest('[data-act="menu"]')) {
-    if ((snap.clipboard_count ?? 0) > 0) {
-      send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
-      return;
-    }
-    // Toggle: a second click on the same row's ⋮ closes the menu.
-    const pathKey = JSON.stringify(path);
-    if ($("ctxMenu").classList.contains("open") && ctxMenuPath === pathKey) {
-      return closePops();
-    }
-    // Read the anchor rect BEFORE SetCursor re-renders the tree — `render()`
-    // rebuilds `tree.innerHTML`, detaching this button, and a detached node's
-    // `getBoundingClientRect()` is all-zeros (popup would jump to 0,0).
-    const r = (target.closest("button") as HTMLElement).getBoundingClientRect();
-    selectForMenu(path);
-    openCtxMenuAt(path, r.left, r.bottom + 4); // calls closePops(), clearing ctxMenuPath
-    ctxMenuPath = pathKey;
-    return;
-  }
   // Kind badge → toggle the kind-conversion popover (second click on the same
   // badge closes it).
   const kindEl = target.closest("[data-kind]") as HTMLElement | null;
@@ -1547,13 +1527,9 @@ let popCloser: ((e: MouseEvent) => void) | null = null;
 // The path the kind menu is currently open for, so a second click on the same
 // badge toggles it shut (rather than reopening).
 let kindMenuPath: string | null = null;
-// Same idea for the per-row ⋮ context menu: a second click on the same row's ⋮
-// closes it.
-let ctxMenuPath: string | null = null;
 function closePops() {
   for (const m of clickMenus()) m.classList.remove("open");
   kindMenuPath = null;
-  ctxMenuPath = null;
   if (popCloser) {
     document.removeEventListener("click", popCloser);
     popCloser = null;
@@ -1621,69 +1597,54 @@ function openKindMenuAt(path: Path, x: number, y: number) {
   });
 }
 
-// A menu row's action: a plain Intent to `send`, or a custom callback (for the
-// web-local trailing-comment editor, which isn't a one-shot Intent).
-type CtxAction = Intent | (() => void);
+function buildActionMenu(): HTMLElement {
+  const mode = snap!.mode;
+  const am = typeof mode === "object" && "ActionMenu" in mode ? mode.ActionMenu : null;
+  const menu = $("ctxMenu");
+  if (!am) {
+    menu.innerHTML = "";
+    return menu;
+  }
+  menu.innerHTML =
+    `<div class="menu-label">${escapeHtml(am.target_label)}</div>` +
+    am.items.map((it, i) => actionItemHTML(it, i, i === am.cursor)).join("");
+  menu.querySelectorAll<HTMLElement>("[data-i]:not([disabled])").forEach((b) => {
+    const i = Number(b.dataset.i);
+    b.onclick = () => {
+      closePops();
+      send({ ActionMenuPick: am.items[i].id });
+    };
+  });
+  return menu;
+}
+function openActionMenuAt(x: number, y: number) {
+  placePopAt(buildActionMenu(), x, y);
+}
+// Keep the popover in sync with core's `Mode` on every render: refreshes
+// cursor highlight/labels while open (`ActionMenuMove` etc. never reposition
+// or reopen it — position is set once, by whichever trigger opened it), and
+// closes it if a keyboard path (Escape / Enter-commit) left `Mode::ActionMenu`
+// without going through a click handler's own `closePops()`.
+function renderActionMenu() {
+  const open = typeof snap!.mode === "object" && "ActionMenu" in snap!.mode;
+  if (!open) {
+    if ($("ctxMenu").classList.contains("open")) closePops();
+    return;
+  }
+  buildActionMenu();
+}
 
 // Whether `path`'s immediate parent is a single-line container (TOML inline
 // table, JSON single-line object/array, YAML flow map/seq — all projected as
 // `Format::Inline` by core). Such containers can't hold comments — core
 // rejects `SetTrailingComment`/`InsertComment` into them — so this gates
-// "Append comment" and the Detail panel's trailing-comment input up front
-// instead of round-tripping to a failed mutation + error banner.
+// the Detail panel's trailing-comment input up front instead of
+// round-tripping to a failed mutation + error banner.
 function parentIsInline(path: Path): boolean {
   if (!snap || path.length === 0) return false;
   const parentKey = JSON.stringify(path.slice(0, -1));
   const parent = snap.rows.find((r) => JSON.stringify(r.path) === parentKey);
   return parent?.format === "Inline";
-}
-
-function buildCtxMenu(path: Path): HTMLElement {
-  const key = JSON.stringify(path);
-  const row = snap!.rows.find((r) => JSON.stringify(r.path) === key);
-  const cc = snap!.clipboard_count ?? 0;
-  const isComment = row?.type_label === "comment";
-  // "Append comment" attaches a *new* trailing comment; once a row has one you
-  // edit it by clicking it (so the item is offered only when there is none).
-  // Also unavailable on a member of an inline/flow container (see `parentIsInline`).
-  const canAppend =
-    !!row && !isComment && !row.read_only && !row.trailing_comment && !parentIsInline(path);
-  const appendComment = () => {
-    const el = rowElByPath(path);
-    if (el) beginTrailingEdit(el, path);
-  };
-  const items: Array<[string, CtxAction, boolean]> = [
-    ["Edit", "BeginEditExternal", true],
-    ["Add child", "AddChild", !!row?.is_branch],
-    ["Append sibling", "AddSibling", path.length > 0],
-    ["Copy", "CopySelected", true],
-    ["Cut", "CutSelected", true],
-    ["Paste", "Paste", cc > 0],
-    ["Delete", "DeleteSelected", true],
-    ["Toggle comment", "Remark", true],
-    ["Append comment", appendComment, canAppend],
-    ["Detail", "ToggleDetail", true],
-  ];
-  const menu = $("ctxMenu");
-  menu.innerHTML = items
-    .map(
-      ([label, , enabled], i) =>
-        `<button class="menu-item" data-i="${i}"${enabled ? "" : " disabled"}>${escapeHtml(label)}</button>`,
-    )
-    .join("");
-  menu.querySelectorAll<HTMLElement>("[data-i]:not([disabled])").forEach((b) => {
-    const i = Number(b.dataset.i);
-    b.onclick = () => {
-      closePops();
-      const action = items[i][1];
-      if (typeof action === "function") action();
-      else send(action);
-    };
-  });
-  return menu;
-}
-function openCtxMenuAt(path: Path, x: number, y: number) {
-  placePopAt(buildCtxMenu(path), x, y);
 }
 
 // A toolbar button is "folded" (→ belongs in the ⋯ menu) when its group is
@@ -1920,23 +1881,19 @@ function bindGlobal() {
     send(snap && modeTag(snap.mode) === "TypeFilter" ? "CommitTypeFilter" : "EnterTypeFilter");
   });
   $("btnViewToggle").addEventListener("click", () => setRawView(!rawView));
-  // Floating add / paste action — mirrors the touch FAB. Decision logic lives
-  // in the shared `fab.ts`; the armed `+` presses Paste directly here, same as
-  // touch's own "add" click case does, rather than going through `fabAddAction`.
+  // Floating add / paste / actions button — mirrors the touch FAB. Armed
+  // clipboard presses Paste directly; otherwise it opens the centralized
+  // Action menu (design doc `docs/superpowers/specs/2026-08-30-action-menu-design.md`).
   $("fabClear").innerHTML = FAB_CLOSE_IC;
   $("fab").addEventListener("click", () => {
     if ((snap?.clipboard_count ?? 0) > 0) {
       send("Paste");
       return;
     }
-    const a = fabAddAction(snap);
-    if (!a) return;
-    if (a.kind === "locked") {
-      send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
-      return;
-    }
-    send(a.intent);
-    send({ SetHostNotice: { key: a.noticeKey, args: [], source: "host-web" } });
+    // Toggle: a second click on the Action button while its menu is open closes it.
+    if ($("ctxMenu").classList.contains("open")) return closePops();
+    send("OpenActionMenu");
+    openActionMenuFromButton($("fab"));
   });
   $("fabClear").addEventListener("click", () => send("Escape"));
 
@@ -2051,7 +2008,32 @@ function onTreeContext(ev: MouseEvent) {
   }
   const path = JSON.parse(rowEl.dataset.path) as Path;
   selectForMenu(path);
-  openCtxMenuAt(path, ev.clientX, ev.clientY);
+  send("OpenActionMenu");
+  openActionMenuAt(ev.clientX, ev.clientY);
+}
+
+// Anchored above/left of the Action button, reusing `placePopAt`'s own
+// viewport clamp (the button sits bottom-right, so the naive `r.top` anchor
+// gets clamped upward to stay clear of the footer — same mechanism the ⋯/Kind
+// popovers rely on, not a bespoke measure-then-place pass).
+function openActionMenuFromButton(el: HTMLElement) {
+  const r = el.getBoundingClientRect();
+  openActionMenuAt(r.right - 220, r.top);
+}
+
+// The `m` key: opens on the cursor row, same clipboard-armed guard the
+// button/right-click paths use. Reads the row's rect BEFORE dispatching —
+// `send()` re-renders the tree, detaching the row `getBoundingClientRect()`
+// was about to read (same ordering the row `⋮`/kind-badge clicks used).
+function openActionMenuFromKeyboard() {
+  if (!snap || (snap.clipboard_count ?? 0) > 0) {
+    send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
+    return;
+  }
+  const cur = tree.querySelector(".row.cursor") as HTMLElement | null;
+  const r = cur?.getBoundingClientRect();
+  send("OpenActionMenu");
+  if (r) openActionMenuAt(r.left, r.bottom + 4);
 }
 
 // Align the selection with the row a menu is opening for, so the menu acts on

@@ -1,5 +1,5 @@
-// Plain-Node test pinning `fab.ts`'s pure add/paste decision logic and markup,
-// shared between the desktop (`ui.ts`) and touch (`touch/app.ts`) FAB. Follows
+// Plain-Node test pinning `fab.ts`'s pure FAB markup helpers, shared between
+// the desktop (`ui.ts`) and touch (`touch/app.ts`) FAB. Follows
 // `render.spec.mjs`'s convention: no test framework, just `node:assert` + a
 // `check()` tally, bundled with esbuild since `fab.ts` imports `kind-labels.ts`.
 import path from "node:path";
@@ -32,89 +32,12 @@ async function bundle(entry) {
   return import(modUrl);
 }
 
-const { fabAddAction, fabHTML } = await bundle("fab.ts");
-
-// A minimal ViewRow; tests override specific fields.
-function makeRow(overrides = {}) {
-  return {
-    path: [],
-    depth: 0,
-    is_branch: false,
-    key: "k",
-    value: undefined,
-    kind_label: "string",
-    read_only: false,
-    trailing_comment: undefined,
-    violations: undefined,
-    selected: false,
-    is_cursor: false,
-    has_descendant_violation: false,
-    ...overrides,
-  };
-}
-
-function makeSnap(overrides = {}) {
-  return { clipboard_count: 0, rows: [], ...overrides };
-}
-
-console.log("-- fabAddAction() --");
-{
-  check("null snapshot -> null", fabAddAction(null) === null);
-
-  const locked = fabAddAction(makeSnap({ clipboard_count: 1, rows: [] }));
-  check("armed clipboard -> locked", locked?.kind === "locked", JSON.stringify(locked));
-
-  const noCursor = fabAddAction(makeSnap({ rows: [makeRow({ is_cursor: false })] }));
-  check(
-    "no cursor row -> AddNode",
-    noCursor?.kind === "add" && noCursor.intent === "AddNode" && noCursor.noticeKey === "web.host.add.node",
-    JSON.stringify(noCursor)
-  );
-
-  const expandedBranch = fabAddAction(
-    makeSnap({
-      rows: [
-        makeRow({ is_branch: true, is_cursor: true, depth: 0 }),
-        makeRow({ depth: 1 }), // deeper successor => expanded
-      ],
-    })
-  );
-  check(
-    "cursor on expanded branch -> AddChild",
-    expandedBranch?.kind === "add" &&
-      expandedBranch.intent === "AddChild" &&
-      expandedBranch.noticeKey === "web.host.add.child",
-    JSON.stringify(expandedBranch)
-  );
-
-  const collapsedBranch = fabAddAction(
-    makeSnap({
-      rows: [
-        makeRow({ is_branch: true, is_cursor: true, depth: 0 }),
-        makeRow({ depth: 0 }), // same-depth successor => collapsed
-      ],
-    })
-  );
-  check(
-    "cursor on collapsed branch -> AddSibling",
-    collapsedBranch?.kind === "add" &&
-      collapsedBranch.intent === "AddSibling" &&
-      collapsedBranch.noticeKey === "web.host.add.sibling",
-    JSON.stringify(collapsedBranch)
-  );
-
-  const leaf = fabAddAction(makeSnap({ rows: [makeRow({ is_branch: false, is_cursor: true })] }));
-  check(
-    "cursor on leaf -> AddSibling",
-    leaf?.kind === "add" && leaf.intent === "AddSibling" && leaf.noticeKey === "web.host.add.sibling",
-    JSON.stringify(leaf)
-  );
-}
+const { fabHTML } = await bundle("fab.ts");
 
 console.log("\n-- fabHTML() --");
 {
   const html = fabHTML();
-  check("has data-act=add", html.includes('data-act="add"'));
+  check("has data-act=actions", html.includes('data-act="actions"'));
   check("has data-act=pastecancel", html.includes('data-act="pastecancel"'));
   check("no ids by default", !html.includes("id="), html);
 

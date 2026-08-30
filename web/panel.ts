@@ -83,12 +83,7 @@ export function panelHTML(
       h += `<input class="c-edit" data-field="comment-node" value="${esc(r.value ?? "")}" autocomplete="off" spellcheck="false" />`;
     }
     h += `<dl><dt>${t("web.panel.field.path")}</dt><dd>${esc(humanPath(r))}</dd></dl>`;
-    h +=
-      '<div class="row-btns">' +
-      `<button class="btn" data-act="editexternal">${t("web.panel.editExternal")}</button>` +
-      `<button class="btn" data-act="copy">${t("web.common.copy")}</button>` +
-      `<button class="btn" data-act="cut">${t("web.common.cut")}</button>` +
-      `<button class="btn danger" data-act="del">${t("web.common.delete")}</button></div></div>`;
+    h += "</div>";
     return h;
   }
 
@@ -192,16 +187,6 @@ export function panelHTML(
     h += `<div class="comment-advisory"><div class="comment-advisory-msg">${esc(r.comment_advisory)}</div></div>`;
   }
 
-  // Actions. Copy/Cut arm the clipboard (paste via the host's paste affordance);
-  // Delete removes the node.
-  if (!r.read_only) {
-    h +=
-      '<div class="row-btns">' +
-      `<button class="btn" data-act="editexternal">${t("web.panel.editExternal")}</button>` +
-      `<button class="btn" data-act="copy">${t("web.common.copy")}</button>` +
-      `<button class="btn" data-act="cut">${t("web.common.cut")}</button>` +
-      `<button class="btn danger" data-act="del">${t("web.common.delete")}</button></div>`;
-  }
   h += "</div>";
   return h;
 }
@@ -210,8 +195,6 @@ export function panelHTML(
 //  - send(intent): dispatches and returns the new snapshot (we read its notice).
 //  - openKind(row): host opens its kind-switch surface (sheet / popover).
 //  - onError(msg): host shows a message (toast/status) when a send errors.
-//  - afterMutation(msg): host confirms + dismisses the panel after a successful
-//    Delete / Copy / Cut (e.g. toast the message and close the detail surface).
 //  - batch(fn): optional host batcher — dispatches every send inside `fn` with a
 //    single re-render at the end (perf: multi-intent handlers render once).
 export function wirePanel(
@@ -220,7 +203,6 @@ export function wirePanel(
   send: (intent: Intent) => SessionSnapshot,
   openKind: (row: ViewRow) => void,
   onError: (msg: string) => void,
-  afterMutation?: (msg: string) => void,
   batch?: (fn: () => void) => void,
   schemaEnum?: { options: string[]; cursor: number },
 ): void {
@@ -264,11 +246,7 @@ export function wirePanel(
   const te = container.querySelector<HTMLInputElement>('[data-field="trailing"]');
   const cn = container.querySelector<HTMLInputElement>('[data-field="comment-node"]');
   const kb = container.querySelector<HTMLElement>("[data-act=kindswitch]");
-  const del = container.querySelector<HTMLElement>("[data-act=del]");
-  const cp = container.querySelector<HTMLElement>("[data-act=copy]");
-  const ct = container.querySelector<HTMLElement>("[data-act=cut]");
   const ev = container.querySelector<HTMLElement>("[data-act=editvalue]");
-  const ext = container.querySelector<HTMLElement>("[data-act=editexternal]");
 
   // NOTE: read the field value BEFORE the first `fire` — a `SetCursor` dispatch
   // rebuilds the host panel's innerHTML, detaching this input, so reading
@@ -328,16 +306,6 @@ export function wirePanel(
       }
     });
   }
-  // "Edit in editor" — unconditionally forces the external popup editor,
-  // bypassing the schema-select branch BeginEdit takes for an
-  // enum-constrained scalar (req 1).
-  if (ext)
-    ext.addEventListener("click", () => {
-      run(() => {
-        fire({ SetCursor: path });
-        fire("BeginEditExternal");
-      });
-    });
   // Multi-line value button → open the host's popup editor via core's edit flow.
   if (ev)
     ev.addEventListener("click", () => {
@@ -357,23 +325,6 @@ export function wirePanel(
   // (te/cn read their value inline in the single dispatch — no re-render between.)
   if (kb) kb.addEventListener("click", () => openKind(row));
 
-  // Delete / Copy / Cut: select this row, run the action, then — on success —
-  // confirm + dismiss the panel via `afterMutation` (errors still go to onError).
-  const act = (intent: Intent, okMsg: string) => {
-    let out: SessionSnapshot | undefined;
-    run(() => {
-      fire({ SetCursor: path });
-      fire({ SetSelection: { paths: [path] } });
-      out = send(intent);
-    });
-    if (out?.notice?.severity === "error") onError(out.notice.text);
-    else afterMutation?.(okMsg);
-  };
-  if (del) del.addEventListener("click", () => act("DeleteSelected", "Deleted"));
-  // Copy / Cut arm the clipboard; the host's paste affordance (FAB / paste-mode
-  // click) commits the paste at the new cursor.
-  if (cp) cp.addEventListener("click", () => act("CopySelected", "Copied — paste to place it"));
-  if (ct) ct.addEventListener("click", () => act("CutSelected", "Cut — paste to move it"));
 }
 
 // Format a resolved `EditHint` into a localized advisory sentence —

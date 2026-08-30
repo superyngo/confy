@@ -117,6 +117,15 @@ pub enum Intent {
     KindSwitchCommit,
     ExitKindSwitch,
 
+    // ---- Action menu (m) ----
+    OpenActionMenu,
+    ActionMenuMove(i32),
+    ActionMenuCommit,
+    /// Web pointer analogue of `ActionMenuCommit`: apply a directly-chosen
+    /// item without moving the cursor first.
+    ActionMenuPick(crate::session::view::ActionId),
+    ExitActionMenu,
+
     // ---- Convert (C) ----
     OpenConvert,
     ConvertMove(i32),

@@ -2,7 +2,7 @@
 // from `ui.ts`'s `onKey` (see
 // docs/superpowers/plans/2026-08-11-web-code-audit-remediation-plan.md,
 // Task 8). Mirrors `onKey`'s branch structure and mode-precedence exactly
-// (Edit > Prompt > Convert > TypeFilter > KindSwitch > SchemaEnum > Help >
+// (Edit > Prompt > Convert > TypeFilter > KindSwitch > ActionMenu > SchemaEnum > Help >
 // tree shortcuts) so it's unit-testable without a DOM, same pattern as
 // `toolbar-fold.ts`'s pure-logic extraction.
 //
@@ -111,6 +111,13 @@ export function resolveKeyIntent(
     if (key === "Escape") return { kind: "intent", intent: "ExitKindSwitch", preventDefault: false };
     return null;
   }
+  if (modeTag(m) === "ActionMenu") {
+    if (key === "ArrowUp") return { kind: "intent", intent: { ActionMenuMove: -1 }, preventDefault: false };
+    if (key === "ArrowDown") return { kind: "intent", intent: { ActionMenuMove: 1 }, preventDefault: false };
+    if (key === "Enter") return { kind: "intent", intent: "ActionMenuCommit", preventDefault: false };
+    if (key === "Escape") return { kind: "intent", intent: "Escape", preventDefault: false };
+    return null;
+  }
   if (typeof m === "object" && "SchemaEnum" in m) {
     const st = m.SchemaEnum;
     const SCHEMA_ENUM_PAGE_STEP = 5;
@@ -177,6 +184,7 @@ export function resolveKeyIntent(
     case "/": return { kind: "native", action: "focus-search", preventDefault: true };
     case "f": return { kind: "intent", intent: "EnterTypeFilter", preventDefault: false };
     case "K": return { kind: "intent", intent: "OpenKindSwitch", preventDefault: false };
+    case "m": return { kind: "intent", intent: "OpenActionMenu", preventDefault: false };
     case "C": return { kind: "intent", intent: "OpenConvert", preventDefault: false };
     case "i": return { kind: "intent", intent: "ToggleDetail", preventDefault: false };
     case "?": return { kind: "intent", intent: "EnterHelp", preventDefault: false };

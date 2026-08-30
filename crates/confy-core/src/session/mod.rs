@@ -1,3 +1,4 @@
+pub mod action_menu;
 pub mod clipboard;
 pub mod diag;
 pub mod dispatch;
@@ -37,7 +38,7 @@ pub use type_filter::{
     classify, layout, nav_rows, Cell, CheckState, Group, LayoutRow, TypeFilter, TypeToken,
 };
 pub use view::{
-    ChildView, ConvertView, EditView, ExternalEdit, ExternalEditKind, KindOptionView, ModeView,
-    OutlineNode, PromptView, SessionSnapshot, TypeFilterCellView, TypeFilterRow, TypeFilterView,
-    ViewRow,
+    ActionId, ActionItemView, ChildView, ConvertView, EditView, ExternalEdit, ExternalEditKind,
+    KindOptionView, ModeView, OutlineNode, PromptView, SessionSnapshot, TypeFilterCellView,
+    TypeFilterRow, TypeFilterView, ViewRow,
 };

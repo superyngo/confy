@@ -1,10 +1,11 @@
-// Shared floating "add / paste" action button (FAB) — behavior and markup
-// used by both `touch/app.ts` and `ui.ts` (desktop). Visuals are duplicated
-// per-stylesheet (`style.css` / `touch/style.css`) rather than shared, since
-// each shell links exactly one CSS file; this module is the single source of
-// truth for the glyphs, markup, and the add/paste decision logic instead.
-import type { SessionSnapshot } from "./types.js";
-import { isExpanded } from "./kind-labels.js";
+// Shared floating "actions / paste" action button (FAB) — behavior and
+// markup used by both `touch/app.ts` and `ui.ts` (desktop). Visuals are
+// duplicated per-stylesheet (`style.css` / `touch/style.css`) rather than
+// shared, since each shell links exactly one CSS file; this module is the
+// single source of truth for the glyphs and markup. Unarmed, it opens the
+// centralized Action menu (design doc
+// `docs/superpowers/specs/2026-08-30-action-menu-design.md`); armed, it
+// pastes — that decision is one clipboard_count check, made per-host inline.
 
 // Icons ported verbatim from `touch/render.ts`'s `IC` table / `touch/app.ts`'s
 // `PASTE_IC` so both surfaces render byte-identical glyphs.
@@ -22,7 +23,7 @@ export function fabHTML(idAttrs?: { fab?: string; clear?: string }): string {
   const fabId = idAttrs?.fab ? ` id="${idAttrs.fab}"` : "";
   const clearId = idAttrs?.clear ? ` id="${idAttrs.clear}"` : "";
   return (
-    `<button${fabId} class="fab" data-act="add" aria-label="add node">${FAB_PLUS_IC}</button>` +
+    `<button${fabId} class="fab" data-act="actions" aria-label="actions">${FAB_PLUS_IC}</button>` +
     // Small ✕ floating above the paste FAB — clears the clipboard / exits paste
     // mode (shown only while armed, via the host's `.paste-mode` class).
     `<button${clearId} class="fab-clear" data-act="pastecancel" aria-label="exit paste mode">${FAB_CLOSE_IC}</button>`
@@ -34,26 +35,6 @@ export function syncFab(fab: HTMLElement, armed: boolean, cut: boolean): void {
   fab.classList.toggle("paste-copy", armed && !cut);
   fab.classList.toggle("paste-cut", armed && cut);
   fab.innerHTML = armed ? FAB_PASTE_IC : FAB_PLUS_IC;
-  fab.setAttribute("aria-label", armed ? "paste" : "add node");
+  fab.setAttribute("aria-label", armed ? "paste" : "actions");
 }
 
-export type FabAdd =
-  | { kind: "locked" }
-  | { kind: "add"; intent: "AddNode" | "AddChild" | "AddSibling"; noticeKey: string };
-
-/** Pure: what the `+` press should do for this snapshot. `null` = no session yet.
- *  Mirrors `touch/app.ts`'s `addContextual` decision without touching the DOM
- *  or dispatching. */
-export function fabAddAction(snap: SessionSnapshot | null): FabAdd | null {
-  if (!snap) return null;
-  if ((snap.clipboard_count ?? 0) > 0) return { kind: "locked" };
-  const idx = snap.rows.findIndex((r) => r.is_cursor);
-  if (idx < 0) {
-    return { kind: "add", intent: "AddNode", noticeKey: "web.host.add.node" };
-  }
-  const r = snap.rows[idx];
-  if (r.is_branch && isExpanded(snap.rows, idx)) {
-    return { kind: "add", intent: "AddChild", noticeKey: "web.host.add.child" };
-  }
-  return { kind: "add", intent: "AddSibling", noticeKey: "web.host.add.sibling" };
-}

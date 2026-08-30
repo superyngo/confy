@@ -172,6 +172,25 @@ Shift+Arrow after any non-shift key (tracked by `App.last_action_was_shift_selec
 loop) starts a fresh round, folding the old one into `committed` — so runs union (separate or
 overlapping) rather than re-extending the first anchor.
 
+## Action menu
+
+`m` opens `Mode::ActionMenu { cursor }`, a modal popup (`overlay_action_menu.rs`, same
+shape as the `K` kind-switch popup) listing the eight core-owned Action menu items
+(design doc `docs/superpowers/specs/2026-08-30-action-menu-design.md` §2, ADR 0009):
+Edit in editor, Add child, Append sibling, Copy, Cut, Toggle comment, Detail, Delete
+(separated by a rule and shown in red). `Session::action_menu_items()` derives each
+item's `enabled` flag fresh from `selected_paths()` every frame — a single-path item
+(Edit in editor / Add child / Append sibling / Detail) dims on a multi-node selection;
+the four set-applying items (Copy / Cut / Toggle comment / Delete) dim only if any
+targeted node is read-only. Disabled items stay visible (dimmed), never hidden, so
+cursor position is stable. Up/Down (or j/k) move the cursor, skipping disabled items;
+Enter (`action_menu_commit`) always exits the menu first (`resting_mode()`), then
+dispatches the picked item's intent if it was enabled, else surfaces
+`core.action.unavailable`; Esc cancels without dispatching. Opening the menu while the
+clipboard is armed is refused (`core.clipboard.action-locked`), the same modal lock
+every other popup uses (ADR 0005 §5). Kind switch (`K`) is deliberately not in this
+list — the row's KIND badge is already a dedicated, always-visible control for it.
+
 ## Language / i18n (TUI)
 
 Language is a host-owned preference layered on top of `confy-core`'s catalog (see root

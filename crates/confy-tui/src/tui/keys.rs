@@ -34,6 +34,7 @@ pub enum KeyAction {
     Filter,
     TypeFilter,
     KindSwitch,
+    ActionMenu,
     Convert,
     Help,
     Rename,
@@ -81,6 +82,7 @@ pub fn map_key(key: KeyEvent) -> KeyAction {
         (KeyCode::Char('f'), _) => KeyAction::TypeFilter,
         // `k` is vim cursor-up, so kind-switch lives on the capital.
         (KeyCode::Char('K'), _) => KeyAction::KindSwitch,
+        (KeyCode::Char('m'), _) => KeyAction::ActionMenu,
         // `c` is copy, so document-convert (Root node) lives on the capital.
         (KeyCode::Char('C'), _) => KeyAction::Convert,
         (KeyCode::Char('?'), _) => KeyAction::Help,
@@ -216,5 +218,12 @@ mod tests {
                 "core.clipboard.action-locked"
             ))
         );
+    }
+
+    #[test]
+    fn m_opens_action_menu() {
+        use crossterm::event::{KeyEvent, KeyModifiers};
+        let key_m = KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE);
+        assert!(matches!(map_key(key_m), KeyAction::ActionMenu));
     }
 }

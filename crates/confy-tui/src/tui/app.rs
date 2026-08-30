@@ -334,6 +334,22 @@ impl App {
         self.session.apply(Intent::ExitKindSwitch);
     }
 
+    // ---- Action menu (m) ----
+
+    pub fn open_action_menu(&mut self) {
+        self.session.apply(Intent::OpenActionMenu);
+    }
+    pub fn action_menu_move(&mut self, delta: i32) {
+        self.session.apply(Intent::ActionMenuMove(delta));
+    }
+    pub fn action_menu_commit(&mut self) {
+        self.session.apply(Intent::ActionMenuCommit);
+        self.rebuild_rows();
+    }
+    pub fn exit_action_menu(&mut self) {
+        self.session.apply(Intent::ExitActionMenu);
+    }
+
     // ---- Document conversion (C) ----
 
     pub fn open_convert(&mut self) {

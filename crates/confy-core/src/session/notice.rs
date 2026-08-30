@@ -74,6 +74,7 @@ pub fn severity_of(key: &str) -> Severity {
         | "tui.lang.save-failed" => Severity::Error,
 
         "core.readonly"
+        | "core.action.unavailable"
         | "core.clipboard.action-locked"
         | "core.trailing.inline-unsupported"
         | "core.reveal.hidden-by-filter"

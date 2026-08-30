@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ## [Unreleased]
+### Unreleased Update — 2026-08-30T11:24:59Z
+- **feat(core,tui,web): centralized Action menu — one core-owned node-operation
+  menu replacing five disagreeing surfaces.** Implements the approved design
+  (`docs/superpowers/specs/2026-08-30-action-menu-design.md`, ADR 0009).
+  `confy-core` gains `Mode::ActionMenu`/`ModeView::ActionMenu`
+  (`crates/confy-core/src/session/action_menu.rs`, new), an eight-item list
+  (Edit in editor, Add child, Add sibling, Copy, Cut, Toggle comment, Detail,
+  Delete) computed fresh from `selected_paths()` every snapshot, and five new
+  `Intent`s (`OpenActionMenu`/`ActionMenuMove`/`ActionMenuCommit`/
+  `ActionMenuPick`/`ExitActionMenu`). Added 11 `core.action.*` i18n keys to
+  both catalogs. The TUI gets a new `m` overlay
+  (`crates/confy-tui/src/tui/overlay_action_menu.rs`, new) mirroring
+  `overlay_kind_switch.rs`'s shape, plus four thin `App` proxies. The desktop
+  web UI drops the per-row `⋮` context menu (`buildCtxMenu`/`openCtxMenuAt`)
+  and the FAB's context-add decision (`fabAddAction`, deleted) in favor of a
+  shared `buildActionMenu`/`openActionMenuAt`, reachable via the row grip's
+  right-click, the Action button (`data-act="actions"`, was `add`), and the
+  new `m` key; the floating button/paste-clear pair moved from
+  `position:fixed` on `<body>` to `position:absolute` inside `.main` so it
+  can never overlap the footer/status bar and stays clear of the open detail
+  panel. Touch gets a new bottom sheet (`openActionMenuSheet`, driven by
+  `snap.mode` like the existing TypeFilter/Convert/Prompt sheets) and the
+  same Action-button retarget; `addContextual`/`fabAddAction` removed as
+  orphaned by the FAB's new open-menu behavior. The detail panel
+  (`web/panel.ts`) loses its four `.row-btns` action buttons (Edit/Copy/Cut/
+  Delete) on both hosts — every editing affordance (rename, value edit,
+  multi-line edit, schema enum select, trailing comment, comment-node edit,
+  kind badge) is unchanged — and `wirePanel`'s now-unused `afterMutation`
+  parameter was dropped, updating all three call sites. Item rendering is
+  shared between desktop and touch via `web/action-menu-items.ts` (new),
+  matching the Tauri native Edit menu's Copy/Cut/Paste Node items excluded
+  from this unification (OS-convention chrome, per ADR 0009 §9). Fixed two
+  tests left stale by the panel/FAB changes:
+  `web/panel-schema.spec.mjs`'s ordering assertion (Schema no longer precedes
+  a `row-btns` block that doesn't exist) and
+  `web/touch-modal-lock.spec.mjs`'s FAB test (`data-act="add"` →
+  `"actions"`). Verified: `cargo test -p confy-core` (all tests pass),
+  `cargo build --workspace` (clean), `web` `tsc --noEmit` (clean),
+  `web/build.mjs` (clean bundle), and the full `web` test suite (all specs
+  pass, including `fab.spec.mjs`, `panel-schema.spec.mjs`, and
+  `touch-modal-lock.spec.mjs` after the two fixes above).
+
 ### Unreleased Update — 2026-08-30T10:48:27Z
 - **docs(design): grill the Action menu design; ADR 0009 + CONTEXT.md terms.** A
   question-driven review pass over the design spec added

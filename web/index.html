@@ -133,6 +133,13 @@
         </div>
         <div class="detail-body" id="detailBody"></div>
       </aside>
+      <!-- Floating actions / paste button — nested inside `.main` (not
+           `<body>`) so its `position:absolute;bottom:18px` anchors relative
+           to `.main`'s own box, which sits above `.footer` in the page's flex
+           column — guarantees it never overlaps the footer/status bar, even
+           when the footer wraps to two lines. Behavior lives in web/fab.ts. -->
+      <button class="fab" id="fab" data-act="actions" aria-label="actions"></button>
+      <button class="fab-clear" id="fabClear" data-act="pastecancel" aria-label="exit paste mode"></button>
     </div>
     <!-- Fallback overlay for modes not yet redesigned (keyboard-driven). Lives
          outside `.main` (which is `overflow:hidden`) so a tall popup is never
@@ -149,11 +156,6 @@
       <span class="badge" id="selBadge" data-i18n="web.badge.noneSelected">none selected</span>
       <span class="badge" id="clipBadge">clipboard 0</span>
     </footer>
-
-    <!-- Floating add / paste action — mirrors the touch FAB (web/touch/app.ts).
-         Behavior lives in the shared web/fab.ts. -->
-    <button class="fab" id="fab" data-act="add" aria-label="add node"></button>
-    <button class="fab-clear" id="fabClear" data-act="pastecancel" aria-label="exit paste mode"></button>
 
     <!-- Toast notification (Task 12: message-system-integration) -->
     <div id="toast"></div>

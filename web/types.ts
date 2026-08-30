@@ -118,6 +118,25 @@ export interface KindOptionView {
   target: string; // KindTarget enum tag (opaque to the UI; sent back verbatim)
 }
 
+// ---- Action menu (session::view::ActionId / ActionItemView) ----
+export type ActionId =
+  | "Edit"
+  | "AddChild"
+  | "AddSibling"
+  | "Copy"
+  | "Cut"
+  | "Remark"
+  | "Detail"
+  | "Delete";
+
+export interface ActionItemView {
+  id: ActionId;
+  label: string;
+  enabled: boolean;
+  separator_before: boolean;
+  danger: boolean;
+}
+
 export interface EditView {
   field: EditField;
   buffer: string;
@@ -165,6 +184,14 @@ export type ModeView =
   | "FilterResults"
   | { TypeFilter: TypeFilterView }
   | { KindSwitch: { cursor: number; options: KindOptionView[] } }
+  | {
+      ActionMenu: {
+        cursor: number;
+        items: ActionItemView[];
+        target_count: number;
+        target_label: string;
+      };
+    }
   | { Convert: ConvertView }
   | "Detail"
   | { Help: { tab: "Help" | "About" } }
@@ -269,6 +296,12 @@ export type Intent =
   | "TypeFilterToggle"
   // Kind switch
   | "OpenKindSwitch" | { KindSwitchMove: number } | "KindSwitchCommit" | "ExitKindSwitch"
+  // Action menu
+  | "OpenActionMenu"
+  | { ActionMenuMove: number }
+  | "ActionMenuCommit"
+  | { ActionMenuPick: ActionId }
+  | "ExitActionMenu"
   // Convert
   | "OpenConvert" | { ConvertMove: number } | "ConvertPickFormat"
   | { SetConvertFormat: DocFormat }
