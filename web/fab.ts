@@ -9,8 +9,11 @@
 
 // Icons ported verbatim from `touch/render.ts`'s `IC` table / `touch/app.ts`'s
 // `PASTE_IC` so both surfaces render byte-identical glyphs.
-export const FAB_PLUS_IC =
-  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
+// Three stacked dots (the standard "open an actions list" glyph) rather than
+// "+": the button no longer means "add a node", it opens the Action menu for
+// whatever's selected — "+" implied create-only and misled here.
+export const FAB_ACTIONS_IC =
+  '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5.5" r="2.1"/><circle cx="12" cy="12" r="2.1"/><circle cx="12" cy="18.5" r="2.1"/></svg>';
 export const FAB_CLOSE_IC =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>';
 export const FAB_PASTE_IC =
@@ -23,7 +26,7 @@ export function fabHTML(idAttrs?: { fab?: string; clear?: string }): string {
   const fabId = idAttrs?.fab ? ` id="${idAttrs.fab}"` : "";
   const clearId = idAttrs?.clear ? ` id="${idAttrs.clear}"` : "";
   return (
-    `<button${fabId} class="fab" data-act="actions" aria-label="actions">${FAB_PLUS_IC}</button>` +
+    `<button${fabId} class="fab" data-act="actions" aria-label="actions">${FAB_ACTIONS_IC}</button>` +
     // Small ✕ floating above the paste FAB — clears the clipboard / exits paste
     // mode (shown only while armed, via the host's `.paste-mode` class).
     `<button${clearId} class="fab-clear" data-act="pastecancel" aria-label="exit paste mode">${FAB_CLOSE_IC}</button>`
@@ -34,7 +37,7 @@ export function fabHTML(idAttrs?: { fab?: string; clear?: string }): string {
 export function syncFab(fab: HTMLElement, armed: boolean, cut: boolean): void {
   fab.classList.toggle("paste-copy", armed && !cut);
   fab.classList.toggle("paste-cut", armed && cut);
-  fab.innerHTML = armed ? FAB_PASTE_IC : FAB_PLUS_IC;
+  fab.innerHTML = armed ? FAB_PASTE_IC : FAB_ACTIONS_IC;
   fab.setAttribute("aria-label", armed ? "paste" : "actions");
 }
 

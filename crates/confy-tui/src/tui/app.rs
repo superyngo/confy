@@ -344,6 +344,13 @@ impl App {
     }
     pub fn action_menu_commit(&mut self) {
         self.session.apply(Intent::ActionMenuCommit);
+        // The menu's Edit item resolves to `Session::begin_external_edit`
+        // (the async-shaped handshake meant for Web), not `edit_node`'s own
+        // spawn — so a pending edit left behind here still needs the actual
+        // synchronous $EDITOR launch `edit_node` performs directly.
+        if self.session.pending_external_edit.is_some() {
+            self.spawn_pending_external_edit();
+        }
         self.rebuild_rows();
     }
     pub fn exit_action_menu(&mut self) {
@@ -688,6 +695,65 @@ impl App {
             edited
         };
         self.apply_replace(path, edited);
+    }
+
+    /// Drains a `Session::begin_external_edit`-populated `pending_external_edit`
+    /// (set by the Action menu's Edit item) and performs the same synchronous
+    /// $EDITOR spawn + apply `edit_node` does inline. HOST SPLIT: spawns $EDITOR.
+    fn spawn_pending_external_edit(&mut self) {
+        let Some(pending) = self.session.pending_external_edit.take() else {
+            return;
+        };
+        let fragment = match self.session.doc.as_ref() {
+            Some(d) => d.serialize_fragment(&pending.path),
+            None => return,
+        };
+        if pending.is_comment {
+            if fragment.is_empty() {
+                return;
+            }
+            let initial = format!("{fragment}\n");
+            let edited = match crate::tui::editor::edit_text(&initial) {
+                Ok(t) => t,
+                Err(e) => {
+                    self.session
+                        .dispatch(confy_core::session::Intent::SetHostNotice {
+                            key: "tui.host.editor-error".to_string(),
+                            args: vec![e.to_string()],
+                            source: confy_core::session::notice::NoticeSource::HostTui,
+                        });
+                    return;
+                }
+            };
+            // Unmodified buffer = quit without saving: cancel instead of
+            // splicing the text back (which would dirty the doc).
+            if edited == initial {
+                return;
+            }
+            self.apply_edit_comment(pending.path, edited);
+            return;
+        }
+        let edited = match crate::tui::editor::edit_text(&fragment) {
+            Ok(t) => t,
+            Err(e) => {
+                self.session
+                    .dispatch(confy_core::session::Intent::SetHostNotice {
+                        key: "tui.host.editor-error".to_string(),
+                        args: vec![e.to_string()],
+                        source: confy_core::session::notice::NoticeSource::HostTui,
+                    });
+                return;
+            }
+        };
+        let edited = if pending.wrap_element {
+            match self.session.doc.as_ref() {
+                Some(d) => d.scalar_fragment(None, edited.trim_end_matches('\n')),
+                None => return,
+            }
+        } else {
+            edited
+        };
+        self.apply_replace(pending.path, edited);
     }
 
     pub fn edit_target_kind(&self) -> EditKind {

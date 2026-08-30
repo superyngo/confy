@@ -269,10 +269,14 @@ function appHTML(): string {
     '<div class="splitter" data-splitter></div>' +
     `<div class="detail-pane"><div class="dp-head"><h3 data-i18n="web.detail.title">Node detail</h3></div>` +
     '<div class="dp-body"><div class="dp-empty">Tap any node<br>to edit its value and metadata here</div></div></div>' +
+    // Nested inside `.body` (position:relative, sits above `.statusbar` in
+    // the `.app` flex column) rather than a sibling of `.statusbar`, so
+    // `.fab`'s `bottom:18px` (touch/style.css) anchors above the status bar
+    // instead of the full-screen edge — mirrors desktop's `.main`-nested fix.
+    fabHTML() +
     "</div>" +
     `<div class="statusbar"><span class="status" data-i18n="web.status.ready">ready</span>` +
     '<span class="badge sel-badge">none</span><span class="badge clip-badge">clipboard 0</span></div>' +
-    fabHTML() +
     '<div class="toast"></div>' +
     '<div class="scrim" data-act="scrim"></div>' +
     '<div class="sheet detail-sheet"></div>' +
@@ -823,7 +827,17 @@ function openActionMenuSheet(am: { items: ActionItemView[]; target_label: string
     const i = Number(b.dataset.i);
     b.addEventListener("click", () => {
       closeSheets();
-      send({ ActionMenuPick: am.items[i].id });
+      const id = am.items[i].id;
+      // Detail has no core-mode-driven rendering on touch (mirrors the
+      // `i`/Enter ToggleDetail key path, see `toggleDetailSheet`) — exit the
+      // Action menu without letting core enter Mode::Detail (which touch
+      // never renders), then open the host-local detail sheet directly.
+      if (id === "Detail") {
+        send("ExitActionMenu");
+        toggleDetailSheet();
+        return;
+      }
+      send({ ActionMenuPick: id });
     });
   });
   openSheet("actions");

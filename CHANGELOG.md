@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ## [Unreleased]
+### Unreleased Update — 2026-08-30T13:20:00Z
+- **fix(core,tui,web): Action menu follow-ups — TUI external edit, touch Detail
+  routing, touch FAB position/icon, dimmed disabled items.**
+  Four defects found while exercising the new Action menu (commit `3ebb397`):
+  (1) TUI's Action-menu `Edit` item went through core's `begin_external_edit`
+  handshake, which only *records* a pending edit — it never spawned `$EDITOR`
+  (that shape exists for Web's async round-trip). `action_menu_commit()` now
+  drains `pending_external_edit` and performs the same synchronous
+  spawn-and-apply the direct `e` key uses. (2) Touch's Action-menu `Detail`
+  item sent core's `ToggleDetail` intent, but touch's detail sheet is
+  deliberately host-local (`i`/Enter bypass core for it), so nothing happened;
+  the item now exits the menu and calls `toggleDetailSheet()` directly.
+  (3) Touch's FAB was a sibling of `.statusbar` under `.app` (full-screen
+  `position:absolute`), so `bottom:18px` measured from the screen edge and the
+  button sat behind the status bar; it now nests inside `.body`
+  (`position:relative`, already above the status bar), mirroring desktop's
+  `.main` fix. (4) The FAB glyph changed from `+` to a vertical three-dot
+  "actions" icon (`FAB_PLUS_IC` → `FAB_ACTIONS_IC`) — "+" implied create-only;
+  and touch's stylesheet gained the missing `.menu-item:disabled{opacity:.35}`
+  rule so unsupported items (e.g. Add child on scalars/comments) dim like
+  desktop and the TUI already did.
+
 ### Unreleased Update — 2026-08-30T12:30:00Z
 - **docs: full documentation audit — sync all reference/root docs with the code.**
   Eight parallel verification passes cross-checked every committed doc against the
