@@ -10,6 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.23.0] - 2026-08-29
 
+### Unreleased Update — 2026-08-30T02:00:00Z
+- **refactor(web): move the Help overlay's KIND-badge legend into the i18n
+  catalogs.** `web/help-content.ts` hard-coded `KIND_LEGEND`/
+  `KIND_LEGEND_ZH_TW` (`Record<string, string>` keyed `Toml`/`Json`/`Yaml`)
+  as a second, parallel translation mechanism alongside the `i18n/*.json`
+  catalogs `t()`/`tArgs()` already read. Moved both records' text
+  verbatim into three new flat keys per catalog —
+  `web.help.legend.toml`/`.json`/`.yaml` (`i18n/en.json`,
+  `i18n/zh-TW.json`) — and `helpBodyHTML` now does
+  `t(\`web.help.legend.${docFormat.toLowerCase()}\`)` instead of an
+  object literal lookup, going through `t()`'s existing active-lang →
+  `en` → raw-key fallback chain like every other string in the app.
+  Verified end-to-end with a real esbuild bundle of `help-content.ts`:
+  the rendered zh-TW YAML Help body is byte-identical to the deleted
+  `KIND_LEGEND_ZH_TW.Yaml` constant, including `helpLineHTML`'s
+  existing per-line HTML escaping.
+
 ### Unreleased Update — 2026-08-30T01:45:00Z
 - **refactor(core, web): compute the kind badge's label/note once in core;
   stop re-deriving it in three web files.** `web/kind-labels.ts`'s

@@ -2,7 +2,7 @@
 // `web/ui.ts`) and the touch edit UI (Task 7). Extracted from `web/ui.ts` so
 // both surfaces render identical copy.
 import { escapeHtml } from "./escape.js";
-import { tArgs, getLang } from "./i18n.js";
+import { t, tArgs, getLang } from "./i18n.js";
 export const HELP_TEXT = `confy web — keys
 j/k or ↑/↓     move cursor
 Space          toggle branch / edit leaf / activate
@@ -156,103 +156,7 @@ export function helpBodyHTML(
       : zhTw
         ? HELP_TEXT_ZH_TW
         : HELP_TEXT;
-  const legend =
-    getLang() === "zh-TW"
-      ? (KIND_LEGEND_ZH_TW[docFormat] ?? "")
-      : (KIND_LEGEND[docFormat] ?? "");
+  const legend = t(`web.help.legend.${docFormat.toLowerCase()}`);
   return (helpText + "\n\n" + legend).split("\n").map(helpLineHTML).join("\n");
 }
 
-export const KIND_LEGEND: Record<string, string> = {
-  Toml: `── KIND badge (TOML) ──────────────────────────────
-Containers (label·notation):
-  table·scope    standard [header] table
-  table·dotted   dotted-key table (a.b.c = …)
-  inline         inline table { … }
-  array·inline   inline array        array·multi  multiline array
-  AoT            array-of-tables  [[…]]
-
-Scalars (label·notation):
-  str            basic string        str·"…"  (quoted)
-  str·'…'        literal string
-  str·"""        multiline basic     str·'''  multiline literal
-  int            decimal integer
-  int·0x int·0o int·0b   hex / octal / binary
-  float / float·dec      float        float·1e  exponent
-  float·inf float·nan    infinity / NaN
-  bool · date · time · null`,
-  Json: `── KIND badge (JSON / JSONC) ──────────────────────
-Containers (label·notation):
-  table          object { … }        table·multi  multiline object
-  inline         inline object
-  array·inline   inline array        array·multi  multiline array
-
-Scalars (label·notation):
-  str            string              null
-  int            integer
-  float          float               float·1e  exponent
-  bool`,
-  Yaml: `── KIND badge (YAML) ──────────────────────────────
-Containers (label·notation):
-  table·block    block mapping       table·flow  flow mapping { … }
-  array·block    block sequence      array·flow  flow sequence [ … ]
-  (opaque nodes — anchors/aliases/merge/tags — are read-only)
-
-Scalars (label·notation):
-  str            plain string        str·'…'  single-quoted
-  str·"…"        double-quoted       str·|    literal block
-  str·>          folded block
-  int            decimal integer     int·0x int·0o  hex / octal
-  float          float               float·1e  exponent
-  float·inf float·nan    infinity / NaN
-  bool · null`,
-};
-
-// zh-TW translation of KIND_LEGEND (Phase 4). Notation suffixes and the
-// scalar/container labels themselves (table, inline, array, str, int, float,
-// bool, AoT, …) stay untranslated — they're the KIND badge's own vocabulary,
-// same rule as the TUI's KIND column legend.
-const KIND_LEGEND_ZH_TW: Record<string, string> = {
-  Toml: `── KIND 標籤（TOML）──────────────────────────────
-容器（label·notation）：
-  table·scope    標準 [header] table
-  table·dotted   dotted-key table（a.b.c = …）
-  inline         inline table { … }
-  array·inline   inline array        array·multi  multiline array
-  AoT            array-of-tables  [[…]]
-
-純量（label·notation）：
-  str            basic string        str·"…"（quoted）
-  str·'…'        literal string
-  str·"""        multiline basic     str·'''  multiline literal
-  int            decimal integer
-  int·0x int·0o int·0b   hex／octal／binary
-  float / float·dec      float        float·1e  exponent
-  float·inf float·nan    infinity／NaN
-  bool · date · time · null`,
-  Json: `── KIND 標籤（JSON／JSONC）──────────────────────
-容器（label·notation）：
-  table          object { … }        table·multi  multiline object
-  inline         inline object
-  array·inline   inline array        array·multi  multiline array
-
-純量（label·notation）：
-  str            string              null
-  int            integer
-  float          float               float·1e  exponent
-  bool`,
-  Yaml: `── KIND 標籤（YAML）──────────────────────────────
-容器（label·notation）：
-  table·block    block mapping       table·flow  flow mapping { … }
-  array·block    block sequence      array·flow  flow sequence [ … ]
-  （opaque 節點 — anchors／aliases／merge／tags — 唯讀）
-
-純量（label·notation）：
-  str            plain string        str·'…'  single-quoted
-  str·"…"        double-quoted       str·|    literal block
-  str·>          folded block
-  int            decimal integer     int·0x int·0o  hex／octal
-  float          float               float·1e  exponent
-  float·inf float·nan    infinity／NaN
-  bool · null`,
-};
