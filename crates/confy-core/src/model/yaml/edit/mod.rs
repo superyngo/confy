@@ -92,7 +92,7 @@ pub fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<(SyntaxNode, String), M
     // the tree the splices mutate. Post-splice lookups still re-resolve — the
     // index is stale once the tree changes.
     let tree = syntax.clone_for_update();
-    let (_, idx) = walk(&tree, "");
+    let (proj, idx) = walk(&tree, "");
 
     // Opaque pre-check: any target path inside (or equal to) an opaque span → Unsupported.
     for path in mutation_paths(&m) {
@@ -124,7 +124,7 @@ pub fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<(SyntaxNode, String), M
             sources,
             target,
             on_collision,
-        } => move_nodes(&tree, &idx, &sources, &target, on_collision)?,
+        } => move_nodes(&tree, &proj, &idx, &sources, &target, on_collision)?,
         Mutation::ConvertKind { path, target } => convert_kind(&tree, &idx, &path, target)?,
         Mutation::SetTrailingComment { path, comment } => {
             set_trailing_comment(&tree, &idx, &path, comment.as_deref())?

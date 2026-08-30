@@ -9,7 +9,7 @@ use super::block::{
 };
 use super::resolve::{reindent, resolve, resolve_in};
 use crate::model::document::{MutateError, OnCollision, Target as MutTarget};
-use crate::model::node::Seg;
+use crate::model::node::{NodeTree, Seg};
 use crate::model::yaml::project::{entry_key_name, walk, Target, YamlIndex};
 use crate::model::yaml::syntax::{SyntaxKind, SyntaxNode};
 
@@ -280,6 +280,7 @@ pub(crate) fn insert_comment(
 
 pub(crate) fn move_nodes(
     tree: &SyntaxNode,
+    proj: &NodeTree,
     idx: &YamlIndex,
     sources: &[Vec<Seg>],
     target: &MutTarget,
@@ -328,8 +329,7 @@ pub(crate) fn move_nodes(
     // many. Covers keyed *and* positional sources (a keyed node moved down past a
     // trailing comment was previously left unadjusted, overshooting the comment).
     let shift = {
-        let proj = crate::model::yaml::project::project(tree, "");
-        crate::model::node::NodeTree::node_at(&proj, &target.parent)
+        crate::model::node::NodeTree::node_at(proj, &target.parent)
             .map(|parent| {
                 sources
                     .iter()

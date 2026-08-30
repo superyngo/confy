@@ -10,6 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.23.0] - 2026-08-29
 
+### Unreleased Update — 2026-08-30T00:19:34Z
+- **perf(core/yaml): `Move` no longer recomputes the same tree projection it
+  was already handed.** `move_nodes`'s pre-deletion shift calculation called
+  `project(tree, "")` to look up the target's parent, redundantly repeating
+  the exact same `walk()` the `apply` dispatcher had already run to build
+  its `idx`/opaque-check. `apply` now keeps the `NodeTree` half of that walk
+  (previously discarded as `let (_, idx) = walk(...)`) and threads it into
+  `move_nodes` as a new `proj` parameter, which uses it directly instead of
+  re-walking. The per-deletion re-walk inside the delete loop is unchanged —
+  each deletion splices the tree, so that one is genuinely required.
+
 ### Unreleased Update — 2026-08-29T23:56:48Z
 - **docs: document array-element `Remark` as YAML-only by design.**
   `Remark` on an array/sequence element is supported by YAML (comments are
