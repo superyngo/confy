@@ -46,11 +46,6 @@ impl ConfigDocument for YamlDocument {
             .unwrap_or_default()
     }
 
-    fn serialize_fragment_relative(&self, path: &[Seg]) -> String {
-        // YAML has no dotted scope tables; relative == absolute fragment.
-        self.serialize_fragment(path)
-    }
-
     fn apply(&mut self, m: Mutation) -> Result<String, MutateError> {
         // `edit::apply` returns the already-normalized immutable tree and its
         // serialization (or an error, leaving `self` untouched), both produced by
@@ -110,13 +105,6 @@ impl ConfigDocument for YamlDocument {
         // `resolve` descends `Index`→`Key`, so every block/flow element and the
         // scalars under it are individually `Replace`-addressable.
         true
-    }
-
-    fn to_value(
-        &self,
-    ) -> Result<(crate::model::value::Value, Vec<String>), crate::model::document::ConvertAbort>
-    {
-        crate::model::convert::tree_to_value(&self.project(), DocFormat::Yaml)
     }
 }
 

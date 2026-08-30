@@ -10,6 +10,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.23.0] - 2026-08-29
 
+### Unreleased Update — 2026-08-30T05:15:00Z
+- **refactor(core): add `ConfigDocument` trait defaults for `to_value` and
+  `serialize_fragment_relative`.** Audit follow-up (batch 4). All three
+  backends' `to_value` implementations were identical except for the
+  `DocFormat` literal passed to `tree_to_value` — and the trait already
+  has `fn format(&self) -> DocFormat` each backend implements to return
+  exactly that literal, so gave the trait a default using `self.format()`
+  and deleted the three now-redundant overrides
+  (`cst_doc.rs`/`json/doc.rs`/`yaml/doc.rs`). For
+  `serialize_fragment_relative`, JSON and YAML's overrides were both
+  exactly `self.serialize_fragment(path)` ("no dotted scope tables, so
+  relative == absolute fragment") — gave the trait that same default and
+  deleted those two overrides; TOML's override differs (dotted-scope
+  tables need `cst_edit::serialize_fragment_relative`) and was kept
+  unchanged. Verified: `cargo build --workspace` compiles clean with all
+  three backends satisfying `ConfigDocument` via the new defaults;
+  `cargo test -p confy-core --lib` holds at the 550-test baseline;
+  clippy/fmt clean.
+
 ### Unreleased Update — 2026-08-30T05:05:00Z
 - **refactor(tui): extract `app.rs`'s inline tests to a sibling `tests.rs`.**
   Audit follow-up (batch 4), the third and last instance of the

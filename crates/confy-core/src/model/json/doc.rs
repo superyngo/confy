@@ -42,11 +42,6 @@ impl ConfigDocument for JsonDocument {
         crate::model::json::edit::serialize_fragment(&self.syntax, path)
     }
 
-    fn serialize_fragment_relative(&self, path: &[Seg]) -> String {
-        // JSON has no dotted scope tables, so relative == absolute fragment.
-        self.serialize_fragment(path)
-    }
-
     fn apply(&mut self, m: Mutation) -> Result<String, MutateError> {
         // `edit::apply` returns the already-normalized immutable tree and its
         // serialization, both produced by the single serialize + re-parse it needs
@@ -116,13 +111,6 @@ impl ConfigDocument for JsonDocument {
         // already splice that member precisely — unlike the array *element* itself
         // (`array_elements_addressable`), which still needs external-edit wrapping.
         true
-    }
-
-    fn to_value(
-        &self,
-    ) -> Result<(crate::model::value::Value, Vec<String>), crate::model::document::ConvertAbort>
-    {
-        crate::model::convert::tree_to_value(&self.project(), DocFormat::Json)
     }
 }
 

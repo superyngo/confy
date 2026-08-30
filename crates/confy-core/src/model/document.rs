@@ -17,7 +17,9 @@ pub trait ConfigDocument: Sized {
     /// a node copied out of a `[T/D]` dotted table has its leading dotted-ancestor
     /// key segments dropped (`dotted.test.bool_true` → `bool_true`). Used by
     /// copy/cut so a paste re-prefixes only for the new destination.
-    fn serialize_fragment_relative(&self, path: &[crate::model::node::Seg]) -> String;
+    fn serialize_fragment_relative(&self, path: &[crate::model::node::Seg]) -> String {
+        self.serialize_fragment(path)
+    }
 
     /// The config syntax this document speaks (title bar, help text, comment
     /// validation).
@@ -179,7 +181,9 @@ pub trait ConfigDocument: Sized {
     /// gathered during the walk (notation that the default-style render will
     /// drop). `Err(ConvertAbort)` when the document holds a construct that cannot
     /// be represented at all (a YAML opaque node). The source is never modified.
-    fn to_value(&self) -> Result<(crate::model::value::Value, Vec<String>), ConvertAbort>;
+    fn to_value(&self) -> Result<(crate::model::value::Value, Vec<String>), ConvertAbort> {
+        crate::model::convert::tree_to_value(&self.project(), self.format())
+    }
 }
 
 /// A document-level conversion aborted before any output: the source holds a
