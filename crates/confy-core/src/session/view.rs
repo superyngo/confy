@@ -4,6 +4,7 @@ use crate::session::notice::{Notice, Severity};
 use crate::session::state::{ConvertStep, EditField, HelpTab, PasteSlot};
 use crate::session::type_filter::CheckState;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 /// One immediate child of a node — the Web UI breadcrumb mini-tree row
 /// (returned by `Session::children_of`, exposed as ffi `children(path)`).
@@ -55,14 +56,14 @@ pub struct ViewRow {
     /// Node-kind label (`table`/`array`/`inline`/`array-of-tables`/`string`/…)
     /// so the Web UI can render the per-row kind badge without re-deriving the
     /// container kind (which `is_branch` alone can't distinguish).
-    pub type_label: String,
+    pub type_label: Cow<'static, str>,
     /// Immediate child count — drives the branch row's "N" item-count badge
     /// (meaningful for branches; 0 for scalars/comments).
     pub child_count: usize,
     pub trailing_comment: Option<String>,
     /// Key-sign label (`bare`/`quoted`/`dotted`/`none`) so a structured panel can
     /// show "Sign" without re-deriving it from the flat detail text.
-    pub key_sign: String,
+    pub key_sign: Cow<'static, str>,
     /// The key's **authored spelling** — quote characters and escapes intact —
     /// or `None` for keyless rows (array elements, comments, root). `key` holds
     /// the decoded form. Renders the tree-row label and seeds the rename/edit

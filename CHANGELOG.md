@@ -10,6 +10,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.23.0] - 2026-08-29
 
+### Unreleased Update — 2026-08-30T01:10:26Z
+- **perf(core): `ViewRow.type_label`/`.key_sign` stop allocating a `String`
+  on every visible row.** `to_view_row` called `.to_string()` on
+  `node_type_label_str`/`key_sign_label`, both of which already return
+  `&'static str` — every row rebuild allocated two throwaway strings it
+  didn't need. Changed both fields to `Cow<'static, str>` (not a bare
+  `&'static str`: `ViewRow` derives `Deserialize` for the
+  `serde_json` round-trip contract test in `tests/serde_roundtrip.rs`
+  (PORTING.md §7 exit gate #3), and a struct with a genuinely `'static`
+  borrowed field can't implement `Deserialize<'de>` for arbitrary `'de`;
+  `Cow` keeps the zero-alloc write path while still deserializing into an
+  owned `String` when needed). `confy-tui`'s `RowSnapshot` — the one place
+  that needs an owned `String` — now calls `.into_owned()` at that single
+  host boundary instead of the allocation happening inside core for every
+  row.
+
 ### Unreleased Update — 2026-08-30T00:35:09Z
 - **bench(core): add a YAML `Move` case to `perf.rs` measuring the redundant-
   walk fix above.** `gen_yaml` mirrors `gen_toml`'s shape and a new
