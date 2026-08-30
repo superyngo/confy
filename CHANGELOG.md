@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ## [Unreleased]
+### Unreleased Update — 2026-08-30T14:40:00Z
+- **feat(msstore): bundle the TUI (`confy.exe`) into the Windows Store `.msix`
+  via an App Execution Alias.** The desktop Windows release job now also
+  builds `confy-tui` with the same AV-friendly profile and passes it to
+  `pack-msix.ps1` (`-CliExe`), which stages it as `confy.exe`;
+  `AppxManifest.xml` gains a `windows.appExecutionAlias` (`uap5`), so after
+  Store/sideload install `confy` resolves on PATH through
+  `%LOCALAPPDATA%\Microsoft\WindowsApps`. GitHub-Release channel unchanged.
+
 ### Unreleased Update — 2026-08-30T14:05:00Z
 - **feat(tui,web): Action menu nav keys — Home/End/PageUp/PageDown alongside
   the arrows.** Core's `action_menu_move` already wraps and skips disabled

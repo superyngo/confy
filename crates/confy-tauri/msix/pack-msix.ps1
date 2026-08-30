@@ -1,6 +1,6 @@
 # Pack the built confy-desktop.exe into an unsigned .msix (Windows only).
 #
-#   pack-msix.ps1 -Exe <path\to\confy-desktop.exe> -Version 0.12.2.0 -Out confy-desktop.msix
+#   pack-msix.ps1 -Exe <path\to\confy-desktop.exe> -CliExe <path\to\confy.exe> -Version 0.12.2.0 -Out confy-desktop.msix
 #
 # Identity defaults are CI/sideload placeholders; for a Store submission pass
 # the Partner Center values (see STORE.md) or set the MSIX_IDENTITY_NAME /
@@ -9,6 +9,7 @@
 # sideload testing signs with a local self-signed cert (STORE.md).
 param(
     [Parameter(Mandatory = $true)][string]$Exe,
+    [Parameter(Mandatory = $true)][string]$CliExe,
     [Parameter(Mandatory = $true)][string]$Version,
     [Parameter(Mandatory = $true)][string]$Out,
     [string]$IdentityName = $(if ($env:MSIX_IDENTITY_NAME) { $env:MSIX_IDENTITY_NAME } else { "superyngo.confy" }),
@@ -29,6 +30,9 @@ if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
 New-Item -ItemType Directory -Path (Join-Path $staging "Assets") | Out-Null
 
 Copy-Item $Exe (Join-Path $staging "confy-desktop.exe")
+# Terminal UI binary, exposed via the confy.exe App Execution Alias in
+# AppxManifest.xml.
+Copy-Item $CliExe (Join-Path $staging "confy.exe")
 foreach ($logo in "Square44x44Logo.png", "Square150x150Logo.png", "StoreLogo.png") {
     Copy-Item (Join-Path $iconsDir $logo) (Join-Path $staging "Assets\$logo")
 }

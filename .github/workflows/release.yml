@@ -260,6 +260,10 @@ jobs:
         run: |
           cargo build --release --target ${{ matrix.target }} -p confy-tauri --features custom-protocol
           cp "target/${{ matrix.target }}/release/confy-desktop.exe" "confy-desktop-windows-${{ matrix.arch }}.exe"
+          # TUI binary bundled into the Store .msix (exposed via a confy.exe
+          # App Execution Alias); same AV-friendly profile as above.
+          cargo build --release --target ${{ matrix.target }} -p confy-tui
+          cp "target/${{ matrix.target }}/release/confy.exe" "confy-windows-${{ matrix.arch }}.exe"
 
       # Unsigned .msix for Store submission; identity comes from repo variables
       # once the Partner Center registration exists (placeholders until then).
@@ -275,6 +279,7 @@ jobs:
           $ver = if ($ref -match '^v(\d+)\.(\d+)\.(\d+)') { "$($Matches[1]).$($Matches[2]).$($Matches[3]).0" } else { "0.0.0.0" }
           crates/confy-tauri/msix/pack-msix.ps1 `
             -Exe "confy-desktop-windows-${{ matrix.arch }}.exe" `
+            -CliExe "confy-windows-${{ matrix.arch }}.exe" `
             -Version $ver `
             -Out "confy-desktop-windows-${{ matrix.arch }}.msix"
 

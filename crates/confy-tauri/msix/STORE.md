@@ -1,7 +1,10 @@
 # Microsoft Store submission notes
 
 The release workflow produces an **unsigned** `confy-desktop-windows-x86_64.msix`
-built by `pack-msix.ps1` from `AppxManifest.xml`. Unsigned is intentional: the
+built by `pack-msix.ps1` from `AppxManifest.xml`. The package also contains the
+TUI binary as `confy.exe`, exposed on PATH after install via the
+`windows.appExecutionAlias` in the manifest (resolves through
+`%LOCALAPPDATA%\Microsoft\WindowsApps`). Unsigned is intentional: the
 Store re-signs every submission with its own certificate, and a package signed
 with a non-Store cert is rejected.
 

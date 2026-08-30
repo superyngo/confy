@@ -14,8 +14,9 @@
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-  IgnorableNamespaces="uap rescap">
+  IgnorableNamespaces="uap uap5 rescap">
 
   <Identity
     Name="__IDENTITY_NAME__"
@@ -60,6 +61,14 @@
               <uap:FileType>.yml</uap:FileType>
             </uap:SupportedFileTypes>
           </uap:FileTypeAssociation>
+        </uap:Extension>
+        <!-- Expose the bundled TUI binary on PATH: after install, `confy`
+             resolves via %LOCALAPPDATA%\Microsoft\WindowsApps to the
+             package's confy.exe. -->
+        <uap:Extension Category="windows.appExecutionAlias">
+          <uap5:AppExecutionAlias>
+            <uap5:ExecutionAlias Alias="confy.exe" />
+          </uap5:AppExecutionAlias>
         </uap:Extension>
       </Extensions>
     </Application>
