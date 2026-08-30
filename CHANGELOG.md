@@ -10,6 +10,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.23.0] - 2026-08-29
 
+### Unreleased Update — 2026-08-30T04:56:00Z
+- **chore(deps): upgrade `unicode-width` from 0.1 to 0.2 in `confy-tui`.**
+  Audit follow-up (batch 4). `UnicodeWidthStr`/`UnicodeWidthChar` trait
+  method signatures (`.width()`) are unchanged between the two majors;
+  the only 3 call sites (`tui/overlay_lang_picker.rs`, `tui/ui.rs`)
+  measure single-line UI label/title-bar strings with no embedded
+  newlines, so 0.2's changed `\n`-width behavior doesn't apply, and CJK
+  Unified Ideograph/Fullwidth-form widths (what this crate depends on
+  for "CJK-safe alignment") are unchanged between versions. `ratatui`
+  0.28's own dependency chain (`unicode-truncate`) still pulls
+  `unicode-width` 0.1.14 internally, so both majors resolve side by
+  side — expected and harmless; `confy-tui` itself resolves 0.2.2
+  directly. Verified: `cargo build -p confy-tui` compiles clean with
+  zero source edits; `cargo test -p confy-tui --lib` holds at its
+  210-test baseline; clippy/fmt clean. Manually verified on the real
+  `confy` binary (`--lang zh-TW`): both the title bar's right-aligned
+  version number and the language-picker popup's border alignment
+  render correctly with the Traditional Chinese labels "名稱"/"數值"/
+  "語言"/"繁體中文 (zh-TW)" visible.
+
+  While verifying, found (but did not fix — out of this batch's scope)
+  a pre-existing, unrelated bug: applying a language via the picker's
+  Enter key panics at `confy-core/src/session/notice.rs:126`
+  (`severity_of: unmapped notice key "tui.lang.saved"`) because
+  `tui.lang.saved` (used at `confy-tui/src/tui/app.rs:544`, present in
+  both `i18n/en.json` and `i18n/zh-TW.json`) was never added to
+  `severity_of`'s match table.
+
+
 ### Unreleased Update — 2026-08-30T04:41:18Z
 - **chore(deps): upgrade `thiserror` from 1 to 2.**
   Audit follow-up (batch 4). Confirmed via thiserror's 2.0.0 release notes
