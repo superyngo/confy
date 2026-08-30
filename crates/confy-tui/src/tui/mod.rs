@@ -277,7 +277,8 @@ fn run_event_loop(
                     KeyCode::Home => app.help_set_scroll(0),
                     KeyCode::End => app.help_set_scroll(max_scroll),
                     KeyCode::Tab | KeyCode::BackTab => {
-                        app.session.toggle_help_tab();
+                        app.session
+                            .apply(confy_core::session::Intent::ToggleHelpTab);
                         app.help_set_scroll(0);
                     }
                     KeyCode::Esc | KeyCode::Char('?') => app.escape(),
@@ -383,24 +384,43 @@ fn run_event_loop(
                     _ => 0,
                 };
                 match key.code {
-                    KeyCode::Up | KeyCode::Char('k') => app.session.schema_enum_move(-1),
-                    KeyCode::Down | KeyCode::Char('j') => app.session.schema_enum_move(1),
-                    KeyCode::Home => app.session.schema_enum_jump(-(option_count as i32)),
-                    KeyCode::End => app.session.schema_enum_jump(option_count as i32),
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        app.session
+                            .apply(confy_core::session::Intent::SchemaEnumMove(-1));
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        app.session
+                            .apply(confy_core::session::Intent::SchemaEnumMove(1));
+                    }
+                    KeyCode::Home => {
+                        app.session
+                            .apply(confy_core::session::Intent::SchemaEnumJump(
+                                -(option_count as i32),
+                            ));
+                    }
+                    KeyCode::End => {
+                        app.session
+                            .apply(confy_core::session::Intent::SchemaEnumJump(
+                                option_count as i32,
+                            ));
+                    }
                     KeyCode::PageUp => {
                         let size = terminal.size()?;
                         let area = ratatui::layout::Rect::new(0, 0, size.width, size.height);
                         let step = ui::schema_enum_page_step(option_count, area);
-                        app.session.schema_enum_jump(-step);
+                        app.session
+                            .apply(confy_core::session::Intent::SchemaEnumJump(-step));
                     }
                     KeyCode::PageDown => {
                         let size = terminal.size()?;
                         let area = ratatui::layout::Rect::new(0, 0, size.width, size.height);
                         let step = ui::schema_enum_page_step(option_count, area);
-                        app.session.schema_enum_jump(step);
+                        app.session
+                            .apply(confy_core::session::Intent::SchemaEnumJump(step));
                     }
                     KeyCode::Enter => {
-                        app.session.schema_enum_commit();
+                        app.session
+                            .apply(confy_core::session::Intent::SchemaEnumCommit);
                         app.rebuild_rows();
                     }
                     KeyCode::Esc => app.escape(),

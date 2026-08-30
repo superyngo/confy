@@ -10,6 +10,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.23.0] - 2026-08-29
 
+### Unreleased Update — 2026-08-30T02:15:00Z
+- **refactor(tui): route the Help-tab toggle and SchemaEnum navigation
+  through `Session::apply`.** `crates/confy-tui/src/tui/mod.rs` called
+  `session.toggle_help_tab()` and the six `session.schema_enum_move`/
+  `schema_enum_jump`/`schema_enum_commit` methods directly, bypassing
+  the `Intent`/`apply` dispatch every other keybinding in this file
+  already goes through — both already have matching `Intent` variants
+  (`ToggleHelpTab`, `SchemaEnumMove`/`Jump`/`Commit`) with dispatch arms
+  that call the exact same methods, so this is a routing-only change,
+  no behavior difference. Left two other bypass sites from the same
+  audit finding untouched: `last_action_was_shift_select`'s direct
+  write and `app.rs`'s `convert_write` mode assignment have no matching
+  `Intent` variant today (inventing one is a separate design decision);
+  and the `paste_slot` direct write, because `Session::set_paste_slot`
+  (the method `Intent::SetPasteSlot` dispatches to) does more than a
+  plain assignment — it also gates on the target's visibility and syncs
+  `cursor` — so swapping it in here isn't a pure mechanical change.
+  Verified both converted paths on the real `confy-tui` binary against
+  a scratch `#:schema`-linked TOML file with an `enum`-constrained
+  field: opened the Schema-value picker, moved the selection with
+  Down, committed with Enter, and confirmed the saved file now reads
+  `level = "info"`; separately opened Help and confirmed Tab flips the
+  overlay to the About tab and back.
+
 ### Unreleased Update — 2026-08-30T02:00:00Z
 - **refactor(web): move the Help overlay's KIND-badge legend into the i18n
   catalogs.** `web/help-content.ts` hard-coded `KIND_LEGEND`/
