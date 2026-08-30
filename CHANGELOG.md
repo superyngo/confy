@@ -10,6 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.23.0] - 2026-08-29
 
+### Unreleased Update — 2026-08-30T04:10:00Z
+- **chore(tui): dedupe the `dirs` dependency to a single resolved version.**
+  `confy-tui` declared `dirs = "5"` while `tauri`'s own dependency chain
+  pulls `dirs` 6.0.0, so the build resolved and compiled both major
+  versions side by side. `dirs::config_dir()`/`home_dir()` (the only two
+  calls, `confy-tui/src/config.rs`) have no signature/behavior change
+  between 5.x and 6.x, so bumped `confy-tui`'s constraint to `dirs = "6"`.
+  Verified: `cargo tree -i dirs` now shows a single `dirs v6.0.0` node;
+  `cargo build -p confy-tui` compiles clean; `cargo test -p confy-tui`
+  passes at its existing baseline; clippy/fmt clean.
+
 ### Unreleased Update — 2026-08-30T04:00:00Z
 - **test(core): add a fixture-seeded round-trip property test per backend.**
   Added `proptest = "1"` (`confy-core`'s dev-dependencies were empty until
