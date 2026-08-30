@@ -10,6 +10,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.23.0] - 2026-08-29
 
+### Unreleased Update — 2026-08-30T02:30:00Z
+- **ci(rust): add a `cargo audit` step; docs: document the `taplo`
+  unmaintained-upstream risk.** `.github/workflows/rust-ci.yml` had no
+  dependency-vulnerability scan. Added `cargo install cargo-audit
+  --locked` + `cargo audit` as the last two steps of the existing `rust`
+  job (visibility only, same non-required-check framing as the rest of
+  the file — no config file needed, it audits the checked-in
+  `Cargo.lock` directly). Added a `## Known Risks` section to
+  `CLAUDE.md` (between `## Architecture` and `## Module map`)
+  documenting why `taplo` being unmaintained upstream isn't being acted
+  on now (small used surface, ~1,240 LOC vendoring estimate as the
+  pre-planned contingency, `tombi` not yet a usable migration target)
+  and naming the new CI step as the trigger for revisiting that
+  decision. Ran `cargo audit` locally to confirm the step works: it
+  currently reports 2 real advisories (both `quick-xml` 0.39.4,
+  RUSTSEC-2026-0194/0195, high severity, pulled in transitively — not
+  `taplo`/`rowan`) plus 19 unmaintained-crate warnings; per this batch's
+  scope, reported here and left for a separate, dedicated fix rather
+  than bundled into this CI/docs change.
+
 ### Unreleased Update — 2026-08-30T02:15:00Z
 - **refactor(tui): route the Help-tab toggle and SchemaEnum navigation
   through `Session::apply`.** `crates/confy-tui/src/tui/mod.rs` called

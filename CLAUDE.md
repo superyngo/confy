@@ -236,6 +236,24 @@ the choice in `localStorage["confy-lang"]` (WEBUI.md §*Language / i18n (Web)*).
 `ABOUT_TEXT_ZH_TW`); the TUI appends host-only `Config:`/`Language:` lines, the web layer
 appends a localStorage disclosure line instead.
 
+## Known Risks
+
+**`taplo` is unmaintained upstream.** The maintainer stepped down in Dec 2024
+([tamasfe/taplo#715](https://github.com/tamasfe/taplo/issues/715)); the repo is stalled but
+not archived, no ownership transfer has happened, and `rowan =0.15.18` is exact-pinned to
+match taplo's internal version. `confy`'s taplo surface is small — `taplo::parser::parse`
+(47 call sites), `taplo::syntax::*`/`taplo::rowan::NodeOrToken`/`SyntaxElement` (18 sites),
+`taplo::dom::Node`/`taplo::dom::Error::ConflictingKeys` (2 sites) — and none of taplo's
+1,330-line formatter or 2,800-line DOM is used (duplicate-key detection is already
+hand-rolled per-backend in `validate_semantics`). Vendoring only the used surface
+(`parser/mod.rs` + `parser/macros.rs` + `syntax.rs`) is estimated at ~1,240 LOC and would
+also unpin `rowan` and drop `globset`/`schemars`/`arc-swap`/`itertools`/`once_cell` from the
+dependency tree. `tombi`, the community's suggested migration target, is **not** currently a
+usable dependency (its crates.io entry is a reserved placeholder; sub-crates unpublished).
+**Decision: do not migrate now.** The `cargo audit` CI step (`.github/workflows/rust-ci.yml`)
+is the trigger — if it flags a `rowan`/`taplo`/`ahash` advisory, vendoring per the above scope
+estimate is the pre-planned contingency.
+
 ## Module map
 
 Cargo **workspace** (see `PORTING.md`): `confy-core` is the headless model crate; `confy-tui`
