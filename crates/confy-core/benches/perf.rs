@@ -41,6 +41,25 @@ fn gen_toml(sections: usize) -> String {
     s
 }
 
+/// YAML equivalent of `gen_toml`: a top-level mapping of `sections` nested
+/// mappings, same field shape, to exercise the same projection breadth.
+fn gen_yaml(sections: usize) -> String {
+    let mut s = String::new();
+    for i in 0..sections {
+        s.push_str(&format!("# section {i}\n"));
+        s.push_str(&format!("svc_{i}:\n"));
+        s.push_str(&format!("  name: \"service-{i}\"\n"));
+        s.push_str(&format!("  port: {}\n", 8000 + i));
+        s.push_str("  enabled: true\n");
+        s.push_str(&format!("  ratio: {}.5 # tuned\n", i % 7));
+        s.push_str(&format!("  tag: 'literal-{i}'\n"));
+        s.push_str(&format!("  note: \"a longer string value for {i}\"\n"));
+        s.push_str(&format!("  retries: {}\n", i % 5));
+        s.push_str("  hosts:\n    - alpha\n    - beta\n    - gamma\n");
+    }
+    s
+}
+
 fn median(mut v: Vec<Duration>) -> Duration {
     v.sort();
     v[v.len() / 2]
@@ -145,6 +164,30 @@ fn main() {
             .collect();
         bench(&format!("apply(Move {srcs} source(s))"), 10, || {
             let mut d = AnyDocument::from_str_as(&src, DocFormat::Toml).unwrap();
+            d.apply(Mutation::Move {
+                sources: sources.clone(),
+                target: Target {
+                    parent: vec![],
+                    index: sections - 1,
+                },
+                on_collision: OnCollision::Cancel,
+            })
+            .expect("move must succeed");
+        });
+    }
+
+    // A YAML Move, unlike TOML's, does not re-project per source fragment
+    // (`insert()` uses direct CST traversal) — but it did redundantly
+    // recompute the *same* pre-mutation projection the `apply` dispatcher
+    // already built, once per `Move` call, purely for the shift calculation.
+    // Measured to see whether that single extra walk is visible at all.
+    let yaml_src = gen_yaml(sections);
+    for srcs in [1usize, 4, 8] {
+        let sources: Vec<Vec<Seg>> = (0..srcs)
+            .map(|i| vec![Seg::Key(format!("svc_{i}"))])
+            .collect();
+        bench(&format!("apply(Move {srcs} source(s)) [yaml]"), 10, || {
+            let mut d = AnyDocument::from_str_as(&yaml_src, DocFormat::Yaml).unwrap();
             d.apply(Mutation::Move {
                 sources: sources.clone(),
                 target: Target {

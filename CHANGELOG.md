@@ -10,6 +10,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.23.0] - 2026-08-29
 
+### Unreleased Update — 2026-08-30T00:35:09Z
+- **bench(core): add a YAML `Move` case to `perf.rs` measuring the redundant-
+  walk fix above.** `gen_yaml` mirrors `gen_toml`'s shape and a new
+  `apply(Move N source(s)) [yaml]` loop (N=1,4,8) exercises the same
+  single-source/multi-source spread. Before/after numbers (median of 10,
+  `--nodes 300` and `--nodes 500` — `--nodes 5000`/`12500` as suggested were
+  impractically slow to complete because of TOML's separately-known-and-
+  already-tracked `Move` scaling, not this fix): at 300 sections, Move
+  1/4/8 went 13.5ms/28.5ms/48.6ms → 11.6ms/26.7ms/46.5ms; at 500 sections,
+  22.9ms/48.5ms/82.1ms → 19.7ms/45.8ms/79.1ms. The ~2-3ms improvement is
+  roughly constant across source counts and grows with document size,
+  matching the fix removing exactly one whole-document walk per `Move`
+  call rather than one per source.
+
 ### Unreleased Update — 2026-08-30T00:19:34Z
 - **perf(core/yaml): `Move` no longer recomputes the same tree projection it
   was already handed.** `move_nodes`'s pre-deletion shift calculation called
