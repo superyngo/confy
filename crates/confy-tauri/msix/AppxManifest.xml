@@ -38,7 +38,12 @@
   </Dependencies>
 
   <Resources>
+    <!-- Drives Partner Center's "Languages supported in packages". The app
+         ships one language-neutral binary (in-app language picker), so both
+         are declared on the same package rather than as split .msix per
+         language. -->
     <Resource Language="en-us" />
+    <Resource Language="zh-tw" />
   </Resources>
 
   <Applications>
