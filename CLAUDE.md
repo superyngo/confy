@@ -15,6 +15,24 @@ cargo bench -p confy-core     # perf harness (no criterion; plain main() + media
 cargo bench -p confy-core --bench perf -- --nodes 5000
 ```
 
+## Release process
+
+**Three version files + CHANGELOG must all move together for every release** —
+`.github/workflows/release.yml`'s `verify-versions` job hard-fails the tagged
+build if any of them disagree with the tag:
+
+- `Cargo.toml` (`[workspace.package].version` — covers all Rust crates:
+  confy-core, confy-tui, confy-ffi, confy-tauri)
+- `web/package.json` (`.version`)
+- `editors/vscode/package.json` (`.version` — also regenerate
+  `editors/vscode/package-lock.json`'s root version via
+  `npm install --package-lock-only` in `editors/vscode/`, so `npm ci` doesn't
+  warn on a stale lockfile)
+- `CHANGELOG.md` must contain a `## [vX.Y.Z]` section for the tag
+
+Bump all four in the same release commit, before tagging. Never tag with only
+`Cargo.toml` updated.
+
 ## Architecture
 
 **Lossless CST.** `CstDocument` (`model/cst_doc.rs`) holds a `taplo` parse → `rowan` syntax tree
