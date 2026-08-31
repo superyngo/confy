@@ -14,6 +14,7 @@ import type { EditView, PasteSlot, SessionSnapshot, ViewRow } from "./types.js";
 import { escapeHtml } from "./escape.js";
 import { isCommentRow, isExpanded, isPositional, valueTypeClass } from "./kind-labels.js";
 import { t } from "./i18n.js";
+import { highlightHtml } from "./highlight.js";
 
 // Re-export so existing importers (ui.ts / typefilter.ts / convert-dialog.ts)
 // keep their entry point; the single quote-safe escaper lives in escape.ts.
@@ -68,7 +69,12 @@ export function editWidthCh(text: string): string {
 }
 const editWidthStyle = (text: string): string => `width:${editWidthCh(text)}`;
 
-function renderValue(r: ViewRow, edit: EditView | null, schemaEnum: { options: string[]; cursor: number } | null): string {
+function renderValue(
+  r: ViewRow,
+  edit: EditView | null,
+  schemaEnum: { options: string[]; cursor: number } | null,
+  filter: string,
+): string {
   if (schemaEnum && r.is_cursor) {
     const opts = schemaEnum.options
       .map((label, i) => `<option value="${i}"${i === schemaEnum.cursor ? " selected" : ""}>${escapeHtml(label)}</option>`)
@@ -81,8 +87,10 @@ function renderValue(r: ViewRow, edit: EditView | null, schemaEnum: { options: s
   }
   // Collapse newlines so a multiline value stays on one row (it would otherwise
   // break the flexbox and push the kind badge off, making it unclickable). The
-  // `.val` cell also clamps with ellipsis (style.css).
-  return escapeHtml((r.value ?? "").replace(/\r?\n/g, " ↵ "));
+  // `.val` cell also clamps with ellipsis (style.css). The filter's matched chars
+  // are marked here as well as in the key — core's haystack spans path + value +
+  // comment, so a row can be a value-only match (TUI does the same).
+  return highlightHtml((r.value ?? "").replace(/\r?\n/g, " ↵ "), filter);
 }
 
 // The per-row kind badge: friendly kind label + notation suffix + chevron.
@@ -101,6 +109,8 @@ export function renderRow(
   clip: "" | " clip-copy" | " clip-cut",
   pasteInto: boolean = false,
   docFormat: string = "Toml",
+  /** Live filter query (`SessionSnapshot.filter`); "" = no filter, no marks. */
+  filter: string = "",
 ): string {
   const pathAttr = escapeHtml(JSON.stringify(r.path));
   const comment = isCommentRow(r);
@@ -154,14 +164,14 @@ export function renderRow(
       const advisoryCls = r.comment_advisory ? " comment-advisory" : "";
       s +=
         `<span class="comment mono${advisoryCls}" data-edit="comment"${advisoryTitle ? ` title="${escapeHtml(advisoryTitle)}"` : ""}>` +
-        `${escapeHtml(head)}${more ? '<span class="comment-more"> …</span>' : ""}</span>`;
+        `${highlightHtml(head, filter)}${more ? '<span class="comment-more"> …</span>' : ""}</span>`;
     }
   } else {
     // Key. Positional array/AoT elements are keyless; core gives them the index
     // label "[0]"/"[1]" which we keep (informative) but render faintly. A keyed
     // node in `Name` edit mode becomes a live rename `<input>`.
     if (isPositional(r)) {
-      s += `<span class="key elem">${escapeHtml(r.key)}</span>`;
+      s += `<span class="key elem">${highlightHtml(r.key, filter)}</span>`;
     } else if (edit && r.is_cursor && edit.field === "Name") {
       // The rename/edit buffer carries the key's authored spelling itself
       // (seeded from core's `ViewRow.key_literal`), so no separate quote
@@ -169,7 +179,7 @@ export function renderRow(
       // same as any other key.
       s += `<input class="cell-input key-input mono" data-editing="name" style="${editWidthStyle(edit.buffer)}" value="${escapeHtml(edit.buffer)}" />`;
     } else if (r.key) {
-      s += `<span class="key" data-edit="key">${escapeHtml(r.key_literal ?? r.key)}</span>`;
+      s += `<span class="key" data-edit="key">${highlightHtml(r.key_literal ?? r.key, filter)}</span>`;
     }
     if (r.is_branch) {
       s += `<span class="count">${r.child_count} ${r.child_count === 1 ? t("web.render.item.one") : t("web.render.item.many")}</span>`;
@@ -178,7 +188,7 @@ export function renderRow(
       const editingValue =
         (schemaEnum && r.is_cursor) || (edit !== null && r.is_cursor && edit.field === "Value");
       s += `<span class="eq">=</span>`;
-      s += `<span class="val ${vcls}${editingValue ? " editing" : ""} mono" data-edit="val">${renderValue(r, edit, schemaEnum)}</span>`;
+      s += `<span class="val ${vcls}${editingValue ? " editing" : ""} mono" data-edit="val">${renderValue(r, edit, schemaEnum, filter)}</span>`;
     }
     // Kind badge (type + notation + chevron).
     if (!r.read_only) s += renderKindBadge(r);
@@ -260,6 +270,7 @@ export function renderTree(
         clipKeys.has(JSON.stringify(r.path)) ? clipCls : "",
         pasteIntoPath !== null && JSON.stringify(r.path) === pasteIntoPath,
         snap.doc_format,
+        snap.filter ?? "",
       ),
     });
   });

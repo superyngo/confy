@@ -202,7 +202,9 @@ TUI.md §*Comments (TUI)*.
 `collapse_all`, `1`/`2` level-at-a-time ascend) — TUI.md §*Navigation*.
 
 **Filter.** Three-state flow, FilterResults dispatch, `last_filter` prefill, Esc peel,
-haystack semantics (key/path + Comment text + a scalar leaf's own value), and highlight — TUI.md §*Filter*.
+haystack semantics (key/path + Comment text + a scalar leaf's own value), and the NAME+VALUE
+per-char highlight — TUI.md §*Filter*. The web/touch trees mark the same chars with the same
+wasm-exported matcher — WEBUI.md §*Native modal widgets*.
 
 **Type filter.** TypeToken/classify popup, tristate groups, AND-intersection of text∩type,
 FilterLayer peel — TUI.md §*Type filter*.
@@ -388,6 +390,11 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
                  caret, key/`—`/value value-type-colored, item count, **kind badge** =
                  label+notation suffix+chevron, comment/trailing, hover ＋/⋮ actions);
                  container & scalar notation suffixes, `escapeAttr` for `data-path`
+  highlight.ts   fuzzy-filter match marks: `highlightHtml(text, needle)` → escaped HTML with
+                 `<mark class="fz">` runs (coalesced, char-indexed via `Array.from`). Web mirror
+                 of the TUI's `highlight_spans`, driven by the SAME matcher — the wasm free export
+                 `fuzzy_indices`, injected by confy.ts's `load()` via `setFuzzyMatcher` so
+                 render.ts stays wasm-free and node-bundleable. Used by render.ts + touch/render.ts
   i18n.ts        catalog wrapper: t()/tArgs() over ../i18n/*.json, en-fallback chain,
                  getLang()/setLang() persisted in localStorage["confy-lang"]
   select.ts      pure pointer-selection logic → `SetSelection`/`SetCursor`: plain/⇧-range/

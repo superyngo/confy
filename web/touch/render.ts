@@ -8,6 +8,7 @@
 import type { SessionSnapshot, ViewRow } from "../types.js";
 import { escapeHtml as esc } from "../escape.js";
 import { isCommentRow, isExpanded, isPositional, valueTypeClass } from "../kind-labels.js";
+import { highlightHtml } from "../highlight.js";
 
 // The shared quote-safe escaper, under this module's traditional short name.
 export { esc };
@@ -65,6 +66,8 @@ function rowHTML(
   pasteInto: boolean,
   clip: "" | " clip-copy" | " clip-cut",
   docFormat: string,
+  /** Live filter query (`SessionSnapshot.filter`); "" = no filter, no marks. */
+  filter: string,
 ): string {
   const branch = r.is_branch;
   const comment = isCommentRow(r);
@@ -103,9 +106,9 @@ function rowHTML(
     // Standalone comment node (no analogue in the prototype): show the text
     // faint, full-width; swipe still reveals Edit/Delete.
     const advCls = r.comment_advisory ? " comment-advisory" : "";
-    h += `<span class="comment${advCls}" style="flex:1 1 auto;margin-left:0">${esc(r.value ?? "")}</span>`;
+    h += `<span class="comment${advCls}" style="flex:1 1 auto;margin-left:0">${highlightHtml(r.value ?? "", filter)}</span>`;
   } else {
-    h += `<span class="key${isPositional(r) ? " elem" : ""}">${esc(r.key_literal ?? r.key)}</span>`;
+    h += `<span class="key${isPositional(r) ? " elem" : ""}">${highlightHtml(r.key_literal ?? r.key, filter)}</span>`;
     if (branch) {
       h += `<span class="count">${r.child_count}</span>`;
       h += `<span class="kind" data-act="kind">${kindBadgeHTML(r)}</span>`;
@@ -114,7 +117,7 @@ function rowHTML(
       h += `<span class="comment${r.comment_advisory && r.trailing_comment ? " comment-advisory" : ""}">${esc(r.trailing_comment ?? "")}</span>`;
     } else {
       h += `<span class="eq">=</span>`;
-      h += `<span class="val ${valueTypeClass(r)}">${esc(r.value ?? "")}</span>`;
+      h += `<span class="val ${valueTypeClass(r)}">${highlightHtml(r.value ?? "", filter)}</span>`;
       // Kind badge before the trailing comment, matching desktop's order
       // (key = value type·note #comment) — previously touch put the comment
       // first, so the two surfaces disagreed on where the badge sits.
@@ -160,6 +163,7 @@ export function treeHTML(snap: SessionSnapshot): string {
               pasteIntoPath === JSON.stringify(r.path),
               clipKeys.has(JSON.stringify(r.path)) ? clipCls : "",
               snap.doc_format,
+              snap.filter ?? "",
             ),
       )
       .join("") + '<div class="reorder-line"></div>'

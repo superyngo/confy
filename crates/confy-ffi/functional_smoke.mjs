@@ -3,7 +3,7 @@
 // contract + the async external-edit handshake work end-to-end. No browser —
 // the user manually tests the rendered UI (per the no-pty-TUI-testing policy);
 // this proves the API surface the UI sits on.
-import init, { ConfySession } from "./pkg/confy_ffi.js";
+import init, { ConfySession, fuzzy_indices } from "./pkg/confy_ffi.js";
 import { readFileSync } from "node:fs";
 import assert from "node:assert";
 
@@ -229,6 +229,22 @@ const snap12b = s12b.dispatch({ SetFilter: "localhost" });
 check("SetFilter matches a value (not just keys)",
   snap12b.rows.some(r => r.key === "host") && !snap12b.rows.some(r => r.key === "port"),
   JSON.stringify(snap12b.rows.map(r => r.key)));
+// `snapshot.filter` carries the live query in EVERY mode — `ModeView::Filter`
+// only has it while the input is focused and `FilterResults` drops it, but the
+// pointer hosts need it after focus is lost to highlight the matched chars.
+check("snapshot.filter carries the live query", snap12b.filter === "localhost", JSON.stringify(snap12b.filter));
+check("snapshot.filter is empty when cleared", s12.snapshot().filter === "", JSON.stringify(s12.snapshot().filter));
+
+// ---- 17b. fuzzy_indices: the matcher the web tree highlights with ----
+// Same function the TUI's `highlight_spans` calls, exported so web/highlight.ts
+// can mark the exact chars the TUI reverse-videos (no reimplemented scoring).
+check("fuzzy_indices returns char positions", String(fuzzy_indices("axbycz", "abc")) === "0,2,4",
+  String(fuzzy_indices("axbycz", "abc")));
+check("fuzzy_indices is undefined on no match", isNull(fuzzy_indices("server", "zzz")));
+check("fuzzy_indices is undefined for an empty needle", isNull(fuzzy_indices("server", "")));
+// Char offsets, not UTF-16 code units — web/highlight.ts indexes via Array.from.
+check("fuzzy_indices counts an astral char as ONE position",
+  String(fuzzy_indices("🌍ab", "ab")) === "1,2", String(fuzzy_indices("🌍ab", "ab")));
 
 // ---- 18. SetConvertFormat + SetConvertPath → ConvertRun (Web UI, Phase 4) ----
 const s13 = new ConfySession("a = 1\n", "toml");

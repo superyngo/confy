@@ -124,9 +124,14 @@ matches a node's **key/path** plus a **Comment node's own text** (`recompute_fil
 from the path's `Seg::Key` segments — positional nodes contribute none — and appends the comment text
 for a Comment node, plus a scalar leaf's **own value**), so a query matches keys, paths, comments, and
 values alike. While a filter is active the matched chars are
-highlighted in the **NAME cell** (`search::fuzzy_indices` → `ui::highlight_spans`; gated on a non-empty
+highlighted in **both the NAME and the VALUE cell** (`search::fuzzy_indices` →
+`ui::highlight_spans`/`highlight_spans_styled`; gated on a non-empty
 query, not the mode, so the highlight survives an inline edit / detail popup; a Comment node's NAME
-shows its text, so its match highlights there too). Transient overlays (detail popup,
+shows its text, so its match highlights there too). Each cell runs the matcher against **its own
+text**, not the haystack, so the marks line up with what's drawn — a row matched only via its path
+shows no marks in VALUE, and vice versa. A row's **trailing comment** is never highlighted; it keeps
+its dim/advisory styling as annotation. `highlight_spans_styled` layers the highlight over a base
+style so a `comment_advisory` value stays underlined underneath. Transient overlays (detail popup,
 inline editor) close back into the filtered selection via `Session::resting_mode` (`FilterResults` when
 `filtered_paths.is_some()`, else `Normal`) — `exit_detail`/`edit_cancel`/`edit_commit` use it.
 

@@ -848,3 +848,19 @@ body.paste-mode .fab-clear{display:grid}
 /* Must come last: same specificity as the paste-mode rule above, so Raw view
    wins and hides both buttons. */
 body.raw-view .fab,body.raw-view .fab-clear{display:none}
+
+/* ---------- fuzzy-filter match marks ---------- */
+/* The web analogue of the TUI's yellow/bold/underlined highlight spans
+   (`highlight_spans` in crates/confy-tui/src/tui/ui.rs), emitted by
+   highlight.ts as `<mark class="fz">` inside the key / value / comment cells.
+
+   A translucent amber wash instead of a foreground color, so the value cell's
+   own type color (.val.t-string / .t-number / …) still reads through — the TUI
+   has to repaint fg because a terminal cell can't layer. `color:inherit` is
+   required: the UA default for <mark> is black-on-yellow, unreadable in dark
+   theme. No underline — `.comment-advisory` already owns a wavy underline in
+   these same cells, and a background is unambiguous in a GUI. */
+mark.fz{
+  background:color-mix(in oklch,var(--warn) 30%,transparent);
+  color:inherit;font-weight:700;border-radius:2px;padding:0 1px;margin:0 -1px;
+}

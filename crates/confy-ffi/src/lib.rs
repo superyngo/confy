@@ -194,6 +194,21 @@ impl ConfySession {
     }
 }
 
+/// Char positions in `haystack` that the fuzzy `needle` matched, or `undefined`
+/// when it doesn't match (or `needle` is empty).
+///
+/// A free function, not a `ConfySession` method: it's pure and stateless, and
+/// hosts call it per rendered cell while a filter is active to mark the matched
+/// characters — the same `SkimMatcherV2` the TUI highlights with, so web and TUI
+/// can't drift apart. Indices are **char** offsets (the matcher works on chars),
+/// so JS must index via `Array.from(text)`, never `text[i]`. `u32` (not `usize`)
+/// because that's what wasm-bindgen marshals to a `Uint32Array`.
+#[wasm_bindgen]
+pub fn fuzzy_indices(haystack: &str, needle: &str) -> Option<Vec<u32>> {
+    confy_core::session::search::fuzzy_indices(haystack, needle)
+        .map(|idx| idx.into_iter().map(|i| i as u32).collect())
+}
+
 // ---- helpers ----
 
 fn parse_format(s: &str) -> Result<DocFormat, JsValue> {

@@ -108,7 +108,11 @@ fn edit_value_cell(e: &EditState, width: usize) -> Cell<'static> {
 /// dim style for an underlined warn-colored one, the TUI's closest analogue
 /// to the web tree's wavy underline (terminals have no hover tooltip; the
 /// full advisory text lives in the `i` Detail popup's `Note:` section).
-fn value_cell(row: &crate::tui::app::RowSnapshot) -> Cell<'static> {
+///
+/// `needle` is the active filter query: the value preview fuzzy-highlights the
+/// chars it matched, same as the NAME cell. The trailing comment is never
+/// highlighted — it keeps its dim/advisory styling as the row's annotation.
+fn value_cell(row: &crate::tui::app::RowSnapshot, needle: &str) -> Cell<'static> {
     let preview = cell_preview(row.value.as_deref().unwrap_or(""));
     let advisory_style = Style::default()
         .fg(Color::Yellow)
@@ -126,17 +130,18 @@ fn value_cell(row: &crate::tui::app::RowSnapshot) -> Cell<'static> {
             if preview.is_empty() {
                 Cell::from(Line::from(comment))
             } else {
-                Cell::from(Line::from(vec![
-                    Span::raw(preview),
-                    Span::raw("  "),
-                    comment,
-                ]))
+                let mut spans = highlight_spans(&preview, needle);
+                spans.push(Span::raw("  "));
+                spans.push(comment);
+                Cell::from(Line::from(spans))
             }
         }
-        None if row.comment_advisory.is_some() => {
-            Cell::from(Line::from(Span::styled(preview, advisory_style)))
-        }
-        None => Cell::from(preview),
+        None if row.comment_advisory.is_some() => Cell::from(Line::from(highlight_spans_styled(
+            &preview,
+            needle,
+            advisory_style,
+        ))),
+        None => Cell::from(Line::from(highlight_spans(&preview, needle))),
     }
 }
 
@@ -192,18 +197,18 @@ fn edit_overflow_hint(scroll: usize, len: usize, width: usize) -> Option<String>
     Some(format!("⟨{}–{}/{}⟩", start + 1, end, len))
 }
 
-/// Build display spans for `text`, reverse-highlighting the characters that the
-/// fuzzy `needle` matched (per-field: run against the cell's own text so the match
-/// aligns with what's shown). No match → a single plain span. Consecutive
-/// same-style chars are coalesced into one span.
-fn highlight_spans(text: &str, needle: &str) -> Vec<Span<'static>> {
-    let hl = Style::default()
+/// Build display spans for `text`, highlighting the characters that the fuzzy
+/// `needle` matched (per-field: run against the cell's own text so the match
+/// aligns with what's shown). No match → a single span carrying `base`.
+/// Consecutive same-style chars are coalesced into one span.
+fn highlight_spans_styled(text: &str, needle: &str, base: Style) -> Vec<Span<'static>> {
+    let hl = base
         .fg(Color::Yellow)
         .add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
     let matched: std::collections::HashSet<usize> =
         match crate::tui::search::fuzzy_indices(text, needle) {
             Some(idx) if !idx.is_empty() => idx.into_iter().collect(),
-            _ => return vec![Span::raw(text.to_string())],
+            _ => return vec![Span::styled(text.to_string(), base)],
         };
     let mut spans: Vec<Span<'static>> = Vec::new();
     let mut buf = String::new();
@@ -212,23 +217,21 @@ fn highlight_spans(text: &str, needle: &str) -> Vec<Span<'static>> {
         let is_hl = matched.contains(&i);
         if is_hl != buf_hl && !buf.is_empty() {
             let s = std::mem::take(&mut buf);
-            spans.push(if buf_hl {
-                Span::styled(s, hl)
-            } else {
-                Span::raw(s)
-            });
+            spans.push(Span::styled(s, if buf_hl { hl } else { base }));
         }
         buf_hl = is_hl;
         buf.push(ch);
     }
     if !buf.is_empty() {
-        spans.push(if buf_hl {
-            Span::styled(buf, hl)
-        } else {
-            Span::raw(buf)
-        });
+        spans.push(Span::styled(buf, if buf_hl { hl } else { base }));
     }
     spans
+}
+
+/// [`highlight_spans_styled`] with no base style — the NAME cell and a plain
+/// VALUE preview.
+fn highlight_spans(text: &str, needle: &str) -> Vec<Span<'static>> {
+    highlight_spans_styled(text, needle, Style::default())
 }
 
 pub fn draw(f: &mut Frame, app: &App) {
@@ -401,17 +404,24 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                             .saturating_sub(prefix.chars().count());
                         let mut spans = vec![Span::raw(prefix)];
                         spans.extend(edit_field_spans(&e.buffer, e.cursor, e.scroll, avail));
-                        (Cell::from(Line::from(spans)), value_cell(row))
+                        (
+                            Cell::from(Line::from(spans)),
+                            value_cell(row, app.session.filter.as_str()),
+                        )
                     }
                 },
                 _ => {
                     // When a filter is active, highlight the fuzzy-matched chars in
-                    // the NAME cell only (after the tree prefix) — the filter matches
-                    // key/path, not value, so VALUE is never highlighted. Gated on the
-                    // query, not the mode, so the highlight survives an inline edit or
-                    // detail popup opened from the filtered list.
+                    // both the NAME cell (after the tree prefix) and the VALUE
+                    // preview — the filter's haystack is `path value comment`
+                    // (`session::search::haystack`), so a row can match on either
+                    // side. Gated on the query, not the mode, so the highlight
+                    // survives an inline edit or detail popup opened from the
+                    // filtered list. Each cell runs the matcher against its own text,
+                    // so a row matched via the path shows no marks in VALUE (and
+                    // vice versa) — that's honest, not a miss.
                     let needle = app.session.filter.as_str();
-                    let val_cell = value_cell(row);
+                    let val_cell = value_cell(row, needle);
                     if needle.is_empty() {
                         (Cell::from(name), val_cell)
                     } else {
@@ -790,6 +800,32 @@ mod tests {
         assert!(!spans[0].style.add_modifier.contains(Modifier::UNDERLINED));
     }
 
+    /// The VALUE preview highlights too (the filter haystack includes the value),
+    /// and a base style survives underneath the highlight.
+    #[test]
+    fn highlight_spans_styled_keeps_base_style() {
+        let base = Style::default().add_modifier(Modifier::DIM);
+        let spans = highlight_spans_styled("8080", "80", base);
+        let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(text, "8080");
+        assert!(
+            spans
+                .iter()
+                .all(|s| s.style.add_modifier.contains(Modifier::DIM)),
+            "base style applies to matched and unmatched runs alike"
+        );
+        assert!(
+            spans
+                .iter()
+                .any(|s| s.style.add_modifier.contains(Modifier::UNDERLINED)),
+            "matched chars still get the highlight on top"
+        );
+        // No match → one span, base only.
+        let plain = highlight_spans_styled("8080", "zz", base);
+        assert_eq!(plain.len(), 1);
+        assert_eq!(plain[0].style, base);
+    }
+
     /// Render a real document to a TestBackend and return the buffer as text lines.
     fn render(src: &str, w: u16, h: u16) -> Vec<String> {
         let doc = crate::model::any_doc::AnyDocument::Toml(
@@ -808,6 +844,39 @@ mod tests {
                     .to_string()
             })
             .collect()
+    }
+
+    /// End-to-end through `draw`: with a value-matching filter active, the VALUE
+    /// cell's matched chars carry the highlight, not just the NAME cell. Pins the
+    /// behavior at the buffer level (the `highlight_spans*` unit tests above only
+    /// cover the span builder).
+    #[test]
+    fn filter_highlights_value_cell_chars() {
+        let doc = crate::model::any_doc::AnyDocument::Toml(
+            crate::model::cst_doc::CstDocument::from_str("host = \"localhost\"\n").unwrap(),
+        );
+        let mut app = App::new(doc);
+        app.session.dispatch(confy_core::session::Intent::SetFilter(
+            "localhost".to_string(),
+        ));
+        let (w, h) = (80u16, 12u16);
+        let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
+        terminal.draw(|fr| draw(fr, &app)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        // Collect the highlighted glyphs anywhere in the tree area.
+        let marked: String = (0..h)
+            .flat_map(|y| (0..w).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                let c = &buf[(x, y)];
+                c.style().add_modifier.contains(Modifier::UNDERLINED)
+                    && c.style().fg == Some(Color::Yellow)
+            })
+            .map(|(x, y)| buf[(x, y)].symbol().to_string())
+            .collect();
+        assert!(
+            marked.contains("localhost"),
+            "the value's matched chars should be highlighted, got {marked:?}"
+        );
     }
 
     #[test]

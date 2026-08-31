@@ -260,6 +260,10 @@ export interface SessionSnapshot {
   clipboard_paths: Path[]; // source node paths captured in the clipboard
   paste_slot: PasteSlot | undefined; // effective_paste_slot(), only while a clipboard is armed
   type_filter_active: boolean; // a committed type filter is narrowing the rows
+  // Live text-filter query, in every mode (ModeView.Filter only carries it while
+  // the input is focused, FilterResults drops it). Cells fuzzy-highlight against
+  // it — see highlight.ts. "" = no filter.
+  filter: string;
   quit: boolean;
   lang: string; // active UI language code ("en" / "zh-TW")
   history_len: number; // undo-history depth; VS Code host diffs it (see vscode-protocol.ts)

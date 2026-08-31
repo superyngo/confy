@@ -3,7 +3,9 @@
 // and centralizes the one command channel (`dispatch`).
 import init, {
   ConfySession as RawSession,
+  fuzzy_indices,
 } from "./pkg/confy_ffi.js";
+import { setFuzzyMatcher } from "./highlight.js";
 import type {
   ChildView,
   DiagEvent,
@@ -29,6 +31,10 @@ let bootstrapped = false;
 export async function load(wasmUrl: string | URL): Promise<void> {
   if (bootstrapped) return;
   await init(wasmUrl);
+  // Hand the core's matcher to `highlight.ts` — the tree cells fuzzy-highlight
+  // the filter's matched chars with the very function the TUI highlights with.
+  // Registered (not imported there) so `render.ts` never pulls in the wasm glue.
+  setFuzzyMatcher(fuzzy_indices);
   bootstrapped = true;
 }
 

@@ -691,3 +691,12 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none
 @container (max-width:540px){
   .hist-grp [data-act="undo"]{display:none}
 }
+
+/* ---------- fuzzy-filter match marks ---------- */
+/* Same contract as the desktop sheet's `mark.fz` (see web/style.css): the
+   `<mark class="fz">` runs highlight.ts wraps around the filter's matched
+   chars, washed amber so the value's own type color survives underneath. */
+mark.fz{
+  background:color-mix(in oklch,var(--warn) 30%,transparent);
+  color:inherit;font-weight:700;border-radius:2px;padding:0 1px;margin:0 -1px;
+}

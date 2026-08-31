@@ -404,6 +404,7 @@ impl super::Session {
                 .unwrap_or_default(),
             paste_slot: self.clipboard.as_ref().map(|_| self.effective_paste_slot()),
             type_filter_active: self.type_filter.is_active(),
+            filter: self.filter.clone(),
             quit: false,
             lang: self.lang.code().to_string(),
             history_len: self.history.as_ref().map(|h| h.depth()).unwrap_or(0),

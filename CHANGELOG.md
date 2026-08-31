@@ -8,6 +8,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-08-31T16:00:00Z
+- **feat(web,tui): fuzzy-filter matches are now highlighted per character in the
+  web/touch trees, and in the TUI's VALUE cell as well as its NAME cell.** The
+  text filter always fuzzy-matched key/path **plus** a scalar's own value and a
+  comment's text (`session::search::haystack`), but only the TUI drew the match,
+  and only on the NAME cell — a value-only match highlighted nothing anywhere,
+  and the web UI highlighted nothing at all.
+  - `confy-core`: `SessionSnapshot` gains `filter: String`, carrying the live
+    query in **every** mode. `ModeView::Filter` only holds it while the input is
+    focused and `ModeView::FilterResults` dropped it entirely, so pointer hosts
+    had no way to know what to mark once focus left the search box. Mirrors how
+    the TUI reads `Session::filter` directly.
+  - `confy-ffi`: new free `#[wasm_bindgen]` export `fuzzy_indices(haystack,
+    needle) -> Option<Vec<u32>>` over `confy_core::session::search`. The web
+    highlights with the **same `SkimMatcherV2` the TUI highlights with** rather
+    than a reimplemented TS scorer, so the two surfaces cannot drift apart.
+    Indices are **char** offsets (`u32` for the `Uint32Array` marshalling).
+  - `confy-tui`: `highlight_spans` split into `highlight_spans_styled(text,
+    needle, base)` + a no-base wrapper, and `value_cell` now takes the needle and
+    highlights the value preview. The base style layers underneath, so a
+    `comment_advisory` value keeps its underline. A row's **trailing comment** is
+    still never highlighted — it stays dim as annotation.
+  - `web`: new `web/highlight.ts` — `highlightHtml(text, needle)` returns escaped
+    HTML with matched runs wrapped in `<mark class="fz">` (consecutive matches
+    coalesced into one element, same as the TUI coalescing same-style spans).
+    Wired into the key, value and comment-row cells of **both** `render.ts`
+    (desktop) and `touch/render.ts`. The matcher is *registered* by `confy.ts`'s
+    `load()` (`setFuzzyMatcher`) instead of imported by the render modules, so
+    they stay free of the wasm glue and the plain-Node spec harness can keep
+    bundling them; unregistered, it matches nothing and degrades to plain escaped
+    text. Text is walked with `Array.from` because the indices are char offsets —
+    indexing by UTF-16 code unit would misplace every mark after an astral char.
+  - Each cell runs the matcher against **its own text**, never the haystack, so
+    the marks line up with what's on screen: a row matched via its path shows no
+    marks in VALUE and vice versa. Same semantics on both surfaces.
+  - Styling: `mark.fz` in `web/style.css` + `web/touch/style.css` — a translucent
+    `--warn` amber wash with `color:inherit`, so the value cell's own type color
+    (`.t-string`/`.t-number`/…) still reads through and the UA's unreadable
+    black-on-yellow `<mark>` default is overridden in both themes.
+  - Verified: `cargo test -p confy-core -p confy-tui --lib` (556 + 213 pass,
+    including a new `draw`-level `filter_highlights_value_cell_chars` TestBackend
+    test and `highlight_spans_styled_keeps_base_style`); `functional_smoke.mjs`
+    (all pass, +6 new checks on `snapshot.filter` and the `fuzzy_indices` export
+    incl. the astral-char offset); `web` `npm run typecheck` + `npm test` (all
+    pass, +13 new checks in `web/highlight.spec.mjs` covering coalescing,
+    escaping inside marks, and emoji/CJK offsets); and an end-to-end run of the
+    real wasm matcher through the real `renderRow` confirming `lclhst` marks
+    `"lo(c)a(lh)o(st)"` in the VALUE cell with the KEY cell left unmarked, while
+    `hst` marks both. `crates/confy-tui/tests/convert_cli.rs`'s
+    `null_to_toml_aborts_with_no_file` fails on this machine before and after the
+    change (locale-dependent assertion) — pre-existing, untouched.
+
 ## [v0.30.1] - 2026-08-31
 ### Unreleased Update — 2026-08-31T15:00:00Z
 - **chore(vscode): resolve 8 pre-existing Dependabot alerts (4 high, 4 moderate)

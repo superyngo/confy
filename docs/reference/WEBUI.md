@@ -202,7 +202,20 @@ shapes round-trip). Key types:
   it** — the core `add_comment_sibling` path (blank-separated node + `created_on_add`).
 - **Native modal widgets replace the keyboard overlay.** The always-visible **search box**
   owns the filter text (debounced `input` → `SetFilter`, `/` focuses it — no `Mode::Filter`
-  is ever entered; search now matches **scalar values**, not just keys/paths/comments). `f`
+  is ever entered; search now matches **scalar values**, not just keys/paths/comments).
+  **Matched chars are marked in the tree**, same as the TUI: `web/highlight.ts` wraps them in
+  `<mark class="fz">` (amber wash, `mark.fz` in both stylesheets) inside the key, value and
+  comment-row cells on **desktop and touch**. It calls the very matcher the TUI highlights with —
+  `fuzzy_indices` is a free `#[wasm_bindgen]` export (`crates/confy-ffi/src/lib.rs`) over
+  `confy_core::session::search`, so the two surfaces can't drift apart. The matcher is *registered*
+  by `confy.ts`'s `load()` (`setFuzzyMatcher`) rather than imported by `render.ts`, keeping the
+  render modules free of the wasm glue and bundleable by the plain-Node spec harness; before
+  registration it matches nothing and degrades to plain escaped text. Indices are **char** offsets,
+  so the text is walked with `Array.from` — indexing by UTF-16 code unit would misplace every mark
+  after an astral char. The query comes from **`SessionSnapshot.filter`**, which carries it in every
+  mode (`ModeView::Filter` only has it while the input is focused and `FilterResults` drops it), the
+  way the TUI reads `Session.filter` directly. Desktop's `renderTree` row-reuse cache compares the
+  full rendered HTML, so a query change invalidates it for free. `f`
   renders the `TypeFilterView` grid into the native `#tfPop` popover (tri-state cells; cell
   click = `TypeFilterMove`+`TypeFilterToggle`; Apply/Cancel). The **Save button** (and `C`)
   opens the native `#convDlg` as one unified **Save / Convert** panel: its format `<select>`

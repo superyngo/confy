@@ -307,6 +307,12 @@ pub struct SessionSnapshot {
     /// the popup closes (the `TypeFilterView.active` flag only exists while
     /// `Mode::TypeFilter` is open).
     pub type_filter_active: bool,
+    /// The live text-filter query, whatever the current mode — `ModeView::Filter`
+    /// only carries it while the input is focused, and `ModeView::FilterResults`
+    /// drops it entirely. Pointer hosts need it after the input loses focus to
+    /// fuzzy-highlight the matched chars per cell, the way the TUI reads
+    /// `Session::filter` directly (`confy-tui/src/tui/ui.rs`). Empty = no filter.
+    pub filter: String,
     /// The user confirmed quit — the host should exit.
     pub quit: bool,
     /// Active UI language code (`"en"` / `"zh-TW"`), so hosts stay in sync.
