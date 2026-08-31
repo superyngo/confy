@@ -43,7 +43,7 @@ check(
 );
 check(
   "ui.ts wires session.pointerSlot as the 4th arg, cue-restore kept 5th",
-  /installDnd\(tree, \(\) => snap, send, \(p, r\) => session!\.pointerSlot\(p, r\), \(\) => \{\s*\n\s*if \(snap\) renderPasteSlotCue\(snap\);\s*\n\s*\}\);/.test(uiTs),
+  /installDnd\(tree, \(\) => snap, send, \(p, r\) => session!\.pointerSlot\(p, r\), \(\) => \{\s*\n\s*if \(snap\) \{ renderConfirmedPasteCue\(snap\); renderHoverCue\(snap, undefined\); \}\s*\n\s*\}\);/.test(uiTs),
 );
 
 // ---- behavior: the real dragover/drop handlers against a DOM shim ----

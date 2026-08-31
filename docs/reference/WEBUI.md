@@ -234,19 +234,23 @@ shapes round-trip). Key types:
   instead: `armedPasteTarget()` reads the click's row-relative Y and calls
   `session.pointerSlot(path, relY)` → `SetPasteSlot` (`Into`/`After`), falling back to
   `SetCursor` only when no slot resolves (ADR 0004 §1). The committed target is the **only**
-  highlight while armed — both the plain cursor style and the plain `:hover` style are
-  suppressed via `body:not(.paste-mode) .row.cursor`/`.row:hover` (`web/style.css`) so
-  neither competes with the green `.drag-over-into`/`#dropLine` cue that marks the target
-  row/gap, mirroring the TUI's `active_slot` precedence (no blue cursor/hover while a paste
-  slot is in play). While armed, moving the pointer over
-  the tree also previews the click's eventual target *before* commit: `onArmedPasteHover`
-  (a delegated `mousemove` on `treeWrap`) re-runs the same `pointerSlot()` classification
-  and repaints `renderPasteSlotCue`'s cue elements client-only — no `dispatch`, no
-  re-render — falling back to redrawing the **committed** `paste_slot` whenever
+  full-row highlight while armed — both the plain cursor style and the plain `:hover` style
+  are suppressed via `body:not(.paste-mode) .row.cursor`/`.row:hover` (`web/style.css`) so
+  neither competes with it, mirroring the TUI's `active_slot` precedence (no blue
+  cursor/hover while a paste slot is in play). The committed target and the live hover
+  preview are two visually distinct layers, split into `renderConfirmedPasteCue` and
+  `renderHoverCue` (`web/ui.ts`) so a user can tell "the pointer happens to be over this
+  row" apart from "this is where Paste will actually land" without moving the mouse off
+  the tree to check: the confirmed layer (solid green `.paste-target`/`#pasteTargetLine`)
+  always reflects `snap.paste_slot` and is untouched by pointer movement; the hover layer
+  (dashed/muted `.drag-over-into`/`#dropLine`, de-emphasized while `body.paste-mode`) is a
+  **client-only** preview computed by `onArmedPasteHover` (a delegated `mousemove` on
+  `treeWrap`) re-running the same `pointerSlot()` classification and repainting the hover
+  cue elements — no `dispatch`, no re-render — clearing to nothing the moment
   `pointerSlot` declines to classify the hovered row or the pointer leaves the tree
-  entirely (`mouseleave`), so the preview never shows a target a click there wouldn't
-  actually commit. See `ROW_STATE_MODEL.md` §6a for the full cross-platform row-state
-  model this participates in.
+  entirely (`mouseleave`), rather than falling back to redrawing the committed target
+  (that's already always visible via the confirmed layer). See `ROW_STATE_MODEL.md` §6a
+  for the full cross-platform row-state model this participates in.
 - **Pointer value gestures.** A **double-click on a row _toggles_ the Detail panel** for it
   (`SetCursor` + `ToggleDetail`); it no longer toggles branch-expand/boolean-value (expand stays
   on the caret + Space). **Mouse-wheel over the value cell** (`[data-edit="val"]`) adjusts it in
@@ -320,9 +324,15 @@ shapes round-trip). Key types:
   `Success` notices display in a transient `#toast` alongside the status bar (`#status.sev-success`);
   `Error` notices render in a persistent red `#error` box with click-to-clear; `Info` and
   `Warn` notices update `#status` (`.sev-info` / `.sev-warn`). When idle (no notice), `#status`
-  falls back to dynamic schema violation counts or node hover hints. On touch (`web/touch/app.ts`),
-  all notices display via a unified `#toast` styled by severity class (`.sev-info`, `.sev-success`,
-  `.sev-warn`, `.sev-error`) with longer duration for errors/warnings (3000ms vs 1600ms).
+  falls back to dynamic schema violation counts or node hover hints. `render()` calls
+  `renderNotice(snap.notice)` on every dispatch, including pure navigation intents (cursor
+  move, `ToggleExpand`, `SetPasteSlot`, ...) that core's Notice lifecycle deliberately
+  leaves untouched (`MESSAGES.md` §1.1) — both desktop and touch guard against replaying a
+  stale notice's toast entrance animation/timer on every such intent with a `lastNoticeKey`
+  fingerprint (`${severity}|${text}`), re-triggering the toast display only when the key
+  actually changes. On touch (`web/touch/app.ts`), all notices display via a unified
+  `#toast` styled by severity class (`.sev-info`, `.sev-success`, `.sev-warn`,
+  `.sev-error`) with longer duration for errors/warnings (3000ms vs 1600ms).
 
 ## Touch UI (dedicated `web/touch/` module)
 

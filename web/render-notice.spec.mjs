@@ -70,7 +70,7 @@ console.log("\nDesktop Toast Auto-Hide:");
 const renderNoticeFn = uiTs.match(/function renderNotice\([\s\S]*?\n\}/)?.[0] ?? "";
 check(
   "renderNotice's success case schedules a 1.6s toast auto-hide timer",
-  /case "success":[\s\S]{0,200}setTimeout\([\s\S]{0,80}1600\)/.test(renderNoticeFn),
+  /case "success":[\s\S]{0,400}setTimeout\([\s\S]{0,80}1600\)/.test(renderNoticeFn),
 );
 check(
   "#toast has the same opacity/transform/visibility transition as touch's .toast",

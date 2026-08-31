@@ -189,14 +189,14 @@ check(
   /send: \(i: Intent\) => void,[\s\S]*?onDragEnd\?: \(\) => void,\s*\n\): void \{/.test(dndTs),
 );
 
-// ---- renderPasteSlotCue alone restores BOTH halves of the cue ----
+// ---- renderConfirmedPasteCue alone restores BOTH halves of the cue ----
 // Extracted verbatim from ui.ts (same technique as armedPasteTarget above —
 // ui.ts can't run under Node: wasm + top-level DOM wiring). After a wipe,
-// one call must redraw the Into row class AND the After dropLine.
-console.log("\n-- renderPasteSlotCue redraws the Into class + After line --");
+// one call must redraw the Into row class AND the After pasteTargetLine.
+console.log("\n-- renderConfirmedPasteCue redraws the Into class + After line --");
 {
-  const cueMatch = uiTs.match(/^function renderPasteSlotCue\([\s\S]*?\n\}/m);
-  check("ui.ts defines renderPasteSlotCue()", !!cueMatch);
+  const cueMatch = uiTs.match(/^function renderConfirmedPasteCue\([\s\S]*?\n\}/m);
+  check("ui.ts defines renderConfirmedPasteCue()", !!cueMatch);
   let cue = () => {};
   let setEnv = () => {};
   if (cueMatch) {
@@ -213,10 +213,10 @@ export ${cueMatch[0]}\n`,
       target: "es2022",
     });
     const modUrl = "data:text/javascript;base64," + Buffer.from(built.outputFiles[0].text).toString("base64");
-    ({ renderPasteSlotCue: cue, setEnv } = await import(modUrl));
+    ({ renderConfirmedPasteCue: cue, setEnv } = await import(modUrl));
   }
   const cueOps = [];
-  const cueDropLine = { style: {} };
+  const cueTargetLine = { style: {} };
   const intoRow = { classList: { add: (c) => cueOps.push(`add ${c}`) } };
   const afterRow = {
     getBoundingClientRect: () => ({ bottom: 40 }),
@@ -227,26 +227,26 @@ export ${cueMatch[0]}\n`,
     querySelectorAll: () => [],
   };
   setEnv({
-    $: (id) => (id === "dropLine" ? cueDropLine : { getBoundingClientRect: () => ({ top: 5 }), scrollTop: 3 }),
+    $: (id) => (id === "pasteTargetLine" ? cueTargetLine : { getBoundingClientRect: () => ({ top: 5 }), scrollTop: 3 }),
     tree: cueTree,
     rawView: false,
     CSS: { escape: (s) => s },
   });
-  cue({ paste_slot: { Into: [{ Key: "b" }] } });
-  check("Into slot re-adds the row's drag-over-into class", cueOps.includes("add drag-over-into"));
-  check("Into slot keeps the dropLine hidden", cueDropLine.style.display === "none");
-  cue({ paste_slot: { After: [{ Key: "c" }] } });
-  check("After slot shows the dropLine", cueDropLine.style.display === "block");
-  check("After line at row bottom - wrap top + scrollTop", cueDropLine.style.top === "38px", JSON.stringify(cueDropLine.style));
-  check("After line at row indent + 8px", cueDropLine.style.left === "20px", JSON.stringify(cueDropLine.style));
-  cue({ paste_slot: undefined });
-  check("unarmed snapshot hides the line", cueDropLine.style.display === "none");
+  cue({ clipboard_count: 1, cursor: [], paste_slot: { Into: [{ Key: "b" }] } });
+  check("Into slot re-adds the row's paste-target class", cueOps.includes("add paste-target"));
+  check("Into slot keeps the pasteTargetLine hidden", cueTargetLine.style.display === "none");
+  cue({ clipboard_count: 1, cursor: [], paste_slot: { After: [{ Key: "c" }] } });
+  check("After slot shows the pasteTargetLine", cueTargetLine.style.display === "block");
+  check("After line at row bottom - wrap top + scrollTop", cueTargetLine.style.top === "38px", JSON.stringify(cueTargetLine.style));
+  check("After line at row indent + 8px", cueTargetLine.style.left === "20px", JSON.stringify(cueTargetLine.style));
+  cue({ clipboard_count: 0, cursor: [], paste_slot: undefined });
+  check("unarmed snapshot hides the line", cueTargetLine.style.display === "none");
 }
 
-// ---- ui.ts wiring: installDnd's 4th argument re-invokes the cue ----
+// ---- ui.ts wiring: installDnd's 4th argument re-invokes both cue layers ----
 check(
   "installDnd call site passes the cue-restore callback",
-  /installDnd\(tree, \(\) => snap, send, \(p, r\) => session!\.pointerSlot\(p, r\), \(\) => \{\s*\n\s*if \(snap\) renderPasteSlotCue\(snap\);\s*\n\s*\}\);/.test(uiTs),
+  /installDnd\(tree, \(\) => snap, send, \(p, r\) => session!\.pointerSlot\(p, r\), \(\) => \{\s*\n\s*if \(snap\) \{ renderConfirmedPasteCue\(snap\); renderHoverCue\(snap, undefined\); \}\s*\n\s*\}\);/.test(uiTs),
 );
 
 // ---- call-site wiring: both armed branches route through the helper ----

@@ -344,18 +344,62 @@ function renderRawOrTree() {
   }
 }
 
-// The armed-paste `After` target renders as the same green insertion line
-// drag-drop already uses (`#dropLine`) — reused rather than duplicated
-// (ADR 0004 §1). `Into` is a per-row class: baked into `renderRow`'s output
-// at render time AND re-applied here — dnd's `endDrag()` → `clearOver()`
-// strips it (and hides the line) whenever ANY drag gesture ends, even one
-// unrelated to the armed clipboard, with no render() to restore either; the
-// `installDnd` `onDragEnd` callback calls this to redraw both halves.
-function renderPasteSlotCue(snap: SessionSnapshot, slotOverride?: PasteSlot) {
+// Confirmed paste target (ROW_STATE_MODEL.md §6, state #6): always reflects
+// where `v`/Paste would actually land — `snap.paste_slot` is core's own
+// `effective_paste_slot()` (`session.rs`), surfaced whenever the clipboard
+// is armed, so this already includes the implicit `After(cursor)` fallback;
+// the `?? { After: snap.cursor }` below is a defensive mirror of that same
+// fallback in case that invariant ever changes. Independent of hover; never
+// cleared by mouseleave — this is the fix for the "must move the mouse off
+// the tree to see the committed target" complaint.
+function renderConfirmedPasteCue(snap: SessionSnapshot) {
+  tree.querySelectorAll(".paste-target").forEach((el) => el.classList.remove("paste-target"));
+  const pasteTargetLine = $("pasteTargetLine");
+  if ((snap.clipboard_count ?? 0) === 0 || rawView) {
+    pasteTargetLine.style.display = "none";
+    return;
+  }
+  const slot: PasteSlot = snap.paste_slot ?? { After: snap.cursor };
+  if ("Into" in slot) {
+    pasteTargetLine.style.display = "none";
+    tree
+      .querySelector<HTMLElement>(`.row[data-path='${CSS.escape(JSON.stringify(slot.Into))}']`)
+      ?.classList.add("paste-target");
+    return;
+  }
+  const rowEl = tree.querySelector<HTMLElement>(
+    `.row[data-path='${CSS.escape(JSON.stringify(slot.After))}']`,
+  );
+  if (!rowEl) {
+    pasteTargetLine.style.display = "none";
+    return;
+  }
+  const wrap = $("treeWrap");
+  const r = rowEl.getBoundingClientRect();
+  const wr = wrap.getBoundingClientRect();
+  const indentW = (rowEl.querySelector(".indent") as HTMLElement | null)?.offsetWidth ?? 0;
+  pasteTargetLine.style.top = `${r.bottom - wr.top + wrap.scrollTop}px`;
+  pasteTargetLine.style.left = `${indentW + 8}px`;
+  pasteTargetLine.style.display = "block";
+}
+
+// Continuous per-pixel preview of the armed-paste target under the pointer,
+// client-only (no `dispatch`/no re-render) — reuses `armedPasteTarget`'s relY
+// math (`getBoundingClientRect()`, `(ev.clientY - r.top) / (r.height || 1)`).
+// Dashed/muted styling (`body.paste-mode .row.drag-over-into`/`.drop-line`,
+// style.css) keeps it visually subordinate to `renderConfirmedPasteCue`'s
+// solid indicator. Suppressed entirely when the hovered slot matches the
+// already-confirmed one, so the dashed outline never paints on top of the
+// solid one. `slot` is `undefined` when nothing classifiable is hovered (or
+// armed-paste is inactive) — this clears down to nothing rather than
+// falling back to the committed slot, unlike the old combined function,
+// because `renderConfirmedPasteCue` now always owns that.
+function renderHoverCue(snap: SessionSnapshot, slot: PasteSlot | undefined) {
   tree.querySelectorAll(".drag-over-into").forEach((el) => el.classList.remove("drag-over-into"));
   const dropLine = $("dropLine");
-  const slot = slotOverride ?? snap.paste_slot;
-  if (!slot || rawView) {
+  const effectiveConfirmed: PasteSlot = snap.paste_slot ?? { After: snap.cursor };
+  const sameAsConfirmed = slot && JSON.stringify(slot) === JSON.stringify(effectiveConfirmed);
+  if (!slot || rawView || sameAsConfirmed) {
     dropLine.style.display = "none";
     return;
   }
@@ -382,16 +426,7 @@ function renderPasteSlotCue(snap: SessionSnapshot, slotOverride?: PasteSlot) {
   dropLine.style.display = "block";
 }
 
-// Continuous per-pixel preview of the armed-paste target under the pointer,
-// client-only (no `dispatch`/no re-render) — reuses `armedPasteTarget`'s relY
-// math (`getBoundingClientRect()`, `(ev.clientY - r.top) / (r.height || 1)`)
-// and `renderPasteSlotCue`'s existing cue elements (`.drag-over-into`,
-// `#dropLine`) rather than a new preview style. When `pointerSlot` declines
-// to classify the hovered row (or the pointer isn't over a row at all),
-// falls back to redrawing the **committed** `snap.paste_slot` instead of
-// going blank — clicking there wouldn't change the committed target either
-// (`armedPasteTarget` falls back to `SetCursor`), so the preview stays
-// truthful to that outcome.
+// Wires mousemove -> the live hover preview above.
 function onArmedPasteHover(ev: MouseEvent) {
   if (!snap || !session || (snap.clipboard_count ?? 0) === 0) return;
   const rowEl = (ev.target as HTMLElement).closest?.(".row") as HTMLElement | null;
@@ -402,7 +437,7 @@ function onArmedPasteHover(ev: MouseEvent) {
     const relY = (ev.clientY - r.top) / (r.height || 1);
     slot = session.pointerSlot(path, relY);
   }
-  renderPasteSlotCue(snap, slot ?? snap.paste_slot ?? undefined);
+  renderHoverCue(snap, slot);
 }
 let lastSeenSeq = -1;
 function drainDiagIfEnabled() {
@@ -451,7 +486,8 @@ function render() {
   // mechanism as the touch UI, driven by the shared snapshot flag).
   $("btnTypeFilter").classList.toggle("on", snap.type_filter_active);
   renderRawOrTree();
-  renderPasteSlotCue(snap);
+  renderConfirmedPasteCue(snap);
+  renderHoverCue(snap, undefined);
   crumbsEl.classList.toggle("hidden", rawView);
   if (!rawView) {
     renderCrumbs(crumbsEl, snap, {
@@ -1801,7 +1837,7 @@ function bindGlobal() {
   $("treeWrap").addEventListener("mouseover", onTreeHover);
   $("treeWrap").addEventListener("mousemove", onArmedPasteHover);
   $("treeWrap").addEventListener("mouseleave", () => {
-    if (snap) renderPasteSlotCue(snap);
+    if (snap) renderHoverCue(snap, undefined);
   });
   tree.addEventListener("contextmenu", onTreeContext);
   tree.addEventListener("wheel", onTreeWheel, { passive: false });
@@ -1810,7 +1846,7 @@ function bindGlobal() {
   // `.drag-over-into`) whenever ANY drag gesture ends, even one unrelated to
   // the armed clipboard; redraw it from the live snap so the cue survives.
   installDnd(tree, () => snap, send, (p, r) => session!.pointerSlot(p, r), () => {
-    if (snap) renderPasteSlotCue(snap);
+    if (snap) { renderConfirmedPasteCue(snap); renderHoverCue(snap, undefined); }
   });
   $("detailClose").addEventListener("click", () => send("ExitDetail"));
   // Escape closes an open click-menu before anything else handles it (the
@@ -2064,9 +2100,11 @@ function setStatus(status: string | undefined, error: string | undefined) {
 }
 
 let toastT: number | undefined;
+let lastNoticeKey: string | undefined;
 function renderNotice(notice: Notice | undefined) {
   if (!notice) {
     // Clear everything
+    lastNoticeKey = undefined;
     toastEl.textContent = "";
     toastEl.classList.remove("show");
     statusEl.textContent = "";
@@ -2076,11 +2114,16 @@ function renderNotice(notice: Notice | undefined) {
   }
 
   const { severity, text } = notice;
+  // Dedupe: navigation intents (cursor move, ToggleExpand, SetPasteSlot, …)
+  // leave a stale success notice sitting in Session.notice (MESSAGES.md
+  // §1.1); without this guard, `render()` calling this on every dispatch
+  // replays the toast's enter animation/timer for the same notice on every
+  // unrelated redraw (same fix as touch/app.ts's lastNoticeKey).
+  const key = `${severity}|${text}`;
 
   // Clear previous states
   toastEl.textContent = "";
   toastEl.classList.remove("show");
-  clearTimeout(toastT);
   statusEl.textContent = "";
   errorEl.textContent = "";
   errorEl.classList.add("hidden");
@@ -2089,11 +2132,14 @@ function renderNotice(notice: Notice | undefined) {
   switch (severity) {
     case "success":
       // Toast (1.6s auto-hide, same animation as touch) + status bar
-      toastEl.textContent = text;
-      toastEl.classList.add("show");
-      toastT = setTimeout(() => toastEl.classList.remove("show"), 1600);
       statusEl.textContent = text;
       statusEl.classList.add("sev-success");
+      if (key !== lastNoticeKey) {
+        toastEl.textContent = text;
+        toastEl.classList.add("show");
+        clearTimeout(toastT);
+        toastT = setTimeout(() => toastEl.classList.remove("show"), 1600);
+      }
       break;
     case "error":
       // Error element (red) + click-to-clear
@@ -2107,6 +2153,7 @@ function renderNotice(notice: Notice | undefined) {
       statusEl.classList.add(`sev-${severity}`);
       break;
   }
+  lastNoticeKey = key;
 }
 
 // Click-to-clear for error element

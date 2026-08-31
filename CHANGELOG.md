@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ## [Unreleased]
+### Unreleased Update — 2026-08-31T12:00:00Z
+- **fix(web): stop the armed-paste toast from replaying on every click/nav, and give
+  the confirmed paste target its own visual layer.** Desktop's `renderNotice` unconditionally
+  replayed the "cut N node(s)" toast's enter animation/timer on every dispatch while
+  armed, including plain navigation intents (cursor move, click, `SetPasteSlot`) that
+  core's Notice lifecycle deliberately leaves untouched — ported touch's `lastNoticeKey`
+  fingerprint guard so the toast only re-plays when the notice text/severity actually
+  changes. Separately, the committed paste target and the live mouse-hover preview
+  shared the exact same DOM elements/classes (`renderPasteSlotCue`), so confirming a
+  click landed correctly required moving the mouse fully off the tree; split into
+  `renderConfirmedPasteCue` (always reflects `snap.paste_slot`, solid `.paste-target`/
+  `#pasteTargetLine`, untouched by pointer movement) and `renderHoverCue` (client-only
+  preview, dashed/muted while armed, clears fully on `mouseleave`). See
+  `docs/reference/ROW_STATE_MODEL.md` §6a and §8 for the row-state model this
+  participates in.
 
 ## [v0.30.0] - 2026-08-31
 ### Unreleased Update — 2026-08-31T00:00:00Z

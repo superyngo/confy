@@ -186,6 +186,15 @@ TUI is unchanged: `PasteSlot` arrow-key stepping already exists and already work
 - Clicking still calls the existing `armedPasteTarget()` → `SetPasteSlot`
   (`web/ui.ts:1115-1124`), unchanged.
 - Commit is still the separate `v` key / menu Paste action, unchanged.
+- The confirmed target (`snap.paste_slot`, painted solid via `.paste-target`/
+  `#pasteTargetLine`) and the hover preview (painted dashed/muted via
+  `.drag-over-into`/`#dropLine` while `body.paste-mode`) are two independent layers
+  (`renderConfirmedPasteCue`/`renderHoverCue`, `web/ui.ts`), not one function reused for
+  both as originally shipped in Phase 4. Without this split, moving the pointer off the
+  confirmed target visually overwrote it with nothing, so confirming a target required
+  moving the mouse fully off the tree (or onto the paste button) to see it — the hover
+  layer now clears to nothing on `mouseleave` instead of falling back to redrawing the
+  committed slot, since the confirmed layer already shows it independently.
 
 ### 6b. Touch — body-drag continuously repositions the target; FAB still commits
 
@@ -349,12 +358,27 @@ Consequences.
   - [x] Desktop marquee now bails on an armed-clipboard mousedown
         (`web/ui.ts`'s `installMarquee`), matching every other §5-guarded
         affordance — closes the one gap the integration audit found.
+  - [x] Desktop toast-dedupe (`renderNotice`, `web/ui.ts`) — ported touch's
+        `lastNoticeKey` fingerprint guard so navigation intents (cursor move, click,
+        `SetPasteSlot`) while a stale success notice sits in `Session.notice` no longer
+        replay the toast's entrance animation/timer; the status bar still repaints
+        unconditionally. Fixes "any click or arrow key while armed re-shows the cut/copy
+        toast."
+  - [x] Desktop confirmed-target vs. hover-preview cue split (§6a) —
+        `renderPasteSlotCue` split into `renderConfirmedPasteCue` (always reflects
+        `snap.paste_slot`, solid `.paste-target`/`#pasteTargetLine`) and `renderHoverCue`
+        (client-only preview, dashed/muted `.drag-over-into`/`#dropLine`, clears fully on
+        `mouseleave` instead of falling back to the committed slot). Fixes the confirmed
+        target being visually indistinguishable from the hover preview, which forced
+        moving the mouse off the tree to see what was actually selected.
 - [x] **Docs sync** (do in the same change as the phase that ships it, not after —
       per ADR 0004's own lesson about docstring drift):
   - [x] `TUI.md`'s "Multi-select"/"Clipboard / paste" render-cue prose, once Phase 1
         ships (completed in Phase 1 final review).
   - [x] `WEBUI.md`'s row-anatomy/paste-mode prose (Phase 1 visual language & Phase 2
-        keybinding prose synced; hover-preview prose synced in Phase 4).
+        keybinding prose synced; hover-preview prose synced in Phase 4; confirmed-target/
+        hover-cue split and desktop toast-dedupe prose synced with their ad hoc entries
+        above).
 
 ## 9. Out of scope
 

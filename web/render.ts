@@ -10,7 +10,7 @@
 // without re-deriving tree structure. No editing logic lives here — it renders
 // the snapshot and nothing else; the affordances it draws are wired in later
 // phases (kind popover, context menu, drag-reparent).
-import type { EditView, SessionSnapshot, ViewRow } from "./types.js";
+import type { EditView, PasteSlot, SessionSnapshot, ViewRow } from "./types.js";
 import { escapeHtml } from "./escape.js";
 import { isCommentRow, isExpanded, isPositional, valueTypeClass } from "./kind-labels.js";
 import { t } from "./i18n.js";
@@ -109,7 +109,7 @@ export function renderRow(
     `row${r.is_branch ? " branch" : ""}${expanded ? " open" : ""}` +
     `${r.is_cursor ? " cursor" : ""}${r.selected ? " selected" : ""}` +
     `${r.read_only ? " readonly" : ""}${comment ? " comment-row" : ""}${clip}` +
-    `${r.violations ? " schema-violation" : ""}${pasteInto ? " drag-over-into" : ""}` +
+    `${r.violations ? " schema-violation" : ""}${pasteInto ? " paste-target" : ""}` +
     `${r.is_branch && r.has_descendant_violation ? " warn-branch" : ""}`;
   let s = `<div class="${cls}" data-path="${pathAttr}" data-index="${idx}">`;
   // Indentation: a single spacer whose width scales with depth (the design's
@@ -234,9 +234,16 @@ export function renderTree(
     : " clip-copy";
   // Armed-paste `Into` target, keyed so the loop above can compare per row
   // (ADR 0004 §1) — `After` is a cross-row line, drawn separately in
-  // `ui.ts`'s `renderPasteSlotCue` since it isn't any single row's own class.
+  // `ui.ts`'s `renderConfirmedPasteCue` since it isn't any single row's own
+  // class. Falls back to `After(cursor)` when `paste_slot` is unset, same
+  // as core's own `effective_paste_slot()`, so this row's own render
+  // reflects the confirmed target the instant the clipboard is armed.
+  const effectivePasteSlot: PasteSlot | null =
+    (snap.clipboard_count ?? 0) > 0 ? snap.paste_slot ?? { After: snap.cursor } : null;
   const pasteIntoPath =
-    snap.paste_slot && "Into" in snap.paste_slot ? JSON.stringify(snap.paste_slot.Into) : null;
+    effectivePasteSlot && "Into" in effectivePasteSlot
+      ? JSON.stringify(effectivePasteSlot.Into)
+      : null;
   // The synthetic root (empty path) is not rendered; `idx` stays the real
   // `snap.rows` index so a click maps back to the right node.
   const next: { key: string; html: string }[] = [];
