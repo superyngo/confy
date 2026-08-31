@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ## [Unreleased]
+### Unreleased Update — 2026-08-31T15:00:00Z
+- **chore(vscode): resolve 8 pre-existing Dependabot alerts (4 high, 4 moderate)
+  via `npm audit fix`.** All were transitive `devDependencies` of `@vscode/vsce`
+  in `editors/vscode/package-lock.json`: `js-yaml` 4.3.0→4.3.2 (GHSA-5p4m-2wfm-xmqj,
+  high), `fast-uri` 3.1.3→3.1.6 (GHSA-v2hh-gcrm-f6hx, GHSA-7p8r-x3mc-p8w7, both
+  high), and `undici` 7.28.0→7.29.0 (GHSA-4cwx-7wf7-3272 high;
+  GHSA-m8rv-5g2x-5cg5, GHSA-jr45-8vmc-qm54, GHSA-v3r7-h72x-cjcm,
+  GHSA-8xcm-r25x-g524 moderate). Also swept up `brace-expansion` 5.0.7→5.0.9
+  (GHSA-mh99-v99m-4gvg, GHSA-rgw5-rvv9-x895, high), flagged by `npm audit` but
+  not yet posted to Dependabot. Every dependent's declared semver range already
+  permitted the patched versions, so only `package-lock.json` changed (no
+  `--force`, no `package.json` edits, no direct dependency bumps); `npm audit`
+  now reports 0 vulnerabilities. Verified: `npm run check` (tsc, clean),
+  `npm run build` (clean bundle), `npm test` (28/28 pass).
+
 ### Unreleased Update — 2026-08-31T14:00:00Z
 - **ci(msstore): stop auto-submitting to the Store — leave the submission as a
   reviewable draft.** `publish-msstore.yml` now runs `msstore publish
