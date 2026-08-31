@@ -614,6 +614,12 @@ scalar's **Format**, never by its scope: a multiline / literal `|` / folded `>` 
 follows the same rule **wherever the array sits** — even nested under a key (`array_int[1].vals[0]`);
 `Replace` addresses the element directly. The gate is just "immediate parent is a plain `Array`" (an
 AoT group is `ArrayOfTables`, so its entries stay `$EDITOR`).
+
+A **`bool`** leaf is the one exception to "inline editor = a one-line text field": it opens the
+two-option `true`/`false` picker (`Mode::SchemaEnum`, `from_schema: false`) in every scope instead,
+the same widget a schema `enum` uses. Scope-independent like the rest of this row; a schema `enum`
+on the same path outranks it, and `$EDITOR` (`BeginEditExternal`) is unaffected. See
+`BEHAVIOR_MATRIX.md` §6.1.
 | add: collapsed leaf → sibling | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 **Invariants (not scope-dependent, so not in the matrix):** consecutive `#`/`//` comment lines merge
