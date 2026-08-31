@@ -60,8 +60,8 @@ on touch); the choice persists in the browser's `localStorage`.
 
 confy also ships a pointer-first **web UI** that drives the same headless core
 (`confy-core`) through a WebAssembly build — full tree editing, kind/format
-switching, conversion, and lossless save, in the browser. There's a dedicated
-touch layout for coarse-pointer devices.
+switching, conversion, fuzzy search with highlighted matches, and lossless save,
+in the browser. There's a dedicated touch layout for coarse-pointer devices.
 
 **Live demo: <https://confy.turkeyang.net/>**
 
@@ -159,7 +159,7 @@ Maintainer quick check: `cd editors/vscode && npm run integration-test`.
 | `l` | Language picker (English / 繁體中文) |
 | `z` | Undo |
 | `y` | Redo |
-| `/` | Filter (fuzzy search) |
+| `/` | Filter (fuzzy search — matched characters are highlighted) |
 | `f` | Type filter (facet checkbox popup) |
 | `?` | Help |
 | `~` | Diagnostics overlay (developer-facing event ring) |

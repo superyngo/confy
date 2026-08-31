@@ -8,6 +8,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-08-31T18:00:00Z
+- **docs: reference-doc pass for the fuzzy-highlight feature and the two test
+  conventions it surfaced.**
+  - `docs/reference/WEBUI.md`: `SessionSnapshot`'s field list gains `filter` (with
+    why it exists separately from `ModeView::Filter`'s `text`); the *FFI API
+    surface* section no longer claims a single exported class and now documents
+    the free `fuzzy_indices(haystack, needle) => Uint32Array | undefined` export
+    (char offsets, `undefined` on no match, same matcher as the TUI); the
+    highlight paragraph records that `ui.ts` and `touch/app.ts` both boot through
+    `confy.ts`'s `load()`, so **browser, Tauri and the VS Code webview all inherit
+    the highlight** while the VS Code *extension* host's raw `wasmSession.ts` path
+    needs nothing (it renders no tree).
+  - `docs/reference/PORTING.md` §8.3: the snapshot enumeration includes the live
+    filter query.
+  - `docs/reference/MESSAGES.md` §5.5: new *Testing localized CLI output* note —
+    assert-on-text CLI tests must pin `--lang en`, and precedence-chain tests must
+    isolate the config file via `XDG_CONFIG_HOME`, with the reference pattern named.
+  - `CLAUDE.md` §*Build & test commands*: the **web/touch and wasm test commands
+    were entirely undocumented** despite being ~700 checks that `cargo test` never
+    runs — added `npm run typecheck`/`build`/`test` and the `functional_smoke.mjs`
+    wasm-channel run, plus a short note on the two conventions (plain-Node harness
+    ⇒ render modules must import without wasm glue; `--lang en` pinning).
+  - `README.md`: the `/` keybinding row and the Web UI blurb mention that matched
+    characters are highlighted.
+  - Verified against the code, not from memory: `pkg/confy_ffi.d.ts:125` confirms
+    the documented `fuzzy_indices` signature verbatim, `view.rs:315` confirms
+    `pub filter: String`, `package.json` confirms every npm script name, and
+    `web/ui.ts:8` + `web/touch/app.ts:19` confirm both bundles import `load` from
+    `confy.js`.
+
 ### Unreleased Update — 2026-08-31T17:00:00Z
 - **fix(test): pin `--lang en` on CLI tests that assert English message text.**
   `crates/confy-tui/tests/convert_cli.rs`'s `null_to_toml_aborts_with_no_file`

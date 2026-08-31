@@ -13,7 +13,23 @@ cargo bench -p confy-core     # perf harness (no criterion; plain main() + media
 # Bigger synthetic document. `--bench perf` is required: without it the args
 # reach the lib test binary first, which rejects `--nodes`.
 cargo bench -p confy-core --bench perf -- --nodes 5000
+
+# Web / touch UI (from web/) - NOT covered by `cargo test`
+cd web
+npm run typecheck             # tsc --noEmit
+npm run build                 # esbuild bundles + wasm-pack copy
+npm test                      # plain-Node spec suite (node run-tests.mjs)
+# The wasm command channel end-to-end (Intent -> SessionSnapshot):
+cd crates/confy-ffi && wasm-pack build --target web && node functional_smoke.mjs
 ```
+
+**Two test conventions worth knowing.** (1) The **web suite is a plain-Node harness** —
+no framework: each `*.spec.mjs` esbuild-bundles the TS module under test and tallies
+`check(name, cond)` calls, so render modules must stay importable without the wasm glue
+(hence `highlight.ts`'s `setFuzzyMatcher` injection instead of a `pkg/` import).
+(2) A **CLI integration test that asserts message text must pin `--lang en`** — with no
+flag the binary resolves the language from the *real* `~/.config/confy/config.toml`, so an
+unpinned English assertion passes in CI and fails on a zh-TW machine. MESSAGES.md §5.5.
 
 ## Release process
 

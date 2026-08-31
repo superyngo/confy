@@ -295,6 +295,16 @@ config file > `en`). This is a deliberate, permanent scope boundary — the CLI'
 job is exit codes and process-lifetime text, not the multi-turn transient
 message model the rest of this document covers.
 
+**Testing localized CLI output.** Because the language falls back to the *real*
+`~/.config/confy/config.toml` when no flag is given, a CLI integration test that
+asserts message text **must pin `--lang en`** (or derive the expected string via
+`tr`/`tr_args` for the language it does pin). An unpinned English assertion reads
+developer machine state: it passes in CI and fails for anyone whose config sets
+`lang = "zh-TW"`. To test the *precedence chain itself*, isolate the config file
+with `.env("XDG_CONFIG_HOME", tmpdir)` instead of relying on the ambient one —
+`convert_cli_respects_config_file_lang_when_no_flag` in
+`crates/confy-tui/tests/convert_cli.rs` is the reference pattern.
+
 ## 6. Unified design principles
 
 - **One classification table, no per-call-site severity.** §2's `severity_of`

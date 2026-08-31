@@ -46,7 +46,8 @@ app-only appendix, so the visual layer cannot drift from the design.
 
 ## FFI API surface (`confy-ffi`)
 
-A single `wasm-bindgen` class, `ConfySession`, wraps a `confy_core::session::Session`.
+One `wasm-bindgen` class, `ConfySession`, wraps a `confy_core::session::Session`, plus a
+single free function (`fuzzy_indices`, below — the only export that isn't a session method).
 All cross-boundary values use `serde-wasm-bindgen` so the Rust `Serialize`/`
 Deserialize` derives (Phase E + Stage 2 §8.1) are the wire contract — there is no
 hand-maintained field-by-field marshalling.
@@ -85,6 +86,16 @@ wrapper and types the raw class directly (`editors/vscode/src/wasmSession.ts`), 
 multi-line modal with `initial`, awaits the result, and re-dispatches
 `ApplyReplace { path, text }` / `ApplyEditComment { path, text }`.
 
+**One free export: `fuzzy_indices(haystack: string, needle: string) => Uint32Array |
+undefined`.** Not a `ConfySession` method — it is pure and stateless, so hosts call it per
+rendered cell while a filter is active to mark the matched characters. It wraps
+`confy_core::session::search::fuzzy_indices`, the *same* `SkimMatcherV2` the TUI's
+`highlight_spans` uses, so the two surfaces cannot drift apart; a reimplemented TS scorer
+would have. Returns `undefined` on no match or an empty needle. The indices are **char**
+offsets (declared `Vec<u32>` because that is what marshals to a `Uint32Array`), so JS must
+walk the text with `Array.from` — indexing by UTF-16 code unit misplaces every mark after
+an astral char. Consumed by `web/highlight.ts` via `setFuzzyMatcher` (§*Web UI architecture*).
+
 ## TypeScript-facing data model
 
 All types mirror the Rust serde representation exactly (snake_case field names). The
@@ -104,7 +115,9 @@ shapes round-trip). Key types:
 - **`SessionSnapshot`** — full renderable state: `mode: ModeView`, `rows: ViewRow[]`,
   `cursor: Seg[]`, `notice: Notice | undefined`, `detail_text`, `external_edit`, `convert_write`,
   `clipboard_count`, `clipboard_cut`, `clipboard_paths`, `paste_slot`, `quit`, `doc_format`,
-  `is_dirty`.
+  `is_dirty`, `filter` (the live text-filter query — present in **every** mode, unlike
+  `ModeView::Filter`'s `text`, which exists only while the search input is focused; pointer
+  hosts need it to keep drawing match highlights after focus leaves the box).
 - **`ModeView`** — a serializable projection of `Mode` + the modal edit surfaces:
   `Normal | Prompt | Filter {text,cursor} | FilterResults | TypeFilter {…grid…} |
   KindSwitch {cursor,options} | ActionMenu {cursor,items,target_count,target_label} |
@@ -209,7 +222,10 @@ shapes round-trip). Key types:
   `fuzzy_indices` is a free `#[wasm_bindgen]` export (`crates/confy-ffi/src/lib.rs`) over
   `confy_core::session::search`, so the two surfaces can't drift apart. The matcher is *registered*
   by `confy.ts`'s `load()` (`setFuzzyMatcher`) rather than imported by `render.ts`, keeping the
-  render modules free of the wasm glue and bundleable by the plain-Node spec harness; before
+  render modules free of the wasm glue and bundleable by the plain-Node spec harness; because
+  `ui.ts` *and* `touch/app.ts` both boot through that `load()`, **every host shipping those two
+  bundles inherits the highlight** — browser, Tauri, and the VS Code webview alike (the VS Code
+  *extension* host's raw `wasmSession.ts` path renders no tree, so it needs nothing). Before
   registration it matches nothing and degrades to plain escaped text. Indices are **char** offsets,
   so the text is walked with `Array.from` — indexing by UTF-16 code unit would misplace every mark
   after an astral char. The query comes from **`SessionSnapshot.filter`**, which carries it in every

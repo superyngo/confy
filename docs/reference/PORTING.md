@@ -321,7 +321,7 @@ The initial Web implementation uses **full-state transport**: `dispatch(intent)`
 returns a `SessionSnapshot` carrying the complete renderable state — every visible
 `ViewRow`, the current `ModeView` (mode + modal edit surfaces), cursor path,
 status/error, detail text, external-edit request, convert-write request, quit flag,
-doc format, and dirty bit. The UI re-renders the whole tree from the snapshot each
+doc format, dirty bit, and the live filter query. The UI re-renders the whole tree from the snapshot each
 interaction. **No structured row diff.** Rationale: simplicity and correctness first;
 the tree is small (config files), full re-render is cheap, and a diff can be layered
 on at Gateway G2 (`rows_dirty` is the natural hook) if latency ever warrants it. No
