@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ## [Unreleased]
+
+## [v0.30.0] - 2026-08-31
 ### Unreleased Update — 2026-08-31T00:00:00Z
 - **fix(msstore): make MSIX `appExecutionAlias` schema-valid for `makeappx`.**
   Local `publish-msstore` dry-run packaging exposed that `AppxManifest.xml`
