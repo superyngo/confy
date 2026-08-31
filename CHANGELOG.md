@@ -8,155 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Unreleased Update — 2026-08-31T15:05:00Z
-- **docs: finish the doc sweep for the boolean value picker.**
-  - `docs/reference/CONTEXT.md`: table C's *universal scalar inline editing* criterion now names
-    `bool` as its one exception — the picker replaces the one-line text field in every scope,
-    scope-independently, with the schema `enum` still outranking it and `$EDITOR` unaffected.
-  - `README.md`: the `e` key row now reads "a `true`/`false` picker for a bool, inline for any
-    other plain scalar, `$EDITOR` for nested array/table" (the `←`/`→` toggle row is unchanged —
-    it never routed through the editor).
-  - No change needed in `TAURI.md`/`CHROME.md`/`VSCODE.md`: all three inherit the shared web
-    value-edit surfaces documented in `WEBUI.md`, and none of them describe bool editing
-    independently.
+## [v0.31.0] - 2026-08-31
 
-### Unreleased Update — 2026-08-31T14:50:06Z
-- **feat(core+tui+web+touch): a `bool` scalar now edits through a two-option `true`/`false`
-  picker on every platform**, the same widget a schema `enum` uses, instead of a free-text
-  field — a bool's value domain is closed at two members, so typing was the wrong affordance
-  (and on **touch** it was the *only* affordance: no `←/→` Nudge keys, no mouse wheel, so
-  flipping a flag there meant hand-typing `false` into a text input). One core decision point
-  (`session/inline_edit.rs::begin_inline_edit_impl`) drives all four surfaces, since the TUI
-  popup (`overlay_schema_enum.rs`), the desktop tree `<select>` (`render.ts`), the touch bottom
-  sheet and the shared detail panel (`panel.ts`) are all `Mode::SchemaEnum`-driven already.
-  - **Schema wins when both apply.** The `enum`/`const`/`oneOf`-of-`const` resolution
-    (`hints_edit::resolve_edit_hint`) is tried *first* and returns; the boolean fallback only
-    fires when the schema says nothing about that path — so a schema constraining a
-    `bool`-typed node (even one-sidedly, e.g. `{"enum":[true]}`) still governs the option list.
-  - **Authored casing preserved.** YAML accepts `True`/`TRUE` as booleans, so the options are
-    generated from the current repr's casing (`bool_picker_options`) rather than hardcoded
-    lowercase — offering only `true`/`false` would have silently re-cased the document on
-    commit. An unrecognized spelling declines to plain text editing (same
-    conservative-if-unsure polarity as `nudge_scalar`).
-  - **External / popup editor untouched.** `Intent::BeginEditExternal` (TUI `E`, the panel's
-    "Editor" button, the web ctx-menu "Edit") never routes through this branch, so free-form
-    entry for a bool line — including its trailing comment — stays exactly as it was; likewise
-    `Intent::CommitEdit`'s one-shot text commit, which passes `allow_schema_enum: false`.
-    `←/→`/wheel Nudge bool toggling is also unchanged.
-  - `Mode::SchemaEnum`/`ModeView::SchemaEnum` gained `from_schema: bool` (wire contract, see
-    `WEBUI.md` §ModeView) purely so hosts can title the popup ` Value ` instead of ` Schema
-    value ` when it isn't schema-driven; every other behaviour (move/jump/commit/cancel, the
-    type-change confirmation gate) is shared verbatim.
-  - Verified on the **real `confy` TUI binary** against `/tmp/confy-bool-scratch/t.toml`
-    (`debug = true` → picker → `false` → `w` → file reads `debug = false`) and
-    `/tmp/confy-bool-scratch/t.yaml` (`flag: TRUE` → options render `TRUE`/`FALSE` → commit
-    writes `flag: FALSE`, casing intact), and against the **real wasm core** for the web hosts
-    (`functional_smoke.mjs` + a `renderRow`/`panelHTML` integration run confirming the
-    `select[data-schema-enum]` and `data-field="value-enum"` selects). 7 new core tests
-    (`schema_headless.rs`), 4 new panel tests (`panel-schema.spec.mjs`), 4 new wire checks.
+### Added
+- `bool` scalars edit via a two-option `true`/`false` picker (schema-enum widget) on every
+  platform — TUI, web/desktop, touch — with schema `enum` still taking precedence and authored
+  `True`/`TRUE` casing preserved.
+- Per-character highlight of fuzzy-filter matches in the filter results, including the VALUE
+  cell (web + TUI).
 
-### Unreleased Update — 2026-08-31T18:00:00Z
-- **docs: reference-doc pass for the fuzzy-highlight feature and the two test
-  conventions it surfaced.**
-  - `docs/reference/WEBUI.md`: `SessionSnapshot`'s field list gains `filter` (with
-    why it exists separately from `ModeView::Filter`'s `text`); the *FFI API
-    surface* section no longer claims a single exported class and now documents
-    the free `fuzzy_indices(haystack, needle) => Uint32Array | undefined` export
-    (char offsets, `undefined` on no match, same matcher as the TUI); the
-    highlight paragraph records that `ui.ts` and `touch/app.ts` both boot through
-    `confy.ts`'s `load()`, so **browser, Tauri and the VS Code webview all inherit
-    the highlight** while the VS Code *extension* host's raw `wasmSession.ts` path
-    needs nothing (it renders no tree).
-  - `docs/reference/PORTING.md` §8.3: the snapshot enumeration includes the live
-    filter query.
-  - `docs/reference/MESSAGES.md` §5.5: new *Testing localized CLI output* note —
-    assert-on-text CLI tests must pin `--lang en`, and precedence-chain tests must
-    isolate the config file via `XDG_CONFIG_HOME`, with the reference pattern named.
-  - `CLAUDE.md` §*Build & test commands*: the **web/touch and wasm test commands
-    were entirely undocumented** despite being ~700 checks that `cargo test` never
-    runs — added `npm run typecheck`/`build`/`test` and the `functional_smoke.mjs`
-    wasm-channel run, plus a short note on the two conventions (plain-Node harness
-    ⇒ render modules must import without wasm glue; `--lang en` pinning).
-  - `README.md`: the `/` keybinding row and the Web UI blurb mention that matched
-    characters are highlighted.
-  - Verified against the code, not from memory: `pkg/confy_ffi.d.ts:125` confirms
-    the documented `fuzzy_indices` signature verbatim, `view.rs:315` confirms
-    `pub filter: String`, `package.json` confirms every npm script name, and
-    `web/ui.ts:8` + `web/touch/app.ts:19` confirm both bundles import `load` from
-    `confy.js`.
+### Fixed
+- CLI tests pin `--lang en` where they assert English text; formatting drift cleaned up.
 
-### Unreleased Update — 2026-08-31T17:00:00Z
-- **fix(test): pin `--lang en` on CLI tests that assert English message text.**
-  `crates/confy-tui/tests/convert_cli.rs`'s `null_to_toml_aborts_with_no_file`
-  and `open_url_cli.rs`'s `url_open_without_a_tty_aborts_without_writing_or_fetching`
-  failed on any machine whose `~/.config/confy/config.toml` sets `lang = "zh-TW"`:
-  with no `--lang` flag the CLI resolves the language from that real user config
-  file (`resolve_lang`), so the binary printed `無法為 URL 提示儲存路徑…` /
-  `轉換已中止…` while the tests asserted `contains("terminal")` /
-  `contains("aborted")`. Both now pass `--lang en` explicitly, matching the
-  convention the file's own zh-TW tests already used. Also pinned the two
-  latent cases (`lossy_conversion_refuses_without_yes`,
-  `lossy_conversion_with_yes_writes_and_warns`) that happened to pass only
-  because `--yes`/`non-decimal` appear verbatim in the zh-TW strings. The
-  deliberate config-file test (`convert_cli_respects_config_file_lang_when_no_flag`)
-  is untouched — it isolates itself via `XDG_CONFIG_HOME` and is the correct
-  pattern for testing config-file precedence. `cargo test --workspace` is now
-  green for the first time on a zh-TW machine.
-- **style: apply `cargo fmt` to `session/action_menu.rs` + `tui/app.rs`.**
-  Pre-existing unformatted drift (a wrapped `mk(...)` call, a `set_all([...])`
-  chain, one stray blank line) — whitespace only, no semantic change.
+### Docs
+- README / reference docs updated for the bool picker (`e` key behavior).
+- RELEASES.md entries synced to v0.30.1; release version-sync requirement documented in
+  CLAUDE.md; MS Store Partner Center listing export tracked.
 
-### Unreleased Update — 2026-08-31T16:00:00Z
-- **feat(web,tui): fuzzy-filter matches are now highlighted per character in the
-  web/touch trees, and in the TUI's VALUE cell as well as its NAME cell.** The
-  text filter always fuzzy-matched key/path **plus** a scalar's own value and a
-  comment's text (`session::search::haystack`), but only the TUI drew the match,
-  and only on the NAME cell — a value-only match highlighted nothing anywhere,
-  and the web UI highlighted nothing at all.
-  - `confy-core`: `SessionSnapshot` gains `filter: String`, carrying the live
-    query in **every** mode. `ModeView::Filter` only holds it while the input is
-    focused and `ModeView::FilterResults` dropped it entirely, so pointer hosts
-    had no way to know what to mark once focus left the search box. Mirrors how
-    the TUI reads `Session::filter` directly.
-  - `confy-ffi`: new free `#[wasm_bindgen]` export `fuzzy_indices(haystack,
-    needle) -> Option<Vec<u32>>` over `confy_core::session::search`. The web
-    highlights with the **same `SkimMatcherV2` the TUI highlights with** rather
-    than a reimplemented TS scorer, so the two surfaces cannot drift apart.
-    Indices are **char** offsets (`u32` for the `Uint32Array` marshalling).
-  - `confy-tui`: `highlight_spans` split into `highlight_spans_styled(text,
-    needle, base)` + a no-base wrapper, and `value_cell` now takes the needle and
-    highlights the value preview. The base style layers underneath, so a
-    `comment_advisory` value keeps its underline. A row's **trailing comment** is
-    still never highlighted — it stays dim as annotation.
-  - `web`: new `web/highlight.ts` — `highlightHtml(text, needle)` returns escaped
-    HTML with matched runs wrapped in `<mark class="fz">` (consecutive matches
-    coalesced into one element, same as the TUI coalescing same-style spans).
-    Wired into the key, value and comment-row cells of **both** `render.ts`
-    (desktop) and `touch/render.ts`. The matcher is *registered* by `confy.ts`'s
-    `load()` (`setFuzzyMatcher`) instead of imported by the render modules, so
-    they stay free of the wasm glue and the plain-Node spec harness can keep
-    bundling them; unregistered, it matches nothing and degrades to plain escaped
-    text. Text is walked with `Array.from` because the indices are char offsets —
-    indexing by UTF-16 code unit would misplace every mark after an astral char.
-  - Each cell runs the matcher against **its own text**, never the haystack, so
-    the marks line up with what's on screen: a row matched via its path shows no
-    marks in VALUE and vice versa. Same semantics on both surfaces.
-  - Styling: `mark.fz` in `web/style.css` + `web/touch/style.css` — a translucent
-    `--warn` amber wash with `color:inherit`, so the value cell's own type color
-    (`.t-string`/`.t-number`/…) still reads through and the UA's unreadable
-    black-on-yellow `<mark>` default is overridden in both themes.
-  - Verified: `cargo test -p confy-core -p confy-tui --lib` (556 + 213 pass,
-    including a new `draw`-level `filter_highlights_value_cell_chars` TestBackend
-    test and `highlight_spans_styled_keeps_base_style`); `functional_smoke.mjs`
-    (all pass, +6 new checks on `snapshot.filter` and the `fuzzy_indices` export
-    incl. the astral-char offset); `web` `npm run typecheck` + `npm test` (all
-    pass, +13 new checks in `web/highlight.spec.mjs` covering coalescing,
-    escaping inside marks, and emoji/CJK offsets); and an end-to-end run of the
-    real wasm matcher through the real `renderRow` confirming `lclhst` marks
-    `"lo(c)a(lh)o(st)"` in the VALUE cell with the KEY cell left unmarked, while
-    `hst` marks both. `crates/confy-tui/tests/convert_cli.rs`'s
-    `null_to_toml_aborts_with_no_file` fails on this machine before and after the
-    change (locale-dependent assertion) — pre-existing, untouched.
 
 ## [v0.30.1] - 2026-08-31
 ### Unreleased Update — 2026-08-31T15:00:00Z
