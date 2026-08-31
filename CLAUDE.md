@@ -252,7 +252,11 @@ URL hint fetches over a blocking HTTP client) and its `overlay_schema_enum.rs` p
 `K` kind-switch popup's shape); the web layer's `session.schemaHint(path)`/`fetch()`. There is no
 manual "attach a schema" UI action on any host — every host goes through the same detection path.
 `session/schema_hint.rs` is unrelated by name collision only: it holds `nudge_scalar`'s numeric
-clamping for the `←`/`→` shortcut, not schema attachment.
+clamping for the `←`/`→` shortcut, not schema attachment. `Mode::SchemaEnum` has one
+**schema-independent** producer too: `begin_inline_edit` opens the same picker with `true`/`false`
+(in the node's authored casing, `inline_edit.rs::bool_picker_options`) for any `bool` scalar,
+flagged `from_schema: false` so hosts title it "Value"; a real schema `enum` on that node is
+resolved first and wins.
 
 **i18n (internationalization).** The translation catalog lives in `confy-core`, not per-host
 (`crates/confy-core/src/session/i18n.rs`): `Lang` (`En`/`ZhTw`, serde `"en"`/`"zh-TW"`,

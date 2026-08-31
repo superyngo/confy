@@ -179,10 +179,13 @@ pub enum ModeView {
     },
     /// The schema-enum picker popup is open (spec §3). `options` are the
     /// display labels; the chosen value is committed core-side by
-    /// `Session::schema_enum_commit`.
+    /// `Session::schema_enum_commit`. `from_schema` is `false` when the
+    /// picker is the schema-independent `bool` `true`/`false` fallback —
+    /// hosts use it to title the popup, nothing else.
     SchemaEnum {
         cursor: usize,
         options: Vec<String>,
+        from_schema: bool,
     },
     /// The `C` document-conversion flow is open.
     Convert(ConvertView),

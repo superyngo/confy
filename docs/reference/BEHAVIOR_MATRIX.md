@@ -125,6 +125,14 @@ under a key (`array_int[1].vals[0]`); `Replace` addresses the element directly. 
 "immediate parent is a plain `Array`" (an AoT group is `ArrayOfTables`, not `Array`, so its entries
 stay `$EDITOR`).
 
+A **`bool`** leaf is the one single-line scalar that does *not* get a text field: `begin_inline_edit`
+opens the two-option `true`/`false` picker (`Mode::SchemaEnum`, `from_schema: false`) instead, on
+every host — the same widget a schema `enum` uses, since a bool's value domain is closed at two
+members. Options follow the node's **authored casing** (YAML `True`/`TRUE` stay uppercase); a schema
+`enum` on that same node outranks the fallback. Free-form text entry for a bool stays reachable
+through the external editor (`BeginEditExternal` / TUI `E` / the panel's "Editor" button), which
+never routes through the picker branch.
+
 ### 6.2 Symmetric layout switch
 
 > Every flow scope can switch to block and back (`K`); collapse-to-flow is rejected only when the

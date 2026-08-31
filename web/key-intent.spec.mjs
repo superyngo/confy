@@ -78,7 +78,7 @@ const actionMenuMode = {
     target_label: "server",
   },
 };
-const schemaEnumMode = { SchemaEnum: { options: ["a", "b", "c"], cursor: 0 } };
+const schemaEnumMode = { SchemaEnum: { options: ["a", "b", "c"], cursor: 0, from_schema: true } };
 const helpMode = { Help: { tab: "Help" } };
 const normalMode = "Normal";
 

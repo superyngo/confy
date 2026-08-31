@@ -61,6 +61,12 @@ impl Session {
         let cursor = buffer.chars().count();
         let name_cursor = edit_key_text.chars().count();
         if allow_schema_enum {
+            let format = self.doc.as_ref().map(|d| d.format());
+            // 1. A real schema `enum`/`const` constraint always wins — the
+            //    schema is the authority on the value domain, including for a
+            //    `bool`-typed node (its `enum` may legitimately be one-sided,
+            //    or a differently-spelled/typed set), so the boolean fallback
+            //    below only ever fires when the schema says nothing.
             if let Some(crate::schema::EditHint::Enum(options)) = self
                 .schema
                 .as_ref()
@@ -68,7 +74,6 @@ impl Session {
                 .map(|raw| crate::schema::hints_edit::resolve_edit_hint(raw, &row.path))
             {
                 if !options.is_empty() {
-                    let format = self.doc.as_ref().map(|d| d.format());
                     let opts: Vec<(String, String)> = options
                         .into_iter()
                         .filter_map(|(label, v)| scalar_repr_for(&v, format?).map(|r| (label, r)))
@@ -81,10 +86,36 @@ impl Session {
                             created_on_add: false,
                             cursor: 0,
                             options: opts,
+                            from_schema: true,
                         });
                         self.notice = None;
                         return;
                     }
+                }
+            }
+            // 2. Schema-independent fallback: a `bool` scalar's value domain is
+            //    closed at two members, so it picks rather than types — the same
+            //    picker widget/mode as a schema `enum` on every host (TUI popup,
+            //    web `<select>`, touch sheet), differing only in the popup title
+            //    (`from_schema: false`). Free-form text entry for a `bool` stays
+            //    reachable through the external/popup editor
+            //    (`BeginEditExternal`, TUI `E`, the panel's "Editor" button),
+            //    which never routes through here.
+            if row.scalar_type == Some(ScalarType::Bool) {
+                if let Some((opts, cursor)) =
+                    bool_picker_options(row.value.as_deref().unwrap_or_default())
+                {
+                    self.mode = Mode::SchemaEnum(crate::session::state::SchemaEnumState {
+                        path: row.path.clone(),
+                        key: key.clone(),
+                        is_element,
+                        created_on_add: false,
+                        cursor,
+                        options: opts,
+                        from_schema: false,
+                    });
+                    self.notice = None;
+                    return;
                 }
             }
         }
@@ -1128,4 +1159,31 @@ impl Session {
             _ => {}
         }
     }
+}
+
+/// The two options (and the index of the current one) for the schema-independent
+/// `bool` value picker, in the node's **own authored spelling** — YAML accepts
+/// `true`/`True`/`TRUE` (and the `false` counterparts) as booleans
+/// (`model/yaml/project.rs`), so offering only the lowercase pair would silently
+/// re-case an authored `TRUE` on commit. Both option labels and their value
+/// reprs follow the current repr's casing; an unrecognized spelling returns
+/// `None`, which falls back to plain text editing (same
+/// conservative-if-unsure polarity as `nudge_scalar`).
+fn bool_picker_options(repr: &str) -> Option<(Vec<(String, String)>, usize)> {
+    let (t, f, cursor) = match repr.trim() {
+        "true" => ("true", "false", 0),
+        "false" => ("true", "false", 1),
+        "True" => ("True", "False", 0),
+        "False" => ("True", "False", 1),
+        "TRUE" => ("TRUE", "FALSE", 0),
+        "FALSE" => ("TRUE", "FALSE", 1),
+        _ => return None,
+    };
+    Some((
+        vec![
+            (t.to_string(), t.to_string()),
+            (f.to_string(), f.to_string()),
+        ],
+        cursor,
+    ))
 }

@@ -132,4 +132,23 @@ check(
   JSON.stringify(orderIdx),
 );
 
+// ---- Value field routing: a `bool` scalar becomes a picker trigger ----
+// The panel is touch's only value-edit surface, so it must predict core's
+// schema-independent bool picker host-side (`Mode::SchemaEnum` with
+// `from_schema: false`) instead of rendering a free-text input — otherwise
+// the true/false picker is unreachable on touch.
+console.log("\n-- panelHTML(): bool value routes to the picker trigger --");
+{
+  const boolRow = baseRow({ key: "flag", path: [{ Key: "flag" }], type_label: "bool", badge_label: "bool", value: "true", scalar_type: "Bool" });
+  const html = panelHTML(boolRow, false, "None");
+  check("bool value renders the BeginEdit trigger button", html.includes('data-act="editvalue"'), html);
+  check("bool value renders no free-text input", !html.includes('data-field="value"'), html);
+
+  const intHtml = panelHTML(baseRow({ scalar_type: "Integer" }), false, "None");
+  check("a non-bool scalar still renders the text input", intHtml.includes('data-field="value"'), intHtml);
+
+  const picking = panelHTML(boolRow, false, "None", { options: ["true", "false"], cursor: 0 });
+  check("an open picker swaps in the select", picking.includes('data-field="value-enum"'), picking);
+}
+
 process.exit(failures === 0 ? 0 : 1);

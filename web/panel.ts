@@ -102,12 +102,15 @@ export function panelHTML(
     h += `<input class="v-edit" value="${esc(keyText)}" disabled />`;
   }
 
-  // Value (scalars only). A schema-enum-constrained value swaps in the
-  // picker select once BeginEdit resolves `Mode::SchemaEnum` (mirrors the
-  // tree's `renderValue`'s `schemaEnum` branch exactly, same option/cursor
-  // shape). Before that — and for a multi-line value — it's a clickable
-  // trigger that dispatches BeginEdit and lets core pick the destination
-  // (external popup, or the schema picker for an enum-constrained field).
+  // Value (scalars only). A constrained value swaps in the picker select once
+  // BeginEdit resolves `Mode::SchemaEnum` (mirrors the tree's `renderValue`'s
+  // `schemaEnum` branch exactly, same option/cursor shape). Before that — and
+  // for a multi-line value — it's a clickable trigger that dispatches BeginEdit
+  // and lets core pick the destination (external popup, or the picker for an
+  // enum-constrained field / any `bool` scalar). The `bool` case must be
+  // predicted host-side here, exactly like the enum one: this panel is touch's
+  // only value-edit surface, so a plain `<input>` would keep the true/false
+  // picker unreachable there (`CommitEdit` deliberately never re-enters it).
   if (!branch) {
     h += `<div class="field-label">${esc(tArgs("web.panel.field.value", [r.type_label]))}</div>`;
     const v = r.value ?? "";
@@ -116,7 +119,12 @@ export function panelHTML(
         .map((label, i) => `<option value="${i}"${i === schemaEnum.cursor ? " selected" : ""}>${esc(label)}</option>`)
         .join("");
       h += `<select class="v-edit" data-field="value-enum">${opts}</select>`;
-    } else if (!r.read_only && (isMultilineValue(r) || (editHint && editHint !== "None" && "Enum" in editHint))) {
+    } else if (
+      !r.read_only &&
+      (isMultilineValue(r) ||
+        r.scalar_type === "Bool" ||
+        (editHint && editHint !== "None" && "Enum" in editHint))
+    ) {
       const oneLine = v.replace(/\r?\n/g, " ↵ ") || t("web.panel.multilinePlaceholder");
       h += `<button class="v-edit v-multiline" data-act="editvalue" style="text-align:left;cursor:pointer;display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(oneLine)}</button>`;
     } else {

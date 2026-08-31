@@ -1372,3 +1372,138 @@ fn schema_violations_carries_the_violating_node_text_range() {
         "port = \"not-a-number\""
     );
 }
+
+// ---- Boolean value picker (schema-independent `Mode::SchemaEnum` fallback) ----
+// A `bool` scalar's value domain is closed at two members, so `begin_inline_edit`
+// opens the same picker mode a schema `enum` does (`from_schema: false`) instead
+// of a free-text buffer — on every host, since the decision is core-side.
+
+fn bool_picker_options(s: &confy_core::session::Session) -> (Vec<String>, usize, bool) {
+    use confy_core::session::state::Mode;
+    match &s.mode {
+        Mode::SchemaEnum(st) => (
+            st.options.iter().map(|(l, _)| l.clone()).collect(),
+            st.cursor,
+            st.from_schema,
+        ),
+        _ => panic!("expected Mode::SchemaEnum"),
+    }
+}
+
+#[test]
+fn bool_scalar_opens_the_value_picker_on_every_format() {
+    for (src, format) in [
+        ("flag = true\n", DocFormat::Toml),
+        ("{\"flag\": true}\n", DocFormat::Json),
+        ("flag: true\n", DocFormat::Yaml),
+    ] {
+        let mut s = session_from(src, format);
+        s.cursor_down(); // onto `flag`
+        s.begin_inline_edit();
+        let (options, cursor, from_schema) = bool_picker_options(&s);
+        assert_eq!(options, vec!["true", "false"], "{format:?}");
+        assert_eq!(cursor, 0, "{format:?}: cursor starts on the current value");
+        assert!(!from_schema, "{format:?}: no schema is loaded");
+    }
+}
+
+#[test]
+fn bool_picker_cursor_starts_on_the_current_value_and_commits_the_other() {
+    use confy_core::session::state::Mode;
+    let mut s = session_from("flag = false\n", DocFormat::Toml);
+    s.cursor_down();
+    s.begin_inline_edit();
+    let (_, cursor, _) = bool_picker_options(&s);
+    assert_eq!(cursor, 1, "`false` is the second option");
+    s.schema_enum_move(-1); // onto `true`
+    s.schema_enum_commit();
+    assert!(matches!(s.mode, Mode::Normal));
+    let node = s
+        .tree
+        .node_at(&[confy_core::model::node::Seg::Key("flag".into())])
+        .unwrap();
+    assert_eq!(node.value.as_deref(), Some("true"));
+}
+
+#[test]
+fn bool_picker_preserves_the_authored_yaml_casing() {
+    // YAML accepts `True`/`TRUE` as booleans; offering only the lowercase pair
+    // would silently re-case the document on commit.
+    for (src, expect_options, expect_commit) in [
+        ("flag: True\n", vec!["True", "False"], "False"),
+        ("flag: TRUE\n", vec!["TRUE", "FALSE"], "FALSE"),
+    ] {
+        let mut s = session_from(src, DocFormat::Yaml);
+        s.cursor_down();
+        s.begin_inline_edit();
+        let (options, cursor, _) = bool_picker_options(&s);
+        assert_eq!(options, expect_options, "{src}");
+        assert_eq!(cursor, 0, "{src}");
+        s.schema_enum_move(1);
+        s.schema_enum_commit();
+        let node = s
+            .tree
+            .node_at(&[confy_core::model::node::Seg::Key("flag".into())])
+            .unwrap();
+        assert_eq!(node.value.as_deref(), Some(expect_commit), "{src}");
+    }
+}
+
+#[test]
+fn a_schema_enum_outranks_the_bool_fallback() {
+    // The schema is the authority on the value domain: when it constrains a
+    // `bool`-typed node with its own `enum`, the picker offers *that* set.
+    let mut s = session_from("flag = true\n", DocFormat::Toml);
+    let schema_text = json!({
+        "type": "object",
+        "properties": { "flag": { "enum": [true] } }
+    })
+    .to_string();
+    s.apply_schema_text(SchemaSource::Local("./s.json".into()), Ok(schema_text));
+    s.cursor_down();
+    s.begin_inline_edit();
+    let (options, _, from_schema) = bool_picker_options(&s);
+    assert_eq!(options, vec!["true"], "the schema's one-sided enum wins");
+    assert!(from_schema);
+}
+
+#[test]
+fn a_non_bool_scalar_still_edits_as_text() {
+    use confy_core::session::state::Mode;
+    let mut s = session_from("port = 8080\n", DocFormat::Toml);
+    s.cursor_down();
+    s.begin_inline_edit();
+    assert!(matches!(s.mode, Mode::Edit(_)));
+}
+
+#[test]
+fn commit_edit_on_a_bool_never_re_enters_the_picker() {
+    // The web/touch panel's one-shot text commit (`Intent::CommitEdit`) seeds a
+    // `Mode::Edit` with `allow_schema_enum: false` — the bool fallback must not
+    // divert it, or a typed value could never be committed.
+    use confy_core::session::state::Mode;
+    let mut s = session_from("flag = true\n", DocFormat::Toml);
+    s.cursor_down();
+    s.commit_edit(Some("false".into()), None);
+    assert!(matches!(s.mode, Mode::Normal));
+    let node = s
+        .tree
+        .node_at(&[confy_core::model::node::Seg::Key("flag".into())])
+        .unwrap();
+    assert_eq!(node.value.as_deref(), Some("false"));
+}
+
+#[test]
+fn external_edit_routing_is_unchanged_for_a_bool() {
+    // The forced-external path (`BeginEditExternal`, TUI `E`, the panel's
+    // "Editor" button) never consults the picker branch at all.
+    use confy_core::session::state::Mode;
+    let mut s = session_from("flag = true\n", DocFormat::Toml);
+    s.cursor_down();
+    assert_eq!(s.edit_target_kind(), confy_core::session::EditKind::Inline);
+    s.apply(confy_core::session::Intent::BeginEditExternal);
+    assert!(
+        !matches!(s.mode, Mode::SchemaEnum(_)),
+        "external edit must not open the picker"
+    );
+}

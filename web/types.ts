@@ -196,7 +196,7 @@ export type ModeView =
   | "Detail"
   | { Help: { tab: "Help" | "About" } }
   | { Edit: EditView }
-  | { SchemaEnum: { options: string[]; cursor: number } };
+  | { SchemaEnum: { options: string[]; cursor: number; from_schema: boolean } };
 
 // Schema-driven editing constraint for one node (session::schema::EditHint,
 // mirrors the Rust enum exactly). `Enum`'s pairs are `[label, value]` tuples

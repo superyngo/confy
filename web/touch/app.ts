@@ -510,17 +510,15 @@ function render() {
     const p = (snap.mode as { Prompt: { kind: PromptView; question: string } }).Prompt;
     renderPromptSheet(p.kind, p.question);
   } else sheets.prompt.classList.remove("open");
-  // Schema-constrained enum/const picker (Mode::SchemaEnum): core enters this
-  // mode via begin_inline_edit when an enum field is tapped; render the bottom
-  // sheet of allowed values (mirrors the TypeFilter/Convert/Prompt checks above).
-  if (modeTag(snap.mode) === "SchemaEnum") {
+  // Constrained value picker (Mode::SchemaEnum): core enters this mode via
+  // begin_inline_edit both for a schema enum/const field and for any `bool`
+  // scalar (the schema-independent true/false fallback, `from_schema: false`);
+  // render the bottom sheet of allowed values (mirrors the TypeFilter/Convert/
+  // Prompt checks above).
+  if (typeof snap.mode === "object" && "SchemaEnum" in snap.mode) {
+    const se = snap.mode.SchemaEnum;
     const cur = snap.rows.find((r) => r.is_cursor);
-    if (cur) {
-      openSchemaEnumSheet(
-        cur.path,
-        (snap.mode as { SchemaEnum: { options: string[]; cursor: number } }).SchemaEnum.options,
-      );
-    }
+    if (cur) openSchemaEnumSheet(cur.path, se.options, se.from_schema);
   }
   if (tag === "ActionMenu") {
     const am = (snap.mode as { ActionMenu: { items: ActionItemView[]; target_label: string } }).ActionMenu;
@@ -640,13 +638,16 @@ function openKindSheet(path: Path) {
   openSheet("kind");
 }
 
-// ---- schema-enum sheet (Mode::SchemaEnum — schema-constrained value picker) ----
+// ---- constrained value sheet (Mode::SchemaEnum) ----
 // Mirrors openKindSheet's structure: a bottom-sheet grid of `.kind-opt` cells
 // in the shared `sheets.kind` element. Core enters Mode::SchemaEnum via
-// begin_inline_edit when an enum/const-constrained field is tapped (Task 6);
-// this only renders that mode. Selection moves the cursor (SchemaEnumMove) then
+// begin_inline_edit when an enum/const-constrained field is tapped (Task 6),
+// and for any `bool` scalar (`fromSchema: false` — the schema-independent
+// true/false picker, which is touch's only bool-toggle affordance: it has no
+// keyboard `←/→` and no mouse wheel to Nudge with); this only renders that
+// mode. Selection moves the cursor (SchemaEnumMove) then
 // commits (SchemaEnumCommit) — commit uses whatever cursor index is current.
-function openSchemaEnumSheet(path: Path, options: string[]) {
+function openSchemaEnumSheet(path: Path, options: string[], fromSchema: boolean) {
   if (!session) return;
   if ((snap?.clipboard_count ?? 0) > 0) {
     send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
@@ -660,7 +661,7 @@ function openSchemaEnumSheet(path: Path, options: string[]) {
     .join("");
   sheets.kind.innerHTML =
     '<div class="grab"></div>' +
-    `<div class="sheet-head"><h3>Schema value</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
+    `<div class="sheet-head"><h3>${fromSchema ? "Schema value" : "Value"}</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
     `<div class="sheet-body"><div class="addgrid">${cells}</div></div>`;
   sheets.kind.querySelectorAll<HTMLElement>(".kind-opt").forEach((b) => {
     b.addEventListener("click", () => {

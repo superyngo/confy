@@ -409,6 +409,24 @@ check("about_text() mentions the GitHub repo", aboutText.includes("github.com/su
   check("SchemaEnumCommit returns to Normal", snap20.mode === "Normal", JSON.stringify(snap20.mode));
   check("SchemaEnumCommit writes the picked value",
     s20.serialize().includes(se2.options[se2.cursor]), s20.serialize());
+  check("SchemaEnum carries from_schema: true for a real schema constraint",
+    se.from_schema === true, JSON.stringify(se));
+
+  // The schema-independent bool fallback: no schema at all, yet BeginEdit on a
+  // `bool` scalar still enters Mode::SchemaEnum — with `from_schema: false`, the
+  // flag hosts use to title the popup "Value" instead of "Schema value".
+  const s20b = new ConfySession('{"flag": true}', "json");
+  s20b.dispatch(unit("CursorDown")); // onto `flag`
+  const snap20b = s20b.dispatch(unit("BeginEdit"));
+  const seb = typeof snap20b.mode === "object" && "SchemaEnum" in snap20b.mode ? snap20b.mode.SchemaEnum : null;
+  check("BeginEdit on a bool enters Mode::SchemaEnum with no schema loaded",
+    seb !== null, JSON.stringify(snap20b.mode));
+  check("the bool picker offers true/false and is flagged non-schema",
+    seb && seb.from_schema === false && seb.options.join(",") === "true,false", JSON.stringify(seb));
+  s20b.dispatch(tuple("SchemaEnumMove", 1));
+  s20b.dispatch(unit("SchemaEnumCommit"));
+  check("committing the bool picker writes the other boolean",
+    s20b.serialize().includes("false"), s20b.serialize());
 
   // A failed fetch is a soft error — the document stays fully editable.
   const s21 = new ConfySession('{"kind": "cat"}', "json");

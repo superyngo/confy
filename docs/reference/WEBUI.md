@@ -121,7 +121,10 @@ shapes round-trip). Key types:
 - **`ModeView`** — a serializable projection of `Mode` + the modal edit surfaces:
   `Normal | Prompt | Filter {text,cursor} | FilterResults | TypeFilter {…grid…} |
   KindSwitch {cursor,options} | ActionMenu {cursor,items,target_count,target_label} |
-  Convert {…} | Detail | Help | Edit {field,buffer,cursor,…} | SchemaEnum {options,cursor}`.
+  Convert {…} | Detail | Help | Edit {field,buffer,cursor,…} |
+  SchemaEnum {options,cursor,from_schema}`. `SchemaEnum`'s `from_schema` is `false` when the
+  picker is the schema-independent `bool` `true`/`false` fallback rather than a schema
+  `enum`/`const` constraint — hosts use it only to title the popup ("Value" vs "Schema value").
   This is the UI's only view of internal state; heavy
   internals (`History`, `Clipboard` — except its `clipboard_count`) never cross.
 - **`TypeFilterView`** — the `f` popup grid, projected from core so the host never
@@ -555,6 +558,18 @@ old static `detail_text` `<pre>` dump (that flat string is now only the empty-do
 feed the panel's Sign field, core's `ViewRow` gained a `key_sign` field (`"bare"|"quoted"|"dotted"
 |"none"`, the same mapping the TUI detail text uses) — a coarse display facet only, never usable
 to reconstruct how a key was written.
+
+**Boolean value picker.** A `bool` scalar's value field is not a text input on either web host: it
+renders as a `data-act="editvalue"` trigger that dispatches `BeginEdit`, and core answers with
+`Mode::SchemaEnum` (`from_schema: false`) — so the tree draws its usual `select[data-schema-enum]`
+and the panel its `data-field="value-enum"` select, both offering exactly `true`/`false` in the
+node's authored casing. The `bool` case (like the enum one) is predicted **host-side** in
+`panelHTML` off `ViewRow.scalar_type`, because this panel is touch's only value-edit surface and
+`Intent::CommitEdit` deliberately never re-enters the picker — without the prediction the picker
+would be unreachable on touch, which has neither the `←/→` Nudge keys nor a mouse wheel. Touch
+renders the option list as the shared bottom sheet, titled "Value" (vs "Schema value" when
+`from_schema`). A schema `enum` on the same node outranks the fallback; the "Editor" button still
+forces the free-form popup editor (`BeginEditExternal`).
 
 **Key spelling — `ViewRow.key_literal`.** `ViewRow.key` is the **decoded** key (semantic
 identity: paths, collisions, schema lookup); `key_literal` is the key **exactly as authored**,

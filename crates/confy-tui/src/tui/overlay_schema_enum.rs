@@ -36,7 +36,11 @@ pub(crate) fn draw_schema_enum_overlay(f: &mut Frame, app: &App) {
     let scroll_offset = schema_enum_scroll_offset(st.cursor, lines.len(), inner_h);
     f.render_widget(Clear, area);
     let block = Block::default()
-        .title(" Schema value ")
+        .title(if st.from_schema {
+            " Schema value "
+        } else {
+            " Value "
+        })
         .title_bottom(" ↑↓ move · PgUp/PgDn · Home/End · Enter apply · Esc cancel ")
         .borders(Borders::ALL)
         .style(Style::default().bg(Color::Black).fg(Color::White));

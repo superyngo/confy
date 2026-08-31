@@ -8,6 +8,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-08-31T14:50:06Z
+- **feat(core+tui+web+touch): a `bool` scalar now edits through a two-option `true`/`false`
+  picker on every platform**, the same widget a schema `enum` uses, instead of a free-text
+  field — a bool's value domain is closed at two members, so typing was the wrong affordance
+  (and on **touch** it was the *only* affordance: no `←/→` Nudge keys, no mouse wheel, so
+  flipping a flag there meant hand-typing `false` into a text input). One core decision point
+  (`session/inline_edit.rs::begin_inline_edit_impl`) drives all four surfaces, since the TUI
+  popup (`overlay_schema_enum.rs`), the desktop tree `<select>` (`render.ts`), the touch bottom
+  sheet and the shared detail panel (`panel.ts`) are all `Mode::SchemaEnum`-driven already.
+  - **Schema wins when both apply.** The `enum`/`const`/`oneOf`-of-`const` resolution
+    (`hints_edit::resolve_edit_hint`) is tried *first* and returns; the boolean fallback only
+    fires when the schema says nothing about that path — so a schema constraining a
+    `bool`-typed node (even one-sidedly, e.g. `{"enum":[true]}`) still governs the option list.
+  - **Authored casing preserved.** YAML accepts `True`/`TRUE` as booleans, so the options are
+    generated from the current repr's casing (`bool_picker_options`) rather than hardcoded
+    lowercase — offering only `true`/`false` would have silently re-cased the document on
+    commit. An unrecognized spelling declines to plain text editing (same
+    conservative-if-unsure polarity as `nudge_scalar`).
+  - **External / popup editor untouched.** `Intent::BeginEditExternal` (TUI `E`, the panel's
+    "Editor" button, the web ctx-menu "Edit") never routes through this branch, so free-form
+    entry for a bool line — including its trailing comment — stays exactly as it was; likewise
+    `Intent::CommitEdit`'s one-shot text commit, which passes `allow_schema_enum: false`.
+    `←/→`/wheel Nudge bool toggling is also unchanged.
+  - `Mode::SchemaEnum`/`ModeView::SchemaEnum` gained `from_schema: bool` (wire contract, see
+    `WEBUI.md` §ModeView) purely so hosts can title the popup ` Value ` instead of ` Schema
+    value ` when it isn't schema-driven; every other behaviour (move/jump/commit/cancel, the
+    type-change confirmation gate) is shared verbatim.
+  - Verified on the **real `confy` TUI binary** against `/tmp/confy-bool-scratch/t.toml`
+    (`debug = true` → picker → `false` → `w` → file reads `debug = false`) and
+    `/tmp/confy-bool-scratch/t.yaml` (`flag: TRUE` → options render `TRUE`/`FALSE` → commit
+    writes `flag: FALSE`, casing intact), and against the **real wasm core** for the web hosts
+    (`functional_smoke.mjs` + a `renderRow`/`panelHTML` integration run confirming the
+    `select[data-schema-enum]` and `data-field="value-enum"` selects). 7 new core tests
+    (`schema_headless.rs`), 4 new panel tests (`panel-schema.spec.mjs`), 4 new wire checks.
+
 ### Unreleased Update — 2026-08-31T18:00:00Z
 - **docs: reference-doc pass for the fuzzy-highlight feature and the two test
   conventions it surfaced.**

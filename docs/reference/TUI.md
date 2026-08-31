@@ -69,6 +69,16 @@ A scalar **or comment** add opens the inline editor on the seed; pressing **Esc*
 — no node (for a comment, the blank separator goes too), no undo/redo crumb — so a mistaken `a`
 is undone in one keystroke.
 
+**`e` on a `bool`** does not open the text editor at all: it opens the two-option `true`/`false`
+picker popup (`overlay_schema_enum.rs`, `Mode::SchemaEnum` with `from_schema: false`, so the popup
+is titled ` Value ` rather than ` Schema value `) — same widget and same keys as a schema
+`enum`/`const` constraint (`↑↓`/`j`/`k`, `Home`/`End`, `PgUp`/`PgDn`, `Enter` apply, `Esc` cancel),
+because a bool's value domain is closed at two members. Options carry the node's **authored
+casing** (YAML's `True`/`TRUE` stay uppercase — committing lowercase would silently re-case the
+document), a schema `enum` on the same node **outranks** this fallback, and `E` (force `$EDITOR`)
+is unaffected: it stays the way to type a bool's line free-form (including its trailing comment).
+`←/→` still toggles a bool in place without any popup.
+
 ## Comments (TUI)
 
 A comment node carries its text as its `value`,
