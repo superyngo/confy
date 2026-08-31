@@ -25,9 +25,16 @@ fn url_open_without_a_tty_aborts_without_writing_or_fetching() {
     // A URL that would fail to resolve/connect if a network call were ever
     // attempted — proves the TTY guard runs first and short-circuits before
     // any `ureq::get` call.
+    // `--lang en` pinned: the assertion is on the ENGLISH message text, and with
+    // no flag the language falls back to the developer's own
+    // `~/.config/confy/config.toml`, so this fails on a zh-TW machine.
     confy()
         .current_dir(dir.path())
-        .arg("https://url-open-cli-test.invalid/does-not-matter.toml")
+        .args([
+            "https://url-open-cli-test.invalid/does-not-matter.toml",
+            "--lang",
+            "en",
+        ])
         .assert()
         .failure()
         .stderr(contains("terminal"));

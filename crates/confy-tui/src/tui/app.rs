@@ -76,7 +76,6 @@ pub enum PromptOutcome {
     Quit,
 }
 
-
 /// PageUp/PageDown stride for the Action menu popup — eight items, always
 /// fully visible, so a fixed step (same convention as web's
 /// `ACTION_MENU_PAGE_STEP` in `web/key-intent.ts`).

@@ -37,8 +37,18 @@ fn lossy_conversion_refuses_without_yes() {
     let output = dir.path().join("out.json");
     fs::write(&input, "n = 0xFF\n").unwrap();
 
+    // `--lang en` pinned: these assert on the ENGLISH message text, and the
+    // language falls back to the developer's own `~/.config/confy/config.toml`
+    // when no flag is given (see `convert_cli_respects_config_file_lang_when_no_flag`),
+    // so an unpinned assertion fails on a zh-TW machine.
     confy()
-        .args(["convert", input.to_str().unwrap(), output.to_str().unwrap()])
+        .args([
+            "convert",
+            input.to_str().unwrap(),
+            output.to_str().unwrap(),
+            "--lang",
+            "en",
+        ])
         .assert()
         .failure()
         .stderr(contains("--yes"));
@@ -59,6 +69,8 @@ fn lossy_conversion_with_yes_writes_and_warns() {
             input.to_str().unwrap(),
             output.to_str().unwrap(),
             "--yes",
+            "--lang",
+            "en",
         ])
         .assert()
         .success()
@@ -80,6 +92,8 @@ fn null_to_toml_aborts_with_no_file() {
             input.to_str().unwrap(),
             output.to_str().unwrap(),
             "--yes",
+            "--lang",
+            "en",
         ])
         .assert()
         .failure()

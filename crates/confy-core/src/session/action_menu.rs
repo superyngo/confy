@@ -74,7 +74,13 @@ impl Session {
                 false,
             ),
             mk(ActionId::Copy, "core.action.copy", true, false, false),
-            mk(ActionId::Cut, "core.action.cut", !any_read_only, false, false),
+            mk(
+                ActionId::Cut,
+                "core.action.cut",
+                !any_read_only,
+                false,
+                false,
+            ),
             mk(
                 ActionId::Remark,
                 "core.action.remark",
@@ -233,10 +239,8 @@ mod tests {
     #[test]
     fn two_node_selection_dims_single_path_only_items() {
         let mut s = session_with_two_scalars();
-        s.selection.set_all([
-            vec![Seg::Key("a".into())],
-            vec![Seg::Key("b".into())],
-        ]);
+        s.selection
+            .set_all([vec![Seg::Key("a".into())], vec![Seg::Key("b".into())]]);
         let (count, _label) = s.action_menu_targets();
         assert_eq!(count, 2);
         let items = s.action_menu_items();

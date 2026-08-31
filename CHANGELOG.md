@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-08-31T17:00:00Z
+- **fix(test): pin `--lang en` on CLI tests that assert English message text.**
+  `crates/confy-tui/tests/convert_cli.rs`'s `null_to_toml_aborts_with_no_file`
+  and `open_url_cli.rs`'s `url_open_without_a_tty_aborts_without_writing_or_fetching`
+  failed on any machine whose `~/.config/confy/config.toml` sets `lang = "zh-TW"`:
+  with no `--lang` flag the CLI resolves the language from that real user config
+  file (`resolve_lang`), so the binary printed `無法為 URL 提示儲存路徑…` /
+  `轉換已中止…` while the tests asserted `contains("terminal")` /
+  `contains("aborted")`. Both now pass `--lang en` explicitly, matching the
+  convention the file's own zh-TW tests already used. Also pinned the two
+  latent cases (`lossy_conversion_refuses_without_yes`,
+  `lossy_conversion_with_yes_writes_and_warns`) that happened to pass only
+  because `--yes`/`non-decimal` appear verbatim in the zh-TW strings. The
+  deliberate config-file test (`convert_cli_respects_config_file_lang_when_no_flag`)
+  is untouched — it isolates itself via `XDG_CONFIG_HOME` and is the correct
+  pattern for testing config-file precedence. `cargo test --workspace` is now
+  green for the first time on a zh-TW machine.
+- **style: apply `cargo fmt` to `session/action_menu.rs` + `tui/app.rs`.**
+  Pre-existing unformatted drift (a wrapped `mk(...)` call, a `set_all([...])`
+  chain, one stray blank line) — whitespace only, no semantic change.
+
 ### Unreleased Update — 2026-08-31T16:00:00Z
 - **feat(web,tui): fuzzy-filter matches are now highlighted per character in the
   web/touch trees, and in the TUI's VALUE cell as well as its NAME cell.** The
