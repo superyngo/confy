@@ -51,6 +51,15 @@ with a non-Store cert is rejected.
    kept in sync manually). Not automatable via the Submission API used
    above — a one-time manual edit in the dashboard. If the listing already
    has a different URL from an earlier submission, update it there too.
+7. Store listing text (Description/ReleaseNotes, all locales) and screenshot
+   references are edited by hand in Partner Center per submission — not
+   CI-managed. After editing, export the submission's *Listings* page
+   (Partner Center's "Export listings" button) and archive the CSV under
+   `crates/confy-tauri/msix/listings/`, named `<tag>-listingData-<app
+   id>-<submission id>.csv` (the Partner-Center-generated filename already
+   carries the app/submission IDs — just prefix the version tag). This is a
+   point-in-time record for diffing future edits and recovering copy if a
+   submission is ever discarded; it is never read by CI or `pack-msix.ps1`.
 
 ## Per-release submission
 

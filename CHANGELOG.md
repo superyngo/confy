@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ## [Unreleased]
+### Unreleased Update — 2026-08-31T13:00:00Z
+- **docs(msstore): archive the v0.30.0 Partner Center listing export.** Moved the
+  ad hoc `listingData-9PLCJGQ3C654-1152921505701773532.csv` (all-locale
+  Description/ReleaseNotes text + screenshot references for the latest Store
+  submission) into `crates/confy-tauri/msix/listings/`, prefixed with its
+  version tag. Documented the archive convention in
+  `crates/confy-tauri/msix/STORE.md`'s *Store listings* step: export via
+  Partner Center's "Export listings" button after any manual listing edit,
+  file under `listings/` — a point-in-time record only, never read by CI.
+
 ### Unreleased Update — 2026-08-31T12:00:00Z
 - **fix(web): stop the armed-paste toast from replaying on every click/nav, and give
   the confirmed paste target its own visual layer.** Desktop's `renderNotice` unconditionally
