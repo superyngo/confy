@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-08-31T15:05:00Z
+- **docs: finish the doc sweep for the boolean value picker.**
+  - `docs/reference/CONTEXT.md`: table C's *universal scalar inline editing* criterion now names
+    `bool` as its one exception — the picker replaces the one-line text field in every scope,
+    scope-independently, with the schema `enum` still outranking it and `$EDITOR` unaffected.
+  - `README.md`: the `e` key row now reads "a `true`/`false` picker for a bool, inline for any
+    other plain scalar, `$EDITOR` for nested array/table" (the `←`/`→` toggle row is unchanged —
+    it never routed through the editor).
+  - No change needed in `TAURI.md`/`CHROME.md`/`VSCODE.md`: all three inherit the shared web
+    value-edit surfaces documented in `WEBUI.md`, and none of them describe bool editing
+    independently.
+
 ### Unreleased Update — 2026-08-31T14:50:06Z
 - **feat(core+tui+web+touch): a `bool` scalar now edits through a two-option `true`/`false`
   picker on every platform**, the same widget a schema `enum` uses, instead of a free-text

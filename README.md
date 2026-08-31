@@ -145,7 +145,7 @@ Maintainer quick check: `cd editors/vscode && npm run integration-test`.
 | `Shift+↑` / `Shift+↓` | Extend range selection |
 | `←` / `→` | Toggle a bool, or step a number by ±1 (preserves base/precision) |
 | `a` | Add node (inserts `new_field = ""` below the cursor, opens the inline editor) |
-| `e` | Edit value — inline for a plain scalar, `$EDITOR` for nested array/table |
+| `e` | Edit value — a `true`/`false` picker for a bool, inline for any other plain scalar, `$EDITOR` for nested array/table |
 | `E` | Edit any node in `$EDITOR` (force external) |
 | `F2` | Rename the cursor row's key |
 | `d` | Delete selected node(s) |
