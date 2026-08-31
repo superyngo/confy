@@ -6,6 +6,13 @@ name: Publish to Microsoft Store
 # which is simpler but couples the Store submission to the app build/test
 # matrix and its cache keys — splitting it out keeps this retryable in
 # isolation without re-running the whole release.
+#
+# Uploads the package and prepares a draft submission via `msstore publish
+# --noCommit`, then stops. It deliberately does NOT commit/submit the draft
+# for certification — a human reviews the listing in Partner Center
+# (https://partner.microsoft.com/dashboard) and clicks Submit there. That
+# also means RELEASES.md's "Current version" isn't updated here: the app
+# isn't actually live until that manual submission completes.
 on:
   workflow_dispatch:
     inputs:
@@ -15,9 +22,6 @@ on:
       run_id:
         description: "Run ID of the Release workflow that built the .msix"
         required: true
-
-permissions:
-  contents: write
 
 jobs:
   publish:
@@ -53,16 +57,6 @@ jobs:
             --clientId ${{ secrets.MSIX_SUBMISSION_CLIENT_ID }} \
             --clientSecret ${{ secrets.MSIX_SUBMISSION_CLIENT_SECRET }}
 
-      - name: Submit and publish to the Store
+      - name: Upload package as draft submission (manual review required)
         shell: bash
-        run: msstore publish msix/confy-desktop-windows-x86_64.msix -id ${{ secrets.MSIX_SUBMISSION_APP_ID }}
-
-      - uses: actions/checkout@v5
-        with:
-          ref: main
-
-      - name: Sync RELEASES.md — Microsoft Store version
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash scripts/sync-releases-md.sh "Windows Microsoft Store" "${{ inputs.tag }}"
+        run: msstore publish msix/confy-desktop-windows-x86_64.msix -id ${{ secrets.MSIX_SUBMISSION_APP_ID }} --noCommit

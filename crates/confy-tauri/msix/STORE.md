@@ -73,11 +73,14 @@ Automatic, in two stages:
    with the tag + source run ID.
    `publish-msstore.yml` downloads the `x86_64-pc-windows-msvc` `.msix` from
    that run, configures the Microsoft Store Developer CLI (`msstore
-   reconfigure`) with the secrets above, and runs `msstore publish` — which
-   creates a new submission, uploads the package (`x.y.z.0` derived from the
-   git tag, same as the identity manifest), and commits it. The Store then
-   validates and publishes it same as any Partner Center submission (review
-   time varies).
+   reconfigure`) with the secrets above, and runs `msstore publish --noCommit`
+   — which creates/updates the submission and uploads the package
+   (`x.y.z.0` derived from the git tag, same as the identity manifest) but
+   deliberately does **not** commit it. The submission is left in draft
+   state in Partner Center for a human to review (and edit listing text/
+   screenshots if needed) before manually clicking Submit there — RELEASES.md's
+   "Current version" only reflects a channel once that manual step actually
+   publishes it.
 
 Runs on `windows-latest`, not `ubuntu-latest`: the msstore CLI's Linux
 credential store needs `libsecret` + a D-Bus Secret Service daemon that

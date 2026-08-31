@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ## [Unreleased]
+### Unreleased Update — 2026-08-31T14:00:00Z
+- **ci(msstore): stop auto-submitting to the Store — leave the submission as a
+  reviewable draft.** `publish-msstore.yml` now runs `msstore publish
+  --noCommit`, which uploads the package and prepares the Partner Center
+  submission but no longer commits it for certification. A human now reviews
+  (and can edit) the listing in Partner Center and clicks Submit there.
+  Dropped the workflow's automatic `RELEASES.md` "Current version" sync
+  (`contents: write` permission removed with it) since the app isn't
+  actually live until that manual submission completes. Updated
+  `crates/confy-tauri/msix/STORE.md`'s *Per-release submission* section to
+  match.
+
 ### Unreleased Update — 2026-08-31T13:00:00Z
 - **docs(msstore): archive the v0.30.0 Partner Center listing export.** Moved the
   ad hoc `listingData-9PLCJGQ3C654-1152921505701773532.csv` (all-locale
