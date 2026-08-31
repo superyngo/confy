@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ## [Unreleased]
+
+## [v0.30.1] - 2026-08-31
 ### Unreleased Update — 2026-08-31T15:00:00Z
 - **chore(vscode): resolve 8 pre-existing Dependabot alerts (4 high, 4 moderate)
   via `npm audit fix`.** All were transitive `devDependencies` of `@vscode/vsce`
