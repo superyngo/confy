@@ -425,6 +425,25 @@ function renderPasteSlotCue(snap: SessionSnapshot, slotOverride?: PasteSlot) {
   }
 }
 
+// Renders the shared panel body into `container` (either the wide side pane's
+// `.dp-body`, or the narrow bottom sheet's `.detail-wrap`) and re-wires it,
+// preserving `container`'s own scroll position across the innerHTML replace —
+// called on every render(), including the live SetCursor+Nudge dispatches a
+// mid-drag swipe/wheel-nudge fires (`web/panel.ts`), so those steps don't
+// snap the panel back to its own top every time.
+function renderDetailBody(
+  container: HTMLElement,
+  cur: ViewRow,
+  schemaEnum: { options: string[]; cursor: number } | undefined,
+): void {
+  const hint = session!.schemaHint(cur.path);
+  const info = session!.schemaInfo(cur.path);
+  const st = container.scrollTop;
+  container.innerHTML = panelHTML(cur, parentIsInline(cur.path), hint, schemaEnum, info);
+  wirePanel(container, cur, sendR, openKindRow, (msg: string) => renderNotice({ severity: "error", text: msg, source: "core" }), undefined, schemaEnum);
+  container.scrollTop = st;
+}
+
 // ---- render ----
 function render() {
   if (!snap || !session) return;
@@ -482,18 +501,28 @@ function render() {
     app.classList.remove("raw");
   }
 
-  // Persistent side-pane detail (≥600px). Narrow uses the detail sheet on
-  // double-tap. The shared panel.ts renders/wires the body identically to desktop.
-  if (isWide() && !rawView) {
-    if (cur && cur.path.length) {
-      const hint = session!.schemaHint(cur.path);
-      const info = session!.schemaInfo(cur.path);
-      const schemaEnum =
-        typeof snap.mode === "object" && "SchemaEnum" in snap.mode ? snap.mode.SchemaEnum : undefined;
-      dpBody.innerHTML = panelHTML(cur, parentIsInline(cur.path), hint, schemaEnum, info);
-      wirePanel(dpBody, cur, sendR, openKindRow, (msg: string) => renderNotice({ severity: "error", text: msg, source: "core" }), undefined, schemaEnum);
-    } else {
-      dpBody.innerHTML = '<div class="dp-empty">Tap any node<br>to edit its value and metadata here</div>';
+  // Detail panel: the persistent side pane (≥600px) always reflects the
+  // current cursor row live; the narrow bottom sheet (opened via double-tap,
+  // `openPanel`) only needs a live refresh here while it's already open —
+  // otherwise a swipe/wheel-nudge mid-drag (which dispatches SetCursor+Nudge
+  // repeatedly without closing the sheet) silently changes the value while
+  // the sheet keeps showing the pre-drag one, only visible after closing it.
+  // `scrollTop` is captured/restored around the innerHTML replace on both
+  // paths (mirrors the tree-pane preservation above and `renderFilterSheet`'s
+  // `.sheet-body` preservation) — otherwise every nudge step snaps the panel's
+  // own scroll back to the top.
+  if (!rawView) {
+    const schemaEnum =
+      typeof snap.mode === "object" && "SchemaEnum" in snap.mode ? snap.mode.SchemaEnum : undefined;
+    if (isWide()) {
+      if (cur && cur.path.length) {
+        renderDetailBody(dpBody, cur, schemaEnum);
+      } else {
+        dpBody.innerHTML = '<div class="dp-empty">Tap any node<br>to edit its value and metadata here</div>';
+      }
+    } else if (sheets.detail.classList.contains("open") && cur && cur.path.length) {
+      const wrap = sheets.detail.querySelector<HTMLElement>(".detail-wrap");
+      if (wrap) renderDetailBody(wrap, cur, schemaEnum);
     }
   }
 

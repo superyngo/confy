@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ## [Unreleased]
+### Unreleased Update — 2026-09-01T01:43:13Z
+- **fix(touch): detail panel now live-updates during a value nudge.** Two bugs
+  reported after the swipe-to-nudge feature: (1) on narrow layouts, the
+  bottom-sheet detail panel only rendered once at open time — a nudge mutated
+  the value but the sheet kept showing the pre-drag number until it was
+  closed; (2) on wide layouts, the persistent side-pane detail panel already
+  live-updated correctly, but its own scroll position (unlike the tree
+  pane's, which was already preserved) snapped back to the top on every
+  nudge step. Both share one fix: a new `renderDetailBody()` helper
+  (`web/touch/app.ts`) re-renders whichever container is currently showing
+  the panel (`.dp-body` on wide, the open sheet's `.detail-wrap` on narrow)
+  on every `render()` pass, saving/restoring that container's own
+  `scrollTop` around the rebuild.
+
 ### Unreleased Update — 2026-09-01T01:13:02Z
 - **feat(touch): swipe-to-nudge on Integer/Float value fields.** A horizontal
   drag over an unfocused numeric value field in the detail panel now dispatches
