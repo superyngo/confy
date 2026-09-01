@@ -1811,19 +1811,20 @@ fn add_node_inserts_empty_string_and_enters_edit() {
 
 #[test]
 fn add_on_collapsed_table_adds_sibling_table() {
-    use crate::tui::state::EditField;
     // idea 3 / idea 5: `a` on a collapsed `[t]` adds a sibling `[placeholder]`
     // (a scalar there would be captured by `[t]`). A keyed container sibling
-    // opens in rename Edit mode so Esc cancels the just-added node.
+    // is inserted inert — no forced rename — with a notice pointing at the
+    // manual rename key.
     let mut app = app_with("[t]\nx = 1\n");
     app.select_row(app.rows.iter().position(|r| r.key == "t").unwrap()); // collapsed
     app.add_node();
     app.session.apply(confy_core::session::Intent::AddPickerCommit);
     app.rebuild_rows();
     assert!(
-        matches!(&app.session.mode, Mode::Edit(e) if e.field == EditField::Name),
-        "structured add: rename edit"
+        matches!(app.session.mode, Mode::Normal),
+        "structured add: no forced rename"
     );
+    assert!(app.session.notice.is_some(), "placeholder notice set");
     let s = app.session.doc.as_ref().unwrap().serialize();
     assert!(s.contains("[placeholder]"), "serialize: {s:?}");
     // It is a sibling of [t], not nested inside it.
@@ -1832,18 +1833,18 @@ fn add_on_collapsed_table_adds_sibling_table() {
 
 #[test]
 fn add_on_collapsed_dotted_table_adds_table_sibling() {
-    use crate::tui::state::EditField;
     // Same-kind model: `a` on a `[T/D]` table (a Table node) adds a sibling
-    // table — an empty `[placeholder]` scope table, in rename Edit mode.
-    // `[T/D]` tables start collapsed, so `a` is a collapsed branch.
+    // table — an empty `[placeholder]` scope table, inserted inert (no
+    // forced rename). `[T/D]` tables start collapsed, so `a` is a collapsed
+    // branch.
     let mut app = app_with("a.b = 1\n");
     app.select_row(app.rows.iter().position(|r| r.key == "a").unwrap());
     app.add_node();
     app.session.apply(confy_core::session::Intent::AddPickerCommit);
     app.rebuild_rows();
     assert!(
-        matches!(&app.session.mode, Mode::Edit(e) if e.field == EditField::Name),
-        "table add: rename edit"
+        matches!(app.session.mode, Mode::Normal),
+        "table add: no forced rename"
     );
     let s = app.session.doc.as_ref().unwrap().serialize();
     assert!(s.contains("[placeholder]"), "serialize: {s:?}");
@@ -1851,18 +1852,17 @@ fn add_on_collapsed_dotted_table_adds_table_sibling() {
 
 #[test]
 fn add_on_collapsed_array_adds_array_sibling() {
-    use crate::tui::state::EditField;
     // Same-kind model: `a` on a collapsed array adds an empty array sibling
     // right after it in the same scope — no stray scalar two rows up. The
-    // keyed sibling opens in rename Edit mode (Esc cancels).
+    // keyed sibling is inserted inert (no forced rename).
     let mut app = app_with("nums = [1, 2]\nname = \"x\"\n");
     app.select_row(app.rows.iter().position(|r| r.key == "nums").unwrap());
     app.add_node();
     app.session.apply(confy_core::session::Intent::AddPickerCommit);
     app.rebuild_rows();
     assert!(
-        matches!(&app.session.mode, Mode::Edit(e) if e.field == EditField::Name),
-        "array add: rename edit"
+        matches!(app.session.mode, Mode::Normal),
+        "array add: no forced rename"
     );
     let s = app.session.doc.as_ref().unwrap().serialize();
     assert_eq!(s, "nums = [1, 2]\nplaceholder = []\nname = \"x\"\n");

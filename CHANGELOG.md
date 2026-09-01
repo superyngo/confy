@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-09-01T08:38:45Z
+- **fix(add): seed datetime scalars with the system clock, and stop forcing
+  a rename after adding a container.** Two follow-ups to the Add-type picker
+  above:
+  - `OffsetDatetime`/`LocalDatetime`/`LocalDate`/`LocalTime` used to seed a
+    fixed `1970-01-01T00:00:00Z` stub; they now seed the system clock's
+    current UTC instant instead. `std::time::SystemTime::now()` traps at
+    runtime on `wasm32-unknown-unknown` (confirmed directly: it compiles,
+    but the call itself is an `unreachable` trap), which is the target the
+    web/touch/VS Code/Tauri UIs all run `confy-core` as, so that target
+    reads the JS `Date.now()` clock via a new wasm32-only `js-sys`
+    dependency; the TUI (a native process) keeps using `SystemTime`. No
+    date/timezone crate added — day/month/year is computed with Howard
+    Hinnant's public-domain `civil_from_days` algorithm.
+  - Adding a container (table/array/inline-table/array-of-tables) no longer
+    forces the cursor into the rename editor — it lands inert with its
+    auto-numbered `placeholder` key and the pre-existing "added placeholder
+    node — rename with e" notice, matching how a bare array-element
+    container was already handled. Previously Escape right after a
+    container add would roll the insert back (via the rename surface's
+    `created_on_add`); that shortcut is gone too — undo (`u`) removes it
+    same as any other change.
+
 ### Unreleased Update — 2026-09-01T08:09:07Z
 - **feat(add): replace "copy the cursor's kind" add-node with a type picker.**
   `a` / "Add child" / "Append sibling" (TUI, web desktop, web touch/VS Code)

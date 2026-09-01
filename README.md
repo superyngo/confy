@@ -144,7 +144,7 @@ Maintainer quick check: `cd editors/vscode && npm run integration-test`.
 | `s` | Toggle selection on the cursor row |
 | `Shift+↑` / `Shift+↓` | Extend range selection |
 | `←` / `→` | Toggle a bool, or step a number by ±1 (preserves base/precision) |
-| `a` | Add node — opens a type picker (string/number/bool/date/table/array/comment, filtered to what's legal there); picking one seeds it and opens the inline editor |
+| `a` | Add node — opens a type picker (string/number/bool/date/table/array/comment, filtered to what's legal there); a scalar or comment opens the inline editor once picked, a container (table/array) is added inert with a placeholder key ready to rename |
 | `e` | Edit value — a `true`/`false` picker for a bool, inline for any other plain scalar, `$EDITOR` for nested array/table |
 | `E` | Edit any node in `$EDITOR` (force external) |
 | `F2` | Rename the cursor row's key |

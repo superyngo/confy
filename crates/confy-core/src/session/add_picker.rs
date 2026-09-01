@@ -229,8 +229,10 @@ impl Session {
     }
 
     /// Insert a fresh node of `kind` at `target` and move into the follow-up
-    /// edit/rename surface — the exact tail the old `add_node_impl` ran after
-    /// seeding, extracted verbatim (`created_on_add` semantics unchanged).
+    /// surface: a scalar opens the inline value editor (`created_on_add`
+    /// semantics unchanged); a container is inserted inert (no rename is
+    /// forced) with an auto-numbered `placeholder` key, ready to rename
+    /// manually whenever.
     fn insert_seed(&mut self, mut target: Target, kind: AddKind) {
         if kind == AddKind::Comment {
             self.add_comment_sibling(target);
@@ -308,7 +310,7 @@ impl Session {
             }
         };
         let (fragment, inline) = match &seed_kind {
-            NodeKind::Scalar(st) => (seed_value(scalar_seed_literal(*st)), true),
+            NodeKind::Scalar(st) => (seed_value(&scalar_seed_literal(*st)), true),
             NodeKind::Array | NodeKind::InlineTable | NodeKind::ArrayOfTables | NodeKind::Table => {
                 (doc.empty_container_fragment(&seed_kind, key.as_deref()), false)
             }
@@ -331,12 +333,11 @@ impl Session {
                     Mode::SchemaEnum(st) => st.created_on_add = true,
                     _ => {}
                 }
-            } else if key.is_some() {
-                self.begin_inline_rename();
-                if let Mode::Edit(e) = &mut self.mode {
-                    e.created_on_add = true;
-                }
             } else {
+                // A freshly-added container (table/array/inline-table/AoT) is
+                // never forced into rename Edit mode here, keyed or not — it
+                // just gets its auto-numbered `placeholder` key (or sits bare
+                // in an array) and a notice pointing at the manual rename key.
                 self.set_notice(Notice::core(self.lang, "core.add.placeholder", &[]));
             }
         }
@@ -379,19 +380,89 @@ impl Session {
 /// into the inline editor buffer before it opens (mirrors the container
 /// seeds' `"placeholder"` key convention) — TOML has no `null` literal, so
 /// `ScalarType::Null` is never offered for `DocFormat::Toml`
-/// (`add_picker_options` excludes it).
-fn scalar_seed_literal(st: ScalarType) -> &'static str {
+/// (`add_picker_options` excludes it). Datetime scalars seed the system
+/// clock's current UTC instant (`now_*_literal`) rather than a fixed
+/// 1970-01-01 stub.
+fn scalar_seed_literal(st: ScalarType) -> String {
     match st {
-        ScalarType::String => "\"\"",
-        ScalarType::Integer => "0",
-        ScalarType::Float => "0.0",
-        ScalarType::Bool => "false",
-        ScalarType::Null => "null",
-        ScalarType::OffsetDatetime => "1970-01-01T00:00:00Z",
-        ScalarType::LocalDatetime => "1970-01-01T00:00:00",
-        ScalarType::LocalDate => "1970-01-01",
-        ScalarType::LocalTime => "00:00:00",
+        ScalarType::String => "\"\"".to_string(),
+        ScalarType::Integer => "0".to_string(),
+        ScalarType::Float => "0.0".to_string(),
+        ScalarType::Bool => "false".to_string(),
+        ScalarType::Null => "null".to_string(),
+        ScalarType::OffsetDatetime => format!("{}Z", now_datetime_literal()),
+        ScalarType::LocalDatetime => now_datetime_literal(),
+        ScalarType::LocalDate => now_date_literal(),
+        ScalarType::LocalTime => now_time_literal(),
     }
+}
+
+/// Current UTC "YYYY-MM-DD" — no timezone-database dependency is pulled in
+/// just for this, so TOML's "no offset" datetime scalars get the clock's UTC
+/// instant rather than the host machine's configured local timezone.
+fn now_date_literal() -> String {
+    let (y, mo, d, ..) = now_utc_parts();
+    format!("{y:04}-{mo:02}-{d:02}")
+}
+
+/// Current UTC "HH:MM:SS".
+fn now_time_literal() -> String {
+    let (_, _, _, h, mi, s) = now_utc_parts();
+    format!("{h:02}:{mi:02}:{s:02}")
+}
+
+/// Current UTC "YYYY-MM-DDTHH:MM:SS" (no offset suffix — callers append `Z`
+/// themselves for `OffsetDatetime`).
+fn now_datetime_literal() -> String {
+    let (y, mo, d, h, mi, s) = now_utc_parts();
+    format!("{y:04}-{mo:02}-{d:02}T{h:02}:{mi:02}:{s:02}")
+}
+
+/// Current UTC calendar/clock components: `(year, month, day, hour, minute, second)`.
+fn now_utc_parts() -> (i64, u32, u32, u32, u32, u32) {
+    let secs = now_unix_seconds();
+    let days = secs.div_euclid(86_400);
+    let sod = secs.rem_euclid(86_400) as u32;
+    let (y, mo, d) = civil_from_days(days);
+    (y, mo, d, sod / 3600, (sod / 60) % 60, sod % 60)
+}
+
+/// Seconds since the Unix epoch, UTC. `std::time::SystemTime::now()` traps
+/// at runtime on `wasm32-unknown-unknown` (no host clock import — confirmed:
+/// it compiles but the call itself is an `unreachable` trap), which is the
+/// target the web/touch/VS Code/Tauri UIs all run this crate as, so that
+/// target reads the JS `Date.now()` clock via `js-sys` instead.
+#[cfg(not(target_arch = "wasm32"))]
+fn now_unix_seconds() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn now_unix_seconds() -> i64 {
+    (js_sys::Date::now() / 1000.0) as i64
+}
+
+/// Days-since-1970-01-01 -> `(year, month, day)`, proleptic Gregorian
+/// calendar, UTC. Howard Hinnant's public-domain `civil_from_days`
+/// algorithm (http://howardhinnant.github.io/date_algorithms.html) — avoids
+/// pulling in a full date/timezone crate for one "seed the field with
+/// today's date" feature.
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64; // [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32; // [1, 31]
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32; // [1, 12]
+    let y = if m <= 2 { y + 1 } else { y };
+    (y, m, d)
 }
 
 /// Whether `AddKind` `k` names the same notation-independent kind as
@@ -407,5 +478,28 @@ fn add_kind_matches_node(k: &AddKind, nk: &NodeKind) -> bool {
         (AddKind::Array, NodeKind::Array) => true,
         (AddKind::Comment, NodeKind::Comment(_)) => true,
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::civil_from_days;
+
+    #[test]
+    fn civil_from_days_matches_known_dates() {
+        // (days since 1970-01-01, expected (y, m, d))
+        let cases: &[(i64, (i64, u32, u32))] = &[
+            (0, (1970, 1, 1)),
+            (1, (1970, 1, 2)),
+            (31, (1970, 2, 1)),
+            (365, (1971, 1, 1)),   // 1970 is not a leap year
+            (366, (1971, 1, 2)),
+            (-1, (1969, 12, 31)),
+            (-365, (1969, 1, 1)),
+            (20_000, (2024, 10, 4)),
+        ];
+        for &(days, expected) in cases {
+            assert_eq!(civil_from_days(days), expected, "days={days}");
+        }
     }
 }
