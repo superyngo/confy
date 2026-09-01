@@ -49,6 +49,10 @@ build if any of them disagree with the tag:
 Bump all four in the same release commit, before tagging. Never tag with only
 `Cargo.toml` updated.
 
+**Also update the MSIX Store listing's ReleaseNotes** at
+`crates/confy-tauri/msix/listings/listingData-9PLCJGQ3C654.csv` — set the `ReleaseNotes`
+column to describe the new version in the same release commit.
+
 ## Architecture
 
 **Lossless CST.** `CstDocument` (`model/cst_doc.rs`) holds a `taplo` parse → `rowan` syntax tree
