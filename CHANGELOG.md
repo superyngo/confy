@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.32.0] - 2026-09-01
+### Added
+- feat(add): type picker replaces copy-cursor-kind add-node
+- feat(web): PageUp/PageDown page the tree cursor (desktop + touch)
+
+### Fixed
+- fix(pointer): resolve drag/gesture drops through PasteSlot end to end (ADR 0010)
+- fix(add): seed datetimes with system clock; drop forced rename on container add
+- fix(desktop): disable Tauri native drag-drop to restore HTML5 dnd
+- fix(touch): scroll the tree to follow keyboard nav, including paste mode
+- fix(i18n): core.add.placeholder notice says F2, not e
+
+### Changed
+- ci(msstore): revert to auto-committing the Store submission
+
+### Docs
+- docs(debug): freeze the pointer-drop PasteSlot alignment probe into the repo
+- docs: RELEASES.md version updates for v0.31.1
+
 ### Unreleased Update — 2026-09-01T12:40:40Z
 - fix(i18n): the `core.add.placeholder` notice ("added placeholder node — rename with …")
   told the user to press `e` in both `en.json` and `zh-TW.json`, but the actual rename
