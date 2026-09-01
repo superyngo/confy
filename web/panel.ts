@@ -16,7 +16,7 @@
 //     `wireDetail` — are actually wired here.
 //   · Every `send(...)` result is inspected for `SessionSnapshot.notice` (Error severity);
 //     a non-empty error is surfaced via `onError` (no more silent failures).
-import type { ViewRow, Intent, SessionSnapshot, EditHint } from "./types";
+import type { ViewRow, Intent, SessionSnapshot, EditHint, Path } from "./types";
 import { escapeHtml as esc } from "./escape.js";
 import { isCommentRow, isPositional, valueHue } from "./kind-labels.js";
 import { t, tArgs } from "./i18n.js";
@@ -27,6 +27,64 @@ import { t, tArgs } from "./i18n.js";
 const MULTILINE_FORMATS = ["MultilineBasic", "MultilineLiteral", "LiteralBlock", "Folded"];
 function isMultilineValue(r: ViewRow): boolean {
   return MULTILINE_FORMATS.includes(r.format) || (r.value ?? "").includes("\n");
+}
+
+// Touch swipe-to-nudge over an *idle* (unfocused) Integer/Float value field
+// mirrors the desktop wheel / TUI arrow-key Nudge, without opening the
+// keyboard. Gated to pointerType==="touch" in the pointerdown handler below
+// so desktop mouse drag-to-select-text is untouched. State lives at module
+// scope, not inside `wirePanel`, because a mid-gesture `Nudge` dispatch
+// re-renders the panel and detaches the `<input>` the gesture started on —
+// see the "detaches this input" note above `wirePanel`'s field lookups.
+// `document`-level pointermove/up/cancel listeners (installed once, guarded
+// by `nudgeListenersWired`) keep tracking the same physical touch contact
+// across that DOM swap, mirroring `web/touch/app.ts`'s reorder/paste-drag
+// convention of reading live pointer coordinates rather than relying on
+// the original target element.
+const VALUE_NUDGE_DEADZONE_PX = 8; // matches touch/app.ts's existing tap-vs-drag dead zone
+const VALUE_NUDGE_STEP_PX = 24; // px of horizontal drag per one Nudge(±1)-equivalent step
+interface ValueNudgeGesture {
+  pointerId: number;
+  originX: number;
+  originY: number;
+  lastStep: number;
+  engaged: boolean;
+  path: Path;
+  fire: (intent: Intent) => void;
+}
+let nudgeGesture: ValueNudgeGesture | null = null;
+let nudgeListenersWired = false;
+function installValueNudgeListeners(): void {
+  if (nudgeListenersWired) return;
+  nudgeListenersWired = true;
+  document.addEventListener(
+    "pointermove",
+    (e) => {
+      if (!nudgeGesture || e.pointerId !== nudgeGesture.pointerId) return;
+      const dx = e.clientX - nudgeGesture.originX;
+      const dy = e.clientY - nudgeGesture.originY;
+      if (!nudgeGesture.engaged) {
+        if (Math.abs(dx) < VALUE_NUDGE_DEADZONE_PX || Math.abs(dx) < Math.abs(dy)) return;
+        nudgeGesture.engaged = true;
+      }
+      e.preventDefault();
+      const step = Math.trunc(dx / VALUE_NUDGE_STEP_PX);
+      if (step === nudgeGesture.lastStep) return;
+      const delta = step - nudgeGesture.lastStep;
+      nudgeGesture.lastStep = step;
+      const { path, fire } = nudgeGesture;
+      fire({ SetCursor: path });
+      fire({ Nudge: delta });
+    },
+    { passive: false },
+  );
+  const endGesture = (e: PointerEvent) => {
+    if (!nudgeGesture || e.pointerId !== nudgeGesture.pointerId) return;
+    if (nudgeGesture.engaged) e.preventDefault(); // swallow the trailing click/focus after a real drag
+    nudgeGesture = null;
+  };
+  document.addEventListener("pointerup", endGesture);
+  document.addEventListener("pointercancel", endGesture);
 }
 
 // Kind-notation glyph + value-hue lookups are shared (`kind-labels.ts`).
@@ -292,6 +350,27 @@ export function wirePanel(
         },
         { passive: false },
       );
+    }
+    // Touch: a horizontal drag starts the swipe-to-nudge gesture (see module-level
+    // state above `humanPath`). Bool excluded — it already has a dedicated
+    // true/false picker sheet on touch, and a bounded slide has no natural
+    // two-value mapping.
+    if (st === "Integer" || st === "Float") {
+      ve.style.touchAction = "pan-y"; // let vertical sheet/page scroll pass through natively; only horizontal is intercepted below
+      ve.addEventListener("pointerdown", (e) => {
+        if (e.pointerType !== "touch") return; // desktop mouse drag keeps native text selection
+        if (document.activeElement === ve) return; // already editing — don't hijack native caret/selection
+        installValueNudgeListeners();
+        nudgeGesture = {
+          pointerId: e.pointerId,
+          originX: e.clientX,
+          originY: e.clientY,
+          lastStep: 0,
+          engaged: false,
+          path,
+          fire,
+        };
+      });
     }
   }
   // Schema-enum picker select (active once BeginEdit resolves

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ## [Unreleased]
+### Unreleased Update — 2026-09-01T01:13:02Z
+- **feat(touch): swipe-to-nudge on Integer/Float value fields.** A horizontal
+  drag over an unfocused numeric value field in the detail panel now dispatches
+  the same `Nudge` intent as the desktop mouse-wheel and TUI `←/→` (24px of
+  drag per step, 8px dead zone before engaging, vertical scroll passes through
+  via `touch-action: pan-y`). Bool is excluded (dedicated true/false picker
+  sheet); tapping into the field first still gives native text
+  selection/caret behavior, untouched. `web/panel.ts` only (shared by both
+  desktop and touch hosts), gated on `pointerType === "touch"` so desktop
+  drag-to-select-text is unaffected.
+
 
 ## [v0.31.0] - 2026-08-31
 

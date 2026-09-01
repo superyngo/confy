@@ -290,7 +290,11 @@ shapes round-trip). Key types:
   `preventDefault` fires only over an adjustable value so other rows scroll normally. The keyboard
   `+`/`-` and `←`/`→` Nudge keys are unchanged. The **same wheel-adjust works on the shared
   panel's value field** (`web/panel.ts`), so it applies in the desktop Detail aside and the touch
-  edit sheet too. The shared panel is **editing-and-information only** (ADR 0009): it holds no
+  edit sheet too. On touch, the value field additionally supports **swipe-to-nudge**: a
+  horizontal drag over the field while it is *unfocused* dispatches the same `Nudge` intent
+  (24px of drag per step, 8px dead zone, `Integer`/`Float` only — `Bool` keeps its dedicated
+  true/false picker sheet instead); tapping into the field first still gives native text
+  selection, untouched. The shared panel is **editing-and-information only** (ADR 0009): it holds no
   Copy/Cut/Delete buttons — node operations live in the Action menu, and the panel's former
   `afterMutation` dismiss callback is gone. Panel **key/value edits are one-shot
   commits** (`CommitEdit`): success and failure both resolve back to the Detail panel (core
