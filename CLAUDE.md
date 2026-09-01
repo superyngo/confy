@@ -423,8 +423,13 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
                  getLang()/setLang() persisted in localStorage["confy-lang"]
   select.ts      pure pointer-selection logic → `SetSelection`/`SetCursor`: plain/⇧-range/
                  ⌘-toggle clicks (segmented additive range via an anchor+base snapshot) + marquee
-  dnd.ts         HTML5 grip drag-reparent → `MoveSelectionTo`: into-branch vs before/after sibling
-                 (`#dropLine`), self-subtree drop rejected
+  dnd.ts         HTML5 grip drag-reparent → `MoveSelectionTo {sources,slot,cut}`: the destination is
+                 core's `pointerSlot(path,relY)` verbatim (`Into` outline / `After` `#dropLine`),
+                 resolved by the same `slot_target` a keyboard Paste uses — no host-side
+                 parent/index or band threshold (ADR 0010); self-subtree drop rejected
+  slot-line.ts   `slotLineIndentPx()` — the one rule for an insertion line's indent, shared by the
+                 web drag/armed cues and touch's `.reorder-line`: `After(<expanded branch>)` inserts
+                 as its first child, so the line sits one `--indent` step deeper (as the TUI draws it)
   panel.ts       shared node detail/edit panel (`panelHTML`/`wirePanel`) — one module rendering
                  the desktop Detail aside AND the touch edit sheet identically (locked field order
                  Key/Value/Trailing comment/Kind/Path/Children/Sign); a panel input's Enter/Escape

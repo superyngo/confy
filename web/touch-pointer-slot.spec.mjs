@@ -60,16 +60,17 @@ check(
 const reorderBlock = appTs.match(/^function onReorderMove\([\s\S]*?\n\}/m)?.[0] ?? "";
 check("onReorderMove found in source", reorderBlock.length > 0);
 check(
-  "onReorderMove classifies via session?.pointerSlot(pathOf(hit)!, rel)",
-  /session\?\.pointerSlot\(pathOf\(hit\)!, rel\)/.test(reorderBlock),
+  "onReorderMove classifies via session?.pointerSlot(path, rel)",
+  /session\?\.pointerSlot\(path, rel\)/.test(reorderBlock),
 );
 check(
   'onReorderMove offers "into" only when the slot is Into ("Into" in slot)',
-  /"Into" in slot/.test(reorderBlock) && /reMode = "into"/.test(reorderBlock),
+  /"Into" in slot/.test(reorderBlock) && /reSlot = slot/.test(reorderBlock),
 );
 check(
-  "onReorderMove keeps the plain 0.5 before/after split when the slot declines",
-  /reMode = rel < 0\.5 \? "before" : "after"/.test(reorderBlock),
+  "onReorderMove positions line via slotLineIndentPx",
+  /reLine\.style\.left = `\$\{slotLineIndentPx\(rowEl, padPx\)\}px`/.test(reorderBlock) ||
+    /slotLineIndentPx/.test(reorderBlock),
 );
 check(
   "onReorderMove no longer hand-rolls thresholds (.branch / 0.28 / 0.72 gone)",
@@ -81,19 +82,26 @@ check(
 // close over (session/snap/treeEl, the reorder state machine, the tap
 // double-tap bookkeeping) and stubs the app helpers (send/selectOnly/...) to
 // record into globalThis hooks, so each block below can arm its own scenario.
-const fns = ["pathOf", "startsWith", "clearInto", "onReorderMove", "handleTap"]
+const fns = ["pathOf", "startsWith", "clearInto", "onReorderMove", "endReorder", "handleTap"]
   .map((n) => appTs.match(new RegExp(`^function ${n}\\([\\s\\S]*?\\n\\}`, "m"))?.[0])
   .map((s, i) => {
-    check(`${["pathOf", "startsWith", "clearInto", "onReorderMove", "handleTap"][i]} extracted verbatim`, !!s);
-    return s ?? `function ${["pathOf", "startsWith", "clearInto", "onReorderMove", "handleTap"][i]}() {}`;
+    check(`${["pathOf", "startsWith", "clearInto", "onReorderMove", "endReorder", "handleTap"][i]} extracted verbatim`, !!s);
+    return s ?? `function ${["pathOf", "startsWith", "clearInto", "onReorderMove", "endReorder", "handleTap"][i]}() {}`;
   });
 
 // Hook state must exist before the wrapper module below evaluates (its
 // send/selectOnly stubs capture `globalThis.__touchHooks` at eval time).
 const H = (globalThis.__touchHooks = { sent: [], ops: [] });
+globalThis.CSS = { escape: (s) => s };
+globalThis.getComputedStyle = (el) => ({
+  paddingLeft: el?._paddingLeft ?? "10px",
+  getPropertyValue: (prop) => (prop === "--indent" ? (el?._indentStep ?? "18px") : ""),
+});
 let mod = null;
 {
   const src = `import { resolveClick } from "./select.js";
+import { pathEq } from "./path-utils.js";
+import { slotLineIndentPx } from "./slot-line.js";
 let session = null;
 let snap = null;
 let treeEl = null;
@@ -105,9 +113,10 @@ let reLine = null;
 let reSrcPath = null;
 let reStartY = 0;
 let reMoved = false;
-let reTarget = null;
-let reMode = "before";
+let reSlot = null;
+let reRow = null;
 let reInto = null;
+let reordering = false;
 let edgeScrollY = 0;
 const H = globalThis.__touchHooks;
 const send = (i) => H.sent.push(i);
@@ -116,15 +125,17 @@ const selectOnly = (p) => H.ops.push("selectOnly " + JSON.stringify(p));
 const openPanel = (p) => H.ops.push("openPanel " + JSON.stringify(p));
 const toast = (m) => H.ops.push("toast " + m);
 const setDelRevealed = (m, on) => H.ops.push("setDelRevealed " + on);
+function renderPasteSlotCue(snap, slotOverride) {}
 export function setEnv(e) { session = e.session ?? session; snap = e.snap ?? snap; treeEl = e.treeEl ?? treeEl; }
 export function resetTap() { lastTapKey = null; lastTapTime = 0; }
-export function setReorder(l, p, y) { reLine = l; reSrcPath = p; reStartY = y; reMoved = true; reTarget = null; reMode = "before"; reInto = null; }
-export function reorderState() { return { reMode, reTarget, reInto }; }
+export function setReorder(l, p, y, r = null) { reLine = l; reSrcPath = p; reStartY = y; reMoved = true; reSlot = null; reInto = null; reRow = r; reordering = true; }
+export function reorderState() { return { reSlot, reInto }; }
 export ${fns[0]}
 export ${fns[1]}
 export ${fns[2]}
 export ${fns[3]}
 export ${fns[4]}
+export ${fns[5]}
 `;
   const built = await esbuild.build({
     stdin: { contents: src, resolveDir: here, loader: "ts" },
@@ -147,8 +158,11 @@ const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 function sessionStub(classify, captured) {
   return { pointerSlot: (path, relY) => { captured.push({ path, relY }); return classify(path, relY); } };
 }
-const rowAt = (key, top, height, classes = []) => {
+const rowAt = (key, top, height, classes = [], padPx = 10, indentStep = "18px") => {
   const live = new Set(classes);
+  const rowMain = {
+    _paddingLeft: `${padPx}px`,
+  };
   return {
     dataset: { path: JSON.stringify([{ Key: key }]) },
     classList: {
@@ -157,9 +171,10 @@ const rowAt = (key, top, height, classes = []) => {
       contains: (c) => live.has(c),
     },
     classes: live,
+    _indentStep: indentStep,
     getBoundingClientRect: () => ({ top, height, bottom: top + height }),
     offsetHeight: height,
-    querySelector: () => null,
+    querySelector: (sel) => (sel === ".row-main" ? rowMain : null),
   };
 };
 const PLAIN = { shiftKey: false, ctrlKey: false, metaKey: false };
@@ -303,70 +318,130 @@ console.log("\n-- disarmed tap + double-tap precedence --");
   );
 }
 
-console.log("\n-- reorder hover: into-eligibility from core pointerSlot --");
+console.log("\n-- reorder hover: into-eligibility and positioning from core pointerSlot --");
 {
   // Live class sets make the stale-cue checks below fail if clearInto() ever
   // goes missing from onReorderMove — the exact analog of the dnd.ts
   // clearOver() regression the Task 9 browser smoke test caught.
   const rowSrc = rowAt("src", 0, 40); // dragged row (excluded as a candidate)
-  const rowB = rowAt("b", 100, 40, ["branch"]); // .branch so the OLD hand-rolled path would fire
+  const rowB = rowAt("b", 100, 40, ["branch"]); // 10px pad
+  const rowBOpen = rowAt("b_open", 100, 40, ["branch", "open"], 10); // 10px pad + 18px indent
   const rowC = rowAt("c", 200, 40, ["branch"]);
-  const reLine = { style: { display: "", top: "" } };
+  const reLine = { style: { display: "", top: "", left: "" } };
+  const rows = [rowSrc, rowB, rowBOpen, rowC];
   const treeEl = {
-    querySelectorAll: (sel) => (sel === ".row" ? [rowSrc, rowB, rowC] : []),
+    querySelectorAll: (sel) => (sel === ".row" ? rows : []),
+    querySelector: (sel) => {
+      if (sel === ".reorder-line") return reLine;
+      const m = sel.match(/^\.row\[data-path='(.+)'\]$/);
+      return m ? (rows.find((r) => r.dataset.path === m[1]) ?? null) : null;
+    },
     getBoundingClientRect: () => ({ top: 0 }),
   };
   let slotFor = () => undefined; // what the stubbed core classifies
   const captured = [];
   mod.setEnv({
     treeEl,
-    session: sessionStub((p) => slotFor(p), captured),
+    session: sessionStub((p, relY) => slotFor(p, relY), captured),
   });
   const move = (y) => mod.onReorderMove(y);
+  const drop = () => mod.endReorder();
   const reset = () => {
-    mod.setReorder(reLine, [{ Key: "src" }], 0);
+    H.sent.length = 0;
+    mod.setReorder(reLine, [{ Key: "src" }], 0, rowSrc);
     rowB.classes.delete("drop-into");
+    rowBOpen.classes.delete("drop-into");
     rowC.classes.delete("drop-into");
     reLine.style.display = "";
+    reLine.style.top = "";
+    reLine.style.left = "";
   };
 
   reset();
   slotFor = () => ({ Into: [{ Key: "b" }] });
   move(120); // rel 0.5 on rowB — core's Into mid-band
   check(
-    "pointerSlot Into at mid-band -> reMode into + drop-into class, line hidden",
-    mod.reorderState().reMode === "into" && rowB.classes.has("drop-into") && reLine.style.display === "none",
+    "pointerSlot Into at mid-band -> reSlot into + drop-into class, line hidden",
+    eq(mod.reorderState().reSlot, { Into: [{ Key: "b" }] }) &&
+      rowB.classes.has("drop-into") &&
+      reLine.style.display === "none",
     JSON.stringify({ st: mod.reorderState(), display: reLine.style.display }),
   );
-  check("pointerSlot consulted with the hovered path and relY", captured.at(-1)?.relY === 0.5 && eq(captured.at(-1)?.path, [{ Key: "b" }]), JSON.stringify(captured.at(-1)));
+  check(
+    "pointerSlot consulted with the hovered path and relY",
+    captured.at(-1)?.relY === 0.5 && eq(captured.at(-1)?.path, [{ Key: "b" }]),
+    JSON.stringify(captured.at(-1)),
+  );
 
   reset();
-  // An inline table (`Format::Inline`): core answers After even mid-band. The
-  // old hand-rolled .branch/0.28/0.72 thresholds wrongly offered "into" here.
+  // An inline table (`Format::Inline`): core answers After even mid-band.
   slotFor = () => ({ After: [{ Key: "b" }] });
   move(120);
   check(
     "inline branch mid-band no longer offers into (core says After)",
-    mod.reorderState().reMode === "after" && !rowB.classes.has("drop-into") && reLine.style.display === "block",
+    eq(mod.reorderState().reSlot, { After: [{ Key: "b" }] }) &&
+      !rowB.classes.has("drop-into") &&
+      reLine.style.display === "block",
     JSON.stringify({ st: mod.reorderState(), display: reLine.style.display }),
   );
 
   reset();
-  slotFor = () => undefined; // path not visible — pointerSlot declines
-  move(105); // rel 0.125 -> before
-  check("declined slot keeps the plain 0.5 split (top -> before)", mod.reorderState().reMode === "before" && reLine.style.top === "100px", JSON.stringify({ st: mod.reorderState(), top: reLine.style.top }));
-  move(120); // rel 0.5 -> after
-  check("declined slot keeps the plain 0.5 split (mid -> after)", mod.reorderState().reMode === "after");
+  slotFor = () => ({ After: [{ Key: "b" }] });
+  move(135); // bottom-band on rowB (bottom is 140)
+  check(
+    "bottom-band hover yields line shown at row bottom edge",
+    reLine.style.display === "block" && reLine.style.top === "140px",
+    JSON.stringify({ display: reLine.style.display, top: reLine.style.top }),
+  );
+  check(
+    "line style.left uses row indent without extra indent on closed branch",
+    reLine.style.left === "10px",
+    reLine.style.left,
+  );
+
+  reset();
+  slotFor = () => ({ After: [{ Key: "b_open" }] });
+  move(135);
+  check(
+    "line style.left gains one --indent step on branch open row",
+    reLine.style.left === "28px",
+    reLine.style.left,
+  );
+
+  reset();
+  slotFor = () => undefined; // path not visible or unclassifiable — pointerSlot declines
+  move(105);
+  check(
+    "declined slot clears target and hides cues",
+    mod.reorderState().reSlot === null &&
+      reLine.style.display === "none" &&
+      !rowB.classes.has("drop-into"),
+    JSON.stringify({ st: mod.reorderState(), display: reLine.style.display }),
+  );
+  drop();
+  check("declined slot drop sends nothing", H.sent.length === 0, JSON.stringify(H.sent));
+
+  reset();
+  const destSlot = { After: [{ Key: "b" }] };
+  slotFor = () => destSlot;
+  move(135);
+  drop();
+  check(
+    "drop sends exactly MoveSelectionTo with sources and slot verbatim",
+    H.sent.length === 1 &&
+      eq(H.sent[0], { MoveSelectionTo: { sources: [[{ Key: "src" }]], slot: destSlot } }),
+    JSON.stringify(H.sent),
+  );
 
   reset();
   slotFor = (p) => (eq(p, [{ Key: "b" }]) ? { Into: [{ Key: "b" }] } : undefined);
   move(120); // into on B
   check("into on B arms the cue", rowB.classes.has("drop-into") && !rowC.classes.has("drop-into"));
-  move(220); // rel 0.5 on C, declined -> before/after: B's cue must be cleared
+  move(220); // rel 0.5 on C, declined -> B's cue must be cleared
   check(
     "hovering away clears the previous row's drop-into (clearInto kept)",
-    !rowB.classes.has("drop-into") && !rowC.classes.has("drop-into") && reLine.style.display === "block",
-    JSON.stringify({ b: [...rowB.classes], c: [...rowC.classes], display: reLine.style.display }),
+    !rowB.classes.has("drop-into") && !rowC.classes.has("drop-into"),
+    JSON.stringify({ b: [...rowB.classes], c: [...rowC.classes] }),
   );
   slotFor = () => ({ Into: [{ Key: "c" }] });
   move(220); // into on C — the reInto !== hit path must swap the cue

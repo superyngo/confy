@@ -1,13 +1,16 @@
-// Plain-Node test for dnd.ts's dragover into-eligibility routing (ADR 0004 §1,
-// Task 9): the "should this hover offer an Into drop" decision must come from
-// the injected core `pointerSlot(path, relY)` callback (Task 4's
-// `Session.pointerSlot`), replacing the hand-rolled `vr?.is_branch &&
-// vr.format !== "Inline"` copy — the exact drift point the ADR calls out, since
-// touch/app.ts's own copy had already diverged. Follows armed-paste.spec.mjs's
-// convention: no test framework, just a `check()` tally; dnd.ts is bundled via
-// esbuild and run against a minimal DOM shim, so the behavioral checks below
-// exercise the real shipped dragstart/dragover/drop handlers, and the wiring
-// checks verify ui.ts's call site structurally, same as TOOLBAR_ENTRIES.
+// Plain-Node test for dnd.ts's drop targeting (ADR 0004 §1 → ADR 0010): the
+// grip drag's destination must be the `PasteSlot` the injected core
+// `pointerSlot(path, relY)` returns — the WHOLE destination, not just the
+// into/not-into half. dnd.ts used to ask core only "is this hover an Into",
+// then hand-roll the rest as `parentOf(path)` + `siblingIndex(...) ± 1` with a
+// 0.5 split; that contradicted core on two counts (`After` an *expanded*
+// branch means its FIRST CHILD, and core's leaf boundary is 0.75), so a drag
+// and an armed paste released at the same pixel landed in different places.
+// Follows armed-paste.spec.mjs's convention: no test framework, just a
+// `check()` tally; dnd.ts is bundled via esbuild and run against a minimal DOM
+// shim, so the behavioral checks below exercise the real shipped
+// dragstart/dragover/drop handlers, and the wiring checks verify ui.ts's call
+// site structurally, same as TOOLBAR_ENTRIES.
 import path from "node:path";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -38,8 +41,17 @@ check(
   !/\bis_branch\b|format !== "Inline"/.test(dndTs),
 );
 check(
-  "dragover classifies via isInto(pointerSlot(path, rel))",
-  /isInto\(pointerSlot\(path, rel\)\)/.test(dndTs),
+  "dragover stores the slot core returned, with no local band arithmetic",
+  /slot = pointerSlot\(path, \(ev\.clientY - r\.top\) \/ r\.height\) \?\? null;/.test(dndTs),
+);
+check(
+  "dnd.ts no longer derives a parent/index (no siblingIndex / parentOf / 0.5 split)",
+  // Comments stripped: the file's header still *describes* the removed math.
+  !/siblingIndex|parentOf|rel < 0\.5/.test(dndTs.replace(/^\s*\/\/.*$/gm, "")),
+);
+check(
+  "drop hands the slot to MoveSelectionTo verbatim",
+  /send\(\{ MoveSelectionTo: \{ sources: src, slot: dest, cut \} \}\);/.test(dndTs),
 );
 check(
   "ui.ts wires session.pointerSlot as the 4th arg, cue-restore kept 5th",
@@ -106,14 +118,18 @@ const B = [{ Key: "b" }];
     addEventListener: (t, fn) => (listeners[t] ??= []).push(fn),
     querySelectorAll: (sel) =>
       sel === ".drag-over-into" ? liveRows.filter((r) => r.classes.has("drag-over-into")) : [],
-    querySelector: () => null,
+    // Real `data-path` lookup: the `After` line is drawn under the SLOT's row,
+    // which is not always the hovered one.
+    querySelector: (sel) => liveRows.find((r) => sel.includes(r.dataset.path)) ?? null,
   };
   globalThis.document = {
     getElementById: (id) =>
       id === "dropLine" ? dropLine : { getBoundingClientRect: () => ({ top: 0 }), scrollTop: 0 }, // treeWrap
   };
   globalThis.CSS = { escape: (s) => s };
-  const snap = { rows: [{ path: A }, { path: B }] }; // siblingIndex(A,B) => a=0, b=1
+  // `slotLineIndentPx` reads the live `--indent` step; Node has no CSSOM.
+  globalThis.getComputedStyle = () => ({ getPropertyValue: () => "22px" });
+  const snap = { rows: [{ path: A }, { path: B }] };
   const { installDnd: install } = await bundleTs("dnd.ts");
   install(
     treeEl,
@@ -139,7 +155,7 @@ const B = [{ Key: "b" }];
     JSON.stringify(slotCalls),
   );
 
-  console.log("\n-- pointerSlot Into → into-target drop (child append) --");
+  console.log("\n-- pointerSlot Into → into-target drop --");
   slot = { Into: B };
   ops.length = 0; // per-block history: the declined hover above already showed the line
   dragover(120);
@@ -147,36 +163,67 @@ const B = [{ Key: "b" }];
   check("Into classification withholds the dropLine", !ops.includes("dropLine.display=block"));
   drop();
   check(
-    "drop after Into sends MoveSelectionTo into the hovered path (last child)",
-    eq(lastSend(), { MoveSelectionTo: { sources: [A], target: B, index: 0, cut: true } }),
+    "drop after Into sends the Into slot verbatim — core resolves the index",
+    eq(lastSend(), { MoveSelectionTo: { sources: [A], slot: { Into: B }, cut: true } }),
     JSON.stringify(lastSend()),
   );
   check("drag lifecycle still fires the onDragEnd cue-restore hook", ops.includes("onDragEnd"));
 
-  console.log("\n-- pointerSlot declines → before/after sibling math untouched --");
+  console.log("\n-- pointerSlot After → the same slot, no sibling math --");
+  sent.length = 0;
+  ops.length = 0;
+  dragstart();
+  slot = { After: B };
+  dragover(120);
+  check("After classification shows the dropLine", ops.includes("dropLine.display=block"), JSON.stringify(ops));
+  check("After classification does not outline the row", !ops.includes("b add drag-over-into"));
+  check("line sits at the slot row's bottom edge", dropLine.style.top === "140px", JSON.stringify(dropLine.style));
+  check("line sits at the slot row's own indent + 8", dropLine.style.left === "32px", JSON.stringify(dropLine.style));
+  drop();
+  check(
+    "drop sends the After slot verbatim (no parent/index derived here)",
+    eq(lastSend(), { MoveSelectionTo: { sources: [A], slot: { After: B }, cut: true } }),
+    JSON.stringify(lastSend()),
+  );
+
+  // The slot's row can differ from the hovered row: core's top band resolves to
+  // the PRECEDING slot in `paste_slots()`'s flattened order, so the cue must
+  // follow the slot, not the pointer.
+  console.log("\n-- the line follows the slot's row, not the hovered row --");
+  ops.length = 0;
+  dragstart();
+  slot = { After: A }; // hovering rowB (top 100), slot points at rowA (top 0)
+  dragover(104);
+  check("line drawn under the slot's row A, not hovered row B", dropLine.style.top === "40px", JSON.stringify(dropLine.style));
+
+  // ADR 0010's visual half: `After(<expanded branch>)` inserts as that
+  // branch's first child, so the line belongs one level deeper.
+  console.log("\n-- After(expanded branch) indents the line one level deeper --");
+  ops.length = 0;
+  dragstart();
+  rowB.classes.add("branch");
+  rowB.classes.add("open");
+  slot = { After: B };
+  dragover(120);
+  check(
+    "expanded-branch line gains one --indent step (24 + 22 + 8)",
+    dropLine.style.left === "54px",
+    JSON.stringify(dropLine.style),
+  );
+  rowB.classes.delete("branch");
+  rowB.classes.delete("open");
+
+  console.log("\n-- an unclassifiable hover is not a drop target --");
   sent.length = 0;
   ops.length = 0;
   dragstart();
   slot = undefined;
-  dragover(120); // rel 0.5 → after
-  check("declined Into shows the dropLine instead", ops.includes("dropLine.display=block"), JSON.stringify(ops));
-  check("declined Into does not outline the row", !ops.includes("b add drag-over-into"));
+  dragover(120);
+  check("declined hover shows no line", !ops.includes("dropLine.display=block"), JSON.stringify(ops));
+  check("declined hover does not outline the row", !ops.includes("b add drag-over-into"));
   drop();
-  check(
-    "declined at rel 0.5 drops AFTER the hovered sibling (sib+1)",
-    eq(lastSend(), { MoveSelectionTo: { sources: [A], target: [], index: 2, cut: true } }),
-    JSON.stringify(lastSend()),
-  );
-  sent.length = 0;
-  ops.length = 0;
-  dragstart();
-  dragover(104); // rel 0.1 → before
-  drop();
-  check(
-    "top band (rel 0.1) still drops BEFORE the hovered sibling (sib)",
-    eq(lastSend(), { MoveSelectionTo: { sources: [A], target: [], index: 1, cut: true } }),
-    JSON.stringify(lastSend()),
-  );
+  check("declined hover sends nothing on drop", sent.length === 0, JSON.stringify(sent));
+  check("declined drop still runs the cue-restore hook", ops.includes("onDragEnd"));
 
   console.log("\n-- cross-hover cleanup (clearOver between hovers) --");
   ops.length = 0;
@@ -184,14 +231,14 @@ const B = [{ Key: "b" }];
   slot = { Into: B };
   dragover(120); // Into outlined
   check("Into hover outlines the row", rowB.classes.has("drag-over-into"));
-  slot = undefined;
-  dragover(120); // next hover declines — stale outline must not survive
+  slot = { After: B };
+  dragover(120); // next hover is an After — stale outline must not survive
   check(
-    "later declined hover clears the stale Into outline",
+    "later After hover clears the stale Into outline",
     !rowB.classes.has("drag-over-into"),
   );
-  check("clearOver hid the line before the else-branch redrew it", ops.includes("dropLine.display=none"));
-  check("declined hover leaves the line shown", dropLine.style.display === "block");
+  check("clearOver hid the line before the After branch redrew it", ops.includes("dropLine.display=none"));
+  check("After hover leaves the line shown", dropLine.style.display === "block");
   slot = { Into: B };
   dragover(120); // and back to Into — a previously shown line must not survive
   check("later Into hover hides the dropLine", dropLine.style.display === "none");

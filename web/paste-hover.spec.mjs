@@ -111,7 +111,8 @@ let setSession = null;
 let setSnap = null;
 let setEnv = null;
 if (confirmedMatch && cueMatch && hoverMatch) {
-  const src = `let session, snap, $, tree, rawView, CSS;
+  const src = `import { slotLineIndentPx } from "./slot-line.js";
+let session, snap, $, tree, rawView, CSS;
 export function setSession(s) { session = s; }
 export function setSnap(s) { snap = s; }
 export function setEnv(e) { $ = e.$; tree = e.tree; rawView = e.rawView; CSS = e.CSS; }
@@ -121,6 +122,10 @@ export ${hoverMatch[0]}
 `;
   const built = await esbuild.build({
     stdin: { contents: src, resolveDir: here, loader: "ts" },
+    // `bundle` inlines the real `slot-line.ts` the cues now call for their
+    // horizontal placement (ADR 0010) — the checks below exercise the shipped
+    // helper, not a stub.
+    bundle: true,
     write: false,
     format: "esm",
     target: "es2022",
@@ -220,6 +225,36 @@ console.log("\n-- hovering a row that classifies After --");
   check("After hover shows #dropLine", dropLine.style.display === "block");
   check("After hover positions the line at the row's bottom edge", dropLine.style.top === "140px", JSON.stringify(dropLine.style));
   check("Into row is left un-outlined", !rowB.classes.has("drag-over-into"));
+}
+
+// ADR 0010: `After(p)` on an *expanded branch* lands as p's FIRST CHILD
+// (core `resolve_target`), so the line must be drawn one indent level deeper —
+// the TUI has always done this (`paste_line_row`'s `row.depth + 1`); the web
+// cue used the row's own indent unconditionally and so pointed a level too
+// shallow at exactly the gap under an expanded `[table]`.
+console.log("\n-- After(expanded branch): the line indents one level deeper --");
+{
+  // `slotLineIndentPx` reads the live `--indent` step; Node has no CSSOM.
+  globalThis.getComputedStyle = () => ({ getPropertyValue: () => "22px" });
+  const leaf = mkRow(B, 100, 40); // `.indent` shim reports offsetWidth 24
+  const { dropLine } = freshEnv([leaf]);
+  setSnap({ clipboard_count: 1, cursor: [], paste_slot: undefined });
+  setSession(sessionStub({ After: B }, []));
+  onArmedPasteHover(evOn(leaf, 120));
+  check("leaf/collapsed row: line at the row's own indent + 8", dropLine.style.left === "32px", JSON.stringify(dropLine.style));
+
+  const branch = mkRow(B, 100, 40);
+  branch.classes.add("branch");
+  branch.classes.add("open");
+  const env2 = freshEnv([branch]);
+  setSnap({ clipboard_count: 1, cursor: [], paste_slot: undefined });
+  setSession(sessionStub({ After: B }, []));
+  onArmedPasteHover(evOn(branch, 120));
+  check(
+    "expanded branch: line indented one --indent step deeper (24 + 22 + 8)",
+    env2.dropLine.style.left === "54px",
+    JSON.stringify(env2.dropLine.style),
+  );
 }
 
 console.log("\n-- declined pointerSlot clears the hover cue (no fallback to the committed target) --");

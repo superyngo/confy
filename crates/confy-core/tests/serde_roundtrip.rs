@@ -72,8 +72,7 @@ fn intent_roundtrips() {
         },
         Intent::MoveSelectionTo {
             sources: vec![sample_path()],
-            target: vec![Seg::Key("dest".into())],
-            index: 2,
+            slot: PasteSlot::Into(vec![Seg::Key("dest".into())]),
             cut: false,
         },
         Intent::SetFilter("needle".into()),
@@ -90,8 +89,7 @@ fn move_selection_to_cut_defaults_to_true_when_omitted() {
     // Pre-ADR-0004 senders omit `cut` — the wire stays cut-only (ADR 0004 §1).
     let mut wire = serde_json::to_value(Intent::MoveSelectionTo {
         sources: vec![vec![Seg::Key("a".into())]],
-        target: vec![],
-        index: 0,
+        slot: PasteSlot::Into(vec![]),
         cut: true,
     })
     .expect("serialize");

@@ -300,7 +300,10 @@ export type Intent =
   | { CommitKind: { path: Path; target: string } }
   | { SetSelection: { paths: Path[] } }
   | { SetTrailing: { path: Path; comment: string | null } }
-  | { MoveSelectionTo: { sources: Path[]; target: Path; index: number; cut?: boolean } }
+  // Drag-drop / drag-reorder: the destination is the same `PasteSlot` an armed
+  // paste uses, resolved by core's `slot_target` (ADR 0010) — hosts no longer
+  // send a hand-derived parent/index.
+  | { MoveSelectionTo: { sources: Path[]; slot: PasteSlot; cut?: boolean } }
   // Selection
   | "ToggleSelect" | "ExtendSelectUp" | "ExtendSelectDown"
   // Filter

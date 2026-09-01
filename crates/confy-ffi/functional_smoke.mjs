@@ -203,14 +203,14 @@ check("SetSelection replaces + drops off-tree", snap9.rows.filter(r => r.selecte
 const s10 = new ConfySession("a = 1\n[t]\nx = 2\n", "toml");
 const aPath = s10.snapshot().rows.find(r => r.key === "a").path;
 const tPath = s10.snapshot().rows.find(r => r.key === "t").path;
-const snap10 = s10.dispatch({ MoveSelectionTo: { sources: [aPath], target: tPath, index: 0 } });
+const snap10 = s10.dispatch({ MoveSelectionTo: { sources: [aPath], slot: { Into: tPath } } });
 check("MoveSelectionTo succeeds (no error)", isNull(snap10.notice) || snap10.notice.severity !== "error", JSON.stringify(snap10.notice));
 check("MoveSelectionTo reparents a under [t]", s10.serialize().indexOf("a = 1") > s10.serialize().indexOf("[t]"), s10.serialize());
 // Drop into own subtree is rejected, document untouched.
 const s11 = new ConfySession("[t]\nx = 2\n", "toml");
 const before11 = s11.serialize();
 const tP = s11.snapshot().rows.find(r => r.key === "t").path;
-const snap11 = s11.dispatch({ MoveSelectionTo: { sources: [tP], target: [...tP, { Key: "x" }], index: 0 } });
+const snap11 = s11.dispatch({ MoveSelectionTo: { sources: [tP], slot: { Into: tP } } });
 check("MoveSelectionTo rejects self-subtree drop", !isNull(snap11.notice) && snap11.notice.severity === "warn");
 check("MoveSelectionTo leaves doc untouched on reject", s11.serialize() === before11);
 
@@ -502,6 +502,11 @@ check("about_text() mentions the GitHub repo", aboutText.includes("github.com/su
   check("pointer_slot collapsed-away child -> undefined",
     sp2.pointer_slot([{ Key: "t" }, { Key: "x" }], 0.5) === undefined);
   sp2.free();
+  const spInline = new ConfySession("t = { x = 1, y = 2 }\n", "toml");
+  const inlineTP = spInline.snapshot().rows.find((r) => r.key === "t").path;
+  check("pointer_slot mid-band on inline container -> Into",
+    same(spInline.pointer_slot(inlineTP, 0.5), "Into", inlineTP), JSON.stringify(spInline.pointer_slot(inlineTP, 0.5)));
+  spInline.free();
   // SetPasteSlot: arms the classifier's result; a stale (invisible) target is
   // ignored, mirroring SetCursor's guard.
   sp.dispatch({ SetSelection: { paths: [aP] } });

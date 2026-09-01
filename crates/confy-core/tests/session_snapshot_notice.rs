@@ -6,7 +6,7 @@
 use confy_core::model::any_doc::AnyDocument;
 use confy_core::model::document::DocFormat;
 use confy_core::model::node::Seg;
-use confy_core::session::{DiagLevel, Intent, NoticeSource, Session, Severity};
+use confy_core::session::{DiagLevel, Intent, NoticeSource, PasteSlot, Session, Severity};
 
 fn toml_session(src: &str) -> Session {
     let doc = AnyDocument::from_str_as(src, DocFormat::Toml).unwrap();
@@ -41,8 +41,7 @@ fn error_notice_occupies_error_not_status() {
     let mut s = toml_session("a = 1\nb = 2\n");
     let snap = s.dispatch(Intent::MoveSelectionTo {
         sources: vec![vec![Seg::Key("a".into())]],
-        target: vec![Seg::Key("b".into())], // scalar parent → illegal destination
-        index: 0,
+        slot: PasteSlot::Into(vec![Seg::Key("b".into())]), // scalar parent → illegal destination
         cut: true,
     });
     assert!(
@@ -137,8 +136,7 @@ fn dispatch_and_mutation_diag_taps_fire() {
     // And failure at Error, once an intent actually fails.
     s.dispatch(Intent::MoveSelectionTo {
         sources: vec![vec![Seg::Key("a".into())]],
-        target: vec![Seg::Key("b".into())], // scalar parent → illegal destination
-        index: 0,
+        slot: PasteSlot::Into(vec![Seg::Key("b".into())]), // scalar parent → illegal destination
         cut: true,
     });
     assert!(

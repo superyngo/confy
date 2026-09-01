@@ -50,6 +50,7 @@ import type { Lang } from "./i18n.js";
 import { resolveClick, resetAnchor, rowsInRect, setAnchor } from "./select.js";
 import { foldedEntries, type ToolbarEntry } from "./toolbar-fold.js";
 import { installDnd } from "./dnd.js";
+import { slotLineIndentPx } from "./slot-line.js";
 import { panelHTML, wirePanel, schemaHintText } from "./panel.js";
 import { renderCrumbs, wireCrumbDismiss } from "./breadcrumb.js";
 import { bindPromptClicks, promptButtonsHTML } from "./prompt.js";
@@ -380,7 +381,9 @@ function renderConfirmedPasteCue(snap: SessionSnapshot) {
   const wr = wrap.getBoundingClientRect();
   const indentW = (rowEl.querySelector(".indent") as HTMLElement | null)?.offsetWidth ?? 0;
   pasteTargetLine.style.top = `${r.bottom - wr.top + wrap.scrollTop}px`;
-  pasteTargetLine.style.left = `${indentW + 8}px`;
+  // `After(<expanded branch>)` inserts as that branch's first child, so the
+  // line belongs one level deeper — as the TUI has always drawn it (ADR 0010).
+  pasteTargetLine.style.left = `${slotLineIndentPx(rowEl, indentW) + 8}px`;
   pasteTargetLine.style.display = "block";
 }
 
@@ -423,7 +426,7 @@ function renderHoverCue(snap: SessionSnapshot, slot: PasteSlot | undefined) {
   const wr = wrap.getBoundingClientRect();
   const indentW = (rowEl.querySelector(".indent") as HTMLElement | null)?.offsetWidth ?? 0;
   dropLine.style.top = `${r.bottom - wr.top + wrap.scrollTop}px`;
-  dropLine.style.left = `${indentW + 8}px`;
+  dropLine.style.left = `${slotLineIndentPx(rowEl, indentW) + 8}px`;
   dropLine.style.display = "block";
 }
 

@@ -1222,8 +1222,7 @@ fn dispatch_move_selection_reparents_node() {
     let mut s = toml_session("a = 1\n[t]\nx = 2\n");
     let snap = s.dispatch(Intent::MoveSelectionTo {
         sources: vec![vec![Seg::Key("a".into())]],
-        target: vec![Seg::Key("t".into())],
-        index: 0,
+        slot: PasteSlot::Into(vec![Seg::Key("t".into())]),
         cut: true,
     });
     assert!(
@@ -1240,11 +1239,11 @@ fn dispatch_move_selection_reparents_node() {
 #[test]
 fn dispatch_move_selection_rejects_drop_into_own_subtree() {
     let mut s = toml_session("[t]\nx = 2\n");
+    s.expand_all();
     let before = s.serialize().unwrap();
     let snap = s.dispatch(Intent::MoveSelectionTo {
         sources: vec![vec![Seg::Key("t".into())]],
-        target: vec![Seg::Key("t".into()), Seg::Key("x".into())],
-        index: 0,
+        slot: PasteSlot::Into(vec![Seg::Key("t".into()), Seg::Key("x".into())]),
         cut: true,
     });
     // `core.move.self` is Warn per the §2.2 severity table — the rejection
@@ -1264,8 +1263,7 @@ fn dispatch_move_selection_failure_does_not_arm_cut_clipboard() {
     let mut s = toml_session("a = 1\nb = 2\n");
     let snap = s.dispatch(Intent::MoveSelectionTo {
         sources: vec![vec![Seg::Key("a".into())]],
-        target: vec![Seg::Key("b".into())], // scalar parent → illegal destination
-        index: 0,
+        slot: PasteSlot::Into(vec![Seg::Key("b".into())]), // scalar parent → illegal destination
         cut: true,
     });
     assert!(snap.error_text().is_some(), "move into a scalar must fail");
@@ -1283,8 +1281,7 @@ fn dispatch_move_selection_reorders_within_parent() {
     let mut s = toml_session("a = 1\nb = 2\nc = 3\n");
     s.dispatch(Intent::MoveSelectionTo {
         sources: vec![vec![Seg::Key("a".into())]],
-        target: vec![],
-        index: 2,
+        slot: PasteSlot::After(vec![Seg::Key("b".into())]),
         cut: true,
     });
     let t = s.serialize().unwrap();
@@ -1305,8 +1302,7 @@ fn dispatch_move_selection_down_keeps_cursor_on_moved_node() {
     let mut s = toml_session("a = 1\nb = 2\nc = 3\n");
     let snap = s.dispatch(Intent::MoveSelectionTo {
         sources: vec![vec![Seg::Key("a".into())]],
-        target: vec![],
-        index: 2, // after 'b' → order becomes b, a, c
+        slot: PasteSlot::After(vec![Seg::Key("b".into())]),
         cut: true,
     });
     assert!(
@@ -1337,11 +1333,10 @@ fn dispatch_move_comment_down_keeps_cursor_on_moved_comment() {
     // up by the removed comment too, but the cursor-shift math only accounted
     // for node sources — so the moved comment's next row got cursored.
     let mut s = toml_session("# note\na = 1\nb = 2\n");
-    // The comment is positional index 0; move it down to after 'b' (index 2).
+    // Move the comment down to after 'a'.
     let snap = s.dispatch(Intent::MoveSelectionTo {
         sources: vec![vec![Seg::Index(0)]],
-        target: vec![],
-        index: 2,
+        slot: PasteSlot::After(vec![Seg::Key("a".into())]),
         cut: true,
     });
     assert!(
@@ -1372,8 +1367,7 @@ fn dispatch_move_comment_into_collapsed_table_lands_inside() {
     let mut s = toml_session("# note\n[t]\nx = 2\n[u]\nz = 9\n");
     let snap = s.dispatch(Intent::MoveSelectionTo {
         sources: vec![vec![Seg::Index(0)]],
-        target: vec![Seg::Key("t".into())],
-        index: 1, // child_count of [t]
+        slot: PasteSlot::Into(vec![Seg::Key("t".into())]),
         cut: true,
     });
     assert!(
@@ -1413,7 +1407,7 @@ fn move_selection_to_with_cut_false_copies_instead_of_moving() {
     s.expand_all();
     let ax = vec![Seg::Key("a".into()), Seg::Key("x".into())];
     let b = vec![Seg::Key("b".into())];
-    s.move_selection_to(vec![ax.clone()], b.clone(), 1, false);
+    s.move_selection_to(vec![ax.clone()], PasteSlot::Into(b.clone()), false);
     assert!(
         s.snapshot().error_text().is_none(),
         "copy-drag should succeed: {:?}",
@@ -1427,6 +1421,99 @@ fn move_selection_to_with_cut_false_copies_instead_of_moving() {
     // Destination gained the copy.
     let bx = vec![Seg::Key("b".into()), Seg::Key("x".into())];
     assert!(s.tree.node_at(&bx).is_some(), "`b` must gain a copy of `x`");
+}
+
+#[test]
+fn move_selection_to_after_an_expanded_branch_lands_as_its_first_child() {
+    let mut s = toml_session("a = 1\n[b]\nc = 2\nd = 3\n[e]\nf = 4\n");
+    s.expand_all();
+    let a = vec![Seg::Key("a".into())];
+    let b = vec![Seg::Key("b".into())];
+    let slot = s.pointer_slot(&b, 0.9).unwrap();
+    // Pre-ADR host math sent `target: [], index: 2` here and got
+    // `core.paste.error` with the document untouched.
+    let snap = s.dispatch(Intent::MoveSelectionTo {
+        sources: vec![a],
+        slot,
+        cut: true,
+    });
+    assert!(
+        snap.error_text().is_none(),
+        "move should succeed: {:?}",
+        snap.error_text()
+    );
+    let text = s.serialize().unwrap();
+    assert_eq!(text, "[b]\na = 1\nc = 2\nd = 3\n[e]\nf = 4\n");
+}
+
+#[test]
+fn move_selection_to_and_paste_agree_for_every_pointer_band() {
+    let fixture = "a = 1\n[b]\nc = 2\nd = 3\n[e]\nf = 4\n";
+    let a = vec![Seg::Key("a".into())];
+    let probe = {
+        let mut s = toml_session(fixture);
+        s.expand_all();
+        s.visible_rows()
+            .iter()
+            .map(|r| r.path.clone())
+            .filter(|p| p != &a && !p.is_empty())
+            .collect::<Vec<_>>()
+    };
+    let bands = [0.1_f32, 0.5_f32, 0.9_f32];
+
+    for path in probe {
+        for &rel_y in &bands {
+            let mut s_move = toml_session(fixture);
+            s_move.expand_all();
+            let slot = s_move
+                .pointer_slot(&path, rel_y)
+                .unwrap_or_else(|| panic!("slot for {path:?} at {rel_y}"));
+            s_move.dispatch(Intent::MoveSelectionTo {
+                sources: vec![a.clone()],
+                slot: slot.clone(),
+                cut: true,
+            });
+            let text_move = s_move.serialize().unwrap();
+
+            let mut s_paste = toml_session(fixture);
+            s_paste.expand_all();
+            s_paste.set_selection(vec![a.clone()]);
+            s_paste.dispatch(Intent::CutSelected);
+            s_paste.dispatch(Intent::SetPasteSlot(slot.clone()));
+            s_paste.dispatch(Intent::Paste);
+            let text_paste = s_paste.serialize().unwrap();
+
+            assert_eq!(
+                text_move, text_paste,
+                "MoveSelectionTo and Cut+Paste disagreed for target {path:?} rel_y={rel_y} slot={slot:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn move_selection_to_ignores_a_slot_whose_row_is_not_visible() {
+    let mut s = toml_session("a = 1\n[b]\nc = 2\n");
+    // `b` is collapsed by default; `c` is not visible.
+    let before = s.serialize().unwrap();
+    let a = vec![Seg::Key("a".into())];
+    let c = vec![Seg::Key("b".into()), Seg::Key("c".into())];
+    let snap = s.dispatch(Intent::MoveSelectionTo {
+        sources: vec![a.clone()],
+        slot: PasteSlot::After(c),
+        cut: true,
+    });
+    assert!(snap.notice.is_none(), "no notice when slot is not visible");
+    assert_eq!(s.serialize().unwrap(), before, "document untouched");
+
+    let nonexistent = vec![Seg::Key("nonexistent".into())];
+    let snap2 = s.dispatch(Intent::MoveSelectionTo {
+        sources: vec![a],
+        slot: PasteSlot::Into(nonexistent),
+        cut: true,
+    });
+    assert!(snap2.notice.is_none(), "no notice when slot row does not exist");
+    assert_eq!(s.serialize().unwrap(), before, "document untouched");
 }
 
 #[test]
@@ -2424,16 +2511,29 @@ fn pointer_slot_top_band_skips_into_an_expanded_previous_sibling() {
 }
 
 #[test]
-fn pointer_slot_withholds_into_for_a_single_line_inline_container() {
+fn pointer_slot_offers_into_for_an_inline_container() {
     let s = toml_session("t = { x = 1, y = 2 }\n");
     let t = vec![Seg::Key("t".into())];
     assert_eq!(s.tree.node_at(&t).map(|n| n.format), Some(Format::Inline));
-    // Mid-band would normally be Into, but a `Format::Inline` branch has no
-    // "insert into" drop zone (mirrors the existing web `dnd.ts` comment) —
-    // falls through to After.
-    assert_eq!(s.pointer_slot(&t, 0.5), Some(PasteSlot::After(t.clone())));
+    assert_eq!(s.pointer_slot(&t, 0.5), Some(PasteSlot::Into(t.clone())));
+    assert_eq!(s.pointer_slot(&t, 0.9), Some(PasteSlot::After(t.clone())));
 }
 
+#[test]
+fn paste_into_an_inline_container_targeted_by_pointer_slot_succeeds() {
+    let mut s = toml_session("t = { x = 1 }\nk = 9\n");
+    let t = vec![Seg::Key("t".into())];
+    let k = vec![Seg::Key("k".into())];
+    s.set_selection(vec![k]);
+    s.dispatch(Intent::CopySelected);
+    let slot = s.pointer_slot(&t, 0.5).expect("pointer slot for t");
+    let snap = s.dispatch(Intent::SetPasteSlot(slot));
+    assert!(snap.error_text().is_none());
+    let snap = s.dispatch(Intent::Paste);
+    assert!(snap.error_text().is_none());
+    let text = s.serialize().unwrap();
+    assert_eq!(text, "t = { x = 1, k = 9 }\nk = 9\n");
+}
 #[test]
 fn set_paste_slot_ignores_a_slot_whose_path_is_not_visible() {
     let mut s = toml_session("a = 1\n[b]\nc = 2\n");

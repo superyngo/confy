@@ -5,7 +5,7 @@
 use crate::model::document::{ConfigDocument, MutateError, Mutation, OnCollision, Target};
 use crate::model::node::{NodeKind, Path};
 use crate::session::notice::Notice;
-use crate::session::state::{Clipboard, Mode, PromptKind};
+use crate::session::state::{Clipboard, Mode, PasteSlot, PromptKind};
 
 use super::session::Session;
 
@@ -156,15 +156,24 @@ impl Session {
         self.do_paste(cb, target, OnCollision::Cancel, false);
     }
 
-    /// Drag-reparent (Web UI): move (or, with `cut: false`, copy) `sources`
-    /// into `target` at child `index`. Implemented as a one-shot cut/copy→paste
-    /// so it reuses `do_paste`'s entire collision / illegal-destination /
-    /// array-upgrade machinery (a real `Mutation::Move`/`Insert` under the
-    /// hood) — the same primitive `Target` + `cut` -> `do_paste` a keyboard
-    /// Copy → position → Paste sequence uses (ADR 0004 §1). A drop onto a
-    /// source or into its own subtree is rejected; the document is untouched
-    /// on any failure.
-    pub fn move_selection_to(&mut self, sources: Vec<Path>, target: Path, index: usize, cut: bool) {
+    /// Drag-reparent / drag-reorder (Web mouse grip, touch grip): move (or,
+    /// with `cut: false`, copy) `sources` to `slot`. Implemented as a one-shot
+    /// cut/copy→paste so it reuses `do_paste`'s entire collision /
+    /// illegal-destination / array-upgrade machinery (a real
+    /// `Mutation::Move`/`Insert` under the hood).
+    ///
+    /// The destination arrives as a `PasteSlot` and is resolved by the same
+    /// `slot_target` a keyboard `Paste` uses (ADR 0010) — *not* as a
+    /// host-computed `parent`/`index`. That equality is the point: pointer
+    /// hosts used to hand-roll "before/after this row means a sibling in its
+    /// parent", which contradicted `resolve_target`'s rule that `After` an
+    /// *expanded* branch means that branch's **first child**, so dragging into
+    /// the gap under an expanded `[table]` aimed one level too shallow (in
+    /// TOML, usually straight into a `core.paste.error`) while an armed paste
+    /// released at the very same pixel landed inside. A drop onto a source or
+    /// into its own subtree is rejected; the document is untouched on any
+    /// failure, and a slot whose row is no longer visible is ignored.
+    pub fn move_selection_to(&mut self, sources: Vec<Path>, slot: PasteSlot, cut: bool) {
         if self.guard_clipboard_locked() {
             return;
         }
@@ -175,9 +184,15 @@ impl Session {
         if sources.is_empty() {
             return;
         }
+        // One resolution point, shared with `paste()` — a stale slot (row
+        // collapsed/scrolled away between the drop and dispatch) is dropped
+        // silently, like `set_paste_slot`'s visibility guard.
+        let Some(tgt) = self.slot_target(slot) else {
+            return;
+        };
         if sources
             .iter()
-            .any(|s| target == *s || (target.len() > s.len() && target.starts_with(s)))
+            .any(|s| tgt.parent == *s || (tgt.parent.len() > s.len() && tgt.parent.starts_with(s)))
         {
             self.set_notice(Notice::core(self.lang, "core.move.self", &[]));
             return;
@@ -193,10 +208,6 @@ impl Session {
             fragments,
             cut,
             sources,
-        };
-        let tgt = Target {
-            parent: target,
-            index,
         };
         // `do_paste`'s failure contract restores its clipboard — but this one was
         // synthesized for the drag (cut:true), so a failed drop would leave the UI

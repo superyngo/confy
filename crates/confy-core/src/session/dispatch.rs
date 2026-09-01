@@ -94,12 +94,9 @@ impl super::Session {
             Intent::CommitKind { path, target } => self.commit_kind(path, target),
             Intent::SetSelection { paths } => self.set_selection(paths),
             Intent::SetTrailing { path, comment } => self.set_trailing_comment(path, comment),
-            Intent::MoveSelectionTo {
-                sources,
-                target,
-                index,
-                cut,
-            } => self.move_selection_to(sources, target, index, cut),
+            Intent::MoveSelectionTo { sources, slot, cut } => {
+                self.move_selection_to(sources, slot, cut)
+            }
 
             // ---- Selection ----
             Intent::ToggleSelect => self.toggle_select(),

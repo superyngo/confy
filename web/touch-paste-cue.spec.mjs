@@ -57,16 +57,20 @@ fns.forEach((s, i) => check(`${NAMES[i]} extracted verbatim`, !!s));
 
 const H = (globalThis.__touchHooks = { sent: [] });
 globalThis.CSS = { escape: (s) => s };
+globalThis.getComputedStyle = (el) => ({
+  paddingLeft: el?._paddingLeft ?? "10px",
+  getPropertyValue: (prop) => (prop === "--indent" ? (el?._indentStep ?? "18px") : ""),
+});
 let mod = null;
 {
-  const src = `import { parentOf, pathEq, siblingIndex } from "./path-utils.js";
+  const src = `import { parentOf, pathEq } from "./path-utils.js";
+import { slotLineIndentPx } from "./slot-line.js";
 let snap = null;
 let treeEl = null;
 let reordering = false;
 let reRow = null;
 let reMoved = false;
-let reTarget = null;
-let reMode = "before";
+let reSlot = null;
 let reInto = null;
 let reLine = null;
 let reSrcPath = null;
@@ -80,8 +84,7 @@ export function setReorderState(s) {
   if ("reordering" in s) reordering = s.reordering;
   if ("reRow" in s) reRow = s.reRow;
   if ("reMoved" in s) reMoved = s.reMoved;
-  if ("reTarget" in s) reTarget = s.reTarget;
-  if ("reMode" in s) reMode = s.reMode;
+  if ("reSlot" in s) reSlot = s.reSlot;
   if ("reInto" in s) reInto = s.reInto;
   if ("reLine" in s) reLine = s.reLine;
   if ("reSrcPath" in s) reSrcPath = s.reSrcPath;
@@ -108,8 +111,11 @@ export ${fns[4]}
 // into a shared `ops` list (so restore-after-wipe ORDER, not just end state,
 // is provable — the exact defect class Task 8 found in desktop's dnd.ts). The
 // reorder-line's `style` similarly logs every property write. No jsdom.
-function mkRow(key, top, height, ops) {
-  const live = new Set();
+function mkRow(key, top, height, ops, classes = [], padPx = 10, indentStep = "18px") {
+  const live = new Set(classes);
+  const rowMain = {
+    _paddingLeft: `${padPx}px`,
+  };
   return {
     dataset: { path: JSON.stringify([{ Key: key }]) },
     classList: {
@@ -121,9 +127,12 @@ function mkRow(key, top, height, ops) {
         live.delete(c);
         ops.push(`remove ${c} ${key}`);
       },
+      contains: (c) => live.has(c),
     },
     classes: live,
+    _indentStep: indentStep,
     getBoundingClientRect: () => ({ top, height, bottom: top + height }),
+    querySelector: (sel) => (sel === ".row-main" ? rowMain : null),
   };
 }
 function mkReorderLine(ops) {
@@ -168,13 +177,17 @@ console.log("\n-- renderPasteSlotCue(): After/Into positioning --");
 }
 {
   const ops = [];
-  const rowB = mkRow("b", 100, 40, ops);
+  const rowB = mkRow("b", 100, 40, ops, [], 10);
+  const rowBOpen = mkRow("b_open", 100, 40, ops, ["branch", "open"], 10);
   const reorderLine = mkReorderLine(ops);
   mod.setReorderState({ reordering: false });
-  mod.setEnv({ treeEl: mkTreeEl([rowB], reorderLine) });
+  mod.setEnv({ treeEl: mkTreeEl([rowB, rowBOpen], reorderLine) });
   mod.renderPasteSlotCue({ paste_slot: { After: [{ Key: "b" }] } });
   check("After slot shows the reorder-line", reorderLine.style.display === "block");
   check("After slot positions the line at the row's bottom", reorderLine.style.top === "140px", reorderLine.style.top);
+  check("After slot on plain row keeps row indent", reorderLine.style.left === "10px", reorderLine.style.left);
+  mod.renderPasteSlotCue({ paste_slot: { After: [{ Key: "b_open" }] } });
+  check("After slot on expanded branch indents line one level deeper", reorderLine.style.left === "28px", reorderLine.style.left);
 }
 {
   const ops = [];
@@ -224,7 +237,7 @@ console.log("\n-- endReorder(): restores the armed cue its own cleanup wipes --"
   mod.setReorderState({
     reordering: true,
     reMoved: false,
-    reTarget: null,
+    reSlot: null,
     reSrcPath: [{ Key: "other" }],
     reLine: reorderLine,
     reRow: rowX,
@@ -259,8 +272,7 @@ console.log("\n-- endReorder(): restores the armed cue its own cleanup wipes --"
   mod.setReorderState({
     reordering: true,
     reMoved: true,
-    reTarget: rowY,
-    reMode: "into",
+    reSlot: { Into: [{ Key: "y" }] },
     reSrcPath: [{ Key: "y" }], // same path as the hovered target -> self-drag
     reLine: reorderLine,
     reRow: rowY,
@@ -292,7 +304,7 @@ console.log("\n-- endReorder(): restores the armed cue its own cleanup wipes --"
   mod.setReorderState({
     reordering: true,
     reMoved: false,
-    reTarget: null,
+    reSlot: null,
     reSrcPath: [{ Key: "z" }],
     reLine: reorderLine,
     reRow: rowZ,
@@ -317,8 +329,7 @@ console.log("\n-- endReorder(): restores the armed cue its own cleanup wipes --"
   mod.setReorderState({
     reordering: true,
     reMoved: true,
-    reTarget: rowB2,
-    reMode: "after",
+    reSlot: { After: [{ Key: "b2" }] },
     reSrcPath: [{ Key: "a" }],
     reLine: reorderLine,
     reRow: rowA,

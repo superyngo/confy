@@ -3,7 +3,7 @@
 use confy_core::model::any_doc::AnyDocument;
 use confy_core::model::document::DocFormat;
 use confy_core::model::node::Seg;
-use confy_core::session::{Intent, Mode, Session};
+use confy_core::session::{Intent, Mode, PasteSlot, Session};
 
 fn armed_session() -> Session {
     // A TOML doc with at least two scalar keys so copy/cut is meaningful.
@@ -232,11 +232,11 @@ fn enter_help_locked_while_clipboard_armed() {
 fn move_selection_to_locked_while_clipboard_armed() {
     let mut s = armed_session_with_table();
     let keys_before: Vec<String> = s.visible_rows().iter().map(|r| r.key.clone()).collect();
-    let target = vec![];
+    // The lock guard fires before the slot is resolved at all (ADR 0010's
+    // `MoveSelectionTo` carries a `PasteSlot`, not a parent/index).
     s.move_selection_to(
         vec![vec![Seg::Key("server".into()), Seg::Key("port".into())]],
-        target,
-        0,
+        PasteSlot::Into(vec![]),
         true,
     );
     let keys_after: Vec<String> = s.visible_rows().iter().map(|r| r.key.clone()).collect();

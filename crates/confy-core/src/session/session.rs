@@ -725,29 +725,33 @@ impl Session {
     /// instead of each hand-rolling its own 0.25/0.75 band threshold (ADR
     /// 0004 §1). `None` if `path` is not currently visible.
     ///
-    /// Mid-band (`0.25..0.75`) on a branch whose `format != Format::Inline`
-    /// (a single-line container has no meaningful "insert into" drop zone) ->
-    /// `Into(path)`; an inline branch's whole lower half falls through to
-    /// `After(path)`. Bottom band -> `After(path)`. Top band resolves to the
-    /// slot immediately preceding this row's own slot(s) in `paste_slots()`'s
-    /// flattened order — **not** a tree-sibling computation: for an expanded
-    /// branch, `After(that branch)` means "its first child" (`resolve_target`),
-    /// so the row before an expanded branch's *next sibling* is that branch's
-    /// *last descendant*, not the branch itself. Reusing `paste_slots()`
-    /// directly (rather than re-deriving sibling/parent indices by hand)
-    /// keeps this provably in sync with the TUI's own arrow-key stepping.
+    /// Mid-band (`0.25..0.75`) on **any** branch -> `Into(path)`; bottom band
+    /// (`>= 0.75`) -> `After(path)`. Top band resolves to the slot immediately
+    /// preceding this row's own slot(s) in `paste_slots()`'s flattened order —
+    /// **not** a tree-sibling computation: for an expanded branch,
+    /// `After(that branch)` means "its first child" (`resolve_target`), so the
+    /// row before an expanded branch's *next sibling* is that branch's *last
+    /// descendant*, not the branch itself. Reusing `paste_slots()` directly
+    /// (rather than re-deriving sibling/parent indices by hand) keeps this
+    /// provably in sync with the TUI's own arrow-key stepping.
+    ///
+    /// A single-line container (`Format::Inline`: TOML inline table/array,
+    /// YAML flow collection) used to be denied its `Into` band. That made the
+    /// pointer the *only* surface unable to aim at a target the keyboard
+    /// offers (`paste_slots()` emits `Into` for every branch) and core
+    /// accepts (`t = { x = 1 }` + `Into(t)` pastes to `t = { x = 1, k = 9 }`),
+    /// and it was self-inconsistent: a *collapsed* multi-line branch — equally
+    /// one row with equally invisible children — kept its `Into` band. Dropped
+    /// in ADR 0010.
     pub fn pointer_slot(&self, path: &Path, rel_y: f32) -> Option<PasteSlot> {
         let row = self
             .visible_nodes()
             .into_iter()
             .find(|r| &r.node.path == path)?;
-        let into_eligible = row.node.is_branch() && row.node.format != Format::Inline;
-        if into_eligible && rel_y > 0.25 && rel_y < 0.75 {
+        if row.node.is_branch() && rel_y > 0.25 && rel_y < 0.75 {
             return Some(PasteSlot::Into(path.clone()));
         }
-        // Bottom band — and the whole lower half of an inline branch, which
-        // has no "insert into" drop zone — is `After` this row.
-        if rel_y >= 0.75 || (row.node.is_branch() && rel_y > 0.25) {
+        if rel_y >= 0.75 {
             return Some(PasteSlot::After(path.clone()));
         }
         let slots = self.paste_slots();

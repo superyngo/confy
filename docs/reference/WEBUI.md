@@ -108,8 +108,9 @@ shapes round-trip). Key types:
   pointer gesture** to one `Intent`. The web-native UI adds a set of purely-additive
   **batch intents** that take a whole value at once (the pointer analogue of the
   incremental keyboard intents), each reusing existing core machinery and needing no FFI
-  plumbing: `SetCursor(Path)`, `SetSelection {paths}`, `MoveSelectionTo {sources,target,
-  index}` (drag-reparent — a one-shot cut→paste reusing `Mutation::Move`),
+  plumbing: `SetCursor(Path)`, `SetSelection {paths}`, `MoveSelectionTo {sources,slot,cut}`
+  (grip drag-reparent — a one-shot cut/copy→paste reusing `Mutation::Move`, its `PasteSlot`
+  resolved by the same `slot_target` a keyboard `Paste` uses, ADR 0010),
   `CommitEdit {value?,name?}`, `CommitKind {path,target}`, `SetFilter(String)`,
   `SetConvertFormat(DocFormat)`, `SetConvertPath(String)`.
 - **`SessionSnapshot`** — full renderable state: `mode: ModeView`, `rows: ViewRow[]`,
@@ -193,11 +194,15 @@ shapes round-trip). Key types:
   Navigation keys (`←→↑↓`, Home/End, Space) `preventDefault` so the browser's native
   arrow-scroll can't drag the off-canvas detail panel into view (`.main` is also
   `overflow:hidden` as a backstop).
-- **Drag-reparent (`dnd.ts`).** HTML5 grip drag → `MoveSelectionTo`: `dragover` computes
-  whether the pointer is over a branch's middle (drop **into** it, `.drag-over-into`) or a
-  gap (drop before/after a sibling, shown by a horizontal `#dropLine`); a self-subtree drop
-  is rejected. Sibling index is the child's visible position (== core's full-child index);
-  core's `Move` self-adjusts for removed earlier siblings, so feed original indices.
+- **Drag-reparent (`dnd.ts`).** HTML5 grip drag → `MoveSelectionTo`. `dragover` asks core
+  `pointerSlot(path, relY)` for the destination and keeps that `PasteSlot` verbatim — a
+  branch mid-band is `Into` (`.drag-over-into` outline), anything else is `After(p)`
+  (horizontal `#dropLine` under `p`'s row, one indent step deeper when `p` is an expanded
+  branch, since that slot inserts as its first child — `slot-line.ts`). `drop` sends the slot
+  as-is; core resolves it with `slot_target`, the same call an armed keyboard `Paste` makes,
+  so a drag and a paste released at the same pixel always land together (ADR 0010). The host
+  derives no parent/index and no band threshold of its own; a self-subtree drop, a collision
+  and an illegal destination are rejected by `do_paste` with the document untouched.
 - **Inline edit / kind / context.** Clicking a value → a live `<input>` (seeded from the
   edit buffer, Enter/blur → `CommitEdit`, **sized to its content** — `editWidthCh` seeds a
   `width:…ch` and an `input` listener grows it while typing, CSS min/max-width clamping);
@@ -438,10 +443,10 @@ edits to the verbatim desktop CSS.
   keyboard, Surface, Chromebook, touchscreen laptops), since `PointerEvent.ctrlKey/shiftKey/
   metaKey` reflect real held keys and are unset on pure touch — a plain tap is unaffected (still
   a single-row `SetSelection`, and resets the anchor).
-- grip drag (ported pointer geometry, before/after/into + `.reorder-line`/`.drop-into`) →
-  `MoveSelectionTo {sources,target,index}` (sibling index = visible position, as in `dnd.ts`;
-  the dragged row's own subtree is excluded from drop candidates by path-prefix). Swipe is gone;
-  reorder is grip-only.
+- grip drag (`pointerSlot`-classified, `Into`/`After` + `.reorder-line`/`.drop-into`) →
+  `MoveSelectionTo {sources,slot}` — the same core-resolved slot desktop's `dnd.ts` sends, with
+  the same `slot-line.ts` indent rule for the line (the dragged row's own subtree is excluded
+  from drop candidates by path-prefix). Swipe is gone; reorder is grip-only.
 - **Edit panel** (bottom sheet `<600px`, persistent side pane `≥600px` via `@container`): rendered
   by the shared `web/panel.ts` (`panelHTML` + `wirePanel`) — the same module the desktop detail
   aside uses, so both UIs show one locked field order **Key / Value / Trailing comment / Kind /

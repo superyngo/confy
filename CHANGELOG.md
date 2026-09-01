@@ -8,6 +8,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-09-01T10:24:00Z
+- **fix(pointer): drag/gesture drops resolve through `PasteSlot` end to end, and
+  inline/flow containers regain their drop-into band (ADR 0010).** The mouse grip
+  drag (`web/dnd.ts`) and the touch grip reorder (`web/touch/app.ts`) only asked
+  core whether a hover was an `Into`; the rest of the destination was hand-rolled
+  as "before/after this row ⇒ a sibling in `parentOf(path)` at
+  `siblingIndex(...) ± 1`" with a local `rel < 0.5` split, sent as
+  `MoveSelectionTo { target, index }` — bypassing `slot_target`, the resolution
+  the TUI and every keyboard/armed-paste surface has always used. That disagreed
+  with core three ways, all measured against the real wasm core:
+  - **Level.** `After(<expanded branch>)` inserts as that branch's **first
+    child** (`resolve_target`), not a sibling one level up. Dragging a root key
+    into the gap under an expanded `[b]` therefore aimed at root index 2 and, in
+    TOML, failed outright — notice `paste error: a key here would be captured by
+    the table above it`, document untouched — while an armed cut+paste released
+    at the *same pixel* correctly made it `[b]`'s first child. This is the
+    reported "expanded branch 和其 child 之間的間隙插到 branch 的 sibling 位置"
+    bug.
+  - **Level, upward.** Hovering the top band of the row *after* an expanded
+    branch: core says "inside, after its last descendant"; the drag said "root,
+    before this row". One visual gap, two levels, no design covering which wins.
+  - **Threshold.** Core's leaf before/after boundary is `0.75`; the drag used
+    `0.5`, so every `rel ∈ [0.5, 0.75)` band classified drag and paste opposite
+    ways.
+
+  `Intent::MoveSelectionTo` now carries `{ sources, slot, cut }` — the same
+  `PasteSlot` an armed paste uses — and `Session::move_selection_to` resolves it
+  with `slot_target`, ignoring a slot whose row is no longer visible and
+  rejecting self/self-subtree drops on the resolved parent. Both hosts keep a
+  single `PasteSlot` as their whole drop-target state; `parentOf`,
+  `siblingIndex`, `child_count` and the `0.5` split are gone from both drop
+  paths, and touch's outside-any-row fallback clamps `rel` and still asks
+  `pointer_slot` instead of inventing a mode. A new headless test
+  (`move_selection_to_and_paste_agree_for_every_pointer_band`) pins drag/paste
+  equality across every row × band so no surface can re-derive a target again.
+
+  Trade-off, accepted and recorded in ADR 0010: the pointer loses the one target
+  its old math could express that the slot model cannot — "root level, past an
+  expanded branch's whole subtree". That level dimension was deliberately
+  excluded from the TUI slot model; reaching it means collapsing the branch
+  first, exactly as in the TUI.
+
+  Separately, `Session::pointer_slot` no longer withholds `Into` from a
+  `Format::Inline` container (TOML inline table/array, YAML flow map/sequence).
+  `paste_slots()` always offered it to the keyboard and core always accepted it
+  (`t = { x = 1 }` + `Into(t)` → `t = { x = 1, k = 9 }`), so the pointer was the
+  only surface unable to aim at a legal, keyboard-reachable target — and the
+  guard was self-inconsistent, since a *collapsed* multi-line branch (equally one
+  row, equally invisible children) kept its band. This is the reported
+  "inline/flow container 無法被選取框定位" bug.
+- **fix(web+touch): the insertion line is drawn at the level it actually inserts
+  at.** The TUI has always indented its green paste line one step deeper for
+  `After(<expanded branch>)` (`paste_line_row`'s `row.depth + 1`); the web
+  `#dropLine`/`#pasteTargetLine` and the touch `.reorder-line` used the hovered
+  row's own indent unconditionally (touch's line had no horizontal position at
+  all), so even the *keyboard*-driven cue pointed a level too shallow at the one
+  gap where the level is ambiguous. New shared `web/slot-line.ts`
+  (`slotLineIndentPx`) is now the single rule behind all three cues. The web drag
+  line is also drawn under **the slot's** row rather than the hovered one, since
+  the two differ whenever a top band resolves to a flattened predecessor slot.
+
 ### Unreleased Update — 2026-09-01T08:38:45Z
 - **fix(add): seed datetime scalars with the system clock, and stop forcing
   a rename after adding a container.** Two follow-ups to the Add-type picker

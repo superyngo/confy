@@ -1,22 +1,28 @@
 // Grip drag-reparent / reorder → `MoveSelectionTo` intent (WEBUI.md, mirrors
 // `design_index_model.html`'s drag model). Dragging a row's grip moves it (or,
-// if it is part of the selection, the whole selection):
-//   - over a **branch**'s middle band (rel 0.25–0.75) → drop **into** it (append
-//     as a child); the branch row gets a `.drag-over-into` outline.
-//   - otherwise → drop **before/after** the hovered row as a sibling; a
-//     horizontal `#dropLine` shows the insertion point.
-// Index/legality stay core's job: the move routes through `do_paste` (a real
-// `Mutation::Move`), which adjusts the original-sequence index for removed
-// earlier siblings and rejects collision / illegal / self-subtree drops with the
-// document untouched. The sibling index is read from the snapshot (when a parent
-// is expanded all its direct children — comments included — are visible rows in
-// document order, so their position equals core's full-child-sequence index).
-import type { Intent, Path, PasteSlot, SessionSnapshot, ViewRow } from "./types.js";
-import { parentOf, pathEq as eq, siblingIndex } from "./path-utils.js";
-
-type DropTarget =
-  | { mode: "into"; path: Path }
-  | { mode: "before" | "after"; path: Path };
+// if it is part of the selection, the whole selection) to wherever the pointer
+// classifies as a `PasteSlot` — `Into` a branch (green `.drag-over-into`
+// outline) or `After` a row (horizontal `#dropLine`).
+//
+// The destination is core's call end to end (ADR 0010): `pointerSlot` (=
+// `Session::pointer_slot`) turns "this row, this relative Y" into the slot, and
+// the drop hands that slot to `MoveSelectionTo`, which resolves it with the
+// same `slot_target` an armed keyboard paste uses. This file used to ask core
+// only whether the hover was `Into`, then hand-roll the rest as "before/after
+// this row ⇒ a sibling in `parentOf(path)` at `siblingIndex(...) ± 1`" with a
+// 0.5 split. Both halves of that were wrong against core: `After` an
+// *expanded* branch means that branch's **first child** (`resolve_target`), not
+// a sibling one level up — so dragging into the gap under an expanded `[table]`
+// aimed a level too shallow (in TOML usually straight into "a key here would be
+// captured by the table above it", document untouched) while an armed paste
+// released at the very same pixel landed inside; and core's leaf before/after
+// boundary is 0.75, so the 0.5–0.75 band classified the two gestures opposite
+// ways. Index/legality stay core's job: the move routes through `do_paste` (a
+// real `Mutation::Move`), which rejects collision / illegal / self-subtree
+// drops with the document untouched.
+import type { Intent, Path, PasteSlot, SessionSnapshot } from "./types.js";
+import { pathEq as eq } from "./path-utils.js";
+import { slotLineIndentPx } from "./slot-line.js";
 
 export function installDnd(
   treeEl: HTMLElement,
@@ -33,14 +39,13 @@ export function installDnd(
   const wrap = document.getElementById("treeWrap") as HTMLElement;
   const dropLine = document.getElementById("dropLine") as HTMLElement;
   let sources: Path[] | null = null;
-  let target: DropTarget | null = null;
+  // The hovered `PasteSlot`, verbatim from core — the only drop-target state.
+  let slot: PasteSlot | null = null;
 
   const rowOf = (t: EventTarget | null): HTMLElement | null =>
     (t as HTMLElement | null)?.closest?.(".row") ?? null;
   const pathOf = (row: HTMLElement | null): Path | null =>
     row?.dataset.path ? (JSON.parse(row.dataset.path) as Path) : null;
-  const rowFor = (snap: SessionSnapshot, p: Path): ViewRow | undefined =>
-    snap.rows.find((r) => eq(r.path, p));
 
   const clearOver = () => {
     treeEl.querySelectorAll(".drag-over-into").forEach((el) => el.classList.remove("drag-over-into"));
@@ -48,7 +53,7 @@ export function installDnd(
   };
   const endDrag = () => {
     sources = null;
-    target = null;
+    slot = null;
     clearOver();
     treeEl.querySelectorAll(".drag-src").forEach((el) => el.classList.remove("drag-src"));
     // Last, and only after the wipe above: restore the armed-paste cue
@@ -91,54 +96,40 @@ export function installDnd(
     if (!row || !path || !snap || sources.some((s) => eq(s, path))) return;
     clearOver();
     const r = row.getBoundingClientRect();
-    const rel = (ev.clientY - r.top) / r.height;
-    const isInto = (slot: PasteSlot | undefined): slot is { Into: Path } =>
-      !!slot && "Into" in slot;
-    // Into-eligibility (branch, non-`Format::Inline`) now comes from core's
-    // `pointer_slot` (ADR 0004 §1) instead of a hand-rolled copy of the same
-    // check — `touch/app.ts`'s own copy had already drifted (different
-    // thresholds, no `Format::Inline` guard at all), which is exactly the
-    // per-surface drift this unification eliminates. The before/after
-    // sibling-index math below is unchanged — only the into/not-into decision
-    // is now core's call.
-    if (isInto(pointerSlot(path, rel))) {
+    // One classification, core's own (ADR 0010): no local band thresholds, no
+    // before/after fork. "Above this row" already arrives as `After(<the
+    // preceding row's slot>)` from `paste_slots()`'s flattened order, which is
+    // why there is no `before` case left to draw.
+    slot = pointerSlot(path, (ev.clientY - r.top) / r.height) ?? null;
+    if (!slot) return;
+    if ("Into" in slot) {
       row.classList.add("drag-over-into");
-      target = { mode: "into", path };
-    } else {
-      const before = rel < 0.5;
-      const wr = wrap.getBoundingClientRect();
-      const indentW = (row.querySelector(".indent") as HTMLElement | null)?.offsetWidth ?? 0;
-      dropLine.style.top = `${(before ? r.top : r.bottom) - wr.top + wrap.scrollTop}px`;
-      dropLine.style.left = `${indentW + 8}px`;
-      dropLine.style.display = "block";
-      target = { mode: before ? "before" : "after", path };
+      return;
     }
+    // `After(p)`: the line sits under `p`'s row — which may be a different row
+    // than the hovered one — and one indent level deeper when `p` is an
+    // expanded branch, because that is where core will actually insert.
+    const lineRow =
+      treeEl.querySelector<HTMLElement>(`.row[data-path='${CSS.escape(JSON.stringify(slot.After))}']`) ??
+      row;
+    const lr = lineRow.getBoundingClientRect();
+    const wr = wrap.getBoundingClientRect();
+    const indentW = (lineRow.querySelector(".indent") as HTMLElement | null)?.offsetWidth ?? 0;
+    dropLine.style.top = `${lr.bottom - wr.top + wrap.scrollTop}px`;
+    dropLine.style.left = `${slotLineIndentPx(lineRow, indentW) + 8}px`;
+    dropLine.style.display = "block";
   });
 
   treeEl.addEventListener("drop", (ev) => {
-    if (!sources || !target) return endDrag();
+    if (!sources || !slot) return endDrag();
     ev.preventDefault();
-    const snap = getSnap();
     const src = sources;
-    const tgt = target;
+    const dest = slot;
     const cut = !(ev.altKey || ev.ctrlKey);
     endDrag();
-    if (!snap) return;
-    if (tgt.mode === "into") {
-      // Append as the last child (design pushes onto `children`).
-      const idx = rowFor(snap, tgt.path)?.child_count ?? 0;
-      send({ MoveSelectionTo: { sources: src, target: tgt.path, index: idx, cut } });
-    } else {
-      const sib = siblingIndex(snap.rows, tgt.path);
-      send({
-        MoveSelectionTo: {
-          sources: src,
-          target: parentOf(tgt.path),
-          index: tgt.mode === "after" ? sib + 1 : sib,
-          cut,
-        },
-      });
-    }
+    // Slot in, nothing derived: core resolves it through `slot_target`, the
+    // same call an armed `Paste` makes, so the two gestures can't disagree.
+    send({ MoveSelectionTo: { sources: src, slot: dest, cut } });
   });
 
   treeEl.addEventListener("dragend", endDrag);

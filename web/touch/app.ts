@@ -66,7 +66,8 @@ import {
 } from "../samples.js";
 import { IC, esc, treeHTML } from "./render.js";
 import { fabHTML, syncFab } from "../fab.js";
-import { parentOf, pathEq, siblingIndex } from "../path-utils.js";
+import { parentOf, pathEq } from "../path-utils.js";
+import { slotLineIndentPx } from "../slot-line.js";
 import { resolveClick, resetAnchor, type Mods } from "../select.js";
 import { panelHTML, wirePanel, schemaHintText } from "../panel.js";
 import { bindPromptClicks, promptButtonsHTML, promptTitle } from "../prompt.js";
@@ -416,6 +417,11 @@ function renderPasteSlotCue(snap: SessionSnapshot, slotOverride?: PasteSlot) {
       if (rowEl) {
         const treeTop = treeEl.getBoundingClientRect().top;
         reorderLine.style.top = `${rowEl.getBoundingClientRect().bottom - treeTop}px`;
+        const rowMain = rowEl.querySelector<HTMLElement>(".row-main");
+        const padPx = rowMain && typeof getComputedStyle !== "undefined"
+          ? parseFloat(getComputedStyle(rowMain).paddingLeft) || 0
+          : 0;
+        reorderLine.style.left = `${slotLineIndentPx(rowEl, padPx)}px`;
         reorderLine.style.display = "block";
       } else {
         reorderLine.style.display = "none";
@@ -1177,8 +1183,7 @@ let reordering = false;
 let reRow: HTMLElement | null = null;
 let reStartY = 0;
 let reMoved = false;
-let reTarget: HTMLElement | null = null;
-let reMode: "before" | "after" | "into" = "before";
+let reSlot: PasteSlot | null = null;
 let reInto: HTMLElement | null = null;
 let reLine: HTMLElement | null = null;
 let reSrcPath: Path | null = null;
@@ -1193,8 +1198,7 @@ function startReorder(e: PointerEvent, row: HTMLElement) {
   reordering = true;
   reMoved = false;
   reRow = row;
-  reTarget = null;
-  reMode = "before";
+  reSlot = null;
   reSrcPath = pathOf(row);
   reStartY = e.clientY;
   reLine = treeEl.querySelector(".reorder-line");
@@ -1224,7 +1228,7 @@ function onReorderMove(y: number) {
     },
   ) as HTMLElement[];
   if (!rows.length) {
-    reTarget = null;
+    reSlot = null;
     reLine.style.display = "none";
     clearInto();
     return;
@@ -1244,26 +1248,31 @@ function onReorderMove(y: number) {
       nearest = r;
     }
   }
-  let resolved = false;
+  hit = hit ?? nearest;
   if (!hit) {
-    hit = nearest!;
-    const nr = hit.getBoundingClientRect();
-    reMode = y < (nr.top + nr.bottom) / 2 ? "before" : "after";
-    resolved = true;
+    reSlot = null;
+    reLine.style.display = "none";
+    clearInto();
+    return;
+  }
+  const path = pathOf(hit);
+  if (!path) {
+    reSlot = null;
+    reLine.style.display = "none";
+    clearInto();
+    return;
   }
   const hr = hit.getBoundingClientRect();
-  if (!resolved) {
-    const rel = (y - hr.top) / (hr.height || 1);
-    const slot = session?.pointerSlot(pathOf(hit)!, rel);
-    if (slot && "Into" in slot) {
-      reMode = "into";
-    } else {
-      reMode = rel < 0.5 ? "before" : "after";
-    }
+  const rel = Math.max(0, Math.min(1, (y - hr.top) / (hr.height || 1)));
+  const slot = session?.pointerSlot(path, rel);
+  if (!slot) {
+    reSlot = null;
+    reLine.style.display = "none";
+    clearInto();
+    return;
   }
-  reTarget = hit;
-  const treeTop = treeEl.getBoundingClientRect().top;
-  if (reMode === "into") {
+  reSlot = slot;
+  if ("Into" in slot) {
     reLine.style.display = "none";
     if (reInto !== hit) {
       clearInto();
@@ -1272,8 +1281,23 @@ function onReorderMove(y: number) {
     }
   } else {
     clearInto();
-    reLine.style.display = "block";
-    reLine.style.top = (reMode === "before" ? hr.top - treeTop : hr.bottom - treeTop) + "px";
+    const rowEl =
+      treeEl.querySelector<HTMLElement>(
+        `.row[data-path='${CSS.escape(JSON.stringify(slot.After))}']`,
+      ) ?? hit;
+    if (rowEl) {
+      const treeTop = treeEl.getBoundingClientRect().top;
+      const lr = rowEl.getBoundingClientRect();
+      reLine.style.top = `${lr.bottom - treeTop}px`;
+      const rowMain = rowEl.querySelector<HTMLElement>(".row-main");
+      const padPx = rowMain && typeof getComputedStyle !== "undefined"
+        ? parseFloat(getComputedStyle(rowMain).paddingLeft) || 0
+        : 0;
+      reLine.style.left = `${slotLineIndentPx(rowEl, padPx)}px`;
+      reLine.style.display = "block";
+    } else {
+      reLine.style.display = "none";
+    }
   }
 }
 function endReorder() {
@@ -1284,29 +1308,16 @@ function endReorder() {
   // (see renderPasteSlotCue's doc comment above).
   if (snap) renderPasteSlotCue(snap);
   if (reRow) reRow.classList.remove("dragging");
-  if (reMoved && reTarget && reSrcPath) {
-    const tgtPath = pathOf(reTarget);
+  if (reMoved && reSlot && reSrcPath) {
+    const tgtPath = "Into" in reSlot ? reSlot.Into : reSlot.After;
     if (tgtPath && !pathEq(tgtPath, reSrcPath)) {
       const sources = [reSrcPath];
-      if (reMode === "into") {
-        const idx = rowFor(tgtPath)?.child_count ?? 0;
-        send({ MoveSelectionTo: { sources, target: tgtPath, index: idx } });
-      } else {
-        const sib = siblingIndex(snap!.rows, tgtPath);
-        send({
-          MoveSelectionTo: {
-            sources,
-            target: parentOf(tgtPath),
-            index: reMode === "after" ? sib + 1 : sib,
-          },
-        });
-      }
+      send({ MoveSelectionTo: { sources, slot: reSlot } });
     }
   }
   reRow = null;
-  reTarget = null;
   reMoved = false;
-  reMode = "before";
+  reSlot = null;
   reSrcPath = null;
 }
 

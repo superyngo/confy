@@ -202,12 +202,16 @@ console.log("\n-- renderConfirmedPasteCue redraws the Into class + After line --
   if (cueMatch) {
     const built = await esbuild.build({
       stdin: {
-        contents: `let $, tree, rawView, CSS;
+        contents: `import { slotLineIndentPx } from "./slot-line.js";
+let $, tree, rawView, CSS;
 export function setEnv(e) { $ = e.$; tree = e.tree; rawView = e.rawView; CSS = e.CSS; }
 export ${cueMatch[0]}\n`,
         resolveDir: here,
         loader: "ts",
       },
+      // Inlines the real `slot-line.ts` the cue calls for its horizontal
+      // placement (ADR 0010).
+      bundle: true,
       write: false,
       format: "esm",
       target: "es2022",
@@ -219,6 +223,9 @@ export ${cueMatch[0]}\n`,
   const cueTargetLine = { style: {} };
   const intoRow = { classList: { add: (c) => cueOps.push(`add ${c}`) } };
   const afterRow = {
+    // A leaf/collapsed row: `slotLineIndentPx` leaves its indent alone (the
+    // expanded-branch case is covered in paste-hover.spec.mjs).
+    classList: { contains: () => false },
     getBoundingClientRect: () => ({ bottom: 40 }),
     querySelector: () => ({ offsetWidth: 12 }),
   };

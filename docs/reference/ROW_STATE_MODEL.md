@@ -393,13 +393,16 @@ Consequences.
   armed — found and fixed via the integration audit
   (`docs/superpowers/audits/2026-08-19-clipboard-row-state-integration-audit.md`).
 - Any change to node-kind/format mutation mechanics, `PasteSlot`/`Into`/`After`
-  targeting semantics, or the AoT atomic-move behavior — all owned by ADR 0004,
-  `CONTEXT.md`, `BEHAVIOR_MATRIX.md`, untouched here.
+  targeting semantics, or the AoT atomic-move behavior — all owned by ADR 0004
+  (and, for pointer-driven targeting, ADR 0010), `CONTEXT.md`,
+  `BEHAVIOR_MATRIX.md`, untouched here.
 - ~~TUI `type_col_cell`'s fill-skip doesn't cover the paste-slot `Into` target
   row's green fill~~ — **fixed** (`tui/ui.rs`, `type_col_cell` call site now
   passes `is_cursor || in_clipboard_source || into_here`). Correction to the
   original note: `Into` slots are only ever offered on branch rows
-  (`Session::paste_slots`/`pointer_slot` both gate on `is_branch()`), and a
+  (`Session::paste_slots`/`pointer_slot` both gate on `is_branch()` — and, since
+  ADR 0010, on nothing else: an `Inline` single-line container gets its `Into`
+  band from the pointer too), and a
   branch's `type_label` never carries a KIND colour, so the collision was not
   reachable through normal keyboard/pointer paste-slot cycling — it was
   reachable only through the WASM `Intent::SetPasteSlot` boundary, which does

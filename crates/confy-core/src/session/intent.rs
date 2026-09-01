@@ -68,14 +68,20 @@ pub enum Intent {
         path: crate::model::node::Path,
         comment: Option<String>,
     },
-    /// Drag-reparent (Web UI): move `sources` into `target` at child `index`.
+    /// Drag-reparent / drag-reorder (Web mouse grip, touch grip): move
+    /// `sources` to `slot` — the *same* `PasteSlot` a keyboard Copy →
+    /// position → Paste sequence arms, resolved by the *same*
+    /// `slot_target` (ADR 0010). Hosts classify the pointer position with
+    /// `Session::pointer_slot` and send the slot verbatim; they never derive
+    /// a parent/index themselves, so a drop and a paste aimed at the same
+    /// pixel can no longer disagree about which level they land on.
     /// A one-shot cut→paste reusing the full collision / illegal-destination /
     /// array-upgrade machinery; a drop onto a source or into its own subtree is
-    /// rejected and the document is left untouched.
+    /// rejected and the document is left untouched. Ignored if the slot's row
+    /// isn't visible any more (mirrors `SetPasteSlot`/`SetCursor`'s guard).
     MoveSelectionTo {
         sources: Vec<crate::model::node::Path>,
-        target: crate::model::node::Path,
-        index: usize,
+        slot: crate::session::state::PasteSlot,
         /// Copy (`false`) vs move (`true`, the default). A drag-drop with the
         /// platform copy modifier (⌥/Ctrl) held sends `false`; a plain
         /// drag-drop omits it (ADR 0004 §1).

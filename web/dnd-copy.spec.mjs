@@ -2,7 +2,7 @@
 // holding ⌥ (altKey) or Ctrl (ctrlKey) during a drag-drop copies instead of
 // moving — the native `dropEffect` reflects the held modifier during
 // `dragover`, and `drop` threads `cut: !(altKey || ctrlKey)` into both
-// `MoveSelectionTo` sends (into, and before/after). Follows dnd-into.spec.mjs's
+// `MoveSelectionTo` sends (an `Into` slot, and an `After` slot). Follows dnd-into.spec.mjs's
 // convention: no test framework, just a `check()` tally; dnd.ts is bundled via
 // esbuild and run against a minimal DOM shim, so the checks below exercise the
 // real shipped dragover/drop handlers.
@@ -117,8 +117,8 @@ const B = [{ Key: "b" }];
   dragover(120);
   drop();
   check(
-    "plain drop (no modifier) sends cut: true (a move) into the Into target",
-    eq(lastSend(), { MoveSelectionTo: { sources: [A], target: B, index: 0, cut: true } }),
+    "plain drop (no modifier) sends cut: true (a move) with the Into slot",
+    eq(lastSend(), { MoveSelectionTo: { sources: [A], slot: { Into: B }, cut: true } }),
     JSON.stringify(lastSend()),
   );
 
@@ -127,8 +127,8 @@ const B = [{ Key: "b" }];
   dragover(120, { altKey: true });
   drop({ altKey: true });
   check(
-    "alt-held drop sends cut: false (a copy) into the Into target",
-    eq(lastSend(), { MoveSelectionTo: { sources: [A], target: B, index: 0, cut: false } }),
+    "alt-held drop sends cut: false (a copy) with the Into slot",
+    eq(lastSend(), { MoveSelectionTo: { sources: [A], slot: { Into: B }, cut: false } }),
     JSON.stringify(lastSend()),
   );
 
@@ -137,30 +137,30 @@ const B = [{ Key: "b" }];
   dragover(120, { ctrlKey: true });
   drop({ ctrlKey: true });
   check(
-    "ctrl-held drop sends cut: false (a copy) into the Into target",
-    eq(lastSend(), { MoveSelectionTo: { sources: [A], target: B, index: 0, cut: false } }),
+    "ctrl-held drop sends cut: false (a copy) with the Into slot",
+    eq(lastSend(), { MoveSelectionTo: { sources: [A], slot: { Into: B }, cut: false } }),
     JSON.stringify(lastSend()),
   );
 
-  console.log("\n-- drop threads cut through the before/after sibling send --");
-  slot = undefined; // declines Into -> before/after sibling math
+  console.log("\n-- drop threads cut through the After send too --");
+  slot = { After: B };
   sent.length = 0;
   dragstart();
-  dragover(120); // rel 0.5 -> after, no modifier
+  dragover(120); // no modifier
   drop();
   check(
-    "plain sibling drop sends cut: true (a move)",
-    eq(lastSend(), { MoveSelectionTo: { sources: [A], target: [], index: 2, cut: true } }),
+    "plain After drop sends cut: true (a move)",
+    eq(lastSend(), { MoveSelectionTo: { sources: [A], slot: { After: B }, cut: true } }),
     JSON.stringify(lastSend()),
   );
 
   sent.length = 0;
   dragstart();
-  dragover(120, { altKey: true }); // rel 0.5 -> after, alt held
+  dragover(120, { altKey: true }); // alt held
   drop({ altKey: true });
   check(
-    "alt-held sibling drop sends cut: false (a copy)",
-    eq(lastSend(), { MoveSelectionTo: { sources: [A], target: [], index: 2, cut: false } }),
+    "alt-held After drop sends cut: false (a copy)",
+    eq(lastSend(), { MoveSelectionTo: { sources: [A], slot: { After: B }, cut: false } }),
     JSON.stringify(lastSend()),
   );
 
@@ -171,7 +171,7 @@ const B = [{ Key: "b" }];
   drop(); // but drop itself has no modifier
   check(
     "drop's own modifier state wins over the last dragover's",
-    eq(lastSend(), { MoveSelectionTo: { sources: [A], target: [], index: 2, cut: true } }),
+    eq(lastSend(), { MoveSelectionTo: { sources: [A], slot: { After: B }, cut: true } }),
     JSON.stringify(lastSend()),
   );
 }
