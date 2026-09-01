@@ -29,7 +29,7 @@
   "core.value.invalid": "無效的值：{0}",
   "core.trailing.update-failed": "comment 更新失敗：{0}",
   "core.fragment.invalid": "無效的 {0}：{1}",
-  "core.add.placeholder": "已新增暫代節點 —— 按 e 重新命名",
+  "core.add.placeholder": "已新增暫代節點 —— 按 F2 重新命名",
   "core.add.error": "新增失敗：{0}",
   "core.add.picker.title": "新增節點",
   "core.add.unsupported": "此節點無法新增子節點",

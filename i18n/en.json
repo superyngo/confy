@@ -29,7 +29,7 @@
   "core.value.invalid": "invalid value: {0}",
   "core.trailing.update-failed": "comment update failed: {0}",
   "core.fragment.invalid": "invalid {0}: {1}",
-  "core.add.placeholder": "added placeholder node — rename with e",
+  "core.add.placeholder": "added placeholder node — rename with F2",
   "core.add.error": "add error: {0}",
   "core.add.picker.title": "Add node",
   "core.add.unsupported": "this node can't hold new children",

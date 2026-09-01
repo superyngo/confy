@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-09-01T12:40:40Z
+- fix(i18n): the `core.add.placeholder` notice ("added placeholder node — rename with …")
+  told the user to press `e` in both `en.json` and `zh-TW.json`, but the actual rename
+  binding is `F2` (see `README.md`'s keybinding table and the TUI's `KeyCode::F(2)`
+  handler). Both locale strings now say `F2`.
+
 ### Unreleased Update — 2026-09-01T20:30:00Z
 - **feat(web): PageUp/PageDown page the tree cursor (desktop + touch).** Core already supported
   paging via `Intent::PageUp(usize)`/`Intent::PageDown(usize)` (`crates/confy-core/src/session/session.rs`,
