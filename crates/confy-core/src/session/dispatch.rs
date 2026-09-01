@@ -24,8 +24,8 @@ use crate::session::notice::{Notice, NoticeSource, Severity};
 use crate::session::state::{EditKind, KindSwitchState, Mode, PendingExternalEdit, PromptKind};
 use crate::session::type_filter::{layout, LayoutRow};
 use crate::session::view::{
-    AddOptionView, ConvertView, EditView, ExternalEdit, ExternalEditKind, KindOptionView,
-    ModeView, PromptView, SessionSnapshot, TypeFilterCellView, TypeFilterRow, TypeFilterView,
+    AddOptionView, ConvertView, EditView, ExternalEdit, ExternalEditKind, KindOptionView, ModeView,
+    PromptView, SessionSnapshot, TypeFilterCellView, TypeFilterRow, TypeFilterView,
 };
 
 /// Transient signals from applying one [`Intent`] — not persistent `Session`

@@ -1512,7 +1512,10 @@ fn move_selection_to_ignores_a_slot_whose_row_is_not_visible() {
         slot: PasteSlot::Into(nonexistent),
         cut: true,
     });
-    assert!(snap2.notice.is_none(), "no notice when slot row does not exist");
+    assert!(
+        snap2.notice.is_none(),
+        "no notice when slot row does not exist"
+    );
     assert_eq!(s.serialize().unwrap(), before, "document untouched");
 }
 
@@ -2953,10 +2956,19 @@ fn add_picker_options_filtered_for_inline_table_excludes_table_and_comment() {
         panic!("expected AddPicker mode: {:?}", snap.mode);
     };
     let labels: Vec<&str> = options.iter().map(|o| o.label.as_str()).collect();
-    assert!(!labels.contains(&"Table"), "no [table] header inside a flow construct: {labels:?}");
-    assert!(!labels.contains(&"Comment"), "no comment inside a flow construct: {labels:?}");
+    assert!(
+        !labels.contains(&"Table"),
+        "no [table] header inside a flow construct: {labels:?}"
+    );
+    assert!(
+        !labels.contains(&"Comment"),
+        "no comment inside a flow construct: {labels:?}"
+    );
     assert!(labels.contains(&"String"), "scalars stay legal: {labels:?}");
-    assert!(labels.contains(&"Inline table"), "nested inline table stays legal: {labels:?}");
+    assert!(
+        labels.contains(&"Inline table"),
+        "nested inline table stays legal: {labels:?}"
+    );
     assert!(labels.contains(&"Array"), "array stays legal: {labels:?}");
 }
 
@@ -2994,10 +3006,18 @@ fn add_picker_toml_offers_four_datetime_kinds() {
         panic!("expected AddPicker mode: {:?}", snap.mode);
     };
     let labels: Vec<&str> = options.iter().map(|o| o.label.as_str()).collect();
-    for want in ["Offset datetime", "Local datetime", "Local date", "Local time"] {
+    for want in [
+        "Offset datetime",
+        "Local datetime",
+        "Local date",
+        "Local time",
+    ] {
         assert!(labels.contains(&want), "TOML offers {want:?}: {labels:?}");
     }
-    assert!(!labels.contains(&"Null"), "TOML has no null literal: {labels:?}");
+    assert!(
+        !labels.contains(&"Null"),
+        "TOML has no null literal: {labels:?}"
+    );
 }
 
 #[test]
@@ -3011,5 +3031,8 @@ fn add_picker_json_offers_null_not_datetime() {
     };
     let labels: Vec<&str> = options.iter().map(|o| o.label.as_str()).collect();
     assert!(labels.contains(&"Null"), "JSON offers Null: {labels:?}");
-    assert!(!labels.contains(&"Offset datetime"), "JSON has no datetime scalar: {labels:?}");
+    assert!(
+        !labels.contains(&"Offset datetime"),
+        "JSON has no datetime scalar: {labels:?}"
+    );
 }

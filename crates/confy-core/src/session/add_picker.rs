@@ -85,7 +85,11 @@ impl Session {
             return;
         }
         let cursor = default_hint
-            .and_then(|nk| options.iter().position(|(_, k)| add_kind_matches_node(k, &nk)))
+            .and_then(|nk| {
+                options
+                    .iter()
+                    .position(|(_, k)| add_kind_matches_node(k, &nk))
+            })
             .or_else(|| {
                 options
                     .iter()
@@ -130,39 +134,87 @@ impl Session {
         }
 
         let bare = matches!(parent.kind, NodeKind::Array); // keyless element context
-        // A flow/inline construct (TOML inline table, YAML flow map/seq) has
-        // no `[header]` notation and holds no comments (CONTEXT.md "Comment").
+                                                           // A flow/inline construct (TOML inline table, YAML flow map/seq) has
+                                                           // no `[header]` notation and holds no comments (CONTEXT.md "Comment").
         let is_flow = matches!(parent.kind, NodeKind::InlineTable)
             || (matches!(parent.kind, NodeKind::Array) && parent.format == Format::Inline);
 
-        push(&mut out, "core.add.type.string", AddKind::Scalar(ScalarType::String));
-        push(&mut out, "core.add.type.integer", AddKind::Scalar(ScalarType::Integer));
-        push(&mut out, "core.add.type.float", AddKind::Scalar(ScalarType::Float));
-        push(&mut out, "core.add.type.bool", AddKind::Scalar(ScalarType::Bool));
+        push(
+            &mut out,
+            "core.add.type.string",
+            AddKind::Scalar(ScalarType::String),
+        );
+        push(
+            &mut out,
+            "core.add.type.integer",
+            AddKind::Scalar(ScalarType::Integer),
+        );
+        push(
+            &mut out,
+            "core.add.type.float",
+            AddKind::Scalar(ScalarType::Float),
+        );
+        push(
+            &mut out,
+            "core.add.type.bool",
+            AddKind::Scalar(ScalarType::Bool),
+        );
         match doc_format {
             DocFormat::Toml => {
-                push(&mut out, "core.add.type.offset-datetime", AddKind::Scalar(ScalarType::OffsetDatetime));
-                push(&mut out, "core.add.type.local-datetime", AddKind::Scalar(ScalarType::LocalDatetime));
-                push(&mut out, "core.add.type.local-date", AddKind::Scalar(ScalarType::LocalDate));
-                push(&mut out, "core.add.type.local-time", AddKind::Scalar(ScalarType::LocalTime));
+                push(
+                    &mut out,
+                    "core.add.type.offset-datetime",
+                    AddKind::Scalar(ScalarType::OffsetDatetime),
+                );
+                push(
+                    &mut out,
+                    "core.add.type.local-datetime",
+                    AddKind::Scalar(ScalarType::LocalDatetime),
+                );
+                push(
+                    &mut out,
+                    "core.add.type.local-date",
+                    AddKind::Scalar(ScalarType::LocalDate),
+                );
+                push(
+                    &mut out,
+                    "core.add.type.local-time",
+                    AddKind::Scalar(ScalarType::LocalTime),
+                );
             }
             DocFormat::Json | DocFormat::Yaml => {
-                push(&mut out, "core.add.type.null", AddKind::Scalar(ScalarType::Null));
+                push(
+                    &mut out,
+                    "core.add.type.null",
+                    AddKind::Scalar(ScalarType::Null),
+                );
             }
         }
 
         if doc_format == DocFormat::Toml && !bare && !is_flow {
             push(&mut out, "core.add.type.table", AddKind::Table);
-            push(&mut out, "core.add.type.array-of-tables", AddKind::ArrayOfTables);
+            push(
+                &mut out,
+                "core.add.type.array-of-tables",
+                AddKind::ArrayOfTables,
+            );
         }
         push(
             &mut out,
-            if doc_format == DocFormat::Toml { "core.add.type.inline-table" } else { "core.add.type.object" },
+            if doc_format == DocFormat::Toml {
+                "core.add.type.inline-table"
+            } else {
+                "core.add.type.object"
+            },
             AddKind::InlineTable,
         );
         push(
             &mut out,
-            if doc_format == DocFormat::Yaml { "core.add.type.sequence" } else { "core.add.type.array" },
+            if doc_format == DocFormat::Yaml {
+                "core.add.type.sequence"
+            } else {
+                "core.add.type.array"
+            },
             AddKind::Array,
         );
 
@@ -312,7 +364,10 @@ impl Session {
         let (fragment, inline) = match &seed_kind {
             NodeKind::Scalar(st) => (seed_value(&scalar_seed_literal(*st)), true),
             NodeKind::Array | NodeKind::InlineTable | NodeKind::ArrayOfTables | NodeKind::Table => {
-                (doc.empty_container_fragment(&seed_kind, key.as_deref()), false)
+                (
+                    doc.empty_container_fragment(&seed_kind, key.as_deref()),
+                    false,
+                )
             }
             NodeKind::Root | NodeKind::Comment(_) => unreachable!("not a selectable AddKind"),
         };
@@ -492,7 +547,7 @@ mod tests {
             (0, (1970, 1, 1)),
             (1, (1970, 1, 2)),
             (31, (1970, 2, 1)),
-            (365, (1971, 1, 1)),   // 1970 is not a leap year
+            (365, (1971, 1, 1)), // 1970 is not a leap year
             (366, (1971, 1, 2)),
             (-1, (1969, 12, 31)),
             (-365, (1969, 1, 1)),

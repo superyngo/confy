@@ -31,8 +31,8 @@ pub use search::{fuzzy_indices, fuzzy_match, haystack};
 pub use selection::{normalize, Selection};
 pub use session::Session;
 pub use state::{
-    AddKind, AddPickerState, Clipboard, ConvertState, ConvertStep, EditField, EditKind,
-    EditState, FilterLayer, HelpTab, History, KindSwitchState, Mode, PasteSlot, PendingCommit,
+    AddKind, AddPickerState, Clipboard, ConvertState, ConvertStep, EditField, EditKind, EditState,
+    FilterLayer, HelpTab, History, KindSwitchState, Mode, PasteSlot, PendingCommit,
     PendingExternalEdit, PromptKind,
 };
 pub use status_fmt::{format_label, node_type_label, node_type_label_str};

@@ -1791,7 +1791,8 @@ fn add_node_inserts_empty_string_and_enters_edit() {
     let mut app = app_with("a = 1\n");
     app.select_row(1); // on a
     app.add_node();
-    app.session.apply(confy_core::session::Intent::AddPickerCommit);
+    app.session
+        .apply(confy_core::session::Intent::AddPickerCommit);
     app.rebuild_rows();
     assert!(
         matches!(app.session.mode, Mode::Edit(_)),
@@ -1818,7 +1819,8 @@ fn add_on_collapsed_table_adds_sibling_table() {
     let mut app = app_with("[t]\nx = 1\n");
     app.select_row(app.rows.iter().position(|r| r.key == "t").unwrap()); // collapsed
     app.add_node();
-    app.session.apply(confy_core::session::Intent::AddPickerCommit);
+    app.session
+        .apply(confy_core::session::Intent::AddPickerCommit);
     app.rebuild_rows();
     assert!(
         matches!(app.session.mode, Mode::Normal),
@@ -1840,7 +1842,8 @@ fn add_on_collapsed_dotted_table_adds_table_sibling() {
     let mut app = app_with("a.b = 1\n");
     app.select_row(app.rows.iter().position(|r| r.key == "a").unwrap());
     app.add_node();
-    app.session.apply(confy_core::session::Intent::AddPickerCommit);
+    app.session
+        .apply(confy_core::session::Intent::AddPickerCommit);
     app.rebuild_rows();
     assert!(
         matches!(app.session.mode, Mode::Normal),
@@ -1858,7 +1861,8 @@ fn add_on_collapsed_array_adds_array_sibling() {
     let mut app = app_with("nums = [1, 2]\nname = \"x\"\n");
     app.select_row(app.rows.iter().position(|r| r.key == "nums").unwrap());
     app.add_node();
-    app.session.apply(confy_core::session::Intent::AddPickerCommit);
+    app.session
+        .apply(confy_core::session::Intent::AddPickerCommit);
     app.rebuild_rows();
     assert!(
         matches!(app.session.mode, Mode::Normal),
@@ -1883,7 +1887,8 @@ fn add_on_toml_array_element_seeds_keyless_bare() {
         .path
         .clone();
     app.add_node();
-    app.session.apply(confy_core::session::Intent::AddPickerCommit);
+    app.session
+        .apply(confy_core::session::Intent::AddPickerCommit);
     app.rebuild_rows();
     assert!(
         matches!(app.session.mode, Mode::Edit(_)),
@@ -1902,7 +1907,8 @@ fn esc_after_add_rolls_the_insert_back() {
     let mut app = app_with("a = 1\nb = 2\n");
     app.select_row(app.rows.iter().position(|r| r.key == "a").unwrap());
     app.add_node();
-    app.session.apply(confy_core::session::Intent::AddPickerCommit);
+    app.session
+        .apply(confy_core::session::Intent::AddPickerCommit);
     app.rebuild_rows();
     assert!(matches!(app.session.mode, Mode::Edit(_)));
     assert_eq!(
@@ -1944,7 +1950,8 @@ fn add_on_scalar_leaf_adds_scalar_sibling_after() {
     let mut app = app_with("a = 1\nb = 2\n");
     app.select_row(app.rows.iter().position(|r| r.key == "a").unwrap());
     app.add_node();
-    app.session.apply(confy_core::session::Intent::AddPickerCommit);
+    app.session
+        .apply(confy_core::session::Intent::AddPickerCommit);
     app.rebuild_rows();
     assert!(
         matches!(app.session.mode, Mode::Edit(_)),
@@ -1964,7 +1971,8 @@ fn add_on_expanded_table_appends_scalar_child() {
     app.rebuild_rows();
     app.select_row(app.rows.iter().position(|r| r.key == "t").unwrap());
     app.add_node();
-    app.session.apply(confy_core::session::Intent::AddPickerCommit);
+    app.session
+        .apply(confy_core::session::Intent::AddPickerCommit);
     app.rebuild_rows();
     assert!(
         matches!(app.session.mode, Mode::Edit(_)),
@@ -1982,7 +1990,8 @@ fn add_root_scalar_lands_before_first_table() {
     let mut app = app_with("a = 1\n[t]\nx = 1\n");
     app.select_row(0); // root
     app.add_node();
-    app.session.apply(confy_core::session::Intent::AddPickerCommit);
+    app.session
+        .apply(confy_core::session::Intent::AddPickerCommit);
     app.rebuild_rows();
     assert_eq!(
         app.session.doc.as_ref().unwrap().serialize(),
@@ -2783,7 +2792,8 @@ fn add_member_into_inline_table_array_element() {
     let mut app = app_with("arr = [\n  { a = 1 },\n]\n");
     cursor_to_key(&mut app, "a");
     app.add_node();
-    app.session.apply(confy_core::session::Intent::AddPickerCommit);
+    app.session
+        .apply(confy_core::session::Intent::AddPickerCommit);
     app.rebuild_rows();
     assert!(
         matches!(app.session.mode, Mode::Edit(_)),
@@ -2859,7 +2869,8 @@ fn add_member_into_json_inline_object_array_element() {
     let mut app = app_with_json("{\n  \"arr\": [\n    { \"a\": 1 }\n  ]\n}\n");
     cursor_to_key(&mut app, "a");
     app.add_node();
-    app.session.apply(confy_core::session::Intent::AddPickerCommit);
+    app.session
+        .apply(confy_core::session::Intent::AddPickerCommit);
     app.rebuild_rows();
     assert!(matches!(app.session.mode, Mode::Edit(_)));
     assert_eq!(

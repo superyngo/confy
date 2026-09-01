@@ -36,7 +36,9 @@ pub(crate) fn draw_add_picker_overlay(f: &mut Frame, app: &App) {
         .borders(Borders::ALL)
         .style(Style::default().bg(Color::Black).fg(Color::White));
     f.render_widget(
-        Paragraph::new(lines).block(block).scroll((scroll_offset, 0)),
+        Paragraph::new(lines)
+            .block(block)
+            .scroll((scroll_offset, 0)),
         area,
     );
 }

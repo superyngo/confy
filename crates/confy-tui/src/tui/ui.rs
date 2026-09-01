@@ -17,10 +17,10 @@ use ratatui::widgets::*;
 // scroll-clamp / paging calculations) keep working unchanged after the
 // Task 10 overlay-renderer split — the logic didn't move conceptually, just
 // its file.
+pub(crate) use crate::tui::overlay_add_picker::add_picker_page_step;
 pub(crate) use crate::tui::overlay_detail::{
     detail_full_text, detail_popup_rect, wrapped_line_count,
 };
-pub(crate) use crate::tui::overlay_add_picker::add_picker_page_step;
 pub(crate) use crate::tui::overlay_schema_enum::schema_enum_page_step;
 pub(crate) use crate::tui::overlay_type_filter::type_filter_page_step;
 
