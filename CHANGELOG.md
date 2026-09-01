@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-09-01T20:30:00Z
+- **feat(web): PageUp/PageDown page the tree cursor (desktop + touch).** Core already supported
+  paging via `Intent::PageUp(usize)`/`Intent::PageDown(usize)` (`crates/confy-core/src/session/session.rs`,
+  wired into the TUI with `page_size = terminal_height / 2`), but the web UI's `key-intent.ts`
+  had no `PageUp`/`PageDown` case in the tree's normal-mode key switch, so pressing them only
+  scrolled the browser natively. Added a `tree-page` resolution kind plus a new exported
+  `treePageStep()` (mirrors `typeFilterPageStep`'s DOM-derived scroll-ratio technique, halved to
+  match the TUI's `height / 2` convention — no hardcoded row height), dispatched through the
+  existing `navSelect`/`touchNavSelect` wrappers in both `web/ui.ts` and `web/touch/app.ts` so
+  clipboard/selection/scroll-follow behavior stays identical to every other nav intent. Help
+  text (`web/help-content.ts`, all four locale/host variants) now documents `PgUp/PgDn page`.
+
 ### Unreleased Update — 2026-09-01T12:00:00Z
 - **fix(touch): keyboard cursor/jump-key navigation now scrolls the tree pane, including
   paste (cut/copy) mode.** `web/touch/app.ts`'s `render()` re-applies the tree pane's captured

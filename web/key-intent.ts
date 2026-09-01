@@ -30,6 +30,10 @@ export type KeyResolution =
   // (`typeFilterPageStep`), so only the direction is pure; `onKey` always
   // calls `ev.preventDefault()` for this result, matching the original.
   | { kind: "typefilter-page"; dir: -1 | 1 }
+  // PageUp/PageDown in the tree (normal mode): page size is DOM-derived
+  // (`treePageStep`), so only direction is pure — same split as
+  // `typefilter-page`. Host always calls `ev.preventDefault()`.
+  | { kind: "tree-page"; dir: -1 | 1 }
   | {
       kind: "native";
       action: "focus-search" | "undo" | "redo" | "save" | "open" | "toggle-branches" | "save-convert";
@@ -44,6 +48,19 @@ export type KeyResolution =
 // duplicate definition.
 export function navRowCount(grid: TypeFilterView): number {
   return grid.rows.filter((r) => "Cells" in r).length;
+}
+
+// PageUp/PageDown step for the tree, in visible-row units — mirrors the
+// TUI's `terminal_height / 2` convention (crates/confy-tui/src/tui/mod.rs)
+// without assuming a fixed row height: derive the on-screen row count from
+// the scroll-container ratio (same technique as `typeFilterPageStep`), then
+// halve it. `totalRows` is `snap.rows.length`; `clientH`/`scrollH` are the
+// tree scroll container's `clientHeight`/`scrollHeight`.
+export function treePageStep(totalRows: number, clientH: number, scrollH: number): number {
+  if (totalRows === 0) return 1;
+  const ratio = scrollH > 0 ? clientH / scrollH : 1;
+  const visible = Math.max(1, Math.min(totalRows, Math.round(ratio * totalRows)));
+  return Math.max(1, Math.floor(visible / 2));
 }
 
 // PageUp/PageDown stride for the Action menu popup — eight items, always
@@ -198,6 +215,8 @@ export function resolveKeyIntent(
     case "k": case "ArrowUp": return { kind: "nav", intent: "CursorUp", preventDefault: preSwitchPD };
     case "g": case "Home": return { kind: "nav", intent: "CursorHome", preventDefault: preSwitchPD };
     case "G": case "End": return { kind: "nav", intent: "CursorEnd", preventDefault: preSwitchPD };
+    case "PageUp": return { kind: "tree-page", dir: -1 };
+    case "PageDown": return { kind: "tree-page", dir: 1 };
     case "Enter": return { kind: "intent", intent: "ToggleDetail", preventDefault: false };
     case " ": return { kind: "native", action: "toggle-branches", preventDefault: preSwitchPD };
     // preventDefault: these open a text editor synchronously (inline input or the

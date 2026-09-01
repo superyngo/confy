@@ -39,7 +39,7 @@ const result = await esbuild.build({
   target: "es2022",
 });
 const modUrl = "data:text/javascript;base64," + Buffer.from(result.outputFiles[0].text).toString("base64");
-const { resolveKeyIntent, navRowCount } = await import(modUrl);
+const { resolveKeyIntent, navRowCount, treePageStep } = await import(modUrl);
 
 // ---- fixtures (types.ts:34-132) ----
 const editMode = { Edit: { field: "Value", buffer: "x", cursor: 1, key: "", is_element: false, is_comment: false, rename_only: false } };
@@ -398,6 +398,40 @@ console.log("\n-- tree shortcuts --");
 {
   const r = resolve(normalMode, "F12");
   check("unrecognized key -> null", r === null, JSON.stringify(r));
+}
+
+// ---- normal-mode PageUp/PageDown -> tree-page ----
+console.log("\n-- tree-page (normal mode) --");
+{
+  const r = resolve(normalMode, "PageUp");
+  check("PageUp -> tree-page dir:-1", r?.kind === "tree-page" && r.dir === -1, JSON.stringify(r));
+}
+{
+  const r = resolve(normalMode, "PageDown");
+  check("PageDown -> tree-page dir:1", r?.kind === "tree-page" && r.dir === 1, JSON.stringify(r));
+}
+{
+  const r = resolve(typeFilterMode, "PageUp");
+  check("Modal mode PageUp still resolves typefilter-page, not tree-page", r?.kind === "typefilter-page" && r.dir === -1, JSON.stringify(r));
+}
+
+// ---- treePageStep ----
+console.log("\n-- treePageStep --");
+{
+  const step = treePageStep(20, 400, 400);
+  check("fully visible (no scroll) -> half of all rows", step === 10, step);
+}
+{
+  const step = treePageStep(20, 100, 400);
+  check("25% visible (5 rows) -> floor(5/2)", step === 2, step);
+}
+{
+  const step = treePageStep(0, 100, 400);
+  check("empty tree -> 1", step === 1, step);
+}
+{
+  const step = treePageStep(3, 100, 0);
+  check("no scroll height -> ratio defaults to 1 -> floor(3/2)", step === 1, step);
 }
 
 console.log(failures === 0 ? "\nALL KEY-INTENT CHECKS PASSED" : `\n${failures} FAILURES`);

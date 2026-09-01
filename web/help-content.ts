@@ -4,7 +4,7 @@
 import { escapeHtml } from "./escape.js";
 import { t, tArgs, getLang } from "./i18n.js";
 export const HELP_TEXT = `confy web — keys
-j/k or ↑/↓     move cursor
+j/k or ↑/↓     move cursor · PgUp/PgDn page
 Space          toggle branch / edit leaf / activate
 e              edit (inline or multiline modal) · F2 rename
 a              add node · d delete · c copy · x cut · v paste
@@ -26,7 +26,7 @@ right-click    Action menu`;
 // …) and mouse-button names stay untranslated — project/platform vocabulary,
 // same rule as the TUI's tui.help.* catalog entries.
 const HELP_TEXT_ZH_TW = `confy web — 按鍵
-j/k 或 ↑/↓     移動游標
+j/k 或 ↑/↓     移動游標 · PgUp/PgDn 翻頁
 Space          展開分支／編輯葉節點／啟用
 e              編輯（inline 或多行對話框） · F2 重新命名
 a              新增節點 · d 刪除 · c 複製 · x 剪下 · v 貼上
@@ -49,7 +49,7 @@ right-click    動作選單`;
 // Code owns Open and there's no quit — and Save As/Convert/Help/About/
 // language move to the editor title's "…" More Actions menu instead.
 export const HELP_TEXT_VSCODE = `confy web — keys
-j/k or ↑/↓     move cursor
+j/k or ↑/↓     move cursor · PgUp/PgDn page
 Space          toggle branch / edit leaf / activate
 e              edit (inline or multiline modal) · F2 rename
 a              add node · d delete · c copy · x cut · v paste
@@ -73,7 +73,7 @@ right-click    Action menu`;
 
 // zh-TW translation of HELP_TEXT_VSCODE.
 const HELP_TEXT_VSCODE_ZH_TW = `confy web — 按鍵
-j/k 或 ↑/↓     移動游標
+j/k 或 ↑/↓     移動游標 · PgUp/PgDn 翻頁
 Space          展開分支／編輯葉節點／啟用
 e              編輯（inline 或多行對話框） · F2 重新命名
 a              新增節點 · d 刪除 · c 複製 · x 剪下 · v 貼上

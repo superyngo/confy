@@ -82,7 +82,7 @@ import {
   runSaveConvert as runSaveConvertShared,
   wireConvertDialog,
 } from "../convert-dialog.js";
-import { resolveKeyIntent, navRowCount, type KeyResolution } from "../key-intent.js";
+import { resolveKeyIntent, navRowCount, treePageStep, type KeyResolution } from "../key-intent.js";
 import { actionItemHTML } from "../action-menu-items.js";
 
 type FsHandle = OpenedFile["handle"];
@@ -1862,6 +1862,11 @@ function handleKeyResult(result: NonNullable<KeyResolution>, ev: KeyboardEvent) 
       const mode = snap!.mode;
       if (typeof mode !== "object" || !("TypeFilter" in mode)) return;
       return send({ TypeFilterMove: [result.dir * touchTypeFilterPageStep(mode.TypeFilter), 0] });
+    }
+    case "tree-page": {
+      ev.preventDefault();
+      const step = treePageStep(snap!.rows.length, treePane.clientHeight, treeEl.scrollHeight);
+      return touchNavSelect(result.dir < 0 ? { PageUp: step } : { PageDown: step });
     }
     case "native":
       if (result.preventDefault) ev.preventDefault();

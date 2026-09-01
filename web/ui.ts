@@ -79,7 +79,7 @@ import type {
   ViewRow,
 } from "./types.js";
 import { createBatcher, modeTag } from "./mode.js";
-import { navRowCount, resolveKeyIntent } from "./key-intent.js";
+import { navRowCount, resolveKeyIntent, treePageStep } from "./key-intent.js";
 import { drawnCursorFallback } from "./path-utils.js";
 
 let session: Session | null = null;
@@ -814,6 +814,11 @@ function onKey(ev: KeyboardEvent) {
       const mode = snap.mode;
       if (typeof mode !== "object" || !("TypeFilter" in mode)) return;
       return send({ TypeFilterMove: [result.dir * typeFilterPageStep(mode.TypeFilter), 0] });
+    }
+    case "tree-page": {
+      ev.preventDefault();
+      const step = treePageStep(snap.rows.length, $("treeWrap").clientHeight, tree.scrollHeight);
+      return navSelect(result.dir < 0 ? { PageUp: step } : { PageDown: step });
     }
     case "native":
       if (result.preventDefault) ev.preventDefault();

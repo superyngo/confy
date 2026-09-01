@@ -191,7 +191,7 @@ shapes round-trip). Key types:
   With a **multi-selection**, `Space` toggles every selected branch independently (cursor-walks
   the selected branch rows dispatching `ToggleExpand`, then restores the selection); a single
   selection keeps the plain cursor toggle.
-  Navigation keys (`←→↑↓`, Home/End, Space) `preventDefault` so the browser's native
+  Navigation keys (`←→↑↓`, Home/End, PageUp/PageDown, Space) `preventDefault` so the browser's native
   arrow-scroll can't drag the off-canvas detail panel into view (`.main` is also
   `overflow:hidden` as a backstop).
 - **Drag-reparent (`dnd.ts`).** HTML5 grip drag → `MoveSelectionTo`. `dragover` asks core
@@ -486,7 +486,7 @@ edits to the verbatim desktop CSS.
 - **External-keyboard shortcut parity.** A `document.body` `keydown` listener (`onKey`,
   `web/touch/app.ts`) resolves every key through the same `web/key-intent.ts`
   `resolveKeyIntent` desktop uses (shared verbatim, no touch-only fork) — navigation
-  (j/k/g/G, arrows, Home/End, Shift+↑/↓ range-select), edit actions (a/d/c/x/v/r/s),
+  (j/k/g/G, arrows, Home/End, PageUp/PageDown, Shift+↑/↓ range-select), edit actions (a/d/c/x/v/r/s),
   expand/collapse (1/2/0/9), Nudge (+/-), `/` focus-search, `f`/`C` TypeFilter/Convert,
   `m` Action menu, `?` Help, Ctrl+S/Ctrl+O save/open, z/y undo/redo, and Space multi-branch toggle all work
   from an external/Bluetooth keyboard on a touch device. Guarded against focused
