@@ -8,6 +8,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-09-01T12:00:00Z
+- **fix(touch): keyboard cursor/jump-key navigation now scrolls the tree pane, including
+  paste (cut/copy) mode.** `web/touch/app.ts`'s `render()` re-applies the tree pane's captured
+  `scrollTop` verbatim after every `innerHTML` rebuild (so a tap's re-render never snaps the
+  pane back to the top) — but that also meant an external/Bluetooth keyboard's arrows, j/k,
+  g/G/Home/End or Shift+↑/↓ could move the focus past a viewport edge with **no scroll at all**;
+  reproduced in a real Chromium (594px pane, cursor row landing at y≈1657, `scrollTop` stuck at
+  0). Desktop already gets this for free from `renderTree`'s own `scrollIntoView`
+  (`web/render.ts`); touch had no equivalent — and even desktop never scrolled to the paste-mode
+  insertion slot, only the cursor. New `scrollFocusIntoView()` (touch) applies minimal
+  ("sticky cursor") scrolling — the anchor moves freely inside the viewport and `scrollTop`
+  changes only by the exact overflow when it crosses an edge, never centered — hand-rolled
+  against `treePane.scrollTop` rather than `Element.scrollIntoView`, which also scrolls
+  ancestors/the page (the `.app` shell is `position:absolute`, so that would slide it out from
+  under its own bottom-anchored sheets). In paste mode, where arrows move the insertion slot and
+  not the cursor (`Session::move_selection_to`'s `PasteSlot`), the anchor is the
+  `.reorder-line` for an `After` slot and the target row for `Into`, matching what the paste-mode
+  cue actually draws.
+- **fix(web): `Home`/`g` (and `k` from the first row) no longer leave an invisible cursor.**
+  `Session::cursor_home` can legitimately land the cursor on the document's root row (empty
+  path) — the TUI draws it, so core is right for its own host — but neither web host draws
+  the root row (`web/render.ts`, `web/touch/render.ts`), so the cursor bar simply vanished on
+  both desktop and touch. New shared `drawnCursorFallback()` (`web/path-utils.ts`) re-targets
+  the first drawn row whenever a keyboard nav dispatch leaves the cursor there; wired into both
+  `web/ui.ts`'s `navSelect` and `web/touch/app.ts`'s `touchNavSelect`, before the `SetSelection`
+  that collapses the selection onto the cursor, so the two never desync. Paste mode's analogous
+  `Into(root)` target (the slot `Home` arms when armed) is now drawn as an insertion line at the
+  very top of the tree, since it has no row of its own to outline.
+- New `web/touch-key-scroll.spec.mjs` (extract-real-body + fake-DOM convention): minimal-scroll
+  at both edges, no-op inside the viewport, paste-mode `After`/`Into`/`Into(root)` anchoring, and
+  `drawnCursorFallback` correctness — plus source-shape checks that every resolved key runs the
+  scroll follow and that it's never implemented via `Element.scrollIntoView`.
+
 ### Unreleased Update — 2026-09-01T10:24:00Z
 - **fix(pointer): drag/gesture drops resolve through `PasteSlot` end to end, and
   inline/flow containers regain their drop-into band (ADR 0010).** The mouse grip

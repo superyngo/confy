@@ -449,7 +449,13 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
                  convert dialog, `#overlay` for Help/Prompt/KindSwitch only), Tree|Raw read-only
                  view toggle (`session.serialize()`), keyboard→Intent map (mirrors tui/keys.rs),
                  theme toggle, FS open/save, `#url-modal` Open-from-URL, external-edit modal,
-                 paste-mode cursor target
+                 paste-mode cursor target; `navSelect` re-targets an undrawn-root cursor via
+                 `path-utils.ts`'s `drawnCursorFallback` (shared with touch's `touchNavSelect`) —
+                 `Home`/`g` can otherwise leave an invisible cursor, since neither web host draws
+                 the root row. Touch's `app.ts` mirrors this plus its own keyboard
+                 `scrollFocusIntoView()` (minimal-scroll the tree pane to follow the cursor / the
+                 paste-mode `.reorder-line`/`.drop-into` row past a viewport edge — `render()`
+                 otherwise restores `scrollTop` verbatim across every re-render)
   toolbar-fold.ts shared header/filter-row "⋯ More" fold registry (`foldedEntries`/
                  `ToolbarEntry`), used identically by `ui.ts` and `touch/app.ts` — button
                  inventory, fold breakpoints, and per-host trimming are in **CHROME.md**

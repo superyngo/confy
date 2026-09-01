@@ -491,7 +491,19 @@ edits to the verbatim desktop CSS.
   `m` Action menu, `?` Help, Ctrl+S/Ctrl+O save/open, z/y undo/redo, and Space multi-branch toggle all work
   from an external/Bluetooth keyboard on a touch device. Guarded against focused
   `INPUT`/`TEXTAREA`/`SELECT` fields and the URL/external-edit sheets so typing in a form
-  field is never hijacked.
+  field is never hijacked. Every resolved key ends in `scrollFocusIntoView()` — since
+  `render()` re-applies the tree pane's captured `scrollTop` verbatim across a re-render (so a
+  tap never snaps the pane to the top), keyboard nav needs its own scroll-follow. Minimal
+  ("sticky cursor") scrolling against `treePane.scrollTop` directly, never
+  `Element.scrollIntoView` (would also scroll the `position:absolute` app shell out from under
+  its bottom-anchored sheets). The anchor is `.row.cursor` normally; in paste mode, where arrows
+  move the insertion slot and not the cursor, it's the `.reorder-line` for an `After` slot
+  (drawn at the target row's bottom edge — scrolling only the row can still clip the line) or
+  the target row for `Into`. `Home`/`g` (and `k` from the first row) can leave the cursor on the
+  document's undrawn root row — neither web host draws it, so a shared `drawnCursorFallback()`
+  (`web/path-utils.ts`) re-targets the first drawn row after every keyboard nav dispatch, in
+  both `touchNavSelect` here and desktop `ui.ts`'s `navSelect`. The paste-mode analogue,
+  `Into(root)`, is drawn as an insertion line at the very top of the tree instead.
 - **Swipe actions.** A left-swipe on a row's `.row-main` slides it open to reveal a red Delete
   action (`.row-del`); a right-swipe slides it the other way to reveal a neutral Remark action
   (`.row-remark`, toggles the node to/from a comment — desktop's `r` key). One row is open at a

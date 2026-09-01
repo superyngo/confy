@@ -66,7 +66,7 @@ import {
 } from "../samples.js";
 import { IC, esc, treeHTML } from "./render.js";
 import { fabHTML, syncFab } from "../fab.js";
-import { parentOf, pathEq } from "../path-utils.js";
+import { drawnCursorFallback, parentOf, pathEq } from "../path-utils.js";
 import { slotLineIndentPx } from "../slot-line.js";
 import { resolveClick, resetAnchor, type Mods } from "../select.js";
 import { panelHTML, wirePanel, schemaHintText } from "../panel.js";
@@ -82,7 +82,7 @@ import {
   runSaveConvert as runSaveConvertShared,
   wireConvertDialog,
 } from "../convert-dialog.js";
-import { resolveKeyIntent, navRowCount } from "../key-intent.js";
+import { resolveKeyIntent, navRowCount, type KeyResolution } from "../key-intent.js";
 import { actionItemHTML } from "../action-menu-items.js";
 
 type FsHandle = OpenedFile["handle"];
@@ -410,7 +410,23 @@ function renderPasteSlotCue(snap: SessionSnapshot, slotOverride?: PasteSlot) {
   }
   const reorderLine = treeEl.querySelector<HTMLElement>(".reorder-line");
   if (reorderLine) {
-    if (slot && "After" in slot) {
+    if (slot && "Into" in slot && slot.Into.length === 0) {
+      // `Into(root)` — "insert as the document's first child", the slot
+      // paste-mode `Home` lands on. There is no root row to outline
+      // (`treeHTML` never draws the empty path), so the only way to keep this
+      // target visible is the insertion line at the very top of the tree, at
+      // the first row's own indent (the paste-slot twin of the undrawn-root
+      // problem `drawnCursorFallback` solves for the cursor).
+      const firstRow = treeEl.querySelector<HTMLElement>(".row");
+      const firstMain = firstRow?.querySelector<HTMLElement>(".row-main");
+      reorderLine.style.top = "0px";
+      reorderLine.style.left = `${
+        firstMain && typeof getComputedStyle !== "undefined"
+          ? parseFloat(getComputedStyle(firstMain).paddingLeft) || 0
+          : 0
+      }px`;
+      reorderLine.style.display = "block";
+    } else if (slot && "After" in slot) {
       const rowEl = treeEl.querySelector<HTMLElement>(
         `.row[data-path='${CSS.escape(JSON.stringify(slot.After))}']`,
       );
@@ -430,6 +446,49 @@ function renderPasteSlotCue(snap: SessionSnapshot, slotOverride?: PasteSlot) {
       reorderLine.style.display = "none";
     }
   }
+}
+
+// Keyboard navigation must scroll the tree, not just move the highlight.
+// `render()` re-applies the captured `treePane.scrollTop` verbatim (so a tap's
+// re-render never snaps the pane back to the top), which also means a cursor
+// or paste-slot step past a viewport edge would leave the focus off-screen
+// with no scroll at all — desktop gets this for free from `renderTree`'s own
+// `scrollIntoView` (`web/render.ts`); touch had no equivalent.
+//
+// Minimal ("sticky cursor") scrolling: the anchor moves freely inside the
+// viewport and `scrollTop` changes *only* when the anchor overflows an edge,
+// by exactly that overflow — never centered, never touched otherwise.
+// Deliberately hand-rolled against `treePane` instead of
+// `Element.scrollIntoView`, which also scrolls every scrollable *ancestor*,
+// including the page: `.app` is `position:absolute` and scrolls with the
+// document, so an ancestor scroll slides the whole app shell out from under
+// its bottom-anchored sheets (the same hazard `openUrlSheet`'s
+// `focus({ preventScroll: true })` guards against).
+//
+// The anchor is whatever the focus visually *is*. In paste mode arrows move
+// the insertion slot, not the cursor (core `move_paste_slot`), so it is the
+// `.reorder-line` for the two slots drawn as a line — `After` (drawn at the
+// anchor row's *bottom* edge, so scrolling only that row can still leave the
+// line clipped) and `Into(root)` (drawn at the tree's top, no row of its own)
+// — and the target row for any other `Into`. Otherwise it is the cursor row.
+function scrollFocusIntoView() {
+  if (rawView || !snap) return;
+  const slot = snap.paste_slot;
+  const drawnAsLine = !!slot && ("After" in slot || slot.Into.length === 0);
+  const line = treeEl.querySelector<HTMLElement>(".reorder-line");
+  const anchor =
+    drawnAsLine && line && line.style.display === "block"
+      ? line
+      : treeEl.querySelector<HTMLElement>(
+          `.row[data-path='${CSS.escape(
+            JSON.stringify(slot && "Into" in slot ? slot.Into : snap.cursor),
+          )}']`,
+        );
+  if (!anchor) return;
+  const r = anchor.getBoundingClientRect();
+  const pr = treePane.getBoundingClientRect();
+  if (r.top < pr.top) treePane.scrollTop -= pr.top - r.top;
+  else if (r.bottom > pr.bottom) treePane.scrollTop += r.bottom - pr.bottom;
 }
 
 // Renders the shared panel body into `container` (either the wide side pane's
@@ -1701,7 +1760,13 @@ async function doOpen() {
 function touchNavSelect(i: Intent) {
   send(i);
   if (snap && (snap.clipboard_count ?? 0) === 0) {
-    send({ SetSelection: { paths: [snap.cursor] } });
+    // Same root-row correction desktop's `navSelect` applies: `g`/Home (and
+    // `k` from the first drawn row) can leave core's cursor on the undrawn
+    // root row, i.e. an invisible focus cursor (`drawnCursorFallback`). Must
+    // precede the `SetSelection` so it collapses onto the corrected cursor.
+    const drawn = drawnCursorFallback(snap);
+    if (drawn) send({ SetCursor: drawn });
+    send({ SetSelection: { paths: [snap!.cursor] } });
   }
 }
 
@@ -1759,6 +1824,19 @@ function onKey(ev: KeyboardEvent) {
   // no "quit the app" concept to bind it to.
   const result = resolveKeyIntent(snap.mode, ev.key, { ctrl: ev.ctrlKey || ev.metaKey, shift: ev.shiftKey }, rawView, true);
   if (!result) return;
+  handleKeyResult(result, ev);
+  // Every *resolved* key gets the focus scrolled back into view — one path for
+  // arrows/j/k, g/G/Home/End, Shift+↑/↓ and paste-mode slot steps alike, per
+  // the sticky-cursor rule that all inputs share one scrolling implementation.
+  // Unresolved keys and keys typed into a field returned above, so they never
+  // touch the scroll position.
+  scrollFocusIntoView();
+}
+
+// The resolved-key dispatch half of `onKey`, split out so the scroll-follow
+// above runs after *every* branch (each one `return`s) without wrapping the
+// whole switch.
+function handleKeyResult(result: NonNullable<KeyResolution>, ev: KeyboardEvent) {
   switch (result.kind) {
     case "intent":
       if (result.preventDefault) ev.preventDefault();
@@ -1781,7 +1859,7 @@ function onKey(ev: KeyboardEvent) {
       return touchNavSelect(result.intent);
     case "typefilter-page": {
       ev.preventDefault();
-      const mode = snap.mode;
+      const mode = snap!.mode;
       if (typeof mode !== "object" || !("TypeFilter" in mode)) return;
       return send({ TypeFilterMove: [result.dir * touchTypeFilterPageStep(mode.TypeFilter), 0] });
     }

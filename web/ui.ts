@@ -80,6 +80,7 @@ import type {
 } from "./types.js";
 import { createBatcher, modeTag } from "./mode.js";
 import { navRowCount, resolveKeyIntent } from "./key-intent.js";
+import { drawnCursorFallback } from "./path-utils.js";
 
 let session: Session | null = null;
 let snap: SessionSnapshot | null = null;
@@ -1045,7 +1046,13 @@ function toggleSelectedBranches() {
 function navSelect(i: Intent) {
   send(i);
   if (snap && (snap.clipboard_count ?? 0) === 0) {
-    send({ SetSelection: { paths: [snap.cursor] } });
+    // `g`/Home (and `k` from the first drawn row) can land core's cursor on the
+    // undrawn root row — re-target the first drawn row so the cursor bar never
+    // vanishes (`drawnCursorFallback`). Before the `SetSelection` below, so the
+    // selection collapses onto the corrected cursor.
+    const drawn = drawnCursorFallback(snap);
+    if (drawn) send({ SetCursor: drawn });
+    send({ SetSelection: { paths: [snap!.cursor] } });
   }
 }
 
