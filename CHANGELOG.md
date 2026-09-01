@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-09-01T03:05:09Z
+- **ci(msstore): revert to auto-committing the Store submission.** The
+  `--noCommit` experiment (v0.31.0, v0.31.1) silently stopped shipping new
+  packages: `msstore publish --noCommit` uploads the zip to an Azure blob but
+  the Store only ingests it on commit, so the submission stayed at
+  `PendingCommit` and Partner Center kept showing the packages cloned from the
+  last published submission (v0.30.1.0, "Unchanged") — submitting that draft
+  by hand re-published the old package. `publish-msstore.yml` is restored to
+  plain `msstore publish` (commit == submit for certification) plus the
+  RELEASES.md version sync; the human gate stays at the
+  `publish-gate-msstore` environment approval. `STORE.md` documents the
+  failure mode so `--noCommit` is not reintroduced.
+
 ## [v0.31.1] - 2026-09-01
 ### Unreleased Update — 2026-09-01T01:54:19Z
 - **fix(touch): wide-layout detail panel still scrolled to top on nudge.**

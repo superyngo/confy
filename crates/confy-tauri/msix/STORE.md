@@ -73,14 +73,11 @@ Automatic, in two stages:
    with the tag + source run ID.
    `publish-msstore.yml` downloads the `x86_64-pc-windows-msvc` `.msix` from
    that run, configures the Microsoft Store Developer CLI (`msstore
-   reconfigure`) with the secrets above, and runs `msstore publish --noCommit`
-   — which creates/updates the submission and uploads the package
-   (`x.y.z.0` derived from the git tag, same as the identity manifest) but
-   deliberately does **not** commit it. The submission is left in draft
-   state in Partner Center for a human to review (and edit listing text/
-   screenshots if needed) before manually clicking Submit there — RELEASES.md's
-   "Current version" only reflects a channel once that manual step actually
-   publishes it.
+   reconfigure`) with the secrets above, and runs `msstore publish` — which
+   creates a new submission, uploads the package (`x.y.z.0` derived from the
+   git tag, same as the identity manifest), and commits it. The Store then
+   validates and publishes it same as any Partner Center submission (review
+   time varies).
 
 Runs on `windows-latest`, not `ubuntu-latest`: the msstore CLI's Linux
 credential store needs `libsecret` + a D-Bus Secret Service daemon that
@@ -114,3 +111,13 @@ Add-AppxPackage confy-desktop-windows-x86_64.msix
   WebView2 error at launch.
 - x64 only for now; add an arm64 manifest/`ProcessorArchitecture` + build leg
   (and an `.msixbundle`) if Windows-on-ARM demand appears.
+- **Never add `--noCommit`.** Tried in v0.31.0/v0.31.1 and reverted: the
+  package zip is only uploaded to an Azure blob by the upload step, and the
+  Store ingests it *only* when the submission is committed. Without the
+  commit the submission sits at `PendingCommit` and Partner Center still
+  shows the packages cloned from the last published submission (v0.30.1.0,
+  "Unchanged") — and submitting that draft by hand in Partner Center
+  re-publishes the *old* package. Related: the Submission API docs warn that
+  a submission created via the API must only be changed via the API; editing
+  it in Partner Center can leave it uncommittable, requiring a discard.
+  <https://learn.microsoft.com/windows/uwp/monetize/manage-app-submissions>
