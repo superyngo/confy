@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ## [Unreleased]
+### Unreleased Update — 2026-09-01T01:54:19Z
+- **fix(touch): wide-layout detail panel still scrolled to top on nudge.**
+  The previous fix saved/restored the wrong element's `scrollTop`: on wide
+  layouts `.dp-body` is a plain padded div with no overflow of its own — the
+  actual scrolling element is its parent, `.detail-pane`. `renderDetailBody()`
+  (`web/touch/app.ts`) now takes an explicit `scroller` argument separate
+  from the container being replaced (`.detail-pane` for wide, `.detail-wrap`
+  itself for the narrow sheet, since there it doubles as `.sheet-body`).
+  Verified with a real headless-Chromium repro: scrolled the wide panel
+  partway down, wheel-nudged the value six times — scroll position stayed
+  pinned and the value incremented on every tick.
+
 ### Unreleased Update — 2026-09-01T01:43:13Z
 - **fix(touch): detail panel now live-updates during a value nudge.** Two bugs
   reported after the swipe-to-nudge feature: (1) on narrow layouts, the

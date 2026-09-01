@@ -427,21 +427,27 @@ function renderPasteSlotCue(snap: SessionSnapshot, slotOverride?: PasteSlot) {
 
 // Renders the shared panel body into `container` (either the wide side pane's
 // `.dp-body`, or the narrow bottom sheet's `.detail-wrap`) and re-wires it,
-// preserving `container`'s own scroll position across the innerHTML replace —
+// preserving `scroller`'s own scroll position across the innerHTML replace —
 // called on every render(), including the live SetCursor+Nudge dispatches a
 // mid-drag swipe/wheel-nudge fires (`web/panel.ts`), so those steps don't
-// snap the panel back to its own top every time.
+// snap the panel back to its own top every time. `scroller` is the element
+// that actually has `overflow:auto` (touch/style.css): on wide layouts
+// that's `.detail-pane`, one level *above* the padded `.dp-body` container
+// itself (which never scrolls, so saving/restoring its own scrollTop is a
+// no-op); on the narrow sheet, `.detail-wrap` doubles as `.sheet-body` and
+// is both the container and the scroller.
 function renderDetailBody(
   container: HTMLElement,
+  scroller: HTMLElement,
   cur: ViewRow,
   schemaEnum: { options: string[]; cursor: number } | undefined,
 ): void {
   const hint = session!.schemaHint(cur.path);
   const info = session!.schemaInfo(cur.path);
-  const st = container.scrollTop;
+  const st = scroller.scrollTop;
   container.innerHTML = panelHTML(cur, parentIsInline(cur.path), hint, schemaEnum, info);
   wirePanel(container, cur, sendR, openKindRow, (msg: string) => renderNotice({ severity: "error", text: msg, source: "core" }), undefined, schemaEnum);
-  container.scrollTop = st;
+  scroller.scrollTop = st;
 }
 
 // ---- render ----
@@ -516,13 +522,13 @@ function render() {
       typeof snap.mode === "object" && "SchemaEnum" in snap.mode ? snap.mode.SchemaEnum : undefined;
     if (isWide()) {
       if (cur && cur.path.length) {
-        renderDetailBody(dpBody, cur, schemaEnum);
+        renderDetailBody(dpBody, dpBody.parentElement!, cur, schemaEnum);
       } else {
         dpBody.innerHTML = '<div class="dp-empty">Tap any node<br>to edit its value and metadata here</div>';
       }
     } else if (sheets.detail.classList.contains("open") && cur && cur.path.length) {
       const wrap = sheets.detail.querySelector<HTMLElement>(".detail-wrap");
-      if (wrap) renderDetailBody(wrap, cur, schemaEnum);
+      if (wrap) renderDetailBody(wrap, wrap, cur, schemaEnum);
     }
   }
 
