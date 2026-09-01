@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+### Unreleased Update — 2026-09-01T05:20:00Z
+- **fix(desktop): restore HTML5 drag-and-drop in the Tauri shell.** Node
+  grip-drag was dead in the packaged desktop app on both Windows and macOS —
+  dragged rows greyed out but the cursor showed the forbidden sign and no
+  drop target reacted, while the web UI was unaffected. Root cause: Tauri v2's
+  `dragDropEnabled` window option defaults to `true`, which installs an
+  OS-level file-drop handler that swallows every drag session before the
+  webview sees it (wry's macOS handler returns `Copy` without forwarding to
+  WKWebView when the Tauri handler consumes the event; WebView2 behaves the
+  same). The app never used native file drops, so the option is now
+  `false` in `tauri.conf.json`, letting `web/dnd.ts` receive
+  `dragover`/`drop` again.
+
 ### Unreleased Update — 2026-09-01T03:05:09Z
 - **ci(msstore): revert to auto-committing the Store submission.** The
   `--noCommit` experiment (v0.31.0, v0.31.1) silently stopped shipping new

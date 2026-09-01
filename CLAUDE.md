@@ -507,7 +507,13 @@ crates/confy-tauri/       desktop + Android app shell (Tauri v2) over the web UI
                  upstream gap as of `tauri-plugin-dialog` 2.7.1).
   src/main.rs    thin bin `confy-desktop`, just calls `confy_tauri_lib::run()`.
   tauri.conf.json  frontendDist=../../web/dist, beforeBuildCommand=cf-build.sh (via git toplevel),
-                   bundle targets ["dmg"], identifier net.turkeyang.confy
+                   bundle targets ["dmg"], identifier net.turkeyang.confy.
+                   `dragDropEnabled: false` on the main window is REQUIRED: Tauri v2
+                   defaults it to `true`, and that OS-level file-drop handler swallows every
+                   drag session before the webview sees it, killing `web/dnd.ts`'s HTML5
+                   grip-drag (greyed rows + forbidden cursor, no `dragover`/`drop`) on
+                   Windows and macOS alike. The app uses no native file drops, so leave it
+                   off — re-enabling it regresses desktop node drag-and-drop.
   tauri.windows.conf.json  Windows platform override (Tauri v2 auto-merge): empty
                    before-commands (bash/git rev-parse don't run under the Windows build
                    shell — build web/dist manually first) + bundle targets ["nsis"]
