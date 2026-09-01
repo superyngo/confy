@@ -2,7 +2,7 @@
 // from `ui.ts`'s `onKey` (see
 // docs/superpowers/plans/2026-08-11-web-code-audit-remediation-plan.md,
 // Task 8). Mirrors `onKey`'s branch structure and mode-precedence exactly
-// (Edit > Prompt > Convert > TypeFilter > KindSwitch > ActionMenu > SchemaEnum > Help >
+// (Edit > Prompt > Convert > TypeFilter > KindSwitch > AddPicker > ActionMenu > SchemaEnum > Help >
 // tree shortcuts) so it's unit-testable without a DOM, same pattern as
 // `toolbar-fold.ts`'s pure-logic extraction.
 //
@@ -130,6 +130,19 @@ export function resolveKeyIntent(
     if (key === "ArrowDown") return { kind: "intent", intent: { KindSwitchMove: 1 }, preventDefault: false };
     if (key === "Enter") return { kind: "intent", intent: "KindSwitchCommit", preventDefault: false };
     if (key === "Escape") return { kind: "intent", intent: "ExitKindSwitch", preventDefault: false };
+    return null;
+  }
+  if (typeof m === "object" && "AddPicker" in m) {
+    const st = m.AddPicker;
+    const ADD_PICKER_PAGE_STEP = 5;
+    if (key === "ArrowUp") return { kind: "intent", intent: { AddPickerMove: -1 }, preventDefault: true };
+    if (key === "ArrowDown") return { kind: "intent", intent: { AddPickerMove: 1 }, preventDefault: true };
+    if (key === "Home") return { kind: "intent", intent: { AddPickerJump: -st.options.length }, preventDefault: true };
+    if (key === "End") return { kind: "intent", intent: { AddPickerJump: st.options.length }, preventDefault: true };
+    if (key === "PageUp") return { kind: "intent", intent: { AddPickerJump: -ADD_PICKER_PAGE_STEP }, preventDefault: true };
+    if (key === "PageDown") return { kind: "intent", intent: { AddPickerJump: ADD_PICKER_PAGE_STEP }, preventDefault: true };
+    if (key === "Enter") return { kind: "intent", intent: "AddPickerCommit", preventDefault: false };
+    if (key === "Escape") return { kind: "intent", intent: "ExitAddPicker", preventDefault: false };
     return null;
   }
   if (typeof m === "object" && "ActionMenu" in m) {

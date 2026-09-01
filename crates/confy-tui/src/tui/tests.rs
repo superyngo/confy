@@ -1791,6 +1791,8 @@ fn add_node_inserts_empty_string_and_enters_edit() {
     let mut app = app_with("a = 1\n");
     app.select_row(1); // on a
     app.add_node();
+    app.session.apply(confy_core::session::Intent::AddPickerCommit);
+    app.rebuild_rows();
     assert!(
         matches!(app.session.mode, Mode::Edit(_)),
         "add should open the inline editor"
@@ -1801,7 +1803,7 @@ fn add_node_inserts_empty_string_and_enters_edit() {
             .as_ref()
             .unwrap()
             .serialize()
-            .contains("new_field = \"\""),
+            .contains("new_field = 0"),
         "placeholder inserted: {}",
         app.session.doc.as_ref().unwrap().serialize()
     );
@@ -1816,6 +1818,8 @@ fn add_on_collapsed_table_adds_sibling_table() {
     let mut app = app_with("[t]\nx = 1\n");
     app.select_row(app.rows.iter().position(|r| r.key == "t").unwrap()); // collapsed
     app.add_node();
+    app.session.apply(confy_core::session::Intent::AddPickerCommit);
+    app.rebuild_rows();
     assert!(
         matches!(&app.session.mode, Mode::Edit(e) if e.field == EditField::Name),
         "structured add: rename edit"
@@ -1835,6 +1839,8 @@ fn add_on_collapsed_dotted_table_adds_table_sibling() {
     let mut app = app_with("a.b = 1\n");
     app.select_row(app.rows.iter().position(|r| r.key == "a").unwrap());
     app.add_node();
+    app.session.apply(confy_core::session::Intent::AddPickerCommit);
+    app.rebuild_rows();
     assert!(
         matches!(&app.session.mode, Mode::Edit(e) if e.field == EditField::Name),
         "table add: rename edit"
@@ -1852,6 +1858,8 @@ fn add_on_collapsed_array_adds_array_sibling() {
     let mut app = app_with("nums = [1, 2]\nname = \"x\"\n");
     app.select_row(app.rows.iter().position(|r| r.key == "nums").unwrap());
     app.add_node();
+    app.session.apply(confy_core::session::Intent::AddPickerCommit);
+    app.rebuild_rows();
     assert!(
         matches!(&app.session.mode, Mode::Edit(e) if e.field == EditField::Name),
         "array add: rename edit"
@@ -1875,13 +1883,15 @@ fn add_on_toml_array_element_seeds_keyless_bare() {
         .path
         .clone();
     app.add_node();
+    app.session.apply(confy_core::session::Intent::AddPickerCommit);
+    app.rebuild_rows();
     assert!(
         matches!(app.session.mode, Mode::Edit(_)),
         "scalar element: inline"
     );
     assert_eq!(
         app.session.doc.as_ref().unwrap().serialize(),
-        "nums = [1, \"\", 2]\n"
+        "nums = [1, 0, 2]\n"
     );
 }
 
@@ -1892,10 +1902,12 @@ fn esc_after_add_rolls_the_insert_back() {
     let mut app = app_with("a = 1\nb = 2\n");
     app.select_row(app.rows.iter().position(|r| r.key == "a").unwrap());
     app.add_node();
+    app.session.apply(confy_core::session::Intent::AddPickerCommit);
+    app.rebuild_rows();
     assert!(matches!(app.session.mode, Mode::Edit(_)));
     assert_eq!(
         app.session.doc.as_ref().unwrap().serialize(),
-        "a = 1\nnew_field = \"\"\nb = 2\n"
+        "a = 1\nnew_field = 0\nb = 2\n"
     );
     app.edit_cancel();
     assert!(!matches!(app.session.mode, Mode::Edit(_)));
@@ -1932,13 +1944,15 @@ fn add_on_scalar_leaf_adds_scalar_sibling_after() {
     let mut app = app_with("a = 1\nb = 2\n");
     app.select_row(app.rows.iter().position(|r| r.key == "a").unwrap());
     app.add_node();
+    app.session.apply(confy_core::session::Intent::AddPickerCommit);
+    app.rebuild_rows();
     assert!(
         matches!(app.session.mode, Mode::Edit(_)),
         "scalar add opens inline"
     );
     assert_eq!(
         app.session.doc.as_ref().unwrap().serialize(),
-        "a = 1\nnew_field = \"\"\nb = 2\n"
+        "a = 1\nnew_field = 0\nb = 2\n"
     );
 }
 
@@ -1950,6 +1964,8 @@ fn add_on_expanded_table_appends_scalar_child() {
     app.rebuild_rows();
     app.select_row(app.rows.iter().position(|r| r.key == "t").unwrap());
     app.add_node();
+    app.session.apply(confy_core::session::Intent::AddPickerCommit);
+    app.rebuild_rows();
     assert!(
         matches!(app.session.mode, Mode::Edit(_)),
         "scalar add opens inline"
@@ -1966,6 +1982,8 @@ fn add_root_scalar_lands_before_first_table() {
     let mut app = app_with("a = 1\n[t]\nx = 1\n");
     app.select_row(0); // root
     app.add_node();
+    app.session.apply(confy_core::session::Intent::AddPickerCommit);
+    app.rebuild_rows();
     assert_eq!(
         app.session.doc.as_ref().unwrap().serialize(),
         "a = 1\nnew_field = \"\"\n[t]\nx = 1\n"
@@ -2747,7 +2765,6 @@ fn cursor_to_key(app: &mut App, key: &str) {
 #[test]
 fn toml_inline_table_array_element_member_edits_inline() {
     // Group B item 2b.3: a member of a `[T/I]` element of an `[A/M]` array is
-    // inline-editable and the edit applies in place.
     let mut app = app_with("arr = [\n  { a = 1, b = 2 },\n  { c = 3 },\n]\n");
     cursor_to_key(&mut app, "a");
     assert_eq!(app.edit_target_kind(), EditKind::Inline);
@@ -2766,13 +2783,15 @@ fn add_member_into_inline_table_array_element() {
     let mut app = app_with("arr = [\n  { a = 1 },\n]\n");
     cursor_to_key(&mut app, "a");
     app.add_node();
+    app.session.apply(confy_core::session::Intent::AddPickerCommit);
+    app.rebuild_rows();
     assert!(
         matches!(app.session.mode, Mode::Edit(_)),
         "member add opens inline"
     );
     assert_eq!(
         app.session.doc.as_ref().unwrap().serialize(),
-        "arr = [\n  { a = 1, new_field = \"\" },\n]\n"
+        "arr = [\n  { a = 1, new_field = 0 },\n]\n"
     );
 }
 
@@ -2840,10 +2859,12 @@ fn add_member_into_json_inline_object_array_element() {
     let mut app = app_with_json("{\n  \"arr\": [\n    { \"a\": 1 }\n  ]\n}\n");
     cursor_to_key(&mut app, "a");
     app.add_node();
+    app.session.apply(confy_core::session::Intent::AddPickerCommit);
+    app.rebuild_rows();
     assert!(matches!(app.session.mode, Mode::Edit(_)));
     assert_eq!(
         app.session.doc.as_ref().unwrap().serialize(),
-        "{\n  \"arr\": [\n    { \"a\": 1, \"new_field\": \"\" }\n  ]\n}\n"
+        "{\n  \"arr\": [\n    { \"a\": 1, \"new_field\": 0 }\n  ]\n}\n"
     );
 }
 

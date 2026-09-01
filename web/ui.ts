@@ -43,6 +43,7 @@ import {
 import { currentKindLabel, editWidthCh, escapeHtml, IC_CARET, renderTree } from "./render.js";
 import { syncFab, FAB_CLOSE_IC } from "./fab.js";
 import { actionItemHTML } from "./action-menu-items.js";
+import { addPickerItemHTML } from "./add-picker-items.js";
 import { helpBodyHTML } from "./help-content.js";
 import { applyStaticI18n, availableLangs, getLang, LANG_DISPLAY_NAMES, setLang, t, tArgs } from "./i18n.js";
 import type { Lang } from "./i18n.js";
@@ -508,6 +509,7 @@ function render() {
   renderTypeFilterPop();
   renderConvertDialog();
   renderActionMenu();
+  renderAddPicker();
   renderOverlay();
   renderFooter();
   updateSaveLabel();
@@ -1668,6 +1670,49 @@ function renderActionMenu() {
     return;
   }
   buildActionMenu();
+}
+
+// Mirrors `buildActionMenu`/`renderActionMenu` exactly (reuses `#ctxMenu` —
+// the two modes never coexist, so there is no risk of the popup showing a
+// stale mix of items). Unlike ActionMenu, every entry point (keyboard `a`,
+// the Action menu's "Add child"/"Append sibling", the touch FAB chain)
+// reaches `Mode::AddPicker` through a plain intent dispatch with no
+// dedicated "open" call site (`docs` decision: no per-host special-casing),
+// so `renderAddPicker` itself detects the not-yet-open transition and
+// positions the popup near the cursor row — the one place this diverges
+// from the `renderActionMenu` template.
+function buildAddPicker(): HTMLElement {
+  const mode = snap!.mode;
+  const ap = typeof mode === "object" && "AddPicker" in mode ? mode.AddPicker : null;
+  const menu = $("ctxMenu");
+  if (!ap) {
+    menu.innerHTML = "";
+    return menu;
+  }
+  menu.innerHTML =
+    `<div class="menu-label">${escapeHtml(t("core.add.picker.title"))}</div>` +
+    ap.options.map((o, i) => addPickerItemHTML(o.label, i, i === ap.cursor)).join("");
+  menu.querySelectorAll<HTMLElement>("[data-i]").forEach((b) => {
+    const i = Number(b.dataset.i);
+    b.onclick = () => {
+      closePops();
+      send({ AddPickerPick: i });
+    };
+  });
+  return menu;
+}
+function renderAddPicker() {
+  const open = typeof snap!.mode === "object" && "AddPicker" in snap!.mode;
+  if (!open) {
+    if ($("ctxMenu").classList.contains("open")) closePops();
+    return;
+  }
+  const menu = buildAddPicker();
+  if (!menu.classList.contains("open")) {
+    const cur = tree.querySelector(".row.cursor") as HTMLElement | null;
+    const r = cur ? cur.getBoundingClientRect() : $("fab").getBoundingClientRect();
+    placePopAt(menu, r.left, r.bottom + 4);
+  }
 }
 
 // Whether `path`'s immediate parent is a single-line container (TOML inline

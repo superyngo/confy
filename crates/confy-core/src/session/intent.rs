@@ -117,6 +117,16 @@ pub enum Intent {
     KindSwitchCommit,
     ExitKindSwitch,
 
+    // ---- Add-type picker ----
+    AddPickerMove(i32),
+    /// Clamped jump (PageUp/PageDown/Home/End) — see `Session::add_picker_jump`.
+    AddPickerJump(i32),
+    AddPickerCommit,
+    /// Web/touch pointer analogue of `AddPickerCommit`: apply a
+    /// directly-picked option without moving the cursor first.
+    AddPickerPick(usize),
+    ExitAddPicker,
+
     // ---- Action menu (m) ----
     OpenActionMenu,
     ActionMenuMove(i32),

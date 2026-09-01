@@ -738,6 +738,11 @@ fn dispatch_add_child_forces_child_into_collapsed_branch() {
     let snap = s.dispatch(Intent::CursorDown); // onto 'server' (collapsed)
     assert_eq!(snap.cursor.len(), 1, "cursor on the [server] table");
     let snap = s.dispatch(Intent::AddChild);
+    assert!(
+        matches!(snap.mode, ModeView::AddPicker { .. }),
+        "AddChild opens the Add-type picker"
+    );
+    let snap = s.dispatch(Intent::AddPickerCommit);
     // The new node is nested *inside* server (path depth 2), not a root sibling.
     assert_eq!(snap.cursor.len(), 2, "new node nested under server");
     assert_eq!(snap.cursor[0], Seg::Key("server".into()));
@@ -749,9 +754,71 @@ fn dispatch_add_sibling_forces_sibling_off_collapsed_branch() {
     let mut s = toml_session("[server]\nhost = \"localhost\"\n");
     s.dispatch(Intent::CursorDown); // onto 'server'
     let snap = s.dispatch(Intent::AddSibling);
+    assert!(
+        matches!(snap.mode, ModeView::AddPicker { .. }),
+        "AddSibling opens the Add-type picker"
+    );
+    let snap = s.dispatch(Intent::AddPickerCommit);
     // The new placeholder is a root-level sibling (path depth 1), not a child.
     assert_eq!(snap.cursor.len(), 1, "new node is a root sibling");
     assert_ne!(snap.cursor[0], Seg::Key("server".into()));
+}
+
+// ---- Regression: today's add-child behavior into an AoT group / plain
+// array / inline table, spanning the Add-type picker refactor (plan
+// `add-node-type-picker-plan.md` step 1). Locked down pre-refactor, then
+// updated in step 3/6 once `AddChild`/`AddSibling` route through
+// `Mode::AddPicker` (an `AddPickerCommit` now lands the seeded node).
+//
+// The AoT case caught a real (if minor) pre-existing bug, contrary to the
+// plan's initial assumption: `add_node_impl`'s section-ordering clamp (guards
+// a scalar landing after a parent's first `[table]`/`[[aot]]` sub-section)
+// didn't special-case an `ArrayOfTables` *parent* — inside an AoT group,
+// every entry itself projects as a child `Table`, so the clamp's `split`
+// (first `Table` child) was always 0, and the intended "append" index (the
+// group's child count) got clamped down to 0 every time: the new entry
+// landed *first*, not last. `add_picker.rs`'s `insert_seed` fixes this by
+// excluding an AoT parent from that clamp — this test now proves the fix
+// (the new entry is appended).
+// ----
+
+#[test]
+fn add_child_into_array_of_tables_group_creates_new_entry_appended() {
+    let mut s = toml_session("[[items]]\na = 1\n");
+    s.dispatch(Intent::CursorDown); // onto the 'items' AoT group
+    s.dispatch(Intent::AddChild);
+    s.dispatch(Intent::AddPickerCommit);
+    let text = s.serialize().unwrap();
+    assert_eq!(
+        text, "[[items]]\na = 1\n[[items]]\nnew_field = \"\"\n",
+        "the new entry is appended, not prepended: {text:?}"
+    );
+}
+
+#[test]
+fn add_child_into_plain_array_seeds_bare_element() {
+    let mut s = toml_session("arr = [1, 2]\n");
+    s.dispatch(Intent::CursorDown); // onto 'arr'
+    s.dispatch(Intent::AddChild);
+    s.dispatch(Intent::AddPickerCommit);
+    let text = s.serialize().unwrap();
+    assert!(
+        text.contains("\"\""),
+        "a bare, keyless string element was appended: {text:?}"
+    );
+}
+
+#[test]
+fn add_child_into_inline_table_seeds_keyed_member() {
+    let mut s = toml_session("t = { x = 1 }\n");
+    s.dispatch(Intent::CursorDown); // onto 't'
+    s.dispatch(Intent::AddChild);
+    s.dispatch(Intent::AddPickerCommit);
+    let text = s.serialize().unwrap();
+    assert!(
+        text.contains("new_field = \"\""),
+        "a keyed member was appended inside the inline table: {text:?}"
+    );
 }
 
 #[test]
@@ -1469,6 +1536,11 @@ fn add_comment_sibling_enters_inline_edit_and_separates() {
     let mut s = toml_session("# first\nkey = 1\n");
     s.dispatch(Intent::SetCursor(vec![Seg::Index(0)]));
     let snap = s.dispatch(Intent::AddSibling);
+    assert!(
+        matches!(&snap.mode, ModeView::AddPicker { .. }),
+        "AddSibling opens the Add-type picker"
+    );
+    let snap = s.dispatch(Intent::AddPickerCommit);
     // A fresh, *separate* single-line comment node opens in the inline editor.
     assert!(
         matches!(snap.mode, ModeView::Edit(ref e) if e.is_comment && !e.buffer.contains('\n')),
@@ -1488,6 +1560,7 @@ fn add_comment_sibling_commit_keeps_it() {
     let mut s = toml_session("# first\nkey = 1\n");
     s.dispatch(Intent::SetCursor(vec![Seg::Index(0)]));
     s.dispatch(Intent::AddSibling);
+    s.dispatch(Intent::AddPickerCommit);
     s.dispatch(Intent::CommitEdit {
         value: Some("# hello".into()),
         name: None,
@@ -1516,6 +1589,8 @@ fn add_comment_sibling_yaml() {
     let mut s = Session::new(doc);
     s.dispatch(Intent::SetCursor(vec![Seg::Index(0)]));
     let snap = s.dispatch(Intent::AddSibling);
+    assert!(matches!(&snap.mode, ModeView::AddPicker { .. }));
+    let snap = s.dispatch(Intent::AddPickerCommit);
     assert!(matches!(snap.mode, ModeView::Edit(ref e) if e.is_comment));
     assert_eq!(s.serialize().unwrap(), "# c\n\n# \na: 1\n");
     // Esc reverts.
@@ -1536,6 +1611,8 @@ fn add_comment_sibling_jsonc() {
         .expect("comment row");
     s.dispatch(Intent::SetCursor(cpath));
     let snap = s.dispatch(Intent::AddSibling);
+    assert!(matches!(&snap.mode, ModeView::AddPicker { .. }));
+    let snap = s.dispatch(Intent::AddPickerCommit);
     assert!(matches!(snap.mode, ModeView::Edit(ref e) if e.is_comment));
     // Two distinct comment rows now (separate nodes, not merged).
     let comment_rows = s
@@ -1776,6 +1853,8 @@ fn add_comment_sibling_never_blocked_on_clean_json() {
     s.dispatch(Intent::Remark);
     // Cursor now sits on the freshly-created comment row (same visible index).
     let snap = s.dispatch(Intent::AddSibling);
+    assert!(matches!(&snap.mode, ModeView::AddPicker { .. }));
+    let snap = s.dispatch(Intent::AddPickerCommit);
     assert!(matches!(&snap.mode, ModeView::Edit(e) if e.is_comment));
     assert!(snap.notice.is_none(), "no notice should be set");
     s.dispatch(Intent::CommitEdit {
@@ -2139,6 +2218,7 @@ fn rename_remaps_stale_selection_so_the_next_copy_targets_the_right_node() {
     // Add a field, replace its value with a JSON object literal (triggers the
     // string -> table conversion prompt), confirm it.
     s.add_node();
+    s.add_picker_commit();
     // The seeded value buffer for a fresh empty JSON string is `""` -- clear
     // it before typing, exactly like a real user backspacing first.
     for _ in 0..2 {
@@ -2758,4 +2838,78 @@ fn rename_collision_check_matches_bare_typed_name_too() {
         "\"a b\": 1\ncd: 2\n",
         "colliding rename must not touch the document"
     );
+}
+
+// ---- Add-type picker (Mode::AddPicker) — option filtering per parent kind
+// and format, and Escape-inserts-nothing (plan `add-node-type-picker-plan.md`
+// step 11) ----
+
+#[test]
+fn add_picker_options_filtered_for_inline_table_excludes_table_and_comment() {
+    let mut s = toml_session("t = { x = 1 }\n");
+    s.dispatch(Intent::CursorDown); // onto 't'
+    let snap = s.dispatch(Intent::AddChild);
+    let ModeView::AddPicker { options, .. } = snap.mode else {
+        panic!("expected AddPicker mode: {:?}", snap.mode);
+    };
+    let labels: Vec<&str> = options.iter().map(|o| o.label.as_str()).collect();
+    assert!(!labels.contains(&"Table"), "no [table] header inside a flow construct: {labels:?}");
+    assert!(!labels.contains(&"Comment"), "no comment inside a flow construct: {labels:?}");
+    assert!(labels.contains(&"String"), "scalars stay legal: {labels:?}");
+    assert!(labels.contains(&"Inline table"), "nested inline table stays legal: {labels:?}");
+    assert!(labels.contains(&"Array"), "array stays legal: {labels:?}");
+}
+
+#[test]
+fn add_picker_options_for_array_of_tables_group_offers_only_table_entry_and_comment() {
+    let mut s = toml_session("[[items]]\na = 1\n");
+    s.dispatch(Intent::CursorDown); // onto 'items'
+    let snap = s.dispatch(Intent::AddChild);
+    let ModeView::AddPicker { options, .. } = snap.mode else {
+        panic!("expected AddPicker mode: {:?}", snap.mode);
+    };
+    let labels: Vec<&str> = options.iter().map(|o| o.label.as_str()).collect();
+    assert_eq!(labels, vec!["Table entry", "Comment"], "{labels:?}");
+}
+
+#[test]
+fn add_picker_escape_inserts_nothing() {
+    let mut s = toml_session("a = 1\n");
+    s.dispatch(Intent::CursorDown); // onto 'a'
+    s.dispatch(Intent::AddSibling);
+    s.dispatch(Intent::Escape);
+    assert_eq!(
+        s.serialize().unwrap(),
+        "a = 1\n",
+        "Esc during the picker leaves the document byte-identical"
+    );
+}
+
+#[test]
+fn add_picker_toml_offers_four_datetime_kinds() {
+    let mut s = toml_session("a = 1\n");
+    s.dispatch(Intent::CursorDown); // onto 'a'
+    let snap = s.dispatch(Intent::AddSibling);
+    let ModeView::AddPicker { options, .. } = snap.mode else {
+        panic!("expected AddPicker mode: {:?}", snap.mode);
+    };
+    let labels: Vec<&str> = options.iter().map(|o| o.label.as_str()).collect();
+    for want in ["Offset datetime", "Local datetime", "Local date", "Local time"] {
+        assert!(labels.contains(&want), "TOML offers {want:?}: {labels:?}");
+    }
+    assert!(!labels.contains(&"Null"), "TOML has no null literal: {labels:?}");
+}
+
+#[test]
+fn add_picker_json_offers_null_not_datetime() {
+    let doc = AnyDocument::from_str_as("{\"a\": 1}\n", DocFormat::Json).unwrap();
+    let mut s = Session::new(doc);
+    s.dispatch(Intent::CursorDown); // onto 'a'
+    let snap = s.dispatch(Intent::AddSibling);
+    let ModeView::AddPicker { options, .. } = snap.mode else {
+        panic!("expected AddPicker mode: {:?}", snap.mode);
+    };
+    let labels: Vec<&str> = options.iter().map(|o| o.label.as_str()).collect();
+    assert!(labels.contains(&"Null"), "JSON offers Null: {labels:?}");
+    assert!(!labels.contains(&"Offset datetime"), "JSON has no datetime scalar: {labels:?}");
 }

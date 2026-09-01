@@ -1941,6 +1941,7 @@ impl Session {
             Mode::FilterResults => self.exit_filter_results(),
             Mode::TypeFilter => self.exit_type_filter(),
             Mode::KindSwitch(_) => self.exit_kind_switch(),
+            Mode::AddPicker(_) => self.exit_add_picker(),
             Mode::ActionMenu { .. } => self.exit_action_menu(),
             Mode::SchemaEnum(_) => self.schema_enum_cancel(),
             Mode::Convert(_) => self.exit_convert(),

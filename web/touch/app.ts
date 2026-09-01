@@ -30,6 +30,7 @@ import type {
   PasteSlot,
   Notice,
   ActionItemView,
+  AddOptionView,
 } from "../types.js";
 import {
   canSaveAs,
@@ -555,6 +556,10 @@ function render() {
     const cur = snap.rows.find((r) => r.is_cursor);
     if (cur) openSchemaEnumSheet(cur.path, se.options, se.from_schema);
   }
+  if (tag === "AddPicker") {
+    const ap = (snap.mode as { AddPicker: { options: AddOptionView[]; cursor: number } }).AddPicker;
+    openAddPickerSheet(ap.options, ap.cursor);
+  }
   if (tag === "ActionMenu") {
     const am = (snap.mode as { ActionMenu: { items: ActionItemView[]; target_label: string } }).ActionMenu;
     openActionMenuSheet(am);
@@ -710,6 +715,34 @@ function openSchemaEnumSheet(path: Path, options: string[], fromSchema: boolean)
       const after = sendR("SchemaEnumCommit");
       const isErr = after.notice?.severity === "error";
       send({ SetHostNotice: { key: isErr ? "core.error.generic" : "web.host.value.changed", args: isErr ? [after.notice!.text] : [], source: "host-web" } });
+    });
+  });
+  openSheet("kind");
+}
+
+// ---- Add-type picker sheet (Mode::AddPicker) ----
+// Mirrors openSchemaEnumSheet's structure: a bottom-sheet grid of `.kind-opt`
+// cells in the shared `sheets.kind` element. Core enters Mode::AddPicker via
+// AddNode/AddChild/AddSibling (the FAB → Action menu → "Add child"/"Append
+// sibling", desktop `a`); tapping a cell applies it directly (AddPickerPick),
+// unlike SchemaEnum's move-then-commit (AddPicker has a direct pick intent).
+function openAddPickerSheet(options: AddOptionView[], cursor: number) {
+  if (!session) return;
+  const cells = options
+    .map(
+      (o, i) =>
+        `<button class="add-cell kind-opt${i === cursor ? " sel" : ""}" data-idx="${i}"><span class="dotc" style="background:var(--accent)"></span>${esc(o.label)}</button>`,
+    )
+    .join("");
+  sheets.kind.innerHTML =
+    '<div class="grab"></div>' +
+    `<div class="sheet-head"><h3>${esc(t("core.add.picker.title"))}</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
+    `<div class="sheet-body"><div class="addgrid">${cells}</div></div>`;
+  sheets.kind.querySelectorAll<HTMLElement>(".kind-opt").forEach((b) => {
+    b.addEventListener("click", () => {
+      const idx = Number(b.dataset.idx);
+      closeSheets();
+      send({ AddPickerPick: idx });
     });
   });
   openSheet("kind");
@@ -2001,6 +2034,14 @@ function dismissSheets() {
   // `schema_enum_cancel()`, which also removes a freshly-added placeholder
   // (`created_on_add`) — mirrors desktop's `focusSchemaEnumSelect` Escape wiring.
   if (tag === "SchemaEnum") {
+    closeSheets();
+    return send("Escape");
+  }
+  // Same peel-on-dismiss requirement: swipe/scrim/grab dismissal of the
+  // Add-type picker must cancel via Escape (nothing is inserted yet — no
+  // placeholder to remove until AddPickerCommit/AddPickerPick), not just
+  // hide the sheet.
+  if (tag === "AddPicker") {
     closeSheets();
     return send("Escape");
   }

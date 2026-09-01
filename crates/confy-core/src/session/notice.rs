@@ -87,6 +87,7 @@ pub fn severity_of(key: &str) -> Severity {
         | "core.remark.invalid"
         | "core.convert.root-only"
         | "core.kind-switch.unsupported"
+        | "core.add.unsupported"
         | "core.schema.violation"
         | "web.host.fxios-save-hint"
         | "tui.host.readonly-comment"
@@ -163,6 +164,7 @@ mod tests {
             ("core.remark.invalid", Severity::Warn),
             ("core.convert.root-only", Severity::Warn),
             ("core.kind-switch.unsupported", Severity::Warn),
+            ("core.add.unsupported", Severity::Warn),
             ("core.schema.violation", Severity::Warn),
             ("core.save.saved", Severity::Success),
             ("core.kind-switch.converted", Severity::Success),
@@ -181,7 +183,7 @@ mod tests {
             ("core.add.placeholder", Severity::Info),
             ("core.convert.aborted", Severity::Info),
         ];
-        assert_eq!(cases.len(), 41, "41 keys: §2.2's 40 (11 Error + 13 Warn + 7 Success + 9 Info) + controller-approved core.schema.violation (pass-through wrapper for the dynamic schema-violation advisory)");
+        assert_eq!(cases.len(), 42, "42 keys: §2.2's 40 (11 Error + 13 Warn + 7 Success + 9 Info) + controller-approved core.schema.violation (pass-through wrapper for the dynamic schema-violation advisory) + core.add.unsupported (Add-type picker: opaque/read-only parent has no legal add options)");
         for (key, expected) in cases {
             assert_eq!(severity_of(key), *expected, "key {key} classified wrong");
         }

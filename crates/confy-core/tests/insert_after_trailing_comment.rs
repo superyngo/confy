@@ -8,6 +8,7 @@ fn add_sibling_after(src: &str, fmt: DocFormat, path: Vec<Seg>) -> String {
     let mut s = Session::new(doc);
     s.dispatch(Intent::SetCursor(path));
     s.dispatch(Intent::AddSibling);
+    s.dispatch(Intent::AddPickerCommit);
     s.dispatch(Intent::CommitEdit {
         value: Some("2".into()),
         name: Some("b".into()),
@@ -23,13 +24,20 @@ fn json_add_sibling_keeps_trailing_comment_attached() {
     // CST rebuild, so the new sibling landed between the value and its
     // comment). TOML/YAML never had this bug (see the two tests below) —
     // this pins the JSON-specific fix.
+    //
+    // The Add-type picker's default cursor matches the sibling's own type
+    // (`a` is an Integer, so the picker preselects "Integer", seeding `0`
+    // rather than the old blanket `""` placeholder) — `value: Some("2")` is
+    // then a same-type replace, so it applies straight through instead of
+    // pausing on the TypeChange confirmation a string-to-number edit would
+    // otherwise raise (which this test never answers with 'y').
     let out = add_sibling_after(
         "{\n  \"a\": 1  // c\n}\n",
         DocFormat::Json,
         vec![Seg::Key("a".into())],
     );
     assert_eq!(
-        out, "{\n  \"a\": 1,  // c\n  \"b\": \"\"\n}\n",
+        out, "{\n  \"a\": 1,  // c\n  \"b\": 2\n}\n",
         "full output: {out:?}"
     );
 }

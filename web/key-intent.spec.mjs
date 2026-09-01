@@ -11,8 +11,8 @@
 // Table-driven: at least one case per guard clause in `ui.ts`'s original
 // `onKey` (now `resolveKeyIntent`'s branches), covering every mode in the
 // documented precedence order — Edit > Prompt > Convert > TypeFilter >
-// KindSwitch > ActionMenu > SchemaEnum > Help > tree shortcuts — plus the
-// ctrl/rawView escape hatches and the `nav`/`native`/`typefilter-page`
+// KindSwitch > AddPicker > ActionMenu > SchemaEnum > Help > tree shortcuts —
+// plus the ctrl/rawView escape hatches and the `nav`/`native`/`typefilter-page`
 // non-plain-Intent results.
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -59,6 +59,16 @@ const typeFilterGrid = {
 };
 const typeFilterMode = { TypeFilter: typeFilterGrid };
 const kindSwitchMode = { KindSwitch: { cursor: 0, options: [] } };
+const addPickerMode = {
+  AddPicker: {
+    options: [
+      { kind: "Table", label: "a" },
+      { kind: "Comment", label: "b" },
+      { kind: { Scalar: "String" }, label: "c" },
+    ],
+    cursor: 0,
+  },
+};
 // cursor: 2 sits mid-list; items[1] and items[4] are disabled so Home/End
 // deltas land on the first/last *enabled* slots (0 and 7), not the raw ends.
 const actionMenuMode = {
@@ -196,6 +206,41 @@ console.log("\n-- KindSwitch mode --");
 {
   const r = resolve(kindSwitchMode, "Escape");
   check("Escape -> ExitKindSwitch", r?.kind === "intent" && r.intent === "ExitKindSwitch", JSON.stringify(r));
+}
+
+// ---- AddPicker mode ----
+console.log("\n-- AddPicker mode --");
+{
+  const r = resolve(addPickerMode, "ArrowUp");
+  check("ArrowUp -> AddPickerMove:-1, preventDefault", r?.kind === "intent" && r.intent?.AddPickerMove === -1 && r.preventDefault === true, JSON.stringify(r));
+}
+{
+  const r = resolve(addPickerMode, "ArrowDown");
+  check("ArrowDown -> AddPickerMove:1, preventDefault", r?.kind === "intent" && r.intent?.AddPickerMove === 1 && r.preventDefault === true, JSON.stringify(r));
+}
+{
+  const r = resolve(addPickerMode, "Home");
+  check("Home -> AddPickerJump:-options.length", r?.kind === "intent" && r.intent?.AddPickerJump === -3, JSON.stringify(r));
+}
+{
+  const r = resolve(addPickerMode, "End");
+  check("End -> AddPickerJump:options.length", r?.kind === "intent" && r.intent?.AddPickerJump === 3, JSON.stringify(r));
+}
+{
+  const r = resolve(addPickerMode, "PageUp");
+  check("PageUp -> AddPickerJump:-5, preventDefault", r?.kind === "intent" && r.intent?.AddPickerJump === -5 && r.preventDefault === true, JSON.stringify(r));
+}
+{
+  const r = resolve(addPickerMode, "PageDown");
+  check("PageDown -> AddPickerJump:5, preventDefault", r?.kind === "intent" && r.intent?.AddPickerJump === 5 && r.preventDefault === true, JSON.stringify(r));
+}
+{
+  const r = resolve(addPickerMode, "Enter");
+  check("Enter -> AddPickerCommit, no preventDefault", r?.kind === "intent" && r.intent === "AddPickerCommit" && r.preventDefault === false, JSON.stringify(r));
+}
+{
+  const r = resolve(addPickerMode, "Escape");
+  check("Escape -> ExitAddPicker, no preventDefault", r?.kind === "intent" && r.intent === "ExitAddPicker" && r.preventDefault === false, JSON.stringify(r));
 }
 
 

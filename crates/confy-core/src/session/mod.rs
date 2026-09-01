@@ -1,4 +1,5 @@
 pub mod action_menu;
+pub mod add_picker;
 pub mod clipboard;
 pub mod diag;
 pub mod dispatch;
@@ -30,15 +31,16 @@ pub use search::{fuzzy_indices, fuzzy_match, haystack};
 pub use selection::{normalize, Selection};
 pub use session::Session;
 pub use state::{
-    Clipboard, ConvertState, ConvertStep, EditField, EditKind, EditState, FilterLayer, HelpTab,
-    History, KindSwitchState, Mode, PasteSlot, PendingCommit, PendingExternalEdit, PromptKind,
+    AddKind, AddPickerState, Clipboard, ConvertState, ConvertStep, EditField, EditKind,
+    EditState, FilterLayer, HelpTab, History, KindSwitchState, Mode, PasteSlot, PendingCommit,
+    PendingExternalEdit, PromptKind,
 };
 pub use status_fmt::{format_label, node_type_label, node_type_label_str};
 pub use type_filter::{
     classify, layout, nav_rows, Cell, CheckState, Group, LayoutRow, TypeFilter, TypeToken,
 };
 pub use view::{
-    ActionId, ActionItemView, ChildView, ConvertView, EditView, ExternalEdit, ExternalEditKind,
-    KindOptionView, ModeView, OutlineNode, PromptView, SessionSnapshot, TypeFilterCellView,
-    TypeFilterRow, TypeFilterView, ViewRow,
+    ActionId, ActionItemView, AddOptionView, ChildView, ConvertView, EditView, ExternalEdit,
+    ExternalEditKind, KindOptionView, ModeView, OutlineNode, PromptView, SessionSnapshot,
+    TypeFilterCellView, TypeFilterRow, TypeFilterView, ViewRow,
 };

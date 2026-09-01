@@ -24,8 +24,8 @@ use crate::session::notice::{Notice, NoticeSource, Severity};
 use crate::session::state::{EditKind, KindSwitchState, Mode, PendingExternalEdit, PromptKind};
 use crate::session::type_filter::{layout, LayoutRow};
 use crate::session::view::{
-    ConvertView, EditView, ExternalEdit, ExternalEditKind, KindOptionView, ModeView, PromptView,
-    SessionSnapshot, TypeFilterCellView, TypeFilterRow, TypeFilterView,
+    AddOptionView, ConvertView, EditView, ExternalEdit, ExternalEditKind, KindOptionView,
+    ModeView, PromptView, SessionSnapshot, TypeFilterCellView, TypeFilterRow, TypeFilterView,
 };
 
 /// Transient signals from applying one [`Intent`] — not persistent `Session`
@@ -132,6 +132,13 @@ impl super::Session {
             Intent::KindSwitchMove(d) => self.kind_switch_move(d),
             Intent::KindSwitchCommit => self.kind_switch_commit(),
             Intent::ExitKindSwitch => self.exit_kind_switch(),
+
+            // ---- Add-type picker ----
+            Intent::AddPickerMove(d) => self.add_picker_move(d),
+            Intent::AddPickerJump(d) => self.add_picker_jump(d),
+            Intent::AddPickerCommit => self.add_picker_commit(),
+            Intent::AddPickerPick(i) => self.add_picker_pick(i),
+            Intent::ExitAddPicker => self.exit_add_picker(),
 
             // ---- Action menu (m) ----
             Intent::OpenActionMenu => self.open_action_menu(),
@@ -473,6 +480,17 @@ impl super::Session {
                     .map(|(label, target)| KindOptionView {
                         label: label.clone(),
                         target: *target,
+                    })
+                    .collect(),
+            },
+            Mode::AddPicker(st) => ModeView::AddPicker {
+                cursor: st.cursor,
+                options: st
+                    .options
+                    .iter()
+                    .map(|(label, kind)| AddOptionView {
+                        kind: *kind,
+                        label: label.clone(),
                     })
                     .collect(),
             },

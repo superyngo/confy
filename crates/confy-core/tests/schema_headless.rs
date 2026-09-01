@@ -849,6 +849,7 @@ fn add_node_resolving_enum_hint_is_cancellable_via_escape() {
     // Adding a sibling generates a `new_field` key, which resolves the enum
     // hint → the picker opens with created_on_add = true.
     s.dispatch(confy_core::session::Intent::AddNode);
+    s.dispatch(confy_core::session::Intent::AddPickerCommit);
     assert!(
         matches!(&s.mode, Mode::SchemaEnum(st) if st.created_on_add),
         "picker opened for the freshly-added enum node"

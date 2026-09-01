@@ -1,7 +1,7 @@
 use crate::model::document::{DocFormat, KindTarget};
 use crate::model::node::{Format, Path, ScalarType};
 use crate::session::notice::{Notice, Severity};
-use crate::session::state::{ConvertStep, EditField, HelpTab, PasteSlot};
+use crate::session::state::{AddKind, ConvertStep, EditField, HelpTab, PasteSlot};
 use crate::session::type_filter::CheckState;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -116,6 +116,13 @@ pub struct KindOptionView {
     pub target: KindTarget,
 }
 
+/// One row of the Add-type picker.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AddOptionView {
+    pub kind: AddKind,
+    pub label: String,
+}
+
 /// One node operation in the Action menu (design doc §2, ADR 0009).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ActionId {
@@ -169,6 +176,11 @@ pub enum ModeView {
     KindSwitch {
         cursor: usize,
         options: Vec<KindOptionView>,
+    },
+    /// The Add-type picker is open.
+    AddPicker {
+        cursor: usize,
+        options: Vec<AddOptionView>,
     },
     /// The Action menu is open (design doc §2, ADR 0009).
     ActionMenu {

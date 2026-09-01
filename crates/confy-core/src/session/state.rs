@@ -1,5 +1,5 @@
 use crate::model::document::{DocFormat, KindTarget, Target};
-use crate::model::node::Path;
+use crate::model::node::{Path, ScalarType};
 use serde::{Deserialize, Serialize};
 
 /// The action a TypeChange confirmation (`y`) applies.
@@ -52,6 +52,9 @@ pub enum Mode {
     TypeFilter,
     /// The `K` kind-switch popup is open.
     KindSwitch(KindSwitchState),
+    /// The Add-type picker is open — `AddNode`/`AddChild`/`AddSibling` route
+    /// here instead of inserting directly.
+    AddPicker(AddPickerState),
     /// The Action menu is open (design doc `docs/superpowers/specs/2026-08-30-action-menu-design.md`
     /// §2, ADR 0009). No sub-state needed — the menu re-derives
     /// `items`/`target_count`/`target_label` from `selected_paths()` on every
@@ -141,6 +144,28 @@ pub enum ConvertStep {
 pub struct KindSwitchState {
     pub path: Path,
     pub options: Vec<(String, KindTarget)>,
+    pub cursor: usize,
+}
+
+/// One selectable entry in the Add-type picker (`Mode::AddPicker`) — a
+/// notation-independent node kind. `Scalar` carries which scalar type; every
+/// other variant is a container or comment. Never carries a `Format`/notation
+/// choice (that stays `K`'s job).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AddKind {
+    Scalar(ScalarType),
+    Table,
+    ArrayOfTables,
+    InlineTable,
+    Array,
+    Comment,
+}
+
+/// In-flight Add-type picker popup state. `options` are `(display_label, kind)`
+/// pairs — same order convention as `KindSwitchState::options`.
+pub struct AddPickerState {
+    pub target: Target,
+    pub options: Vec<(String, AddKind)>,
     pub cursor: usize,
 }
 

@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-09-01T08:09:07Z
+- **feat(add): replace "copy the cursor's kind" add-node with a type picker.**
+  `a` / "Add child" / "Append sibling" (TUI, web desktop, web touch/VS Code)
+  now open a keyboard/pointer-navigable **Add-type picker** (`Mode::AddPicker`)
+  listing every simple type, container, and comment legal at the insertion
+  point (filtered by the parent's kind/notation — e.g. an `[[array-of-tables]]`
+  group only offers "Table entry"/"Comment"; a flow/inline construct excludes
+  headers and comments) instead of silently reusing the sibling's type or a
+  hard-coded scalar. Selecting an option seeds that type's own default literal
+  (`0`, `false`, a datetime stub, …) rather than the old blanket empty string,
+  then proceeds into the existing inline-edit/rename flow unchanged. Keyboard
+  nav mirrors the schema-enum picker exactly (↑↓/jk, Home/End, PgUp/PgDn,
+  Enter, Esc) on every host; Esc now cancels before anything is inserted
+  (previously the placeholder was inserted then rolled back). Also fixes a
+  latent bug found while building this: adding a child directly into an
+  `[[array-of-tables]]` group prepended the new `[[…]]` entry instead of
+  appending it (the section-ordering clamp didn't exempt AoT parents).
+  New core module `session/add_picker.rs`; new TUI overlay
+  `overlay_add_picker.rs`; new web module `add-picker-items.ts`.
 
 ### Unreleased Update — 2026-09-01T05:20:00Z
 - **fix(desktop): restore HTML5 drag-and-drop in the Tauri shell.** Node

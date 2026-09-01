@@ -3,6 +3,7 @@ pub mod editor;
 pub mod insertion;
 pub mod keys;
 pub mod overlay_action_menu;
+pub mod overlay_add_picker;
 pub mod overlay_convert;
 pub mod overlay_detail;
 pub mod overlay_diag;
@@ -362,6 +363,62 @@ fn run_event_loop(
                     KeyCode::Up | KeyCode::Char('k') => app.kind_switch_move(-1),
                     KeyCode::Down | KeyCode::Char('j') => app.kind_switch_move(1),
                     KeyCode::Enter => app.kind_switch_commit(),
+                    KeyCode::Esc => app.escape(),
+                    _ => {}
+                }
+                continue;
+            }
+            // Add-type picker (modal): mirrors the SchemaEnum block exactly
+            // (Up/Down/jk move by one, wraps; Home/End/PageUp/PageDown jump,
+            // clamped; Enter commits + rebuilds rows; Esc cancels via the
+            // session's escape dispatch — nothing was inserted yet, so this
+            // never touches History). Other keys swallowed.
+            if matches!(app.session.mode, crate::tui::state::Mode::AddPicker(_)) {
+                use crossterm::event::KeyCode;
+                let option_count = match &app.session.mode {
+                    crate::tui::state::Mode::AddPicker(st) => st.options.len(),
+                    _ => 0,
+                };
+                match key.code {
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        app.session
+                            .apply(confy_core::session::Intent::AddPickerMove(-1));
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        app.session
+                            .apply(confy_core::session::Intent::AddPickerMove(1));
+                    }
+                    KeyCode::Home => {
+                        app.session
+                            .apply(confy_core::session::Intent::AddPickerJump(
+                                -(option_count as i32),
+                            ));
+                    }
+                    KeyCode::End => {
+                        app.session
+                            .apply(confy_core::session::Intent::AddPickerJump(
+                                option_count as i32,
+                            ));
+                    }
+                    KeyCode::PageUp => {
+                        let size = terminal.size()?;
+                        let area = ratatui::layout::Rect::new(0, 0, size.width, size.height);
+                        let step = ui::add_picker_page_step(option_count, area);
+                        app.session
+                            .apply(confy_core::session::Intent::AddPickerJump(-step));
+                    }
+                    KeyCode::PageDown => {
+                        let size = terminal.size()?;
+                        let area = ratatui::layout::Rect::new(0, 0, size.width, size.height);
+                        let step = ui::add_picker_page_step(option_count, area);
+                        app.session
+                            .apply(confy_core::session::Intent::AddPickerJump(step));
+                    }
+                    KeyCode::Enter => {
+                        app.session
+                            .apply(confy_core::session::Intent::AddPickerCommit);
+                        app.rebuild_rows();
+                    }
                     KeyCode::Esc => app.escape(),
                     _ => {}
                 }

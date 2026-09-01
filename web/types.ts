@@ -118,6 +118,20 @@ export interface KindOptionView {
   target: string; // KindTarget enum tag (opaque to the UI; sent back verbatim)
 }
 
+// Mirrors confy-core `session::state::AddKind` (serde external-tag).
+export type AddKindView =
+  | { Scalar: ScalarType }
+  | "Table"
+  | "ArrayOfTables"
+  | "InlineTable"
+  | "Array"
+  | "Comment";
+
+export interface AddOptionView {
+  kind: AddKindView;
+  label: string;
+}
+
 // ---- Action menu (session::view::ActionId / ActionItemView) ----
 export type ActionId =
   | "Edit"
@@ -184,6 +198,7 @@ export type ModeView =
   | "FilterResults"
   | { TypeFilter: TypeFilterView }
   | { KindSwitch: { cursor: number; options: KindOptionView[] } }
+  | { AddPicker: { cursor: number; options: AddOptionView[] } }
   | {
       ActionMenu: {
         cursor: number;
@@ -330,6 +345,12 @@ export type Intent =
   // Mutations
   | { Nudge: number }
   | "AddNode" | "AddChild" | "AddSibling" | "DeleteSelected" | "CopySelected" | "CutSelected" | "Paste" | "Remark"
+  // Add-type picker
+  | { AddPickerMove: number }
+  | { AddPickerJump: number }
+  | "AddPickerCommit"
+  | { AddPickerPick: number }
+  | "ExitAddPicker"
   // Undo / Redo
   | "Undo" | "Redo"
   // Lifecycle

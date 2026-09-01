@@ -261,15 +261,21 @@ check("ConvertRun writes to the chosen path", snap13.convert_write && snap13.con
 check("converted JSON text contains \"a\"", snap13.convert_write && snap13.convert_write[1].includes('"a"'),
   snap13.convert_write && snap13.convert_write[1]);
 
-// ---- 19. AddChild / AddSibling force child-vs-sibling on a collapsed branch ----
+// ---- 19. AddChild / AddSibling open the Add-type picker; picking option 0
+// ("string") reproduces the old force child-vs-sibling behavior on a
+// collapsed branch ----
 const s14 = new ConfySession(`[server]\nhost = "localhost"\n`, "toml");
 s14.dispatch(tuple("SetCursor", [{ Key: "server" }])); // collapsed [server]
-const snap14a = s14.dispatch(unit("AddChild"));
+const picker14a = s14.dispatch(unit("AddChild"));
+check("AddChild opens the Add-type picker", typeof picker14a.mode === "object" && "AddPicker" in picker14a.mode,
+  JSON.stringify(picker14a.mode));
+const snap14a = s14.dispatch(tuple("AddPickerPick", 0));
 check("AddChild nests under collapsed branch", snap14a.cursor.length === 2 && snap14a.cursor[0]?.Key === "server",
   JSON.stringify(snap14a.cursor));
 const s15 = new ConfySession(`[server]\nhost = "localhost"\n`, "toml");
 s15.dispatch(tuple("SetCursor", [{ Key: "server" }]));
-const snap15a = s15.dispatch(unit("AddSibling"));
+s15.dispatch(unit("AddSibling"));
+const snap15a = s15.dispatch(tuple("AddPickerPick", 0));
 check("AddSibling stays a root sibling off collapsed branch", snap15a.cursor.length === 1 && snap15a.cursor[0]?.Key !== "server",
   JSON.stringify(snap15a.cursor));
 
@@ -311,10 +317,16 @@ check("SetTrailing sets a branch trailing comment",
 check("SetTrailing branch comment lands after the header",
   s17.serialize().includes("[srv]  # the server"), s17.serialize());
 
-// ---- 22. Comment append-sibling enters inline edit (the web inline-editor path) ----
+// ---- 22. Comment append-sibling opens the Add-type picker defaulted to
+// "Comment" (previous-sibling-kind default); committing reaches the same
+// inline comment edit as before (the web inline-editor path) ----
 const s18 = new ConfySession(`# first\nkey = 1\n`, "toml");
 s18.dispatch(tuple("SetCursor", [{ Index: 0 }]));
-const snap18 = s18.dispatch(unit("AddSibling"));
+const picker18 = s18.dispatch(unit("AddSibling"));
+const ap18 = picker18.mode.AddPicker;
+check("AddSibling on a comment defaults the picker cursor to \"Comment\"",
+  ap18.options[ap18.cursor].kind === "Comment", JSON.stringify(ap18));
+const snap18 = s18.dispatch(unit("AddPickerCommit"));
 const edit18 = typeof snap18.mode === "object" ? snap18.mode.Edit : null;
 check("Comment AddSibling enters inline comment edit",
   !!edit18 && edit18.is_comment === true && edit18.field === "Value",
