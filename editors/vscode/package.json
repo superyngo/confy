@@ -2,7 +2,7 @@
   "name": "confy-vscode",
   "displayName": "confy",
   "description": "Structural tree editor for TOML / JSON / JSONC / YAML config files",
-  "version": "0.31.0",
+  "version": "0.31.1",
   "publisher": "wenanlin",
   "private": true,
   "license": "MIT",

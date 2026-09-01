@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ## [Unreleased]
+
+## [v0.31.1] - 2026-09-01
 ### Unreleased Update — 2026-09-01T01:54:19Z
 - **fix(touch): wide-layout detail panel still scrolled to top on nudge.**
   The previous fix saved/restored the wrong element's `scrollTop`: on wide
