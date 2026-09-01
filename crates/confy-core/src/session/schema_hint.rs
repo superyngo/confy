@@ -7,11 +7,6 @@ use crate::model::node::{Format, ScalarType};
 pub(crate) fn nudge_scalar(st: ScalarType, fmt: Format, repr: &str, delta: i64) -> Option<String> {
     let s = repr.trim();
     match st {
-        ScalarType::Bool => match s {
-            "true" => Some("false".into()),
-            "false" => Some("true".into()),
-            _ => None,
-        },
         ScalarType::Integer => {
             let had_us = s.contains('_');
             let clean = s.replace('_', "");

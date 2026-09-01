@@ -817,6 +817,26 @@ impl Session {
         })
     }
 
+    /// Stateless preview of nudging `text` — the host's *current edit-buffer*
+    /// string, which may differ from the committed node value — by `delta`
+    /// steps, without mutating the document or session mode. `None` when
+    /// `path` isn't a nudgeable scalar (bool/string/datetime — see
+    /// `nudge_scalar`) or `text` doesn't parse for its type. Read-only sibling
+    /// of `nudge()`: same `nudge_scalar` + `schema_clamp_nudge` pipeline, but
+    /// the caller decides whether/when to commit the result. Used by the Web/
+    /// touch wheel and swipe nudge while inline-editing (WEBUI.md), which
+    /// writes the result straight into the focused `<input>` and commits once
+    /// via the normal `CommitEdit` path rather than dispatching per tick.
+    pub fn nudge_repr(&self, path: &Path, text: &str, delta: i64) -> Option<String> {
+        let node = self.tree.node_at(path)?;
+        let st = match node.kind {
+            NodeKind::Scalar(st) => st,
+            _ => return None,
+        };
+        let new_repr = nudge_scalar(st, node.format, text, delta)?;
+        self.schema_clamp_nudge(path, &new_repr)
+    }
+
     pub fn nudge(&mut self, delta: i64) {
         if self.guard_clipboard_locked() {
             return;

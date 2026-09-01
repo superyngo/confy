@@ -290,16 +290,19 @@ shapes round-trip). Key types:
   for the full cross-platform row-state model this participates in.
 - **Pointer value gestures.** A **double-click on a row _toggles_ the Detail panel** for it
   (`SetCursor` + `ToggleDetail`); it no longer toggles branch-expand/boolean-value (expand stays
-  on the caret + Space). **Mouse-wheel over the value cell** (`[data-edit="val"]`) adjusts it in
-  place: a `Bool` toggles true↔false, an `Integer`/`Float` nudges ±1 (`Nudge`, wheel up = +1) —
-  `preventDefault` fires only over an adjustable value so other rows scroll normally. The keyboard
-  `+`/`-` and `←`/`→` Nudge keys are unchanged. The **same wheel-adjust works on the shared
-  panel's value field** (`web/panel.ts`), so it applies in the desktop Detail aside and the touch
-  edit sheet too. On touch, the value field additionally supports **swipe-to-nudge**: a
-  horizontal drag over the field while it is *unfocused* dispatches the same `Nudge` intent
-  (24px of drag per step, 8px dead zone, `Integer`/`Float` only — `Bool` keeps its dedicated
-  true/false picker sheet instead); tapping into the field first still gives native text
-  selection, untouched. The shared panel is **editing-and-information only** (ADR 0009): it holds no
+  on the caret + Space). **Mouse-wheel value nudge** is gated to inline-edit mode: hovering a
+  value and scrolling does nothing; only once the value field is focused (the tree's inline
+  editor or the shared panel's value field, `web/panel.ts`) does the wheel adjust it — and once
+  armed, *every* wheel tick anywhere on the page nudges the focused `Integer`/`Float` ±1 (wheel
+  up = +1), not just ticks over the input. No `Intent` is dispatched per tick: the nudged text
+  is written straight into the focused `<input>` via the stateless `nudge_repr` core query, and
+  commits exactly once via the normal Enter/blur `CommitEdit` path (one undo entry per nudge
+  session). On touch, the value field likewise supports **swipe-to-nudge only while focused**: a
+  horizontal swipe starting anywhere (24px per step, 8px dead zone, `Integer`/`Float` only)
+  writes through the same `nudge_repr` path; when the field is unfocused, native scroll and
+  text selection are untouched. A `Bool` has **no** wheel/swipe/arrow-key nudge affordance at
+  all — its value is edited exclusively through the dedicated true/false picker (`Mode::SchemaEnum`).
+  The shared panel is **editing-and-information only** (ADR 0009): it holds no
   Copy/Cut/Delete buttons — node operations live in the Action menu, and the panel's former
   `afterMutation` dismiss callback is gone. Panel **key/value edits are one-shot
   commits** (`CommitEdit`): success and failure both resolve back to the Detail panel (core

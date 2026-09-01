@@ -2179,11 +2179,8 @@ mod helper_tests {
             nudge_scalar(ScalarType::Float, Format::Plain, "1.50", -1).as_deref(),
             Some("1.49")
         );
-        assert_eq!(
-            nudge_scalar(ScalarType::Bool, Format::Plain, "true", 1).as_deref(),
-            Some("false")
-        );
-        // strings / datetimes are not nudgeable
+        // bool / strings / datetimes are not nudgeable
+        assert_eq!(nudge_scalar(ScalarType::Bool, Format::Plain, "true", 1), None);
         assert_eq!(
             nudge_scalar(ScalarType::String, Format::BasicString, "\"hi\"", 1),
             None
@@ -2304,6 +2301,27 @@ mod helper_tests {
             Some("2"),
             "non-Bounded hint => passthrough"
         );
+    }
+
+    #[test]
+    fn nudge_repr_previews_without_mutating() {
+        use crate::model::any_doc::AnyDocument;
+        use crate::session::Intent;
+
+        let doc = AnyDocument::from_str_as("port = 8080\n", DocFormat::Toml).unwrap();
+        let mut s = Session::new(doc);
+        s.dispatch(Intent::CursorDown);
+        let path = s.cursor_row().unwrap().path;
+        assert_eq!(s.nudge_repr(&path, "8080", 1).as_deref(), Some("8081"));
+        // The document itself is untouched — no Replace applied.
+        assert!(s.doc.as_ref().unwrap().serialize().contains("port = 8080"));
+        assert!(!s.is_dirty());
+        // Bool path: excluded (mirrors nudge_scalar).
+        let bdoc = AnyDocument::from_str_as("flag = true\n", DocFormat::Toml).unwrap();
+        let mut sb = Session::new(bdoc);
+        sb.dispatch(Intent::CursorDown);
+        let bpath = sb.cursor_row().unwrap().path;
+        assert_eq!(sb.nudge_repr(&bpath, "true", 1), None);
     }
 
     #[test]

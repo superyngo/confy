@@ -602,6 +602,7 @@ function renderDetailPanel() {
       body,
       cursorRow,
       panelSend,
+      (path, text, delta) => session!.nudgeRepr(path, text, delta),
       openKindForRow,
       (msg) => setStatus("", msg),
       undefined,
@@ -1355,39 +1356,6 @@ function onTreeClick(ev: MouseEvent) {
 // Last plain empty-area body click (path + time) for manual double-click detect.
 let lastBodyClick: { key: string; t: number } | null = null;
 
-// Toggle a boolean leaf's value true↔false, preserving its trailing comment.
-// Shared by the wheel-over-value handler (and reusable elsewhere).
-function toggleBool(path: Path) {
-  const key = JSON.stringify(path);
-  const row = snap?.rows.find((r) => JSON.stringify(r.path) === key);
-  if (!row || row.scalar_type !== "Bool" || row.read_only) return;
-  const next = (row.value ?? "").trim().toLowerCase() === "true" ? "false" : "true";
-  const tc = row.trailing_comment;
-  send({ SetCursor: path });
-  send({ CommitEdit: { value: tc ? `${next}  ${tc}` : next, name: null } });
-}
-
-// Mouse-wheel over a row's *value* cell adjusts it (desktop affordance): a bool
-// toggles, a number nudges ±1 (wheel up = +1). Anywhere else (no value cell, a
-// read-only/other-typed value) falls through to normal page scrolling.
-function onTreeWheel(ev: WheelEvent) {
-  const valEl = (ev.target as HTMLElement).closest('[data-edit="val"]');
-  if (!valEl) return;
-  const rowEl = valEl.closest(".row") as HTMLElement | null;
-  if (!rowEl?.dataset.path) return;
-  const path = JSON.parse(rowEl.dataset.path) as Path;
-  const row = snap?.rows.find((r) => JSON.stringify(r.path) === JSON.stringify(path));
-  if (!row || row.read_only) return;
-  if (row.scalar_type === "Bool") {
-    ev.preventDefault();
-    return toggleBool(path);
-  }
-  if (row.scalar_type === "Integer" || row.scalar_type === "Float") {
-    ev.preventDefault();
-    send({ SetCursor: path });
-    send({ Nudge: ev.deltaY < 0 ? 1 : -1 });
-  }
-}
 
 // Focus the live edit `<input>` (rendered by render.ts in Edit mode) and commit
 // on Enter/blur via `CommitEdit`, cancel on Escape. Native text entry — the
@@ -1400,6 +1368,14 @@ function focusInlineEdit() {
   input.focus();
   const n = input.value.length;
   input.setSelectionRange(n, n);
+  if (edit.field === "Value") {
+    const row = snap?.rows.find(
+      (r) => JSON.stringify(r.path) === JSON.stringify(snap!.cursor),
+    );
+    if (row && (row.scalar_type === "Integer" || row.scalar_type === "Float")) {
+      wireValueNudgeWheel(input, snap!.cursor);
+    }
+  }
   // Grow with the typed text (render.ts seeded the initial width the same way).
   input.addEventListener("input", () => {
     input.style.width = editWidthCh(input.value);
@@ -1432,6 +1408,31 @@ function focusInlineEdit() {
     }
   };
   input.onblur = () => finish(true);
+}
+
+// While `input` (the tree's inline value editor) is focused, capture every
+// wheel tick anywhere on the page — not just while the pointer sits over the
+// input — and write the nudged text straight into the input via a stateless
+// core query. No Intent is dispatched, no re-render happens, and the
+// caret/focus are never disturbed; the value only lands in the document on
+// the normal commit path (Enter/blur -> CommitEdit). Torn down on blur so a
+// later wheel scrolls the page normally again.
+function wireValueNudgeWheel(input: HTMLInputElement, path: Path): void {
+  const onWheel = (e: WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY < 0 ? 1 : -1;
+    const next = session!.nudgeRepr(path, input.value, delta);
+    if (next === undefined) return;
+    input.value = next;
+    const n = input.value.length;
+    input.setSelectionRange(n, n);
+  };
+  window.addEventListener("wheel", onWheel, { passive: false, capture: true });
+  input.addEventListener(
+    "blur",
+    () => window.removeEventListener("wheel", onWheel, { capture: true }),
+    { once: true },
+  );
 }
 
 // Focus the schema-enum `<select>` (rendered by render.ts when snap.mode is the
@@ -1900,7 +1901,6 @@ function bindGlobal() {
     if (snap) renderHoverCue(snap, undefined);
   });
   tree.addEventListener("contextmenu", onTreeContext);
-  tree.addEventListener("wheel", onTreeWheel, { passive: false });
   installMarquee();
   // dnd's `endDrag()`/`clearOver()` wipe the armed-paste cue (dropLine +
   // `.drag-over-into`) whenever ANY drag gesture ends, even one unrelated to

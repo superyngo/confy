@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (2026-09-01)
+- feat(nudge)!: remove boolean nudging everywhere (TUI arrows, web keyboard, wheel); bools edit only via the true/false picker — `nudge_scalar` no longer touches `Bool`
+- feat(web): wheel/swipe value nudge now requires inline-edit focus, captures all wheel ticks/horizontal swipes page-wide while armed, and writes via the new stateless `nudge_repr` core query (single `CommitEdit` on blur/Enter — no per-tick document mutation)
+
 ## [v0.32.0] - 2026-09-01
 ### Added
 - feat(add): type picker replaces copy-cursor-kind add-node

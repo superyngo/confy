@@ -63,6 +63,12 @@ check("nudge +10 → 8090", portVal === "8090", portVal);
 check("doc now dirty", snap.is_dirty === true);
 check("history_len grows on mutation", snap.history_len === 1, snap.history_len);
 
+// ---- 4b. nudge_repr previews without mutating ----
+const beforeSerialize = s.serialize();
+const preview = s.nudge_repr(s.snapshot().rows.find(r => r.key === "port").path, "8090", 1);
+check("nudge_repr previews +1 from a given text", preview === "8091", preview);
+check("nudge_repr does not mutate the document", s.serialize() === beforeSerialize);
+
 // ---- 5. Inline edit: BeginEdit on a single-line scalar routes inline ----
 snap = s.dispatch(unit("BeginEdit"));
 check("scalar routes inline (no external_edit)", isNull(snap.external_edit));

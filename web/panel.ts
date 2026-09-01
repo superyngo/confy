@@ -29,13 +29,16 @@ function isMultilineValue(r: ViewRow): boolean {
   return MULTILINE_FORMATS.includes(r.format) || (r.value ?? "").includes("\n");
 }
 
-// Touch swipe-to-nudge over an *idle* (unfocused) Integer/Float value field
-// mirrors the desktop wheel / TUI arrow-key Nudge, without opening the
-// keyboard. Gated to pointerType==="touch" in the pointerdown handler below
-// so desktop mouse drag-to-select-text is untouched. State lives at module
-// scope, not inside `wirePanel`, because a mid-gesture `Nudge` dispatch
-// re-renders the panel and detaches the `<input>` the gesture started on —
-// see the "detaches this input" note above `wirePanel`'s field lookups.
+// Touch swipe-to-nudge over a *focused* Integer/Float value field (i.e. once
+// it has entered inline-edit) mirrors the desktop wheel / TUI arrow-key nudge,
+// without opening the keyboard. Gated to pointerType==="touch" in the
+// document-level pointerdown handler below so desktop mouse drag-to-select-
+// text is untouched; a swipe starting ANYWHERE (not just on the input) tracks
+// while the field holds focus. No Intent is dispatched per tick: the nudged
+// text is written straight into the input via a stateless core query
+// (`nudge_repr`) and only committed on the normal Enter/blur `commit` path.
+// State lives at module scope, not inside `wirePanel`, because the gesture
+// must keep tracking even though the panel may re-render mid-gesture —
 // `document`-level pointermove/up/cancel listeners (installed once, guarded
 // by `nudgeListenersWired`) keep tracking the same physical touch contact
 // across that DOM swap, mirroring `web/touch/app.ts`'s reorder/paste-drag
@@ -50,7 +53,8 @@ interface ValueNudgeGesture {
   lastStep: number;
   engaged: boolean;
   path: Path;
-  fire: (intent: Intent) => void;
+  input: HTMLInputElement;
+  nudgeRepr: (path: Path, text: string, delta: number) => string | undefined;
 }
 let nudgeGesture: ValueNudgeGesture | null = null;
 let nudgeListenersWired = false;
@@ -72,9 +76,12 @@ function installValueNudgeListeners(): void {
       if (step === nudgeGesture.lastStep) return;
       const delta = step - nudgeGesture.lastStep;
       nudgeGesture.lastStep = step;
-      const { path, fire } = nudgeGesture;
-      fire({ SetCursor: path });
-      fire({ Nudge: delta });
+      const { input, path, nudgeRepr } = nudgeGesture;
+      const next = nudgeRepr(path, input.value, delta);
+      if (next === undefined) return;
+      input.value = next;
+      const n = input.value.length;
+      input.setSelectionRange(n, n);
     },
     { passive: false },
   );
@@ -259,14 +266,16 @@ export function panelHTML(
 
 // Wire the rendered panel's controls to intents.
 //  - send(intent): dispatches and returns the new snapshot (we read its notice).
-//  - openKind(row): host opens its kind-switch surface (sheet / popover).
-//  - onError(msg): host shows a message (toast/status) when a send errors.
+//  - nudgeRepr(path, text, delta): stateless nudge preview for the focused
+//    value field's live text — written straight into the input (wheel/swipe
+//    nudge), no dispatch, no re-render; committed via the normal commit path.
 //  - batch(fn): optional host batcher — dispatches every send inside `fn` with a
 //    single re-render at the end (perf: multi-intent handlers render once).
 export function wirePanel(
   container: HTMLElement,
   row: ViewRow,
   send: (intent: Intent) => SessionSnapshot,
+  nudgeRepr: (path: Path, text: string, delta: number) => string | undefined,
   openKind: (row: ViewRow) => void,
   onError: (msg: string) => void,
   batch?: (fn: () => void) => void,
@@ -333,44 +342,56 @@ export function wirePanel(
         fire({ CommitEdit: { value, name: null } });
       });
     });
-    // Mouse-wheel over the value field adjusts it (matches the tree gesture): a
-    // bool toggles (trailing comment preserved), a number nudges ±1 (up = +1).
+    // Mouse-wheel nudges the value only once the field is focused (entering
+    // inline-edit); once armed, every wheel tick anywhere on the page nudges
+    // it (not just while the pointer hovers the field) until it blurs. No
+    // Intent dispatch, no re-render — the nudged text is written straight
+    // into `ve` and only committed via the normal Enter/blur `commit` path.
     const st = row.scalar_type;
-    if (st === "Bool" || st === "Integer" || st === "Float") {
-      ve.addEventListener(
-        "wheel",
-        (e) => {
+    if (st === "Integer" || st === "Float") {
+      let onWheel: ((e: WheelEvent) => void) | null = null;
+      ve.addEventListener("focus", () => {
+        onWheel = (e: WheelEvent) => {
           e.preventDefault();
-          // Nudge handles all three (bool toggles, int/float ±1) and — unlike
-          // CommitEdit — keeps the host in Detail mode, so the panel stays open.
-          run(() => {
-            fire({ SetCursor: path });
-            fire({ Nudge: e.deltaY < 0 ? 1 : -1 });
-          });
-        },
-        { passive: false },
-      );
+          const next = nudgeRepr(path, ve.value, e.deltaY < 0 ? 1 : -1);
+          if (next === undefined) return;
+          ve.value = next;
+          const n = ve.value.length;
+          ve.setSelectionRange(n, n);
+        };
+        document.addEventListener("wheel", onWheel, { passive: false, capture: true });
+      });
+      ve.addEventListener("blur", () => {
+        if (onWheel) document.removeEventListener("wheel", onWheel, { capture: true });
+        onWheel = null;
+      });
     }
-    // Touch: a horizontal drag starts the swipe-to-nudge gesture (see module-level
-    // state above `humanPath`). Bool excluded — it already has a dedicated
-    // true/false picker sheet on touch, and a bounded slide has no natural
-    // two-value mapping.
+    // Touch: once the value field is focused (inline-edit), a horizontal
+    // swipe starting ANYWHERE on the page begins the swipe-to-nudge gesture
+    // (see module-level state above `humanPath`). Bool excluded — it already
+    // has a dedicated true/false picker sheet on touch, and a bounded slide
+    // has no natural two-value mapping.
     if (st === "Integer" || st === "Float") {
       ve.style.touchAction = "pan-y"; // let vertical sheet/page scroll pass through natively; only horizontal is intercepted below
-      ve.addEventListener("pointerdown", (e) => {
-        if (e.pointerType !== "touch") return; // desktop mouse drag keeps native text selection
-        if (document.activeElement === ve) return; // already editing — don't hijack native caret/selection
-        installValueNudgeListeners();
-        nudgeGesture = {
-          pointerId: e.pointerId,
-          originX: e.clientX,
-          originY: e.clientY,
-          lastStep: 0,
-          engaged: false,
-          path,
-          fire,
-        };
-      });
+      document.addEventListener(
+        "pointerdown",
+        (e) => {
+          if (e.pointerType !== "touch") return; // desktop mouse drag keeps native text selection
+          if (document.activeElement !== ve) return; // only while this field is the active inline edit
+          installValueNudgeListeners();
+          nudgeGesture = {
+            pointerId: e.pointerId,
+            originX: e.clientX,
+            originY: e.clientY,
+            lastStep: 0,
+            engaged: false,
+            path,
+            input: ve,
+            nudgeRepr,
+          };
+        },
+        { capture: true },
+      );
     }
   }
   // Schema-enum picker select (active once BeginEdit resolves

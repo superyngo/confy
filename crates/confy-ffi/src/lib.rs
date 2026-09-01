@@ -140,6 +140,18 @@ impl ConfySession {
         to_value(&self.session.edit_hint(&path)).map_err(js_serde_error)
     }
 
+    /// Stateless nudge preview for the host's live edit-buffer text — see
+    /// `Session::nudge_repr`. Used by the Web/touch wheel/swipe nudge while
+    /// inline-editing a number: the host writes the result into the focused
+    /// `<input>` without dispatching or re-rendering.
+    pub fn nudge_repr(&self, path: JsValue, text: &str, delta: i32) -> Result<JsValue, JsValue> {
+        let path: Path = from_value(path).map_err(js_serde_error)?;
+        match self.session.nudge_repr(&path, text, delta as i64) {
+            Some(s) => Ok(JsValue::from_str(&s)),
+            None => Ok(JsValue::UNDEFINED),
+        }
+    }
+
     /// Non-widget descriptive schema info for the node at `path` —
     /// `description`/`type`/`format`/`pattern` from the resolved subschema,
     /// `undefined` when unresolvable or none of those keywords are present.

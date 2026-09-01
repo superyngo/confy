@@ -121,6 +121,15 @@ export class Session {
   }
 
   /**
+   * Stateless preview of nudging `text` by `delta` steps for `path` — does
+   * not mutate the document. `undefined` when the node isn't a nudgeable
+   * scalar or `text` doesn't parse. See `Session::nudge_repr`.
+   */
+  nudgeRepr(path: Path, text: string, delta: number): string | undefined {
+    return this.raw.nudge_repr(path, text, delta) as string | undefined;
+  }
+
+  /**
    * Non-widget descriptive schema info for the node at `path` —
    * `description`/`type`/`format`/`pattern` from the resolved subschema,
    * `undefined` when unresolvable or none of those keywords are present.

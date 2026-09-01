@@ -512,7 +512,7 @@ function renderDetailBody(
   const info = session!.schemaInfo(cur.path);
   const st = scroller.scrollTop;
   container.innerHTML = panelHTML(cur, parentIsInline(cur.path), hint, schemaEnum, info);
-  wirePanel(container, cur, sendR, openKindRow, (msg: string) => renderNotice({ severity: "error", text: msg, source: "core" }), undefined, schemaEnum);
+  wirePanel(container, cur, sendR, (p, tx, d) => session!.nudgeRepr(p, tx, d), openKindRow, (msg: string) => renderNotice({ severity: "error", text: msg, source: "core" }), undefined, schemaEnum);
   scroller.scrollTop = st;
 }
 
@@ -690,7 +690,7 @@ function openPanel(path: Path) {
       '<div class="grab"></div>' +
       `<div class="sheet-head"><h3>${esc(title)}</h3><button class="close" data-act="closesheet">${IC.close}</button></div>` +
       `<div class="sheet-body detail-wrap">${panelHTML(r, parentIsInline(r.path), hint, undefined, info)}</div>`;
-    wirePanel(sheets.detail, r, sendR, openKindRow, (msg: string) => renderNotice({ severity: "error", text: msg, source: "core" }));
+    wirePanel(sheets.detail, r, sendR, (p, tx, d) => session!.nudgeRepr(p, tx, d), openKindRow, (msg: string) => renderNotice({ severity: "error", text: msg, source: "core" }));
     openSheet("detail");
   }
 }

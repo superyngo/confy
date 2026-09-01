@@ -77,7 +77,6 @@ because a bool's value domain is closed at two members. Options carry the node's
 casing** (YAML's `True`/`TRUE` stay uppercase — committing lowercase would silently re-case the
 document), a schema `enum` on the same node **outranks** this fallback, and `E` (force `$EDITOR`)
 is unaffected: it stays the way to type a bool's line free-form (including its trailing comment).
-`←/→` still toggles a bool in place without any popup.
 
 ## Comments (TUI)
 
