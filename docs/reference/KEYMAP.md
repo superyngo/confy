@@ -156,6 +156,68 @@ These are **decided, not accidental**. Do not "fix" them without changing this s
   `treePageStep` derives the visible row count from the scroll-container ratio and halves it —
   same convention, measured differently.
 
+## Help overlay parity
+
+The `?` overlay's keymap content (not the raw bindings above, which the machine-checked
+table already covers) is unified across TUI and Web as a shared Section/Row model, so the
+same binding reads identically on both surfaces:
+
+- **Shared rows.** `help.section.*` (4 group headers: Navigation, Selection, Edit, File &
+  App) and `help.row.*` (one key per described action) live in `i18n/{en,zh-TW}.json` and
+  are read by both `crates/confy-tui/src/tui/keys.rs::help_sections` and
+  `web/help-content.ts`'s `NAV_SECTION`/`SELECT_SECTION`/`editSection`/`fileSection`. `r`
+  (Remark) and `K` (Kind switch) are the only rows whose *description* is per-`DocFormat`
+  (`help.row.remark.<toml|json|yaml>`, `help.row.kind_switch.<toml|json|yaml>`) — both
+  surfaces already receive the open document's format and pick the same key.
+- **Per-surface rows.** A row's *keys* column may still differ where the binding itself
+  differs (see the main table above): e.g. `first_last_row` is `Home/End` on the TUI and
+  `Home/End/g/G` on the Web; `nudge` is `←/→` on the TUI and `←/→/+/-` on the Web; `save` is
+  `Ctrl+s/w` on the TUI (vim alias) and `Ctrl+s` on the Web. Rows with no Web affordance
+  (`tui.help.row.filter_lock`, `tui.help.row.convert_jsonc_toggle`, `l` Language picker, `~`
+  Diagnostics) or no TUI affordance (`Ctrl+o` Open, the Pointer section) are prefixed
+  `tui.help.*`/`web.help.*` instead of the shared `help.*` and only appear in that surface's
+  render.
+- **VS Code variant.** `web/help-content.ts`'s `variant: "web" | "vscode"` parameter drops
+  the `Ctrl+o`/`q` rows (no in-app Open/Quit under VS Code), swaps `save`/`undo_redo` for
+  `web.help.row.save_vscode`/`web.help.row.undo_redo_vscode` (both note the shared VS Code
+  stack), adds a `⇧⌘S / Ctrl+⇧S` → `web.help.row.save_as_convert` row, and appends the
+  `web.help.note.vscode` prose block — mirroring the same variant split the TUI has no
+  equivalent of (VS Code hosts confy inside its own editor tab).
+- **Kind legend is intentionally not unified.** The TUI's Kind badge uses bracket tags
+  (`[T/S]`, `[S:mstr]`, …, `tui.help.legend.<format>.<keysign|containers|scalars>.<n>`,
+  encoded `"<tag>|<description>"`); the Web's Kind badge uses a `label·notation` scheme
+  (`web.help.legend.<format>`, one pre-formatted string per format). These are two different
+  visual notations for two different UI widgets (TUI's monospace bracket tag vs. Web's
+  colored badge pill) — reformatted to one tag/pair per row on each surface for readability,
+  but not merged, because the tag vocabularies themselves are not the same.
+- **Layout.** TUI renders the whole overlay as one `ratatui::widgets::Paragraph` inside a
+  padded `Block` (`Padding::new(2, 2, 1, 1)`), with column alignment computed at render time
+  via `unicode_width::UnicodeWidthStr` (display-width, not `char` count, so a zh-TW row never
+  desyncs the column under CJK's double-width glyphs — the same technique already used by
+  `overlay_lang_picker.rs` and `ui.rs::draw_title`). Web renders the keymap rows as a CSS
+  grid (`.help-grid { grid-template-columns: max-content 1fr }`) and the legend/About prose
+  as `white-space: pre-wrap` blocks, inside a `<div class="help-body">` (desktop `#overlay`
+  and the touch bottom sheet both use the same class).
+
+## Editor (inline/external) parity
+
+Expands the "Inline edit." / "Popup / external editor." bullets under
+"Implementation differences" above with the exact per-surface presentation, referenced here
+because the Help overlay's `e`/`E`/`Enter`/`i` rows describe this behavior:
+
+| Concern | TUI | Desktop Web | Touch |
+| --- | --- | --- | --- |
+| Inline edit (scalar leaf) | Core edit buffer driven keystroke-by-keystroke (`EditChar`/`EditCursor*`/`EditDelete`) | Real `<input class="cell-input">`; browser owns cursor/selection/delete; single `CommitEdit` on Enter/blur | Same as desktop web |
+| Force editor (`E`, any node) / editor for multiline string or comment (`e`) | Suspends the alternate screen, spawns `$EDITOR` on a scratch file | Opens `#ext-modal` | Opens the `.ext-sheet` bottom sheet |
+| Handshake | All three surfaces drive the same `snap.external_edit` async request/response — one core intent, three presentations | | |
+| Clipboard-armed guard | Core's `begin_external_edit` refuses while clipboard is armed; TUI additionally raises `core.clipboard.action-locked` before dispatching | Relies on core alone | Same TUI-style extra notice as the TUI (`openExternalEdit`) |
+| Detail panel (`Enter`/`i`) | `Mode::Detail` full-screen popup | `#overlay`/aside detail pane | Bottom sheet |
+
+The Help overlay's `help.row.edit` ("Edit (inline or editor)") and `help.row.force_editor`
+("Force editor (any node)") rows are intentionally surface-agnostic wording for exactly this
+reason: "editor" means `$EDITOR` on the TUI and an in-app modal/sheet on Web, and the row
+text does not claim otherwise.
+
 ## Related documents
 
 - `docs/reference/TUI.md` — TUI behaviour; `?` overlay text lives in `i18n/*.json` (`tui.help.*`).
