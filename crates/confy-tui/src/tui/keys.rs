@@ -99,22 +99,162 @@ pub fn map_key(key: KeyEvent) -> KeyAction {
     }
 }
 
-/// Keybinding help text, displayed in the `?` overlay. Format-specific: the
-/// op list and KIND legend differ per backend. Routed through the `tui.*`
-/// catalog (i18n Phase 2) -- `en` text is byte-identical to the old
-/// `&'static str` consts.
-pub fn help_text(
+struct HelpRow {
+    keys: &'static str,
+    desc_key: &'static str,
+}
+
+struct HelpSection {
+    title_key: &'static str,
+    rows: Vec<HelpRow>,
+}
+
+/// The `?` overlay's keymap content, grouped and two-column (keys left,
+/// description right). `r`/`K` descriptions are format-specific.
+fn help_sections(format: crate::model::document::DocFormat) -> Vec<HelpSection> {
+    use crate::model::document::DocFormat;
+    let (remark_key, kind_key) = match format {
+        DocFormat::Toml => ("help.row.remark.toml", "help.row.kind_switch.toml"),
+        DocFormat::Json => ("help.row.remark.json", "help.row.kind_switch.json"),
+        DocFormat::Yaml => ("help.row.remark.yaml", "help.row.kind_switch.yaml"),
+    };
+    vec![
+        HelpSection {
+            title_key: "help.section.nav",
+            rows: vec![
+                HelpRow { keys: "j/k/↑/↓", desc_key: "help.row.move_cursor" },
+                HelpRow { keys: "Home/End", desc_key: "help.row.first_last_row" },
+                HelpRow { keys: "PgUp/PgDn", desc_key: "help.row.page" },
+                HelpRow { keys: "1/2", desc_key: "help.row.expand_collapse_level" },
+                HelpRow { keys: "0/9", desc_key: "help.row.collapse_expand_all" },
+                HelpRow { keys: "Space", desc_key: "help.row.space_toggle" },
+                HelpRow { keys: "Enter/i", desc_key: "help.row.detail" },
+            ],
+        },
+        HelpSection {
+            title_key: "help.section.select",
+            rows: vec![
+                HelpRow { keys: "s", desc_key: "help.row.toggle_select" },
+                HelpRow { keys: "Shift+↑/↓", desc_key: "help.row.range_select" },
+                HelpRow { keys: "/", desc_key: "help.row.fuzzy_filter" },
+                HelpRow { keys: "/…Enter", desc_key: "tui.help.row.filter_lock" },
+                HelpRow { keys: "f", desc_key: "help.row.type_filter" },
+                HelpRow { keys: "Esc", desc_key: "help.row.clear_esc" },
+            ],
+        },
+        HelpSection {
+            title_key: "help.section.edit",
+            rows: vec![
+                HelpRow { keys: "e", desc_key: "help.row.edit" },
+                HelpRow { keys: "E", desc_key: "help.row.force_editor" },
+                HelpRow { keys: "F2", desc_key: "help.row.rename" },
+                HelpRow { keys: "a", desc_key: "help.row.add_node" },
+                HelpRow { keys: "d/Del", desc_key: "help.row.delete" },
+                HelpRow { keys: "x/c/v", desc_key: "help.row.copy_cut_paste" },
+                HelpRow { keys: "←/→", desc_key: "help.row.nudge" },
+                HelpRow { keys: "r", desc_key: remark_key },
+                HelpRow { keys: "K", desc_key: kind_key },
+                HelpRow { keys: "z/y", desc_key: "help.row.undo_redo" },
+                HelpRow { keys: "C", desc_key: "help.row.convert" },
+                HelpRow { keys: "Tab", desc_key: "tui.help.row.convert_jsonc_toggle" },
+                HelpRow { keys: "l", desc_key: "help.row.lang_picker" },
+            ],
+        },
+        HelpSection {
+            title_key: "help.section.file",
+            rows: vec![
+                HelpRow { keys: "Ctrl+s/w", desc_key: "help.row.save" },
+                HelpRow { keys: "m", desc_key: "help.row.action_menu" },
+                HelpRow { keys: "~", desc_key: "help.row.diag" },
+                HelpRow { keys: "?", desc_key: "help.row.help" },
+                HelpRow { keys: "q", desc_key: "help.row.quit" },
+            ],
+        },
+    ]
+}
+
+/// Renders `sections` as ` key<pad>  description` lines, one shared column
+/// width across all sections computed by *display* width (`unicode-width`,
+/// already a workspace dependency) so a zh-TW description never desyncs the
+/// key column the way naive `char`-count padding would.
+fn render_help_sections(lang: confy_core::session::Lang, sections: &[HelpSection]) -> String {
+    use confy_core::session::tr;
+    use unicode_width::UnicodeWidthStr;
+    let col = sections
+        .iter()
+        .flat_map(|s| s.rows.iter())
+        .map(|r| r.keys.width())
+        .max()
+        .unwrap_or(0);
+    let mut out = String::new();
+    for s in sections {
+        out.push_str(&format!(" ── {} ──\n", tr(lang, s.title_key)));
+        for r in &s.rows {
+            let pad = " ".repeat(col.saturating_sub(r.keys.width()));
+            out.push_str(&format!(" {}{}  {}\n", r.keys, pad, tr(lang, r.desc_key)));
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// The Kind-legend glossary: 3 groups (`keysign`/`containers`/`scalars`) per
+/// `DocFormat`, sourced from `tui.help.legend.<format>.<group>.<n>` catalog
+/// entries encoded as `"<tag>|<description>"` (`split_once('|')`). One shared
+/// column width across all 3 groups for this format.
+fn help_legend_text(
     format: crate::model::document::DocFormat,
     lang: confy_core::session::Lang,
 ) -> String {
     use crate::model::document::DocFormat;
     use confy_core::session::tr;
-    let key = match format {
-        DocFormat::Toml => "tui.help.toml",
-        DocFormat::Json => "tui.help.json",
-        DocFormat::Yaml => "tui.help.yaml",
+    use unicode_width::UnicodeWidthStr;
+    let (fmt_str, counts): (&str, [usize; 3]) = match format {
+        DocFormat::Toml => ("toml", [4, 8, 16]),
+        DocFormat::Json => ("json", [2, 6, 6]),
+        DocFormat::Yaml => ("yaml", [3, 7, 14]),
     };
-    tr(lang, key).to_string()
+    let groups = ["keysign", "containers", "scalars"];
+    let group_title_keys = [
+        "tui.help.section.keysign",
+        "tui.help.section.containers",
+        "tui.help.section.scalars",
+    ];
+    let mut rows: Vec<(usize, String, String)> = Vec::new();
+    for (gi, (grp, count)) in groups.iter().zip(counts.iter()).enumerate() {
+        for i in 1..=*count {
+            let key = format!("tui.help.legend.{fmt_str}.{grp}.{i}");
+            let raw = tr(lang, &key);
+            let (tag, desc) = raw.split_once('|').unwrap_or((raw, ""));
+            rows.push((gi, tag.to_string(), desc.to_string()));
+        }
+    }
+    let col = rows.iter().map(|(_, t, _)| t.width()).max().unwrap_or(0);
+    let mut out = String::new();
+    out.push_str(&format!(" ── {} ──\n", tr(lang, "tui.help.section.legend")));
+    for (gi, title_key) in group_title_keys.iter().enumerate() {
+        out.push_str(&format!(" {}\n", tr(lang, title_key)));
+        for (_, tag, desc) in rows.iter().filter(|(g, _, _)| *g == gi) {
+            let pad = " ".repeat(col.saturating_sub(tag.width()));
+            out.push_str(&format!("   {tag}{pad}  {desc}\n"));
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// Keybinding help text, displayed in the `?` overlay. Format-specific: the
+/// op list and KIND legend differ per backend. Routed through the `tui.*`/
+/// `help.*` catalog (i18n Phase 2+) -- see `docs/reference/KEYMAP.md` §Help
+/// overlay parity for the shared row model this composes.
+pub fn help_text(
+    format: crate::model::document::DocFormat,
+    lang: confy_core::session::Lang,
+) -> String {
+    let sections = help_sections(format);
+    let mut out = render_help_sections(lang, &sections);
+    out.push_str(&help_legend_text(format, lang));
+    out
 }
 
 #[cfg(test)]
