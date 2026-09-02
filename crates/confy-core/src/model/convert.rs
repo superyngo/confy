@@ -733,9 +733,10 @@ fn render_yaml(value: &Value) -> String {
             s.push('\n');
         }
     }
-    if s.is_empty() {
-        s.push_str("{}\n");
-    }
+    // An empty map/seq root renders as an empty document: the YAML backend
+    // (like taplo for TOML) treats an empty file as a valid, empty mapping, but
+    // does not accept a root-level flow collection, so `{}` would fail the
+    // reparse safety net and abort the conversion with an "internal" error.
     s
 }
 
@@ -1238,6 +1239,28 @@ mod tests {
             r.text,
             "{\n  \"a\": 1,\n  \"b\": \"x\",\n  \"c\": true\n}\n"
         );
+    }
+
+    #[test]
+    fn empty_document_converts_to_every_target() {
+        // An empty TOML/YAML file and an empty JSON object are all "empty
+        // map" roots; every (from, to) pair must survive the reparse net.
+        let sources = [
+            ("", DocFormat::Toml),
+            ("", DocFormat::Yaml),
+            ("{}\n", DocFormat::Json),
+        ];
+        for (src, from) in sources {
+            for to in [DocFormat::Toml, DocFormat::Json, DocFormat::Yaml] {
+                let r = convert(&load(src, from), to)
+                    .unwrap_or_else(|e| panic!("{from:?} -> {to:?} must convert: {e}"));
+                let expected = match to {
+                    DocFormat::Json => "{}\n",
+                    DocFormat::Toml | DocFormat::Yaml => "",
+                };
+                assert_eq!(r.text, expected, "{from:?} -> {to:?}");
+            }
+        }
     }
 
     #[test]

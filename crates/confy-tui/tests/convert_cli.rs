@@ -74,7 +74,9 @@ fn existing_output_is_not_overwritten_without_yes() {
         ])
         .assert()
         .failure()
-        .stderr(contains("refusing to overwrite an existing file without --yes"));
+        .stderr(contains(
+            "refusing to overwrite an existing file without --yes",
+        ));
 
     assert_eq!(fs::read_to_string(&output).unwrap(), "precious: true\n");
 }

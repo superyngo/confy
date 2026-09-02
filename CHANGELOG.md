@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-09-02T08:40:00Z
+- fix(convert): converting an empty document to YAML no longer aborts with `internal: converted
+  output did not re-parse: expected a mapping key, found Some(L_BRACE)`. `render_yaml` emitted
+  `{}` for an empty root, which the YAML backend (no root-level flow collections in its subset)
+  rejects in the reparse safety net; an empty map root now renders as an empty document, which
+  the backend loads as an empty mapping. New unit test walks every (from, to) pair on an empty
+  TOML/YAML/JSON source.
+
 ### Unreleased Update — 2026-09-02T08:25:00Z
 - fix(cli): `confy convert` no longer overwrites an existing destination silently. It now asks
   `<out> already exists. Overwrite it? [y/N]` on a TTY and refuses on a pipe unless `--yes` is
