@@ -404,14 +404,19 @@ concept).
 The `serde_json::Value` tree a document's **Value** (neutral tree) is lowered into,
 purely for JSON Schema validation. Deliberately a distinct term from **Value**: same
 shape-carrying job, different tree — the projection has no comments, no source notation,
-and exists only transiently for one `validate()` pass.
+and exists only transiently for one `validate()` pass. Lowered by
+`convert::tree_to_value_lenient` + `value_bridge::bridge`, which **omit YAML opaque nodes**
+(see § YAML, *Opaque node*) so one anchor cannot cost the whole file its validation; both
+walks omit the same nodes, keeping the Node↔Value pairing 1:1 so every remaining node — and
+therefore every Violation pointer — still resolves to its own Path.
 _Avoid_: Value (already taken — the conversion pipeline's own neutral tree), JSON tree.
 
 **Violation**:
 A single JSON Schema constraint failure reported against a Node's **Path** (or its
 parent's Path, for a `required` failure — the missing child has no Path of its own).
 Purely informational: a Violation never blocks a **Mutation**, never appears in a
-`MutateError`, and can sit quietly on an already-committed, otherwise-valid document.
+`MutateError`, and can sit quietly on an already-committed, otherwise-valid document. A YAML
+**opaque node** never carries one (its value is not decodable), but its siblings and ancestors do.
 _Avoid_: Error (Mutation errors are a hard gate; a Violation is not one), warning used
 alone (always say Violation — "warning" is reserved for prose, not the type name).
 

@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-09-02T14:10:00Z
+- docs: record the lenient schema lowering across the reference docs. `CONTEXT.md`'s **JSON
+  projection** and **Violation** glossary entries now name `convert::tree_to_value_lenient` +
+  `value_bridge::bridge` as the lowering pair and state that a YAML opaque node carries no
+  Violation while its siblings/ancestors do; `BEHAVIOR_MATRIX.md` §8's YAML-opaque invariant
+  gains the "schema validation skips them, conversion aborts" split; `CLAUDE.md`'s module map
+  and JSON Schema section point at the lenient variant.
+
 ### Unreleased Update — 2026-09-02T13:30:00Z
 - fix(schema): a YAML file containing an anchor, alias, `<<:` merge key or tag no longer loses
   **every** schema-violation cue. `Session::revalidate_schema` lowered through

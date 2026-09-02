@@ -189,7 +189,10 @@ green trees have different shapes (taplo vs hand-rolled JSON vs YAML reindent). 
   selectable, movable, deletable — and moving/copying another node never drags a comment with it. An
   end-of-line comment is instead the owning node's `trailing_comment` decoration and travels with it.
 - **YAML opaque nodes** (`&anchor`, `*alias`, `<<:` merge, `!tag`, multi-line flow) are read-only:
-  every behavior on or into them returns `Unsupported`, whatever the underlying kind.
+  every behavior on or into them returns `Unsupported`, whatever the underlying kind. **Schema
+  validation skips them** rather than giving up on the file — an opaque node carries no Violation of
+  its own (confy cannot decode its value), while every other node in the document validates
+  normally. Document **conversion** is the stricter case: an opaque node aborts it outright.
 - **Atomic mutations.** Every mutation edits a scratch tree and commits only on success, with a
   semantic post-check — a failed edit leaves the document byte-for-byte untouched.
 

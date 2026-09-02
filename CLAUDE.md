@@ -241,7 +241,8 @@ failure), and InsertComment/ArrayUpgrade paths — TUI.md §*Clipboard / paste*.
 **JSON Schema.** `schema/` (types.rs: `SchemaSource`/`SchemaState`/`SchemaStatus`/`Violation`/
 `EditHint`/`Category`; hints.rs: per-format hint detection — JSON `"$schema"` root key, YAML
 `# yaml-language-server: $schema=` modeline, TOML `#:schema` leading comment; value_bridge.rs:
-Node+Value → JSON-projection bridging that attaches a Path to every projection node;
+Node+Value → JSON-projection bridging that attaches a Path to every projection node (YAML opaque
+nodes omitted on both sides, matching `tree_to_value_lenient`, so an anchor costs only itself);
 validate.rs: `jsonschema`-backed validation over that projection, draft 2020-12, uniform across
 all three formats since it runs on the projection, never source syntax — ADR 0002; hints_edit.rs:
 best-effort sub-schema resolution at one Path for the constrained-value picker, simpler than full
@@ -325,7 +326,9 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
     node.rs        Seg, ScalarType, Format, NodeKind, Node, NodeTree (+ node_at lookup)
     document.rs    ConfigDocument trait (+ to_value), DocFormat, Mutation, Target, OnCollision, ConvertAbort, errors
     value.rs       format-neutral Value/Item tree for conversion (has_null/has_datetime)
-    convert.rs     document-level conversion: tree_to_value walk + per-format scalar decoders + default-style renderers + loss policy
+    convert.rs     document-level conversion: tree_to_value walk (+ tree_to_value_lenient, the
+                   opaque-skipping variant schema validation lowers through) + per-format scalar
+                   decoders + default-style renderers + loss policy
     any_doc.rs     AnyDocument enum: per-format dispatch + detect_format/from_str_as/set_filename (TOML/JSON/YAML)
     cst_doc.rs     CstDocument holding the taplo/rowan tree: from_str (sole headless ctor) / serialize / apply (atomic commit) / set_filename
     cst_project.rs CST → NodeTree projection (comments as real nodes; golden tests)
