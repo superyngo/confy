@@ -657,7 +657,7 @@ function renderOverlay() {
       `<button class="opt tab-btn${activeTab === "Help" ? " sel" : ""}" data-tab="Help">${t("web.help.tab.help")}</button>` +
       `<button class="opt tab-btn${activeTab === "About" ? " sel" : ""}" data-tab="About">${t("web.help.tab.about")}</button>` +
       `</div><button class="overlay-close" title="${t("web.common.close")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>` +
-      `<pre>${body}</pre>`;
+      `<div class="help-body">${body}</div>`;
     overlay.querySelectorAll<HTMLElement>("[data-tab]").forEach((btn) => {
       btn.addEventListener("click", () => {
         if (btn.dataset.tab !== activeTab) send("ToggleHelpTab");

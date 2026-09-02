@@ -1079,7 +1079,7 @@ function renderHelpSheet() {
     `<button class="btn tab-btn${activeTab === "Help" ? " primary" : ""}" data-tab="Help">${t("web.help.tab.help")}</button>` +
     `<button class="btn tab-btn${activeTab === "About" ? " primary" : ""}" data-tab="About">${t("web.help.tab.about")}</button>` +
     "</div>" +
-    `<pre class="help-body">${body}</pre>` +
+    `<div class="help-body">${body}</div>` +
     "</div>";
   sheets.help.querySelectorAll<HTMLElement>("[data-tab]").forEach((btn) => {
     btn.onclick = () => {
