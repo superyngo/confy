@@ -11,7 +11,7 @@ each channel live in the referenced doc — this is just the map.
 | Android (Tauri mobile) | Sideload debug APK | manual `cargo tauri android build --debug --apk`, no CI | — | Dev/sideload only, not distributed |
 | Android Google Play (`.aab`) | Google Play Console | manual upload during development; CI publish (`publish-play.yml` + `publish-gate-play`) planned once account exists | — | In development — release signing (`keystore.properties`) + tag-derived `versionCode` verified end-to-end (debug + release APK build/sign/install/launch on real hardware, 2026-08-06); Save As + "Open with"/share chooser visibility fixed and verified on real hardware (M2, 2026-08-06); no Play Console account yet, no testers, `publish-play.yml` CI not built |
 | Web UI | Cloudflare Workers Builds (Git integration) | push to `main` | rolling (no version tag) | Live at <https://confy.turkeyang.net/> |
-| VS Code extension | VS Marketplace + Open VSX | `.github/workflows/publish-vscode.yml`, dispatched by `publish-gate.yml` after `release.yml` succeeds on tag `v*.*.*`, gated behind its own `publish-gate-vscode` environment approval (versioned in lockstep with the app) | v0.32.0 | Live |
+| VS Code extension | VS Marketplace + Open VSX | `.github/workflows/publish-vscode.yml`, dispatched by `publish-gate.yml` after `release.yml` succeeds on tag `v*.*.*`, gated behind its own `publish-gate-vscode` environment approval (versioned in lockstep with the app) | v1.0.0 | Live |
 
 Not targeted yet: Linux/iOS desktop-app builds (Tauri), F-Droid for Android.
 
