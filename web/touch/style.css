@@ -646,18 +646,29 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none
 .sheet-head h3{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sheet-head .close{flex:0 0 auto}
 .help-tabs { display: flex; gap: 8px; margin-bottom: 10px; }
-/* Help/About body: wrap long lines instead of scrolling sideways — the sheet
-   already scrolls on the y axis (.sheet-body overflow-y:auto); a bare <pre>'s
-   default white-space:pre forces overflow-x too (any axis other than
-   `visible` makes the other axis compute to `auto`), so this is what actually
-   keeps overflow to y only. overflow-wrap covers tokens with no break point
-   (e.g. a long URL) that pre-wrap alone wouldn't break. */
-.help-body {
+/* Help/About body: two-column keymap grid + legend/about prose, wrapped
+   instead of scrolling sideways (touch sheet only scrolls on the y axis). */
+.help-body { padding-top: 4px; }
+.help-grid {
+  display: grid; grid-template-columns: max-content 1fr;
+  column-gap: 12px; row-gap: 5px; align-items: baseline;
+  font-size: 13px; margin-bottom: 14px;
+}
+.help-sect-title {
+  grid-column: 1 / -1; margin-top: 10px;
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--muted); opacity: .8;
+}
+.help-sect-title:first-child { margin-top: 0; }
+.help-grid .help-key { font-family: var(--mono); color: var(--accent); font-weight: 600; white-space: nowrap; }
+.help-legend, .help-about {
+  font-family: var(--mono); font-size: 13px;
   white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word;
 }
-/* Help body: key/shortcut column stands out from its description. */
-.help-body .help-key { color: var(--accent); font-weight: 600; }
-.help-body .help-sect { opacity: 0.6; }
+.help-legend { margin-bottom: 10px; }
+.help-legend .help-key { color: var(--accent); font-weight: 600; }
+.help-legend .help-sect { opacity: 0.6; }
+.help-note { font-size: 13px; color: var(--muted); margin-bottom: 10px; }
 
 /* ---- responsive chrome collapse (mirrors desktop's right→left fold) ----
    The .app is a `container-type:inline-size` container. The toolbar/filter rows
