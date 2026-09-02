@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-09-02T11:05:00Z
+- fix(web): the built-in sample no longer reports "Schema failed to load: NetworkError" on an
+  http origin. `resolveSchemaFetchRequest`'s `http://` → `https://` mixed-content upgrade was
+  unconditional, but the sample's `$schema` is derived from `location.href` (`samples.ts`), so a
+  local dev server (`http://localhost:8080`) or Tauri's Windows origin (`http://tauri.localhost`)
+  got rewritten to an https URL nothing serves. The upgrade is now gated on the *page* being
+  https — the only case where the browser blocks the plain-http fetch as mixed content — via a
+  new exported `upgradeForMixedContent()`; `host-io.spec.mjs` covers both page protocols.
+
 ### Unreleased Update — 2026-09-02T09:45:00Z
 - docs(claude): refresh the module map against the tree. Adds the 16 source files it had
   drifted past — `session/action_menu.rs`, `session/add_picker.rs`,

@@ -283,6 +283,17 @@ export async function doConvertWrite(
 }
 
 /**
+ * `http://` → `https://` only when the current page is itself https, where the
+ * browser would block the plain-http fetch as mixed content. Exported for the
+ * spec suite; see the call site for the full rationale.
+ */
+export function upgradeForMixedContent(url: string): string {
+  const https =
+    typeof location !== "undefined" && location.protocol === "https:";
+  return https ? url.replace(/^http:\/\//, "https://") : url;
+}
+
+/**
  * Resolve `snap.schema_fetch_request` (if any) and dispatch the result back
  * as `Intent::SchemaLoaded`. Mirrors `openFromUrl`'s try/catch-to-soft-error
  * shape — a failure here never surfaces as `io.err`'s blocking banner, only
@@ -303,13 +314,18 @@ export async function resolveSchemaFetchRequest(
       ? await readSiblingFile(request.Local, currentFilePath)
       : isVsCode()
         ? await requestSchemaUrl(request.Url)
-        // Browser fetch: upgrade `http://` hints to `https://`. An https page
-        // blocks an `http://` fetch as mixed content before the server's 301
-        // redirect can run (`TypeError: Failed to fetch`), while the https
-        // endpoints of schema hosts (e.g. json-schema.org, which 301s
-        // http→https anyway) send `access-control-allow-origin: *`. The
-        // Tauri/VS Code branches are native and don't need this.
-        : (await fetchUrlFile(request.Url.replace(/^http:\/\//, "https://"))).text;
+        // Browser fetch: upgrade `http://` hints to `https://` **only on an
+        // https page**. An https page blocks an `http://` fetch as mixed
+        // content before the server's 301 redirect can run (`TypeError:
+        // Failed to fetch`), while the https endpoints of schema hosts (e.g.
+        // json-schema.org, which 301s http→https anyway) send
+        // `access-control-allow-origin: *`. On an http origin there is no
+        // mixed content to dodge, and upgrading breaks the built-in sample:
+        // its `$schema` is derived from `location.href` (samples.ts), so a
+        // local dev server / Tauri's `http://tauri.localhost` would be
+        // rewritten to an https URL nothing serves. The Tauri/VS Code
+        // branches are native and don't need this.
+        : (await fetchUrlFile(upgradeForMixedContent(request.Url))).text;
     text = { Ok: raw };
   } catch (e) {
     text = { Err: String((e as Error).message ?? e) };

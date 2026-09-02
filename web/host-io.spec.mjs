@@ -229,8 +229,8 @@ console.log("\n-- openFromUrl() --");
 console.log("\n-- resolveSchemaFetchRequest() --");
 {
   // `http://` schema URL hints are upgraded to `https://` before the browser
-  // fetch — an https page blocks the http fetch as mixed content before the
-  // server's 301 redirect can run ("Failed to fetch").
+  // fetch — but ONLY on an https page, which blocks the http fetch as mixed
+  // content before the server's 301 redirect can run ("Failed to fetch").
   const fetched = [];
   globalThis.fetch = async (url) => {
     fetched.push(String(url));
@@ -244,9 +244,10 @@ console.log("\n-- resolveSchemaFetchRequest() --");
   };
   const io = fakeIo();
   const session = { dispatch: (intent) => ({ dispatched: intent }) };
+  globalThis.location = { protocol: "https:", href: "https://confy.example/" };
   await resolveSchemaFetchRequest(io, session, { Url: "http://json-schema.org/draft-07/schema#" }, null);
   check(
-    "upgrades http:// schema URL hints to https://",
+    "upgrades http:// schema URL hints to https:// on an https page",
     fetched.length === 1 && fetched[0] === "https://json-schema.org/draft-07/schema#",
     JSON.stringify(fetched),
   );
@@ -254,6 +255,18 @@ console.log("\n-- resolveSchemaFetchRequest() --");
     await resolveSchemaFetchRequest(io, session, { Url: "https://example.com/s.json" }, null);
     return fetched[1] === "https://example.com/s.json";
   })()));
+
+  // Regression: on an http page there is no mixed content to dodge, and
+  // upgrading breaks the built-in sample, whose `$schema` is derived from
+  // `location.href` (local dev server / Tauri's `http://tauri.localhost`).
+  globalThis.location = { protocol: "http:", href: "http://localhost:8080/" };
+  await resolveSchemaFetchRequest(io, session, { Url: "http://localhost:8080/schema-sample.json" }, null);
+  check(
+    "leaves http:// hints untouched on an http page",
+    fetched[2] === "http://localhost:8080/schema-sample.json",
+    JSON.stringify(fetched),
+  );
+  delete globalThis.location;
 }
 delete globalThis.fetch;
 
