@@ -46,7 +46,14 @@ const result = await esbuild.build({
   target: "es2022",
 });
 const modUrl = "data:text/javascript;base64," + Buffer.from(result.outputFiles[0].text).toString("base64");
-const { doQuickSave, doSaveAsCopy, doConvertWrite, openFromUrl, formatFromNameOrType } =
+const {
+  doQuickSave,
+  doSaveAsCopy,
+  doConvertWrite,
+  openFromUrl,
+  formatFromNameOrType,
+  resolveSchemaFetchRequest,
+} =
   await import(modUrl);
 
 // ---- fakes ----
@@ -218,6 +225,38 @@ console.log("\n-- openFromUrl() --");
   check("reports the failure via io.err", io.calls.err.length === 1, JSON.stringify(io.calls.err));
   check("never calls openText on failure", openTextCalled === false);
 }
+// ---- resolveSchemaFetchRequest ----
+console.log("\n-- resolveSchemaFetchRequest() --");
+{
+  // `http://` schema URL hints are upgraded to `https://` before the browser
+  // fetch — an https page blocks the http fetch as mixed content before the
+  // server's 301 redirect can run ("Failed to fetch").
+  const fetched = [];
+  globalThis.fetch = async (url) => {
+    fetched.push(String(url));
+    return {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      text: async () => "{}",
+      headers: { get: () => "application/schema+json" },
+    };
+  };
+  const io = fakeIo();
+  const session = { dispatch: (intent) => ({ dispatched: intent }) };
+  await resolveSchemaFetchRequest(io, session, { Url: "http://json-schema.org/draft-07/schema#" }, null);
+  check(
+    "upgrades http:// schema URL hints to https://",
+    fetched.length === 1 && fetched[0] === "https://json-schema.org/draft-07/schema#",
+    JSON.stringify(fetched),
+  );
+  check("leaves https:// hints untouched", (await (async () => {
+    await resolveSchemaFetchRequest(io, session, { Url: "https://example.com/s.json" }, null);
+    return fetched[1] === "https://example.com/s.json";
+  })()));
+}
+delete globalThis.fetch;
+
 delete globalThis.fetch;
 
 console.log(failures === 0 ? "\nALL HOST-IO CHECKS PASSED" : `\n${failures} FAILURES`);

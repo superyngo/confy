@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-09-02T00:00:00Z
+- fix(web): remote `$schema` URL hints with an `http://` scheme never loaded on the web/touch hosts — `resolveSchemaFetchRequest` fetched the URL directly from the browser, and an https page blocks an `http://` fetch as mixed content before json-schema.org's 301 redirect to https can run, surfacing "Schema failed to load: Failed to fetch" (TUI/VS Code resolve natively, so only the browser hosts were affected). `http://` hints are now upgraded to `https://` before the browser fetch — the https endpoints of schema hosts (e.g. `https://json-schema.org/draft-07/schema`) send `access-control-allow-origin: *`, so the fetch succeeds. Tauri/VS Code branches unchanged (native fetch, no mixed-content restriction). Covered by two new `web/host-io.spec.mjs` checks.
+
 ### Changed (2026-09-01)
 - feat(nudge)!: remove boolean nudging everywhere (TUI arrows, web keyboard, wheel); bools edit only via the true/false picker — `nudge_scalar` no longer touches `Bool`
 - feat(web): wheel/swipe value nudge now requires inline-edit focus, captures all wheel ticks/horizontal swipes page-wide while armed, and writes via the new stateless `nudge_repr` core query (single `CommitEdit` on blur/Enter — no per-tick document mutation)

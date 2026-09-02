@@ -303,7 +303,13 @@ export async function resolveSchemaFetchRequest(
       ? await readSiblingFile(request.Local, currentFilePath)
       : isVsCode()
         ? await requestSchemaUrl(request.Url)
-        : (await fetchUrlFile(request.Url)).text;
+        // Browser fetch: upgrade `http://` hints to `https://`. An https page
+        // blocks an `http://` fetch as mixed content before the server's 301
+        // redirect can run (`TypeError: Failed to fetch`), while the https
+        // endpoints of schema hosts (e.g. json-schema.org, which 301s
+        // http→https anyway) send `access-control-allow-origin: *`. The
+        // Tauri/VS Code branches are native and don't need this.
+        : (await fetchUrlFile(request.Url.replace(/^http:\/\//, "https://"))).text;
     text = { Ok: raw };
   } catch (e) {
     text = { Err: String((e as Error).message ?? e) };
