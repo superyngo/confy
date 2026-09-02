@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-09-02T09:20:00Z
+- security(tauri): set a real `app.security.csp` (was `null`, i.e. no CSP at all) —
+  `default-src 'self'`, `script-src 'self' 'wasm-unsafe-eval'`, `object-src 'none'`,
+  `base-uri 'self'`, `frame-ancestors 'none'`, with `https:`/`http:`/`ipc:` allowed in
+  `connect-src` for remote `$schema` hints, Open-from-URL and Tauri IPC. The desktop shell loads
+  remote content, and `fs:scope` is intentionally `**`, so this is the layer that keeps an
+  escaping bug from reaching the disk. Rationale + the full directive breakdown are in
+  `docs/reference/TAURI.md §Content Security Policy`.
+- refactor(web): the two inline boot `<script>` blocks in `index.html`/`touch.html` moved to
+  external `entry-desktop.js` / `entry-touch.js` / `register-sw.js` (added to
+  `assemble-dist.mjs`). Required by the CSP above: verified under headless Chrome served with
+  the exact policy that both blocks were being *blocked* ("Executing inline script violates …"),
+  which would have silently killed the desktop↔touch redirect and the PWA registration; after
+  the move the same load reports no CSP violations and the tree renders.
+
 ### Unreleased Update — 2026-09-02T08:40:00Z
 - fix(convert): converting an empty document to YAML no longer aborts with `internal: converted
   output did not re-parse: expected a mapping key, found Some(L_BRACE)`. `render_yaml` emitted

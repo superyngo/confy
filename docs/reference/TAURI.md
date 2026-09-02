@@ -9,6 +9,31 @@ and build commands (`cargo tauri build` / `cargo tauri android build`), and
 `confy-tauri-lessons` (memory) for durable architecture lessons (B-lite pattern,
 `window.__TAURI__` globals, capability sub-sets, RGBA icons, the slow release profile).
 
+## Content Security Policy
+
+`tauri.conf.json`'s `app.security.csp` is **set**, not `null` (Tauri's default, which ships no
+CSP at all):
+
+```
+default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline';
+img-src 'self' data:; connect-src 'self' https: http: ipc: http://ipc.localhost;
+object-src 'none'; base-uri 'self'; frame-ancestors 'none'
+```
+
+Why each non-obvious entry is needed: `'wasm-unsafe-eval'` for the wasm core (`confy-ffi`);
+`'unsafe-inline'` in `style-src` for the `style="…"` attributes `render.ts`/`panel.ts` emit
+(row indents, edit-field widths); `https:`/`http:` in `connect-src` for remote `$schema` hints
+and Open-from-URL; `ipc:`/`http://ipc.localhost` for Tauri's own IPC transport.
+
+**Consequence for the web bundle: no inline `<script>` anywhere.** `script-src` deliberately
+omits `'unsafe-inline'`, so the two boot scripts every HTML entry needs live in external files —
+`entry-desktop.js` / `entry-touch.js` (the pointer-based desktop↔touch router, which must stay
+the first element in `<head>`) and `register-sw.js` (https-only service-worker registration).
+Inlining either one back into `index.html`/`touch.html` silently breaks the touch redirect and
+the PWA on the desktop app while the tree itself still renders — the failure is invisible
+without checking the webview console. Any new file must also be added to `assemble-dist.mjs`'s
+copy list or it won't reach `web/dist` (and therefore not the app bundle).
+
 ## Desktop menu (Tauri)
 
 `web/menu.ts` builds a native File/Edit/View/Help menu bar for the Tauri desktop shell via

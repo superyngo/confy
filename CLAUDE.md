@@ -529,6 +529,9 @@ crates/confy-tauri/       desktop + Android app shell (Tauri v2) over the web UI
                    grip-drag (greyed rows + forbidden cursor, no `dragover`/`drop`) on
                    Windows and macOS alike. The app uses no native file drops, so leave it
                    off — re-enabling it regresses desktop node drag-and-drop.
+                   `security.csp` is set (not Tauri's `null` default); it forbids inline
+                   `<script>`, so every HTML entry's boot script must stay an external file
+                   — see `docs/reference/TAURI.md §Content Security Policy`.
   tauri.windows.conf.json  Windows platform override (Tauri v2 auto-merge): empty
                    before-commands (bash/git rev-parse don't run under the Windows build
                    shell — build web/dist manually first) + bundle targets ["nsis"]

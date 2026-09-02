@@ -3,17 +3,9 @@
   <head>
     <!-- Reverse guard: this is the touch entry. If the visitor explicitly asked
          for desktop, or arrived on a fine pointer without forcing ?ui=touch,
-         bounce back to the desktop UI so one URL serves both. -->
-    <script>
-      (function () {
-        var p = new URLSearchParams(location.search);
-        var ui = p.get("ui");
-        if (ui === "touch") return;
-        if (ui === "desktop" || !matchMedia("(pointer:coarse)").matches) {
-          location.replace("index.html" + location.search);
-        }
-      })();
-    </script>
+         bounce back to the desktop UI so one URL serves both.
+         External file (not inline) so a strict CSP still executes it. -->
+    <script src="./entry-touch.js"></script>
     <meta charset="utf-8" />
     <meta
       name="viewport"
@@ -24,14 +16,7 @@
     <meta name="theme-color" content="#16181d" />
     <link rel="apple-touch-icon" href="./icons/icon-192.png" />
     <link rel="icon" type="image/png" href="./icons/icon-192.png" />
-    <script>
-      // PWA: register the service worker on the deployed (https) site only —
-      // the dev server stays SW-free so its no-store caching keeps working.
-      if ("serviceWorker" in navigator && location.protocol === "https:")
-        addEventListener("load", function () {
-          navigator.serviceWorker.register("./sw.js");
-        });
-    </script>
+    <script src="./register-sw.js"></script>
     <link rel="stylesheet" href="./touch/style.css" />
   </head>
   <body>
