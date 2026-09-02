@@ -8,6 +8,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.0.0] - 2026-09-02
+
+**First stable release** — confy reaches 1.0.0 across the desktop app (Tauri), the terminal
+(TUI/CLI), the web/touch UI, and the VS Code extension.
+
+### Added
+- feat(add): type picker replaces copy-cursor-kind add-node
+- feat(web): PageUp/PageDown page the tree cursor (desktop + touch)
+- feat(web): built-in samples rewritten around a shared backbone tree + per-format showcase
+  branches (TOML dotted keys/AoT/radix/exponent/datetime, JSON comments/null/multiline arrays,
+  YAML flow/block/literal/folded/anchor)
+- refactor(tui,web): unified `?` Help overlay into a shared, i18n-driven Section/Row keymap
+  model; new `docs/reference/KEYMAP.md` single source of truth, machine-checked against both
+  implementations so a binding can no longer drift from the docs or the other surface
+
+### Changed
+- feat(nudge)!: removed boolean nudging everywhere; a schema-constrained number now steps along
+  the schema's `multipleOf` grid (instead of freezing or snapping to the nearest multiple), with
+  bounds clamping inward to the grid and new type-safety guards against retyping a node
+- security(tauri): enabled a Content Security Policy for the desktop shell; inline boot
+  `<script>` blocks moved to external files
+- fix(tui): `$EDITOR` is shell-split, matches the open document's format for the scratch-file
+  extension, and repaints via resize instead of clear after an external edit
+- deps(tui): bumped `ratatui` 0.28 → 0.30 and `crossterm` 0.28 → 0.29
+
+### Fixed
+- fix(schema): a YAML anchor/alias/merge-key/tag no longer silences every schema-violation
+  marker in the document; schema validation now lowers through a lenient conversion pass that
+  skips (rather than aborts on) out-of-subset YAML nodes
+- fix(web): remote `$schema` URL hints only upgrade `http://` to `https://` on an `https://`
+  page, fixing schema loading on local dev servers and Tauri's Windows origin
+- fix(convert): converting an empty document to YAML no longer aborts
+- fix(cli): `confy convert` refuses to silently overwrite an existing destination without
+  confirmation or `--yes`
+- fix(tui): a leading UTF-8 BOM no longer makes a file unloadable; saves are now atomic
+  (temp file + rename) so a crash mid-write can't truncate a config
+- fix(core): container nesting is capped at 256 levels, so hostile/deeply-nested input is a
+  parse error instead of a stack overflow
+- fix(web): the `E` (edit-external) shortcut now works on web/touch/VS Code, matching the TUI
+- fix(pointer): drag/gesture drops resolve through `PasteSlot` end to end (ADR 0010); inline/flow
+  containers regain their drop-into band
+- fix(i18n): `core.add.placeholder` notice now says `F2`, matching the actual rename binding
+
+### Docs
+- docs(claude): refreshed module map against the tree
+- docs: recorded the lenient schema lowering and schema-grid nudge across the reference docs
+
 ### Unreleased Update — 2026-09-02T15:40:00Z
 - docs(nudge): record the schema-grid nudge step across the reference docs and make the Help
   overlay's own row honest about it. `KEYMAP.md`'s `ArrowRight`/`ArrowLeft` rows now note that a

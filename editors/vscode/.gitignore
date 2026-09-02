@@ -2,3 +2,4 @@ node_modules/
 dist/
 media/
 *.vsix
+.vscode-test/

@@ -252,91 +252,161 @@ Confy 為開源軟體（MIT 授權），專為每天處理設定檔、希望精�
 • 完全離線運作——無遙測、不收集資料、不需帳戶
 
 Confy 為開源軟體（MIT 授權），專為每天處理設定檔、希望精確且安全地編輯而無需手寫文字差異的開發者而設計。"
-ReleaseNotes,3,Text,,"What's new in 0.32.0
+ReleaseNotes,3,Text,,"What's new in 1.0.0
 
-• New: adding a node now opens a type picker (string/integer/float/bool, array, table…) instead of copying the current cursor's kind.
-• New: PageUp/PageDown page the tree cursor in the web UI (desktop + touch).
-• Fixed: drag-and-drop and gesture drops resolve reliably through the paste slot; Tauri native drag-drop disabled to restore HTML5 dnd.
-• Fixed: the tree now scrolls to follow keyboard navigation, including paste mode.
-• Fixed: new date/time fields are seeded with the system clock; no forced rename when adding a container.","0.32.0 版更新内容
+Confy reaches its first stable 1.0.0 release across the desktop app, terminal (TUI), and VS Code extension.
 
-• 新增：添加节点时现会弹出类型选择器（字符串/整数/浮点数/布尔、数组、表等），不再复制当前光标的类型。
-• 新增：网页界面支持 PageUp/PageDown 翻页移动树形光标（桌面 + 触控）。
-• 修复：拖放与手势放置现在可通过粘贴槽可靠完成；禁用 Tauri 原生拖放以恢复 HTML5 拖放。
-• 修复：树形列表现会滚动跟随键盘导航，包括粘贴模式。
-• 修复：新建日期/时间字段使用系统时钟；添加容器时不再强制重命名。","0.32.0 版更新內容
+• New: numeric nudge (arrows / mouse wheel / touch swipe) now steps along a JSON Schema's multipleOf grid instead of freezing on constrained values.
+• New: built-in samples rewritten around a shared showcase tree spanning TOML/JSON/YAML.
+• Changed: unified Help overlay shares the same keyboard-shortcut reference across desktop and terminal.
+• Security: Content Security Policy enabled for the desktop app.
+• Fixed: a YAML anchor/alias no longer hides schema violations elsewhere in the file.
+• Fixed: files with a UTF-8 BOM load correctly again; saves are now atomic (crash-safe).
+• Fixed: confy convert no longer silently overwrites an existing file.
+• Fixed: deeply nested documents are rejected safely instead of crashing.","1.0.0 版更新内容
 
-• 新增：新增節點時現會彈出類型選擇器（字串/整數/浮點數/布林、陣列、表等），不再複製目前游標的類型。
-• 新增：網頁介面支援 PageUp/PageDown 翻頁移動樹狀游標（桌面 + 觸控）。
-• 修復：拖放與手勢放置現在可透過貼上槽可靠完成；停用 Tauri 原生拖放以恢復 HTML5 拖放。
-• 修復：樹狀列表現會捲動跟隨鍵盤導覽，包括貼上模式。
-• 修復：新建日期/時間欄位使用系統時鐘；新增容器時不再強制重新命名。","0.32.0 版更新内容
+Confy 正式发布 1.0.0 版本——桌面应用、终端（TUI）与 VS Code 扩展全线达成稳定版。
 
-• 新增：添加节点时现会弹出类型选择器（字符串/整数/浮点数/布尔、数组、表等），不再复制当前光标的类型。
-• 新增：网页界面支持 PageUp/PageDown 翻页移动树形光标（桌面 + 触控）。
-• 修复：拖放与手势放置现在可通过粘贴槽可靠完成；禁用 Tauri 原生拖放以恢复 HTML5 拖放。
-• 修复：树形列表现会滚动跟随键盘导航，包括粘贴模式。
-• 修复：新建日期/时间字段使用系统时钟；添加容器时不再强制重命名。","0.32.0 版更新内容
+• 新增：数字加减（方向键/滚轮/触控滑动）现会依循 JSON Schema 的 multipleOf 级距移动，不再于受限值上卡住。
+• 新增：内置示例改写为跨 TOML/JSON/YAML 的共享展示树。
+• 变更：桌面版与终端版的说明面板统一为同一套快捷键参照。
+• 安全性：桌面应用启用内容安全策略（CSP）。
+• 修复：YAML 锚点/别名不再遮蔽文件中其他节点的 schema 违规提示。
+• 修复：含 BOM 的文件现可正确载入；保存改为原子写入，避免崩溃损坏文件。
+• 修复：confy convert 不再默默覆盖已存在的目标文件。
+• 修复：过深的嵌套结构会安全地被拒绝，而非导致程序崩溃。","1.0.0 版更新內容
 
-• 新增：添加节点时现会弹出类型选择器（字符串/整数/浮点数/布尔、数组、表等），不再复制当前光标的类型。
-• 新增：网页界面支持 PageUp/PageDown 翻页移动树形光标（桌面 + 触控）。
-• 修复：拖放与手势放置现在可通过粘贴槽可靠完成；禁用 Tauri 原生拖放以恢复 HTML5 拖放。
-• 修复：树形列表现会滚动跟随键盘导航，包括粘贴模式。
-• 修复：新建日期/时间字段使用系统时钟；添加容器时不再强制重命名。","0.32.0 版更新內容
+Confy 正式發布 1.0.0 版本——桌面應用、終端機（TUI）與 VS Code 擴充功能全線達成穩定版。
 
-• 新增：新增節點時現會彈出類型選擇器（字串/整數/浮點數/布林、陣列、表等），不再複製目前游標的類型。
-• 新增：網頁介面支援 PageUp/PageDown 翻頁移動樹狀游標（桌面 + 觸控）。
-• 修復：拖放與手勢放置現在可透過貼上槽可靠完成；停用 Tauri 原生拖放以恢復 HTML5 拖放。
-• 修復：樹狀列表現會捲動跟隨鍵盤導覽，包括貼上模式。
-• 修復：新建日期/時間欄位使用系統時鐘；新增容器時不再強制重新命名。","0.32.0 版更新內容
+• 新增：數字加減（方向鍵/滾輪/觸控滑動）現會依循 JSON Schema 的 multipleOf 級距移動，不再於受限值上卡住。
+• 新增：內建範例改寫為跨 TOML/JSON/YAML 的共用展示樹。
+• 變更：桌面版與終端機版的說明面板統一為同一套快捷鍵參照。
+• 安全性：桌面應用啟用內容安全策略（CSP）。
+• 修復：YAML 錨點/別名不再遮蔽檔案中其他節點的 schema 違規提示。
+• 修復：含 BOM 的檔案現可正確載入；儲存改為原子寫入，避免當機損毀檔案。
+• 修復：confy convert 不再默默覆蓋已存在的目標檔案。
+• 修復：過深的巢狀結構會安全地被拒絕，而非導致程式當機。","1.0.0 版更新内容
 
-• 新增：新增節點時現會彈出類型選擇器（字串/整數/浮點數/布林、陣列、表等），不再複製目前游標的類型。
-• 新增：網頁介面支援 PageUp/PageDown 翻頁移動樹狀游標（桌面 + 觸控）。
-• 修復：拖放與手勢放置現在可透過貼上槽可靠完成；停用 Tauri 原生拖放以恢復 HTML5 拖放。
-• 修復：樹狀列表現會捲動跟隨鍵盤導覽，包括貼上模式。
-• 修復：新建日期/時間欄位使用系統時鐘；新增容器時不再強制重新命名。","0.32.0 版更新内容
+Confy 正式发布 1.0.0 版本——桌面应用、终端（TUI）与 VS Code 扩展全线达成稳定版。
 
-• 新增：添加节点时现会弹出类型选择器（字符串/整数/浮点数/布尔、数组、表等），不再复制当前光标的类型。
-• 新增：网页界面支持 PageUp/PageDown 翻页移动树形光标（桌面 + 触控）。
-• 修复：拖放与手势放置现在可通过粘贴槽可靠完成；禁用 Tauri 原生拖放以恢复 HTML5 拖放。
-• 修复：树形列表现会滚动跟随键盘导航，包括粘贴模式。
-• 修复：新建日期/时间字段使用系统时钟；添加容器时不再强制重命名。","0.32.0 版更新内容
+• 新增：数字加减（方向键/滚轮/触控滑动）现会依循 JSON Schema 的 multipleOf 级距移动，不再于受限值上卡住。
+• 新增：内置示例改写为跨 TOML/JSON/YAML 的共享展示树。
+• 变更：桌面版与终端版的说明面板统一为同一套快捷键参照。
+• 安全性：桌面应用启用内容安全策略（CSP）。
+• 修复：YAML 锚点/别名不再遮蔽文件中其他节点的 schema 违规提示。
+• 修复：含 BOM 的文件现可正确载入；保存改为原子写入，避免崩溃损坏文件。
+• 修复：confy convert 不再默默覆盖已存在的目标文件。
+• 修复：过深的嵌套结构会安全地被拒绝，而非导致程序崩溃。","1.0.0 版更新内容
 
-• 新增：添加节点时现会弹出类型选择器（字符串/整数/浮点数/布尔、数组、表等），不再复制当前光标的类型。
-• 新增：网页界面支持 PageUp/PageDown 翻页移动树形光标（桌面 + 触控）。
-• 修复：拖放与手势放置现在可通过粘贴槽可靠完成；禁用 Tauri 原生拖放以恢复 HTML5 拖放。
-• 修复：树形列表现会滚动跟随键盘导航，包括粘贴模式。
-• 修复：新建日期/时间字段使用系统时钟；添加容器时不再强制重命名。","0.32.0 版更新内容
+Confy 正式发布 1.0.0 版本——桌面应用、终端（TUI）与 VS Code 扩展全线达成稳定版。
 
-• 新增：添加节点时现会弹出类型选择器（字符串/整数/浮点数/布尔、数组、表等），不再复制当前光标的类型。
-• 新增：网页界面支持 PageUp/PageDown 翻页移动树形光标（桌面 + 触控）。
-• 修复：拖放与手势放置现在可通过粘贴槽可靠完成；禁用 Tauri 原生拖放以恢复 HTML5 拖放。
-• 修复：树形列表现会滚动跟随键盘导航，包括粘贴模式。
-• 修复：新建日期/时间字段使用系统时钟；添加容器时不再强制重命名。","0.32.0 版更新內容
+• 新增：数字加减（方向键/滚轮/触控滑动）现会依循 JSON Schema 的 multipleOf 级距移动，不再于受限值上卡住。
+• 新增：内置示例改写为跨 TOML/JSON/YAML 的共享展示树。
+• 变更：桌面版与终端版的说明面板统一为同一套快捷键参照。
+• 安全性：桌面应用启用内容安全策略（CSP）。
+• 修复：YAML 锚点/别名不再遮蔽文件中其他节点的 schema 违规提示。
+• 修复：含 BOM 的文件现可正确载入；保存改为原子写入，避免崩溃损坏文件。
+• 修复：confy convert 不再默默覆盖已存在的目标文件。
+• 修复：过深的嵌套结构会安全地被拒绝，而非导致程序崩溃。","1.0.0 版更新內容
 
-• 新增：新增節點時現會彈出類型選擇器（字串/整數/浮點數/布林、陣列、表等），不再複製目前游標的類型。
-• 新增：網頁介面支援 PageUp/PageDown 翻頁移動樹狀游標（桌面 + 觸控）。
-• 修復：拖放與手勢放置現在可透過貼上槽可靠完成；停用 Tauri 原生拖放以恢復 HTML5 拖放。
-• 修復：樹狀列表現會捲動跟隨鍵盤導覽，包括貼上模式。
-• 修復：新建日期/時間欄位使用系統時鐘；新增容器時不再強制重新命名。","0.32.0 版更新內容
+Confy 正式發布 1.0.0 版本——桌面應用、終端機（TUI）與 VS Code 擴充功能全線達成穩定版。
 
-• 新增：新增節點時現會彈出類型選擇器（字串/整數/浮點數/布林、陣列、表等），不再複製目前游標的類型。
-• 新增：網頁介面支援 PageUp/PageDown 翻頁移動樹狀游標（桌面 + 觸控）。
-• 修復：拖放與手勢放置現在可透過貼上槽可靠完成；停用 Tauri 原生拖放以恢復 HTML5 拖放。
-• 修復：樹狀列表現會捲動跟隨鍵盤導覽，包括貼上模式。
-• 修復：新建日期/時間欄位使用系統時鐘；新增容器時不再強制重新命名。","0.32.0 版更新內容
+• 新增：數字加減（方向鍵/滾輪/觸控滑動）現會依循 JSON Schema 的 multipleOf 級距移動，不再於受限值上卡住。
+• 新增：內建範例改寫為跨 TOML/JSON/YAML 的共用展示樹。
+• 變更：桌面版與終端機版的說明面板統一為同一套快捷鍵參照。
+• 安全性：桌面應用啟用內容安全策略（CSP）。
+• 修復：YAML 錨點/別名不再遮蔽檔案中其他節點的 schema 違規提示。
+• 修復：含 BOM 的檔案現可正確載入；儲存改為原子寫入，避免當機損毀檔案。
+• 修復：confy convert 不再默默覆蓋已存在的目標檔案。
+• 修復：過深的巢狀結構會安全地被拒絕，而非導致程式當機。","1.0.0 版更新內容
 
-• 新增：新增節點時現會彈出類型選擇器（字串/整數/浮點數/布林、陣列、表等），不再複製目前游標的類型。
-• 新增：網頁介面支援 PageUp/PageDown 翻頁移動樹狀游標（桌面 + 觸控）。
-• 修復：拖放與手勢放置現在可透過貼上槽可靠完成；停用 Tauri 原生拖放以恢復 HTML5 拖放。
-• 修復：樹狀列表現會捲動跟隨鍵盤導覽，包括貼上模式。
-• 修復：新建日期/時間欄位使用系統時鐘；新增容器時不再強制重新命名。","0.32.0 版更新内容
+Confy 正式發布 1.0.0 版本——桌面應用、終端機（TUI）與 VS Code 擴充功能全線達成穩定版。
 
-• 新增：添加节点时现会弹出类型选择器（字符串/整数/浮点数/布尔、数组、表等），不再复制当前光标的类型。
-• 新增：网页界面支持 PageUp/PageDown 翻页移动树形光标（桌面 + 触控）。
-• 修复：拖放与手势放置现在可通过粘贴槽可靠完成；禁用 Tauri 原生拖放以恢复 HTML5 拖放。
-• 修复：树形列表现会滚动跟随键盘导航，包括粘贴模式。
-• 修复：新建日期/时间字段使用系统时钟；添加容器时不再强制重命名。"
+• 新增：數字加減（方向鍵/滾輪/觸控滑動）現會依循 JSON Schema 的 multipleOf 級距移動，不再於受限值上卡住。
+• 新增：內建範例改寫為跨 TOML/JSON/YAML 的共用展示樹。
+• 變更：桌面版與終端機版的說明面板統一為同一套快捷鍵參照。
+• 安全性：桌面應用啟用內容安全策略（CSP）。
+• 修復：YAML 錨點/別名不再遮蔽檔案中其他節點的 schema 違規提示。
+• 修復：含 BOM 的檔案現可正確載入；儲存改為原子寫入，避免當機損毀檔案。
+• 修復：confy convert 不再默默覆蓋已存在的目標檔案。
+• 修復：過深的巢狀結構會安全地被拒絕，而非導致程式當機。","1.0.0 版更新内容
+
+Confy 正式发布 1.0.0 版本——桌面应用、终端（TUI）与 VS Code 扩展全线达成稳定版。
+
+• 新增：数字加减（方向键/滚轮/触控滑动）现会依循 JSON Schema 的 multipleOf 级距移动，不再于受限值上卡住。
+• 新增：内置示例改写为跨 TOML/JSON/YAML 的共享展示树。
+• 变更：桌面版与终端版的说明面板统一为同一套快捷键参照。
+• 安全性：桌面应用启用内容安全策略（CSP）。
+• 修复：YAML 锚点/别名不再遮蔽文件中其他节点的 schema 违规提示。
+• 修复：含 BOM 的文件现可正确载入；保存改为原子写入，避免崩溃损坏文件。
+• 修复：confy convert 不再默默覆盖已存在的目标文件。
+• 修复：过深的嵌套结构会安全地被拒绝，而非导致程序崩溃。","1.0.0 版更新内容
+
+Confy 正式发布 1.0.0 版本——桌面应用、终端（TUI）与 VS Code 扩展全线达成稳定版。
+
+• 新增：数字加减（方向键/滚轮/触控滑动）现会依循 JSON Schema 的 multipleOf 级距移动，不再于受限值上卡住。
+• 新增：内置示例改写为跨 TOML/JSON/YAML 的共享展示树。
+• 变更：桌面版与终端版的说明面板统一为同一套快捷键参照。
+• 安全性：桌面应用启用内容安全策略（CSP）。
+• 修复：YAML 锚点/别名不再遮蔽文件中其他节点的 schema 违规提示。
+• 修复：含 BOM 的文件现可正确载入；保存改为原子写入，避免崩溃损坏文件。
+• 修复：confy convert 不再默默覆盖已存在的目标文件。
+• 修复：过深的嵌套结构会安全地被拒绝，而非导致程序崩溃。","1.0.0 版更新内容
+
+Confy 正式发布 1.0.0 版本——桌面应用、终端（TUI）与 VS Code 扩展全线达成稳定版。
+
+• 新增：数字加减（方向键/滚轮/触控滑动）现会依循 JSON Schema 的 multipleOf 级距移动，不再于受限值上卡住。
+• 新增：内置示例改写为跨 TOML/JSON/YAML 的共享展示树。
+• 变更：桌面版与终端版的说明面板统一为同一套快捷键参照。
+• 安全性：桌面应用启用内容安全策略（CSP）。
+• 修复：YAML 锚点/别名不再遮蔽文件中其他节点的 schema 违规提示。
+• 修复：含 BOM 的文件现可正确载入；保存改为原子写入，避免崩溃损坏文件。
+• 修复：confy convert 不再默默覆盖已存在的目标文件。
+• 修复：过深的嵌套结构会安全地被拒绝，而非导致程序崩溃。","1.0.0 版更新內容
+
+Confy 正式發布 1.0.0 版本——桌面應用、終端機（TUI）與 VS Code 擴充功能全線達成穩定版。
+
+• 新增：數字加減（方向鍵/滾輪/觸控滑動）現會依循 JSON Schema 的 multipleOf 級距移動，不再於受限值上卡住。
+• 新增：內建範例改寫為跨 TOML/JSON/YAML 的共用展示樹。
+• 變更：桌面版與終端機版的說明面板統一為同一套快捷鍵參照。
+• 安全性：桌面應用啟用內容安全策略（CSP）。
+• 修復：YAML 錨點/別名不再遮蔽檔案中其他節點的 schema 違規提示。
+• 修復：含 BOM 的檔案現可正確載入；儲存改為原子寫入，避免當機損毀檔案。
+• 修復：confy convert 不再默默覆蓋已存在的目標檔案。
+• 修復：過深的巢狀結構會安全地被拒絕，而非導致程式當機。","1.0.0 版更新內容
+
+Confy 正式發布 1.0.0 版本——桌面應用、終端機（TUI）與 VS Code 擴充功能全線達成穩定版。
+
+• 新增：數字加減（方向鍵/滾輪/觸控滑動）現會依循 JSON Schema 的 multipleOf 級距移動，不再於受限值上卡住。
+• 新增：內建範例改寫為跨 TOML/JSON/YAML 的共用展示樹。
+• 變更：桌面版與終端機版的說明面板統一為同一套快捷鍵參照。
+• 安全性：桌面應用啟用內容安全策略（CSP）。
+• 修復：YAML 錨點/別名不再遮蔽檔案中其他節點的 schema 違規提示。
+• 修復：含 BOM 的檔案現可正確載入；儲存改為原子寫入，避免當機損毀檔案。
+• 修復：confy convert 不再默默覆蓋已存在的目標檔案。
+• 修復：過深的巢狀結構會安全地被拒絕，而非導致程式當機。","1.0.0 版更新內容
+
+Confy 正式發布 1.0.0 版本——桌面應用、終端機（TUI）與 VS Code 擴充功能全線達成穩定版。
+
+• 新增：數字加減（方向鍵/滾輪/觸控滑動）現會依循 JSON Schema 的 multipleOf 級距移動，不再於受限值上卡住。
+• 新增：內建範例改寫為跨 TOML/JSON/YAML 的共用展示樹。
+• 變更：桌面版與終端機版的說明面板統一為同一套快捷鍵參照。
+• 安全性：桌面應用啟用內容安全策略（CSP）。
+• 修復：YAML 錨點/別名不再遮蔽檔案中其他節點的 schema 違規提示。
+• 修復：含 BOM 的檔案現可正確載入；儲存改為原子寫入，避免當機損毀檔案。
+• 修復：confy convert 不再默默覆蓋已存在的目標檔案。
+• 修復：過深的巢狀結構會安全地被拒絕，而非導致程式當機。","1.0.0 版更新內容
+
+Confy 正式發布 1.0.0 版本——桌面應用、終端機（TUI）與 VS Code 擴充功能全線達成穩定版。
+
+• 新增：數字加減（方向鍵/滾輪/觸控滑動）現會依循 JSON Schema 的 multipleOf 級距移動，不再於受限值上卡住。
+• 新增：內建範例改寫為跨 TOML/JSON/YAML 的共用展示樹。
+• 變更：桌面版與終端機版的說明面板統一為同一套快捷鍵參照。
+• 安全性：桌面應用啟用內容安全策略（CSP）。
+• 修復：YAML 錨點/別名不再遮蔽檔案中其他節點的 schema 違規提示。
+• 修復：含 BOM 的檔案現可正確載入；儲存改為原子寫入，避免當機損毀檔案。
+• 修復：confy convert 不再默默覆蓋已存在的目標檔案。
+• 修復：過深的巢狀結構會安全地被拒絕，而非導致程式當機。"
 Title,4,Text,,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor
 ShortTitle,5,Text,,,,,,,,,,,,,,,
 SortTitle,6,Text,,,,,,,,,,,,,,,
