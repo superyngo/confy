@@ -222,6 +222,13 @@ export function resolveKeyIntent(
     // preventDefault: these open a text editor synchronously (inline input or the
     // external modal); without it the triggering keystroke leaks into the field.
     case "e": return { kind: "intent", intent: "BeginEdit", preventDefault: true };
+    // Shift+E forces the popup/external editor regardless of node kind or
+    // schema — mirrors the TUI's `E` -> `KeyAction::EditExternal`
+    // (crates/confy-tui/src/tui/keys.rs). Plain `e` above only routes External
+    // when core's `edit_target_kind()` says so (multiline string / comment).
+    // Core's `begin_external_edit` owns the clipboard-armed guard, so no host
+    // check is needed here.
+    case "E": return { kind: "intent", intent: "BeginEditExternal", preventDefault: true };
     // F2 rename — mirrors the TUI's `KeyCode::F(2)` binding (crates/confy-tui/src/tui/keys.rs).
     case "F2": return { kind: "intent", intent: "BeginRename", preventDefault: true };
     case "a": return { kind: "intent", intent: "AddNode", preventDefault: true };

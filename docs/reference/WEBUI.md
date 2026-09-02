@@ -497,6 +497,7 @@ edits to the verbatim desktop CSS.
   `web/touch/app.ts`) resolves every key through the same `web/key-intent.ts`
   `resolveKeyIntent` desktop uses (shared verbatim, no touch-only fork) — navigation
   (j/k/g/G, arrows, Home/End, PageUp/PageDown, Shift+↑/↓ range-select), edit actions (a/d/c/x/v/r/s),
+  `e` edit / `E` force-popup-editor (`BeginEditExternal`, mirrors the TUI's `E`), `F2` rename,
   expand/collapse (1/2/0/9), Nudge (+/-), `/` focus-search, `f`/`C` TypeFilter/Convert,
   `m` Action menu, `?` Help, Ctrl+S/Ctrl+O save/open, z/y undo/redo, and Space multi-branch toggle all work
   from an external/Bluetooth keyboard on a touch device. Guarded against focused
@@ -599,8 +600,8 @@ node's authored casing. The `bool` case (like the enum one) is predicted **host-
 `Intent::CommitEdit` deliberately never re-enters the picker — without the prediction the picker
 would be unreachable on touch, which has neither the `←/→` Nudge keys nor a mouse wheel. Touch
 renders the option list as the shared bottom sheet, titled "Value" (vs "Schema value" when
-`from_schema`). A schema `enum` on the same node outranks the fallback; the "Editor" button still
-forces the free-form popup editor (`BeginEditExternal`).
+`from_schema`). A schema `enum` on the same node outranks the fallback; the "Editor" button — and
+its keyboard equivalent `E` — still forces the free-form popup editor (`BeginEditExternal`).
 
 **Key spelling — `ViewRow.key_literal`.** `ViewRow.key` is the **decoded** key (semantic
 identity: paths, collisions, schema lookup); `key_literal` is the key **exactly as authored**,
