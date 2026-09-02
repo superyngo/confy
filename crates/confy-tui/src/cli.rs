@@ -306,25 +306,24 @@ fn run_convert(
             eprintln!("  • {w}");
         }
         if !yes {
-            if std::io::stdin().is_terminal() {
-                eprint!(
-                    "{}",
-                    tr_args(
-                        lang,
-                        "cli.convert.proceed",
-                        &[&output.display().to_string()]
-                    )
-                );
-                std::io::stderr().flush().ok();
-                let mut answer = String::new();
-                std::io::stdin().read_line(&mut answer)?;
-                if !matches!(answer.trim(), "y" | "Y" | "yes") {
-                    anyhow::bail!("{}", tr(lang, "cli.convert.cancelled"));
-                }
-            } else {
-                anyhow::bail!("{}", tr(lang, "cli.convert.refuse-non-interactive"));
-            }
+            confirm_or_bail(
+                lang,
+                "cli.convert.proceed",
+                "cli.convert.refuse-non-interactive",
+                output,
+            )?;
         }
+    }
+
+    // Never clobber an existing destination silently: `--yes` or an
+    // interactive confirmation is required, exactly like a lossy conversion.
+    if output.exists() && !yes {
+        confirm_or_bail(
+            lang,
+            "cli.convert.overwrite",
+            "cli.convert.refuse-overwrite",
+            output,
+        )?;
     }
 
     crate::write_document(output, &result.text, bom).map_err(|e| {
@@ -341,6 +340,23 @@ fn run_convert(
         "{}",
         tr_args(lang, "cli.convert.wrote", &[&output.display().to_string()])
     );
+    Ok(())
+}
+
+/// Ask `[y/N]` on an interactive stdin (the question is `key` with the
+/// destination path as `{0}`); on a pipe refuse outright with `refuse_key`,
+/// since silent consent would defeat the guard. `Ok(())` means "go ahead".
+fn confirm_or_bail(lang: Lang, key: &str, refuse_key: &str, output: &Path) -> Result<()> {
+    if !std::io::stdin().is_terminal() {
+        anyhow::bail!("{}", tr(lang, refuse_key));
+    }
+    eprint!("{}", tr_args(lang, key, &[&output.display().to_string()]));
+    std::io::stderr().flush().ok();
+    let mut answer = String::new();
+    std::io::stdin().read_line(&mut answer)?;
+    if !matches!(answer.trim(), "y" | "Y" | "yes") {
+        anyhow::bail!("{}", tr(lang, "cli.convert.cancelled"));
+    }
     Ok(())
 }
 

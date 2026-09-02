@@ -501,7 +501,8 @@ crates/confy-tui/src/    ratatui TUI + CLI; depends on confy-core, `pub use conf
     overlay_lang_picker.rs  the `l` language-picker popup
     overlay_schema_enum.rs  the schema-constrained enum/const picker (reuses `K`'s popup shape)
     overlay_type_filter.rs  the `f` type-filter facet popup
-crates/confy-tui/tests/   convert_cli.rs integration: `confy convert` happy/lossy/abort paths, source-unchanged
+crates/confy-tui/tests/   convert_cli.rs (`confy convert` happy/lossy/abort/overwrite-guard paths,
+                          source-unchanged), open_url_cli.rs, schema_io.rs
 
 crates/confy-tauri/       desktop + Android app shell (Tauri v2) over the web UI — **native file
                           I/O only** (the native menu bar, recent-files, and Android

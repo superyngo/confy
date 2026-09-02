@@ -42,7 +42,8 @@ Converts a config file to another format (`toml` / `json` / `jsonc` / `yaml`), d
 formats from the file extensions. Comments carry across (a `$schema`/schema-hint comment or
 data key is instead re-authored in the target format's own convention); notation/style differences are
 **normalized to the target's default style with an up-front lossy-warning list** (on a TTY you
-confirm y/n, otherwise pass `--yes`). A conversion **aborts and writes nothing** when the source
+confirm y/n, otherwise pass `--yes`). An **existing destination file is never overwritten
+silently** — same y/n confirmation, or `--yes`. A conversion **aborts and writes nothing** when the source
 holds something the target can't represent (`null` → TOML, or a YAML opaque node → any target).
 **The source file is never modified.** The same flow is available inside the TUI on the Root node
 via `C`.

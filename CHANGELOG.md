@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-09-02T08:25:00Z
+- fix(cli): `confy convert` no longer overwrites an existing destination silently. It now asks
+  `<out> already exists. Overwrite it? [y/N]` on a TTY and refuses on a pipe unless `--yes` is
+  given — the same contract the lossy-warning prompt already had. New i18n keys
+  `cli.convert.overwrite` / `cli.convert.refuse-overwrite` (en + zh-TW); the two prompts share
+  one `confirm_or_bail` helper. Two new `convert_cli.rs` integration tests.
+
 ### Unreleased Update — 2026-09-02T08:05:00Z
 - fix(tui): a leading UTF-8 BOM no longer makes a file unloadable (`parsing bom.json` error).
   `load_document` strips it, remembers it (`LoadedDocument::bom`), and `App::save`/`confy

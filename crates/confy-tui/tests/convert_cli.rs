@@ -57,6 +57,50 @@ fn lossy_conversion_refuses_without_yes() {
 }
 
 #[test]
+fn existing_output_is_not_overwritten_without_yes() {
+    let dir = TempDir::new().unwrap();
+    let input = dir.path().join("in.json");
+    let output = dir.path().join("out.yaml");
+    fs::write(&input, "{ \"a\": 1 }\n").unwrap();
+    fs::write(&output, "precious: true\n").unwrap();
+
+    confy()
+        .args([
+            "convert",
+            input.to_str().unwrap(),
+            output.to_str().unwrap(),
+            "--lang",
+            "en",
+        ])
+        .assert()
+        .failure()
+        .stderr(contains("refusing to overwrite an existing file without --yes"));
+
+    assert_eq!(fs::read_to_string(&output).unwrap(), "precious: true\n");
+}
+
+#[test]
+fn existing_output_is_overwritten_with_yes() {
+    let dir = TempDir::new().unwrap();
+    let input = dir.path().join("in.json");
+    let output = dir.path().join("out.yaml");
+    fs::write(&input, "{ \"a\": 1 }\n").unwrap();
+    fs::write(&output, "precious: true\n").unwrap();
+
+    confy()
+        .args([
+            "convert",
+            input.to_str().unwrap(),
+            output.to_str().unwrap(),
+            "--yes",
+        ])
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&output).unwrap(), "a: 1\n");
+}
+
+#[test]
 fn lossy_conversion_with_yes_writes_and_warns() {
     let dir = TempDir::new().unwrap();
     let input = dir.path().join("in.toml");
