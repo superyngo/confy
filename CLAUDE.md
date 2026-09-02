@@ -260,7 +260,10 @@ URL hint fetches over a blocking HTTP client) and its `overlay_schema_enum.rs` p
 `K` kind-switch popup's shape); the web layer's `session.schemaHint(path)`/`fetch()`. There is no
 manual "attach a schema" UI action on any host — every host goes through the same detection path.
 `session/schema_hint.rs` is unrelated by name collision only: it holds `nudge_scalar`'s numeric
-clamping for the `←`/`→` shortcut, not schema attachment. `Mode::SchemaEnum` has one
+stepping/`format_nudged` rendering for the `←`/`→` shortcut, not schema attachment. A node's
+`multipleOf` *is* the nudge's step (`Session::schema_clamp_nudge` walks that grid and clamps
+`minimum`/`maximum` inward to it — snapping a ±1 step to the nearest multiple instead used to
+freeze the value on any grid coarser than 2). `Mode::SchemaEnum` has one
 **schema-independent** producer too: `begin_inline_edit` opens the same picker with `true`/`false`
 (in the node's authored casing, `inline_edit.rs::bool_picker_options`) for any `bool` scalar,
 flagged `from_schema: false` so hosts title it "Value"; a real schema `enum` on that node is
@@ -382,7 +385,8 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
                    — see MESSAGES.md §4
     inline_edit.rs inline-editor buffer lifecycle (begin_inline_edit*/edit_*/edit_commit) +
                    value/rename/nudge/add-node mutation-application methods that commit through it
-    schema_hint.rs nudge_scalar: schema-constraint numeric clamping for the `←`/`→` shortcut
+    schema_hint.rs nudge_scalar + format_nudged: the `←`/`→` value step (a schema `multipleOf`
+                   becomes the step; bounds clamp inward to that grid)
     undo_redo.rs   undo/redo
     status_fmt.rs  kind/type/format label formatting + small scalar-repr/string utilities
     state.rs       Mode, PendingCommit, PendingExternalEdit, EditKind, EditState, History,

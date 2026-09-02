@@ -2221,15 +2221,18 @@ mod helper_tests {
     }
 
     #[test]
-    fn schema_clamp_nudge_snaps_to_multiple_of_and_clamps_to_bounds() {
+    fn schema_clamp_nudge_steps_the_multiple_of_grid_and_clamps_to_bounds() {
         use crate::model::any_doc::AnyDocument;
         use crate::schema::{SchemaSource, SchemaState};
 
         let doc = AnyDocument::from_str_as("port = 1\nretry = 1\n", DocFormat::Toml).unwrap();
         let mut s = Session::new(doc);
 
-        // multipleOf: 5, no min/max. Nudging a non-multiple (1 + delta 1
-        // => 2) snaps to the nearest multiple of 5.
+        // multipleOf: 5, no min/max. The nudge steps along the grid: an
+        // off-grid value aligns in the nudge's direction on the first
+        // step, an on-grid value moves a whole step. (Snapping to the
+        // *nearest* multiple instead used to freeze the nudge outright —
+        // a ±1 step never escapes a grid coarser than 2.)
         s.schema = Some(SchemaState {
             source: SchemaSource::Local("schema.json".into()),
             compiled: None,
@@ -2246,14 +2249,34 @@ mod helper_tests {
         });
         let port: Path = vec![Seg::Key("port".into())];
         assert_eq!(
-            s.schema_clamp_nudge(&port, "2").as_deref(),
-            Some("0"),
-            "2 snaps to nearest multiple of 5 (0)"
+            s.schema_clamp_nudge(&port, "1", "2", 1).as_deref(),
+            Some("5"),
+            "off-grid 1 nudged up aligns upward to 5"
         );
         assert_eq!(
-            s.schema_clamp_nudge(&port, "8").as_deref(),
+            s.schema_clamp_nudge(&port, "1", "0", -1).as_deref(),
+            Some("0"),
+            "off-grid 1 nudged down aligns downward to 0"
+        );
+        assert_eq!(
+            s.schema_clamp_nudge(&port, "5", "6", 1).as_deref(),
             Some("10"),
-            "8 snaps to nearest multiple of 5 (10)"
+            "on-grid 5 nudged up moves one whole step"
+        );
+        assert_eq!(
+            s.schema_clamp_nudge(&port, "10", "9", -1).as_deref(),
+            Some("5"),
+            "on-grid 10 nudged down moves one whole step"
+        );
+        assert_eq!(
+            s.schema_clamp_nudge(&port, "1", "3", 2).as_deref(),
+            Some("10"),
+            "delta 2: align to 5, then one more whole step"
+        );
+        assert_eq!(
+            s.schema_clamp_nudge(&port, "7", "7", 0).as_deref(),
+            Some("5"),
+            "directionless call keeps the nearest-multiple snap"
         );
 
         // minimum/maximum: nudging past a bound clamps to the bound
@@ -2274,20 +2297,99 @@ mod helper_tests {
         });
         let retry: Path = vec![Seg::Key("retry".into())];
         assert_eq!(
-            s.schema_clamp_nudge(&retry, "5").as_deref(),
+            s.schema_clamp_nudge(&retry, "4", "5", 1).as_deref(),
             Some("3"),
             "5 clamps down to maximum 3"
         );
         assert_eq!(
-            s.schema_clamp_nudge(&retry, "-2").as_deref(),
+            s.schema_clamp_nudge(&retry, "-1", "-2", -1).as_deref(),
             Some("0"),
             "-2 clamps up to minimum 0"
+        );
+
+        // A bound off the grid clamps *inward to the grid*, so parking at
+        // the bound never leaves a value the schema itself rejects.
+        s.schema = Some(SchemaState {
+            source: SchemaSource::Local("schema.json".into()),
+            compiled: None,
+            raw: Some(serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "port": { "type": "integer", "maximum": 1999, "multipleOf": 5 }
+                }
+            })),
+            fully_analyzable: false,
+            violations: Vec::new(),
+            warning_ancestors: std::collections::HashSet::new(),
+            load_error: None,
+        });
+        assert_eq!(
+            s.schema_clamp_nudge(&port, "1995", "1996", 1).as_deref(),
+            Some("1995"),
+            "2000 exceeds maximum 1999 => highest in-range multiple of 5"
+        );
+
+        // A fractional multipleOf is ignored on an integer-style repr: the
+        // nudge must not retype an Integer node as a Float.
+        s.schema = Some(SchemaState {
+            source: SchemaSource::Local("schema.json".into()),
+            compiled: None,
+            raw: Some(serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "port": { "type": "integer", "multipleOf": 0.5 }
+                }
+            })),
+            fully_analyzable: false,
+            violations: Vec::new(),
+            warning_ancestors: std::collections::HashSet::new(),
+            load_error: None,
+        });
+        assert_eq!(
+            s.schema_clamp_nudge(&port, "3", "4", 1).as_deref(),
+            Some("4"),
+            "integer repr keeps its plain ±1 step, not a 0.5 grid"
+        );
+
+        // Float-style reprs step the grid and keep a decimal point, so a
+        // whole-numbered result can't retype a Float node as an Integer.
+        s.schema = Some(SchemaState {
+            source: SchemaSource::Local("schema.json".into()),
+            compiled: None,
+            raw: Some(serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "ratio": { "type": "number", "multipleOf": 0.5 },
+                    "span": { "type": "number", "multipleOf": 5 }
+                }
+            })),
+            fully_analyzable: false,
+            violations: Vec::new(),
+            warning_ancestors: std::collections::HashSet::new(),
+            load_error: None,
+        });
+        let ratio: Path = vec![Seg::Key("ratio".into())];
+        assert_eq!(
+            s.schema_clamp_nudge(&ratio, "1.0", "1.1", 1).as_deref(),
+            Some("1.5"),
+            "float steps the 0.5 grid at the grid's own precision"
+        );
+        assert_eq!(
+            s.schema_clamp_nudge(&ratio, "1.0", "0.9", -1).as_deref(),
+            Some("0.5"),
+            "float steps down the same grid"
+        );
+        let span: Path = vec![Seg::Key("span".into())];
+        assert_eq!(
+            s.schema_clamp_nudge(&span, "1.0", "1.1", 1).as_deref(),
+            Some("5.0"),
+            "a whole-numbered float result keeps its decimal point"
         );
 
         // no schema loaded: value passes through unchanged.
         s.schema = None;
         assert_eq!(
-            s.schema_clamp_nudge(&port, "2").as_deref(),
+            s.schema_clamp_nudge(&port, "1", "2", 1).as_deref(),
             Some("2"),
             "no schema => passthrough"
         );
@@ -2306,7 +2408,7 @@ mod helper_tests {
             load_error: None,
         });
         assert_eq!(
-            s.schema_clamp_nudge(&port, "2").as_deref(),
+            s.schema_clamp_nudge(&port, "1", "2", 1).as_deref(),
             Some("2"),
             "non-Bounded hint => passthrough"
         );

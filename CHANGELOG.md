@@ -8,6 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-09-02T15:10:00Z
+- fix(schema): a schema-constrained number no longer **freezes** under nudge (`←`/`→`, mouse
+  wheel, touch swipe). `Session::schema_clamp_nudge` snapped the nudged value to the *nearest*
+  `multipleOf`, while the step it snapped was only ±1 — on any grid coarser than 2 the snap
+  always landed back on the value the step came from, so the value never moved. The built-in
+  sample's `schema.poll_ms` (`multipleOf: 5`) was stuck at `255` in **both** directions;
+  `multipleOf: 2` was stuck going down, and a float's `10^-places` step froze against any
+  fractional grid the same way. The nudge now **steps along the schema's grid**: an on-grid
+  value moves `delta` whole steps (253 → 255 → 260 → 265), an off-grid value aligns in the
+  nudge's own direction on the first step (253 up → 255, down → 250), and a multi-step delta
+  (web wheel bursts) moves that many steps. `minimum`/`maximum` now clamp **inward to the
+  nearest in-range grid point**, so parking at a bound can't leave a value the schema itself
+  rejects (nor oscillate against the snap). Three type-safety guards came with it: a
+  fractional `multipleOf` is ignored on an integer-style repr (a nudge must not retype an
+  Integer node as a Float), a whole-numbered float result keeps its decimal point (`5` → `5.0`,
+  which previously retyped a Float node as Integer), and a grid's own decimal count sets the
+  output precision so a `0.1` grid can't surface float noise (`0.30000000000000004`). Without a
+  schema constraint the step is unchanged (±1, or ±1 at the displayed precision for a float).
+  New `schema_hint.rs::format_nudged`; `schema_clamp_nudge` takes the pre-nudge repr + delta,
+  and both callers (`nudge`, and the Web/touch `nudge_repr` query) pass them — no host, FFI or
+  TypeScript signature changed.
+
 ### Unreleased Update — 2026-09-02T14:10:00Z
 - docs: record the lenient schema lowering across the reference docs. `CONTEXT.md`'s **JSON
   projection** and **Violation** glossary entries now name `convert::tree_to_value_lenient` +

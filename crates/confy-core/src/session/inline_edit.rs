@@ -10,7 +10,7 @@ use crate::session::state::{EditField, EditState, Mode, PendingCommit, PromptKin
 
 use super::session::Session;
 
-use super::schema_hint::nudge_scalar;
+use super::schema_hint::{format_nudged, nudge_scalar};
 
 use super::status_fmt::{
     char_byte_idx, clamp_scroll, node_type_label_str, project_first_label, scalar_repr_for,
@@ -755,22 +755,35 @@ impl Session {
         }
     }
 
-    /// Clamp/snap an arrow-key-nudged value into a schema's `Bounded`
-    /// constraint. Returns the (possibly adjusted) repr to commit. The
-    /// early-return cases — no schema, no raw schema text, no `Bounded`
-    /// hint for this path, or `new_repr` not parsing as a number — all
-    /// pass the value through unchanged (mirroring today's early-`true`
-    /// guards), so `None` is never produced in practice today; the
-    /// `Option` wrapper is kept for the `let Some(..) else { return }`
-    /// call-site shape. The arrow-key nudge *clamps* to `[minimum, maximum]`
-    /// and *snaps* to `multiple_of` (spec §3 `Bounded{min,max,multiple_of}`
-    /// row); free-text inline typing stays unclamped (this is
-    /// arrow-key-nudge-only — an out-of-range typed value is flagged by
-    /// validate.rs, never rejected at commit).
+    /// Step/clamp a nudged value onto a schema's `Bounded` constraint.
+    /// `old_repr` is the pre-nudge repr, `new_repr` the `nudge_scalar`
+    /// result, `delta` the requested number of steps; returns the
+    /// (possibly adjusted) repr to commit. The early-return cases — no
+    /// schema, no raw schema text, no `Bounded` hint for this path, or
+    /// `new_repr` not parsing as a number — all pass the value through
+    /// unchanged (mirroring today's early-`true` guards), so `None` is
+    /// never produced in practice today; the `Option` wrapper is kept for
+    /// the `let Some(..) else { return }` call-site shape.
+    ///
+    /// With a `multipleOf` the nudge **steps along that grid** instead of
+    /// stepping by one and snapping to the nearest multiple: on a grid
+    /// coarser than 2 the snap lands right back on the value the step came
+    /// from, which froze the nudge entirely (`poll_ms = 253` with
+    /// `multipleOf: 5` was stuck at 255 in *both* directions). An off-grid
+    /// value aligns *in the nudge's direction* on the first step (253 → 255
+    /// going up, 250 going down) and then moves whole steps. Bounds clamp
+    /// inward to the nearest in-range grid point, so parking at a bound
+    /// never leaves a value the schema itself rejects. Without a
+    /// `multipleOf` this is a plain `[minimum, maximum]` clamp, as before
+    /// (spec §3 `Bounded{min,max,multiple_of}` row). Free-text inline
+    /// typing stays unclamped (this is nudge-only — an out-of-range typed
+    /// value is flagged by validate.rs, never rejected at commit).
     pub(crate) fn schema_clamp_nudge(
         &self,
         path: &crate::model::node::Path,
+        old_repr: &str,
         new_repr: &str,
+        delta: i64,
     ) -> Option<String> {
         let Some(state) = self.schema.as_ref() else {
             return Some(new_repr.to_string());
@@ -790,31 +803,51 @@ impl Session {
         let Ok(mut n) = new_repr.replace('_', "").parse::<f64>() else {
             return Some(new_repr.to_string());
         };
-        // Snap to the nearest multiple of `step` (positive steps only — a
-        // non-positive multipleOf is invalid JSON Schema, ignored).
-        if let Some(step) = multiple_of {
-            if step > 0.0 {
-                n = (n / step).round() * step;
+        // An integer-style repr must stay an integer: a fractional
+        // `multipleOf` would otherwise nudge an Integer node into a Float.
+        // Positive steps only — a non-positive multipleOf is invalid JSON
+        // Schema, ignored.
+        let int_style = !old_repr.contains('.');
+        let grid = multiple_of.filter(|s| *s > 0.0 && (!int_style || s.fract() == 0.0));
+        let old = old_repr.replace('_', "").parse::<f64>().ok();
+        if let (Some(step), Some(o), true) = (grid, old, delta != 0) {
+            let u = o / step;
+            let units = if (u - u.round()).abs() <= 1e-9 * u.abs().max(1.0) {
+                // already on the grid: move `delta` whole steps
+                u.round() + delta as f64
+            } else if delta > 0 {
+                // off-grid: the first step is the directional alignment
+                u.ceil() + (delta - 1) as f64
+            } else {
+                u.floor() + (delta + 1) as f64
+            };
+            n = units * step;
+            // Clamp inside the grid, so a bound can't park on a value the
+            // schema rejects (and can't oscillate against the snap).
+            if let Some(min) = minimum {
+                if n < min {
+                    n = (min / step).ceil() * step;
+                }
             }
+            if let Some(max) = maximum {
+                if n > max {
+                    n = (max / step).floor() * step;
+                }
+            }
+            return Some(format_nudged(n, Some(step), int_style));
         }
-        // Clamp to [minimum, maximum] (whichever bounds are present).
+        // No usable grid (or a directionless call): snap to the nearest
+        // multiple, then clamp to [minimum, maximum].
+        if let Some(step) = grid {
+            n = (n / step).round() * step;
+        }
         if let Some(min) = minimum {
             n = n.max(min);
         }
         if let Some(max) = maximum {
             n = n.min(max);
         }
-        // Format back, matching the original repr's style when sensible:
-        // an integer-style repr (no '.') yielding a whole number formats
-        // as an integer; otherwise a plain float format. Best-effort
-        // display value — the committed representation comes from
-        // re-parsing the fragment downstream.
-        let was_int_style = !new_repr.contains('.');
-        Some(if was_int_style && n.fract() == 0.0 {
-            format!("{}", n as i64)
-        } else {
-            format!("{n}")
-        })
+        Some(format_nudged(n, grid, int_style))
     }
 
     /// Stateless preview of nudging `text` — the host's *current edit-buffer*
@@ -834,7 +867,7 @@ impl Session {
             _ => return None,
         };
         let new_repr = nudge_scalar(st, node.format, text, delta)?;
-        self.schema_clamp_nudge(path, &new_repr)
+        self.schema_clamp_nudge(path, text, &new_repr, delta)
     }
 
     pub fn nudge(&mut self, delta: i64) {
@@ -875,7 +908,7 @@ impl Session {
         let format = node.format;
         let trailing = node.trailing_comment.clone();
         if let Some(new_repr) = nudge_scalar(st, format, &repr, delta) {
-            let Some(new_repr) = self.schema_clamp_nudge(&path, &new_repr) else {
+            let Some(new_repr) = self.schema_clamp_nudge(&path, &repr, &new_repr, delta) else {
                 return;
             };
             let key_arg = (frag_key != "__elem__").then_some(frag_key.as_str());

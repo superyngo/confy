@@ -51,7 +51,10 @@ TOML-only dotted-key→table rename prompt (a Name edit such as `foo` → `foo.x
 horizontal-scroll/overflow treatment (`edit_field_spans`, also reused to render the `/` filter
 input); editor and filter input are caret-based fields (`←/→/Home/End` move the caret,
 `Backspace`/`Del` erase before/at it). The `←/→` **value nudge** re-applies underscore digit
-grouping when the original had it. `edit_node` truncates the path only at the first `Index`
+grouping when the original had it. Its **step is the schema's**: with a `multipleOf` on the node,
+the nudge walks that grid (an off-grid value aligns in the nudge's direction on the first press),
+`minimum`/`maximum` clamp inward to the nearest in-range grid point, and without a schema
+constraint the step stays ±1 (±1 at the displayed precision for a float). `edit_node` truncates the path only at the first `Index`
 whose container is a real `Array` (editing the whole array there); AoT-entry indices and the
 keys below them are kept and addressed directly. A `$EDITOR` fragment starts at the node's own
 header/value line — an adjacent standalone comment is an independent node and is never part of

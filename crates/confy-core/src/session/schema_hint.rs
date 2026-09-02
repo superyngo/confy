@@ -58,6 +58,31 @@ pub(crate) fn nudge_scalar(st: ScalarType, fmt: Format, repr: &str, delta: i64) 
     }
 }
 
+/// Render a schema-adjusted nudge result (`Session::schema_clamp_nudge`).
+/// An integer-style repr yielding a whole number formats as an integer; a
+/// float-style repr keeps at least one decimal (a bare `5` would silently
+/// retype a Float node as Integer), and a `multipleOf` grid's own decimal
+/// count sets the precision so a 0.1 grid can't surface float noise
+/// (`0.30000000000000004`).
+pub(crate) fn format_nudged(n: f64, step: Option<f64>, int_style: bool) -> String {
+    if int_style && n.fract() == 0.0 {
+        return format!("{}", n as i64);
+    }
+    let places = step
+        .map(|s| format!("{s}"))
+        .filter(|s| !s.contains(['e', 'E']))
+        .and_then(|s| s.split_once('.').map(|(_, frac)| frac.len()));
+    let out = match places {
+        Some(p) => format!("{n:.*}", p),
+        None => format!("{n}"),
+    };
+    if int_style || out.contains('.') {
+        out
+    } else {
+        format!("{out}.0")
+    }
+}
+
 fn group_right(digits: &str, n: usize) -> String {
     let len = digits.chars().count();
     let mut out = String::with_capacity(len + len / n);

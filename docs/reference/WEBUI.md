@@ -294,8 +294,12 @@ shapes round-trip). Key types:
   on the caret + Space). **Mouse-wheel value nudge** is gated to inline-edit mode: hovering a
   value and scrolling does nothing; only once the value field is focused (the tree's inline
   editor or the shared panel's value field, `web/panel.ts`) does the wheel adjust it — and once
-  armed, *every* wheel tick anywhere on the page nudges the focused `Integer`/`Float` ±1 (wheel
-  up = +1), not just ticks over the input. No `Intent` is dispatched per tick: the nudged text
+  armed, *every* wheel tick anywhere on the page nudges the focused `Integer`/`Float` by one
+  step (wheel up = up), not just ticks over the input. **One step is the schema's step**: a
+  `multipleOf` on the node makes each tick walk that grid (`250`/`255`/`260`…, an off-grid value
+  aligning in the tick's direction first) and `minimum`/`maximum` clamp inward to the nearest
+  in-range grid point; with no schema constraint a step is ±1. No `Intent` is dispatched per
+  tick: the nudged text
   is written straight into the focused `<input>` via the stateless `nudge_repr` core query, and
   commits exactly once via the normal Enter/blur `CommitEdit` path (one undo entry per nudge
   session). On touch, the value field likewise supports **swipe-to-nudge only while focused**: a

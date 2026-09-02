@@ -77,7 +77,7 @@ count = 42
 [schema]
 # these values break the schema on purpose — watch the violation markers
 editor = "sublime"    # not in the enum — edit this row to open the picker (pick 0 for a type-change confirm)
-poll_ms = 253          # multiple of 5, 100-2000 — try ← / → to see it snap
+poll_ms = 253          # multiple of 5, 100-2000 — try ← / → to step along the schema's grid
 
 # advanced ships collapsed — schema shows its violation marker anyway
 [schema.advanced]

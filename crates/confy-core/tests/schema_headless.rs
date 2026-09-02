@@ -812,6 +812,61 @@ fn dispatch_nudge_clamps_to_schema_maximum() {
 }
 
 #[test]
+fn dispatch_nudge_steps_along_the_schema_multiple_of_grid() {
+    // The built-in sample's `schema.poll_ms` shape (web/schema-sample.json):
+    // a ±1 nudge snapped to the *nearest* multiple of 5 froze the value at
+    // 255 in both directions. The nudge must step the grid instead.
+    let mut s = session_from("#:schema ./s.json\npoll_ms = 253\n", DocFormat::Toml);
+    let schema_text = json!({
+        "type": "object",
+        "properties": {
+            "poll_ms": { "type": "integer", "minimum": 100, "maximum": 2000, "multipleOf": 5 }
+        }
+    })
+    .to_string();
+    s.apply_schema_text(SchemaSource::Local("./s.json".into()), Ok(schema_text));
+    s.cursor = vec![Seg::Key("poll_ms".into())];
+    let nudge = |s: &mut Session, delta: i64| -> String {
+        let snap = s.dispatch(confy_core::session::Intent::Nudge(delta));
+        snap.rows
+            .iter()
+            .find(|r| r.key == "poll_ms")
+            .and_then(|r| r.value.clone())
+            .unwrap()
+    };
+    // Off-grid 253 aligns upward, then walks the grid — no fixpoint.
+    assert_eq!(nudge(&mut s, 1), "255");
+    assert_eq!(nudge(&mut s, 1), "260");
+    assert_eq!(nudge(&mut s, 1), "265");
+    // ...and back down again.
+    assert_eq!(nudge(&mut s, -1), "260");
+    assert_eq!(nudge(&mut s, -1), "255");
+    assert_eq!(nudge(&mut s, -1), "250");
+    // A multi-step delta (web wheel bursts) moves that many grid steps.
+    assert_eq!(nudge(&mut s, 3), "265");
+    // The Web/touch wheel + swipe path reads the *edit buffer* instead of
+    // the committed value, and must walk the same grid.
+    let path: Vec<Seg> = vec![Seg::Key("poll_ms".into())];
+    assert_eq!(s.nudge_repr(&path, "253", 1).as_deref(), Some("255"));
+    assert_eq!(s.nudge_repr(&path, "255", 1).as_deref(), Some("260"));
+    assert_eq!(s.nudge_repr(&path, "255", -1).as_deref(), Some("250"));
+    // The maximum still holds, and holding it doesn't oscillate.
+    let mut s = session_from("#:schema ./s.json\npoll_ms = 1995\n", DocFormat::Toml);
+    let schema_text = json!({
+        "type": "object",
+        "properties": {
+            "poll_ms": { "type": "integer", "minimum": 100, "maximum": 2000, "multipleOf": 5 }
+        }
+    })
+    .to_string();
+    s.apply_schema_text(SchemaSource::Local("./s.json".into()), Ok(schema_text));
+    s.cursor = vec![Seg::Key("poll_ms".into())];
+    assert_eq!(nudge(&mut s, 1), "2000");
+    assert_eq!(nudge(&mut s, 1), "2000");
+    assert_eq!(nudge(&mut s, -1), "1995");
+}
+
+#[test]
 fn commit_edit_bypasses_schema_enum_diversion_and_writes_the_value() {
     let mut s = session_from("level = \"debug\"\n", DocFormat::Toml);
     let schema_text = json!({
