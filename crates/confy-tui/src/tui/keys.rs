@@ -122,52 +122,145 @@ fn help_sections(format: crate::model::document::DocFormat) -> Vec<HelpSection> 
         HelpSection {
             title_key: "help.section.nav",
             rows: vec![
-                HelpRow { keys: "j/k/↑/↓", desc_key: "help.row.move_cursor" },
-                HelpRow { keys: "Home/End", desc_key: "help.row.first_last_row" },
-                HelpRow { keys: "PgUp/PgDn", desc_key: "help.row.page" },
-                HelpRow { keys: "1/2", desc_key: "help.row.expand_collapse_level" },
-                HelpRow { keys: "0/9", desc_key: "help.row.collapse_expand_all" },
-                HelpRow { keys: "Space", desc_key: "help.row.space_toggle" },
-                HelpRow { keys: "Enter/i", desc_key: "help.row.detail" },
+                HelpRow {
+                    keys: "j/k/↑/↓",
+                    desc_key: "help.row.move_cursor",
+                },
+                HelpRow {
+                    keys: "Home/End",
+                    desc_key: "help.row.first_last_row",
+                },
+                HelpRow {
+                    keys: "PgUp/PgDn",
+                    desc_key: "help.row.page",
+                },
+                HelpRow {
+                    keys: "1/2",
+                    desc_key: "help.row.expand_collapse_level",
+                },
+                HelpRow {
+                    keys: "0/9",
+                    desc_key: "help.row.collapse_expand_all",
+                },
+                HelpRow {
+                    keys: "Space",
+                    desc_key: "help.row.space_toggle",
+                },
+                HelpRow {
+                    keys: "Enter/i",
+                    desc_key: "help.row.detail",
+                },
             ],
         },
         HelpSection {
             title_key: "help.section.select",
             rows: vec![
-                HelpRow { keys: "s", desc_key: "help.row.toggle_select" },
-                HelpRow { keys: "Shift+↑/↓", desc_key: "help.row.range_select" },
-                HelpRow { keys: "/", desc_key: "help.row.fuzzy_filter" },
-                HelpRow { keys: "/…Enter", desc_key: "tui.help.row.filter_lock" },
-                HelpRow { keys: "f", desc_key: "help.row.type_filter" },
-                HelpRow { keys: "Esc", desc_key: "help.row.clear_esc" },
+                HelpRow {
+                    keys: "s",
+                    desc_key: "help.row.toggle_select",
+                },
+                HelpRow {
+                    keys: "Shift+↑/↓",
+                    desc_key: "help.row.range_select",
+                },
+                HelpRow {
+                    keys: "/",
+                    desc_key: "help.row.fuzzy_filter",
+                },
+                HelpRow {
+                    keys: "/…Enter",
+                    desc_key: "tui.help.row.filter_lock",
+                },
+                HelpRow {
+                    keys: "f",
+                    desc_key: "help.row.type_filter",
+                },
+                HelpRow {
+                    keys: "Esc",
+                    desc_key: "help.row.clear_esc",
+                },
             ],
         },
         HelpSection {
             title_key: "help.section.edit",
             rows: vec![
-                HelpRow { keys: "e", desc_key: "help.row.edit" },
-                HelpRow { keys: "E", desc_key: "help.row.force_editor" },
-                HelpRow { keys: "F2", desc_key: "help.row.rename" },
-                HelpRow { keys: "a", desc_key: "help.row.add_node" },
-                HelpRow { keys: "d/Del", desc_key: "help.row.delete" },
-                HelpRow { keys: "x/c/v", desc_key: "help.row.copy_cut_paste" },
-                HelpRow { keys: "←/→", desc_key: "help.row.nudge" },
-                HelpRow { keys: "r", desc_key: remark_key },
-                HelpRow { keys: "K", desc_key: kind_key },
-                HelpRow { keys: "z/y", desc_key: "help.row.undo_redo" },
-                HelpRow { keys: "C", desc_key: "help.row.convert" },
-                HelpRow { keys: "Tab", desc_key: "tui.help.row.convert_jsonc_toggle" },
-                HelpRow { keys: "l", desc_key: "help.row.lang_picker" },
+                HelpRow {
+                    keys: "e",
+                    desc_key: "help.row.edit",
+                },
+                HelpRow {
+                    keys: "E",
+                    desc_key: "help.row.force_editor",
+                },
+                HelpRow {
+                    keys: "F2",
+                    desc_key: "help.row.rename",
+                },
+                HelpRow {
+                    keys: "a",
+                    desc_key: "help.row.add_node",
+                },
+                HelpRow {
+                    keys: "d/Del",
+                    desc_key: "help.row.delete",
+                },
+                HelpRow {
+                    keys: "x/c/v",
+                    desc_key: "help.row.copy_cut_paste",
+                },
+                HelpRow {
+                    keys: "←/→",
+                    desc_key: "help.row.nudge",
+                },
+                HelpRow {
+                    keys: "r",
+                    desc_key: remark_key,
+                },
+                HelpRow {
+                    keys: "K",
+                    desc_key: kind_key,
+                },
+                HelpRow {
+                    keys: "z/y",
+                    desc_key: "help.row.undo_redo",
+                },
+                HelpRow {
+                    keys: "C",
+                    desc_key: "help.row.convert",
+                },
+                HelpRow {
+                    keys: "Tab",
+                    desc_key: "tui.help.row.convert_jsonc_toggle",
+                },
+                HelpRow {
+                    keys: "l",
+                    desc_key: "help.row.lang_picker",
+                },
             ],
         },
         HelpSection {
             title_key: "help.section.file",
             rows: vec![
-                HelpRow { keys: "Ctrl+s/w", desc_key: "help.row.save" },
-                HelpRow { keys: "m", desc_key: "help.row.action_menu" },
-                HelpRow { keys: "~", desc_key: "help.row.diag" },
-                HelpRow { keys: "?", desc_key: "help.row.help" },
-                HelpRow { keys: "q", desc_key: "help.row.quit" },
+                HelpRow {
+                    keys: "Ctrl+s/w",
+                    desc_key: "help.row.save",
+                },
+                HelpRow {
+                    keys: "m",
+                    desc_key: "help.row.action_menu",
+                },
+                HelpRow {
+                    keys: "~",
+                    desc_key: "help.row.diag",
+                },
+                HelpRow {
+                    keys: "?",
+                    desc_key: "help.row.help",
+                },
+                HelpRow {
+                    keys: "q",
+                    desc_key: "help.row.quit",
+                },
             ],
         },
     ]
@@ -385,9 +478,12 @@ mod tests {
     }
 
     fn keymap_doc() -> Vec<DocRow> {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/reference/KEYMAP.md");
-        let text = std::fs::read_to_string(path)
-            .unwrap_or_else(|e| panic!("cannot read {path}: {e}"));
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/reference/KEYMAP.md"
+        );
+        let text =
+            std::fs::read_to_string(path).unwrap_or_else(|e| panic!("cannot read {path}: {e}"));
         let begin = text
             .find("<!-- KEYMAP-TABLE:BEGIN -->")
             .expect("KEYMAP.md is missing the KEYMAP-TABLE:BEGIN marker");
@@ -406,9 +502,9 @@ mod tests {
             // Separator detection runs on the *raw* cells: the `-` key row
             // unwraps to a bare "-" and a naive dash test would eat it.
             .filter(|raw| {
-                let sep = raw
-                    .iter()
-                    .all(|c| !c.trim().is_empty() && c.trim().chars().all(|ch| ch == '-' || ch == ':'));
+                let sep = raw.iter().all(|c| {
+                    !c.trim().is_empty() && c.trim().chars().all(|ch| ch == '-' || ch == ':')
+                });
                 !sep && raw[0].trim() != "Key"
             })
             .map(|raw| DocRow {
@@ -515,9 +611,22 @@ mod tests {
             keymap_doc().into_iter().map(|r| r.key).collect();
 
         let mut names: Vec<String> = vec![
-            "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp",
-            "PageDown", "Enter", "Escape", "Delete", "Backspace", "Tab", "Space",
-            "Shift+ArrowUp", "Shift+ArrowDown",
+            "ArrowUp",
+            "ArrowDown",
+            "ArrowLeft",
+            "ArrowRight",
+            "Home",
+            "End",
+            "PageUp",
+            "PageDown",
+            "Enter",
+            "Escape",
+            "Delete",
+            "Backspace",
+            "Tab",
+            "Space",
+            "Shift+ArrowUp",
+            "Shift+ArrowDown",
         ]
         .into_iter()
         .map(str::to_string)

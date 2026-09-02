@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-09-02T06:10:00Z
+- style(rust): `cargo fmt` pass over `tui/keys.rs` + `session/session.rs` — the Help overlay
+  refactor (`811e5b6`) landed unformatted, so `rust-ci.yml`'s `cargo fmt --check` gate was red.
+
 ### Unreleased Update — 2026-09-02T04:00:02Z
 - feat(web): rewrote the built-in sample end-to-end (`web/samples.ts`) around one **shared
   backbone tree** (about/basics/servers/types/schema/links — identical keys/values in

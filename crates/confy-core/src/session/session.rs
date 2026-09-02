@@ -2180,7 +2180,10 @@ mod helper_tests {
             Some("1.49")
         );
         // bool / strings / datetimes are not nudgeable
-        assert_eq!(nudge_scalar(ScalarType::Bool, Format::Plain, "true", 1), None);
+        assert_eq!(
+            nudge_scalar(ScalarType::Bool, Format::Plain, "true", 1),
+            None
+        );
         assert_eq!(
             nudge_scalar(ScalarType::String, Format::BasicString, "\"hi\"", 1),
             None
