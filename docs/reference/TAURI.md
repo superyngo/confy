@@ -32,7 +32,11 @@ the first element in `<head>`) and `register-sw.js` (https-only service-worker r
 Inlining either one back into `index.html`/`touch.html` silently breaks the touch redirect and
 the PWA on the desktop app while the tree itself still renders — the failure is invisible
 without checking the webview console. Any new file must also be added to `assemble-dist.mjs`'s
-copy list or it won't reach `web/dist` (and therefore not the app bundle).
+copy list or it won't reach `web/dist` (and therefore not the app bundle). That list is the
+**only** one: `web/build.mjs` and `web/cf-build.sh` both reach `web/dist` through it. A second,
+hand-maintained `cp` list in `cf-build.sh` used to re-assemble the Cloudflare output and shipped
+a deploy missing all three boot scripts (touch redirect + PWA dead on the live site only); it was
+removed rather than kept in sync.
 
 ## Desktop menu (Tauri)
 

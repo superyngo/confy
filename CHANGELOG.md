@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-02
+
+- fix(web): `web/cf-build.sh` no longer wipes and re-copies `web/dist` with its own stale file
+  list. `node build.mjs` already runs `web/assemble-dist.mjs` (the single source of truth for the
+  runtime file set); the duplicated `cp` list in the Cloudflare build command predated the
+  CSP-driven move of the boot scripts into external files, so the deployed site shipped an
+  `index.html` referencing three files that were never copied. `entry-desktop.js` 404'd, so the
+  coarse-pointer router never ran and a phone opening the site stayed on the desktop UI (the
+  touch entry appeared to vanish); `register-sw.js` 404'd too, leaving the deployed PWA with no
+  service worker registered.
+
 ## [v1.0.0] - 2026-09-02
 
 **First stable release** — confy reaches 1.0.0 across the desktop app (Tauri), the terminal

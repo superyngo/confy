@@ -32,13 +32,11 @@ fi
 ( cd crates/confy-ffi && node functional_smoke.mjs )
 ( cd web && npm ci && node build.mjs && npm run typecheck && npm test )
 
-# 4. Assemble a clean output dir with only the runtime files.
-cd web
-rm -rf dist
-mkdir -p dist/touch dist/pkg dist/icons
-cp index.html touch.html privacy.html style.css ui.js ui.js.map manifest.webmanifest sw.js schema-sample.json dist/
-cp touch/style.css touch/app.js touch/app.js.map dist/touch/
-cp icons/icon-192.png icons/icon-512.png dist/icons/
-cp -r pkg/. dist/pkg/
+# 4. No separate assembly step: `node build.mjs` above already runs
+#    `web/assemble-dist.mjs`, the single source of truth for the runtime-only
+#    web/dist file list. This script used to `rm -rf dist` and re-copy a
+#    hand-written list, which silently dropped files added to that list later
+#    (entry-desktop.js / entry-touch.js / register-sw.js went missing from the
+#    deployed site that way). Add new runtime files to assemble-dist.mjs only.
 
 echo "cf-build: assembled web/dist"
