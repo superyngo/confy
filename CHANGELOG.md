@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-09-02T08:05:00Z
+- fix(tui): a leading UTF-8 BOM no longer makes a file unloadable (`parsing bom.json` error).
+  `load_document` strips it, remembers it (`LoadedDocument::bom`), and `App::save`/`confy
+  convert` put it back on write — verified with `confy convert` on a BOM'd `.json`.
+- fix(tui): saves are atomic. `App::save`, the TUI `C` convert output, and `confy convert` now
+  go through `confy_tui::write_document` — write to a sibling `.confy-*.tmp`, fsync, carry over
+  the destination's Unix permission bits, rename over the target — instead of a bare
+  `fs::write` that could leave a truncated config behind on a crash or kill.
+
 ### Unreleased Update — 2026-09-02T07:40:00Z
 - fix(core): cap container nesting at `MAX_NESTING_DEPTH` (256) in all three backends. A
   `[[[[…` 100k deep used to abort the TUI with `fatal runtime error: stack overflow` (and trap

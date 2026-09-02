@@ -467,7 +467,10 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
 
 crates/confy-tui/src/    ratatui TUI + CLI; depends on confy-core, `pub use confy_core::model`
   main.rs          bin `confy`: parse args, load via load_document, run TUI
-  lib.rs           `pub use confy_core::model;` + `pub mod cli; pub mod tui;` + `load_document` (the host fs boundary: read → from_str_as → set_filename → .jsonc enable)
+  lib.rs           `pub use confy_core::model;` + `pub mod cli; pub mod tui;` + the host fs boundary:
+                   `load_document` (read → strip UTF-8 BOM → from_str_as → set_filename, returns
+                   `LoadedDocument { doc, bom }`) and `write_document` (BOM re-emit + atomic
+                   temp-file + rename, preserving the destination's Unix mode)
   cli.rs           clap args: default `confy <file> [--format]` (TUI) + `confy convert <in> <out>` subcommand
                    + `--lang <code>` (session-only language override)
   config.rs        host-owned config file I/O: load_config/save_config for
@@ -475,8 +478,8 @@ crates/confy-tui/src/    ratatui TUI + CLI; depends on confy-core, `pub use conf
                    `lang = "…"` today, missing/unparsable file ⇒ defaults, never an error
   tui/
     mod.rs         re-exports; run() entry point + event loop (run_event_loop)
-    app.rs         App = thin Host wrapper: `pub session: Session` + 5 HOST-only fields
-                   (rows/source_path/detail_scroll/help_scroll/table_offset); App::save = serialize → fs::write
+    app.rs         App = thin Host wrapper: `pub session: Session` + 6 HOST-only fields
+                   (rows/source_path/bom/detail_scroll/help_scroll/table_offset); App::save = serialize → write_document
     state.rs       thin re-export of confy_core::session::state
     keys.rs        KeyAction mapping + help text
     insertion.rs   thin re-export of confy_core::session::insertion
@@ -624,12 +627,15 @@ Linux is not targeted yet, nor is iOS.
 `env`/`tempfile`, fully unit-testable in isolation (enforced by `tests/no_fs_gate.rs`). The sole
 constructor is `from_str(text)` / `AnyDocument::from_str_as(text, format)`; there is no `load`/`save`
 and no `path` field (backends keep a host-set `filename` display label via `set_filename`). **The
-host owns all file I/O:** `confy_tui::load_document(path, format)` reads the bytes, parses via
-`from_str_as`, and sets the path-derived label (the extension drives no comment-related setup —
-comments are legal in every `.json`/`.jsonc` document);
-`App::save` serializes and writes to `App::source_path`. `detect_format(path)` (pure extension
-match, no I/O) stays in core. The headless-core port (§3 cursor reshape, §5 state-machine lift)
-is complete — see `PORTING.md`.
+host owns all file I/O:** `confy_tui::load_document(path, format)` reads the bytes, strips a
+leading UTF-8 BOM (remembered as `LoadedDocument::bom` — Windows tools write one routinely and no
+parser accepts it as content), parses via `from_str_as`, and sets the path-derived label (the
+extension drives no comment-related setup — comments are legal in every `.json`/`.jsonc`
+document); `App::save` and `confy convert` write through `confy_tui::write_document`, which
+re-emits the BOM and writes atomically (sibling temp file + rename, so a crash mid-write never
+truncates the user's config). `detect_format(path)` (pure extension match, no I/O) stays in
+core. The headless-core port (§3 cursor reshape, §5 state-machine lift) is complete — see
+`PORTING.md`.
 
 ## Terminology
 

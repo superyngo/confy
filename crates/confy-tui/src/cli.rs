@@ -270,16 +270,17 @@ fn run_convert(
     let from_fmt = resolve_format(from, input, lang)?;
     let to_fmt = resolve_format(to, output, lang)?;
 
-    let doc = crate::load_document(input, from_fmt).map_err(|e| {
-        anyhow::anyhow!(
-            "{}",
-            tr_args(
-                lang,
-                "cli.convert.load-failed",
-                &[&input.display().to_string(), &e.to_string()]
+    let crate::LoadedDocument { doc, bom } =
+        crate::load_document(input, from_fmt).map_err(|e| {
+            anyhow::anyhow!(
+                "{}",
+                tr_args(
+                    lang,
+                    "cli.convert.load-failed",
+                    &[&input.display().to_string(), &e.to_string()]
+                )
             )
-        )
-    })?;
+        })?;
 
     let result = match crate::model::convert::convert(&doc, to_fmt) {
         Ok(r) => r,
@@ -326,7 +327,7 @@ fn run_convert(
         }
     }
 
-    std::fs::write(output, &result.text).map_err(|e| {
+    crate::write_document(output, &result.text, bom).map_err(|e| {
         anyhow::anyhow!(
             "{}",
             tr_args(

@@ -32,10 +32,11 @@ pub fn run(
     format: crate::model::document::DocFormat,
     lang: confy_core::session::Lang,
 ) -> Result<()> {
-    let doc = crate::load_document(path, format)?;
+    let crate::LoadedDocument { doc, bom } = crate::load_document(path, format)?;
     let mut app = app::App::new(doc);
     app.session.set_lang(lang);
     app.source_path = Some(path.to_path_buf());
+    app.bom = bom;
 
     // `strict_json` drives the per-row comment-advisory decoration
     // (`ViewRow.comment_advisory`) — only the host knows whether the real

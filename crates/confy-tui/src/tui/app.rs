@@ -18,6 +18,8 @@ pub struct App {
     pub rows: Vec<RowSnapshot>,
     /// The source file path (interactive mode). `None` in headless tests.
     pub source_path: Option<PathBuf>,
+    /// The source file carried a UTF-8 BOM (stripped on load, re-emitted on save).
+    pub bom: bool,
     /// Vertical scroll offset (in display rows) of the detail popup.
     pub detail_scroll: u16,
     /// Vertical scroll offset (in display rows) of the help overlay.
@@ -89,6 +91,7 @@ impl App {
             session,
             rows: Vec::new(),
             source_path: None,
+            bom: false,
             detail_scroll: 0,
             help_scroll: 0,
             table_offset: Cell::new(0),
@@ -106,6 +109,7 @@ impl App {
             session,
             rows: Vec::new(),
             source_path: None,
+            bom: false,
             detail_scroll: 0,
             help_scroll: 0,
             table_offset: Cell::new(0),
@@ -465,7 +469,7 @@ impl App {
         self.rebuild_rows();
     }
     fn convert_write(&mut self, path: &str, text: &str) {
-        match std::fs::write(path, text) {
+        match crate::write_document(std::path::Path::new(path), text, false) {
             Ok(()) => {
                 self.session
                     .dispatch(confy_core::session::Intent::SetHostNotice {
@@ -919,7 +923,7 @@ impl App {
             return;
         }
         let text = doc.serialize();
-        match std::fs::write(&path, text) {
+        match crate::write_document(&path, &text, self.bom) {
             Ok(()) => {
                 doc.mark_saved();
                 self.session
