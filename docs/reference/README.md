@@ -17,6 +17,10 @@ superseded design, a shipped plan, a resolved investigation — belongs in
 - **[CHROME.md](CHROME.md)** — header/toolbar chrome single source of truth: button
   inventory, responsive fold order, and per-host (VS Code/Tauri desktop) trimming rules,
   shared by desktop and touch.
+- **[KEYMAP.md](KEYMAP.md)** — TUI ↔ Web keyboard-binding single source of truth:
+  the normal-mode key table (machine-checked against both implementations by
+  `crates/confy-tui/src/tui/keys.rs` and `web/keymap-parity.spec.mjs`), plus the
+  deliberate divergences and per-surface input-handling differences.
 - **[TAURI.md](TAURI.md)** — desktop + mobile app shell (`confy-tauri`).
 - **[VSCODE.md](VSCODE.md)** — VS Code extension host (`editors/vscode`).
 - **[MESSAGES.md](MESSAGES.md)** — Notice/diagnostics message system, unified

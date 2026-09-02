@@ -3,7 +3,9 @@
 TUI-specific mechanics for the ratatui frontend (`src/tui/`). These are **not** shared
 with the model layer; see `WEBUI.md` for the parallel web-UI mechanics. For model
 semantics (Mutation variants, kind-switch rules, insert/move legality) see `CONTEXT.md`.
-For the inline-vs-`$EDITOR` boundary see `BEHAVIOR_MATRIX.md §6`.
+For the inline-vs-`$EDITOR` boundary see `BEHAVIOR_MATRIX.md §6`. The keyboard bindings
+themselves are **not** documented here: `KEYMAP.md` is the TUI ↔ Web single source of
+truth for them, and its table is machine-checked against `map_key` (`src/tui/keys.rs`).
 The TUI calling `Session` methods directly rather than routing every mutation through
 `dispatch(Intent)` (as the other hosts do) is a deliberate exception — ADR 0003.
 

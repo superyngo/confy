@@ -8,7 +8,8 @@ TUI mechanics in `TUI.md`, the cross-platform row cursor/selection/clipboard sta
 model in `ROW_STATE_MODEL.md`. Two native shells embed this same `web/` bundle and get
 their own docs: the Tauri desktop/Android app in `TAURI.md`, the VS Code extension in
 `VSCODE.md`. The port design record is `PORTING.md` (§8 records the Stage-2 transport
-decisions).
+decisions). Keyboard bindings live in `KEYMAP.md`, the TUI ↔ Web single source of truth,
+whose table is machine-checked against `resolveKeyIntent` by `web/keymap-parity.spec.mjs`.
 
 ## Architecture
 
