@@ -264,7 +264,7 @@
   "help.row.add_node": "Add node",
   "help.row.delete": "Delete",
   "help.row.copy_cut_paste": "Copy/cut/paste",
-  "help.row.nudge": "±1 number",
+  "help.row.nudge": "Step a number (schema step if any)",
   "help.row.undo_redo": "Undo/redo",
   "help.row.convert": "Convert document to another format (Root node)",
   "help.row.save": "Save",

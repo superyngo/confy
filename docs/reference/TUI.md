@@ -54,8 +54,10 @@ input); editor and filter input are caret-based fields (`←/→/Home/End` move 
 grouping when the original had it. Its **step is the schema's**: with a `multipleOf` on the node,
 the nudge walks that grid (an off-grid value aligns in the nudge's direction on the first press),
 `minimum`/`maximum` clamp inward to the nearest in-range grid point, and without a schema
-constraint the step stays ±1 (±1 at the displayed precision for a float). `edit_node` truncates the path only at the first `Index`
-whose container is a real `Array` (editing the whole array there); AoT-entry indices and the
+constraint the step stays ±1 (±1 at the displayed precision for a float). A fractional
+`multipleOf` is ignored on an integer-style value, and a float keeps its decimal point, so a
+nudge never retypes the node. `edit_node` truncates the path only at the first `Index` whose
+container is a real `Array` (editing the whole array there); AoT-entry indices and the
 keys below them are kept and addressed directly. A `$EDITOR` fragment starts at the node's own
 header/value line — an adjacent standalone comment is an independent node and is never part of
 the fragment. The editor command comes from `$EDITOR`, then `$VISUAL`, then `vi` (`notepad` on

@@ -74,8 +74,8 @@ TUI's character arms match with a modifier wildcard (`(KeyCode::Char('c'), _)`),
 | `x` | `Cut` | `intent:CutSelected` | both | |
 | `v` | `Paste` | `intent:Paste` | both | |
 | `r` | `Remark` | `intent:Remark` | both | node ↔ comment |
-| `ArrowRight` | `IncValue` | `intent:Nudge(1)` | both | |
-| `ArrowLeft` | `DecValue` | `intent:Nudge(-1)` | both | |
+| `ArrowRight` | `IncValue` | `intent:Nudge(1)` | both | one step up; a schema `multipleOf` *is* the step |
+| `ArrowLeft` | `DecValue` | `intent:Nudge(-1)` | both | one step down; bounds clamp inward to the grid |
 | `+` | `—` | `intent:Nudge(1)` | web-only | TUI uses `ArrowRight`; accepted divergence |
 | `-` | `—` | `intent:Nudge(-1)` | web-only | TUI uses `ArrowLeft`; accepted divergence |
 | `z` | `Undo` | `native:undo` | both | web host owns the stack (VS Code shares it) |

@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-09-02T15:40:00Z
+- docs(nudge): record the schema-grid nudge step across the reference docs and make the Help
+  overlay's own row honest about it. `KEYMAP.md`'s `ArrowRight`/`ArrowLeft` rows now note that a
+  schema `multipleOf` *is* the step and that bounds clamp inward to that grid; `TUI.md` gains the
+  three type guards (fractional `multipleOf` ignored on an integer-style value, a float keeping
+  its decimal point, so a nudge never retypes the node); `WEBUI.md` names `nudge_repr` as the same
+  core pipeline the TUI's `←/→` walks. The `help.row.nudge` catalog string changed in both
+  languages ("±1 number" → "Step a number (schema step if any)" / "數字加減一階（有 schema
+  時依其級距）"), since `±1` is no longer the step on a constrained node — verified rendering
+  aligned and inside the popup on the real binary in `en` and `zh-TW`.
+
 ### Unreleased Update — 2026-09-02T15:10:00Z
 - fix(schema): a schema-constrained number no longer **freezes** under nudge (`←`/`→`, mouse
   wheel, touch swipe). `Session::schema_clamp_nudge` snapped the nudged value to the *nearest*

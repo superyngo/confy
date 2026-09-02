@@ -264,7 +264,7 @@
   "help.row.add_node": "新增節點",
   "help.row.delete": "刪除",
   "help.row.copy_cut_paste": "複製／剪下／貼上",
-  "help.row.nudge": "數字 ±1",
+  "help.row.nudge": "數字加減一階（有 schema 時依其級距）",
   "help.row.undo_redo": "復原／重做",
   "help.row.convert": "將文件轉換為其他格式（Root 節點）",
   "help.row.save": "儲存",

@@ -299,8 +299,8 @@ shapes round-trip). Key types:
   `multipleOf` on the node makes each tick walk that grid (`250`/`255`/`260`…, an off-grid value
   aligning in the tick's direction first) and `minimum`/`maximum` clamp inward to the nearest
   in-range grid point; with no schema constraint a step is ±1. No `Intent` is dispatched per
-  tick: the nudged text
-  is written straight into the focused `<input>` via the stateless `nudge_repr` core query, and
+  tick: the nudged text is written straight into the focused `<input>` via the stateless
+  `nudge_repr` core query (the same core pipeline the TUI's `←/→` walks), and
   commits exactly once via the normal Enter/blur `CommitEdit` path (one undo entry per nudge
   session). On touch, the value field likewise supports **swipe-to-nudge only while focused**: a
   horizontal swipe starting anywhere (24px per step, 8px dead zone, `Integer`/`Float` only)
