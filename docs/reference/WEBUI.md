@@ -348,6 +348,13 @@ shapes round-trip). Key types:
   An explicit **"Open from URL"** entry point feeds the same `openFromUrl`: the desktop ⋯ More
   menu opens a `#url-modal`, the touch More-actions sheet opens a `.url-sheet`. The local-file
   Open button keeps its meaning (host file picker only).
+- **Schema hints on the web hosts.** An in-document `$schema` URL hint (e.g.
+  `http://json-schema.org/draft-07/schema#`) is resolved by `web/host-io.ts`'s
+  `resolveSchemaFetchRequest` (shared with touch). Browser fetches upgrade an
+  `http://` hint to `https://` first — an https page blocks an `http://` fetch as
+  mixed content before the server's 301 redirect can run ("Failed to fetch") —
+  while the https endpoints of schema hosts send permissive CORS headers. The
+  Tauri and VS Code branches fetch natively and are unaffected.
 - **Theme.** A dark/light toggle (titlebar `☾`/`☀`) flips `:root[data-theme]`; CSS
   variables carry both palettes and the choice persists in `localStorage`.
 - **Responsive toolbar.** The toolbar holds a single right-side action button (**Save**,
