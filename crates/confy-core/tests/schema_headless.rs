@@ -1508,3 +1508,108 @@ fn external_edit_routing_is_unchanged_for_a_bool() {
         "external edit must not open the picker"
     );
 }
+
+// ── YAML opaque nodes no longer silence schema validation ────────────────────
+
+const OPAQUE_SCHEMA: &str = r#"{
+  "type": "object",
+  "properties": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "editor": { "enum": ["vim", "code"] },
+        "poll_ms": { "type": "integer", "multipleOf": 5 }
+      }
+    }
+  }
+}"#;
+
+fn yaml_session_with_schema(src: &str) -> Session {
+    let mut s = session_from(src, DocFormat::Yaml);
+    s.apply_schema_text(
+        SchemaSource::Local("./s.json".into()),
+        Ok(OPAQUE_SCHEMA.to_string()),
+    );
+    s.expand_all();
+    s
+}
+
+#[test]
+fn a_yaml_anchor_no_longer_silences_every_violation_marker() {
+    // A single out-of-subset construct anywhere in the file used to abort
+    // `to_value()`, so `revalidate_schema` bailed and NO row carried a
+    // violation — the ▲/△ markers, dashed frame, KIND `!` and status count
+    // all vanished document-wide (while the Detail panel's path-resolved
+    // schema info kept working, which is how the bug hid). Validation is now
+    // lenient: everything confy can decode is still validated.
+    let anchored =
+        "schema:\n  editor: sublime\n  poll_ms: 253\npinned: &pin \"confy\"\nalias: *pin\n";
+    let rows = yaml_session_with_schema(anchored).visible_rows();
+    let row = |p: &str| {
+        rows.iter()
+            .find(|r| r.path_display == p)
+            .unwrap_or_else(|| panic!("row {p} missing"))
+    };
+    assert!(
+        row("schema.editor").violations.is_some(),
+        "the enum violation must survive an anchor elsewhere in the file"
+    );
+    assert!(
+        row("schema.poll_ms").violations.is_some(),
+        "the multipleOf violation must survive an anchor elsewhere in the file"
+    );
+    // The branch/root summary markers (hollow △) come back with them.
+    assert!(row("schema").has_descendant_violation);
+    assert!(row("(root)").has_descendant_violation);
+    // The opaque rows themselves are never flagged — confy cannot decode
+    // their values, so it has nothing to judge them by.
+    assert!(row("pinned").violations.is_none());
+    assert!(row("alias").violations.is_none());
+}
+
+#[test]
+fn a_yaml_merge_key_does_not_silence_validation_either() {
+    // `<<:` merge and `!tag` are opaque for the same reason as an anchor.
+    let merged =
+        "schema:\n  <<: *defaults\n  editor: sublime\n  poll_ms: !!int 253\n  extra: tagged\n";
+    let rows = yaml_session_with_schema(merged).visible_rows();
+    let editor = rows
+        .iter()
+        .find(|r| r.path_display == "schema.editor")
+        .expect("row present");
+    assert!(
+        editor.violations.is_some(),
+        "a sibling of a merge key still validates"
+    );
+}
+
+#[test]
+fn bridge_skips_a_yaml_opaque_node_and_keeps_later_sibling_paths() {
+    use confy_core::model::node::Seg;
+    // Both walks omit the opaque node, so the pairing stays 1:1 and every
+    // later sibling maps to its OWN path (the alignment this fix hinges on).
+    let doc = AnyDocument::from_str_as("a: &x 1\nb: 2\n", DocFormat::Yaml).unwrap();
+    let tree = doc.project();
+    let (value, _w) =
+        confy_core::model::convert::tree_to_value_lenient(&tree, DocFormat::Yaml).unwrap();
+    let (json, map) = bridge(&tree.root, &value);
+    assert_eq!(json, json!({ "b": 2 }), "the opaque entry is not projected");
+    assert_eq!(map.resolve("/b"), Some(&vec![Seg::Key("b".into())]));
+}
+
+#[test]
+fn bridge_keeps_sequence_indices_aligned_past_an_opaque_element() {
+    use confy_core::model::node::Seg;
+    // A skipped element shifts the JSON array, so pointer `/arr/0` must map
+    // back to the *second* node (`arr[1]`) — not to `arr[0]`, the alias.
+    let doc = AnyDocument::from_str_as("arr:\n  - *pin\n  - 2\n", DocFormat::Yaml).unwrap();
+    let tree = doc.project();
+    let (value, _w) =
+        confy_core::model::convert::tree_to_value_lenient(&tree, DocFormat::Yaml).unwrap();
+    let (json, map) = bridge(&tree.root, &value);
+    assert_eq!(json, json!({ "arr": [2] }));
+    assert_eq!(
+        map.resolve("/arr/0"),
+        Some(&vec![Seg::Key("arr".into()), Seg::Index(1)])
+    );
+}

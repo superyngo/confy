@@ -1716,9 +1716,15 @@ impl Session {
             return;
         };
         let Some(doc) = self.doc.as_ref() else { return };
-        let Ok((value, _warnings)) = doc.to_value() else {
-            // A YAML opaque node or similar blocks `to_value()` — leave the
-            // previous violation list rather than silently clearing it.
+        // Lenient lowering: a YAML opaque node (anchor/alias/merge/tag) is
+        // *skipped* rather than aborting the document, so one anchor no longer
+        // silences every violation marker in the file (`convert::
+        // tree_to_value_lenient`; `value_bridge` skips the same nodes). A
+        // genuine lowering failure leaves the previous violation list rather
+        // than silently clearing it.
+        let Ok((value, _warnings)) =
+            crate::model::convert::tree_to_value_lenient(&self.tree, doc.format())
+        else {
             return;
         };
         let (projection, map) = crate::schema::value_bridge::bridge(&self.tree.root, &value);

@@ -1,14 +1,21 @@
 //! Node+Value → **JSON projection** bridging (`CONTEXT.md` § Schema).
 //!
 //! Both the `Node` tree (paths, no decoded scalars) and the `Value` tree from
-//! `ConfigDocument::to_value()` (decoded scalars, no paths) are order-preserving
+//! `convert::tree_to_value_lenient()` (decoded scalars, no paths) are
+//! order-preserving
 //! 1:1 walks of the *same* backing document at every nesting level — every
 //! child, including Comment nodes/`Item::Comment`, in document order (see
 //! `CONTEXT.md` § Projection: "the backing document — not the Node tree — is
 //! the single source of truth"). `bridge()` walks them together by position,
 //! skipping Comment/`Item::Comment` pairs, to attach a `Path` to every JSON
 //! projection node without reimplementing per-format scalar decoding (already
-//! correctly done by `to_value()`).
+//! correctly done by the lowering).
+//!
+//! A YAML **opaque** node (anchor/alias/merge/tag) is skipped on *both* sides:
+//! the lenient lowering omits its `Item`, so this walk must omit the node too
+//! or every later sibling would pair with the wrong value. Skipping keeps the
+//! JSON projection (and therefore every violation pointer) aligned; the opaque
+//! node itself is left unvalidated, since confy cannot decode its value.
 
 use crate::model::node::{Node, NodeKind, Path};
 use crate::model::value::{Item, Value};
@@ -123,10 +130,7 @@ fn walk(node: &Node, value: &Value, pointer: &str, map: &mut PointerMap) -> Json
         Value::Seq(items) => {
             let mut arr = Vec::new();
             let mut idx = 0usize;
-            let mut child_nodes = node
-                .children
-                .iter()
-                .filter(|c| !matches!(c.kind, NodeKind::Comment(_)));
+            let mut child_nodes = node.children.iter().filter(|c| paired(c));
             for it in items {
                 let Item::Node { value, .. } = it else {
                     continue;
@@ -141,10 +145,7 @@ fn walk(node: &Node, value: &Value, pointer: &str, map: &mut PointerMap) -> Json
         }
         Value::Map(items) => {
             let mut obj = Map::new();
-            let mut child_nodes = node
-                .children
-                .iter()
-                .filter(|c| !matches!(c.kind, NodeKind::Comment(_)));
+            let mut child_nodes = node.children.iter().filter(|c| paired(c));
             for it in items {
                 let Item::Node {
                     key: Some(k),
@@ -162,6 +163,13 @@ fn walk(node: &Node, value: &Value, pointer: &str, map: &mut PointerMap) -> Json
             Json::Object(obj)
         }
     }
+}
+
+/// Whether a child `Node` has a paired `Item::Node` in the lenient lowering —
+/// i.e. is neither a Comment (which pairs with `Item::Comment`) nor a YAML
+/// opaque node (which the lowering omits entirely).
+fn paired(node: &Node) -> bool {
+    !matches!(node.kind, NodeKind::Comment(_)) && !crate::model::convert::is_opaque(node)
 }
 
 /// RFC 6901 pointer-segment escaping (`~` → `~0`, `/` → `~1`).

@@ -9,6 +9,8 @@
 //! trailing comments to `Item::Node.trailing`), gathers **normalization
 //! warnings** from each node's writing style, and **aborts** on a YAML opaque
 //! node. Scalar text is decoded per source format by the `decode_*` helpers.
+//! [`tree_to_value_lenient`] is the same walk with the opaque node **skipped**
+//! instead of aborting — schema validation's entry point (see its docs).
 //!
 //! The renderers emit each target's **default style only** (the documented lossy
 //! contract): TOML scope tables + bare keys, JSON 2-space multiline (`//`
@@ -171,8 +173,39 @@ pub fn tree_to_value(
     tree: &NodeTree,
     src: DocFormat,
 ) -> Result<(Value, Vec<String>), ConvertAbort> {
+    lower(tree, src, false)
+}
+
+/// Same walk as [`tree_to_value`], but a YAML **opaque** node (anchor, alias,
+/// `<<:` merge, tag) is *omitted* from the produced tree instead of aborting
+/// the whole document.
+///
+/// This is what **schema validation** lowers through
+/// (`Session::revalidate_schema`): a single anchor anywhere used to abort
+/// `to_value()` and silence every violation marker in the file, even though
+/// confy can validate everything around it. `value_bridge::walk` omits the
+/// same nodes when pairing the `Node` tree with this `Value` tree, so the two
+/// walks stay positionally 1:1 and a sibling *after* an opaque node still
+/// resolves to its own path. The opaque node itself is simply not validated —
+/// confy cannot decode its value.
+///
+/// Never used by `convert()`: dropping data silently is fine for an advisory
+/// validation pass, but not for writing a converted file (which keeps
+/// aborting — the documented lossy contract).
+pub fn tree_to_value_lenient(
+    tree: &NodeTree,
+    src: DocFormat,
+) -> Result<(Value, Vec<String>), ConvertAbort> {
+    lower(tree, src, true)
+}
+
+fn lower(
+    tree: &NodeTree,
+    src: DocFormat,
+    skip_opaque: bool,
+) -> Result<(Value, Vec<String>), ConvertAbort> {
     let mut warnings = Vec::new();
-    let value = root_to_value(&tree.root, src, &mut warnings)?;
+    let value = root_to_value(&tree.root, src, skip_opaque, &mut warnings)?;
     warnings.sort();
     warnings.dedup();
     Ok((value, warnings))
@@ -187,6 +220,7 @@ fn is_comment(n: &Node) -> bool {
 fn root_to_value(
     root: &Node,
     src: DocFormat,
+    skip_opaque: bool,
     warnings: &mut Vec<String>,
 ) -> Result<Value, ConvertAbort> {
     let non_comment: Vec<&Node> = root.children.iter().filter(|c| !is_comment(c)).collect();
@@ -197,13 +231,13 @@ fn root_to_value(
         && matches!(non_comment[0].kind, NodeKind::Scalar(_))
         && !matches!(non_comment[0].path.last(), Some(Seg::Key(_)))
     {
-        return node_value(non_comment[0], src, warnings);
+        return node_value(non_comment[0], src, skip_opaque, warnings);
     }
 
     let keyed = non_comment
         .iter()
         .any(|c| matches!(c.path.last(), Some(Seg::Key(_))));
-    let items = items_of(&root.children, src, warnings)?;
+    let items = items_of(&root.children, src, skip_opaque, warnings)?;
     if keyed || non_comment.is_empty() {
         Ok(Value::Map(items))
     } else {
@@ -216,9 +250,10 @@ fn root_to_value(
 fn node_value(
     node: &Node,
     src: DocFormat,
+    skip_opaque: bool,
     warnings: &mut Vec<String>,
 ) -> Result<Value, ConvertAbort> {
-    if node.read_only && !is_comment(node) {
+    if is_opaque(node) {
         return Err(ConvertAbort(
             "file contains unsupported YAML constructs (anchors, aliases, merge keys, or tags)"
                 .into(),
@@ -228,22 +263,35 @@ fn node_value(
         warnings.push(note.to_string());
     }
     match &node.kind {
-        NodeKind::Table | NodeKind::InlineTable => {
-            Ok(Value::Map(items_of(&node.children, src, warnings)?))
-        }
-        NodeKind::Array | NodeKind::ArrayOfTables => {
-            Ok(Value::Seq(items_of(&node.children, src, warnings)?))
-        }
+        NodeKind::Table | NodeKind::InlineTable => Ok(Value::Map(items_of(
+            &node.children,
+            src,
+            skip_opaque,
+            warnings,
+        )?)),
+        NodeKind::Array | NodeKind::ArrayOfTables => Ok(Value::Seq(items_of(
+            &node.children,
+            src,
+            skip_opaque,
+            warnings,
+        )?)),
         NodeKind::Scalar(_) => Ok(decode_scalar(src, node)),
-        NodeKind::Root => root_to_value(node, src, warnings),
+        NodeKind::Root => root_to_value(node, src, skip_opaque, warnings),
         NodeKind::Comment(_) => Ok(Value::Str(String::new())), // unreachable via items_of
     }
+}
+
+/// A YAML out-of-subset node (anchor/alias/merge/tag): read-only and not a
+/// comment. `value_bridge::walk` mirrors this predicate.
+pub(crate) fn is_opaque(node: &Node) -> bool {
+    node.read_only && !is_comment(node)
 }
 
 /// Project a node's children into ordered [`Item`]s (comments interleaved).
 fn items_of(
     children: &[Node],
     src: DocFormat,
+    skip_opaque: bool,
     warnings: &mut Vec<String>,
 ) -> Result<Vec<Item>, ConvertAbort> {
     let mut out = Vec::with_capacity(children.len());
@@ -253,7 +301,10 @@ fn items_of(
             out.push(Item::Comment(strip_markers(raw)));
             continue;
         }
-        let value = node_value(child, src, warnings)?;
+        if skip_opaque && is_opaque(child) {
+            continue;
+        }
+        let value = node_value(child, src, skip_opaque, warnings)?;
         let key = match child.path.last() {
             Some(Seg::Key(k)) => Some(k.clone()),
             _ => None,
@@ -1482,6 +1533,27 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.0.contains("unsupported YAML"));
+    }
+
+    #[test]
+    fn lenient_lowering_skips_opaque_where_strict_aborts() {
+        // `convert()` keeps aborting (writing a file must never drop data
+        // silently), while the validation-only lowering skips just the opaque
+        // entry and keeps the rest of the document.
+        let doc = load("a: &anchor 1\nb: 2\n", DocFormat::Yaml);
+        assert!(doc.to_value().is_err(), "strict lowering still aborts");
+        let (value, _w) = tree_to_value_lenient(&doc.project(), DocFormat::Yaml).unwrap();
+        let Value::Map(items) = &value else {
+            panic!("root is a map: {value:?}")
+        };
+        let keys: Vec<Option<&str>> = items
+            .iter()
+            .filter_map(|i| match i {
+                Item::Node { key, .. } => Some(key.as_deref()),
+                Item::Comment(_) => None,
+            })
+            .collect();
+        assert_eq!(keys, vec![Some("b")], "only the anchored entry is dropped");
     }
 
     #[test]

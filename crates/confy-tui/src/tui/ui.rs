@@ -1720,4 +1720,38 @@ mod tests {
         );
         assert_eq!(filled_count, 1, "only port itself violates");
     }
+
+    #[test]
+    fn a_yaml_anchor_does_not_suppress_the_warning_marker() {
+        // Regression: an anchor/alias anywhere in a YAML file aborted the
+        // validation lowering, so `revalidate_schema` bailed and NO row drew a
+        // ▲/△ (the Detail popup's path-resolved schema info still showed, which
+        // is how this hid). Validation is lenient now — the opaque row is the
+        // only thing left unjudged.
+        let doc = crate::model::any_doc::AnyDocument::Yaml(
+            crate::model::yaml::doc::YamlDocument::from_str(
+                "port: nope\npinned: &pin \"confy\"\nalias: *pin\n",
+            )
+            .unwrap(),
+        );
+        let mut app = App::new(doc);
+        app.session.apply_schema_text(
+            confy_core::schema::SchemaSource::Local("/tmp/s.json".into()),
+            Ok(r#"{"type":"object","properties":{"port":{"type":"integer"}}}"#.to_string()),
+        );
+        app.rebuild_rows();
+        let mut terminal = Terminal::new(TestBackend::new(40, 8)).unwrap();
+        terminal.draw(|fr| draw(fr, &app)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let filled = (0..40)
+            .flat_map(|x| (0..8).map(move |y| (x, y)))
+            .filter(|&(x, y)| buf[(x, y)].symbol() == "▲")
+            .count();
+        let hollow = (0..40)
+            .flat_map(|x| (0..8).map(move |y| (x, y)))
+            .filter(|&(x, y)| buf[(x, y)].symbol() == "△")
+            .count();
+        assert_eq!(filled, 1, "the violating `port` row must draw a filled ▲");
+        assert_eq!(hollow, 1, "the root summarizes it with a hollow △");
+    }
 }

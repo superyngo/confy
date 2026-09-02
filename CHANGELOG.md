@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-09-02T13:30:00Z
+- fix(schema): a YAML file containing an anchor, alias, `<<:` merge key or tag no longer loses
+  **every** schema-violation cue. `Session::revalidate_schema` lowered through
+  `ConfigDocument::to_value()`, which aborts the whole document on the first opaque
+  (out-of-subset) node, so validation bailed and no row carried a `violations` entry — no ▲/△
+  marker, no dashed warn frame, no KIND `!`, no "N schema warning(s)" status. The Detail
+  popup/panel kept showing schema info and constraint text (those resolve the sub-schema by
+  path and never lower the document), which is exactly how the bug hid; TOML and JSON were
+  unaffected because neither has opaque nodes. Validation now lowers through a new
+  `convert::tree_to_value_lenient`, which **skips** an opaque node instead of aborting;
+  `value_bridge::walk` skips the same nodes so the Node↔Value pairing stays 1:1 and every
+  sibling *after* an anchor still resolves to its own path (a skipped sequence element shifts
+  the JSON array, and the pointer map translates it back correctly). The opaque node itself is
+  never flagged — confy cannot decode its value. `convert()` is unchanged and still aborts:
+  dropping data is fine for an advisory validation pass, not for writing a converted file.
+  Reproduced and confirmed fixed on the real `confy` binary (`▲ port` / `[S:str!]` /
+  "1 schema warning(s)" now render for a YAML doc with `&pin`/`*pin`); the built-in YAML
+  **sample** hit this on every load, since it ends with `pinned: &pin "confy"`.
+
 ### Unreleased Update — 2026-09-02T11:05:00Z
 - fix(web): the built-in sample no longer reports "Schema failed to load: NetworkError" on an
   http origin. `resolveSchemaFetchRequest`'s `http://` → `https://` mixed-content upgrade was

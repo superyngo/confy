@@ -157,7 +157,11 @@ A YAML node holding an out-of-subset construct — `&anchor`, `*alias`, `<<:` me
 multi-line flow — projected as a **read-only node** with the KIND tag `[opaq ]` (whatever its
 underlying kind). It survives round-trip byte-identically but cannot be mutated safely without full
 YAML write support, so every mutation on or into it (or on any entry whose *value* is opaque)
-returns `Unsupported`, leaving the document untouched. Copy is allowed.
+returns `Unsupported`, leaving the document untouched. Copy is allowed. **Schema validation skips
+it** (`convert::tree_to_value_lenient`, mirrored by `value_bridge::walk`) rather than aborting the
+file: confy cannot decode its value, so it carries no **Violation** of its own, while every node
+around it validates normally. Document **conversion** is stricter — an opaque node aborts it (see
+§ *Conversion*), because writing a file must never drop data silently.
 
 **YAML subset**:
 The slice of YAML 1.2 that confy edits as first-class nodes: a single document (optional leading

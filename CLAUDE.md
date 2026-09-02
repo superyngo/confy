@@ -144,7 +144,10 @@ generic walk — `tree_to_value(&NodeTree, src)` maps containers by `NodeKind` (
 `Item::Comment` with markers stripped, `trailing_comment`→`Item.trailing`), and per-format
 `decode_*` helpers decode each scalar's raw token text (`node.value`) to typed data (TOML/JSON/
 YAML radix, escapes, block scalars, inf/nan). Each backend implements `ConfigDocument::to_value`
-as `tree_to_value(&self.project(), <fmt>)`. **Loss policy** (the documented lossy contract):
+as `tree_to_value(&self.project(), <fmt>)`; **schema validation** lowers through the sibling
+`tree_to_value_lenient`, identical except that a YAML **opaque** node is *skipped* instead of
+aborting the document (`value_bridge::walk` skips the same nodes to keep the Node↔Value pairing
+1:1) — one anchor used to silence every violation marker in the file. **Loss policy** (the documented lossy contract):
 notation/style that the default render drops is collected as deduplicated **warnings** during the
 walk (`style_note`: radix, string style, inline/flow, dotted, AoT, exponent); `analyze` adds the
 target-specific rules — `null`→TOML and a YAML opaque node→any target **abort** (no output;
