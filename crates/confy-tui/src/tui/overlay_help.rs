@@ -28,13 +28,14 @@ pub(crate) fn draw_help_overlay(f: &mut Frame, app: &App) {
         ),
     };
     let popup_width = (f.area().width * 65 / 100).min(f.area().width);
-    let line_count = wrapped_line_count(&text, popup_width.saturating_sub(2)) as u16;
-    let height = (line_count + 2).min(f.area().height);
+    let line_count = wrapped_line_count(&text, popup_width.saturating_sub(6)) as u16;
+    let height = (line_count + 4).min(f.area().height);
     let area = centered_rect(65, height, f.area());
     f.render_widget(Clear, area);
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
+        .padding(ratatui::widgets::Padding::new(2, 2, 1, 1))
         .style(Style::default().bg(Color::Black).fg(Color::White));
     let paragraph = Paragraph::new(text)
         .block(block)
