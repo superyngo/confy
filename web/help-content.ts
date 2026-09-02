@@ -156,7 +156,7 @@ export function helpBodyHTML(
     const body =
       aboutText.replace(/\n+$/, "") + "\n\n" + tArgs("web.about.language", [getLang()]);
     const escaped = escapeHtml(body).replace(
-      /(https:\/\/\S+)/,
+      /(https:\/\/\S+)/g,
       '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>',
     );
     return `<div class="help-about">${escaped}</div>`;

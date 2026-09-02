@@ -85,6 +85,7 @@ native open/save dialogs, in-place writes, and CLI-arg file open. Releases inclu
   Win10). Unsigned, so SmartScreen shows an "unknown publisher" warning: More info → Run anyway.
   A `confy-desktop-windows-x86_64.msix` is also published for Microsoft Store submission
   (see `crates/confy-tauri/msix/STORE.md`); it is unsigned by design — the Store signs it.
+  Also listed directly on the [Microsoft Store](https://apps.microsoft.com/detail/9PLCJGQ3C654).
 
 ## VS Code extension
 

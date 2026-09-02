@@ -1,18 +1,33 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "editorName": {
+      "description": "Your text editor of choice",
+      "enum": ["vim", "nano", "helix", "confy", 0]
+    }
+  },
   "type": "object",
   "properties": {
     "schema": {
       "type": "object",
       "properties": {
-        "editor": {
-          "enum": ["vim", "nano", "helix", "confy", 0]
-        },
+        "editor": { "$ref": "#/$defs/editorName" },
         "poll_ms": {
           "type": "integer",
           "minimum": 100,
           "maximum": 2000,
-          "multipleOf": 5
+          "multipleOf": 5,
+          "description": "How often (ms) confy checks for external file changes"
+        },
+        "advanced": {
+          "type": "object",
+          "properties": {
+            "retry_pattern": {
+              "type": "string",
+              "pattern": "^[0-9]+(,[0-9]+)*$",
+              "description": "Comma-separated retry delays in seconds"
+            }
+          }
         }
       }
     }

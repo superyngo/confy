@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-09-02T04:00:02Z
+- feat(web): rewrote the built-in sample end-to-end (`web/samples.ts`) around one **shared
+  backbone tree** (about/basics/servers/types/schema/links — identical keys/values in
+  TOML/JSON/YAML, so the format pill reads as the same doc in three coats) plus a per-format
+  `showcase` branch exercising each backend's exclusive notations: TOML dotted keys/AoT/radix
+  ints/exponent/inf/datetime, JSON `//` comments + null + multiline array, YAML flow seq/block
+  map/literal/folded/anchor+alias. Comments — not narrated values — are the teaching voice;
+  the word "banana" is seeded 5× across `basics`/`servers` for the `/` filter-highlight demo.
+  The JSON sample now deliberately carries comments (JSONC), which fires the host's
+  comment-advisory underline **and** still resolves the `$schema` hint (`schema/hints.rs`
+  detects through the JSONC-aware parser) — the E-2 no-dropped-notice repro shape.
+  `schema.advanced` ships collapsed-by-default with a schema-invalid seed so the collapsed
+  `schema` parent demos `has_descendant_violation` (E-3).
+- feat(web): `web/schema-sample.json` gains `$defs`/`$ref` (the `editor` enum now resolves
+  through `#/$defs/editorName`, surfacing a schema `description`), a `multipleOf`-bounded
+  `poll_ms` with a description, and a new `pattern`-constrained `schema.advanced.retry_pattern`
+  (seeded invalid: `"abc"`) — 3 seeded violations across 3 constraint kinds, all demoed on the
+  collapsed `schema.advanced` branch.
+- feat(about): the About panel now linkifies **every** URL (`help-content.ts` regex widened to
+  global) and `ABOUT_TEXT`/`ABOUT_TEXT_ZH_TW` gain four resource lines — Live demo, VS Code
+  Marketplace, Open VSX, MS Store — so all hosts (TUI/web/touch/Tauri/VS Code) show clickable
+  links; README's Desktop-app Windows bullet gains the Microsoft Store link.
+
 ### Unreleased Update — 2026-09-02T10:35:00Z
 - refactor(tui,web): unified the `?` Help overlay's keymap content into a shared, i18n-driven Section/Row model (Navigation/Selection/Edit/File & App), grouping and two-columning what was an ad-hoc four-column TUI layout and a `·`-strung Web cheatsheet. New `help.section.*`/`help.row.*` catalog entries in `i18n/{en,zh-TW}.json` (119 keys) back both `crates/confy-tui/src/tui/keys.rs::help_sections` (rendered with `unicode-width`-aligned columns inside a now-padded popup, `Padding::new(2, 2, 1, 1)`, fixing the missing gap between border/title and content) and `web/help-content.ts` (rendered as a CSS grid, `.help-grid`/`.help-key`/`.help-desc`, replacing the old `<pre>` text blob and its 4 now-deleted `HELP_TEXT*` constants). Reflowed the 6 `web.help.legend.*` Kind-legend strings to one label/description pair per line. zh-TW wording tightened for the external-editor rows ("編輯器"/"強制開啟編輯器" replacing the looser "多行對話框"/"強制對話框"). `docs/reference/KEYMAP.md` gains "Help overlay parity" and "Editor (inline/external) parity" sections documenting the shared-row model, the VS Code variant split, and why the TUI/Web Kind-legend vocabularies stay intentionally un-unified. See `docs/superpowers/plans/2026-09-02-HELP_OVERLAY_PLAN.md`.
 

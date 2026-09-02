@@ -539,7 +539,9 @@ edits to the verbatim desktop CSS.
   `.app`, standard sheet chrome) via `ApplyReplace`/`ApplyEditComment` — the same handshake the
   desktop uses. Dismissing it (scrim/grab/×/Cancel) sends `Escape` to peel core's pending edit, so
   the sheet can't re-pop on the next render.
-- the initial sample document is the **same welcome sample as the desktop UI** (shared, build-stamped).
+- the initial sample document is the **same demo-tour sample as the desktop UI** (shared,
+  build-stamped): one backbone tree across all three formats plus a per-format `showcase`
+  branch of that format's exclusive notations — see `web/samples.ts`'s header comment.
 - **Keyboard shortcuts** (external/Bluetooth keyboard on a touch device): a `document.body`
   `keydown` listener (`onKey`) reuses desktop's `resolveKeyIntent` (`web/key-intent.ts`) verbatim,
   so the key→Intent map can't drift between surfaces. Guarded against a focused `INPUT`/

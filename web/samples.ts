@@ -1,23 +1,18 @@
 // Built-in demo doc + sample-mode state, shared by the desktop (ui.ts) and
 // touch (touch/app.ts) orchestrators so both surfaces boot the same tree.
 //
-// All three samples carry the *same* tree (identical keys/values). The
-// `[schema]` branch is pre-wired to `schema-sample.json` (served alongside
-// this bundle) via each format's own hint convention — TOML `#:schema`,
-// JSON root `$schema`, YAML's `yaml-language-server` modeline — so opening
-// any sample format immediately demos live constrained editing (`editor`'s
-// off-enum value opens the enum picker, whose `0` option is a deliberately
-// mixed-type member — picking it demos the type-change confirmation) and
-// (`editor` and `poll_ms` both start out schema-invalid on purpose). JSON
-// stays fully comment-free, unlike TOML/YAML (which keep two short inline
-// explainer comments on the `[schema]` rows): `detect_json`'s hint scan
-// requires strict JSON, so a single stray `//` comment anywhere in the
-// document would silently block detection — this is also why the former
-// leading-comment welcome banner and the `lossless` field's trailing note
-// are now real tree data (`[welcome]`, `about.round_trip`) instead of
-// comments, keeping the tree genuinely identical across all three formats.
-// The pill cycles these while the doc is the unsaved sample (`sampleMode`);
-// opening or saving a real file leaves sample mode and freezes it.
+// One backbone tree across all three formats (about/basics/servers/types/
+// schema/links — identical keys/values) plus a per-format `showcase` branch
+// of that format's exclusive notations (TOML dotted/AoT/radix/datetime; JSON
+// comments/null/multiline array; YAML flow/block-scalar/anchor). Comments,
+// not narrated values, are the teaching voice. The JSON sample's `//`
+// comments are deliberate: JSONC is legal, fires the host's comment
+// advisory, and still resolves the `$schema` hint (schema/hints.rs detects
+// through the JSONC-aware parser). `[schema]` is pre-wired to
+// schema-sample.json; `schema.advanced` ships collapsed on purpose so the
+// collapsed parent demos has_descendant_violation. The pill cycles these
+// while the doc is the unsaved sample (`sampleMode`); opening or saving a
+// real file leaves sample mode and freezes it.
 
 // Workspace version stamped in at build time (see `build.mjs` `define`); falls
 // back to "dev" when the bundle is loaded without that define (e.g. raw serve).
@@ -37,101 +32,226 @@ export type SampleFormat = "toml" | "json" | "yaml";
 export const SAMPLES: Record<SampleFormat, string> = {
   toml: `#:schema ${SCHEMA_SAMPLE_URL}
 
-[welcome]
-greeting = "👋 Welcome to confy — a lossless editor for TOML · JSON · YAML"
-tips = "Click a row to select · drag the ⠿ grip to reparent · ⌘S to save"
-
+# the demo tour — every section teaches one trick
 [about]
+# lossless: untouched bytes round-trip byte-for-byte, comments included
 name = "confy"
 pitch = "Three config dialects, one tidy tree 🌳"
 version = "${APP_VERSION}"
+homepage = "https://github.com/superyngo/confy"
 lossless = true
-round_trip = "untouched bytes round-trip byte-for-byte"
+round_trip = true
 
 [basics]
-select = ["click = one", "shift-click = range", "cmd-click = toggle"]
-add_child = "hover a branch, hit the ＋"
-undo_redo = "z and y — we all fat-finger 🙃"
+# click = select · shift-click = range · ⌘-click = add to selection
+select = "click"
+# hover a branch and hit ＋ to add a child
+add_child = true
+# z undoes, y redoes
+undo_redo = true
+# values are searchable too — try / banana
+filter_me = "banana"
 
-[formats]
-toml = "tables, dotted keys, datetimes"
-json = "// comments quietly upgrade it to JSONC"
-yaml = "block + flow, plain-where-safe"
+# two identical siblings: drag the ⠿ grip to reparent · ⌘-click both hosts to multi-select
+# try / then type banana — matches light up everywhere, not just here
+[servers]
 
-[fun]
-emoji_welcome = true
-brackets_collected = ["{ }", "[ ]", "< >"]
-coffees_per_config = 3
+[servers.primary]
+host = "banana.example.com"
+port = 8080
+tags = ["prod", "banana"]
+
+[servers.replica]
+host = "banana-replica.example.com"
+port = 8081
+tags = ["standby", "banana"]
+
+[types]
+# press f for the type filter — tick Bool to isolate flag
+flag = true
+label = "plain"
+ratio = 0.75
+count = 42
+# TOML has no null — see JSON or YAML for this one
 
 [schema]
-editor = "sublime"    # not in the schema's enum — edit this row to see the picker (pick "0" for a type-change confirm)
+# these values break the schema on purpose — watch the violation markers
+editor = "sublime"    # not in the enum — edit this row to open the picker (pick 0 for a type-change confirm)
 poll_ms = 253          # multiple of 5, 100-2000 — try ← / → to see it snap
+
+# advanced ships collapsed — schema shows its violation marker anyway
+[schema.advanced]
+retry_pattern = "abc"    # the schema wants digits and commas — this fails on purpose
+
+[links]
+# can't click these in the tree — paste into a browser, or open ? → About for clickable links
+repo = "https://github.com/superyngo/confy"
+live_demo = "https://confy.turkeyang.net/"
+vscode_marketplace = "https://marketplace.visualstudio.com/items?itemName=wenanlin.confy-vscode"
+open_vsx = "https://open-vsx.org/extension/wenanlin/confy-vscode"
+ms_store = "https://apps.microsoft.com/detail/9PLCJGQ3C654"
+
+[showcase]
+# TOML-only notations — try K on each row
+dotted.nested.value = "dotted keys nest into synthetic tables"
+hex = 0xFF
+octal = 0o17
+binary = 0b1010
+sci = 6.02e23
+inf = inf
+created = 1979-05-27T07:32:00Z    # a datetime — converting (C) to JSON/YAML warns about it
+
+[[showcase.log]]
+event = "started"
+
+[[showcase.log]]
+event = "finished"
 `,
   json: `{
   "$schema": "${SCHEMA_SAMPLE_URL}",
-  "welcome": {
-    "greeting": "👋 Welcome to confy — a lossless editor for TOML · JSON · YAML",
-    "tips": "Click a row to select · drag the ⠿ grip to reparent · ⌘S to save"
-  },
+  // yes, this is valid JSON — confy reads the comments and flags them for you
   "about": {
+    // lossless: untouched bytes round-trip byte-for-byte, comments included
     "name": "confy",
     "pitch": "Three config dialects, one tidy tree 🌳",
     "version": "${APP_VERSION}",
+    "homepage": "https://github.com/superyngo/confy",
     "lossless": true,
-    "round_trip": "untouched bytes round-trip byte-for-byte"
+    "round_trip": true
   },
   "basics": {
-    "select": ["click = one", "shift-click = range", "cmd-click = toggle"],
-    "add_child": "hover a branch, hit the ＋",
-    "undo_redo": "z and y — we all fat-finger 🙃"
+    // click = select · shift-click = range · ⌘-click = add to selection
+    "select": "click",
+    // hover a branch and hit ＋ to add a child
+    "add_child": true,
+    // z undoes, y redoes
+    "undo_redo": true,
+    // values are searchable too — try / banana
+    "filter_me": "banana"
   },
-  "formats": {
-    "toml": "tables, dotted keys, datetimes",
-    "json": "// comments quietly upgrade it to JSONC",
-    "yaml": "block + flow, plain-where-safe"
+  "servers": {
+    // two identical siblings: drag the ⠿ grip to reparent · ⌘-click both hosts to multi-select
+    // try / then type banana — matches light up everywhere, not just here
+    "primary": {
+      "host": "banana.example.com",
+      "port": 8080,
+      "tags": ["prod", "banana"]
+    },
+    "replica": {
+      "host": "banana-replica.example.com",
+      "port": 8081,
+      "tags": ["standby", "banana"]
+    }
   },
-  "fun": {
-    "emoji_welcome": true,
-    "brackets_collected": ["{ }", "[ ]", "< >"],
-    "coffees_per_config": 3
+  "types": {
+    // press f for the type filter — tick Bool + Null to isolate these two
+    "flag": true,
+    "nothing": null,
+    "label": "plain",
+    "ratio": 0.75,
+    "count": 42
   },
   "schema": {
+    // these values break the schema on purpose — watch the violation markers
     "editor": "sublime",
-    "poll_ms": 253
+    "poll_ms": 253,
+    // advanced ships collapsed — schema shows its violation marker anyway
+    "advanced": {
+      // the schema wants digits and commas — this fails on purpose
+      "retry_pattern": "abc"
+    }
+  },
+  "links": {
+    // can't click these in the tree — paste into a browser, or open ? → About for clickable links
+    "repo": "https://github.com/superyngo/confy",
+    "live_demo": "https://confy.turkeyang.net/",
+    "vscode_marketplace": "https://marketplace.visualstudio.com/items?itemName=wenanlin.confy-vscode",
+    "open_vsx": "https://open-vsx.org/extension/wenanlin/confy-vscode",
+    "ms_store": "https://apps.microsoft.com/detail/9PLCJGQ3C654"
+  },
+  "showcase": {
+    // JSON's own party trick: comments. Yes, in a .json file. We know.
+    "empty": null,
+    "sci": 6.02e23,
+    "log": [
+      { "event": "started" },
+      { "event": "finished" }
+    ]
   }
 }
 `,
   yaml: `# yaml-language-server: $schema=${SCHEMA_SAMPLE_URL}
 
-welcome:
-  greeting: 👋 Welcome to confy — a lossless editor for TOML · JSON · YAML
-  tips: Click a row to select · drag the ⠿ grip to reparent · ⌘S to save
-
+# the demo tour — every section teaches one trick
 about:
+  # lossless: untouched bytes round-trip byte-for-byte, comments included
   name: confy
   pitch: Three config dialects, one tidy tree 🌳
   version: "${APP_VERSION}"
+  homepage: https://github.com/superyngo/confy
   lossless: true
-  round_trip: untouched bytes round-trip byte-for-byte
+  round_trip: true
 
 basics:
-  select: ["click = one", "shift-click = range", "cmd-click = toggle"]
-  add_child: hover a branch, hit the ＋
-  undo_redo: z and y — we all fat-finger 🙃
+  # click = select · shift-click = range · ⌘-click = add to selection
+  select: click
+  # hover a branch and hit ＋ to add a child
+  add_child: true
+  # z undoes, y redoes
+  undo_redo: true
+  # values are searchable too — try / banana
+  filter_me: banana
 
-formats:
-  toml: tables, dotted keys, datetimes
-  json: "// comments quietly upgrade it to JSONC"
-  yaml: block + flow, plain-where-safe
+# two identical siblings: drag the ⠿ grip to reparent · ⌘-click both hosts to multi-select
+# try / then type banana — matches light up everywhere, not just here
+servers:
+  primary:
+    host: banana.example.com
+    port: 8080
+    tags: [prod, banana]
+  replica:
+    host: banana-replica.example.com
+    port: 8081
+    tags: [standby, banana]
 
-fun:
-  emoji_welcome: true
-  brackets_collected: ["{ }", "[ ]", "< >"]
-  coffees_per_config: 3
+types:
+  # press f for the type filter — tick Bool + Null to isolate these two
+  flag: true
+  nothing: null
+  label: plain
+  ratio: 0.75
+  count: 42
 
 schema:
-  editor: sublime        # not in the schema's enum — edit this row to see the picker (pick "0" for a type-change confirm)
-  poll_ms: 253            # multiple of 5, 100-2000 — try ← / → to see it snap
+  # these values break the schema on purpose — watch the violation markers
+  editor: sublime
+  poll_ms: 253
+  # advanced ships collapsed — schema shows its violation marker anyway
+  advanced:
+    retry_pattern: "abc"    # the schema wants digits and commas — this fails on purpose
+
+links:
+  # can't click these in the tree — paste into a browser, or open ? → About for clickable links
+  repo: https://github.com/superyngo/confy
+  live_demo: https://confy.turkeyang.net/
+  vscode_marketplace: https://marketplace.visualstudio.com/items?itemName=wenanlin.confy-vscode
+  open_vsx: https://open-vsx.org/extension/wenanlin/confy-vscode
+  ms_store: https://apps.microsoft.com/detail/9PLCJGQ3C654
+
+showcase:
+  # YAML-only notations — try K on flow_seq; the last two rows are read-only
+  flow_seq: [a, b, c]          # a flow sequence — try K to convert it to block
+  block_map:
+    nested: true
+  literal: |
+    line one
+    line two
+  folded: >
+    this reflows
+    into one line
+  # anchors and aliases render read-only — these rows can't be edited, only viewed
+  pinned: &pin "confy"
+  alias_of_pinned: *pin
 `,
 };
 
