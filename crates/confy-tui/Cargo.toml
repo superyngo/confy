@@ -22,8 +22,8 @@ clap = { version = "4", features = ["derive"] }
 anyhow.workspace = true
 thiserror.workspace = true
 taplo.workspace = true            # app.rs project_first_label parses a TOML fragment
-ratatui = "0.28"
-crossterm = "0.28"
+ratatui = "0.30"
+crossterm = "0.29"
 fuzzy-matcher.workspace = true
 tempfile.workspace = true        # $EDITOR scratch file (tui/editor.rs)
 dirs = "6"

@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-09-02T06:25:00Z
+- deps(tui): bump `ratatui` 0.28 → 0.30 and `crossterm` 0.28 → 0.29. Clears the two `unsound`
+  advisories `cargo audit` raised through ratatui's old `lru 0.12` (RUSTSEC-2026-0253,
+  RUSTSEC-2026-0002) and the unmaintained `paste`; the remaining 17 warnings are all GTK/unic
+  crates behind Tauri on Linux, which confy doesn't target.
+- build: track `Cargo.lock` (removed from `.gitignore`). The workspace ships binaries (`confy`,
+  the Tauri app), so the lockfile is what makes release builds reproducible and what
+  `rust-ci.yml`'s `cargo audit` step actually audits — previously it audited a fresh resolution
+  on every run. `web/` and `editors/vscode/` already tracked their `package-lock.json`.
+
 ### Unreleased Update — 2026-09-02T06:10:00Z
 - style(rust): `cargo fmt` pass over `tui/keys.rs` + `session/session.rs` — the Help overlay
   refactor (`811e5b6`) landed unformatted, so `rust-ci.yml`'s `cargo fmt --check` gate was red.
