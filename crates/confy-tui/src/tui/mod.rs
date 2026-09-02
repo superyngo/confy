@@ -119,6 +119,20 @@ pub fn run(
     result
 }
 
+/// Wipe the screen and force the next `draw` to repaint every cell — used after
+/// an `$EDITOR` round trip, when the alternate screen has been torn down and
+/// re-entered. Deliberately `resize` rather than `Terminal::clear`: since
+/// ratatui 0.30 `clear` first queries the cursor position (a DSR round trip),
+/// which errors out after a 2 s wait on terminals/PTYs that don't answer it —
+/// a cosmetic clear must never abort the session.
+fn full_redraw(
+    terminal: &mut ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>,
+) -> Result<()> {
+    let size = terminal.size()?;
+    terminal.resize(ratatui::layout::Rect::new(0, 0, size.width, size.height))?;
+    Ok(())
+}
+
 fn run_event_loop(
     terminal: &mut ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>,
     app: &mut app::App,
@@ -629,7 +643,7 @@ fn run_event_loop(
                         app.edit_node();
                         let _ = execute!(terminal.backend_mut(), EnterAlternateScreen);
                         let _ = enable_raw_mode();
-                        terminal.clear()?;
+                        full_redraw(terminal)?;
                     }
                 }
                 keys::KeyAction::EditExternal => {
@@ -647,7 +661,7 @@ fn run_event_loop(
                     app.edit_node();
                     let _ = execute!(terminal.backend_mut(), EnterAlternateScreen);
                     let _ = enable_raw_mode();
-                    terminal.clear()?;
+                    full_redraw(terminal)?;
                 }
                 keys::KeyAction::AddNode => app.add_node(),
                 keys::KeyAction::IncValue => app.nudge(1),

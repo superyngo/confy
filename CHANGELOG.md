@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-09-02T06:55:00Z
+- fix(tui): `$EDITOR` is now shell-split (`shell-words`), so values carrying flags —
+  `EDITOR="code --wait"`, `"emacsclient -t"` — launch instead of failing with
+  "launching editor: code --wait"; an empty `$EDITOR` falls through to `$VISUAL`/`vi`. The
+  scratch file now carries the open document's extension (`.json`/`.yaml`, not always `.toml`)
+  so the editor applies the right syntax mode.
+- fix(tui): after an external edit the screen is repainted via `Terminal::resize` instead of
+  `Terminal::clear` — ratatui 0.30's `clear` first queries the cursor position, which aborted the
+  whole session ("cursor position could not be read") on PTYs that don't answer DSR. Verified on
+  the real binary under a supervised PTY: the `E` round trip now returns to the tree with the
+  edited rows.
+- test(tui): the three tests that mutate `$EDITOR` share a `parking_lot` mutex
+  (`editor::tests::ENV_LOCK`) — they raced under the parallel test runner.
+
 ### Unreleased Update — 2026-09-02T06:25:00Z
 - deps(tui): bump `ratatui` 0.28 → 0.30 and `crossterm` 0.28 → 0.29. Clears the two `unsound`
   advisories `cargo audit` raised through ratatui's old `lru 0.12` (RUSTSEC-2026-0253,

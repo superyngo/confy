@@ -55,7 +55,12 @@ grouping when the original had it. `edit_node` truncates the path only at the fi
 whose container is a real `Array` (editing the whole array there); AoT-entry indices and the
 keys below them are kept and addressed directly. A `$EDITOR` fragment starts at the node's own
 header/value line — an adjacent standalone comment is an independent node and is never part of
-the fragment. TOML has no null, so there is no clear-value operation. **`a` (add)** adds a
+the fragment. The editor command comes from `$EDITOR`, then `$VISUAL`, then `vi` (`notepad` on
+Windows); it is shell-split (`tui/editor.rs`, `shell-words`) so `EDITOR="code --wait"` works, and
+the scratch file carries the document's own extension (`.toml`/`.json`/`.yaml`) so the editor
+picks the right syntax mode. On return the event loop repaints via `full_redraw` (a query-free
+`Terminal::resize`, not `Terminal::clear`, which since ratatui 0.30 issues a cursor-position query
+that non-answering PTYs time out on). TOML has no null, so there is no clear-value operation. **`a` (add)** adds a
 **next sibling of the cursor's own kind** in the cursor's scope — a scalar (empty string, opened
 in the inline editor) beside a scalar, an empty container beside a container (`[]`/`{}`, or a TOML
 `[table]`/`[[aot]]` header, named `placeholder`), and another standalone comment beside a comment

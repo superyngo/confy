@@ -26,6 +26,7 @@ ratatui = "0.30"
 crossterm = "0.29"
 fuzzy-matcher.workspace = true
 tempfile.workspace = true        # $EDITOR scratch file (tui/editor.rs)
+shell-words = "1"                # $EDITOR flag splitting (tui/editor.rs)
 dirs = "6"
 unicode-width = "0.2"            # display-width padding for CJK-safe alignment (i18n Phase 2)
 
@@ -33,3 +34,4 @@ unicode-width = "0.2"            # display-width padding for CJK-safe alignment 
 assert_cmd = "2"
 predicates = "3"
 tempfile.workspace = true
+parking_lot = "0.12"             # serializes the $EDITOR-mutating tests (tui/editor.rs)

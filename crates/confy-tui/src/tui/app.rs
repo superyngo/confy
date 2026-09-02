@@ -674,18 +674,19 @@ impl App {
                         return;
                     }
                     let initial = format!("{fragment}\n");
-                    let edited = match crate::tui::editor::edit_text(&initial) {
-                        Ok(t) => t,
-                        Err(e) => {
-                            self.session
-                                .dispatch(confy_core::session::Intent::SetHostNotice {
-                                    key: "tui.host.editor-error".to_string(),
-                                    args: vec![e.to_string()],
-                                    source: confy_core::session::notice::NoticeSource::HostTui,
-                                });
-                            return;
-                        }
-                    };
+                    let edited =
+                        match crate::tui::editor::edit_text(&initial, self.session.doc_format()) {
+                            Ok(t) => t,
+                            Err(e) => {
+                                self.session
+                                    .dispatch(confy_core::session::Intent::SetHostNotice {
+                                        key: "tui.host.editor-error".to_string(),
+                                        args: vec![e.to_string()],
+                                        source: confy_core::session::notice::NoticeSource::HostTui,
+                                    });
+                                return;
+                            }
+                        };
                     // Unmodified buffer = quit without saving: cancel instead
                     // of splicing the text back (which would dirty the doc).
                     if edited == initial {
@@ -701,7 +702,7 @@ impl App {
             Some(d) => d.serialize_fragment(&path),
             None => return,
         };
-        let edited = match crate::tui::editor::edit_text(&fragment) {
+        let edited = match crate::tui::editor::edit_text(&fragment, self.session.doc_format()) {
             Ok(t) => t,
             Err(e) => {
                 self.session
@@ -740,7 +741,7 @@ impl App {
                 return;
             }
             let initial = format!("{fragment}\n");
-            let edited = match crate::tui::editor::edit_text(&initial) {
+            let edited = match crate::tui::editor::edit_text(&initial, self.session.doc_format()) {
                 Ok(t) => t,
                 Err(e) => {
                     self.session
@@ -760,7 +761,7 @@ impl App {
             self.apply_edit_comment(pending.path, edited);
             return;
         }
-        let edited = match crate::tui::editor::edit_text(&fragment) {
+        let edited = match crate::tui::editor::edit_text(&fragment, self.session.doc_format()) {
             Ok(t) => t,
             Err(e) => {
                 self.session

@@ -699,6 +699,7 @@ fn edit_node_comment_unmodified_editor_is_a_noop() {
     app.rebuild_rows();
     let ci = comment_row(&app);
     app.session.cursor = app.rows[ci].path.clone();
+    let _g = crate::tui::editor::tests::ENV_LOCK.lock();
     let script = tempfile::Builder::new().suffix(".sh").tempfile().unwrap();
     std::fs::write(script.path(), "#!/bin/sh\nexit 0\n").unwrap();
     use std::os::unix::fs::PermissionsExt;
