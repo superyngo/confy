@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-09-02T09:45:00Z
+- docs(claude): refresh the module map against the tree. Adds the 16 source files it had
+  drifted past — `session/action_menu.rs`, `session/add_picker.rs`,
+  `tui/overlay_action_menu.rs`, `tui/overlay_add_picker.rs`, and the shared web modules
+  `host-io.ts`, `key-intent.ts`, `mode.ts`, `escape.ts`, `kind-labels.ts`, `samples.ts`,
+  `help-content.ts`, `convert-dialog.ts`, `typefilter.ts`, `fab.ts`,
+  `action-menu-items.ts`/`add-picker-items.ts` — plus the new entry scripts, lists all three
+  `confy-tui/tests/` files (was only `convert_cli.rs`), and corrects the
+  `functional_smoke.mjs` check count (92 → 128).
+
 ### Unreleased Update — 2026-09-02T09:20:00Z
 - security(tauri): set a real `app.security.csp` (was `null`, i.e. no CSP at all) —
   `default-src 'self'`, `script-src 'self' 'wasm-unsafe-eval'`, `object-src 'none'`,

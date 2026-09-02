@@ -367,6 +367,11 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
                    escape, prompt-key dispatch, quit flow; plus free fns: node_type_label,
                    format_label
     clipboard.rs   cut/copy/paste + the paste collision/array-upgrade prompt sub-state-machine
+    action_menu.rs core-owned Action menu: one item list + open/cursor state, read by every host
+                   via `ModeView::ActionMenu` (ADR 0009) — replaces the desktop `⋮` popup, the
+                   detail panel's action row, and the FAB's add-only decision
+    add_picker.rs  `Mode::AddPicker`: the legal node kinds for the resolved insertion Target
+                   (filtered by parent kind/format), seeding the picked kind's default literal
     diag.rs        DiagLevel, DiagEvent (monotonic seq, kind, detail), DiagRing (bounded 256-event ring)
                    — see MESSAGES.md §4
     inline_edit.rs inline-editor buffer lifecycle (begin_inline_edit*/edit_*/edit_commit) +
@@ -399,7 +404,7 @@ crates/confy-core/tests/  roundtrip*.rs / yaml_scratch.rs + fixtures/ + no_fs_ga
 crates/confy-ffi/         Stage-2 WASM wrapper over confy-core (wasm-bindgen + serde-wasm-bindgen)
   src/lib.rs     ConfySession: from_text/dispatch/snapshot/serialize/visible_rows/kind_options
                  (the JS-facing handle; serde-wasm-bindgen marshals Intent/SessionSnapshot)
-  functional_smoke.mjs     node verification of the Intent→snapshot contract (92 checks)
+  functional_smoke.mjs     node verification of the Intent→snapshot contract (128 checks)
   (build: `wasm-pack build --target web`; getrandom wasm_js for the ahash-via-taplo chain)
 
 web/                       TypeScript integration + **web-native** UI (see WEBUI.md) — a
@@ -459,6 +464,25 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
   toolbar-fold.ts shared header/filter-row "⋯ More" fold registry (`foldedEntries`/
                  `ToolbarEntry`), used identically by `ui.ts` and `touch/app.ts` — button
                  inventory, fold breakpoints, and per-host trimming are in **CHROME.md**
+  host-io.ts     host-side I/O + theme flows shared by the two orchestrators (open/save/
+                 open-from-URL/theme), so `ui.ts` and `touch/app.ts` don't fork them
+  key-intent.ts  pure "which Intent does this (mode, key) pair mean" resolution — the single
+                 keymap source both orchestrators dispatch through (KEYMAP.md is its SSOT doc)
+  mode.ts        shared `modeTag()` helper over the `ModeView` union
+  escape.ts      the one HTML escaper (`escapeHtml`/`escapeAttr`) every render module uses
+  kind-labels.ts shared `ViewRow` lookups/predicates (value-hue labels, row-anatomy helpers)
+  samples.ts     built-in demo doc + sample-mode state (shared backbone tree + per-format
+                 showcase branch); `schema-sample.json` is its `$schema` target
+  help-content.ts shared Help/About/KIND-legend body for the Help overlay (all web hosts)
+  convert-dialog.ts shared Save/Convert dialog, rendered identically desktop + touch
+  typefilter.ts  shared `f` type-filter facet grid (same markup/wiring on both hosts)
+  fab.ts         shared floating "actions / paste" button (FAB) behavior + markup
+  action-menu-items.ts / add-picker-items.ts  shared item rendering for `Mode::ActionMenu` /
+                 `Mode::AddPicker`, so the desktop popup and the touch sheet stay identical
+  entry-desktop.js / entry-touch.js / register-sw.js  the per-entry boot scripts (pointer-based
+                 desktop↔touch router; https-only service-worker registration). **External
+                 files, never inline `<script>`** — the Tauri shell's CSP forbids inline script;
+                 new ones must be added to `assemble-dist.mjs`'s copy list (TAURI.md §CSP)
   index.html / style.css (design `<style>` **verbatim** + a fenced app-only appendix; dark+light
                  via :root[data-theme]; header/filter-row button layout — see CHROME.md) /
                  build.mjs (esbuild) / serve.mjs / cf-build.sh
@@ -493,6 +517,8 @@ crates/confy-tui/src/    ratatui TUI + CLI; depends on confy-core, `pub use conf
     ui.rs          ratatui rendering: title bar + NAME/TYPE/VALUE column header + tree Table;
                    popup rendering itself was split out into the overlay_*.rs siblings below
                    (Task 10, 2026-08-11 audit remediation — pure code motion)
+    overlay_action_menu.rs  the Action menu popup (`Mode::ActionMenu`, ADR 0009)
+    overlay_add_picker.rs   the `a` Add-type picker popup (`Mode::AddPicker`)
     overlay_convert.rs      the `C` convert-document popup
     overlay_detail.rs       the `i` Detail popup (+ appended Schema: violations section)
     overlay_diag.rs         the `~` read-only diag ring overlay
