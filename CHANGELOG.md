@@ -8,7 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Unreleased Update - 2026-09-02
+## [v1.0.1] - 2026-09-02
+
+**Deployment fix release.** No functional change to the editor itself; the release exists to
+publish a corrected web deployment (the hosted site's build output was missing three boot
+scripts).
+
+### Fixed
 
 - fix(web): `web/cf-build.sh` no longer wipes and re-copies `web/dist` with its own stale file
   list. `node build.mjs` already runs `web/assemble-dist.mjs` (the single source of truth for the

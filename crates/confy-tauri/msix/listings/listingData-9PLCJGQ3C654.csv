@@ -252,161 +252,63 @@ Confy 為開源軟體（MIT 授權），專為每天處理設定檔、希望精�
 • 完全離線運作——無遙測、不收集資料、不需帳戶
 
 Confy 為開源軟體（MIT 授權），專為每天處理設定檔、希望精確且安全地編輯而無需手寫文字差異的開發者而設計。"
-ReleaseNotes,3,Text,,"What's new in 1.0.0
+ReleaseNotes,3,Text,,"What's new in 1.0.1
 
-Confy reaches its first stable 1.0.0 release across the desktop app, terminal (TUI), and VS Code extension.
+A deployment fix release — no change to the editor itself.
 
-• New: numeric nudge (arrows / mouse wheel / touch swipe) now steps along a JSON Schema's multipleOf grid instead of freezing on constrained values.
-• New: built-in samples rewritten around a shared showcase tree spanning TOML/JSON/YAML.
-• Changed: unified Help overlay shares the same keyboard-shortcut reference across desktop and terminal.
-• Security: Content Security Policy enabled for the desktop app.
-• Fixed: a YAML anchor/alias no longer hides schema violations elsewhere in the file.
-• Fixed: files with a UTF-8 BOM load correctly again; saves are now atomic (crash-safe).
-• Fixed: confy convert no longer silently overwrites an existing file.
-• Fixed: deeply nested documents are rejected safely instead of crashing.","1.0.0 版更新内容
+• Fixed: the hosted web build no longer ships without its boot scripts, so a phone or tablet opening the site is routed to the touch UI again and the installable/offline web app registers its service worker.","1.0.1 版更新内容
 
-Confy 正式发布 1.0.0 版本——桌面应用、终端（TUI）与 VS Code 扩展全线达成稳定版。
+本次为部署修复版本，编辑器功能没有变化。
 
-• 新增：数字加减（方向键/滚轮/触控滑动）现会依循 JSON Schema 的 multipleOf 级距移动，不再于受限值上卡住。
-• 新增：内置示例改写为跨 TOML/JSON/YAML 的共享展示树。
-• 变更：桌面版与终端版的说明面板统一为同一套快捷键参照。
-• 安全性：桌面应用启用内容安全策略（CSP）。
-• 修复：YAML 锚点/别名不再遮蔽文件中其他节点的 schema 违规提示。
-• 修复：含 BOM 的文件现可正确载入；保存改为原子写入，避免崩溃损坏文件。
-• 修复：confy convert 不再默默覆盖已存在的目标文件。
-• 修复：过深的嵌套结构会安全地被拒绝，而非导致程序崩溃。","1.0.0 版更新內容
+• 修复：网页版的构建输出不再遗漏启动脚本，手机或平板开启网站会再次自动进入触控界面，可安装/离线使用的网页应用也会正常注册 service worker。","1.0.1 版更新內容
 
-Confy 正式發布 1.0.0 版本——桌面應用、終端機（TUI）與 VS Code 擴充功能全線達成穩定版。
+本次為部署修復版本，編輯器功能沒有變化。
 
-• 新增：數字加減（方向鍵/滾輪/觸控滑動）現會依循 JSON Schema 的 multipleOf 級距移動，不再於受限值上卡住。
-• 新增：內建範例改寫為跨 TOML/JSON/YAML 的共用展示樹。
-• 變更：桌面版與終端機版的說明面板統一為同一套快捷鍵參照。
-• 安全性：桌面應用啟用內容安全策略（CSP）。
-• 修復：YAML 錨點/別名不再遮蔽檔案中其他節點的 schema 違規提示。
-• 修復：含 BOM 的檔案現可正確載入；儲存改為原子寫入，避免當機損毀檔案。
-• 修復：confy convert 不再默默覆蓋已存在的目標檔案。
-• 修復：過深的巢狀結構會安全地被拒絕，而非導致程式當機。","1.0.0 版更新内容
+• 修復：網頁版的建置輸出不再遺漏啟動腳本，手機或平板開啟網站會再次自動進入觸控介面，可安裝／離線使用的網頁應用也會正常註冊 service worker。","1.0.1 版更新内容
 
-Confy 正式发布 1.0.0 版本——桌面应用、终端（TUI）与 VS Code 扩展全线达成稳定版。
+本次为部署修复版本，编辑器功能没有变化。
 
-• 新增：数字加减（方向键/滚轮/触控滑动）现会依循 JSON Schema 的 multipleOf 级距移动，不再于受限值上卡住。
-• 新增：内置示例改写为跨 TOML/JSON/YAML 的共享展示树。
-• 变更：桌面版与终端版的说明面板统一为同一套快捷键参照。
-• 安全性：桌面应用启用内容安全策略（CSP）。
-• 修复：YAML 锚点/别名不再遮蔽文件中其他节点的 schema 违规提示。
-• 修复：含 BOM 的文件现可正确载入；保存改为原子写入，避免崩溃损坏文件。
-• 修复：confy convert 不再默默覆盖已存在的目标文件。
-• 修复：过深的嵌套结构会安全地被拒绝，而非导致程序崩溃。","1.0.0 版更新内容
+• 修复：网页版的构建输出不再遗漏启动脚本，手机或平板开启网站会再次自动进入触控界面，可安装/离线使用的网页应用也会正常注册 service worker。","1.0.1 版更新内容
 
-Confy 正式发布 1.0.0 版本——桌面应用、终端（TUI）与 VS Code 扩展全线达成稳定版。
+本次为部署修复版本，编辑器功能没有变化。
 
-• 新增：数字加减（方向键/滚轮/触控滑动）现会依循 JSON Schema 的 multipleOf 级距移动，不再于受限值上卡住。
-• 新增：内置示例改写为跨 TOML/JSON/YAML 的共享展示树。
-• 变更：桌面版与终端版的说明面板统一为同一套快捷键参照。
-• 安全性：桌面应用启用内容安全策略（CSP）。
-• 修复：YAML 锚点/别名不再遮蔽文件中其他节点的 schema 违规提示。
-• 修复：含 BOM 的文件现可正确载入；保存改为原子写入，避免崩溃损坏文件。
-• 修复：confy convert 不再默默覆盖已存在的目标文件。
-• 修复：过深的嵌套结构会安全地被拒绝，而非导致程序崩溃。","1.0.0 版更新內容
+• 修复：网页版的构建输出不再遗漏启动脚本，手机或平板开启网站会再次自动进入触控界面，可安装/离线使用的网页应用也会正常注册 service worker。","1.0.1 版更新內容
 
-Confy 正式發布 1.0.0 版本——桌面應用、終端機（TUI）與 VS Code 擴充功能全線達成穩定版。
+本次為部署修復版本，編輯器功能沒有變化。
 
-• 新增：數字加減（方向鍵/滾輪/觸控滑動）現會依循 JSON Schema 的 multipleOf 級距移動，不再於受限值上卡住。
-• 新增：內建範例改寫為跨 TOML/JSON/YAML 的共用展示樹。
-• 變更：桌面版與終端機版的說明面板統一為同一套快捷鍵參照。
-• 安全性：桌面應用啟用內容安全策略（CSP）。
-• 修復：YAML 錨點/別名不再遮蔽檔案中其他節點的 schema 違規提示。
-• 修復：含 BOM 的檔案現可正確載入；儲存改為原子寫入，避免當機損毀檔案。
-• 修復：confy convert 不再默默覆蓋已存在的目標檔案。
-• 修復：過深的巢狀結構會安全地被拒絕，而非導致程式當機。","1.0.0 版更新內容
+• 修復：網頁版的建置輸出不再遺漏啟動腳本，手機或平板開啟網站會再次自動進入觸控介面，可安裝／離線使用的網頁應用也會正常註冊 service worker。","1.0.1 版更新內容
 
-Confy 正式發布 1.0.0 版本——桌面應用、終端機（TUI）與 VS Code 擴充功能全線達成穩定版。
+本次為部署修復版本，編輯器功能沒有變化。
 
-• 新增：數字加減（方向鍵/滾輪/觸控滑動）現會依循 JSON Schema 的 multipleOf 級距移動，不再於受限值上卡住。
-• 新增：內建範例改寫為跨 TOML/JSON/YAML 的共用展示樹。
-• 變更：桌面版與終端機版的說明面板統一為同一套快捷鍵參照。
-• 安全性：桌面應用啟用內容安全策略（CSP）。
-• 修復：YAML 錨點/別名不再遮蔽檔案中其他節點的 schema 違規提示。
-• 修復：含 BOM 的檔案現可正確載入；儲存改為原子寫入，避免當機損毀檔案。
-• 修復：confy convert 不再默默覆蓋已存在的目標檔案。
-• 修復：過深的巢狀結構會安全地被拒絕，而非導致程式當機。","1.0.0 版更新内容
+• 修復：網頁版的建置輸出不再遺漏啟動腳本，手機或平板開啟網站會再次自動進入觸控介面，可安裝／離線使用的網頁應用也會正常註冊 service worker。","1.0.1 版更新内容
 
-Confy 正式发布 1.0.0 版本——桌面应用、终端（TUI）与 VS Code 扩展全线达成稳定版。
+本次为部署修复版本，编辑器功能没有变化。
 
-• 新增：数字加减（方向键/滚轮/触控滑动）现会依循 JSON Schema 的 multipleOf 级距移动，不再于受限值上卡住。
-• 新增：内置示例改写为跨 TOML/JSON/YAML 的共享展示树。
-• 变更：桌面版与终端版的说明面板统一为同一套快捷键参照。
-• 安全性：桌面应用启用内容安全策略（CSP）。
-• 修复：YAML 锚点/别名不再遮蔽文件中其他节点的 schema 违规提示。
-• 修复：含 BOM 的文件现可正确载入；保存改为原子写入，避免崩溃损坏文件。
-• 修复：confy convert 不再默默覆盖已存在的目标文件。
-• 修复：过深的嵌套结构会安全地被拒绝，而非导致程序崩溃。","1.0.0 版更新内容
+• 修复：网页版的构建输出不再遗漏启动脚本，手机或平板开启网站会再次自动进入触控界面，可安装/离线使用的网页应用也会正常注册 service worker。","1.0.1 版更新内容
 
-Confy 正式发布 1.0.0 版本——桌面应用、终端（TUI）与 VS Code 扩展全线达成稳定版。
+本次为部署修复版本，编辑器功能没有变化。
 
-• 新增：数字加减（方向键/滚轮/触控滑动）现会依循 JSON Schema 的 multipleOf 级距移动，不再于受限值上卡住。
-• 新增：内置示例改写为跨 TOML/JSON/YAML 的共享展示树。
-• 变更：桌面版与终端版的说明面板统一为同一套快捷键参照。
-• 安全性：桌面应用启用内容安全策略（CSP）。
-• 修复：YAML 锚点/别名不再遮蔽文件中其他节点的 schema 违规提示。
-• 修复：含 BOM 的文件现可正确载入；保存改为原子写入，避免崩溃损坏文件。
-• 修复：confy convert 不再默默覆盖已存在的目标文件。
-• 修复：过深的嵌套结构会安全地被拒绝，而非导致程序崩溃。","1.0.0 版更新内容
+• 修复：网页版的构建输出不再遗漏启动脚本，手机或平板开启网站会再次自动进入触控界面，可安装/离线使用的网页应用也会正常注册 service worker。","1.0.1 版更新内容
 
-Confy 正式发布 1.0.0 版本——桌面应用、终端（TUI）与 VS Code 扩展全线达成稳定版。
+本次为部署修复版本，编辑器功能没有变化。
 
-• 新增：数字加减（方向键/滚轮/触控滑动）现会依循 JSON Schema 的 multipleOf 级距移动，不再于受限值上卡住。
-• 新增：内置示例改写为跨 TOML/JSON/YAML 的共享展示树。
-• 变更：桌面版与终端版的说明面板统一为同一套快捷键参照。
-• 安全性：桌面应用启用内容安全策略（CSP）。
-• 修复：YAML 锚点/别名不再遮蔽文件中其他节点的 schema 违规提示。
-• 修复：含 BOM 的文件现可正确载入；保存改为原子写入，避免崩溃损坏文件。
-• 修复：confy convert 不再默默覆盖已存在的目标文件。
-• 修复：过深的嵌套结构会安全地被拒绝，而非导致程序崩溃。","1.0.0 版更新內容
+• 修复：网页版的构建输出不再遗漏启动脚本，手机或平板开启网站会再次自动进入触控界面，可安装/离线使用的网页应用也会正常注册 service worker。","1.0.1 版更新內容
 
-Confy 正式發布 1.0.0 版本——桌面應用、終端機（TUI）與 VS Code 擴充功能全線達成穩定版。
+本次為部署修復版本，編輯器功能沒有變化。
 
-• 新增：數字加減（方向鍵/滾輪/觸控滑動）現會依循 JSON Schema 的 multipleOf 級距移動，不再於受限值上卡住。
-• 新增：內建範例改寫為跨 TOML/JSON/YAML 的共用展示樹。
-• 變更：桌面版與終端機版的說明面板統一為同一套快捷鍵參照。
-• 安全性：桌面應用啟用內容安全策略（CSP）。
-• 修復：YAML 錨點/別名不再遮蔽檔案中其他節點的 schema 違規提示。
-• 修復：含 BOM 的檔案現可正確載入；儲存改為原子寫入，避免當機損毀檔案。
-• 修復：confy convert 不再默默覆蓋已存在的目標檔案。
-• 修復：過深的巢狀結構會安全地被拒絕，而非導致程式當機。","1.0.0 版更新內容
+• 修復：網頁版的建置輸出不再遺漏啟動腳本，手機或平板開啟網站會再次自動進入觸控介面，可安裝／離線使用的網頁應用也會正常註冊 service worker。","1.0.1 版更新內容
 
-Confy 正式發布 1.0.0 版本——桌面應用、終端機（TUI）與 VS Code 擴充功能全線達成穩定版。
+本次為部署修復版本，編輯器功能沒有變化。
 
-• 新增：數字加減（方向鍵/滾輪/觸控滑動）現會依循 JSON Schema 的 multipleOf 級距移動，不再於受限值上卡住。
-• 新增：內建範例改寫為跨 TOML/JSON/YAML 的共用展示樹。
-• 變更：桌面版與終端機版的說明面板統一為同一套快捷鍵參照。
-• 安全性：桌面應用啟用內容安全策略（CSP）。
-• 修復：YAML 錨點/別名不再遮蔽檔案中其他節點的 schema 違規提示。
-• 修復：含 BOM 的檔案現可正確載入；儲存改為原子寫入，避免當機損毀檔案。
-• 修復：confy convert 不再默默覆蓋已存在的目標檔案。
-• 修復：過深的巢狀結構會安全地被拒絕，而非導致程式當機。","1.0.0 版更新內容
+• 修復：網頁版的建置輸出不再遺漏啟動腳本，手機或平板開啟網站會再次自動進入觸控介面，可安裝／離線使用的網頁應用也會正常註冊 service worker。","1.0.1 版更新內容
 
-Confy 正式發布 1.0.0 版本——桌面應用、終端機（TUI）與 VS Code 擴充功能全線達成穩定版。
+本次為部署修復版本，編輯器功能沒有變化。
 
-• 新增：數字加減（方向鍵/滾輪/觸控滑動）現會依循 JSON Schema 的 multipleOf 級距移動，不再於受限值上卡住。
-• 新增：內建範例改寫為跨 TOML/JSON/YAML 的共用展示樹。
-• 變更：桌面版與終端機版的說明面板統一為同一套快捷鍵參照。
-• 安全性：桌面應用啟用內容安全策略（CSP）。
-• 修復：YAML 錨點/別名不再遮蔽檔案中其他節點的 schema 違規提示。
-• 修復：含 BOM 的檔案現可正確載入；儲存改為原子寫入，避免當機損毀檔案。
-• 修復：confy convert 不再默默覆蓋已存在的目標檔案。
-• 修復：過深的巢狀結構會安全地被拒絕，而非導致程式當機。","1.0.0 版更新內容
+• 修復：網頁版的建置輸出不再遺漏啟動腳本，手機或平板開啟網站會再次自動進入觸控介面，可安裝／離線使用的網頁應用也會正常註冊 service worker。","1.0.1 版更新內容
 
-Confy 正式發布 1.0.0 版本——桌面應用、終端機（TUI）與 VS Code 擴充功能全線達成穩定版。
+本次為部署修復版本，編輯器功能沒有變化。
 
-• 新增：數字加減（方向鍵/滾輪/觸控滑動）現會依循 JSON Schema 的 multipleOf 級距移動，不再於受限值上卡住。
-• 新增：內建範例改寫為跨 TOML/JSON/YAML 的共用展示樹。
-• 變更：桌面版與終端機版的說明面板統一為同一套快捷鍵參照。
-• 安全性：桌面應用啟用內容安全策略（CSP）。
-• 修復：YAML 錨點/別名不再遮蔽檔案中其他節點的 schema 違規提示。
-• 修復：含 BOM 的檔案現可正確載入；儲存改為原子寫入，避免當機損毀檔案。
-• 修復：confy convert 不再默默覆蓋已存在的目標檔案。
-• 修復：過深的巢狀結構會安全地被拒絕，而非導致程式當機。"
+• 修復：網頁版的建置輸出不再遺漏啟動腳本，手機或平板開啟網站會再次自動進入觸控介面，可安裝／離線使用的網頁應用也會正常註冊 service worker。"
 Title,4,Text,,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor
 ShortTitle,5,Text,,,,,,,,,,,,,,,
 SortTitle,6,Text,,,,,,,,,,,,,,,
