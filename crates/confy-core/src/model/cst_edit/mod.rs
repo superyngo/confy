@@ -56,6 +56,14 @@ use tree_nav::node_at;
 /// results back rather than recomputing them.
 pub(crate) fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<(SyntaxNode, String), MutateError> {
     let tree = syntax.clone_for_update();
+    // Fragments are user-authored text that every splice below re-parses
+    // through taplo; refuse pathological nesting up front (see
+    // `model::MAX_NESTING_DEPTH`) rather than letting taplo recurse into it.
+    if let Mutation::Replace { fragment, .. } | Mutation::Insert { fragment, .. } = &m {
+        if crate::model::bracket_depth_exceeds(fragment) {
+            return Err(MutateError::Fragment(crate::model::nesting_error()));
+        }
+    }
     let result = match m {
         Mutation::Replace {
             path,

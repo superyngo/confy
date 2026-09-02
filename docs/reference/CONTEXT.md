@@ -526,6 +526,14 @@ one parse per mutation, not two. KIND tags are the KIND-column vocabulary.
 
 **Known rough edge:** multiline-array element insert/delete spacing is not yet byte-perfect.
 
+**Nesting cap.** Every backend parses by recursive descent (TOML through taplo), so container
+nesting is capped at `model::MAX_NESTING_DEPTH` (256): deeper input is a `ParseError`
+("nesting deeper than 256 levels is not supported") at load, and a `MutateError::Fragment` for
+a whole-document `Replace`/`Insert` fragment — never a stack overflow. JSON and YAML count depth
+inside their own parsers (block *and* flow for YAML); TOML runs `bracket_depth_exceeds`, a
+string/comment-aware bracket pre-scan, before handing the text to taplo. Pinned by
+`crates/confy-core/tests/hostile_input.rs`.
+
 ## Kind switch (`K`) rules
 
 `Mutation::ConvertKind { path, target }` rewrites a node's kind/notation **in place**; targets come

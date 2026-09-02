@@ -300,6 +300,11 @@ impl CstDocument {
     // error, JSON's content-derived state on the sibling backend).
     #[allow(clippy::should_implement_trait)]
     pub fn from_str(text: &str) -> Result<Self, crate::model::document::ParseError> {
+        if crate::model::bracket_depth_exceeds(text) {
+            return Err(crate::model::document::ParseError::Toml(
+                crate::model::nesting_error(),
+            ));
+        }
         let parse = taplo::parser::parse(text);
         if let Some(err) = parse.errors.first() {
             return Err(crate::model::document::ParseError::Toml(err.to_string()));
@@ -327,6 +332,9 @@ impl CstDocument {
     /// Re-parse the document from a serialized snapshot string (undo/redo restore).
     /// Propagates a parse error rather than silently no-op'ing.
     pub fn replace_from_str(&mut self, s: &str) -> Result<(), MutateError> {
+        if crate::model::bracket_depth_exceeds(s) {
+            return Err(MutateError::Fragment(crate::model::nesting_error()));
+        }
         let parse = taplo::parser::parse(s);
         if let Some(e) = parse.errors.first() {
             return Err(MutateError::Fragment(e.to_string()));

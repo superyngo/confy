@@ -35,6 +35,7 @@ pub(crate) fn parse(src: &str) -> Result<GreenNode, String> {
         pos: 0,
         builder: GreenNodeBuilder::new(),
         error: None,
+        depth: 0,
     };
     p.builder.start_node(SyntaxKind::ROOT.into());
     p.skip_trivia_lines();
@@ -77,9 +78,30 @@ struct Parser {
     pos: usize,
     builder: GreenNodeBuilder<'static>,
     error: Option<String>,
+    /// Current container nesting (block + flow); capped at `MAX_NESTING_DEPTH`.
+    depth: usize,
 }
 
 impl Parser {
+    /// Enter one nesting level. On overflow records the error and drains every
+    /// remaining token so all enclosing loops terminate; returns `false` so the
+    /// caller skips its recursion.
+    fn enter(&mut self) -> bool {
+        if self.depth >= crate::model::MAX_NESTING_DEPTH {
+            if self.error.is_none() {
+                self.error = Some(crate::model::nesting_error());
+            }
+            while self.pos < self.tokens.len() {
+                self.bump();
+            }
+            return false;
+        }
+        self.depth += 1;
+        true
+    }
+    fn leave(&mut self) {
+        self.depth -= 1;
+    }
     fn get(&self, j: usize) -> Option<SyntaxKind> {
         self.tokens.get(j).map(|(k, _)| *k)
     }
@@ -248,6 +270,10 @@ impl Parser {
 
     fn parse_mapping(&mut self, indent: usize, first_inline: bool) {
         self.builder.start_node(SyntaxKind::MAPPING.into());
+        if !self.enter() {
+            self.builder.finish_node();
+            return;
+        }
         let mut first = first_inline;
         loop {
             if !first {
@@ -264,6 +290,7 @@ impl Parser {
             }
             first = false;
         }
+        self.leave();
         self.builder.finish_node();
     }
 
@@ -310,6 +337,10 @@ impl Parser {
 
     fn parse_sequence(&mut self, indent: usize, first_inline: bool) {
         self.builder.start_node(SyntaxKind::SEQUENCE.into());
+        if !self.enter() {
+            self.builder.finish_node();
+            return;
+        }
         let mut first = first_inline;
         loop {
             if !first {
@@ -322,6 +353,7 @@ impl Parser {
             self.parse_seq_entry(indent, first);
             first = false;
         }
+        self.leave();
         self.builder.finish_node();
     }
 
@@ -553,10 +585,13 @@ impl Parser {
     fn parse_flow_collection(&mut self, kind: SyntaxKind) {
         self.builder.start_node(kind.into());
         self.bump(); // L_BRACE / L_BRACK
-        if kind == SyntaxKind::FLOW_MAP {
-            self.parse_flow_map_body();
-        } else {
-            self.parse_flow_seq_body();
+        if self.enter() {
+            if kind == SyntaxKind::FLOW_MAP {
+                self.parse_flow_map_body();
+            } else {
+                self.parse_flow_seq_body();
+            }
+            self.leave();
         }
         // Closing brace/bracket.
         if matches!(self.at(), Some(SyntaxKind::R_BRACE | SyntaxKind::R_BRACK)) {

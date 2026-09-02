@@ -15,6 +15,7 @@ pub(crate) fn parse(src: &str) -> Result<GreenNode, String> {
         pos: 0,
         builder: GreenNodeBuilder::new(),
         error: None,
+        depth: 0,
     };
     p.builder.start_node(SyntaxKind::ROOT.into());
     p.skip_trivia();
@@ -39,6 +40,8 @@ struct Parser {
     pos: usize,
     builder: GreenNodeBuilder<'static>,
     error: Option<String>,
+    /// Current container nesting; capped at `MAX_NESTING_DEPTH`.
+    depth: usize,
 }
 
 impl Parser {
@@ -84,8 +87,26 @@ impl Parser {
         use SyntaxKind::*;
         self.builder.start_node(VALUE.into());
         match self.peek().map(|(k, _)| k) {
-            Some(L_BRACE) => self.object(),
-            Some(L_BRACK) => self.array(),
+            Some(L_BRACE | L_BRACK) if self.depth >= crate::model::MAX_NESTING_DEPTH => {
+                // Refuse to recurse; drain the rest so every enclosing loop
+                // terminates and the tree stays lossless.
+                if self.error.is_none() {
+                    self.error = Some(crate::model::nesting_error());
+                }
+                while self.peek().is_some() {
+                    self.bump();
+                }
+            }
+            Some(L_BRACE) => {
+                self.depth += 1;
+                self.object();
+                self.depth -= 1;
+            }
+            Some(L_BRACK) => {
+                self.depth += 1;
+                self.array();
+                self.depth -= 1;
+            }
             Some(STRING | NUMBER | TRUE | FALSE | NULL) => self.bump(),
             other => {
                 if self.error.is_none() {

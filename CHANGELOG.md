@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update — 2026-09-02T07:40:00Z
+- fix(core): cap container nesting at `MAX_NESTING_DEPTH` (256) in all three backends. A
+  `[[[[…` 100k deep used to abort the TUI with `fatal runtime error: stack overflow` (and trap
+  the wasm instance in the web hosts) for `.json`, `.yaml` and `.toml` alike; it is now a plain
+  parse error at load and a rejected (atomic, doc-untouched) `Replace`/`Insert` on the `$EDITOR`
+  path. JSON/YAML count depth in their parsers; TOML pre-scans brackets (string/comment-aware)
+  before taplo. New `tests/hostile_input.rs` pins the boundary (255 loads, 257 rejects, 200k
+  does not overflow) — verified on the real `confy convert` binary.
+
 ### Unreleased Update — 2026-09-02T06:55:00Z
 - fix(tui): `$EDITOR` is now shell-split (`shell-words`), so values carrying flags —
   `EDITOR="code --wait"`, `"emacsclient -t"` — launch instead of failing with
