@@ -1381,7 +1381,12 @@ impl Session {
         };
         let dotted = self.human_path(&node.path);
         let mut detail = if node.is_branch() {
-            let (type_str, fmt_str) = branch_type_format(&node.kind);
+            // The notation is the node's `format`, never derivable from its
+            // `kind` alone: a `Table` may be `scope`/`dotted`/`multiline`, an
+            // `Array` `inline`/`multiline`/`block`. `branch_type_format`'s
+            // second field is only the `Plain`-format fallback (Root, AoT).
+            let (type_str, kind_fmt) = branch_type_format(&node.kind);
+            let fmt_str = format_label(node.format).unwrap_or(kind_fmt);
             let children = node.children.len().to_string();
             [
                 tr_args(self.lang, "core.detail.path", &[&dotted]),
