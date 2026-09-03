@@ -388,7 +388,11 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
     schema_hint.rs nudge_scalar + format_nudged: the `←`/`→` value step (a schema `multipleOf`
                    becomes the step; bounds clamp inward to that grid)
     undo_redo.rs   undo/redo
-    status_fmt.rs  kind/type/format label formatting + small scalar-repr/string utilities
+    status_fmt.rs  kind/type/format label formatting + small scalar-repr/string utilities;
+                   `badge_label_note(kind, format, is_branch, scalar_type, doc)` is the one
+                   source of every host's kind badge — a container's label is the outline
+                   glyph, the notation goes in the note, and the `doc: DocFormat` exists so
+                   YAML's `Format::Inline` reads `flow` while TOML/JSON read `inline`
     state.rs       Mode, PendingCommit, PendingExternalEdit, EditKind, EditState, History,
                    Clipboard, PasteSlot, FilterLayer, …
     selection.rs   Selection (path-keyed multi-select + range rounds)
@@ -427,8 +431,13 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
                  `isTauri()` no-op on the pure web build) — see TAURI.md §Desktop menu (Tauri)
   render.ts      pure `SessionSnapshot → DOM` tree: web-native row anatomy (drag grip, rotating
                  caret, key/`—`/value value-type-colored, item count, **kind badge** =
-                 label+notation suffix+chevron, comment/trailing, hover ＋/⋮ actions);
-                 container & scalar notation suffixes, `escapeAttr` for `data-path`
+                 label+notation note+chevron, comment/trailing, hover ＋/⋮ actions). A
+                 container's badge label is an **outline glyph** (`{}` every table/map
+                 notation, `[]` every array/sequence one) with the notation in the note
+                 (`{}·scope`, `[]·multi`, `[]·AoT`, YAML `·block`/`·flow`); scalars keep
+                 short words (`str·"…"`, `int·0x`). The kind as a *word* lives only where
+                 there is room for one — the badge's hover title (`ui.ts`) and the panel's
+                 Kind field — via `kind-labels.ts`'s `kindWord`. `escapeAttr` for `data-path`
   highlight.ts   fuzzy-filter match marks: `highlightHtml(text, needle)` → escaped HTML with
                  `<mark class="fz">` runs (coalesced, char-indexed via `Array.from`). Web mirror
                  of the TUI's `highlight_spans`, driven by the SAME matcher — the wasm free export
@@ -480,7 +489,9 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
                  keymap source both orchestrators dispatch through (KEYMAP.md is its SSOT doc)
   mode.ts        shared `modeTag()` helper over the `ModeView` union
   escape.ts      the one HTML escaper (`escapeHtml`/`escapeAttr`) every render module uses
-  kind-labels.ts shared `ViewRow` lookups/predicates (value-hue labels, row-anatomy helpers)
+  kind-labels.ts shared `ViewRow` lookups/predicates (value-hue labels, row-anatomy helpers,
+                 `kindWord` — the kind as a word for the two surfaces with room for one,
+                 correcting core's notation-named `type_label` "inline" back to `table`)
   samples.ts     built-in demo doc + sample-mode state (shared backbone tree + per-format
                  showcase branch); `schema-sample.json` is its `$schema` target
   help-content.ts shared Help/About/KIND-legend body for the Help overlay (all web hosts)

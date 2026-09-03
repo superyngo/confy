@@ -602,6 +602,12 @@ feed the panel's Sign field, core's `ViewRow` gained a `key_sign` field (`"bare"
 |"none"`, the same mapping the TUI detail text uses) — a coarse display facet only, never usable
 to reconstruct how a key was written.
 
+The panel's **Kind field** is the deliberate counterpoint to the tree row's badge: it has room
+for words, so it prints `kind · notation` (`table · inline`, `table · dotted`) where the row
+prints `{}·inline`. The word comes from `kind-labels.ts`'s `kindWord`, which corrects core's
+`type_label` for `NodeKind::InlineTable` — core names it `"inline"`, a *notation* word — back
+to `table`; an array-of-tables drops its `AoT` note here because the word already says it.
+
 **Boolean value picker.** A `bool` scalar's value field is not a text input on either web host: it
 renders as a `data-act="editvalue"` trigger that dispatches `BeginEdit`, and core answers with
 `Mode::SchemaEnum` (`from_schema: false`) — so the tree draws its usual `select[data-schema-enum]`
