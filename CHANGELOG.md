@@ -30,6 +30,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   then nudge — the preview (`nudge_repr`, the web wheel/swipe path) and the keyboard
   `Intent::Nudge` must both walk the `multipleOf` grid and render in hex.
 
+**Docs**
+
+- New `WEBUI.md` § *Local build (`web/build.mjs` copies the wasm, it never rebuilds it)*
+  spells out the boundary, the silent symptom (correct in the terminal, unchanged in the
+  browser, no error anywhere), and the rule it implies: a `confy-core` change must have
+  its verification re-run against a freshly built wasm, because that wasm *is* the web
+  hosts' real binary (`functional_smoke.mjs` is the cheap way). `VSCODE.md` §
+  *Build/test workflow* now marks its `wasm-pack` step as non-optional for a core change
+  — skipping it stages a stale wasm into the extension's `media/`. `CLAUDE.md`'s build
+  commands annotate `npm run build` as a wasm **copy**, never a rebuild.
+
 ### Unreleased Update - 2026-09-03 (2)
 
 **Fixed**

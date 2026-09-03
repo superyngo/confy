@@ -202,6 +202,10 @@ warning.
 
 `web/build.mjs` now assembles a fresh runtime `web/dist` (including `dist/pkg/*`) on
 every run, so `editors/vscode/build.mjs` always stages current artifacts into `media/`.
+**Step 1 below is not optional for a core change:** `build.mjs` only *copies*
+`crates/confy-ffi/pkg/`, so skipping `wasm-pack` stages a stale wasm into `media/` and
+the webview silently runs the previous core (`build.mjs` prints a stale-`pkg/` warning —
+see WEBUI.md § *Local build*).
 
 Recommended local verification for VS Code host changes:
 

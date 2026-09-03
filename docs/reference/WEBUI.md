@@ -697,6 +697,33 @@ Moved to **`TAURI.md`** — the native menu bar (`web/menu.ts`), recent-files, t
 `PredefinedMenuItem`/GC-retention/accelerator gotchas, and Android (picker I/O,
 `canSaveAs()` gating, the split-button/touch-stylesheet lesson, on-device CDP debugging).
 
+## Local build (`web/build.mjs` copies the wasm, it never rebuilds it)
+
+`node build.mjs` (`npm run build`) runs esbuild and **copies** whatever
+`crates/confy-ffi/pkg/` already holds into `web/pkg/` + `web/dist/pkg/`. It does *not*
+run `wasm-pack`. So a `confy-core`/`confy-ffi` change reaches the browser only after:
+
+```bash
+cd crates/confy-ffi && wasm-pack build --target web   # THEN cd web && npm run build
+```
+
+This is a real trap, not a theoretical one: a core fix verified green by `cargo test` and
+on the TUI binary can be reported as landed while every wasm host — desktop web, touch,
+Tauri, and the VS Code webview (whose `media/` is a copy of `web/dist`) — still executes
+the previous core. The symptom is silent: correct behavior in the terminal, unchanged
+behavior in the browser, no error anywhere. Because of that, `build.mjs` compares
+`pkg/confy_ffi_bg.wasm`'s mtime against the newest `.rs` under `crates/confy-core/src`
+and `crates/confy-ffi/src` and prints a loud
+`WARNING: crates/confy-ffi/pkg/ is OLDER than the Rust sources` with the command above.
+It **warns rather than fails** on purpose — a TS-only change must still be buildable
+without a Rust toolchain. `web/cf-build.sh` (CI/deploy) always runs `wasm-pack` first and
+is unaffected.
+
+**Anything touching `confy-core` therefore needs its verification re-run against a
+freshly built wasm**, not just against `cargo test` + the TUI binary — the wasm *is* that
+host's real binary (`crates/confy-ffi/functional_smoke.mjs` drives the same
+`Intent`→`SessionSnapshot` channel the UI uses and is the cheapest way to do it).
+
 ## Deployment
 
 The hosted site is **<https://confy.turkeyang.net/>**, deployed via **Cloudflare
