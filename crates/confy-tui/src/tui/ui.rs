@@ -24,10 +24,19 @@ pub(crate) use crate::tui::overlay_detail::{
 pub(crate) use crate::tui::overlay_schema_enum::schema_enum_page_step;
 pub(crate) use crate::tui::overlay_type_filter::type_filter_page_step;
 
-/// Fixed width of the KIND column. The fixed-pitch tag is always exactly
+/// Fixed width of the kind tag. The fixed-pitch tag is always exactly
 /// 8 columns (the type/notation slot, e.g. `[S:str ]`). The key-sign facet
 /// moved to the detail popup's `Sign:` line.
+///
+/// The tag no longer owns a *column widget* — it is rendered as the leading
+/// span of the merged NAME cell, **before the indent** (spec
+/// `2026-09-03-kind-glyph-outline-design.md` §4.3), so it can never be clipped
+/// by tree depth or a narrow terminal, and stays vertically scannable.
 const TYPE_WIDTH: u16 = 8;
+
+/// Byte/column offset of the tree indent inside the merged cell:
+/// selection marker (1) + tag (8) + one separating space.
+const TAG_PREFIX: u16 = 1 + TYPE_WIDTH + 1;
 
 /// Width of the NAME column: 40% of the terminal width, floored to 10 columns.
 pub(crate) fn name_col_width(total: u16) -> u16 {
@@ -58,17 +67,17 @@ pub(crate) fn display_key(key: &str, key_literal: Option<&str>) -> String {
     key_literal.unwrap_or(key).to_string()
 }
 
-/// TYPE column cell: the precomputed fixed-pitch tag, with per-type colour. On
+/// The kind tag as the merged NAME cell's leading span, with per-type colour. On
 /// any row that paints a background fill (`has_fill`: the cursor's blue, a
 /// clip source's green/magenta, or the armed paste-target's green `Into`
 /// fill) we skip colouring so the row's own fill-appropriate fg wins
 /// uncontested — e.g. a Magenta datetime tag on the copy source's Magenta
 /// fill, or a Green "string" tag on the paste-target's Green fill, would
 /// otherwise be illegible.
-fn type_col_cell(row: &RowSnapshot, has_fill: bool) -> Cell<'static> {
+fn type_tag_span(row: &RowSnapshot, has_fill: bool) -> Span<'static> {
     let label = row.type_tag.clone();
     if has_fill {
-        return Cell::from(label);
+        return Span::raw(label);
     }
     let color = match row.type_label.as_str() {
         "string" => Some(Color::Green),
@@ -79,16 +88,24 @@ fn type_col_cell(row: &RowSnapshot, has_fill: bool) -> Cell<'static> {
         _ => None, // branches: table, array, array-of-tables, inline
     };
     match color {
-        Some(c) => Cell::from(label).style(Style::default().fg(c)),
-        None => Cell::from(label),
+        Some(c) => Span::styled(label, Style::default().fg(c)),
+        None => Span::raw(label),
     }
 }
 
-/// Width of the VALUE column: leftover after NAME (40%) + KIND (8) + two 1-col gaps.
-/// Feeds the inline-editor window, the overflow hint, and the `/` filter input.
+/// Width of the merged NAME cell: the old NAME column plus the retired KIND
+/// column and the 1-col gap that used to separate them, so VALUE still starts
+/// at exactly `name + TYPE_WIDTH + 2`.
+pub(crate) fn merged_name_width(total: u16) -> u16 {
+    name_col_width(total) + TYPE_WIDTH + 1
+}
+
+/// Width of the VALUE column: leftover after the merged NAME+KIND cell and the
+/// one remaining 1-col gap — arithmetically identical to the pre-merge
+/// `total - (name + KIND + 2)`. Feeds the inline-editor window, the overflow
+/// hint, and the `/` filter input.
 pub(crate) fn value_col_width(total: u16) -> usize {
-    let name = name_col_width(total);
-    (total.saturating_sub(name + TYPE_WIDTH + 2) as usize).max(1)
+    (total.saturating_sub(merged_name_width(total) + 1) as usize).max(1)
 }
 
 /// Build the VALUE cell for the inline editor: the buffer window starting at the
@@ -285,6 +302,25 @@ fn draw_title(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(Paragraph::new(line), area);
 }
 
+/// Buffer column a depth-1 row's key lands at inside the merged cell:
+/// `TAG_PREFIX` plus one indent level (2), branch marker (2), warn marker (1)
+/// and spacing (1). The header's `NAME` is aligned here rather than at the raw
+/// indent origin, so it sits over the keys it labels.
+const KEY_COL: u16 = TAG_PREFIX + 2 + 2 + 1 + 1;
+
+/// The merged NAME cell's header: `KIND` at x=1 (over the tag) and `NAME` over
+/// the key column, padded **in code** from `TAG_PREFIX`/`KEY_COL` rather than
+/// by leading spaces baked into a catalogue string — and measured by *display*
+/// width, since a zh-TW header like `名稱` is 2 chars but 4 columns.
+fn merged_header_text(lang: confy_core::session::Lang) -> String {
+    use confy_core::session::tr;
+    use unicode_width::UnicodeWidthStr;
+    let kind = tr(lang, "tui.header.kind");
+    let name = tr(lang, "tui.header.name");
+    let pad = (KEY_COL as usize).saturating_sub(1 + kind.width()).max(1);
+    format!(" {kind}{}{name}", " ".repeat(pad))
+}
+
 fn draw_column_header(f: &mut Frame, area: Rect, app: &App) {
     use confy_core::session::tr;
     let lang = app.session.lang;
@@ -292,16 +328,14 @@ fn draw_column_header(f: &mut Frame, area: Rect, app: &App) {
         .fg(Color::Cyan)
         .add_modifier(Modifier::BOLD);
     let row = Row::new([
-        Cell::from(tr(lang, "tui.header.name")),
-        Cell::from(tr(lang, "tui.header.kind")),
+        Cell::from(merged_header_text(lang)),
         Cell::from(tr(lang, "tui.header.value")),
     ])
     .style(header_style);
     let table = Table::new(
         std::iter::once(row),
         [
-            Constraint::Length(name_col_width(area.width)),
-            Constraint::Length(TYPE_WIDTH),
+            Constraint::Length(merged_name_width(area.width)),
             Constraint::Min(10),
         ],
     )
@@ -380,11 +414,37 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
             } else {
                 " "
             };
-            let prefix = format!("{sel_marker}{indent}{marker}{warn_marker} ");
+            // Row-fill flags are needed *before* the name cell now: the kind tag
+            // is its leading span, and the tag drops its colour on any filled row.
+            let is_cursor = Some(i) == cursor_idx;
+            let in_clipboard_source = app
+                .session
+                .clipboard
+                .as_ref()
+                .is_some_and(|cb| cb.sources.contains(&row.path));
+            // Paste slots are now path-keyed (§3); test this row's path against them.
+            let into_here = matches!(&active_slot, Some(PasteSlot::Into(p)) if *p == row.path);
+            let tag = type_tag_span(row, is_cursor || in_clipboard_source || into_here);
+            // Merged NAME cell, in outline order: the row-scope selection marker
+            // stays outermost, then the kind tag at a *fixed* x=1 (unclippable and
+            // vertically alignable), then this row's own tree indent and markers.
+            let rest = format!(" {indent}{marker}{warn_marker} ");
+            let prefix_cols = 1 + TYPE_WIDTH as usize + rest.chars().count();
+            let head = move |t: Span<'static>| {
+                vec![
+                    Span::raw(sel_marker.to_string()),
+                    t,
+                    Span::raw(rest.clone()),
+                ]
+            };
             let disp_key = display_key(&row.key, row.key_literal.as_deref());
             // Collapse the key to one line (a merged multi-line comment node's key
             // carries newlines) without disturbing the tree prefix/indent.
-            let name = format!("{prefix}{}", cell_preview(&disp_key));
+            let name_spans_plain = {
+                let mut s = head(tag.clone());
+                s.push(Span::raw(cell_preview(&disp_key)));
+                s
+            };
             // While inline-editing the cursor row, render the live buffer of the
             // focused field (Value or Name) with the char under the cursor
             // reverse-highlighted — no caret glyph, so characters never shift. The
@@ -393,7 +453,7 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
             let (name_cell, value_cell) = match &app.session.mode {
                 Mode::Edit(e) if editing => match e.field {
                     crate::tui::state::EditField::Value => (
-                        Cell::from(name),
+                        Cell::from(Line::from(name_spans_plain)),
                         edit_value_cell(e, value_col_width(area.width)),
                     ),
                     crate::tui::state::EditField::Name => {
@@ -403,9 +463,9 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                         // no separate decoration is drawn here — it would
                         // double the quotes. Plain edit rendering, same as
                         // any other key.
-                        let avail = (name_col_width(area.width) as usize)
-                            .saturating_sub(prefix.chars().count());
-                        let mut spans = vec![Span::raw(prefix)];
+                        let avail =
+                            (merged_name_width(area.width) as usize).saturating_sub(prefix_cols);
+                        let mut spans = head(tag.clone());
                         spans.extend(edit_field_spans(&e.buffer, e.cursor, e.scroll, avail));
                         (
                             Cell::from(Line::from(spans)),
@@ -426,20 +486,15 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                     let needle = app.session.filter.as_str();
                     let val_cell = value_cell(row, needle);
                     if needle.is_empty() {
-                        (Cell::from(name), val_cell)
+                        (Cell::from(Line::from(name_spans_plain)), val_cell)
                     } else {
-                        let mut name_spans = vec![Span::raw(prefix.clone())];
+                        let mut name_spans = head(tag.clone());
                         name_spans.extend(highlight_spans(&cell_preview(&disp_key), needle));
                         (Cell::from(Line::from(name_spans)), val_cell)
                     }
                 }
             };
-            let is_cursor = Some(i) == cursor_idx;
-            let in_clipboard_source = app
-                .session
-                .clipboard
-                .as_ref()
-                .is_some_and(|cb| cb.sources.contains(&row.path));
+
             // Base (non-cursor) appearance: copy source purple, cut source green.
             // Locked selection no longer paints a background — its `sel_marker` glyph
             // (above) is the sole visual cue now, so it composes with the cursor's blue
@@ -455,8 +510,7 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
             } else {
                 Style::default()
             };
-            // Paste slots are now path-keyed (§3); test this row's path against them.
-            let into_here = matches!(&active_slot, Some(PasteSlot::Into(p)) if *p == row.path);
+
             let style = match () {
                 // Paste mode `Into`: the green branch row (append last child). An
                 // invalid target errors on v. `After` restyles nothing — its cue is
@@ -473,11 +527,10 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                     .add_modifier(Modifier::BOLD),
                 _ => base,
             };
-            let type_cell = type_col_cell(row, is_cursor || in_clipboard_source || into_here);
             if into_here {
                 selected_display = rows.len();
             }
-            rows.push(Row::new([name_cell, type_cell, value_cell]).style(style));
+            rows.push(Row::new([name_cell, value_cell]).style(style));
         }
         // The green insertion line below this row when it's the `After` slot.
         if matches!(&active_slot, Some(PasteSlot::After(p)) if *p == row.path) {
@@ -490,8 +543,7 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
     let table = Table::new(
         rows,
         [
-            Constraint::Length(name_col_width(area.width)),
-            Constraint::Length(TYPE_WIDTH),
+            Constraint::Length(merged_name_width(area.width)),
             Constraint::Min(10),
         ],
     )
@@ -517,9 +569,15 @@ fn paste_line_row<'a>(row: &RowSnapshot, expanded: bool, width: u16) -> Row<'a> 
     } else {
         row.depth
     };
-    let line = format!("{}{}", "  ".repeat(depth), "─".repeat(width as usize));
-    Row::new([Cell::from(line), Cell::from(""), Cell::from("")])
-        .style(Style::default().fg(Color::Green))
+    // Start the line where the tree indent starts, i.e. past the merged cell's
+    // fixed selection-marker + kind-tag prefix, so it aligns with the keys.
+    let line = format!(
+        "{}{}{}",
+        " ".repeat(TAG_PREFIX as usize),
+        "  ".repeat(depth),
+        "─".repeat(width as usize)
+    );
+    Row::new([Cell::from(line), Cell::from("")]).style(Style::default().fg(Color::Green))
 }
 
 /// Maps a non-`Error` `Severity` to its status-line color (design spec §5.1:
@@ -778,10 +836,10 @@ mod tests {
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
 
-    /// Buffer column where a depth-1 row's key glyph lands in the NAME cell
-    /// (1 selection-marker col + 2 indent + 2 branch marker + 1 warning-marker col
-    /// + 1 spacing col before the key).
-    const KEY_X: u16 = 7;
+    /// Buffer column where a depth-1 row's key glyph lands in the merged
+    /// NAME cell (1 selection-marker col + 8 kind-tag cols + 1 spacing col +
+    /// 2 indent + 2 branch marker + 1 warning-marker col + 1 spacing col).
+    const KEY_X: u16 = 16;
 
     #[test]
     fn highlight_spans_marks_matched_chars() {
@@ -1631,7 +1689,9 @@ mod tests {
         let row_y = (0..8)
             .find(|&y| buf[(KEY_X, y)].symbol() == "s")
             .expect("`s` row not found in rendered buffer");
-        let kind_x = name_col_width(40) + 1;
+        // The kind tag is column-anchored at x=1 now — independent of terminal
+        // width and of the row's depth, which is exactly the property §4.3 buys.
+        let kind_x = 1;
         assert_eq!(
             buf[(kind_x, row_y)].bg,
             Color::Green,
@@ -1641,6 +1701,107 @@ mod tests {
             buf[(kind_x, row_y)].fg,
             Color::Black,
             "the KIND tag's own colour must be suppressed on the Into fill, matching the row's fg(Black), not painted with type_label's Green"
+        );
+    }
+
+    /// The merge absorbed the KIND column *and* the gap that separated it, so
+    /// VALUE must still start at `name + TYPE_WIDTH + 2` and be exactly as wide
+    /// as before — the inline editor's window, the overflow hint, and the `/`
+    /// filter input all size off this.
+    #[test]
+    fn merging_the_kind_column_leaves_the_value_width_untouched() {
+        for total in [20u16, 40, 60, 80, 100, 200] {
+            let pre_merge =
+                (total.saturating_sub(name_col_width(total) + TYPE_WIDTH + 2) as usize).max(1);
+            assert_eq!(
+                value_col_width(total),
+                pre_merge,
+                "VALUE width changed at {total} columns"
+            );
+            assert_eq!(
+                merged_name_width(total) + 1,
+                name_col_width(total) + TYPE_WIDTH + 2,
+                "VALUE's x-offset changed at {total} columns"
+            );
+        }
+    }
+
+    /// The header labels the merged cell's two halves in place: `KIND` over the
+    /// column-anchored tag, `NAME` over the keys. Padding is computed, so a
+    /// wide-glyph translation can't push `NAME` off the key column.
+    #[test]
+    fn merged_header_places_kind_and_name_at_their_columns() {
+        use confy_core::session::Lang;
+        use unicode_width::UnicodeWidthStr;
+        for lang in [Lang::En, Lang::ZhTw] {
+            let h = merged_header_text(lang);
+            let kind = confy_core::session::tr(lang, "tui.header.kind");
+            let name = confy_core::session::tr(lang, "tui.header.name");
+            assert!(h.starts_with(&format!(" {kind}")), "KIND not at x=1: {h:?}");
+            let name_at = h.width() - name.width();
+            assert_eq!(
+                name_at, KEY_COL as usize,
+                "NAME must sit over the depth-1 key column for {lang:?}: {h:?}"
+            );
+        }
+    }
+
+    /// The reason the tag is anchored at x=1 instead of following the indent
+    /// (spec §4.3, finding E): at 60 columns the NAME column is 24 wide, and a
+    /// deep row's own prefix alone consumes all of it — an indent-following tag
+    /// would be clipped away with no ellipsis. Anchored, it is always whole.
+    #[test]
+    fn kind_tag_survives_deep_indent_at_narrow_width() {
+        let mut src = String::new();
+        let mut path = String::new();
+        for i in 0..10 {
+            if i > 0 {
+                path.push('.');
+            }
+            path.push_str(&format!("l{i}"));
+            src.push_str(&format!("[{path}]\n"));
+        }
+        src.push_str("deep = \"x\"\n");
+        let doc = crate::model::any_doc::AnyDocument::Toml(
+            crate::model::cst_doc::CstDocument::from_str(&src).unwrap(),
+        );
+        let mut app = App::new(doc);
+        app.session.expand_all();
+        app.rebuild_rows();
+        let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
+        terminal.draw(|fr| draw(fr, &app)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        // The deepest row is a depth-10 scalar; its tag must be fully present
+        // in columns 1..=8 whatever its indent does.
+        let deepest = app
+            .rows
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, r)| r.depth)
+            .map(|(i, r)| (i, r.depth))
+            .expect("rows");
+        assert!(
+            deepest.1 >= 10,
+            "fixture must reach depth 10, got {}",
+            deepest.1
+        );
+        // Row 0 of the tree area is the first visible row; find the y whose
+        // tag cell is non-blank on every one of the 8 columns.
+        let mut checked = 0usize;
+        for y in 0..20u16 {
+            let tag: String = (1..=8u16).map(|x| buf[(x, y)].symbol()).collect();
+            if tag.starts_with('[') {
+                assert_eq!(tag.chars().count(), 8, "tag must occupy exactly 8 columns");
+                assert!(
+                    tag.ends_with(']') || tag.contains(']'),
+                    "tag not whole: {tag:?}"
+                );
+                checked += 1;
+            }
+        }
+        assert!(
+            checked >= 10,
+            "expected a whole kind tag on every deep row, found {checked}"
         );
     }
 

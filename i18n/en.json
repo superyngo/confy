@@ -90,7 +90,7 @@
   "core.hint.max": "Must be at most {0}",
   "core.hint.multiple": "Must be a multiple of {0}",
   "tui.title": "confy — {0} ",
-  "tui.header.name": "  NAME",
+  "tui.header.name": "NAME",
   "tui.header.kind": "KIND",
   "tui.header.value": "VALUE",
   "tui.prompt.collision": " Key '{0}' already exists.  o:overwrite  r:rename  c:cancel",
