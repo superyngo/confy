@@ -12,13 +12,17 @@
 One facet, two renderings — and this spec uses only these three terms:
 
 - **Kind annotation** — the abstract facet: a node's kind/notation, wherever shown.
-- **Kind tag** — the TUI's dense, notation-bearing rendering (`[T/S]`, `[S:lit ]`,
-  `[I:hex ]`), 8 display columns, produced by `type_tag`.
-- **Kind glyph** — the web hosts' outline rendering (`{}`, `abc`, `@`), type-only,
-  produced by core's new `kind_glyph`.
+- **Kind glyph** — the **one** rendering of that facet on every host's tree row
+  (`{}`, `abc`, `@`), type-only, produced by core's new `kind_glyph`.
+- **Notation word** — the full-text notation (`scope`, `dotted`, `multiline`,
+  `hex`, `literal`), shown where there is room for words: the TUI's `i` Detail
+  popup, the web detail panel, the `K` popup, and the `f` type filter.
 
-"Kind badge" is **retired** as a term (it named the pre-change web control and is
-now ambiguous between the two renderings).
+Two terms are **retired**. "Kind badge" named the pre-change web control and is now
+ambiguous. "Kind tag" named the TUI's dense `[T/S]`/`[S:lit ]` rendering, which this
+spec removes from the product along with `type_tag` itself — the bracketed forms
+survive only as **documentation shorthand** for a (kind, notation) pair (§5), never
+again as something a user sees.
 
 ## 1. Problem
 
@@ -45,24 +49,27 @@ Findings that drive the design:
 - **C.** For a **branch** it is not redundant: a branch row has no VALUE cell, so
   `·scope` / `·dotted` / `·inline` / `·multi` / `AoT` exists nowhere else on the
   row. This is the only real information loss, and it is accepted deliberately (§7).
-- **D.** The cost/benefit is inverted between hosts. In a fixed-pitch grid an 8-column
-  KIND column is *a column* — it crowds nothing. On the web the badge is an inline
-  chip competing with value and comment for the same row. So "simplify" has real
-  value on the web and near-zero value in the TUI, where it would be pure
-  information loss.
-- **E.** The TUI's tag is currently **unclippable**: it lives in its own
-  `Constraint::Length(8)` column, so it renders at every depth and every terminal
-  width. Any design that moves it *after* the indent forfeits that, silently — at
-  60 columns `name_col_width` is 24, and a depth-10 row's prefix already consumes
-  all 24 (`ui.rs:33-35, 38-51`; ratatui clips with no ellipsis). This finding is
-  what shapes §4.3.
+- **D.** The cost/benefit *looked* inverted between hosts: in a fixed-pitch grid an
+  8-column KIND column is *a column* and crowds nothing, whereas on the web the badge
+  is an inline chip competing with value and comment. The pre-review draft concluded
+  from this that the TUI should keep the dense tag. **Rendered side by side on the
+  real binary this was overruled** (§3): the 8-col tag is visual noise in front of
+  every key, and the 5 columns it costs are worth more than notation the VALUE cell
+  usually shows anyway. The finding survives only as the reason the *Detail popup*
+  keeps notation words while the *row* does not.
+- **E.** The pre-change tag was **unclippable**: it lived in its own
+  `Constraint::Length(8)` column, so it rendered at every depth and width. Any
+  indent-following annotation forfeits that. With a 3-column glyph the exposure is
+  ~5x smaller (at 60 columns clipping needs roughly depth 11, not depth 8), and what
+  gets clipped is a type hint whose notation was never there — so the loss is
+  accepted rather than designed around (§7).
 
 ## 2. Goals
 
 1. The kind annotation moves **before the key** on every host (VS Code outline
    position).
-2. On the web hosts the annotation **simplifies to a kind glyph**; notation is no
-   longer hinted on the tree row.
+2. The annotation **simplifies to a kind glyph on every host**, TUI included;
+   notation is no longer shown on any tree row.
 3. The annotation stays **clickable** and still opens the kind switch
    (`Mode::KindSwitch`) — and, because a bare glyph is a weaker affordance than a
    labeled pill with a chevron, Kind switch also becomes reachable from the Action
@@ -77,12 +84,16 @@ contents, the keymap, or the panel's locked field order.
 
 | Decision | Choice | Rejected alternatives |
 |---|---|---|
-| TUI scope | **True adjacency, density preserved** — the KIND column retires and the 8-col tag renders **after the indent and branch toggle, before the key** (§4.3) | Column-anchoring the tag at x=1 (implemented first, then **reverted on sight of the real binary**: a fixed first-painted column gives every row the same visual origin and the indent stops reading as structure). Full glyph parity (3-col glyph in the TUI too): loses the power surface's at-a-glance notation. Web-only: maximum divergence |
-| Branch notation | **Not compensated on the row** — hover title, detail panel, and the `f` type filter carry it | Notation-aware container glyphs (`{.}`/`{…}`/`[[]]`: grows the set and stops being VS Code's clean vocabulary); folding it into the item-count cell (`3 items · scope`: puts the removed noise back on the same row) |
+| TUI scope | **Full glyph parity** — the KIND column *and* the 8-col kind tag retire; the TUI renders the same 3-column glyph, after the indent and branch toggle, before the key (§4.3) | Keeping the dense tag (the pre-review choice, twice): rejected on sight of both layouts running — the tag reads as noise in front of every key, and one vocabulary across five surfaces is worth more than row-level notation that the VALUE cell already implies. Column-anchoring the annotation at x=1 (implemented, then reverted): a fixed first-painted column flattens every row's visual origin and the indent stops reading as structure. Web-only glyph: maximum divergence |
+| Branch notation | **Not compensated on any row** — the `i` Detail popup, the web detail panel, the desktop hover title, the `K` switch, and the `f` type filter carry it | Notation-aware container glyphs (`{.}`/`{…}`/`[[]]`: grows the set and stops being VS Code's clean vocabulary); folding it into the item-count cell (`3 items · scope`: puts the removed noise back on the same row) |
 | Glyph ownership | **core** (`kind_glyph`), for **one reason only: compile-time exhaustiveness** — a new `TypeToken`/`ScalarType` must break the build, not degrade to a fallback glyph at runtime | **One shared table in `web/kind-labels.ts`** — the genuine runner-up, and strictly cheaper: it also cures finding A (all four consumers are in `web/`, and the TUI consumes no glyph at all), with zero core files, no FFI wire field, no `web/types.ts` mirror edit, and no `functional_smoke.mjs` update. Rejected because a table keyed on a `type_label` string is unchecked and drifts silently. Recorded as ADR 0011 |
 | Glyph inputs | **`classify`-derived** (`kind, format, doc, read_only`) | `&NodeKind` alone: cannot express a YAML **opaque** node, so an unmutatable node would render identically to a normal one, and the claim that tag and glyph are two densities of one decision table would be false |
 | Hue ownership | **web** (`kind-labels.ts`), as the single `hueFor(typeLabel)` table | core (hue is a CSS-token concern; the TUI has its own palette); a *third* hue spelling alongside the existing `valueHue`/`valueTypeClass` (would recreate finding A inside the module meant to cure it) |
 | Kind switch discoverability | **added to the core Action menu**, single-Node-only | Leaving ADR 0009's exception in place: it rests on the control being "self-labeling", which the glyph is not |
+| Violation cue in the annotation | **Deleted** — the row's dedicated warning column (`▲` own violation / `△` descendant) is the sole cue | Appending `!` to the glyph (4 columns, and the `!` glyph already means "opaque"); recolouring the glyph (collides with the value-type hue). The old in-tag `!` overwrote the tag's internal pad space and was always redundant with `▲`/`△` |
+| Help legend | **One shared 10-row glyph legend** for every host, plus a line pointing at `i` / `K` / `f` for notation words — retiring 66 `tui.help.legend.*` keys and 3 `web.help.legend.*` keys | Per-format legends (nothing left to differ on: the glyph set is format-independent by construction); keeping the 66 tag rows (they would document a rendering no host emits) |
+| The 5 reclaimed columns | **To VALUE** — `value_col_width`'s formula is unchanged, so `TYPE_WIDTH` 8 → 3 widens VALUE by 5; key text room is unchanged (the merged cell shrinks 5, its prefix shrinks 5) | Re-deriving the formula to hold VALUE constant and give NAME the 5: NAME is already 40% of the width, and VALUE is the column that truncates first (timestamps, long strings). Cost: the pre-review draft's "`value_col_width` is invariant" safety property is deliberately given up (§6 re-verifies the inline editor because of it) |
+| Root glyph in a terminal | **Keep `⌂` (U+2302)** | A TUI-only ASCII stand-in, or ASCII everywhere: both break the one-vocabulary premise to fix a 1-column shift on a single row (`⌂` is East-Asian *ambiguous*; `unicode-width` calls it 1, a few terminals draw 2) |
 
 ## 4. Design
 
@@ -180,58 +191,48 @@ both structs), `web/style.css` and `web/touch/style.css` (`.kind-glyph` reusing
 `.crumb-glyph` sizing and the `t-*` hue tokens; the `.kind` badge and `.chev` rules
 retire, `.kind-note` stays for the panel).
 
-### 4.3 TUI — retire the column, keep the density, follow the indent
+### 4.3 TUI — glyph parity: retire the KIND column *and* the kind tag
 
-The tree `Table` goes from three columns to two:
+The tree `Table` goes from three columns to two and `TYPE_WIDTH` from 8 to 3:
 
-- merged first column width = `name_col_width(total) + TYPE_WIDTH + 1` (absorbing
-  one column gap — verified arithmetically exact: VALUE still starts at
-  `name + TYPE_WIDTH + 2`, `ui.rs:89-92,301-308`),
-- **`value_col_width`'s result is unchanged**, so the VALUE column is identical to
-  today's and the inline editor's windowing, overflow hint, and `/` filter input see
-  zero change. (Its *body* does reference the name width and gap count and is
-  re-derived; only the value is invariant.)
+- merged first column width = `name_col_width(total) + TYPE_WIDTH + 1` (absorbing one
+  column gap),
+- `value_col_width`'s **formula** is unchanged, so its **result grows by 5** — the
+  deliberate choice in §3. Nothing narrows; the inline editor's window, overflow hint,
+  and `/` filter input all simply get more room (re-verified per §6, since the
+  pre-review draft leaned on this value being constant).
 
-The NAME cell becomes — the tag sits **after** the indent and branch toggle, and
-immediately **before** the key:
+The NAME cell, in outline order:
 
 ```
-sel-marker + indent + branch-marker + warn + [S:lit ] + space + key
+sel-marker + indent + branch-marker + warn + glyph(3) + space + key
 ```
 
-**Revised after seeing it run (2026-09-03).** The first implementation anchored the
-tag at x=1, before the indent, to preserve finding E (an unclippable tag). On the
-real binary that layout is wrong: with every row's first painted glyph at the same
-column, all rows share one visual origin and the indent no longer reads as
-structure — the tree becomes a flat list with a ragged right side. Depth legibility
-outranks tag survivability, so the tag follows the indent.
+The glyph is **after** the indent and branch toggle: the row's own indent must stay
+its visual origin, or the tree flattens into a list (learned by implementing the
+alternative and looking at it). A depth-1 key lands at x=10 (`1 + 2 + 2 + 1 + 3 + 1`).
 
-The accepted consequence is exactly finding E: on a deep row in a narrow terminal
-the tag is clipped (at 60 columns the merged cell is 33 wide, so a depth-8 row loses
-it). Recovery paths are the same ones the web hosts use for notation — the detail
-popup and the `f` type filter — plus simply widening the terminal. Vertical
-alignment is also lost, and unlike the pre-review draft this is a *real* accepted
-loss (§7), not one designed away.
+**`type_tag` retires entirely** (`tui/app.rs`, 36 arms). `RowSnapshot.type_tag:
+String` becomes the glyph carried on `ViewRow.kind_glyph`, which deletes
+`rebuild_rows`'s per-row `tree.node_at(&vr.path)` lookup — that lookup existed *only*
+to recover a `NodeKind` for `type_tag`, so the host stops re-walking the tree once per
+visible row per keystroke. The violation `!` splice goes with it (§3): `▲`/`△` in the
+warning column is the only violation cue, as it effectively already was.
 
-`type_tag` is unchanged and still consumed. `type_col_cell`'s per-type colouring and
-its `has_fill` skip-colour rule fold into the name-cell builder, which becomes a
-`Line` of `Span`s (`Span::raw(lead)`, `Span::styled(tag, hue)`, `Span::raw(" ")`).
-The **selection marker stays outermost** and the warning marker keeps riding the
-row's indentation. The `has_fill` skip stays verbatim — it asserts a real legibility
-property.
+`type_col_cell` folds into the name-cell builder, which becomes a `Line` of `Span`s
+(`Span::raw(lead)`, `Span::styled(glyph, hue)`, `Span::raw(" ")`). The TUI keeps its
+**own palette** keyed on `type_label` (hue is a per-host concern — §4.1); the
+`has_fill` skip-colour rule and the outermost selection marker are unchanged. The
+3-column pad is measured by **display width**, not `chars().count()`, so `⌂` follows
+the `unicode-width` verdict (§3's accepted 1-column risk on the root row only).
 
-A depth-1 key lands at x=15 (`1 + 2 + 2 + 1 + 8 + 1`). `KEY_X` (a **test-only**
-const; nothing at runtime depends on it) moves 7 → 15, and
-`paste_target_into_fill_suppresses_kind_tag_color`'s `kind_x` becomes 6 (a depth-1
-row's tag column) instead of `name_col_width(40) + 1`.
+Tests: `KEY_X` 15 → 10; `paste_target_into_fill_suppresses_kind_tag_color`'s `kind_x`
+→ 6; `tests.rs`'s 36-row tag table (`"[T/S]   "` …) becomes a 10-row glyph table. The
+depth-step guard (`kind_tag_follows_the_indent_so_depth_stays_readable`) **stays** — it
+is the regression net for the flattening mistake. The finding-E clip guard is **not**
+reinstated (§1 E).
 
-The regression test is inverted accordingly: instead of asserting the tag survives a
-deep narrow row, `kind_tag_follows_the_indent_so_depth_stays_readable` asserts the
-tag's x **steps 2 columns per depth level**, which fails the moment anything
-re-anchors it to a fixed column and flattens the tree again.
-
-Files: `crates/confy-tui/src/tui/ui.rs` (rendering + its in-file `mod tests`),
-`crates/confy-tui/src/tui/tests.rs`. `tui/app.rs` is untouched.
+Files: `crates/confy-tui/src/tui/ui.rs`, `tui/app.rs`, `tui/tests.rs`.
 
 ### 4.4 Detail panel
 
@@ -246,11 +247,11 @@ File: `web/panel.ts`.
 
 ### 4.5 Column header (TUI)
 
-With the tag riding each row's indent there is no fixed column for a `KIND` header
-to sit over, so the merged cell is labelled **`NAME` alone** and `tui.header.kind`
-**retires** from both catalogues. `tui.header.name` also drops the two hand-tuned
-leading spaces it used to carry (`"  NAME"` → `"NAME"`), so no catalogue string
-smuggles layout; the one leading space is applied in code.
+The glyph rides each row's indent, so no fixed column exists for a `KIND` header to
+sit over: the merged cell is labelled **`NAME` alone** and `tui.header.kind` retires
+from both catalogues. `tui.header.name` also drops the two hand-tuned leading spaces
+it carried (`"  NAME"` → `"NAME"`) so no catalogue string smuggles layout; the single
+leading space is applied in code.
 
 ### 4.6 Kind switch in the Action menu
 
@@ -269,33 +270,42 @@ CONTEXT.md:301-304 follows.
 
 ### 4.7 Legend / i18n
 
-`i18n/en.json` and `i18n/zh-TW.json`:
+The legend collapses to **one shared table, ~10 rows**, under a new `core.help.legend.*`
+prefix (core owns the catalogue, and the table is now host- *and* format-independent):
+one key per glyph plus `core.help.legend.notation-hint`, a single line stating that
+notation words live in `i` / the detail panel, the `K` switch, and the `f` type filter.
 
-- `web.help.legend.{toml,json,yaml}` — currently three monolithic label·notation
-  tables — are rewritten as a **glyph legend plus one line** stating that notation
-  words live in the detail panel, the `K` switch, and the `f` type filter.
-- `tui.help.legend.*` (66 keys) keep their content unchanged — the tags only moved.
-- `tui.header.kind` is **kept** (§4.5), `tui.header.name` loses its padding.
-- `core.action.kind-switch` is added (§4.6).
+Retired from `i18n/en.json` + `i18n/zh-TW.json`: **all 66 `tui.help.legend.*` keys**
+(TOML 28 / JSON 14 / YAML 24 — they document a rendering no host emits any more), the
+**3 `web.help.legend.{toml,json,yaml}`** monolithic tables, and `tui.header.kind`
+(§4.5). Added: `core.help.legend.*` and `core.action.kind-switch` (§4.6).
+`tui.header.name` loses its padding.
 
-File: `web/help-content.ts` follows whatever structural change the legend rewrite
-needs (it is shared by desktop, touch, and the VS Code host, which inherits every web
-change here by embedding `web/dist` verbatim).
+This is the change's largest i18n simplification: 69 keys out, ~11 in, and the two
+catalogues stop having to keep a per-format symbol table in sync.
+
+Files: `web/help-content.ts` (shared by desktop, touch, and the VS Code host) and the
+TUI's `overlay_help.rs`, which now renders the same shared rows.
 
 ## 5. Documentation
 
 New `docs/reference/ROW_ANATOMY.md`, following the cross-platform reference convention
 of `ROW_STATE_MODEL.md` / `MESSAGES.md`:
 
-- the canonical glyph table (glyph ← `classify`, hue ← `type_label`),
+- the canonical glyph table (glyph ← `classify`, hue: core-free — web `hueFor`, TUI
+  palette),
 - per-surface row anatomy for TUI / web desktop / touch / breadcrumb / panel,
-- the divergence table and its rationale: a fixed-pitch grid affords 8 columns and a
-  proportional inline chip does not (finding D); scalar notation is already printed in
-  the VALUE cell so removing it is lossless (finding B); branch notation is
-  deliberately off the row and retrieved via hover, panel, or `f` (finding C); the tag
-  follows the indent rather than a fixed column because **depth legibility outranks
-  tag survivability** — finding E's clipping is accepted, not designed away (§4.3);
-  `type_tag` and `kind_glyph` are two densities of the same `classify` decision table.
+- **what still differs, now that the vocabulary is shared**: the TUI's glyph is
+  fixed-pitch and coloured from the TUI palette, is not clickable (`K` is the keyboard
+  route), and has no hover title; the web glyph is a button with a composed
+  `kind · notation` + schema-hint title. Rationale bullets: scalar notation is already
+  printed in the VALUE cell so removing it is lossless (finding B); branch notation is
+  deliberately off every row and retrieved via `i` / panel / `K` / `f` (finding C);
+  the annotation follows the indent because **depth legibility outranks
+  annotation survivability** (findings D, E).
+- the note that `[T/S]`-style bracketed forms are **documentation shorthand only**
+  from now on, so `BEHAVIOR_MATRIX.md`, `CLAUDE.md`, and CONTEXT.md may keep using
+  them without implying a rendering.
 
 New **ADR 0011** — the glyph-in-core / hue-in-web ownership split, recording the
 shared-`kind-labels.ts` alternative and compile-time exhaustiveness as the deciding
@@ -317,39 +327,46 @@ column-anchored kind-tag prefix), `docs/reference/WEBUI.md` (row anatomy + link)
 
 ## 6. Verification
 
-1. `cargo fmt --check` → `cargo clippy -- -D warnings` → `cargo test`, with new tests
-   for: `kind_glyph` coverage over every `TypeToken` (including `Opaque` → `!` and
-   `Root` → `⌂`), the TUI tag's x **stepping one indent level per depth** (the
-   flat-tree regression guard), the header carrying `NAME` but no longer `KIND`, and
-   `value_col_width` being unchanged.
+1. `cargo fmt --check` → `cargo clippy -- -D warnings` → `cargo test`, with tests for:
+   `kind_glyph` coverage over every `TypeToken` (including `Opaque` → `!` and `Root` →
+   `⌂`), the TUI rendering one 3-column glyph per row with the **notation-bearing tag
+   gone** (no `[T/S]` in any rendered buffer), the glyph's x **stepping one indent
+   level per depth** (the flattening guard), the header carrying `NAME` and no `KIND`,
+   and `value_col_width` being exactly 5 columns wider than before (the §3 choice,
+   asserted rather than assumed).
 2. `cd web && npm run typecheck && npm test && npm run build`, updating
    `render.spec.mjs`, `touch-render.spec.mjs`, `panel-schema.spec.mjs`,
    `touch-clip-source.spec.mjs`, `touch-comment-advisory.spec.mjs`.
 3. `cd crates/confy-ffi && wasm-pack build --target web && node functional_smoke.mjs`
    (the `ViewRow`/`ChildView` wire contract gained a field).
-4. **Real-binary check** (green unit tests are not the bar): `cargo run -- <fixture>`
-   inspected at 60 and 100 columns **and at depth ≥ 10**, and `web/dist` opened in a
-   browser on both the desktop and the touch entry — confirming the composed hover
-   title still shows the schema hint, and the touch glyph's hit box does not steal
-   caret or row taps.
+4. **Real-binary check** (green unit tests are not the bar — this spec has already
+   been corrected twice by looking at the running product): `cargo run -- <fixture>`
+   at 60 and 100 columns, at depth ≥ 10, in `en` **and** `zh-TW`, exercising
+   **inline value edit, inline name edit (`Tab`), the `/` filter input, and the `i`
+   Detail popup** — the four surfaces that read the widened VALUE column or the
+   retired notation. Plus `?` showing the new shared legend, and `web/dist` opened on
+   both the desktop and touch entries (composed hover title still shows the schema
+   hint; the touch glyph's hit box steals neither caret nor row taps).
 
 ## 7. Accepted losses
 
-- A branch's container notation (`scope` / `dotted` / `inline` / `multi` / `AoT`) is no
-  longer visible on a web tree row. Recovery paths: the composed desktop hover title,
-  the detail panel's Kind field, and the `f` type filter (which still indexes every
-  notation facet).
+- A branch's notation (`scope` / `dotted` / `inline` / `multiline` / `AoT`) is no
+  longer visible on **any** tree row, TUI included. Recovery paths: the `i` Detail
+  popup / web detail panel (whose branch `Format:` line was itself wrong until
+  `c153d0c` — the popup reported the kind word, not the notation), the `K` switch, and
+  the `f` type filter, which still indexes all 36 facets.
 - On touch, with no hover, the only recovery path is the detail sheet.
-- In the TUI, two losses come back, both consequences of the tag following the indent:
-  tags are no longer vertically alignable for column scanning, and on a deep row in a
-  narrow terminal the tag itself is clipped (finding E). Recovery: the detail popup,
-  the `f` type filter, or a wider terminal. This is the deliberate price of keeping
-  the tree's depth readable, which the column-anchored alternative destroyed.
+- The TUI loses its dense at-a-glance notation scan (`[I:hex ]` vs `[I:dec ]` in a
+  column) and, because the glyph follows the indent, vertical alignment; on a very
+  deep row in a narrow terminal the glyph itself clips (~depth 11 at 60 columns).
+- Help no longer **teaches** the notation vocabulary; it points at the three surfaces
+  that show it. 66 TUI legend rows are deleted, not rewritten.
 
 ## 8. Impact
 
 core 3 files (`type_filter.rs`, `view.rs`, `session.rs`) + `action_menu.rs` · web 8
 files (`render.ts`, `touch/render.ts`, `breadcrumb.ts`, `kind-labels.ts`, `panel.ts`,
-`ui.ts`, `types.ts`, + 2 CSS = 9 counting both stylesheets separately) · i18n 2 files ·
-TUI 2 files · docs 8 files (incl. new `ROW_ANATOMY.md`, new ADR 0011, `CONTEXT.md`,
-ADR 0009) · web specs 5.
+`ui.ts`, `types.ts`, `help-content.ts`, + 2 CSS) · i18n 2 files (**69 keys out, ~11
+in**) · TUI 4 files (`ui.rs`, `app.rs`, `tests.rs`, `overlay_help.rs`) · docs 8 files
+(new `ROW_ANATOMY.md`, new ADR 0011, `CONTEXT.md`, ADR 0009, `README.md`, `TUI.md`,
+`WEBUI.md`, `CLAUDE.md`) · web specs 5.
