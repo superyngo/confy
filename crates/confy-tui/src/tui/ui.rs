@@ -28,15 +28,13 @@ pub(crate) use crate::tui::overlay_type_filter::type_filter_page_step;
 /// 8 columns (the type/notation slot, e.g. `[S:str ]`). The key-sign facet
 /// moved to the detail popup's `Sign:` line.
 ///
-/// The tag no longer owns a *column widget* — it is rendered as the leading
-/// span of the merged NAME cell, **before the indent** (spec
-/// `2026-09-03-kind-glyph-outline-design.md` §4.3), so it can never be clipped
-/// by tree depth or a narrow terminal, and stays vertically scannable.
+/// The tag no longer owns a *column widget*: it is a span inside the merged
+/// NAME cell, rendered **after** the row's indent and branch toggle and
+/// immediately before the key (spec
+/// `2026-09-03-kind-glyph-outline-design.md` §4.3). Keeping the indent as the
+/// row's visual origin is what makes tree depth readable; the cost is that a
+/// deep row in a narrow terminal clips the tag.
 const TYPE_WIDTH: u16 = 8;
-
-/// Byte/column offset of the tree indent inside the merged cell:
-/// selection marker (1) + tag (8) + one separating space.
-const TAG_PREFIX: u16 = 1 + TYPE_WIDTH + 1;
 
 /// Width of the NAME column: 40% of the terminal width, floored to 10 columns.
 pub(crate) fn name_col_width(total: u16) -> u16 {
@@ -302,23 +300,13 @@ fn draw_title(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(Paragraph::new(line), area);
 }
 
-/// Buffer column a depth-1 row's key lands at inside the merged cell:
-/// `TAG_PREFIX` plus one indent level (2), branch marker (2), warn marker (1)
-/// and spacing (1). The header's `NAME` is aligned here rather than at the raw
-/// indent origin, so it sits over the keys it labels.
-const KEY_COL: u16 = TAG_PREFIX + 2 + 2 + 1 + 1;
-
-/// The merged NAME cell's header: `KIND` at x=1 (over the tag) and `NAME` over
-/// the key column, padded **in code** from `TAG_PREFIX`/`KEY_COL` rather than
-/// by leading spaces baked into a catalogue string — and measured by *display*
-/// width, since a zh-TW header like `名稱` is 2 chars but 4 columns.
+/// The merged NAME cell's header. The kind tag now follows each row's own
+/// indent and branch toggle, so it occupies no fixed column and there is
+/// nothing for a `KIND` header to sit over — the merged cell is labelled
+/// `NAME` alone (`tui.header.kind` is retired).
 fn merged_header_text(lang: confy_core::session::Lang) -> String {
     use confy_core::session::tr;
-    use unicode_width::UnicodeWidthStr;
-    let kind = tr(lang, "tui.header.kind");
-    let name = tr(lang, "tui.header.name");
-    let pad = (KEY_COL as usize).saturating_sub(1 + kind.width()).max(1);
-    format!(" {kind}{}{name}", " ".repeat(pad))
+    format!(" {}", tr(lang, "tui.header.name"))
 }
 
 fn draw_column_header(f: &mut Frame, area: Rect, app: &App) {
@@ -415,7 +403,7 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                 " "
             };
             // Row-fill flags are needed *before* the name cell now: the kind tag
-            // is its leading span, and the tag drops its colour on any filled row.
+            // is one of its spans, and the tag drops its colour on any filled row.
             let is_cursor = Some(i) == cursor_idx;
             let in_clipboard_source = app
                 .session
@@ -425,17 +413,17 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
             // Paste slots are now path-keyed (§3); test this row's path against them.
             let into_here = matches!(&active_slot, Some(PasteSlot::Into(p)) if *p == row.path);
             let tag = type_tag_span(row, is_cursor || in_clipboard_source || into_here);
-            // Merged NAME cell, in outline order: the row-scope selection marker
-            // stays outermost, then the kind tag at a *fixed* x=1 (unclippable and
-            // vertically alignable), then this row's own tree indent and markers.
-            let rest = format!(" {indent}{marker}{warn_marker} ");
-            let prefix_cols = 1 + TYPE_WIDTH as usize + rest.chars().count();
+            // Merged NAME cell, in outline order: selection marker, then this
+            // row's own **indent and branch toggle** (the tree structure reads
+            // first — an indent-independent tag column flattens every row's
+            // visual origin and destroys depth legibility), then the kind tag,
+            // then the key. The tag therefore follows depth and *can* be clipped
+            // on a deep row in a narrow terminal; that is the accepted cost of
+            // keeping the tree readable.
+            let lead = format!("{sel_marker}{indent}{marker}{warn_marker}");
+            let prefix_cols = lead.chars().count() + TYPE_WIDTH as usize + 1;
             let head = move |t: Span<'static>| {
-                vec![
-                    Span::raw(sel_marker.to_string()),
-                    t,
-                    Span::raw(rest.clone()),
-                ]
+                vec![Span::raw(lead.clone()), t, Span::raw(" ".to_string())]
             };
             let disp_key = display_key(&row.key, row.key_literal.as_deref());
             // Collapse the key to one line (a merged multi-line comment node's key
@@ -569,14 +557,9 @@ fn paste_line_row<'a>(row: &RowSnapshot, expanded: bool, width: u16) -> Row<'a> 
     } else {
         row.depth
     };
-    // Start the line where the tree indent starts, i.e. past the merged cell's
-    // fixed selection-marker + kind-tag prefix, so it aligns with the keys.
-    let line = format!(
-        "{}{}{}",
-        " ".repeat(TAG_PREFIX as usize),
-        "  ".repeat(depth),
-        "─".repeat(width as usize)
-    );
+    // The tag no longer occupies a fixed prefix, so the line starts at the
+    // row's own indent again — same as before the merge.
+    let line = format!("{}{}", "  ".repeat(depth), "─".repeat(width as usize));
     Row::new([Cell::from(line), Cell::from("")]).style(Style::default().fg(Color::Green))
 }
 
@@ -837,9 +820,9 @@ mod tests {
     use ratatui::Terminal;
 
     /// Buffer column where a depth-1 row's key glyph lands in the merged
-    /// NAME cell (1 selection-marker col + 8 kind-tag cols + 1 spacing col +
-    /// 2 indent + 2 branch marker + 1 warning-marker col + 1 spacing col).
-    const KEY_X: u16 = 16;
+    /// NAME cell (1 selection-marker col + 2 indent + 2 branch marker
+    /// + 1 warning-marker col + 8 kind-tag cols + 1 spacing col).
+    const KEY_X: u16 = 15;
 
     #[test]
     fn highlight_spans_marks_matched_chars() {
@@ -1411,8 +1394,9 @@ mod tests {
         let joined = lines.join("\n");
         assert!(joined.contains("[I:dec ]"), "rows: {joined:?}");
         assert!(joined.contains("[S:lit ]"), "rows: {joined:?}");
-        // header reflects both axes
-        assert!(lines[1].contains("KIND"), "header: {:?}", lines[1]);
+        // The header labels NAME/VALUE only — the tag rides each row's indent,
+        // so it has no column of its own to label.
+        assert!(!lines[1].contains("KIND"), "header: {:?}", lines[1]);
     }
 
     #[test]
@@ -1550,7 +1534,7 @@ mod tests {
         // row 1 is the column header
         let header = &lines[1];
         assert!(header.contains("NAME"), "header: {header:?}");
-        assert!(header.contains("KIND"), "header: {header:?}");
+        assert!(!header.contains("KIND"), "header: {header:?}");
         assert!(header.contains("VALUE"), "header: {header:?}");
         // a data row carries the type tag and value
         let joined = lines.join("\n");
@@ -1689,9 +1673,9 @@ mod tests {
         let row_y = (0..8)
             .find(|&y| buf[(KEY_X, y)].symbol() == "s")
             .expect("`s` row not found in rendered buffer");
-        // The kind tag is column-anchored at x=1 now — independent of terminal
-        // width and of the row's depth, which is exactly the property §4.3 buys.
-        let kind_x = 1;
+        // The tag follows the row's own indent and toggle, so its x depends on
+        // depth: a depth-1 row puts it at 1 + 2 + 2 + 1 = 6.
+        let kind_x = 6;
         assert_eq!(
             buf[(kind_x, row_y)].bg,
             Color::Green,
@@ -1726,82 +1710,68 @@ mod tests {
         }
     }
 
-    /// The header labels the merged cell's two halves in place: `KIND` over the
-    /// column-anchored tag, `NAME` over the keys. Padding is computed, so a
-    /// wide-glyph translation can't push `NAME` off the key column.
+    /// The merged cell is labelled `NAME` alone: the tag rides each row's
+    /// indent, so no fixed column exists for a `KIND` header to sit over.
     #[test]
-    fn merged_header_places_kind_and_name_at_their_columns() {
+    fn merged_header_is_name_only() {
         use confy_core::session::Lang;
-        use unicode_width::UnicodeWidthStr;
         for lang in [Lang::En, Lang::ZhTw] {
             let h = merged_header_text(lang);
-            let kind = confy_core::session::tr(lang, "tui.header.kind");
             let name = confy_core::session::tr(lang, "tui.header.name");
-            assert!(h.starts_with(&format!(" {kind}")), "KIND not at x=1: {h:?}");
-            let name_at = h.width() - name.width();
-            assert_eq!(
-                name_at, KEY_COL as usize,
-                "NAME must sit over the depth-1 key column for {lang:?}: {h:?}"
-            );
+            assert_eq!(h, format!(" {name}"), "header must be NAME alone: {h:?}");
         }
     }
 
-    /// The reason the tag is anchored at x=1 instead of following the indent
-    /// (spec §4.3, finding E): at 60 columns the NAME column is 24 wide, and a
-    /// deep row's own prefix alone consumes all of it — an indent-following tag
-    /// would be clipped away with no ellipsis. Anchored, it is always whole.
+    /// Depth legibility is the property that decides this layout: each row's
+    /// **indent and branch toggle come first**, so a nested row's visual origin
+    /// still steps right with its depth. An indent-independent tag column
+    /// flattens every row to the same starting x and the tree structure stops
+    /// reading — the regression this test exists to catch.
     #[test]
-    fn kind_tag_survives_deep_indent_at_narrow_width() {
+    fn kind_tag_follows_the_indent_so_depth_stays_readable() {
         let mut src = String::new();
         let mut path = String::new();
-        for i in 0..10 {
+        for i in 0..4 {
             if i > 0 {
                 path.push('.');
             }
             path.push_str(&format!("l{i}"));
-            src.push_str(&format!("[{path}]\n"));
+            src.push_str(&format!("[{path}]\nk{i} = \"v\"\n"));
         }
-        src.push_str("deep = \"x\"\n");
         let doc = crate::model::any_doc::AnyDocument::Toml(
             crate::model::cst_doc::CstDocument::from_str(&src).unwrap(),
         );
         let mut app = App::new(doc);
         app.session.expand_all();
         app.rebuild_rows();
-        let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
         terminal.draw(|fr| draw(fr, &app)).unwrap();
         let buf = terminal.backend().buffer().clone();
-        // The deepest row is a depth-10 scalar; its tag must be fully present
-        // in columns 1..=8 whatever its indent does.
-        let deepest = app
-            .rows
-            .iter()
-            .enumerate()
-            .max_by_key(|(_, r)| r.depth)
-            .map(|(i, r)| (i, r.depth))
-            .expect("rows");
-        assert!(
-            deepest.1 >= 10,
-            "fixture must reach depth 10, got {}",
-            deepest.1
-        );
-        // Row 0 of the tree area is the first visible row; find the y whose
-        // tag cell is non-blank on every one of the 8 columns.
-        let mut checked = 0usize;
+        // Collect, per rendered row, the x where its kind tag starts.
+        let mut tag_xs: Vec<u16> = Vec::new();
         for y in 0..20u16 {
-            let tag: String = (1..=8u16).map(|x| buf[(x, y)].symbol()).collect();
-            if tag.starts_with('[') {
-                assert_eq!(tag.chars().count(), 8, "tag must occupy exactly 8 columns");
-                assert!(
-                    tag.ends_with(']') || tag.contains(']'),
-                    "tag not whole: {tag:?}"
-                );
-                checked += 1;
+            if let Some(x) = (0..40u16).find(|&x| buf[(x, y)].symbol() == "[") {
+                tag_xs.push(x);
             }
         }
         assert!(
-            checked >= 10,
-            "expected a whole kind tag on every deep row, found {checked}"
+            tag_xs.len() >= 8,
+            "expected the expanded fixture's rows, got {}",
+            tag_xs.len()
+        );
+        // Not all at one column: the tag steps right with depth.
+        let min = *tag_xs.iter().min().unwrap();
+        let max = *tag_xs.iter().max().unwrap();
+        let dmin = app.rows.iter().map(|r| r.depth).min().unwrap();
+        let dmax = app.rows.iter().map(|r| r.depth).max().unwrap();
+        assert!(
+            max > min,
+            "every tag started at x={min}: the tag is column-anchored again and depth is unreadable"
+        );
+        assert_eq!(
+            (max - min) as usize,
+            2 * (dmax - dmin),
+            "tag x must step exactly one indent level (2 cols) per depth"
         );
     }
 

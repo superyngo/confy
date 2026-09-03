@@ -77,7 +77,7 @@ contents, the keymap, or the panel's locked field order.
 
 | Decision | Choice | Rejected alternatives |
 |---|---|---|
-| TUI scope | **Position parity, density preserved, tag column-anchored** — the KIND column *widget* retires but its *position* does not: the 8-col tag renders at x=1, before the indent (§4.3) | True adjacency (`indent → tag → key`): forfeits finding E, so the tag disappears entirely on deep/narrow rows — a strictly worse loss than the alignment it was trading away. Full glyph parity (3-col glyph in the TUI too): loses the power surface's at-a-glance notation. Web-only: maximum divergence |
+| TUI scope | **True adjacency, density preserved** — the KIND column retires and the 8-col tag renders **after the indent and branch toggle, before the key** (§4.3) | Column-anchoring the tag at x=1 (implemented first, then **reverted on sight of the real binary**: a fixed first-painted column gives every row the same visual origin and the indent stops reading as structure). Full glyph parity (3-col glyph in the TUI too): loses the power surface's at-a-glance notation. Web-only: maximum divergence |
 | Branch notation | **Not compensated on the row** — hover title, detail panel, and the `f` type filter carry it | Notation-aware container glyphs (`{.}`/`{…}`/`[[]]`: grows the set and stops being VS Code's clean vocabulary); folding it into the item-count cell (`3 items · scope`: puts the removed noise back on the same row) |
 | Glyph ownership | **core** (`kind_glyph`), for **one reason only: compile-time exhaustiveness** — a new `TypeToken`/`ScalarType` must break the build, not degrade to a fallback glyph at runtime | **One shared table in `web/kind-labels.ts`** — the genuine runner-up, and strictly cheaper: it also cures finding A (all four consumers are in `web/`, and the TUI consumes no glyph at all), with zero core files, no FFI wire field, no `web/types.ts` mirror edit, and no `functional_smoke.mjs` update. Rejected because a table keyed on a `type_label` string is unchecked and drifts silently. Recorded as ADR 0011 |
 | Glyph inputs | **`classify`-derived** (`kind, format, doc, read_only`) | `&NodeKind` alone: cannot express a YAML **opaque** node, so an unmutatable node would render identically to a normal one, and the claim that tag and glyph are two densities of one decision table would be false |
@@ -180,7 +180,7 @@ both structs), `web/style.css` and `web/touch/style.css` (`.kind-glyph` reusing
 `.crumb-glyph` sizing and the `t-*` hue tokens; the `.kind` badge and `.chev` rules
 retire, `.kind-note` stays for the panel).
 
-### 4.3 TUI — retire the column widget, keep the column position
+### 4.3 TUI — retire the column, keep the density, follow the indent
 
 The tree `Table` goes from three columns to two:
 
@@ -192,34 +192,43 @@ The tree `Table` goes from three columns to two:
   zero change. (Its *body* does reference the name width and gap count and is
   re-derived; only the value is invariant.)
 
-The NAME cell becomes — note the tag is **before** the indent:
+The NAME cell becomes — the tag sits **after** the indent and branch toggle, and
+immediately **before** the key:
 
 ```
-marker + [S:lit ] + space + indent + branch-marker + warn + space + key
+sel-marker + indent + branch-marker + warn + [S:lit ] + space + key
 ```
 
-This is the review's central correction. Placing the tag after the indent would
-forfeit finding E: the tag would clip away entirely on deep or narrow rows, where
-today it is always visible. Anchoring it at x=1 retires the column *widget* while
-keeping the column *position*, so the tag stays unclippable **and** vertically
-scannable — the pre-review draft's only accepted loss disappears. The cost is that
-"before the key" is column-adjacent rather than glyph-adjacent; the outline reading
-order is preserved.
+**Revised after seeing it run (2026-09-03).** The first implementation anchored the
+tag at x=1, before the indent, to preserve finding E (an unclippable tag). On the
+real binary that layout is wrong: with every row's first painted glyph at the same
+column, all rows share one visual origin and the indent no longer reads as
+structure — the tree becomes a flat list with a ragged right side. Depth legibility
+outranks tag survivability, so the tag follows the indent.
 
-A depth-1 key still lands at x=16 (`1 + 8 + 1 + 2 + 2 + 1 + 1`), the same offset
-true adjacency would have produced, so test churn is identical either way.
+The accepted consequence is exactly finding E: on a deep row in a narrow terminal
+the tag is clipped (at 60 columns the merged cell is 33 wide, so a depth-8 row loses
+it). Recovery paths are the same ones the web hosts use for notation — the detail
+popup and the `f` type filter — plus simply widening the terminal. Vertical
+alignment is also lost, and unlike the pre-review draft this is a *real* accepted
+loss (§7), not one designed away.
 
 `type_tag` is unchanged and still consumed. `type_col_cell`'s per-type colouring and
 its `has_fill` skip-colour rule fold into the name-cell builder, which becomes a
-`Line` of `Span`s (`Span::raw(marker)`, `Span::styled(tag, hue)`, `Span::raw(rest)`).
-The **selection marker stays outermost**: it is a row-scope cue and must not be
-indented behind a per-node facet. The `has_fill` skip stays verbatim — it asserts a
-real legibility property.
+`Line` of `Span`s (`Span::raw(lead)`, `Span::styled(tag, hue)`, `Span::raw(" ")`).
+The **selection marker stays outermost** and the warning marker keeps riding the
+row's indentation. The `has_fill` skip stays verbatim — it asserts a real legibility
+property.
 
-`KEY_X` (a **test-only** const, `ui.rs:784`; nothing at runtime depends on it) moves
-7 → 16, and `paste_target_into_fill_suppresses_kind_tag_color`'s
-`kind_x = name_col_width(40) + 1` becomes `kind_x = 1` — depth- and width-independent,
-i.e. the test gets simpler, which is the evidence this layout is the right one.
+A depth-1 key lands at x=15 (`1 + 2 + 2 + 1 + 8 + 1`). `KEY_X` (a **test-only**
+const; nothing at runtime depends on it) moves 7 → 15, and
+`paste_target_into_fill_suppresses_kind_tag_color`'s `kind_x` becomes 6 (a depth-1
+row's tag column) instead of `name_col_width(40) + 1`.
+
+The regression test is inverted accordingly: instead of asserting the tag survives a
+deep narrow row, `kind_tag_follows_the_indent_so_depth_stays_readable` asserts the
+tag's x **steps 2 columns per depth level**, which fails the moment anything
+re-anchors it to a fixed column and flattens the tree again.
 
 Files: `crates/confy-tui/src/tui/ui.rs` (rendering + its in-file `mod tests`),
 `crates/confy-tui/src/tui/tests.rs`. `tui/app.rs` is untouched.
@@ -237,13 +246,11 @@ File: `web/panel.ts`.
 
 ### 4.5 Column header (TUI)
 
-The merged column's header must read `KIND` at x=1 and `NAME` at x=16, or it would
-label its column by content that no longer leads it. So **no i18n key retires** —
-`tui.header.kind` stays and is composed into the single merged cell with
-`tui.header.name`. The pad between them is computed in code from `TYPE_WIDTH` and the
-same prefix arithmetic the row builder uses, measured by **display width** (zh-TW
-`類型`/`名稱` are 2 chars but 4 columns). `tui.header.name` drops its two hand-tuned
-leading spaces (`"  NAME"` → `"NAME"`) so no catalogue string smuggles layout.
+With the tag riding each row's indent there is no fixed column for a `KIND` header
+to sit over, so the merged cell is labelled **`NAME` alone** and `tui.header.kind`
+**retires** from both catalogues. `tui.header.name` also drops the two hand-tuned
+leading spaces it used to carry (`"  NAME"` → `"NAME"`), so no catalogue string
+smuggles layout; the one leading space is applied in code.
 
 ### 4.6 Kind switch in the Action menu
 
@@ -286,9 +293,9 @@ of `ROW_STATE_MODEL.md` / `MESSAGES.md`:
   proportional inline chip does not (finding D); scalar notation is already printed in
   the VALUE cell so removing it is lossless (finding B); branch notation is
   deliberately off the row and retrieved via hover, panel, or `f` (finding C); the tag
-  is column-anchored rather than indent-following because the column position is what
-  makes it unclippable (finding E); `type_tag` and `kind_glyph` are two densities of
-  the same `classify` decision table.
+  follows the indent rather than a fixed column because **depth legibility outranks
+  tag survivability** — finding E's clipping is accepted, not designed away (§4.3);
+  `type_tag` and `kind_glyph` are two densities of the same `classify` decision table.
 
 New **ADR 0011** — the glyph-in-core / hue-in-web ownership split, recording the
 shared-`kind-labels.ts` alternative and compile-time exhaustiveness as the deciding
@@ -312,9 +319,9 @@ column-anchored kind-tag prefix), `docs/reference/WEBUI.md` (row anatomy + link)
 
 1. `cargo fmt --check` → `cargo clippy -- -D warnings` → `cargo test`, with new tests
    for: `kind_glyph` coverage over every `TypeToken` (including `Opaque` → `!` and
-   `Root` → `⌂`), the TUI tag rendering at x=1 **on a depth-10 row at 60 columns**
-   (the finding-E regression guard), the header containing both `KIND` and `NAME` at
-   the right offsets, and `value_col_width` being unchanged.
+   `Root` → `⌂`), the TUI tag's x **stepping one indent level per depth** (the
+   flat-tree regression guard), the header carrying `NAME` but no longer `KIND`, and
+   `value_col_width` being unchanged.
 2. `cd web && npm run typecheck && npm test && npm run build`, updating
    `render.spec.mjs`, `touch-render.spec.mjs`, `panel-schema.spec.mjs`,
    `touch-clip-source.spec.mjs`, `touch-comment-advisory.spec.mjs`.
@@ -333,9 +340,11 @@ column-anchored kind-tag prefix), `docs/reference/WEBUI.md` (row anatomy + link)
   the detail panel's Kind field, and the `f` type filter (which still indexes every
   notation facet).
 - On touch, with no hover, the only recovery path is the detail sheet.
-- In the TUI: **none**. The pre-review draft accepted losing vertical alignment; §4.3's
-  column-anchored placement keeps both alignment and unclippability, so the TUI trades
-  only the KIND header cell's independence for the merged cell.
+- In the TUI, two losses come back, both consequences of the tag following the indent:
+  tags are no longer vertically alignable for column scanning, and on a deep row in a
+  narrow terminal the tag itself is clipped (finding E). Recovery: the detail popup,
+  the `f` type filter, or a wider terminal. This is the deliberate price of keeping
+  the tree's depth readable, which the column-anchored alternative destroyed.
 
 ## 8. Impact
 

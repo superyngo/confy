@@ -91,7 +91,6 @@
   "core.hint.multiple": "必須為 {0} 的倍數",
   "tui.title": "confy — {0} ",
   "tui.header.name": "名稱",
-  "tui.header.kind": "KIND",
   "tui.header.value": "數值",
   "tui.prompt.collision": " Key '{0}' 已存在。  o：覆寫  r：重新命名  c：取消",
   "tui.prompt.confirm-quit": " 尚有未儲存的變更。  y：不儲存並離開  n：取消",

@@ -7,7 +7,7 @@ Spec: [`../specs/2026-09-03-kind-glyph-outline-design.md`](../specs/2026-09-03-k
 
 The kind annotation moves before the key on every host; the web hosts simplify it to a
 type-only **kind glyph** owned by core, the TUI keeps its dense **kind tag** but
-column-anchored at x=1 with the KIND column *widget* retired. Kind switch joins the core
+rendered after the indent and branch toggle with the KIND column retired. Kind switch joins the core
 Action menu because the simplified control is a weaker affordance.
 
 Baseline: clean tree at `6cc9549`. Six phases, each independently verifiable and
@@ -55,28 +55,31 @@ kind glyph.
    `[Constraint::Length(name_col_width(total) + TYPE_WIDTH + 1), Constraint::Min(10)]`,
    `column_spacing(1)` unchanged.
 2. Name-cell builder becomes a `Line` of `Span`s in the order
-   `marker + tag + space + indent + branch-marker + warn + space + key`. Fold in
+   `sel-marker + indent + branch-marker + warn + tag + space + key` — the tag rides
+   each row's indent (the x=1 anchoring shipped first was reverted on sight of the
+   real binary: it flattened every row's visual origin). Fold in
    `type_col_cell`'s per-`type_label` colouring **and** its `has_fill` skip-colour rule
    verbatim; delete `type_col_cell`. Selection marker stays outermost.
 3. `value_col_width`: keep the returned value identical; re-derive the body against the
    merged width so the arithmetic reads honestly.
-4. `draw_column_header`: one merged cell composing `tui.header.kind` (at x=1) and
-   `tui.header.name` (at x=16), padding computed from `TYPE_WIDTH` + the row builder's
-   prefix arithmetic using **display width**, not `chars().count()`. Neither key retires;
-   `tui.header.name` changes `"  NAME"` → `"NAME"` in both catalogues.
-5. Tests: `KEY_X` 7 → 16; `paste_target_into_fill_...`'s `kind_x` → `1`;
+4. `draw_column_header`: one merged cell labelled `NAME` alone — with the tag riding
+   the indent there is no fixed column for `KIND` to label, so `tui.header.kind`
+   **retires** from both catalogues and `tui.header.name` changes `"  NAME"` →
+   `"NAME"` (its leading space is applied in code).
+5. Tests: `KEY_X` 7 → 15; `paste_target_into_fill_...`'s `kind_x` → `6`;
    `type_format_column_shows_fixed_pitch_tag`, `inline_table_tag_differs_from_table_scope`,
    `column_header_and_type_value_columns_render`,
    `draw_tree_windows_to_the_viewport_...`, `comment_advisory_renders_underlined_...`
    updated for the merged column. `type_tag_is_fixed_pitch` (`tests.rs:75`) is unchanged.
 
-**New test (the finding-E guard):** render a depth-10 row at 60 columns and assert the
-tag is fully present at x=1..9. This is the regression this layout exists to prevent.
+**New test (the flat-tree guard):** assert the tag's x **steps 2 columns per depth
+level**, so nothing can re-anchor it to a fixed column and flatten the tree again.
+Finding E's clipping on deep/narrow rows is accepted, not guarded.
 
 **Verify:** `cargo test -p confy-tui` → **real binary**: `cargo run -- <fixture>` at 60
 and 100 columns, inspecting a depth-≥10 row and an inline edit in both fields.
 
-**Commit:** `refactor(tui): retire the KIND column widget, anchor the kind tag at x=1`
+**Commit:** `refactor(tui): retire the KIND column, render the kind tag before the key`
 
 ## Phase 3 — web: glyph row + single hue table
 
