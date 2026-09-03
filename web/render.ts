@@ -12,7 +12,7 @@
 // phases (kind popover, context menu, drag-reparent).
 import type { EditView, PasteSlot, SessionSnapshot, ViewRow } from "./types.js";
 import { escapeHtml } from "./escape.js";
-import { isCommentRow, isExpanded, isPositional, valueTypeClass } from "./kind-labels.js";
+import { hueFor, isCommentRow, isExpanded, isPositional, valueTypeClass } from "./kind-labels.js";
 import { t } from "./i18n.js";
 import { highlightHtml } from "./highlight.js";
 
@@ -23,8 +23,6 @@ export { escapeHtml } from "./escape.js";
 // --- inline SVGs (mirrors the design's IC table) ---
 export const IC_CARET =
   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>`;
-const IC_CHEV =
-  `<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>`;
 const IC_GRIP =
   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="6" r="1.4"/><circle cx="15" cy="6" r="1.4"/><circle cx="9" cy="12" r="1.4"/><circle cx="15" cy="12" r="1.4"/><circle cx="9" cy="18" r="1.4"/><circle cx="15" cy="18" r="1.4"/></svg>`;
 // Schema-warning triangle — same glyph as the TUI's ▲/△ (filled = this row
@@ -93,11 +91,19 @@ function renderValue(
   return highlightHtml((r.value ?? "").replace(/\r?\n/g, " ↵ "), filter);
 }
 
-// The per-row kind badge: friendly kind label + notation suffix + chevron.
-function renderKindBadge(r: ViewRow): string {
-  const { badge_label: label, badge_note: note } = r;
-  const suffix = note ? `<span class="kind-note">·${escapeHtml(note)}</span>` : "";
-  return `<button class="kind" data-kind="1">${escapeHtml(label)}${suffix} ${IC_CHEV}</button>`;
+// The per-row **kind glyph**: core's outline glyph, before the key, hue-coloured
+// here (ADR 0011). A `<button>` when the kind switch is available on the row, a
+// plain `<span>` for a read-only node and for a comment (which has no kind to
+// switch), so every row still gets its outline marker while only switchable
+// rows get a control. `data-kind` is unchanged, so `ui.ts`'s click/hover
+// delegation carries over from the retired badge verbatim.
+function renderKindGlyph(r: ViewRow): string {
+  const hue = hueFor(r.type_label);
+  const cls = `kind-glyph mono${hue ? ` t-${hue}` : ""}`;
+  const g = escapeHtml(r.kind_glyph);
+  return r.read_only || isCommentRow(r)
+    ? `<span class="${cls}">${g}</span>`
+    : `<button class="${cls}" data-kind="1">${g}</button>`;
 }
 
 export function renderRow(
@@ -144,6 +150,10 @@ export function renderRow(
   } else if (r.is_branch && r.has_descendant_violation) {
     s += IC_WARN_HOLLOW;
   }
+  // Kind glyph: the row's outline marker, after the indent/caret/warning and
+  // immediately before the key or comment text, matching the TUI's row order
+  // (see docs/reference/ROW_ANATOMY.md).
+  s += renderKindGlyph(r);
 
   if (comment) {
     if (edit && r.is_cursor && edit.field === "Value") {
@@ -190,8 +200,6 @@ export function renderRow(
       s += `<span class="eq">=</span>`;
       s += `<span class="val ${vcls}${editingValue ? " editing" : ""} mono" data-edit="val">${renderValue(r, edit, schemaEnum, filter)}</span>`;
     }
-    // Kind badge (type + notation + chevron).
-    if (!r.read_only) s += renderKindBadge(r);
     // Trailing same-line comment.
     if (r.trailing_comment) {
       const advisoryCls = r.comment_advisory ? " comment-advisory" : "";

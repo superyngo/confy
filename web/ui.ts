@@ -1218,13 +1218,29 @@ function onTreeHover(ev: MouseEvent) {
   if (!session) return;
   const target = ev.target as HTMLElement;
   const cell = target.closest('[data-edit="val"], [data-kind]') as HTMLElement | null;
-  if (!cell || cell.title) return;
+  // Composed once per element (the old guard was `cell.title`, which no longer
+  // works now that an empty compose result is legitimate) so a mouse sweep
+  // doesn't re-query `schemaHint` per `mouseover`.
+  if (!cell || cell.dataset.hoverTitled) return;
+  cell.dataset.hoverTitled = "1";
   const rowEl = cell.closest(".row") as HTMLElement | null;
   const raw = rowEl?.dataset.path;
   if (raw === undefined) return;
   const path = JSON.parse(raw) as Path;
+  const lines: string[] = [];
+  // The kind glyph is a 2-3 column outline marker, so unlike the retired badge
+  // it spells out neither the kind nor the notation. Its tooltip is the only
+  // hover-level recovery path for both, and it is composed here (never as a
+  // static `title` attribute in render.ts) because a static attribute would
+  // make the `cell.title` short-circuit swallow the schema hint below.
+  if (cell.matches("[data-kind]")) {
+    const idx = Number(rowEl?.dataset.index);
+    const r = Number.isNaN(idx) ? undefined : snap?.rows[idx];
+    if (r) lines.push(r.badge_note ? `${r.badge_label} · ${r.badge_note}` : r.badge_label);
+  }
   const text = schemaHintText(session.schemaHint(path));
-  if (text) cell.title = text;
+  if (text) lines.push(text);
+  cell.title = lines.join("\n");
 }
 
 // Pointer analogue of arrow-key `PasteSlot` stepping (ADR 0004 §1): while the

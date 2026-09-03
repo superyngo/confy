@@ -50,6 +50,7 @@ function makeRow(overrides = {}) {
     type_label: "int",
     badge_label: "int",
     badge_note: "",
+    kind_glyph: "123",
     child_count: 0,
     trailing_comment: undefined,
     comment_advisory: undefined,

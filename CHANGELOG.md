@@ -34,6 +34,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   column alone (the tag's internal `!` was duplicate signal). Retiring the tag also
   deletes a per-visible-row tree lookup that existed only to recover a `NodeKind`
   for it.
+- Web + touch tree rows drop the end-of-row **kind badge** pill (`int·dec ⌄`) for the
+  same kind glyph, moved to the front of the row — after the indent, caret and warning
+  triangle, immediately before the key — so all four hosts share one row anatomy.
+  Read-only (YAML opaque) and comment rows now get the marker too, as a plain `<span>`
+  with no switch control. The kind and notation words survive as the glyph's hover
+  tooltip, composed in `ui.ts` alongside the schema hint (a static `title` attribute
+  would have suppressed the hint). `kind-labels.ts` gains `hueFor(type_label)` as the
+  single hue table for every surface; `breadcrumb.ts`'s forked glyph/hue table is
+  deleted, so the bar and the rows can no longer disagree, and its `··` fallback goes
+  away with it (core's glyph table is exhaustive). Touch's glyph carries a transparent
+  44px hit box.
 
 ## [v1.0.1] - 2026-09-02
 

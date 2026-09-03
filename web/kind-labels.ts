@@ -9,26 +9,50 @@
 // identical badge without re-deriving type/format heuristics.
 import type { ViewRow } from "./types.js";
 
-// Value-type hue token (design `--t-*` without the prefix); "" when unknown.
-export function valueHue(r: ViewRow): string {
-  switch (r.scalar_type) {
-    case "String":
+// The **single** value-type hue table (design `--t-*` tokens without the
+// prefix), keyed by core's `type_label`. It covers branches and comments too,
+// which `valueHue` alone cannot: a branch/comment row has no `scalar_type`.
+// The glyph itself is core-owned (`ViewRow.kind_glyph`) and the hue is
+// web-owned — see ADR 0011. Previously this table was forked in
+// `breadcrumb.ts` (as `GLYPHS`, carrying the glyph as well) while rows went
+// through `valueTypeClass`, so the two surfaces could disagree.
+export function hueFor(typeLabel: string): string {
+  switch (typeLabel) {
+    case "table":
+    case "inline":
+    case "array":
+    case "array-of-tables":
+      return "branch";
+    case "string":
       return "string";
-    case "Integer":
-    case "Float":
+    case "integer":
+    case "float":
       return "number";
-    case "Bool":
+    case "bool":
       return "bool";
-    case "Null":
+    case "null":
       return "null";
-    case "OffsetDatetime":
-    case "LocalDatetime":
-    case "LocalDate":
-    case "LocalTime":
+    case "offsetdatetime":
+    case "localdatetime":
+    case "localdate":
+    case "localtime":
       return "date";
+    // A comment carries no type; it borrows the dimmest token, matching the
+    // TUI's DarkGray comment tag.
+    case "comment":
+      return "null";
     default:
       return "";
   }
+}
+
+// Value-type hue token for a scalar row; "" for branches/comments/unknown.
+// Kept as the scalar-only entry point (callers that must *not* colour a
+// branch, e.g. the `.val` cell) — a thin wrapper over `hueFor`.
+export function valueHue(r: ViewRow): string {
+  return r.scalar_type === undefined || r.scalar_type === null
+    ? ""
+    : hueFor(r.type_label);
 }
 
 // Value-type color class (design tokens `--t-*`). Numbers share one hue.

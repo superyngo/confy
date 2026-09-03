@@ -51,6 +51,7 @@ function makeRow(overrides = {}) {
     type_label: "table",
     badge_label: "table",
     badge_note: "",
+    kind_glyph: "{}",
     child_count: 0,
     trailing_comment: undefined,
     read_only: false,
@@ -104,6 +105,16 @@ console.log("\n-- treeHTML(): has_descendant_violation gets warn-branch, stably 
   const htmlExpanded = treeHTML(makeSnap([rowBExpanded, rowChild], undefined));
   const bDivExpanded = htmlExpanded.split("<div")[1];
   check("expanded branch with descendant warning still gets warn-branch class (stable cue)", bDivExpanded.includes("warn-branch"));
+}
+
+console.log("\n-- treeHTML(): kind glyph matches desktop's row anatomy --");
+{
+  const row = makeRow({ key: "port", is_branch: false, kind_glyph: "123", type_label: "integer", scalar_type: "Integer" });
+  const html = treeHTML(makeSnap([row], undefined));
+  check("glyph rendered with the shared hue class", html.includes("kind-glyph mono t-number"), html);
+  check("glyph keeps the data-act=\"kind\" hook app.ts listens for", html.includes('data-act="kind"'), html);
+  check("glyph precedes the key", html.indexOf("kind-glyph") < html.indexOf('class="key'), html);
+  check("no kind pill survives", !html.includes('class="kind"') && !html.includes("kind-note"), html);
 }
 
 console.log(failures === 0 ? "\nALL TOUCH RENDER-CUE CHECKS PASSED" : `\n${failures} FAILURES`);

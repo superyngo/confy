@@ -216,14 +216,26 @@ body.paste-mode .row.drag-over-into{box-shadow:none;outline:1.5px dashed var(--d
 .comment-row .key,.comment-row .eq{display:none}
 .comment-row .comment{margin-left:0;flex:0 1 auto}
 
-.kind{
-  flex:0 0 auto;margin-left:8px;font-family:var(--mono);font-size:10.5px;font-weight:600;
-  letter-spacing:.02em;padding:2px 7px 2px 8px;border-radius:999px;
-  border:1px solid var(--border-strong);background:var(--panel);color:var(--muted);
-  display:inline-flex;align-items:center;gap:4px;white-space:nowrap;
+/* Kind glyph — the row's outline marker, before the key. Fixed min-width so
+   glyphs of 1-3 characters ("⌂"/"[]"/"abc") all consume one column and keys
+   stay aligned within a level; hue tokens mirror .crumb-glyph, which renders
+   the same core glyph in the breadcrumb. It is a <button> only where the kind
+   switch applies (render.ts), so the hover affordance is text-only — no pill,
+   since the glyph now sits in the tree's structural gutter rather than at the
+   end of the row. */
+.kind-glyph{
+  flex:0 0 auto;margin-right:6px;font-size:10px;font-weight:600;min-width:22px;
+  text-align:center;background:none;border:0;padding:0;color:var(--muted);
+  line-height:1;
 }
-.kind:hover{border-color:var(--sel-edge);color:var(--fg);background:var(--accent-soft)}
-.kind .chev{width:9px;height:9px;opacity:.6}
+button.kind-glyph{cursor:pointer}
+button.kind-glyph:hover{color:var(--fg)}
+.kind-glyph.t-branch{color:var(--t-branch)}
+.kind-glyph.t-string{color:var(--t-string)}
+.kind-glyph.t-number{color:var(--t-number)}
+.kind-glyph.t-bool{color:var(--t-bool)}
+.kind-glyph.t-date{color:var(--t-date)}
+.kind-glyph.t-null{color:var(--t-null)}
 
 .row-actions{margin-left:auto;display:flex;gap:2px;opacity:0;flex:0 0 auto;transition:opacity .1s}
 .row:hover .row-actions,.row.selected .row-actions{opacity:1}
@@ -404,7 +416,7 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
 @media (max-width:680px){
   :root{--row-h:38px;--indent:16px}
   body{font-size:14px}
-  .kind{margin-left:6px}
+  .kind-glyph{margin-right:4px;min-width:19px}
   .eq{margin:0 5px}
   .row-actions{opacity:1}            /* 觸控：動作鈕常駐 */
   .drag-handle{opacity:.5}
@@ -597,10 +609,9 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
 .browse-local .bl-chev { width: 15px; height: 15px; color: var(--faint); flex: 0 0 auto; }
 
 /* App-only utilities (mockup uses .hide / inline var(--mono); these mirror them
-   for index.html + render.ts which use .hidden / .mono / .kind-note). */
+   for index.html + render.ts which use .hidden / .mono). */
 .hidden { display: none !important; }
 .mono { font-family: var(--mono); }
-.kind-note { opacity: .6; }
 .key.elem { color: var(--faint); }  /* dim [0]/[1] array-element index label */
 
 /* Tree/Raw view toggle + read-only raw text (#12). The active tab reads like a

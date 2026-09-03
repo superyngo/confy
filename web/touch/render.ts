@@ -7,7 +7,7 @@
 // whole tree from each snapshot.
 import type { SessionSnapshot, ViewRow } from "../types.js";
 import { escapeHtml as esc } from "../escape.js";
-import { isCommentRow, isExpanded, isPositional, valueTypeClass } from "../kind-labels.js";
+import { hueFor, isCommentRow, isExpanded, isPositional, valueTypeClass } from "../kind-labels.js";
 import { highlightHtml } from "../highlight.js";
 
 // The shared quote-safe escaper, under this module's traditional short name.
@@ -49,14 +49,17 @@ function containerKind(r: ViewRow): "array" | "table" {
   return /array|seq/i.test(r.type_label) ? "array" : "table";
 }
 
-// The touch kind badge shares the desktop's friendly label + notation note
-// (kind-labels.ts) and now also shares its markup: the note is wrapped in a
-// `.kind-note` span so both surfaces dim `·dec`/`·scope` identically instead
-// of touch rendering the whole "int·dec" pill at one uniform brightness.
-function kindBadgeHTML(r: ViewRow): string {
-  const { badge_label: label, badge_note: note } = r;
-  const suffix = note ? `<span class="kind-note">·${esc(note)}</span>` : "";
-  return `${esc(label)}${suffix}`;
+// The touch kind glyph is the desktop one (render.ts's `renderKindGlyph`) with
+// touch's own hit-box CSS: core's outline glyph, web-owned hue. The old
+// friendly-label + notation badge is retired on every host — notation words
+// now live in the edit sheet / `K` switch / `f` filter only.
+function kindGlyphHTML(r: ViewRow): string {
+  const hue = hueFor(r.type_label);
+  const cls = `kind-glyph mono${hue ? ` t-${hue}` : ""}`;
+  const g = esc(r.kind_glyph);
+  return r.read_only || isCommentRow(r)
+    ? `<span class="${cls}">${g}</span>`
+    : `<span class="${cls}" data-act="kind">${g}</span>`;
 }
 
 function rowHTML(
@@ -101,6 +104,9 @@ function rowHTML(
   } else if (branch && r.has_descendant_violation) {
     h += IC_WARN_HOLLOW;
   }
+  // Kind glyph: immediately before the key/comment text, as on desktop and in
+  // the TUI (docs/reference/ROW_ANATOMY.md).
+  h += kindGlyphHTML(r);
 
   if (comment) {
     // Standalone comment node (no analogue in the prototype): show the text
@@ -111,17 +117,12 @@ function rowHTML(
     h += `<span class="key${isPositional(r) ? " elem" : ""}">${highlightHtml(r.key_literal ?? r.key, filter)}</span>`;
     if (branch) {
       h += `<span class="count">${r.child_count}</span>`;
-      h += `<span class="kind" data-act="kind">${kindBadgeHTML(r)}</span>`;
       // Core's `trailing_comment` already carries its marker (`#` / `//`) —
       // render it raw, exactly like the desktop render.ts.
       h += `<span class="comment${r.comment_advisory && r.trailing_comment ? " comment-advisory" : ""}">${esc(r.trailing_comment ?? "")}</span>`;
     } else {
       h += `<span class="eq">=</span>`;
       h += `<span class="val ${valueTypeClass(r)}">${highlightHtml(r.value ?? "", filter)}</span>`;
-      // Kind badge before the trailing comment, matching desktop's order
-      // (key = value type·note #comment) — previously touch put the comment
-      // first, so the two surfaces disagreed on where the badge sits.
-      if (!r.read_only) h += `<span class="kind" data-act="kind">${kindBadgeHTML(r)}</span>`;
       h += `<span class="comment${r.comment_advisory && r.trailing_comment ? " comment-advisory" : ""}">${esc(r.trailing_comment ?? "")}</span>`;
     }
   }

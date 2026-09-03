@@ -157,14 +157,24 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none
 .val.t-bool{color:var(--t-bool)} .val.t-date{color:var(--t-date)}
 .val.t-null{color:var(--t-null);font-style:italic}
 .count{font-family:var(--mono);font-size:13px;color:var(--faint);margin-left:8px;flex:0 0 auto}
-.kind{
-  flex:0 0 auto;margin-left:10px;font-family:var(--mono);font-size:11px;font-weight:700;
-  letter-spacing:.02em;padding:3px 9px;border-radius:999px;
-  border:1px solid var(--border-strong);background:var(--panel);color:var(--muted);
+/* Kind glyph — the row's outline marker, before the key (desktop's
+   `.kind-glyph`, `web/style.css`). The visible mark is small, so a
+   transparent ::before stretches the tap target to the 44px touch minimum
+   without changing the row's layout height. */
+.kind-glyph{
+  flex:0 0 auto;margin-right:8px;font-size:11px;font-weight:700;min-width:24px;
+  text-align:center;color:var(--muted);line-height:1;position:relative;
 }
-/* Notation note (`·dec`/`·scope`) inside the kind pill — dimmed relative to
-   the type label, matching desktop's `.kind-note` (`web/style.css`). */
-.kind-note{opacity:.6}
+.kind-glyph::before{
+  content:"";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:44px;height:44px;
+}
+.kind-glyph.t-branch{color:var(--t-branch)}
+.kind-glyph.t-string{color:var(--t-string)}
+.kind-glyph.t-number{color:var(--t-number)}
+.kind-glyph.t-bool{color:var(--t-bool)}
+.kind-glyph.t-date{color:var(--t-date)}
+.kind-glyph.t-null{color:var(--t-null)}
 /* 行末註解（# comment）— 空白時隱藏 */
 .comment{
   font-family:var(--mono);font-size:12.5px;color:var(--faint);font-style:italic;
@@ -394,7 +404,7 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none
   .app.raw .detail-pane{display:none}
   .fab{width:44px;height:44px}
   .key{font-size:14.5px} .val{font-size:14px}
-  .kind{margin-left:12px}
+  .kind-glyph{margin-right:6px;min-width:21px}
 }
 @container (max-width:599px){
   .detail-pane{display:none}

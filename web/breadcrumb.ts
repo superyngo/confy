@@ -27,6 +27,7 @@ import type { ChildView, Path, Seg, SessionSnapshot } from "./types.js";
 import { escapeHtml } from "./escape.js";
 import { pathEq } from "./path-utils.js";
 import { t } from "./i18n.js";
+import { hueFor } from "./kind-labels.js";
 
 export interface CrumbDeps {
   /** Immediate children of the node at `path` (ffi `children`), lazy. */
@@ -35,27 +36,14 @@ export interface CrumbDeps {
   jump(path: Path): void;
 }
 
-// VS Code-style text glyph + value-type hue token per core type_label (Q6/A).
-const GLYPHS: Record<string, [glyph: string, hue: string]> = {
-  table: ["{}", "branch"],
-  inline: ["{}", "branch"],
-  array: ["[]", "branch"],
-  "array-of-tables": ["[]", "branch"],
-  string: ["abc", "string"],
-  integer: ["123", "number"],
-  float: ["123", "number"],
-  bool: ["tf", "bool"],
-  null: ["??", "null"],
-  offsetdatetime: ["@", "date"],
-  localdatetime: ["@", "date"],
-  localdate: ["@", "date"],
-  localtime: ["@", "date"],
-  comment: ["#", "null"],
-};
-
-function glyphHTML(typeLabel: string): string {
-  const [g, hue] = GLYPHS[typeLabel] ?? ["··", "null"];
-  return `<span class="crumb-glyph mono t-${hue}">${escapeHtml(g)}</span>`;
+// The glyph itself is core-owned (`ChildView.kind_glyph`, the same exhaustive
+// table the tree rows and the TUI read); only the hue is web-owned, from
+// `kind-labels.ts`'s single `hueFor` table (ADR 0011). This module used to
+// carry its own `GLYPHS` fork, which could drift from the rows' colouring and
+// had a `··` fallback for tokens core now covers exhaustively.
+function glyphHTML(k: { kind_glyph: string; type_label: string }): string {
+  const hue = hueFor(k.type_label);
+  return `<span class="crumb-glyph mono${hue ? ` t-${hue}` : ""}">${escapeHtml(k.kind_glyph)}</span>`;
 }
 
 function segLabel(seg: Seg): string {
@@ -94,7 +82,7 @@ export function renderCrumbs(bar: HTMLElement, snap: SessionSnapshot, deps: Crum
     parts.push(`<button class="crumb-sep" data-i="${i}" title="${t("web.crumbs.browse.title")}">›</button>`);
     parts.push(
       `<button class="crumb${i === cur.length - 1 ? " current" : ""}" data-i="${i + 1}">` +
-        (info ? glyphHTML(info.type_label) : "") +
+        (info ? glyphHTML(info) : "") +
         `<span>${segLabel(cur[i])}</span></button>`,
     );
   }
@@ -196,7 +184,7 @@ function renderTreeRows(menu: HTMLElement, deps: CrumbDeps, highlight: Path): vo
           (k.is_branch
             ? `<button class="crumb-caret" aria-expanded="${open}">${open ? "⌄" : "›"}</button>`
             : `<span class="crumb-caret none"></span>`) +
-          glyphHTML(k.type_label) +
+          glyphHTML(k) +
           `<span class="crumb-label">${label}</span></div>`,
       );
       if (k.is_branch && open) walk(k.path, depth + 1);

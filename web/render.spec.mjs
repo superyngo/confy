@@ -57,6 +57,7 @@ function makeRow(overrides = {}) {
     type_label: "string",
     badge_label: "str",
     badge_note: "",
+    kind_glyph: "abc",
     child_count: 0,
     trailing_comment: undefined,
     read_only: false,
@@ -243,6 +244,34 @@ console.log("\n-- panelHTML(): Key field is the authored spelling, not the decod
     noLitHtml.includes('data-field="name" value="plain"'),
     noLitHtml,
   );
+}
+
+// ---- renderRow: the kind glyph, before the key, on every row ----
+console.log("\n-- renderRow(): kind glyph --");
+{
+  const row = makeRow({ key: "port", kind_glyph: "123", type_label: "integer" });
+  const html = renderRow(row, 0, [row], null, null, "");
+  check("glyph rendered as a switch button", html.includes('data-kind="1"'), html);
+  check("glyph carries the web-owned hue class", html.includes("kind-glyph mono t-number"), html);
+  check(
+    "glyph precedes the key (row order: indent/caret/warn/glyph/key)",
+    html.indexOf("kind-glyph") < html.indexOf('class="key"'),
+    html,
+  );
+  check("no kind pill / chevron survives", !html.includes('class="kind"') && !html.includes("chev"), html);
+  check("no notation note on the row", !html.includes("kind-note"), html);
+
+  // A read-only (YAML opaque) node and a comment both get the marker but no
+  // control — there is no kind to switch on either.
+  const ro = makeRow({ key: "anchored", kind_glyph: "!", read_only: true });
+  const roHtml = renderRow(ro, 0, [ro], null, null, "");
+  check("read-only row renders the glyph", roHtml.includes("kind-glyph"), roHtml);
+  check("read-only row renders no kind control", !roHtml.includes("data-kind"), roHtml);
+
+  const cm = makeRow({ key: "", value: "# hi", scalar_type: undefined, type_label: "comment", kind_glyph: "#" });
+  const cmHtml = renderRow(cm, 0, [cm], null, null, "");
+  check("comment row renders the glyph", cmHtml.includes("kind-glyph"), cmHtml);
+  check("comment row renders no kind control", !cmHtml.includes("data-kind"), cmHtml);
 }
 
 console.log(failures === 0 ? "\nALL RENDER-ESCAPING CHECKS PASSED" : `\n${failures} FAILURES`);

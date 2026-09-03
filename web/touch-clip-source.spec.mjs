@@ -47,6 +47,7 @@ function makeRow(overrides = {}) {
     type_label: "table",
     badge_label: "table",
     badge_note: "",
+    kind_glyph: "{}",
     child_count: 0,
     trailing_comment: undefined,
     read_only: false,
