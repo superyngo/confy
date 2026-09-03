@@ -3036,3 +3036,56 @@ fn add_picker_json_offers_null_not_datetime() {
         "JSON has no datetime scalar: {labels:?}"
     );
 }
+
+/// The Detail popup's `Format:` line is a node's **notation**, and notation is
+/// not derivable from `NodeKind`: a `Table` may be `scope`/`dotted`/`multiline`
+/// and an `Array` `inline`/`multiline`. It used to print the kind word for both
+/// (`Format: table` on a `[T/D]` dotted table), which matters because the popup
+/// is the TUI's only recovery path for a branch's notation.
+#[test]
+fn detail_format_line_reports_container_notation_not_the_kind_word() {
+    let src = "\
+tags = [\"a\"]
+matrix = [
+  [1],
+]
+point = { x = 1 }
+owner.name = \"wen\"
+
+[server]
+host = \"h\"
+
+[[plugin]]
+name = \"fmt\"
+";
+    let doc = AnyDocument::from_str_as(src, DocFormat::Toml).unwrap();
+    let mut s = Session::new(doc);
+    s.expand_all();
+    for (key, want) in [
+        ("tags", "inline"),
+        ("matrix", "multiline"),
+        ("point", "inline"),
+        ("owner", "dotted"),
+        ("server", "scope"),
+        ("plugin", "array-of-tables"),
+    ] {
+        let row = s
+            .visible_rows()
+            .into_iter()
+            .find(|r| r.key == key)
+            .unwrap_or_else(|| panic!("row {key} not visible"));
+        s.set_cursor(row.path.clone());
+        s.open_detail();
+        let text = s.detail_text.clone().unwrap_or_default();
+        let line = text
+            .lines()
+            .find(|l| l.starts_with("Format:"))
+            .unwrap_or_else(|| panic!("no Format line for {key}: {text:?}"))
+            .to_string();
+        assert!(
+            line.contains(want),
+            "{key}: expected notation {want:?}, got {line:?}"
+        );
+        s.exit_detail();
+    }
+}

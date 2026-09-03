@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-03
+
+**Fixed**
+
+- Detail popup (`i`): a branch's `Format:` line reported the *kind* word instead of the
+  node's notation, so a dotted table (`[T/D]`) read `Format: table`, a standard scope
+  (`[T/S]`) read `table`, and a multiline array (`[A/M]`) read `array`. The line is now
+  derived from the node's `format` (`dotted` / `scope` / `multiline` / `inline` /
+  `block`), with the kind word kept only as the `Plain`-format fallback (Root,
+  array-of-tables entries). This matters beyond cosmetics: the popup is the TUI's
+  recovery path for notation that a tree row does not spell out.
+
 ## [v1.0.1] - 2026-09-02
 
 **Deployment fix release.** No functional change to the editor itself; the release exists to
