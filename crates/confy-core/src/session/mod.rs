@@ -37,7 +37,8 @@ pub use state::{
 };
 pub use status_fmt::{format_label, node_type_label, node_type_label_str};
 pub use type_filter::{
-    classify, layout, nav_rows, Cell, CheckState, Group, LayoutRow, TypeFilter, TypeToken,
+    classify, kind_glyph, layout, nav_rows, Cell, CheckState, Group, LayoutRow, TypeFilter,
+    TypeToken,
 };
 pub use view::{
     ActionId, ActionItemView, AddOptionView, ChildView, ConvertView, EditView, ExternalEdit,

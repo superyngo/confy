@@ -24,17 +24,17 @@ pub(crate) use crate::tui::overlay_detail::{
 pub(crate) use crate::tui::overlay_schema_enum::schema_enum_page_step;
 pub(crate) use crate::tui::overlay_type_filter::type_filter_page_step;
 
-/// Fixed width of the kind tag. The fixed-pitch tag is always exactly
-/// 8 columns (the type/notation slot, e.g. `[S:str ]`). The key-sign facet
-/// moved to the detail popup's `Sign:` line.
+/// Fixed width of the kind glyph slot: 3 display columns, the widest glyph in
+/// the shared outline vocabulary (`abc`, `123`). Every host renders the same
+/// glyph; the notation word it does *not* carry lives in the `i` Detail popup,
+/// the `K` switch, and the `f` type filter.
 ///
-/// The tag no longer owns a *column widget*: it is a span inside the merged
-/// NAME cell, rendered **after** the row's indent and branch toggle and
-/// immediately before the key (spec
-/// `2026-09-03-kind-glyph-outline-design.md` §4.3). Keeping the indent as the
-/// row's visual origin is what makes tree depth readable; the cost is that a
-/// deep row in a narrow terminal clips the tag.
-const TYPE_WIDTH: u16 = 8;
+/// The glyph owns no *column widget*: it is a span inside the merged NAME cell,
+/// rendered **after** the row's indent and branch toggle and immediately before
+/// the key (spec `2026-09-03-kind-glyph-outline-design.md` §4.3). Keeping the
+/// indent as the row's visual origin is what makes tree depth readable; the cost
+/// is that a deep row in a narrow terminal clips the glyph.
+const TYPE_WIDTH: u16 = 3;
 
 /// Width of the NAME column: 40% of the terminal width, floored to 10 columns.
 pub(crate) fn name_col_width(total: u16) -> u16 {
@@ -65,15 +65,17 @@ pub(crate) fn display_key(key: &str, key_literal: Option<&str>) -> String {
     key_literal.unwrap_or(key).to_string()
 }
 
-/// The kind tag as the merged NAME cell's leading span, with per-type colour. On
-/// any row that paints a background fill (`has_fill`: the cursor's blue, a
-/// clip source's green/magenta, or the armed paste-target's green `Into`
-/// fill) we skip colouring so the row's own fill-appropriate fg wins
-/// uncontested — e.g. a Magenta datetime tag on the copy source's Magenta
-/// fill, or a Green "string" tag on the paste-target's Green fill, would
-/// otherwise be illegible.
-fn type_tag_span(row: &RowSnapshot, has_fill: bool) -> Span<'static> {
-    let label = row.type_tag.clone();
+/// The kind glyph as the merged NAME cell's leading span, padded to
+/// `TYPE_WIDTH` **display** columns, with per-type colour. On any row that
+/// paints a background fill (`has_fill`: the cursor's blue, a clip source's
+/// green/magenta, or the armed paste-target's green `Into` fill) we skip
+/// colouring so the row's own fill-appropriate fg wins uncontested — e.g. a
+/// Magenta datetime glyph on the copy source's Magenta fill, or a Green string
+/// glyph on the paste-target's Green fill, would otherwise be illegible.
+fn kind_glyph_span(row: &RowSnapshot, has_fill: bool) -> Span<'static> {
+    use unicode_width::UnicodeWidthStr;
+    let pad = (TYPE_WIDTH as usize).saturating_sub(row.kind_glyph.width());
+    let label = format!("{}{}", row.kind_glyph, " ".repeat(pad));
     if has_fill {
         return Span::raw(label);
     }
@@ -92,8 +94,9 @@ fn type_tag_span(row: &RowSnapshot, has_fill: bool) -> Span<'static> {
 }
 
 /// Width of the merged NAME cell: the old NAME column plus the retired KIND
-/// column and the 1-col gap that used to separate them, so VALUE still starts
-/// at exactly `name + TYPE_WIDTH + 2`.
+/// column and the 1-col gap that used to separate them. With `TYPE_WIDTH` now 3
+/// the merged cell is 5 columns narrower than before, and the formula is left
+/// alone deliberately: those 5 columns go to VALUE (spec §3).
 pub(crate) fn merged_name_width(total: u16) -> u16 {
     name_col_width(total) + TYPE_WIDTH + 1
 }
@@ -402,8 +405,8 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
             } else {
                 " "
             };
-            // Row-fill flags are needed *before* the name cell now: the kind tag
-            // is one of its spans, and the tag drops its colour on any filled row.
+            // Row-fill flags are needed *before* the name cell now: the kind
+            // glyph is one of its spans, and drops its colour on a filled row.
             let is_cursor = Some(i) == cursor_idx;
             let in_clipboard_source = app
                 .session
@@ -412,14 +415,14 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                 .is_some_and(|cb| cb.sources.contains(&row.path));
             // Paste slots are now path-keyed (§3); test this row's path against them.
             let into_here = matches!(&active_slot, Some(PasteSlot::Into(p)) if *p == row.path);
-            let tag = type_tag_span(row, is_cursor || in_clipboard_source || into_here);
+            let tag = kind_glyph_span(row, is_cursor || in_clipboard_source || into_here);
             // Merged NAME cell, in outline order: selection marker, then this
             // row's own **indent and branch toggle** (the tree structure reads
-            // first — an indent-independent tag column flattens every row's
-            // visual origin and destroys depth legibility), then the kind tag,
-            // then the key. The tag therefore follows depth and *can* be clipped
-            // on a deep row in a narrow terminal; that is the accepted cost of
-            // keeping the tree readable.
+            // first — an indent-independent glyph column flattens every row's
+            // visual origin and destroys depth legibility), then the kind glyph,
+            // then the key. The glyph therefore follows depth and *can* be
+            // clipped on a deep row in a narrow terminal; that is the accepted
+            // cost of keeping the tree readable.
             let lead = format!("{sel_marker}{indent}{marker}{warn_marker}");
             let prefix_cols = lead.chars().count() + TYPE_WIDTH as usize + 1;
             let head = move |t: Span<'static>| {
@@ -819,10 +822,10 @@ mod tests {
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
 
-    /// Buffer column where a depth-1 row's key glyph lands in the merged
-    /// NAME cell (1 selection-marker col + 2 indent + 2 branch marker
-    /// + 1 warning-marker col + 8 kind-tag cols + 1 spacing col).
-    const KEY_X: u16 = 15;
+    /// Buffer column where a depth-1 row's key lands in the merged NAME cell
+    /// (1 selection-marker col + 2 indent + 2 branch marker
+    /// + 1 warning-marker col + 3 kind-glyph cols + 1 spacing col).
+    const KEY_X: u16 = 10;
 
     #[test]
     fn highlight_spans_marks_matched_chars() {
@@ -1387,29 +1390,50 @@ mod tests {
     }
 
     #[test]
-    fn type_format_column_shows_fixed_pitch_tag() {
-        // An integer renders `[I:dec ]`; a literal string `[S:lit ]`. (The
-        // key-sign prefix moved to the detail popup.)
+    fn kind_glyph_column_renders_before_the_key() {
+        // An integer renders `123`, a literal string `abc` — notation
+        // (`dec`/`lit`) is no longer on the row at all.
         let lines = render("port = 8080\nname = 'x'\n", 60, 8);
         let joined = lines.join("\n");
-        assert!(joined.contains("[I:dec ]"), "rows: {joined:?}");
-        assert!(joined.contains("[S:lit ]"), "rows: {joined:?}");
-        // The header labels NAME/VALUE only — the tag rides each row's indent,
+        assert!(joined.contains("123 port"), "rows: {joined:?}");
+        assert!(joined.contains("abc name"), "rows: {joined:?}");
+        // The header labels NAME/VALUE only — the glyph rides each row's indent,
         // so it has no column of its own to label.
         assert!(!lines[1].contains("KIND"), "header: {:?}", lines[1]);
     }
 
+    /// The bracketed `[T/S]`/`[I:dec ]` forms are documentation shorthand now;
+    /// no host emits them. Asserted, not assumed (spec §4.3).
     #[test]
-    fn inline_table_tag_differs_from_table_scope() {
-        // An inline table reads `[T/I]`; a standard `[table]` scope `[T/S]`.
+    fn no_bracketed_kind_tag_is_ever_rendered() {
+        let joined = render_expanded(
+            "port = 8080\nname = 'x'\npt = { x = 1 }\n[srv]\nhost = 'h'\n",
+            60,
+            16,
+        );
+        for tag in [
+            "[T/", "[S:", "[I:", "[F:", "[A/", "[D:", "[B:", "[G]", "[C]",
+        ] {
+            assert!(!joined.contains(tag), "retired tag {tag:?} in: {joined:?}");
+        }
+    }
+
+    #[test]
+    fn every_table_notation_shares_one_glyph() {
+        // An inline table and a standard `[table]` scope both read `{}`: the
+        // notation that used to separate `[T/I]` from `[T/S]` is now reachable
+        // only through the `i` popup, the `K` switch and the `f` filter.
         let lines = render("pt = { x = 1 }\n[srv]\nport = 8080\n", 60, 8);
         let joined = lines.join("\n");
-        assert!(joined.contains("[T/I]"), "rows: {joined:?}");
+        assert!(
+            joined.lines().any(|l| l.contains("pt") && l.contains("{}")),
+            "inline table glyph: {joined:?}"
+        );
         assert!(
             joined
                 .lines()
-                .any(|l| l.contains("srv") && l.contains("[T/S]")),
-            "standard table scope tag: {joined:?}"
+                .any(|l| l.contains("srv") && l.contains("{}")),
+            "table scope glyph: {joined:?}"
         );
     }
 
@@ -1536,10 +1560,10 @@ mod tests {
         assert!(header.contains("NAME"), "header: {header:?}");
         assert!(!header.contains("KIND"), "header: {header:?}");
         assert!(header.contains("VALUE"), "header: {header:?}");
-        // a data row carries the type tag and value
+        // a data row carries the kind glyph and value
         let joined = lines.join("\n");
         assert!(joined.contains("port"), "rows: {joined:?}");
-        assert!(joined.contains("[I:dec ]"), "type col missing: {joined:?}");
+        assert!(joined.contains("123 port"), "glyph missing: {joined:?}");
         assert!(joined.contains("8080"), "value col missing: {joined:?}");
     }
 
@@ -1642,7 +1666,7 @@ mod tests {
     }
 
     #[test]
-    fn paste_target_into_fill_suppresses_kind_tag_color() {
+    fn paste_target_into_fill_suppresses_kind_glyph_color() {
         // The armed paste-slot's `Into` fill (green bg, black fg, ADR 0005 §5)
         // must suppress the KIND column's own type-based colour the same way
         // the cursor's blue and the clip-source colours already do (§3) —
@@ -1684,33 +1708,39 @@ mod tests {
         assert_eq!(
             buf[(kind_x, row_y)].fg,
             Color::Black,
-            "the KIND tag's own colour must be suppressed on the Into fill, matching the row's fg(Black), not painted with type_label's Green"
+            "the kind glyph's own colour must be suppressed on the Into fill, matching the row's fg(Black), not painted with type_label's Green"
         );
     }
 
-    /// The merge absorbed the KIND column *and* the gap that separated it, so
-    /// VALUE must still start at `name + TYPE_WIDTH + 2` and be exactly as wide
-    /// as before — the inline editor's window, the overflow hint, and the `/`
-    /// filter input all size off this.
+    /// The glyph slot is 5 columns narrower than the retired 8-column kind tag,
+    /// and the merged-width formula is deliberately unchanged, so those 5
+    /// columns go to VALUE (spec §3). Pinned against the literal old arithmetic
+    /// rather than against `TYPE_WIDTH`, which would make the test tautological.
     #[test]
-    fn merging_the_kind_column_leaves_the_value_width_untouched() {
+    fn retiring_the_kind_tag_gives_value_five_more_columns() {
+        const OLD_TAG_WIDTH: u16 = 8;
         for total in [20u16, 40, 60, 80, 100, 200] {
-            let pre_merge =
-                (total.saturating_sub(name_col_width(total) + TYPE_WIDTH + 2) as usize).max(1);
-            assert_eq!(
-                value_col_width(total),
-                pre_merge,
-                "VALUE width changed at {total} columns"
-            );
+            let old =
+                (total.saturating_sub(name_col_width(total) + OLD_TAG_WIDTH + 2) as usize).max(1);
+            let new = value_col_width(total);
+            // At 20 columns NAME's 10-col floor eats the terminal and the old
+            // arithmetic clamped to 1, so only assert the exact +5 where the
+            // old layout still had room; the clamped case must at least not
+            // shrink.
+            if old > 1 {
+                assert_eq!(new, old + 5, "VALUE at {total} cols");
+            } else {
+                assert!(new >= old, "VALUE shrank at {total} cols: {old} -> {new}");
+            }
             assert_eq!(
                 merged_name_width(total) + 1,
                 name_col_width(total) + TYPE_WIDTH + 2,
-                "VALUE's x-offset changed at {total} columns"
+                "VALUE's x-offset drifted at {total} columns"
             );
         }
     }
 
-    /// The merged cell is labelled `NAME` alone: the tag rides each row's
+    /// The merged cell is labelled `NAME` alone: the glyph rides each row's
     /// indent, so no fixed column exists for a `KIND` header to sit over.
     #[test]
     fn merged_header_is_name_only() {
@@ -1724,11 +1754,11 @@ mod tests {
 
     /// Depth legibility is the property that decides this layout: each row's
     /// **indent and branch toggle come first**, so a nested row's visual origin
-    /// still steps right with its depth. An indent-independent tag column
+    /// still steps right with its depth. An indent-independent glyph column
     /// flattens every row to the same starting x and the tree structure stops
     /// reading — the regression this test exists to catch.
     #[test]
-    fn kind_tag_follows_the_indent_so_depth_stays_readable() {
+    fn kind_glyph_follows_the_indent_so_depth_stays_readable() {
         let mut src = String::new();
         let mut path = String::new();
         for i in 0..4 {
@@ -1747,10 +1777,11 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
         terminal.draw(|fr| draw(fr, &app)).unwrap();
         let buf = terminal.backend().buffer().clone();
-        // Collect, per rendered row, the x where its kind tag starts.
+        // Collect, per rendered row, the x where its kind glyph starts.
         let mut tag_xs: Vec<u16> = Vec::new();
         for y in 0..20u16 {
-            if let Some(x) = (0..40u16).find(|&x| buf[(x, y)].symbol() == "[") {
+            if let Some(x) = (0..20u16).find(|&x| matches!(buf[(x, y)].symbol(), "⌂" | "{" | "a"))
+            {
                 tag_xs.push(x);
             }
         }
@@ -1759,19 +1790,19 @@ mod tests {
             "expected the expanded fixture's rows, got {}",
             tag_xs.len()
         );
-        // Not all at one column: the tag steps right with depth.
+        // Not all at one column: the glyph steps right with depth.
         let min = *tag_xs.iter().min().unwrap();
         let max = *tag_xs.iter().max().unwrap();
         let dmin = app.rows.iter().map(|r| r.depth).min().unwrap();
         let dmax = app.rows.iter().map(|r| r.depth).max().unwrap();
         assert!(
             max > min,
-            "every tag started at x={min}: the tag is column-anchored again and depth is unreadable"
+            "every glyph started at x={min}: the glyph is column-anchored again and depth is unreadable"
         );
         assert_eq!(
             (max - min) as usize,
             2 * (dmax - dmin),
-            "tag x must step exactly one indent level (2 cols) per depth"
+            "glyph x must step exactly one indent level (2 cols) per depth"
         );
     }
 

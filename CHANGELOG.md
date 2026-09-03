@@ -20,6 +20,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   array-of-tables entries). This matters beyond cosmetics: the popup is the TUI's
   recovery path for notation that a tree row does not spell out.
 
+**Changed**
+
+- TUI tree rows now carry the same **kind glyph** as every other host (`⌂` `{}` `[]`
+  `abc` `123` `tf` `??` `@` `#` `!`) instead of the dense 8-column kind tag
+  (`[T/S]`, `[S:lit ]`, `[I:hex ]`), rendered after the row's indent and branch
+  toggle and immediately before the key. `type_tag` is retired; the glyph comes from
+  core's `kind_glyph`, so one vocabulary now serves the TUI tree, both web trees, the
+  breadcrumb and the detail panel. Notation words (`scope`/`dotted`/`hex`/`literal`)
+  move to the `i` Detail popup, the `K` switch and the `f` type filter, which still
+  index all 36 facets. The glyph slot is 5 columns narrower than the tag, and those
+  5 columns go to the VALUE column. A violation is marked by the `▲`/`△` warning
+  column alone (the tag's internal `!` was duplicate signal). Retiring the tag also
+  deletes a per-visible-row tree lookup that existed only to recover a `NodeKind`
+  for it.
+
 ## [v1.0.1] - 2026-09-02
 
 **Deployment fix release.** No functional change to the editor itself; the release exists to

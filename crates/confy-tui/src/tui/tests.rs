@@ -72,116 +72,107 @@ fn combined_text_and_type_filter_intersect() {
 }
 
 #[test]
-fn type_tag_is_fixed_pitch() {
+fn kind_glyph_is_the_tui_row_annotation() {
     use crate::model::document::DocFormat::{Json, Toml, Yaml};
-    // The key-sign facet is no longer part of the tag; the column is the
-    // 8-column type/notation slot only.
+    use confy_core::session::kind_glyph;
+    // The TUI renders the same 10-glyph outline vocabulary as every other host.
+    // Notation (`scope`/`dotted`/`hex`/`literal`) is *not* encoded here — it
+    // lives in the `i` Detail popup, the `K` switch, and the `f` type filter.
     let cases = [
-        (NodeKind::Root, Format::Plain, Toml, false, "[G]     "),
+        (NodeKind::Root, Format::Plain, Toml, false, "⌂"),
         (
             NodeKind::Comment("# c".into()),
             Format::Plain,
             Toml,
             false,
-            "[C]     ",
+            "#",
         ),
-        (NodeKind::Array, Format::Inline, Toml, false, "[A/I]   "),
-        (NodeKind::Array, Format::Multiline, Toml, false, "[A/M]   "),
-        (
-            NodeKind::ArrayOfTables,
-            Format::Plain,
-            Toml,
-            false,
-            "[A/T]   ",
-        ),
-        (
-            NodeKind::InlineTable,
-            Format::Inline,
-            Toml,
-            false,
-            "[T/I]   ",
-        ),
-        (NodeKind::Table, Format::Scope, Toml, false, "[T/S]   "),
-        (NodeKind::Table, Format::Dotted, Toml, false, "[T/D]   "),
+        // Every array/seq notation collapses to one glyph …
+        (NodeKind::Array, Format::Inline, Toml, false, "[]"),
+        (NodeKind::Array, Format::Multiline, Toml, false, "[]"),
+        (NodeKind::ArrayOfTables, Format::Plain, Toml, false, "[]"),
+        (NodeKind::Array, Format::Block, Yaml, false, "[]"),
+        // … and every table/map notation to another.
+        (NodeKind::InlineTable, Format::Inline, Toml, false, "{}"),
+        (NodeKind::Table, Format::Scope, Toml, false, "{}"),
+        (NodeKind::Table, Format::Dotted, Toml, false, "{}"),
+        (NodeKind::Table, Format::Block, Yaml, false, "{}"),
+        (NodeKind::Table, Format::Multiline, Json, false, "{}"),
+        // Scalars: string styles and integer radixes are one glyph each.
         (
             NodeKind::Scalar(ScalarType::String),
             Format::MultilineLiteral,
             Toml,
             false,
-            "[S:mlit]",
-        ),
-        (
-            NodeKind::Scalar(ScalarType::Float),
-            Format::Inf,
-            Toml,
-            false,
-            "[F:inf ]",
-        ),
-        (
-            NodeKind::Scalar(ScalarType::LocalDate),
-            Format::Plain,
-            Toml,
-            false,
-            "[D:ldat]",
-        ),
-        // YAML-specific tags.
-        (NodeKind::Table, Format::Block, Yaml, false, "[T/B]   "),
-        (NodeKind::Table, Format::Inline, Yaml, false, "[T/F]   "),
-        (
-            NodeKind::InlineTable,
-            Format::Inline,
-            Yaml,
-            false,
-            "[T/F]   ",
-        ),
-        (NodeKind::Array, Format::Block, Yaml, false, "[A/B]   "),
-        (NodeKind::Array, Format::Inline, Yaml, false, "[A/F]   "),
-        (
-            NodeKind::Scalar(ScalarType::String),
-            Format::SingleQuoted,
-            Yaml,
-            false,
-            "[S:sq  ]",
-        ),
-        (
-            NodeKind::Scalar(ScalarType::String),
-            Format::DoubleQuoted,
-            Yaml,
-            false,
-            "[S:dq  ]",
+            "abc",
         ),
         (
             NodeKind::Scalar(ScalarType::String),
             Format::Folded,
             Yaml,
             false,
-            "[S:fold]",
+            "abc",
         ),
-        // A read-only YAML opaque node tags `[opaq ]` whatever its kind.
+        (
+            NodeKind::Scalar(ScalarType::Integer),
+            Format::Hex,
+            Toml,
+            false,
+            "123",
+        ),
+        (
+            NodeKind::Scalar(ScalarType::Float),
+            Format::Inf,
+            Toml,
+            false,
+            "123",
+        ),
+        (
+            NodeKind::Scalar(ScalarType::Bool),
+            Format::Plain,
+            Toml,
+            false,
+            "tf",
+        ),
+        (
+            NodeKind::Scalar(ScalarType::Null),
+            Format::Plain,
+            Json,
+            false,
+            "??",
+        ),
+        (
+            NodeKind::Scalar(ScalarType::LocalDate),
+            Format::Plain,
+            Toml,
+            false,
+            "@",
+        ),
+        // A read-only YAML opaque node is `!` whatever its kind …
         (
             NodeKind::Scalar(ScalarType::String),
             Format::Plain,
             Yaml,
             true,
-            "[opaq ] ",
+            "!",
         ),
-        // The opaque gate is YAML-only: a read-only JSONC block comment
-        // still renders `[C]`, not `[opaq ]`.
+        // … and the opaque gate stays YAML-only: a read-only JSONC block
+        // comment is still a comment.
         (
             NodeKind::Comment("/* x */".into()),
             Format::Plain,
             Json,
             true,
-            "[C]     ",
+            "#",
         ),
-        // JSON has no scope table: an inline object is `[T/I]`, multiline `[T/M]`.
-        (NodeKind::Table, Format::Inline, Json, false, "[T/I]   "),
-        (NodeKind::Table, Format::Multiline, Json, false, "[T/M]   "),
     ];
     for (kind, fmt, doc, read_only, expected) in cases {
-        let tag = type_tag(&kind, fmt, doc, read_only);
-        assert_eq!(tag, expected);
-        assert_eq!(tag.chars().count(), 8, "tag must be 8 cols: {tag:?}");
+        let g = kind_glyph(&kind, fmt, doc, read_only);
+        assert_eq!(g, expected, "{kind:?}/{fmt:?}/{doc:?}");
+        assert!(
+            unicode_width::UnicodeWidthStr::width(g) <= 3,
+            "glyph must fit the 3-col slot: {g:?}"
+        );
     }
 }
 

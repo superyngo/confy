@@ -97,15 +97,15 @@ pub fn classify(kind: &NodeKind, format: Format, doc: DocFormat, read_only: bool
     }
 }
 
-/// The **kind glyph** — the web hosts' type-only rendering of the kind
-/// annotation (VS Code outline vocabulary), the low-density sibling of the
-/// TUI's notation-bearing **kind tag** (`confy_tui::tui::app::type_tag`).
-/// Both are exhaustive matches over the same `classify` decision table, kept
-/// adjacent here so a new `TypeToken` breaks both.
+/// The **kind glyph** — the single rendering of the kind annotation on every
+/// host's tree row (VS Code outline vocabulary). It is an exhaustive match over
+/// the same `classify` decision table, kept adjacent to it here so a new
+/// `TypeToken` breaks both.
 ///
 /// Notation is deliberately *not* encoded: a scalar's notation is already
-/// visible in its rendered value, and a branch's is reached through the detail
-/// panel, the composed hover title, or the `f` type filter
+/// visible in its rendered value, and a branch's is reached through the `i`
+/// Detail popup, the web detail panel, the composed hover title, the `K` switch,
+/// or the `f` type filter
 /// (`docs/superpowers/specs/2026-09-03-kind-glyph-outline-design.md`).
 pub fn kind_glyph(
     kind: &NodeKind,

@@ -46,7 +46,7 @@ pub const LANG_OPTIONS: [confy_core::session::Lang; 2] = [
     confy_core::session::Lang::ZhTw,
 ];
 
-/// Host-side view model for ratatui: augments ViewRow with fixed-pitch type_tag.
+/// Host-side view model for ratatui: augments ViewRow with host-only fields.
 #[derive(Clone)]
 pub struct RowSnapshot {
     pub key: String,
@@ -57,8 +57,8 @@ pub struct RowSnapshot {
     pub scalar_type: Option<String>,
     /// Word label for the node's type — used by the detail popup and type-change detection.
     pub type_label: String,
-    /// Fixed-pitch TYPE-column tag, e.g. `[S:str ]` (always 8 chars).
-    pub type_tag: String,
+    /// Outline kind glyph (`{}`/`abc`/`@`), 1-3 display columns, from core.
+    pub kind_glyph: String,
     /// Key-sign label (`bare`/`quoted`/`dotted`/`none`) — the Detail popup's
     /// "Sign" field only; never used to reconstruct a key's spelling.
     pub key_sign: String,
@@ -122,29 +122,11 @@ impl App {
 
     /// Rebuild the host's render rows from the session's current view.
     pub fn rebuild_rows(&mut self) {
-        let doc_fmt = self.session.doc_format();
         let view_rows = self.session.compute_rows();
         self.rows = view_rows
             .into_iter()
             .map(|vr| {
-                // `type_label`/`read_only` already ride on the ViewRow; the tree
-                // lookup is needed only for `type_tag`'s NodeKind.
-                let type_tag = self
-                    .session
-                    .tree
-                    .node_at(&vr.path)
-                    .map(|n| type_tag(&n.kind, vr.format, doc_fmt, n.read_only))
-                    .unwrap_or_default();
-                let type_tag = if vr.violations.is_some() {
-                    // The KIND column is a fixed 8 cols; the tag's padding lives
-                    // *inside* the brackets (e.g. `[I:dec ]`), so `trim_end` is a
-                    // no-op. Swap that internal space for `!` to stay in budget.
-                    // Tags with no padding space (e.g. `[B:bool]`) keep their glyph;
-                    // the row's yellow accent is the primary cue then.
-                    type_tag.replacen(' ', "!", 1)
-                } else {
-                    type_tag
-                };
+                let kind_glyph = vr.kind_glyph.into_owned();
                 let scalar_type = vr.scalar_type.map(|st| format!("{st:?}").to_lowercase());
                 RowSnapshot {
                     key: vr.key,
@@ -154,7 +136,7 @@ impl App {
                     value: vr.value,
                     scalar_type,
                     type_label: vr.type_label.into_owned(),
-                    type_tag,
+                    kind_glyph,
                     format: vr.format,
                     key_sign: vr.key_sign.into_owned(),
                     key_literal: vr.key_literal,
@@ -979,57 +961,6 @@ impl App {
             PromptOutcome::Consumed
         }
     }
-}
-
-/// Fixed-pitch TYPE-column tag: always 8 columns. The `(kind, format, doc,
-/// read_only)` decision lives once in `classify`; this only maps its
-/// `TypeToken` to the column glyph, so the tag list can't drift from the
-/// type-filter.
-pub(crate) fn type_tag(
-    kind: &NodeKind,
-    format: Format,
-    doc: crate::model::document::DocFormat,
-    read_only: bool,
-) -> String {
-    use confy_core::session::{classify, TypeToken};
-    let slot: &str = match classify(kind, format, doc, read_only) {
-        TypeToken::Root => "[G]",
-        TypeToken::Comment => "[C]",
-        TypeToken::Opaque => "[opaq ]",
-        TypeToken::SeqBlock => "[A/B]",
-        TypeToken::SeqFlow => "[A/F]",
-        TypeToken::ArrayMultiline => "[A/M]",
-        TypeToken::ArrayInline => "[A/I]",
-        TypeToken::Aot => "[A/T]",
-        TypeToken::MapFlow => "[T/F]",
-        TypeToken::InlineTable => "[T/I]",
-        TypeToken::MapBlock => "[T/B]",
-        TypeToken::TableMultiline => "[T/M]",
-        TypeToken::TableDotted => "[T/D]",
-        TypeToken::TableScope => "[T/S]",
-        TypeToken::StrMBasic => "[S:mstr]",
-        TypeToken::StrLit | TypeToken::StrLiteralBlock => "[S:lit ]",
-        TypeToken::StrMLit => "[S:mlit]",
-        TypeToken::StrSingle => "[S:sq  ]",
-        TypeToken::StrDouble => "[S:dq  ]",
-        TypeToken::StrFolded => "[S:fold]",
-        TypeToken::StrBasic => "[S:str ]",
-        TypeToken::IntHex => "[I:hex ]",
-        TypeToken::IntOct => "[I:oct ]",
-        TypeToken::IntBin => "[I:bin ]",
-        TypeToken::IntDec => "[I:dec ]",
-        TypeToken::FloatInf => "[F:inf ]",
-        TypeToken::FloatNan => "[F:nan ]",
-        TypeToken::FloatExp => "[F:exp ]",
-        TypeToken::FloatPlain => "[F:flt ]",
-        TypeToken::Bool => "[B:bool]",
-        TypeToken::Null => "[S:null]",
-        TypeToken::Odt => "[D:odt ]",
-        TypeToken::Ldt => "[D:ldt ]",
-        TypeToken::LDate => "[D:ldat]",
-        TypeToken::LTime => "[D:ltim]",
-    };
-    format!("{slot:<8}")
 }
 
 #[cfg(test)]
