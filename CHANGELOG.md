@@ -38,6 +38,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   surfaces with room for one: the badge's hover tooltip (composed with the schema hint)
   and the detail panel's Kind field. TUI rows are untouched — they keep the dense
   `[T/S]`-style kind tag, which no host shares.
+- Web kind pill font size 10.5px → 10px, so the new `{}`/`[]` glyph labels sit in the pill
+  without reading as visual noise.
+- `tauri-plugin-dialog` 2.7.2 → 2.7.3, `tauri-plugin-fs` 2.5.1 → 2.5.2 (lockfile only).
+
+**Security**
+
+- Dependabot #11 (`glib` unsoundness in `VariantStrIter`, RUSTSEC/GHSA moderate, fixed in
+  0.20) is **not reachable in any shipped build** and is dismissed rather than patched.
+  `glib 0.18.5` enters the lockfile only through `gtk 0.18` ← `tao`/`wry`/`muda` ← `tauri`,
+  all of which are `cfg(target_os = "linux")`-gated; `cargo tree -i glib` finds nothing on
+  `x86_64-apple-darwin`, `aarch64-apple-darwin`, `x86_64-pc-windows-msvc`, or
+  `aarch64-linux-android` — the four targets confy builds. It cannot be bumped either:
+  `gtk 0.18` requires `glib ^0.18`, and the whole tauri v2 GTK stack moves together. This
+  becomes real the day Linux is targeted (see CLAUDE.md § Known Risks).
 
 ## [v1.0.1] - 2026-09-02
 
