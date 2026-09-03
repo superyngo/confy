@@ -8,6 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-03 (3)
+
+**Fixed**
+
+- `web/build.mjs` shipped a **stale wasm core** without a word: it only *copies*
+  `crates/confy-ffi/pkg/` into `web/pkg`/`web/dist` and never runs `wasm-pack`, so a
+  `confy-core` fix (the notation-aware schema nudge clamp above) stayed invisible in every
+  web/touch/Tauri/VS Code host until someone re-ran `wasm-pack build --target web` by
+  hand — the fix was verified on the TUI binary and reported as landed while the browser
+  still ran the old core. The build now compares `pkg/confy_ffi_bg.wasm`'s mtime against
+  the newest `.rs` under `crates/confy-core/src` and `crates/confy-ffi/src` and prints a
+  loud `WARNING: … ships a stale core` with the exact command to run. It warns rather than
+  fails, so a TS-only rebuild still works without a Rust toolchain; `web/cf-build.sh`
+  (CI/deploy) already rebuilt the wasm first and is unaffected.
+
+**Added**
+
+- Regression test `nudge_keeps_schema_grid_after_kind_switch_to_hex` (`schema_headless.rs`)
+  covering the user-facing repro directly: `K`-switch a schema-constrained integer to hex,
+  then nudge — the preview (`nudge_repr`, the web wheel/swipe path) and the keyboard
+  `Intent::Nudge` must both walk the `multipleOf` grid and render in hex.
+
 ### Unreleased Update - 2026-09-03 (2)
 
 **Fixed**

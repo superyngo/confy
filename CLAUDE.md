@@ -17,7 +17,10 @@ cargo bench -p confy-core --bench perf -- --nodes 5000
 # Web / touch UI (from web/) - NOT covered by `cargo test`
 cd web
 npm run typecheck             # tsc --noEmit
-npm run build                 # esbuild bundles + wasm-pack copy
+npm run build                 # esbuild bundles + wasm-pack COPY (never a wasm rebuild:
+                              # a confy-core change reaches the browser only after
+                              # `cd crates/confy-ffi && wasm-pack build --target web`.
+                              # build.mjs warns when pkg/ is older than the .rs sources)
 npm test                      # plain-Node spec suite (node run-tests.mjs)
 # The wasm command channel end-to-end (Intent -> SessionSnapshot):
 cd crates/confy-ffi && wasm-pack build --target web && node functional_smoke.mjs

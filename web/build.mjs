@@ -1,12 +1,45 @@
 // Build the web UI: copy the wasm-pack output into ./pkg (so web/ is
 // self-contained and the dev server can serve it), then bundle the TS.
-import { cp, rm, mkdir, readFile } from "node:fs/promises";
+//
+// NOTE: this script does NOT run wasm-pack — it only *copies* whatever
+// `crates/confy-ffi/pkg/` already holds. A core (Rust) fix therefore does not
+// reach the browser until `wasm-pack build --target web` is re-run in
+// `crates/confy-ffi`, which silently shipped a stale core once. The staleness
+// check below warns instead of failing, so a TS-only rebuild still works
+// without a Rust toolchain.
+import { cp, rm, mkdir, readFile, stat, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import esbuild from "esbuild";
 
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
 const SRC_PKG = new URL("../crates/confy-ffi/pkg/", import.meta.url);
 const DST_PKG = new URL("./pkg/", import.meta.url);
+
+async function newestMtime(dir) {
+  let newest = 0;
+  for (const e of await readdir(dir, { withFileTypes: true, recursive: true })) {
+    if (!e.isFile() || !e.name.endsWith(".rs")) continue;
+    const { mtimeMs } = await stat(new URL(`${e.parentPath}/${e.name}`, import.meta.url));
+    if (mtimeMs > newest) newest = mtimeMs;
+  }
+  return newest;
+}
+
+try {
+  const wasm = await stat(new URL("confy_ffi_bg.wasm", SRC_PKG));
+  const src = Math.max(
+    await newestMtime(new URL("../crates/confy-core/src/", import.meta.url)),
+    await newestMtime(new URL("../crates/confy-ffi/src/", import.meta.url)),
+  );
+  if (src > wasm.mtimeMs) {
+    console.warn(
+      "WARNING: crates/confy-ffi/pkg/ is OLDER than the Rust sources — this build\n" +
+        "         ships a stale core. Run:  cd crates/confy-ffi && wasm-pack build --target web",
+    );
+  }
+} catch {
+  // no pkg/ yet (or unreadable) — the copy below reports the real problem
+}
 
 await rm(DST_PKG, { recursive: true, force: true });
 await mkdir(DST_PKG, { recursive: true });

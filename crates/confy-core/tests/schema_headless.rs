@@ -1668,3 +1668,54 @@ fn bridge_keeps_sequence_indices_aligned_past_an_opaque_element() {
         Some(&vec![Seg::Key("arr".into()), Seg::Index(1)])
     );
 }
+
+// A `K` kind switch to a non-decimal radix must not cost the node its schema
+// constraints: the nudge decodes/re-renders in the node's own notation, so
+// `multipleOf`/`minimum`/`maximum` keep applying after the conversion (the
+// clamp used to `f64::from_str` the repr, which rejects `0x…`/`0o…`/`0b…`
+// outright and made every non-decimal integer step a bare ±1).
+#[test]
+fn nudge_keeps_schema_grid_after_kind_switch_to_hex() {
+    use confy_core::model::document::KindTarget;
+    let mut s = session_from(
+        "#:schema ./s.json\n\n[schema]\npoll_ms = 253\n",
+        DocFormat::Toml,
+    );
+    s.dispatch(Intent::SchemaLoaded {
+        source: SchemaSource::Local("./s.json".into()),
+        text: Ok(json!({
+            "type": "object",
+            "properties": { "schema": { "type": "object", "properties": {
+                "poll_ms": { "type": "integer", "minimum": 100, "maximum": 2000, "multipleOf": 5 }
+            }}}
+        })
+        .to_string()),
+    });
+    let p: confy_core::model::node::Path =
+        vec![Seg::Key("schema".into()), Seg::Key("poll_ms".into())];
+    s.dispatch(Intent::ExpandAll);
+    s.dispatch(Intent::SetCursor(p.clone()));
+    s.dispatch(Intent::CommitKind {
+        path: p.clone(),
+        target: KindTarget::IntHex,
+    });
+    assert_eq!(
+        s.tree.node_at(&p).unwrap().value.as_deref(),
+        Some("0xfd"),
+        "K switched the notation"
+    );
+    // Stateless preview (the web wheel/swipe path) and the keyboard nudge must
+    // agree, and both must walk the multipleOf-5 grid in hex.
+    assert_eq!(s.nudge_repr(&p, "0xfd", 1).as_deref(), Some("0xff"));
+    let mut seq = Vec::new();
+    s.dispatch(Intent::SetCursor(p.clone()));
+    for d in [1, 1, -1] {
+        s.dispatch(Intent::Nudge(d));
+        seq.push(s.tree.node_at(&p).unwrap().value.clone().unwrap());
+    }
+    assert_eq!(
+        seq,
+        vec!["0xff", "0x104", "0xff"],
+        "253 aligns up to 255 then steps whole 5s, all rendered in hex"
+    );
+}
