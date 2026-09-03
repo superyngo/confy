@@ -142,7 +142,7 @@ fn view_row_roundtrips() {
         scalar_type: None,
         format: Format::Multiline,
         type_label: "array".into(),
-        badge_label: "array".into(),
+        badge_label: "[]".into(),
         badge_note: "multi".into(),
         child_count: 2,
         trailing_comment: None,

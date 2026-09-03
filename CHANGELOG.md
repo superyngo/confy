@@ -19,6 +19,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `block`), with the kind word kept only as the `Plain`-format fallback (Root,
   array-of-tables entries). This matters beyond cosmetics: the popup is the TUI's
   recovery path for notation that a tree row does not spell out.
+- Web kind badge: a TOML inline table and a YAML flow map badged a bare `inline` — the
+  *kind* appeared nowhere. `NodeKind::InlineTable`'s label was the notation word
+  `"inline"`, and a "don't repeat the label" guard then deleted the identical notation
+  note. Both now read `{}·inline` / `{}·flow` on the row and `table · inline` /
+  `table · flow` in the detail panel's Kind field. JSON was never affected (its objects
+  are `NodeKind::Table` at both notations).
+
+**Changed**
+
+- Web kind badge: a container's label is now an **outline glyph** — `{}` for every
+  table/map notation, `[]` for every array/sequence notation — with the notation kept in
+  the note (`{}·scope`, `{}·dotted`, `[]·multi`, YAML `·block`/`·flow`). Scalars keep
+  their short words (`str·"…"`, `int·0x`). An array-of-tables reads `[]·AoT`: it carries
+  no `Format` of its own, so the note is the only thing separating `[[a]]` from a plain
+  array under the shared glyph. YAML's inline note is now spelled **flow**, matching the
+  term its `K` popup and legend already use. The kind as a word survives on the two
+  surfaces with room for one: the badge's hover tooltip (composed with the schema hint)
+  and the detail panel's Kind field. TUI rows are untouched — they keep the dense
+  `[T/S]`-style kind tag, which no host shares.
 
 ## [v1.0.1] - 2026-09-02
 

@@ -37,6 +37,16 @@ export function valueTypeClass(r: ViewRow): string {
   return hue ? `t-${hue}` : "";
 }
 
+// The node's kind as a **word**, for the explanatory surfaces (detail panel
+// Kind field, hover tooltip) that have room for one — the dense tree row
+// shows core's `badge_label` glyph instead. Core's `type_label` names
+// `NodeKind::InlineTable` "inline", which is a *notation* word: paired with
+// the notation note it read "inline · inline", so it was printed alone and
+// the kind vanished. A TOML inline table and a YAML flow map are both tables.
+export function kindWord(r: ViewRow): string {
+  return r.type_label === "inline" ? "table" : r.type_label;
+}
+
 // A comment node is identified by its kind label (core sets `type_label` to
 // "comment"; it also fills both `key` and `value` with the comment text, so a
 // key/value heuristic is unreliable — use the label). Previously duplicated

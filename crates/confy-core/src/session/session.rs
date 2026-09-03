@@ -235,8 +235,13 @@ impl Session {
             NodeKind::Scalar(st) => Some(*st),
             _ => None,
         };
-        let (badge_label, badge_note) =
-            badge_label_note(&node.kind, node.format, node.is_branch(), scalar_type);
+        let (badge_label, badge_note) = badge_label_note(
+            &node.kind,
+            node.format,
+            node.is_branch(),
+            scalar_type,
+            self.doc_format(),
+        );
         ViewRow {
             path: node.path.clone(),
             path_display,

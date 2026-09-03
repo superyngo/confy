@@ -3089,3 +3089,83 @@ name = \"fmt\"
         s.exit_detail();
     }
 }
+
+/// The kind badge every web host renders: containers collapse to one outline
+/// glyph (`{}` map, `[]` sequence) and the note carries the notation the glyph
+/// drops. Two things this pins down. (1) A `NodeKind::InlineTable` is a
+/// *table*: it used to label itself `inline` — a notation word — and a
+/// "don't repeat the label" guard then deleted the note, so a TOML inline
+/// table and a YAML flow map both badged a bare `inline` with the *kind*
+/// nowhere to be seen. (2) An array-of-tables has no `Format` of its own, so
+/// only the note distinguishes `[[a]]` from a plain array under `[]`.
+#[test]
+fn kind_badge_glyph_and_notation_note() {
+    let toml = "\
+pt = { x = 1 }
+arr = [1]
+ml = [
+  1,
+]
+owner.name = \"n\"
+
+[srv]
+h = \"x\"
+
+[[plug]]
+id = 1
+";
+    // (source, format, [(key, badge label, badge note)])
+    type Case = (
+        &'static str,
+        DocFormat,
+        &'static [(&'static str, &'static str, &'static str)],
+    );
+    let cases: [Case; 3] = [
+        (
+            toml,
+            DocFormat::Toml,
+            &[
+                ("pt", "{}", "inline"),
+                ("srv", "{}", "scope"),
+                ("owner", "{}", "dotted"),
+                ("arr", "[]", "inline"),
+                ("ml", "[]", "multi"),
+                ("plug", "[]", "AoT"),
+                ("id", "int", "dec"),
+            ],
+        ),
+        (
+            "{\"o\": {\"x\": 1}, \"a\": [1]}",
+            DocFormat::Json,
+            &[("o", "{}", "inline"), ("a", "[]", "inline")],
+        ),
+        (
+            "flow: {x: 1}\nfseq: [1]\nblock:\n  y: 2\nseq:\n  - 1\n",
+            DocFormat::Yaml,
+            // YAML calls the inline shape *flow*, not inline.
+            &[
+                ("flow", "{}", "flow"),
+                ("fseq", "[]", "flow"),
+                ("block", "{}", "block"),
+                ("seq", "[]", "block"),
+            ],
+        ),
+    ];
+    for (src, fmt, wants) in cases {
+        let doc = AnyDocument::from_str_as(src, fmt).unwrap();
+        let mut s = Session::new(doc);
+        s.expand_all();
+        let rows = s.visible_rows();
+        for (key, label, note) in wants {
+            let row = rows
+                .iter()
+                .find(|r| r.key == *key)
+                .unwrap_or_else(|| panic!("{fmt:?}: row {key} not visible"));
+            assert_eq!(
+                (row.badge_label.as_ref(), row.badge_note.as_ref()),
+                (*label, *note),
+                "{fmt:?} {key}"
+            );
+        }
+    }
+}

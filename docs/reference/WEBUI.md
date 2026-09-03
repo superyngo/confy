@@ -165,8 +165,12 @@ shapes round-trip). Key types:
 - **Row anatomy (`render.ts`).** A pure `SessionSnapshot → DOM` function draws the design's
   web-native row: rotating disclosure caret, key (or faint `[i]` for positional
   elements) / `=` / value (value-type colored) or item count, a per-row **kind badge**
-  (friendly label + notation suffix + chevron — `table·scope`/`table·dotted`/`array·multi`,
-  YAML `·block`/`·flow`, scalar `·"…"`/`·0x`/`·1e`/…), comment/trailing decoration, and
+  (label + notation suffix + chevron). A container's label is an **outline glyph** —
+  `{}` for every table/map notation, `[]` for every array/sequence notation — so the
+  badge reads `{}·scope`/`{}·dotted`/`{}·inline`/`[]·multi`/`[]·AoT`, YAML `·block`/`·flow`;
+  a scalar keeps its short word (`str·"…"`, `int·0x`, `float·1e`, …). The kind as a
+  **word** (`table · inline`) lives in the badge's hover tooltip and the detail panel's
+  Kind field, the two surfaces with room for one. Then comment/trailing decoration, and
   hover action buttons flush right — a **drag grip only**: node operations live in the
   centralized **Action menu**, opened by right-clicking a row, the `m` key, or the floating
   Action button below (ADR 0009 — the old per-row `⋮` menu is gone; there is no separate

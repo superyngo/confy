@@ -25,24 +25,34 @@ pub fn node_type_label_str(kind: &NodeKind) -> &'static str {
     }
 }
 
-/// Friendly short kind-badge label (design's `KIND_SHORT`, e.g. `"table"`,
-/// `"AoT"`, `"str"`), and its notation-suffix note (e.g. `"scope"`, `"0x"`,
-/// `"dec"`; empty when it would just repeat the label). Computed once here
-/// so every host renders the identical badge without re-deriving
-/// type/format heuristics client-side (previously duplicated across
+/// Kind-badge label + its notation-suffix note, e.g. `("{}", "scope")`,
+/// `("int", "dec")`. A container's label is an **outline glyph** (`{}` for
+/// every table/map notation, `[]` for every array/sequence notation) while
+/// scalars keep a friendly short word (`str`, `int`, `date`); the note
+/// carries the notation that the glyph deliberately doesn't spell out and is
+/// empty when it would just repeat the label. Computed once here so every
+/// host renders the identical badge without re-deriving type/format
+/// heuristics client-side (previously duplicated across
 /// `web/kind-labels.ts`'s `kindLabelParts`/`notationGlyph`, `panel.ts`,
 /// `render.ts`, `touch/render.ts`).
+///
+/// `doc` only picks the wording of an inline container's note: YAML calls
+/// `{x: 1}` a **flow** collection, TOML/JSON call it **inline**.
 pub fn badge_label_note(
     kind: &NodeKind,
     format: Format,
     is_branch: bool,
     scalar_type: Option<ScalarType>,
+    doc: DocFormat,
 ) -> (&'static str, &'static str) {
     let label = match node_type_label_str(kind) {
-        "table" => "table",
-        "array-of-tables" => "AoT",
-        "array" => "array",
-        "inline" => "inline",
+        // Every table/map notation shares one glyph, every array/sequence
+        // notation the other; the distinguishing notation is the note's job.
+        // `"inline"` is `NodeKind::InlineTable`, i.e. a *table* — reading it
+        // as a notation word used to collapse the note away (a TOML inline
+        // table and a YAML flow map both badged a bare `inline`).
+        "table" | "inline" => "{}",
+        "array" | "array-of-tables" => "[]",
         "string" => "str",
         "integer" => "int",
         "float" => "float",
@@ -56,6 +66,9 @@ pub fn badge_label_note(
         match fmt {
             Format::Scope => "scope",
             Format::Dotted => "dotted",
+            // YAML's own term for `{x: 1}` / `[1, 2]` is a *flow* collection;
+            // TOML/JSON call the same shape inline.
+            Format::Inline if doc == DocFormat::Yaml => "flow",
             Format::Inline => "inline",
             Format::Multiline => "multi",
             Format::Block => "block",
@@ -83,8 +96,15 @@ pub fn badge_label_note(
             _ => "",
         }
     };
-    let notation_glyph = if is_branch {
-        container_note(format)
+    let note = if is_branch {
+        // An array-of-tables has no `Format` of its own, so the note is the
+        // one thing distinguishing `[[a]]` from a plain array under the
+        // shared `[]` glyph.
+        if matches!(kind, NodeKind::ArrayOfTables) {
+            "AoT"
+        } else {
+            container_note(format)
+        }
     } else {
         let s = notation_short(format);
         if !s.is_empty() {
@@ -94,11 +114,6 @@ pub fn badge_label_note(
         } else {
             ""
         }
-    };
-    let note = if container_note(format) == label {
-        ""
-    } else {
-        notation_glyph
     };
     (label, note)
 }

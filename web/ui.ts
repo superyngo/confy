@@ -17,6 +17,7 @@ import {
   type FsHandle,
 } from "./fs.js";
 import { isVsCode, onHostMessage, post, trackVsCodeTheme } from "./vscode.js";
+import { kindWord } from "./kind-labels.js";
 import type { ConfigFormat, HostToWebview } from "./vscode-protocol.js";
 import { recentAdd, recentRemove, rebuildMenu, setupAppMenu, setWindowTitle } from "./menu.js";
 import {
@@ -1223,8 +1224,17 @@ function onTreeHover(ev: MouseEvent) {
   const raw = rowEl?.dataset.path;
   if (raw === undefined) return;
   const path = JSON.parse(raw) as Path;
+  const lines: string[] = [];
+  // The badge's container label is an outline glyph (`{}`/`[]`), so the kind
+  // word only exists here and in the detail panel.
+  if (cell.matches("[data-kind]")) {
+    const idx = Number(rowEl?.dataset.index);
+    const r = Number.isNaN(idx) ? undefined : snap?.rows[idx];
+    if (r) lines.push(r.badge_note ? `${kindWord(r)} · ${r.badge_note}` : kindWord(r));
+  }
   const text = schemaHintText(session.schemaHint(path));
-  if (text) cell.title = text;
+  if (text) lines.push(text);
+  if (lines.length) cell.title = lines.join("\n");
 }
 
 // Pointer analogue of arrow-key `PasteSlot` stepping (ADR 0004 §1): while the

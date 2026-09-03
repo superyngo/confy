@@ -18,7 +18,7 @@
 //     a non-empty error is surfaced via `onError` (no more silent failures).
 import type { ViewRow, Intent, SessionSnapshot, EditHint, Path } from "./types";
 import { escapeHtml as esc } from "./escape.js";
-import { isCommentRow, isPositional, valueHue } from "./kind-labels.js";
+import { isCommentRow, isPositional, kindWord, valueHue } from "./kind-labels.js";
 import { t, tArgs } from "./i18n.js";
 
 // Whether a scalar value edits through the host's popup editor rather than a
@@ -210,14 +210,17 @@ export function panelHTML(
     h += `<input class="c-edit" data-field="trailing" value="${esc(r.trailing_comment ?? "")}" placeholder="${ph}" autocomplete="off" spellcheck="false"${disabledAttr} />`;
   }
 
-  // Kind switch — label is `type_label · «notation glyph»` (the glyph is dropped
-  // when it would merely repeat the label, e.g. an inline table).
+  // Kind switch — the panel has room for words, so it prints
+  // `kind · notation` (`table · inline`) where the tree row prints core's
+  // `{}`/`[]` glyph. An AoT's note ("AoT") is dropped here: the word already
+  // says array-of-tables.
   if (!r.read_only) {
     const hue = branch ? "branch" : valueHue(r) || "branch";
+    const word = kindWord(r);
     const note = r.badge_note;
-    const noteStr = note && note !== r.type_label ? ` · ${esc(note)}` : "";
+    const noteStr = note && note !== word && note !== "AoT" ? ` · ${esc(note)}` : "";
     h += `<div class="field-label">${t("web.panel.field.kind")}</div>`;
-    h += `<button class="btn kindbtn" data-act="kindswitch"><span class="dotc" style="background:var(--t-${hue})"></span>${esc(r.type_label)}${noteStr}</button>`;
+    h += `<button class="btn kindbtn" data-act="kindswitch"><span class="dotc" style="background:var(--t-${hue})"></span>${esc(word)}${noteStr}</button>`;
   }
 
   // Meta: Path (human form) / Children (branches) / Sign.
