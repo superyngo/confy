@@ -54,7 +54,11 @@ input); editor and filter input are caret-based fields (`←/→/Home/End` move 
 grouping when the original had it. Its **step is the schema's**: with a `multipleOf` on the node,
 the nudge walks that grid (an off-grid value aligns in the nudge's direction on the first press),
 `minimum`/`maximum` clamp inward to the nearest in-range grid point, and without a schema
-constraint the step stays ±1 (±1 at the displayed precision for a float). A fractional
+constraint the step stays ±1 (±1 at the displayed precision for a float). The grid/bounds are
+computed **in the node's own notation**, so a `0x`/`0o`/`0b` integer walks the same schema grid
+and comes back with its prefix, its authored hex digit case and its digit grouping intact
+(decoding those reprs as a decimal number fails, which used to make every non-decimal integer
+ignore the schema entirely). A fractional
 `multipleOf` is ignored on an integer-style value, and a float keeps its decimal point, so a
 nudge never retypes the node. `edit_node` truncates the path only at the first `Index` whose
 container is a real `Array` (editing the whole array there); AoT-entry indices and the

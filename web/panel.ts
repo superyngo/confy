@@ -293,12 +293,28 @@ export function wirePanel(
     if (snap?.notice?.severity === "error") onError(snap.notice.text);
   };
 
-  // Commit on change (blur / Enter→blur); Esc cancels — restoring the value to
-  // what it was when the input gained focus means the browser's own "change"
-  // comparison sees no difference, so blur() doesn't re-fire a commit.
+  // Commit on change (blur / Enter→blur), **or** on blur whenever the field's
+  // text differs from what was rendered. The `change` event alone is not
+  // enough: a wheel/swipe nudge writes `el.value` from script, and every
+  // engine resets its "text as of last change event" baseline on a script
+  // write — so `change` never fires for a nudged value and the nudge was
+  // silently dropped instead of reaching the document (the tree's inline
+  // editor never had this bug: `ui.ts::focusInlineEdit` commits on blur
+  // unconditionally). Esc still cancels: it restores `orig` before blurring,
+  // so the blur sees no difference. `done` makes the pair one-shot, so a
+  // user-typed edit (change, then blur) commits exactly once.
   const commit = (el: HTMLInputElement, fn: () => void) => {
     const orig = el.value;
-    el.addEventListener("change", fn);
+    let done = false;
+    const run = () => {
+      if (done) return;
+      done = true;
+      fn();
+    };
+    el.addEventListener("change", run);
+    el.addEventListener("blur", () => {
+      if (el.value !== orig) run();
+    });
     el.addEventListener("keydown", (e) => {
       const k = (e as KeyboardEvent).key;
       if (k === "Enter") {

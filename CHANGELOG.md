@@ -8,6 +8,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-03 (2)
+
+**Fixed**
+
+- Value nudge (`←`/`→`, wheel, touch swipe) ignored every schema rule on a **non-decimal
+  integer** and quietly rewrote its notation. `Session::schema_clamp_nudge` decoded the
+  repr with `f64::from_str`, which rejects `0x…`/`0o…`/`0b…` outright — so a hex/octal/
+  binary node fell through the early-return and stepped a bare ±1, ignoring `multipleOf`,
+  `minimum` and `maximum` (`mask = 0xFF` with `multipleOf: 5` went to `0x100`, not
+  `0x104`), and any value the clamp *did* produce was rendered as decimal. The clamp now
+  decodes and re-renders in the **node's own notation** (new
+  `schema_hint.rs::parse_repr`/`format_nudged_like`): the radix prefix and the authored
+  hex digit case survive, and underscore grouping is re-applied (`1_000` +
+  `multipleOf: 5` → `1_005`, not `1005`) — matching the grouping the unconstrained nudge
+  already preserved. Floats keep the same guarantee (a grouped float no longer loses its
+  `_`), and non-decimal integers now walk the schema grid and clamp inward to its bounds
+  exactly like a decimal one.
+- Detail panel (web/touch): a wheel/swipe nudge showed the stepped value in the panel but
+  never reached the document or the tree. `web/panel.ts` committed on the input's `change`
+  event only, and every engine resets its "text as of last change event" baseline on a
+  *script* write — so the programmatically written nudge could not fire `change`, and
+  blur/Enter committed nothing. The panel now also commits on blur whenever the field's
+  text differs from what was rendered (one-shot guarded, so a typed edit still commits
+  exactly once; Escape still cancels, since it restores the rendered text before
+  blurring). Mirrors the tree inline editor, which always committed on blur and never had
+  the bug.
+
 ### Unreleased Update - 2026-09-03
 
 **Fixed**

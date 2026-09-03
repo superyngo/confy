@@ -10,7 +10,7 @@ use crate::session::state::{EditField, EditState, Mode, PendingCommit, PromptKin
 
 use super::session::Session;
 
-use super::schema_hint::{format_nudged, nudge_scalar};
+use super::schema_hint::{format_nudged_like, nudge_scalar, parse_repr};
 
 use super::status_fmt::{
     char_byte_idx, clamp_scroll, node_type_label_str, project_first_label, scalar_repr_for,
@@ -800,7 +800,16 @@ impl Session {
         else {
             return Some(new_repr.to_string());
         };
-        let Ok(mut n) = new_repr.replace('_', "").parse::<f64>() else {
+        // The node's own notation drives both decode and re-render: a
+        // `0x`/`0o`/`0b` repr doesn't parse as a decimal `f64`, so parsing
+        // it as one skipped the schema step/clamp entirely and rendering
+        // the result as one would rewrite the notation.
+        let fmt = self
+            .tree
+            .node_at(path)
+            .map(|n| n.format)
+            .unwrap_or(Format::Decimal);
+        let Some(mut n) = parse_repr(new_repr, fmt) else {
             return Some(new_repr.to_string());
         };
         // An integer-style repr must stay an integer: a fractional
@@ -809,7 +818,7 @@ impl Session {
         // Schema, ignored.
         let int_style = !old_repr.contains('.');
         let grid = multiple_of.filter(|s| *s > 0.0 && (!int_style || s.fract() == 0.0));
-        let old = old_repr.replace('_', "").parse::<f64>().ok();
+        let old = parse_repr(old_repr, fmt);
         if let (Some(step), Some(o), true) = (grid, old, delta != 0) {
             let u = o / step;
             let units = if (u - u.round()).abs() <= 1e-9 * u.abs().max(1.0) {
@@ -834,7 +843,7 @@ impl Session {
                     n = (max / step).floor() * step;
                 }
             }
-            return Some(format_nudged(n, Some(step), int_style));
+            return Some(format_nudged_like(n, Some(step), old_repr, fmt));
         }
         // No usable grid (or a directionless call): snap to the nearest
         // multiple, then clamp to [minimum, maximum].
@@ -847,7 +856,7 @@ impl Session {
         if let Some(max) = maximum {
             n = n.min(max);
         }
-        Some(format_nudged(n, grid, int_style))
+        Some(format_nudged_like(n, grid, old_repr, fmt))
     }
 
     /// Stateless preview of nudging `text` — the host's *current edit-buffer*

@@ -2424,6 +2424,81 @@ mod helper_tests {
         );
     }
 
+    /// A schema-constrained nudge must speak the node's own notation. The
+    /// clamp used to `f64::from_str` the repr, which rejects `0x…`/`0o…`/
+    /// `0b…` outright: every non-decimal integer skipped the schema grid and
+    /// bounds entirely (`0xFF` + `multipleOf: 5` stepped a bare +1 to
+    /// `0x100`), and a decimal-rendered result would also have dropped the
+    /// authored radix and underscore grouping.
+    #[test]
+    fn schema_clamp_nudge_keeps_radix_and_underscore_grouping() {
+        use crate::model::any_doc::AnyDocument;
+        use crate::schema::{SchemaSource, SchemaState};
+
+        let doc = AnyDocument::from_str_as(
+            "mask = 0xFF\nlower = 0xff\nperm = 0o17\nflags = 0b1010\nbig = 1_000\nrate = 1_000.50\n",
+            DocFormat::Toml,
+        )
+        .unwrap();
+        let mut s = Session::new(doc);
+        s.schema = Some(SchemaState {
+            source: SchemaSource::Local("schema.json".into()),
+            compiled: None,
+            raw: Some(serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "mask": { "type": "integer", "multipleOf": 5, "maximum": 4096 },
+                    "lower": { "type": "integer", "multipleOf": 5 },
+                    "perm": { "type": "integer", "multipleOf": 8 },
+                    "flags": { "type": "integer", "minimum": 12 },
+                    "big": { "type": "integer", "multipleOf": 5 },
+                    "rate": { "type": "number", "multipleOf": 0.25 }
+                }
+            })),
+            fully_analyzable: false,
+            violations: Vec::new(),
+            warning_ancestors: std::collections::HashSet::new(),
+            load_error: None,
+        });
+        let p = |k: &str| -> Path { vec![Seg::Key(k.into())] };
+        assert_eq!(
+            s.schema_clamp_nudge(&p("mask"), "0xFF", "0x100", 1)
+                .as_deref(),
+            Some("0x104"),
+            "hex 255 is on the multipleOf-5 grid: one whole step is +5 (260), rendered in hex"
+        );
+        assert_eq!(
+            s.schema_clamp_nudge(&p("lower"), "0xff", "0x100", 1)
+                .as_deref(),
+            Some("0x104"),
+            "authored hex digit case survives the clamp"
+        );
+        assert_eq!(
+            s.schema_clamp_nudge(&p("perm"), "0o17", "0o20", 1)
+                .as_deref(),
+            Some("0o20"),
+            "octal 15 aligns up to the multipleOf-8 grid (16), rendered in octal"
+        );
+        assert_eq!(
+            s.schema_clamp_nudge(&p("flags"), "0b1010", "0b1001", -1)
+                .as_deref(),
+            Some("0b1100"),
+            "binary clamps up to the schema minimum (12), rendered in binary"
+        );
+        assert_eq!(
+            s.schema_clamp_nudge(&p("big"), "1_000", "1001", 1)
+                .as_deref(),
+            Some("1_005"),
+            "underscore grouping is re-applied after the grid step"
+        );
+        assert_eq!(
+            s.schema_clamp_nudge(&p("rate"), "1_000.50", "1_000.51", 1)
+                .as_deref(),
+            Some("1_000.75"),
+            "a grouped float keeps its integer-side grouping through the grid step"
+        );
+    }
+
     #[test]
     fn nudge_repr_previews_without_mutating() {
         use crate::model::any_doc::AnyDocument;

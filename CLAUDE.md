@@ -263,7 +263,11 @@ manual "attach a schema" UI action on any host — every host goes through the s
 stepping/`format_nudged` rendering for the `←`/`→` shortcut, not schema attachment. A node's
 `multipleOf` *is* the nudge's step (`Session::schema_clamp_nudge` walks that grid and clamps
 `minimum`/`maximum` inward to it — snapping a ±1 step to the nearest multiple instead used to
-freeze the value on any grid coarser than 2). `Mode::SchemaEnum` has one
+freeze the value on any grid coarser than 2). The clamp reads and writes the value in the
+**node's own notation** (`parse_repr`/`format_nudged_like`): a `0x`/`0o`/`0b` repr is decoded in
+its own base and re-rendered with its prefix and authored hex digit case, and underscore grouping
+is re-applied — parsing those as a decimal `f64` fails, which used to make every non-decimal
+integer skip the schema grid and bounds entirely. `Mode::SchemaEnum` has one
 **schema-independent** producer too: `begin_inline_edit` opens the same picker with `true`/`false`
 (in the node's authored casing, `inline_edit.rs::bool_picker_options`) for any `bool` scalar,
 flagged `from_schema: false` so hosts title it "Value"; a real schema `enum` on that node is
@@ -386,7 +390,9 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
     inline_edit.rs inline-editor buffer lifecycle (begin_inline_edit*/edit_*/edit_commit) +
                    value/rename/nudge/add-node mutation-application methods that commit through it
     schema_hint.rs nudge_scalar + format_nudged: the `←`/`→` value step (a schema `multipleOf`
-                   becomes the step; bounds clamp inward to that grid)
+                   becomes the step; bounds clamp inward to that grid), plus parse_repr /
+                   format_nudged_like — the notation-aware decode/render the schema clamp
+                   uses so a `0x`/`0o`/`0b` or `1_000`-grouped repr survives it
     undo_redo.rs   undo/redo
     status_fmt.rs  kind/type/format label formatting + small scalar-repr/string utilities;
                    `badge_label_note(kind, format, is_branch, scalar_type, doc)` is the one

@@ -83,6 +83,63 @@ pub(crate) fn format_nudged(n: f64, step: Option<f64>, int_style: bool) -> Strin
     }
 }
 
+/// Decode a nudgeable scalar repr to `f64` for schema stepping/clamping:
+/// underscore grouping is stripped, and a non-decimal integer notation
+/// (`0x`/`0o`/`0b`) is decoded **in its own base**. A plain
+/// `f64::from_str` rejects those outright, which silently skipped the
+/// whole `multipleOf`/`minimum`/`maximum` step for every hex/octal/binary
+/// integer (the nudge stepped by a bare ±1 and ignored the schema).
+pub(crate) fn parse_repr(repr: &str, fmt: Format) -> Option<f64> {
+    let clean = repr.trim().replace('_', "");
+    let radix = match fmt {
+        Format::Hex => 16,
+        Format::Octal => 8,
+        Format::Binary => 2,
+        _ => return clean.parse::<f64>().ok(),
+    };
+    i64::from_str_radix(clean.get(2..)?, radix)
+        .ok()
+        .map(|n| n as f64)
+}
+
+/// Render a schema-adjusted nudge result **in the node's own notation**:
+/// `format_nudged` for decimal integers/floats, the source radix prefix for
+/// a hex/octal/binary integer (hex keeps its authored digit case, exactly
+/// like `nudge_scalar`), and the source's underscore grouping when it had
+/// any. Without this a schema-clamped nudge rewrote `0xFF` as decimal and
+/// dropped `1_000`'s grouping.
+pub(crate) fn format_nudged_like(n: f64, step: Option<f64>, old_repr: &str, fmt: Format) -> String {
+    let out = match fmt {
+        Format::Hex | Format::Octal | Format::Binary => {
+            let i = n.round() as i64;
+            match fmt {
+                Format::Hex => {
+                    let clean = old_repr.trim().replace('_', "");
+                    let upper = clean
+                        .get(2..)
+                        .is_some_and(|d| d.chars().any(|c| c.is_ascii_uppercase()));
+                    if upper {
+                        format!("0x{i:X}")
+                    } else {
+                        format!("0x{i:x}")
+                    }
+                }
+                Format::Octal => format!("0o{i:o}"),
+                _ => format!("0b{i:b}"),
+            }
+        }
+        _ => format_nudged(n, step, !old_repr.contains('.')),
+    };
+    if !old_repr.contains('_') {
+        return out;
+    }
+    if out.contains('.') {
+        regroup_float(&out)
+    } else {
+        regroup_int(&out, fmt)
+    }
+}
+
 fn group_right(digits: &str, n: usize) -> String {
     let len = digits.chars().count();
     let mut out = String::with_capacity(len + len / n);

@@ -302,11 +302,17 @@ shapes round-trip). Key types:
   step (wheel up = up), not just ticks over the input. **One step is the schema's step**: a
   `multipleOf` on the node makes each tick walk that grid (`250`/`255`/`260`…, an off-grid value
   aligning in the tick's direction first) and `minimum`/`maximum` clamp inward to the nearest
-  in-range grid point; with no schema constraint a step is ±1. No `Intent` is dispatched per
-  tick: the nudged text is written straight into the focused `<input>` via the stateless
-  `nudge_repr` core query (the same core pipeline the TUI's `←/→` walks), and
+  in-range grid point; with no schema constraint a step is ±1. The step is computed **in the
+  node's own notation**, so a hex/octal/binary integer walks the same schema grid and keeps its
+  prefix/digit case, and underscore grouping survives (`1_000` → `1_005`). No `Intent` is
+  dispatched per tick: the nudged text is written straight into the focused `<input>` via the
+  stateless `nudge_repr` core query (the same core pipeline the TUI's `←/→` walks), and
   commits exactly once via the normal Enter/blur `CommitEdit` path (one undo entry per nudge
-  session). On touch, the value field likewise supports **swipe-to-nudge only while focused**: a
+  session) — **on blur whenever the field's text differs from what was rendered**, not on the
+  input's `change` event, which a *script* write (which is what a nudge is) can never fire:
+  relying on `change` alone dropped every panel nudge silently, showing the stepped value in the
+  panel while the tree and document kept the old one.
+  On touch, the value field likewise supports **swipe-to-nudge only while focused**: a
   horizontal swipe starting anywhere (24px per step, 8px dead zone, `Integer`/`Float` only)
   writes through the same `nudge_repr` path; when the field is unfocused, native scroll and
   text selection are untouched. A `Bool` has **no** wheel/swipe/arrow-key nudge affordance at
@@ -317,8 +323,8 @@ shapes round-trip). Key types:
   commits** (`CommitEdit`): success and failure both resolve back to the Detail panel (core
   `commit_edit` epilogue — no dangling `Mode::Edit`/tree editor; a **branch node's rename is
   rename-only**, skipping the value-replace step a branch has no scalar value for), and **Esc
-  cancels** any panel input (original text restored, blur-commit swallowed — the browser's own
-  no-change-if-value-unchanged behavior means blur doesn't re-fire a commit, so no extra
+  cancels** any panel input (rendered text restored before the blur, so the blur-commit's
+  "text differs from what was rendered" test fails and nothing is dispatched — no extra
   bookkeeping is needed). Both **Enter and Escape `stopPropagation()`** on a panel input: without
   it, committing on Enter can synchronously open a confirm prompt (type change, paste collision)
   whose y/n the host's global keydown handler reads straight off that *same* bubbling Enter,
