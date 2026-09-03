@@ -13,7 +13,7 @@ use crate::session::state::{
     Clipboard, EditKind, EditState, FilterLayer, HelpTab, History, KindSwitchState, Mode,
     PasteSlot, PendingCommit, PendingExternalEdit, PromptKind,
 };
-use crate::session::type_filter::TypeFilter;
+use crate::session::type_filter::{kind_glyph, TypeFilter};
 use crate::session::view::{ChildView, OutlineNode, ViewRow};
 use std::collections::HashSet;
 
@@ -249,6 +249,8 @@ impl Session {
             type_label: node_type_label_str(&node.kind).into(),
             badge_label: badge_label.into(),
             badge_note: badge_note.into(),
+            kind_glyph: kind_glyph(&node.kind, node.format, self.doc_format(), node.read_only)
+                .into(),
             child_count: node.children.len(),
             trailing_comment: node.trailing_comment.clone(),
             key_sign: key_sign_label(node.key_sign).into(),
@@ -445,6 +447,7 @@ impl Session {
                 path: c.path.clone(),
                 type_label: node_type_label(&c.kind),
                 is_branch: c.is_branch(),
+                kind_glyph: kind_glyph(&c.kind, c.format, self.doc_format(), c.read_only).into(),
             })
             .collect()
     }

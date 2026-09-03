@@ -97,6 +97,59 @@ pub fn classify(kind: &NodeKind, format: Format, doc: DocFormat, read_only: bool
     }
 }
 
+/// The **kind glyph** — the web hosts' type-only rendering of the kind
+/// annotation (VS Code outline vocabulary), the low-density sibling of the
+/// TUI's notation-bearing **kind tag** (`confy_tui::tui::app::type_tag`).
+/// Both are exhaustive matches over the same `classify` decision table, kept
+/// adjacent here so a new `TypeToken` breaks both.
+///
+/// Notation is deliberately *not* encoded: a scalar's notation is already
+/// visible in its rendered value, and a branch's is reached through the detail
+/// panel, the composed hover title, or the `f` type filter
+/// (`docs/superpowers/specs/2026-09-03-kind-glyph-outline-design.md`).
+pub fn kind_glyph(
+    kind: &NodeKind,
+    format: Format,
+    doc: DocFormat,
+    read_only: bool,
+) -> &'static str {
+    match classify(kind, format, doc, read_only) {
+        TypeToken::Root => "⌂",
+        TypeToken::Opaque => "!",
+        TypeToken::Comment => "#",
+        TypeToken::ArrayInline
+        | TypeToken::ArrayMultiline
+        | TypeToken::Aot
+        | TypeToken::SeqBlock
+        | TypeToken::SeqFlow => "[]",
+        TypeToken::InlineTable
+        | TypeToken::TableScope
+        | TypeToken::TableDotted
+        | TypeToken::TableMultiline
+        | TypeToken::MapBlock
+        | TypeToken::MapFlow => "{}",
+        TypeToken::StrBasic
+        | TypeToken::StrMBasic
+        | TypeToken::StrLit
+        | TypeToken::StrMLit
+        | TypeToken::StrSingle
+        | TypeToken::StrDouble
+        | TypeToken::StrLiteralBlock
+        | TypeToken::StrFolded => "abc",
+        TypeToken::IntDec
+        | TypeToken::IntHex
+        | TypeToken::IntOct
+        | TypeToken::IntBin
+        | TypeToken::FloatPlain
+        | TypeToken::FloatExp
+        | TypeToken::FloatInf
+        | TypeToken::FloatNan => "123",
+        TypeToken::Bool => "tf",
+        TypeToken::Null => "??",
+        TypeToken::Odt | TypeToken::Ldt | TypeToken::LDate | TypeToken::LTime => "@",
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Group {
     Array,
@@ -573,6 +626,88 @@ mod tests {
         assert!(!labels.iter().any(|l| l.contains("[T/D]")));
         assert!(!labels.iter().any(|l| l.contains("[A/T]")));
         assert!(!labels.iter().any(|l| l.contains("(B) bare")));
+    }
+
+    /// Every `TypeToken` must map to one of the ten outline glyphs — the
+    /// reason the table lives in core at all (a new token is a build error,
+    /// never a runtime fallback glyph).
+    #[test]
+    fn kind_glyph_covers_every_token() {
+        const GLYPHS: [&str; 10] = ["{}", "[]", "abc", "123", "tf", "??", "@", "#", "⌂", "!"];
+        let cases: [(NodeKind, Format, DocFormat, bool); 8] = [
+            (NodeKind::Root, Format::Plain, DocFormat::Toml, false),
+            (NodeKind::Table, Format::Dotted, DocFormat::Toml, false),
+            (NodeKind::Array, Format::Block, DocFormat::Yaml, false),
+            (
+                NodeKind::Scalar(ScalarType::String),
+                Format::Folded,
+                DocFormat::Yaml,
+                false,
+            ),
+            (
+                NodeKind::Scalar(ScalarType::Integer),
+                Format::Hex,
+                DocFormat::Toml,
+                false,
+            ),
+            (
+                NodeKind::Scalar(ScalarType::Null),
+                Format::Plain,
+                DocFormat::Json,
+                false,
+            ),
+            (
+                NodeKind::Scalar(ScalarType::OffsetDatetime),
+                Format::Plain,
+                DocFormat::Toml,
+                false,
+            ),
+            (
+                NodeKind::Comment(String::new()),
+                Format::Plain,
+                DocFormat::Toml,
+                false,
+            ),
+        ];
+        for (k, f, d, ro) in cases {
+            let g = kind_glyph(&k, f, d, ro);
+            assert!(GLYPHS.contains(&g), "unknown glyph {g:?} for {k:?}");
+        }
+        assert_eq!(
+            kind_glyph(&NodeKind::Root, Format::Plain, DocFormat::Toml, false),
+            "⌂"
+        );
+        assert_eq!(
+            kind_glyph(
+                &NodeKind::Comment(String::new()),
+                Format::Plain,
+                DocFormat::Toml,
+                false
+            ),
+            "#"
+        );
+    }
+
+    /// A YAML opaque node (anchor/alias/merge/tag) must not be presentable as
+    /// the kind it wraps: the user cannot mutate it at all, so it gets its own
+    /// glyph rather than the glyph of a normal map/scalar.
+    #[test]
+    fn opaque_yaml_node_gets_its_own_glyph() {
+        let normal = kind_glyph(&NodeKind::Table, Format::Block, DocFormat::Yaml, false);
+        let opaque = kind_glyph(&NodeKind::Table, Format::Block, DocFormat::Yaml, true);
+        assert_eq!(normal, "{}");
+        assert_eq!(opaque, "!");
+        // Read-only in a non-YAML document (a JSON block comment) is *not*
+        // opaque — it keeps its real glyph.
+        assert_eq!(
+            kind_glyph(
+                &NodeKind::Comment(String::new()),
+                Format::Plain,
+                DocFormat::Json,
+                true
+            ),
+            "#"
+        );
     }
 
     #[test]

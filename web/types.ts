@@ -75,6 +75,11 @@ export interface ViewRow {
   // repeat `badge_label`.
   badge_label: string;
   badge_note: string;
+  // Outline **kind glyph** ("{}"/"[]"/"abc"/"123"/"tf"/"??"/"@"/"#"/"⌂"/"!"),
+  // core's exhaustive `kind_glyph` over the same `classify` table the TUI's
+  // dense kind tag uses. Rendered before the key; the hue for it is web-owned
+  // (`kind-labels.ts::hueFor`).
+  kind_glyph: string;
   // Immediate child count (drives the branch item-count badge; 0 for scalars).
   child_count: number;
   trailing_comment: string | undefined;
@@ -101,6 +106,9 @@ export interface ChildView {
   path: Path;
   type_label: string;
   is_branch: boolean;
+  // Same outline glyph as `ViewRow.kind_glyph` — the breadcrumb mini-tree's
+  // single source (it used to keep a local table).
+  kind_glyph: string;
 }
 
 // ---- Mode projection (session::view::ModeView) ----

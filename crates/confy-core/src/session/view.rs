@@ -16,6 +16,10 @@ pub struct ChildView {
     /// as `ViewRow::type_label`.
     pub type_label: String,
     pub is_branch: bool,
+    /// Outline **kind glyph** (`{}`/`[]`/`abc`/`123`/`tf`/`??`/`@`/`#`/`⌂`/`!`),
+    /// from core's `kind_glyph` — the breadcrumb mini-tree's single source
+    /// (it used to carry a local table of its own).
+    pub kind_glyph: Cow<'static, str>,
 }
 
 /// Read-only outline transport — deliberately separate from the internal
@@ -65,6 +69,10 @@ pub struct ViewRow {
     /// `web/kind-labels.ts`).
     pub badge_label: Cow<'static, str>,
     pub badge_note: Cow<'static, str>,
+    /// Outline **kind glyph** — the web hosts' type-only kind rendering, placed
+    /// before the key (`session::type_filter::kind_glyph`). The TUI renders the
+    /// denser `type_tag` from the same `classify` table instead.
+    pub kind_glyph: Cow<'static, str>,
     /// Immediate child count — drives the branch row's "N" item-count badge
     /// (meaningful for branches; 0 for scalars/comments).
     pub child_count: usize,
