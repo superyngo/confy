@@ -1,4 +1,4 @@
-﻿Field,ID,Type (Type),default,en-us,zh-hans-cn,zh-hant-tw,zh,zh-cn,zh-hk,zh-mo,zh-hans,zh-hans-sg,zh-sg,zh-tw,zh-hant,zh-hant-hk,zh-hant-mo
+Field,ID,Type (Type),default,en-us,zh-hans-cn,zh-hant-tw,zh,zh-cn,zh-hk,zh-mo,zh-hans,zh-hans-sg,zh-sg,zh-tw,zh-hant,zh-hant-hk,zh-hant-mo
 Description,2,Text,,"Confy is a structural editor for TOML, JSON, JSONC, and YAML configuration files — it treats your config as a tree, not as text.
 
 Browse a live outline of keys, tables, arrays, and comments, and edit exactly the node you want: rename a key, change a value's type, drag a subtree to a new parent, or convert an entire file from TOML to YAML — all without touching anything you didn't ask for.
@@ -252,63 +252,105 @@ Confy 為開源軟體（MIT 授權），專為每天處理設定檔、希望精�
 • 完全離線運作——無遙測、不收集資料、不需帳戶
 
 Confy 為開源軟體（MIT 授權），專為每天處理設定檔、希望精確且安全地編輯而無需手寫文字差異的開發者而設計。"
-ReleaseNotes,3,Text,,"What's new in 1.0.1
+ReleaseNotes,3,Text,,"What's new in 1.1.0
 
-A deployment fix release — no change to the editor itself.
+A notation-and-feedback release.
 
-• Fixed: the hosted web build no longer ships without its boot scripts, so a phone or tablet opening the site is routed to the touch UI again and the installable/offline web app registers its service worker.","1.0.1 版更新内容
+• Fixed: value nudging (arrow keys, mouse wheel, touch swipe) now honors schema rules on non-decimal integers — hex/octal/binary values walk the schema grid and limits and keep their notation and digit grouping.
+• Fixed: nudging a value from the detail panel now reliably updates the document and the tree.
+• Improved: the detail popup and web kind badges now show a node's exact notation (dotted, scope, multiline, flow…) instead of a generic kind word; web badges use compact {} / [] glyphs with the notation alongside.
+• Improved: the web build warns when it would ship a stale wasm core.","1.1.0 版更新内容
 
-本次为部署修复版本，编辑器功能没有变化。
+本次聚焦于标记法与回馈修正。
 
-• 修复：网页版的构建输出不再遗漏启动脚本，手机或平板开启网站会再次自动进入触控界面，可安装/离线使用的网页应用也会正常注册 service worker。","1.0.1 版更新內容
+• 修复：数值微调（方向键、滚轮、触控滑动）在十六进制／八进制／二进制整数上会遵循 schema 的步进与上下限，并保留原标记法与位数分组。
+• 修复：从详细面板微调数值后，文档与树状图现在会确实更新。
+• 改进：详细弹窗与网页版类型徽章改为显示节点的确切标记法（dotted、scope、multiline、flow…）；网页徽章采用精简的 {} / [] 字形并附标记法说明。
+• 改进：网页构建在即将带上过期 wasm 核心时会提出警告。","1.1.0 版更新內容
 
-本次為部署修復版本，編輯器功能沒有變化。
+本次聚焦於標記法與回饋修正。
 
-• 修復：網頁版的建置輸出不再遺漏啟動腳本，手機或平板開啟網站會再次自動進入觸控介面，可安裝／離線使用的網頁應用也會正常註冊 service worker。","1.0.1 版更新内容
+• 修復：數值微調（方向鍵、滾輪、觸控滑動）在十六進位／八進位／二進位整數上會遵循 schema 的步進與上下限，並保留原標記法與位數分組。
+• 修復：從詳細面板微調數值後，文件與樹狀圖現在會確實更新。
+• 改進：詳細彈窗與網頁版類型徽章改為顯示節點的確切標記法（dotted、scope、multiline、flow…）；網頁徽章採用精簡的 {} / [] 字形並附標記法說明。
+• 改進：網頁建置在即將帶上過期 wasm 核心時會提出警告。","1.1.0 版更新内容
 
-本次为部署修复版本，编辑器功能没有变化。
+本次聚焦于标记法与回馈修正。
 
-• 修复：网页版的构建输出不再遗漏启动脚本，手机或平板开启网站会再次自动进入触控界面，可安装/离线使用的网页应用也会正常注册 service worker。","1.0.1 版更新内容
+• 修复：数值微调（方向键、滚轮、触控滑动）在十六进制／八进制／二进制整数上会遵循 schema 的步进与上下限，并保留原标记法与位数分组。
+• 修复：从详细面板微调数值后，文档与树状图现在会确实更新。
+• 改进：详细弹窗与网页版类型徽章改为显示节点的确切标记法（dotted、scope、multiline、flow…）；网页徽章采用精简的 {} / [] 字形并附标记法说明。
+• 改进：网页构建在即将带上过期 wasm 核心时会提出警告。","1.1.0 版更新内容
 
-本次为部署修复版本，编辑器功能没有变化。
+本次聚焦于标记法与回馈修正。
 
-• 修复：网页版的构建输出不再遗漏启动脚本，手机或平板开启网站会再次自动进入触控界面，可安装/离线使用的网页应用也会正常注册 service worker。","1.0.1 版更新內容
+• 修复：数值微调（方向键、滚轮、触控滑动）在十六进制／八进制／二进制整数上会遵循 schema 的步进与上下限，并保留原标记法与位数分组。
+• 修复：从详细面板微调数值后，文档与树状图现在会确实更新。
+• 改进：详细弹窗与网页版类型徽章改为显示节点的确切标记法（dotted、scope、multiline、flow…）；网页徽章采用精简的 {} / [] 字形并附标记法说明。
+• 改进：网页构建在即将带上过期 wasm 核心时会提出警告。","1.1.0 版更新內容
 
-本次為部署修復版本，編輯器功能沒有變化。
+本次聚焦於標記法與回饋修正。
 
-• 修復：網頁版的建置輸出不再遺漏啟動腳本，手機或平板開啟網站會再次自動進入觸控介面，可安裝／離線使用的網頁應用也會正常註冊 service worker。","1.0.1 版更新內容
+• 修復：數值微調（方向鍵、滾輪、觸控滑動）在十六進位／八進位／二進位整數上會遵循 schema 的步進與上下限，並保留原標記法與位數分組。
+• 修復：從詳細面板微調數值後，文件與樹狀圖現在會確實更新。
+• 改進：詳細彈窗與網頁版類型徽章改為顯示節點的確切標記法（dotted、scope、multiline、flow…）；網頁徽章採用精簡的 {} / [] 字形並附標記法說明。
+• 改進：網頁建置在即將帶上過期 wasm 核心時會提出警告。","1.1.0 版更新內容
 
-本次為部署修復版本，編輯器功能沒有變化。
+本次聚焦於標記法與回饋修正。
 
-• 修復：網頁版的建置輸出不再遺漏啟動腳本，手機或平板開啟網站會再次自動進入觸控介面，可安裝／離線使用的網頁應用也會正常註冊 service worker。","1.0.1 版更新内容
+• 修復：數值微調（方向鍵、滾輪、觸控滑動）在十六進位／八進位／二進位整數上會遵循 schema 的步進與上下限，並保留原標記法與位數分組。
+• 修復：從詳細面板微調數值後，文件與樹狀圖現在會確實更新。
+• 改進：詳細彈窗與網頁版類型徽章改為顯示節點的確切標記法（dotted、scope、multiline、flow…）；網頁徽章採用精簡的 {} / [] 字形並附標記法說明。
+• 改進：網頁建置在即將帶上過期 wasm 核心時會提出警告。","1.1.0 版更新内容
 
-本次为部署修复版本，编辑器功能没有变化。
+本次聚焦于标记法与回馈修正。
 
-• 修复：网页版的构建输出不再遗漏启动脚本，手机或平板开启网站会再次自动进入触控界面，可安装/离线使用的网页应用也会正常注册 service worker。","1.0.1 版更新内容
+• 修复：数值微调（方向键、滚轮、触控滑动）在十六进制／八进制／二进制整数上会遵循 schema 的步进与上下限，并保留原标记法与位数分组。
+• 修复：从详细面板微调数值后，文档与树状图现在会确实更新。
+• 改进：详细弹窗与网页版类型徽章改为显示节点的确切标记法（dotted、scope、multiline、flow…）；网页徽章采用精简的 {} / [] 字形并附标记法说明。
+• 改进：网页构建在即将带上过期 wasm 核心时会提出警告。","1.1.0 版更新内容
 
-本次为部署修复版本，编辑器功能没有变化。
+本次聚焦于标记法与回馈修正。
 
-• 修复：网页版的构建输出不再遗漏启动脚本，手机或平板开启网站会再次自动进入触控界面，可安装/离线使用的网页应用也会正常注册 service worker。","1.0.1 版更新内容
+• 修复：数值微调（方向键、滚轮、触控滑动）在十六进制／八进制／二进制整数上会遵循 schema 的步进与上下限，并保留原标记法与位数分组。
+• 修复：从详细面板微调数值后，文档与树状图现在会确实更新。
+• 改进：详细弹窗与网页版类型徽章改为显示节点的确切标记法（dotted、scope、multiline、flow…）；网页徽章采用精简的 {} / [] 字形并附标记法说明。
+• 改进：网页构建在即将带上过期 wasm 核心时会提出警告。","1.1.0 版更新内容
 
-本次为部署修复版本，编辑器功能没有变化。
+本次聚焦于标记法与回馈修正。
 
-• 修复：网页版的构建输出不再遗漏启动脚本，手机或平板开启网站会再次自动进入触控界面，可安装/离线使用的网页应用也会正常注册 service worker。","1.0.1 版更新內容
+• 修复：数值微调（方向键、滚轮、触控滑动）在十六进制／八进制／二进制整数上会遵循 schema 的步进与上下限，并保留原标记法与位数分组。
+• 修复：从详细面板微调数值后，文档与树状图现在会确实更新。
+• 改进：详细弹窗与网页版类型徽章改为显示节点的确切标记法（dotted、scope、multiline、flow…）；网页徽章采用精简的 {} / [] 字形并附标记法说明。
+• 改进：网页构建在即将带上过期 wasm 核心时会提出警告。","1.1.0 版更新內容
 
-本次為部署修復版本，編輯器功能沒有變化。
+本次聚焦於標記法與回饋修正。
 
-• 修復：網頁版的建置輸出不再遺漏啟動腳本，手機或平板開啟網站會再次自動進入觸控介面，可安裝／離線使用的網頁應用也會正常註冊 service worker。","1.0.1 版更新內容
+• 修復：數值微調（方向鍵、滾輪、觸控滑動）在十六進位／八進位／二進位整數上會遵循 schema 的步進與上下限，並保留原標記法與位數分組。
+• 修復：從詳細面板微調數值後，文件與樹狀圖現在會確實更新。
+• 改進：詳細彈窗與網頁版類型徽章改為顯示節點的確切標記法（dotted、scope、multiline、flow…）；網頁徽章採用精簡的 {} / [] 字形並附標記法說明。
+• 改進：網頁建置在即將帶上過期 wasm 核心時會提出警告。","1.1.0 版更新內容
 
-本次為部署修復版本，編輯器功能沒有變化。
+本次聚焦於標記法與回饋修正。
 
-• 修復：網頁版的建置輸出不再遺漏啟動腳本，手機或平板開啟網站會再次自動進入觸控介面，可安裝／離線使用的網頁應用也會正常註冊 service worker。","1.0.1 版更新內容
+• 修復：數值微調（方向鍵、滾輪、觸控滑動）在十六進位／八進位／二進位整數上會遵循 schema 的步進與上下限，並保留原標記法與位數分組。
+• 修復：從詳細面板微調數值後，文件與樹狀圖現在會確實更新。
+• 改進：詳細彈窗與網頁版類型徽章改為顯示節點的確切標記法（dotted、scope、multiline、flow…）；網頁徽章採用精簡的 {} / [] 字形並附標記法說明。
+• 改進：網頁建置在即將帶上過期 wasm 核心時會提出警告。","1.1.0 版更新內容
 
-本次為部署修復版本，編輯器功能沒有變化。
+本次聚焦於標記法與回饋修正。
 
-• 修復：網頁版的建置輸出不再遺漏啟動腳本，手機或平板開啟網站會再次自動進入觸控介面，可安裝／離線使用的網頁應用也會正常註冊 service worker。","1.0.1 版更新內容
+• 修復：數值微調（方向鍵、滾輪、觸控滑動）在十六進位／八進位／二進位整數上會遵循 schema 的步進與上下限，並保留原標記法與位數分組。
+• 修復：從詳細面板微調數值後，文件與樹狀圖現在會確實更新。
+• 改進：詳細彈窗與網頁版類型徽章改為顯示節點的確切標記法（dotted、scope、multiline、flow…）；網頁徽章採用精簡的 {} / [] 字形並附標記法說明。
+• 改進：網頁建置在即將帶上過期 wasm 核心時會提出警告。","1.1.0 版更新內容
 
-本次為部署修復版本，編輯器功能沒有變化。
+本次聚焦於標記法與回饋修正。
 
-• 修復：網頁版的建置輸出不再遺漏啟動腳本，手機或平板開啟網站會再次自動進入觸控介面，可安裝／離線使用的網頁應用也會正常註冊 service worker。"
+• 修復：數值微調（方向鍵、滾輪、觸控滑動）在十六進位／八進位／二進位整數上會遵循 schema 的步進與上下限，並保留原標記法與位數分組。
+• 修復：從詳細面板微調數值後，文件與樹狀圖現在會確實更新。
+• 改進：詳細彈窗與網頁版類型徽章改為顯示節點的確切標記法（dotted、scope、multiline、flow…）；網頁徽章採用精簡的 {} / [] 字形並附標記法說明。
+• 改進：網頁建置在即將帶上過期 wasm 核心時會提出警告。"
 Title,4,Text,,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor,Confy — TOML/JSON/YAML Editor
 ShortTitle,5,Text,,,,,,,,,,,,,,,
 SortTitle,6,Text,,,,,,,,,,,,,,,

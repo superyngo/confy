@@ -8,7 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Unreleased Update - 2026-09-03 (3)
+## [v1.1.0] - 2026-09-04
+
+### Update - 2026-09-03 (3)
 
 **Fixed**
 
@@ -41,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   — skipping it stages a stale wasm into the extension's `media/`. `CLAUDE.md`'s build
   commands annotate `npm run build` as a wasm **copy**, never a rebuild.
 
-### Unreleased Update - 2026-09-03 (2)
+### Update - 2026-09-03 (2)
 
 **Fixed**
 
@@ -68,7 +70,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   blurring). Mirrors the tree inline editor, which always committed on blur and never had
   the bug.
 
-### Unreleased Update - 2026-09-03
+### Update - 2026-09-03
 
 **Fixed**
 
@@ -1741,7 +1743,7 @@ scripts).
   unbannered file now reliably means live work (currently just the JSON/JSONC
   parser-simplification SSOT plan).
 
-### Unreleased Update - 2026-08-28T18:00:00Z
+### Update - 2026-08-28T18:00:00Z
 - **fix(core): renaming a key to add quotes no longer raises a bogus type-change
   prompt and a following "path not found"** (reported on both TUI and Web).
   Follow-up to the `key_literal` refactor below, which taught the rename buffer
