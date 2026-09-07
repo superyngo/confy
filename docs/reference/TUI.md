@@ -231,6 +231,32 @@ clipboard is armed is refused (`core.clipboard.action-locked`), the same modal l
 every other popup uses (ADR 0005 §5). Kind switch (`K`) is deliberately not in this
 list — the row's KIND badge is already a dedicated, always-visible control for it.
 
+## Kind switch (`K`) — two popups
+
+`K` opens **one of two** popups depending on the cursor node, and the distinction is not
+cosmetic (ADR 0012):
+
+- **Any other node** → `Mode::KindSwitch` (`overlay_kind_switch.rs`), the notation list from
+  `ConfigDocument::kind_options(path)`. It applies immediately on Enter, with no prompt —
+  safe because `Mutation::ConvertKind` only ever changes a node's *notation*, never its type
+  or value. A node with no alternative notation reports `core.kind-switch.unsupported`.
+- **A TOML datetime scalar** → the **value picker** (`Mode::SchemaEnum`, the same widget a
+  `bool`'s `true`/`false` picker and a schema `enum` use, titled neutrally because
+  `from_schema` is `false`). It lists the *other three* datetime types, each row showing the
+  resulting literal and, in parentheses, everything the switch drops or auto-fills — e.g.
+  `local date  1979-05-27  (drops the time, drops the offset)` or
+  `local datetime  1979-05-27T00:00:00  (fills 00:00:00)`. Enter commits it as an ordinary
+  value `Replace`, so the normal `PromptKind::TypeChange` confirmation follows; `y` applies,
+  `n` leaves the document untouched.
+
+  The four datetimes are four *types*, not four notations, which is why they cannot ride on
+  `ConvertKind`. A widening switch fills a missing time with a fixed `00:00:00` and a missing
+  offset with `Z`; only a missing **date** reads the clock (UTC, never host-local). The
+  fractional second and the offset text are preserved verbatim, so `.5` never becomes `.500`.
+
+`e` on a datetime is unaffected — it still opens the inline editor for free-form literal
+editing. Only `K` picks a type.
+
 ## Language / i18n (TUI)
 
 Language is a host-owned preference layered on top of `confy-core`'s catalog (see root

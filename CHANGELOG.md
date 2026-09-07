@@ -8,6 +8,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-07 (3)
+
+**Added**
+
+- **TOML's four datetime types are mutually switchable from `K`**, with the cost disclosed
+  before you commit. `expires = 2026-01-01` → `2026-01-01T00:00:00Z` previously meant retyping
+  the whole literal by hand; `K` reported `this node's kind cannot be switched`.
+  A cross-type datetime switch is a **value `Replace`, not a `Mutation::ConvertKind`** —
+  `ConvertKind`'s invariant is "another notation of the *same* kind", and the four datetimes are
+  four *types* carrying different information. So `K` on a datetime diverts to the existing
+  value picker (the widget a `bool`'s `true`/`false` list already uses) listing the other three
+  types, each row showing the resulting literal and, in parentheses, everything the switch
+  drops or auto-fills — `local date  1979-05-27  (drops the time, drops the offset)`,
+  `local datetime  1979-05-27T00:00:00  (fills 00:00:00)`. Enter then hits the **existing**
+  `TypeChange` confirmation, because `schema_enum_commit` already routes through `edit_commit`
+  precisely so a picked value that changes a node's type gets gated. Net new machinery is one
+  pure module (`session/datetime.rs`): no new `Mutation`, `KindTarget`, `Mode`, `PromptKind`,
+  wire-contract or host change, and the feature reaches all four hosts with zero host code.
+  Fill policy: a missing time becomes a fixed `00:00:00` (so the authored date stays exactly
+  what you see and the result is reproducible), a missing offset becomes `Z`, and only a
+  missing **date** reads the clock — UTC, never host-local. The fractional second and offset
+  text are kept verbatim, so `.5` never becomes `.500` and a same-kind round-trip is
+  byte-identical. No new dependency: the existing wasm-safe UTC helpers are reused.
+  `e` on a datetime is unchanged (free-form literal editing). **ADR 0012.**
+
+**Changed**
+
+- **The `a` Add-type picker offers one `Datetime` row for TOML instead of four.** It seeds a
+  full offset datetime — the widest of the four — so a later `K` switch only ever narrows and
+  never has to fill anything in. The other three types are reachable from `K` (above). Four
+  now-dead `core.add.type.*` catalog keys were pruned from both catalogs.
+
 ### Unreleased Update - 2026-09-07 (2)
 
 **Added**

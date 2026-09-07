@@ -555,13 +555,22 @@ are the KIND-column vocabulary.
 | **string** | basic / literal / multiline / multiline-literal (content decoded then re-encoded) | a `'` in a literal form; `'''` in a multiline literal; a real newline in a single-line literal (single-line *basic* escapes newlines as `\n`, so mstr→str is lossless) |
 | **integer** | dec / hex / oct / bin (`_` separators parse) | negatives have no prefixed form |
 | **float** | plain ↔ exponent (exponent re-rendered from the parsed `f64`) | — |
-| **bool / datetime / `inf` / `nan`** | (one notation — don't convert) | — |
+| **bool / `inf` / `nan`** | (one notation — don't convert) | — |
+| **datetime** | not a `ConvertKind` at all: `K` on a TOML datetime opens the **value picker** and commits a value `Replace` — see below | — |
 | **array** | inline ↔ multiline | collapse rejects held comments or multi-line elements |
 | **table** | `[T/I]` / `[T/D]` / `[T/S]` | a `[T/S]` target violating the D5 capture rule (mid-entry `[t]`, or a section preceded by a foreign header); an inline target holding comments. A nested `[s.t]` converts relative to its parent's capture. |
 | **`[A/T]` group ↔ array** | group → inline/multiline array of inline tables (`convert_aot_to_array`: contiguous span, plain single-line entry bodies, no sub-sections/comments, replacement `key = […]` not captured by a foreign header); a keyed flat-ROOT array of **all** inline tables → `[[…]]` group (`convert_array_to_aot`) | array→group rejected when an entry follows before the next header (the sections would capture it) |
 | **AoT entry / Root / comment** | (don't convert) | — |
 
-Scalars switch **within their own type, never across types**.
+Scalars switch **within their own type, never across types** — with one deliberate exception,
+TOML's four datetime *types* (`[D:odt]`/`[D:ldt]`/`[D:ldat]`/`[D:ltim]`). They are mutually
+reachable from `K`, but not through `ConvertKind`: `Session::open_kind_switch` diverts a
+datetime node to `Mode::SchemaEnum` (the value picker), whose options carry the pre-rendered
+target literal and disclose every dropped/auto-filled component in the label, and whose commit
+path is an ordinary value `Replace` gated by `PromptKind::TypeChange`. `kind_options` therefore
+still returns an empty list for a datetime, and `ConvertKind`'s same-kind invariant is intact.
+Component surgery lives in `session/datetime.rs`; fill policy and the rejected
+`KindTarget::Datetime*` design are in **ADR 0012**.
 
 ## Nested behavior matrix
 

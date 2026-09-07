@@ -216,7 +216,12 @@ type-change detection, caret fields, `←/→` nudge, `a`-add Esc rollback via
 **Kind switch (`K`).** `Mutation::ConvertKind { path, target: KindTarget }` (`convert_kind` in
 `cst_edit.rs`) rewrites a node's kind/notation in place; targets come from `kind_options(path)`.
 Conversion rules (scalar within-type, table `[T/I]`/`[T/D]`/`[T/S]` D5-checks, `[A/T]`↔array,
-Illegal conditions) are in CONTEXT.md *Kind switch (`K`) rules*.
+Illegal conditions) are in CONTEXT.md *Kind switch (`K`) rules*. **One exception:** TOML's four
+datetime *types* are mutually reachable from `K` but not through `ConvertKind` (whose invariant
+is same-kind-only) — `open_kind_switch` diverts a datetime node to `Mode::SchemaEnum`, the value
+picker, whose options carry the pre-rendered target literal, disclose every dropped/auto-filled
+component in the label, and commit as a value `Replace` gated by the existing
+`PromptKind::TypeChange`. So `K` opens one of two popups depending on the node (ADR 0012).
 
 **Comments are first-class nodes** (concepts in CONTEXT.md: *Comment*, *Trailing comment* —
 standalone `#` lines merge into one node and are never dragged by an adjacent node's move; a
@@ -388,6 +393,12 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
                    detail panel's action row, and the FAB's add-only decision
     add_picker.rs  `Mode::AddPicker`: the legal node kinds for the resolved insertion Target
                    (filtered by parent kind/format), seeding the picked kind's default literal
+    datetime.rs    TOML datetime component surgery for the `K` datetime switch (ADR 0012):
+                   parse_toml_datetime decomposes a literal (both separators, seconds-less
+                   HH:MM, verbatim frac/offset so `.5` never becomes `.500`), retype re-renders
+                   it as any of the four datetime types and reports each dropped/auto-filled
+                   component. Fill policy: time → a fixed 00:00:00, offset → `Z`, and only an
+                   absent date reads the (UTC) clock
     diag.rs        DiagLevel, DiagEvent (monotonic seq, kind, detail), DiagRing (bounded 256-event ring)
                    — see MESSAGES.md §4
     inline_edit.rs inline-editor buffer lifecycle (begin_inline_edit*/edit_*/edit_commit) +
