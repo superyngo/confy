@@ -1644,8 +1644,7 @@ pub fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<(SyntaxNode, String), M
         Mutation::SetTrailingComment { path, comment } => {
             set_trailing_comment(&tree, &path, comment.as_deref())?
         }
-        // TODO(Task 2): JSON anchor. Rejects for now.
-        Mutation::SetTrailingBlankLines { .. } => return Err(MutateError::Unsupported),
+        Mutation::SetTrailingBlankLines { path, n } => set_trailing_blank_lines(&tree, &path, n)?,
     }
     validate_semantics(&tree)
 }
@@ -1659,28 +1658,7 @@ fn set_trailing_comment(
     path: &[Seg],
     comment: Option<&str>,
 ) -> Result<(), MutateError> {
-    // A keyed member or an array element (its VALUE node); both end the line the
-    // same way, so the splice is identical.
-    let anchor = match resolve(tree, path).ok_or(MutateError::NotFound)? {
-        Target::Member(m) => m,
-        Target::Element(v) => v,
-        _ => return Err(MutateError::Unsupported),
-    };
-    // Keep the node and a following comma (if any); rewrite the rest of the line.
-    let mut cut_start: usize = anchor.text_range().end().into();
-    let mut sib = anchor.next_sibling_or_token();
-    while let Some(s) = sib {
-        match &s {
-            rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::WHITESPACE => {
-                sib = t.next_sibling_or_token();
-            }
-            rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::COMMA => {
-                cut_start = t.text_range().end().into();
-                break;
-            }
-            _ => break,
-        }
-    }
+    let cut_start = member_line_end(tree, path)?;
     let full = tree.to_string();
     let cut_end = full[cut_start..]
         .find('\n')
@@ -1696,6 +1674,63 @@ fn set_trailing_comment(
     let n = tree.children_with_tokens().count();
     let children: Vec<_> = new_root.children_with_tokens().collect();
     tree.splice_children(0..n, children);
+    Ok(())
+}
+
+/// The byte offset just past the member/element at `path` **and its separator
+/// comma** — everything on the node's own line that belongs to the node. The
+/// one implementation of the comma rule, shared by
+/// `Mutation::SetTrailingComment` (which rewrites from here to the newline)
+/// and [`extent_end_offset`] (which advances from here to past the newline).
+fn member_line_end(tree: &SyntaxNode, path: &[Seg]) -> Result<usize, MutateError> {
+    // A keyed member or an array element (its VALUE node); both end the line the
+    // same way, so the walk is identical.
+    let anchor = match resolve(tree, path).ok_or(MutateError::NotFound)? {
+        Target::Member(m) => m,
+        Target::Element(v) => v,
+        _ => return Err(MutateError::Unsupported),
+    };
+    let mut cut_start: usize = anchor.text_range().end().into();
+    let mut sib = anchor.next_sibling_or_token();
+    while let Some(s) = sib {
+        match &s {
+            rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::WHITESPACE => {
+                sib = t.next_sibling_or_token();
+            }
+            rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::COMMA => {
+                cut_start = t.text_range().end().into();
+                break;
+            }
+            _ => break,
+        }
+    }
+    Ok(cut_start)
+}
+
+/// The byte offset just past the member at `path`'s line — the anchor
+/// `Mutation::SetTrailingBlankLines` splices at. A member's separator comma
+/// belongs to its own line, so it stays *before* the blank run; anything else
+/// on the line (a `//` trailing comment) does too.
+pub(crate) fn extent_end_offset(tree: &SyntaxNode, path: &[Seg]) -> Result<usize, MutateError> {
+    let member_end = member_line_end(tree, path)?;
+    Ok(crate::model::blank_lines::line_boundary_at(
+        &tree.to_string(),
+        member_end,
+    ))
+}
+
+/// `Mutation::SetTrailingBlankLines` — rewrite the blank run after the member
+/// at `path` to exactly `n` lines. The counting/normalization rule is the
+/// shared `model::blank_lines` one; only the anchor is JSON's.
+fn set_trailing_blank_lines(tree: &SyntaxNode, path: &[Seg], n: usize) -> Result<(), MutateError> {
+    let end = extent_end_offset(tree, path)?;
+    let full = tree.to_string();
+    let new_text = crate::model::blank_lines::splice(&full, end, n);
+    let green = crate::model::json::parse::parse(&new_text).map_err(MutateError::Fragment)?;
+    let new_root = SyntaxNode::new_root(green).clone_for_update();
+    let count = tree.children_with_tokens().count();
+    let children: Vec<_> = new_root.children_with_tokens().collect();
+    tree.splice_children(0..count, children);
     Ok(())
 }
 
@@ -2741,5 +2776,53 @@ mod tests {
             },
         );
         assert!(matches!(r, Err(MutateError::Unsupported)));
+    }
+
+    #[test]
+    fn set_trailing_blank_lines_on_a_member_and_an_object() {
+        let set = |src: &str, path: Vec<Seg>, n: usize| {
+            apply_str(src, Mutation::SetTrailingBlankLines { path, n })
+        };
+        assert_eq!(
+            set(
+                "{\n  \"a\": 1,\n  \"b\": 2\n}\n",
+                vec![Seg::Key("a".into())],
+                1
+            ),
+            "{\n  \"a\": 1,\n\n  \"b\": 2\n}\n"
+        );
+        // Clearing an existing run.
+        assert_eq!(
+            set(
+                "{\n  \"a\": 1,\n\n\n  \"b\": 2\n}\n",
+                vec![Seg::Key("a".into())],
+                0
+            ),
+            "{\n  \"a\": 1,\n  \"b\": 2\n}\n"
+        );
+        // A nested object's run sits after its closing brace.
+        assert_eq!(
+            set(
+                "{\n  \"o\": {\n    \"x\": 1\n  },\n  \"b\": 2\n}\n",
+                vec![Seg::Key("o".into())],
+                1
+            ),
+            "{\n  \"o\": {\n    \"x\": 1\n  },\n\n  \"b\": 2\n}\n"
+        );
+    }
+
+    #[test]
+    fn set_trailing_blank_lines_keeps_the_separator_comma() {
+        // The comma belongs to the member's line, so it must stay *before* the
+        // blank run — a comma stranded after a blank line is still legal JSON
+        // but is not what the user asked for.
+        let out = apply_str(
+            "{\n  \"a\": 1,\n  \"b\": 2\n}\n",
+            Mutation::SetTrailingBlankLines {
+                path: vec![Seg::Key("a".into())],
+                n: 1,
+            },
+        );
+        assert!(out.contains("\"a\": 1,\n\n"), "{out}");
     }
 }

@@ -14,6 +14,7 @@ use super::tree_nav::{
     comment_block_range, extend_over_newline, is_scalar_kind, next_is_header, node_at,
     resolve_insert_at,
 };
+use crate::model::blank_lines::line_boundary_at;
 use crate::model::cst_project::{header_path, walk, CstIndex, Target};
 use crate::model::document::{MutateError, Target as InsTarget};
 use crate::model::node::{Node, NodeKind, Seg};
@@ -822,23 +823,14 @@ pub(crate) fn extent_end_offset(tree: &SyntaxNode, path: &[Seg]) -> Result<usize
             let (_, end) = aot_group_span(tree, path).ok_or(MutateError::NotFound)?;
             retract_blank_lines(&full, idx_to_offset(end))
         }
-        // A keyed entry, an array element, or a comment: its own span, then
-        // forward past its terminating newline.
+        // A keyed entry, an array element, or a comment: its own span,
+        // normalized forward to the enclosing line's boundary.
         Target::Entry(n) | Target::ArrayElement(n) => {
-            past_newline(&full, usize::from(n.text_range().end()))
+            line_boundary_at(&full, usize::from(n.text_range().end()))
         }
-        Target::Comment(t) => past_newline(&full, usize::from(t.text_range().end())),
+        Target::Comment(t) => line_boundary_at(&full, usize::from(t.text_range().end())),
     };
     Ok(end)
-}
-
-/// Advance `at` past the rest of its line (through the next `\n`), so the
-/// returned offset is a line boundary — `blank_lines`' anchor contract.
-fn past_newline(full: &str, at: usize) -> usize {
-    match full[at.min(full.len())..].find('\n') {
-        Some(i) => at + i + 1,
-        None => full.len(),
-    }
 }
 
 /// Pull the line boundary `at` back to just past the last **non-blank** line

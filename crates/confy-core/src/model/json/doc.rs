@@ -64,6 +64,10 @@ impl ConfigDocument for JsonDocument {
         self.had_comments_at_open
     }
 
+    fn trailing_blank_anchor(&self, path: &[Seg]) -> Option<usize> {
+        crate::model::json::edit::extent_end_offset(&self.syntax, path).ok()
+    }
+
     fn fragment_trailing_comment(&self, path: &[Seg], fragment: &str) -> Option<String> {
         match crate::model::json::edit::resolve(&self.syntax, path) {
             Some(crate::model::json::project::Target::Member(_)) => {

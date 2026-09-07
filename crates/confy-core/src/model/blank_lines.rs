@@ -5,6 +5,24 @@
 //! extent — which each backend derives from the same span logic its `Delete`
 //! uses. `Mutation::SetTrailingBlankLines`.
 
+/// Normalize a node-extent offset to the **line boundary** `count_after` and
+/// `splice` require: if `at` already sits just past a `\n` (or at the file
+/// start) it is returned unchanged, otherwise it advances through the rest of
+/// its line. Backends differ on whether a node's `text_range` includes its
+/// terminating newline — YAML's `MAP_ENTRY` does, TOML's entries and JSON's
+/// members do not — and advancing unconditionally would skip a whole line for
+/// the former, putting the blank run after the *next* node.
+pub(crate) fn line_boundary_at(text: &str, at: usize) -> usize {
+    let at = at.min(text.len());
+    if at == 0 || text.as_bytes()[at - 1] == b'\n' {
+        return at;
+    }
+    match text[at..].find('\n') {
+        Some(i) => at + i + 1,
+        None => text.len(),
+    }
+}
+
 /// How many blank lines follow the anchor `end` (a maximal run of lines that
 /// are empty or whitespace-only). `end` must be a line boundary — the offset
 /// just past a node's terminating newline.

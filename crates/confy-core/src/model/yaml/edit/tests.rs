@@ -1870,3 +1870,77 @@ fn remark_real_tasks_yaml_subscribers_roundtrip() {
     .unwrap();
     assert_eq!(restored, src, "roundtrip must be byte-exact");
 }
+
+#[test]
+fn set_trailing_blank_lines_on_a_map_entry() {
+    let set = |src: &str, path: Vec<Seg>, n: usize| {
+        apply_str(src, Mutation::SetTrailingBlankLines { path, n })
+    };
+    assert_eq!(
+        set("a: 1\nb: 2\n", vec![Seg::Key("a".into())], 1).unwrap(),
+        "a: 1\n\nb: 2\n"
+    );
+    assert_eq!(
+        set("a: 1\n\n\nb: 2\n", vec![Seg::Key("a".into())], 0).unwrap(),
+        "a: 1\nb: 2\n"
+    );
+}
+
+#[test]
+fn set_trailing_blank_lines_on_a_nested_block_map_spans_its_children() {
+    let out = apply_str(
+        "o:\n  x: 1\n  y: 2\nb: 3\n",
+        Mutation::SetTrailingBlankLines {
+            path: vec![Seg::Key("o".into())],
+            n: 1,
+        },
+    )
+    .unwrap();
+    assert_eq!(out, "o:\n  x: 1\n  y: 2\n\nb: 3\n");
+}
+
+#[test]
+fn set_trailing_blank_lines_on_a_block_seq_element() {
+    let out = apply_str(
+        "xs:\n  - a\n  - b\n",
+        Mutation::SetTrailingBlankLines {
+            path: vec![Seg::Key("xs".into()), Seg::Index(0)],
+            n: 1,
+        },
+    )
+    .unwrap();
+    assert_eq!(out, "xs:\n  - a\n\n  - b\n");
+}
+
+#[test]
+fn set_trailing_blank_lines_rejects_an_opaque_node() {
+    // Every mutation on or into an opaque span returns Unsupported and leaves
+    // the document untouched (CLAUDE.md, YAML subset backend).
+    let r = apply_str(
+        "base: &b\n  x: 1\nuse: *b\n",
+        Mutation::SetTrailingBlankLines {
+            path: vec![Seg::Key("use".into())],
+            n: 1,
+        },
+    );
+    assert!(
+        matches!(r, Err(MutateError::Unsupported)),
+        "an opaque value must reject as Unsupported: {r:?}"
+    );
+}
+
+#[test]
+fn set_trailing_blank_lines_rejects_a_flow_member() {
+    // A flow member has no line of its own to trail.
+    let r = apply_str(
+        "m: {a: 1, b: 2}\n",
+        Mutation::SetTrailingBlankLines {
+            path: vec![Seg::Key("m".into()), Seg::Key("a".into())],
+            n: 1,
+        },
+    );
+    assert!(
+        matches!(r, Err(MutateError::Unsupported)),
+        "a flow member must reject as Unsupported: {r:?}"
+    );
+}

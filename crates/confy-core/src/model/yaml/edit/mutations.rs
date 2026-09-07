@@ -541,3 +541,18 @@ pub(crate) fn set_block_entry_trailing(
     let new_text = format!("{}{}{}", &full[..cut_start], tail, &full[cut_end..]);
     commit_reparse(tree, &new_text, MutateError::Fragment)
 }
+
+/// `Mutation::SetTrailingBlankLines` — rewrite the blank run after the node at
+/// `path` to exactly `n` lines. The counting/normalization rule is the shared
+/// `model::blank_lines` one; only the anchor is YAML's.
+pub(crate) fn set_trailing_blank_lines(
+    tree: &SyntaxNode,
+    idx: &YamlIndex,
+    path: &[Seg],
+    n: usize,
+) -> Result<(), MutateError> {
+    let end = super::resolve::extent_end_offset(tree, idx, path)?;
+    let full = tree.to_string();
+    let new_text = crate::model::blank_lines::splice(&full, end, n);
+    commit_reparse(tree, &new_text, MutateError::Fragment)
+}

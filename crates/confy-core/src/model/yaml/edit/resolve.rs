@@ -2,9 +2,10 @@
 //! guard (`is_opaque`) — split out of `yaml/edit.rs` (Task 15, 2026-08-11
 //! audit remediation).
 
+use crate::model::document::MutateError;
 use crate::model::node::Seg;
 use crate::model::yaml::project::{walk, Target, YamlIndex};
-use crate::model::yaml::syntax::SyntaxNode;
+use crate::model::yaml::syntax::{SyntaxKind, SyntaxNode};
 
 /// Re-indent every line of `fragment` from `from` leading spaces to `to`.
 /// Literal/folded block-scalar bodies shift with their header (uniform shift of
@@ -61,4 +62,40 @@ pub(crate) fn is_opaque(idx: &YamlIndex, path: &[Seg]) -> bool {
         }
     }
     false
+}
+
+/// The byte offset just past the node at `path`'s **block extent** — its own
+/// line plus every more-indented line beneath it — which is the anchor
+/// `Mutation::SetTrailingBlankLines` splices at. Rejects an opaque node and an
+/// entry whose *value* is opaque (every mutation on or into one is
+/// `Unsupported`), and a flow member, which has no line of its own to trail.
+pub(crate) fn extent_end_offset(
+    tree: &SyntaxNode,
+    idx: &YamlIndex,
+    path: &[Seg],
+) -> Result<usize, MutateError> {
+    if is_opaque(idx, path) {
+        return Err(MutateError::Unsupported);
+    }
+    let at = match resolve_in(idx, path).ok_or(MutateError::NotFound)? {
+        Target::MapEntry(n) | Target::Element(n) => {
+            if super::block::entry_has_opaque_value(&n) {
+                return Err(MutateError::Unsupported);
+            }
+            // A flow member's node lives inside a `{…}`/`[…]` on one line, so
+            // it has no trailing line of its own.
+            if n.ancestors()
+                .any(|a| matches!(a.kind(), SyntaxKind::FLOW_MAP | SyntaxKind::FLOW_SEQ))
+            {
+                return Err(MutateError::Unsupported);
+            }
+            usize::from(n.text_range().end())
+        }
+        Target::Comment(t) => usize::from(t.text_range().end()),
+        Target::Opaque(_) => return Err(MutateError::Unsupported),
+    };
+    Ok(crate::model::blank_lines::line_boundary_at(
+        &tree.to_string(),
+        at,
+    ))
 }

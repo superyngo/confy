@@ -65,6 +65,11 @@ impl ConfigDocument for YamlDocument {
         "#"
     }
 
+    fn trailing_blank_anchor(&self, path: &[Seg]) -> Option<usize> {
+        let (_, idx) = crate::model::yaml::project::walk(&self.syntax, "");
+        crate::model::yaml::edit::trailing_blank_anchor(&self.syntax, &idx, path).ok()
+    }
+
     fn kind_options(&self, path: &[Seg]) -> Vec<(String, KindTarget)> {
         kind_options(&self.project(), path)
     }

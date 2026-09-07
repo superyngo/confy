@@ -24,8 +24,16 @@ use crate::model::yaml::project::walk;
 use crate::model::yaml::syntax::SyntaxNode;
 use block::{delete, insert, replace};
 use convert::convert_kind;
-use mutations::{edit_comment, insert_comment, move_nodes, remark, rename, set_trailing_comment};
+use mutations::{
+    edit_comment, insert_comment, move_nodes, remark, rename, set_trailing_blank_lines,
+    set_trailing_comment,
+};
 use resolve::is_opaque;
+
+/// The `SetTrailingBlankLines` anchor, re-exported so `YamlDocument` serves
+/// `ConfigDocument::trailing_blank_anchor` from the same one implementation
+/// the mutation splices at.
+pub(crate) use resolve::extent_end_offset as trailing_blank_anchor;
 
 /// Backstop after a splice: re-parse and reject duplicate mapping keys
 /// (Collision) or structural breakage (Illegal). Mirrors json/edit.rs's DOM
@@ -130,8 +138,9 @@ pub fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<(SyntaxNode, String), M
         Mutation::SetTrailingComment { path, comment } => {
             set_trailing_comment(&tree, &idx, &path, comment.as_deref())?
         }
-        // TODO(Task 2): YAML anchor. Rejects for now.
-        Mutation::SetTrailingBlankLines { .. } => return Err(MutateError::Unsupported),
+        Mutation::SetTrailingBlankLines { path, n } => {
+            set_trailing_blank_lines(&tree, &idx, &path, n)?
+        }
     }
     validate_semantics(&tree)
 }
