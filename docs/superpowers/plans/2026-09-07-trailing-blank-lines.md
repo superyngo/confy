@@ -1,5 +1,16 @@
 # Trailing blank lines are an explicit, undoable node operation
 
+✅ **Shipped** (CHANGELOG 2026-09-07 (4), commits `4b9ed34`..`98d6bb8`) — historical reference.
+
+Two deviations from the plan as written, both deliberate:
+- `ConfigDocument::trailing_blank_anchor` was introduced in Task 1 as a trait method rather
+  than retrofitted in Task 4, so Task 4's Step-4 refactor paragraph never applied.
+- Task 4's re-parent guard looks **behind** the anchor, not ahead of it. The plan's
+  forward-looking rule was both a false negative for the real case (a TOML section's extent
+  runs to the next header, so the at-risk comment is inside the extent, before the anchor) and
+  a false positive on an entry inside a table. Caught by Task 5's real-binary check; see
+  commit `98d6bb8`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development
 > (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use
 > checkbox (`- [ ]`) syntax for tracking.

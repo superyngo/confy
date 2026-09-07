@@ -30,14 +30,11 @@ kept for context, not as a live task list.
 
 Audits and debug notes use `✅ **Resolved — historical reference.**` instead.
 
-**A file without a banner is live work.** As of 2026-09-07 two qualify:
+**A file without a banner is live work.** As of 2026-09-07 one qualifies:
 
 - `plans/2026-08-28-json-jsonc-parser-simplification-ssot.md` — consensus reached, not yet
   implemented. Its comment-gate-removal half shipped separately (CHANGELOG 2026-08-28); the
   parser-unification half has not.
-- `plans/2026-09-07-trailing-blank-lines.md` — approved, not started.
-  `Mutation::SetTrailingBlankLines` plus two core-owned Action-menu items, so the blank lines
-  after any node are an explicit undoable operation in all three formats.
 
 ## Conventions
 
