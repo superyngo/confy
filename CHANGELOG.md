@@ -8,6 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-07 (2)
+
+**Added**
+
+- **`←/→` toggles a `bool` again — on the keyboard only** (TUI `←/→`, web `←/→`/`+`/`-`).
+  Commit `534dd4a` removed every bool-nudge affordance by deleting the `Bool` arm from
+  `nudge_scalar`, but the defect it was fixing was the *web tree's hover-and-scroll wheel*
+  toggling a bool with nothing armed or focused — the keyboard was collateral, and a bool was
+  left with only the three-keystroke `true`/`false` picker. The flip now lives in
+  `Session::nudge` (the `Intent::Nudge` path) instead of `nudge_scalar`, so the wheel/swipe
+  path (`nudge_repr`) stays numeric-only and the old misfire cannot return. Both directions
+  flip, and the **authored casing is preserved** (`TRUE` → `FALSE`, never `false`): the casing
+  table that already backed the picker is extracted as `bool_pair` and shared, so there is one
+  rule rather than two that can drift. `nudge_scalar`'s and `nudge_repr`'s `Bool` → `None`
+  tests stay as they were — they now document the pointer-surface contract. **ADR 0011.**
+
+**Fixed**
+
+- The `f` popup's cell pad was 17 columns wide, not 16: `[T/I] inline-tbl` is exactly 16
+  characters, so once it moved into column 1 (above) it sat flush against the next cell's
+  checkbox.
+
 ### Unreleased Update - 2026-09-07
 
 **Changed**

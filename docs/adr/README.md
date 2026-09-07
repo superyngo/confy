@@ -20,9 +20,11 @@ the old one superseded.
 | [0008](0008-in-session-diagnostic-ring-over-tracing.md) | Diagnostics are an in-Session ring buffer, not `tracing` | Implemented (2026-08-21) |
 | [0009](0009-centralized-action-menu-core-owned.md) | Node operations are centralized in one core-owned Action menu, replacing the per-row `⋮`, the detail panel's action buttons, and the `+` FAB | Implemented (2026-08-30) |
 | [0010](0010-pointer-drops-resolve-through-pasteslot.md) | Pointer drops resolve through `PasteSlot` end to end (hosts derive no parent/index), and inline containers keep their `Into` band | Implemented (2026-09-01) |
+| [0011](0011-bool-toggle-on-the-intent-nudge-path-only.md) | A bool toggles on the `Intent::Nudge` (keyboard) path only, never inside `nudge_scalar` — pointer wheel/swipe nudging stays numeric | Implemented (2026-09-07) |
 
 ADR 0004 §1's `format != Format::Inline` clause and its host-computed `MoveSelectionTo`
-`target`/`index` payload are superseded by ADR 0010. No ADR has been superseded in full to date.
+`target`/`index` payload are superseded by ADR 0010. ADR 0011 partially reverses commit `534dd4a`
+(bool nudge removal) for the keyboard only. No ADR has been superseded in full to date.
 
 See also [`../superpowers/`](../superpowers/README.md) for the plans, specs, and audits these
 decisions came out of.

@@ -13,6 +13,11 @@ fn toml_session(src: &str) -> Session {
     Session::new(doc)
 }
 
+fn yaml_session(src: &str) -> Session {
+    let doc = AnyDocument::from_str_as(src, DocFormat::Yaml).unwrap();
+    Session::new(doc)
+}
+
 fn keys(s: &Session) -> Vec<String> {
     s.visible_rows().iter().map(|r| r.key.clone()).collect()
 }
@@ -933,6 +938,49 @@ fn dispatch_nudge_increments_scalar_via_snapshot() {
     let row = snap.rows.iter().find(|r| r.key == "a").unwrap();
     assert_eq!(row.value.as_deref(), Some("2"));
     assert!(snap.is_dirty, "nudge marks the doc dirty");
+}
+
+/// `Intent::Nudge` toggles a bool (TUI `←/→`, web `←/→`/`+`/`-`) — restored on
+/// the Intent path only. The wheel/swipe path (`nudge_repr`, exercised in
+/// `schema_headless.rs`) must stay numeric-only; see ADR 0011.
+#[test]
+fn dispatch_nudge_toggles_a_bool_in_either_direction() {
+    for delta in [1, -1] {
+        let mut s = toml_session("flag = true\n");
+        s.dispatch(Intent::CursorDown);
+        let snap = s.dispatch(Intent::Nudge(delta));
+        let row = snap.rows.iter().find(|r| r.key == "flag").unwrap();
+        assert_eq!(row.value.as_deref(), Some("false"), "delta {delta}");
+        assert!(snap.is_dirty);
+        // …and back.
+        let snap = s.dispatch(Intent::Nudge(delta));
+        let row = snap.rows.iter().find(|r| r.key == "flag").unwrap();
+        assert_eq!(row.value.as_deref(), Some("true"), "delta {delta}");
+    }
+}
+
+/// YAML accepts `True`/`TRUE` as booleans; a toggle must keep the authored
+/// spelling rather than silently re-casing the document.
+#[test]
+fn dispatch_nudge_keeps_a_bool_s_authored_casing() {
+    for (from, to) in [("True", "False"), ("TRUE", "FALSE"), ("False", "True")] {
+        let mut s = yaml_session(&format!("flag: {from}\n"));
+        s.dispatch(Intent::CursorDown);
+        let snap = s.dispatch(Intent::Nudge(1));
+        let row = snap.rows.iter().find(|r| r.key == "flag").unwrap();
+        assert_eq!(row.value.as_deref(), Some(to), "{from}");
+    }
+}
+
+/// A bool nudge goes through the same value `Replace` a numeric one does, so
+/// the node's trailing comment must survive it (YAML needs the explicit
+/// re-assert — `replace_preserves_trailing_comment()` is `false` there).
+#[test]
+fn dispatch_nudge_on_a_bool_keeps_its_trailing_comment() {
+    let mut s = yaml_session("flag: true  # on\n");
+    s.dispatch(Intent::CursorDown);
+    s.dispatch(Intent::Nudge(1));
+    assert_eq!(s.serialize().unwrap(), "flag: false  # on\n");
 }
 
 #[test]

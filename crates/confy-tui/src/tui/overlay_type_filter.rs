@@ -75,7 +75,10 @@ pub(crate) fn draw_type_filter_overlay(f: &mut Frame, app: &App) {
                         focused_line = lines.len() as u16;
                     }
                     let state = tf.cell_state(*cell);
-                    let text = format!("{} {:<16}", check(state), cell.label());
+                    // 17, not 16: `[T/I] inline-tbl` is exactly 16 wide, so a
+                    // 16-column pad left it flush against the next cell's
+                    // checkbox once it moved into column 1.
+                    let text = format!("{} {:<17}", check(state), cell.label());
                     let mut style = Style::default();
                     if state != CheckState::Off {
                         style = style.fg(Color::Green);

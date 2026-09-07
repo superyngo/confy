@@ -93,6 +93,10 @@ because a bool's value domain is closed at two members. Options carry the node's
 casing** (YAML's `True`/`TRUE` stay uppercase — committing lowercase would silently re-case the
 document), a schema `enum` on the same node **outranks** this fallback, and `E` (force `$EDITOR`)
 is unaffected: it stays the way to type a bool's line free-form (including its trailing comment).
+`←/→` also **toggles a bool in place** without any popup — that flip lives on the `Intent::Nudge`
+path only (`Session::nudge`'s bool arm, not `nudge_scalar`), so the web wheel / touch swipe nudge
+stays numeric-only and cannot re-create the hover-and-scroll misfire that removed bool nudging in
+the first place (ADR 0011). It keeps the authored casing, exactly like the picker.
 
 ## Comments (TUI)
 

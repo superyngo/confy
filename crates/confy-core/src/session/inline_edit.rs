@@ -879,6 +879,14 @@ impl Session {
         self.schema_clamp_nudge(path, text, &new_repr, delta)
     }
 
+    /// `Intent::Nudge` — the keyboard value step (TUI `←/→`, web `←/→`/`+`/`-`).
+    ///
+    /// A `bool` **toggles** here, but deliberately *not* inside
+    /// `nudge_scalar`: that function is shared with `nudge_repr`, which backs
+    /// the web wheel and touch swipe nudge. Bool nudging was removed wholesale
+    /// once because the web tree toggled a bool on a mere hover-and-scroll;
+    /// keeping the flip on this Intent-only path restores the keyboard
+    /// affordance without reviving that misfire (ADR 0011).
     pub fn nudge(&mut self, delta: i64) {
         if self.guard_clipboard_locked() {
             return;
@@ -916,10 +924,16 @@ impl Session {
         };
         let format = node.format;
         let trailing = node.trailing_comment.clone();
-        if let Some(new_repr) = nudge_scalar(st, format, &repr, delta) {
-            let Some(new_repr) = self.schema_clamp_nudge(&path, &repr, &new_repr, delta) else {
-                return;
-            };
+        // A bool flips; a number steps and then re-lands on the schema's
+        // `multipleOf` grid / bounds (`schema_clamp_nudge` is numeric-only,
+        // so the bool arm must not go through it).
+        let stepped = if st == ScalarType::Bool {
+            bool_flip(&repr)
+        } else {
+            nudge_scalar(st, format, &repr, delta)
+                .and_then(|new| self.schema_clamp_nudge(&path, &repr, &new, delta))
+        };
+        if let Some(new_repr) = stepped {
             let key_arg = (frag_key != "__elem__").then_some(frag_key.as_str());
             let preserves = self
                 .doc
@@ -1045,15 +1059,7 @@ impl Session {
 /// `None`, which falls back to plain text editing (same
 /// conservative-if-unsure polarity as `nudge_scalar`).
 fn bool_picker_options(repr: &str) -> Option<(Vec<(String, String)>, usize)> {
-    let (t, f, cursor) = match repr.trim() {
-        "true" => ("true", "false", 0),
-        "false" => ("true", "false", 1),
-        "True" => ("True", "False", 0),
-        "False" => ("True", "False", 1),
-        "TRUE" => ("TRUE", "FALSE", 0),
-        "FALSE" => ("TRUE", "FALSE", 1),
-        _ => return None,
-    };
+    let (t, f, cursor) = bool_pair(repr)?;
     Some((
         vec![
             (t.to_string(), t.to_string()),
@@ -1061,4 +1067,31 @@ fn bool_picker_options(repr: &str) -> Option<(Vec<(String, String)>, usize)> {
         ],
         cursor,
     ))
+}
+
+/// The `(true-spelling, false-spelling, index-of-the-current-one)` triple for a
+/// bool repr, or `None` for an unrecognized spelling. The single source of the
+/// authored-casing rule, shared by the true/false picker and [`bool_flip`].
+fn bool_pair(repr: &str) -> Option<(&'static str, &'static str, usize)> {
+    Some(match repr.trim() {
+        "true" => ("true", "false", 0),
+        "false" => ("true", "false", 1),
+        "True" => ("True", "False", 0),
+        "False" => ("True", "False", 1),
+        "TRUE" => ("TRUE", "FALSE", 0),
+        "FALSE" => ("TRUE", "FALSE", 1),
+        _ => return None,
+    })
+}
+
+/// The opposite of a bool repr, in the **same authored casing** (`TRUE` →
+/// `FALSE`, never `false`). `Session::nudge`'s bool arm; direction-independent,
+/// so both `←` and `→` flip.
+fn bool_flip(repr: &str) -> Option<String> {
+    let (t, f, cursor) = bool_pair(repr)?;
+    Some(if cursor == 0 {
+        f.to_string()
+    } else {
+        t.to_string()
+    })
 }
