@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-08
+
+**Fixed**
+
+- **The TOML datetime kind switch was unreachable on the web and touch UIs.** `K` on a
+  datetime is a *value* `Replace`, not a notation switch (ADR 0012), so the four datetime
+  types are deliberately absent from `kind_options` and core's `open_kind_switch` diverts
+  them to the value picker instead. Both web hosts, however, asked `kindOptions(path)` first
+  and stopped at an empty list with "No notation switches available" — so the feature had no
+  route from the kind badge, the panel's Kind button, or (on touch) the `K` key. Desktop
+  keyboard `K` was the only entry that worked, because it alone dispatched the intent to
+  core. An empty option list is now handed to `OpenKindSwitch`, which opens the picker when
+  it can and raises core's own `core.kind-switch.unsupported` when it genuinely cannot. No
+  new UI: both hosts already rendered `Mode::SchemaEnum` (desktop as the inline value select,
+  touch as a bottom sheet) for schema-constrained values and booleans.
+
+  The originating plan asserted "no host code change" and the web test suite stayed green
+  throughout — nothing was broken, so nothing failed. Reported by user testing.
+
 ### Unreleased Update - 2026-09-07 (4)
 
 **Added**

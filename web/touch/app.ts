@@ -718,7 +718,13 @@ function openKindSheet(path: Path) {
   send({ SetCursor: path });
   const opts = session.kindOptions(path);
   if (!opts.length) {
-    send({ SetHostNotice: { key: "web.host.kind.no-options", args: [], source: "host-web" } });
+    // ADR 0012: a TOML datetime's four types are a *value* `Replace`, not a
+    // notation switch, so they are deliberately absent from `kind_options` —
+    // core's `open_kind_switch` diverts them to `Mode::SchemaEnum`, which the
+    // render pass above turns into `openSchemaEnumSheet`. Hand the decision to
+    // core rather than reporting "no options" here; it raises its own
+    // `core.kind-switch.unsupported` when there really is nothing to pick.
+    send("OpenKindSwitch");
     return;
   }
   const cells = opts

@@ -212,7 +212,13 @@ shapes round-trip). Key types:
   edit buffer, Enter/blur → `CommitEdit`, **sized to its content** — `editWidthCh` seeds a
   `width:…ch` and an `input` listener grows it while typing, CSS min/max-width clamping);
   a key → a rename input; the kind badge → a
-  popover built from `kindOptions(path)` → `CommitKind`; right-click on a row → the
+  popover built from `kindOptions(path)` → `CommitKind`, and an **empty** option list is
+  handed to core as `OpenKindSwitch` rather than reported as "nothing to switch": a TOML
+  datetime's four types are a *value* `Replace`, so they are deliberately absent from
+  `kind_options` and core's `open_kind_switch` diverts them to `Mode::SchemaEnum`
+  (ADR 0012). Both hosts do this — pre-filtering on `kindOptions` alone made the datetime
+  switch unreachable from every pointer entry, and on touch from `K` as well;
+  right-click on a row → the
   centralized **Action menu** (`openActionMenuAt`). All popovers share one synchronous closer (a single outside-click
   listener) and are scoped per popover so they don't open/close together. **Every menu
   button toggles** — a second click on the `⋯` More button (tracked by `.open`) or the

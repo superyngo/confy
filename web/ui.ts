@@ -1630,7 +1630,13 @@ function openKindMenuAt(path: Path, x: number, y: number) {
   }
   const opts = session!.kindOptions(path);
   if (!opts.length) {
-    send({ SetHostNotice: { key: "web.host.kind.no-options", args: [], source: "host-web" } });
+    // ADR 0012: a TOML datetime's four types are a *value* `Replace`, not a
+    // notation switch, so they are deliberately absent from `kind_options` —
+    // core's `open_kind_switch` diverts them to `Mode::SchemaEnum` instead.
+    // Hand the decision to core rather than reporting "no options" here: it
+    // opens the value picker when it can, and otherwise raises its own
+    // `core.kind-switch.unsupported`.
+    send("OpenKindSwitch");
     return;
   }
   const menu = $("kindMenu");

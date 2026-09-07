@@ -7,6 +7,15 @@ kept for context, not as a live task list. One deviation from the plan as writte
 only `FilledDate`, but it correctly reports `[FilledDate, DroppedTime]` — a fill and a drop
 can occur in the same switch, and the label names both. The test was corrected, not the code.
 
+A second deviation, found 2026-09-08 by user testing on the web UI: the plan's "**no host
+code change**" premise (line 27) was **wrong**. Both web hosts pre-filtered on
+`session.kindOptions(path)` and reported "no notation switches available" on an empty list,
+never dispatching `OpenKindSwitch` — so core's datetime divert was unreachable from every
+pointer entry (and from `K` on touch, which intercepts the intent). `npm test` stayed green
+throughout, because nothing broke; the feature simply had no route. Fixed in `web/ui.ts`'s
+`openKindMenuAt` and `web/touch/app.ts`'s `openKindSheet` by handing an empty list to core
+instead of terminating there.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development
 > (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use
 > checkbox (`- [ ]`) syntax for tracking.
