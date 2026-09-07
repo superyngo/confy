@@ -1,5 +1,12 @@
 # TOML datetime kind switch: `K` picks among the 4 datetime types, one consolidated `a` entry
 
+✅ **Shipped — historical reference.** Landed 2026-09-07 (`d6c923b`, `76c602c`, `5ec5511`);
+the frozen decision is **ADR 0012**. See `CHANGELOG.md` for current behavior; this plan is
+kept for context, not as a live task list. One deviation from the plan as written: Task 1's
+`retype_fills_a_missing_component_and_reports_it` expected `LocalTime → LocalDate` to report
+only `FilledDate`, but it correctly reports `[FilledDate, DroppedTime]` — a fill and a drop
+can occur in the same switch, and the label names both. The test was corrected, not the code.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development
 > (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use
 > checkbox (`- [ ]`) syntax for tracking.
