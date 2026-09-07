@@ -633,8 +633,14 @@ pub fn prompt_question(lang: Lang, pk: &PromptKind) -> String {
     match pk {
         PromptKind::Collision { key } => tr_args(lang, "core.prompt.collision", &[key]),
         PromptKind::ConfirmQuit => tr_args(lang, "core.prompt.confirm-quit", &[]),
-        PromptKind::TypeChange { from, to } => {
-            tr_args(lang, "core.prompt.type-change", &[from, to])
+        PromptKind::TypeChange { from, to, note } => {
+            let q = tr_args(lang, "core.prompt.type-change", &[from, to]);
+            // The wrapper key owns its own leading space (` (…)` vs `（…）`):
+            // a Chinese full-width paren is not preceded by one.
+            match note {
+                Some(n) => format!("{q}{}", tr_args(lang, "core.prompt.note", &[n])),
+                None => q,
+            }
         }
         PromptKind::ArrayUpgrade { .. } => tr_args(lang, "core.prompt.array-upgrade", &[]),
         PromptKind::BlankReparent { .. } => tr_args(lang, "core.prompt.blank-reparent", &[]),

@@ -40,6 +40,8 @@
   "core.trailing.inline-unsupported": "inline collection can't hold a trailing comment — switch to multiline (K) first",
   "core.rename.empty-key": "key cannot be empty",
   "core.prompt.type-change": "type {0} → {1}?",
+  "core.prompt.note": " ({0})",
+  "core.list.sep": ", ",
   "core.prompt.blank-reparent": "this moves the comment below into another scope — continue?",
   "core.rename.failed": "rename failed: {0}",
   "core.value.invalid": "invalid value: {0}",

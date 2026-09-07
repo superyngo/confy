@@ -180,29 +180,46 @@ pub(crate) fn kind_options(tree: &NodeTree, path: &[Seg]) -> Vec<(String, KindTa
     // A member sitting inside an inline flow collection can't take a block layout
     // (block expansion, literal/folded scalars) without breaking the one line.
     let in_flow = inside_inline_collection(tree, path);
+    use crate::model::kind_label::align_options;
     match &node.kind {
         NodeKind::Table | NodeKind::InlineTable | NodeKind::Array => {
             if node.format == Format::Inline {
                 if in_flow {
                     Vec::new() // can't expand an inline member to block
                 } else {
-                    vec![("block  [_/B]".into(), KindTarget::Block)]
+                    align_options(vec![("block", "[_/B]", KindTarget::Block)])
                 }
             } else {
-                vec![("flow  [_/F]".into(), KindTarget::Flow)]
+                align_options(vec![("flow", "[_/F]", KindTarget::Flow)])
             }
         }
         NodeKind::Scalar(ScalarType::String) => {
             let all = [
-                (Format::Plain, "plain", KindTarget::StringPlain),
-                (Format::SingleQuoted, "single", KindTarget::StringSingle),
-                (Format::DoubleQuoted, "double", KindTarget::StringDouble),
+                (Format::Plain, "plain", "", KindTarget::StringPlain),
+                (
+                    Format::SingleQuoted,
+                    "single quoted",
+                    "'…'",
+                    KindTarget::StringSingle,
+                ),
+                (
+                    Format::DoubleQuoted,
+                    "double quoted",
+                    "\"…\"",
+                    KindTarget::StringDouble,
+                ),
                 (
                     Format::LiteralBlock,
-                    "literal |",
+                    "literal block",
+                    "|",
                     KindTarget::StringLiteralBlock,
                 ),
-                (Format::Folded, "folded >", KindTarget::StringFolded),
+                (
+                    Format::Folded,
+                    "folded block",
+                    ">",
+                    KindTarget::StringFolded,
+                ),
             ];
             // A quoted string inside a flow collection that contains a flow
             // indicator character (`,{}[]`) can't become Plain — unquoted, that
@@ -214,30 +231,36 @@ pub(crate) fn kind_options(tree: &NodeTree, path: &[Seg]) -> Vec<(String, KindTa
                     .value
                     .as_deref()
                     .is_some_and(|v| v.contains([',', '{', '}', '[', ']']));
-            all.iter()
-                .filter(|(f, ..)| *f != node.format)
-                // Block scalars are multi-line: not available inside a flow line.
-                .filter(|(f, ..)| !(in_flow && matches!(f, Format::LiteralBlock | Format::Folded)))
-                .filter(|(f, ..)| !(plain_unsafe_in_flow && *f == Format::Plain))
-                .map(|(_, l, t)| (l.to_string(), *t))
-                .collect()
+            align_options(
+                all.into_iter()
+                    .filter(|(f, ..)| *f != node.format)
+                    // Block scalars are multi-line: not available inside a flow line.
+                    .filter(|(f, ..)| {
+                        !(in_flow && matches!(f, Format::LiteralBlock | Format::Folded))
+                    })
+                    .filter(|(f, ..)| !(plain_unsafe_in_flow && *f == Format::Plain))
+                    .map(|(_, name, sample, t)| (name, sample, t))
+                    .collect(),
+            )
         }
         NodeKind::Scalar(ScalarType::Integer) => {
             let all = [
-                (Format::Decimal, "dec", KindTarget::IntDecimal),
-                (Format::Hex, "hex 0x", KindTarget::IntHex),
-                (Format::Octal, "oct 0o", KindTarget::IntOctal),
+                (Format::Decimal, "decimal", "", KindTarget::IntDecimal),
+                (Format::Hex, "hex", "0x…", KindTarget::IntHex),
+                (Format::Octal, "octal", "0o…", KindTarget::IntOctal),
             ];
-            all.iter()
-                .filter(|(f, ..)| *f != node.format)
-                .map(|(_, l, t)| (l.to_string(), *t))
-                .collect()
+            align_options(
+                all.into_iter()
+                    .filter(|(f, ..)| *f != node.format)
+                    .map(|(_, name, sample, t)| (name, sample, t))
+                    .collect(),
+            )
         }
         NodeKind::Scalar(ScalarType::Float) => {
             if node.format == Format::Exponent {
-                vec![("plain float".into(), KindTarget::FloatPlain)]
+                align_options(vec![("plain float", "1.5", KindTarget::FloatPlain)])
             } else if node.format == Format::Plain {
-                vec![("exponent float".into(), KindTarget::FloatExponent)]
+                align_options(vec![("exponent float", "1e5", KindTarget::FloatExponent)])
             } else {
                 Vec::new()
             }

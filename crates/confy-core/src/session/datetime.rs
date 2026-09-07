@@ -201,6 +201,53 @@ pub(crate) fn retype(parts: &DtParts, to: DtKind) -> (String, Vec<Loss>) {
     (s, loss)
 }
 
+/// Catalog key for a datetime type's human name (the picker's option name
+/// column, and the confirm prompt when it needs to name a type).
+pub(crate) fn type_key(k: DtKind) -> &'static str {
+    match k {
+        DtKind::OffsetDatetime => "core.dt.target.offset-datetime",
+        DtKind::LocalDatetime => "core.dt.target.local-datetime",
+        DtKind::LocalDate => "core.dt.target.local-date",
+        DtKind::LocalTime => "core.dt.target.local-time",
+    }
+}
+
+/// Catalog key for one loss/fill item.
+fn loss_key(l: Loss) -> &'static str {
+    match l {
+        Loss::DroppedDate => "core.dt.loss.dropped-date",
+        Loss::DroppedTime => "core.dt.loss.dropped-time",
+        Loss::DroppedOffset => "core.dt.loss.dropped-offset",
+        Loss::FilledDate => "core.dt.loss.filled-date",
+        Loss::FilledTime => "core.dt.loss.filled-time",
+        Loss::FilledOffset => "core.dt.loss.filled-offset",
+    }
+}
+
+/// What changing a datetime node's value from `old` to `new` costs, as
+/// translated prose ("drops the time, drops the offset") — the disclosure the
+/// `PromptKind::TypeChange` confirm carries. `None` when either side is not a
+/// datetime literal (an ordinary type change has nothing datetime-specific to
+/// say) or when the switch is free.
+///
+/// Derived from the *values*, not from how the edit was started, so a
+/// hand-typed `e` that happens to retype a datetime discloses the same thing
+/// the `K` picker does.
+pub(crate) fn change_note(lang: super::i18n::Lang, old: &str, new: &str) -> Option<String> {
+    let old_parts = parse_toml_datetime(old)?;
+    let new_kind = kind_of(&parse_toml_datetime(new)?);
+    let (_, loss) = retype(&old_parts, new_kind);
+    if loss.is_empty() {
+        return None;
+    }
+    let notes: Vec<&str> = loss
+        .into_iter()
+        .map(|l| super::i18n::tr(lang, loss_key(l)))
+        .collect();
+    // The separator is translated too — zh-TW enumerates with `、`, not `, `.
+    Some(notes.join(super::i18n::tr(lang, "core.list.sep")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

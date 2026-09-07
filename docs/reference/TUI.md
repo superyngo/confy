@@ -248,11 +248,17 @@ cosmetic (ADR 0012):
 - **A TOML datetime scalar** → the **value picker** (`Mode::SchemaEnum`, the same widget a
   `bool`'s `true`/`false` picker and a schema `enum` use, titled neutrally because
   `from_schema` is `false`). It lists the *other three* datetime types, each row showing the
-  resulting literal and, in parentheses, everything the switch drops or auto-fills — e.g.
-  `local date  1979-05-27  (drops the time, drops the offset)` or
-  `local datetime  1979-05-27T00:00:00  (fills 00:00:00)`. Enter commits it as an ordinary
-  value `Replace`, so the normal `PromptKind::TypeChange` confirmation follows; `y` applies,
-  `n` leaves the document untouched.
+  resulting literal — `local date      1979-05-27`. Enter commits it as an ordinary
+  value `Replace`, so the normal `PromptKind::TypeChange` confirmation follows; **that** is
+  where the cost is disclosed (`type offsetdatetime → localdate? (drops the time, drops the
+  offset)`, from `datetime::change_note`), so a picker row stays short and reads exactly like
+  a notation row. `y` applies, `n` leaves the document untouched.
+
+  Both lists are rendered by the one shared helper, `model::kind_label::align_options`:
+  `"<name>  <sample>"` with the name column padded — in **display cells**, so a translated
+  CJK name still lines up — so every sample in a list starts at the same column. The padding
+  used to be hand-typed into each label literal, which no translated list could do and which
+  a new option silently broke.
 
   The four datetimes are four *types*, not four notations, which is why they cannot ride on
   `ConvertKind`. A widening switch fills a missing time with a fixed `00:00:00` and a missing

@@ -85,7 +85,20 @@ impl ConfigDocument for CstDocument {
 
     fn kind_options(&self, path: &[Seg]) -> Vec<(String, KindTarget)> {
         use crate::model::document::KindTarget as KT;
+        use crate::model::kind_label::align_options;
         use crate::model::node::ScalarType as ST;
+        /// Drop the notation the node already is, then align what's left.
+        fn align<const N: usize>(
+            rows: [(Format, &'static str, &'static str, KT); N],
+            current: Format,
+        ) -> Vec<(String, KT)> {
+            align_options(
+                rows.into_iter()
+                    .filter(|(f, ..)| *f != current)
+                    .map(|(_, name, sample, t)| (name, sample, t))
+                    .collect(),
+            )
+        }
         let tree = self.project();
         let Some(node) = tree.node_at(path) else {
             return Vec::new();
@@ -95,34 +108,39 @@ impl ConfigDocument for CstDocument {
         // notation — no options, reported below.
         let options: Vec<(String, KT)> = match &node.kind {
             NodeKind::Scalar(st) => match st {
-                ST::String => [
-                    (Format::BasicString, "basic string  \"…\"", KT::StringBasic),
-                    (Format::Literal, "literal string  '…'", KT::StringLiteral),
-                    (
-                        Format::MultilineBasic,
-                        "multiline string  \"\"\"…\"\"\"",
-                        KT::StringMultiline,
-                    ),
-                    (
-                        Format::MultilineLiteral,
-                        "multiline literal  '''…'''",
-                        KT::StringMultilineLiteral,
-                    ),
-                ]
-                .iter()
-                .filter(|(f, ..)| *f != node.format)
-                .map(|(_, l, t)| ((*l).into(), *t))
-                .collect(),
-                ST::Integer => [
-                    (Format::Decimal, "decimal", KT::IntDecimal),
-                    (Format::Hex, "hex  0x…", KT::IntHex),
-                    (Format::Octal, "octal  0o…", KT::IntOctal),
-                    (Format::Binary, "binary  0b…", KT::IntBinary),
-                ]
-                .iter()
-                .filter(|(f, ..)| *f != node.format)
-                .map(|(_, l, t)| ((*l).into(), *t))
-                .collect(),
+                ST::String => align(
+                    [
+                        (
+                            Format::BasicString,
+                            "basic string",
+                            "\"…\"",
+                            KT::StringBasic,
+                        ),
+                        (Format::Literal, "literal string", "'…'", KT::StringLiteral),
+                        (
+                            Format::MultilineBasic,
+                            "multiline string",
+                            "\"\"\"…\"\"\"",
+                            KT::StringMultiline,
+                        ),
+                        (
+                            Format::MultilineLiteral,
+                            "multiline literal",
+                            "'''…'''",
+                            KT::StringMultilineLiteral,
+                        ),
+                    ],
+                    node.format,
+                ),
+                ST::Integer => align(
+                    [
+                        (Format::Decimal, "decimal", "", KT::IntDecimal),
+                        (Format::Hex, "hex", "0x…", KT::IntHex),
+                        (Format::Octal, "octal", "0o…", KT::IntOctal),
+                        (Format::Binary, "binary", "0b…", KT::IntBinary),
+                    ],
+                    node.format,
+                ),
                 ST::Float if node.format == Format::Plain => {
                     // Exponent notation is told from the value text — `Format`
                     // has no variant for it.
@@ -131,18 +149,18 @@ impl ConfigDocument for CstDocument {
                         .as_deref()
                         .is_some_and(|v| v.contains(['e', 'E']));
                     if is_exp {
-                        vec![("plain float  1.5".into(), KT::FloatPlain)]
+                        align_options(vec![("plain float", "1.5", KT::FloatPlain)])
                     } else {
-                        vec![("exponent float  1e5".into(), KT::FloatExponent)]
+                        align_options(vec![("exponent float", "1e5", KT::FloatExponent)])
                     }
                 }
                 _ => Vec::new(),
             },
             NodeKind::Array => {
-                let mut opts: Vec<(String, KT)> = if node.value.is_some() {
-                    vec![("multiline array  [A/M]".into(), KT::ArrayMultiline)]
+                let mut rows: Vec<(&str, &str, KT)> = if node.value.is_some() {
+                    vec![("multiline array", "[A/M]", KT::ArrayMultiline)]
                 } else {
-                    vec![("inline array  [A/I]".into(), KT::ArrayInline)]
+                    vec![("inline array", "[A/I]", KT::ArrayInline)]
                 };
                 // All-inline-table elements: the array can become an `[[…]]` group.
                 let elems: Vec<_> = node
@@ -155,26 +173,26 @@ impl ConfigDocument for CstDocument {
                         .iter()
                         .all(|c| matches!(c.kind, NodeKind::InlineTable))
                 {
-                    opts.push(("array of tables  [A/T]".into(), KT::ArrayOfTables));
+                    rows.push(("array of tables", "[A/T]", KT::ArrayOfTables));
                 }
-                opts
+                align_options(rows)
             }
-            NodeKind::ArrayOfTables => vec![
-                ("inline array     [A/I]".into(), KT::ArrayInline),
-                ("multiline array  [A/M]".into(), KT::ArrayMultiline),
-            ],
-            NodeKind::InlineTable => vec![
-                ("dotted table  [T/D]".into(), KT::TableDotted),
-                ("table scope   [T/S]".into(), KT::TableScope),
-            ],
-            NodeKind::Table if node.format == Format::Dotted => vec![
-                ("inline table  [T/I]".into(), KT::TableInline),
-                ("table scope   [T/S]".into(), KT::TableScope),
-            ],
-            NodeKind::Table if matches!(path.last(), Some(Seg::Key(_))) => vec![
-                ("dotted table  [T/D]".into(), KT::TableDotted),
-                ("inline table  [T/I]".into(), KT::TableInline),
-            ],
+            NodeKind::ArrayOfTables => align_options(vec![
+                ("inline array", "[A/I]", KT::ArrayInline),
+                ("multiline array", "[A/M]", KT::ArrayMultiline),
+            ]),
+            NodeKind::InlineTable => align_options(vec![
+                ("dotted table", "[T/D]", KT::TableDotted),
+                ("table scope", "[T/S]", KT::TableScope),
+            ]),
+            NodeKind::Table if node.format == Format::Dotted => align_options(vec![
+                ("inline table", "[T/I]", KT::TableInline),
+                ("table scope", "[T/S]", KT::TableScope),
+            ]),
+            NodeKind::Table if matches!(path.last(), Some(Seg::Key(_))) => align_options(vec![
+                ("dotted table", "[T/D]", KT::TableDotted),
+                ("inline table", "[T/I]", KT::TableInline),
+            ]),
             _ => Vec::new(),
         };
         options

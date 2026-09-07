@@ -425,8 +425,10 @@ fn kind_switch_converts_scalar_via_popup() {
     let Mode::KindSwitch(st) = &app.session.mode else {
         panic!("popup should be open");
     };
-    // A basic string offers the other three string notations.
-    assert_eq!(st.options[0].0, "literal string  '…'");
+    // A basic string offers the other three string notations, each rendered
+    // `"<name>  <sample>"` with the sample column aligned across the list
+    // (`model::kind_label::align_options`) — here padded to "multiline literal".
+    assert_eq!(st.options[0].0, "literal string     '…'");
     assert_eq!(st.options.len(), 3);
     app.kind_switch_commit();
     assert_eq!(

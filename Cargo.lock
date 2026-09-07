@@ -583,6 +583,7 @@ dependencies = [
  "serde_json",
  "taplo",
  "thiserror 2.0.20",
+ "unicode-width",
 ]
 
 [[package]]

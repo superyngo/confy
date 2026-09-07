@@ -3256,9 +3256,50 @@ fn kind_switch_on_a_datetime_offers_the_other_three_types() {
         joined.contains("local datetime  1979-05-27T07:32:00"),
         "{joined}"
     );
-    assert!(joined.contains("drops the offset"), "{joined}");
-    assert!(joined.contains("local date  1979-05-27"), "{joined}");
-    assert!(joined.contains("local time  07:32:00"), "{joined}");
+    assert!(joined.contains("local date      1979-05-27"), "{joined}");
+    assert!(joined.contains("local time      07:32:00"), "{joined}");
+    // The cost disclosure belongs to the confirm prompt, not the option row:
+    // an option reads exactly like every other kind option (`name  sample`).
+    assert!(
+        !joined.contains("drops the"),
+        "loss notes must not ride along in the label: {joined}"
+    );
+}
+
+/// Every option's sample column starts at the same offset — the same
+/// `align_options` helper the notation `kind_options` lists go through.
+#[test]
+fn datetime_picker_labels_align_their_sample_column() {
+    let mut s = toml_session("odt = 1979-05-27T07:32:00Z\n");
+    s.dispatch(Intent::CursorDown);
+    let snap = s.dispatch(Intent::OpenKindSwitch);
+    let ModeView::SchemaEnum { options, .. } = &snap.mode else {
+        panic!("expected the picker, got {:?}", snap.mode);
+    };
+    let cols: Vec<usize> = options
+        .iter()
+        .map(|l| l.find(char::is_numeric).expect("a literal"))
+        .collect();
+    assert!(
+        cols.windows(2).all(|w| w[0] == w[1]),
+        "sample column not aligned: {options:?}"
+    );
+}
+
+/// The dropped/filled components are disclosed on the TypeChange confirm — the
+/// last moment before the value is rewritten — instead of in the picker row.
+#[test]
+fn datetime_type_change_prompt_discloses_the_loss() {
+    let mut s = toml_session("odt = 1979-05-27T07:32:00Z\n");
+    s.dispatch(Intent::CursorDown);
+    s.dispatch(Intent::OpenKindSwitch);
+    s.dispatch(Intent::SchemaEnumMove(1)); // local date
+    let snap = s.dispatch(Intent::SchemaEnumCommit);
+    let ModeView::Prompt { question, .. } = &snap.mode else {
+        panic!("expected the confirm, got {:?}", snap.mode);
+    };
+    assert!(question.contains("drops the time"), "{question}");
+    assert!(question.contains("drops the offset"), "{question}");
 }
 
 /// Picking a lossy target raises the ordinary TypeChange confirmation; `y`
@@ -3301,8 +3342,8 @@ fn datetime_switch_declined_changes_nothing() {
     assert_eq!(s.serialize().unwrap(), "odt = 1979-05-27T07:32:00Z\n");
 }
 
-/// A widening switch fills the missing component instead of failing, and the
-/// picker said so up front.
+/// A widening switch fills the missing component instead of failing: the
+/// option shows the *resulting* literal, and the confirm names the fill.
 #[test]
 fn datetime_switch_widens_a_local_date_by_filling_midnight() {
     let mut s = toml_session("d = 1979-05-27\n");
@@ -3316,8 +3357,13 @@ fn datetime_switch_widens_a_local_date_by_filling_midnight() {
         .find(|l| l.starts_with("local datetime"))
         .expect("local datetime option")
         .clone();
-    assert!(label.contains("fills 00:00:00"), "{label}");
     assert!(label.contains("1979-05-27T00:00:00"), "{label}");
+    s.dispatch(Intent::SchemaEnumMove(1)); // local datetime
+    let snap = s.dispatch(Intent::SchemaEnumCommit);
+    let ModeView::Prompt { question, .. } = &snap.mode else {
+        panic!("expected the confirm, got {:?}", snap.mode);
+    };
+    assert!(question.contains("fills 00:00:00"), "{question}");
 }
 
 /// The clock-filled date is today's, not a 1970 stub.
@@ -3334,8 +3380,13 @@ fn datetime_switch_fills_an_absent_date_from_the_clock() {
         .find(|l| l.starts_with("local date "))
         .expect("local date option")
         .clone();
-    assert!(label.contains("fills today's date"), "{label}");
     assert!(!label.contains("1970-01-01"), "stub date leaked: {label}");
+    s.dispatch(Intent::SchemaEnumMove(2)); // local date
+    let snap = s.dispatch(Intent::SchemaEnumCommit);
+    let ModeView::Prompt { question, .. } = &snap.mode else {
+        panic!("expected the confirm, got {:?}", snap.mode);
+    };
+    assert!(question.contains("fills today's date"), "{question}");
 }
 
 /// Non-TOML backends have no datetime type, so nothing here may leak into

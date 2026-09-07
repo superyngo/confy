@@ -128,7 +128,10 @@ can't carry one, i.e. a YAML flow member or opaque span) with the provided
 `trailing_blank_lines(path)` defined in terms of it, so a backend implements only the anchor and
 the count/mutation/re-parent-guard can never disagree — plus `kind_options(path)`,
 which serves the `K` popup's per-node convertible-kind list (`(label, KindTarget)` pairs) so the
-TUI never hard-codes a backend's notations, and two **fragment facets** the inline editor/`nudge`/`a`
+TUI never hard-codes a backend's notations. Every one of those labels — and the ADR 0012
+datetime type picker's — is built by `model::kind_label::align_options`, the single
+`"<name>  <sample>"` format with the name column padded in display cells. Two **fragment
+facets** the inline editor/`nudge`/`a`
 use so they don't hard-code a notation either: `scalar_fragment(key, value)` (wraps a value repr as
 `key = value` / `"key": value`, or — `key: None` — the backend's *value-Replace* element form, which
 TOML wraps as `__elem__ = value`), `array_element_fragment(value)` (the **bare keyless element** form
@@ -349,6 +352,9 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
     text_range.rs  TextRange (byte-offset spans for source ranges) shared by rowan projections
     blank_lines.rs the one format-neutral trailing-blank-run text splice (count_after/splice),
                    shared by all three backends' SetTrailingBlankLines
+    kind_label.rs  align_options: the one `"<name>  <sample>"` picker-label format, name column
+                   padded in display cells (unicode-width, so a translated CJK name still lines
+                   up). Used by all three backends' kind_options AND the datetime type picker
     node.rs        Seg, ScalarType, Format, NodeKind, Node, NodeTree (+ node_at lookup)
     document.rs    ConfigDocument trait (+ to_value), DocFormat, Mutation, Target, OnCollision, ConvertAbort, errors
     value.rs       format-neutral Value/Item tree for conversion (has_null/has_datetime)

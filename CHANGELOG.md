@@ -8,6 +8,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-08 (2)
+
+**Changed**
+
+- **A datetime `K` option is now just the type and the resulting literal**, and what the
+  switch drops or auto-fills moved to the change confirmation. A row was
+  `local date  1979-05-27  (drops the time, drops the offset)` — up to 55 columns, clipping
+  the TUI popup (40% of terminal width) and reading nothing like a kind option. It is now
+  `local date      1979-05-27`, and the confirm carries the cost:
+  `type offsetdatetime → localdate? (drops the time, drops the offset)`. Nothing is lost by
+  disclosing one keypress later — the confirm is where the value is actually rewritten, and
+  `n` still cancels for free. ADR 0012 Amendment 1.
+
+  The disclosure is derived from the **old and new values**, not from how the edit started,
+  so a hand-typed `e` that retypes a datetime now discloses the same thing the picker does.
+
+- **Every kind/type picker label comes from one shared formatter.** `kind_options` in all
+  three backends and the datetime type list now build labels with
+  `model::kind_label::align_options` — `"<name>  <sample>"` with the name column padded so
+  every sample in a list starts at the same column. Padding used to be hand-typed into each
+  label literal, which meant a new option silently broke the column and a *translated* list
+  could not align at all (a zh-TW datetime list was visibly ragged). Padding is measured in
+  **display cells**, so `本地日期` and `本地日期時間` line up.
+
+  Side effects of the single format: YAML's string-style rows read `single quoted  '…'` /
+  `literal block  |` (were `single` / `literal |`), YAML's integer rows `hex  0x…` (was
+  `hex 0x`), and TOML's integer/array/table rows are aligned by the helper instead of by
+  hand-counted spaces. New `confy-core` dependency: `unicode-width` (pure, wasm-safe).
+
+  Translated punctuation went with it: the loss list joins with `、` in zh-TW, and the
+  confirm's parenthetical is `（…）` with no leading space (`core.prompt.note`,
+  `core.list.sep`).
+
 ### Unreleased Update - 2026-09-08
 
 **Fixed**

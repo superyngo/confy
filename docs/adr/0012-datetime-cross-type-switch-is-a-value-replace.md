@@ -27,8 +27,9 @@ a quarter of the TOML picker spent on one scalar family.
 
 **`K` on a datetime node diverts to the existing `Mode::SchemaEnum` value picker
 (`from_schema: false`) instead of `Mode::KindSwitch`.** Each option's *value* is the
-fully-rendered target literal; each option's *label* is
-`"<type>  <literal>  (<loss/fill>, …)"`. The pick commits as an ordinary value `Replace`.
+fully-rendered target literal; each option's *label* is `"<type>  <literal>"`, built by the
+shared `model::kind_label::align_options` helper (Amendment 1 — it was `"<type>  <literal>
+(<loss/fill>, …)"` as first shipped). The pick commits as an ordinary value `Replace`.
 
 Two properties make this cheap rather than a workaround:
 
@@ -79,9 +80,9 @@ round-trip is byte-identical.
 ## Consequences
 
 - Zero new `Mutation`, `KindTarget`, `Mode`, `PromptKind`, wire-contract, or host changes.
-- The loss/fill disclosure lands in the **picker label**, one step *before* the confirmation
-  prompt — the user sees the exact resulting literal and what it costs while choosing, not
-  after.
+- ~~The loss/fill disclosure lands in the **picker label**, one step *before* the
+  confirmation prompt.~~ **Amended 2026-09-08 — see Amendment 1.** The disclosure lands on
+  the confirmation prompt; the picker label is `"<type>  <literal>"`.
 - **`K` now opens one of two popups depending on the node** (the kind-switch list, or the
   value picker for a datetime). This is the real cost of the decision and is documented in
   `docs/reference/TUI.md`.
@@ -91,3 +92,30 @@ round-trip is byte-identical.
   `now_utc_parts`/`civil_from_days` (public-domain Hinnant algorithm).
 - JSON and YAML are structurally unaffected: neither projects a datetime `ScalarType`, so the
   divert can key off the node's type with no format check.
+
+## Amendment 1 (2026-09-08) — the disclosure moves to the confirm, and the label format is shared
+
+Two things were wrong with putting `(<loss/fill>, …)` in the option label, both visible the
+moment the feature was used:
+
+1. **It read nothing like a kind option.** Every other `K` row is `"<name>  <sample>"`
+   (`literal string  '…'`, `hex  0x…`); a datetime row was `"local date  1979-05-27  (drops
+   the time, drops the offset)"` — up to 55 columns, wrapping or clipping the TUI popup, whose
+   width is 40% of the terminal. The "before the confirmation" argument also oversold itself:
+   the confirmation is one keypress later and cancels for free, so nothing is lost by
+   disclosing there.
+2. **The literal column never lined up**, because the type names are *translated* and so of
+   variable width. Every other list hand-typed its padding into the label literals — which a
+   translated list cannot do, and which silently breaks whenever an option is added.
+
+So: the label is now `"<type>  <literal>"`, the cost moves to the `PromptKind::TypeChange`
+question via a new `note: Option<String>` field (`datetime::change_note`, derived from the
+**old and new values** — so a hand-typed `e` that retypes a datetime discloses the same
+thing), and both the datetime list and all three backends' `kind_options` now build their
+labels through one shared helper, `model::kind_label::align_options`. It pads the name column
+in **display cells** (`unicode-width`, a new `confy-core` dependency — pure, wasm-safe), which
+is what makes an aligned *translated* list possible at all.
+
+The original decision — the divert itself, the value-`Replace` commit, the fill policy — is
+unchanged. The "**zero host changes**" claim in the Decision section was separately found to be
+false and is corrected in the plan document; it was a web-host routing bug, not an ADR one.

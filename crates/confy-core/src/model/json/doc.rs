@@ -191,26 +191,38 @@ pub(crate) fn kind_options(tree: &NodeTree, path: &[Seg]) -> Vec<(String, KindTa
     let Some(node) = tree.node_at(path) else {
         return Vec::new();
     };
+    // Every list here is single-option, so alignment is a no-op — they still go
+    // through `align_options` so the `"<name>  <sample>"` join lives in exactly
+    // one place (see `model::kind_label`).
+    use crate::model::kind_label::align_options;
     match &node.kind {
         NodeKind::Table => {
             if node.format == Format::Multiline {
-                vec![("inline object  [T/I]".into(), KindTarget::TableInline)]
+                align_options(vec![("inline object", "[T/I]", KindTarget::TableInline)])
             } else {
-                vec![("multiline object  [T/M]".into(), KindTarget::TableMultiline)]
+                align_options(vec![(
+                    "multiline object",
+                    "[T/M]",
+                    KindTarget::TableMultiline,
+                )])
             }
         }
         NodeKind::Array => {
             if node.format == Format::Multiline {
-                vec![("inline array  [A/I]".into(), KindTarget::ArrayInline)]
+                align_options(vec![("inline array", "[A/I]", KindTarget::ArrayInline)])
             } else {
-                vec![("multiline array  [A/M]".into(), KindTarget::ArrayMultiline)]
+                align_options(vec![(
+                    "multiline array",
+                    "[A/M]",
+                    KindTarget::ArrayMultiline,
+                )])
             }
         }
         NodeKind::Scalar(ScalarType::Float) => {
             if node.format == Format::Exponent {
-                vec![("plain float  1.5".into(), KindTarget::FloatPlain)]
+                align_options(vec![("plain float", "1.5", KindTarget::FloatPlain)])
             } else {
-                vec![("exponent float  1e5".into(), KindTarget::FloatExponent)]
+                align_options(vec![("exponent float", "1e5", KindTarget::FloatExponent)])
             }
         }
         _ => Vec::new(),

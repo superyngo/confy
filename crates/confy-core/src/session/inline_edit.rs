@@ -479,6 +479,8 @@ impl Session {
                         self.mode = Mode::Prompt(PromptKind::TypeChange {
                             from: old_label,
                             to: new_label,
+                            // A rename cannot retype a datetime's components.
+                            note: None,
                         });
                         return;
                     }
@@ -544,10 +546,19 @@ impl Session {
         )
         .to_string();
         if new_label != old_label {
+            // A datetime → datetime retype discloses what it drops or fills
+            // here (ADR 0012): the picker's option rows stay in the plain
+            // `"<name>  <sample>"` shape every kind option uses.
+            let note = self
+                .tree
+                .node_at(&e.path)
+                .and_then(|n| n.value.clone())
+                .and_then(|old| super::datetime::change_note(self.lang, &old, value_str.trim()));
             self.pending_edit = Some((e, PendingCommit::Replace(fragment)));
             self.mode = Mode::Prompt(PromptKind::TypeChange {
                 from: old_label,
                 to: new_label,
+                note,
             });
             return;
         }

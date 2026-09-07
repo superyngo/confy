@@ -6,6 +6,7 @@ pub mod cst_edit;
 pub mod cst_project;
 pub mod document;
 pub mod json;
+pub(crate) mod kind_label;
 pub mod node;
 pub mod text_range;
 pub mod value;

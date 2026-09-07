@@ -208,6 +208,11 @@ pub enum PromptKind {
     TypeChange {
         from: String,
         to: String,
+        /// Extra translated prose about what the change costs, appended to the
+        /// question. Today: a TOML datetime retype's dropped/filled components
+        /// (ADR 0012) — disclosed here, at the last moment before the value is
+        /// rewritten, rather than inside the picker's option labels.
+        note: Option<String>,
     },
     ArrayUpgrade {
         target: Target,

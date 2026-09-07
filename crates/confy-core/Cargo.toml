@@ -29,6 +29,11 @@ regex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+# Display-cell padding for the shared `kind_label::align_options` column
+# alignment — a translated option name is CJK, whose char count is not its
+# terminal width. Pure, no fs, wasm-safe.
+unicode-width = "0.2"
+
 # `add_picker.rs`'s "seed the field with the current time" needs a clock;
 # `std::time::SystemTime::now()` traps at runtime on `wasm32-unknown-unknown`
 # (the target the web/touch/VS Code/Tauri UIs run this crate as), so that

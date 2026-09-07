@@ -1117,16 +1117,22 @@ impl Session {
     /// The `K` datetime picker's state for `path`, or `None` when `path` is not
     /// a datetime scalar whose literal parses. Options are the **other** three
     /// datetime types (the current one is excluded, mirroring `kind_options`'
-    /// notation filter), each labelled
-    /// `"<type>  <resulting literal>  (<loss/fill>, …)"` so the cost is
-    /// disclosed *before* the commit prompt, and valued with the literal itself
-    /// so the ordinary value-`Replace` path can apply it verbatim.
+    /// notation filter), each rendered by the *same* `kind_label::align_options`
+    /// helper every notation list goes through — `"<type>  <resulting
+    /// literal>"`, sample column aligned — and valued with the literal itself so
+    /// the ordinary value-`Replace` path can apply it verbatim.
+    ///
+    /// What the switch drops or fills is **not** in the label: it is disclosed
+    /// on the `PromptKind::TypeChange` confirm (`datetime::change_note`), the
+    /// last moment before the value is rewritten, which keeps a picker row
+    /// readable and identical in shape to every other kind option.
     ///
     /// TOML-only in practice without needing a format check: JSON and YAML have
     /// no datetime type, so no node they project ever carries one of these four
     /// `ScalarType`s (a YAML date-looking scalar is a string).
     fn datetime_picker_state(&self, path: &Path) -> Option<SchemaEnumState> {
-        use super::datetime::{kind_of, parse_toml_datetime, retype, DtKind, Loss};
+        use super::datetime::{kind_of, parse_toml_datetime, retype, type_key, DtKind};
+        use crate::model::kind_label::align_options;
         let node = self.tree.node_at(path)?;
         if !matches!(
             node.kind,
@@ -1142,38 +1148,21 @@ impl Session {
         let parts = parse_toml_datetime(node.value.as_deref()?)?;
         let current = kind_of(&parts);
         let lang = self.lang;
-        let type_key = |k: DtKind| match k {
-            DtKind::OffsetDatetime => "core.dt.target.offset-datetime",
-            DtKind::LocalDatetime => "core.dt.target.local-datetime",
-            DtKind::LocalDate => "core.dt.target.local-date",
-            DtKind::LocalTime => "core.dt.target.local-time",
-        };
-        let loss_key = |l: Loss| match l {
-            Loss::DroppedDate => "core.dt.loss.dropped-date",
-            Loss::DroppedTime => "core.dt.loss.dropped-time",
-            Loss::DroppedOffset => "core.dt.loss.dropped-offset",
-            Loss::FilledDate => "core.dt.loss.filled-date",
-            Loss::FilledTime => "core.dt.loss.filled-time",
-            Loss::FilledOffset => "core.dt.loss.filled-offset",
-        };
-        let options: Vec<(String, String)> = [
-            DtKind::OffsetDatetime,
-            DtKind::LocalDatetime,
-            DtKind::LocalDate,
-            DtKind::LocalTime,
-        ]
-        .into_iter()
-        .filter(|k| *k != current)
-        .map(|k| {
-            let (lit, loss) = retype(&parts, k);
-            let mut label = format!("{}  {}", tr(lang, type_key(k)), lit);
-            if !loss.is_empty() {
-                let notes: Vec<&str> = loss.into_iter().map(|l| tr(lang, loss_key(l))).collect();
-                label.push_str(&format!("  ({})", notes.join(", ")));
-            }
-            (label, lit)
-        })
-        .collect();
+        let options: Vec<(String, String)> = align_options(
+            [
+                DtKind::OffsetDatetime,
+                DtKind::LocalDatetime,
+                DtKind::LocalDate,
+                DtKind::LocalTime,
+            ]
+            .into_iter()
+            .filter(|k| *k != current)
+            .map(|k| {
+                let (lit, _loss) = retype(&parts, k);
+                (tr(lang, type_key(k)), lit.clone(), lit)
+            })
+            .collect(),
+        );
         if options.is_empty() {
             return None;
         }
