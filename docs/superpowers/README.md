@@ -30,11 +30,17 @@ kept for context, not as a live task list.
 
 Audits and debug notes use `✅ **Resolved — historical reference.**` instead.
 
-**A file without a banner is live work.** As of 2026-08-28 exactly one qualifies:
+**A file without a banner is live work.** As of 2026-09-07 three qualify:
 
 - `plans/2026-08-28-json-jsonc-parser-simplification-ssot.md` — consensus reached, not yet
   implemented. Its comment-gate-removal half shipped separately (CHANGELOG 2026-08-28); the
   parser-unification half has not.
+- `plans/2026-09-07-datetime-kind-switch.md` — approved, not started. `K` on a TOML datetime
+  picks among the four datetime types (a value `Replace`, not a `ConvertKind`); one
+  consolidated datetime row in the `a` picker. Lands ADR 0012.
+- `plans/2026-09-07-trailing-blank-lines.md` — approved, not started.
+  `Mutation::SetTrailingBlankLines` plus two core-owned Action-menu items, so the blank lines
+  after any node are an explicit undoable operation in all three formats.
 
 ## Conventions
 
