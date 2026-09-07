@@ -134,6 +134,9 @@ pub enum ActionId {
     Remark,
     Detail,
     Delete,
+    /// Step the cursor node's trailing blank-line run (`SetTrailingBlank`).
+    BlankAdd,
+    BlankRemove,
 }
 
 /// One row of the Action menu.
@@ -332,6 +335,13 @@ pub struct SessionSnapshot {
     pub quit: bool,
     /// Active UI language code (`"en"` / `"zh-TW"`), so hosts stay in sync.
     pub lang: String,
+    /// The **cursor node's** trailing blank-line count, for the panel's
+    /// `Blank after` readout. `None` when the node cannot carry a trailing
+    /// blank run (a YAML flow member or opaque span) — which is also when
+    /// the two Action-menu items show disabled. Snapshot-level rather than
+    /// per-`ViewRow` because resolving the anchor walks the document, so a
+    /// per-row field would cost one walk per visible row.
+    pub cursor_blank_after: Option<usize>,
     /// Undo-history depth (`History::depth()`, 0 before the first edit or
     /// when no document is loaded).
     pub history_len: usize,

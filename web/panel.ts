@@ -5,7 +5,7 @@
 //
 // Differences from the old per-UI panels (the approved Section B fixes):
 //   · Field order is LOCKED: Key → Value → Trailing comment → Kind → Path →
-//     Children → Sign.
+//     Children → Sign → Blank after.
 //   · The Kind button label is `type_label · «notation glyph»` (e.g.
 //     `string · "…"`, `integer · 0x`, `table · dotted`) — a SHORT glyph, so it
 //     doesn't break layout the way the old verbose "· switch notation" did.
@@ -115,7 +115,7 @@ function humanPath(row: ViewRow): string {
 }
 
 // Pure HTML string for the panel body. Field order is LOCKED:
-//   Key → Value → Trailing comment → Kind → Path → Children → Sign
+//   Key → Value → Trailing comment → Kind → Path → Children → Sign → Blank after
 //
 // `parentInline`: true when `row`'s immediate parent is a single-line
 // container (TOML inline table, JSON single-line object/array, YAML flow
@@ -129,6 +129,10 @@ export function panelHTML(
   editHint?: EditHint,
   schemaEnum?: { options: string[]; cursor: number },
   schemaInfo?: string,
+  /// The cursor node's trailing blank-line count (`cursor_blank_after`);
+  /// `null`/`undefined` when the node cannot carry one, and the row is then
+  /// omitted entirely rather than shown as an empty or zero field.
+  blankAfter?: number | null,
 ): string {
   const r = row;
   const branch = r.is_branch;
@@ -223,10 +227,12 @@ export function panelHTML(
     h += `<button class="btn kindbtn" data-act="kindswitch"><span class="dotc" style="background:var(--t-${hue})"></span>${esc(word)}${noteStr}</button>`;
   }
 
-  // Meta: Path (human form) / Children (branches) / Sign.
+  // Meta: Path (human form) / Children (branches) / Sign / Blank after.
   h += `<dl><dt>${t("web.panel.field.path")}</dt><dd>${esc(humanPath(r))}</dd>`;
   if (branch) h += `<dt>${t("web.panel.field.children")}</dt><dd>${r.child_count}</dd>`;
   h += `<dt>${t("web.panel.field.sign")}</dt><dd>${esc(r.key_sign ?? t("web.panel.sign.none"))}</dd>`;
+  if (blankAfter != null)
+    h += `<dt>${t("web.panel.field.blank-after")}</dt><dd>${blankAfter}</dd>`;
   h += "</dl>";
 
   // Schema — proactive non-widget info (`description`/`type`/`format`/

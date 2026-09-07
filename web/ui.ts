@@ -598,7 +598,7 @@ function renderDetailPanel() {
     const info = session!.schemaInfo(cursorRow.path);
     const schemaEnum =
       typeof snap!.mode === "object" && "SchemaEnum" in snap!.mode ? snap!.mode.SchemaEnum : undefined;
-    body.innerHTML = panelHTML(cursorRow, parentIsInline(cursorRow.path), hint, schemaEnum, info);
+    body.innerHTML = panelHTML(cursorRow, parentIsInline(cursorRow.path), hint, schemaEnum, info, snap!.cursor_blank_after);
     wirePanel(
       body,
       cursorRow,

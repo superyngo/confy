@@ -244,6 +244,7 @@ impl super::Session {
 
             // ---- Mutations ----
             Intent::Nudge(d) => self.nudge(d),
+            Intent::SetTrailingBlank(d) => self.set_trailing_blank(d),
             Intent::AddNode => self.add_node(),
             Intent::AddChild => self.add_child(),
             Intent::AddSibling => self.add_sibling(),
@@ -411,6 +412,7 @@ impl super::Session {
             filter: self.filter.clone(),
             quit: false,
             lang: self.lang.code().to_string(),
+            cursor_blank_after: self.trailing_blank_lines(),
             history_len: self.history.as_ref().map(|h| h.depth()).unwrap_or(0),
         }
     }

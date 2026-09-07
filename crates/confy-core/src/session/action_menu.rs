@@ -21,7 +21,7 @@ impl Session {
         self.mode = Mode::ActionMenu { cursor: 0 };
     }
 
-    /// Builds the eight-item list against the *current* `selected_paths()` —
+    /// Builds the ten-item list against the *current* `selected_paths()` —
     /// called fresh from `mode_view()` every snapshot, so a selection change
     /// while the menu is open never goes stale.
     ///
@@ -42,6 +42,14 @@ impl Session {
         let any_read_only = paths
             .iter()
             .any(|p| self.tree.node_at(p).map(|n| n.read_only).unwrap_or(false));
+        // `None` when the node cannot carry a trailing blank run at all (a
+        // YAML flow member or opaque span) — the items then show disabled
+        // rather than erroring on pick.
+        let blank = if paths.len() == 1 && !paths[0].is_empty() {
+            self.trailing_blank_lines_at(&paths[0])
+        } else {
+            None
+        };
         let mk = |id: ActionId, key: &str, enabled: bool, separator_before: bool, danger: bool| {
             ActionItemView {
                 id,
@@ -92,6 +100,20 @@ impl Session {
                 ActionId::Detail,
                 "core.action.detail",
                 paths.len() == 1,
+                false,
+                false,
+            ),
+            mk(
+                ActionId::BlankAdd,
+                "core.action.blank-add",
+                blank.is_some(),
+                false,
+                false,
+            ),
+            mk(
+                ActionId::BlankRemove,
+                "core.action.blank-remove",
+                blank.unwrap_or(0) > 0,
                 false,
                 false,
             ),
@@ -192,6 +214,8 @@ impl Session {
             ActionId::Remark => self.remark(),
             ActionId::Detail => self.toggle_detail(),
             ActionId::Delete => self.delete_selected(),
+            ActionId::BlankAdd => self.set_trailing_blank(1),
+            ActionId::BlankRemove => self.set_trailing_blank(-1),
         }
     }
 
@@ -228,12 +252,23 @@ mod tests {
     }
 
     #[test]
-    fn single_branch_selected_enables_all_eight() {
+    fn single_branch_selected_enables_all_but_the_blank_items() {
         let mut s = session_with_two_scalars();
         s.cursor = vec![Seg::Key("c".into())];
         let items = s.action_menu_items();
-        assert_eq!(items.len(), 8);
-        assert!(items.iter().all(|it| it.enabled), "{items:?}");
+        assert_eq!(items.len(), 10);
+        // This session is tree-only (`from_tree`, no document), so no trailing
+        // blank-line anchor can be resolved and both blank items show disabled.
+        let disabled: Vec<ActionId> = items
+            .iter()
+            .filter(|it| !it.enabled)
+            .map(|it| it.id)
+            .collect();
+        assert_eq!(
+            disabled,
+            vec![ActionId::BlankAdd, ActionId::BlankRemove],
+            "{items:?}"
+        );
     }
 
     #[test]

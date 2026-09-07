@@ -3361,3 +3361,92 @@ fn yaml_date_looking_scalar_gets_no_datetime_picker() {
         other => panic!("unexpected {other:?}"),
     }
 }
+
+// ---- Trailing blank lines ----
+
+/// `Intent::SetTrailingBlank` is a *relative* step clamped at zero, so one
+/// menu item both grows and removes the run.
+#[test]
+fn set_trailing_blank_steps_and_clamps_at_zero() {
+    let mut s = toml_session("a = 1\nb = 2\n");
+    s.dispatch(Intent::CursorDown);
+    s.dispatch(Intent::SetTrailingBlank(1));
+    assert_eq!(s.serialize().unwrap(), "a = 1\n\nb = 2\n");
+    s.dispatch(Intent::SetTrailingBlank(1));
+    assert_eq!(s.serialize().unwrap(), "a = 1\n\n\nb = 2\n");
+    s.dispatch(Intent::SetTrailingBlank(-1));
+    s.dispatch(Intent::SetTrailingBlank(-1));
+    assert_eq!(s.serialize().unwrap(), "a = 1\nb = 2\n");
+    // Already zero: a further decrement is a no-op, not an error.
+    s.dispatch(Intent::SetTrailingBlank(-1));
+    assert_eq!(s.serialize().unwrap(), "a = 1\nb = 2\n");
+}
+
+#[test]
+fn set_trailing_blank_is_undoable_on_its_own() {
+    let mut s = toml_session("a = 1\nb = 2\n");
+    s.dispatch(Intent::CursorDown);
+    s.dispatch(Intent::SetTrailingBlank(1));
+    s.dispatch(Intent::Undo);
+    assert_eq!(s.serialize().unwrap(), "a = 1\nb = 2\n");
+    s.dispatch(Intent::Redo);
+    assert_eq!(s.serialize().unwrap(), "a = 1\n\nb = 2\n");
+}
+
+/// It never disturbs the node's value or trailing comment.
+#[test]
+fn set_trailing_blank_preserves_the_value_and_trailing_comment() {
+    let mut s = toml_session("a = 1  # keep\nb = 2\n");
+    s.dispatch(Intent::CursorDown);
+    s.dispatch(Intent::SetTrailingBlank(1));
+    assert_eq!(s.serialize().unwrap(), "a = 1  # keep\n\nb = 2\n");
+}
+
+/// The Action menu carries both directions on every host (ADR 0009).
+#[test]
+fn action_menu_offers_both_blank_line_items() {
+    let mut s = toml_session("a = 1\nb = 2\n");
+    s.dispatch(Intent::CursorDown);
+    let snap = s.dispatch(Intent::OpenActionMenu);
+    let ModeView::ActionMenu { items, .. } = &snap.mode else {
+        panic!("expected the action menu, got {:?}", snap.mode);
+    };
+    let enabled: Vec<&str> = items
+        .iter()
+        .filter(|i| i.enabled)
+        .map(|i| i.label.as_str())
+        .collect();
+    assert!(enabled.contains(&"Add a blank line after"), "{enabled:?}");
+    // Nothing to remove yet, so the remove item is present but disabled.
+    let remove = items
+        .iter()
+        .find(|i| i.label == "Remove a blank line after")
+        .expect("remove item listed");
+    assert!(!remove.enabled, "remove is disabled at zero blanks");
+    s.dispatch(Intent::Escape);
+    s.dispatch(Intent::SetTrailingBlank(1));
+    let snap = s.dispatch(Intent::OpenActionMenu);
+    let ModeView::ActionMenu { items, .. } = &snap.mode else {
+        panic!("expected the action menu");
+    };
+    assert!(
+        items
+            .iter()
+            .any(|i| i.label == "Remove a blank line after" && i.enabled),
+        "remove is enabled once a blank run exists"
+    );
+}
+
+/// A YAML flow member cannot carry a trailing blank line: the intent reports
+/// and leaves the document untouched.
+#[test]
+fn set_trailing_blank_on_a_flow_member_reports_and_changes_nothing() {
+    let mut s = yaml_session("m: {a: 1, b: 2}\n");
+    s.dispatch(Intent::CursorDown);
+    s.dispatch(Intent::ToggleExpand);
+    s.dispatch(Intent::CursorDown);
+    let before = s.serialize().unwrap();
+    let snap = s.dispatch(Intent::SetTrailingBlank(1));
+    assert_eq!(s.serialize().unwrap(), before, "document must be untouched");
+    assert!(snap.notice.is_some(), "must report why nothing happened");
+}

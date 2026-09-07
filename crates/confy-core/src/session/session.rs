@@ -1228,6 +1228,61 @@ impl Session {
         }
     }
 
+    /// Step the cursor node's trailing blank-line count by `delta`, clamped at
+    /// 0. Relative rather than absolute so a single Action-menu item covers
+    /// both directions and reaching 0 removes the run entirely; each step is
+    /// its own undo entry.
+    pub fn set_trailing_blank(&mut self, delta: i32) {
+        if self.guard_clipboard_locked() {
+            return;
+        }
+        let Some(path) = self.cursor_row_path() else {
+            return;
+        };
+        let Some(current) = self.trailing_blank_lines_at(&path) else {
+            self.set_notice(Notice::core(self.lang, "core.blank.unsupported", &[]));
+            return;
+        };
+        let n = (current as i64 + delta as i64).max(0) as usize;
+        if n == current {
+            return;
+        }
+        let Some(doc) = self.doc.as_mut() else {
+            return;
+        };
+        match doc.apply(Mutation::SetTrailingBlankLines {
+            path: path.clone(),
+            n,
+        }) {
+            Ok(text) => {
+                self.on_mutation_success(Some(&path), text);
+                let label = self.human_path(&path);
+                self.set_notice(Notice::core(
+                    self.lang,
+                    "core.blank.set",
+                    &[&label, &n.to_string()],
+                ));
+            }
+            Err(e) => self.set_notice(Notice::core(
+                self.lang,
+                "core.blank.error",
+                &[&e.to_string()],
+            )),
+        }
+    }
+
+    /// How many blank lines follow the node at `path`; `None` when the node
+    /// cannot carry a trailing blank run (a YAML flow member or opaque span).
+    pub fn trailing_blank_lines_at(&self, path: &Path) -> Option<usize> {
+        self.doc.as_ref()?.trailing_blank_lines(path)
+    }
+
+    /// The cursor node's current trailing blank-line count, for the Detail
+    /// popup's `Blank after:` line.
+    pub fn trailing_blank_lines(&self) -> Option<usize> {
+        self.trailing_blank_lines_at(&self.cursor_row_path()?)
+    }
+
     pub fn exit_kind_switch(&mut self) {
         self.mode = self.resting_mode();
         self.notice = None;
@@ -1505,6 +1560,14 @@ impl Session {
         if let Some(tc) = &node.trailing_comment {
             detail.push('\n');
             detail.push_str(&tr_args(self.lang, "core.detail.comment", &[tc]));
+        }
+        if let Some(n) = self.trailing_blank_lines_at(&node.path) {
+            detail.push('\n');
+            detail.push_str(&tr_args(
+                self.lang,
+                "core.detail.blank-after",
+                &[&n.to_string()],
+            ));
         }
         self.detail_text = Some(detail);
         self.mode = Mode::Detail;

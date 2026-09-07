@@ -141,7 +141,9 @@ export type ActionId =
   | "Cut"
   | "Remark"
   | "Detail"
-  | "Delete";
+  | "Delete"
+  | "BlankAdd"
+  | "BlankRemove";
 
 export interface ActionItemView {
   id: ActionId;
@@ -281,6 +283,7 @@ export interface SessionSnapshot {
   filter: string;
   quit: boolean;
   lang: string; // active UI language code ("en" / "zh-TW")
+  cursor_blank_after: number | null; // cursor node's trailing blank-line count
   history_len: number; // undo-history depth; VS Code host diffs it (see vscode-protocol.ts)
 }
 
@@ -347,6 +350,7 @@ export type Intent =
   | { ApplyEditComment: { path: Path; text: string } }
   // Mutations
   | { Nudge: number }
+  | { SetTrailingBlank: number }
   | "AddNode" | "AddChild" | "AddSibling" | "DeleteSelected" | "CopySelected" | "CutSelected" | "Paste" | "Remark"
   // Add-type picker
   | { AddPickerMove: number }
