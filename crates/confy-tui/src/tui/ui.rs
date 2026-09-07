@@ -748,6 +748,7 @@ fn draw_prompt_overlay(f: &mut Frame, app: &App) {
         PromptKind::ConfirmQuit => "tui.prompt.confirm-quit.legend",
         PromptKind::TypeChange { .. } => "tui.prompt.type-change.legend",
         PromptKind::ArrayUpgrade { .. } => "tui.prompt.array-upgrade.legend",
+        PromptKind::BlankReparent { .. } => "tui.prompt.blank-reparent.legend",
     };
     let legend = tr(lang, legend_key);
     let text = format!("{question}\n\n{legend}");

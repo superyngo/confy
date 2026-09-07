@@ -213,6 +213,13 @@ pub enum PromptKind {
         target: Target,
         on_collision: crate::model::document::OnCollision,
     },
+    /// A `SetTrailingBlankLines` that crosses the 0<->1 boundary while a
+    /// comment follows: in TOML that comment changes scope (CONTEXT.md's
+    /// blank-line ownership rule), so it is confirmed first.
+    BlankReparent {
+        path: Path,
+        n: usize,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

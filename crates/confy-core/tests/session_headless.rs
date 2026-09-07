@@ -3450,3 +3450,51 @@ fn set_trailing_blank_on_a_flow_member_reports_and_changes_nothing() {
     assert_eq!(s.serialize().unwrap(), before, "document must be untouched");
     assert!(snap.notice.is_some(), "must report why nothing happened");
 }
+
+/// TOML only: crossing the 0<->1 blank boundary while a comment follows would
+/// re-parent that comment (CONTEXT.md's blank-line ownership rule), so it
+/// confirms first.
+#[test]
+fn blank_line_change_confirms_when_it_would_reparent_a_comment() {
+    let mut s = toml_session("[t]\nx = 1\n# note\n[u]\ny = 2\n");
+    s.dispatch(Intent::CursorDown);
+    s.dispatch(Intent::ToggleExpand);
+    s.dispatch(Intent::CursorDown); // on `x`
+    let snap = s.dispatch(Intent::SetTrailingBlank(1));
+    assert!(
+        matches!(snap.mode, ModeView::Prompt { .. }),
+        "expected the re-parent confirm, got {:?}",
+        snap.mode
+    );
+    // Declining leaves the document byte-identical.
+    s.dispatch(Intent::PromptKey('n'));
+    assert_eq!(s.serialize().unwrap(), "[t]\nx = 1\n# note\n[u]\ny = 2\n");
+    // Accepting applies it.
+    s.dispatch(Intent::SetTrailingBlank(1));
+    s.dispatch(Intent::PromptKey('y'));
+    assert_eq!(s.serialize().unwrap(), "[t]\nx = 1\n\n# note\n[u]\ny = 2\n");
+}
+
+/// No comment follows -> no prompt; and growing an already-nonzero run does not
+/// cross the boundary, so it does not prompt either.
+#[test]
+fn blank_line_change_does_not_confirm_without_a_following_comment() {
+    let mut s = toml_session("a = 1\nb = 2\n");
+    s.dispatch(Intent::CursorDown);
+    s.dispatch(Intent::SetTrailingBlank(1));
+    assert_eq!(s.serialize().unwrap(), "a = 1\n\nb = 2\n");
+    let snap = s.dispatch(Intent::SetTrailingBlank(1));
+    assert_eq!(s.serialize().unwrap(), "a = 1\n\n\nb = 2\n");
+    assert!(matches!(snap.mode, ModeView::Normal), "{:?}", snap.mode);
+}
+
+/// YAML has explicit indentation: the ownership rule does not apply and must
+/// not prompt.
+#[test]
+fn blank_line_change_never_confirms_in_yaml() {
+    let mut s = yaml_session("a: 1\n# note\nb: 2\n");
+    s.dispatch(Intent::CursorDown);
+    let snap = s.dispatch(Intent::SetTrailingBlank(1));
+    assert_eq!(s.serialize().unwrap(), "a: 1\n\n# note\nb: 2\n");
+    assert!(matches!(snap.mode, ModeView::Normal), "{:?}", snap.mode);
+}

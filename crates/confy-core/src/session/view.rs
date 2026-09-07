@@ -222,6 +222,7 @@ pub enum PromptView {
     Collision,
     TypeChange,
     ArrayUpgrade,
+    BlankReparent,
 }
 
 /// The inline-edit surface projected for the UI.

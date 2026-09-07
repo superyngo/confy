@@ -108,7 +108,8 @@ export type PromptView =
   | "ConfirmQuit"
   | "Collision"
   | "TypeChange"
-  | "ArrayUpgrade";
+  | "ArrayUpgrade"
+  | "BlankReparent";
 
 export type EditField = "Value" | "Name";
 export type ConvertStep = "Format" | "Path" | "Confirm";

@@ -1247,6 +1247,44 @@ impl Session {
         if n == current {
             return;
         }
+        if self.blank_change_reparents_comment(&path, current, n) {
+            self.mode = Mode::Prompt(PromptKind::BlankReparent {
+                path: path.clone(),
+                n,
+            });
+            return;
+        }
+        self.apply_trailing_blank(path, n);
+    }
+
+    /// True when setting `path`'s trailing blank run to `n` would move a
+    /// following comment between scopes: TOML only, and only when the change
+    /// crosses the 0<->1 boundary — that is the boundary the ownership rule
+    /// turns on (1 blank and 3 blanks parent the comment identically).
+    /// CONTEXT.md, *Comment*.
+    fn blank_change_reparents_comment(&self, path: &[Seg], current: usize, n: usize) -> bool {
+        let Some(doc) = self.doc.as_ref() else {
+            return false;
+        };
+        if doc.format() != DocFormat::Toml || (current == 0) == (n == 0) {
+            return false;
+        }
+        let Some(end) = doc.trailing_blank_anchor(path) else {
+            return false;
+        };
+        let text = doc.serialize();
+        // The first non-blank line after the anchor: only a comment can be
+        // re-parented, a `[header]` or entry owns itself either way.
+        text.get(end..).is_some_and(|rest| {
+            rest.lines()
+                .find(|l| !l.trim().is_empty())
+                .is_some_and(|l| l.trim_start().starts_with('#'))
+        })
+    }
+
+    /// Apply the blank-run change that `set_trailing_blank` (or the
+    /// `BlankReparent` confirmation) resolved to.
+    fn apply_trailing_blank(&mut self, path: Path, n: usize) {
         let Some(doc) = self.doc.as_mut() else {
             return;
         };
@@ -2253,6 +2291,15 @@ impl Session {
                     false
                 }
             },
+            Mode::Prompt(PromptKind::BlankReparent { path, n }) => {
+                let (path, n) = (path.clone(), *n);
+                self.mode = Mode::Normal;
+                self.notice = None;
+                if c == 'y' {
+                    self.apply_trailing_blank(path, n);
+                }
+                false
+            }
             _ => false,
         }
     }
