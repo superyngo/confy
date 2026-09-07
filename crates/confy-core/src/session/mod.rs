@@ -1,6 +1,7 @@
 pub mod action_menu;
 pub mod add_picker;
 pub mod clipboard;
+pub(crate) mod datetime;
 pub mod diag;
 pub mod dispatch;
 pub mod host;

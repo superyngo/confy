@@ -4,14 +4,14 @@ use super::status_fmt::{
 };
 use crate::model::any_doc::AnyDocument;
 use crate::model::document::{ConfigDocument, DocFormat, Mutation, OnCollision, Target};
-use crate::model::node::{Format, Node, NodeKind, NodeTree, Path, Seg, VisibleRow};
-use crate::session::i18n::{tr_args, Lang};
+use crate::model::node::{Format, Node, NodeKind, NodeTree, Path, ScalarType, Seg, VisibleRow};
+use crate::session::i18n::{tr, tr_args, Lang};
 use crate::session::notice::Notice;
 use crate::session::search::{fuzzy_match, haystack};
 use crate::session::selection::Selection;
 use crate::session::state::{
     Clipboard, EditKind, EditState, FilterLayer, HelpTab, History, KindSwitchState, Mode,
-    PasteSlot, PendingCommit, PendingExternalEdit, PromptKind,
+    PasteSlot, PendingCommit, PendingExternalEdit, PromptKind, SchemaEnumState,
 };
 use crate::session::type_filter::TypeFilter;
 use crate::session::view::{ChildView, OutlineNode, ViewRow};
@@ -1089,6 +1089,16 @@ impl Session {
         else {
             return;
         };
+        // A TOML datetime's four types are mutually convertible, but that is a
+        // *type* change, not a notation change — so it does not go through
+        // `kind_options`/`Mutation::ConvertKind` (whose invariant is
+        // same-kind-only). `K` instead opens the value picker, whose commit
+        // path (`schema_enum_commit` -> `edit_commit`) already gates a type
+        // change behind `PromptKind::TypeChange`. ADR 0012.
+        if let Some(st) = self.datetime_picker_state(&path) {
+            self.mode = Mode::SchemaEnum(st);
+            return;
+        }
         let Some(doc) = &self.doc else {
             return;
         };
@@ -1102,6 +1112,80 @@ impl Session {
             options,
             cursor: 0,
         });
+    }
+
+    /// The `K` datetime picker's state for `path`, or `None` when `path` is not
+    /// a datetime scalar whose literal parses. Options are the **other** three
+    /// datetime types (the current one is excluded, mirroring `kind_options`'
+    /// notation filter), each labelled
+    /// `"<type>  <resulting literal>  (<loss/fill>, …)"` so the cost is
+    /// disclosed *before* the commit prompt, and valued with the literal itself
+    /// so the ordinary value-`Replace` path can apply it verbatim.
+    ///
+    /// TOML-only in practice without needing a format check: JSON and YAML have
+    /// no datetime type, so no node they project ever carries one of these four
+    /// `ScalarType`s (a YAML date-looking scalar is a string).
+    fn datetime_picker_state(&self, path: &Path) -> Option<SchemaEnumState> {
+        use super::datetime::{kind_of, parse_toml_datetime, retype, DtKind, Loss};
+        let node = self.tree.node_at(path)?;
+        if !matches!(
+            node.kind,
+            NodeKind::Scalar(
+                ScalarType::OffsetDatetime
+                    | ScalarType::LocalDatetime
+                    | ScalarType::LocalDate
+                    | ScalarType::LocalTime
+            )
+        ) {
+            return None;
+        }
+        let parts = parse_toml_datetime(node.value.as_deref()?)?;
+        let current = kind_of(&parts);
+        let lang = self.lang;
+        let type_key = |k: DtKind| match k {
+            DtKind::OffsetDatetime => "core.dt.target.offset-datetime",
+            DtKind::LocalDatetime => "core.dt.target.local-datetime",
+            DtKind::LocalDate => "core.dt.target.local-date",
+            DtKind::LocalTime => "core.dt.target.local-time",
+        };
+        let loss_key = |l: Loss| match l {
+            Loss::DroppedDate => "core.dt.loss.dropped-date",
+            Loss::DroppedTime => "core.dt.loss.dropped-time",
+            Loss::DroppedOffset => "core.dt.loss.dropped-offset",
+            Loss::FilledDate => "core.dt.loss.filled-date",
+            Loss::FilledTime => "core.dt.loss.filled-time",
+            Loss::FilledOffset => "core.dt.loss.filled-offset",
+        };
+        let options: Vec<(String, String)> = [
+            DtKind::OffsetDatetime,
+            DtKind::LocalDatetime,
+            DtKind::LocalDate,
+            DtKind::LocalTime,
+        ]
+        .into_iter()
+        .filter(|k| *k != current)
+        .map(|k| {
+            let (lit, loss) = retype(&parts, k);
+            let mut label = format!("{}  {}", tr(lang, type_key(k)), lit);
+            if !loss.is_empty() {
+                let notes: Vec<&str> = loss.into_iter().map(|l| tr(lang, loss_key(l))).collect();
+                label.push_str(&format!("  ({})", notes.join(", ")));
+            }
+            (label, lit)
+        })
+        .collect();
+        if options.is_empty() {
+            return None;
+        }
+        Some(SchemaEnumState {
+            path: path.clone(),
+            key: node.key.clone(),
+            is_element: matches!(path.last(), Some(Seg::Index(_))),
+            created_on_add: false,
+            options,
+            cursor: 0,
+            from_schema: false,
+        })
     }
 
     pub fn kind_switch_move(&mut self, delta: i32) {

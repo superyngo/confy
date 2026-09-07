@@ -474,7 +474,9 @@ fn now_datetime_literal() -> String {
 }
 
 /// Current UTC calendar/clock components: `(year, month, day, hour, minute, second)`.
-fn now_utc_parts() -> (i64, u32, u32, u32, u32, u32) {
+/// `pub(crate)` for the sibling `session::datetime` module, whose `retype`
+/// fills a genuinely absent date from the same UTC clock these seeds use.
+pub(crate) fn now_utc_parts() -> (i64, u32, u32, u32, u32, u32) {
     let secs = now_unix_seconds();
     let days = secs.div_euclid(86_400);
     let sod = secs.rem_euclid(86_400) as u32;

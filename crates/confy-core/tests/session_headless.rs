@@ -3217,3 +3217,137 @@ id = 1
         }
     }
 }
+
+// ---- Datetime kind switch (ADR 0012) ----
+
+/// `K` on a TOML datetime opens the SchemaEnum *picker* (not `Mode::KindSwitch`),
+/// listing the three other datetime types with their rendered literal and the
+/// loss/fill disclosure. Committing goes through `edit_commit`, so the existing
+/// TypeChange prompt gates it.
+#[test]
+fn kind_switch_on_a_datetime_offers_the_other_three_types() {
+    let mut s = toml_session("odt = 1979-05-27T07:32:00Z\n");
+    s.dispatch(Intent::CursorDown);
+    let snap = s.dispatch(Intent::OpenKindSwitch);
+    let labels = match &snap.mode {
+        ModeView::SchemaEnum {
+            options,
+            from_schema,
+            ..
+        } => {
+            assert!(!from_schema, "a datetime picker is not schema-driven");
+            options.clone()
+        }
+        other => panic!("expected the SchemaEnum picker, got {other:?}"),
+    };
+    assert_eq!(labels.len(), 3, "the current type is excluded: {labels:?}");
+    let joined = labels.join(" | ");
+    assert!(
+        joined.contains("local datetime  1979-05-27T07:32:00"),
+        "{joined}"
+    );
+    assert!(joined.contains("drops the offset"), "{joined}");
+    assert!(joined.contains("local date  1979-05-27"), "{joined}");
+    assert!(joined.contains("local time  07:32:00"), "{joined}");
+}
+
+/// Picking a lossy target raises the ordinary TypeChange confirmation; `y`
+/// commits it and the node's projected scalar type really changes.
+#[test]
+fn datetime_switch_confirms_the_type_change_and_applies_it() {
+    let mut s = toml_session("odt = 1979-05-27T07:32:00Z\n");
+    s.dispatch(Intent::CursorDown);
+    s.dispatch(Intent::OpenKindSwitch);
+    // options are [local datetime, local date, local time]; pick local date.
+    s.dispatch(Intent::SchemaEnumMove(1));
+    let snap = s.dispatch(Intent::SchemaEnumCommit);
+    assert!(
+        matches!(snap.mode, ModeView::Prompt { .. }),
+        "a datetime retype must confirm, got {:?}",
+        snap.mode
+    );
+    s.dispatch(Intent::PromptKey('y'));
+    assert_eq!(s.serialize().unwrap(), "odt = 1979-05-27\n");
+    let row = s
+        .visible_rows()
+        .into_iter()
+        .find(|r| r.key == "odt")
+        .expect("odt row");
+    assert_eq!(
+        row.scalar_type,
+        Some(confy_core::model::node::ScalarType::LocalDate)
+    );
+}
+
+/// Declining the confirmation leaves the document byte-identical.
+#[test]
+fn datetime_switch_declined_changes_nothing() {
+    let mut s = toml_session("odt = 1979-05-27T07:32:00Z\n");
+    s.dispatch(Intent::CursorDown);
+    s.dispatch(Intent::OpenKindSwitch);
+    s.dispatch(Intent::SchemaEnumMove(1));
+    s.dispatch(Intent::SchemaEnumCommit);
+    s.dispatch(Intent::PromptKey('n'));
+    assert_eq!(s.serialize().unwrap(), "odt = 1979-05-27T07:32:00Z\n");
+}
+
+/// A widening switch fills the missing component instead of failing, and the
+/// picker said so up front.
+#[test]
+fn datetime_switch_widens_a_local_date_by_filling_midnight() {
+    let mut s = toml_session("d = 1979-05-27\n");
+    s.dispatch(Intent::CursorDown);
+    let snap = s.dispatch(Intent::OpenKindSwitch);
+    let ModeView::SchemaEnum { options, .. } = &snap.mode else {
+        panic!("expected the picker, got {:?}", snap.mode);
+    };
+    let label = options
+        .iter()
+        .find(|l| l.starts_with("local datetime"))
+        .expect("local datetime option")
+        .clone();
+    assert!(label.contains("fills 00:00:00"), "{label}");
+    assert!(label.contains("1979-05-27T00:00:00"), "{label}");
+}
+
+/// The clock-filled date is today's, not a 1970 stub.
+#[test]
+fn datetime_switch_fills_an_absent_date_from_the_clock() {
+    let mut s = toml_session("t = 07:32:00\n");
+    s.dispatch(Intent::CursorDown);
+    let snap = s.dispatch(Intent::OpenKindSwitch);
+    let ModeView::SchemaEnum { options, .. } = &snap.mode else {
+        panic!("expected the picker, got {:?}", snap.mode);
+    };
+    let label = options
+        .iter()
+        .find(|l| l.starts_with("local date "))
+        .expect("local date option")
+        .clone();
+    assert!(label.contains("fills today's date"), "{label}");
+    assert!(!label.contains("1970-01-01"), "stub date leaked: {label}");
+}
+
+/// Non-TOML backends have no datetime type, so nothing here may leak into
+/// them: `K` on a YAML date-looking scalar (a string, per the YAML subset) does
+/// not get a datetime picker.
+#[test]
+fn yaml_date_looking_scalar_gets_no_datetime_picker() {
+    let mut s = yaml_session("d: 1979-05-27\n");
+    s.dispatch(Intent::CursorDown);
+    let snap = s.dispatch(Intent::OpenKindSwitch);
+    match &snap.mode {
+        ModeView::KindSwitch { options, .. } => {
+            let joined = options
+                .iter()
+                .map(|o| o.label.clone())
+                .collect::<Vec<_>>()
+                .join("|");
+            assert!(!joined.contains("datetime"), "{joined}");
+        }
+        // A scalar with no alternative notation legitimately reports
+        // "unsupported" and stays in Normal.
+        ModeView::Normal => {}
+        other => panic!("unexpected {other:?}"),
+    }
+}
