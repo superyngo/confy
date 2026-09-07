@@ -8,6 +8,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-07
+
+**Changed**
+
+- **Type filter: `[A/T]` array-of-tables moved from the Tables group to the Arrays group**
+  (`session/type_filter.rs`). `Group::Array` stays JSON's list; TOML's Arrays `all` row now
+  uses a new `Group::ArrayToml` (`[A/I]`, `[A/M]`, `[A/T]`) — sharing one list would have left
+  JSON's `all` row permanently `Partial`, since no JSON node classifies as `Aot`.
+
+**Added**
+
+- **`[T/E]` — an array-of-tables *entry* now has its own KIND tag.** One `[[fruit]]`
+  occurrence projects as a `Table` with `Format::Plain`, TOML's only such shape, so it
+  classified as `[T/S] scope` (a standard `[header]` table) in the TUI KIND column and
+  badged a bare `{}` on the web while every other table notation carried a note. New
+  `TypeToken::AotEntry` → TUI `[T/E]`, web badge `{}·entry`, and a `[T/E] aot-entry`
+  type-filter cell under Tables (so `[T/S]` no longer selects AoT entries too).
+  `kind_options` is unchanged — an AoT entry still converts to nothing. No web-side change
+  was needed: `web/typefilter.ts` renders from `TypeFilterView` and the badge text comes
+  from core's `badge_label_note`.
+
+**Fixed**
+
+- **TOML's Tables `all` row could never read `[x]`.** `Group::Table` carried the JSON-only
+  `[T/M]` multiline-object token, which the TOML layout never renders, so ticking every
+  visible cell left the tristate stuck on `[~]`. The group is now TOML's own set
+  (`[T/I]`, `[T/S]`, `[T/D]`, `[T/E]`), with a regression test asserting every `all` row's
+  tokens are all reachable from the rendered layout.
+
 ## [v1.1.0] - 2026-09-04
 
 ### Update - 2026-09-03 (3)

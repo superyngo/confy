@@ -102,6 +102,14 @@ pub fn badge_label_note(
         // shared `[]` glyph.
         if matches!(kind, NodeKind::ArrayOfTables) {
             "AoT"
+        } else if matches!(kind, NodeKind::Table)
+            && format == Format::Plain
+            && doc == DocFormat::Toml
+        {
+            // An `[[aot]]` entry. It has no `Format` of its own either, so
+            // without this it badged a bare `{}` while every other table
+            // notation carried a note.
+            "entry"
         } else {
             container_note(format)
         }

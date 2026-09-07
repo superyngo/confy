@@ -10,6 +10,10 @@ pub enum TypeToken {
     ArrayInline,
     ArrayMultiline,
     Aot,
+    /// One `[[aot]]` occurrence — projected as a `Table` with `Format::Plain`,
+    /// which is TOML's only such shape. Without its own token it classified as
+    /// `TableScope`, i.e. a standard `[header]` table.
+    AotEntry,
     InlineTable,
     TableScope,
     TableDotted,
@@ -66,6 +70,10 @@ pub fn classify(kind: &NodeKind, format: Format, doc: DocFormat, read_only: bool
             (DocFormat::Yaml, _) => TypeToken::MapFlow,
             (DocFormat::Json, Format::Multiline) => TypeToken::TableMultiline,
             (DocFormat::Json, _) => TypeToken::InlineTable,
+            // An `[[aot]]` entry: the one TOML table projected with
+            // `Format::Plain` (headers are `Scope`, dotted `Dotted`, `{ … }`
+            // is `NodeKind::InlineTable`).
+            (DocFormat::Toml, Format::Plain) => TypeToken::AotEntry,
             (_, Format::Dotted) => TypeToken::TableDotted,
             (_, Format::Multiline) => TypeToken::TableMultiline,
             _ => TypeToken::TableScope,
@@ -99,7 +107,12 @@ pub fn classify(kind: &NodeKind, format: Format, doc: DocFormat, read_only: bool
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Group {
+    /// JSON's array group. TOML's is [`Group::ArrayToml`] — it also holds
+    /// `[A/T]`, and a shared list would leave JSON's `all` row stuck on
+    /// `Partial` (no JSON node ever classifies as `Aot`).
     Array,
+    ArrayToml,
+    /// TOML's table group (the only layout with an `all` row for tables).
     Table,
     String,
     Integer,
@@ -116,7 +129,10 @@ impl Group {
         use TypeToken::*;
         match self {
             Group::Array => &[ArrayInline, ArrayMultiline],
-            Group::Table => &[Aot, InlineTable, TableScope, TableDotted, TableMultiline],
+            Group::ArrayToml => &[ArrayInline, ArrayMultiline, Aot],
+            // TOML-only: `TableMultiline` is the JSON multiline-object form,
+            // so including it left this `all` row permanently `Partial`.
+            Group::Table => &[InlineTable, TableScope, TableDotted, AotEntry],
             Group::String => &[StrBasic, StrMBasic, StrLit, StrMLit],
             Group::Integer => &[IntDec, IntHex, IntOct, IntBin],
             Group::Float => &[FloatPlain, FloatInf, FloatNan, FloatExp],
@@ -180,6 +196,7 @@ fn token_label(t: TypeToken) -> &'static str {
         InlineTable => "[T/I] inline-tbl",
         TableScope => "[T/S] scope",
         TableDotted => "[T/D] dotted",
+        AotEntry => "[T/E] aot-entry",
         StrBasic => "[S:str ]",
         StrMBasic => "[S:mstr]",
         StrLit => "[S:lit ]",
@@ -298,12 +315,13 @@ pub fn layout(format: DocFormat) -> Vec<LayoutRow> {
             LayoutRow::Header("Type"),
             LayoutRow::Cells(vec![Token(T::Root), Token(T::Comment)]),
             LayoutRow::Header("Arrays"),
-            LayoutRow::Cells(vec![All(G::Array)]),
+            LayoutRow::Cells(vec![All(G::ArrayToml)]),
             LayoutRow::Cells(vec![Token(T::ArrayInline), Token(T::ArrayMultiline)]),
+            LayoutRow::Cells(vec![Token(T::Aot)]),
             LayoutRow::Header("Tables"),
             LayoutRow::Cells(vec![All(G::Table)]),
-            LayoutRow::Cells(vec![Token(T::Aot), Token(T::InlineTable)]),
-            LayoutRow::Cells(vec![Token(T::TableScope), Token(T::TableDotted)]),
+            LayoutRow::Cells(vec![Token(T::InlineTable), Token(T::TableScope)]),
+            LayoutRow::Cells(vec![Token(T::TableDotted), Token(T::AotEntry)]),
             LayoutRow::Header("String"),
             LayoutRow::Cells(vec![All(G::String)]),
             LayoutRow::Cells(vec![Token(T::StrBasic), Token(T::StrMBasic)]),
@@ -595,6 +613,9 @@ mod tests {
         );
         assert_eq!(c(&NodeKind::Table, Format::Scope), TypeToken::TableScope);
         assert_eq!(c(&NodeKind::Table, Format::Dotted), TypeToken::TableDotted);
+        // An `[[aot]]` entry is a `Table` with `Format::Plain` — its own token,
+        // not `TableScope` (a standard `[header]` table).
+        assert_eq!(c(&NodeKind::Table, Format::Plain), TypeToken::AotEntry);
         let s = |f| c(&NodeKind::Scalar(ScalarType::String), f);
         assert_eq!(s(Format::BasicString), TypeToken::StrBasic);
         assert_eq!(s(Format::MultilineBasic), TypeToken::StrMBasic);
@@ -755,6 +776,58 @@ mod tests {
         assert_eq!(f.group_state(Group::Integer), CheckState::On);
         f.toggle(Cell::All(Group::Integer));
         assert_eq!(f.group_state(Group::Integer), CheckState::Off);
+    }
+
+    #[test]
+    fn toml_group_all_rows_reach_fully_on() {
+        // Regression: `Group::Table` used to carry the JSON-only
+        // `TableMultiline`, so ticking every cell the TOML layout renders left
+        // the `all` row stuck on `Partial` — it could never read `[x]`.
+        for g in [Group::ArrayToml, Group::Table] {
+            let mut f = TypeFilter::default();
+            let cells: Vec<Cell> = layout(DocFormat::Toml)
+                .into_iter()
+                .filter_map(|r| match r {
+                    LayoutRow::Cells(cs) => Some(cs),
+                    LayoutRow::Header(_) => None,
+                })
+                .flatten()
+                .filter(|c| matches!(c, Cell::Token(t) if g.tokens().contains(t)))
+                .collect();
+            assert_eq!(
+                cells.len(),
+                g.tokens().len(),
+                "{g:?} has an unrendered token"
+            );
+            for c in cells {
+                f.toggle(c);
+            }
+            assert_eq!(f.group_state(g), CheckState::On, "{g:?}");
+        }
+    }
+
+    #[test]
+    fn aot_sits_under_arrays_and_its_entry_under_tables() {
+        let mut section = "";
+        let mut aot_in = "";
+        let mut entry_in = "";
+        for row in layout(DocFormat::Toml) {
+            match row {
+                LayoutRow::Header(h) => section = h,
+                LayoutRow::Cells(cs) => {
+                    for c in cs {
+                        if c == Cell::Token(TypeToken::Aot) {
+                            aot_in = section;
+                        }
+                        if c == Cell::Token(TypeToken::AotEntry) {
+                            entry_in = section;
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(aot_in, "Arrays");
+        assert_eq!(entry_in, "Tables");
     }
 
     #[test]

@@ -1006,6 +1006,7 @@ pub(crate) fn type_tag(
         TypeToken::MapBlock => "[T/B]",
         TypeToken::TableMultiline => "[T/M]",
         TypeToken::TableDotted => "[T/D]",
+        TypeToken::AotEntry => "[T/E]",
         TypeToken::TableScope => "[T/S]",
         TypeToken::StrMBasic => "[S:mstr]",
         TypeToken::StrLit | TypeToken::StrLiteralBlock => "[S:lit ]",

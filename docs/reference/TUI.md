@@ -169,7 +169,7 @@ the arm-for-arm inverse of `type_tag` (so popup and column can't drift; `layout(
 loaded backend's reachable facets — JSON/YAML omit TOML-only rows, YAML adds block/flow + opaque). The popup groups three facet sets —
 **key sign**
 (`(B)/(Q)/(D)/(-)`), **type** (root/comment + array/table/string/integer/float/bool/date groups,
-`[A/T]` grouped under tables), and **Flags** (`(!) has warning` / `has comment`) — each multi-format group carrying an **`all`** quick-toggle row that
+`[A/T]` grouped under **arrays** and `[T/E]` — one `[[…]]` entry — under tables), and **Flags** (`(!) has warning` / `has comment`) — each multi-format group carrying an **`all`** quick-toggle row that
 is **tristate** (`group_state`: `[x]` all / `[~]` some / `[ ]` none; Space selects-or-clears the
 whole group). `TypeFilter::matches` ANDs the three facet sets and unions within each; an empty set is no
 constraint (`is_active` gates the whole filter). `layout()` is the single source of truth for both

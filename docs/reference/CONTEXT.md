@@ -430,7 +430,8 @@ _Avoid_: Validation error, hard constraint (confy has none).
 ## KIND column tags (full vocabulary)
 
 TOML: `[T/S]` scope table, `[T/D]` dotted table, `[T/I]` inline table, `[T/M]` multiline object
-(JSON only), `[A/I]`/`[A/M]` inline/multiline array, `[A/T]` array-of-tables (TOML only).
+(JSON only), `[T/E]` array-of-tables **entry** (one `[[…]]` occurrence — TOML only; the group
+itself is `[A/T]`), `[A/I]`/`[A/M]` inline/multiline array, `[A/T]` array-of-tables (TOML only).
 Scalars: `[S:str ]`/`[S:mstr]`/`[S:lit ]`/`[S:mlit]` strings, `[I:dec]`/`[I:hex]`/`[I:oct]`/
 `[I:bin]` integers, `[F:flt ]`/`[F:exp ]`/`[F:inf ]`/`[F:nan ]` floats, `[B:bool]`, `[S:null]`
 (JSON/YAML null), datetime types. `[G]` root, `[C]` comment.
