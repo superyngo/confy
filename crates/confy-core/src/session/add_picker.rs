@@ -161,25 +161,14 @@ impl Session {
         );
         match doc_format {
             DocFormat::Toml => {
+                // One row, not four: an offset datetime is the widest of TOML's
+                // four datetime types, so it is the only seed a later `K`
+                // switch can narrow without having filled anything in first.
+                // The other three are reachable from `K` (ADR 0012).
                 push(
                     &mut out,
-                    "core.add.type.offset-datetime",
+                    "core.add.type.datetime",
                     AddKind::Scalar(ScalarType::OffsetDatetime),
-                );
-                push(
-                    &mut out,
-                    "core.add.type.local-datetime",
-                    AddKind::Scalar(ScalarType::LocalDatetime),
-                );
-                push(
-                    &mut out,
-                    "core.add.type.local-date",
-                    AddKind::Scalar(ScalarType::LocalDate),
-                );
-                push(
-                    &mut out,
-                    "core.add.type.local-time",
-                    AddKind::Scalar(ScalarType::LocalTime),
                 );
             }
             DocFormat::Json | DocFormat::Yaml => {

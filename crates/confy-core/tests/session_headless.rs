@@ -3046,7 +3046,7 @@ fn add_picker_escape_inserts_nothing() {
 }
 
 #[test]
-fn add_picker_toml_offers_four_datetime_kinds() {
+fn add_picker_toml_offers_one_consolidated_datetime_kind() {
     let mut s = toml_session("a = 1\n");
     s.dispatch(Intent::CursorDown); // onto 'a'
     let snap = s.dispatch(Intent::AddSibling);
@@ -3054,13 +3054,23 @@ fn add_picker_toml_offers_four_datetime_kinds() {
         panic!("expected AddPicker mode: {:?}", snap.mode);
     };
     let labels: Vec<&str> = options.iter().map(|o| o.label.as_str()).collect();
-    for want in [
+    // One row, not four: the other three types are reachable from `K`
+    // (ADR 0012), so the Add picker seeds the widest one and stays short.
+    let dt: Vec<&&str> = labels
+        .iter()
+        .filter(|l| l.to_lowercase().contains("datetime") || l.contains("日期"))
+        .collect();
+    assert_eq!(dt, vec![&"Datetime"], "one datetime row: {labels:?}");
+    for gone in [
         "Offset datetime",
         "Local datetime",
         "Local date",
         "Local time",
     ] {
-        assert!(labels.contains(&want), "TOML offers {want:?}: {labels:?}");
+        assert!(
+            !labels.contains(&gone),
+            "{gone:?} folded into Datetime: {labels:?}"
+        );
     }
     assert!(
         !labels.contains(&"Null"),
