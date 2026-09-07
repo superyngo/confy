@@ -35,9 +35,13 @@ use dotted_table::{
 };
 use move_paste::{insert, move_nodes};
 use rename::rename;
+/// The `SetTrailingBlankLines` anchor, re-exported so `CstDocument` can serve
+/// `ConfigDocument::trailing_blank_anchor` from the same one implementation the
+/// mutation itself splices at.
+pub(crate) use replace_delete::extent_end_offset as trailing_blank_anchor;
 use replace_delete::{
-    delete, edit_comment, insert_comment, remark, reparse_document, replace_value, section_text,
-    set_trailing_comment, table_fragment,
+    delete, edit_comment, extent_end_offset, insert_comment, remark, reparse_document,
+    replace_value, section_text, set_trailing_comment, table_fragment,
 };
 use taplo::rowan::NodeOrToken;
 use taplo::syntax::{SyntaxKind, SyntaxNode};
@@ -128,6 +132,11 @@ pub(crate) fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<(SyntaxNode, Str
         }
         Mutation::SetTrailingComment { path, comment } => {
             set_trailing_comment(&tree, &path, comment.as_deref())?
+        }
+        Mutation::SetTrailingBlankLines { path, n } => {
+            let end = extent_end_offset(&tree, &path)?;
+            let text = tree.to_string();
+            reparse_document(&crate::model::blank_lines::splice(&text, end, n))?
         }
     };
     // One serialize, one parse, used for both the DOM check and the normalized

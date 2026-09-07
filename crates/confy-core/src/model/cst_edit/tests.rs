@@ -3097,3 +3097,95 @@ fn delete_scope_table_takes_scattered_aot_subgroup() {
     .unwrap();
     assert_eq!(d.serialize(), "[b]\ny = 2\n\n");
 }
+
+fn set_blank(src: &str, path: Vec<Seg>, n: usize) -> Result<String, MutateError> {
+    let mut d = doc(src);
+    d.apply(Mutation::SetTrailingBlankLines { path, n })?;
+    Ok(d.serialize())
+}
+
+#[test]
+fn set_trailing_blank_lines_on_a_scalar_entry() {
+    let set = |src: &str, n: usize| set_blank(src, vec![Seg::Key("a".into())], n).unwrap();
+    assert_eq!(set("a = 1\nb = 2\n", 1), "a = 1\n\nb = 2\n");
+    assert_eq!(set("a = 1\n\n\nb = 2\n", 0), "a = 1\nb = 2\n");
+    assert_eq!(set("a = 1\n\n\nb = 2\n", 3), "a = 1\n\n\n\nb = 2\n");
+    // A no-op is byte-identical.
+    assert_eq!(set("a = 1\n\nb = 2\n", 1), "a = 1\n\nb = 2\n");
+}
+
+#[test]
+fn set_trailing_blank_lines_anchors_a_table_after_its_last_member() {
+    // Not after the `[t]` header: the blank run belongs after the section's
+    // last line, exactly where `Delete` on `[t]` would stop.
+    assert_eq!(
+        set_blank(
+            "[t]\nx = 1\ny = 2\n[u]\nz = 3\n",
+            vec![Seg::Key("t".into())],
+            1
+        )
+        .unwrap(),
+        "[t]\nx = 1\ny = 2\n\n[u]\nz = 3\n"
+    );
+}
+
+#[test]
+fn set_trailing_blank_lines_rewrites_a_tables_existing_run() {
+    // A section's extent runs up to the *next* header, so it already contains
+    // the blank separator; the anchor retracts over it, or "remove the blank
+    // lines after [t]" would silently no-op.
+    let src = "[t]\nx = 1\n\n\n[u]\nz = 3\n";
+    let t = || vec![Seg::Key("t".into())];
+    assert_eq!(set_blank(src, t(), 0).unwrap(), "[t]\nx = 1\n[u]\nz = 3\n");
+    assert_eq!(
+        set_blank(src, t(), 1).unwrap(),
+        "[t]\nx = 1\n\n[u]\nz = 3\n"
+    );
+}
+
+#[test]
+fn set_trailing_blank_lines_anchors_a_table_with_a_subtable_after_the_subtable() {
+    assert_eq!(
+        set_blank(
+            "[t]\nx = 1\n[t.sub]\ny = 2\n[u]\nz = 3\n",
+            vec![Seg::Key("t".into())],
+            1
+        )
+        .unwrap(),
+        "[t]\nx = 1\n[t.sub]\ny = 2\n\n[u]\nz = 3\n"
+    );
+}
+
+#[test]
+fn set_trailing_blank_lines_on_an_aot_entry() {
+    assert_eq!(
+        set_blank(
+            "[[s]]\na = 1\n[[s]]\nb = 2\n",
+            vec![Seg::Key("s".into()), Seg::Index(0)],
+            1
+        )
+        .unwrap(),
+        "[[s]]\na = 1\n\n[[s]]\nb = 2\n"
+    );
+}
+
+#[test]
+fn set_trailing_blank_lines_on_a_comment_node() {
+    assert_eq!(
+        set_blank("# note\na = 1\n", vec![Seg::Index(0)], 1).unwrap(),
+        "# note\n\na = 1\n"
+    );
+}
+
+#[test]
+fn set_trailing_blank_lines_at_eof_terminates_the_file() {
+    assert_eq!(
+        set_blank("a = 1\n", vec![Seg::Key("a".into())], 2).unwrap(),
+        "a = 1\n\n\n"
+    );
+}
+
+#[test]
+fn set_trailing_blank_lines_rejects_an_unknown_path() {
+    assert!(set_blank("a = 1\n", vec![Seg::Key("nope".into())], 1).is_err());
+}

@@ -784,6 +784,80 @@ pub(crate) fn section_end_from(header: &SyntaxNode, t_path: &[Seg]) -> usize {
     k
 }
 
+/// The byte offset just past the node at `path`'s **contiguous extent** — the
+/// anchor `Mutation::SetTrailingBlankLines` splices at. Deliberately the same
+/// extent [`delete`] covers ([`section_end_from`] for a `[table]`, so nested
+/// sub-tables are inside it; [`aot_entry_end_from`] for one `[[aot]]` entry),
+/// so "the blank lines after this node" means the same thing as "the lines a
+/// delete of this node would remove".
+pub(crate) fn extent_end_offset(tree: &SyntaxNode, path: &[Seg]) -> Result<usize, MutateError> {
+    let (_proj, idx) = walk(tree, "");
+    let target = idx
+        .iter()
+        .find(|(p, _)| p == path)
+        .map(|(_, t)| t.clone())
+        .ok_or(MutateError::NotFound)?;
+    let full = tree.to_string();
+    // The header-anchored targets express their extent as an index into the
+    // ROOT's own child list; convert it to the byte offset where the first
+    // element *after* the extent starts (or EOF).
+    let els: Vec<_> = tree.children_with_tokens().collect();
+    let idx_to_offset = |i: usize| -> usize {
+        els.get(i)
+            .map(|e| usize::from(e.text_range().start()))
+            .unwrap_or_else(|| full.len())
+    };
+    let end = match &target {
+        // A section's extent runs up to the *next* header, so it already
+        // includes any blank separator before it; retract so an existing run
+        // stays after the anchor and is therefore replaceable.
+        Target::Header(header) => {
+            retract_blank_lines(&full, idx_to_offset(section_end_from(header, path)))
+        }
+        Target::AotEntry(header) => retract_blank_lines(
+            &full,
+            idx_to_offset(aot_entry_end_from(header, &header_path(header))),
+        ),
+        Target::AotGroup => {
+            let (_, end) = aot_group_span(tree, path).ok_or(MutateError::NotFound)?;
+            retract_blank_lines(&full, idx_to_offset(end))
+        }
+        // A keyed entry, an array element, or a comment: its own span, then
+        // forward past its terminating newline.
+        Target::Entry(n) | Target::ArrayElement(n) => {
+            past_newline(&full, usize::from(n.text_range().end()))
+        }
+        Target::Comment(t) => past_newline(&full, usize::from(t.text_range().end())),
+    };
+    Ok(end)
+}
+
+/// Advance `at` past the rest of its line (through the next `\n`), so the
+/// returned offset is a line boundary — `blank_lines`' anchor contract.
+fn past_newline(full: &str, at: usize) -> usize {
+    match full[at.min(full.len())..].find('\n') {
+        Some(i) => at + i + 1,
+        None => full.len(),
+    }
+}
+
+/// Pull the line boundary `at` back to just past the last **non-blank** line
+/// before it. A section's extent ends where the next header begins, which is
+/// *after* any blank separator; the anchor must sit before those blanks or an
+/// existing run would be invisible to `blank_lines::count_after` and a
+/// "remove the blank lines" request would silently no-op.
+fn retract_blank_lines(full: &str, at: usize) -> usize {
+    let mut at = at.min(full.len());
+    while at > 0 && full.as_bytes()[at - 1] == b'\n' {
+        let line_start = full[..at - 1].rfind('\n').map(|i| i + 1).unwrap_or(0);
+        if !full[line_start..at - 1].trim().is_empty() {
+            break;
+        }
+        at = line_start;
+    }
+    at
+}
+
 /// The end (exclusive ROOT-child index) of the `[table]` section that starts at
 /// `header_idx`: everything until the next header that is *not* a descendant of
 /// `t_path` (so nested sub-tables stay with their parent), or end of document.

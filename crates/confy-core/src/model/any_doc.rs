@@ -97,6 +97,9 @@ impl ConfigDocument for AnyDocument {
     fn kind_options(&self, path: &[Seg]) -> Vec<(String, KindTarget)> {
         delegate!(self, d => d.kind_options(path))
     }
+    fn trailing_blank_anchor(&self, path: &[Seg]) -> Option<usize> {
+        delegate!(self, d => d.trailing_blank_anchor(path))
+    }
     fn scalar_fragment(&self, key: Option<&str>, value: &str) -> String {
         delegate!(self, d => d.scalar_fragment(key, value))
     }

@@ -79,6 +79,10 @@ impl ConfigDocument for CstDocument {
         "#"
     }
 
+    fn trailing_blank_anchor(&self, path: &[Seg]) -> Option<usize> {
+        crate::model::cst_edit::trailing_blank_anchor(&self.syntax, path).ok()
+    }
+
     fn kind_options(&self, path: &[Seg]) -> Vec<(String, KindTarget)> {
         use crate::model::document::KindTarget as KT;
         use crate::model::node::ScalarType as ST;

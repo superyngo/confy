@@ -80,6 +80,7 @@ pub(crate) fn mutation_paths(m: &Mutation) -> Vec<&Vec<Seg>> {
         }
         Mutation::ConvertKind { path, .. } => vec![path],
         Mutation::SetTrailingComment { path, .. } => vec![path],
+        Mutation::SetTrailingBlankLines { path, .. } => vec![path],
     }
 }
 
@@ -129,6 +130,8 @@ pub fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<(SyntaxNode, String), M
         Mutation::SetTrailingComment { path, comment } => {
             set_trailing_comment(&tree, &idx, &path, comment.as_deref())?
         }
+        // TODO(Task 2): YAML anchor. Rejects for now.
+        Mutation::SetTrailingBlankLines { .. } => return Err(MutateError::Unsupported),
     }
     validate_semantics(&tree)
 }

@@ -44,6 +44,32 @@ pub trait ConfigDocument: Sized {
     /// `apply`; this lists only what is legal *by kind*.
     fn kind_options(&self, path: &[crate::model::node::Seg]) -> Vec<(String, KindTarget)>;
 
+    /// The byte offset just past the node at `path`'s **contiguous extent** —
+    /// the anchor [`Mutation::SetTrailingBlankLines`] splices at, and the one
+    /// place any consumer (the count query below, the re-parent guard) ever
+    /// resolves it. Deliberately the same extent the node's `Delete` covers,
+    /// so a `[table]`'s blank run sits after its last member (sub-tables
+    /// included), not after its header. `None` when `path` does not resolve or
+    /// the backend cannot anchor it (a YAML opaque node or flow member).
+    fn trailing_blank_anchor(&self, path: &[crate::model::node::Seg]) -> Option<usize> {
+        let _ = path;
+        None
+    }
+
+    /// How many blank lines currently follow the node at `path` — the value
+    /// [`Mutation::SetTrailingBlankLines`] sets, read back for display (the
+    /// Detail popup's `Blank after:` line) and for turning a relative
+    /// `Intent::SetTrailingBlank(±1)` into an absolute `n`. Defined purely in
+    /// terms of [`Self::trailing_blank_anchor`], so a backend implements only
+    /// the anchor and the counting rule stays shared.
+    fn trailing_blank_lines(&self, path: &[crate::model::node::Seg]) -> Option<usize> {
+        let end = self.trailing_blank_anchor(path)?;
+        Some(crate::model::blank_lines::count_after(
+            &self.serialize(),
+            end,
+        ))
+    }
+
     /// Wrap a value repr (and optional key) into a one-node fragment in this
     /// format, suitable for `Replace`/`Insert` from the inline editor and
     /// `nudge`: `key = value` (TOML) / `"key": value` (JSON). With `key: None`
@@ -296,6 +322,19 @@ pub enum Mutation {
     SetTrailingComment {
         path: Path,
         comment: Option<String>,
+    },
+    /// Set the number of **blank lines immediately after** the node at `path`
+    /// to exactly `n` (0 removes them entirely). Pure inter-node trivia in
+    /// every format, so it is a text splice on the serialized document
+    /// (`model::blank_lines`) anchored at
+    /// [`ConfigDocument::trailing_blank_anchor`] — the same extent the node's
+    /// `Delete` covers, so a `[table]`'s blank lines land after its last
+    /// member, not after its header. Independent of every other mutation:
+    /// `Replace`, `nudge`, paste and the `$EDITOR` round-trip all leave the
+    /// run alone, and it never touches `serialize_fragment`.
+    SetTrailingBlankLines {
+        path: Path,
+        n: usize,
     },
 }
 

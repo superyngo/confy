@@ -1644,6 +1644,8 @@ pub fn apply(syntax: &SyntaxNode, m: Mutation) -> Result<(SyntaxNode, String), M
         Mutation::SetTrailingComment { path, comment } => {
             set_trailing_comment(&tree, &path, comment.as_deref())?
         }
+        // TODO(Task 2): JSON anchor. Rejects for now.
+        Mutation::SetTrailingBlankLines { .. } => return Err(MutateError::Unsupported),
     }
     validate_semantics(&tree)
 }
