@@ -8,6 +8,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-07 (4)
+
+**Added**
+
+- **The blank lines after a node are now editable.** Vertical spacing is a real part of how a
+  config file reads, and confy could preserve it byte-perfectly but never let you change it: the
+  only way to add or remove a blank line was `E` on a container (which doesn't exist for a
+  scalar) or an external editor. Two new Action-menu items — **Add a blank line after** /
+  **Remove a blank line after** — step the count, and the current value is a read-only
+  **Blank after** readout in the TUI's `i` Detail popup and in the shared web/touch panel.
+- The core operation is `Mutation::SetTrailingBlankLines { path, n }`, the one variant that is a
+  **format-neutral text splice** (`model/blank_lines.rs`) rather than a rowan green-tree splice —
+  blank runs are pure inter-token whitespace, identical in all three formats, so all three
+  backends share one implementation and supply only an offset via the new
+  `ConfigDocument::trailing_blank_anchor`. That anchor is the node's **contiguous extent end** —
+  the same extent `Delete` covers — so a `[table]`'s blank run sits after its last member, not
+  after its header line. `trailing_blank_lines` is a provided trait method defined in terms of
+  the anchor, so the count query, the mutation and the confirmation guard read one source and
+  cannot disagree.
+- `Intent::SetTrailingBlank(delta)` is **relative and clamped at 0**, so one item pair grows,
+  shrinks and fully removes a run, and each step is independently undoable. Both menu items are
+  gated on the anchor resolving: a node that cannot carry a blank run (a YAML flow member, an
+  opaque `&anchor`/`!tag` span, the Root) shows them *disabled* rather than erroring on pick,
+  and "Remove" is disabled at 0.
+- **A TOML-only confirmation guards the one case that changes meaning.** TOML's comment-ownership
+  rule turns on the 0↔1 blank boundary (`CONTEXT.md` *Comment*): a comment between a table's last
+  entry and the next `[header]` belongs to the preceding scope when a blank separates it, and to
+  the following header when it hugs it. Crossing that boundary while a comment follows would
+  silently re-parent it, so `PromptKind::BlankReparent` asks first. The guard is deliberately
+  narrow — TOML only (JSON and YAML have explicit delimiters and no such rule), only across 0↔1
+  (1 blank and 3 blanks parent a comment identically), and only when the next non-blank line is
+  actually a comment. Everything else applies with no prompt.
+
+**Notes**
+
+- **Rejected alternative:** carrying blank lines in the `$EDITOR` buffer. It fails on three
+  counts — the editor only opens for containers and multiline scalars, so a plain scalar would
+  still have no way to change its spacing; a whole-buffer rewrite silently re-parents comments
+  with no confirmation; and blank runs would leak into `serialize_fragment`, making a copied
+  fragment carry the spacing of where it came from. Blank runs stay a property of the document
+  at a position, never of a fragment — nothing was added to the clipboard or paste paths.
+- Deliberate non-goal: no absolute numeric entry ("set to 4") and no key binding; the two
+  Action-menu items are the whole surface.
+
 ### Unreleased Update - 2026-09-07 (3)
 
 **Added**

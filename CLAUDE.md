@@ -121,7 +121,12 @@ syntax for the type-change check.
 concrete backends are `CstDocument` (TOML), `JsonDocument` (JSON/JSONC), and `YamlDocument`
 (YAML subset) (the original `toml_edit`-based `TomlDocument` was retired after reaching parity). The trait exposes `project`, `serialize`, `serialize_fragment`,
 `serialize_fragment_relative`, `is_dirty`, `apply(Mutation)`, `to_value()`, and three **format facets** —
-`format() -> DocFormat`, `comment_prefix()`, `had_comments_at_open()` — plus `kind_options(path)`,
+`format() -> DocFormat`, `comment_prefix()`, `had_comments_at_open()` — plus
+`trailing_blank_anchor(path) -> Option<usize>` (the byte offset a node's trailing blank run
+starts at: its **contiguous extent end**, the same extent `Delete` covers; `None` when the node
+can't carry one, i.e. a YAML flow member or opaque span) with the provided
+`trailing_blank_lines(path)` defined in terms of it, so a backend implements only the anchor and
+the count/mutation/re-parent-guard can never disagree — plus `kind_options(path)`,
 which serves the `K` popup's per-node convertible-kind list (`(label, KindTarget)` pairs) so the
 TUI never hard-codes a backend's notations, and two **fragment facets** the inline editor/`nudge`/`a`
 use so they don't hard-code a notation either: `scalar_fragment(key, value)` (wraps a value repr as
@@ -176,9 +181,13 @@ sniffing the path. `cst_edit::walk` builds the same `path → syntax element` in
 uses, so resolver and projection cannot drift (a consistency test ties them).
 
 **`Mutation` enum** — the closed set of document operations: Insert, Delete, Replace, Rename,
-Move, Remark, EditComment, InsertComment. Each variant is a rowan green-tree splice with
-newline/indent normalization. Per-variant mechanics (forming/clamp, AoT-entry move-out, delete
-extent, Rename whole-key rewrite, known edges) are in CONTEXT.md *Mutation mechanics*.
+Move, Remark, EditComment, InsertComment, SetTrailingComment, SetTrailingBlankLines. Each
+variant is a rowan green-tree splice with newline/indent normalization —
+`SetTrailingBlankLines { path, n }` is the one exception, a **format-neutral text splice**
+(`model/blank_lines.rs`, shared by all three backends) at an offset each backend supplies via
+`ConfigDocument::trailing_blank_anchor`. Per-variant mechanics (forming/clamp, AoT-entry
+move-out, delete extent, Rename whole-key rewrite, blank-run anchor/normalization, known edges)
+are in CONTEXT.md *Mutation mechanics*.
 
 **Projection.** Dotted *keys* (`a.b.c = 1`) nest into a chain of synthetic `[T/D]` tables via
 `project_entry_into`/`ensure_dotted_chain` in `cst_project.rs`; the leaf keeps its full
@@ -338,6 +347,8 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
   model/
     mod.rs         re-exports
     text_range.rs  TextRange (byte-offset spans for source ranges) shared by rowan projections
+    blank_lines.rs the one format-neutral trailing-blank-run text splice (count_after/splice),
+                   shared by all three backends' SetTrailingBlankLines
     node.rs        Seg, ScalarType, Format, NodeKind, Node, NodeTree (+ node_at lookup)
     document.rs    ConfigDocument trait (+ to_value), DocFormat, Mutation, Target, OnCollision, ConvertAbort, errors
     value.rs       format-neutral Value/Item tree for conversion (has_null/has_datetime)
@@ -476,7 +487,7 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
                  as its first child, so the line sits one `--indent` step deeper (as the TUI draws it)
   panel.ts       shared node detail/edit panel (`panelHTML`/`wirePanel`) — one module rendering
                  the desktop Detail aside AND the touch edit sheet identically (locked field order
-                 Key/Value/Trailing comment/Kind/Path/Children/Sign); a panel input's Enter/Escape
+                 Key/Value/Trailing comment/Kind/Path/Children/Sign/Blank after); a panel input's Enter/Escape
                  keydown `stopPropagation()`s so a synchronously-opened confirm prompt or the host's
                  global key handler doesn't re-read the same bubbling event
   prompt.ts      shared `Mode::Prompt` y/n(/o/r) answer buttons (`promptButtonsHTML`/

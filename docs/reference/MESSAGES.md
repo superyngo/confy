@@ -52,7 +52,8 @@ Error-only "never hidden" invariant, just generalized to all four severities.
 ### 1.2 Prompt question
 
 `ModeView::Prompt { kind, question }` — the question text of an open y/n or
-o/r/c prompt (`Collision`, `ConfirmQuit`, `TypeChange`, `ArrayUpgrade` — 4
+o/r/c prompt (`Collision`, `ConfirmQuit`, `TypeChange`, `ArrayUpgrade`,
+`BlankReparent` — 5
 kinds), rendered **core-side** from `PromptKind` +
 `Session.lang` via `prompt_question(lang, pk)` (`dispatch.rs:581`), one localized
 `core.prompt.<kind>` key per kind, legend-free. **Hosts never reconstruct or

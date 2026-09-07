@@ -1258,10 +1258,18 @@ impl Session {
     }
 
     /// True when setting `path`'s trailing blank run to `n` would move a
-    /// following comment between scopes: TOML only, and only when the change
-    /// crosses the 0<->1 boundary — that is the boundary the ownership rule
-    /// turns on (1 blank and 3 blanks parent the comment identically).
-    /// CONTEXT.md, *Comment*.
+    /// comment between scopes: TOML only, and only when the change crosses the
+    /// 0<->1 boundary — that is the boundary the ownership rule turns on (1
+    /// blank and 3 blanks parent the comment identically). CONTEXT.md,
+    /// *Comment*.
+    ///
+    /// The at-risk comment sits **before** the anchor, not after it: a TOML
+    /// section's extent runs to the next header, so a comment hugging that
+    /// header is inside this node's extent and the anchor lands after it.
+    /// Adding a blank there makes the comment trail *this* scope; removing it
+    /// makes the comment hug the *next* header. Both need the following line
+    /// to actually be a `[header]` — at EOF, or before a plain entry, the
+    /// comment's owner does not change and no confirmation is warranted.
     fn blank_change_reparents_comment(&self, path: &[Seg], current: usize, n: usize) -> bool {
         let Some(doc) = self.doc.as_ref() else {
             return false;
@@ -1273,13 +1281,19 @@ impl Session {
             return false;
         };
         let text = doc.serialize();
-        // The first non-blank line after the anchor: only a comment can be
-        // re-parented, a `[header]` or entry owns itself either way.
-        text.get(end..).is_some_and(|rest| {
-            rest.lines()
-                .find(|l| !l.trim().is_empty())
-                .is_some_and(|l| l.trim_start().starts_with('#'))
-        })
+        let (Some(before), Some(after)) = (text.get(..end), text.get(end..)) else {
+            return false;
+        };
+        let comment_at_the_tail = before
+            .lines()
+            .rev()
+            .find(|l| !l.trim().is_empty())
+            .is_some_and(|l| l.trim_start().starts_with('#'));
+        let header_follows = after
+            .lines()
+            .find(|l| !l.trim().is_empty())
+            .is_some_and(|l| l.trim_start().starts_with('['));
+        comment_at_the_tail && header_follows
     }
 
     /// Apply the blank-run change that `set_trailing_blank` (or the

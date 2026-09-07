@@ -3451,15 +3451,15 @@ fn set_trailing_blank_on_a_flow_member_reports_and_changes_nothing() {
     assert!(snap.notice.is_some(), "must report why nothing happened");
 }
 
-/// TOML only: crossing the 0<->1 blank boundary while a comment follows would
-/// re-parent that comment (CONTEXT.md's blank-line ownership rule), so it
-/// confirms first.
+/// TOML only: crossing the 0<->1 blank boundary re-parents a comment that is
+/// hugging the *next* `[header]` (CONTEXT.md's blank-line ownership rule), so
+/// it confirms first. The comment sits inside `[t]`'s extent — a section runs
+/// to the next header — so the blank lands after `# note`, flipping it from
+/// `[u]`'s leading comment to `[t]`'s trailing child.
 #[test]
 fn blank_line_change_confirms_when_it_would_reparent_a_comment() {
     let mut s = toml_session("[t]\nx = 1\n# note\n[u]\ny = 2\n");
-    s.dispatch(Intent::CursorDown);
-    s.dispatch(Intent::ToggleExpand);
-    s.dispatch(Intent::CursorDown); // on `x`
+    s.dispatch(Intent::CursorDown); // on `[t]`
     let snap = s.dispatch(Intent::SetTrailingBlank(1));
     assert!(
         matches!(snap.mode, ModeView::Prompt { .. }),
@@ -3472,7 +3472,31 @@ fn blank_line_change_confirms_when_it_would_reparent_a_comment() {
     // Accepting applies it.
     s.dispatch(Intent::SetTrailingBlank(1));
     s.dispatch(Intent::PromptKey('y'));
-    assert_eq!(s.serialize().unwrap(), "[t]\nx = 1\n\n# note\n[u]\ny = 2\n");
+    assert_eq!(s.serialize().unwrap(), "[t]\nx = 1\n# note\n\n[u]\ny = 2\n");
+    // And back across the boundary the other way: removing it re-hugs the
+    // header, so that confirms too.
+    let snap = s.dispatch(Intent::SetTrailingBlank(-1));
+    assert!(
+        matches!(snap.mode, ModeView::Prompt { .. }),
+        "removing the separator re-parents it back, got {:?}",
+        snap.mode
+    );
+    s.dispatch(Intent::PromptKey('y'));
+    assert_eq!(s.serialize().unwrap(), "[t]\nx = 1\n# note\n[u]\ny = 2\n");
+}
+
+/// The guard is about *scope ownership*, not "a comment is nearby": a comment
+/// inside a table is that table's child whatever the spacing, so spacing an
+/// entry away from it must not nag.
+#[test]
+fn blank_line_change_does_not_confirm_for_a_comment_that_cannot_change_scope() {
+    let mut s = toml_session("[t]\nx = 1\n# note\ny = 2\n");
+    s.dispatch(Intent::CursorDown);
+    s.dispatch(Intent::ToggleExpand);
+    s.dispatch(Intent::CursorDown); // on `x`
+    let snap = s.dispatch(Intent::SetTrailingBlank(1));
+    assert_eq!(s.serialize().unwrap(), "[t]\nx = 1\n\n# note\ny = 2\n");
+    assert!(matches!(snap.mode, ModeView::Normal), "{:?}", snap.mode);
 }
 
 /// No comment follows -> no prompt; and growing an already-nonzero run does not

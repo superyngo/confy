@@ -97,7 +97,7 @@
   "core.detail.value": "Value:    {0}",
   "core.detail.sign": "Sign:     {0}",
   "core.detail.comment": "Comment:  {0}",
-  "core.detail.blank-after": "Blank after: {0} line(s)",
+  "core.detail.blank-after": "Blank:    {0} line(s) after",
   "core.hint.enum": "Valid values: {0}",
   "core.hint.bounded": "Must be between {0} and {1}",
   "core.hint.min": "Must be at least {0}",

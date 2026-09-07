@@ -475,8 +475,11 @@ edits to the verbatim desktop CSS.
 - **Edit panel** (bottom sheet `<600px`, persistent side pane `≥600px` via `@container`): rendered
   by the shared `web/panel.ts` (`panelHTML` + `wirePanel`) — the same module the desktop detail
   aside uses, so both UIs show one locked field order **Key / Value / Trailing comment / Kind /
-  Path / Children / Sign** (Path is the human dotted/bracketed form, e.g. `servers[1].port`; Sign
-  from `ViewRow.key_sign`). Key → `CommitEdit {name}`, value → `CommitEdit {value}`, trailing →
+  Path / Children / Sign / Blank after** (Path is the human dotted/bracketed form, e.g.
+  `servers[1].port`; Sign
+  from `ViewRow.key_sign`; **Blank after** is the read-only trailing blank-line count, shown only
+  when the node can carry one, fed by `SessionSnapshot.cursor_blank_after` — snapshot-level, not
+  per-`ViewRow`, since resolving the anchor walks the document). Key → `CommitEdit {name}`, value → `CommitEdit {value}`, trailing →
   `SetTrailing`, comment node → `ApplyEditComment`, kind button → kind sheet. The panel has no
   Delete/Copy/Cut buttons — node operations live in the Action menu (ADR 0009). After each
   dispatch `wirePanel` surfaces `snapshot.error` via the host toast (failures are reported,
@@ -643,7 +646,7 @@ bare. The inverse holds in core — a rename writes the literal but re-anchors t
 **decoded** segments from `ConfigDocument::rename_key_segs()`, since a projected path never
 carries quotes.
 
-A **Schema** field renders after Meta (Path/Children/Sign), before the Actions row (Copy/Cut/
+A **Schema** field renders after Meta (Path/Children/Sign/Blank after), before the Actions row (Copy/Cut/
 Delete/External-edit stay the panel's fixed trailing element), as a bordered card (mirrors
 the panel's `.preview` box, not bare text — every other field is a bordered element too) when
 the row carries any of three independent sources: `session.schemaInfo(path)` (non-widget
