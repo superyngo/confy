@@ -52,6 +52,14 @@ pub(crate) fn resolve_value_node(
     path: &[Seg],
 ) -> Result<(SyntaxNode, SyntaxNode), MutateError> {
     let entry = match resolve_in(idx, path).ok_or(MutateError::NotFound)? {
+        // An *item* of a flow seq shares the whole FLOW_SEQ as its target and is
+        // addressed by the path's trailing ordinal, so the resolved node is the
+        // collection, not the item. Converting it here would retarget the edit
+        // at the parent sequence; an item of a one-line collection has no
+        // block-layout or block-scalar form anyway (`kind_options` offers none).
+        Target::Element(e) if e.kind() == SyntaxKind::FLOW_SEQ => {
+            return Err(MutateError::Unsupported);
+        }
         Target::MapEntry(e) | Target::Element(e) => e,
         _ => return Err(MutateError::Unsupported),
     };

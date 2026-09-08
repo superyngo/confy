@@ -57,7 +57,7 @@ How a container behaves *as an item inside another container*.
 | behavior \ parent scope | global | seq-flow | seq-block | map-flow | map-block |
 |---|---|---|---|---|---|
 | own trailing comment | ✓ | ✗ (flow) | ✓ | ✗ (flow) | ✓ |
-| own external precise edit | ✓ | ✓ ³ | ✓ | ✓ | ✓ |
+| own external precise edit | ✓ | ✓ | ✓ | ✓ | ✓ |
 | add: collapsed → sibling | ✓ | ✓ (rebuild) | ✓ | ✓ (rebuild) | ✓ |
 | paste-in forming | — | see *Insert / move legality* in `CONTEXT.md` | | | |
 
@@ -65,10 +65,11 @@ How a container behaves *as an item inside another container*.
   for a trailing comment (✗) — but it *is* precisely addressable: the splice patches or rebuilds the
   one-line `[ … ]` / `{ … }` around it, so an external edit captures and replaces that child alone
   (§6.3), keeping the collection's authored padding and separators byte-for-byte.
-- ³ **One gap:** a *nested flow collection used as a YAML flow-seq element* (`g: [ {x: 1}, 2 ]`,
-  index 0) has no projected `Target` of its own, so every mutation on it returns `NotFound` — the
-  document is untouched, nothing is truncated. A nested flow collection reached through a *key*
-  (a flow-map member, `f: { n: {x: 1} }`) is precise.
+  A **nested** flow collection is an item like any other here — `g: [ {x: 1}, 2 ]` index 0 edits,
+  replaces, deletes and moves as itself (it carried no projected `Target` at all until the
+  registration landed, so every mutation on it returned `NotFound`). What a one-line item still
+  cannot do is take a **block** layout: `kind_options` offers none and `ConvertKind` rejects it as
+  `Unsupported`, since expanding it would break the line it lives on.
 - **paste-in forming** is one instance of the cross-platform `PasteSlot` targeting model —
   ADR 0004.
 
@@ -163,10 +164,11 @@ See table B, note ².
   (`b: 2`), the flow-seq element (`1`), the inline-table member (`y = 2`), the JSON object member
   (`"y": 2`) — and its commit splices over the item's own **trailing-whitespace-excluded** span, so
   the collection's authored padding survives an untouched round trip byte-for-byte. A YAML flow-seq
-  *scalar* element is the one item with no `Target` of its own (the projection indexes it as the
-  whole collection plus an ordinal), so its fragment is sliced out by that ordinal
-  (`flow::flow_item_text`); without it the capture was the entire `[ … ]`. The residual gap is
-  table A's note ³.
+  *element* is the one item with no `Target` of its own (the projection indexes it as the whole
+  collection plus an ordinal), so its fragment is sliced out by that ordinal
+  (`flow::flow_item_text`); without it the capture was the entire `[ … ]`. That holds for a
+  **nested collection** element (`g: [ {x: 1}, 2 ]`) too — the projection registers the same
+  ordinal-addressed target for it, which is what made it editable at all.
 
 ---
 

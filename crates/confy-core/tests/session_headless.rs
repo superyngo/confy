@@ -3662,6 +3662,31 @@ fn editor_round_trip_of_a_flow_seq_element_edits_only_that_element() {
     assert_eq!(s.serialize().unwrap(), "g: [ 9, 2, 3 ]\nz: 3\n");
 }
 
+/// A *nested collection* used as a flow-seq element is editable through the
+/// same path: its buffer is that collection, an untouched round trip is
+/// byte-identical, and a real edit changes only it. It carried no projected
+/// target at all before the registration, so the editor opened on an empty
+/// buffer and every commit reported `NotFound`.
+#[test]
+fn editor_round_trip_of_a_nested_flow_collection_element() {
+    let mut s = yaml_session("g: [ {x: 1}, 2 ]\nz: 3\n");
+    s.dispatch(Intent::CursorDown);
+    s.dispatch(Intent::ToggleExpand);
+    s.dispatch(Intent::CursorDown);
+    let (path, buf) = open_editor(&mut s);
+    assert_eq!(buf, "{x: 1}", "the nested collection alone");
+    s.dispatch(Intent::ApplyReplace {
+        path: path.clone(),
+        text: buf,
+    });
+    assert_eq!(s.serialize().unwrap(), "g: [ {x: 1}, 2 ]\nz: 3\n");
+    s.dispatch(Intent::ApplyReplace {
+        path,
+        text: "{x: 9, y: 8}".to_string(),
+    });
+    assert_eq!(s.serialize().unwrap(), "g: [ {x: 9, y: 8}, 2 ]\nz: 3\n");
+}
+
 /// BEHAVIOR_MATRIX tables A/C, "own external precise edit": an item of a
 /// one-line flow collection captures **that item alone** in every backend, and
 /// committing the untouched buffer is byte-identical (the collection's authored

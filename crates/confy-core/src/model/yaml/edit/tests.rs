@@ -84,6 +84,11 @@ fn key_colon_ignores_quoted_colon_space() {
     assert_eq!(key_colon("'a: b'"), None);
     // A double-quoted value with `: ` after a real key still keys on the key.
     assert_eq!(key_colon(r#"k: "a: b""#), Some(1));
+    // A `:` inside a flow collection is that collection's own member separator,
+    // so a bare flow fragment is a *value*, not a member keyed `{x`.
+    assert_eq!(key_colon("{x: 1}"), None);
+    assert_eq!(key_colon("[{a: 1}, 2]"), None);
+    assert_eq!(key_colon("k: {x: 1}"), Some(1));
 }
 
 #[test]
@@ -238,31 +243,68 @@ fn move_a_flow_seq_element_carries_only_that_element() {
 }
 
 #[test]
-fn a_nested_flow_collection_as_a_seq_element_is_unaddressable() {
-    // BEHAVIOR_MATRIX table A note ³: a nested `{…}`/`[…]` used as a flow-seq
-    // element has no projected `Target` (a scalar element's is the whole
-    // FLOW_SEQ, a member's is its FLOW_ENTRY — neither covers this), so its
-    // fragment is empty and every mutation returns NotFound, leaving the
-    // document untouched. Recorded as a gap, not silently corrupting.
-    for src in ["g: [ {x: 1}, 2 ]\n", "g: [ [1, 2], 3 ]\n"] {
+fn a_nested_flow_collection_as_a_seq_element_is_addressable() {
+    // A nested `{…}`/`[…]` used as a flow-seq element is an item like any
+    // other: its target is the whole FLOW_SEQ and the path's trailing ordinal
+    // names it (`flow_item_spans` counts nested collections in the same order
+    // the projection does). Until the registration landed, the projection
+    // indexed no target for it at all, so its fragment was empty and every
+    // mutation returned NotFound.
+    for (src, replaced, deleted) in [
+        ("g: [ {x: 1}, 2 ]\n", "g: [ {x: 9}, 2 ]\n", "g: [ 2 ]\n"),
+        ("g: [ [1, 2], 3 ]\n", "g: [ {x: 9}, 3 ]\n", "g: [ 3 ]\n"),
+    ] {
         let s = parse_syntax(src);
         let p = vec![Seg::Key("g".into()), Seg::Index(0)];
-        assert_eq!(serialize_fragment(&s, &p), "", "fragment for {src:?}");
+        let frag = serialize_fragment(&s, &p);
+        assert!(
+            frag == "{x: 1}" || frag == "[1, 2]",
+            "fragment for {src:?} should be the nested collection, got {frag:?}"
+        );
+        assert_eq!(
+            apply_str(
+                src,
+                Mutation::Replace {
+                    path: p.clone(),
+                    fragment: "{x: 9}".into(),
+                },
+            )
+            .expect("replace a nested flow element"),
+            replaced
+        );
+        assert_eq!(
+            apply_str(src, Mutation::Delete { path: p.clone() }).expect("delete it"),
+            deleted
+        );
+        // A member reached *through* it stays precise.
+        // (only the flow-map fixture has one)
+        if frag.starts_with('{') {
+            let mut inner = p.clone();
+            inner.push(Seg::Key("x".into()));
+            assert_eq!(
+                apply_str(
+                    src,
+                    Mutation::Replace {
+                        path: inner,
+                        fragment: "x: 5".into(),
+                    },
+                )
+                .expect("replace the nested member"),
+                "g: [ {x: 5}, 2 ]\n"
+            );
+        }
+        // The collection as a whole shares that target, so a kind switch on the
+        // item must not retarget the parent sequence.
         let r = apply_str(
             src,
-            Mutation::Replace {
-                path: p.clone(),
-                fragment: "{x: 9}".into(),
+            Mutation::ConvertKind {
+                path: p,
+                target: crate::model::document::KindTarget::Block,
             },
         );
         assert!(
-            matches!(r, Err(MutateError::NotFound)),
-            "replace on a nested flow element expected NotFound, got {r:?}"
-        );
-        let r = apply_str(src, Mutation::Delete { path: p });
-        assert!(
-            matches!(r, Err(MutateError::NotFound)),
-            "delete on a nested flow element expected NotFound, got {r:?}"
+            matches!(r, Err(MutateError::Unsupported)),
+            "block-expanding an in-flow item expected Unsupported, got {r:?}"
         );
     }
 }

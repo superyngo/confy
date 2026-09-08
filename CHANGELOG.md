@@ -8,6 +8,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-08 (14)
+
+**Fixed**
+
+- **A nested flow collection used as a YAML flow-seq element is addressable.** `g: [ {x: 1}, 2 ]`
+  index 0 (and `g: [ [1, 2], 3 ]`) had **no projected `Target` at all** — `walk_flow_seq` registered
+  one for every scalar element but not for a nested-node element — so the resolver found nothing:
+  the multiline editor opened on an empty buffer and `Replace`/`Delete`/`Move` all reported
+  `✗ error: path not found`. The projection now registers the same ordinal-addressed
+  `Target::Element(<the whole FLOW_SEQ>)` a scalar element gets (the edit layer's item spans already
+  counted nested collections in that order), so the element's fragment is the collection itself, an
+  untouched round trip is byte-identical, and a real edit changes only it
+  (`g: [ {x: 9, y: 8}, 2 ]`). CLAUDE.md's "each member is individually addressable/editable" claim
+  for nested YAML flow values now actually holds for the seq case.
+- **A bare flow-map fragment is a value, not a member keyed `{x`.** `key_colon` scanned for the
+  key/value colon at quote depth but not at *flow* depth, so `{x: 1}` looked keyed and inserting it
+  produced `Illegal("expected a mapping key, found Some(L_BRACE)")` — which is what moving a nested
+  flow map out of its sequence hit once it became addressable (a flow **seq** element `[1, 2]`, having
+  no colon, was unaffected). Colons inside `{…}`/`[…]` are now skipped, mirroring
+  `split_top_level_commas`, so `Move` synthesizes `g_0: {x: 1}` correctly.
+- **`ConvertKind` cannot retarget a flow seq through one of its items.** A flow-seq item shares the
+  whole `FLOW_SEQ` as its target, so `resolve_value_node` would have handed the *parent sequence* to
+  a conversion requested on the item (previously masked for scalar items by an accidental
+  `NotFound`); it now answers `Unsupported`, matching `kind_options`, which offers a one-line item no
+  block layout.
+
 ### Unreleased Update - 2026-09-08 (13)
 
 **Docs**

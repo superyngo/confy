@@ -251,7 +251,7 @@ pub(crate) fn entry_key_text(entry: &SyntaxNode) -> String {
         .unwrap_or_default()
 }
 
-/// Find the key/value colon at quote-depth 0 on a single line.
+/// Find the key/value colon at quote- **and flow-**depth 0 on a single line.
 ///
 /// Returns the byte index of a `:` that is either followed by whitespace
 /// (`key: value`) or is the last non-blank char (`flags:` block value) — but
@@ -259,13 +259,17 @@ pub(crate) fn entry_key_text(entry: &SyntaxNode) -> String {
 /// tells a quoted key holding `: ` (`"a: b": v`) and a bare quoted scalar
 /// holding `: ` (`"a: b"`) apart from a real `key: value`, which a plain
 /// `contains(": ")` cannot. Double-quote backslash escapes are honored; YAML's
-/// single-quote `''` doubling round-trips through the toggle harmlessly.
+/// single-quote `''` doubling round-trips through the toggle harmlessly. A `:`
+/// inside a flow collection (`{x: 1}`, `[{a: 1}]`) belongs to that collection's
+/// own member, not to this line, so a bare flow fragment reads as a **value**
+/// and not as a member keyed `{x` (which parsed as `Illegal` on insert).
 pub(crate) fn key_colon(line: &str) -> Option<usize> {
     let bytes = line.as_bytes();
     let trimmed_end = line.trim_end().len();
     let mut in_single = false;
     let mut in_double = false;
     let mut escaped = false;
+    let mut flow_depth = 0usize;
     for (i, &b) in bytes.iter().enumerate() {
         if escaped {
             escaped = false;
@@ -275,7 +279,9 @@ pub(crate) fn key_colon(line: &str) -> Option<usize> {
             b'\\' if in_double => escaped = true,
             b'\'' if !in_double => in_single = !in_single,
             b'"' if !in_single => in_double = !in_double,
-            b':' if !in_single && !in_double => {
+            b'{' | b'[' if !in_single && !in_double => flow_depth += 1,
+            b'}' | b']' if !in_single && !in_double => flow_depth = flow_depth.saturating_sub(1),
+            b':' if !in_single && !in_double && flow_depth == 0 => {
                 let next = bytes.get(i + 1);
                 if matches!(next, Some(b' ') | Some(b'\t')) || i + 1 == trimmed_end {
                     return Some(i);

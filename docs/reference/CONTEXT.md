@@ -540,14 +540,17 @@ one parse per mutation, not two. KIND tags are the KIND-column vocabulary.
 
 **Known rough edge:** multiline-array element insert/delete spacing is not yet byte-perfect.
 
-**Flow fragments.** A YAML flow-seq *scalar* element has no `Target` of its own — the projection
+**Flow fragments.** A YAML flow-seq *element* has no `Target` of its own — the projection
 indexes it as `Target::Element(<the whole FLOW_SEQ>)`, since every edit needs the collection plus
 an ordinal — so `fragment_of` takes the path's last `Seg::Index` and slices that one item out
 (`flow::flow_item_text`, trailing whitespace excluded). Without it a copy, a `Move` capture, or a
 multiline edit of one element took the entire `[ … ]` and nested the collection into its own
-element. Flow *map members* are `Target::MapEntry(FLOW_ENTRY)` and need no such lookup. A *nested
-flow collection* used as a flow-seq element (`g: [ {x: 1}, 2 ]`, index 0) is indexed by neither, so
-its fragment is empty and every mutation on it returns `NotFound` — see the matrix note ³.
+element. Flow *map members* are `Target::MapEntry(FLOW_ENTRY)` and need no such lookup. The
+registration covers a **nested collection** element (`g: [ {x: 1}, 2 ]`) as well; while it was
+missing, that element resolved to nothing and every mutation on it returned `NotFound`. Since the
+resolved node is then the *collection*, `ConvertKind` rejects an `Element(FLOW_SEQ)` outright
+(`resolve_value_node`) — converting would retarget the parent sequence, and an in-flow item has no
+block form anyway.
 
 **Nesting cap.** Every backend parses by recursive descent (TOML through taplo), so container
 nesting is capped at `model::MAX_NESTING_DEPTH` (256): deeper input is a `ParseError`
@@ -626,9 +629,9 @@ decides whether children are keyed (seq elements are keyless → no rename / no 
 
 ³ A flow parent's child has no own line for a trailing comment, but *is* precisely addressable — the
 splice patches or rebuilds the one-line `[…]`/`{…}` around it, keeping the authored padding and
-separators. **One gap:** a nested flow collection used as a YAML flow-**seq** element
-(`g: [ {x: 1}, 2 ]`, index 0) has no projected `Target`, so every mutation on it returns `NotFound`
-(document untouched, nothing truncated). Reached through a *key* (`f: { n: {x: 1} }`) it is precise.
+separators. A **nested** flow collection is an ordinary item here too (`g: [ {x: 1}, 2 ]` index 0
+edits/replaces/deletes/moves as itself). The one thing a one-line item cannot do is take a **block**
+layout — `kind_options` offers none and `ConvertKind` answers `Unsupported`.
 
 ### B — Branch node as a container (governed by **self**; column = its own scope)
 

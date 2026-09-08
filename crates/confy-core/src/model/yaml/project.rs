@@ -960,6 +960,16 @@ fn walk_flow_seq(
                 let mut path = parent_path.to_vec();
                 path.push(Seg::Index(i));
                 let key_label = format!("[{i}]");
+                // A nested *collection* is an element like any other: it shares
+                // the whole FLOW_SEQ as its target and is addressed by the path's
+                // trailing ordinal (`edit::flow`'s item spans count nested
+                // collections in this same order). Without this registration
+                // every mutation on it resolved to nothing (`NotFound`). Any
+                // other node kind here is not an item those spans count, so
+                // registering it would hand out a mismatched ordinal.
+                if matches!(node.kind(), SyntaxKind::FLOW_MAP | SyntaxKind::FLOW_SEQ) {
+                    idx.push((path.clone(), Target::Element(flow_seq.clone())));
+                }
                 let n = build_value_node_from_child(
                     &node,
                     &key_label,
