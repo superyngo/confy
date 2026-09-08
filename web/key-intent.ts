@@ -184,6 +184,10 @@ export function resolveKeyIntent(
     if (key === "PageUp") return { kind: "intent", intent: { SchemaEnumJump: -SCHEMA_ENUM_PAGE_STEP }, preventDefault: true };
     if (key === "PageDown") return { kind: "intent", intent: { SchemaEnumJump: SCHEMA_ENUM_PAGE_STEP }, preventDefault: true };
     if (key === "Enter") return { kind: "intent", intent: "SchemaEnumCommit", preventDefault: false };
+    // Desktop cancels this picker from the focused `<select>`'s own keydown
+    // (and from its blur), so this branch is unreachable there - it is what
+    // gives a host with no focused widget (touch's value sheet) the same exit.
+    if (key === "Escape") return { kind: "intent", intent: "Escape", preventDefault: false };
     return null;
   }
   // Help/About panel: pause every tree shortcut (only close/tab-switch handled).

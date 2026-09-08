@@ -8,6 +8,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-08 (7)
+
+**Fixed**
+
+- **`Escape` closes an open sheet on touch, like desktop.** It only ever reached core (peel
+  filter → clear selection), so the popup editor, the detail sheet, the `K` kind sheet, the
+  Save/Open/URL sheets and the ⋯ menu had no keyboard exit at all — and the popup editor and
+  URL sheet swallowed *every* key, since their text field owns the keyboard. `Escape` now runs
+  before those guards and dismisses an open host-local sheet through the same `dismissSheets()`
+  the scrim/×/swipe use (so a pending external edit is peeled in core too); with no sheet open
+  it reaches core unchanged.
+
+- **A sheet no longer keeps the keyboard after it is hidden.** `closeSheets()` left focus in
+  the field it hid, so `onKey`'s `INPUT`/`TEXTAREA` guard swallowed every following key — the
+  same dead-keyboard symptom as the add-picker freeze, reachable by dismissing the popup editor
+  from the scrim. It now blurs a focused field inside the sheet it closes.
+
+- **Every keyboard exit from a touch picker closes its sheet.** The shared `kind` sheet has two
+  owners (`Mode::SchemaEnum`/`Mode::AddPicker` render into it, `K` opens it host-locally), so
+  no `else` on either mode could close it and each keyboard path needed its own host-side
+  close. `render()` now tracks which owner opened it and closes it when that mode leaves.
+
+- **`Escape` cancels the constrained-value picker on a host with no focused widget.** The
+  shared keymap's `Mode::SchemaEnum` branch had no `Escape` (desktop cancels from the focused
+  `<select>`), so touch's value sheet could only be committed, never cancelled — and cancelling
+  is what removes a freshly-added placeholder (`created_on_add`).
+
 ### Unreleased Update - 2026-09-08 (6)
 
 **Fixed**

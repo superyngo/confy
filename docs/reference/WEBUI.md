@@ -601,7 +601,19 @@ edits to the verbatim desktop CSS.
   branch of that format's exclusive notations — see `web/samples.ts`'s header comment.
 - **Keyboard shortcuts** (external/Bluetooth keyboard on a touch device): a `document.body`
   `keydown` listener (`onKey`) reuses desktop's `resolveKeyIntent` (`web/key-intent.ts`) verbatim,
-  so the key→Intent map can't drift between surfaces. Guarded against a focused `INPUT`/
+  so the key→Intent map can't drift between surfaces. **`Escape` runs first**, before those
+  guards: with a *host-local* sheet open (detail/menu/lang/save/open/URL/external-edit/`K`
+  kind sheet — i.e. any open sheet while the mode is `Normal`/`FilterResults`, since
+  `render()` closes each mode-driven sheet as its mode leaves) it dismisses that sheet through
+  the same `dismissSheets()` the scrim/×/swipe use, and nothing else sees the key. That is
+  desktop parity (there `Escape` closes a click-menu / the external-edit modal / the URL modal
+  first) and it is why the check precedes the field guards — the sheets that own the keyboard
+  are exactly the ones needing dismissal (the popup editor's `textarea`, the URL field, the
+  Save filename). `closeSheets()` blurs a field inside the sheet it hides, or the
+  `INPUT`/`TEXTAREA` guard would keep swallowing every key after the sheet is gone. With no
+  sheet open, `Escape` reaches core as always (peel filter layer → clear selection). A panel
+  field's own `Escape` (revert-and-blur, `panel.ts`) stops propagation and never arrives here.
+  Otherwise: guarded against a focused `INPUT`/
   `TEXTAREA`/`SELECT` and the URL/external-edit sheets. Most resolved intents `send()` straight
   through, since touch already renders every core sub-mode they can produce (TypeFilter/Convert/
   Prompt/SchemaEnum/Help all reactively open/close their sheet). A few are host-specific
@@ -617,10 +629,11 @@ edits to the verbatim desktop CSS.
   insert back — so it commits the seeded default (`EditCommit`) and opens the detail sheet on
   the new node. `K`/`OpenKindSwitch` opens touch's own kind sheet instead of dispatching the
   raw intent, and `i`/Enter (`ToggleDetail`) toggles the host-local detail sheet directly (no
-  core mode backs it here, unlike desktop's `Mode::Detail`) — `Escape` closes that sheet first
-  if open. Keyboard exits from a sheet whose *content* is mode-driven (`AddPickerCommit`/
-  `ExitAddPicker`/`SchemaEnumCommit`) close it explicitly, the way the tap handlers do: the
-  shared `kind` sheet is also used host-locally by `K`, so `render()` can't blanket-close it.
+  core mode backs it here, unlike desktop's `Mode::Detail`). The shared `kind` sheet is the one
+  sheet with two owners — `Mode::SchemaEnum` and `Mode::AddPicker` render into it, and `K` uses
+  it host-locally — so no `else` on either mode can close it: `kindSheetMode` records which
+  owner opened it and `render()` closes it once *that* mode is gone, which is what makes every
+  keyboard exit from a picker (Escape, Enter-commit) close the sheet without a per-key case.
   `q`/`QuitRequested` is suppressed (`vshost: true` passed to `resolveKeyIntent`) — a web/touch
   surface has no "quit" concept.
 

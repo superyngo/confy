@@ -122,6 +122,10 @@ let filterBtn: HTMLElement;
 let toastEl: HTMLElement;
 let fabEl: HTMLElement;
 const sheets: Record<string, HTMLElement> = {};
+// Which core mode currently owns the shared `kind` sheet ("SchemaEnum" /
+// "AddPicker"), or `null` when `K` opened it host-locally. Read by `render()`
+// to close the sheet once that mode is gone.
+let kindSheetMode: string | null = null;
 
 // ---- helpers ----
 // Dispatch several intents with a single re-render at the end (mirrors ui.ts).
@@ -371,6 +375,11 @@ function openSheet(name: string) {
 }
 function closeSheets() {
   scrim.classList.remove("show");
+  // A field inside the sheet being hidden must lose focus, or `onKey`'s
+  // INPUT/TEXTAREA guard keeps swallowing every key afterwards - the sheet is
+  // gone from view but still owns the keyboard.
+  const active = document.activeElement as HTMLElement | null;
+  if (active && active.closest(".sheet")) active.blur();
   Object.keys(sheets).forEach((k) => sheets[k].classList.remove("open"));
 }
 function isWide(): boolean {
@@ -631,6 +640,16 @@ function render() {
   } else if (sheets.actions.classList.contains("open")) {
     closeSheets();
   }
+  // The shared `kind` sheet is the one sheet with two owners: `Mode::SchemaEnum`
+  // and `Mode::AddPicker` render into it, and host-local `K` uses it too - so an
+  // `else` on either mode can't close it. Track which owner opened it and close
+  // it here once *that* mode is gone, the way the checks above close theirs.
+  // This is what makes every keyboard exit from a picker (Escape, Enter-commit)
+  // close the sheet, without a per-key special case in `handleKeyResult`.
+  if (kindSheetMode && tag !== kindSheetMode) {
+    kindSheetMode = null;
+    if (sheets.kind.classList.contains("open")) closeSheets();
+  }
   renderHelpSheet();
   if (tag !== "TypeFilter" && !anySheetOpen()) scrim.classList.remove("show");
 
@@ -662,6 +681,16 @@ function render() {
 }
 function anySheetOpen(): boolean {
   return Object.values(sheets).some((s) => s.classList.contains("open"));
+}
+// Whether the open sheet is a HOST-local surface (detail/menu/lang/save/open/
+// convert-target/external-edit/URL/`K` kind sheet) rather than one a core mode
+// drives: in `Mode::Normal`/`FilterResults` no mode-driven sheet can be open
+// (`render()` closes each one as its mode leaves). Escape dismisses these
+// first, mirroring desktop, where Escape closes an open click-menu / the
+// external-edit modal / the URL modal before the tree ever sees the key.
+function hostSheetOpen(): boolean {
+  const tag = snap ? modeTag(snap.mode) : "Normal";
+  return (tag === "Normal" || tag === "FilterResults") && anySheetOpen();
 }
 // Single tap = select only (cursor + selection); the wide-mode side pane
 // reactively shows it. The detail sheet opens on double-tap (openPanel).
@@ -746,6 +775,7 @@ function openKindSheet(path: Path) {
       send({ SetHostNotice: { key: isErr ? "core.kind-switch.error" : "web.host.kind.changed", args: isErr ? [after.notice!.text] : [], source: "host-web" } });
     });
   });
+  kindSheetMode = null;
   openSheet("kind");
 }
 
@@ -788,6 +818,7 @@ function openSchemaEnumSheet(path: Path, options: string[], fromSchema: boolean)
       send({ SetHostNotice: { key: isErr ? "core.error.generic" : "web.host.value.changed", args: isErr ? [after.notice!.text] : [], source: "host-web" } });
     });
   });
+  kindSheetMode = "SchemaEnum";
   openSheet("kind");
 }
 
@@ -815,6 +846,7 @@ function openAddPickerSheet(options: AddOptionView[], cursor: number) {
       sendAddPick({ AddPickerPick: idx });
     });
   });
+  kindSheetMode = "AddPicker";
   openSheet("kind");
 }
 
@@ -1853,6 +1885,21 @@ function touchTypeFilterPageStep(grid: TypeFilterView): number {
 
 function onKey(ev: KeyboardEvent) {
   if (!session || !snap) return;
+  // Escape dismisses an open HOST-local sheet before anything else sees the
+  // key - desktop parity (there Escape closes a click-menu, the external-edit
+  // modal or the URL modal first). It runs BEFORE the text-field guards below
+  // because the sheets that own the keyboard are exactly the ones that need
+  // dismissing: the external editor's textarea, the URL field, the Save
+  // filename. `dismissSheets()` is the same path the scrim/×/swipe dismissal
+  // takes, so a pending external edit is peeled in core too. A panel field's
+  // own Escape (revert-and-blur, panel.ts) stops propagation and never gets
+  // here; a sheet a core mode drives isn't host-local, so its Escape keeps
+  // going through `resolveKeyIntent` (ExitTypeFilter, PromptKey n, …).
+  if (ev.key === "Escape" && hostSheetOpen()) {
+    ev.preventDefault();
+    dismissSheets();
+    return;
+  }
   // A focused text field (search, save-as path, external-edit textarea, URL
   // sheet) owns its own keys; the ext/url sheets are checked explicitly too
   // since their fields aren't always the very first thing focused.
@@ -1888,18 +1935,9 @@ function handleKeyResult(result: NonNullable<KeyResolution>, ev: KeyboardEvent) 
         return cur ? openKindSheet(cur.path) : undefined;
       }
       if (result.intent === "AddPickerCommit") return sendAddPick("AddPickerCommit");
-      // Keyboard exits from a sheet whose *content* is mode-driven: the tap
-      // handlers close it themselves, so these are the only paths that can
-      // leave a committed/cancelled picker on screen (the shared `kind` sheet
-      // is also used host-locally by `K`, so `render()` can't blanket-close it).
-      if (result.intent === "ExitAddPicker" || result.intent === "SchemaEnumCommit") {
-        closeSheets();
-        return send(result.intent);
-      }
-      if (result.intent === "Escape" && sheets.detail.classList.contains("open") && !isWide()) {
-        closeSheets();
-        return;
-      }
+      // A picker's sheet is closed by `render()`'s `kindSheetMode` check as its
+      // mode leaves, and a host-local sheet by the Escape branch in `onKey` -
+      // so no other intent needs a host-side close here.
       return send(result.intent);
     case "nav":
       if (result.preventDefault) ev.preventDefault();

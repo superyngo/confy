@@ -149,9 +149,16 @@ These are **decided, not accidental**. Do not "fix" them without changing this s
   (`openActionMenuFromKeyboard`); touch and the TUI let the intent through to core's
   `Mode::ActionMenu`.
 - **Touch key handling.** `web/touch/app.ts` reuses `resolveKeyIntent` verbatim — no touch-only
-  fork — then intercepts a few resolutions to open bottom sheets instead of core sub-modes
-  (`ToggleDetail`, `BeginEdit`, `OpenKindSwitch`). `BeginEditExternal` is deliberately *not*
-  intercepted: it falls through to `send()` and opens the ext sheet via the snapshot handshake.
+  fork — then intercepts a few resolutions to reach bottom sheets instead of core sub-modes
+  (`ToggleDetail`, `OpenKindSwitch`), and one *before* resolution: `Escape` dismisses an open
+  host-local sheet first (desktop closes a click-menu / the ext modal / the URL modal the same
+  way) and only reaches core when no sheet is open. `BeginEdit` and `BeginEditExternal` are
+  both dispatched raw so core does the routing; touch only backs out of `Mode::Edit`, the one
+  sub-mode it cannot render, into its detail sheet.
+- **`Escape` in `Mode::SchemaEnum`.** Desktop cancels the constrained-value picker from the
+  focused `<select>`'s own `keydown`/`blur`, so `resolveKeyIntent`'s `SchemaEnum` branch is
+  unreachable there; the branch exists for a host that focuses no widget (touch's value sheet),
+  which would otherwise have no keyboard exit from the picker.
 - **Page size.** The TUI pages by `terminal_height / 2`. The web has no fixed row height, so
   `treePageStep` derives the visible row count from the scroll-container ratio and halves it —
   same convention, measured differently.
