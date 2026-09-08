@@ -224,15 +224,30 @@ shapes round-trip). Key types:
 
   That diverted mode carries `from_kind_switch: true`, and desktop **routes it by widget, not
   by mode**: `renderKindPickerPop` draws it in the very `#kindMenu` popover the click came
-  from (anchored at the badge, click → `SchemaEnumMove` + `SchemaEnumCommit`, outside
-  click/Esc → `Escape`), while a keyboard `K` draws it in the `#overlay` list next to
+  from (anchored at the badge), while a keyboard `K` draws it in the `#overlay` list next to
   `Mode::KindSwitch` — mirroring the split the notation lists already have (click → popover,
   key → overlay). `render.ts::valuePicker` gates the inline `select[data-schema-enum]` off for
-  it, so the widget is never drawn twice. Both lists put their label in a `.kind-label`
-  (mono + `white-space:pre`), which is what lets core's padded `"<name>  <sample>"` columns
-  survive HTML's space collapsing — a notation switch and a datetime type switch are now the
-  same widget with the same columns. Touch is unaffected: its bottom sheet already served
-  both.
+  it, so the widget is never drawn twice.
+
+  Both popover lists paint through **one function, `paintKindMenu`** — same `Convert kind`
+  label, same disabled `Current: …` header + separator, same `.kind-label` cells, and the same
+  `kindMenuPath` bookkeeping, so the datetime list inherits every interaction the notation list
+  has: second click on the same badge toggles it shut, a click on another node closes it and
+  selects that node, another badge closes it and opens *that* node's list, right-click closes it
+  and opens the Action menu. Only the pick differs (`CommitKind` vs
+  `SchemaEnumMove`+`SchemaEnumCommit`, the latter also carrying a highlighted `cursor`).
+  Hand-rolling that markup separately is what left the first version of this picker without a
+  `Current:` row and without any of those interactions.
+
+  Because the mode is modal in core, `onTreeClick` **cancels** a live picker (`closePops` →
+  `Escape`) before the click's own navigation runs, and `closePops` itself cancels on any
+  dismissal — otherwise the click acted inside the picker's mode and the deferred outside-click
+  closer then shut whatever that click had just opened.
+
+  `.kind-label` (mono + `white-space:pre`) is what lets core's padded `"<name>  <sample>"`
+  columns survive HTML's space collapsing. The `Current:` row deliberately keeps the row
+  badge's own `{} · scope` wording — it names the node, not a target. Touch is unaffected: its
+  bottom sheet already served both.
 
   Right-click on a row → the
   centralized **Action menu** (`openActionMenuAt`). All popovers share one synchronous closer (a single outside-click

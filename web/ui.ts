@@ -1305,6 +1305,14 @@ function onTreeClick(ev: MouseEvent) {
   if (raw === undefined) return;
   const path = JSON.parse(raw) as Path;
 
+  // A live kind picker (the datetime `Mode::SchemaEnum` in the popover) is
+  // modal in core: it must be *cancelled*, not merely hidden, before this
+  // click's own navigation/edit runs — otherwise the click acts inside the
+  // picker's mode, and the deferred outside-click closer fires afterwards and
+  // shuts whatever the click just opened. `#kindMenu`'s own toggle-shut case
+  // is handled below, so exclude a second click on the *same* badge.
+  if (kindPickerState() && kindMenuPath !== JSON.stringify(path)) closePops();
+
   // Kind badge → toggle the kind-conversion popover (second click on the same
   // badge closes it).
   const kindEl = target.closest("[data-kind]") as HTMLElement | null;
@@ -1609,7 +1617,7 @@ let kindMenuPath: string | null = null;
 // appeared. `null` means the mode was entered from the keyboard (`K`), which
 // renders in the `#overlay` list — the same split the notation lists already
 // have (click → popover, key → overlay).
-let kindPickerAnchor: { x: number; y: number } | null = null;
+let kindPickerAnchor: { path: Path; x: number; y: number } | null = null;
 // Set while (re)opening that popover, so the `closePops()` inside `placePopAt`
 // doesn't read its own open as a dismissal and cancel the mode.
 let openingKindPicker = false;
@@ -1671,11 +1679,37 @@ function openKindMenuAt(path: Path, x: number, y: number) {
     // `core.kind-switch.unsupported`. Anchoring first makes the render pass
     // draw that mode in *this* popover (`renderKindPickerPop`), so a datetime
     // badge click yields the same list box as every other kind badge click.
-    kindPickerAnchor = { x, y };
+    kindPickerAnchor = { path, x, y };
     send("OpenKindSwitch");
     if (!kindPickerState()) kindPickerAnchor = null; // core declined
     return;
   }
+  paintKindMenu(path, x, y, opts.map((o) => o.label), null, (i) => {
+    closePops();
+    send({ CommitKind: { path, target: opts[i].target } });
+  });
+}
+
+// The one kind-option popover body — a notation switch (`kindOptions` →
+// `CommitKind`) and the datetime type switch (the `from_kind_switch` SchemaEnum
+// → `SchemaEnumMove`+`SchemaEnumCommit`) paint through here, so both get the
+// `Convert kind` label, the disabled `Current: …` header, the separator, the
+// `.kind-label` aligned columns, and — via `kindMenuPath` — the same
+// interactions the badge click path already had: a second click on the same
+// badge toggles it shut, a click anywhere else (another node included) closes
+// it through `popCloser`. The datetime list used to hand-roll its own markup
+// and skipped all of that.
+//
+// `cursor` is the highlighted index (the mode-driven list has one; a notation
+// list is stateless and passes `null`).
+function paintKindMenu(
+  path: Path,
+  x: number,
+  y: number,
+  labels: string[],
+  cursor: number | null,
+  onPick: (i: number) => void,
+) {
   const menu = $("kindMenu");
   // Disabled "Current: …" header (design's `目前：…` row) so the popup shows the
   // node's present kind/notation before listing the alternatives.
@@ -1687,20 +1721,19 @@ function openKindMenuAt(path: Path, x: number, y: number) {
   menu.innerHTML =
     `<div class="menu-label">Convert kind</div>` +
     cur +
-    opts
+    labels
       .map(
-        (o, i) =>
-          `<button class="menu-item" data-i="${i}"><span class="ic">${IC_CARET}</span><span class="kind-label">${escapeHtml(o.label)}</span></button>`,
+        (label, i) =>
+          `<button class="menu-item${i === cursor ? " sel" : ""}" data-i="${i}"><span class="ic">${IC_CARET}</span><span class="kind-label">${escapeHtml(label)}</span></button>`,
       )
       .join("");
+  openingKindPicker = true;
   placePopAt(menu, x, y); // calls closePops() first, which clears kindMenuPath
+  openingKindPicker = false;
   kindMenuPath = key;
   menu.querySelectorAll<HTMLElement>("[data-i]").forEach((b) => {
     const i = Number(b.dataset.i);
-    b.onclick = () => {
-      closePops();
-      send({ CommitKind: { path, target: opts[i].target } });
-    };
+    b.onclick = () => onPick(i);
   });
 }
 
@@ -1722,29 +1755,14 @@ function renderKindPickerPop() {
     return;
   }
   if (!kindPickerAnchor) return; // keyboard entry — `renderOverlay` draws it
-  const { x, y } = kindPickerAnchor;
-  const menu = $("kindMenu");
-  menu.innerHTML =
-    `<div class="menu-label">Convert kind</div>` +
-    st.options
-      .map(
-        (label, i) =>
-          `<button class="menu-item${i === st.cursor ? " sel" : ""}" data-i="${i}"><span class="ic">${IC_CARET}</span><span class="kind-label">${escapeHtml(label)}</span></button>`,
-      )
-      .join("");
-  openingKindPicker = true;
-  placePopAt(menu, x, y); // calls closePops(), which clears the anchor
-  openingKindPicker = false;
-  kindPickerAnchor = { x, y };
-  menu.querySelectorAll<HTMLElement>("[data-i]").forEach((b) => {
-    const i = Number(b.dataset.i);
-    b.onclick = () => {
-      // Commit uses whatever cursor index is current, so move first (same
-      // two-step the inline `<select>` and touch's sheet use).
-      send({ SchemaEnumMove: i - st.cursor });
-      send("SchemaEnumCommit");
-    };
+  const { path, x, y } = kindPickerAnchor;
+  paintKindMenu(path, x, y, st.options, st.cursor, (i) => {
+    // Commit uses whatever cursor index is current, so move first (same
+    // two-step the inline `<select>` and touch's sheet use).
+    send({ SchemaEnumMove: i - st.cursor });
+    send("SchemaEnumCommit");
   });
+  kindPickerAnchor = { path, x, y }; // `placePopAt`'s closePops() cleared it
 }
 
 function buildActionMenu(): HTMLElement {

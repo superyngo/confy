@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-08 (4)
+
+**Fixed**
+
+- **The datetime kind popover now *is* the kind popover, not a lookalike.** The previous entry
+  put it in the right element but built its own markup, so it silently lost everything the
+  notation list gets for free: no `Current: …` header and separator, and — because it never set
+  `kindMenuPath` — none of the popover interactions. A second click on the same badge reopened
+  instead of toggling shut, and a click on another node acted *inside* the still-open picker
+  mode (the deferred outside-click closer then shut whatever that click had just opened).
+
+  Both lists now paint through one function, `paintKindMenu`; only the pick differs
+  (`CommitKind` vs `SchemaEnumMove`+`SchemaEnumCommit`). Verified in a browser, datetime vs
+  table side by side: identical `Convert kind` / `Current: …` / separator / aligned-column
+  structure, and same badge → toggles shut, other node → closes + selects that node, other
+  badge → closes + opens that node's list, right-click → closes + opens the Action menu,
+  outside click / Esc → cancels with the document untouched.
+
+  `onTreeClick` also cancels a live picker before the click's own navigation runs: the mode is
+  modal in core, so hiding the popover without leaving the mode was never enough.
+
 ### Unreleased Update - 2026-09-08 (3)
 
 **Changed**
