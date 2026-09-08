@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-08 (12)
+
+**Fixed**
+
+- **A YAML flow-seq element's fragment is the element, not its collection.** A flow-seq *scalar*
+  element has no `Target` of its own — the projection indexes it as `Target::Element(<the whole
+  FLOW_SEQ>)`, since every edit needs the collection plus an ordinal — and `fragment_of` returned
+  that target's whole text. So every fragment capture over-captured: opening element 0 of
+  `g: [ 1, 2, 3 ]` in the multiline editor handed over `[ 1, 2, 3 ]` and saving nested the
+  collection into its own element (`g: [ [ 1, 2, 3 ], 2, 3 ]` — data loss); copying one element and
+  pasting produced a whole nested sequence; a `Move` of one element re-inserted the entire
+  collection in its place. `fragment_of` now takes the target's path and, for a `FLOW_SEQ`, slices
+  out the item at the path's ordinal (`flow::flow_item_text`, trailing whitespace excluded), so the
+  buffer is `1`, an untouched round trip is byte-identical, a real edit changes only that element,
+  and copy/`Move` carry the element alone. Flow *map members* were never affected (their target is
+  the `FLOW_ENTRY`).
+
 ### Unreleased Update - 2026-09-08 (11)
 
 **Fixed**

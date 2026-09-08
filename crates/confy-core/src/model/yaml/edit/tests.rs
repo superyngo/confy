@@ -191,6 +191,53 @@ fn fragment_of_comment() {
 }
 
 #[test]
+fn fragment_of_flow_seq_element_is_the_element_not_the_collection() {
+    // A flow-seq scalar element's `Target` is the whole FLOW_SEQ (every edit
+    // needs the collection + an ordinal), so the fragment used to be the entire
+    // `[ … ]` — a multiline edit of one element then nested the collection into
+    // itself (`g: [[ 1, 2, 3 ], 2, 3 ]`), and copy over-captured the same way.
+    let s = parse_syntax("g: [ 1, two, \"3 \" ]\n");
+    let g = |i: usize| serialize_fragment(&s, &[Seg::Key("g".into()), Seg::Index(i)]);
+    assert_eq!(g(0), "1");
+    assert_eq!(g(1), "two", "the padding before `]` is not part of it");
+    assert_eq!(g(2), "\"3 \"", "a quoted element keeps its inner space");
+    assert_eq!(g(3), "", "out of range");
+    // The collection itself still serializes whole.
+    assert_eq!(
+        serialize_fragment(&s, &[Seg::Key("g".into())]),
+        "g: [ 1, two, \"3 \" ]"
+    );
+}
+
+#[test]
+fn fragment_of_flow_map_member_is_the_member() {
+    let s = parse_syntax("f: { a: 1, b: 2 }\n");
+    assert_eq!(
+        serialize_fragment(&s, &[Seg::Key("f".into()), Seg::Key("b".into())]),
+        "b: 2"
+    );
+}
+
+#[test]
+fn move_a_flow_seq_element_carries_only_that_element() {
+    // `Move` captures its sources through the same `fragment_of`, so it used to
+    // re-insert the whole `[ … ]` in the element's place.
+    let out = apply_str(
+        "g: [ 1, 2 ]\nh:\n  k: v\n",
+        Mutation::Move {
+            sources: vec![vec![Seg::Key("g".into()), Seg::Index(0)]],
+            target: crate::model::document::Target {
+                parent: vec![Seg::Key("h".into())],
+                index: 1,
+            },
+            on_collision: OnCollision::Cancel,
+        },
+    )
+    .expect("move a flow-seq element out into a block map");
+    assert_eq!(out, "g: [ 2 ]\nh:\n  k: v\n  g_0: 1\n");
+}
+
+#[test]
 fn fragment_of_unknown_path_is_empty() {
     let s = parse_syntax("a: 1\n");
     assert_eq!(serialize_fragment(&s, &[Seg::Key("nope".into())]), "");

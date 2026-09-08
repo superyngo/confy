@@ -103,7 +103,10 @@ and each member is individually addressable/editable; replace/insert/delete/rena
 rebuild the `{…}` inline — **re-emitting the author's own inner spacing** (the padding after `{`,
 before `}`, and the member separator, captured by `flow_style`), while a *replace* splices over the
 member's/element's own span so an untouched edit is byte-identical; that span is taken trailing-
-whitespace-excluded, since a plain scalar token swallows the spaces before the closer. Block-producing
+whitespace-excluded, since a plain scalar token swallows the spaces before the closer. A flow-seq
+scalar element's `Target` *is* the whole `FLOW_SEQ` (an edit needs the collection plus an ordinal),
+so a fragment capture — copy, `Move`, the multiline editor — slices that one item out by the path's
+ordinal instead (`flow_item_text`). Block-producing
 converts on an inline member are rejected and the `K`
 popup hides them), 5 scalar styles (plain, single-quoted, double-quoted, literal `|`, folded `>` with
 chomping), `#` comments, and YAML 1.2 **core-schema typing** with **no datetime** (date-looking

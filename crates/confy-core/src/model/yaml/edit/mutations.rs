@@ -312,7 +312,7 @@ pub(crate) fn move_nodes(
     let captured: Vec<(Vec<Seg>, String)> = sources
         .iter()
         .map(|path| {
-            let frag = fragment_of(resolve_in(idx, path));
+            let frag = fragment_of(resolve_in(idx, path), path);
             if frag.is_empty() {
                 Err(MutateError::NotFound)
             } else {
@@ -438,14 +438,20 @@ pub(crate) fn comment_block_text(first: &crate::model::yaml::syntax::SyntaxToken
 
 /// Serialize the node at `path` as a standalone fragment (for clipboard / `$EDITOR`).
 pub fn serialize_fragment(syntax: &SyntaxNode, path: &[Seg]) -> String {
-    fragment_of(resolve(syntax, path))
+    fragment_of(resolve(syntax, path), path)
 }
 
 /// The fragment text of a resolved target (shared by `serialize_fragment` and
-/// index-based lookups that already hold a `Target`).
-pub(crate) fn fragment_of(target: Option<Target>) -> String {
+/// index-based lookups that already hold a `Target`). `path` is the target's own
+/// path — needed for a flow-seq element, whose `Target` is the whole collection
+/// and whose ordinal therefore only lives in the path's last `Seg::Index`.
+pub(crate) fn fragment_of(target: Option<Target>, path: &[Seg]) -> String {
     match target {
         Some(Target::MapEntry(entry)) => entry.text().to_string().trim_end().to_string(),
+        Some(Target::Element(entry)) if entry.kind() == SyntaxKind::FLOW_SEQ => match path.last() {
+            Some(Seg::Index(ord)) => super::flow::flow_item_text(&entry, *ord).unwrap_or_default(),
+            _ => String::new(),
+        },
         Some(Target::Element(entry)) => entry.text().to_string().trim_end().to_string(),
         Some(Target::Comment(tok)) => comment_block_text(&tok),
         Some(Target::Opaque(node)) => node.text().to_string().trim_end().to_string(),

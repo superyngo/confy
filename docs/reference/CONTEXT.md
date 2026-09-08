@@ -539,9 +539,13 @@ one parse per mutation, not two. KIND tags are the KIND-column vocabulary.
 | **SetTrailingBlankLines** | The one variant that is **not** a green-tree splice: a format-neutral text splice (`model/blank_lines.rs`) rewriting the blank run at an offset the backend supplies (`ConfigDocument::trailing_blank_anchor`). That anchor is the node's **contiguous extent end** — the same extent `Delete` covers — so a `[table]`'s run sits after its last member and a sub-table is *inside* it, not after it, and a branch's last child shares the branch's run (both anchors coincide). Two shared normalizations make the anchor trustworthy in every backend: **`anchor_at` retracts back over the run**, because several spans already swallow it (TOML's index-derived section extent, a YAML `MAP_ENTRY` whose value is a block map/seq/scalar, a JSON `//` comment token) and an anchor placed *after* a run makes it invisible — `count_after` reports 0 while the node's own `Replace` still overwrites the lines, silently deleting them; and **`owns_line_tail` rejects a node that doesn't own the end of its line** (only its separator comma, whitespace or a trailing comment may follow), so a member of a single-line `{ … }`/`[ … ]` reports `None` instead of claiming its container's run. A comment **block** anchors past its last line, not its first. Whitespace-only lines are normalized to empty; `n = 0` removes the run entirely; at EOF a terminating newline is emitted before the run. JSON keeps the separator comma *before* the run. `None` (⇒ `Unsupported`) for a YAML opaque node, any inline-collection member, and the whole-document path. |
 
 **Known rough edge:** multiline-array element insert/delete spacing is not yet byte-perfect.
-A YAML **flow-seq element**'s `serialize_fragment` returns the *whole* `[ … ]` (the element's
-resolver target is the collection), so opening one in the multiline editor and saving nests the
-collection into that element — copy has the same over-capture. Flow **members** are unaffected.
+
+**Flow fragments.** A YAML flow-seq *scalar* element has no `Target` of its own — the projection
+indexes it as `Target::Element(<the whole FLOW_SEQ>)`, since every edit needs the collection plus
+an ordinal — so `fragment_of` takes the path's last `Seg::Index` and slices that one item out
+(`flow::flow_item_text`, trailing whitespace excluded). Without it a copy, a `Move` capture, or a
+multiline edit of one element took the entire `[ … ]` and nested the collection into its own
+element. Flow *map members* are `Target::MapEntry(FLOW_ENTRY)` and need no such lookup.
 
 **Nesting cap.** Every backend parses by recursive descent (TOML through taplo), so container
 nesting is capped at `model::MAX_NESTING_DEPTH` (256): deeper input is a `ParseError`

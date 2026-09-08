@@ -3638,6 +3638,30 @@ fn editor_round_trip_keeps_a_padded_flow_maps_closing_space() {
     assert_eq!(s.serialize().unwrap(), "m: { a: 1, b: 2 }\nz: 3\n");
 }
 
+/// A flow-**seq** element's editor buffer is the element, not its collection:
+/// the projection indexes it as `Target::Element(<the FLOW_SEQ>)`, so the
+/// buffer used to be the whole `[ … ]` and saving nested it into its own
+/// element (`g: [[ 1, 2, 3 ], 2, 3 ]`).
+#[test]
+fn editor_round_trip_of_a_flow_seq_element_edits_only_that_element() {
+    let mut s = yaml_session("g: [ 1, 2, 3 ]\nz: 3\n");
+    s.dispatch(Intent::CursorDown);
+    s.dispatch(Intent::ToggleExpand);
+    s.dispatch(Intent::CursorDown);
+    let (path, buf) = open_editor(&mut s);
+    assert_eq!(buf, "1", "the element alone");
+    s.dispatch(Intent::ApplyReplace {
+        path: path.clone(),
+        text: buf,
+    });
+    assert_eq!(s.serialize().unwrap(), "g: [ 1, 2, 3 ]\nz: 3\n");
+    s.dispatch(Intent::ApplyReplace {
+        path,
+        text: "9".to_string(),
+    });
+    assert_eq!(s.serialize().unwrap(), "g: [ 9, 2, 3 ]\nz: 3\n");
+}
+
 /// The whole-document edit cannot carry a run either — the file's own trailing
 /// blank lines are part of its text, and trimming them into a run the commit
 /// then has no anchor to restore used to delete them outright.

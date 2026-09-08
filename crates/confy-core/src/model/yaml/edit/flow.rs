@@ -119,6 +119,19 @@ fn flow_item_spans(tree_text: &str, flow: &SyntaxNode) -> Vec<(usize, usize)> {
     }
 }
 
+/// The verbatim text of a flow collection's `ord`-th item, **trailing
+/// whitespace excluded**. A flow-seq *scalar* element has no `Target` of its
+/// own — the projection indexes it as `Target::Element(<the whole FLOW_SEQ>)`,
+/// since every edit needs the collection plus an ordinal — so a fragment
+/// capture (copy, `$EDITOR`, `Move`) resolving that path would otherwise take
+/// the entire `[ … ]` and nest the collection into its own element.
+pub(crate) fn flow_item_text(flow: &SyntaxNode, ord: usize) -> Option<String> {
+    let root = flow.ancestors().last().unwrap_or_else(|| flow.clone());
+    let text = root.to_string();
+    let (s, e) = flow_item_spans(&text, flow).into_iter().nth(ord)?;
+    Some(text[s..e].to_string())
+}
+
 /// The author's own inner spacing of a flow collection, so a rebuild re-emits
 /// their style instead of a canonical `{a, b}`: the padding after the opener,
 /// the padding before the closer, and the member separator (`, ` / `,`).
