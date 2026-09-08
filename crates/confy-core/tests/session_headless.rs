@@ -3662,6 +3662,66 @@ fn editor_round_trip_of_a_flow_seq_element_edits_only_that_element() {
     assert_eq!(s.serialize().unwrap(), "g: [ 9, 2, 3 ]\nz: 3\n");
 }
 
+/// BEHAVIOR_MATRIX tables A/C, "own external precise edit": an item of a
+/// one-line flow collection captures **that item alone** in every backend, and
+/// committing the untouched buffer is byte-identical (the collection's authored
+/// padding included). Both rows read `⚠ whole repr` until the two YAML flow
+/// fixes; nothing in any backend truncates to the whole collection.
+#[test]
+fn external_edit_of_a_flow_item_is_precise_in_every_backend() {
+    let cases: &[(&str, DocFormat, Vec<Seg>, &str)] = &[
+        (
+            "a = [ 1, 2, 3 ]\n",
+            DocFormat::Toml,
+            vec![Seg::Key("a".into()), Seg::Index(1)],
+            "2\n",
+        ),
+        (
+            "t = { x = 1, y = 2 }\n",
+            DocFormat::Toml,
+            vec![Seg::Key("t".into()), Seg::Key("y".into())],
+            "y = 2 \n",
+        ),
+        (
+            "{ \"a\": [ 1, 2, 3 ] }\n",
+            DocFormat::Json,
+            vec![Seg::Key("a".into()), Seg::Index(1)],
+            "2",
+        ),
+        (
+            "{ \"t\": { \"x\": 1, \"y\": 2 } }\n",
+            DocFormat::Json,
+            vec![Seg::Key("t".into()), Seg::Key("y".into())],
+            "\"y\": 2",
+        ),
+        (
+            "g: [ 1, 2, 3 ]\n",
+            DocFormat::Yaml,
+            vec![Seg::Key("g".into()), Seg::Index(1)],
+            "2",
+        ),
+        (
+            "f: { a: 1, b: 2 }\n",
+            DocFormat::Yaml,
+            vec![Seg::Key("f".into()), Seg::Key("b".into())],
+            "b: 2",
+        ),
+    ];
+    for (src, fmt, p, want) in cases {
+        let doc = AnyDocument::from_str_as(src, *fmt).unwrap();
+        let mut s = Session::new(doc);
+        let (path, wrap) = s.external_edit_path(p);
+        let buf = s.multiline_edit_initial(&path);
+        assert_eq!(&buf, want, "buffer for {p:?} in {src:?}");
+        s.apply_external_replace(path, buf, wrap);
+        assert_eq!(
+            &s.serialize().unwrap(),
+            src,
+            "untouched round trip of {p:?} in {src:?}"
+        );
+    }
+}
+
 /// The whole-document edit cannot carry a run either — the file's own trailing
 /// blank lines are part of its text, and trimming them into a run the commit
 /// then has no anchor to restore used to delete them outright.

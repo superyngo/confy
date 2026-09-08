@@ -545,7 +545,9 @@ indexes it as `Target::Element(<the whole FLOW_SEQ>)`, since every edit needs th
 an ordinal — so `fragment_of` takes the path's last `Seg::Index` and slices that one item out
 (`flow::flow_item_text`, trailing whitespace excluded). Without it a copy, a `Move` capture, or a
 multiline edit of one element took the entire `[ … ]` and nested the collection into its own
-element. Flow *map members* are `Target::MapEntry(FLOW_ENTRY)` and need no such lookup.
+element. Flow *map members* are `Target::MapEntry(FLOW_ENTRY)` and need no such lookup. A *nested
+flow collection* used as a flow-seq element (`g: [ {x: 1}, 2 ]`, index 0) is indexed by neither, so
+its fragment is empty and every mutation on it returns `NotFound` — see the matrix note ³.
 
 **Nesting cap.** Every backend parses by recursive descent (TOML through taplo), so container
 nesting is capped at `model::MAX_NESTING_DEPTH` (256): deeper input is a `ParseError`
@@ -618,9 +620,15 @@ decides whether children are keyed (seq elements are keyless → no rename / no 
 | behavior \ parent | global | seq-flow | seq-block | map-flow | map-block |
 |---|---|---|---|---|---|
 | own trailing comment | ✓ | ✗ flow | ✓ | ✗ flow | ✓ |
-| own external precise edit | ✓ | ⚠ whole repr | ✓ | ⚠ whole repr | ✓ |
+| own external precise edit | ✓ | ✓ ³ | ✓ | ✓ | ✓ |
 | add: collapsed → sibling | ✓ | ✓ rebuild | ✓ | ✓ rebuild | ✓ |
 | paste-in forming | — | see *Insert / move legality* table | | | |
+
+³ A flow parent's child has no own line for a trailing comment, but *is* precisely addressable — the
+splice patches or rebuilds the one-line `[…]`/`{…}` around it, keeping the authored padding and
+separators. **One gap:** a nested flow collection used as a YAML flow-**seq** element
+(`g: [ {x: 1}, 2 ]`, index 0) has no projected `Target`, so every mutation on it returns `NotFound`
+(document untouched, nothing truncated). Reached through a *key* (`f: { n: {x: 1} }`) it is precise.
 
 ### B — Branch node as a container (governed by **self**; column = its own scope)
 
@@ -642,7 +650,7 @@ that holds only inline-representable children can collapse to flow.
 | behavior \ parent | global | seq-flow | seq-block | map-flow | map-block |
 |---|---|---|---|---|---|
 | own trailing comment | ✓ | ✗ flow | ✓ multiline elem | ✗ flow | ✓ |
-| own external precise edit | ✓ | ⚠ whole repr | ✓ just the element | ⚠ whole repr | ✓ |
+| own external precise edit | ✓ | ✓ just the element | ✓ just the element | ✓ just the member | ✓ |
 | inline editor | ✓ single-line | ✓ as repr | ✓ | ✓ | ✓ (multiline str → `$EDITOR`) |
 
 **Criterion — universal scalar inline editing.** Every **single-line scalar** leaf is inline-editable

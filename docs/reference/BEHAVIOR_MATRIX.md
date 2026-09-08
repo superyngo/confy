@@ -57,13 +57,18 @@ How a container behaves *as an item inside another container*.
 | behavior \ parent scope | global | seq-flow | seq-block | map-flow | map-block |
 |---|---|---|---|---|---|
 | own trailing comment | ✓ | ✗ (flow) | ✓ | ✗ (flow) | ✓ |
-| own external precise edit | ✓ | ⚠ whole repr | ✓ | ⚠ whole repr | ✓ |
+| own external precise edit | ✓ | ✓ ³ | ✓ | ✓ | ✓ |
 | add: collapsed → sibling | ✓ | ✓ (rebuild) | ✓ | ✓ (rebuild) | ✓ |
 | paste-in forming | — | see *Insert / move legality* in `CONTEXT.md` | | | |
 
 - **flow parents (seq-flow / map-flow)** hold their children on one line, so a child has no own line
-  for a trailing comment (✗) and isn't independently `Replace`-addressable as text — an external edit
-  takes the **whole inline repr** (⚠).
+  for a trailing comment (✗) — but it *is* precisely addressable: the splice patches or rebuilds the
+  one-line `[ … ]` / `{ … }` around it, so an external edit captures and replaces that child alone
+  (§6.3), keeping the collection's authored padding and separators byte-for-byte.
+- ³ **One gap:** a *nested flow collection used as a YAML flow-seq element* (`g: [ {x: 1}, 2 ]`,
+  index 0) has no projected `Target` of its own, so every mutation on it returns `NotFound` — the
+  document is untouched, nothing is truncated. A nested flow collection reached through a *key*
+  (a flow-map member, `f: { n: {x: 1} }`) is precise.
 - **paste-in forming** is one instance of the cross-platform `PasteSlot` targeting model —
   ADR 0004.
 
@@ -102,7 +107,7 @@ How a scalar (or comment) behaves *as an item inside a container*.
 | behavior \ parent scope | global | seq-flow | seq-block | map-flow | map-block |
 |---|---|---|---|---|---|
 | own trailing comment | ✓ | ✗ (flow) | ✓ (multiline elem) | ✗ (flow) | ✓ |
-| own external precise edit | ✓ | ⚠ whole repr | ✓ just the element | ⚠ whole repr | ✓ |
+| own external precise edit | ✓ | ✓ just the element | ✓ just the element | ✓ just the member | ✓ |
 | inline editor | ✓ single-line | ✓ as repr | ✓ | ✓ | ✓ (multiline str → `$EDITOR`) |
 | add: collapsed leaf → sibling | ✓ | ✓ | ✓ | ✓ | ✓ |
 
@@ -154,6 +159,14 @@ See table B, note ².
   directly too: the inline splice rebuilds the enclosing `{ … }` / `[ … ]` element in place. So the
   whole path is kept and the edit lands precisely (this closed the last TOML/JSON gap; earlier those
   truncated to the whole array).
+- An **item of a one-line flow collection** captures that item alone — the flow-map member
+  (`b: 2`), the flow-seq element (`1`), the inline-table member (`y = 2`), the JSON object member
+  (`"y": 2`) — and its commit splices over the item's own **trailing-whitespace-excluded** span, so
+  the collection's authored padding survives an untouched round trip byte-for-byte. A YAML flow-seq
+  *scalar* element is the one item with no `Target` of its own (the projection indexes it as the
+  whole collection plus an ordinal), so its fragment is sliced out by that ordinal
+  (`flow::flow_item_text`); without it the capture was the entire `[ … ]`. The residual gap is
+  table A's note ³.
 
 ---
 

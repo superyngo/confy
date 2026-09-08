@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-08 (13)
+
+**Docs**
+
+- **The behavior matrix's "own external precise edit" rows were stale.** Tables A and C read
+  `⚠ whole repr` for both flow parent scopes (seq-flow / map-flow) — a claim that already
+  contradicted §6.3 ("captures and Replaces just the edited node in every backend") and is now
+  measurably wrong in all six combinations: a TOML inline-array element / inline-table member, a
+  JSON array element / object member, and a YAML flow-seq element / flow-map member each capture
+  that item alone and round-trip byte-identically. Corrected in `BEHAVIOR_MATRIX.md` and its
+  `CONTEXT.md` copy, with the per-item capture rule spelled out in §6.3, and pinned by
+  `external_edit_of_a_flow_item_is_precise_in_every_backend`.
+- **One residual gap recorded** (found by that survey, not fixed): a nested flow collection used as
+  a YAML flow-**seq** element (`g: [ {x: 1}, 2 ]`, index 0) is indexed by neither the scalar-element
+  nor the member rule, so its fragment is empty and every mutation on it returns `NotFound` — the
+  document is untouched and nothing is truncated. Reached through a *key*
+  (`f: { n: {x: 1} }`) it is precise. Table A note ³, and pinned by
+  `a_nested_flow_collection_as_a_seq_element_is_unaddressable`.
+
 ### Unreleased Update - 2026-09-08 (12)
 
 **Fixed**

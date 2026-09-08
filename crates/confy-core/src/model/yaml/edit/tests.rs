@@ -238,6 +238,36 @@ fn move_a_flow_seq_element_carries_only_that_element() {
 }
 
 #[test]
+fn a_nested_flow_collection_as_a_seq_element_is_unaddressable() {
+    // BEHAVIOR_MATRIX table A note ³: a nested `{…}`/`[…]` used as a flow-seq
+    // element has no projected `Target` (a scalar element's is the whole
+    // FLOW_SEQ, a member's is its FLOW_ENTRY — neither covers this), so its
+    // fragment is empty and every mutation returns NotFound, leaving the
+    // document untouched. Recorded as a gap, not silently corrupting.
+    for src in ["g: [ {x: 1}, 2 ]\n", "g: [ [1, 2], 3 ]\n"] {
+        let s = parse_syntax(src);
+        let p = vec![Seg::Key("g".into()), Seg::Index(0)];
+        assert_eq!(serialize_fragment(&s, &p), "", "fragment for {src:?}");
+        let r = apply_str(
+            src,
+            Mutation::Replace {
+                path: p.clone(),
+                fragment: "{x: 9}".into(),
+            },
+        );
+        assert!(
+            matches!(r, Err(MutateError::NotFound)),
+            "replace on a nested flow element expected NotFound, got {r:?}"
+        );
+        let r = apply_str(src, Mutation::Delete { path: p });
+        assert!(
+            matches!(r, Err(MutateError::NotFound)),
+            "delete on a nested flow element expected NotFound, got {r:?}"
+        );
+    }
+}
+
+#[test]
 fn fragment_of_unknown_path_is_empty() {
     let s = parse_syntax("a: 1\n");
     assert_eq!(serialize_fragment(&s, &[Seg::Key("nope".into())]), "");
