@@ -1707,16 +1707,52 @@ fn member_line_end(tree: &SyntaxNode, path: &[Seg]) -> Result<usize, MutateError
     Ok(cut_start)
 }
 
-/// The byte offset just past the member at `path`'s line — the anchor
+/// The byte offset just past the node at `path`'s line — the anchor
 /// `Mutation::SetTrailingBlankLines` splices at. A member's separator comma
 /// belongs to its own line, so it stays *before* the blank run; anything else
-/// on the line (a `//` trailing comment) does too.
+/// on the line (a `//` trailing comment) does too. A standalone `//` **block**
+/// anchors past its *last* line, not its first: consecutive `//` lines project
+/// as one Comment node, so the run belongs after the whole block (a
+/// `BLOCK_COMMENT` is read-only and stays `Unsupported`).
 pub(crate) fn extent_end_offset(tree: &SyntaxNode, path: &[Seg]) -> Result<usize, MutateError> {
-    let member_end = member_line_end(tree, path)?;
-    Ok(crate::model::blank_lines::line_boundary_at(
-        &tree.to_string(),
-        member_end,
-    ))
+    let end = match resolve(tree, path) {
+        Some(Target::Comment(tok)) => comment_block_end(&tok),
+        _ => member_line_end(tree, path)?,
+    };
+    let full = tree.to_string();
+    // A member of a single-line `{ … }`/`[ … ]` has no run of its own
+    // (`blank_lines::owns_line_tail`).
+    if !crate::model::blank_lines::owns_line_tail(&full, end, &["//", "/*"]) {
+        return Err(MutateError::Unsupported);
+    }
+    Ok(crate::model::blank_lines::anchor_at(&full, end))
+}
+
+/// The byte offset just past the last `//` line of the standalone comment block
+/// starting at `first` — the walk [`comment_block_text`] does, reported as an
+/// offset instead of text, so the block's text and its extent cannot disagree.
+fn comment_block_end(first: &SyntaxToken) -> usize {
+    let mut end: usize = first.text_range().end().into();
+    let mut sib = first.next_sibling_or_token();
+    let mut newlines = 0u32;
+    while let Some(el) = sib {
+        match el.kind() {
+            SyntaxKind::WHITESPACE => {}
+            SyntaxKind::NEWLINE => {
+                newlines += 1;
+                if newlines >= 2 {
+                    break; // blank line ends the block
+                }
+            }
+            SyntaxKind::LINE_COMMENT if newlines == 1 => {
+                end = el.text_range().end().into();
+                newlines = 0;
+            }
+            _ => break,
+        }
+        sib = el.next_sibling_or_token();
+    }
+    end
 }
 
 /// `Mutation::SetTrailingBlankLines` — rewrite the blank run after the member

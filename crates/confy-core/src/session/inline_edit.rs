@@ -651,8 +651,10 @@ impl Session {
     /// (`blank_lines::with_trailing_run`), so the run is edited as literal
     /// empty lines the user can add to or delete rather than through a separate
     /// action; the commit half is `apply_external_replace`/`apply_edit_comment`.
-    /// A node that cannot carry a run (a YAML flow member or opaque span, the
-    /// whole-document edit) packages zero blanks and reads exactly as before.
+    /// A node that cannot carry a run (the whole-document edit, a YAML flow
+    /// member or opaque span) packages its fragment **verbatim** — trimming
+    /// blank lines the commit cannot then restore would delete a file's own
+    /// trailing blanks on the first whole-document edit.
     pub fn multiline_edit_initial(&self, path: &Path) -> String {
         let Some(doc) = self.doc.as_ref() else {
             return String::new();
@@ -661,8 +663,10 @@ impl Session {
         if fragment.is_empty() {
             return String::new();
         }
-        let n = doc.trailing_blank_lines(path).unwrap_or(0);
-        crate::model::blank_lines::with_trailing_run(&fragment, n)
+        match doc.trailing_blank_lines(path) {
+            Some(n) => crate::model::blank_lines::with_trailing_run(&fragment, n),
+            None => fragment,
+        }
     }
 
     /// External-editor commit (host popup / TUI `$EDITOR`): `text` is the
@@ -680,7 +684,7 @@ impl Session {
     /// through to `Replace`'s "preserve the old comment when the fragment is
     /// silent about it" default (comment-advisory follow-up issue #4).
     pub fn apply_external_replace(&mut self, path: Path, text: String, wrap_element: bool) {
-        let (body, blanks) = crate::model::blank_lines::split_trailing_run(&text);
+        let (body, blanks) = self.split_packaged_blank(&path, text);
         let body = if wrap_element {
             match self.doc.as_ref() {
                 Some(d) => d.scalar_fragment(None, body.trim_end_matches('\n')),
@@ -702,8 +706,26 @@ impl Session {
                 self.pending_trailing = Some(None);
             }
         }
-        self.pending_blank = Some(blanks);
+        self.pending_blank = blanks;
         self.apply_replace(path, body);
+    }
+
+    /// The buffer half of the multiline-editor package: split an edited buffer
+    /// into `(body, Some(trailing blank lines))`, or — when the node at `path`
+    /// **cannot carry a run** (the whole-document edit, a YAML flow member or
+    /// opaque span) — hand the text back verbatim with `None`, since
+    /// `multiline_edit_initial` packaged no run in either.
+    fn split_packaged_blank(&self, path: &Path, text: String) -> (String, Option<usize>) {
+        let carries = self
+            .doc
+            .as_ref()
+            .and_then(|d| d.trailing_blank_anchor(path))
+            .is_some();
+        if !carries {
+            return (text, None);
+        }
+        let (body, n) = crate::model::blank_lines::split_trailing_run(&text);
+        (body, Some(n))
     }
 
     pub fn apply_replace(&mut self, path: Path, edited: String) {
@@ -832,7 +854,7 @@ impl Session {
     /// off, or `EditComment` would splice them *inside* the comment block —
     /// where a blank line splits it into two projected nodes.
     pub fn apply_edit_comment(&mut self, path: Path, text: String) {
-        let (body, blanks) = crate::model::blank_lines::split_trailing_run(&text);
+        let (body, blanks) = self.split_packaged_blank(&path, text);
         let doc = match self.doc.as_mut() {
             Some(d) => d,
             None => return,
@@ -842,7 +864,7 @@ impl Session {
             text: body,
         }) {
             Ok(text) => {
-                let text = self.apply_packaged_blank(&path, Some(blanks), text);
+                let text = self.apply_packaged_blank(&path, blanks, text);
                 self.on_mutation_success(None, text)
             }
             Err(MutateError::Fragment(msg)) => {

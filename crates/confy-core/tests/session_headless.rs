@@ -3607,16 +3607,181 @@ fn editor_buffer_packages_a_comment_nodes_run() {
     assert_eq!(s.serialize().unwrap(), "# edited\na = 1\n");
 }
 
-/// A node that cannot carry a run (a YAML flow member) packages none, and the
-/// buffer reads exactly as it did before the package existed.
+/// A node that cannot carry a run (a YAML flow member) packages none, and its
+/// fragment is handed over **verbatim** — no trailing newline invented, so an
+/// untouched buffer still round-trips byte-identically.
 #[test]
 fn editor_buffer_packages_nothing_for_a_flow_member() {
     let mut s = yaml_session("m: {a: 1, b: 2}\n");
     s.dispatch(Intent::CursorDown);
     s.dispatch(Intent::ToggleExpand);
     s.dispatch(Intent::CursorDown);
-    let (_, buf) = open_editor(&mut s);
-    assert_eq!(buf, "a: 1\n", "no run to package");
+    let (path, buf) = open_editor(&mut s);
+    assert_eq!(buf, "a: 1", "no run to package, no newline invented");
+    s.dispatch(Intent::ApplyReplace { path, text: buf });
+    assert_eq!(s.serialize().unwrap(), "m: {a: 1, b: 2}\n");
+}
+
+/// The whole-document edit cannot carry a run either — the file's own trailing
+/// blank lines are part of its text, and trimming them into a run the commit
+/// then has no anchor to restore used to delete them outright.
+#[test]
+fn editor_buffer_keeps_a_files_trailing_blanks_on_a_whole_document_edit() {
+    for src in ["a = 1\n\n\n", "a = 1\n\n\nb = 2"] {
+        let mut s = toml_session(src);
+        let (path, buf) = open_editor(&mut s);
+        assert_eq!(buf, src, "the root packages its text verbatim");
+        s.dispatch(Intent::ApplyReplace { path, text: buf });
+        assert_eq!(s.serialize().unwrap(), src, "round trip of {src:?}");
+    }
+}
+
+/// A node whose *span* already swallows the blank lines after it — a YAML block
+/// map/sequence/scalar entry, a JSON `//` comment block — must still package
+/// them: the anchor retracts over the run (`blank_lines::anchor_at`). Without
+/// that the buffer carried nothing while the node's own splice overwrote the
+/// lines, silently deleting them and pulling the next node up.
+#[test]
+fn editor_buffer_packages_a_run_its_span_swallows() {
+    let cases: &[(DocFormat, &str, &str)] = &[
+        (
+            DocFormat::Yaml,
+            "m:\n  a: 1\n\n\nz: 3\n",
+            "m:\n  a: 1\n\n\n",
+        ),
+        (
+            DocFormat::Yaml,
+            "s:\n  - one\n\n\nz: 3\n",
+            "s:\n  - one\n\n\n",
+        ),
+        (
+            DocFormat::Yaml,
+            "notes: |\n  hi\n\n\nz: 3\n",
+            "notes: |\n  hi\n\n\n",
+        ),
+        (
+            DocFormat::Yaml,
+            "notes: >\n  hi\n\n\nz: 3\n",
+            "notes: >\n  hi\n\n\n",
+        ),
+    ];
+    for (fmt, src, want) in cases {
+        let mut s = Session::new(AnyDocument::from_str_as(src, *fmt).unwrap());
+        s.dispatch(Intent::CursorDown);
+        let (path, buf) = open_editor(&mut s);
+        assert_eq!(&buf.as_str(), want, "buffer for {src:?}");
+        s.dispatch(Intent::ApplyReplace {
+            path: path.clone(),
+            text: buf,
+        });
+        assert_eq!(s.serialize().unwrap(), *src, "round trip of {src:?}");
+        // …and deleting them in the buffer really removes them.
+        let (path2, buf2) = open_editor(&mut s);
+        s.dispatch(Intent::ApplyReplace {
+            path: path2,
+            text: buf2.trim_end_matches('\n').to_string() + "\n",
+        });
+        assert_eq!(
+            s.serialize().unwrap(),
+            src.replace("\n\n\n", "\n"),
+            "blank deletion for {src:?}"
+        );
+        let _ = path;
+    }
+}
+
+/// A JSON `//` comment block anchors past its **last** line, so its run is
+/// packaged (and an untouched buffer does not eat it).
+#[test]
+fn editor_buffer_packages_a_json_comment_blocks_run() {
+    let src = "{\n  // a\n  // b\n\n\n  \"x\": 1\n}\n";
+    let mut s = Session::new(AnyDocument::from_str_as(src, DocFormat::Json).unwrap());
+    s.dispatch(Intent::CursorDown);
+    let (path, buf) = open_editor(&mut s);
+    assert_eq!(buf, "// a\n// b\n\n\n");
+    s.dispatch(Intent::ApplyEditComment { path, text: buf });
+    assert_eq!(s.serialize().unwrap(), src);
+}
+
+/// A member of a single-line `{ … }`/`[ … ]` owns no line, so it carries no run
+/// at all — otherwise every member of `t = { a = 1, b = 2 }` would claim, and
+/// rewrite, the blank lines after the *container's* line.
+#[test]
+fn an_inline_collection_member_carries_no_blank_run() {
+    let cases: &[(DocFormat, &str, Vec<Seg>)] = &[
+        (
+            DocFormat::Toml,
+            "t = { a = 1, b = 2 }\n\n\nc = 3\n",
+            vec![Seg::Key("t".into()), Seg::Key("a".into())],
+        ),
+        (
+            DocFormat::Toml,
+            "arr = [1, 2]\n\n\nc = 3\n",
+            vec![Seg::Key("arr".into()), Seg::Index(0)],
+        ),
+        (
+            DocFormat::Json,
+            "{ \"a\": 1, \"b\": 2 }\n\n\n",
+            vec![Seg::Key("a".into())],
+        ),
+        (
+            DocFormat::Yaml,
+            "f: { a: 1, b: 2 }\n\n\nz: 3\n",
+            vec![Seg::Key("f".into()), Seg::Key("a".into())],
+        ),
+    ];
+    for (fmt, src, path) in cases {
+        let doc = AnyDocument::from_str_as(src, *fmt).unwrap();
+        assert_eq!(
+            doc.trailing_blank_lines(path),
+            None,
+            "{fmt:?} {src:?} {path:?}"
+        );
+    }
+    // …but a multiline array's element does own its line and keeps its run.
+    let doc = AnyDocument::from_str_as("arr = [\n  1,\n\n\n  2,\n]\n", DocFormat::Toml).unwrap();
+    assert_eq!(
+        doc.trailing_blank_lines(&[Seg::Key("arr".into()), Seg::Index(0)]),
+        Some(2)
+    );
+}
+
+/// A TOML comment **block**'s run sits after its last line, not its first.
+#[test]
+fn a_toml_comment_blocks_run_follows_the_whole_block() {
+    let doc = AnyDocument::from_str_as("# a\n# b\n\n\nx = 1\n", DocFormat::Toml).unwrap();
+    assert_eq!(doc.trailing_blank_lines(&[Seg::Index(0)]), Some(2));
+}
+
+/// The run between two siblings belongs to the **earlier sibling**, and a run at
+/// a branch's end belongs to its **last child and the branch alike** — one run,
+/// reachable from every node it trails, because each node's anchor is its own
+/// contiguous extent end and those coincide.
+#[test]
+fn a_run_at_a_branchs_end_belongs_to_its_last_child_too() {
+    let src = "[about]\n# c\nname = \"n\"\n\npitch = \"p\"\n\n\n\n[b]\nq = 1\n";
+    let about = vec![Seg::Key("about".into())];
+    let name = vec![Seg::Key("about".into()), Seg::Key("name".into())];
+    let pitch = vec![Seg::Key("about".into()), Seg::Key("pitch".into())];
+    let doc = AnyDocument::from_str_as(src, DocFormat::Toml).unwrap();
+    assert_eq!(doc.trailing_blank_lines(&name), Some(1), "its own run");
+    assert_eq!(doc.trailing_blank_lines(&pitch), Some(3));
+    assert_eq!(
+        doc.trailing_blank_anchor(&pitch),
+        doc.trailing_blank_anchor(&about),
+        "the last child's run IS the branch's run"
+    );
+
+    // Editing it through the last child moves the branch's count with it.
+    let mut s = Session::new(AnyDocument::from_str_as(src, DocFormat::Toml).unwrap());
+    s.apply_external_replace(pitch.clone(), "pitch = \"p\"\n".to_string(), false);
+    let doc = s.doc.as_ref().unwrap();
+    assert_eq!(doc.trailing_blank_lines(&pitch), Some(0));
+    assert_eq!(doc.trailing_blank_lines(&about), Some(0));
+    assert_eq!(
+        s.serialize().unwrap(),
+        "[about]\n# c\nname = \"n\"\n\npitch = \"p\"\n[b]\nq = 1\n"
+    );
 }
 
 /// An invalid fragment leaves the document — blank run included — untouched.

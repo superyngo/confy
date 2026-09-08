@@ -91,11 +91,18 @@ pub(crate) fn extent_end_offset(
             }
             usize::from(n.text_range().end())
         }
+        // A comment *block*: past its last `#` line. Consecutive lines project
+        // as one Comment node, so the run follows the whole block. The token
+        // spans the block already (the lexer merges the run), so its own end is
+        // the block's end.
         Target::Comment(t) => usize::from(t.text_range().end()),
         Target::Opaque(_) => return Err(MutateError::Unsupported),
     };
-    Ok(crate::model::blank_lines::line_boundary_at(
-        &tree.to_string(),
-        at,
-    ))
+    let full = tree.to_string();
+    // Belt and braces with the FLOW check above: the shared line-ownership rule
+    // (`blank_lines::owns_line_tail`) states it for every backend.
+    if !crate::model::blank_lines::owns_line_tail(&full, at, &["#"]) {
+        return Err(MutateError::Unsupported);
+    }
+    Ok(crate::model::blank_lines::anchor_at(&full, at))
 }

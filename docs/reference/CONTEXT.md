@@ -536,9 +536,12 @@ one parse per mutation, not two. KIND tags are the KIND-column vocabulary.
 | **Rename** | Swaps **only the key token in place** (position-preserving, collision-checked). Rewrites the **whole** key for a dotted rename (`foo` → `foo.x` converts the scalar into a `[T/D]` table). No separate user action — driven by the UI's rename flow. |
 | **Move** | Atomic: delete-before-reinsert on a scratch tree, committed only on success, so a same-scope reposition is a move, not a `Key already exists` collision. An `[A/T]` *entry* moved/copied out of its array splits into member fragments; into a table/root the body lines land as nodes (**sub-sections flattened to dotted**: `[fruit.physical]` `color` → `physical.color`, `aot_entry_member_fragments`); a **move** into another `[A/T]` *group* lands **atomically** instead — nested `[table]` sub-sections are reconstructed as nested sections under the new entry, not flattened (`aot_entry_section_body`, ADR 0004 §3). A **copy** — or a plain-array destination, move or copy — still flattens to dotted fragments: capture always pre-flattens (`aot_entry_member_fragments`), and array elements are inline values that cannot carry `[table]` headers (`dest_is_aot` gates the atomic path to `ArrayOfTables` destinations only). A whole-`[A/T]`-*group* Move degrades to `Unsupported`. A nested `[[…]]` sub-group has no dotted/atomic form either way: Move → `Unsupported`, Copy → full-section capture. |
 | **Remark / EditComment / InsertComment** | Comments are first-class — see *Comment* / *Trailing comment*. Remark on an **array element** is YAML-only, by design: YAML comments are first-class line tokens attachable to any sequence item, while TOML's array is a single-token span and JSON's is a comma-list — neither has a per-element comment syntax to splice into. TOML and JSON return `Unsupported`/`Illegal` for `Target::ArrayElement`; this is a genuine format-capability difference, not a bug. |
-| **SetTrailingBlankLines** | The one variant that is **not** a green-tree splice: a format-neutral text splice (`model/blank_lines.rs`) rewriting the blank run at an offset the backend supplies (`ConfigDocument::trailing_blank_anchor`). That anchor is the node's **contiguous extent end** — the same extent `Delete` covers — so a `[table]`'s run sits after its last member and a sub-table is *inside* it, not after it. TOML's index-derived section extent already swallows the existing separator blank, so the anchor **retracts back over trailing blanks** first; without that, "remove the blanks after `[t]`" silently no-ops. Whitespace-only lines are normalized to empty; `n = 0` removes the run entirely; at EOF a terminating newline is emitted before the run. JSON keeps the separator comma *before* the run. YAML returns `Unsupported` (via a `None` anchor) for an opaque node and for a flow-collection member — a `{ … }` member has no line of its own to follow. |
+| **SetTrailingBlankLines** | The one variant that is **not** a green-tree splice: a format-neutral text splice (`model/blank_lines.rs`) rewriting the blank run at an offset the backend supplies (`ConfigDocument::trailing_blank_anchor`). That anchor is the node's **contiguous extent end** — the same extent `Delete` covers — so a `[table]`'s run sits after its last member and a sub-table is *inside* it, not after it, and a branch's last child shares the branch's run (both anchors coincide). Two shared normalizations make the anchor trustworthy in every backend: **`anchor_at` retracts back over the run**, because several spans already swallow it (TOML's index-derived section extent, a YAML `MAP_ENTRY` whose value is a block map/seq/scalar, a JSON `//` comment token) and an anchor placed *after* a run makes it invisible — `count_after` reports 0 while the node's own `Replace` still overwrites the lines, silently deleting them; and **`owns_line_tail` rejects a node that doesn't own the end of its line** (only its separator comma, whitespace or a trailing comment may follow), so a member of a single-line `{ … }`/`[ … ]` reports `None` instead of claiming its container's run. A comment **block** anchors past its last line, not its first. Whitespace-only lines are normalized to empty; `n = 0` removes the run entirely; at EOF a terminating newline is emitted before the run. JSON keeps the separator comma *before* the run. `None` (⇒ `Unsupported`) for a YAML opaque node, any inline-collection member, and the whole-document path. |
 
 **Known rough edge:** multiline-array element insert/delete spacing is not yet byte-perfect.
+A `Replace` on a **YAML flow-map member** also rebuilds the `{ … }` without its closing padding
+(`{ a: 1, b: 2 }` → `{ a: 1, b: 2}`), so an otherwise untouched edit of such a member is not
+byte-identical. Independent of the blank-run package (a bare `Mutation::Replace` does it).
 
 **Nesting cap.** Every backend parses by recursive descent (TOML through taplo), so container
 nesting is capped at `model::MAX_NESTING_DEPTH` (256): deeper input is a `ParseError`
@@ -679,10 +682,19 @@ later pass can normalize them. Both land in **one undo step** (a single
 `on_mutation_success`), and an untouched buffer round-trips byte-identically. Consequences:
 editing the run is the *only* way to change it (there is no add/remove-a-blank-line operation);
 `serialize_fragment` is untouched, so a **copied fragment never carries the spacing of where it
-came from**; a node whose `trailing_blank_anchor` is `None` (YAML flow member, opaque span, the
-whole-document edit) packages zero blanks; and a buffer that *renames* the node's key leaves the
-run as its own splice left it, the path being unresolvable by then (same limitation as a renamed
-node's trailing comment).
+came from**; and a buffer that *renames* the node's key leaves the run as its own splice left it,
+the path being unresolvable by then (same limitation as a renamed node's trailing comment).
+
+A node whose `trailing_blank_anchor` is `None` — the whole-document path, an inline-collection
+member, a YAML opaque span — packages its fragment **verbatim** instead: no run split off, no
+newline invented. Trimming a run the commit then has no anchor to restore is how a
+whole-document edit used to delete a file's own trailing blank lines.
+
+**Reaching it.** Every node kind can open the multiline editor — `E` (`BeginEditExternal`) on the
+keyboard hosts, Action-menu *Edit in editor* on all of them — so a single-line scalar child's run
+is editable exactly like a branch's. `e` on such a scalar still opens the **inline** editor,
+which edits the value only and leaves the run untouched; that is the BEHAVIOR_MATRIX §6 boundary,
+not a gap in the package.
 
 ## Flagged ambiguities
 

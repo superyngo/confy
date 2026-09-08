@@ -23,6 +23,62 @@ pub(crate) fn line_boundary_at(text: &str, at: usize) -> usize {
     }
 }
 
+/// Pull a line boundary back to just past the last **non-blank** line before
+/// it: the one invariant every backend's anchor must satisfy — *an anchor never
+/// sits inside a blank run*. A node's `text_range` may or may not already
+/// swallow the blanks that follow it (a TOML section's extent runs to the next
+/// header; a YAML `MAP_ENTRY` whose value is a block map/seq/scalar keeps the
+/// blanks after its last line; a JSON comment token keeps them too), and an
+/// anchor placed *after* a run makes that run invisible: `count_after` reports
+/// 0, so the editor packages nothing while the node's own `Replace` still
+/// overwrites the lines — silently deleting them and pulling the next node up.
+/// Idempotent for spans that stop before their blanks (TOML entries, JSON
+/// members), so every backend can apply it unconditionally.
+pub(crate) fn retract_blank_lines(text: &str, at: usize) -> usize {
+    let mut at = at.min(text.len());
+    while at > 0 && text.as_bytes()[at - 1] == b'\n' {
+        let line_start = text[..at - 1].rfind('\n').map(|i| i + 1).unwrap_or(0);
+        if !text[line_start..at - 1].trim().is_empty() {
+            break;
+        }
+        at = line_start;
+    }
+    at
+}
+
+/// [`line_boundary_at`] followed by [`retract_blank_lines`] — the complete
+/// extent-offset → anchor normalization, which every backend's
+/// `ConfigDocument::trailing_blank_anchor` runs its raw span end through.
+pub(crate) fn anchor_at(text: &str, at: usize) -> usize {
+    retract_blank_lines(text, line_boundary_at(text, at))
+}
+
+/// Does the node whose span ends at `at` **own the rest of its line**? True when
+/// `at` is already a line boundary, or when only its separator comma,
+/// whitespace and/or a trailing comment follow it there.
+///
+/// False for a member of a single-line `{ … }` / `[ … ]`, whose line continues
+/// with its siblings and the closing delimiter. Such a node has no line of its
+/// own, so "the blank lines after it" could only ever mean the run after its
+/// whole *container* — a silent mis-attribution where every member of
+/// `t = { a = 1, b = 2 }` would claim (and rewrite) the same run. Backends
+/// return `Unsupported` instead, exactly as YAML already does for a flow-map
+/// member; the editor then packages the fragment verbatim and the hosts' "Blank
+/// after" readout shows nothing rather than a number that belongs elsewhere.
+///
+/// `comment_starts` is the format's line-comment opener(s) (`#`, or `//`/`/*`).
+pub(crate) fn owns_line_tail(text: &str, at: usize, comment_starts: &[&str]) -> bool {
+    let at = at.min(text.len());
+    if at == 0 || text.as_bytes()[at - 1] == b'\n' {
+        return true;
+    }
+    let line_end = text[at..].find('\n').map_or(text.len(), |i| at + i);
+    let tail = text[at..line_end].trim_start();
+    // A separator comma belongs to the node, not to what follows it.
+    let tail = tail.strip_prefix(',').unwrap_or(tail).trim_start();
+    tail.is_empty() || comment_starts.iter().any(|c| tail.starts_with(c))
+}
+
 /// How many blank lines follow the anchor `end` (a maximal run of lines that
 /// are empty or whitespace-only). `end` must be a line boundary — the offset
 /// just past a node's terminating newline.
@@ -135,6 +191,40 @@ mod tests {
         assert_eq!(count_after(SRC, end), 2);
         assert_eq!(count_after(SRC, SRC.len()), 0, "EOF has no blank run");
         assert_eq!(count_after("a = 1\nb = 2\n", 6), 0);
+    }
+
+    #[test]
+    fn anchor_never_sits_inside_a_blank_run() {
+        // A span that already swallowed the run (a YAML block entry, a TOML
+        // section) is pulled back before it, so `count_after` can see it.
+        let src = "m:\n  a: 1\n\n\nz: 3\n";
+        let swallowed = src.find("z: 3").unwrap();
+        assert_eq!(anchor_at(src, swallowed), src.find("\n\n").unwrap() + 1);
+        assert_eq!(count_after(src, anchor_at(src, swallowed)), 2);
+        // Idempotent for a span that stops before its blanks.
+        let stops = src.find("\n\n").unwrap() + 1;
+        assert_eq!(anchor_at(src, stops), stops);
+        // And for a mid-line span end (TOML's `a = 1` excludes its newline).
+        assert_eq!(anchor_at(SRC, 5), 6);
+    }
+
+    #[test]
+    fn owns_line_tail_rejects_an_inline_collection_member() {
+        let toml = "t = { a = 1, b = 2 }\n\n\nc = 3\n";
+        // `a = 1` ends at 11, mid-line: `, b = 2 }` follows.
+        assert!(!owns_line_tail(toml, 11, &["#"]));
+        // The whole entry does own the line.
+        assert!(owns_line_tail(toml, 20, &["#"]));
+        // A separator comma and a trailing comment belong to the node.
+        assert!(owns_line_tail("arr = [\n  1,\n\n  2,\n]\n", 11, &["#"]));
+        assert!(owns_line_tail("a = 1 # note\n\n", 5, &["#"]));
+        assert!(owns_line_tail(
+            "{\n  \"a\": 1, // n\n\n}\n",
+            11,
+            &["//", "/*"]
+        ));
+        // A line boundary is trivially owned.
+        assert!(owns_line_tail(SRC, 6, &["#"]));
     }
 
     #[test]

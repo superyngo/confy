@@ -8,6 +8,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-08 (10)
+
+**Fixed**
+
+- **A blank run the node's own span already swallowed is no longer deleted on edit.** Editing a
+  YAML block map/sequence entry (`m:` / `s:`), a YAML literal `|` or folded `>` scalar, or a JSON
+  `//` comment block removed every blank line after it — pulling the next node up — even when the
+  buffer was handed back untouched. Those spans reach *past* their trailing blanks, so the anchor
+  landed after the run: `count_after` reported 0, the editor packaged nothing, and the node's own
+  `Replace` overwrote the lines. `blank_lines::anchor_at` now **retracts the anchor back over the
+  run** in every backend (TOML's section extent already did this locally), so the run is visible,
+  packaged, and restored. One rule, one place — the count, the mutation and the editor buffer read
+  the same offset.
+- **A whole-document edit no longer strips the file's trailing blank lines.** The root packages no
+  run (there is no node after it to anchor one), and trimming the blanks out of the buffer into a
+  count the commit then had no anchor to restore deleted them outright. A node that cannot carry a
+  run — the whole-document path, an inline-collection member, a YAML opaque span — now packages its
+  fragment **verbatim**: nothing trimmed, no terminating newline invented, so an unterminated file
+  also round-trips byte-identically.
+- **A member of a single-line `{ … }` / `[ … ]` no longer claims its container's blank run.** Every
+  member of `t = { a = 1, b = 2 }` reported (and would rewrite) the blank lines following the whole
+  line. The new shared `blank_lines::owns_line_tail` rule — a node carries a run only if nothing
+  but its separator comma, whitespace or a trailing comment follows it on its line — makes those
+  members `Unsupported`, which is what YAML's flow-map members already were. The hosts' read-only
+  "Blank after" readout shows nothing there instead of a number belonging elsewhere.
+- **A comment block's run now follows its last line, not its first.** `# a` / `# b` project as one
+  Comment node; with the anchor after `# a`, `# b` was not blank so the node reported no run at
+  all. TOML resolves the block through the same `comment_block_range` its `EditComment` uses, JSON
+  through a new `comment_block_end` mirroring `comment_block_text`'s walk.
+
+**Notes**
+
+- Reachability, for the record: **every** node kind can open the multiline editor and therefore
+  edit its run — `E` (`BeginEditExternal`) on the keyboard hosts, Action-menu *Edit in editor*
+  everywhere. A child scalar is not special; `e` on a single-line scalar remains the *inline*
+  editor (BEHAVIOR_MATRIX §6), which edits the value only and leaves the run untouched.
+- The run at a branch's end belongs to its **last child and the branch alike** — both anchors are
+  the same contiguous extent end, so the same run is editable from either, which is the intended
+  ownership model and is now pinned by a test.
+- Found but **not** fixed here (pre-existing, unrelated to blank runs): a `Replace` on a YAML
+  flow-map member rebuilds the `{ … }` without its closing padding, `{ a: 1, b: 2 }` →
+  `{ a: 1, b: 2}`. A bare `Mutation::Replace` reproduces it with no editor involved. Recorded as a
+  known rough edge in CONTEXT.md.
+
 ### Unreleased Update - 2026-09-08 (9)
 
 **Changed**

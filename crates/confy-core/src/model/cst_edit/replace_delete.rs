@@ -14,7 +14,7 @@ use super::tree_nav::{
     comment_block_range, extend_over_newline, is_scalar_kind, next_is_header, node_at,
     resolve_insert_at,
 };
-use crate::model::blank_lines::line_boundary_at;
+
 use crate::model::cst_project::{header_path, walk, CstIndex, Target};
 use crate::model::document::{MutateError, Target as InsTarget};
 use crate::model::node::{Node, NodeKind, Seg};
@@ -810,44 +810,37 @@ pub(crate) fn extent_end_offset(tree: &SyntaxNode, path: &[Seg]) -> Result<usize
     };
     let end = match &target {
         // A section's extent runs up to the *next* header, so it already
-        // includes any blank separator before it; retract so an existing run
-        // stays after the anchor and is therefore replaceable.
-        Target::Header(header) => {
-            retract_blank_lines(&full, idx_to_offset(section_end_from(header, path)))
-        }
-        Target::AotEntry(header) => retract_blank_lines(
-            &full,
-            idx_to_offset(aot_entry_end_from(header, &header_path(header))),
-        ),
+        // includes any blank separator before it; the shared `anchor_at`
+        // retraction pulls back over it so an existing run stays after the
+        // anchor and is therefore replaceable.
+        Target::Header(header) => idx_to_offset(section_end_from(header, path)),
+        Target::AotEntry(header) => idx_to_offset(aot_entry_end_from(header, &header_path(header))),
         Target::AotGroup => {
             let (_, end) = aot_group_span(tree, path).ok_or(MutateError::NotFound)?;
-            retract_blank_lines(&full, idx_to_offset(end))
+            idx_to_offset(end)
         }
-        // A keyed entry, an array element, or a comment: its own span,
-        // normalized forward to the enclosing line's boundary.
-        Target::Entry(n) | Target::ArrayElement(n) => {
-            line_boundary_at(&full, usize::from(n.text_range().end()))
+        // A keyed entry or an array element: its own span.
+        Target::Entry(n) | Target::ArrayElement(n) => usize::from(n.text_range().end()),
+        // A comment *block*: past its last `#` line, not its first. Consecutive
+        // lines project as one Comment node, so the run follows the whole block.
+        Target::Comment(t) => {
+            let parent = t.parent().ok_or(MutateError::NotFound)?;
+            let (_, blk_end) = comment_block_range(&parent, t);
+            parent
+                .children_with_tokens()
+                .nth(blk_end.saturating_sub(1))
+                .map_or_else(
+                    || usize::from(t.text_range().end()),
+                    |e| usize::from(e.text_range().end()),
+                )
         }
-        Target::Comment(t) => line_boundary_at(&full, usize::from(t.text_range().end())),
     };
-    Ok(end)
-}
-
-/// Pull the line boundary `at` back to just past the last **non-blank** line
-/// before it. A section's extent ends where the next header begins, which is
-/// *after* any blank separator; the anchor must sit before those blanks or an
-/// existing run would be invisible to `blank_lines::count_after` and a
-/// "remove the blank lines" request would silently no-op.
-fn retract_blank_lines(full: &str, at: usize) -> usize {
-    let mut at = at.min(full.len());
-    while at > 0 && full.as_bytes()[at - 1] == b'\n' {
-        let line_start = full[..at - 1].rfind('\n').map(|i| i + 1).unwrap_or(0);
-        if !full[line_start..at - 1].trim().is_empty() {
-            break;
-        }
-        at = line_start;
+    // A node sharing its line with an inline collection's other members has no
+    // run of its own (`blank_lines::owns_line_tail`).
+    if !crate::model::blank_lines::owns_line_tail(&full, end, &["#"]) {
+        return Err(MutateError::Unsupported);
     }
-    at
+    Ok(crate::model::blank_lines::anchor_at(&full, end))
 }
 
 /// The end (exclusive ROOT-child index) of the `[table]` section that starts at

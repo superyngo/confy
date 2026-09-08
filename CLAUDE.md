@@ -123,10 +123,14 @@ concrete backends are `CstDocument` (TOML), `JsonDocument` (JSON/JSONC), and `Ya
 `serialize_fragment_relative`, `is_dirty`, `apply(Mutation)`, `to_value()`, and three **format facets** —
 `format() -> DocFormat`, `comment_prefix()`, `had_comments_at_open()` — plus
 `trailing_blank_anchor(path) -> Option<usize>` (the byte offset a node's trailing blank run
-starts at: its **contiguous extent end**, the same extent `Delete` covers; `None` when the node
-can't carry one, i.e. a YAML flow member or opaque span) with the provided
+starts at: its **contiguous extent end**, the same extent `Delete` covers, normalized by two
+shared rules in `blank_lines` — `anchor_at` **retracts over the run** so a span that already
+swallowed it (a TOML section, a YAML block map/seq/scalar entry) can still see it, and
+`owns_line_tail` returns `None` for a node that **doesn't own the end of its line**, i.e. a
+member of a single-line `{ … }`/`[ … ]`, which would otherwise claim its container's run;
+`None` also for a YAML opaque span and the whole-document path) with the provided
 `trailing_blank_lines(path)` defined in terms of it, so a backend implements only the anchor and
-the count/mutation/re-parent-guard can never disagree — plus `kind_options(path)`,
+the count/mutation/editor package can never disagree — plus `kind_options(path)`,
 which serves the `K` popup's per-node convertible-kind list (`(label, KindTarget)` pairs) so the
 TUI never hard-codes a backend's notations. Every one of those labels — and the ADR 0012
 datetime type picker's — is built by `model::kind_label::align_options`, the single
@@ -230,6 +234,11 @@ builds — the node's fragment plus its blank run as literal empty lines — and
 (`apply_external_replace`/`apply_edit_comment`) splits them back off, applies the node's splice,
 then rewrites the run, all in one undo step. Adding or deleting empty lines in the buffer is the
 *only* way to change a blank run; `serialize_fragment` (hence the clipboard) never carries one.
+A node that **cannot** carry a run (whole document, inline-collection member, YAML opaque)
+packages its fragment **verbatim** — no run trimmed, no newline invented — so an untouched
+buffer round-trips byte-identically there too. Every node kind reaches the editor:
+`E`/`BeginEditExternal` on the keyboard hosts and Action-menu *Edit in editor* everywhere
+(`e` on a single-line scalar is still the inline editor, which leaves the run untouched).
 Details, ordering rationale and the renamed-key limitation: CONTEXT.md *The multiline editor's
 buffer*.
 
