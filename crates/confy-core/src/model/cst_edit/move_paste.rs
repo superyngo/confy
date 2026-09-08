@@ -605,7 +605,11 @@ pub(crate) fn check_partition(
 }
 
 /// Insert a bare value into the array at `array_path`, at element `index` (or
-/// appended). Uses single-line `, ` separators; multiline-array spacing is rough.
+/// appended). The separator follows the array's **own** layout, measured by
+/// `array_element_lead`: `, ` for a single-line array, `,` + the authored
+/// newline+indent for a multiline one (inserting a single-line separator into a
+/// multiline array degraded its style — the new element landed on its neighbour's
+/// line, so repeated adds collapsed the array).
 pub(crate) fn array_insert(
     idx: &CstIndex,
     array_path: &[Seg],
@@ -635,16 +639,18 @@ pub(crate) fn array_insert(
         .map(|(i, _)| i)
         .collect();
 
+    let lead = array_element_lead(&arr);
     if index < value_pos.len() {
+        // Land before the existing element, *after* its own lead trivia: the new
+        // value then reuses that indent and hands its own separator to the old one.
         let at = value_pos[index];
-        let (comma, space) = array_sep();
-        arr.splice_children(at..at, vec![NodeOrToken::Node(new_val), comma, space]);
+        let mut ins = vec![NodeOrToken::Node(new_val)];
+        ins.extend(array_sep_with(&lead));
+        arr.splice_children(at..at, ins);
     } else if let Some(&last) = value_pos.last() {
-        let (comma, space) = array_sep();
-        arr.splice_children(
-            last + 1..last + 1,
-            vec![comma, space, NodeOrToken::Node(new_val)],
-        );
+        let mut ins = array_sep_with(&lead);
+        ins.push(NodeOrToken::Node(new_val));
+        arr.splice_children(last + 1..last + 1, ins);
     } else {
         // Empty array: insert before the closing bracket.
         let be = els
@@ -716,26 +722,60 @@ pub(crate) fn inline_table_insert(
     Ok(())
 }
 
-/// A fresh detached `,` + ` ` pair for array separators (parsed from a sample).
-pub(crate) fn array_sep() -> (taplo::syntax::SyntaxElement, taplo::syntax::SyntaxElement) {
-    let frag = taplo::parser::parse("x = [0, 0]\n")
+/// The trivia an array puts in **front of its elements**, i.e. its layout: the
+/// first newline-bearing run found before a `VALUE` (a multiline array's authored
+/// newline + indent), else `" "` (single-line). Measured rather than assumed so an
+/// insert reproduces the author's own spelling — 2-space, 4-space and tab indents
+/// all come back verbatim.
+fn array_element_lead(arr: &SyntaxNode) -> String {
+    let mut run = String::new();
+    for e in arr.children_with_tokens() {
+        match e {
+            NodeOrToken::Token(t)
+                if matches!(t.kind(), SyntaxKind::WHITESPACE | SyntaxKind::NEWLINE) =>
+            {
+                run.push_str(t.text());
+            }
+            NodeOrToken::Node(n) if n.kind() == SyntaxKind::VALUE => {
+                if run.contains('\n') {
+                    return run;
+                }
+                run.clear();
+            }
+            // A comma or an EOL comment ends the run without being part of it.
+            _ => run.clear(),
+        }
+    }
+    " ".to_string()
+}
+
+/// A fresh detached separator run for an array element: a `,` followed by the
+/// trivia tokens spelling `lead`. Parsed from a sample document so the tokens are
+/// lexed exactly as taplo would lex them in place (a newline+indent is two tokens,
+/// not one).
+fn array_sep_with(lead: &str) -> Vec<taplo::syntax::SyntaxElement> {
+    let frag = taplo::parser::parse(&format!("x = [0,{lead}0]\n"))
         .into_syntax()
         .clone_for_update();
     let arr = frag
         .descendants()
         .find(|n| n.kind() == SyntaxKind::ARRAY)
         .expect("sample array");
-    let comma = arr
-        .children_with_tokens()
-        .find(|c| matches!(c, NodeOrToken::Token(t) if t.kind() == SyntaxKind::COMMA))
-        .expect("comma");
-    let space = arr
-        .children_with_tokens()
-        .find(|c| matches!(c, NodeOrToken::Token(t) if t.kind() == SyntaxKind::WHITESPACE))
-        .expect("space");
-    comma.detach();
-    space.detach();
-    (comma, space)
+    let els: Vec<_> = arr.children_with_tokens().collect();
+    let ci = els
+        .iter()
+        .position(|e| matches!(e, NodeOrToken::Token(t) if t.kind() == SyntaxKind::COMMA))
+        .expect("sample comma");
+    let vi = ci
+        + els[ci..]
+            .iter()
+            .position(|e| matches!(e, NodeOrToken::Node(n) if n.kind() == SyntaxKind::VALUE))
+            .expect("sample value");
+    let out: Vec<_> = els[ci..vi].to_vec();
+    for e in &out {
+        e.detach();
+    }
+    out
 }
 
 /// Swap the **last** key-segment token of a node fragment to `new_seg` (`a.b` →

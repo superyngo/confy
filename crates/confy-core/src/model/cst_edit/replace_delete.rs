@@ -866,6 +866,12 @@ pub(crate) fn section_end(tree: &SyntaxNode, t_path: &[Seg], header_idx: usize) 
 /// `INLINE_TABLE`, taking one `,` separator with it (the one after the element, or —
 /// for the last element — the one before) plus the adjacent run of whitespace/
 /// newlines, so `[1, 2, 3]` → `[1, 3]` and `{ x = 1, y = 2 }` → `{ y = 2 }`.
+///
+/// The **last** element of a *trailing-comma* multiline array takes the comma
+/// after it, which leaves that element's own indent stranded in front of the `]`
+/// (`[\n  1,\n  2,\n]` → `[\n  1,\n  ]`). So when nothing follows, the span also
+/// retracts back over the plain whitespace before the element — stopping at the
+/// newline, which the `]` still needs.
 pub(crate) fn delete_seq_element(arr: &SyntaxNode, vi: usize) {
     let els: Vec<_> = arr.children_with_tokens().collect();
     let is_comma = |i: usize| matches!(els.get(i), Some(NodeOrToken::Token(t)) if t.kind() == SyntaxKind::COMMA);
@@ -883,7 +889,26 @@ pub(crate) fn delete_seq_element(arr: &SyntaxNode, vi: usize) {
         while is_trivia(end) {
             end += 1;
         }
-        arr.splice_children(vi..end, vec![]);
+        let mut start = vi;
+        // Only the very tail: nothing but trivia and the closing bracket left. A
+        // surviving element *or comment* after the cut still owns that indent (the
+        // deleted element's own EOL comment stays on the line and needs it).
+        let tail_is_bracket = els[end..].iter().all(|e| {
+            matches!(e, NodeOrToken::Token(t)
+            if matches!(
+                t.kind(),
+                SyntaxKind::WHITESPACE | SyntaxKind::NEWLINE | SyntaxKind::BRACKET_END
+            ))
+        });
+        if tail_is_bracket {
+            while start > 0
+                && matches!(els.get(start - 1), Some(NodeOrToken::Token(t))
+                    if t.kind() == SyntaxKind::WHITESPACE)
+            {
+                start -= 1;
+            }
+        }
+        arr.splice_children(start..end, vec![]);
         return;
     }
     // Last element: take the preceding comma + trivia.

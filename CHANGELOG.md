@@ -8,6 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-08 (18)
+
+**Fixed**
+
+- **A TOML multiline array lost its layout on every element insert.** `array_insert` always
+  spliced the single-line `, ` separator, so adding an element to `a = [`⏎`  1,`⏎`  2,`⏎`]`
+  produced `  2, 0,` — the new element landed on its neighbour's line, and repeated adds
+  progressively collapsed a one-element-per-line array. The separator is now the array's *own*
+  measured layout (`array_element_lead`): `,` plus the trivia found in front of its existing
+  elements, so 2-space, 4-space and tab indents all come back verbatim, a per-element EOL comment
+  stays on its own line, and a single-line array still gets `, `.
+- **Deleting the last element of a trailing-comma multiline array stranded its indent.**
+  `a = [`⏎`  1,`⏎`  2,`⏎`]` became `a = [`⏎`  1,`⏎`  ]` — the cut took the comma after the
+  element, leaving that element's leading whitespace in front of the `]`. The span now retracts
+  back over that whitespace (stopping at the newline, which the `]` still needs), and only when
+  nothing else still owns the indent — a surviving element, or the deleted element's own EOL
+  comment, keeps its column.
+
+Two rough edges remain in the same area and are now recorded concretely in `CONTEXT.md` instead of
+as one vague note: deleting an array's leading standalone comment doubles the next element's
+indent, and inserting before a `2 ]`-style inline close writes `2 , 9`.
+
 ### Unreleased Update - 2026-09-08 (17)
 
 **Fixed**
