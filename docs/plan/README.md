@@ -11,7 +11,10 @@ carried the change is in `CHANGELOG.md`.
 
 ## In progress
 
-- [2026-08-28-json-jsonc-parser-simplification-ssot.md](2026-08-28-json-jsonc-parser-simplification-ssot.md) — JSON/JSONC parser simplification — single source of truth · `Approved`
+- [2026-09-09-open-follow-ups.md](2026-09-09-open-follow-ups.md) — the single live backlog:
+  every recorded-but-unfixed item, with evidence and acceptance criteria · `In progress`
+
+This is the one record here that is *not* frozen on landing — see its own scope note.
 
 ## Landed
 
@@ -55,6 +58,7 @@ carried the change is in `CHANGELOG.md`.
 | 2026-08-28 | [Comment-advisory follow-up issues](2026-08-28-comment-advisory-followup-issues.md) | Resolved (2026-08-28) |
 | 2026-08-28 | [JSON/JSONC comment write-gate removal Implementation Plan](2026-08-28-json-jsonc-comment-gate-removal.md) | Shipped (2026-08-28) |
 | 2026-08-28 | [Plan — make a key's *authored spelling* a first-class projection output](2026-08-28-key-repr-first-class-literal.md) | Shipped (2026-08-28) |
+| 2026-08-28 | [JSON/JSONC parser simplification — single source of truth](2026-08-28-json-jsonc-parser-simplification-ssot.md) | Shipped (2026-09-09) |
 | 2026-09-01 | [Nudge redesign: remove boolean nudge, gate numeric wheel/gesture nudge to inline-edit mode](2026-09-01-nudge-redesign.md) | Shipped (2026-09-02) |
 | 2026-09-01 | [Web UI tree: PageUp/PageDown navigation](2026-09-01-web-ui-tree-paging.md) | Shipped (2026-09-01) |
 | 2026-09-02 | [Help overlay keymap alignment & visual polish](2026-09-02-help-overlay.md) | Shipped (2026-09-02) |

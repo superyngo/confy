@@ -388,9 +388,10 @@ follow-up (not tracked by an issue as of this writing).
 
 ## 8. Known follow-ups (non-blocking, recorded for later)
 
-All three re-verified 2026-09-09 and still open — see
-[`../audit/2026-09-09-open-findings-reverification.md`](../audit/2026-09-09-open-findings-reverification.md)
-for the evidence and the suggested order.
+All three re-verified 2026-09-09 and still open. They are tracked as **F3/F4/F5** in
+[`../plan/2026-09-09-open-follow-ups.md`](../plan/2026-09-09-open-follow-ups.md), the single
+live backlog, which carries their acceptance criteria; the evidence is in
+[`../audit/2026-09-09-open-findings-reverification.md`](../audit/2026-09-09-open-findings-reverification.md).
 
 - **Web `?diag=1`'s `lastSeenSeq` doesn't reset on a file swap.** Opening a new
   file replaces the underlying `ConfySession` (and therefore its diag ring, which

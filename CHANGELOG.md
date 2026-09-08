@@ -8,6 +8,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-09 (24)
+
+**Docs — every follow-up now has one home**
+
+New living record [`docs/plan/2026-09-09-open-follow-ups.md`](docs/plan/2026-09-09-open-follow-ups.md):
+**13 open items (F1-F13)** plus a *Watching* section and a *Done* log. Each row carries its
+evidence (file + symbol, never a line number), the date it was verified against current code,
+priority, effort, and an **acceptance criterion** — so picking one up does not start with
+re-deriving what it means.
+
+The problem this solves: the open work was scattered across a frozen audit, a frozen
+re-verification record, and a `MESSAGES.md` footnote. Frozen records are the right form for
+*evidence*, and the wrong form for a *backlog* — nothing can be ticked off in them, so an item's
+status was only ever knowable by re-reading code. This record is therefore the **one exception**
+to the freeze-on-landing rule in `docs/plan/`: rows move to *Done* with the commit that closed
+them, and are never deleted, so the history of what was open stays readable. `CONTEXT.md` states
+that rule at the top level, and `MESSAGES.md` §8 and `docs/audit/README.md` now point at it
+rather than being the de-facto tracker.
+
+**The `Approved` JSON/JSONC parser-simplification plan is closed** as `Shipped (2026-09-09)`,
+with the reason recorded in the document itself: the premise was **refuted, not abandoned** —
+both halves were already done (the comment write-gate is gone; the "unify two parsers" half had
+no work because `model/json/parse.rs` is the only parser). Left `Approved` it read as
+agreed-but-unstarted work. Live work across all four folders is now exactly one record: this
+backlog.
+
+Two items were opened by today's own work rather than inherited: **F10**, the remaining `Move`
+cost (the capture phase and `insert_with` traverse *through* an index by design, so they still
+pay the 11-17× mutable-tree penalty — removing it needs a `CstIndex` of paths rather than live
+handles), recorded so the ceiling is known rather than rediscovered; and the *Watching* note
+that `JsonDocument` does not override `rename_key_segs` — not a live defect, since JSON keys are
+always quoted and the trait default coincides, but the last asymmetry in that area.
+
 ### Unreleased Update - 2026-09-09 (23)
 
 **Perf — the two P0s from the 2026-08-29 audit**

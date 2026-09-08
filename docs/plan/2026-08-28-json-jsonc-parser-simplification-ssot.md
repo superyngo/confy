@@ -1,5 +1,15 @@
 # JSON/JSONC parser simplification — single source of truth
-Status: Approved
+Status: Shipped (2026-09-09)
+
+**Closed 2026-09-09 — the premise was refuted, not abandoned.** Verification found both halves
+already done: the comment write-gate is gone (`JsonDocument` exposes `had_comments_at_open`
+instead of a `comments_enabled` gate, and comments are legal in every `.json` document), and
+the "unify the two parsers" half had no work left because there is only one parser,
+`model/json/parse.rs`. Left `Approved` it read as agreed-but-unstarted work. Evidence:
+[`../audit/2026-09-09-open-findings-reverification.md`](../audit/2026-09-09-open-findings-reverification.md)
+§22.
+
+Original preamble follows.
 
 Consensus reached, not yet implemented. This document is the
 baseline for the follow-up session that starts fixing

@@ -12,7 +12,8 @@ carried the change is in `CHANGELOG.md`.
 ## In progress
 
 - [2026-08-29-code-audit.md](2026-08-29-code-audit.md) — confy architecture audit — 2026-08-29 · `In progress`
-  — per-finding status re-verified 2026-09-09, see the record below
+  — per-finding status re-verified 2026-09-09; its still-open items are tracked in
+  [`../plan/2026-09-09-open-follow-ups.md`](../plan/2026-09-09-open-follow-ups.md)
 
 ## Landed
 

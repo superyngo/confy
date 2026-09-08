@@ -21,6 +21,13 @@ List live work across all four folders:
 rg -n '^Status: (Draft|Approved|In progress)' docs/{spec,plan,debug,audit}/*.md
 ```
 
+**Known-but-unfixed work has one home:**
+[`docs/plan/2026-09-09-open-follow-ups.md`](docs/plan/2026-09-09-open-follow-ups.md). It is the
+only living record in `docs/plan/` — every verified open defect and improvement is a row there,
+with its evidence, effort and acceptance criterion, and rows move to *Done* with the commit that
+closes them. A finding recorded in a frozen audit or a reference footnote **also** gets a row;
+otherwise it survives only where nobody looks.
+
 ## Reading order
 
 1. [`docs/reference/glossary.md`](docs/reference/glossary.md) — the vocabulary every other file
