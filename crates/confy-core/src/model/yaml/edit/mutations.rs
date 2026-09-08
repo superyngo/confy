@@ -262,6 +262,16 @@ pub(crate) fn insert_comment(
     }
 
     let container = find_container(tree, &target.parent)?;
+    // A one-line flow collection holds no standalone comment (CONTEXT.md
+    // "Comment"): `collect_items` would read its `[`/`,`/`]` tokens as block
+    // items and the rebuild would emit the comment *instead of* the collection,
+    // silently destroying it. Reject instead, matching `set_trailing_comment`.
+    if matches!(
+        container.kind(),
+        SyntaxKind::FLOW_MAP | SyntaxKind::FLOW_SEQ
+    ) {
+        return Err(MutateError::Unsupported);
+    }
     let dest_indent = container_indent(&container);
     let mut items = collect_items(&container);
 

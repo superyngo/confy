@@ -94,7 +94,10 @@ scope can expand to block, and every block scope holding only inline-representab
 collapse to flow.
 
 - **flow containers** can hold no standalone comment node (✗); an insert **rebuilds** the one-line
-  `[ … ]` / `{ … }` from its members plus the new one.
+  `[ … ]` / `{ … }` from its members plus the new one. The ✗ is enforced at the model layer —
+  YAML's `InsertComment` answers `Unsupported` for a flow container, and a comment **paste** into
+  one is refused outright rather than offered TOML/JSON's "reformat to multiline and insert?"
+  prompt (which YAML's flow rebuild cannot honor).
 - **block containers** add a child as a new line / section; a scalar appended into the root or a
   block-map branch is **clamped** to the leading region (before any `[table]`/`[[aot]]`) so it stays
   legal TOML.

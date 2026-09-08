@@ -166,6 +166,13 @@ file: confy cannot decode its value, so it carries no **Violation** of its own, 
 around it validates normally. Document **conversion** is stricter — an opaque node aborts it (see
 § *Conversion*), because writing a file must never drop data silently.
 
+**Granularity:** the fence is the *whole* construct that carries the out-of-subset token, never a
+sub-span of it. In particular an anchor/alias/tag **inside a single-line flow collection** makes the
+**entire** `[ … ]`/`{ … }` opaque (`g: [ &a 1, *b, 2 ]` is one `[opaq ]` node, no children), because
+the flow body parser has no case for those tokens: they would otherwise float as bare tokens no
+projected node covers — an anchored element rendered as a plain value with the `&a` invisible, and an
+*alias* element vanished from the tree entirely, shifting every later element's ordinal.
+
 **YAML subset**:
 The slice of YAML 1.2 that confy edits as first-class nodes: a single document (optional leading
 `---`), block + single-line flow maps/sequences, 5 scalar styles (plain, single-quoted,
@@ -647,6 +654,13 @@ JSON object/array Inline↔Multiline; YAML map/seq block↔flow). The **collapse
 rejected (`Illegal`) when the container **holds a comment** or a **multi-line element** (a flow layout
 holds neither). The criterion is symmetric: every flow scope can expand to block and every block scope
 that holds only inline-representable children can collapse to flow.
+
+The `✗` on the comment row is **enforced**, not merely unoffered: a YAML flow container answers
+`InsertComment` with `Unsupported` (its `[`/`,`/`]` tokens aren't block items — a rebuild would have
+emitted the comment *instead of* the collection), the `a` add picker omits Comment for a flow parent,
+and a **comment paste** into one reports `core.paste.comment-illegal` instead of offering the
+single-line-array reformat prompt that only TOML/JSON can honor (`K` converts the flow container to
+block layout first, then the paste lands).
 
 ### C — Leaf node as a child (governed by **parent**; column = parent scope)
 

@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-08 (15)
+
+**Fixed**
+
+- **Pasting a comment into a YAML flow collection destroyed it.** `find_container` resolves a flow
+  parent to the `FLOW_SEQ`/`FLOW_MAP` itself, and `insert_comment` then handed its `[`/`,`/`]`
+  tokens to the block-item collector: the rebuild emitted the comment *instead of* the collection
+  and **reported success**. Copying a comment and pasting it into `g: [ 1, 2 ]` (answering `y` to
+  "single-line array — reformat to multiline and insert?") saved `g: # hi` — the array silently
+  gone. YAML's `InsertComment` now rejects a flow container with `Unsupported`, and the paste
+  destination check classifies a YAML flow sequence as illegal-for-comments instead of offering an
+  upgrade prompt only TOML/JSON can honor, so the message is
+  "comments can only go into a table or the document" and the document is untouched. (`K` converts
+  the sequence to block layout first if you want the comment there.)
+- **An anchor/alias/tag inside a one-line flow collection is no longer silently dropped.** The flow
+  body parser has no case for those tokens, so they floated as bare tokens no projected node
+  covered: `g: [ &a 1, 2 ]` showed a plain `1` with the anchor invisible, and `g: [ *a, 2 ]` showed
+  a **single** element `2` — the alias missing from the tree and every later element's ordinal
+  shifted, so editing "element 1" hit the wrong item. Such a collection is now fenced as one
+  read-only **opaque node** (`[opaq ]`, whole `[ … ]`/`{ … }` shown verbatim), the same call the
+  block level already makes for an anchored value: it renders and copies, every mutation answers
+  `Unsupported`, and the file round-trips byte-identically.
+
 ### Unreleased Update - 2026-09-08 (14)
 
 **Fixed**

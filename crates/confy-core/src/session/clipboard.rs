@@ -2,7 +2,9 @@
 //! machine — split out of `session.rs` (Task 15, 2026-08-11 audit
 //! remediation).
 
-use crate::model::document::{ConfigDocument, MutateError, Mutation, OnCollision, Target};
+use crate::model::document::{
+    ConfigDocument, DocFormat, MutateError, Mutation, OnCollision, Target,
+};
 use crate::model::node::{NodeKind, Path};
 use crate::session::notice::Notice;
 use crate::session::state::{Clipboard, Mode, PasteSlot, PromptKind};
@@ -276,12 +278,19 @@ impl Session {
                 Prompt,
                 Illegal,
             }
+            let doc_fmt = self.doc.as_ref().map(|d| d.format());
             let dest = self
                 .tree
                 .node_at(&target.parent)
                 .map(|n| match n.kind {
                     NodeKind::Root | NodeKind::Table => Dest::Ok,
                     NodeKind::Array if n.value.is_none() => Dest::Ok,
+                    // A YAML **flow** sequence is not upgradable by the insert
+                    // the way a TOML/JSON single-line array is: it holds no
+                    // standalone comment at all, so the backend rejects it.
+                    // Say so instead of offering a reformat that can't happen
+                    // (`K` converts the sequence to block style first).
+                    NodeKind::Array if doc_fmt == Some(DocFormat::Yaml) => Dest::Illegal,
                     NodeKind::Array if allow_upgrade => Dest::Ok,
                     NodeKind::Array => Dest::Prompt,
                     _ => Dest::Illegal,

@@ -113,7 +113,10 @@ chomping), `#` comments, and YAML 1.2 **core-schema typing** with **no datetime*
 scalars are strings). **Out-of-subset constructs** — `&anchor`, `*alias`, `<<:` merge, `!tag`,
 multi-line flow — project as **read-only opaque nodes** (`Node.read_only`, KIND tag `[opaq ]`): they
 render and copy, but every mutation on or into them (and on any entry whose *value* is opaque —
-`entry_has_opaque_value`) returns `Unsupported`, leaving the document untouched. **Multi-document**
+`entry_has_opaque_value`) returns `Unsupported`, leaving the document untouched. One of those tokens
+*inside* a single-line flow collection fences the **whole** `[ … ]`/`{ … }` (the flow body parser has
+no case for them, so they used to float as bare tokens the projection never mapped to a node — an
+alias element simply vanished and shifted the later ordinals). **Multi-document**
 files are rejected at load (a whole-document `E` re-parse rejects them too). The resolver maps a path
 to a `Target` (`MapEntry`/`Element`/`Comment`/`Opaque`); `is_opaque` walks ancestors so a path inside
 an opaque span is blocked. New model atoms: `Format::{Block, SingleQuoted, DoubleQuoted, LiteralBlock,

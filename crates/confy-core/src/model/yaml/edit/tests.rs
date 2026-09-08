@@ -640,6 +640,50 @@ fn insert_comment_non_hash_rejected() {
     );
 }
 
+#[test]
+fn insert_comment_into_a_flow_collection_is_rejected() {
+    // A one-line flow collection holds no standalone comment. Before this
+    // guard the rebuild emitted the comment *instead of* the collection and
+    // reported success -- `g: [ 1, 2 ]` became `g: # c` (data loss).
+    use crate::model::document::Target;
+    for (src, parent) in [
+        ("g: [ 1, 2 ]\nz: 3\n", vec![Seg::Key("g".into())]),
+        ("g: { a: 1, b: 2 }\nz: 3\n", vec![Seg::Key("g".into())]),
+        (
+            "g: [ {x: 1}, 2 ]\n",
+            vec![Seg::Key("g".into()), Seg::Index(0)],
+        ),
+    ] {
+        let r = apply_str(
+            src,
+            Mutation::InsertComment {
+                target: Target {
+                    parent: parent.clone(),
+                    index: 1,
+                },
+                text: "# c".into(),
+            },
+        );
+        assert!(
+            matches!(r, Err(MutateError::Unsupported)),
+            "{src} expected Unsupported, got {r:?}"
+        );
+    }
+    // A *block* sequence still takes one.
+    let out = apply_str(
+        "g:\n  - 1\n  - 2\n",
+        Mutation::InsertComment {
+            target: Target {
+                parent: vec![Seg::Key("g".into())],
+                index: 1,
+            },
+            text: "# c".into(),
+        },
+    )
+    .expect("block seq holds a comment");
+    assert_eq!(out, "g:\n  - 1\n  # c\n  - 2\n");
+}
+
 // ── 5c: Replace ─────────────────────────────────────────────────────────
 
 #[test]

@@ -521,11 +521,19 @@ impl Parser {
     }
 
     fn parse_flow_or_opaque(&mut self, single_line_kind: SyntaxKind) {
-        // single-line if the matching close comes before any NEWLINE
+        // In subset only if the matching close comes before any NEWLINE *and* the
+        // span holds no out-of-subset token. `parse_flow_*_body` has no case for
+        // an anchor/alias/tag/merge, so those used to float as bare tokens the
+        // projection never mapped to a node: `[ &a 1, 2 ]` showed a plain `1`
+        // (anchor invisible) and `[ *a, 2 ]` showed a *single* element `2` (the
+        // alias gone and every later ordinal shifted). Fencing the whole
+        // collection opaque keeps it displayed, copyable and read-only instead —
+        // the same call the block level already makes for an anchored value.
         let mut j = self.pos;
         let mut depth = 0i32;
         let mut saw_newline = false;
-        let single_line = loop {
+        let mut saw_out_of_subset = false;
+        let in_subset = loop {
             match self.get(j) {
                 None => break false,
                 Some(SyntaxKind::NEWLINE) => {
@@ -540,20 +548,26 @@ impl Parser {
                     depth -= 1;
                     j += 1;
                     if depth == 0 {
-                        break !saw_newline;
+                        break !saw_newline && !saw_out_of_subset;
                     }
+                }
+                Some(
+                    SyntaxKind::ANCHOR | SyntaxKind::ALIAS | SyntaxKind::TAG | SyntaxKind::MERGE,
+                ) => {
+                    saw_out_of_subset = true;
+                    j += 1;
                 }
                 _ => j += 1,
             }
         };
         self.builder.start_node(SyntaxKind::VALUE.into());
-        if single_line {
+        if in_subset {
             // Recursively build nested FLOW_MAP/FLOW_SEQ + FLOW_ENTRY nodes so a
             // nested `{…}` value is a real child (not a flat token run) and each
             // map member is individually addressable.
             self.parse_flow_collection(single_line_kind);
         } else {
-            // Multi-line flow is out of subset → opaque flat span.
+            // Multi-line or out-of-subset flow → opaque flat span.
             self.builder.start_node(SyntaxKind::OPAQUE.into());
             let mut depth = 0i32;
             loop {
@@ -1059,6 +1073,38 @@ mod tests {
             0,
             "simple-config should be fully in subset"
         );
+    }
+
+    #[test]
+    fn out_of_subset_inside_a_flow_collection_fences_the_collection() {
+        // `parse_flow_*_body` has no case for an anchor/alias/tag, so those used
+        // to float as bare tokens no projected node ever covered: the construct
+        // vanished from the tree (and an alias element shifted every later
+        // ordinal). The whole collection is opaque instead.
+        for src in [
+            "g: [ &a 1, 2 ]\n",
+            "g: [ *a, 2 ]\n",
+            "g: [ !!str x, 2 ]\n",
+            "g: { a: 1, b: *x }\n",
+            "g: [ [1, *a], 2 ]\n",
+        ] {
+            let green = parse(src).unwrap();
+            assert_eq!(
+                opaque_count(green.clone()),
+                1,
+                "{src} should fence exactly one opaque span"
+            );
+            let root = SyntaxNode::new_root(green);
+            assert!(
+                !root
+                    .descendants()
+                    .any(|n| matches!(n.kind(), SyntaxKind::FLOW_MAP | SyntaxKind::FLOW_SEQ)),
+                "{src} should yield no structured flow node"
+            );
+            assert_eq!(root.to_string(), src, "roundtrip {src}");
+        }
+        // A clean flow collection is untouched by the check.
+        assert_eq!(opaque_count(parse("g: [ 1, 2 ]\n").unwrap()), 0);
     }
 
     #[test]
