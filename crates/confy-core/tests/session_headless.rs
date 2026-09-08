@@ -3622,6 +3622,22 @@ fn editor_buffer_packages_nothing_for_a_flow_member() {
     assert_eq!(s.serialize().unwrap(), "m: {a: 1, b: 2}\n");
 }
 
+/// …including the **last** member of a *padded* collection, whose own span
+/// reaches the `}`: the editor round trip used to commit `{ a: 1, b: 2}`.
+#[test]
+fn editor_round_trip_keeps_a_padded_flow_maps_closing_space() {
+    let mut s = yaml_session("m: { a: 1, b: 2 }\nz: 3\n");
+    s.dispatch(Intent::CursorDown);
+    s.dispatch(Intent::ToggleExpand);
+    for _ in 0..2 {
+        s.dispatch(Intent::CursorDown);
+    }
+    let (path, buf) = open_editor(&mut s);
+    assert_eq!(buf, "b: 2", "the last member, packaged verbatim");
+    s.dispatch(Intent::ApplyReplace { path, text: buf });
+    assert_eq!(s.serialize().unwrap(), "m: { a: 1, b: 2 }\nz: 3\n");
+}
+
 /// The whole-document edit cannot carry a run either — the file's own trailing
 /// blank lines are part of its text, and trimming them into a run the commit
 /// then has no anchor to restore used to delete them outright.

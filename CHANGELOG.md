@@ -8,6 +8,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-08 (11)
+
+**Fixed**
+
+- **A YAML flow collection keeps its own inner spacing through an edit.** Editing the last member
+  of `{ a: 1, b: 2 }` committed `{ a: 1, b: 2}` — an untouched multiline-editor round trip was not
+  byte-identical, breaking the lossless promise. Two causes: a plain scalar token swallows the
+  spaces before the closer (`b: 2 ` *is* the member's range), so splicing over the raw range ate
+  the padding; and `rebuild_flow` — the path every delete/insert took — re-emitted a canonical
+  `{a, b}`, discarding the author's padding and separator style (`{ a: 1, b: 2 }` → `{a: 1}` on a
+  delete, `[ 1,2 ]` → `[1, 2 ]` on an element edit). Now a *replace* splices over the
+  member's/element's own trailing-whitespace-excluded span (untouched ⇒ byte-identical, a real
+  value change keeps the padding), and a *rebuild* re-emits the spacing it measured from the source
+  (`flow_style`): the padding after the opener, before the closer, and the member separator — so a
+  tight `{a: 1,b: 2}` stays tight, `[ 1, 2, 3 ]` stays padded, and emptying a collection invents no
+  padding (`{}`).
+
+**Notes**
+
+- Found while verifying the above, **not** fixed here: a YAML flow-**seq** element's
+  `serialize_fragment` returns the *whole* `[ … ]` (the element's resolver target is the
+  collection), so opening one in the multiline editor and saving nests the collection into that
+  element (`g: [[ 1, 2, 3 ], 2, 3 ]`); copy over-captures the same way. Predates this work and is
+  unrelated to the padding. Recorded as a known rough edge in CONTEXT.md.
+
 ### Unreleased Update - 2026-09-08 (10)
 
 **Fixed**

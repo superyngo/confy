@@ -100,7 +100,11 @@ comma/brace normalization — that re-flows a fragment from its source indent to
 maps/sequences (**nesting is preserved** — the parser builds nested `FLOW_MAP`/`FLOW_SEQ` child nodes
 and a `FLOW_ENTRY` node per flow-map member, so a nested `{…}`/`[…]` value is a real recursing child
 and each member is individually addressable/editable; replace/insert/delete/rename on a flow member
-rebuild the `{…}` inline, while block-producing converts on an inline member are rejected and the `K`
+rebuild the `{…}` inline — **re-emitting the author's own inner spacing** (the padding after `{`,
+before `}`, and the member separator, captured by `flow_style`), while a *replace* splices over the
+member's/element's own span so an untouched edit is byte-identical; that span is taken trailing-
+whitespace-excluded, since a plain scalar token swallows the spaces before the closer. Block-producing
+converts on an inline member are rejected and the `K`
 popup hides them), 5 scalar styles (plain, single-quoted, double-quoted, literal `|`, folded `>` with
 chomping), `#` comments, and YAML 1.2 **core-schema typing** with **no datetime** (date-looking
 scalars are strings). **Out-of-subset constructs** — `&anchor`, `*alias`, `<<:` merge, `!tag`,

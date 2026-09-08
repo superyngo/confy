@@ -1672,6 +1672,103 @@ fn replace_flow_map_member_stays_inline() {
 }
 
 #[test]
+fn flow_map_keeps_its_padding_through_a_member_edit() {
+    // A plain scalar token swallows the spaces before the `}` — `b: 2 ` is the
+    // last member's own range — so splicing over it used to eat the closing
+    // padding (`{ a: 1, b: 2}`). An untouched member must round-trip.
+    let src = "f: { a: 1, b: 2 }\nz: 3\n";
+    let out = apply_str(
+        src,
+        Mutation::Replace {
+            path: vec![Seg::Key("f".into()), Seg::Key("b".into())],
+            fragment: "b: 2".into(),
+        },
+    )
+    .expect("replace the last flow member with itself");
+    assert_eq!(out, src, "a no-op member edit must be byte-identical");
+    let out = apply_str(
+        src,
+        Mutation::Replace {
+            path: vec![Seg::Key("f".into()), Seg::Key("b".into())],
+            fragment: "b: 9".into(),
+        },
+    )
+    .expect("replace the last flow member's value");
+    assert_eq!(out, "f: { a: 1, b: 9 }\nz: 3\n");
+}
+
+#[test]
+fn flow_seq_keeps_its_padding_and_separators_through_an_element_edit() {
+    // The element replace used to rebuild the whole `[…]`, normalizing the
+    // author's padding and separators (`[ 1,2 ]` → `[1, 2 ]`). It is an
+    // in-place splice over the element's own span instead.
+    for src in ["g: [ 1, 2, 3 ]\n", "g: [ 1,2 ]\n", "g: [1, 2]\n"] {
+        let out = apply_str(
+            src,
+            Mutation::Replace {
+                path: vec![Seg::Key("g".into()), Seg::Index(0)],
+                fragment: "1".into(),
+            },
+        )
+        .expect("replace a flow-seq element with itself");
+        assert_eq!(out, src, "a no-op element edit must be byte-identical");
+    }
+}
+
+#[test]
+fn a_flow_rebuild_re_emits_the_authors_own_spacing() {
+    // Delete/insert rebuild the collection from member texts; the padding after
+    // `{`, before `}`, and the separator style all come from the source.
+    use crate::model::document::{OnCollision, Target};
+    let out = apply_str(
+        "f: { a: 1, b: 2 }\n",
+        Mutation::Delete {
+            path: vec![Seg::Key("f".into()), Seg::Key("b".into())],
+        },
+    )
+    .expect("delete the last flow member");
+    assert_eq!(out, "f: { a: 1 }\n");
+    let out = apply_str(
+        "f: { a: 1, b: 2 }\n",
+        Mutation::Insert {
+            target: Target {
+                parent: vec![Seg::Key("f".into())],
+                index: 2,
+            },
+            fragment: "c: 3".into(),
+            on_collision: OnCollision::Cancel,
+            suggested_key: None,
+        },
+    )
+    .expect("append a flow member");
+    assert_eq!(out, "f: { a: 1, b: 2, c: 3 }\n");
+    // A tight collection stays tight, separator included.
+    let out = apply_str(
+        "f: {a: 1,b: 2}\n",
+        Mutation::Insert {
+            target: Target {
+                parent: vec![Seg::Key("f".into())],
+                index: 2,
+            },
+            fragment: "c: 3".into(),
+            on_collision: OnCollision::Cancel,
+            suggested_key: None,
+        },
+    )
+    .expect("append a member to a tight flow map");
+    assert_eq!(out, "f: {a: 1,b: 2,c: 3}\n");
+    // Emptying a collection invents no padding.
+    let out = apply_str(
+        "f: { a: 1 }\n",
+        Mutation::Delete {
+            path: vec![Seg::Key("f".into()), Seg::Key("a".into())],
+        },
+    )
+    .expect("delete the only flow member");
+    assert_eq!(out, "f: {}\n");
+}
+
+#[test]
 fn convert_flow_map_member_int_radix() {
     // R4: kind-switch on a flow-map member (the reported `ratio: {x: …}` case).
     let out = convert(

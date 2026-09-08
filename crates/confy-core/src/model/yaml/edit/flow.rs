@@ -77,19 +77,123 @@ pub(crate) fn flow_seq_element_node(flow: &SyntaxNode, ord: usize) -> Option<Syn
     None
 }
 
-/// Re-emit a flow collection from member texts and splice it over `flow`'s range.
+/// A member/element span with its **trailing whitespace excluded**. A plain
+/// scalar token swallows the spaces before the closing `}`/`]` — in
+/// `{ a: 1, b: 2 }` the last member is `b: 2 ` — so splicing over the raw range
+/// (or measuring the collection's padding from it) would eat that padding.
+fn trimmed_span(tree_text: &str, range: rowan::TextRange) -> (usize, usize) {
+    let start: usize = range.start().into();
+    let end: usize = range.end().into();
+    let slice = &tree_text[start..end];
+    (start, end - (slice.len() - slice.trim_end().len()))
+}
+
+/// The spans of a flow collection's members (FLOW_MAP) or elements (FLOW_SEQ),
+/// in document order — the same order the projection indexes them.
+fn flow_item_spans(tree_text: &str, flow: &SyntaxNode) -> Vec<(usize, usize)> {
+    if flow.kind() == SyntaxKind::FLOW_MAP {
+        flow.children()
+            .filter(|c| c.kind() == SyntaxKind::FLOW_ENTRY)
+            .map(|e| trimmed_span(tree_text, e.text_range()))
+            .collect()
+    } else {
+        flow.children_with_tokens()
+            .filter_map(|c| match c {
+                rowan::NodeOrToken::Token(t)
+                    if matches!(
+                        t.kind(),
+                        SyntaxKind::PLAIN | SyntaxKind::SINGLE | SyntaxKind::DOUBLE
+                    ) =>
+                {
+                    Some(t.text_range())
+                }
+                rowan::NodeOrToken::Node(n)
+                    if matches!(n.kind(), SyntaxKind::FLOW_MAP | SyntaxKind::FLOW_SEQ) =>
+                {
+                    Some(n.text_range())
+                }
+                _ => None,
+            })
+            .map(|r| trimmed_span(tree_text, r))
+            .collect()
+    }
+}
+
+/// The author's own inner spacing of a flow collection, so a rebuild re-emits
+/// their style instead of a canonical `{a, b}`: the padding after the opener,
+/// the padding before the closer, and the member separator (`, ` / `,`).
+struct FlowStyle {
+    open: String,
+    sep: String,
+    close: String,
+}
+
+fn flow_style(tree_text: &str, flow: &SyntaxNode, spans: &[(usize, usize)]) -> FlowStyle {
+    // Inner bounds: just inside the delimiters (an unterminated collection keeps
+    // the node's own end). Nested collections are child nodes, so only this
+    // collection's own delimiters are direct token children.
+    let mut inner_start: usize = flow.text_range().start().into();
+    let mut inner_end: usize = flow.text_range().end().into();
+    for c in flow.children_with_tokens() {
+        if let rowan::NodeOrToken::Token(t) = &c {
+            match t.kind() {
+                SyntaxKind::L_BRACE | SyntaxKind::L_BRACK => {
+                    inner_start = t.text_range().end().into()
+                }
+                SyntaxKind::R_BRACE | SyntaxKind::R_BRACK => {
+                    inner_end = t.text_range().start().into()
+                }
+                _ => {}
+            }
+        }
+    }
+    let slice = |a: usize, b: usize| tree_text.get(a..b).unwrap_or("").to_string();
+    let sep = match (spans.first(), spans.get(1)) {
+        (Some(first), Some(second)) => {
+            let gap = slice(first.1, second.0);
+            // A gap with no comma means the source is not a comma list; don't
+            // propagate it as a separator.
+            if gap.contains(',') {
+                gap
+            } else {
+                ", ".to_string()
+            }
+        }
+        _ => ", ".to_string(),
+    };
+    FlowStyle {
+        open: spans
+            .first()
+            .map(|s| slice(inner_start, s.0))
+            .unwrap_or_default(),
+        sep,
+        close: spans
+            .last()
+            .map(|s| slice(s.1, inner_end))
+            .unwrap_or_default(),
+    }
+}
+
+/// Re-emit a flow collection from member texts and splice it over `flow`'s
+/// range, keeping the author's inner spacing (`flow_style`).
 pub(crate) fn rebuild_flow(
     tree: &SyntaxNode,
     flow: &SyntaxNode,
     members: &[String],
 ) -> Result<(), MutateError> {
-    let inner = members.join(", ");
+    let full = tree.to_string();
+    let style = flow_style(&full, flow, &flow_item_spans(&full, flow));
+    let items: Vec<&str> = members.iter().map(|m| m.trim()).collect();
+    let inner = if items.is_empty() {
+        String::new()
+    } else {
+        format!("{}{}{}", style.open, items.join(&style.sep), style.close)
+    };
     let text = if flow.kind() == SyntaxKind::FLOW_MAP {
         format!("{{{inner}}}")
     } else {
         format!("[{inner}]")
     };
-    let full = tree.to_string();
     let start: usize = flow.text_range().start().into();
     let end: usize = flow.text_range().end().into();
     let new_doc = format!("{}{}{}", &full[..start], text, &full[end..]);
@@ -113,8 +217,9 @@ pub(crate) fn replace_flow_entry(
         format!("{}: {frag}", entry_key_text(member))
     };
     let full = tree.to_string();
-    let start: usize = member.text_range().start().into();
-    let end: usize = member.text_range().end().into();
+    // Splice over the member's span *without* its trailing whitespace, so the
+    // collection's closing padding (`{ a: 1, b: 2 }`) survives the rewrite.
+    let (start, end) = trimmed_span(&full, member.text_range());
     let new_doc = format!("{}{}{}", &full[..start], new_text, &full[end..]);
     commit_reparse(tree, &new_doc, MutateError::Illegal)
 }
@@ -163,12 +268,15 @@ pub(crate) fn replace_flow_seq_element(
     if frag.contains('\n') {
         return Err(MutateError::Unsupported);
     }
-    let mut members = flow_seq_element_texts(flow);
-    if ord >= members.len() {
-        return Err(MutateError::NotFound);
-    }
-    members[ord] = frag.to_string();
-    rebuild_flow(tree, flow, &members)
+    // Splice over the element's own span (trailing whitespace excluded) rather
+    // than rebuilding the whole `[…]`, so an untouched element round-trips and
+    // the collection's padding and separators are left exactly as authored.
+    let full = tree.to_string();
+    let (start, end) = *flow_item_spans(&full, flow)
+        .get(ord)
+        .ok_or(MutateError::NotFound)?;
+    let new_doc = format!("{}{}{}", &full[..start], frag, &full[end..]);
+    commit_reparse(tree, &new_doc, MutateError::Illegal)
 }
 
 /// Insert a new member/element into a flow collection at `target`.
