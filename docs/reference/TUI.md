@@ -247,12 +247,15 @@ cosmetic (ADR 0012):
   or value. A node with no alternative notation reports `core.kind-switch.unsupported`.
 - **A TOML datetime scalar** → the **value picker** (`Mode::SchemaEnum`, the same widget a
   `bool`'s `true`/`false` picker and a schema `enum` use, titled neutrally because
-  `from_schema` is `false`). It lists the *other three* datetime types, each row showing the
-  resulting literal — `local date      1979-05-27`. Enter commits it as an ordinary
+  `from_schema` is `false`). It lists the *other three* datetime types as
+  `name  [D:tag]` — `local date      [D:ldat]` — the same two-column shape a notation row
+  has (`dotted table  [T/D]`). Enter commits it as an ordinary
   value `Replace`, so the normal `PromptKind::TypeChange` confirmation follows; **that** is
-  where the cost is disclosed (`type offsetdatetime → localdate? (drops the time, drops the
-  offset)`, from `datetime::change_note`), so a picker row stays short and reads exactly like
-  a notation row. `y` applies, `n` leaves the document untouched.
+  where the concrete outcome lives — it previews the rewritten literal and then what that
+  costs (`type offsetdatetime → localdate? (1979-05-27T07:32:00Z → 1979-05-27, drops the
+  time, drops the offset)`, from `datetime::change_note`). One value is at stake there
+  instead of four hypothetical ones, so the picker rows stay short and the disclosure gets
+  more room. `y` applies, `n` leaves the document untouched.
 
   Both lists are rendered by the one shared helper, `model::kind_label::align_options`:
   `"<name>  <sample>"` with the name column padded — in **display cells**, so a translated

@@ -68,6 +68,14 @@ Notice slot and never multiplexed onto `status`/`error` (the pre-refactor two-
 bucket model did exactly this, which is why prompt text and status text used to
 collide).
 
+A question may carry an extra `note` (today: a TOML datetime retype's `old → new`
+preview plus what it drops or fills — ADR 0012), so it can be long, and hosts
+must **wrap** rather than clip it: the TUI's `draw_prompt_overlay` sizes its box
+from the question's *display* width (`unicode-width`, so double-width zh-TW
+glyphs get the rows they need) and renders with `Wrap`. It used to be a fixed
+3-row `Paragraph` with no wrap, which silently truncated the tail at the right
+edge.
+
 ### 1.3 Diagnostic event
 
 Developer-facing, English-only (i18n governs *authored* fragments, not captured

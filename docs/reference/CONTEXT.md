@@ -568,9 +568,11 @@ are the KIND-column vocabulary.
 Scalars switch **within their own type, never across types** — with one deliberate exception,
 TOML's four datetime *types* (`[D:odt]`/`[D:ldt]`/`[D:ldat]`/`[D:ltim]`). They are mutually
 reachable from `K`, but not through `ConvertKind`: `Session::open_kind_switch` diverts a
-datetime node to `Mode::SchemaEnum` (the value picker), whose options carry the pre-rendered
-target literal and disclose every dropped/auto-filled component in the label, and whose commit
-path is an ordinary value `Replace` gated by `PromptKind::TypeChange`. `kind_options` therefore
+datetime node to `Mode::SchemaEnum` (the value picker), whose options read `name  [D:tag]`
+like a notation row (`local date      [D:ldat]`) and whose commit path is an ordinary value
+`Replace` gated by `PromptKind::TypeChange` — that confirm is where the rewritten literal is
+previewed (`1979-05-27T07:32:00Z → 1979-05-27`) and every dropped/auto-filled component
+named. `kind_options` therefore
 still returns an empty list for a datetime, and `ConvertKind`'s same-kind invariant is intact.
 Component surgery lives in `session/datetime.rs`; fill policy and the rejected
 `KindTarget::Datetime*` design are in **ADR 0012**.
