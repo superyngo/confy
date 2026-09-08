@@ -8,6 +8,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-09 (23)
+
+**Perf — the two P0s from the 2026-08-29 audit**
+
+**1. One serialize per mutation instead of two.** `apply` already returned the new text and
+`on_mutation_success` already pushed it into `History`, but `sync_schema_hint()` →
+`detect_and_request_schema()` then re-serialized the whole document just to hand the text to
+`schema::hints::detect_hint` — on every mutation, whether or not the document has a hint at
+all. `sync_schema_hint` now takes `&str`, and the new `detect_hint_in(text)` does the detection;
+all three call sites already held the text (a mutation's `apply` output, or the snapshot
+undo/redo just restored). The public `detect_and_request_schema()` is unchanged for hosts that
+have no text in hand. Removes a full document serialize from every keystroke.
+
+**2. `Move` de-quadraticated — and the audit's root cause was wrong.** Profiling the audit's
+own benchmark first, because the arithmetic did not add up: three CST walks at 5.5 ms cannot be
+96% of a 527 ms move.
+
+| phase of `Move ×1` @ 7,001 nodes | time |
+|---|---|
+| first `walk` | 5.5 ms |
+| capture + anchor | 143 ms |
+| delete | 195 ms |
+| per-fragment `walk` (×1) | 85 ms |
+| insert | 83 ms |
+
+An 85 ms walk — the *same* `walk(tree, "")` that had just cost 5.5 ms, with nothing changed
+between them. The isolating experiment:
+
+| `walk(tree, "")` @ 7,001 nodes | time |
+|---|---|
+| nothing else alive (×3, consecutive) | 5.58 / 5.59 / 5.59 ms |
+| a previous walk's index still in scope (×4) | 97 / 98 / 97 / 97 ms |
+
+Not a warm-up effect and not amortized — **every** traversal under a live index pays it. Cause,
+confirmed in `rowan::cursor`: `clone_for_update` yields the *mutable* representation, where a
+parent locates a child by scanning its **live** children (a sorted linked list of `NodeData`).
+A `CstIndex` holds one live `SyntaxElement` per node, so with a whole-document index in scope
+every child lookup degrades to a list scan and traversal becomes quadratic.
+
+So the fix is not "fewer walks" — it is **never traverse a mutable tree while a whole-document
+index is alive**. `cst_edit::move_nodes` and `cst_edit::delete` now `drop` their `(proj, idx)`
+the moment the owned data they need (fragments, spans, anchor path) is extracted, before any
+splice:
+
+| TOML `Move` @ 7,001 nodes | before | after | |
+|---|---|---|---|
+| 1 source | 527 ms | **275 ms** | −48% |
+| 4 sources | 2.09 s | **1.04 s** | −50% |
+| 8 sources | 4.18 s | **2.22 s** | −47% |
+
+Two consequences worth recording. **JSON needed no change**: its `project()` keeps only the
+owned `NodeTree` and `resolve()` discards its index on return, so it was never exposed — the
+audit's "same superlinear shape in the JSON and YAML `move_nodes`" was pattern-matching on
+call-site counts, not on the mechanism. And YAML's 27× lead over TOML has the same explanation
+as the fix: it reuses one index rather than overlapping several. The remaining TOML cost is the
+capture phase and `insert_with`, both of which traverse *through* an index by design;
+eliminating those needs a structural change (an index that stores paths rather than live
+handles), not another `drop`. The invariant is now written down in `docs/reference/MUTATIONS.md`
+§ *Mutation mechanics*, since it is the kind of rule that silently regresses.
+
+`Replace` and `Rename` are unchanged at 14.7 ms — the same `drop` was tried there, measured no
+difference (their splice is one token, not a section), and reverted rather than left in.
+
+Verified on the real binary, not just the bench: a cut-and-paste `Move` of `[b]` into `[a]`
+produces the correct `[a.b]` and preserves the `#:schema` hint line, and `z` restores the
+original byte-for-byte — exercising the threaded `sync_schema_hint(&snapshot)` path.
+
 ### Unreleased Update - 2026-09-09 (22)
 
 **Docs — re-verify every open finding, with fresh measurements**

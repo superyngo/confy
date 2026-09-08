@@ -12,6 +12,16 @@ Method: four read-only verification passes over the code (verdict only when a sy
 pointed at) plus fresh `cargo bench -p confy-core --bench perf` runs at the audit's own sizes.
 Citations name files and symbols, never line numbers.
 
+> **Correction, same day (2026-09-09).** Findings #1 and #2 were taken the same afternoon and
+> both root causes below turned out to be wrong on profiling — the *symptoms* were right.
+> #1 is not caused by the number of CST walks (three walks account for ~3% of a single-source
+> `Move`); it is caused by holding a whole-document index alive across them, which makes each
+> traversal 11-17× slower. #2's second serialize is real but was fixed by threading, as
+> predicted. Both are now fixed — see `CHANGELOG.md` *Unreleased Update - 2026-09-09 (23)* and
+> the *Mutation mechanics* live-index invariant in
+> [`../reference/MUTATIONS.md`](../reference/MUTATIONS.md). The analysis below is left as
+> written: it is what the evidence supported before the profiler ran.
+
 ## Verdict summary
 
 | # | Finding | Audit | Now | Note |

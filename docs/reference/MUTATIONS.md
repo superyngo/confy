@@ -89,6 +89,19 @@ validated). Validation's serialize + re-parse doubles as the normalization back 
 tree, so `apply` returns `(SyntaxNode, String)` and the caller commits both — one serialize and
 one parse per mutation, not two. KIND tags are the KIND-column vocabulary.
 
+**Never traverse a mutable tree while a whole-document index is alive.** This is a hard
+performance invariant of the TOML backend, not a style preference. `clone_for_update` gives
+rowan's *mutable* representation, where a parent finds a child by scanning its **live**
+children (a sorted linked list of `NodeData`, `rowan::cursor`), so a `CstIndex` — which holds a
+live `SyntaxElement` per node — makes every subsequent traversal quadratic. Measured at 7,001
+projected nodes: `walk(tree, "")` costs **5.6 ms** with nothing else alive, and **60-97 ms**
+(11-17×) with a previous walk's index still in scope. Repeatable, and not a warm-up effect —
+four consecutive walks all cost ~97 ms while one index is held, and 5.6 ms each when it is not.
+So `move_nodes` and `delete` `drop` their `(proj, idx)` the moment the owned data they need
+(fragments, spans, anchor path) has been extracted, before any splice. `JsonDocument` is immune
+by construction — its `project()` keeps only the owned `NodeTree` and `resolve()` discards its
+index on return — which is why the same "quadratic move" shape never appeared there.
+
 | Variant | Behaviour |
 |---|---|
 | **Insert** | Adapts the fragment to the destination — forming/clamp rules are the *Insert / move legality* table. A keyed entry into a `[T/I]` inline table rebuilds the `{ … }` from members' verbatim source with normalized `, ` separators (front/middle/append; dup key = `Collision`; empty `{}` → `{ k = v }`). Keyed fragments into an `[A/T]` *group* synthesize one new `[[…]]` entry at the slot (`aot_group_insert`; multiple pasted nodes join via `joinable_entry` and pack into ONE entry; in-set dup keys follow on-rename/collision; a section fragment = `Illegal`). |

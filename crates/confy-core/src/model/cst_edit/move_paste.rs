@@ -1186,6 +1186,20 @@ pub(crate) fn move_nodes(
         .filter(|c| !sources.contains(&c.path))
         .count();
 
+    // Release the capture-phase projection and index *before* any mutation.
+    // This is a performance requirement, not tidiness: rowan's
+    // `clone_for_update` trees track live `SyntaxNode`/`SyntaxElement` handles
+    // per parent, and a child lookup scans that live set — so holding a
+    // whole-document `CstIndex` alive makes every *subsequent* traversal
+    // quadratic. Measured at 7k nodes: an isolated `walk` is 5.6 ms, but the
+    // same `walk` with this index still alive is 60-97 ms (11-17x). `delete`
+    // and `insert_with` below each walk internally, so overlapping this index
+    // with them was the actual cost behind the "quadratic Move" finding — not
+    // the number of walks. Everything the phases below need is already owned
+    // (`frags`, `aot_composite_idxs`, `anchor_path`, `anchor_end`, `gap`).
+    drop(idx);
+    drop(proj);
+
     // Delete sources (longest path first keeps shallower paths valid; among
     // same-length array-index siblings, highest index first — otherwise
     // deleting a lower index shifts the not-yet-deleted higher indices out

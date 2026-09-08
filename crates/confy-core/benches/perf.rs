@@ -153,11 +153,12 @@ fn main() {
         })
         .expect("rename must succeed");
     });
-    // A multi-source Move is the one gesture that re-projects per source
-    // (`move_paste.rs` walks once up front, then once per fragment, because an
-    // inserted dotted member can merge into one projected child and a cached
-    // index would drift). Measured to see whether those N+1 walks are worth
-    // the incremental-index complexity they would cost to remove.
+    // A multi-source Move was the audit's headline P0. The cost was never the
+    // *number* of walks: it was that `move_nodes` held a whole-document
+    // `CstIndex` alive across the delete/insert phases, and a rowan mutable
+    // tree resolves a child by scanning its live children — so every traversal
+    // underneath a live index runs 11-17x slower. Dropping the index before
+    // those phases (and the same in `delete`) is what these numbers track.
     for srcs in [1usize, 4, 8] {
         let sources: Vec<Vec<Seg>> = (0..srcs)
             .map(|i| vec![Seg::Key(format!("svc_{i}"))])

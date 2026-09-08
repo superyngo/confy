@@ -613,6 +613,12 @@ pub(crate) fn delete(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError>
     {
         let spans = table_member_spans(tree, &idx, path);
         if !spans.is_empty() {
+            // Release the whole-document index before splicing: a rowan
+            // mutable tree finds a child by scanning its *live* children,
+            // so traversing with this index alive is 11-17x slower (see the
+            // note in `move_paste.rs::move_nodes`). `spans` is self-contained.
+            drop(idx);
+            drop(proj);
             for s in spans.iter().rev() {
                 match s {
                     MemberSpan::Entry(e) => detach_entry_line(e),
@@ -643,6 +649,8 @@ pub(crate) fn delete(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError>
         Some(t) => t,
         None => return Err(MutateError::NotFound),
     };
+    drop(idx);
+    drop(proj);
     match target {
         Target::Comment(first) => {
             let parent = first.parent().ok_or(MutateError::NotFound)?;

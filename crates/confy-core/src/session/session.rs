@@ -1770,9 +1770,18 @@ impl Session {
     /// `self.schema` untouched) when no hint is found — editing proceeds
     /// exactly as before (spec §1).
     pub fn detect_and_request_schema(&mut self) -> Option<crate::schema::SchemaSource> {
+        let text = self.doc.as_ref()?.serialize();
+        self.detect_hint_in(&text)
+    }
+
+    /// `detect_and_request_schema` for a caller that already holds the
+    /// document's serialized text. Every mutation commit does: `apply`
+    /// returns the new text, so re-serializing the whole document here just
+    /// to feed `detect_hint` cost a second full serialize per keystroke
+    /// (16.4 ms at 98k nodes) — even for a document with no hint at all.
+    pub(crate) fn detect_hint_in(&self, text: &str) -> Option<crate::schema::SchemaSource> {
         let doc = self.doc.as_ref()?;
-        let text = doc.serialize();
-        crate::schema::hints::detect_hint(&text, doc.format())
+        crate::schema::hints::detect_hint(text, doc.format())
     }
 
     /// The host resolved `source`'s text (or failed to). `Ok` compiles and
@@ -2014,14 +2023,12 @@ impl Session {
     /// structural inserts) — always revalidates, identical to pre-Task-14
     /// behavior. See `schema::dirty_check` for the skip condition itself.
     pub(crate) fn on_mutation_success(&mut self, touched: Option<&Path>, text: String) {
-        if let Some(doc) = self.doc.as_ref() {
-            let snapshot = text;
-            let tree = doc.project();
-            if let Some(h) = self.history.as_mut() {
-                h.push(snapshot);
-            }
-            self.tree = tree;
-        }
+        let has_doc = if let Some(doc) = self.doc.as_ref() {
+            self.tree = doc.project();
+            true
+        } else {
+            false
+        };
         self.notice = None;
         let skip_revalidate = match (touched, self.schema.as_ref()) {
             (Some(path), Some(schema)) if schema.fully_analyzable => schema
@@ -2034,7 +2041,14 @@ impl Session {
         if !skip_revalidate {
             self.revalidate_schema();
         }
-        self.sync_schema_hint();
+        // `text` is the document `apply` just serialized — hand it straight to
+        // the hint sync instead of letting it re-serialize the whole document.
+        self.sync_schema_hint(&text);
+        if has_doc {
+            if let Some(h) = self.history.as_mut() {
+                h.push(text);
+            }
+        }
     }
 
     /// Re-detect the in-document schema hint after a mutation and decide
@@ -2048,8 +2062,11 @@ impl Session {
     /// loads a schema *because* of a detected hint, so a hint that has
     /// disappeared (deleted, or edited into plain text) must drop the
     /// schema along with it.
-    pub(crate) fn sync_schema_hint(&mut self) {
-        match self.detect_and_request_schema() {
+    /// `text` is the document's current serialization, which every caller
+    /// already holds (a mutation's `apply` output, or the snapshot undo/redo
+    /// just restored).
+    pub(crate) fn sync_schema_hint(&mut self, text: &str) {
+        match self.detect_hint_in(text) {
             Some(source) => match &self.schema {
                 Some(state) if state.source == source => {
                     if state.load_error.is_some() {
