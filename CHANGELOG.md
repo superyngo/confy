@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-08 (6)
+
+**Fixed**
+
+- **The touch UI no longer freezes after adding a node with the keyboard.** Committing an
+  Add-picker choice seeds a scalar and leaves core in the **inline editor** (`Mode::Edit`,
+  `created_on_add`) — a surface touch does not render, so every following key resolved as an
+  edit keystroke and Space fell through to native scrolling instead of toggling a branch. The
+  add now commits the seeded default and opens the detail sheet on the new node (`EditCancel`
+  is not an option there: `created_on_add` would roll the whole insert back). The tap path had
+  the same freeze, and the keyboard path additionally left the picker sheet on screen —
+  `AddPickerCommit`/`ExitAddPicker`/`SchemaEnumCommit` now close it, as the tap handlers do.
+
+- **Touch `e` reaches the popup editor again, like desktop.** It always opened the detail
+  sheet, bypassing core's `BeginEdit` routing entirely, so a branch or a multi-line
+  scalar/comment could only be edited via `E`. It now dispatches the raw intent and lets core
+  route it (container / multi-line → external editor, `bool`/enum → value picker), backing out
+  only of the inline-editor branch — the one case with no touch surface — into the panel.
+
 ### Unreleased Update - 2026-09-08 (5)
 
 **Changed**

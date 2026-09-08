@@ -812,8 +812,7 @@ function openAddPickerSheet(options: AddOptionView[], cursor: number) {
   sheets.kind.querySelectorAll<HTMLElement>(".kind-opt").forEach((b) => {
     b.addEventListener("click", () => {
       const idx = Number(b.dataset.idx);
-      closeSheets();
-      send({ AddPickerPick: idx });
+      sendAddPick({ AddPickerPick: idx });
     });
   });
   openSheet("kind");
@@ -1752,11 +1751,12 @@ async function doOpen() {
 // resolved intents are safe to `send()` as-is because touch already renders
 // every core sub-mode they can produce (TypeFilter/Convert/Prompt/SchemaEnum/
 // Help all reactively open/close their sheet in `render()`, proven by the
-// existing toolbar/menu buttons that already dispatch them). Three intents
-// are special-cased below because touch's own editing surfaces bypass the
-// core modes those intents drive on desktop (`Mode::Edit`, `Mode::KindSwitch`)
-// — touch has no rendering for those modes, so sending them raw would leave
-// the UI silently stuck. `ToggleDetail` isn't core-mode-driven on touch at
+// existing toolbar/menu buttons that already dispatch them). The exceptions
+// below exist because touch has no rendering for `Mode::Edit` (the inline
+// editor) or `Mode::KindSwitch`: an intent that can land in one of those must
+// be reconciled onto a touch surface, or the UI silently freezes — every
+// subsequent key resolves as an *edit* keystroke and Space falls through to
+// native scrolling. `ToggleDetail` isn't core-mode-driven on touch at
 // all (the detail sheet is host-local, see `openPanel`), so it's replaced
 // with an equivalent local toggle.
 
@@ -1804,6 +1804,41 @@ function toggleDetailSheet() {
   if (cur) openPanel(cur.path);
 }
 
+// `e` (BeginEdit): let CORE route the edit, exactly as it does for desktop —
+// a container, a multi-line scalar and a multi-line comment open the external
+// popup editor (`snapshot.external_edit`, which `render()` already turns into
+// the ext sheet), and a `bool`/schema-enum scalar opens the value picker.
+// Only core's inline-editor branch has no touch surface: back out of that one
+// — loss-free, since nothing is committed and this is never a `created_on_add`
+// edit — and open the detail sheet, which *is* touch's inline editor. Opening
+// the panel unconditionally instead (as this did before) meant a branch or a
+// multi-line value could only reach the popup editor via `E`.
+function touchBeginEdit() {
+  const cur = cursorRow();
+  send("BeginEdit");
+  if (!snap || modeTag(snap.mode) !== "Edit") return;
+  send("EditCancel");
+  if (cur) openPanel(cur.path);
+}
+
+// Committing an Add-picker choice (keyboard Enter / tapped cell): a scalar
+// seed is inserted and core then sits in the INLINE editor (`Mode::Edit` with
+// `created_on_add`) that touch cannot render. `EditCancel` is not the way out
+// — `created_on_add` makes it roll the whole insert back — so commit the
+// seeded default and hand the new node to touch's own editing surface. A
+// container seed stays inert (core just notices the placeholder key) and a
+// `bool` seed lands in `Mode::SchemaEnum`, which `render()` already serves;
+// neither needs anything here. Also closes the picker sheet, which the
+// keyboard path (unlike the tap handlers) never did.
+function sendAddPick(i: Intent) {
+  closeSheets();
+  send(i);
+  if (!snap || modeTag(snap.mode) !== "Edit") return;
+  send("EditCommit");
+  const cur = cursorRow();
+  if (cur && modeTag(snap.mode) !== "Edit") openPanel(cur.path);
+}
+
 // PageUp/PageDown step for the TypeFilter sheet, in nav-row units. Mirrors
 // desktop `ui.ts`'s `typeFilterPageStep` (scroll-ratio, not pixel row
 // heights), reading the touch filter sheet's scrollable body instead of
@@ -1847,13 +1882,19 @@ function handleKeyResult(result: NonNullable<KeyResolution>, ev: KeyboardEvent) 
     case "intent":
       if (result.preventDefault) ev.preventDefault();
       if (result.intent === "ToggleDetail") return toggleDetailSheet();
-      if (result.intent === "BeginEdit") {
-        const cur = cursorRow();
-        return cur ? openPanel(cur.path) : undefined;
-      }
+      if (result.intent === "BeginEdit") return touchBeginEdit();
       if (result.intent === "OpenKindSwitch") {
         const cur = cursorRow();
         return cur ? openKindSheet(cur.path) : undefined;
+      }
+      if (result.intent === "AddPickerCommit") return sendAddPick("AddPickerCommit");
+      // Keyboard exits from a sheet whose *content* is mode-driven: the tap
+      // handlers close it themselves, so these are the only paths that can
+      // leave a committed/cancelled picker on screen (the shared `kind` sheet
+      // is also used host-locally by `K`, so `render()` can't blanket-close it).
+      if (result.intent === "ExitAddPicker" || result.intent === "SchemaEnumCommit") {
+        closeSheets();
+        return send(result.intent);
       }
       if (result.intent === "Escape" && sheets.detail.classList.contains("open") && !isWide()) {
         closeSheets();

@@ -604,12 +604,23 @@ edits to the verbatim desktop CSS.
   so the key→Intent map can't drift between surfaces. Guarded against a focused `INPUT`/
   `TEXTAREA`/`SELECT` and the URL/external-edit sheets. Most resolved intents `send()` straight
   through, since touch already renders every core sub-mode they can produce (TypeFilter/Convert/
-  Prompt/SchemaEnum/Help all reactively open/close their sheet). Three are host-specific because
-  touch's own editing/kind-switch surfaces bypass the core sub-modes those intents drive on
-  desktop (`Mode::Edit`, `Mode::KindSwitch` — touch renders neither): `e`/`BeginEdit` and
-  `K`/`OpenKindSwitch` open touch's existing panel/kind sheets instead of dispatching the raw
-  intent, and `i`/Enter (`ToggleDetail`) toggles the host-local detail sheet directly (no core
-  mode backs it here, unlike desktop's `Mode::Detail`) — `Escape` closes that sheet first if open.
+  Prompt/SchemaEnum/Help all reactively open/close their sheet). A few are host-specific
+  because touch has no rendering for `Mode::Edit` (the inline editor) or `Mode::KindSwitch`,
+  so an intent that can land in one of those must be reconciled onto a touch surface or the
+  UI freezes (every following key resolves as an *edit* keystroke and Space falls through to
+  native scrolling): `e`/`BeginEdit` dispatches the **raw** intent so core routes it exactly
+  as it does for desktop — a container, a multi-line scalar and a multi-line comment reach
+  the external popup editor, a `bool`/enum reaches the value picker — and only core's
+  inline-editor branch is backed out of (`EditCancel`, loss-free here) in favor of the detail
+  sheet; **committing an Add-picker choice** (keyboard Enter *and* a tapped cell) likewise
+  lands in the inline editor for a scalar seed, where `EditCancel` would roll the whole
+  insert back — so it commits the seeded default (`EditCommit`) and opens the detail sheet on
+  the new node. `K`/`OpenKindSwitch` opens touch's own kind sheet instead of dispatching the
+  raw intent, and `i`/Enter (`ToggleDetail`) toggles the host-local detail sheet directly (no
+  core mode backs it here, unlike desktop's `Mode::Detail`) — `Escape` closes that sheet first
+  if open. Keyboard exits from a sheet whose *content* is mode-driven (`AddPickerCommit`/
+  `ExitAddPicker`/`SchemaEnumCommit`) close it explicitly, the way the tap handlers do: the
+  shared `kind` sheet is also used host-locally by `K`, so `render()` can't blanket-close it.
   `q`/`QuitRequested` is suppressed (`vshost: true` passed to `resolveKeyIntent`) — a web/touch
   surface has no "quit" concept.
 
