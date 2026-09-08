@@ -566,10 +566,11 @@ element edit, none of which is a constant:
   array retracts the same way (that cut takes the comma *after* the element, so its indent would
   otherwise strand in front of the `]`), but only when nothing else still owns the indent — a
   surviving element, or the deleted element's own EOL comment, keeps its column.
-
-**Known rough edge:** inserting into an array whose only child is a comment
-(`a = [`⏎`  # only`⏎`]`) appends at column 0 — the empty-array branch splices before the `]`
-without consulting `array_element_lead`.
+- **First element in a comment-only array** — the no-elements branch splices bare before the `]`,
+  which is right for `[]`/`[ ]`/`[`⏎`]` but not for an array already holding comments: that one
+  ends in a NEWLINE, so a bare splice lands in column 0. When the element before the `]` is a
+  NEWLINE, the value is preceded by `array_comment_indent` — the indent of the array's last
+  comment line, so the first element joins that column (empty for a flush `#`).
 
 **Flow fragments.** A YAML flow-seq *element* has no `Target` of its own — the projection
 indexes it as `Target::Element(<the whole FLOW_SEQ>)`, since every edit needs the collection plus

@@ -180,6 +180,37 @@ fn appending_keeps_the_padding_before_the_closing_bracket() {
     assert_eq!(insert_elem("a = [ 1, 2 ]\n", 1), "a = [ 1, 9, 2 ]\n");
 }
 
+/// The first element of an array that so far holds only comments joins the
+/// comment's column. The no-elements branch spliced the value bare before the
+/// `]`, and since a comment-holding array already ends in a NEWLINE, that put
+/// the element in column 0 (`a = [\n  # only\n0]`).
+#[test]
+fn a_first_element_joins_the_comment_column() {
+    assert_eq!(
+        insert_elem("a = [\n  # only\n]\n", 0),
+        "a = [\n  # only\n  9]\n"
+    );
+    // The indent is the comment's own, and a multi-line block uses its last line.
+    assert_eq!(
+        insert_elem("a = [\n    # only\n]\n", 0),
+        "a = [\n    # only\n    9]\n"
+    );
+    assert_eq!(
+        insert_elem("a = [\n  # a\n  # b\n]\n", 0),
+        "a = [\n  # a\n  # b\n  9]\n"
+    );
+    // A flush comment asks for no indent.
+    assert_eq!(
+        insert_elem("a = [\n# flush\n]\n", 0),
+        "a = [\n# flush\n9]\n"
+    );
+
+    // Genuinely empty arrays keep their existing behaviour: no comment, no indent.
+    assert_eq!(insert_elem("a = []\n", 0), "a = [9]\n");
+    assert_eq!(insert_elem("a = [ ]\n", 0), "a = [ 9]\n");
+    assert_eq!(insert_elem("a = [\n]\n", 0), "a = [\n9]\n");
+}
+
 #[test]
 fn untouched_file_roundtrips_byte_identical() {
     let src = include_str!("fixtures/sample.toml");

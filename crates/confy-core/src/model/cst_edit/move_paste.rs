@@ -658,12 +658,23 @@ pub(crate) fn array_insert(
         ins.extend(pad);
         arr.splice_children(last + 1..last + 1, ins);
     } else {
-        // Empty array: insert before the closing bracket.
+        // No elements — insert before the closing bracket. A truly empty `[]`/`[ ]`
+        // takes the value bare, but an array holding only comments already ends in
+        // a NEWLINE, and the new element needs that line's indent or it lands in
+        // column 0 (`a = [\n  # only\n0]`).
         let be = els
             .iter()
             .position(|e| matches!(e, NodeOrToken::Token(t) if t.kind() == SyntaxKind::BRACKET_END))
             .ok_or(MutateError::Unsupported)?;
-        arr.splice_children(be..be, vec![NodeOrToken::Node(new_val)]);
+        let mut ins = if matches!(els.get(be.wrapping_sub(1)), Some(NodeOrToken::Token(t))
+            if t.kind() == SyntaxKind::NEWLINE)
+        {
+            trivia_tokens(&array_comment_indent(&arr))
+        } else {
+            vec![]
+        };
+        ins.push(NodeOrToken::Node(new_val));
+        arr.splice_children(be..be, ins);
     }
     Ok(())
 }
@@ -804,6 +815,49 @@ fn array_sep_with(lead: &str) -> Vec<taplo::syntax::SyntaxElement> {
         e.detach();
     }
     out
+}
+
+/// The trivia tokens spelling `text`, lexed by taplo (a newline+indent is two
+/// tokens, not one) and detached, ready to splice in front of a value.
+fn trivia_tokens(text: &str) -> Vec<taplo::syntax::SyntaxElement> {
+    if text.is_empty() {
+        return vec![];
+    }
+    let frag = taplo::parser::parse(&format!("x = [{text}0]\n"))
+        .into_syntax()
+        .clone_for_update();
+    let arr = frag
+        .descendants()
+        .find(|n| n.kind() == SyntaxKind::ARRAY)
+        .expect("sample array");
+    let els: Vec<_> = arr.children_with_tokens().collect();
+    let vi = els
+        .iter()
+        .position(|e| matches!(e, NodeOrToken::Node(n) if n.kind() == SyntaxKind::VALUE))
+        .expect("sample value");
+    let out: Vec<_> = els[1..vi].to_vec();
+    for e in &out {
+        e.detach();
+    }
+    out
+}
+
+/// The indent of the **last comment line** in an array that holds no elements —
+/// the column a first element should join. Empty when there is none.
+fn array_comment_indent(arr: &SyntaxNode) -> String {
+    let els: Vec<_> = arr.children_with_tokens().collect();
+    let last_comment = els
+        .iter()
+        .rposition(|e| matches!(e, NodeOrToken::Token(t) if t.kind() == SyntaxKind::COMMENT));
+    match last_comment {
+        Some(i) => match els.get(i.wrapping_sub(1)) {
+            Some(NodeOrToken::Token(t)) if t.kind() == SyntaxKind::WHITESPACE => {
+                t.text().to_string()
+            }
+            _ => String::new(),
+        },
+        None => String::new(),
+    }
 }
 
 /// Swap the **last** key-segment token of a node fragment to `new_seg` (`a.b` →

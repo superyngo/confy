@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-08 (20)
+
+**Fixed**
+
+- **The first element added to a TOML array holding only comments landed in column 0.**
+  `a = [`⏎`  # only`⏎`]` + one element gave `  # only`⏎`0]`. `array_insert`'s no-elements branch
+  spliced the value bare before the `]` — correct for `[]`/`[ ]`/`[`⏎`]`, but a comment-holding
+  array already ends in a NEWLINE, so the element started a fresh line with no indent. When the
+  element before the `]` is a NEWLINE, the value is now preceded by the indent of the array's
+  last comment line (`array_comment_indent`), so the first element joins that column:
+  `  # only`⏎`  0]`. A flush `#` asks for no indent and gets none; genuinely empty arrays are
+  unchanged.
+
+This clears the last rough edge recorded for multiline-array element editing; `CONTEXT.md`'s
+*Multiline-array layout* section now lists four rules and no open cases.
+
 ### Unreleased Update - 2026-09-08 (19)
 
 **Fixed**
