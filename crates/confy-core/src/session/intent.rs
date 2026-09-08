@@ -33,7 +33,7 @@ pub enum Intent {
     /// `ConfySession::pointer_slot(path, rel_y)`; ignored if the path isn't
     /// currently visible when it lands (mirrors `SetCursor`).
     SetPasteSlot(crate::session::state::PasteSlot),
-    /// **Reveal** (CONTEXT.md §Operations): expand every ancestor of `path`
+    /// **Reveal** (`docs/reference/glossary.md` §Operations): expand every ancestor of `path`
     /// and place the cursor on it (Web UI breadcrumb mini-tree jump). No-op if
     /// the path doesn't exist; if an active filter still hides the row, the
     /// expansion sticks, the cursor stays put, and the status line reports it.

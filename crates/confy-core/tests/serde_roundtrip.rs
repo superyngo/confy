@@ -1,4 +1,4 @@
-//! PORTING.md §7 exit gate #3: the types that cross the future WASM boundary
+//! `docs/spec/2026-06-17-headless-core-port.md` §7 exit gate #3: the types that cross the future WASM boundary
 //! (`Intent`, `ViewRow`, `Mutation`) survive a `serde_json` round-trip.
 //! This rehearses the JS-interop contract before any WASM target exists.
 use confy_core::model::document::{KindTarget, Mutation, OnCollision, Target};

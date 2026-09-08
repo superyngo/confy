@@ -1,5 +1,5 @@
 //! `CstDocument` — the lossless-CST backend (migration in progress; see
-//! `docs/superpowers/plans/2026-06-08-cst-backend-migration.md`).
+//! `docs/plan/2026-06-08-cst-backend-migration.md`).
 //!
 //! The source of truth is a [`taplo`] rowan syntax tree. Unlike `toml_edit`, every
 //! byte — including `# comment`, whitespace and newlines — is a real token with a
@@ -317,7 +317,7 @@ impl CstDocument {
     /// constructor: WASM/web hosts, the TUI loader, and the conversion reparse-net
     /// all read the bytes themselves and call this. The projection root label
     /// (`filename`) starts empty; the host sets it via [`set_filename`](Self::set_filename).
-    // Named `from_str` per PORTING.md so it reads `CstDocument::from_str(text)`
+    // Named `from_str` per `docs/spec/2026-06-17-headless-core-port.md` so it reads `CstDocument::from_str(text)`
     // without importing `FromStr`; a real `FromStr` impl is a poor fit (anyhow
     // error, JSON's content-derived state on the sibling backend).
     #[allow(clippy::should_implement_trait)]

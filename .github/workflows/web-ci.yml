@@ -2,7 +2,7 @@ name: Web CI
 
 # Fast pass/fail feedback on every push/PR touching the web UI or its wasm
 # core. Visibility only — not a required status check (see
-# docs/superpowers/plans/2026-08-11-web-code-audit-remediation-plan.md,
+# docs/plan/2026-08-11-web-code-audit-remediation-plan.md,
 # Architecture Decisions: confy is a single-committer, direct-push-to-main
 # repo, so a required check would reject the maintainer's own pushes
 # (GH006). The actual enforcement is the typecheck/test gate inside

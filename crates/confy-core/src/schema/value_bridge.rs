@@ -1,11 +1,11 @@
-//! Node+Value → **JSON projection** bridging (`CONTEXT.md` § Schema).
+//! Node+Value → **JSON projection** bridging (`docs/reference/glossary.md` § Schema).
 //!
 //! Both the `Node` tree (paths, no decoded scalars) and the `Value` tree from
 //! `convert::tree_to_value_lenient()` (decoded scalars, no paths) are
 //! order-preserving
 //! 1:1 walks of the *same* backing document at every nesting level — every
 //! child, including Comment nodes/`Item::Comment`, in document order (see
-//! `CONTEXT.md` § Projection: "the backing document — not the Node tree — is
+//! `docs/reference/glossary.md` § Projection: "the backing document — not the Node tree — is
 //! the single source of truth"). `bridge()` walks them together by position,
 //! skipping Comment/`Item::Comment` pairs, to attach a `Path` to every JSON
 //! projection node without reimplementing per-format scalar decoding (already

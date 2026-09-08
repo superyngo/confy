@@ -1,7 +1,7 @@
 # Node operations are centralized in one core-owned Action menu
 
 Status: accepted and implemented (2026-08-30, commit `3ebb397`)
-Spec: [`../superpowers/specs/2026-08-30-action-menu-design.md`](../superpowers/specs/2026-08-30-action-menu-design.md)
+Spec: [`../spec/2026-08-30-action-menu-design.md`](../spec/2026-08-30-action-menu-design.md)
 
 Node operations had accumulated across five surfaces that disagreed with each other: the
 desktop per-row `⋮` menu (ten items, hardcoded English, no i18n keys), the shared detail

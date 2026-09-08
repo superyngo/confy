@@ -262,7 +262,7 @@ pub(crate) fn insert_comment(
     }
 
     let container = find_container(tree, &target.parent)?;
-    // A one-line flow collection holds no standalone comment (CONTEXT.md
+    // A one-line flow collection holds no standalone comment (`docs/reference/glossary.md`
     // "Comment"): `collect_items` would read its `[`/`,`/`]` tokens as block
     // items and the rebuild would emit the comment *instead of* the collection,
     // silently destroying it. Reject instead, matching `set_trailing_comment`.

@@ -1,6 +1,6 @@
 // Plain-Node test pinning the HTML-escaping discipline in `render.ts`/`panel.ts`
 // (verified manually in the 2026-08-11 code-auditor audit — see
-// docs/superpowers/plans/2026-08-11-web-code-audit-remediation-plan.md, Task 6).
+// docs/plan/2026-08-11-web-code-audit-remediation-plan.md, Task 6).
 // Follows `toolbar-fold.spec.mjs`'s convention: no test framework, just
 // `node:assert` + a `check()` tally. Unlike `toolbar-fold.ts` (zero imports),
 // `render.ts`/`panel.ts` pull in `escape.ts`/`kind-labels.ts`/`i18n.ts`, so this

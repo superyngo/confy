@@ -1,10 +1,10 @@
-# ROW_STATE_MODEL.md — row cursor/selection/clipboard state, unified across TUI/desktop/touch
+# Row cursor/selection/clipboard state, unified across TUI/desktop/touch
 
 The decision record is ADR 0005 (`docs/adr/0005-row-cursor-selection-clipboard-state-model.md`).
 This document is the detail: per-state core mapping, per-platform entry-gesture tables,
-the visual design spec, the keybinding table, the cut/copy-mode redesign, and the phased
-implementation task list. Node-kind and per-format mutation mechanics are not repeated
-here — see `CONTEXT.md`'s "Insert / move legality" table and `BEHAVIOR_MATRIX.md`. TUI
+the visual design spec, the keybinding table, the cut/copy-mode redesign, and the
+implementation history. Node-kind and per-format mutation mechanics are not repeated
+here — see `MUTATIONS.md`'s "Insert / move legality" table and `BEHAVIOR_MATRIX.md`. TUI
 mechanics beyond row state live in `TUI.md`; web/desktop/touch architecture beyond row
 state lives in `WEBUI.md`.
 
@@ -15,15 +15,15 @@ the ones before it; a row can be in several at once.
 
 | # | Canonical name | 中文 | Core field | Who can enter it |
 |---|---|---|---|---|
-| 1 | Cursor | 提示定位 | `Session.cursor: Path` (`session.rs:23`) | TUI keyboard, desktop keyboard. Desktop mouse **hover** is a separate, core-invisible signal — see §1a. Touch has no equivalent. |
-| 2 | Focal row | 選取 | Derived: `selected_paths()`'s target for single-row mutating ops — edit value/key/comment (`session.rs:1365`) | Always equals `cursor`, or the last/focal member of a non-empty `Selection` (`set_selection` keeps the clicked/typed path last). Remark, delete, and copy/cut are **not** in this group — they consume the whole `Selection` (§1c). |
-| 3 | Locked selection | 鎖定選取 | `Session.selection: Selection` non-empty (`session.rs:25`, `selection/selection.rs:25-30`) | TUI: `s` (`ToggleSelect`) / Shift+↑↓ (`ExtendSelectUp/Down`). Desktop: Ctrl/Shift+click, marquee (`web/select.ts`). Touch: single-tap `selectOnly()` writes a 1-path `Selection`; modifier taps go through `resolveClick` (range/toggle); post-paste re-selects the landed batch (§6d). All surfaces show the leading-bar marker. |
-| 4 | Clipboard-armed (cut/copy mode) | 剪下複製模式 | `Session.clipboard.is_some()` (`session.rs:33`, `state.rs:205-209`) | `c`/`x`/Copy/Cut on any surface. Freezes state #3 (four guards: `session.rs:1441, 1453, 1467, 1485`) — entering #4 does not require #3 to be non-empty first; a bare cursor with an empty `Selection` can still be copied/cut via the fallback in `selected_paths()`. |
-| 5 | Clipboard source | cut/copy source | `Session.clipboard.sources: Vec<Path>`, colored by `clipboard.cut: bool` (`state.rs:207-208`) | Only meaningful while #4 is active. |
+| 1 | Cursor | 提示定位 | `Session.cursor: Path` (`session.rs`) | TUI keyboard, desktop keyboard. Desktop mouse **hover** is a separate, core-invisible signal — see §1a. Touch has no equivalent. |
+| 2 | Focal row | 選取 | Derived: `selected_paths()`'s target for single-row mutating ops — edit value/key/comment (`session.rs`) | Always equals `cursor`, or the last/focal member of a non-empty `Selection` (`set_selection` keeps the clicked/typed path last). Remark, delete, and copy/cut are **not** in this group — they consume the whole `Selection` (§1c). |
+| 3 | Locked selection | 鎖定選取 | `Session.selection: Selection` non-empty (`session.rs`, `selection/selection.rs`) | TUI: `s` (`ToggleSelect`) / Shift+↑↓ (`ExtendSelectUp/Down`). Desktop: Ctrl/Shift+click, marquee (`web/select.ts`). Touch: single-tap `selectOnly()` writes a 1-path `Selection`; modifier taps go through `resolveClick` (range/toggle); post-paste re-selects the landed batch (§6d). All surfaces show the leading-bar marker. |
+| 4 | Clipboard-armed (cut/copy mode) | 剪下複製模式 | `Session.clipboard.is_some()` (`session.rs`, `state.rs`) | `c`/`x`/Copy/Cut on any surface. Freezes state #3 (four guards: `session.rs:1441, 1453, 1467, 1485`) — entering #4 does not require #3 to be non-empty first; a bare cursor with an empty `Selection` can still be copied/cut via the fallback in `selected_paths()`. |
+| 5 | Clipboard source | cut/copy source | `Session.clipboard.sources: Vec<Path>`, colored by `clipboard.cut: bool` (`state.rs`) | Only meaningful while #4 is active. |
 
 ### 1a. Hover is not a core state
 
-Desktop mouse hover (`.row:hover`, `web/style.css:166`) never calls `dispatch` and never
+Desktop mouse hover (`.row:hover`, `web/style.css`) never calls `dispatch` and never
 touches `Session.cursor` — it is pure CSS. It is visually identical to state #1
 (same fill color, §3) but can sit on a different row than the keyboard cursor
 simultaneously; that's intentional, not a bug, since it carries no side effects.
@@ -74,12 +74,12 @@ ancestor/descendant pairs, so depth order is irrelevant.) Regression tests:
 `remark_selection_remaps_to_merged_block_and_back`,
 `remark_selection_expands_when_unremarking_merged_block`,
 `remark_selection_json_remaps_through_collapse`,
-`remark_selection_remaps_scattered_rows`, `delete_selected_drops_stale_paths`
+`remark_selection_tracks_scattered_rows`, `delete_selected_drops_stale_paths`
 (`crates/confy-core/tests/session_headless.rs`).
 
 ## 2. Escape ladder (unchanged — recorded, not redesigned)
 
-`Session::escape()` (`session.rs:1637-1680`) peels exactly one layer per press, shared
+`Session::escape()` (`session.rs`) peels exactly one layer per press, shared
 by every host:
 
 1. If `clipboard.is_some()` → clear it (status `core.clipboard.cleared` if a selection
@@ -92,7 +92,7 @@ this mechanism's direct consequence, not a platform-specific rule:
 - TUI arrow-key navigation never calls `SetSelection` — a bare cursor move leaves
   `Selection` empty, so if the clipboard was armed, one Esc clears layer 1 and there is
   nothing left for layer 2 to do (visually: one press fully clears).
-- A desktop plain click always calls `SetSelection([path])` (`web/ui.ts:1136`) — even a
+- A desktop plain click always calls `SetSelection([path])` (`web/ui.ts`) — even a
   "single selection" is a real one-entry `Selection`. So on desktop there is always
   something for layer 2 to clear after layer 1, hence the consistently-observed two
   presses.
@@ -104,29 +104,29 @@ No code changes to `escape()` under this model; §1b already explains the asymme
 Background fill is exclusive to exactly three states — a row shows **at most one** of
 these fills at a time:
 
-| Fill | State | Current TUI | Current desktop | Current touch | Target |
-|---|---|---|---|---|---|
-| Cursor | #1 (incl. hover, §1a) | Blue bg (`tui/ui.rs:405-408`) | 3px left accent bar (`web/style.css:168`) — **not a fill today** | none | Full-row fill, one color, shared by TUI keyboard cursor / desktop keyboard cursor / desktop hover. Desktop's bar treatment is retired in favor of the fill. |
-| Cut source | #5, `cut=true` | Green bg (`tui/ui.rs:381-385`) | Purple dashed outline (`--t-date`, `web/style.css:567-568`) | FAB-only color (`touch/style.css:526`), no per-row style | Full-row fill, one color, same across all three (TUI/desktop currently disagree on which of green/blue is cut — this is the actual bug to fix, not just formalize). |
-| Copy source | #5, `cut=false` | Blue bg (`tui/ui.rs:381-385`) — **collides with cursor's blue** | Green dashed outline (`--t-string`, `web/style.css:566`) | FAB-only color, no per-row style | Full-row fill, one color, distinct from cut and from cursor. |
+| Fill | State | TUI (`tui/ui.rs`) | Desktop (`web/style.css`) | Touch (`web/touch/style.css`) |
+|---|---|---|---|---|
+| Cursor | #1 (incl. hover, §1a) | Full-row blue background (`Color::Blue`, bold, white fg; suppressed when armed unless active slot row) | Full-row `--cursor-bg` fill (`body:not(.paste-mode) .row.cursor`, shared with `body:not(.paste-mode) .row:hover`) | Full-row `--cursor-bg` fill on `.row-main` (`.app:not(.paste-mode) .row.cursor > .row-main`) |
+| Cut source | #5, `cut=true` | Full-row green background (`Color::Green`, white fg) | Full-row `--cut-bg` fill (`.row.clip-cut`) | Full-row `--cut-bg` fill on `.row-main` (`.row.clip-cut > .row-main`) |
+| Copy source | #5, `cut=false` | Full-row magenta background (`Color::Magenta`, white fg) | Full-row `--copy-bg` fill (`.row.clip-copy`) | Full-row `--copy-bg` fill on `.row-main` (`.row.clip-copy > .row-main`) |
 
 Locked selection (#3) and its focal row (#2) never use a fill — they use a marker:
 
-| Marker | State | Current | Target |
-|---|---|---|---|
-| TUI leading glyph | #3 | **Already exists**, redundantly stacked on top of a full-row grey bg: `sel_marker = "●"` is already prefixed onto the NAME cell whenever `app.session.selection.contains(&row.path)` (`tui/ui.rs:328-333`) — the grey fill (`tui/ui.rs:385-386`) is the *only* part that needs to go; the glyph itself needs no new code. |  Drop the grey fill; keep the existing `●` glyph as the sole marker, one member or many. |
-| Desktop/touch leading bar | #3 | Fill + inset ring (`.row.selected`, `web/style.css:167`) | Drop the fill+ring; repurpose the `::before` left-bar treatment (freed up by retiring `.row.cursor`'s bar, above) as this marker, in a tone distinct from all three fills. |
-| Cursor fill (already covered) | #2 (focal row) | — | No separate treatment: the focal row is whichever row also has the cursor fill (#1). A row can show cursor-fill *and* selection-marker simultaneously — that combination is exactly how a user reads "this row is part of my locked set, **and** it's the one my next edit-value/key/comment keystroke will hit." |
+| Marker | State | TUI (`tui/ui.rs`) | Desktop (`web/style.css`) | Touch (`web/touch/style.css`) |
+|---|---|---|---|---|
+| Locked selection | #3 | Leading `●` glyph prefixed onto the NAME cell (`sel_marker = "●"`), no background fill | 3px left accent bar via `.row.selected::before` (`background: var(--sel-edge)`), no fill or ring | 3px left accent bar via `.row.selected > .row-main::before` (`background: var(--sel-edge)`), no fill or ring |
+| Focal row | #2 | Cursor fill (#1) on the focal row; composes with the `●` glyph | Cursor fill (#1) on the focal row; composes with the `::before` bar | Cursor fill (#1) on the focal row; composes with the `::before` bar |
+
+The focal row (#2) is whichever row also has the cursor fill (#1). A row can show cursor fill *and* selection marker simultaneously — that combination is exactly how a user reads "this row is part of my locked set, **and** it's the one my next edit-value/key/comment keystroke will hit."
 
 Exact hues/glyphs are an implementation choice — the requirement is one consistent
 assignment shared by TUI/desktop/touch, not a specific palette. `Selection`'s marker
 must never be a background fill (that's reserved for #1/#5) so it composes cleanly with
 all three fills without a rendering conflict.
 
-Touch gains new per-row `clip-cut`/`clip-copy` classes (`touch/render.ts:57-65`
-currently emits neither); the pre-existing dead `.row.cut` rule (`touch/style.css:119`,
-never emitted by any code path) is removed, not repurposed — the live class names stay
-`clip-cut`/`clip-copy` to match desktop's.
+Touch emits per-row `clip-cut`/`clip-copy` classes (`web/touch/render.ts`), matching
+desktop (`web/render.ts`), styled with `.row.clip-cut > .row-main` and
+.row.clip-copy > .row-main` in `web/touch/style.css`.
 
 ### 3a. While armed, the target cue outranks the plain Cursor/hover fill
 
@@ -145,14 +145,14 @@ suppressed.
 
 ## 4. Keybindings
 
-Phase 2 (§8) shipped this reversal on both platforms; the table below is the current,
+Phase 2 shipped this reversal on both platforms; the table below is the current,
 not a target, state.
 
 | Key | TUI | Desktop |
 |---|---|---|
-| `Space` | `ToggleExpand` (`tui/keys.rs:56`) | `ToggleExpand` (`key-intent.ts`) |
-| `Enter` | `ToggleDetail` (`tui/keys.rs:57`) | `ToggleDetail` (`key-intent.ts`) |
-| `i` | `ToggleDetail` (`tui/keys.rs:64`), unchanged alt binding | `ToggleDetail` (`key-intent.ts`), unchanged alt binding |
+| `Space` | `KeyAction::ToggleExpand` (`tui/keys.rs`) → `Intent::ToggleExpand` | `ToggleExpand` (`key-intent.ts`) |
+| `Enter` | `KeyAction::Info` (`tui/keys.rs`) → `Intent::ToggleDetail` | `ToggleDetail` (`key-intent.ts`) |
+| `i` | `KeyAction::Info` (`tui/keys.rs`) → `Intent::ToggleDetail`, unchanged alt binding | `ToggleDetail` (`key-intent.ts`), unchanged alt binding |
 
 Touch has no physical Enter/Space; its existing double-tap-to-open-detail gesture needs
 no change.
@@ -162,29 +162,35 @@ no change.
 While state #4 is active, every function except `ToggleExpand` is disabled, on all
 three surfaces:
 
-- Move/reorder — including touch's reorder-grip drag (`web/touch/app.ts:1045-1135`).
+- Move/reorder — including touch's reorder-grip drag (`web/touch/app.ts`).
   It is itself a paste-equivalent operation and conflicts with mid-target-selection.
 - Action menu, kind-switch, convert.
 - Inline edit of value/key/comment/remark (all surfaces' equivalents: TUI `e`/`E`/`r`/
   F2, desktop click-to-edit and the Action menu's Edit item, touch tap-to-edit/edit sheet).
+- Desktop marquee selection (`installMarquee` in `web/ui.ts`, `web/select.ts`):
+  bails on mousedown while the clipboard is armed.
+
 A disabled affordance shows a transient toast/status message (e.g. reusing the
 existing `status`/i18n pattern ADR 0004 §6 already established for paste
-collision/error text) rather than silently doing nothing — this is new modal behavior
-users have not seen before and needs to be legible the first time it's hit.
+collision/error text) rather than silently doing nothing — this is modal behavior
+that needs to be legible when hit. Both desktop and touch guard notice display with a
+`lastNoticeKey` fingerprint (`renderNotice` in `web/ui.ts`, `web/touch/app.ts`), so
+navigation intents while armed do not re-trigger toast entrance animations for a
+retained notice while the status bar repaints.
 
 ## 6. Cut/copy-mode target positioning
 
 TUI is unchanged: `PasteSlot` arrow-key stepping already exists and already works
-(`session.rs:474-505`).
+(`session.rs`).
 
 ### 6a. Desktop — new hover preview, click/commit unchanged
 
 - Hovering a candidate row while armed computes `session.pointerSlot(path, relY)`
   client-side and paints a **local-only** preview cue (no `dispatch`, no re-render) —
   the same "compute from a DOM rect on the fly, no core round-trip" idiom `onTreeHover`
-  already uses for schema tooltips (`web/ui.ts:1095-1106`).
+  already uses for schema tooltips (`web/ui.ts`).
 - Clicking still calls the existing `armedPasteTarget()` → `SetPasteSlot`
-  (`web/ui.ts:1115-1124`), unchanged.
+  (`web/ui.ts`), unchanged.
 - Commit is still the separate `v` key / menu Paste action, unchanged.
 - The confirmed target (`snap.paste_slot`, painted solid via `.paste-target`/
   `#pasteTargetLine`) and the hover preview (painted dashed/muted via
@@ -198,7 +204,7 @@ TUI is unchanged: `PasteSlot` arrow-key stepping already exists and already work
 
 ### 6b. Touch — body-drag continuously repositions the target; FAB still commits
 
-Reuses the existing reorder-drag machinery (`web/touch/app.ts:1066-1135`,
+Reuses the existing reorder-drag machinery (`web/touch/app.ts`,
 `onReorderMove` — already does live `pointer_slot()` classification and repaints the
 same `.reorder-line`/`.drop-into` cues `renderPasteSlotCue` uses) instead of
 inventing a new gesture:
@@ -209,13 +215,13 @@ inventing a new gesture:
   hit-test-and-classify loop.
 - Release only sets/refines the target — **no auto-commit**, matching desktop's
   set-then-separately-commit flow (§6a) rather than reorder-drag's own
-  commit-on-release behavior. The FAB (`web/touch/app.ts:1541-1545`) still performs the
+  commit-on-release behavior. The FAB (`web/touch/app.ts`) still performs the
   actual `Paste`.
 - Caret disambiguation must move earlier: today it only resolves at tap time
   (`handleTap`, `web/touch/app.ts:1364, 1393-1406`); a pointerdown-level
   `closest('.caret')` bail is required so a caret press that never moves still falls
   through to the existing `act === "caret"` branch (`SetCursor` + `ToggleExpand`),
-  mirroring the existing `closest('.drag-handle')` gate (`web/touch/app.ts:1228`) that
+  mirroring the existing `closest('.drag-handle')` gate (`web/touch/app.ts`) that
   already keeps reorder-drag and tap mutually exclusive today.
 
 ### 6c. Edge auto-scroll — touch only, implemented; desktop/TUI need no equivalent
@@ -228,7 +234,7 @@ edge the pointer sits near (speed ramps up closer to the edge) and re-runs that
 drag's own hit-test (`onPasteDragMove`/`onReorderMove`) each tick against the same
 pointer position, since content shifts under an otherwise-stationary finger; it
 self-terminates once neither drag is active. It does **not** fight the existing
-scroll-position-restore-on-render latch (`web/touch/app.ts:446-449`) because
+scroll-position-restore-on-render latch (`web/touch/app.ts`) because
 neither drag's hit-test dispatches mid-gesture — only release does, and `render()`
 only runs after a dispatch.
 
@@ -252,7 +258,7 @@ differently, appropriately to its own input model:
 
 ### 6d. Post-paste highlight — desktop-only, new
 
-After a `Paste` lands, core's `do_paste` (`clipboard.rs:383-411`) uniformly
+After a `Paste` lands, core's `do_paste` (`clipboard.rs`) uniformly
 expands every collapsed ancestor of the destination and places `cursor` on the
 first pasted/moved node — but deliberately does **not** select the pasted set
 (`self.selection.clear()` runs unconditionally on every paste/move). This is the
@@ -269,7 +275,7 @@ a purely client-side, purely ephemeral compensating layer: after a dispatch whos
 the landing siblings via `session.children(parent)` and issues one extra
 `SetSelection`, painting the Locked-selection marker (§3) around every pasted node
 so the just-landed batch stays visible. This is safe *only* because desktop's
-  keyboard/click navigation (`navSelect`, `web/ui.ts:936-941`; `onTreeClick`'s plain
+  keyboard/click navigation (`navSelect`, `web/ui.ts`; `onTreeClick`'s plain
 click path) unconditionally re-issues a fresh one-path `SetSelection` on every
 subsequent nav step or click — so this extra Selection never outlives the single
 gesture that follows it, unlike the reverted bug. It is a client-side echo of
@@ -282,7 +288,7 @@ gesture that follows it, unlike the reverted bug. It is a client-side echo of
   (`selectOnly()` in `web/touch/app.ts`) already collapses `Selection` to a
   single path on every tap, the same self-clearing guarantee desktop relies on.
 - **TUI cannot adopt the identical pattern safely.** `cursor_down`/`cursor_up`
-  (`session.rs:299-332`) never touch `Selection` at all — a Locked selection set
+  (`session.rs`) never touch `Selection` at all — a Locked selection set
   via `s` is *meant* to persist across arrow-key navigation until the user
   explicitly toggles it off or presses Esc (that persistence is how the TUI's
   own select-a-range-then-`x`/`c` workflow works). Reusing the desktop compensator
@@ -299,7 +305,7 @@ Symptom (fixed): while armed, tapping/clicking any branch's caret toggled the
 **clipboard source** node's expand state, never the clicked one.
 
 Root cause under this model: `ToggleExpand` is defined against state #1 (`cursor`,
-`dispatch.rs:67-78`). The armed-click path only ever sent `SetPasteSlot` (state #6's
+`dispatch.rs`). The armed-click path only ever sent `SetPasteSlot` (state #6's
 target, unrelated to state #1) and never moved `cursor` — so `ToggleExpand` kept firing
 against wherever `cursor` had been frozen since the clipboard was armed, which visually
 read as "it always hits the source row" (the source row is usually where cursor was
@@ -316,69 +322,19 @@ added to that path must uphold the same invariant, checked by the same kind of
 regression test as the existing fix (`web/*.spec.mjs`, `touch-pointer-slot`/
 `touch-paste-cue`).
 
-## 8. Implementation task list
+## 8. Implementation history
 
-Each phase is independently testable/shippable; ordering follows ADR 0005's
-Consequences.
+The row state model shipped across five sequential phases followed by a targeted
+ad-hoc round. Detailed execution records, review checkpoints, and migration steps
+are preserved in the frozen plans:
 
-- [x] **Phase 1 — Visual language (§3)**
-  - [x] TUI: replace `Selection`'s solid grey fill with a leading NAME-cell glyph;
-        unify cursor/cut/copy fill colors so cut and copy no longer collide with
-        cursor's blue.
-  - [x] Desktop: retire `.row.cursor`'s left bar in favor of a full-row fill shared
-        with `.row:hover`; retire `.row.selected`'s fill+ring in favor of a leading
-        `::before` bar marker; swap `.clip-cut`/`.clip-copy` colors to match the
-        unified cut/copy assignment; remove dead `.row.cut` rule.
-  - [x] Touch: add `clip-cut`/`clip-copy` row classes (currently absent) to
-        `touch/render.ts`; add a resting-cursor style (currently absent); add the
-        selection leading-bar marker; remove dead `.row.cut` rule.
-- [x] **Phase 2 — Keybinding reversal (§4)**
-  - [x] Desktop `key-intent.ts`: `Space` → `ToggleExpand`, `Enter` → `ToggleDetail`.
-  - [x] TUI `tui/keys.rs`: `Enter` → `ToggleDetail` (drop its `ToggleExpand` binding;
-        `Space` keeps `ToggleExpand`).
-- [x] **Phase 3 — Cut/copy modal lock (§5)**
-  - [x] Disable reorder-grip drag, context menu, kind-switch, convert, and inline
-        edit affordances while `clipboard.is_some()`, on all three surfaces.
-  - [x] Add the toast/status message on a blocked attempt.
-- [x] **Phase 4 — Desktop hover preview (§6a)**
-  - [x] Add client-only hover-preview cue computed from `pointerSlot()`, no dispatch.
-- [x] **Phase 5 — Touch drag-to-target (§6b)**
-  - [x] Body-drag while armed continuously repositions the target, reusing
-        `onReorderMove`'s live classify-and-repaint loop; release sets/refines only.
-  - [x] Move caret disambiguation to pointerdown (`closest('.caret')` bail, mirroring
-        the existing `.drag-handle` gate).
-- [x] **Ad hoc, outside the original 5-phase plan — shipped after Phase 5**
-  - [x] Touch edge auto-scroll (§6c) — shared `requestAnimationFrame` loop for
-        both the armed-paste body-drag and the reorder-grip drag; §6c's original
-        "deferred" note is superseded.
-  - [x] Desktop post-paste highlight (§6d) — client-side, ephemeral.
-  - [x] Touch post-paste highlight (§6d) — same client-side pattern, ported
-        verbatim into `web/touch/app.ts`'s `send()`; TUI intentionally excluded
-        (§6d explains why).
-  - [x] Desktop marquee now bails on an armed-clipboard mousedown
-        (`web/ui.ts`'s `installMarquee`), matching every other §5-guarded
-        affordance — closes the one gap the integration audit found.
-  - [x] Desktop toast-dedupe (`renderNotice`, `web/ui.ts`) — ported touch's
-        `lastNoticeKey` fingerprint guard so navigation intents (cursor move, click,
-        `SetPasteSlot`) while a stale success notice sits in `Session.notice` no longer
-        replay the toast's entrance animation/timer; the status bar still repaints
-        unconditionally. Fixes "any click or arrow key while armed re-shows the cut/copy
-        toast."
-  - [x] Desktop confirmed-target vs. hover-preview cue split (§6a) —
-        `renderPasteSlotCue` split into `renderConfirmedPasteCue` (always reflects
-        `snap.paste_slot`, solid `.paste-target`/`#pasteTargetLine`) and `renderHoverCue`
-        (client-only preview, dashed/muted `.drag-over-into`/`#dropLine`, clears fully on
-        `mouseleave` instead of falling back to the committed slot). Fixes the confirmed
-        target being visually indistinguishable from the hover preview, which forced
-        moving the mouse off the tree to see what was actually selected.
-- [x] **Docs sync** (do in the same change as the phase that ships it, not after —
-      per ADR 0004's own lesson about docstring drift):
-  - [x] `TUI.md`'s "Multi-select"/"Clipboard / paste" render-cue prose, once Phase 1
-        ships (completed in Phase 1 final review).
-  - [x] `WEBUI.md`'s row-anatomy/paste-mode prose (Phase 1 visual language & Phase 2
-        keybinding prose synced; hover-preview prose synced in Phase 4; confirmed-target/
-        hover-cue split and desktop toast-dedupe prose synced with their ad hoc entries
-        above).
+- Phase 1 (Visual language): `../plan/2026-08-18-row-state-visual-language-phase1.md`
+- Phase 2 (Keybinding reversal): `../plan/2026-08-18-row-state-visual-language-phase2.md`
+- Phase 3 (Cut/copy modal lock): `../plan/2026-08-18-row-state-visual-language-phase3.md`
+- Phase 4 (Desktop hover preview): `../plan/2026-08-18-row-state-visual-language-phase4.md`
+- Phase 5 (Touch drag-to-target): `../plan/2026-08-18-row-state-visual-language-phase5.md`
+
+The governing architectural decision is recorded in ADR 0005 (`../adr/0005-row-cursor-selection-clipboard-state-model.md`).
 
 ## 9. Out of scope
 
@@ -394,7 +350,7 @@ Consequences.
   (`docs/superpowers/audits/2026-08-19-clipboard-row-state-integration-audit.md`).
 - Any change to node-kind/format mutation mechanics, `PasteSlot`/`Into`/`After`
   targeting semantics, or the AoT atomic-move behavior — all owned by ADR 0004
-  (and, for pointer-driven targeting, ADR 0010), `CONTEXT.md`,
+  (and, for pointer-driven targeting, ADR 0010), `glossary.md`,
   `BEHAVIOR_MATRIX.md`, untouched here.
 - ~~TUI `type_col_cell`'s fill-skip doesn't cover the paste-slot `Into` target
   row's green fill~~ — **fixed** (`tui/ui.rs`, `type_col_cell` call site now

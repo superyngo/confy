@@ -22,7 +22,7 @@ pub struct ChildView {
 /// `Node`/`NodeKind` wire shape, matching the existing `ChildView`/
 /// `KindOptionView` convention of small dedicated FFI-boundary types.
 /// Consumed by editor Outline/breadcrumb integrations (VS Code
-/// `DocumentSymbolProvider`, spec `docs/superpowers/specs/2026-08-20-vscode-outline-provider-design.md`).
+/// `DocumentSymbolProvider`, spec `docs/spec/2026-08-20-vscode-outline-provider-design.md`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutlineNode {
     pub key: String,
@@ -84,7 +84,7 @@ pub struct ViewRow {
     /// True when this row's path matches `session.cursor`.
     pub is_cursor: bool,
     /// Soft-constraint violation messages whose Path == this row's Path;
-    /// `None` = clean. Never blocks anything (`CONTEXT.md` § Schema
+    /// `None` = clean. Never blocks anything (`docs/reference/glossary.md` § Schema
     /// "Soft constraint").
     pub violations: Option<Vec<String>>,
     /// `true` when this row is a branch and some node in its subtree (at any

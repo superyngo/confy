@@ -983,7 +983,7 @@ function openMenuSheet() {
 }
 
 // ---- Action menu sheet (Mode::ActionMenu — centralized node operations,
-// design doc `docs/superpowers/specs/2026-08-30-action-menu-design.md` §7,
+// design doc `docs/spec/2026-08-30-action-menu-design.md` §7,
 // ADR 0009). Mirrors `openMenuSheet`'s shape but is driven by `snap.mode`
 // like the other mode-driven sheets (TypeFilter/Convert/Prompt/SchemaEnum)
 // rather than a fire-once host-local list.

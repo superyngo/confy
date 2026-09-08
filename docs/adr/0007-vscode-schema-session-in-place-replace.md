@@ -6,7 +6,7 @@ status: implemented (2026-08-21)
 
 ## Context
 
-The VS Code schema-hints design (`docs/superpowers/specs/2026-08-21-vscode-schema-hints-design.md`)
+The VS Code schema-hints design (`docs/spec/2026-08-21-vscode-schema-hints-design.md`)
 needs a live `ConfySession` per open native-editor document that both
 Diagnostics and Hover can query. The existing `DocumentSymbolProvider`
 (outline/breadcrumbs) precedent constructs a brand-new `ConfySession` on

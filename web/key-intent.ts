@@ -1,6 +1,6 @@
 // Pure "which Intent does this (mode, key) pair mean" resolution, extracted
 // from `ui.ts`'s `onKey` (see
-// docs/superpowers/plans/2026-08-11-web-code-audit-remediation-plan.md,
+// docs/plan/2026-08-11-web-code-audit-remediation-plan.md,
 // Task 8). Mirrors `onKey`'s branch structure and mode-precedence exactly
 // (Edit > Prompt > Convert > TypeFilter > KindSwitch > AddPicker > ActionMenu > SchemaEnum > Help >
 // tree shortcuts) so it's unit-testable without a DOM, same pattern as

@@ -4,7 +4,7 @@
 - **Scope:** `confy-core` — `session/datetime.rs`, `Session::open_kind_switch`,
   `session/add_picker.rs`
 - **Related:** [0009](0009-centralized-action-menu-core-owned.md) (core owns the surfaces hosts
-  render), `docs/superpowers/plans/2026-09-07-datetime-kind-switch.md`
+  render), `docs/plan/2026-09-07-datetime-kind-switch.md`
 
 ## Context
 

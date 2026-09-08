@@ -56,301 +56,64 @@ Bump all four in the same release commit, before tagging. Never tag with only
 `crates/confy-tauri/msix/listings/listingData-9PLCJGQ3C654.csv` — set the `ReleaseNotes`
 column to describe the new version in the same release commit.
 
-## Architecture
+## Architecture — where each contract is documented
 
-**Lossless CST.** `CstDocument` (`model/cst_doc.rs`) holds a `taplo` parse → `rowan` syntax tree
-as the single source of truth. Comments, whitespace and newlines are real tokens with real
-positions, so `serialize()` is plain token concatenation and an untouched file round-trips
-byte-identically. The Node tree is a *projection* (`cst_project.rs`) rebuilt after every
-mutation — it is never mutated directly. `apply` edits a `clone_for_update` copy of the tree and
-commits only on success, so **every mutation is atomic** (failure leaves the document untouched).
-Every successful mutation is also **semantically validated before commit** (taplo DOM
-validation — duplicate sections/keys reject as `Collision`, other semantic errors as
-`Illegal`), a backstop for edits the targeted pre-checks can't see (e.g. a whole-document or block
-`$EDITOR` rewrite introducing a duplicate `[a]`). Validation needs a serialize + re-parse, and
-that re-parse *is* the normalization turning the mutable `clone_for_update` tree back into an
-immutable one — so it is done **once**: `apply` returns `(SyntaxNode, String)` and the caller
-commits both rather than recomputing either. All three backends share this shape; doing the two
-jobs separately used to serialize and re-parse the whole document twice per keystroke.
+This file is the **conduct** file: commands, release mechanics, risks, and the module map. It
+deliberately does **not** restate reference content. Start at [`CONTEXT.md`](CONTEXT.md), the
+documentation index, and read [`docs/reference/glossary.md`](docs/reference/glossary.md) before
+touching model code — the terms are not interchangeable with their synonyms (use **Node**, never
+"Entry").
 
-**JSON/JSONC backend.** `JsonDocument` (`model/json/`) is a second concrete `ConfigDocument`
-built on a hand-rolled lossless lexer + recursive-descent parser that emits a `rowan` green tree
-(the same `rowan` version taplo uses, pinned `=0.15.18`). Load, serialize, and apply are all
-atomic-commit; a `validate_semantics` post-check (DOM re-parse for duplicate keys) mirrors the
-TOML backstop. JSONC extends `.json` with `//` line comments — which project as first-class
-Comment nodes (consecutive lines merge; a blank splits them) or `trailing_comment` — and `/* */`
-block comments, which project as **read-only** Comment nodes (new `Node.read_only` flag:
-displayed and copyable, but edit/delete/cut/remark reject them). Comments are always legal to
-author into any `.json` document -- no upgrade prompt gates it; `//` is used from the first
-remark or inserted comment. Trailing commas are accepted
-on parse but never emitted by splices. `K` switch covers object/array Inline↔Multiline and float
-Plain↔Exponent; the `f` type-filter shows only JSON-reachable facets (`(Q)`/`(-)` key signs,
-no `[A/T]`/`[T/D]`/`[T/S]`, no radix/string-style/datetime rows). JSON omits TOML-only
-features: no dotted keys, array-of-tables, datetimes, integer radixes, multiline strings, or
-string-notation switching; newlines are `\n`-encoded only. New model atoms added for this
-backend: `ScalarType::Null` (KIND tag `[S:null]`), `Format::Exponent` (KIND tag `[F:exp ]`),
-`KindTarget::TableMultiline` (KIND tag `[T/M]`), `Node.read_only`.
+The shape in one paragraph: a **headless, filesystem-free core** (`confy-core`) owns the
+document model and all editor state; every host — TUI, web, Tauri desktop/Android, VS Code —
+drives it through one command channel (`Session::dispatch(Intent) -> SessionSnapshot`) and owns
+only its own I/O and presentation. Three concrete backends (TOML via `taplo`, JSON/JSONC and a
+YAML subset via hand-rolled lossless parsers) sit behind one `ConfigDocument` trait, all on
+`rowan` green trees, all atomic-commit, so an untouched file round-trips byte-identically.
 
-**YAML subset backend.** `YamlDocument` (`model/yaml/`) is a third concrete `ConfigDocument`, also
-a hand-rolled lossless lexer + recursive-descent parser onto the same `rowan` green tree; load,
-serialize, and apply are atomic-commit with a `validate_semantics` duplicate-key backstop. The
-splice core is a **reindent engine** (`reindent` in `edit.rs`) — YAML's analogue of JSON's
-comma/brace normalization — that re-flows a fragment from its source indent to the destination's.
-**Subset:** a single document (an optional leading `---` is kept verbatim), block + single-line flow
-maps/sequences (**nesting is preserved** — the parser builds nested `FLOW_MAP`/`FLOW_SEQ` child nodes
-and a `FLOW_ENTRY` node per flow-map member, so a nested `{…}`/`[…]` value is a real recursing child
-and each member is individually addressable/editable; replace/insert/delete/rename on a flow member
-rebuild the `{…}` inline — **re-emitting the author's own inner spacing** (the padding after `{`,
-before `}`, and the member separator, captured by `flow_style`), while a *replace* splices over the
-member's/element's own span so an untouched edit is byte-identical; that span is taken trailing-
-whitespace-excluded, since a plain scalar token swallows the spaces before the closer. A flow-seq
-scalar element's `Target` *is* the whole `FLOW_SEQ` (an edit needs the collection plus an ordinal),
-so a fragment capture — copy, `Move`, the multiline editor — slices that one item out by the path's
-ordinal instead (`flow_item_text`). Block-producing
-converts on an inline member are rejected and the `K`
-popup hides them), 5 scalar styles (plain, single-quoted, double-quoted, literal `|`, folded `>` with
-chomping), `#` comments, and YAML 1.2 **core-schema typing** with **no datetime** (date-looking
-scalars are strings). **Out-of-subset constructs** — `&anchor`, `*alias`, `<<:` merge, `!tag`,
-multi-line flow — project as **read-only opaque nodes** (`Node.read_only`, KIND tag `[opaq ]`): they
-render and copy, but every mutation on or into them (and on any entry whose *value* is opaque —
-`entry_has_opaque_value`) returns `Unsupported`, leaving the document untouched. One of those tokens
-*inside* a single-line flow collection fences the **whole** `[ … ]`/`{ … }` (the flow body parser has
-no case for them, so they used to float as bare tokens the projection never mapped to a node — an
-alias element simply vanished and shifted the later ordinals). **Multi-document**
-files are rejected at load (a whole-document `E` re-parse rejects them too). The resolver maps a path
-to a `Target` (`MapEntry`/`Element`/`Comment`/`Opaque`); `is_opaque` walks ancestors so a path inside
-an opaque span is blocked. New model atoms: `Format::{Block, SingleQuoted, DoubleQuoted, LiteralBlock,
-Folded}` and `KindTarget::{Flow, Block, StringPlain, StringSingle, StringDouble, StringLiteralBlock,
-StringFolded}` — driving KIND tags `[A/B]`/`[A/F]` (block/flow seq), `[T/B]`/`[T/F]` (block/flow map;
-`[T/F]` is shared by flow map and inline table), `[S:sq  ]`/`[S:dq  ]`/`[S:lit ]`/`[S:fold]`. `K`
-covers map/seq block↔flow, the 5 string styles, integer radix (dec/hex/oct), float plain↔exponent.
-`scalar_fragment` wraps `key: value` (or a bare `- ` element); `value_kind` projects the value in YAML
-syntax for the type-change check.
+| Topic | Where it is specified |
+|---|---|
+| Vocabulary: Node/Root/Branch/Leaf/Scalar/Comment, key literal vs decoded key, read-only & opaque nodes, `DocFormat`, the `Value` tree, schema terms, KIND tags | [`docs/reference/glossary.md`](docs/reference/glossary.md) |
+| Every `Mutation` variant's mechanics, insert/move legality, `e` block-edit scope, multiline-array layout, kind switch (`K`) rules | [`docs/reference/MUTATIONS.md`](docs/reference/MUTATIONS.md) |
+| How nesting **scope** governs each editing behavior across the three backends; the inline-vs-`$EDITOR` boundary; the `ConfigDocument` facet layer | [`docs/reference/BEHAVIOR_MATRIX.md`](docs/reference/BEHAVIOR_MATRIX.md) |
+| TUI rendering, editing, comments, navigation, filters, multi-select, clipboard, overlays | [`docs/reference/TUI.md`](docs/reference/TUI.md) |
+| WASM FFI wire contract (`Intent`/`SessionSnapshot`/`ViewRow`), web-native architecture, touch UI, deployment | [`docs/reference/WEBUI.md`](docs/reference/WEBUI.md) |
+| Header/toolbar button inventory, fold order, per-host trimming | [`docs/reference/CHROME.md`](docs/reference/CHROME.md) |
+| Keyboard bindings and the deliberate TUI↔Web divergences | [`docs/reference/KEYMAP.md`](docs/reference/KEYMAP.md) |
+| Notice/prompt/diagnostics message system, severity table, per-host channels | [`docs/reference/MESSAGES.md`](docs/reference/MESSAGES.md) |
+| Row cursor/selection/clipboard state model and its modal lock | [`docs/reference/ROW_STATE_MODEL.md`](docs/reference/ROW_STATE_MODEL.md) |
+| Desktop + Android shell: native menu, file I/O, recent files, the Android picker plugin | [`docs/reference/TAURI.md`](docs/reference/TAURI.md) |
+| VS Code extension host and its `TextDocument` protocol | [`docs/reference/VSCODE.md`](docs/reference/VSCODE.md) |
+| Distribution channels, triggers, current status per platform | [`docs/reference/RELEASES.md`](docs/reference/RELEASES.md) |
+| Why the shape is what it is | [`docs/adr/README.md`](docs/adr/README.md) |
 
-**`ConfigDocument` trait** abstracts the storage backend so YAML/JSON can be added later; the
-concrete backends are `CstDocument` (TOML), `JsonDocument` (JSON/JSONC), and `YamlDocument`
-(YAML subset) (the original `toml_edit`-based `TomlDocument` was retired after reaching parity). The trait exposes `project`, `serialize`, `serialize_fragment`,
-`serialize_fragment_relative`, `is_dirty`, `apply(Mutation)`, `to_value()`, and three **format facets** —
-`format() -> DocFormat`, `comment_prefix()`, `had_comments_at_open()` — plus
-`trailing_blank_anchor(path) -> Option<usize>` (the byte offset a node's trailing blank run
-starts at: its **contiguous extent end**, the same extent `Delete` covers, normalized by two
-shared rules in `blank_lines` — `anchor_at` **retracts over the run** so a span that already
-swallowed it (a TOML section, a YAML block map/seq/scalar entry) can still see it, and
-`owns_line_tail` returns `None` for a node that **doesn't own the end of its line**, i.e. a
-member of a single-line `{ … }`/`[ … ]`, which would otherwise claim its container's run;
-`None` also for a YAML opaque span and the whole-document path) with the provided
-`trailing_blank_lines(path)` defined in terms of it, so a backend implements only the anchor and
-the count/mutation/editor package can never disagree — plus `kind_options(path)`,
-which serves the `K` popup's per-node convertible-kind list (`(label, KindTarget)` pairs) so the
-TUI never hard-codes a backend's notations. Every one of those labels — and the ADR 0012
-datetime type picker's — is built by `model::kind_label::align_options`, the single
-`"<name>  <sample>"` format with the name column padded in display cells. Two **fragment
-facets** the inline editor/`nudge`/`a`
-use so they don't hard-code a notation either: `scalar_fragment(key, value)` (wraps a value repr as
-`key = value` / `"key": value`, or — `key: None` — the backend's *value-Replace* element form, which
-TOML wraps as `__elem__ = value`), `array_element_fragment(value)` (the **bare keyless element** form
-`a` seeds into an array/seq — TOML/JSON re-wrap a bare value spliced keyless, YAML's `- value` — so all
-three seed array elements uniformly), and `value_kind(value)` (projects
-the value in the backend's own syntax for the type-change check). **`AnyDocument`** (`model/any_doc.rs`) is a one-enum
-dispatcher wrapping every backend (`Toml(CstDocument)`, `Json(JsonDocument)`, `Yaml(YamlDocument)`)
-and implementing `ConfigDocument` by match-delegation; the TUI holds a single `AnyDocument`, and a
-new format is one more variant. `detect_format(path)` maps the extension to a `DocFormat`
-(`.toml`/`.json`/`.jsonc`/`.yaml`/`.yml`); `load_as(path, format)` dispatches to TOML, JSON/JSONC,
-or YAML. `Mutation::Insert`/`Replace` carry a format-neutral `fragment:` field (not `toml:`).
-Path→node lookup lives on `NodeTree::node_at(path)` (model layer, reused by `kind_options`).
-
-**Document-level conversion** (`model/convert.rs`, spec §Phase 4). `convert(doc, target) ->
-Result<ConvertResult, ConvertAbort>` lowers a loaded document to a **format-neutral `Value`
-tree** (`model/value.rs`: `Value::{Null,Bool,Int,Float,Str,Datetime,Seq,Map}`, ordered
-`Vec<Item>` where `Item::{Comment, Node{key,value,trailing}}` keeps confy's first-class comments
-in document order), then renders it back in the *target's* default style. The lowering is one
-generic walk — `tree_to_value(&NodeTree, src)` maps containers by `NodeKind` (Table/InlineTable→
-`Map`, Array/ArrayOfTables→`Seq`, the Root sniffs keyed-vs-keyless children, a comment→
-`Item::Comment` with markers stripped, `trailing_comment`→`Item.trailing`), and per-format
-`decode_*` helpers decode each scalar's raw token text (`node.value`) to typed data (TOML/JSON/
-YAML radix, escapes, block scalars, inf/nan). Each backend implements `ConfigDocument::to_value`
-as `tree_to_value(&self.project(), <fmt>)`; **schema validation** lowers through the sibling
-`tree_to_value_lenient`, identical except that a YAML **opaque** node is *skipped* instead of
-aborting the document (`value_bridge::walk` skips the same nodes to keep the Node↔Value pairing
-1:1) — one anchor used to silence every violation marker in the file. **Loss policy** (the documented lossy contract):
-notation/style that the default render drops is collected as deduplicated **warnings** during the
-walk (`style_note`: radix, string style, inline/flow, dotted, AoT, exponent); `analyze` adds the
-target-specific rules — `null`→TOML and a YAML opaque node→any target **abort** (no output;
-null paths listed), TOML datetime→JSON/YAML and non-finite floats→JSON **warn**. A detected
-**schema hint** (JSON `"$schema"` key / YAML modeline / TOML `#:schema` comment, via
-`schema::hints`) is stripped from the source and re-authored in the *target's* own convention
-rather than carried across verbatim as a stray comment or data key; if the target root shape
-can't carry that convention (e.g. a non-object JSON root), the hint is dropped with a warning
-instead. The three
-renderers emit default style only (`render_toml` scope tables + bare keys + `#`, two-phase so
-keys precede `[sub]`/`[[aot]]` headers; `render_json` 2-space multiline, `//` comments only when
-present ⇒ JSONC; `render_yaml` block + plain-where-safe scalars + `#`). A **reparse safety net**
-loads the rendered text with the target backend before returning, so invalid output never reaches
-disk. The **source document is never modified**. Two surfaces: the `confy convert <in> <out>
-[--from --to --yes]` CLI (`cli.rs`) and a TUI Root-node action on `C` (`Mode::Convert`: pick
-format → output path → warning/confirm; the open doc is untouched).
-
-**Addressing.** Keyed nodes are addressed by `Seg::Key(name)`; **positional** nodes — comments,
-array elements, AoT entries — by `Seg::Index(i)` over the parent's *full child sequence*
-(comments share the slot space, so an element after a comment keeps its full-sequence index).
-There are no synthetic keys; the TUI identifies a comment by `NodeKind::Comment`, never by
-sniffing the path. `cst_edit::walk` builds the same `path → syntax element` index the projection
-uses, so resolver and projection cannot drift (a consistency test ties them).
-
-**`Mutation` enum** — the closed set of document operations: Insert, Delete, Replace, Rename,
-Move, Remark, EditComment, InsertComment, SetTrailingComment, SetTrailingBlankLines. Each
-variant is a rowan green-tree splice with newline/indent normalization —
-`SetTrailingBlankLines { path, n }` is the one exception, a **format-neutral text splice**
-(`model/blank_lines.rs`, shared by all three backends) at an offset each backend supplies via
-`ConfigDocument::trailing_blank_anchor`. Per-variant mechanics (forming/clamp, AoT-entry
-move-out, delete extent, Rename whole-key rewrite, blank-run anchor/normalization, known edges)
-are in CONTEXT.md *Mutation mechanics*.
-
-**Projection.** Dotted *keys* (`a.b.c = 1`) nest into a chain of synthetic `[T/D]` tables via
-`project_entry_into`/`ensure_dotted_chain` in `cst_project.rs`; the leaf keeps its full
-`Target::Entry` path so an **untouched file round-trips byte-identically**. Dotted-key
-concepts, inline-dotted machinery, member spans, implicit/mixed tables, `[T/S]` scope nesting,
-and Illegal table moves are in CONTEXT.md (*Dotted table*, *Member spans*, *Mixed table*,
-*Insert / move legality*, *Mutation mechanics*). `ScalarType`, `Format` enum values,
-`KeySign` facet, the `value` repr field, and KIND column rendering (`type_tag`) are in
-TUI.md §*Rendering*.
-
-**Key representation.** A key has two projected forms, and every backend agrees on the split:
-`Node.key`/`Seg::Key` hold the **decoded** key (semantic identity — path resolution, collision
-checks, JSON-Schema `properties` lookup, `to_value`/convert), while `Node.key_literal:
-Option<String>` holds it **exactly as authored**, quote characters and escapes intact
-(presentation + edit identity — tree row label, Path line, rename/edit buffer, fragment
-rebuilding). It is filled once during projection from the key token already in hand, so no
-consumer re-walks the CST or synthesizes a quote character; `None` means "authored bare, the
-decoded key is the literal". `Node.key_sign` (`KeySign`) survives as a coarse facet for the `f`
-type filter, which classifies quoted-vs-bare without needing the text. Going the other way,
-`ConfigDocument::rename_key_segs(new_key)` decodes a rename's literal with the backend's own key
-lexer, so the post-rename path is rebuilt from decoded segments and a quoted key containing a dot
-is never split. `Session::human_path(path)` renders the dotted/bracketed display form, re-wrapping
-a quoted-YAML segment in its `"…"` flanks; it is precomputed per row as `ViewRow.path_display` and
-drives the TUI Detail popup's `Path:` line and the web panel's Path field.
-
-**Editing.** `e` dispatches via `edit_target_kind`. The **inline-vs-`$EDITOR` boundary** is
-governed by BEHAVIOR_MATRIX §6 (universal single-line-scalar inline editing across all scopes;
-single-line arrays/inline tables/JSON objects edited as their one-line repr, EOL comment
-preserved via `entry_trailing_comment`; the YAML array-ancestor lift where `plugins[1].name` /
-`plugins[3]` edit inline and `edit_node` skips array truncation; literal `|`/folded `>` and
-everything multiline → `$EDITOR`). Inline editor mechanics (Tab Value↔Name commit order,
-type-change detection, caret fields, `←/→` nudge, `a`-add Esc rollback via
-`History::cancel_last`) are in TUI.md §*Editing*.
-The **multiline editor** (TUI `$EDITOR`, web/touch pop-up) edits a node **and its trailing blank
-lines as one package**: every host opens the buffer `Session::multiline_edit_initial(path)`
-builds — the node's fragment plus its blank run as literal empty lines — and the commit
-(`apply_external_replace`/`apply_edit_comment`) splits them back off, applies the node's splice,
-then rewrites the run, all in one undo step. Adding or deleting empty lines in the buffer is the
-*only* way to change a blank run; `serialize_fragment` (hence the clipboard) never carries one.
-A node that **cannot** carry a run (whole document, inline-collection member, YAML opaque)
-packages its fragment **verbatim** — no run trimmed, no newline invented — so an untouched
-buffer round-trips byte-identically there too. Every node kind reaches the editor:
-`E`/`BeginEditExternal` on the keyboard hosts and Action-menu *Edit in editor* everywhere
-(`e` on a single-line scalar is still the inline editor, which leaves the run untouched).
-Details, ordering rationale and the renamed-key limitation: CONTEXT.md *The multiline editor's
-buffer*.
-
-**Kind switch (`K`).** `Mutation::ConvertKind { path, target: KindTarget }` (`convert_kind` in
-`cst_edit.rs`) rewrites a node's kind/notation in place; targets come from `kind_options(path)`.
-Conversion rules (scalar within-type, table `[T/I]`/`[T/D]`/`[T/S]` D5-checks, `[A/T]`↔array,
-Illegal conditions) are in CONTEXT.md *Kind switch (`K`) rules*. **One exception:** TOML's four
-datetime *types* are mutually reachable from `K` but not through `ConvertKind` (whose invariant
-is same-kind-only) — `open_kind_switch` diverts a datetime node to `Mode::SchemaEnum`, the value
-picker, whose options carry the pre-rendered target literal, disclose every dropped/auto-filled
-component in the label, and commit as a value `Replace` gated by the existing
-`PromptKind::TypeChange`. So `K` opens one of two popups depending on the node (ADR 0012).
-
-**Comments are first-class nodes** (concepts in CONTEXT.md: *Comment*, *Trailing comment* —
-standalone `#` lines merge into one node and are never dragged by an adjacent node's move; a
-trailing comment is value-attached decoration). Trailing-comment inline edit flow,
-array-element trailing rules, YAML re-assert, and `e`/`E`/`d` comment routing are in
-TUI.md §*Comments (TUI)*.
-
-**Navigation.** Expand/collapse mechanics (`expanded` HashSet, root empty-path,
-`collapse_all`, `1`/`2` level-at-a-time ascend) — TUI.md §*Navigation*.
-
-**Filter.** Three-state flow, FilterResults dispatch, `last_filter` prefill, Esc peel,
-haystack semantics (key/path + Comment text + a scalar leaf's own value), and the NAME+VALUE
-per-char highlight — TUI.md §*Filter*. The web/touch trees mark the same chars with the same
-wasm-exported matcher — WEBUI.md §*Native modal widgets*.
-
-**Type filter.** TypeToken/classify popup, tristate groups, AND-intersection of text∩type,
-FilterLayer peel — TUI.md §*Type filter*.
-
-**Multi-select.** round/committed union and fresh-round folding — TUI.md §*Multi-select*.
-
-**Clipboard / paste.** Scope-relative capture, paste-mode state machine (clipboard freezes
-selection; `c`/`x` toggles; Esc peels), failure contract (`do_paste` restores on every
-failure), and InsertComment/ArrayUpgrade paths — TUI.md §*Clipboard / paste*.
-
-**JSON Schema.** `schema/` (types.rs: `SchemaSource`/`SchemaState`/`SchemaStatus`/`Violation`/
-`EditHint`/`Category`; hints.rs: per-format hint detection — JSON `"$schema"` root key, YAML
-`# yaml-language-server: $schema=` modeline, TOML `#:schema` leading comment; value_bridge.rs:
-Node+Value → JSON-projection bridging that attaches a Path to every projection node (YAML opaque
-nodes omitted on both sides, matching `tree_to_value_lenient`, so an anchor costs only itself);
-validate.rs: `jsonschema`-backed validation over that projection, draft 2020-12, uniform across
-all three formats since it runs on the projection, never source syntax — ADR 0002; hints_edit.rs:
-best-effort sub-schema resolution at one Path for the constrained-value picker, simpler than full
-validation, declining to `EditHint::None` for anything beyond `properties`/`items`/local
-`$defs`/same-document `$ref`/a narrow `oneOf`/`anyOf`-of-`const` — plus `resolve_schema_info`
-(`Session::schema_info`), an orthogonal non-widget lookup on the same resolved sub-schema for
-`description`/`type`/`format`/`pattern`, covering the plain-typed case `EditHint` leaves at
-`None`; dirty_check.rs: a per-mutation
-"does this path carry a schema constraint" check that lets `Session::on_mutation_success` skip a
-full revalidation walk when the answer is no) is a **soft constraint** (CONTEXT.md § Schema):
-Violations surface as a visual indicator and never block a Mutation or a save. Detection/parsing
-is host-agnostic in `confy-core`; hosts resolve the actual bytes — the TUI's
-`crates/confy-tui/src/tui/schema_io.rs` (local hint resolves against the open file's directory, a
-URL hint fetches over a blocking HTTP client) and its `overlay_schema_enum.rs` popup (reuses the
-`K` kind-switch popup's shape); the web layer's `session.schemaHint(path)`/`fetch()`. There is no
-manual "attach a schema" UI action on any host — every host goes through the same detection path.
-`session/schema_hint.rs` is unrelated by name collision only: it holds `nudge_scalar`'s numeric
-stepping/`format_nudged` rendering for the `←`/`→` shortcut, not schema attachment. A node's
-`multipleOf` *is* the nudge's step (`Session::schema_clamp_nudge` walks that grid and clamps
-`minimum`/`maximum` inward to it — snapping a ±1 step to the nearest multiple instead used to
-freeze the value on any grid coarser than 2). The clamp reads and writes the value in the
-**node's own notation** (`parse_repr`/`format_nudged_like`): a `0x`/`0o`/`0b` repr is decoded in
-its own base and re-rendered with its prefix and authored hex digit case, and underscore grouping
-is re-applied — parsing those as a decimal `f64` fails, which used to make every non-decimal
-integer skip the schema grid and bounds entirely. `Mode::SchemaEnum` has one
-**schema-independent** producer too: `begin_inline_edit` opens the same picker with `true`/`false`
-(in the node's authored casing, `inline_edit.rs::bool_picker_options`) for any `bool` scalar,
-flagged `from_schema: false` so hosts title it "Value"; a real schema `enum` on that node is
-resolved first and wins.
-
-**i18n (internationalization).** The translation catalog lives in `confy-core`, not per-host
-(`crates/confy-core/src/session/i18n.rs`): `Lang` (`En`/`ZhTw`, serde `"en"`/`"zh-TW"`,
-`Default = En`) plus `tr(lang, key)`/`tr_args(lang, key, args)` look up flat `core.*`/`tui.*`/
-`web.*` keys in `include_str!`'d JSON catalogs at the repo root (`i18n/en.json` canonical,
-`i18n/zh-TW.json`), falling back to `en` then the raw key so a missing translation never panics
-or blanks the UI. `Session.lang: Lang` drives every status/error/detail string `Session`
-composes; `Intent::SetLang(String)` (a string, not the enum, to keep the wasm wire contract
-simple) is routed in `dispatch.rs`, and `SessionSnapshot.lang: String` mirrors it back to hosts.
-Each host layers its own strings on top: the TUI's `crates/confy-tui/src/config.rs` persists a
-`lang` preference to `~/.config/confy/config.toml` (`%APPDATA%\confy\config.toml` on Windows),
-exposes `--lang` (session-only override; precedence `--lang` > config file > `en`), and an `l`
-picker (TUI.md §*Language / i18n (TUI)*); `web/i18n.ts` imports both catalog JSON files directly
-(esbuild bundles them), exposes `t()`/`tArgs()` with the identical fallback chain, and persists
-the choice in `localStorage["confy-lang"]` (WEBUI.md §*Language / i18n (Web)*).
-`state.rs::about_text(lang)` gives each host a translated About body (`ABOUT_TEXT`/
-`ABOUT_TEXT_ZH_TW`); the TUI appends host-only `Config:`/`Language:` lines, the web layer
-appends a localStorage disclosure line instead.
+**Two invariants worth stating here, because breaking either is a review failure rather than a
+doc lookup.** (1) `confy-core` is **filesystem-free at runtime** — no `fs`/`process`/`env`/
+`tempfile`, no terminal deps; the sole constructor is `from_str`/`AnyDocument::from_str_as`, and
+`crates/confy-core/tests/no_fs_gate.rs` enforces it. The host owns all file I/O
+(`confy_tui::load_document` / `write_document`, which also handle the UTF-8 BOM and the atomic
+temp-file rename). (2) Every mutation is **atomic and semantically validated before commit** —
+edited on a `clone_for_update` copy, committed only on success, so a failure leaves the document
+untouched.
 
 ## Known Risks
 
 **`taplo` is unmaintained upstream.** The maintainer stepped down in Dec 2024
 ([tamasfe/taplo#715](https://github.com/tamasfe/taplo/issues/715)); the repo is stalled but
 not archived, no ownership transfer has happened, and `rowan =0.15.18` is exact-pinned to
-match taplo's internal version. `confy`'s taplo surface is small — `taplo::parser::parse`
-(47 call sites), `taplo::syntax::*`/`taplo::rowan::NodeOrToken`/`SyntaxElement` (18 sites),
-`taplo::dom::Node`/`taplo::dom::Error::ConflictingKeys` (2 sites) — and none of taplo's
-1,330-line formatter or 2,800-line DOM is used (duplicate-key detection is already
-hand-rolled per-backend in `validate_semantics`). Vendoring only the used surface
+match taplo's internal version. `confy`'s taplo surface is small and measurable —
+`taplo::parser::parse` (48 call sites), `taplo::syntax::*`/`taplo::rowan::*` (28 sites), and
+`taplo::dom` (2 sites: `into_dom()` + matching `taplo::dom::Error::ConflictingKeys` in
+`cst_edit/mod.rs`'s `validate_dom`, the TOML backend's post-splice duplicate-key backstop —
+JSON and YAML hand-roll the equivalent in their own `validate_semantics`). None of taplo's
+1,330-line formatter is used, and of its 2,800-line DOM only `Node::validate` is.
+Vendoring the used surface
 (`parser/mod.rs` + `parser/macros.rs` + `syntax.rs`) is estimated at ~1,240 LOC and would
 also unpin `rowan` and drop `globset`/`schemars`/`arc-swap`/`itertools`/`once_cell` from the
-dependency tree. `tombi`, the community's suggested migration target, is **not** currently a
+dependency tree — the one `dom::Node::validate` call would have to be replaced by the
+hand-rolled duplicate-key check the other two backends already have, so it does not widen the
+vendoring scope. Estimate last measured 2026-09-09; recount before acting on it.
+`tombi`, the community's suggested migration target, is **not** currently a
 usable dependency (its crates.io entry is a reserved placeholder; sub-crates unpublished).
 **Decision: do not migrate now.** The `cargo audit` CI step (`.github/workflows/rust-ci.yml`)
 is the trigger — if it flags a `rowan`/`taplo`/`ahash` advisory, vendoring per the above scope
@@ -358,7 +121,9 @@ estimate is the pre-planned contingency.
 
 ## Module map
 
-Cargo **workspace** (see `PORTING.md`): `confy-core` is the headless model crate; `confy-tui`
+Cargo **workspace** (the extraction design record is
+[`docs/spec/2026-06-17-headless-core-port.md`](docs/spec/2026-06-17-headless-core-port.md)):
+`confy-core` is the headless model crate; `confy-tui`
 is the ratatui TUI + CLI binary (`confy`) that depends on it and re-exports `model` so its UI
 modules keep their `crate::model::…` paths. `confy-ffi` is the WASM wrapper (Web UI); `confy-tauri`
 is the Tauri v2 shell over that same web UI — desktop (macOS/Windows) and, since Mobile M1,
@@ -476,20 +241,33 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
                    TypeFilterView/TypeFilterRow/TypeFilterCellView (the WASM wire contract)
     dispatch.rs    Stage-2 command channel: Session::dispatch(Intent) -> SessionSnapshot
                    (mode-dependent Intent→method routing; the only entry point the Web UI uses)
-  schema/          JSON Schema detection/validation/constrained-editing — see Architecture
-                   *JSON Schema* above for the per-file breakdown
-crates/confy-core/tests/  roundtrip*.rs / yaml_scratch.rs + fixtures/ + no_fs_gate.rs (§7 gate)
-                          + session_headless.rs (§7 gate #4: headless Session scripted tests;
-                          §7 gate #5: fake-Host `$EDITOR` flow; + dispatch() tests) + serde_roundtrip.rs (§7 gate #3)
-                          + schema_headless.rs (headless schema-engine tests, same crate-root
-                          `#[test]`-fn convention as session_headless.rs) + modal_lock.rs
-                          (integration: every guarded method no-ops + sets status while the
-                          clipboard is armed, ADR 0005 §5)
+  schema/          JSON Schema detection/validation/constrained-editing: types.rs (SchemaSource/
+                   SchemaState/SchemaStatus/Violation/EditHint), hints.rs (per-format hint
+                   detection), value_bridge.rs (Node+Value → JSON projection with a Path per
+                   node), validate.rs (`jsonschema`, draft 2020-12, ADR 0002), hints_edit.rs
+                   (sub-schema resolution for the constrained-value picker + `schema_info`),
+                   dirty_check.rs (per-mutation "does this path carry a constraint" skip)
+crates/confy-core/tests/  18 integration suites + fixtures/. The gates named in the port design
+                          record: no_fs_gate.rs (§7), serde_roundtrip.rs (§7 #3),
+                          session_headless.rs (§7 #4 scripted Session tests, #5 fake-Host
+                          `$EDITOR` flow, + dispatch() tests). Round-trip/byte-fidelity:
+                          roundtrip.rs (incl. the multiline-array layout rules),
+                          roundtrip_json.rs, roundtrip_yaml.rs, roundtrip_proptest.rs,
+                          yaml_scratch.rs, key_repr.rs, hostile_input.rs (nesting cap),
+                          insert_after_trailing_comment.rs,
+                          external_edit_clears_trailing_comment.rs. Session/schema/notice:
+                          schema_headless.rs, session_schema_fetch_request.rs, session_notice.rs,
+                          session_snapshot_notice.rs, prompt_question.rs, modal_lock.rs (every
+                          guarded method no-ops + sets status while the clipboard is armed,
+                          ADR 0005 §5).
+                          Unit tests also live in-tree next to the code they cover:
+                          model/cst_edit/tests.rs, model/yaml/edit/tests.rs (and
+                          crates/confy-tui/src/tui/tests.rs for the TUI).
 
 crates/confy-ffi/         Stage-2 WASM wrapper over confy-core (wasm-bindgen + serde-wasm-bindgen)
   src/lib.rs     ConfySession: from_text/dispatch/snapshot/serialize/visible_rows/kind_options
                  (the JS-facing handle; serde-wasm-bindgen marshals Intent/SessionSnapshot)
-  functional_smoke.mjs     node verification of the Intent→snapshot contract (128 checks)
+  functional_smoke.mjs     node verification of the Intent→snapshot contract (129 checks)
   (build: `wasm-pack build --target web`; getrandom wasm_js for the ahash-via-taplo chain)
 
 web/                       TypeScript integration + **web-native** UI (see WEBUI.md) — a
@@ -702,7 +480,8 @@ crates/tauri-plugin-confy-picker/   first-party Tauri mobile plugin, Android-onl
                  since `content://` URIs are opaque and don't reliably embed a filename/extension
                  for format detection.
 
-editors/vscode/          third host shell (M1.5, sideload-only, no Marketplace): a
+editors/vscode/          third host shell, published to the VS Marketplace and Open VSX
+                          (`wenanlin.confy-vscode`, versioned in lockstep with the app): a
                           `CustomTextEditorProvider` VS Code extension embedding `web/dist`
                           verbatim in a webview, over VS Code's own `TextDocument` (single source
                           of truth for content/dirty/undo/save/revert/hot-exit) via a shared
@@ -745,22 +524,17 @@ webview is WebView2; no cross-build); Android needs the SDK/NDK + `cargo tauri a
 --debug --apk` for a sideload-able debug APK (no keystore setup needed — debug builds auto-sign).
 Linux is not targeted yet, nor is iOS.
 
-`confy-core` is pure and **filesystem-free at runtime** — no TUI/terminal deps, no `fs`/`process`/
-`env`/`tempfile`, fully unit-testable in isolation (enforced by `tests/no_fs_gate.rs`). The sole
-constructor is `from_str(text)` / `AnyDocument::from_str_as(text, format)`; there is no `load`/`save`
-and no `path` field (backends keep a host-set `filename` display label via `set_filename`). **The
-host owns all file I/O:** `confy_tui::load_document(path, format)` reads the bytes, strips a
-leading UTF-8 BOM (remembered as `LoadedDocument::bom` — Windows tools write one routinely and no
-parser accepts it as content), parses via `from_str_as`, and sets the path-derived label (the
-extension drives no comment-related setup — comments are legal in every `.json`/`.jsonc`
-document); `App::save` and `confy convert` write through `confy_tui::write_document`, which
-re-emits the BOM and writes atomically (sibling temp file + rename, so a crash mid-write never
-truncates the user's config). `detect_format(path)` (pure extension match, no I/O) stays in
-core. The headless-core port (§3 cursor reshape, §5 state-machine lift) is complete — see
-`PORTING.md`.
+`confy-core` is pure and **filesystem-free at runtime** (see the invariants above); the host owns
+all file I/O. `confy_tui::load_document(path, format)` reads the bytes, strips a leading UTF-8
+BOM (remembered as `LoadedDocument::bom` — Windows tools write one routinely and no parser
+accepts it as content), parses via `from_str_as`, and sets the path-derived display label.
+`App::save` and `confy convert` write through `confy_tui::write_document`, which re-emits the
+BOM and writes atomically (sibling temp file + rename, so a crash mid-write never truncates the
+user's config). `detect_format(path)` is a pure extension match and stays in core.
 
 ## Terminology
 
-See **`CONTEXT.md`** for the canonical glossary. Key rule: use **Node** (not "Entry"). Subtypes
-are **Root**, **Branch node**, **Leaf node**, **Scalar**, and **Comment**. The operation that
-toggles a live Node to/from a Comment is **Remark** (key `r`).
+See [`docs/reference/glossary.md`](docs/reference/glossary.md) for the canonical vocabulary.
+Key rule: use **Node** (not "Entry"). Subtypes are **Root**, **Branch node**, **Leaf node**,
+**Scalar**, and **Comment**. The operation that toggles a live Node to/from a Comment is
+**Remark** (key `r`). Introducing a new term means adding its glossary entry in the same commit.

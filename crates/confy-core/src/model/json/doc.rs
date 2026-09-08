@@ -145,7 +145,7 @@ impl JsonDocument {
     /// is derived from content only (a `//` or `/* */` present at load).
     /// The projection root label (`filename`) starts empty; the host sets it via
     /// [`set_filename`](Self::set_filename).
-    #[allow(clippy::should_implement_trait)] // named per PORTING.md; see cst_doc.rs
+    #[allow(clippy::should_implement_trait)] // named per `docs/spec/2026-06-17-headless-core-port.md`; see cst_doc.rs
     pub fn from_str(text: &str) -> Result<Self, crate::model::document::ParseError> {
         let green = crate::model::json::parse::parse(text)
             .map_err(crate::model::document::ParseError::Json)?;

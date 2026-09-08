@@ -419,7 +419,7 @@ impl Session {
         }
     }
 
-    /// **Reveal** (CONTEXT.md §Operations): expand every ancestor prefix of
+    /// **Reveal** (`docs/reference/glossary.md` §Operations): expand every ancestor prefix of
     /// `path`, then place the cursor on it. Unknown paths are ignored; if an
     /// active filter still hides the row, the expansion sticks, the cursor
     /// stays put, and the status line says so.
@@ -1929,7 +1929,7 @@ impl Session {
 
     /// After a value commit, surface any resulting schema violation at
     /// `path` as an advisory notice (spec §3). The commit
-    /// already succeeded — schema constraints are soft (`CONTEXT.md` §
+    /// already succeeded — schema constraints are soft (`docs/reference/glossary.md` §
     /// Schema) — this never blocks or reverts anything, it only informs.
     /// Combines the violation message(s) with a `resolve_edit_hint`-derived
     /// suggestion (valid enum values / numeric bounds) when one applies.

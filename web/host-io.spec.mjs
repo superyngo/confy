@@ -1,5 +1,5 @@
 // Plain-Node test for the shared save/open/convert flows in `host-io.ts`
-// (see docs/superpowers/plans/2026-08-11-web-code-audit-remediation-plan.md,
+// (see docs/plan/2026-08-11-web-code-audit-remediation-plan.md,
 // Task 7). Follows `toolbar-fold.spec.mjs`'s convention: no test framework,
 // just `node:assert`-free `check()` tallying; bundles via esbuild
 // (`build({ bundle: true, write: false })`, same technique `render.spec.mjs`

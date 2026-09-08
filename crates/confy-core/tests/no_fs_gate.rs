@@ -1,4 +1,4 @@
-//! PORTING.md §7 boundary gate: `confy-core`'s **runtime** code must never touch
+//! `docs/spec/2026-06-17-headless-core-port.md` §7 boundary gate: `confy-core`'s **runtime** code must never touch
 //! the filesystem, the process environment, or any terminal/UI crate. The host
 //! (confy-tui / a future WASM shim) owns all I/O; the core is pure.
 //!

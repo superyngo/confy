@@ -2,7 +2,7 @@
 
 TUI-specific mechanics for the ratatui frontend (`src/tui/`). These are **not** shared
 with the model layer; see `WEBUI.md` for the parallel web-UI mechanics. For model
-semantics (Mutation variants, kind-switch rules, insert/move legality) see `CONTEXT.md`.
+semantics (Mutation variants, kind-switch rules, insert/move legality) see `MUTATIONS.md`.
 For the inline-vs-`$EDITOR` boundary see `BEHAVIOR_MATRIX.md §6`. The keyboard bindings
 themselves are **not** documented here: `KEYMAP.md` is the TUI ↔ Web single source of
 truth for them, and its table is machine-checked against `map_key` (`src/tui/keys.rs`).
@@ -41,7 +41,7 @@ read_only)` so the rendered slot is backend-aware — the YAML opaque gate (`rea
 tags `[opaq ]` whatever the underlying kind. The detail popup keeps word labels; its `Path:` line
 is `ViewRow.path_display` (built by `Session::human_path`), which includes positional indices and
 re-wraps a quoted-YAML key segment in its authored flanks — `a.b[2].c`, but `servers."web 1".port`
-for a key written with quotes, so the displayed path matches the file (CONTEXT.md *Path line*).
+for a key written with quotes, so the displayed path matches the file (glossary.md *Path line*).
 `node_type_label` still drives the inline editor's type-change comparison.
 
 ## Editing
@@ -65,22 +65,24 @@ and comes back with its prefix, its authored hex digit case and its digit groupi
 (decoding those reprs as a decimal number fails, which used to make every non-decimal integer
 ignore the schema entirely). A fractional
 `multipleOf` is ignored on an integer-style value, and a float keeps its decimal point, so a
-nudge never retypes the node. `edit_node` truncates the path only at the first `Index` whose
-container is a real `Array` (editing the whole array there); AoT-entry indices and the
-keys below them are kept and addressed directly. A `$EDITOR` fragment starts at the node's own
+nudge never retypes the node. `edit_node` keeps the **full** path — it never truncates to an
+enclosing array (`external_edit_path`); an array element the backend cannot address on its own
+is instead flagged for wrapping, and AoT-entry indices and the keys below them are addressed
+directly. A `$EDITOR` fragment starts at the node's own
 header/value line — an adjacent standalone comment is an independent node and is never part of
 the fragment. The editor command comes from `$EDITOR`, then `$VISUAL`, then `vi` (`notepad` on
 Windows); it is shell-split (`tui/editor.rs`, `shell-words`) so `EDITOR="code --wait"` works, and
 the scratch file carries the document's own extension (`.toml`/`.json`/`.yaml`) so the editor
 picks the right syntax mode. On return the event loop repaints via `full_redraw` (a query-free
 `Terminal::resize`, not `Terminal::clear`, which since ratatui 0.30 issues a cursor-position query
-that non-answering PTYs time out on). TOML has no null, so there is no clear-value operation. **`a` (add)** adds a
-**next sibling of the cursor's own kind** in the cursor's scope — a scalar (empty string, opened
-in the inline editor) beside a scalar, an empty container beside a container (`[]`/`{}`, or a TOML
-`[table]`/`[[aot]]` header, named `placeholder`), and another standalone comment beside a comment
-(blank-line separated so it stays a **distinct** single-line node instead of merging into the
-neighbour, and opened in the inline editor — same as a scalar);
-the **root or an expanded branch** appends an empty scalar as its last child. Container/scalar seeds
+that non-answering PTYs time out on). TOML has no null, so there is no clear-value operation.
+
+**`a` (add)** opens `Mode::AddPicker` (`session/add_picker.rs`, drawn by
+`tui/overlay_add_picker.rs`): a popup listing the node kinds that are *legal* for the resolved
+insertion Target, filtered by the parent's kind and the document's format, with the cursor
+pre-set to the kind the cursor row already is (String otherwise). Picking a kind seeds its
+default literal and inserts it as a **next sibling** in the cursor's scope — or, on the **root
+or an expanded branch**, as that branch's last child. Container/scalar seeds
 go through the backend's `scalar_fragment` (no hard-coded notation), **except an array/seq element
 seed**, which uses `array_element_fragment` so it is a **bare keyless** element in every backend
 (TOML included — previously TOML seeded a `{ __elem__ = "" }` inline table). A scalar appended into a
@@ -323,7 +325,7 @@ collision-retry path). `do_paste` pairs each fragment with its source path and s
 through the atomic `Mutation::Move` (delete-before-reinsert on a scratch tree, committed only on
 success) so a same-scope reposition is a move, not a `Key already exists` collision; **copy** uses the
 per-fragment `Mutation::Insert` loop. **Moving or copying an array element out**, and **multiple
-keyed nodes joined into one array/`[A/T]` element**, follow the forming rules in CONTEXT.md's
+keyed nodes joined into one array/`[A/T]` element**, follow the forming rules in MUTATIONS.md's
 *Insert / move legality* table (helpers: `unpack_inline_table`/`wrap_keyed_as_inline_element`,
 `joinable_entry`, in `move_nodes`/`do_paste`/`insert`). Comments: a Comment node's fragment is its raw `# …` text, pasted
 via `Mutation::InsertComment` (validates every line starts with `#`, splices the block in at the target

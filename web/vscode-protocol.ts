@@ -1,9 +1,9 @@
 // Message protocol between the VS Code extension host and the confy webview.
 // Imported by web/vscode.ts (webview side) and editors/vscode/src/* (host
 // side) so protocol drift is a compile error, not a runtime surprise.
-// Design: docs/superpowers/specs/2026-07-15-vscode-extension-design.md
+// Design: docs/spec/2026-07-15-vscode-extension-design.md
 // (M1.5: the TextDocument is the single source of truth — see the plan
-// docs/superpowers/plans/2026-07-16-vscode-m1_5-shared-dirty-state.md).
+// docs/plan/2026-07-16-vscode-m1-5-shared-dirty-state.md).
 
 // The single definition of ConfigFormat — web/host-io.ts re-exports this.
 // `.yml` folds to "yaml" and `.jsonc` to "json"; the wire never carries "yml".

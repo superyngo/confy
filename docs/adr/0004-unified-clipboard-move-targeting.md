@@ -45,7 +45,7 @@ Two concrete bugs trace directly to this split:
   sub-sections.** `move_nodes`'s `Target::AotEntry` arm (`model/cst_edit/move_paste.rs:919`) is
   `frags.extend(aot_entry_member_fragments(tree, &h)?)` — it always splits the whole `[[items]]`
   entry into per-member dotted-key fragments before re-inserting. When the destination is a
-  table/root this is deliberate, documented, `[T/D]`-parity behavior (`CONTEXT.md`'s "Insert /
+  table/root this is deliberate, documented, `[T/D]`-parity behavior (`docs/reference/MUTATIONS.md`'s "Insert /
   move legality" table already records it — not a bug). But when the destination is *another*
   AoT group or array, `do_paste`/`move_nodes` conditionally **rejoins** the fragments into one
   new `[[entry]]` (`dest_packs`, `move_paste.rs:924-937`) — and that rejoin is lossy: any nested
@@ -59,7 +59,7 @@ A third, pre-existing fact worth recording as intentional rather than accidental
 copy/cut/paste and move are implemented **three separate times per format** —
 `model/cst_edit/*` (TOML, taplo CST — the only engine with dotted-table/AoT
 concepts and the D1–D5 adaptation matrix from
-`docs/superpowers/plans/2026-06-09-cross-layer-ops-and-line-paste.md`),
+`docs/plan/2026-06-09-cross-layer-ops-and-line-paste.md`),
 `model/json/edit.rs` (its own `adapt_fragment`), and `model/yaml/edit/mutations.rs`
 (its own `move_nodes`, gated by an `entry_has_opaque_value` check unique to YAML's
 anchors/aliases/tags). These were never reconciled into one written contract, so
@@ -71,7 +71,7 @@ Adopt `PasteSlot` as the single canonical target representation for every surfac
 AoT-entry sub-section data loss on AoT/array-destination moves as part of the same change,
 since it's the concrete manifestation of the split this ADR closes — but leave the deliberate,
 `[T/D]`-parity table/root-destination flattening alone. Node-kind and per-format move mechanics
-stay owned by `CONTEXT.md`'s "Insert / move legality" table and `BEHAVIOR_MATRIX.md` (already
+stay owned by `docs/reference/MUTATIONS.md`'s "Insert / move legality" table and `BEHAVIOR_MATRIX.md` (already
 the maintained, code-cross-referenced source for that); this document only records what changes
 in them, not a second copy of the whole matrix.
 
@@ -117,20 +117,20 @@ re-flattening nested `[[items.sub]]` sub-sections into dotted keys and instead r
 entry's original section structure — a true atomic move for the same-shape case. The stale
 "deferred" docstring (`move_paste.rs:834`) is corrected to describe actual behavior either way.
 
-### 4. Node-kind contract: `CONTEXT.md` is the source, this is the delta
+### 4. Node-kind contract: `docs/reference/MUTATIONS.md` is the source, this is the delta
 
-"What does X do to node kind Y" is `CONTEXT.md`'s "Insert / move legality" table (and
+"What does X do to node kind Y" is `docs/reference/MUTATIONS.md`'s "Insert / move legality" table (and
 `BEHAVIOR_MATRIX.md` for the fuller cross-backend account) — not re-derived here. The only row
 this ADR changes is `[[array-of-tables]]` entry → `ArrayOfTables`/`Array` destination (§3, above);
 every other cell in that table is unchanged by this decision. Implementation must update
-`CONTEXT.md`'s `[A/T] group` row and the "Mutation mechanics" → **Move** row's AoT-entry sentence
+`docs/reference/MUTATIONS.md`'s `[A/T] group` row and the "Mutation mechanics" → **Move** row's AoT-entry sentence
 to match once §3 ships, in the same change — not as a follow-up — so the glossary never drifts
 from code the way the stale docstring did.
 
-### 5. Format-specific behavior: also `CONTEXT.md`'s job
+### 5. Format-specific behavior: also `docs/reference/MUTATIONS.md`'s job
 
 TOML's D5 partition/dotted-table/AoT rules, JSON's simplified `adapt_fragment`, and YAML's
-`entry_has_opaque_value` move guard are already covered by `CONTEXT.md`'s "Nested behavior
+`entry_has_opaque_value` move guard are already covered by `docs/reference/MUTATIONS.md`'s "Nested behavior
 matrix" and `BEHAVIOR_MATRIX.md`. None of them change under this ADR — the three engines stay
 three engines, per genuine TOML/JSON/YAML grammar differences, not implementation drift.
 
@@ -155,13 +155,13 @@ per-surface wording.
 - Touch permanently has no drag-copy — copying on touch is always the two-step
   Copy → tap target → Paste flow. This is a recorded scope boundary, not a gap to
   close later.
-- `CONTEXT.md` gains **PasteSlot** / **Into** / **After** as formal glossary terms now (they're
+- `docs/reference/glossary.md` gains **PasteSlot** / **Into** / **After** as formal glossary terms now (they're
   real, shipped `session/state.rs` concepts this ADR promotes to cross-platform vocabulary —
-  not aspirational). `CONTEXT.md`'s "Insert / move legality" table and "Mutation mechanics" →
+  not aspirational). `docs/reference/MUTATIONS.md`'s "Insert / move legality" table and "Mutation mechanics" →
   Move row stay as-is until §3 ships, then update in the same change (§4).
 - This document is the design; it is not yet implemented. An implementation plan
   (via `writing-plans`) should phase it: (1) core primitive + snapshot field +
-  `SetPasteSlot` intent, (2) AoT atomic-move fix (§3) + `CONTEXT.md` sync (§4), (3) web/touch
+  `SetPasteSlot` intent, (2) AoT atomic-move fix (§3) + `docs/reference/MUTATIONS.md` sync (§4), (3) web/touch
   pointer wiring + rendering, (4) drag copy-modifier, each phase independently testable.
 - Three bugs found while grilling this ADR were **fixed** in the same debugging pass, not gating
   this ADR's implementation (all three have headless regression tests; two are confirmed against
@@ -170,7 +170,7 @@ per-surface wording.
   stale after a partial multi-fragment paste failure; and a compound bug where `do_paste` never
   expanded a collapsed `Into` target (so the pasted node was invisible) and rename never remapped
   `self.selection` (so the next copy/delete silently targeted a stale pre-rename path). Full detail
-  in `docs/superpowers/audits/2026-08-16-clipboard-paste-bugs.md`. A fourth item logged during the
+  in `docs/audit/2026-08-16-clipboard-paste-bugs.md`. A fourth item logged during the
   same grilling session — an "unconfirmed YAML add-entry failure" — was never reproduced or
   root-caused in the follow-up and is dropped here as unsubstantiated; re-open only if it recurs
   with a concrete repro.

@@ -8,6 +8,114 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-09 (21)
+
+**Docs — full audit and reorganization**
+
+A repo-wide documentation audit (six parallel read-only passes over every reference doc,
+`CLAUDE.md` and the root files) followed by a structural reorganization onto the
+`wens-dev-principles` **docs** domain. No runtime behavior changed; one stale test invariant
+was tightened.
+
+**Structure** (was violating four `MUST` principles):
+
+- New root **`CONTEXT.md`** — the single documentation entry point: one table of the `docs/`
+  folders (what each holds, whether it is canonical, its lifecycle), the reading order, and the
+  greppable status-line contract.
+- `docs/superpowers/{specs,plans,audits,debug}/` → **`docs/{spec,plan,audit,debug}/`**, each with
+  its own indexing `README.md` listing every document with a one-line summary and status, live
+  work in an `## In progress` section at the top. 60 files moved with `git mv`; the 178 internal
+  links and 48 source-comment path references were swept to match. `CHANGELOG.md` entries written
+  before today keep the old paths and are left alone — they are frozen history.
+- **`docs/reference/CONTEXT.md` split** into [`glossary.md`](docs/reference/glossary.md) (the
+  vocabulary, in the fixed `**Term**:` / definition / `_Avoid_:` entry format) and
+  [`MUTATIONS.md`](docs/reference/MUTATIONS.md) (insert/move legality, per-`Mutation` mechanics,
+  `e` block-edit scope, multiline-array layout, kind-switch rules). The old name collided with
+  the mandated root index, and the file was two documents in one.
+- The **condensed duplicate** of the nested-behavior matrix is gone; `BEHAVIOR_MATRIX.md` is the
+  only copy. Two copies of one matrix drift.
+- `RELEASES.md` → `docs/reference/RELEASES.md` (the repo root now keeps only `README.md`,
+  `CHANGELOG.md`, `CLAUDE.md`, `CONTEXT.md`, `LICENSE`, `PRIVACY.md`).
+  `scripts/sync-releases-md.sh`, which CI runs on every release to patch the version column,
+  was updated to the new path — it would otherwise have failed the next tagged build.
+- `docs/reference/PORTING.md` → `docs/spec/2026-06-17-headless-core-port.md`. It is a design
+  record with completed-milestone tracking, a superseded API sketch and a "pre-port surface"
+  inventory — reference describes current behavior only.
+- **51 emoji status banners → greppable `Status:` lines** as the second line of every working
+  record, from the fixed value set (`Shipped (date)` / `Resolved (date)` / `Approved` /
+  `In progress`). Six records had no status marker at all; each now carries one. The prose facts
+  those banners carried (landing commits, review pointers, supersessions) were preserved.
+- Six working records renamed to the `YYYY-MM-DD-kebab-title.md` convention (`2026-04-XX-…`
+  had no real date; four were `SHOUTY_PLAN.md`). `docs/debug/2026-09-01-pointer-drop-pasteslot-probe/`
+  gained the sibling `.md` that a script directory must hang off.
+- `docs/audit/2026-08-29-code-audit.md` was sitting unindexed in `docs/tmp/`; it is now a real
+  audit record — and, on inspection, an **honest `In progress`**: its quadratic-`Move` P0 and its
+  cross-backend-parity P1 are still open (the JSON empty-document insert it flagged *is* fixed).
+- Stale `docs/tmp/` scratch archived to `docs/tmp/archive/2026-09-pre-reorg.tar.gz`.
+
+**Accuracy** — every finding verified against the code before editing:
+
+- **`MESSAGES.md` §2 severity counts were wrong and self-contradictory** ("43 keys (11 Error +
+  15 Warn + 7 Success + 9 Info)" — that sums to 42, then 43). `severity_of` actually classifies
+  **68** keys: 45 `core.*` notice keys (12 Error + 17 Warn + 7 Success + 9 Info) and 23 host
+  keys. The doc also conflated notice keys with the 102 `core.*` catalog keys, most of which
+  would *panic* if passed to `severity_of`. Both facts corrected.
+- **The invariant test that was supposed to prevent exactly that had drifted too.**
+  `severity_of_covers_the_full_catalog_table` asserted `cases.len() == 43` while `severity_of`
+  had grown to 45 `core.*` arms — `core.blank.error` and `core.action.unavailable` were
+  classified but never asserted, so the test's name was a lie. Added both cases, corrected the
+  count and rewrote the assertion message to state the real breakdown and its own scope.
+- `MESSAGES.md` §4 claimed five `DiagEvent` kinds; there are **three** (`dispatch`, `mutation`,
+  `notice`) and exactly three `diag.push` call sites. `schema` and `convert` are never emitted,
+  and a host notice is not a separate `host_notice` kind — it lands in the same `set_notice` and
+  records as `notice` with its provenance in the `source=` field.
+- **New known follow-up recorded** (`MESSAGES.md` §8): the TUI `~` diag overlay renders the ring
+  oldest-first into a box sized `min(len, 20)`, so past ~7 interactions it shows the *oldest* 20
+  events and clips the newest — the opposite of what its docstring claims and of what an
+  operator opens it for. Documented, not silently reframed as intended behavior.
+- `glossary.md`: the `(B)/(Q)/(D)/(-)` key-sign prefix was described as a KIND-column prefix; it
+  is a Type-filter facet and a Detail-popup `Sign:` line, and the KIND tag is strictly the
+  8-cell type slot. `Format`'s "eventual format-toggle operation" has shipped as `K`/
+  `ConvertKind`. `Scalar` was defined as TOML-only (no `null`, no JSON/YAML). The worked
+  paste example asserted the wrong destination — pasting after an *expanded* branch inserts as
+  its first child, not as a sibling.
+- `MUTATIONS.md`: `SetTrailingComment` was missing from the `Mutation` table entirely and
+  `ConvertKind` had no row; the multiline-array section still said "three rules" after the
+  fourth landed; `aot_entry_end` is `aot_entry_end_from`; the kind-switch table listed only
+  TOML's targets, with no JSON or YAML rows.
+- `TUI.md`: `edit_node` was described as truncating a path at the enclosing array — it keeps the
+  full path and flags an unaddressable bare element for wrapping instead. `a` was described as
+  directly inserting a sibling of the cursor's kind; it opens `Mode::AddPicker`.
+- `KEYMAP.md`: only three row families are surface-prefixed (`tui.help.row.filter_lock`,
+  `tui.help.row.convert_jsonc_toggle`, `web.help.row.pointer_*`) — `l`, `~` and `Ctrl+o` use
+  shared `help.row.*` keys. The TUI Detail popup is a centered floating box, not full-screen.
+- `WEBUI.md`: `schemaInfo` returns `string | undefined` (no `SchemaInfo` type); `schemaViolations`
+  returns `ViolationView[]`; the panel's Actions row was removed by ADR 0009; `wirePanel`'s
+  signature had drifted; `nudgeRepr` was missing from the FFI table; `SessionSnapshot` (21
+  fields), `ModeView` (`AddPicker`) and `ViewRow` (`badge_label`/`badge_note`) lists were
+  incomplete; five shared UI modules were unmentioned.
+- `ROW_STATE_MODEL.md`: §3's visual table still presented the **pre-Phase-1** world as "Current"
+  and the shipped design as "Target", years after Phase 1 landed — rewritten against the actual
+  CSS and `tui/ui.rs`. §8's all-`[x]` checklist was replaced by a pointer to the five frozen
+  phase plans, with the two behavioral facts that lived only inside it moved into §5. One test
+  name was wrong (`remark_selection_tracks_scattered_rows`), as was the `Enter` keybinding row.
+- `README.md` advertised an `x86_64` macOS desktop `.dmg`; CI has built Apple Silicon only since
+  v0.12.2.
+- **41 rotting `file.rs:123` line-number citations** stripped from `docs/reference/` (37 of them
+  in `ROW_STATE_MODEL.md` alone, most already pointing at the wrong line). File and symbol names
+  are stable; line numbers are not.
+
+**`CLAUDE.md`** slimmed from 766 to ~526 lines: the ~280-line Architecture narrative — which
+restated `glossary.md`, `MUTATIONS.md`, `TAURI.md` and `MESSAGES.md` almost paragraph for
+paragraph — became a one-paragraph orientation plus a topic→document table, per
+`wens-dev-principles docs 3` (an instruction file states conduct and points at reference; it
+does not become a second, drifting copy of it). What stayed: build/test commands, release
+process, known risks, the module map, terminology. Also corrected there: the taplo call-site
+counts (48 / 28 / 2, not 47 / 18 / 2), the claim that **no** taplo DOM is used (`Node::validate`
+*is* — it is the TOML duplicate-key backstop), a `load_as` function that does not exist, the
+`functional_smoke.mjs` check count (129), the VS Code extension's publish status (it contradicted
+`RELEASES.md`: it is on the Marketplace and Open VSX), and a test inventory missing 11 files.
+
 ### Unreleased Update - 2026-09-08 (20)
 
 **Fixed**

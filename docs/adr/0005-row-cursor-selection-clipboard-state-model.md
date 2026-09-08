@@ -63,7 +63,7 @@ Two problems trace directly to this being informal:
 This ADR formalizes the state model as it actually exists in `confy-core`, corrects the
 TUI-only assumption, and decides a single cross-platform visual/interaction language
 for it. Node-kind and per-format mutation mechanics are untouched and stay owned by
-`CONTEXT.md`/`BEHAVIOR_MATRIX.md`, exactly as ADR 0004 established for `PasteSlot`.
+`docs/reference/MUTATIONS.md`/`BEHAVIOR_MATRIX.md`, exactly as ADR 0004 established for `PasteSlot`.
 Full per-state binding tables, the visual spec, and the phased implementation task list
 live in `ROW_STATE_MODEL.md`; this document records the decision, not a second copy of
 the matrix.
@@ -82,7 +82,7 @@ Adopt this vocabulary (English canonical name — Chinese working name — core 
 | 4 | **Clipboard-armed (cut/copy mode)** | 剪下複製模式 | `Session.clipboard.is_some()` | Cross-platform. A later, independently-entered state layered on top of #3: entering it freezes whatever `Selection` currently holds (the four guards above); it does not itself require #3 non-empty (`selected_paths()`'s cursor-fallback still applies to a bare cursor with no explicit `Selection`). |
 | 5 | **Clipboard source** | cut/copy source | `Session.clipboard.sources: Vec<Path>`, colored by `Session.clipboard.cut: bool` | Cross-platform; only meaningful while #4 is active. |
 
-`CONTEXT.md` gains **Cursor**, **Locked selection**, and **Clipboard-armed** as formal
+`docs/reference/glossary.md` gains **Cursor**, **Locked selection**, and **Clipboard-armed** as formal
 glossary terms (mirroring how ADR 0004 promoted `PasteSlot`/`Into`/`After`) — these are
 shipped, existing concepts this ADR names, not new mechanism.
 
@@ -213,7 +213,7 @@ a follow-up in `ROW_STATE_MODEL.md`, not part of this ADR's implementation.
 - Purely additive at the wire level for the new hover-preview/drag-preview cues (client
   state only, no new `Intent`/snapshot field); the `Selection`/`Cursor`/`Clipboard`
   fields themselves are unchanged in shape.
-- `CONTEXT.md` gains Cursor / Locked selection / Clipboard-armed as formal glossary
+- `docs/reference/glossary.md` gains Cursor / Locked selection / Clipboard-armed as formal glossary
   terms now (shipped concepts, not aspirational).
 - Every color/background rule in `tui/ui.rs`, `web/style.css`, `web/touch/style.css`
   changes (§2); this is the one part of this ADR that is a visible behavior change to

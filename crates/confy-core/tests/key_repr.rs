@@ -8,7 +8,7 @@
 //!   buffer). `None` for keyless nodes.
 //!
 //! Every case here failed before
-//! `docs/superpowers/plans/2026-08-28-key-repr-first-class-literal.md` landed.
+//! `docs/plan/2026-08-28-key-repr-first-class-literal.md` landed.
 
 use confy_core::model::any_doc::AnyDocument;
 use confy_core::model::document::{ConfigDocument, DocFormat};

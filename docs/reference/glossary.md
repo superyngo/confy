@@ -1,0 +1,487 @@
+# Glossary
+
+Canonical vocabulary for the confy codebase — a single-file editor for structured config files
+(TOML, JSON/JSONC, and a YAML subset). Resolved terminology only; no implementation details.
+
+Every entry is a bold term, a definition, and an `_Avoid_:` line listing rejected synonyms.
+Code identifiers, UI strings, commit messages, and every other document use these terms;
+introducing a new term means adding its entry in the same commit.
+
+confy is modeled on [wenv](https://github.com/superyngo/wenv) for UX, but its domain language
+is deliberately **different**: wenv is line-based and flat (`Group / File / Entry`); confy is a
+**tree** over a structured document. confy does **not** use the term "Entry".
+
+**Where the mechanics live.** This file defines *what a thing is*. How an operation behaves is in
+[MUTATIONS.md](MUTATIONS.md) (insert/move legality, per-`Mutation` mechanics, kind switch) and
+[BEHAVIOR_MATRIX.md](BEHAVIOR_MATRIX.md) (how nesting scope governs each editing behavior).
+
+## Language
+
+### Tree vocabulary
+
+**Node**:
+Any single element in the config tree. The umbrella term for everything the user navigates and
+operates on. (Where wenv would say "Entry" — confy never says Entry.)
+_Avoid_: Entry, item.
+
+**Root**:
+The single top-of-tree **Node** whose key is the filename. Every other Node descends from it.
+There is exactly one Root per open file.
+_Avoid_: File header (as a separate concept), top node.
+
+**Branch node**:
+A **Node** that has children and can be expanded/collapsed: a table, array-of-tables, array, or
+inline table.
+_Avoid_: Container, object, parent (parent is a relationship, not a kind).
+
+**Leaf node**:
+A **Node** with no children: a scalar value or a comment.
+_Avoid_: Value node (a comment is a leaf but not a value), terminal.
+
+**Parent / Child / Sibling**:
+Standard tree relationships between **Nodes**. Siblings share a Parent and a key namespace
+(the same table), which is why key collisions are resolved per-Parent.
+
+### Node kinds
+
+**Scalar**:
+A **Leaf node** holding a typed value. TOML: string, integer, float, bool, or one of the four
+datetime types (offset-datetime, local-datetime, local-date, local-time). JSON and YAML add
+`null` and have no datetime type — a date-looking YAML scalar is a string.
+
+**Format**:
+The *writing style* of a Scalar, orthogonal to its type — e.g. an integer written as `0xFF` (hex)
+vs `255` (decimal), or a string written `"…"` (basic) vs `'…'` (literal) vs `"""…"""` (multiline).
+Derived (read-only) during projection from the rendered repr; round-trips byte-identically. The
+**Kind switch** (`K`, `Mutation::ConvertKind`) is the write-side counterpart.
+
+**Key sign**:
+How a Node's *own key* is written, orthogonal to its type/format — **bare** (`port`), **quoted**
+(`"a.b"`), **dotted** (`a.b.c`), or **none** (keyless: array elements, comments, AoT entries, Root).
+Derived (read-only) during projection. Surfaced as one half of the **Type filter** and as the
+Detail popup's `Sign:` line — **not** in the KIND column, whose 8-cell tag is strictly the
+type/notation slot. Note: a top-level/scope dotted key now **nests** into
+synthetic **Dotted tables** (see below); the whole decomposed chain (tables **and** leaf) reads
+the **dotted** sign, so `(D)` marks any dotted-key origin (per-segment `bare`/`quoted` is not
+surfaced for a decomposed chain). A dotted key *inside an inline table* decomposes the same way:
+`t = { x.y = 1, x.z = 2 }` projects a synthetic **Dotted table** `x` under the inline table, and
+operations on it route through the inline-table machinery (members stay `{ … }` entries).
+
+**Key literal / decoded key**:
+The two forms a key is projected in. The **decoded key** (`Node.key`, `Seg::Key`) is the key's
+*semantic identity* — quotes stripped and escapes resolved — and is what path resolution,
+duplicate-key collision checks, JSON-Schema `properties` lookup and `to_value`/convert compare
+against. The **key literal** (`Node.key_literal: Option<String>`) is the key *exactly as
+authored*, quote characters and escape sequences intact, and is the *presentation and edit
+identity*: the tree-row label, the **Path line**, the rename/edit buffer, and fragment rebuilding
+all read it. `None` means the key was authored bare, so the decoded key already *is* the literal.
+Both are filled in one pass during projection from the key token already in hand — no consumer
+re-walks the source or synthesizes a quote character. The inverse direction is
+`ConfigDocument::rename_key_segs(new_key)`, which decodes a rename's literal with the backend's
+own key lexer so the rebuilt path uses decoded segments and a quoted key containing a dot is not
+split apart.
+_Avoid_: "display key", "raw key" — earlier ad-hoc names for a synthesized `"${key}"` wrap, which
+guessed the quote character instead of preserving the authored one.
+
+**Path line**:
+The human-readable dotted/bracketed rendering of a Node's path (`a.b[2].c`), produced by
+`Session::human_path` and precomputed per row as `ViewRow.path_display`. It re-wraps a quoted-YAML
+key segment in its authored `"…"`/`'…'` flanks, so the displayed path matches what the file
+actually says. Read-only: it is a display string, never parsed back into a path. Shown on the TUI
+Detail popup's `Path:` line and the web/touch panel's Path field.
+
+**Member spans**:
+The discrete pieces of source that *constitute* a table: its own `[a]` section (if written),
+every descendant `[a.sub]` / `[[a.list]]` section — wherever it sits in the file — and any flat
+dotted member lines. A table's definition is an **open set**: TOML lets these spans scatter and
+interleave with foreign sections. `[T/D]`, `[T/S]`, **implicit** (only `[a.sub]` written) and
+**mixed** (dotted members *plus* header sub-sections) tables are the four compositions of one
+span list, and serialize/edit/delete/move all fan out over it.
+
+**Dotted table** (`Format::Dotted`, KIND tag `[T/D]`):
+A Table that exists only because dotted keys defined it (`a.b.c = 1` → tables `a`, `b`), with no
+`[table]` header. A synthetic projection node merging the dotted entries that share a prefix
+**within one scope**, shown at the table's **first** definition position (where a consolidating
+block-rewrite lands). The value leaves stay mapped to their original source entries, so an
+*untouched* file round-trips byte-identically. Editing it, though, does rewrite: a child `add`
+seeds a scalar and inserts write a scope-relative dotted entry (`a.b.x = …`); `e` block-edits all
+member lines and **consolidates** them at the first position; `d` deletes all members; renaming a
+plain key to a dotted one (`foo` → `foo.x`) converts the scalar into a `[T/D]` table.
+Whole-table move/copy fans out over the member lines. (Editor outline/symbol
+integrations that need a single representative position for a Dotted table —
+e.g. VS Code's `DocumentSymbol.range` — anchor at this same first-member
+position, not an envelope over the scattered members; see
+`docs/adr/0006-outline-symbol-representative-span-anchoring.md`.)
+
+A dotted key **inside an inline table** (`t = { x.y = 1, x.z = 2 }`) decomposes the same way, but
+ops on the synthetic `[T/D]` route through the **inline machinery**, never the flat-ROOT splices
+(`inline_ancestor_len` guards the path): insert/add re-prefixes the key scope-relative (`q = 9` into
+`t.x` → member `x.q = 9`) and lands via `inline_table_insert` with the projected index translated to
+a raw member slot (`inline_raw_member_index`); collision is exact full path (a shared prefix merges);
+`Delete` and move/copy fan out over the member entries (`inline_member_entries`); the block edit
+consolidates at the first member (`replace_inline_dotted_table`, single-line entries only); comments
+are rejected (`{ … }` holds none). **Comments are never inside a `[T/D]` table**: a comment adjacent
+to a dotted member is an independent scope-level node (stays put on table move/copy/delete and the
+consolidating edit), and `InsertComment` targeting a `[T/D]` re-routes to the scope level — landing
+directly above the table's first member, never rejected, never bound. `dotted_member_entries` counts
+only **flat-ROOT** entries — an entry nested inside an inline-table/array *value* belongs to that
+value, not the table, so its interior is never pulled out as a stray top-level line. Dotted *headers*
+(`[x.a]` with no `[x]`) still project as a real nested `Scope` branch.
+
+**Mixed table**:
+A table defined by dotted members *and* header sub-sections (the TOML-spec `fruit.apple`
+pattern: `apple.color = …` under `[fruit]`, plus `[fruit.apple.texture]`). The spec forbids
+giving such a table its own header while any dotted definition remains, so: inserting an entry
+writes a dotted member; inserting a sub-table writes a header section (legal); `e` consolidates
+the whole table to **scope form** — a synthesized `[fruit.apple]` header with the dotted members
+folded under it, then the member sections — the only header form that leaves nothing behind.
+
+**Comment**:
+A **standalone** comment line (occupies its own line) surfaced as a first-class **Leaf node**.
+Navigable, selectable, remarkable, and movable like any Node. A "disabled" setting is just a
+Comment whose text happens to be valid TOML; toggling it (see _Remark_) re-parses it back into a
+live Node.
+_Avoid_: Disabled entry, ghost node — these were earlier names for the same idea; the canonical
+concept is "a Comment that is valid TOML".
+**Owner near a TOML header (blank-line rule):** a standalone comment between a table's last entry
+and the next `[header]` is ambiguous. The projection decides by the **blank line**: a comment
+*separated* from the following header by a blank line trails the **preceding** scope (a child of
+that table); a comment *hugging* the header (no blank) is the header's **leading** comment (a
+sibling at the header's parent scope). Inserting a comment as a table's last child right before an
+outer header therefore emits a separating blank line so it stays inside. (JSON/YAML have explicit
+`}`/dedent delimiters and need no such rule.) Crossing the **0↔1** boundary therefore re-parents
+such a comment — no confirmation guards it, because the only way to change a blank run is the
+multiline editor, whose buffer *shows* that comment (a TOML section's extent reaches the next
+header, so the comment is inside the fragment) — see *Mutation mechanics*.
+
+**Trailing comment**:
+An end-of-line comment that shares a line with a value (`port = 8080  # http`). It is **not** a
+Node — it is decoration belonging to that Node, travels with it on edit/remark/move, and is shown
+in the Node's Detail view. Only standalone comments become **Comment** Nodes.
+_Avoid_: Inline comment node (it is never a node), suffix comment.
+
+**Read-only node**:
+A node whose `Node.read_only` flag is set: displayed in the tree and copyable, but rejecting edit
+(`e`/`E`), delete (`d`), cut (`x`), and remark (`r`). Produced by JSONC `/* */` block comments
+(a Comment node) and by YAML **opaque nodes** (any kind). The rejection happens in **core**, on
+both `e` routes — `begin_inline_edit` as well as the `$EDITOR` one — so no host can open an editor
+on read-only content and discover it only at commit time. Because one flag has two sources, the
+message does too: `core.readonly.comment` names the JSONC block comment, `core.readonly.opaque` the
+YAML out-of-subset span (`Session::readonly_notice_key` picks by node kind).
+
+**Opaque node**:
+A YAML node holding an out-of-subset construct — `&anchor`, `*alias`, `<<:` merge key, `!tag`, or
+multi-line flow — projected as a **read-only node** with the KIND tag `[opaq ]` (whatever its
+underlying kind). It survives round-trip byte-identically but cannot be mutated safely without full
+YAML write support, so every mutation on or into it (or on any entry whose *value* is opaque)
+returns `Unsupported`, leaving the document untouched. Copy is allowed. **Schema validation skips
+it** (`convert::tree_to_value_lenient`, mirrored by `value_bridge::walk`) rather than aborting the
+file: confy cannot decode its value, so it carries no **Violation** of its own, while every node
+around it validates normally. Document **conversion** is stricter — an opaque node aborts it (see
+§ *Conversion*), because writing a file must never drop data silently.
+
+**Granularity:** the fence is the *whole* construct that carries the out-of-subset token, never a
+sub-span of it. In particular an anchor/alias/tag **inside a single-line flow collection** makes the
+**entire** `[ … ]`/`{ … }` opaque (`g: [ &a 1, *b, 2 ]` is one `[opaq ]` node, no children), because
+the flow body parser has no case for those tokens: they would otherwise float as bare tokens no
+projected node covers — an anchored element rendered as a plain value with the `&a` invisible, and an
+*alias* element vanished from the tree entirely, shifting every later element's ordinal.
+
+**YAML subset**:
+The slice of YAML 1.2 that confy edits as first-class nodes: a single document (optional leading
+`---`), block + single-line flow maps/sequences, 5 scalar styles (plain, single-quoted,
+double-quoted, literal `|`, folded `>` with chomping), and `#` comments. Anything outside it becomes
+an **opaque node**; multi-document files are rejected at load.
+
+**Core schema typing**:
+YAML 1.2 core-schema scalar typing as confy applies it — `null`, `bool`, `int` (dec/hex/oct),
+`float` (incl. `.inf`/`.nan`/exponent), else `string`. confy deliberately has **no datetime** type
+in YAML: a date- or time-looking plain scalar is a string.
+
+**Indent engine** (`reindent`):
+The YAML splice core — the analogue of JSON's comma/brace normalization. It re-flows a fragment from
+its captured source indentation to the destination's indent level when inserting/moving, so block
+structure stays well-formed without per-call token surgery.
+
+**DocFormat**:
+The backend's self-reported syntax, one of `Toml` / `Json` / `Yaml`. Returned by
+`ConfigDocument::format()` and used by the TUI to select format-appropriate help text, `K`
+kind-switch options, `f` type-filter facets, and the comment prefix (`#` for TOML and YAML, `//`
+for JSON/JSONC). Mapped from the file extension by `detect_format`; overridable via `--format`.
+
+**Conversion** (document-level):
+Producing a new file in a *different* `DocFormat` from a loaded document (key `C` in the TUI, or
+`confy convert <in> <out>`). The document is lowered to a format-neutral **`Value`** tree, then
+re-rendered in the target's **default style** — so it is deliberately **lossy on notation/style**
+(radix, string style, inline-vs-block, dotted keys, array-of-tables are normalized, with an
+**up-front warning list**), but **comments carry across** with the target marker — except a
+**Schema hint**, which is recognized and re-authored in the target's own convention rather than
+carried across verbatim (see Schema hint, § Schema). A conversion **aborts** (writes nothing) when
+the source holds something the target cannot represent: a `null` into TOML, or a YAML **opaque
+node** into any target. The **source file is never modified**.
+_Avoid_: confusing this with **Kind switch** (`K`), which converts one node's *notation in place*
+within the same format.
+
+**Value** (neutral tree):
+The format-independent intermediate the conversion pipeline lowers to (`model/value.rs`):
+`Null/Bool/Int/Float/Str/Datetime` scalars plus ordered `Seq`/`Map` of `Item`s, where an `Item`
+is either a standalone `Comment` or a `Node { key, value, trailing }`. It carries decoded data and
+confy's first-class comments (standalone + trailing) in document order, but **no source notation**
+— that is the point: rendering it re-imposes the target format's default style.
+
+### Operations & projection
+
+**Projection**:
+The act of (re)building the Node tree from the backing document after every change. The backing
+document — not the Node tree — is the single source of truth.
+
+**Parser backend**:
+The per-`DocFormat` implementation that turns text into the lossless rowan
+`GreenNode`/`SyntaxNode` CST every projection reads. Not one shared parser —
+JSON/JSONC (`model/json/parse.rs`) and YAML (`model/yaml/parse.rs`) are
+project-owned, hand-rolled lexer + recursive-descent (JSON) / indentation-
+driven (YAML) parsers; TOML (`model/cst_doc.rs`) instead delegates to the
+external `taplo` crate (also rowan-based) — the original hand-written
+`toml_edit`-based backend was retired once `taplo` reached parity, so no
+project-owned TOML tokenizer exists anymore. Consequence: a JSON or YAML
+parsing bug is fixable directly in this repo; a TOML tokenize/parse-stage bug
+can only be worked around at the `confy-core` integration layer
+(`cst_doc.rs`, `cst_edit/*`) or reported upstream to `taplo`. `.json` vs
+`.jsonc` is **not** a parser distinction — both compile to `DocFormat::Json`
+through the same parser; the extension only matters to host-side policy (see
+**Comment advisory** below). `AnyDocument::from_str_as` (`model/any_doc.rs`)
+is the format-dispatch entry point.
+_Avoid_: assuming a bug in one format's parser generalizes to another — the
+three backends share only the CST shape, not an implementation.
+
+**Remark**:
+The toggle that turns a live Node into a **Comment** (and back). Canonical name for what the
+`r` key does. Selection-aware: with a Locked selection active it acts on the whole
+selection (adjacent rows merge into one comment block; un-remarking a selected block
+expands the selection onto every restored row — see `ROW_STATE_MODEL.md` §1c); otherwise
+it targets the cursor row.
+Its user-facing label is **"Toggle comment"** on every host (menus, help text); *Remark* is
+the term of art the code and these docs use. Both are correct in their own register — do
+not let either drift into the other's.
+_Avoid_: Disable/enable, comment-out (use these only as verbs in prose, never as the concept
+name).
+
+**Reveal**:
+Make the Node at a given path visible in the main tree — expand **all** of its ancestors, move
+the cursor onto it, and select it (a single-node selection replacing any prior one; in paste
+mode the clipboard-frozen selection is left untouched, and the root — which has no selectable
+row — only takes the cursor). If an active filter (text or type) still hides the Node, the expansion
+sticks, the cursor stays put, and the status line reports that the target is hidden by the
+filter. Canonical name for the breadcrumb / mini-tree jump.
+_Avoid_: Jump, Go-to (they describe only the cursor move, not the ancestor expansion).
+
+**PasteSlot** (`Into(Path)` / `After(Path)`):
+The target of an armed clipboard (copy/cut) — a navigable gap-cursor distinct from the tree
+cursor. `Into` a branch appends as its last child. `After` a Node inserts as its next sibling —
+except an **expanded branch**, where it inserts as that branch's first child instead (so
+`Into`-then-`After` on the same expanded branch land adjacently, matching how `paste_slots()`
+flattens the tree; see `resolve_target`). Canonical, cross-platform vocabulary for "where a
+paste/move lands" — not TUI-only, even though the TUI was the first surface to navigate and
+render it (arrow keys step through the flattened `Into`-then-`After` sequence; ADR 0004).
+_Avoid_: drop target, insertion point (these describe the visual affordance, not the domain
+concept).
+
+**Cursor**:
+The single row-focus point (`Session.cursor: Path`) every host keeps. Always exists.
+Desktop mouse hover is a separate, core-invisible signal — it never moves the Cursor.
+Canonical, cross-platform vocabulary (ADR 0005). See `ROW_STATE_MODEL.md` for the full
+state model and its visual/keybinding spec.
+_Avoid_: focus, highlight (too generic — Cursor is one specific field).
+
+**Locked selection**:
+A non-empty `Session.selection: Selection`, built by `s`/Shift-range (TUI) or
+Ctrl/Shift-click/marquee (desktop); Touch has no equivalent gesture. Cross-platform —
+not TUI-only, despite desktop's version being reached by a different gesture. Applies
+uniformly from one member up; there is no multi-member threshold. Selection-aware ops
+(delete, copy/cut, remark) consume it in place of the cursor; mutating operations
+remap it onto their post-image so it never goes stale — the op-by-op contract is
+`ROW_STATE_MODEL.md` §1c. Canonical, cross-platform vocabulary (ADR 0005).
+_Avoid_: multi-select (describes the gesture, not the resulting state).
+
+**Clipboard-armed**:
+`Session.clipboard.is_some()` — a later, independently-entered state layered on top of
+Locked selection, not the same thing: entering it freezes whatever Selection currently
+holds. Canonical, cross-platform vocabulary (ADR 0005) for what prose elsewhere calls
+"cut/copy mode" or "paste mode."
+_Avoid_: paste mode alone (ambiguous with PasteSlot navigation, which is available
+whenever Clipboard-armed is true but is a distinct concept).
+
+**Overflow menu**:
+Chrome only. Lists exactly the toolbar controls the current viewport width has folded
+away. Desktop `⋯` popup, touch `⋯` sheet. Never holds Node operations.
+_Avoid_: More menu, dynamic menu, menu sheet.
+
+**Action menu**:
+The single surface listing every operation available on the current **Cursor** or
+**Locked selection**. One item model owned by core; three renderings — desktop popup,
+touch bottom sheet, TUI overlay. Opened by the **Action button**, by desktop right-click,
+or by `m`.
+Membership rule: an operation belongs to the Action menu when core can express it as a
+single intent over the target set, **unless the Node already carries a dedicated,
+always-visible control for it** (the kind badge is the one such control, so **Kind
+switch** is deliberately absent). In-place text entry — renaming, values, trailing
+comments — belongs to the detail panel, never here.
+An item is single-Node-only exactly when the core state behind it carries one Path; the
+set-applying operations (**Copy**, **Cut**, **Remark**, delete) stay available on a
+multi-Node **Locked selection**. Ineligible items are shown disabled, never hidden.
+_Avoid_: context menu (that is one desktop gesture that opens it), node menu, `⋮` menu.
+
+**Action button**:
+The floating trigger that opens the **Action menu**. While **Clipboard-armed** it is
+instead the **Paste button**, with a cancel affordance above it.
+_Avoid_: FAB, `+` button.
+
+**Native menu bar** (Tauri desktop):
+Chrome, like the **Overflow menu**. Its Edit menu's Copy/Cut/Paste Node items are
+OS-convention accelerators, deliberately outside the **Action menu**'s item model and
+outside its eligibility computation. Not a surface to "unify" later.
+
+**Type filter** (`f`) vs **Text filter** (`/`):
+Two independent ways to narrow the visible tree. The **Text filter** (`/`) fuzzy-matches a Node's
+key/path (and a Comment's text, and a scalar's own value). The **Type filter** (`f`) is a checkbox
+menu selecting **type facets** — **Key sign**, **Format/kind** (the KIND-column vocabulary), and
+**Flags** (`(!) has warning`, `has comment`) — plus a **Reverse** toggle that inverts the combined
+facet match. Both narrow the same filtered list and **intersect** (a Node must pass the Text filter
+and every Type-filter facet); selections *within* each facet group union. _Avoid_: calling either
+one "search" exclusively — both are filters.
+
+### Messages & diagnostics
+
+See `MESSAGES.md` for the full reference: the severity classification table,
+per-host channel/rendering behavior, and unified design principles. This
+section stays the glossary.
+
+**Notice**:
+The single-slot, user-facing transient message carried by the Session. Exactly
+one may be showing at a time; the next notice replaces it. Not a queue.
+Classified by **Severity** (four levels), rendered i18n text, and stamped with
+its origin — **NoticeSource** (`Core` / `HostTui` / `HostWeb`), recording which
+layer authored it. Provenance is developer-facing: it feeds diagnostics and bug
+reports and is never rendered to the user. Cleared on mutation success / Esc /
+edit begin / language switch. Wire field `SessionSnapshot.notice`.
+_Avoid_: Message (too generic; the session sends many signals), status (deprecated
+dual-slot predecessor `status` / `error`).
+
+**Severity**:
+The four-level classification of a **Notice**: `Info` (neutral state, empty/cancelled),
+`Success` (action completed), `Warn` (action unavailable in current context —
+readonly/locked/precondition-unmet), `Error` (operation failed — mutation error,
+I/O failure, schema load failure). Determines rendering (TUI status line color,
+web toast vs status bar, click-to-clear). A schema **Violation** is *not* a
+`Warn`: violations are soft, per-row, and live on their own channel — only
+their aggregate count borrows a shared string.
+_Avoid_: Level (reserved for **Diagnostic event** developer logging), priority.
+
+**Prompt question**:
+The question text of an open prompt, carried on the wire by `ModeView::Prompt`
+(`question`) and rendered per snapshot by core (i18n from `Session.lang`) —
+hosts never reconstruct it. Legend-free and never multiplexed onto the
+**Notice** slot: when a prompt opens, the question *is* the message, and the
+key legend (`y/n`, `o/r/c`) is host chrome.
+_Avoid_: Prompt status, confirm message (a prompt's question is not a Notice).
+
+**Diagnostic event**:
+A developer-facing, English-only trace record in the Session's bounded ring
+(capacity 256, oldest evicted). Records every **Notice** as it is set, among
+other event kinds, but is never shown as one. Exported via TUI
+`~` overlay, FFI `diag_log()`, and web `?diag=1` console. Has its own **DiagLevel**
+(Debug/Info/Warn/Error) independent of **Severity**.
+_Avoid_: Log entry (no `log` crate in use), trace (no `tracing` crate).
+
+**Comment advisory**:
+A per-row, per-format decoration distinct from a schema **Violation**: `ViewRow.comment_advisory`
+is `Some(message)` when the row is a standalone comment or carries a trailing comment inside a
+document `Session.strict_json` flags as plain `.json` (not `.jsonc`) — non-standard JSON confy
+silently upgrades to JSONC rather than rejecting. `strict_json` is host-supplied: confy-core is
+extension-blind (`DocFormat::Json` covers both `.json`/`.jsonc`), so only the host knows the
+real file extension. Never blocks anything — same soft-indicator spirit as a schema Violation,
+but a document-format note, not a JSON Schema constraint.
+_Avoid_: Violation (schema-specific term with its own `keyword`/`pointer` shape), warning alone.
+
+### Schema
+
+Validation runs on the `jsonschema` crate rather than a hand-rolled subset validator — ADR 0002.
+
+**Schema hint**:
+The in-document pointer to a JSON Schema, recognized per-`DocFormat` by
+`schema::hints::detect_hint` — a JSON root `"$schema"` string member, a
+YAML leading `# yaml-language-server: $schema=<path>` modeline, or a
+TOML first-line `#:schema <path>` comment. Distinct from **Comment**:
+even though the YAML/TOML forms are lexically comments, a Schema hint is
+recognized, stripped, and re-authored in the target's own convention
+during **Conversion** — the "comments carry across" rule never governed
+it. Distinct from **SchemaSource**: SchemaSource is the *parsed* pointer
+(`Local(path)` / `Url(url)`); Schema hint is the in-document *marker*
+that encodes one.
+_Avoid_: Comment (a Schema hint's marker form is comment-shaped in two
+of three formats, but it is never treated as one), `$schema` (that's
+specifically the JSON spelling — say Schema hint for the format-neutral
+concept).
+
+**JSON projection**:
+The `serde_json::Value` tree a document's **Value** (neutral tree) is lowered into,
+purely for JSON Schema validation. Deliberately a distinct term from **Value**: same
+shape-carrying job, different tree — the projection has no comments, no source notation,
+and exists only transiently for one `validate()` pass. Lowered by
+`convert::tree_to_value_lenient` + `value_bridge::bridge`, which **omit YAML opaque nodes**
+(see § YAML, *Opaque node*) so one anchor cannot cost the whole file its validation; both
+walks omit the same nodes, keeping the Node↔Value pairing 1:1 so every remaining node — and
+therefore every Violation pointer — still resolves to its own Path.
+_Avoid_: Value (already taken — the conversion pipeline's own neutral tree), JSON tree.
+
+**Violation**:
+A single JSON Schema constraint failure reported against a Node's **Path** (or its
+parent's Path, for a `required` failure — the missing child has no Path of its own).
+Purely informational: a Violation never blocks a **Mutation**, never appears in a
+`MutateError`, and can sit quietly on an already-committed, otherwise-valid document. A YAML
+**opaque node** never carries one (its value is not decodable), but its siblings and ancestors do.
+_Avoid_: Error (Mutation errors are a hard gate; a Violation is not one), warning used
+alone (always say Violation — "warning" is reserved for prose, not the type name).
+
+**Soft constraint**:
+The governing principle of Schema support: a loaded JSON Schema's rules surface only as
+**Violations** — a visual, non-blocking indicator — never a rejected edit or a blocked
+save. Contrasts explicitly with the existing Mutation-mechanics gate (`Illegal`/
+`Unsupported`/`Collision`), which does reject.
+_Avoid_: Validation error, hard constraint (confy has none).
+
+## KIND column tags (full vocabulary)
+
+TOML: `[T/S]` scope table, `[T/D]` dotted table, `[T/I]` inline table, `[T/M]` multiline object
+(JSON only), `[T/E]` array-of-tables **entry** (one `[[…]]` occurrence — TOML only; the group
+itself is `[A/T]`), `[A/I]`/`[A/M]` inline/multiline array, `[A/T]` array-of-tables (TOML only).
+Scalars: `[S:str ]`/`[S:mstr]`/`[S:lit ]`/`[S:mlit]` strings, `[I:dec]`/`[I:hex]`/`[I:oct]`/
+`[I:bin]` integers, `[F:flt ]`/`[F:exp ]`/`[F:inf ]`/`[F:nan ]` floats, `[B:bool]`, `[S:null]`
+(JSON/YAML null), datetime types. `[G]` root, `[C]` comment.
+YAML: `[A/B]`/`[A/F]` block/flow sequence, `[T/B]`/`[T/F]` block/flow mapping (`[T/F]` also the YAML
+inline table), `[S:sq  ]`/`[S:dq  ]`/`[S:lit ]`/`[S:fold]` string styles, `[opaq ]` out-of-subset
+read-only (no datetime, no `[A/T]`/`[T/D]`, no `[I:bin]`).
+Key sign is **not** part of this column; `(B)` bare, `(Q)` quoted, `(D)` dotted, and `(-)` keyless
+are Type-filter facets, shown per node on the Detail popup's `Sign:` line.
+
+## Flagged ambiguities
+
+- **"Entry" is banned in confy.** It is wenv's term for a flat, line-based item and means
+  something materially different there (no children, a contiguous line range). confy's
+  equivalent is **Node**, which is recursive. Any use of "Entry" in confy docs/code/UI copy is a
+  bug to be renamed to Node.
+
+## Example dialogue
+
+> **Dev:** When the cursor is on an expanded `[server]` and I press `v` to paste, where does it
+> land?
+> **Domain expert:** `[server]` is a Branch node, and it is expanded, so the paste slot after it
+> is *inside* it: the clipboard Nodes become its first **Children**, sharing `[server]`'s key
+> namespace. Collapse `[server]` first and the same keystroke makes them **Siblings** after it,
+> in `[server]`'s Parent. The slot follows what you can see — see
+> [MUTATIONS.md](MUTATIONS.md) § *Insert / move legality*.
+> **Dev:** And if one of those Nodes is a comment like `# port = 8080`?
+> **Domain expert:** That's a Comment leaf. It pastes as-is. If the user later presses `r` on
+> it, Remark re-parses the text — it's valid TOML, so it becomes a live `port = 8080` Scalar.
+> A `# just a note` Comment, by contrast, can't be Remarked into a live Node — it isn't valid
+> TOML.

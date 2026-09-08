@@ -1,9 +1,10 @@
 # confy behavior matrix
 
 A normalized, cross-backend (TOML / JSON / JSONC / YAML) account of how a node's **nesting scope**
-governs each editing behavior in the TUI. This is the canonical, self-contained reference; the
-condensed form also lives in `CONTEXT.md § Nested behavior matrix`, and the per-row mechanics live in
-each backend's splice engine (`cst_edit/`, `json/edit.rs`, `yaml/edit/`).
+governs each editing behavior in the TUI. This is the canonical, self-contained reference — there
+is deliberately no condensed second copy anywhere. Vocabulary is in
+[glossary.md](glossary.md), per-`Mutation` mechanics in [MUTATIONS.md](MUTATIONS.md), and the
+per-row splice code in each backend's engine (`cst_edit/`, `json/edit.rs`, `yaml/edit/`).
 
 The goal of the matrix is **one model for three formats**: the TUI implements each behavior *once* and
 parameterizes the cross-backend differences through `ConfigDocument` facets — so the TUI never
@@ -59,7 +60,7 @@ How a container behaves *as an item inside another container*.
 | own trailing comment | ✓ | ✗ (flow) | ✓ | ✗ (flow) | ✓ |
 | own external precise edit | ✓ | ✓ | ✓ | ✓ | ✓ |
 | add: collapsed → sibling | ✓ | ✓ (rebuild) | ✓ | ✓ (rebuild) | ✓ |
-| paste-in forming | — | see *Insert / move legality* in `CONTEXT.md` | | | |
+| paste-in forming | — | see *Insert / move legality* in `MUTATIONS.md` | | | |
 
 - **flow parents (seq-flow / map-flow)** hold their children on one line, so a child has no own line
   for a trailing comment (✗) — but it *is* precisely addressable: the splice patches or rebuilds the
@@ -220,4 +221,4 @@ green trees have different shapes (taplo vs hand-rolled JSON vs YAML reindent). 
 
 Use **Node** (recursive), never "Entry" (which is wenv's flat, line-based term and is a rename bug in
 confy). Node subtypes: **Root**, **Branch node**, **Leaf node**, **Scalar**, **Comment**. The
-operation toggling a live Node ↔ Comment is **Remark** (`r`). See `CONTEXT.md` for the full glossary.
+operation toggling a live Node ↔ Comment is **Remark** (`r`). See `glossary.md` for the full glossary.

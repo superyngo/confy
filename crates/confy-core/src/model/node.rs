@@ -157,7 +157,7 @@ pub struct Node {
     pub read_only: bool,
     /// Byte range (half-open, UTF-8 byte offsets into the source text) of the
     /// whole node, including its key and value/children. Distinct from
-    /// `CONTEXT.md`'s "Member spans" (the discrete, possibly-scattered source
+    /// `docs/reference/MUTATIONS.md`'s "Member spans" (the discrete, possibly-scattered source
     /// pieces that *constitute* a table) — this is a single contiguous
     /// representative range for editor symbol-tree purposes (VS Code Outline
     /// / breadcrumbs). See ADR 0006 for the anchoring policy on synthetic /

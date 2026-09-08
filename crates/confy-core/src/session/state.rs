@@ -55,7 +55,7 @@ pub enum Mode {
     /// The Add-type picker is open — `AddNode`/`AddChild`/`AddSibling` route
     /// here instead of inserting directly.
     AddPicker(AddPickerState),
-    /// The Action menu is open (design doc `docs/superpowers/specs/2026-08-30-action-menu-design.md`
+    /// The Action menu is open (design doc `docs/spec/2026-08-30-action-menu-design.md`
     /// §2, ADR 0009). No sub-state needed — the menu re-derives
     /// `items`/`target_count`/`target_label` from `selected_paths()` on every
     /// `mode_view()` call, so `Escape`/Commit never need to restore anything

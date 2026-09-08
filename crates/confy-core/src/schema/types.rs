@@ -1,4 +1,4 @@
-//! Core types for JSON Schema support. See `CONTEXT.md` § Schema for the
+//! Core types for JSON Schema support. See `docs/reference/glossary.md` § Schema for the
 //! canonical vocabulary (JSON projection, Violation, Soft constraint).
 
 use crate::model::node::Path;
@@ -16,7 +16,7 @@ pub enum SchemaSource {
 /// Whether a Violation is an ordinary value mismatch, or a case where the
 /// document's *source format* cannot represent what the schema requires
 /// (e.g. `type: null` against a TOML-sourced node, which has no null
-/// literal). Both are soft — see `CONTEXT.md` § Schema "Soft constraint".
+/// literal). Both are soft — see `docs/reference/glossary.md` § Schema "Soft constraint".
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Category {
     Value,

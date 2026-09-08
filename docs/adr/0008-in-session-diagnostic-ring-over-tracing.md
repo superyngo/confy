@@ -5,7 +5,7 @@ status: implemented (2026-08-21)
 # Diagnostics are an in-Session ring buffer, not `tracing`
 
 The 2026-08-21 message-system design (see
-`docs/superpowers/specs/2026-08-21-message-system-design.md` §7) adds a
+`docs/spec/2026-08-21-message-system-design.md` §7) adds a
 developer-facing diagnostics layer as a bounded ring of `DiagEvent` records
 inside `Session` itself (capacity 256, English-only, five event kinds:
 dispatch / mutation / schema / convert / notice — the last one tapping *every*

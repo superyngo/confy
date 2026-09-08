@@ -4,7 +4,7 @@ The design record is `docs/superpowers/specs/2026-08-21-message-system-design.md
 (15+8-question grill, §11/§12) and ADR 0008 (`docs/adr/0008-in-session-diagnostic-ring-over-tracing.md`).
 This document is the reference: the data model, the severity classification table,
 per-host channel/rendering behavior, and where the platforms deliberately agree vs.
-diverge. `CONTEXT.md`'s "Messages & diagnostics" section stays the one-paragraph
+diverge. `glossary.md`'s "Messages & diagnostics" section stays the one-paragraph
 glossary; this is the full detail behind those terms. TUI mechanics beyond the
 status line live in `TUI.md` §*Status & diagnostics*; web/touch mechanics beyond
 notice rendering live in `WEBUI.md` §*Diagnostics*.
@@ -54,7 +54,7 @@ Error-only "never hidden" invariant, just generalized to all four severities.
 `ModeView::Prompt { kind, question }` — the question text of an open y/n or
 o/r/c prompt (`Collision`, `ConfirmQuit`, `TypeChange`, `ArrayUpgrade` — 4
 kinds), rendered **core-side** from `PromptKind` +
-`Session.lang` via `prompt_question(lang, pk)` (`dispatch.rs:581`), one localized
+`Session.lang` via `prompt_question(lang, pk)` (`dispatch.rs`), one localized
 `core.prompt.<kind>` key per kind, legend-free. **Hosts never reconstruct or
 parse this text** — the pre-refactor pattern (TUI parsing `status` for prompt
 strings, a web `PROMPT_QUESTIONS` fallback table, a `promptQuestion()` strip-legend
@@ -94,19 +94,25 @@ Four levels, one meaning each:
 | `Error` | Operation failed | mutation error, I/O failure, schema load failure |
 
 **Severity is derived from the catalog key, never chosen at the call site.**
-`severity_of(key: &str) -> Severity` (`notice.rs:45`) is the single source of
-truth for every `core.*` and host-notice key — there is no explicit-severity
+`severity_of(key: &str) -> Severity` (`session/notice.rs`) is the single source of
+truth for every notice key — there is no explicit-severity
 constructor and no escape hatch; a key not yet in the table panics rather than
-silently defaulting, so a new Notice call site can't ship unclassified. 43
-`core.*` keys are classified today (11 Error + 15 Warn + 7 Success + 9 Info,
-plus one controller-approved pass-through wrapper, `core.schema.violation`,
-for the dynamic schema-violation advisory text) — see `notice.rs`'s own
-`severity_of_covers_the_full_catalog_table` test for the byte-identical,
-exhaustive `core.*` list; that test *is* the maintained reference, not
-duplicated here to avoid drift (host-authored `tui.*`/`web.*` keys are
-classified by the same `severity_of` table but aren't part of that test).
-`core.prompt.*` keys are **not** in this table — Prompt questions (§1.2)
-never carry a severity at all. Among the host-authored keys (§3):
+silently defaulting, so a new Notice call site can't ship unclassified. The table
+classifies **68** keys: **45 `core.*`** notice keys (12 Error + 17 Warn + 7 Success
++ 9 Info) and **23** host-authored `tui.*`/`web.*` keys (§3). `core.schema.violation`
+is a controller-approved pass-through wrapper (`Warn`) carrying the dynamic
+schema-violation advisory text, and is counted inside those 17. See `notice.rs`'s own
+`severity_of_covers_the_full_catalog_table` test for the exhaustive `core.*` list;
+that test *is* the maintained reference, not duplicated here to avoid drift, and its
+`cases.len() == 45` assertion is the tripwire that catches this section going stale.
+The host keys are classified by the same table but are deliberately outside that test.
+
+**These 45 are only the notice keys.** `i18n/en.json` holds 102 `core.*` keys in
+total; the rest are prompts (`core.prompt.*`), picker and label text
+(`core.dt.*`, `core.action.*`, `core.add.type.*`, `core.detail.*`, `core.hint.*`,
+`core.comment.advisory`, `core.schema.count`) and would **panic** if passed to
+`severity_of` — they are never notices.
+Among the host-authored keys (§3):
 `web.host.schema.load-error` / `tui.host.schema-load-error` (`Warn`) report a
 `$schema` hint that failed to load (local file not found / URL fetch failed) —
 dispatched by every host (web desktop, touch, TUI) once
@@ -132,9 +138,9 @@ blanks the UI):
 A host (TUI, Web desktop, Touch) that needs to report its own event — a save
 succeeded, a file write failed, a converted-file write completed — never writes
 to `Session` fields directly. It dispatches `Intent::SetHostNotice { key: String,
-args: Vec<String>, source: NoticeSource }` (`intent.rs:224`), keeping `dispatch`
+args: Vec<String>, source: NoticeSource }` (`intent.rs`), keeping `dispatch`
 the sole mutation entry point (ADR 0003's TUI-dispatch boundary, reaffirmed
-here). `dispatch.rs`'s handler (`dispatch.rs:289`) resolves severity from the
+here). `dispatch.rs`'s handler (`dispatch.rs`) resolves severity from the
 *same* `severity_of(key)` table core notices use — a host cannot pick its own
 severity, and `NoticeSource::Core` claimed by a host is a defensive no-op (never
 panics, in any build profile) rather than a trusted self-report:
@@ -170,25 +176,30 @@ still open as a follow-up, §8).
 pub struct DiagEvent {
     pub seq: u64,
     pub level: DiagLevel,       // Debug | Info | Warn | Error
-    pub kind: &'static str,     // "dispatch" | "mutation" | "schema" | "convert" | "notice"
+    pub kind: &'static str,     // "dispatch" | "mutation" | "notice"
     pub detail: String,         // English, structured-ish; may embed captured localized text
 }
 ```
 
-Five kinds, all recorded **unfiltered** (Debug marks navigation noise rather
+Three kinds, all recorded **unfiltered** (Debug marks navigation noise rather
 than dropping it — the ring is meant to answer "what did the user see, in
 order", and dropping events would break that for the sake of ring-churn that
-costs nothing to keep):
+costs nothing to keep). There are exactly three `diag.push` call sites in the
+whole workspace:
 
 | Kind | When | Level |
 |---|---|---|
 | `dispatch` | Every `Intent`, first thing in `dispatch()` | Debug |
 | `mutation` | After `apply()` — whether the intent's notice slot changed to a fresh Error | Error if a new Error notice just surfaced, else Info |
-| `schema` | Schema load/detect/revalidate | Info/Warn/Error per outcome |
-| `convert` | Document format conversion | Info/Warn/Error per outcome |
-| `notice`/`host_notice` | Every Notice assignment (core-internal or host-authored), capturing the **rendered text verbatim** | Info |
+| `notice` | Every Notice assignment, core-internal or host-authored, via the sole `set_notice` write path — capturing the **rendered text verbatim** plus `severity=`/`source=` | Info |
 
-Capturing rendered text in `notice`/`host_notice` events is a deliberate
+A host-authored notice is **not** a separate `host_notice` kind: it arrives through
+`Intent::SetHostNotice`, lands in the same `set_notice`, and so records as `notice`
+with its provenance in the `source=` field. Schema and convert outcomes have no diag
+kind of their own today — they are visible only through the `dispatch`/`mutation`/
+`notice` events their intents produce.
+
+Capturing rendered text in `notice` events is a deliberate
 exception to "diagnostics are English-only": the English-only rule governs
 *authored* diagnostic fragments (the `kind`/level/structural wording), not
 *captured* payloads — and the rendered text is exactly what i18n debugging
@@ -198,7 +209,7 @@ needs to see.
 
 | Export | Host | Mechanism |
 |---|---|---|
-| `~` overlay | TUI | `overlay_diag.rs`'s `draw_diag_overlay` — a centered, read-only popup listing up to 20 of the most recent events (older ones omitted with a count), newest last, per-level color (`Error` red / `Warn` yellow / `Info` cyan / `Debug` dark gray). Host-owned UI state (`App.diag_overlay_open`), not a core `Mode`; `~`/`Esc` closes, mutually exclusive with the language picker. |
+| `~` overlay | TUI | `overlay_diag.rs`'s `draw_diag_overlay` — a centered, read-only popup, per-level color (`Error` red / `Warn` yellow / `Info` cyan / `Debug` dark gray). Host-owned UI state (`App.diag_overlay_open`), not a core `Mode`; `~`/`Esc` closes, mutually exclusive with the language picker. It has **no scroll state and no windowing**: it renders the ring oldest-first into a box sized `min(len, 20)`, so on a ring holding more than 20 events the newest are the ones that fall off the bottom — see §8. |
 | `diag_log()` | FFI (any wasm host) | `ConfySession.diag_log()` (`crates/confy-ffi/src/lib.rs`) serializes the whole ring to a JS array via `serde-wasm-bindgen`. |
 | `?diag=1` | Web (desktop/touch/VS Code webview) | `drainDiagIfEnabled()` (`web/ui.ts`), called every `render()`. Diffs `session.diagLog()` against a module-level `lastSeenSeq`, printing only newly-recorded events to `console.debug` as `[confy-diag] [LEVEL] KIND DETAIL` — successive interactions log only their own delta, never replay history. Gated behind the query param so it's zero-cost when absent (no console noise in normal use). |
 
@@ -236,7 +247,7 @@ tier is fully hidden while a higher one is showing):
 
 Both ride `NoticeSource::HostWeb` and the same `web/ui.ts` bundle (the VS Code
 custom-editor webview is the Web UI with `body.host-vscode` chrome trimming —
-not a fourth host). `renderNotice(notice)` (`web/ui.ts:2025`) maps severity to
+not a fourth host). `renderNotice(notice)` (`web/ui.ts`) maps severity to
 surface:
 
 | Severity | Rendering |
@@ -357,7 +368,7 @@ scoped to the Notice-system model only.
 A **persistent per-row projection**, not a Notice: `Option<String>`, plain
 translated text, no `Severity`, no `NoticeSource`, recomputed on every row
 rebuild alongside the rest of `ViewRow` rather than written through
-`set_notice`/`Intent::SetHostNotice`. See `CONTEXT.md`'s "Comment advisory"
+`set_notice`/`Intent::SetHostNotice`. See `glossary.md`'s "Comment advisory"
 glossary entry for its trigger condition (`Session.strict_json` + node
 facets). Because it lives on the row, not in the single-slot `Session.notice`
 field, it cannot collide with or be cleared by anything in §1.1's Notice
@@ -385,6 +396,17 @@ follow-up (not tracked by an issue as of this writing).
   drain until `seq` catches back up. Benign (only affects the debug-only
   `?diag=1` console trace, never the ring itself or any user-visible surface);
   fix is a one-line `lastSeenSeq = -1` on file swap.
+- **The TUI `~` overlay shows the OLDEST 20 events, not the newest.**
+  `draw_diag_overlay` collects the whole ring in `seq` order and hands it to a
+  `Paragraph` whose box is sized `lines.len().min(20)`; a `Paragraph` renders from
+  its first line, so once the ring holds more than 20 events every event *after*
+  the 20th is clipped — exactly the recent ones an operator opened the overlay to
+  see. The ring caps at 256, and a single mutation already emits 3 events
+  (`dispatch` + `mutation` + `notice`), so the overlay goes blind after roughly
+  seven interactions. The docstring's "newest last" describes the intended
+  behavior, which was never implemented: Phase 2 deliberately shipped "no scroll
+  state" and the windowing was overlooked with it. Fix is to take the tail before
+  rendering (`skip(len.saturating_sub(20))`), or add real scroll state.
 - **Touch `sev-*` toast classes have no dedicated CSS yet.** The classes are
   applied (§5.3) but touch's stylesheet doesn't yet give `Warn`/`Error` a
   visually distinct tint from `Success`/`Info` beyond the timer difference —

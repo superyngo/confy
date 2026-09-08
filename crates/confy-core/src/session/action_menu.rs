@@ -1,4 +1,4 @@
-//! The Action menu (design doc `docs/superpowers/specs/2026-08-30-action-menu-design.md`
+//! The Action menu (design doc `docs/spec/2026-08-30-action-menu-design.md`
 //! §2, ADR 0009): one core-owned item list + open/cursor state, replacing the
 //! desktop `⋮` popup, the detail panel's action row, and the FAB's add-only
 //! decision. Read by every host via `ModeView::ActionMenu`.

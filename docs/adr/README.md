@@ -11,8 +11,8 @@ the old one superseded.
 | # | Decision | Status |
 |---|---|---|
 | [0001](0001-android-save-as-persistable-grant.md) | Android Save As uses a custom SAF plugin command, not stock `tauri-plugin-dialog` | Implemented (2026-08-06) |
-| [0002](0002-jsonschema-crate-for-validation.md) | JSON Schema validation uses the `jsonschema` crate, not a hand-rolled validator | Implemented |
-| [0003](0003-audit-remediation-undo-cap-and-tui-dispatch-boundary.md) | Undo history is capped and lossy; TUI routes only mutations through `dispatch(Intent)` | Implemented |
+| [0002](0002-jsonschema-crate-for-validation.md) | JSON Schema validation uses the `jsonschema` crate, not a hand-rolled validator | Implemented (2026-08-10) |
+| [0003](0003-audit-remediation-undo-cap-and-tui-dispatch-boundary.md) | Undo history is capped and lossy; TUI routes only mutations through `dispatch(Intent)` | Implemented (2026-08-11) |
 | [0004](0004-unified-clipboard-move-targeting.md) | Unify node copy/cut/paste/move targeting across TUI, web keyboard, web mouse, and touch | Implemented (2026-08-19, v0.20.0); §1 partly superseded by [0010](0010-pointer-drops-resolve-through-pasteslot.md) |
 | [0005](0005-row-cursor-selection-clipboard-state-model.md) | Formalize the row cursor/selection/clipboard-source state model and unify its interaction and visual language across TUI, desktop, and touch | Implemented (2026-08-18) |
 | [0006](0006-outline-symbol-representative-span-anchoring.md) | Editor-outline symbol ranges for scattered-definition nodes anchor at the first member, never an envelope | Implemented (2026-08-20) |
@@ -27,5 +27,6 @@ ADR 0004 §1's `format != Format::Inline` clause and its host-computed `MoveSele
 `target`/`index` payload are superseded by ADR 0010. ADR 0011 partially reverses commit `534dd4a`
 (bool nudge removal) for the keyboard only. No ADR has been superseded in full to date.
 
-See also [`../superpowers/`](../superpowers/README.md) for the plans, specs, and audits these
-decisions came out of.
+See also [`../spec/`](../spec/README.md), [`../plan/`](../plan/README.md),
+[`../audit/`](../audit/README.md), and [`../debug/`](../debug/README.md) for the design records,
+plans, sweeps, and investigations these decisions came out of.

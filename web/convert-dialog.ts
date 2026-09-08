@@ -33,7 +33,7 @@ export interface ConvertRefs {
 // "Jsonc" pseudo-tag (item 1: Save As/Convert JSONC option). JSONC is never
 // a real `DocFormat` — it's the same core `Json` target with a `.jsonc`
 // extension seeded instead of `.json`; core stays extension-blind by design
-// (see CONTEXT.md "Comment advisory" — `.json`/`.jsonc` both compile to
+// (see docs/reference/glossary.md "Comment advisory" — `.json`/`.jsonc` both compile to
 // `DocFormat::Json`), so this distinction lives entirely in this module.
 export function extForTag(tag: string): string {
   return tag === "Json" ? ".json" : tag === "Jsonc" ? ".jsonc" : tag === "Yaml" ? ".yaml" : ".toml";

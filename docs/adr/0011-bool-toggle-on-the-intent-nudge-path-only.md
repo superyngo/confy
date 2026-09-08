@@ -3,7 +3,7 @@
 Status: accepted and implemented (2026-09-07)
 Partially reverses: commit `534dd4a` (`feat(nudge)!: drop bool nudge; gate wheel/swipe numeric
 nudge to inline-edit via nudge_repr`) and its plan
-`docs/superpowers/plans/2026-09-01-NUDGE_REDESIGN_PLAN.md` §1.
+`docs/plan/2026-09-01-nudge-redesign.md` §1.
 
 ## Context
 

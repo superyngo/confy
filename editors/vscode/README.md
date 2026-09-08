@@ -2,7 +2,7 @@
 
 Structural tree editor for TOML / JSON / JSONC / YAML, embedding the confy
 web UI + wasm Session in a custom editor. Design:
-`docs/superpowers/specs/2026-07-15-vscode-extension-design.md`.
+`docs/spec/2026-07-15-vscode-extension-design.md`.
 
 ## Install
 

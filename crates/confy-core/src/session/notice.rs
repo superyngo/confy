@@ -1,5 +1,5 @@
 //! Notice model — the single-slot, user-facing transient message. See
-//! `CONTEXT.md` § Messages & diagnostics.
+//! `docs/reference/glossary.md` § Messages & diagnostics.
 
 use super::i18n::{tr_args, Lang};
 
@@ -152,8 +152,10 @@ mod tests {
             ("core.undo.error", Severity::Error),
             ("core.redo.error", Severity::Error),
             ("core.kind-switch.error", Severity::Error),
+            ("core.blank.error", Severity::Error),
             ("core.readonly.comment", Severity::Warn),
             ("core.readonly.opaque", Severity::Warn),
+            ("core.action.unavailable", Severity::Warn),
             ("core.clipboard.action-locked", Severity::Warn),
             ("core.trailing.inline-unsupported", Severity::Warn),
             ("core.reveal.hidden-by-filter", Severity::Warn),
@@ -185,7 +187,15 @@ mod tests {
             ("core.add.placeholder", Severity::Info),
             ("core.convert.aborted", Severity::Info),
         ];
-        assert_eq!(cases.len(), 43, "43 keys: §2.2's 40 (11 Error + 13 Warn + 7 Success + 9 Info) + controller-approved core.schema.violation (pass-through wrapper for the dynamic schema-violation advisory) + core.add.unsupported (Add-type picker: opaque/read-only parent has no legal add options) + the read-only rejection split in two (core.readonly.comment for a JSONC block comment, core.readonly.opaque for a YAML out-of-subset span — one text can't name both sources)");
+        assert_eq!(
+            cases.len(),
+            45,
+            "45 `core.*` notice keys: 12 Error + 17 Warn + 7 Success + 9 Info. \
+             This list mirrors every `core.` arm of `severity_of` above; the 23 \
+             host-authored `tui.*`/`web.*` keys it also classifies are out of scope \
+             here. Keep it in step with MESSAGES.md §2.2 — the two are checked \
+             against each other by hand, and this count is the tripwire."
+        );
         for (key, expected) in cases {
             assert_eq!(severity_of(key), *expected, "key {key} classified wrong");
         }

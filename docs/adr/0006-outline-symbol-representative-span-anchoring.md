@@ -6,10 +6,10 @@ status: implemented (2026-08-20)
 
 ## Context
 
-The VS Code `DocumentSymbolProvider` design (`docs/superpowers/specs/2026-08-20-vscode-outline-provider-design.md`)
+The VS Code `DocumentSymbolProvider` design (`docs/spec/2026-08-20-vscode-outline-provider-design.md`)
 needs a single contiguous `text_range: Range<usize>` per `Node`, because
 `vscode.DocumentSymbol.range` only accepts one contiguous range. But
-`CONTEXT.md`'s existing **Member spans** concept establishes that a table's
+`docs/reference/MUTATIONS.md`'s existing **Member spans** concept establishes that a table's
 definition in TOML is an *open set*: its own `[a]` section, every descendant
 `[a.sub]`/`[[a.list]]` section wherever it sits in the file, and any flat
 dotted member lines — these can scatter and interleave with unrelated
@@ -31,7 +31,7 @@ Editor-outline `text_range`/`key_text_range` for a scattered-definition node
 anchors at its **first member's own range**, never a min-max envelope:
 
 - A `Format::Dotted` synthetic Table's `text_range` is its first member's
-  `text_range()` — the same "first definition position" `CONTEXT.md` already
+  `text_range()` — the same "first definition position" `docs/reference/MUTATIONS.md` already
   documents as where a consolidating block-rewrite lands for that table.
 - A normal Table whose descendant sub-sections are defined non-adjacently
   keeps its own `text_range` scoped to its own header + directly-owned

@@ -798,7 +798,7 @@ function renderFooter() {
 
 // ---- keyboard → Intent (mirrors tui/keys.rs) ----
 // Pure mode/key resolution lives in `key-intent.ts` (Task 8, see
-// docs/superpowers/plans/2026-08-11-web-code-audit-remediation-plan.md); this
+// docs/plan/2026-08-11-web-code-audit-remediation-plan.md); this
 // wrapper keeps every side effect: the modal-open guards, `ev.preventDefault()`,
 // and the handful of branches that are more than a single `Intent` dispatch.
 function onKey(ev: KeyboardEvent) {
@@ -2093,7 +2093,7 @@ function bindGlobal() {
   $("btnViewToggle").addEventListener("click", () => setRawView(!rawView));
   // Floating add / paste / actions button — mirrors the touch FAB. Armed
   // clipboard presses Paste directly; otherwise it opens the centralized
-  // Action menu (design doc `docs/superpowers/specs/2026-08-30-action-menu-design.md`).
+  // Action menu (design doc `docs/spec/2026-08-30-action-menu-design.md`).
   $("fabClear").innerHTML = FAB_CLOSE_IC;
   $("fab").addEventListener("click", () => {
     if ((snap?.clipboard_count ?? 0) > 0) {

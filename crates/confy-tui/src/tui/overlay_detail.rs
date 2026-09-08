@@ -43,7 +43,7 @@ pub(crate) fn wrapped_line_count(text: &str, width: u16) -> usize {
 /// `pattern` info, a proactive `edit_hint` constraint description, and/or a
 /// violation), an appended `Schema:` section, and/or (independently) a
 /// `Note:` line when the row carries a `comment_advisory` (a document-format
-/// note, not a schema constraint — see `CONTEXT.md` § Messages & diagnostics
+/// note, not a schema constraint — see `docs/reference/glossary.md` § Messages & diagnostics
 /// "Comment advisory"). Shared by `draw_detail_overlay` (sizing + content)
 /// and `mod.rs`'s Detail key handler (scroll-clamp), so they can never drift
 /// out of sync.

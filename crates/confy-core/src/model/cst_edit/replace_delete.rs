@@ -1169,7 +1169,7 @@ pub(crate) fn remark(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError>
         Some(t) => t,
         // No single syntax element addresses `path` directly — an implicit or
         // mixed table exists only via child section headers/dotted members, no
-        // `[table]` header of its own (CONTEXT.md *Member spans*: e.g. `[profile]`
+        // `[table]` header of its own (`docs/reference/MUTATIONS.md` *Member spans*: e.g. `[profile]`
         // absent, only `[profile.release]` written). Fan out over its member
         // spans instead, mirroring `delete()`'s `table_member_spans` fallback.
         None => {
@@ -1249,7 +1249,7 @@ pub(crate) fn remark(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError>
 /// order, so earlier splice offsets stay valid) — the implicit/mixed-table
 /// fallback branch of `remark`, above. Each span becomes its own standalone
 /// comment in place; spans are never merged into one contiguous block, since
-/// they may already be scattered (CONTEXT.md *Member spans*).
+/// they may already be scattered (`docs/reference/MUTATIONS.md` *Member spans*).
 fn remark_table_spans(tree: &SyntaxNode, spans: &[MemberSpan]) -> Result<(), MutateError> {
     for s in spans.iter().rev() {
         match s {

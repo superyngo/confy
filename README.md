@@ -70,16 +70,19 @@ Build/run locally: `cd web && npm install && node build.mjs` then `node serve.mj
 (see [WEBUI.md](docs/reference/WEBUI.md)). The hosted site is deployed from `web/` via Cloudflare
 Workers Builds (`web/cf-build.sh` + `wrangler.toml`).
 
-Developer/reference documentation (architecture, per-host mechanics, message
-system, row-state model, porting notes) lives in
-[`docs/reference/`](docs/reference/README.md).
+All documentation is indexed from [`CONTEXT.md`](CONTEXT.md): current behavior in
+[`docs/reference/`](docs/reference/README.md) (glossary first), decisions in
+[`docs/adr/`](docs/adr/README.md), and the frozen design records, plans, investigations and
+audits in `docs/spec/`, `docs/plan/`, `docs/debug/`, `docs/audit/`.
 
 ## Desktop app
 
 The same web UI ships as a native desktop app (Tauri shell, `crates/confy-tauri`) with
 native open/save dialogs, in-place writes, and CLI-arg file open. Releases include:
 
-- **macOS**: `confy-desktop-macos-{aarch64,x86_64}.dmg`. Unsigned/un-notarized — on first
+- **macOS**: `confy-desktop-macos-aarch64.dmg` (Apple Silicon only — the Intel runner takes
+  ~33 minutes per build, so the x86_64 desktop bundle was dropped in v0.12.2; the `confy` TUI
+  binary is still built for both). Unsigned/un-notarized — on first
   launch macOS blocks it; right-click → Open (or `xattr -cr /Applications/confy.app`).
 - **Windows**: `confy-desktop-windows-x86_64.exe` — portable, no install (the UI is embedded
   in the binary; requires the WebView2 runtime, preinstalled on Win11 and near-universal on

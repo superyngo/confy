@@ -430,7 +430,7 @@ impl App {
     /// Convert Path step (item 1: TUI-side JSONC option — approach A from the
     /// design discussion. The Format step's picker is core-cursor-driven with
     /// exactly 3 entries (`DocFormat` has no `Jsonc` variant; `.json`/`.jsonc`
-    /// both compile to `DocFormat::Json` by design, see CONTEXT.md "Comment
+    /// both compile to `DocFormat::Json` by design, see `docs/reference/glossary.md` "Comment
     /// advisory"), so a 4th list row would desync the core cursor bounds.
     /// Editing the path extension directly avoids touching that cursor math.
     /// Bound to `Tab` on the Path step (mod.rs) — free there since the field

@@ -1,4 +1,4 @@
-//! The `m` Action menu popup (design doc `docs/superpowers/specs/2026-08-30-action-menu-design.md`
+//! The `m` Action menu popup (design doc `docs/spec/2026-08-30-action-menu-design.md`
 //! §8, ADR 0009) — mirrors `overlay_kind_switch.rs`'s shape.
 use crate::tui::app::App;
 use crate::tui::state::Mode;

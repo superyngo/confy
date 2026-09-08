@@ -179,11 +179,12 @@ same binding reads identically on both surfaces:
 - **Per-surface rows.** A row's *keys* column may still differ where the binding itself
   differs (see the main table above): e.g. `first_last_row` is `Home/End` on the TUI and
   `Home/End/g/G` on the Web; `nudge` is `←/→` on the TUI and `←/→/+/-` on the Web; `save` is
-  `Ctrl+s/w` on the TUI (vim alias) and `Ctrl+s` on the Web. Rows with no Web affordance
-  (`tui.help.row.filter_lock`, `tui.help.row.convert_jsonc_toggle`, `l` Language picker, `~`
-  Diagnostics) or no TUI affordance (`Ctrl+o` Open, the Pointer section) are prefixed
-  `tui.help.*`/`web.help.*` instead of the shared `help.*` and only appear in that surface's
-  render.
+  `Ctrl+s/w` on the TUI (vim alias) and `Ctrl+s` on the Web. Only three row families are
+  actually surface-prefixed: `tui.help.row.filter_lock`, `tui.help.row.convert_jsonc_toggle`,
+  and the `web.help.row.pointer_*` Pointer section. The `l` Language picker, `~` Diagnostics
+  and `Ctrl+o` Open rows use the **shared** `help.row.*` keys (`help.row.lang_picker`,
+  `help.row.diag`, `help.row.open`) even though only one surface renders each — the key is
+  shared, the render is not.
 - **VS Code variant.** `web/help-content.ts`'s `variant: "web" | "vscode"` parameter drops
   the `Ctrl+o`/`q` rows (no in-app Open/Quit under VS Code), swaps `save`/`undo_redo` for
   `web.help.row.save_vscode`/`web.help.row.undo_redo_vscode` (both note the shared VS Code
@@ -218,7 +219,7 @@ because the Help overlay's `e`/`E`/`Enter`/`i` rows describe this behavior:
 | Force editor (`E`, any node) / editor for multiline string or comment (`e`) | Suspends the alternate screen, spawns `$EDITOR` on a scratch file | Opens `#ext-modal` | Opens the `.ext-sheet` bottom sheet |
 | Handshake | All three surfaces drive the same `snap.external_edit` async request/response — one core intent, three presentations | | |
 | Clipboard-armed guard | Core's `begin_external_edit` refuses while clipboard is armed; TUI additionally raises `core.clipboard.action-locked` before dispatching | Relies on core alone | Same TUI-style extra notice as the TUI (`openExternalEdit`) |
-| Detail panel (`Enter`/`i`) | `Mode::Detail` full-screen popup | `#overlay`/aside detail pane | Bottom sheet |
+| Detail panel (`Enter`/`i`) | `Mode::Detail` centered floating popup (70% wide, height clamped to 80%, `detail_popup_rect`) | `#overlay`/aside detail pane | Bottom sheet |
 
 The Help overlay's `help.row.edit` ("Edit (inline or editor)") and `help.row.force_editor`
 ("Force editor (any node)") rows are intentionally surface-agnostic wording for exactly this

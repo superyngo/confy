@@ -1,6 +1,6 @@
 // Plain-Node test for `key-intent.ts`'s pure mode/key resolution, extracted
 // from `ui.ts`'s `onKey` (see
-// docs/superpowers/plans/2026-08-11-web-code-audit-remediation-plan.md,
+// docs/plan/2026-08-11-web-code-audit-remediation-plan.md,
 // Task 8 — the highest-risk task in that plan, since it touches the primary
 // keyboard-input dispatch path). Follows `toolbar-fold.spec.mjs`'s
 // convention: no test framework, just `node:assert`-free `check()` tallying.

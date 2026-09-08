@@ -1,0 +1,349 @@
+# Headless Core extraction & multi-platform port
+Status: Shipped (2026-08-30)
+
+Design record for refactoring confy from a single TUI binary into a **Headless Core**
+(`confy-core`) consumed by a TUI, a Tauri desktop app, a web app, and a VSCode extension —
+all sharing one Web UI compiled against the core via WebAssembly.
+
+This file is the durable companion to the doc set: `docs/reference/glossary.md` (model glossary),
+`BEHAVIOR_MATRIX.md` (nested behavior), `TUI.md` (ratatui mechanics), `WEBUI.md`
+(WASM FFI + Web UI). It records *what moves where and why*.
+
+> **Status (2026-06-18).** Stage 1 (headless core) complete; **Stage 2 (WASM FFI +
+> Web UI) landed**, plus a Web-UI follow-up (save-in-place, theme, facet grid).
+>
+> Slice 1: §1 workspace split (`confy-core` + `confy-tui`) and §2 **A1/A3** fixes.
+> Slice 2: §2 **A2/A4/A5** + §7 fs-gate — `confy-core` is fully filesystem-free at runtime.
+> Slice 3: §3 cursor reshape — `App.cursor` is now a `Path`, selection/paste are Path-keyed.
+> Slice 4: §5 Phases A–C — complete `Session` struct in `confy-core/session/` with all CORE
+> fields and every CORE operation; `Intent` enum; `Host` trait; `ViewRow`/`Update`.
+> Slice 5 Phase D: `App` rewritten as a thin Host wrapper.
+> Slice 5 Phase E (§7 gates #3 and #5): serde derives + fake-`Host` headless tests.
+> **Stage 2 (§8):** `confy-ffi` WASM crate (`wasm-bindgen` + `serde-wasm-bindgen`) +
+> `Session::dispatch(Intent) -> SessionSnapshot` command channel + full-state snapshot
+> transport + async external-edit signal + a functional TypeScript Web UI (`web/`, `WEBUI.md`).
+> Rich serde on `Node`/`NodeTree`/`KeySign`/`DocFormat`/modal-state enums. The §8 design
+> items (rich serde, async host, full-state transport) are resolved in §8 below.
+> **Stage 2 follow-up:** Web UI save-in-place (File System Access API + download fallback,
+> all host-owned in `web/fs.ts`), dark/light theme, `SessionSnapshot.clipboard_count`
+> (structured clipboard state), and the projected `TypeFilterView` facet grid
+> (`ModeView::TypeFilter` now carries the grid so the host never re-derives layout).
+>
+> Full suite: 662 tests pass, clippy/fmt clean. The `confy` TUI binary still builds and runs
+> unchanged; the wasm crate builds to `wasm32-unknown-unknown` (`wasm-pack build --target web`).
+>
+> **Status (2026-08-30): the port is COMPLETE.** Every slice below landed as designed —
+> the headless `Session` owns all editor state; the TUI, web UI, VS Code extension, and
+> Tauri desktop/Android shells are all thin hosts over it. Current mechanics live in
+> `CLAUDE.md`'s module map; the sections below are kept as the design record.
+
+---
+
+## 0. Decisions taken
+
+- **The editor state machine is lifted into Rust core** (not reimplemented in TypeScript).
+  Rust owns modes, cursor, selection, filters, clipboard, undo; the UI is a pure render of an
+  emitted view model + a stream of intents back. This preserves the tested logic and gives a
+  single source of truth (kills the dual-state drift risk between platforms).
+- **Cursor and selection are identified by `Path`, not by row index.** See §3 — this is the
+  pervasive reshape that the lift depends on.
+- **Three concrete UI hosts, one core.** FS, terminal, and `$EDITOR` never enter the core; they
+  are host capabilities (§4).
+
+---
+
+## 1. Target workspace layout
+
+```
+confy/                       (cargo workspace root)
+  crates/
+    confy-core/              pure state machine — no fs, process, env, crossterm, ratatui, tempfile
+      model/                 existing src/model/ verbatim (after §2 fs fixes)
+      session/               lifted from src/tui/ (see §5 map)
+      host.rs                trait Host (the one mid-operation callback: edit_text)
+    confy-tui/               ratatui render of the core's view model + Host impl + CLI
+    confy-ffi/               wasm-bindgen wrapper over confy-core (Stage 2)
+  apps/                      (Stage 2/3, JS monorepo)
+    web/  desktop/ (Tauri)  vscode/   packages/ui  packages/core-wasm
+```
+
+**Historical target, not current layout** — this predates the actual Stage 2/3 implementation
+and was superseded by it (`apps/`'s JS-monorepo split under `web/`/`desktop/`/`vscode/`/
+`packages/*` was never built; the real result added `crates/confy-tauri`/
+`crates/tauri-plugin-confy-picker` as Rust crates instead, plus top-level `web/`/`editors/vscode/`
+directories). See `CLAUDE.md`'s Module map for the actual current workspace layout.
+
+Local path dependencies only; nothing published to crates.io. The standalone TUI binary must
+keep building and passing the full existing test suite at every step (the Stage-1 exit gate).
+
+---
+
+## 2. FS boundary — sever these (the data layer is otherwise pure)
+
+The entire `model/ → environment` surface. No process/env/stdio exists in `model/`; only these
+file touches:
+
+| # | Where | Fix |
+|---|---|---|
+| A1 | `ConfigDocument::load(path)` reads the file internally (`cst_doc.rs`, `json/doc.rs`, `yaml/doc.rs`) | Add `from_str(text, …)` as the primitive; `load` = host `fs::read` + `from_str`. The parser already re-parses from a string (`replace_from_str`), so this is mechanical. |
+| A2 | `*Document::save()` → `std::fs::write(&self.path, …)` | Core exposes only `serialize() -> String`. The **host** owns the path and writes. |
+| A3 | `convert.rs` reparse safety-net uses a `NamedTempFile` (no tempfile in WASM) | Reparse the rendered string via `from_str` instead of round-tripping through a temp file. |
+| A4 | `self.path: PathBuf` field on each doc | Remove — document becomes a pure bytes-in → string-out value. |
+| A5 | `AnyDocument::{save, mark_saved, replace_from_str, enable_comments}` (inherent, not on the trait) | Only `save` is an env op → host. The other three are pure → keep on the core session. |
+
+> This table records the **pre-port** surface as it stood when the extraction was planned; it is
+> not an inventory of today's API. `enable_comments` in A5 has since been deleted outright along
+> with the JSON comment write-gate (2026-08-28) — authoring a comment is now unconditionally
+> legal on every backend, so there is nothing left to enable.
+
+CI gate for "headless": `confy-core` must contain **no** `std::fs`, `std::process`, `std::env`,
+`tempfile`, `crossterm`, `ratatui`.
+
+---
+
+## 3. The identity reshape: row-index → Path
+
+**Reshape (landed as Slice 3; pre-port this was `App.cursor: usize` indexing
+`rows: Vec<RowSnapshot>`, with `Selection` a set of `usize`):**
+
+- Core holds `cursor: Path` and `selection: HashSet<Path>` (plus the existing `expanded: HashSet<Path>`).
+- Core computes **`visible_rows() -> Vec<ViewRow>`** (tree × expanded × filter → ordered semantic rows).
+- Index ↔ Path translation lives in the **UI** (`ViewRow` carries its `Path`; the UI maps a
+  clicked/highlighted index back to a path when sending an intent).
+
+This threads through ~50 functions. It is the bulk of the lift — pervasive, not algorithmically
+hard. Everything in §5 assumes it is done first.
+
+---
+
+## 4. Host capabilities (never in core)
+
+A small `Host` trait the TUI / Tauri / VSCode each implement. Only **one** call is needed
+*mid-operation*; the rest are fire-and-forget the host performs around the core.
+
+```rust
+// confy-core/host.rs
+pub trait Host {
+    /// Open `initial` in an external/multi-line editor, return the edited text.
+    /// TUI → $EDITOR; Web/VSCode → an in-app multi-line modal. Core issues the
+    /// resulting Mutation::Replace. This is the BEHAVIOR_MATRIX §6 multi-line path.
+    fn edit_text(&self, initial: String) -> EditTextOutcome; // sync (TUI) or future (web)
+}
+```
+
+Host-owned, outside the trait: **file read/write** (load/save, the `C` convert write), the
+**terminal** (crossterm raw mode, alternate screen, the event loop, width/height), and all
+**viewport scroll** (`table_offset`, detail/help `u16` scroll, horizontal `clamp_scroll`,
+page sizing from terminal height).
+
+---
+
+## 5. Portability map (per source file)
+
+Destinations: **CORE** (→ `confy-core/session`), **HOST** (stays `confy-tui` + `Host`),
+**SPLIT** (portable logic to core, presentation/viewport shell to host).
+
+| File | Destination | Notes |
+|---|---|---|
+| `state.rs` | 🟢 CORE verbatim | `History` (string snapshots), `EditState`, `Mode`, `Clipboard`, `PasteSlot`, `PromptKind`, `cancel_last`. Already serializable. |
+| `selection.rs` | 🟢 CORE | `normalize`, `toggle`, round begin/extend/commit/union. Re-key `usize` → `Path`. |
+| `search.rs` | 🟢 CORE verbatim | `haystack`, `fuzzy_match`, `fuzzy_indices` (UI styles the returned positions). |
+| `insertion.rs` | 🟡 SPLIT (mostly CORE) | `resolve_target` is pure §6.1 logic; take `(path, is_branch, expanded)` instead of `&RowSnapshot`. |
+| `type_filter.rs` | 🟡 SPLIT | CORE: `classify`, `TypeFilter` predicate + popup *state* (`matches/toggle/group_state/cell_state/move_cursor/...`). HOST: `layout`, `nav_rows`, `LayoutRow`, `Cell` geometry, display labels — the Web UI lays out its own popup from the facet model. |
+
+### `app.rs`
+
+**CORE — state transitions:**
+- Navigation: `cursor_down/up/home/end`, `toggle_expand`, `collapse_all`, `expand_all`,
+  `expand_level`, `collapse_level`, `is_expanded`, `true_sibling_index`, `resting_mode`.
+- Selection: `toggle_select`, `extend_select_up/down`, `selected_paths`, `cursor_is_read_only`.
+- Filter: `enter/commit/exit_filter`, `exit_filter_results`, `filter_char/backspace/delete`,
+  `filter_cursor_*`, `recompute_filter`.
+- Type filter: `enter/commit/exit_type_filter`, `type_filter_move/toggle`.
+- Kind switch: `open_kind_switch`, `kind_switch_move`, `kind_switch_commit`, `exit_kind_switch`.
+- Inline edit: `begin_inline_edit`, `begin_inline_rename`, `edit_toggle_field`,
+  `edit_input_char/backspace/delete`, `edit_cursor_*`, `edit_cancel`, `cancel_added_node`,
+  `edit_commit`, `apply_deferred_rename`.
+- Edit routing **decision**: `edit_target_kind`, `no_array_ancestor` (the inline-vs-external
+  decision is core; the *spawn* is host).
+- Mutations: `nudge`, `add_node`, `add_comment_sibling`, `delete_selected`, `copy_selected`,
+  `cut_selected`, `paste`, `remark`, `do_remark`, `on_mutation_success` (minus row rebuild).
+- Clipboard/paste: `paste_slots`, `effective_paste_slot`, `move_paste_slot`, `slot_target`.
+- Convert orchestration: `open_convert`, `convert_move`, `convert_pick_format`,
+  `convert_path_*`, `convert_run`, `convert_confirm`, `exit_convert`.
+- Lifecycle: `undo`, `redo`, `escape`, `handle_prompt_key`, `confirm_quit`, `quit_requested`.
+- Value math (free fns): `nudge_scalar`, `regroup_int/float`, `group_left/right`, `unique_key`,
+  `char_byte_idx`, `project_first_label`, `node_type_label`, `branch_type_format`.
+
+**HOST:**
+- `save`, `convert_write` (fs); the `edit_node` spawn portion → `Host::edit_text`.
+- `detail_scroll_by/set_scroll`, `help_scroll_by/set_scroll`, `enter/exit_help`,
+  `toggle/exit_detail` viewport scroll; `page_up/page_down` (page size from terminal height);
+  `edit_clamp_scroll` + free `clamp_scroll` (horizontal viewport). *(Mode enter/exit is core; the
+  scroll offset is host.)*
+
+**SPLIT — `rebuild_rows` / `RowSnapshot` / `type_tag`:**
+- CORE: the flatten (tree × expanded × filter → ordered visible nodes) becomes `visible_rows()`.
+- HOST: `RowSnapshot.type_tag` (fixed-pitch 12-char `(B) [S:str ]`), padded value column,
+  `table_offset: Cell`, the `type_tag` free fn — ratatui presentation.
+- `open_detail` splits the same way: build the detail text (CORE) vs. scroll offset (HOST).
+
+**Approx. share:** ~70% CORE, ~20% SPLIT, ~10% HOST. Cost is dominated by the §3 index→path
+inversion and the `rebuild_rows` split, not by the (small, isolated) host work.
+
+---
+
+## 6. Core session API sketch (Stage-1 contract)
+
+```rust
+// confy-core/session/session.rs
+pub struct Session {
+    doc: AnyDocument,              // owns the document (no path inside)
+    cursor: Path,
+    expanded: HashSet<Path>,
+    selection: HashSet<Path>,
+    mode: Mode,                    // Edit / Filter / KindSwitch / Convert / Prompt / …
+    clipboard: Option<Clipboard>,
+    filter: FilterState,
+    type_filter: TypeFilter,
+    history: History,             // serialized-string snapshots
+    // … inline-edit / pending-commit state as today
+}
+
+impl Session {
+    pub fn open(text: &str, format: DocFormat) -> anyhow::Result<Self>;   // §2 A1
+    pub fn serialize(&self) -> String;                                    // host writes bytes
+    pub fn is_dirty(&self) -> bool;
+
+    /// Ordered, semantic visible rows — the view model both UIs render.
+    pub fn visible_rows(&self) -> Vec<ViewRow>;
+    pub fn detail(&self) -> Option<DetailView>;     // text only; host owns scroll
+    pub fn kind_options(&self) -> Vec<(String, KindTarget)>;
+    pub fn type_filter_facets(&self) -> TypeFilterView;   // facet model, no geometry
+
+    /// One entry point: UI sends an Intent, core mutates state, returns what changed.
+    pub fn dispatch(&mut self, intent: Intent, host: &dyn Host) -> Update;
+}
+
+/// What the UI tells the core happened. (Key→Intent mapping lives in each UI.)
+pub enum Intent {
+    CursorUp, CursorDown, CursorHome, CursorEnd,
+    ToggleExpand, ExpandLevel, CollapseLevel, CollapseAll, ExpandAll,
+    Select, ExtendUp, ExtendDown,
+    BeginEdit, BeginRename, EditKey(EditKey), CommitEdit, CancelEdit,
+    Nudge(i64), Add, Delete, Copy, Cut, Paste,
+    Remark, Undo, Redo, Escape,
+    OpenKindSwitch, KindSwitchMove(i32), KindSwitchCommit,
+    EnterFilter, FilterKey(EditKey), CommitFilter,
+    EnterTypeFilter, TypeFilterMove(i32, i32), TypeFilterToggle, CommitTypeFilter,
+    OpenConvert, ConvertKey(EditKey), ConvertRun, ConvertConfirm,
+    SetCursorPath(Path),   // UI translated a click/index → path (the §3 bridge)
+    PromptKey(char),
+}
+
+/// What changed, so the UI can re-render minimally (R2: diff-not-snapshot).
+pub struct Update {
+    pub rows_dirty: bool,          // visible_rows() should be re-pulled
+    pub status: Option<String>,
+    pub error: Option<String>,
+    pub quit: bool,
+    pub external_edit: Option<String>,   // host should call Host::edit_text, then re-dispatch
+}
+
+pub struct ViewRow {
+    pub path: Path,
+    pub depth: usize,
+    pub is_branch: bool,
+    pub key: String,
+    pub value: Option<String>,
+    pub scalar_type: Option<ScalarType>,
+    pub format: Format,
+    pub trailing_comment: Option<String>,
+    pub read_only: bool,
+    pub selected: bool,
+    pub is_cursor: bool,
+}
+```
+
+The TUI's `tui/mod.rs` event loop **is** a thin **key → Intent** translator + a `Host` impl +
+ratatui rendering of `visible_rows()`. The Web UI does the same in TypeScript over the WASM
+boundary. No editor logic lives in either UI.
+
+---
+
+## 7. Stage-1 exit gates (verifiable)
+
+1. **Dependency assertion:** the §2 CI grep over `confy-core` is clean.
+2. **Parity:** the full pre-refactor suite (`roundtrip.rs`, `convert_cli.rs`, projection/golden,
+   `app.rs` behavior tests) passes against the TUI-on-`Session` build; round-trips stay byte-identical.
+3. **Serde round-trip:** `ViewRow`, `Intent`, `Mutation`, `Update` survive `serde_json` round-trip
+   in a native test (rehearses the WASM contract before WASM exists).
+4. **State-machine parity:** a scripted `Intent` sequence (navigation + selection + edit + undo)
+   driven through a headless `Session` asserts the resulting `visible_rows()` — proving the
+   machine survived the lift out of `app.rs`.
+5. **Fake `Host`:** the `$EDITOR` path is exercised via a fake `Host::edit_text` (no real spawn),
+   proving the multi-line edit flow is host-agnostic.
+
+---
+
+## 8. Open items for the next session — RESOLVED (2026-06-18, Stage 2)
+
+The three open items are decided as follows. Rationale: optimize for correctness,
+simplicity, and API stability over premature transport optimization; keep the FFI
+boundary explicit; treat browser/editor integration as asynchronous from the start.
+
+### 8.1 Rich serde for `Node` / `NodeTree` — YES
+
+`Node`, `NodeKind`, `NodeTree`, and `KeySign` now derive `Serialize`/`Deserialize`
+(alongside the Phase-E leaf types `Seg`/`ScalarType`/`Format`/`KindTarget`/`Target`/
+`OnCollision`). The Web UI can pull the full projected tree for richer views
+(type-filter facets, kind options, context menus) without a second projection.
+`ViewRow` remains the **primary** transport for the visible tree; the full `NodeTree`
+is an on-demand secondary surface (`Session::tree` is already `pub`).
+
+### 8.2 `Host::edit_text` — async-by-signal, NOT via the trait, for WASM
+
+The sync `Host` trait stays as-is for the TUI (it spawns `$EDITOR` synchronously and
+that is correct for a terminal). **WASM does not route through `Host` at all.**
+Instead `dispatch` returns the external-edit request **as a signal** in the snapshot
+(`external_edit: { initial, kind }`) when an edit intent resolves to the
+external/multi-line path; the JS host opens its own async modal (`Promise`-based),
+then re-dispatches `Intent::ApplyReplace { path, text }` (or `ApplyEditComment`)
+with the result. Session remembers the resolved edit target (path + `wrap_element`
+flag + comment-vs-value) in a small `pending_external_edit` field between the two
+dispatches, so the host's only job is "show text → return text." This makes editor
+integration natively async on the web with zero blocking and leaves the TUI `Host`
+untouched. The §7 gate-#5 fake-`Host` test continues to exercise the synchronous
+composition path.
+
+### 8.3 `Update` transport — full-state snapshot, no diff (for now)
+
+The initial Web implementation uses **full-state transport**: `dispatch(intent)`
+returns a `SessionSnapshot` carrying the complete renderable state — every visible
+`ViewRow`, the current `ModeView` (mode + modal edit surfaces), cursor path,
+status/error, detail text, external-edit request, convert-write request, quit flag,
+doc format, dirty bit, and the live filter query. The UI re-renders the whole tree from the snapshot each
+interaction. **No structured row diff.** Rationale: simplicity and correctness first;
+the tree is small (config files), full re-render is cheap, and a diff can be layered
+on at Gateway G2 (`rows_dirty` is the natural hook) if latency ever warrants it. No
+complexity is added now solely to support a future diff.
+
+### 8.4 Single command channel — `Session::dispatch(Intent) -> SessionSnapshot`
+
+Stage 2 introduces the one entry point sketched in §6: `dispatch`. It encodes the
+mode-dependent routing currently living in the TUI event loop
+(Prompt/Filter/FilterResults/Detail/Edit/Help/TypeFilter/KindSwitch/Convert/Normal)
+and is the **only** command channel the Web UI uses — it serializes one `Intent` and
+gets back one `SessionSnapshot`. The TUI event loop is unchanged (it still calls
+`Session` methods directly); `dispatch` is the new WASM contract, independently
+unit-tested headlessly across TOML/JSON/YAML. Intent variants `BeginInlineEdit` and
+`BeginInlineRename` were renamed to `BeginEdit` / `BeginRename` for contract clarity
+(they are the smart `e` / rename entry points that route inline-vs-external).
+
+### 8.5 What stays host-owned
+
+File I/O (load/save, the convert write), the terminal/viewport, and all DOM scrolling
+are host-owned — exactly as §4 prescribes. `Intent::Save` marks the doc saved and
+reports dirty=false; the host calls `serialize()` separately to obtain the bytes to
+write/download. Detail/Help scroll intents are no-ops in `dispatch` (core holds no
+scroll state); the Web UI scrolls the DOM natively.

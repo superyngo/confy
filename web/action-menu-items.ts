@@ -1,5 +1,5 @@
 // Shared Action menu item rendering (design doc
-// `docs/superpowers/specs/2026-08-30-action-menu-design.md` §2, ADR 0009).
+// `docs/spec/2026-08-30-action-menu-design.md` §2, ADR 0009).
 // The desktop popup (web/ui.ts) and the touch sheet (web/touch/app.ts) both
 // call this; only the surrounding chrome (popup vs sheet head/scrim) differs
 // per host. Distinct from `web/menu.ts`, which is the Tauri native OS menu

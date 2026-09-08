@@ -4,7 +4,7 @@
 // shared, since each shell links exactly one CSS file; this module is the
 // single source of truth for the glyphs and markup. Unarmed, it opens the
 // centralized Action menu (design doc
-// `docs/superpowers/specs/2026-08-30-action-menu-design.md`); armed, it
+// `docs/spec/2026-08-30-action-menu-design.md`); armed, it
 // pastes — that decision is one clipboard_count check, made per-host inline.
 
 // Icons ported verbatim from `touch/render.ts`'s `IC` table / `touch/app.ts`'s

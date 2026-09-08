@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Patches RELEASES.md's "Current version" column for one channel row and
+# Patches docs/reference/RELEASES.md's "Current version" column for one
+# channel row and
 # pushes the change to main. Invoked from release.yml / publish-msstore.yml /
 # publish-vscode.yml right after each channel actually goes live, so the
 # table stops drifting from reality (previously a manual, easy-to-forget
@@ -17,7 +18,7 @@ set -euo pipefail
 
 anchor="$1"
 version="$2"
-file="RELEASES.md"
+file="docs/reference/RELEASES.md"
 
 if ! grep -qF "$anchor" "$file"; then
   echo "::error::no RELEASES.md row matches anchor '$anchor'" >&2

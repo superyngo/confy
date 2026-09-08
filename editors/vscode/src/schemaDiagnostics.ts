@@ -10,7 +10,7 @@ export interface DiagnosticDescriptor {
  * descriptors (no `vscode` import — kept pure and testable under plain
  * `node`; the caller converts each descriptor to a `vscode.Diagnostic` with
  * `DiagnosticSeverity.Warning`, never `Error` — Violations are a documented
- * Soft constraint, CONTEXT.md § Schema). A violation with no resolvable
+ * Soft constraint, docs/reference/glossary.md § Schema). A violation with no resolvable
  * `text_range` is dropped rather than guessed at. `loadError` becomes one
  * additional line-0 descriptor — the Problems-panel piece of `load_error`
  * UI for this host (web/touch/TUI instead surface it as a `Warn`-severity

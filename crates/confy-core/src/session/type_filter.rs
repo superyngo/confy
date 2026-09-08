@@ -152,7 +152,7 @@ pub enum Cell {
     Token(TypeToken),
     /// Independent runtime-validation facet: whether the node currently has
     /// a schema violation. Not a `TypeToken` — lexical/structural type is
-    /// static per `classify()`, this is live validation state (`CONTEXT.md`
+    /// static per `classify()`, this is live validation state (`docs/reference/glossary.md`
     /// § Schema).
     Warning,
     /// Independent structural facet: whether the node is itself a standalone

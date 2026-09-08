@@ -135,7 +135,7 @@ impl Session {
 
         let bare = matches!(parent.kind, NodeKind::Array); // keyless element context
                                                            // A flow/inline construct (TOML inline table, YAML flow map/seq) has
-                                                           // no `[header]` notation and holds no comments (CONTEXT.md "Comment").
+                                                           // no `[header]` notation and holds no comments (`docs/reference/glossary.md` "Comment").
         let is_flow = matches!(parent.kind, NodeKind::InlineTable)
             || (matches!(parent.kind, NodeKind::Array) && parent.format == Format::Inline);
 

@@ -3,7 +3,7 @@
 The Web UI is the second host of the headless core (`confy-core`), alongside the
 ratatui TUI. It compiles the same `Session` state machine to WebAssembly and drives
 it from TypeScript. This file documents the FFI boundary and the UI architecture; the
-shared model glossary lives in `CONTEXT.md`, nested behavior in `BEHAVIOR_MATRIX.md`,
+shared model glossary lives in `glossary.md`, nested behavior in `BEHAVIOR_MATRIX.md`,
 TUI mechanics in `TUI.md`, the cross-platform row cursor/selection/clipboard state
 model in `ROW_STATE_MODEL.md`. Two native shells embed this same `web/` bundle and get
 their own docs: the Tauri desktop/Android app in `TAURI.md`, the VS Code extension in
@@ -56,10 +56,12 @@ hand-maintained field-by-field marshalling.
 **Two naming layers — mind the difference.** `wasm-bindgen` exports the methods under their
 **Rust snake_case** names (`schema_hint`, `schema_violations`, `had_comments_at_open`); the
 generated `pkg/confy_ffi.js` glue is the proof. `web/confy.ts` then wraps that raw class in a
-`Session` class exposing **camelCase** (`schemaHint`, `hadCommentsAtOpen`), which is what the
-table below and the rest of the web code use. The VS Code extension deliberately bypasses the
-wrapper and types the raw class directly (`editors/vscode/src/wasmSession.ts`), so it calls the
-**snake_case** names — renaming an FFI method means updating both spellings.
+`Session` class exposing **camelCase** (`schemaHint`, `hadCommentsAtOpen`) for methods the web
+code uses. That wrapper covers 14 methods and omits `schema_violations`, `outline`, and
+`external_edit`, which are reached on the raw `ConfySession`. The VS Code extension
+deliberately bypasses the wrapper and types the raw class directly
+(`editors/vscode/src/wasmSession.ts`), so it calls the **snake_case** names — renaming an FFI
+method means updating both spellings.
 
 | Method | Signature (TS) | Notes |
 |---|---|---|
@@ -78,8 +80,9 @@ wrapper and types the raw class directly (`editors/vscode/src/wasmSession.ts`), 
 | `hadCommentsAtOpen` | `() => boolean` | whether the document already contained a comment when loaded — drives the one-shot "file already had comments" toast. `false` for non-JSON. Replaced the deleted `supportsComments()` write-gate binding. |
 | `aboutText` | `() => string` | About-tab body for the session's current language, from core's `about_text` — the host never hand-mirrors it. |
 | `schemaHint` | `(path: Seg[]) => EditHint` | schema-driven editing hint (enum/const options or numeric bounds; `None` when unconstrained). Read-only, does not enter edit mode. |
-| `schemaInfo` | `(path: Seg[]) => SchemaInfo \| undefined` | `description`/`type`/`format`/`pattern` from the resolved subschema. Orthogonal to `schemaHint`: covers the plain-typed field that hint leaves at `None`. |
-| `schemaViolations` | `() => Violation[]` | current violations with resolved `text_range`s — the native-editor Diagnostics data source. |
+| `nudgeRepr` | `(path: Path, text: string, delta: number) => string \| undefined` | stateless preview of nudging `text` by `delta` steps for `path` without mutating the document (`undefined` when not a nudgeable scalar or unparsable); feeds the wheel/swipe inline-edit nudge. |
+| `schemaInfo` | `(path: Seg[]) => string \| undefined` | `description`/`type`/`format`/`pattern` from the resolved subschema. Orthogonal to `schemaHint`: covers the plain-typed field that hint leaves at `None`. |
+| `schemaViolations` | `() => ViolationView[]` | current violations with resolved `text_range`s — the native-editor Diagnostics data source. |
 | `outline` | `() => OutlineNode[]` | read-only symbol tree for editor Outline/breadcrumb integrations, independent of cursor/expansion state. |
 | `pointerSlot` | `(path: Seg[], relY: number) => PasteSlot \| undefined` | pointer-drop classification (row + relative vertical position → the `PasteSlot` it represents). Every pointer surface calls this instead of hand-rolling it (ADR 0004 §1). |
 
@@ -114,15 +117,17 @@ shapes round-trip). Key types:
   resolved by the same `slot_target` a keyboard `Paste` uses, ADR 0010),
   `CommitEdit {value?,name?}`, `CommitKind {path,target}`, `SetFilter(String)`,
   `SetConvertFormat(DocFormat)`, `SetConvertPath(String)`.
-- **`SessionSnapshot`** — full renderable state: `mode: ModeView`, `rows: ViewRow[]`,
-  `cursor: Seg[]`, `notice: Notice | undefined`, `detail_text`, `external_edit`, `convert_write`,
-  `clipboard_count`, `clipboard_cut`, `clipboard_paths`, `paste_slot`, `quit`, `doc_format`,
-  `is_dirty`, `filter` (the live text-filter query — present in **every** mode, unlike
-  `ModeView::Filter`'s `text`, which exists only while the search input is focused; pointer
-  hosts need it to keep drawing match highlights after focus leaves the box).
+- **`SessionSnapshot`** — full renderable state (21 fields total): `doc_format`, `is_dirty`,
+  `mode: ModeView`, `rows: ViewRow[]`, `cursor: Seg[]`, `notice: Notice | undefined`,
+  `detail_text`, `external_edit`, `convert_write`, `clipboard_count`, `clipboard_cut`,
+  `clipboard_paths`, `paste_slot`, `type_filter_active`, `filter` (the live text-filter query —
+  present in **every** mode, unlike `ModeView::Filter`'s `text`, which exists only while the search
+  input is focused; pointer hosts need it to keep drawing match highlights after focus leaves the box),
+  `quit`, `lang`, `cursor_blank_after`, `history_len`, `schema_status`, `schema_fetch_request`.
 - **`ModeView`** — a serializable projection of `Mode` + the modal edit surfaces:
   `Normal | Prompt | Filter {text,cursor} | FilterResults | TypeFilter {…grid…} |
-  KindSwitch {cursor,options} | ActionMenu {cursor,items,target_count,target_label} |
+  KindSwitch {cursor,options} | AddPicker {cursor,options} |
+  ActionMenu {cursor,items,target_count,target_label} |
   Convert {…} | Detail | Help | Edit {field,buffer,cursor,…} |
   SchemaEnum {options,cursor,from_schema,from_kind_switch}`. `SchemaEnum`'s `from_schema` is
   `false` when the picker is the schema-independent `bool` `true`/`false` fallback rather than a
@@ -137,14 +142,15 @@ shapes round-trip). Key types:
   `cursor_col`, `active`. Each cell carries `label`, tri-state `state`
   (`On`/`Partial`/`Off`), and `is_cursor`.
 - **`ViewRow`** — one visible tree row (`path`, `path_display`, `depth`, `is_branch`, `key`,
-  `key_literal`, `key_sign`, `value`, `scalar_type`, `format`, `type_label`, `child_count`,
-  `trailing_comment`, `comment_advisory`, `read_only`, `selected`, `is_cursor`, `violations`,
-  `has_descendant_violation`). `type_label` (the core node-kind label) and `child_count` let
+  `key_literal`, `key_sign`, `value`, `scalar_type`, `format`, `type_label`, `badge_label`,
+  `badge_note`, `child_count`, `trailing_comment`, `comment_advisory`, `read_only`, `selected`,
+  `is_cursor`, `violations`, `has_descendant_violation`). `type_label` (the core node-kind label),
+  `badge_label`/`badge_note` (the precomputed kind badge and notation note), and `child_count` let
   the web render the true container kind + item count instead of guessing from `is_branch`.
   `key` is the **decoded** key while `key_literal` is the key **as authored** (quotes intact,
   `null` when bare) — render and seed edit buffers from `key_literal ?? key`, never from `key`
   alone, or a quoted key silently restyles to bare on commit. `path_display` is the ready-made
-  Path string (see CONTEXT.md *Path line*); prefer it over joining `path` client-side.
+  Path string (see glossary.md *Path line*); prefer it over joining `path` client-side.
   `comment_advisory` is a per-row projection, not a Notice — see MESSAGES.md §7.1.
 - **`Seg`** = `{ Key: string } | { Index: number }`; **`Path`** = `Seg[]`.
 
@@ -452,9 +458,13 @@ only discarded part is its fake `TREE`/DOM-as-state model; everything mutating g
 like desktop; ADR 0003 documents the one exception — the TUI calls `Session` methods directly
 for its ~40 mutating calls instead of routing through `dispatch`). Beyond the core (`confy.ts`,
 `types.ts`, `fs.ts`, the Intent contract), the two UIs now share several **single-source UI
-modules** so look & behavior can't drift: `web/panel.ts`
-(node edit/detail panel), `web/convert-dialog.ts` (the Save / Convert form), and
-`web/typefilter.ts` (the type-filter grid). `convert-dialog.ts` is **container-agnostic** — it
+modules** so look & behavior can't drift: `web/panel.ts` (node edit/detail panel), `web/convert-dialog.ts` (the Save / Convert form),
+`web/typefilter.ts` (the type-filter grid), `web/action-menu-items.ts` (shared item
+rendering for `Mode::ActionMenu`), `web/add-picker-items.ts` (shared item rendering for
+`Mode::AddPicker`), `web/escape.ts` (the one HTML escaper every render module uses),
+`web/toolbar-fold.ts` (the shared header/filter-row "⋯ More" fold registry), and
+`web/vscode.ts` (the VS Code webview host adapter and protocol bridge). `convert-dialog.ts` is
+**container-agnostic** — it
 operates over a host-supplied `ConvertSurface` (`isOpen/open/close/onCancel`), so desktop hosts the
 form in a native `<dialog>` while touch hosts the **same form in a bottom `.sheet`** (all touch
 panels share one mechanism). Each emits desktop's class names; the CSS that styles
@@ -515,11 +525,12 @@ edits to the verbatim desktop CSS.
 - **Edit panel** (bottom sheet `<600px`, persistent side pane `≥600px` via `@container`): rendered
   by the shared `web/panel.ts` (`panelHTML` + `wirePanel`) — the same module the desktop detail
   aside uses, so both UIs show one locked field order **Key / Value / Trailing comment / Kind /
-  Path / Children / Sign / Blank after** (Path is the human dotted/bracketed form, e.g.
+  Path / Children / Sign / Blank after / Schema / Advisory** (Path is the human dotted/bracketed form, e.g.
   `servers[1].port`; Sign
   from `ViewRow.key_sign`; **Blank after** is the read-only trailing blank-line count, shown only
   when the node can carry one, fed by `SessionSnapshot.cursor_blank_after` — snapshot-level, not
-  per-`ViewRow`, since resolving the anchor walks the document). Key → `CommitEdit {name}`, value → `CommitEdit {value}`, trailing →
+  per-`ViewRow`, since resolving the anchor walks the document; **Schema** and **Advisory** cards
+  render when constraints, violations, or strict-JSON comment notes apply). Key → `CommitEdit {name}`, value → `CommitEdit {value}`, trailing →
   `SetTrailing`, comment node → `ApplyEditComment`, kind button → kind sheet. The panel has no
   Delete/Copy/Cut buttons — node operations live in the Action menu (ADR 0009). After each
   dispatch `wirePanel` surfaces `snapshot.error` via the host toast (failures are reported,
@@ -666,7 +677,7 @@ touch UI (deliberate — touch is sheet-driven with a weak cursor concept).
 touch/app.js`.
 
 **Shared edit/detail panel — `web/panel.ts`.** A framework-free module (`panelHTML(row)` +
-`wirePanel(container,row,send,openKind,onError,afterMutation?)`) that renders the node edit/detail panel for
+`wirePanel(container,row,send,nudgeRepr,openKind,onError,batch?,schemaEnum?)`) that renders the node edit/detail panel for
 **both** UIs from a `ViewRow`, guaranteeing the field set + order can't drift between touch and
 desktop. On the desktop side the detail `<aside>` (toggled with `i`/Enter) now renders this panel
 **reactively** — it tracks the cursor row on every snapshot and is fully editable — instead of the
@@ -710,10 +721,11 @@ bare. The inverse holds in core — a rename writes the literal but re-anchors t
 **decoded** segments from `ConfigDocument::rename_key_segs()`, since a projected path never
 carries quotes.
 
-A **Schema** field renders after Meta (Path/Children/Sign/Blank after), before the Actions row (Copy/Cut/
-Delete/External-edit stay the panel's fixed trailing element), as a bordered card (mirrors
-the panel's `.preview` box, not bare text — every other field is a bordered element too) when
-the row carries any of three independent sources: `session.schemaInfo(path)` (non-widget
+A **Schema** field renders after Meta (Path/Children/Sign/Blank after), followed only by the
+optional Comment-advisory (Advisory) section when present (node operations live in `Mode::ActionMenu`,
+not in the panel — ADR 0009), as a bordered card (mirrors the panel's `.preview` box, not bare
+text — every other field is a bordered element too) when the row carries any of three independent
+sources: `session.schemaInfo(path)` (non-widget
 `description`/`type`/`format`/`pattern` info read straight off the resolved subschema — the
 common plain-typed case `schemaHint`/`EditHint` doesn't model, e.g. a bare `{"type":"string"}`
 field, so touch/desktop weren't showing anything for it outside a violation), the constraint
