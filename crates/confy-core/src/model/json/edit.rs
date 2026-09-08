@@ -195,6 +195,25 @@ fn parse_member_fragment(fragment: &str) -> Option<SyntaxNode> {
     }
 }
 
+/// Parse `fragment` as one bare array element by wrapping it in `[ … ]` —
+/// the keyless counterpart of `parse_member_fragment`. Returns None if it
+/// isn't exactly one element.
+fn parse_element_fragment(fragment: &str) -> Option<SyntaxNode> {
+    let wrapped = format!("[{fragment}\n]");
+    let green = crate::model::json::parse::parse(&wrapped).ok()?;
+    let root = SyntaxNode::new_root(green);
+    let arr = root.descendants().find(|n| n.kind() == SyntaxKind::ARRAY)?;
+    let values: Vec<_> = arr
+        .children()
+        .filter(|n| n.kind() == SyntaxKind::VALUE)
+        .collect();
+    if values.len() == 1 {
+        Some(values[0].clone_for_update())
+    } else {
+        None
+    }
+}
+
 /// Split a recovered (un-`//`-prefixed) comment block into member item texts.
 /// Each commented member contributed one or more `//` lines — a multi-line
 /// member spans several — so accumulate greedily: extend the candidate until
@@ -204,7 +223,7 @@ fn parse_member_fragment(fragment: &str) -> Option<SyntaxNode> {
 /// by hand) splits off via the CST and re-merges with `TRAILING_MARKER` so
 /// `rebuild_*` keeps it last, after the comma. Returns `None` if the block's
 /// tail doesn't parse (e.g. an ordinary prose comment block).
-fn member_fragments(text: &str) -> Option<Vec<String>> {
+fn member_fragments(text: &str, is_object: bool) -> Option<Vec<String>> {
     let mut frags: Vec<String> = Vec::new();
     let mut candidate = String::new();
     for line in text.lines() {
@@ -214,9 +233,19 @@ fn member_fragments(text: &str) -> Option<Vec<String>> {
             candidate.push('\n');
             candidate.push_str(line);
         }
-        if let Some(node) = parse_member_fragment(&candidate) {
+        let parsed = if is_object {
+            parse_member_fragment(&candidate)
+        } else {
+            parse_element_fragment(&candidate)
+        };
+        if let Some(node) = parsed {
             let bare = node.text().to_string().trim().to_string();
-            let frag = match fragment_member_trailing_comment(&candidate) {
+            let trailing = if is_object {
+                fragment_member_trailing_comment(&candidate)
+            } else {
+                fragment_element_trailing_comment(&candidate)
+            };
+            let frag = match trailing {
                 Some(c) => format!("{bare}{TRAILING_MARKER}{c}"),
                 None => bare,
             };
@@ -1044,7 +1073,10 @@ fn json_escape(s: &str) -> String {
 
 fn remark(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
     match resolve(tree, path).ok_or(MutateError::NotFound)? {
-        Target::Member(member) => {
+        // A live item — an object member or an array element. Both are the
+        // same splice: the node's own lines become `//` lines in place. Only
+        // the anchor differs, so `Element` shares this arm.
+        Target::Member(member) | Target::Element(member) => {
             // Live member → comment it out.
             // Find the container (parent OBJECT or ARRAY node).
             let container = member.parent().expect("member has parent");
@@ -1075,12 +1107,13 @@ fn remark(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
             let mut new_items = items.clone();
             new_items[member_pos] = commented;
 
-            let is_multiline = container.text().to_string().contains('\n');
-            let new_text = if is_multiline {
-                rebuild_multiline(&container, &new_items)
-            } else {
-                rebuild_inline(&container, &new_items)
-            };
+            // Remark needs a line of its own. Inside a single-line container
+            // a `//` would swallow the rest of the line, so the gesture does
+            // not apply there (`docs/reference/BEHAVIOR_MATRIX.md` §Remark).
+            if !container.text().to_string().contains('\n') {
+                return Err(MutateError::Unsupported);
+            }
+            let new_text = rebuild_multiline(&container, &new_items);
             let new_container =
                 parse_container_text(&new_text, container.kind() == SyntaxKind::OBJECT)?;
             replace_node(&container, new_container);
@@ -1120,8 +1153,9 @@ fn remark(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
             // above, or by hand): split it off via the CST — the MEMBER
             // node's text excludes it — and re-merge it with TRAILING_MARKER
             // so `rebuild_*` keeps it last, after the comma.
+            let is_object = container.kind() == SyntaxKind::OBJECT;
             let not_a_member = || MutateError::Fragment("comment is not a valid member".into());
-            let frags = member_fragments(&member_text).ok_or_else(not_a_member)?;
+            let frags = member_fragments(&member_text, is_object).ok_or_else(not_a_member)?;
             let first = frags.first().ok_or_else(not_a_member)?;
 
             let mut new_items = items.clone();
@@ -1130,21 +1164,15 @@ fn remark(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
                 new_items.insert(comment_pos + 1 + k, frag.clone());
             }
 
-            let is_multiline = container.text().to_string().contains('\n');
-            let new_text = if is_multiline {
-                rebuild_multiline(&container, &new_items)
-            } else {
-                rebuild_inline(&container, &new_items)
-            };
-            let new_container =
-                parse_container_text(&new_text, container.kind() == SyntaxKind::OBJECT)?;
+            let new_text = rebuild_multiline(&container, &new_items);
+            let new_container = parse_container_text(&new_text, is_object)?;
             replace_node(&container, new_container);
             Ok(())
         }
-        Target::Block(_) => Err(MutateError::Illegal("cannot remark a block comment".into())),
-        Target::Element(_) => Err(MutateError::Illegal(
-            "cannot remark an array element".into(),
-        )),
+        // A `/* … */` block comment is read-only (`Node.read_only`), so the
+        // gesture does not apply. Same variant as an inline-container item,
+        // so a host sees one "not here" outcome, not two.
+        Target::Block(_) => Err(MutateError::Unsupported),
     }
 }
 

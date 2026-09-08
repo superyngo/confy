@@ -25,42 +25,33 @@ Effort is XS (< 1 h) / S (a session) / M (multi-session).
 
 ## Open
 
-### F1 — Remark an array element diverges across all three backends
+### F14 — The YAML backend does not validate a `Replace` fragment
 
-Priority **P1** · Effort **S** · Verified 2026-09-09 · From audit 2026-08-29
+Priority **P1** · Effort **S** · Opened 2026-09-09 (found while closing F1/F2)
 
-One gesture, three outcomes:
+`YamlDocument`'s `apply` accepts fragments its own grammar rejects, because the subset parser
+treats almost anything as a plain scalar and nothing re-checks the result. Measured on
+`x: 1` with a value `Replace`:
 
-| backend | outcome | site |
+| fragment | TOML/JSON | YAML |
 |---|---|---|
-| TOML | `Err(Unsupported)` | `cst_edit/replace_delete.rs`'s `remark`, wildcard arm |
-| JSON | `Err(Illegal("cannot remark an array element"))` | `json/edit.rs`'s remark |
-| YAML | `Ok(())` — succeeds | `yaml/edit/mutations.rs`'s remark |
+| `"unclosed` (unterminated string) | `Err(Fragment)` | **`Ok`** → `x: "unclosed` |
+| `[1, ` (unterminated flow seq) | `Err(Fragment)` | **`Ok`** → `x: [1, ` |
+| `{a: ` (unterminated flow map) | `Err(Fragment)` | **`Ok`** → `x: {a: ` |
+| `x: a` + `y: b` (two entries) | `Err` | **`Ok`** → `x: x: a` — the sibling is lost |
 
-Two of the three also disagree about which variant means "this gesture does not apply here",
-and `Unsupported` vs `Illegal` is a **user-visible severity difference** (`MESSAGES.md` §2), not
-an internal detail. So the semantics must be decided before the code: is remarking an array
-element legal (YAML's answer), or is it a shape the format cannot express (TOML/JSON's)?
+The last row is the serious one: a two-entry fragment silently collapses into a single corrupt
+`x: x: a` line. Only a literal tab is rejected (`unconsumed \t (INDENT) at top level`).
 
-Do this together with F2 — the parity loop is what pins the answer down.
+This does not break the atomic-commit promise — the commit is atomic, its *input* is just never
+checked — but it does mean the YAML backend can write a document it would not itself have
+accepted from disk. `tests/format_parity.rs`'s
+`a_rejected_mutation_changes_nothing_in_every_format` documents the asymmetry today by handing
+YAML the tab case; that per-format fork is the marker to delete when this lands.
 
-**Acceptance.** All three backends return the same outcome for the same gesture, asserted by
-one table-driven case; the chosen semantics is written into `BEHAVIOR_MATRIX.md`.
-
-### F2 — No table-driven parity loop over all three `DocFormat`s
-
-Priority **P1** · Effort **S-M** · Verified 2026-09-09 · From audit 2026-08-29
-
-`BEHAVIOR_MATRIX.md`'s stated goal is "one model for three formats", and nothing mechanically
-enforces it. Two test files now iterate formats
-(`tests/external_edit_clears_trailing_comment.rs` over Json+Toml,
-`tests/insert_after_trailing_comment.rs` over Toml+Yaml) — but **each leaves the third format in
-a separate block below the loop**, which is precisely the shape that lets drift through.
-`tests/hostile_input.rs` iterates all three, but for recursion-depth fuzzing, not semantics.
-`tests/session_headless.rs` has zero format loops.
-
-**Acceptance.** 6-8 high-value behaviors run as `for (fmt, src, expected) in [...]` over all
-three formats. Seeded with F1, the suite fails before the fix and passes after.
+**Acceptance.** A `Replace`/`Insert` fragment that does not parse as a complete, single YAML
+node is `Err(Fragment)`. The parity test drops its YAML-specific fragment and uses the shared
+unterminated-string case.
 
 ### F3 — TUI `~` diag overlay shows the oldest 20 events
 
@@ -229,3 +220,5 @@ optionally `CARGO_INCREMENTAL=0` for the test path.
 | 2026-09-09 | Double serialize per mutation — `sync_schema_hint` now takes the text | `57630e4` |
 | 2026-09-09 | TOML `Move` quadratic — live-index release in `move_nodes`/`delete`, −48% | `57630e4` |
 | 2026-09-09 | JSON/JSONC parser-simplification plan — premise refuted, both halves already done | (record closed) |
+| 2026-09-09 | **F1** Remark semantics unified — own-line rule, uniform `Unsupported`, array elements now remarkable in TOML+JSON | (this commit) |
+| 2026-09-09 | **F2** 3-format parity suite — `tests/format_parity.rs`, 9 behaviors, exhaustive-`match` fixtures | (this commit) |

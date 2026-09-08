@@ -8,6 +8,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-09 (25)
+
+**One gesture, three formats, one outcome — and a suite that keeps it that way**
+
+`r` (Remark) behaved three different ways on the same node. Measured before touching anything:
+
+| gesture | TOML | JSON | YAML |
+|---|---|---|---|
+| remark a **multiline array element** | `Unsupported` | `Illegal("cannot remark an array element")` | **works** |
+| remark a **single-line collection member** | `Unsupported` | *succeeded, writing broken output* | `NotFound` |
+
+Two backends disagreed on the *result*, and two more on **which error variant** means "this
+gesture does not apply here" — and that variant is user-visible: `MESSAGES.md` §2 maps
+`Unsupported` and `Illegal` to different severities. `NotFound` was simply false: every one of
+those paths is addressable, as `Delete` and `Replace` on the same path prove.
+
+**The rule now, in all three: Remark needs a line of its own.** It applies to any node that
+occupies its own line(s) — a keyed member, an **array element**, a whole table — and
+un-remarking restores the source byte-for-byte. It does not apply inside a single-line
+collection, where a comment leader would swallow the siblings, nor to a read-only node; that
+case is **`Unsupported`** everywhere. Written into `BEHAVIOR_MATRIX.md` §8.
+
+That made array elements remarkable in TOML and JSON, matching YAML. Both formats already
+*project* a comment inside an array as a first-class node, so only the two edit directions were
+missing. Both are now text rewrites of the container (`array_rewrite_span` for TOML, the
+existing `rebuild_multiline` for JSON) rather than token surgery — the neighbouring-padding and
+indent-ownership traps in a multiline array are what made the direct splice not worth writing.
+The element's `,` and its EOL comment travel *into* the comment line, so nothing is stranded
+live. Un-remarking a merged block restores every element it holds.
+
+**`tests/format_parity.rs`** is the new enforcement: 9 behaviors — remark round-trip, the
+single-line rejection, addressability, delete, rename, replace, trailing comment, lossless
+round-trip, atomic failure — each run against **all three** `DocFormat`s in one loop. Per-format
+fixtures are chosen by an **exhaustive `match`**, so a fourth backend cannot compile until its
+expectations are written down. Verified to fail before this change (2 of 9) and pass after.
+
+This is the shape the existing multi-format tests were missing: `external_edit_clears_trailing_
+comment.rs` loops Json+Toml with Yaml in a block below, `insert_after_trailing_comment.rs` loops
+Toml+Yaml with Json below — and a format handled outside the loop is exactly where drift hides.
+
+Verified on the **real binary** with identical keystrokes (`9jjr`, then `r` to restore) against
+one fixture per format: before, TOML reported "operation not supported by this format"; after,
+all three remark and restore byte-for-byte.
+
+**Found while measuring, recorded not fixed:** the YAML backend does not validate a `Replace`
+fragment at all. `x: 1` accepts `"unclosed`, `[1, ` and `{a: ` verbatim, and a two-entry
+fragment collapses to a corrupt `x: x: a`, losing the sibling. Only a literal tab is rejected.
+Tracked as **F14** in the backlog with the full table; the parity suite's one per-format fork
+marks the spot.
+
 ### Unreleased Update - 2026-09-09 (24)
 
 **Docs — every follow-up now has one home**

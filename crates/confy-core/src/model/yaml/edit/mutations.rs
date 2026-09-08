@@ -123,6 +123,21 @@ pub(crate) fn remark(tree: &SyntaxNode, idx: &YamlIndex, path: &[Seg]) -> Result
             if entry_has_opaque_value(&entry) {
                 return Err(MutateError::Unsupported);
             }
+            // Remark needs a line of its own. A `{ … }`/`[ … ]` flow member
+            // shares its line with its siblings, so the gesture does not
+            // apply — and it is `Unsupported`, not `NotFound`: the node is
+            // perfectly addressable (`Delete` and `Replace` both reach it),
+            // this one gesture just has nowhere to put a `#`
+            // (`docs/reference/BEHAVIOR_MATRIX.md` §Remark). Test the node
+            // itself too: a flow-seq element resolves to the whole FLOW_SEQ,
+            // the same shape `extent_end_offset` rejects.
+            if entry.kind() == SyntaxKind::FLOW_ENTRY
+                || entry
+                    .ancestors()
+                    .any(|a| matches!(a.kind(), SyntaxKind::FLOW_MAP | SyntaxKind::FLOW_SEQ))
+            {
+                return Err(MutateError::Unsupported);
+            }
             let container = entry.parent().expect("entry has parent");
             let items = collect_items(&container);
             let entry_text = entry.text().to_string();

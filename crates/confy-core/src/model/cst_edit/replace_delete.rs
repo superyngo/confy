@@ -1205,6 +1205,33 @@ pub(crate) fn remark(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError>
             parent.splice_children(i..i + 1, vec![NodeOrToken::Token(tok)]);
             Ok(())
         }
+        // An array element on its own line inside a multiline array. TOML
+        // allows a comment there, so the gesture applies — the element's line
+        // (value + `,` + any EOL comment) becomes one `#` line.
+        Target::ArrayElement(value) => {
+            let arr = value.parent().ok_or(MutateError::NotFound)?;
+            if arr.kind() != SyntaxKind::ARRAY || !arr.text().to_string().contains('\n') {
+                return Err(MutateError::Unsupported);
+            }
+            let start: usize = value.text_range().start().into();
+            let end = array_element_line_end(&arr, &value);
+            let base: usize = arr.text_range().start().into();
+            let src = arr.text().to_string();
+            let text = src[start - base..end - base].trim_end().to_string();
+            array_rewrite_span(&arr, start, end, &format!("# {text}"))
+        }
+        // A comment INSIDE an array: the recovered text is element source, not
+        // a document, so it goes back through the array rewrite rather than
+        // the ROOT splice below.
+        Target::Comment(first)
+            if first
+                .parent()
+                .is_some_and(|p| p.kind() == SyntaxKind::ARRAY) =>
+        {
+            let arr = first.parent().expect("checked by the guard");
+            let (start, end, recovered) = array_comment_block(&arr, &first);
+            array_rewrite_span(&arr, start, end, recovered.trim_end())
+        }
         // Uncomment a comment block: strip `#` and reparse the lines as live TOML.
         Target::Comment(first) => {
             let parent = first.parent().ok_or(MutateError::NotFound)?;
@@ -1324,4 +1351,98 @@ pub(crate) fn first_comment_token(text: &str) -> Result<SyntaxToken, MutateError
         .ok_or_else(|| MutateError::Fragment("not a comment".into()))?;
     tok.detach();
     Ok(tok)
+}
+
+/// Rewrite one byte span of an `ARRAY`'s own source and splice the reparsed
+/// array back over its slot. Token surgery inside a multiline array is
+/// brittle (taplo bakes padding into neighbouring nodes, and a comment line
+/// owns an indent token that is not part of the comment), so the remark
+/// directions below edit the array's *text* and let the parser rebuild it —
+/// the same shape JSON's `rebuild_multiline` and YAML's `rebuild_and_splice`
+/// use. `start`/`end` are absolute byte offsets into the document.
+fn array_rewrite_span(
+    arr: &SyntaxNode,
+    start: usize,
+    end: usize,
+    new_text: &str,
+) -> Result<(), MutateError> {
+    let base: usize = arr.text_range().start().into();
+    let src = arr.text().to_string();
+    let (s, e) = (start - base, end - base);
+    let mut text = String::with_capacity(src.len() + new_text.len());
+    text.push_str(&src[..s]);
+    text.push_str(new_text);
+    text.push_str(&src[e..]);
+
+    let parse = taplo::parser::parse(&format!("__a__ = {text}\n"));
+    if let Some(err) = parse.errors.first() {
+        return Err(MutateError::Fragment(err.to_string()));
+    }
+    let frag = parse.into_syntax().clone_for_update();
+    let new_arr = frag
+        .descendants()
+        .find(|n| n.kind() == SyntaxKind::ARRAY)
+        .ok_or_else(|| MutateError::Fragment("not an array".into()))?;
+    new_arr.detach();
+    let parent = arr.parent().ok_or(MutateError::NotFound)?;
+    let i = arr.index();
+    parent.splice_children(i..i + 1, vec![NodeOrToken::Node(new_arr)]);
+    Ok(())
+}
+
+/// The byte offset just past an array element's line content: the element,
+/// its `,` separator, and its own EOL comment — but not the newline. That is
+/// the span the remark direction turns into one `#` line, so a trailing
+/// comment travels with the element instead of being stranded live.
+fn array_element_line_end(arr: &SyntaxNode, value: &SyntaxNode) -> usize {
+    let els: Vec<_> = arr.children_with_tokens().collect();
+    let mut end: usize = value.text_range().end().into();
+    for e in els.iter().skip(value.index() + 1) {
+        match e {
+            NodeOrToken::Token(t) => match t.kind() {
+                SyntaxKind::COMMA | SyntaxKind::COMMENT => end = t.text_range().end().into(),
+                SyntaxKind::WHITESPACE => {}
+                _ => break,
+            },
+            _ => break,
+        }
+    }
+    end
+}
+
+/// The byte span of the consecutive `#` block starting at `first` inside an
+/// array, plus its recovered live text (each line's `# ` leader stripped,
+/// lines rejoined with the block's own indent). Consecutive comment lines
+/// merge into one projected node, so un-remarking one restores every element
+/// that was remarked into it.
+fn array_comment_block(arr: &SyntaxNode, first: &SyntaxToken) -> (usize, usize, String) {
+    let els: Vec<_> = arr.children_with_tokens().collect();
+    let start: usize = first.text_range().start().into();
+    // The block's own column: the whitespace run immediately before it.
+    let indent = match els.get(first.index().wrapping_sub(1)) {
+        Some(NodeOrToken::Token(t)) if t.kind() == SyntaxKind::WHITESPACE => t.text().to_string(),
+        _ => String::new(),
+    };
+    let mut end: usize = first.text_range().end().into();
+    let mut lines: Vec<String> = Vec::new();
+    let strip = |t: &SyntaxToken| {
+        let s = t.text().trim_start();
+        let s = s.strip_prefix('#').unwrap_or(s);
+        s.strip_prefix(' ').unwrap_or(s).to_string()
+    };
+    lines.push(strip(first));
+    for e in els.iter().skip(first.index() + 1) {
+        match e {
+            NodeOrToken::Token(t) => match t.kind() {
+                SyntaxKind::COMMENT => {
+                    lines.push(strip(t));
+                    end = t.text_range().end().into();
+                }
+                SyntaxKind::WHITESPACE | SyntaxKind::NEWLINE => {}
+                _ => break,
+            },
+            _ => break,
+        }
+    }
+    (start, end, lines.join(&format!("\n{indent}")))
 }

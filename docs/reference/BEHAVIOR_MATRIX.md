@@ -214,6 +214,14 @@ green trees have different shapes (taplo vs hand-rolled JSON vs YAML reindent). 
   normally. Document **conversion** is the stricter case: an opaque node aborts it outright.
 - **Atomic mutations.** Every mutation edits a scratch tree and commits only on success, with a
   semantic post-check — a failed edit leaves the document byte-for-byte untouched.
+- **Remark needs a line of its own.** `r` applies to any node that occupies its own line(s) — a
+  keyed member, an **array element**, a whole table/section — in all three formats, and
+  un-remarking restores the source byte-for-byte. It does **not** apply inside a single-line
+  collection (`a = [1, 2]`, `{"x": 1, "y": 2}`, `a: {x: 1}`), where a comment leader would swallow
+  the siblings; nor to a read-only node (a JSON `/* … */` block, a YAML opaque span). Every
+  backend reports the inapplicable case as **`Unsupported`** — never `Illegal` (which means a rule
+  was broken) and never `NotFound` (the node is perfectly addressable; `Delete` and `Replace` both
+  reach it). Enforced across all three formats by `tests/format_parity.rs`.
 
 ---
 
