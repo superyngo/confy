@@ -1131,7 +1131,7 @@ impl Session {
     /// no datetime type, so no node they project ever carries one of these four
     /// `ScalarType`s (a YAML date-looking scalar is a string).
     fn datetime_picker_state(&self, path: &Path) -> Option<SchemaEnumState> {
-        use super::datetime::{kind_of, parse_toml_datetime, retype, type_key, DtKind};
+        use super::datetime::{kind_of, parse_toml_datetime, retype, short_tag, type_key, DtKind};
         use crate::model::kind_label::align_options;
         let node = self.tree.node_at(path)?;
         if !matches!(
@@ -1158,8 +1158,13 @@ impl Session {
             .into_iter()
             .filter(|k| *k != current)
             .map(|k| {
+                // Second column: the bracketed KIND tag, exactly as a table's
+                // rows carry `[T/D]`/`[T/I]`. The *resulting literal* used to
+                // sit here; it is the confirm's job (`datetime::change_note`
+                // previews `old -> new` there), which keeps a picker row as
+                // short as every other kind option's.
                 let (lit, _loss) = retype(&parts, k);
-                (tr(lang, type_key(k)), lit.clone(), lit)
+                (tr(lang, type_key(k)), format!("[D:{}]", short_tag(k)), lit)
             })
             .collect(),
         );

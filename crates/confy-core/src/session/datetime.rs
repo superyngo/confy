@@ -212,6 +212,19 @@ pub(crate) fn type_key(k: DtKind) -> &'static str {
     }
 }
 
+/// The short type suffix the TUI's KIND column uses (`[D:odt ]` -> `odt`), and
+/// the picker option's second column as `[D:odt]`. Kept next to `DtKind` so
+/// the tag and the retype logic can't drift; `status_fmt::datetime_note`
+/// serves the same four strings off a `NodeKind` for the row badge.
+pub(crate) fn short_tag(k: DtKind) -> &'static str {
+    match k {
+        DtKind::OffsetDatetime => "odt",
+        DtKind::LocalDatetime => "ldt",
+        DtKind::LocalDate => "ldat",
+        DtKind::LocalTime => "ltim",
+    }
+}
+
 /// Catalog key for one loss/fill item.
 fn loss_key(l: Loss) -> &'static str {
     match l {
@@ -224,11 +237,17 @@ fn loss_key(l: Loss) -> &'static str {
     }
 }
 
-/// What changing a datetime node's value from `old` to `new` costs, as
-/// translated prose ("drops the time, drops the offset") — the disclosure the
-/// `PromptKind::TypeChange` confirm carries. `None` when either side is not a
+/// What changing a datetime node's value from `old` to `new` does, as
+/// translated prose - the disclosure the `PromptKind::TypeChange` confirm
+/// carries. Leads with a **preview of the rewritten literal**
+/// (`1979-05-27T07:32:00Z -> 1979-05-27`), then what that costs
+/// ("drops the time, drops the offset"). `None` when either side is not a
 /// datetime literal (an ordinary type change has nothing datetime-specific to
-/// say) or when the switch is free.
+/// say).
+///
+/// The preview is why the picker's own rows no longer carry the resulting
+/// literal: the confirm is the last moment before the value is rewritten, and
+/// it names one concrete outcome instead of four hypothetical ones.
 ///
 /// Derived from the *values*, not from how the edit was started, so a
 /// hand-typed `e` that happens to retype a datetime discloses the same thing
@@ -236,15 +255,17 @@ fn loss_key(l: Loss) -> &'static str {
 pub(crate) fn change_note(lang: super::i18n::Lang, old: &str, new: &str) -> Option<String> {
     let old_parts = parse_toml_datetime(old)?;
     let new_kind = kind_of(&parse_toml_datetime(new)?);
-    let (_, loss) = retype(&old_parts, new_kind);
-    if loss.is_empty() {
-        return None;
-    }
-    let notes: Vec<&str> = loss
-        .into_iter()
-        .map(|l| super::i18n::tr(lang, loss_key(l)))
-        .collect();
-    // The separator is translated too — zh-TW enumerates with `、`, not `, `.
+    let (lit, loss) = retype(&old_parts, new_kind);
+    let mut notes: Vec<String> = vec![super::i18n::tr_args(
+        lang,
+        "core.dt.preview",
+        &[old, lit.as_str()],
+    )];
+    notes.extend(
+        loss.into_iter()
+            .map(|l| super::i18n::tr(lang, loss_key(l)).to_string()),
+    );
+    // The separator is translated too - zh-TW enumerates with `、`, not `, `.
     Some(notes.join(super::i18n::tr(lang, "core.list.sep")))
 }
 

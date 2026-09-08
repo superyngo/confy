@@ -752,9 +752,17 @@ fn draw_prompt_overlay(f: &mut Frame, app: &App) {
     };
     let legend = tr(lang, legend_key);
     let text = format!("{question}\n\n{legend}");
-    let area = centered_rect(60, 3, f.area());
+    // Wrap, and size the box to the wrapped question: a `Paragraph` without
+    // `Wrap` truncates at the right edge, which silently ate the tail of the
+    // TypeChange note (the datetime confirm now previews `old → new` *and*
+    // lists what that costs). Display width, not `chars()`, so a zh-TW prompt
+    // gets the rows its double-width glyphs actually need.
+    use unicode_width::UnicodeWidthStr;
+    let inner_w = (f.area().width as usize * 60 / 100).max(1);
+    let q_rows = question.width().div_ceil(inner_w).max(1) as u16;
+    let area = centered_rect(60, q_rows + 2, f.area());
     f.render_widget(Clear, area);
-    let paragraph = Paragraph::new(text).style(
+    let paragraph = Paragraph::new(text).wrap(Wrap { trim: true }).style(
         Style::default()
             .bg(Color::Red)
             .fg(Color::White)

@@ -58,8 +58,13 @@ pub fn badge_label_note(
         "float" => "float",
         "bool" => "bool",
         "null" => "null",
-        "offsetdatetime" | "localdatetime" | "localdate" => "date",
-        "localtime" => "time",
+        // All four TOML datetime types share the `date` label and are told
+        // apart by the note (`odt`/`ldt`/`ldat`/`ltim`, the same suffixes the
+        // TUI's KIND column uses). `Format` carries no datetime notation, so
+        // without this three of them badged a bare `date` and a local time a
+        // bare `time` - unreadable next to `int·0x`/`str·'…'`, which always
+        // name their variant.
+        "offsetdatetime" | "localdatetime" | "localdate" | "localtime" => "date",
         other => other, // "" (root), "comment" pass through unchanged
     };
     let container_note = |fmt: Format| -> &'static str {
@@ -113,6 +118,8 @@ pub fn badge_label_note(
         } else {
             container_note(format)
         }
+    } else if let Some(t) = datetime_note(kind) {
+        t
     } else {
         let s = notation_short(format);
         if !s.is_empty() {
@@ -124,6 +131,21 @@ pub fn badge_label_note(
         }
     };
     (label, note)
+}
+
+/// The badge note for a datetime scalar - the short type suffix the TUI's KIND
+/// column already uses (`[D:odt ]` -> `odt`). `None` for every other kind.
+/// Shared with the `K` datetime picker, whose option rows carry the bracketed
+/// `[D:…]` form as their second column exactly as a table's rows carry
+/// `[T/D]`.
+pub fn datetime_note(kind: &NodeKind) -> Option<&'static str> {
+    Some(match kind {
+        NodeKind::Scalar(ScalarType::OffsetDatetime) => "odt",
+        NodeKind::Scalar(ScalarType::LocalDatetime) => "ldt",
+        NodeKind::Scalar(ScalarType::LocalDate) => "ldat",
+        NodeKind::Scalar(ScalarType::LocalTime) => "ltim",
+        _ => return None,
+    })
 }
 
 /// The full type label for a node kind (matches node_type_label in app.rs).

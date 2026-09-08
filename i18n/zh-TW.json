@@ -4,6 +4,7 @@
   "core.dt.target.local-datetime": "本地日期時間",
   "core.dt.target.local-date": "本地日期",
   "core.dt.target.local-time": "本地時間",
+  "core.dt.preview": "{0} → {1}",
   "core.dt.loss.dropped-date": "丟失日期",
   "core.dt.loss.dropped-time": "丟失時間",
   "core.dt.loss.dropped-offset": "丟失時區",

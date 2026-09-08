@@ -430,6 +430,11 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
                    source of every host's kind badge — a container's label is the outline
                    glyph, the notation goes in the note, and the `doc: DocFormat` exists so
                    YAML's `Format::Inline` reads `flow` while TOML/JSON read `inline`
+                   (`datetime_note` gives the four TOML datetime types the note
+                   `Format` can't: `date·odt`/`date·ldt`/`date·ldat`/`date·ltim`,
+                   the TUI KIND column's own suffixes, and the `K` picker's rows
+                   carry the bracketed `[D:…]` form as their second column just
+                   as a table's carry `[T/D]`)
     state.rs       Mode, PendingCommit, PendingExternalEdit, EditKind, EditState, History,
                    Clipboard, PasteSlot, FilterLayer, …
     selection.rs   Selection (path-keyed multi-select + range rounds)

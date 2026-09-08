@@ -4,6 +4,7 @@
   "core.dt.target.local-datetime": "local datetime",
   "core.dt.target.local-date": "local date",
   "core.dt.target.local-time": "local time",
+  "core.dt.preview": "{0} → {1}",
   "core.dt.loss.dropped-date": "drops the date",
   "core.dt.loss.dropped-time": "drops the time",
   "core.dt.loss.dropped-offset": "drops the offset",

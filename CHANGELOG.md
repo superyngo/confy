@@ -8,6 +8,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-08 (5)
+
+**Changed**
+
+- **A TOML datetime's badge now names its type, borrowing the TUI KIND column's vocabulary:**
+  `date·odt` / `date·ldt` / `date·ldat` / `date·ltim`. `Format` carries no datetime notation, so
+  three of the four used to badge a noteless `date` and a local time a noteless `time` — the only
+  scalars whose badge didn't name their own variant, next to `int·0x` and `str·'…'`.
+
+- **The `K` datetime option row is now `name  [D:tag]`**, exactly the two-column shape a notation
+  row has (`dotted table  [T/D]`), instead of carrying the resulting literal.
+
+- **The TypeChange confirm previews the rewritten value:** `type offsetdatetime → localdate?
+  (1979-05-27T07:32:00Z → 1979-05-27, drops the time, drops the offset)`. That is the last moment
+  before the value changes, and it names **one** concrete outcome instead of four hypothetical
+  ones — so the picker rows stay short and the disclosure gets more room, not less.
+
+**Fixed**
+
+- **The TUI's prompt overlay no longer truncates.** It was a `Paragraph` with no `Wrap` in a
+  fixed 3-row box, so a long question lost its tail at the right edge (the new preview made this
+  visible). It now wraps and sizes its box from the question's *display* width, so a zh-TW
+  confirm gets the rows its double-width glyphs need.
+
 ### Unreleased Update - 2026-09-08 (4)
 
 **Fixed**

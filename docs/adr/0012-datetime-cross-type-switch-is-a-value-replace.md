@@ -145,3 +145,30 @@ and it survives re-renders only by accident (every `SchemaEnumMove` re-enters th
 
 This is the honest correction of the "zero host changes" claim: the *mode* was free, the
 *presentation* was not.
+
+## Amendment 3 (2026-09-08) — the badge names the type; the option row is a tag; the confirm previews the value
+
+Amendment 1 put the *resulting literal* in the option's second column. That was still the wrong
+column, for a reason the badge made obvious: `Format` carries no datetime notation, so three of
+the four types badged a noteless `date` and a local time a noteless `time` — the only scalars
+whose badge didn't name their own variant, sitting next to `int·0x` and `str·'…'`.
+
+All three surfaces now use one vocabulary, the TUI KIND column's:
+
+| surface | before | now |
+|---|---|---|
+| row badge | `date` (all three), `time` | `date·odt` / `date·ldt` / `date·ldat` / `date·ltim` |
+| `K` option row | `local date      1979-05-27` | `local date      [D:ldat]` |
+| TypeChange confirm | `(drops the time, drops the offset)` | `(1979-05-27T07:32:00Z → 1979-05-27, drops the time, drops the offset)` |
+
+The option row now reads exactly like a notation row (`dotted table  [T/D]`), and the concrete
+outcome moved to the last moment before the rewrite — where **one** value is at stake instead of
+four hypothetical ones, and where there is room for it. `status_fmt::datetime_note` (badge) and
+`datetime::short_tag` (picker/tag) are the two sides of the same four strings, kept next to the
+data each serves.
+
+One consequence worth recording: the TUI's prompt overlay was a `Paragraph` with **no `Wrap`**
+and a fixed 3-row box, so it truncated at the right edge — the longer note lost its tail
+silently. It now wraps and sizes its box from the question's *display* width, so a zh-TW confirm
+gets the rows its double-width glyphs need. Any prompt could have hit this; the preview is only
+what surfaced it.

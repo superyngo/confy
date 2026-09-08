@@ -3228,12 +3228,38 @@ id = 1
     }
 }
 
+/// All four TOML datetime types badge as `date` + their KIND suffix. `Format`
+/// carries no datetime notation, so three of them used to badge a noteless
+/// `date` and a local time a noteless `time` - the only scalars whose badge
+/// didn't name their variant.
+#[test]
+fn datetime_badge_names_its_type_in_the_note() {
+    let src = "\
+odt = 1979-05-27T07:32:00Z
+ldt = 1979-05-27T07:32:00
+ldat = 1979-05-27
+ltim = 07:32:00
+";
+    let mut s = toml_session(src);
+    s.expand_all();
+    let rows = s.visible_rows();
+    for key in ["odt", "ldt", "ldat", "ltim"] {
+        let row = rows.iter().find(|r| r.key == key).expect("row");
+        assert_eq!(
+            (row.badge_label.as_ref(), row.badge_note.as_ref()),
+            ("date", key),
+            "{key}"
+        );
+    }
+}
+
 // ---- Datetime kind switch (ADR 0012) ----
 
 /// `K` on a TOML datetime opens the SchemaEnum *picker* (not `Mode::KindSwitch`),
-/// listing the three other datetime types with their rendered literal and the
-/// loss/fill disclosure. Committing goes through `edit_commit`, so the existing
-/// TypeChange prompt gates it.
+/// listing the three other datetime types as `name  [D:tag]` - the same
+/// two-column shape a notation list uses (`dotted table  [T/D]`). Neither the
+/// resulting literal nor the loss disclosure rides in the row; both belong to
+/// the confirm.
 #[test]
 fn kind_switch_on_a_datetime_offers_the_other_three_types() {
     let mut s = toml_session("odt = 1979-05-27T07:32:00Z\n");
@@ -3252,21 +3278,20 @@ fn kind_switch_on_a_datetime_offers_the_other_three_types() {
     };
     assert_eq!(labels.len(), 3, "the current type is excluded: {labels:?}");
     let joined = labels.join(" | ");
+    assert!(joined.contains("local datetime  [D:ldt]"), "{joined}");
+    assert!(joined.contains("local date      [D:ldat]"), "{joined}");
+    assert!(joined.contains("local time      [D:ltim]"), "{joined}");
     assert!(
-        joined.contains("local datetime  1979-05-27T07:32:00"),
-        "{joined}"
+        !joined.contains("1979"),
+        "the resulting literal is the confirm's preview, not the row's: {joined}"
     );
-    assert!(joined.contains("local date      1979-05-27"), "{joined}");
-    assert!(joined.contains("local time      07:32:00"), "{joined}");
-    // The cost disclosure belongs to the confirm prompt, not the option row:
-    // an option reads exactly like every other kind option (`name  sample`).
     assert!(
         !joined.contains("drops the"),
         "loss notes must not ride along in the label: {joined}"
     );
 }
 
-/// Every option's sample column starts at the same offset — the same
+/// Every option's tag column starts at the same offset - the same
 /// `align_options` helper the notation `kind_options` lists go through.
 #[test]
 fn datetime_picker_labels_align_their_sample_column() {
@@ -3278,11 +3303,11 @@ fn datetime_picker_labels_align_their_sample_column() {
     };
     let cols: Vec<usize> = options
         .iter()
-        .map(|l| l.find(char::is_numeric).expect("a literal"))
+        .map(|l| l.find('[').expect("a KIND tag"))
         .collect();
     assert!(
         cols.windows(2).all(|w| w[0] == w[1]),
-        "sample column not aligned: {options:?}"
+        "tag column not aligned: {options:?}"
     );
 }
 
@@ -3298,6 +3323,10 @@ fn datetime_type_change_prompt_discloses_the_loss() {
     let ModeView::Prompt { question, .. } = &snap.mode else {
         panic!("expected the confirm, got {:?}", snap.mode);
     };
+    assert!(
+        question.contains("1979-05-27T07:32:00Z → 1979-05-27"),
+        "the confirm previews the rewritten literal: {question}"
+    );
     assert!(question.contains("drops the time"), "{question}");
     assert!(question.contains("drops the offset"), "{question}");
 }
@@ -3343,26 +3372,21 @@ fn datetime_switch_declined_changes_nothing() {
 }
 
 /// A widening switch fills the missing component instead of failing: the
-/// option shows the *resulting* literal, and the confirm names the fill.
+/// confirm previews the resulting literal and names the fill.
 #[test]
 fn datetime_switch_widens_a_local_date_by_filling_midnight() {
     let mut s = toml_session("d = 1979-05-27\n");
     s.dispatch(Intent::CursorDown);
-    let snap = s.dispatch(Intent::OpenKindSwitch);
-    let ModeView::SchemaEnum { options, .. } = &snap.mode else {
-        panic!("expected the picker, got {:?}", snap.mode);
-    };
-    let label = options
-        .iter()
-        .find(|l| l.starts_with("local datetime"))
-        .expect("local datetime option")
-        .clone();
-    assert!(label.contains("1979-05-27T00:00:00"), "{label}");
+    s.dispatch(Intent::OpenKindSwitch);
     s.dispatch(Intent::SchemaEnumMove(1)); // local datetime
     let snap = s.dispatch(Intent::SchemaEnumCommit);
     let ModeView::Prompt { question, .. } = &snap.mode else {
         panic!("expected the confirm, got {:?}", snap.mode);
     };
+    assert!(
+        question.contains("1979-05-27 → 1979-05-27T00:00:00"),
+        "{question}"
+    );
     assert!(question.contains("fills 00:00:00"), "{question}");
 }
 
@@ -3371,21 +3395,16 @@ fn datetime_switch_widens_a_local_date_by_filling_midnight() {
 fn datetime_switch_fills_an_absent_date_from_the_clock() {
     let mut s = toml_session("t = 07:32:00\n");
     s.dispatch(Intent::CursorDown);
-    let snap = s.dispatch(Intent::OpenKindSwitch);
-    let ModeView::SchemaEnum { options, .. } = &snap.mode else {
-        panic!("expected the picker, got {:?}", snap.mode);
-    };
-    let label = options
-        .iter()
-        .find(|l| l.starts_with("local date "))
-        .expect("local date option")
-        .clone();
-    assert!(!label.contains("1970-01-01"), "stub date leaked: {label}");
+    s.dispatch(Intent::OpenKindSwitch);
     s.dispatch(Intent::SchemaEnumMove(2)); // local date
     let snap = s.dispatch(Intent::SchemaEnumCommit);
     let ModeView::Prompt { question, .. } = &snap.mode else {
         panic!("expected the confirm, got {:?}", snap.mode);
     };
+    assert!(
+        !question.contains("1970-01-01"),
+        "stub date leaked: {question}"
+    );
     assert!(question.contains("fills today's date"), "{question}");
 }
 

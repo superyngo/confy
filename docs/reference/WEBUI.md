@@ -171,7 +171,10 @@ shapes round-trip). Key types:
   (label + notation suffix + chevron). A container's label is an **outline glyph** —
   `{}` for every table/map notation, `[]` for every array/sequence notation — so the
   badge reads `{}·scope`/`{}·dotted`/`{}·inline`/`[]·multi`/`[]·AoT`, YAML `·block`/`·flow`;
-  a scalar keeps its short word (`str·"…"`, `int·0x`, `float·1e`, …). The kind as a
+  a scalar keeps its short word (`str·"…"`, `int·0x`, `float·1e`, …), and a TOML datetime
+  names its type in the note (`date·odt`/`date·ldt`/`date·ldat`/`date·ltim` — the TUI KIND
+  column's suffixes; `Format` carries no datetime notation, so without them three of the four
+  badged a noteless `date`). The kind as a
   **word** (`table · inline`) lives in the badge's hover tooltip and the detail panel's
   Kind field, the two surfaces with room for one. Then comment/trailing decoration, and
   hover action buttons flush right — a **drag grip only**: node operations live in the
