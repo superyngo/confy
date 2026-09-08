@@ -316,19 +316,14 @@ fn a_rejected_mutation_changes_nothing_in_every_format() {
             DocFormat::Yaml => "x: 1\n",
         };
         let mut d = doc(f, src);
-        // Each backend gets a fragment its own grammar rejects. They differ
-        // more than they should: TOML and JSON reject an unterminated string,
-        // while the YAML backend accepts `"unclosed` (and `[1, `) as a plain
-        // scalar and does no fragment validation at all — F14. A tab is the
-        // one thing it does reject, so that is YAML's case here.
-        let fragment = match f {
-            DocFormat::Toml | DocFormat::Json => d.scalar_fragment(Some("x"), "\"unclosed"),
-            DocFormat::Yaml => "x:\n\tbad".to_string(),
-        };
+        // One fragment, rejected by all three grammars: two nodes where a
+        // single value belongs. (This used to need a per-format fork — the
+        // YAML backend validated nothing and silently kept the first node,
+        // dropping the rest. F14.)
         let err = d
             .apply(Mutation::Replace {
                 path: vec![Seg::Key("x".into())],
-                fragment,
+                fragment: "1\n2".into(),
             })
             .unwrap_err();
         assert!(
@@ -342,5 +337,33 @@ fn a_rejected_mutation_changes_nothing_in_every_format() {
             "{}: document mutated on failure",
             name(f)
         );
+    }
+}
+
+/// A fragment carrying more than one node never loses the surplus. Silent
+/// truncation is worse than a rejection: the user's text is gone with no
+/// message, and in YAML's case the survivor was corrupt as well (`x: x: a`).
+#[test]
+fn a_multi_node_fragment_is_rejected_in_every_format() {
+    for f in ALL {
+        let src = match f {
+            DocFormat::Toml => "x = 1\nz = 9\n",
+            DocFormat::Json => "{\n  \"x\": 1,\n  \"z\": 9\n}\n",
+            DocFormat::Yaml => "x: 1\nz: 9\n",
+        };
+        for surplus in ["2\ny: b", "a\n# c", "x: a\ny: b"] {
+            let mut d = doc(f, src);
+            assert!(
+                d.apply(Mutation::Replace {
+                    path: vec![Seg::Key("x".into())],
+                    fragment: surplus.into(),
+                })
+                .is_err(),
+                "{}: accepted a multi-node fragment {surplus:?} -> {:?}",
+                name(f),
+                d.serialize()
+            );
+            assert_eq!(d.serialize(), src, "{}: mutated on failure", name(f));
+        }
     }
 }

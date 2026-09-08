@@ -8,6 +8,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-09 (26)
+
+**A YAML fragment is one node, and the surplus is no longer thrown away**
+
+F14, opened yesterday's-commit-ago while measuring the Remark parity work. The 定性 pass on it
+**overturned half the filing** — worth recording, because the correction is the interesting part.
+
+Filed claim: the YAML backend accepts `Replace` fragments its own grammar rejects, listing
+`"unclosed`, `[1, `, `{a: ` and a two-entry `x: a\ny: b`. Measured against the **loader**:
+
+| fragment | `Replace` | `from_str_as` (load from disk) |
+|---|---|---|
+| `x: "unclosed` | `Ok` | **`Ok`** |
+| `x: [1, ` | `Ok` | **`Ok`** |
+| `x: {a: ` | `Ok` | **`Ok`** |
+
+The loader accepts all three too. The subset lexer is lenient **by design** — nearly any text is
+a legal YAML plain scalar — so `Replace` and load already agree, and tightening one without the
+other would produce a value you can open but cannot retype. Those three rows are **not a defect**;
+they moved to the backlog's *Watching* section with that reasoning attached.
+
+What is left is a real one, and it is **silent data loss**:
+
+| fragment on `x: 1` / `z: 9` | before | after |
+|---|---|---|
+| `x: a` + `y: b` | `x: x: a` — corrupt **and** `y: b` gone | `Err(Fragment)` |
+| `2` + `y: b` | `x: 2` — surplus gone, no message | `Err(Fragment)` |
+| `[1, 2]` + `y: b` | `x: [1, 2]` — surplus gone | `Err(Fragment)` |
+| `a` + `# c` | `x: a` — comment gone | `Err(Fragment)` |
+
+`parse_value_fragment` extracted the first value node and never checked what followed it. It now
+asserts the value covers the whole wrapped fragment; anything left over is
+`Fragment("fragment must be a single value")`. Legal multiline values are unaffected — literal
+`|`, folded `>`, and flow `{…}`/`[…]` all still replace normally.
+
+**Reproduced on the real binary** with a fake `$EDITOR` writing two lines, identical keystrokes
+(`9jE`, then `w`): before, `x: 1 / z: 9` became `x: x: a / z: 9` and the save succeeded; after,
+the status line reads *invalid YAML: fragment must be a single value* followed by *no changes to
+save*, and the file is untouched.
+
+`BEHAVIOR_MATRIX.md` §8 gains the invariant — **a fragment is exactly one node** — and
+`tests/format_parity.rs` gains a 10th behavior asserting it across all three formats. The
+per-format fork the suite carried for this defect is **gone**: `1\n2` is now rejected by all
+three, so the atomic-failure case runs one shared fragment as originally intended.
+
+Also observed, recorded not fixed: JSON returns `Illegal` where TOML and YAML return `Fragment`
+for the same class of bad input — the same variant confusion F1 cleaned up for Remark. Folded
+into F8 (`MutateError` taxonomy) rather than patched per-backend.
+
 ### Unreleased Update - 2026-09-09 (25)
 
 **One gesture, three formats, one outcome — and a suite that keeps it that way**

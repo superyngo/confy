@@ -214,6 +214,10 @@ green trees have different shapes (taplo vs hand-rolled JSON vs YAML reindent). 
   normally. Document **conversion** is the stricter case: an opaque node aborts it outright.
 - **Atomic mutations.** Every mutation edits a scratch tree and commits only on success, with a
   semantic post-check — a failed edit leaves the document byte-for-byte untouched.
+- **A fragment is exactly one node.** `Insert`/`Replace` take one node's text; anything past it
+  is rejected (`Fragment`), never silently dropped. This matters most in YAML, whose subset
+  grammar is deliberately lenient — nearly any text lexes as a plain scalar, so a two-node
+  fragment parses happily and the surplus would vanish without a message.
 - **Remark needs a line of its own.** `r` applies to any node that occupies its own line(s) — a
   keyed member, an **array element**, a whole table/section — in all three formats, and
   un-remarking restores the source byte-for-byte. It does **not** apply inside a single-line

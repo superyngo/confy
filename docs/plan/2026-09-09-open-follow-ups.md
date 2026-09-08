@@ -25,34 +25,6 @@ Effort is XS (< 1 h) / S (a session) / M (multi-session).
 
 ## Open
 
-### F14 — The YAML backend does not validate a `Replace` fragment
-
-Priority **P1** · Effort **S** · Opened 2026-09-09 (found while closing F1/F2)
-
-`YamlDocument`'s `apply` accepts fragments its own grammar rejects, because the subset parser
-treats almost anything as a plain scalar and nothing re-checks the result. Measured on
-`x: 1` with a value `Replace`:
-
-| fragment | TOML/JSON | YAML |
-|---|---|---|
-| `"unclosed` (unterminated string) | `Err(Fragment)` | **`Ok`** → `x: "unclosed` |
-| `[1, ` (unterminated flow seq) | `Err(Fragment)` | **`Ok`** → `x: [1, ` |
-| `{a: ` (unterminated flow map) | `Err(Fragment)` | **`Ok`** → `x: {a: ` |
-| `x: a` + `y: b` (two entries) | `Err` | **`Ok`** → `x: x: a` — the sibling is lost |
-
-The last row is the serious one: a two-entry fragment silently collapses into a single corrupt
-`x: x: a` line. Only a literal tab is rejected (`unconsumed \t (INDENT) at top level`).
-
-This does not break the atomic-commit promise — the commit is atomic, its *input* is just never
-checked — but it does mean the YAML backend can write a document it would not itself have
-accepted from disk. `tests/format_parity.rs`'s
-`a_rejected_mutation_changes_nothing_in_every_format` documents the asymmetry today by handing
-YAML the tab case; that per-format fork is the marker to delete when this lands.
-
-**Acceptance.** A `Replace`/`Insert` fragment that does not parse as a complete, single YAML
-node is `Err(Fragment)`. The parity test drops its YAML-specific fragment and uses the shared
-unterminated-string case.
-
 ### F3 — TUI `~` diag overlay shows the oldest 20 events
 
 Priority **P2** · Effort **XS** · Verified 2026-09-09 · From `MESSAGES.md` §8
@@ -210,6 +182,15 @@ optionally `CARGO_INCREMENTAL=0` for the test path.
   rename's literal with their own key lexer. Not a live defect — JSON keys are always quoted, so
   the trait default coincides — but it is the last asymmetry in that area, and it would become a
   defect if JSON ever grew unquoted keys.
+- **The YAML subset lexer accepts unterminated scalars.** `x: "unclosed`, `x: [1, ` and
+  `x: {a: ` all lex as plain scalars. This was filed as half of F14 and is **not** a defect:
+  `AnyDocument::from_str_as` accepts the same text from disk, so `Replace` and load agree.
+  Tightening one without the other would mean a value you can open but cannot retype. Only
+  fix these together, and only if the subset parser is made strict on purpose.
+- **`MutateError` variant choice on a bad fragment is still uneven.** JSON returns
+  `Illegal("expected R_BRACE, found None")` where TOML and YAML return `Fragment(…)` for the
+  same class of input. Same family as F1's `Unsupported`/`Illegal` split; fold into F8
+  (`MutateError` taxonomy) rather than patching per-backend.
 
 ---
 
@@ -220,5 +201,6 @@ optionally `CARGO_INCREMENTAL=0` for the test path.
 | 2026-09-09 | Double serialize per mutation — `sync_schema_hint` now takes the text | `57630e4` |
 | 2026-09-09 | TOML `Move` quadratic — live-index release in `move_nodes`/`delete`, −48% | `57630e4` |
 | 2026-09-09 | JSON/JSONC parser-simplification plan — premise refuted, both halves already done | (record closed) |
-| 2026-09-09 | **F1** Remark semantics unified — own-line rule, uniform `Unsupported`, array elements now remarkable in TOML+JSON | (this commit) |
-| 2026-09-09 | **F2** 3-format parity suite — `tests/format_parity.rs`, 9 behaviors, exhaustive-`match` fixtures | (this commit) |
+| 2026-09-09 | **F1** Remark semantics unified — own-line rule, uniform `Unsupported`, array elements now remarkable in TOML+JSON | `72805c0` |
+| 2026-09-09 | **F2** 3-format parity suite — `tests/format_parity.rs`, 9 behaviors, exhaustive-`match` fixtures | `72805c0` |
+| 2026-09-09 | **F14** YAML `Replace` silently dropped everything past the first node — now `Fragment("fragment must be a single value")`; two of the four filed rows were misdiagnosed and moved to *Watching* | (this commit) |

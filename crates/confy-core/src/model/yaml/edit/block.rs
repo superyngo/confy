@@ -380,7 +380,7 @@ pub(crate) fn parse_value_fragment(fragment: &str) -> Result<SyntaxNode, MutateE
         .find(|n| n.kind() == SyntaxKind::MAP_ENTRY)
         .ok_or_else(|| MutateError::Fragment("could not parse value fragment".into()))?;
     // The value child is MAPPING, SEQUENCE, or VALUE.
-    entry
+    let value = entry
         .children()
         .find(|c| {
             matches!(
@@ -388,8 +388,23 @@ pub(crate) fn parse_value_fragment(fragment: &str) -> Result<SyntaxNode, MutateE
                 SyntaxKind::MAPPING | SyntaxKind::SEQUENCE | SyntaxKind::VALUE
             )
         })
-        .map(|n| n.clone_for_update())
-        .ok_or_else(|| MutateError::Fragment("fragment has no value".into()))
+        .ok_or_else(|| MutateError::Fragment("fragment has no value".into()))?;
+    // The value must consume the whole fragment. YAML's subset grammar is
+    // deliberately lenient — almost any text lexes as a plain scalar — so a
+    // fragment carrying more than one node parses happily and the surplus is
+    // then silently dropped by the splice. `a\ny: b` used to land as `x: a`
+    // (the sibling lost) and `x: a\ny: b` as a corrupt `x: x: a`. Anything the
+    // value node does not cover is the caller's content going missing, so
+    // reject instead of writing a document the user did not ask for.
+    if !src[usize::from(value.text_range().end())..]
+        .trim()
+        .is_empty()
+    {
+        return Err(MutateError::Fragment(
+            "fragment must be a single value".into(),
+        ));
+    }
+    Ok(value.clone_for_update())
 }
 
 /// Delete a map entry, sequence element, or standalone comment block.
