@@ -8,6 +8,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-08 (9)
+
+**Changed**
+
+- **A node and the blank lines after it are now edited as one package in the multiline editor —
+  and that is the only way to change them.** Opening the editor on any node (TUI `$EDITOR`,
+  web/touch pop-up, VS Code) shows its trailing blank lines as literal empty lines at the end of
+  the buffer; add lines to grow the run, delete them to remove it. The two Action-menu items
+  **Add a blank line after** / **Remove a blank line after**, `Intent::SetTrailingBlank`,
+  `ActionId::BlankAdd`/`BlankRemove` and the `PromptKind::BlankReparent` confirmation are all
+  **removed**: stepping a hidden counter ±1 from a menu was blind and needed a prompt to explain
+  what it was about to do, where the buffer simply shows it. The read-only **Blank after**
+  readout (TUI `i` Detail popup, web/touch panel) stays.
+- Behavior before this change was inconsistent per backend and one-directional: the buffer never
+  contained the run, and a returned buffer's stray trailing newlines landed inside a TOML
+  section's `Replace` span (so blanks could be *added* after a table) but were dropped entirely
+  for a scalar entry (whose `Replace` only swaps the value token). Removing a blank line from the
+  editor was impossible in every backend.
+- The buffer now has exactly one producer for every host,
+  `Session::multiline_edit_initial(path)` (fragment + `trailing_blank_lines`, via
+  `blank_lines::with_trailing_run`); the TUI no longer builds its own `$EDITOR` initial, and the
+  keyless-element wrap (`scalar_fragment(None, …)`) moved into core's `apply_external_replace`,
+  which now takes `wrap_element` — it has to run *after* the blank split or it would eat the run.
+- The node's own splice runs **first**, the blank run second (a TOML section's extent swallows
+  its separator blanks, so only a later pass can normalize them), and both fold into a **single**
+  `on_mutation_success` — one undo step for the whole package. An untouched buffer applied back
+  is byte-identical; an invalid fragment leaves the document, blank run included, untouched.
+- Comment nodes go through the same package: the blanks are split off before
+  `Mutation::EditComment`, which would otherwise splice them *inside* the comment block — where a
+  blank line breaks it into two projected nodes.
+
+**Notes**
+
+- This supersedes the "Rejected alternative: carrying blank lines in the `$EDITOR` buffer" note
+  in *Unreleased Update - 2026-09-07 (4)*. All three of its objections resolve: the multiline
+  editor opens for **any** node, not just containers and multiline scalars (`E` /
+  `BeginEditExternal` on a plain scalar is a supported path, verified on the real binary); the
+  comment a TOML 0↔1 blank change re-parents is *visible in the buffer*, since a section's
+  extent reaches the next header, so nothing is silent; and blank runs still never enter
+  `serialize_fragment`, so a copied fragment does not carry the spacing of where it came from.
+- Known edge: a buffer that also **renames** the node's key leaves the run as the node's own
+  splice left it — by then the path no longer resolves. Same pre-existing limitation as a
+  renamed node's trailing comment.
+- Known edge (YAML): the trailing blanks of a `|+` keep-chomped block scalar are semantically
+  part of its value but sit outside the node's fragment, so they are packaged as the node's
+  blank run. Round-trip is byte-identical; only a deliberate edit changes the value.
+- i18n: `core.action.blank-add`, `core.action.blank-remove`, `core.blank.set`,
+  `core.blank.unsupported`, `core.prompt.blank-reparent`, `web.prompt.title.blankReparent`,
+  `web.prompt.btn.continue` and `tui.prompt.blank-reparent.legend` are retired from both
+  catalogs; `core.blank.error` remains for a failed blank splice.
+
 ### Unreleased Update - 2026-09-08 (8)
 
 **Fixed**

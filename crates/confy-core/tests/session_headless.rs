@@ -3456,163 +3456,183 @@ fn yaml_date_looking_scalar_gets_no_datetime_picker() {
     }
 }
 
-// ---- Trailing blank lines ----
+// ---- Trailing blank lines: the multiline-editor package ----
+//
+// A node and the blank lines after it are edited as ONE package: the buffer the
+// host opens carries the run as literal empty lines, and the commit splits them
+// back off. There is no separate "add/remove a blank line" operation.
 
-/// `Intent::SetTrailingBlank` is a *relative* step clamped at zero, so one
-/// menu item both grows and removes the run.
+/// Routes the external editor and returns `(value path, buffer)`.
+fn open_editor(s: &mut Session) -> (Vec<Seg>, String) {
+    let snap = s.dispatch(Intent::BeginEditExternal);
+    let ext = snap
+        .external_edit
+        .expect("BeginEditExternal routes external");
+    let path = match ext.kind {
+        confy_core::session::ExternalEditKind::Value { path } => path,
+        confy_core::session::ExternalEditKind::Comment { path } => path,
+    };
+    (path, ext.initial)
+}
+
 #[test]
-fn set_trailing_blank_steps_and_clamps_at_zero() {
+fn editor_buffer_packages_the_trailing_blank_run() {
+    let mut s = toml_session("a = 1\n\n\nb = 2\n");
+    s.dispatch(Intent::CursorDown);
+    let (_, buf) = open_editor(&mut s);
+    assert_eq!(buf, "a = 1\n\n\n", "two blank lines are part of the buffer");
+}
+
+#[test]
+fn editor_buffer_grows_and_removes_the_run() {
     let mut s = toml_session("a = 1\nb = 2\n");
     s.dispatch(Intent::CursorDown);
-    s.dispatch(Intent::SetTrailingBlank(1));
-    assert_eq!(s.serialize().unwrap(), "a = 1\n\nb = 2\n");
-    s.dispatch(Intent::SetTrailingBlank(1));
+    let (path, buf) = open_editor(&mut s);
+    assert_eq!(buf, "a = 1\n");
+    s.dispatch(Intent::ApplyReplace {
+        path,
+        text: "a = 1\n\n\n".to_string(),
+    });
     assert_eq!(s.serialize().unwrap(), "a = 1\n\n\nb = 2\n");
-    s.dispatch(Intent::SetTrailingBlank(-1));
-    s.dispatch(Intent::SetTrailingBlank(-1));
-    assert_eq!(s.serialize().unwrap(), "a = 1\nb = 2\n");
-    // Already zero: a further decrement is a no-op, not an error.
-    s.dispatch(Intent::SetTrailingBlank(-1));
+    // …and back down again — the same buffer both grows and clears the run.
+    let (path2, buf2) = open_editor(&mut s);
+    assert_eq!(buf2, "a = 1\n\n\n");
+    s.dispatch(Intent::ApplyReplace {
+        path: path2,
+        text: "a = 1\n".to_string(),
+    });
     assert_eq!(s.serialize().unwrap(), "a = 1\nb = 2\n");
 }
 
+/// An untouched buffer applied back is byte-identical — the run is normalized
+/// to the count it already had, not doubled or dropped.
 #[test]
-fn set_trailing_blank_is_undoable_on_its_own() {
+fn editor_round_trip_of_an_untouched_buffer_changes_nothing() {
+    for src in [
+        "a = 1\n\n\nb = 2\n",
+        "[t]\nx = 1\n\n[u]\ny = 2\n",
+        "arr = [\n  1,\n\n  2,\n]\n",
+    ] {
+        let mut s = toml_session(src);
+        s.dispatch(Intent::CursorDown);
+        let (path, buf) = open_editor(&mut s);
+        s.dispatch(Intent::ApplyReplace { path, text: buf });
+        assert_eq!(s.serialize().unwrap(), src, "round trip of {src:?}");
+    }
+}
+
+/// The node's own splice and its blank run land as ONE undo step.
+#[test]
+fn editor_value_and_blank_change_undo_together() {
     let mut s = toml_session("a = 1\nb = 2\n");
     s.dispatch(Intent::CursorDown);
-    s.dispatch(Intent::SetTrailingBlank(1));
+    let (path, _) = open_editor(&mut s);
+    s.dispatch(Intent::ApplyReplace {
+        path,
+        text: "a = 9\n\n".to_string(),
+    });
+    assert_eq!(s.serialize().unwrap(), "a = 9\n\nb = 2\n");
     s.dispatch(Intent::Undo);
-    assert_eq!(s.serialize().unwrap(), "a = 1\nb = 2\n");
-    s.dispatch(Intent::Redo);
-    assert_eq!(s.serialize().unwrap(), "a = 1\n\nb = 2\n");
-}
-
-/// It never disturbs the node's value or trailing comment.
-#[test]
-fn set_trailing_blank_preserves_the_value_and_trailing_comment() {
-    let mut s = toml_session("a = 1  # keep\nb = 2\n");
-    s.dispatch(Intent::CursorDown);
-    s.dispatch(Intent::SetTrailingBlank(1));
-    assert_eq!(s.serialize().unwrap(), "a = 1  # keep\n\nb = 2\n");
-}
-
-/// The Action menu carries both directions on every host (ADR 0009).
-#[test]
-fn action_menu_offers_both_blank_line_items() {
-    let mut s = toml_session("a = 1\nb = 2\n");
-    s.dispatch(Intent::CursorDown);
-    let snap = s.dispatch(Intent::OpenActionMenu);
-    let ModeView::ActionMenu { items, .. } = &snap.mode else {
-        panic!("expected the action menu, got {:?}", snap.mode);
-    };
-    let enabled: Vec<&str> = items
-        .iter()
-        .filter(|i| i.enabled)
-        .map(|i| i.label.as_str())
-        .collect();
-    assert!(enabled.contains(&"Add a blank line after"), "{enabled:?}");
-    // Nothing to remove yet, so the remove item is present but disabled.
-    let remove = items
-        .iter()
-        .find(|i| i.label == "Remove a blank line after")
-        .expect("remove item listed");
-    assert!(!remove.enabled, "remove is disabled at zero blanks");
-    s.dispatch(Intent::Escape);
-    s.dispatch(Intent::SetTrailingBlank(1));
-    let snap = s.dispatch(Intent::OpenActionMenu);
-    let ModeView::ActionMenu { items, .. } = &snap.mode else {
-        panic!("expected the action menu");
-    };
-    assert!(
-        items
-            .iter()
-            .any(|i| i.label == "Remove a blank line after" && i.enabled),
-        "remove is enabled once a blank run exists"
+    assert_eq!(
+        s.serialize().unwrap(),
+        "a = 1\nb = 2\n",
+        "one undo restores the value AND the run"
     );
 }
 
-/// A YAML flow member cannot carry a trailing blank line: the intent reports
-/// and leaves the document untouched.
+/// A `[table]`'s run sits after its last member, and the buffer carries it.
 #[test]
-fn set_trailing_blank_on_a_flow_member_reports_and_changes_nothing() {
+fn editor_buffer_sets_a_tables_run() {
+    let mut s = toml_session("[t]\nx = 1\n[u]\ny = 2\n");
+    s.dispatch(Intent::CursorDown);
+    let (path, buf) = open_editor(&mut s);
+    assert_eq!(buf, "[t]\nx = 1\n");
+    s.dispatch(Intent::ApplyReplace {
+        path,
+        text: "[t]\nx = 1\n\n".to_string(),
+    });
+    assert_eq!(s.serialize().unwrap(), "[t]\nx = 1\n\n[u]\ny = 2\n");
+}
+
+#[test]
+fn editor_buffer_keeps_the_trailing_comment_while_setting_the_run() {
+    let mut s = toml_session("a = 1  # keep\nb = 2\n");
+    s.dispatch(Intent::CursorDown);
+    let (path, _) = open_editor(&mut s);
+    s.dispatch(Intent::ApplyReplace {
+        path,
+        text: "a = 1  # keep\n\n".to_string(),
+    });
+    assert_eq!(s.serialize().unwrap(), "a = 1  # keep\n\nb = 2\n");
+}
+
+#[test]
+fn editor_buffer_packages_the_run_in_yaml_and_json() {
+    let mut y = yaml_session("a: 1\n\nb: 2\n");
+    y.dispatch(Intent::CursorDown);
+    let (path, buf) = open_editor(&mut y);
+    assert_eq!(buf, "a: 1\n\n");
+    y.dispatch(Intent::ApplyReplace {
+        path,
+        text: "a: 1\n".to_string(),
+    });
+    assert_eq!(y.serialize().unwrap(), "a: 1\nb: 2\n");
+
+    let doc =
+        AnyDocument::from_str_as("{\n  \"a\": 1,\n\n  \"b\": 2\n}\n", DocFormat::Json).unwrap();
+    let mut j = Session::new(doc);
+    j.dispatch(Intent::CursorDown);
+    let (path, buf) = open_editor(&mut j);
+    assert_eq!(buf, "\"a\": 1\n\n");
+    j.dispatch(Intent::ApplyReplace {
+        path,
+        text: "\"a\": 1\n".to_string(),
+    });
+    assert_eq!(j.serialize().unwrap(), "{\n  \"a\": 1,\n  \"b\": 2\n}\n");
+}
+
+/// A comment node's run is packaged the same way — and the blanks must be
+/// split off before `EditComment`, or they would be spliced *inside* the block
+/// (where a blank line breaks it into two projected nodes).
+#[test]
+fn editor_buffer_packages_a_comment_nodes_run() {
+    let mut s = toml_session("# note\n\na = 1\n");
+    s.dispatch(Intent::CursorDown);
+    let (path, buf) = open_editor(&mut s);
+    assert_eq!(buf, "# note\n\n");
+    s.dispatch(Intent::ApplyEditComment {
+        path,
+        text: "# edited\n".to_string(),
+    });
+    assert_eq!(s.serialize().unwrap(), "# edited\na = 1\n");
+}
+
+/// A node that cannot carry a run (a YAML flow member) packages none, and the
+/// buffer reads exactly as it did before the package existed.
+#[test]
+fn editor_buffer_packages_nothing_for_a_flow_member() {
     let mut s = yaml_session("m: {a: 1, b: 2}\n");
     s.dispatch(Intent::CursorDown);
     s.dispatch(Intent::ToggleExpand);
     s.dispatch(Intent::CursorDown);
-    let before = s.serialize().unwrap();
-    let snap = s.dispatch(Intent::SetTrailingBlank(1));
-    assert_eq!(s.serialize().unwrap(), before, "document must be untouched");
-    assert!(snap.notice.is_some(), "must report why nothing happened");
+    let (_, buf) = open_editor(&mut s);
+    assert_eq!(buf, "a: 1\n", "no run to package");
 }
 
-/// TOML only: crossing the 0<->1 blank boundary re-parents a comment that is
-/// hugging the *next* `[header]` (CONTEXT.md's blank-line ownership rule), so
-/// it confirms first. The comment sits inside `[t]`'s extent — a section runs
-/// to the next header — so the blank lands after `# note`, flipping it from
-/// `[u]`'s leading comment to `[t]`'s trailing child.
+/// An invalid fragment leaves the document — blank run included — untouched.
 #[test]
-fn blank_line_change_confirms_when_it_would_reparent_a_comment() {
-    let mut s = toml_session("[t]\nx = 1\n# note\n[u]\ny = 2\n");
-    s.dispatch(Intent::CursorDown); // on `[t]`
-    let snap = s.dispatch(Intent::SetTrailingBlank(1));
-    assert!(
-        matches!(snap.mode, ModeView::Prompt { .. }),
-        "expected the re-parent confirm, got {:?}",
-        snap.mode
-    );
-    // Declining leaves the document byte-identical.
-    s.dispatch(Intent::PromptKey('n'));
-    assert_eq!(s.serialize().unwrap(), "[t]\nx = 1\n# note\n[u]\ny = 2\n");
-    // Accepting applies it.
-    s.dispatch(Intent::SetTrailingBlank(1));
-    s.dispatch(Intent::PromptKey('y'));
-    assert_eq!(s.serialize().unwrap(), "[t]\nx = 1\n# note\n\n[u]\ny = 2\n");
-    // And back across the boundary the other way: removing it re-hugs the
-    // header, so that confirms too.
-    let snap = s.dispatch(Intent::SetTrailingBlank(-1));
-    assert!(
-        matches!(snap.mode, ModeView::Prompt { .. }),
-        "removing the separator re-parents it back, got {:?}",
-        snap.mode
-    );
-    s.dispatch(Intent::PromptKey('y'));
-    assert_eq!(s.serialize().unwrap(), "[t]\nx = 1\n# note\n[u]\ny = 2\n");
-}
-
-/// The guard is about *scope ownership*, not "a comment is nearby": a comment
-/// inside a table is that table's child whatever the spacing, so spacing an
-/// entry away from it must not nag.
-#[test]
-fn blank_line_change_does_not_confirm_for_a_comment_that_cannot_change_scope() {
-    let mut s = toml_session("[t]\nx = 1\n# note\ny = 2\n");
+fn editor_buffer_with_an_invalid_fragment_touches_nothing() {
+    let mut s = toml_session("a = 1\n\nb = 2\n");
     s.dispatch(Intent::CursorDown);
-    s.dispatch(Intent::ToggleExpand);
-    s.dispatch(Intent::CursorDown); // on `x`
-    let snap = s.dispatch(Intent::SetTrailingBlank(1));
-    assert_eq!(s.serialize().unwrap(), "[t]\nx = 1\n\n# note\ny = 2\n");
-    assert!(matches!(snap.mode, ModeView::Normal), "{:?}", snap.mode);
-}
-
-/// No comment follows -> no prompt; and growing an already-nonzero run does not
-/// cross the boundary, so it does not prompt either.
-#[test]
-fn blank_line_change_does_not_confirm_without_a_following_comment() {
-    let mut s = toml_session("a = 1\nb = 2\n");
-    s.dispatch(Intent::CursorDown);
-    s.dispatch(Intent::SetTrailingBlank(1));
+    let (path, _) = open_editor(&mut s);
+    let snap = s.dispatch(Intent::ApplyReplace {
+        path,
+        text: "a = [1,\n\n\n".to_string(),
+    });
+    assert!(
+        snap.notice.is_some(),
+        "must report the bad fragment; doc is {:?}",
+        s.serialize().unwrap()
+    );
     assert_eq!(s.serialize().unwrap(), "a = 1\n\nb = 2\n");
-    let snap = s.dispatch(Intent::SetTrailingBlank(1));
-    assert_eq!(s.serialize().unwrap(), "a = 1\n\n\nb = 2\n");
-    assert!(matches!(snap.mode, ModeView::Normal), "{:?}", snap.mode);
-}
-
-/// YAML has explicit indentation: the ownership rule does not apply and must
-/// not prompt.
-#[test]
-fn blank_line_change_never_confirms_in_yaml() {
-    let mut s = yaml_session("a: 1\n# note\nb: 2\n");
-    s.dispatch(Intent::CursorDown);
-    let snap = s.dispatch(Intent::SetTrailingBlank(1));
-    assert_eq!(s.serialize().unwrap(), "a: 1\n\n# note\nb: 2\n");
-    assert!(matches!(snap.mode, ModeView::Normal), "{:?}", snap.mode);
 }

@@ -224,6 +224,14 @@ preserved via `entry_trailing_comment`; the YAML array-ancestor lift where `plug
 everything multiline → `$EDITOR`). Inline editor mechanics (Tab Value↔Name commit order,
 type-change detection, caret fields, `←/→` nudge, `a`-add Esc rollback via
 `History::cancel_last`) are in TUI.md §*Editing*.
+The **multiline editor** (TUI `$EDITOR`, web/touch pop-up) edits a node **and its trailing blank
+lines as one package**: every host opens the buffer `Session::multiline_edit_initial(path)`
+builds — the node's fragment plus its blank run as literal empty lines — and the commit
+(`apply_external_replace`/`apply_edit_comment`) splits them back off, applies the node's splice,
+then rewrites the run, all in one undo step. Adding or deleting empty lines in the buffer is the
+*only* way to change a blank run; `serialize_fragment` (hence the clipboard) never carries one.
+Details, ordering rationale and the renamed-key limitation: CONTEXT.md *The multiline editor's
+buffer*.
 
 **Kind switch (`K`).** `Mutation::ConvertKind { path, target: KindTarget }` (`convert_kind` in
 `cst_edit.rs`) rewrites a node's kind/notation in place; targets come from `kind_options(path)`.
@@ -351,7 +359,9 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
     mod.rs         re-exports
     text_range.rs  TextRange (byte-offset spans for source ranges) shared by rowan projections
     blank_lines.rs the one format-neutral trailing-blank-run text splice (count_after/splice),
-                   shared by all three backends' SetTrailingBlankLines
+                   shared by all three backends' SetTrailingBlankLines, plus the
+                   with_trailing_run/split_trailing_run pair that packages a node's run into
+                   the multiline editor's buffer and splits it back off on commit
     kind_label.rs  align_options: the one `"<name>  <sample>"` picker-label format, name column
                    padded in display cells (unicode-width, so a translated CJK name still lines
                    up). Used by all three backends' kind_options AND the datetime type picker

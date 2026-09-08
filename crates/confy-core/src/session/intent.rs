@@ -210,10 +210,6 @@ pub enum Intent {
 
     // ---- Mutations ----
     Nudge(i64),
-    /// Step the number of blank lines **after** the cursor node by this delta,
-    /// clamped at 0 (Action-menu items; relative so one item both grows and
-    /// removes the run).
-    SetTrailingBlank(i32),
     AddNode,
     /// Force a child insertion regardless of the cursor's expand state (Web `+`).
     AddChild,

@@ -666,18 +666,15 @@ impl App {
         if let Some(node) = self.session.tree.node_at(&cursor_row.path) {
             if let NodeKind::Comment(_) = &node.kind {
                 if self.session.no_array_ancestor(&cursor_row.path) {
-                    // $EDITOR initial = the CST fragment (raw block text with
-                    // per-line indent), NOT the DOM projection text: the
-                    // projection's comment merge drops each line's leading
-                    // INDENT, which flattened a nested remarked block on open.
-                    let fragment = match self.session.doc.as_ref() {
-                        Some(d) => d.serialize_fragment(&cursor_row.path),
-                        None => return,
-                    };
-                    if fragment.is_empty() {
+                    // $EDITOR initial = the core-built multiline buffer (the
+                    // raw CST fragment with per-line indent, PLUS the node's
+                    // trailing blank lines): the same producer the web pop-up
+                    // editor uses. The DOM projection text would flatten a
+                    // nested remarked block's indent on open.
+                    let initial = self.session.multiline_edit_initial(&cursor_row.path);
+                    if initial.is_empty() {
                         return;
                     }
-                    let initial = format!("{fragment}\n");
                     let edited =
                         match crate::tui::editor::edit_text(&initial, self.session.doc_format()) {
                             Ok(t) => t,
@@ -702,10 +699,7 @@ impl App {
             }
         }
         let (path, wrap_element) = self.external_edit_path(&cursor_row.path);
-        let fragment = match self.session.doc.as_ref() {
-            Some(d) => d.serialize_fragment(&path),
-            None => return,
-        };
+        let fragment = self.session.multiline_edit_initial(&path);
         let edited = match crate::tui::editor::edit_text(&fragment, self.session.doc_format()) {
             Ok(t) => t,
             Err(e) => {
@@ -718,15 +712,11 @@ impl App {
                 return;
             }
         };
-        let edited = if wrap_element {
-            match self.session.doc.as_ref() {
-                Some(d) => d.scalar_fragment(None, edited.trim_end_matches('\n')),
-                None => return,
-            }
-        } else {
-            edited
-        };
-        self.apply_replace(path, edited);
+        // The element wrap lives in core, after it splits the buffer's trailing
+        // blank lines back off — wrapping here would eat them.
+        self.session
+            .apply_external_replace(path, edited, wrap_element);
+        self.rebuild_rows();
     }
 
     /// Drains a `Session::begin_external_edit`-populated `pending_external_edit`
@@ -736,36 +726,11 @@ impl App {
         let Some(pending) = self.session.pending_external_edit.take() else {
             return;
         };
-        let fragment = match self.session.doc.as_ref() {
-            Some(d) => d.serialize_fragment(&pending.path),
-            None => return,
-        };
-        if pending.is_comment {
-            if fragment.is_empty() {
-                return;
-            }
-            let initial = format!("{fragment}\n");
-            let edited = match crate::tui::editor::edit_text(&initial, self.session.doc_format()) {
-                Ok(t) => t,
-                Err(e) => {
-                    self.session
-                        .dispatch(confy_core::session::Intent::SetHostNotice {
-                            key: "tui.host.editor-error".to_string(),
-                            args: vec![e.to_string()],
-                            source: confy_core::session::notice::NoticeSource::HostTui,
-                        });
-                    return;
-                }
-            };
-            // Unmodified buffer = quit without saving: cancel instead of
-            // splicing the text back (which would dirty the doc).
-            if edited == initial {
-                return;
-            }
-            self.apply_edit_comment(pending.path, edited);
+        let initial = self.session.multiline_edit_initial(&pending.path);
+        if initial.is_empty() {
             return;
         }
-        let edited = match crate::tui::editor::edit_text(&fragment, self.session.doc_format()) {
+        let edited = match crate::tui::editor::edit_text(&initial, self.session.doc_format()) {
             Ok(t) => t,
             Err(e) => {
                 self.session
@@ -777,15 +742,18 @@ impl App {
                 return;
             }
         };
-        let edited = if pending.wrap_element {
-            match self.session.doc.as_ref() {
-                Some(d) => d.scalar_fragment(None, edited.trim_end_matches('\n')),
-                None => return,
+        if pending.is_comment {
+            // Unmodified buffer = quit without saving: cancel instead of
+            // splicing the text back (which would dirty the doc).
+            if edited == initial {
+                return;
             }
-        } else {
-            edited
-        };
-        self.apply_replace(pending.path, edited);
+            self.apply_edit_comment(pending.path, edited);
+            return;
+        }
+        self.session
+            .apply_external_replace(pending.path, edited, pending.wrap_element);
+        self.rebuild_rows();
     }
 
     pub fn edit_target_kind(&self) -> EditKind {
@@ -838,13 +806,16 @@ impl App {
 
     // ---- Mutations ----
 
-    /// $EDITOR commit (`edit_node`'s external-edit branch). `session`'s
-    /// `apply_external_replace` (not the bare `apply_replace` the inline
-    /// editor's commit path uses) treats `edited` as the fragment's complete,
-    /// authoritative text so an explicit trailing-comment deletion in the
-    /// popped-open editor sticks (comment-advisory follow-up issue #4).
+    /// $EDITOR commit for an already-wrapped fragment (tests + the deferred
+    /// paths). `session`'s `apply_external_replace` (not the bare
+    /// `apply_replace` the inline editor's commit path uses) treats `edited` as
+    /// the fragment's complete, authoritative text: an explicit
+    /// trailing-comment deletion in the popped-open editor sticks
+    /// (comment-advisory follow-up issue #4), and the buffer's trailing blank
+    /// lines are the node's own run.
+    #[cfg(test)]
     pub(crate) fn apply_replace(&mut self, path: Path, edited: String) {
-        self.session.apply_external_replace(path, edited);
+        self.session.apply_external_replace(path, edited, false);
         self.rebuild_rows();
     }
     pub(crate) fn apply_edit_comment(&mut self, path: Path, text: String) {

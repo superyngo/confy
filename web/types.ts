@@ -108,8 +108,7 @@ export type PromptView =
   | "ConfirmQuit"
   | "Collision"
   | "TypeChange"
-  | "ArrayUpgrade"
-  | "BlankReparent";
+  | "ArrayUpgrade";
 
 export type EditField = "Value" | "Name";
 export type ConvertStep = "Format" | "Path" | "Confirm";
@@ -142,9 +141,7 @@ export type ActionId =
   | "Cut"
   | "Remark"
   | "Detail"
-  | "Delete"
-  | "BlankAdd"
-  | "BlankRemove";
+  | "Delete";
 
 export interface ActionItemView {
   id: ActionId;
@@ -354,7 +351,6 @@ export type Intent =
   | { ApplyEditComment: { path: Path; text: string } }
   // Mutations
   | { Nudge: number }
-  | { SetTrailingBlank: number }
   | "AddNode" | "AddChild" | "AddSibling" | "DeleteSelected" | "CopySelected" | "CutSelected" | "Paste" | "Remark"
   // Add-type picker
   | { AddPickerMove: number }

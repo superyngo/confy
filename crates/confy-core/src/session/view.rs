@@ -134,9 +134,6 @@ pub enum ActionId {
     Remark,
     Detail,
     Delete,
-    /// Step the cursor node's trailing blank-line run (`SetTrailingBlank`).
-    BlankAdd,
-    BlankRemove,
 }
 
 /// One row of the Action menu.
@@ -226,7 +223,6 @@ pub enum PromptView {
     Collision,
     TypeChange,
     ArrayUpgrade,
-    BlankReparent,
 }
 
 /// The inline-edit surface projected for the UI.

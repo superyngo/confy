@@ -227,15 +227,7 @@ impl super::Session {
                     .map(|p| p.wrap_element)
                     .unwrap_or(false);
                 self.pending_external_edit = None;
-                let text = if wrap {
-                    self.doc
-                        .as_ref()
-                        .map(|d| d.scalar_fragment(None, text.trim_end_matches('\n')))
-                        .unwrap_or(text)
-                } else {
-                    text
-                };
-                self.apply_external_replace(path, text);
+                self.apply_external_replace(path, text, wrap);
             }
             Intent::ApplyEditComment { path, text } => {
                 self.pending_external_edit = None;
@@ -244,7 +236,6 @@ impl super::Session {
 
             // ---- Mutations ----
             Intent::Nudge(d) => self.nudge(d),
-            Intent::SetTrailingBlank(d) => self.set_trailing_blank(d),
             Intent::AddNode => self.add_node(),
             Intent::AddChild => self.add_child(),
             Intent::AddSibling => self.add_sibling(),
@@ -570,39 +561,23 @@ impl super::Session {
 
     fn external_edit_view(&self) -> Option<ExternalEdit> {
         let pe = self.pending_external_edit.as_ref()?;
-        if pe.is_comment {
-            // The initial must come from the document's CST fragment, not the
-            // DOM projection: the projection's comment merge drops each line's
-            // leading INDENT, which flattened a nested remarked block on open —
-            // and spliced that flattening back in when the host returned the
-            // untouched buffer (`serialize_fragment` keeps per-line indent).
-            let mut initial = self
-                .doc
-                .as_ref()
-                .map(|d| d.serialize_fragment(&pe.path))
-                .unwrap_or_default();
-            if !initial.is_empty() {
-                initial.push('\n');
+        // The initial comes from `multiline_edit_initial` — the one producer
+        // both hosts share. It reads the document's CST fragment, not the DOM
+        // projection: the projection's comment merge drops each line's leading
+        // INDENT, which flattened a nested remarked block on open — and spliced
+        // that flattening back in when the host returned the untouched buffer.
+        // It also packages the node's trailing blank lines into the buffer.
+        let initial = self.multiline_edit_initial(&pe.path);
+        let kind = if pe.is_comment {
+            ExternalEditKind::Comment {
+                path: pe.path.clone(),
             }
-            Some(ExternalEdit {
-                initial,
-                kind: ExternalEditKind::Comment {
-                    path: pe.path.clone(),
-                },
-            })
         } else {
-            let initial = self
-                .doc
-                .as_ref()
-                .map(|d| d.serialize_fragment(&pe.path))
-                .unwrap_or_default();
-            Some(ExternalEdit {
-                initial,
-                kind: ExternalEditKind::Value {
-                    path: pe.path.clone(),
-                },
-            })
-        }
+            ExternalEditKind::Value {
+                path: pe.path.clone(),
+            }
+        };
+        Some(ExternalEdit { initial, kind })
     }
 }
 
@@ -612,7 +587,6 @@ fn prompt_view(pk: &PromptKind) -> PromptView {
         PromptKind::Collision { .. } => PromptView::Collision,
         PromptKind::TypeChange { .. } => PromptView::TypeChange,
         PromptKind::ArrayUpgrade { .. } => PromptView::ArrayUpgrade,
-        PromptKind::BlankReparent { .. } => PromptView::BlankReparent,
     }
 }
 
@@ -644,6 +618,5 @@ pub fn prompt_question(lang: Lang, pk: &PromptKind) -> String {
             }
         }
         PromptKind::ArrayUpgrade { .. } => tr_args(lang, "core.prompt.array-upgrade", &[]),
-        PromptKind::BlankReparent { .. } => tr_args(lang, "core.prompt.blank-reparent", &[]),
     }
 }

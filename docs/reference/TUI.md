@@ -216,17 +216,12 @@ overlapping) rather than re-extending the first anchor.
 ## Action menu
 
 `m` opens `Mode::ActionMenu { cursor }`, a modal popup (`overlay_action_menu.rs`, same
-shape as the `K` kind-switch popup) listing the ten core-owned Action menu items
+shape as the `K` kind-switch popup) listing the eight core-owned Action menu items
 (design doc `docs/superpowers/specs/2026-08-30-action-menu-design.md` §2, ADR 0009):
-Edit in editor, Add child, Append sibling, Copy, Cut, Toggle comment, Detail, Add a
-blank line after, Remove a blank line after, Delete
+Edit in editor, Add child, Append sibling, Copy, Cut, Toggle comment, Detail, Delete
 (separated by a rule and shown in red). `Session::action_menu_items()` derives each
 item's `enabled` flag fresh from `selected_paths()` every frame — a single-path item
 (Edit in editor / Add child / Append sibling / Detail) dims on a multi-node selection;
-the two blank-line items dim on a multi-node selection, on the Root, and on any node
-whose `trailing_blank_anchor` is `None` (a YAML flow member or opaque span), and
-"Remove" additionally dims when the run is already 0 — so an unavailable blank-line
-change is never offered, only shown greyed;
 the four set-applying items (Copy / Cut / Toggle comment / Delete) dim only if any
 targeted node is read-only. Disabled items stay visible (dimmed), never hidden, so
 cursor position is stable. Up/Down (or j/k) move the cursor, skipping disabled items;

@@ -240,7 +240,7 @@ fn external_edit_round_trips_under_a_quoted_key() {
         let seed = s.doc.as_ref().unwrap().serialize_fragment(&path);
 
         // Committing the fragment unchanged must be a no-op.
-        s.apply_external_replace(path.clone(), seed.clone());
+        s.apply_external_replace(path.clone(), seed.clone(), false);
         assert_eq!(
             s.serialize().unwrap(),
             src,
@@ -249,7 +249,7 @@ fn external_edit_round_trips_under_a_quoted_key() {
 
         // Changing only the value must keep the key's spelling and the sibling.
         let mut s2 = session(src, DocFormat::Yaml);
-        s2.apply_external_replace(path, seed.replace(": 1", ": 42"));
+        s2.apply_external_replace(path, seed.replace(": 1", ": 42"), false);
         let out = s2.serialize().unwrap();
         assert_eq!(out, src.replace(": 1", ": 42"), "value edit of {src:?}");
         assert!(out.contains("z: 9"), "sibling lost: {out}");
@@ -262,7 +262,7 @@ fn external_edit_round_trips_under_a_quoted_container_key() {
         let mut s = session(src, DocFormat::Yaml);
         let path = vec![Seg::Key("a b".into())];
         let seed = s.doc.as_ref().unwrap().serialize_fragment(&path);
-        s.apply_external_replace(path, seed.replace("c: 1", "c: 2"));
+        s.apply_external_replace(path, seed.replace("c: 1", "c: 2"), false);
         let out = s.serialize().unwrap();
         assert_eq!(
             out,

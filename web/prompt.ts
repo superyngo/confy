@@ -26,10 +26,6 @@ const PROMPT_BUTTONS: Record<PromptView, [string, string, boolean?][]> = {
     ["web.prompt.btn.cancel", "n"],
     ["web.prompt.btn.convertAndPaste", "y", true],
   ],
-  BlankReparent: [
-    ["web.prompt.btn.cancel", "n"],
-    ["web.prompt.btn.continue", "y", true],
-  ],
 };
 
 // Short sheet/dialog title per prompt kind (the touch sheet header).
@@ -38,7 +34,6 @@ const PROMPT_TITLES: Record<PromptView, string> = {
   Collision: "web.prompt.title.collision",
   TypeChange: "web.prompt.title.typeChange",
   ArrayUpgrade: "web.prompt.title.arrayUpgrade",
-  BlankReparent: "web.prompt.title.blankReparent",
 };
 
 export function promptTitle(kind: PromptView): string {

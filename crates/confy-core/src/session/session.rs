@@ -42,6 +42,13 @@ pub struct Session {
     pub detail_text: Option<String>,
     pub pending_edit: Option<(EditState, PendingCommit)>,
     pub pending_trailing: Option<Option<String>>,
+    /// The trailing blank-line count a multiline-editor commit carried back in
+    /// its buffer, applied by `apply_replace`/`apply_edit_comment` **after**
+    /// the node's own splice (which is what normalizes whatever the splice
+    /// left) and folded into the same undo step: the node and its blank run are
+    /// one editable package. `None` on every other commit path — the inline
+    /// editor never touches the run.
+    pub pending_blank: Option<usize>,
     /// In-flight async external edit (WASM §8.2); `None` except between the
     /// `BeginEdit` that routes external and the resolving `ApplyReplace`/`ApplyEditComment`.
     pub pending_external_edit: Option<PendingExternalEdit>,
@@ -121,6 +128,7 @@ impl Session {
             detail_text: None,
             pending_edit: None,
             pending_trailing: None,
+            pending_blank: None,
             pending_external_edit: None,
             prompt_from_commit_edit: None,
             lang: Lang::default(),
@@ -1225,101 +1233,6 @@ impl Session {
         }
     }
 
-    /// Step the cursor node's trailing blank-line count by `delta`, clamped at
-    /// 0. Relative rather than absolute so a single Action-menu item covers
-    /// both directions and reaching 0 removes the run entirely; each step is
-    /// its own undo entry.
-    pub fn set_trailing_blank(&mut self, delta: i32) {
-        if self.guard_clipboard_locked() {
-            return;
-        }
-        let Some(path) = self.cursor_row_path() else {
-            return;
-        };
-        let Some(current) = self.trailing_blank_lines_at(&path) else {
-            self.set_notice(Notice::core(self.lang, "core.blank.unsupported", &[]));
-            return;
-        };
-        let n = (current as i64 + delta as i64).max(0) as usize;
-        if n == current {
-            return;
-        }
-        if self.blank_change_reparents_comment(&path, current, n) {
-            self.mode = Mode::Prompt(PromptKind::BlankReparent {
-                path: path.clone(),
-                n,
-            });
-            return;
-        }
-        self.apply_trailing_blank(path, n);
-    }
-
-    /// True when setting `path`'s trailing blank run to `n` would move a
-    /// comment between scopes: TOML only, and only when the change crosses the
-    /// 0<->1 boundary — that is the boundary the ownership rule turns on (1
-    /// blank and 3 blanks parent the comment identically). CONTEXT.md,
-    /// *Comment*.
-    ///
-    /// The at-risk comment sits **before** the anchor, not after it: a TOML
-    /// section's extent runs to the next header, so a comment hugging that
-    /// header is inside this node's extent and the anchor lands after it.
-    /// Adding a blank there makes the comment trail *this* scope; removing it
-    /// makes the comment hug the *next* header. Both need the following line
-    /// to actually be a `[header]` — at EOF, or before a plain entry, the
-    /// comment's owner does not change and no confirmation is warranted.
-    fn blank_change_reparents_comment(&self, path: &[Seg], current: usize, n: usize) -> bool {
-        let Some(doc) = self.doc.as_ref() else {
-            return false;
-        };
-        if doc.format() != DocFormat::Toml || (current == 0) == (n == 0) {
-            return false;
-        }
-        let Some(end) = doc.trailing_blank_anchor(path) else {
-            return false;
-        };
-        let text = doc.serialize();
-        let (Some(before), Some(after)) = (text.get(..end), text.get(end..)) else {
-            return false;
-        };
-        let comment_at_the_tail = before
-            .lines()
-            .rev()
-            .find(|l| !l.trim().is_empty())
-            .is_some_and(|l| l.trim_start().starts_with('#'));
-        let header_follows = after
-            .lines()
-            .find(|l| !l.trim().is_empty())
-            .is_some_and(|l| l.trim_start().starts_with('['));
-        comment_at_the_tail && header_follows
-    }
-
-    /// Apply the blank-run change that `set_trailing_blank` (or the
-    /// `BlankReparent` confirmation) resolved to.
-    fn apply_trailing_blank(&mut self, path: Path, n: usize) {
-        let Some(doc) = self.doc.as_mut() else {
-            return;
-        };
-        match doc.apply(Mutation::SetTrailingBlankLines {
-            path: path.clone(),
-            n,
-        }) {
-            Ok(text) => {
-                self.on_mutation_success(Some(&path), text);
-                let label = self.human_path(&path);
-                self.set_notice(Notice::core(
-                    self.lang,
-                    "core.blank.set",
-                    &[&label, &n.to_string()],
-                ));
-            }
-            Err(e) => self.set_notice(Notice::core(
-                self.lang,
-                "core.blank.error",
-                &[&e.to_string()],
-            )),
-        }
-    }
-
     /// How many blank lines follow the node at `path`; `None` when the node
     /// cannot carry a trailing blank run (a YAML flow member or opaque span).
     pub fn trailing_blank_lines_at(&self, path: &Path) -> Option<usize> {
@@ -2302,15 +2215,6 @@ impl Session {
                     false
                 }
             },
-            Mode::Prompt(PromptKind::BlankReparent { path, n }) => {
-                let (path, n) = (path.clone(), *n);
-                self.mode = Mode::Normal;
-                self.notice = None;
-                if c == 'y' {
-                    self.apply_trailing_blank(path, n);
-                }
-                false
-            }
             _ => false,
         }
     }

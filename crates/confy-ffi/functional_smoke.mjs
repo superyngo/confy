@@ -104,6 +104,15 @@ const out = s2.serialize();
 check("doc reflects WORLD", out.includes("WORLD"), out);
 check("old hello gone", !out.includes("hello"), out);
 
+// The buffer packages the node's trailing blank lines, and the commit splits
+// them back off — the node and its run are one editable package.
+const s2b = new ConfySession(`a = 1\n\n\nb = 2\n`, "toml");
+s2b.dispatch(unit("CursorDown"));
+const extB = s2b.dispatch(unit("BeginEditExternal")).external_edit;
+check("buffer carries the trailing blank run", extB.initial === "a = 1\n\n\n", JSON.stringify(extB.initial));
+s2b.dispatch(tuple("ApplyReplace", { path: extB.kind.Value.path, text: "a = 1\n" }));
+check("deleting the blank lines in the buffer removes the run", s2b.serialize() === "a = 1\nb = 2\n", s2b.serialize());
+
 // ---- 7. Undo/redo ----
 snap2 = s2.dispatch(unit("Undo"));
 check("undo restores hello", s2.serialize().includes("hello"));

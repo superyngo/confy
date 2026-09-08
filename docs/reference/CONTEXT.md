@@ -139,9 +139,10 @@ and the next `[header]` is ambiguous. The projection decides by the **blank line
 that table); a comment *hugging* the header (no blank) is the header's **leading** comment (a
 sibling at the header's parent scope). Inserting a comment as a table's last child right before an
 outer header therefore emits a separating blank line so it stays inside. (JSON/YAML have explicit
-`}`/dedent delimiters and need no such rule.) Because this rule turns on the **0↔1** boundary, a
-user-driven `SetTrailingBlankLines` that crosses it while a comment follows is confirmed first
-(`PromptKind::BlankReparent`, TOML only) — see *Mutation mechanics*.
+`}`/dedent delimiters and need no such rule.) Crossing the **0↔1** boundary therefore re-parents
+such a comment — no confirmation guards it, because the only way to change a blank run is the
+multiline editor, whose buffer *shows* that comment (a TOML section's extent reaches the next
+header, so the comment is inside the fragment) — see *Mutation mechanics*.
 
 **Trailing comment**:
 An end-of-line comment that shares a line with a value (`port = 8080  # http`). It is **not** a
@@ -666,6 +667,22 @@ addressable directly (no wrap). A key/index reached *through* an array index (`x
 `Replace`-addressable directly too — the inline splice rebuilds the enclosing `{ … }`/`[ … ]` element
 in place — so the whole path is kept and the edit lands precisely (this closed the last TOML/JSON gap;
 earlier those truncated to the whole array).
+
+**The multiline editor's buffer = node + its trailing blank run.** Whatever host opens the editor
+(TUI `$EDITOR`, web/touch pop-up), the buffer comes from the one producer
+`Session::multiline_edit_initial(path)`: the node's fragment terminated by a single newline, then
+its `trailing_blank_lines(path)` as literal empty lines. The commit
+(`apply_external_replace`/`apply_edit_comment`) splits them back off
+(`blank_lines::split_trailing_run`), applies the node's own splice first, then rewrites the run —
+that order matters, because a TOML section's extent swallows its separator blanks, so only a
+later pass can normalize them. Both land in **one undo step** (a single
+`on_mutation_success`), and an untouched buffer round-trips byte-identically. Consequences:
+editing the run is the *only* way to change it (there is no add/remove-a-blank-line operation);
+`serialize_fragment` is untouched, so a **copied fragment never carries the spacing of where it
+came from**; a node whose `trailing_blank_anchor` is `None` (YAML flow member, opaque span, the
+whole-document edit) packages zero blanks; and a buffer that *renames* the node's key leaves the
+run as its own splice left it, the path being unresolvable by then (same limitation as a renamed
+node's trailing comment).
 
 ## Flagged ambiguities
 

@@ -644,15 +644,51 @@ impl Session {
         self.apply_replace(e.path, format!("{leaf_key} = {value}\n"));
     }
 
+    /// The multiline editor's buffer for the node at `path` — the **one**
+    /// producer every host opens its editor with (core's `external_edit_view`
+    /// for the web/touch pop-up editor, the TUI's `$EDITOR` spawn). The buffer
+    /// packages the node's fragment **together with its trailing blank lines**
+    /// (`blank_lines::with_trailing_run`), so the run is edited as literal
+    /// empty lines the user can add to or delete rather than through a separate
+    /// action; the commit half is `apply_external_replace`/`apply_edit_comment`.
+    /// A node that cannot carry a run (a YAML flow member or opaque span, the
+    /// whole-document edit) packages zero blanks and reads exactly as before.
+    pub fn multiline_edit_initial(&self, path: &Path) -> String {
+        let Some(doc) = self.doc.as_ref() else {
+            return String::new();
+        };
+        let fragment = doc.serialize_fragment(path);
+        if fragment.is_empty() {
+            return String::new();
+        }
+        let n = doc.trailing_blank_lines(path).unwrap_or(0);
+        crate::model::blank_lines::with_trailing_run(&fragment, n)
+    }
+
     /// External-editor commit (host popup / TUI `$EDITOR`): `text` is the
     /// fragment's complete, authoritative representation, unlike the inline
     /// editor's value-only fragment (which manages the comment separately via
-    /// `pending_trailing`). If the node had a trailing comment before this
+    /// `pending_trailing`). Its trailing blank lines are split back off the
+    /// buffer (`multiline_edit_initial` packaged them in) and re-applied after
+    /// the `Replace`; `wrap_element` re-wraps the **body** as a keyless element
+    /// (`scalar_fragment(None, …)`) — the wrap has to happen after the split or
+    /// it would eat the blank run.
+    ///
+    /// If the node had a trailing comment before this
     /// edit and the returned fragment doesn't write one, the user explicitly
     /// deleted it in their editor — force the clear rather than falling
     /// through to `Replace`'s "preserve the old comment when the fragment is
     /// silent about it" default (comment-advisory follow-up issue #4).
-    pub fn apply_external_replace(&mut self, path: Path, text: String) {
+    pub fn apply_external_replace(&mut self, path: Path, text: String, wrap_element: bool) {
+        let (body, blanks) = crate::model::blank_lines::split_trailing_run(&text);
+        let body = if wrap_element {
+            match self.doc.as_ref() {
+                Some(d) => d.scalar_fragment(None, body.trim_end_matches('\n')),
+                None => return,
+            }
+        } else {
+            body
+        };
         let had_comment = self
             .tree
             .node_at(&path)
@@ -661,16 +697,18 @@ impl Session {
             let new_comment = self
                 .doc
                 .as_ref()
-                .and_then(|d| d.fragment_trailing_comment(&path, &text));
+                .and_then(|d| d.fragment_trailing_comment(&path, &body));
             if new_comment.is_none() {
                 self.pending_trailing = Some(None);
             }
         }
-        self.apply_replace(path, text);
+        self.pending_blank = Some(blanks);
+        self.apply_replace(path, body);
     }
 
     pub fn apply_replace(&mut self, path: Path, edited: String) {
         let trailing = self.pending_trailing.take();
+        let blank = self.pending_blank.take();
         let doc = match self.doc.as_mut() {
             Some(d) => d,
             None => return,
@@ -696,6 +734,7 @@ impl Session {
                         }
                     }
                 }
+                let text = self.apply_packaged_blank(&path, blank, text);
                 self.on_mutation_success(Some(&path), text);
                 self.note_schema_violation(&path);
             }
@@ -711,6 +750,43 @@ impl Session {
                 "core.error.generic",
                 &[&e.to_string()],
             )),
+        }
+    }
+
+    /// Second half of a multiline-editor commit: rewrite the blank run after
+    /// `path` to the count the buffer carried back, and return the resulting
+    /// document text so the caller folds it into its **single**
+    /// `on_mutation_success` — node and run land as one undo step.
+    ///
+    /// Deliberately runs *after* the node's own splice: a TOML section's extent
+    /// swallows its separator blanks, so a `Replace` there rewrites the run and
+    /// only a later pass can normalize it. The cost is that a buffer which
+    /// renamed the node's key leaves `path` unresolvable — the run then stays
+    /// as the splice left it, the same way a renamed node's trailing comment
+    /// does.
+    fn apply_packaged_blank(&mut self, path: &Path, blank: Option<usize>, text: String) -> String {
+        let Some(n) = blank else { return text };
+        let Some(doc) = self.doc.as_mut() else {
+            return text;
+        };
+        // `None` = this node cannot carry a run (or the buffer renamed it away):
+        // nothing to normalize. An unchanged count is a no-op, and skipping it
+        // keeps an untouched buffer's round-trip byte-identical.
+        match doc.trailing_blank_lines(path) {
+            Some(current) if current != n => {
+                match doc.apply(Mutation::SetTrailingBlankLines {
+                    path: path.clone(),
+                    n,
+                }) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        let msg = e.to_string();
+                        self.set_notice(Notice::core(self.lang, "core.blank.error", &[&msg]));
+                        text
+                    }
+                }
+            }
+            _ => text,
         }
     }
 
@@ -750,13 +826,25 @@ impl Session {
         }
     }
 
+    /// Comment-node commit from the multiline editor. Like
+    /// `apply_external_replace`, the buffer's trailing blank lines are the
+    /// node's own run (`multiline_edit_initial` packaged them in): split them
+    /// off, or `EditComment` would splice them *inside* the comment block —
+    /// where a blank line splits it into two projected nodes.
     pub fn apply_edit_comment(&mut self, path: Path, text: String) {
+        let (body, blanks) = crate::model::blank_lines::split_trailing_run(&text);
         let doc = match self.doc.as_mut() {
             Some(d) => d,
             None => return,
         };
-        match doc.apply(Mutation::EditComment { path, text }) {
-            Ok(text) => self.on_mutation_success(None, text),
+        match doc.apply(Mutation::EditComment {
+            path: path.clone(),
+            text: body,
+        }) {
+            Ok(text) => {
+                let text = self.apply_packaged_blank(&path, Some(blanks), text);
+                self.on_mutation_success(None, text)
+            }
             Err(MutateError::Fragment(msg)) => {
                 self.set_notice(Notice::core(self.lang, "core.comment.invalid", &[&msg]));
             }
