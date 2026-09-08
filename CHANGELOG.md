@@ -8,6 +8,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-08 (3)
+
+**Changed**
+
+- **The desktop web UI now shows the datetime type switch in the same list box as every other
+  kind switch.** It was an inline `<select>` dropdown inside the row's value cell, because core
+  routes it through `Mode::SchemaEnum` (the *value* picker) and that is the surface desktop
+  draws a value pick in. Same operation, different widget — it read as an inequality between
+  kinds rather than as a feature. Desktop now routes by entry point, matching the notation
+  lists exactly: a **kind-badge click** opens the `#kindMenu` popover anchored at the badge
+  (click an option → commit, outside click / Esc → cancel, arrow keys move the highlight in
+  place), and **`K`** opens the `#overlay` list next to `Mode::KindSwitch`. The inline
+  `<select>` is gated off for it, so the widget is never drawn twice.
+
+  New wire field `ModeView::SchemaEnum.from_kind_switch` carries this. Unlike its neighbour
+  `from_schema` (which only titles the popup) it selects a **widget**: these options are kind
+  options, so a host with a dedicated kind-option surface renders them there. Inferring it
+  host-side from "the last intent I sent was `OpenKindSwitch`" was rejected as shadow state.
+  ADR 0012 Amendment 2.
+
+- **Kind option columns now actually line up in the browser.** Core pads the labels, but HTML
+  collapses runs of spaces, so both the popover and the overlay list rendered them as single
+  spaces. Their labels now sit in a `.kind-label` cell (mono + `white-space: pre`) — so the
+  notation list reads `literal string     '…'` / `multiline literal  '''…'''` and the datetime
+  list `local date      1979-05-27`, exactly as the TUI does.
+
+  TUI and touch needed no change: each already had one surface for both kinds of list.
+
 ### Unreleased Update - 2026-09-08 (2)
 
 **Changed**

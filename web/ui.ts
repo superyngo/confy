@@ -510,6 +510,7 @@ function render() {
   }
   focusInlineEdit();
   if (typeof snap.mode === "object" && "SchemaEnum" in snap.mode) focusSchemaEnumSelect();
+  renderKindPickerPop();
   renderDetailPanel();
   renderTypeFilterPop();
   renderConvertDialog();
@@ -636,12 +637,17 @@ function openKindForRow(row: ViewRow) {
 }
 
 // The `#overlay` keyboard fallback now serves only Help, Prompt, and the `K`
-// kind-switch mode. Filter → native search box; TypeFilter → `#tfPop` popover;
+// kind-switch modes — `Mode::KindSwitch` and, for a TOML datetime, the
+// `from_kind_switch` SchemaEnum standing in for it (ADR 0012). The latter only
+// when the *keyboard* opened it: a badge click anchors it in the `#kindMenu`
+// popover instead (`kindPickerAnchor`), exactly as a notation list does.
+// Filter → native search box; TypeFilter → `#tfPop` popover;
 // Convert → `#convDlg` dialog (all rendered by their own functions below).
 function renderOverlay() {
   const m = snap!.mode;
   const tag = modeTag(m);
-  if (tag === "Help" || tag === "Prompt" || tag === "KindSwitch") {
+  const kindPicker = kindPickerAnchor === null ? kindPickerState() : null;
+  if (tag === "Help" || tag === "Prompt" || tag === "KindSwitch" || kindPicker) {
     overlay.classList.remove("hidden");
     overlayScrim.classList.remove("hidden");
   } else {
@@ -674,15 +680,21 @@ function renderOverlay() {
     overlay.innerHTML =
       `<h3>${escapeHtml(question)}</h3>` +
       promptButtonsHTML(kind);
-  } else if (tag === "KindSwitch") {
-    const ks = (m as { KindSwitch: { cursor: number; options: { label: string }[] } })
-      .KindSwitch;
+  } else if (tag === "KindSwitch" || kindPicker) {
+    // One list body for both: a notation switch (`Mode::KindSwitch`) and a
+    // datetime type switch (the `from_kind_switch` picker). `.kind-label` is
+    // what makes core's padded `"<name>  <sample>"` labels actually line up in
+    // HTML, which collapses runs of spaces everywhere else.
+    const list =
+      typeof m === "object" && "KindSwitch" in m
+        ? { cursor: m.KindSwitch.cursor, options: m.KindSwitch.options.map((o) => o.label) }
+        : { cursor: kindPicker!.cursor, options: kindPicker!.options };
     overlay.innerHTML =
       `<h3>Kind</h3>` +
-      ks.options
+      list.options
         .map(
-          (o, i) =>
-            `<div class="opt${i === ks.cursor ? " sel" : ""}">${escapeHtml(o.label)}</div>`,
+          (label, i) =>
+            `<div class="opt${i === list.cursor ? " sel" : ""}"><span class="kind-label">${escapeHtml(label)}</span></div>`,
         )
         .join("");
   }
@@ -1591,13 +1603,34 @@ let popCloser: ((e: MouseEvent) => void) | null = null;
 // The path the kind menu is currently open for, so a second click on the same
 // badge toggles it shut (rather than reopening).
 let kindMenuPath: string | null = null;
+// Anchor for a `from_kind_switch` SchemaEnum (the ADR 0012 datetime type list)
+// that was opened by *clicking* the kind badge: those are kind options, so they
+// belong in the `#kindMenu` popover, right where a notation list would have
+// appeared. `null` means the mode was entered from the keyboard (`K`), which
+// renders in the `#overlay` list — the same split the notation lists already
+// have (click → popover, key → overlay).
+let kindPickerAnchor: { x: number; y: number } | null = null;
+// Set while (re)opening that popover, so the `closePops()` inside `placePopAt`
+// doesn't read its own open as a dismissal and cancel the mode.
+let openingKindPicker = false;
+function kindPickerState(): { options: string[]; cursor: number } | null {
+  return snap && typeof snap.mode === "object" && "SchemaEnum" in snap.mode && snap.mode.SchemaEnum.from_kind_switch
+    ? snap.mode.SchemaEnum
+    : null;
+}
 function closePops() {
+  // Dismissing the popover (outside click, another menu opening, …) must also
+  // leave the mode it was displaying — otherwise the picker keeps swallowing
+  // keys with nothing on screen.
+  const cancelPicker = !openingKindPicker && kindPickerAnchor !== null && kindPickerState() !== null;
   for (const m of clickMenus()) m.classList.remove("open");
   kindMenuPath = null;
+  kindPickerAnchor = null;
   if (popCloser) {
     document.removeEventListener("click", popCloser);
     popCloser = null;
   }
+  if (cancelPicker) send("Escape");
 }
 function anyClickMenuOpen(): boolean {
   return clickMenus().some((m) => m.classList.contains("open"));
@@ -1635,8 +1668,12 @@ function openKindMenuAt(path: Path, x: number, y: number) {
     // core's `open_kind_switch` diverts them to `Mode::SchemaEnum` instead.
     // Hand the decision to core rather than reporting "no options" here: it
     // opens the value picker when it can, and otherwise raises its own
-    // `core.kind-switch.unsupported`.
+    // `core.kind-switch.unsupported`. Anchoring first makes the render pass
+    // draw that mode in *this* popover (`renderKindPickerPop`), so a datetime
+    // badge click yields the same list box as every other kind badge click.
+    kindPickerAnchor = { x, y };
     send("OpenKindSwitch");
+    if (!kindPickerState()) kindPickerAnchor = null; // core declined
     return;
   }
   const menu = $("kindMenu");
@@ -1653,7 +1690,7 @@ function openKindMenuAt(path: Path, x: number, y: number) {
     opts
       .map(
         (o, i) =>
-          `<button class="menu-item" data-i="${i}"><span class="ic">${IC_CARET}</span>${escapeHtml(o.label)}</button>`,
+          `<button class="menu-item" data-i="${i}"><span class="ic">${IC_CARET}</span><span class="kind-label">${escapeHtml(o.label)}</span></button>`,
       )
       .join("");
   placePopAt(menu, x, y); // calls closePops() first, which clears kindMenuPath
@@ -1663,6 +1700,49 @@ function openKindMenuAt(path: Path, x: number, y: number) {
     b.onclick = () => {
       closePops();
       send({ CommitKind: { path, target: opts[i].target } });
+    };
+  });
+}
+
+// The `from_kind_switch` SchemaEnum (datetime type list) drawn in the kind
+// popover, when the mode was entered by clicking the badge. Mode-driven, like
+// touch's equivalent sheet: every `SchemaEnumMove` re-renders and rebuilds this
+// list in place, so the highlight follows the cursor whether it moved by click
+// or by arrow key.
+function renderKindPickerPop() {
+  const st = kindPickerState();
+  if (!st) {
+    // Mode left (commit / Escape / a prompt opening): drop the popover, and
+    // clear the anchor first so `closePops` doesn't try to cancel a mode that
+    // has already moved on.
+    if (kindPickerAnchor) {
+      kindPickerAnchor = null;
+      closePops();
+    }
+    return;
+  }
+  if (!kindPickerAnchor) return; // keyboard entry — `renderOverlay` draws it
+  const { x, y } = kindPickerAnchor;
+  const menu = $("kindMenu");
+  menu.innerHTML =
+    `<div class="menu-label">Convert kind</div>` +
+    st.options
+      .map(
+        (label, i) =>
+          `<button class="menu-item${i === st.cursor ? " sel" : ""}" data-i="${i}"><span class="ic">${IC_CARET}</span><span class="kind-label">${escapeHtml(label)}</span></button>`,
+      )
+      .join("");
+  openingKindPicker = true;
+  placePopAt(menu, x, y); // calls closePops(), which clears the anchor
+  openingKindPicker = false;
+  kindPickerAnchor = { x, y };
+  menu.querySelectorAll<HTMLElement>("[data-i]").forEach((b) => {
+    const i = Number(b.dataset.i);
+    b.onclick = () => {
+      // Commit uses whatever cursor index is current, so move first (same
+      // two-step the inline `<select>` and touch's sheet use).
+      send({ SchemaEnumMove: i - st.cursor });
+      send("SchemaEnumCommit");
     };
   });
 }

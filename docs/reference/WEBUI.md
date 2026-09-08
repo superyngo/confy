@@ -124,9 +124,12 @@ shapes round-trip). Key types:
   `Normal | Prompt | Filter {text,cursor} | FilterResults | TypeFilter {…grid…} |
   KindSwitch {cursor,options} | ActionMenu {cursor,items,target_count,target_label} |
   Convert {…} | Detail | Help | Edit {field,buffer,cursor,…} |
-  SchemaEnum {options,cursor,from_schema}`. `SchemaEnum`'s `from_schema` is `false` when the
-  picker is the schema-independent `bool` `true`/`false` fallback rather than a schema
-  `enum`/`const` constraint — hosts use it only to title the popup ("Value" vs "Schema value").
+  SchemaEnum {options,cursor,from_schema,from_kind_switch}`. `SchemaEnum`'s `from_schema` is
+  `false` when the picker is the schema-independent `bool` `true`/`false` fallback rather than a
+  schema `enum`/`const` constraint — hosts use it only to title the popup ("Value" vs "Schema
+  value"). `from_kind_switch` is the ADR 0012 datetime **type** list, and unlike `from_schema`
+  it picks a **widget**: those options are kind options, so a host that has a dedicated
+  kind-option surface must draw them there (see *Kind switch* below).
   This is the UI's only view of internal state; heavy
   internals (`History`, `Clipboard` — except its `clipboard_count`) never cross.
 - **`TypeFilterView`** — the `f` popup grid, projected from core so the host never
@@ -217,8 +220,21 @@ shapes round-trip). Key types:
   datetime's four types are a *value* `Replace`, so they are deliberately absent from
   `kind_options` and core's `open_kind_switch` diverts them to `Mode::SchemaEnum`
   (ADR 0012). Both hosts do this — pre-filtering on `kindOptions` alone made the datetime
-  switch unreachable from every pointer entry, and on touch from `K` as well;
-  right-click on a row → the
+  switch unreachable from every pointer entry, and on touch from `K` as well.
+
+  That diverted mode carries `from_kind_switch: true`, and desktop **routes it by widget, not
+  by mode**: `renderKindPickerPop` draws it in the very `#kindMenu` popover the click came
+  from (anchored at the badge, click → `SchemaEnumMove` + `SchemaEnumCommit`, outside
+  click/Esc → `Escape`), while a keyboard `K` draws it in the `#overlay` list next to
+  `Mode::KindSwitch` — mirroring the split the notation lists already have (click → popover,
+  key → overlay). `render.ts::valuePicker` gates the inline `select[data-schema-enum]` off for
+  it, so the widget is never drawn twice. Both lists put their label in a `.kind-label`
+  (mono + `white-space:pre`), which is what lets core's padded `"<name>  <sample>"` columns
+  survive HTML's space collapsing — a notation switch and a datetime type switch are now the
+  same widget with the same columns. Touch is unaffected: its bottom sheet already served
+  both.
+
+  Right-click on a row → the
   centralized **Action menu** (`openActionMenuAt`). All popovers share one synchronous closer (a single outside-click
   listener) and are scoped per popover so they don't open/close together. **Every menu
   button toggles** — a second click on the `⋯` More button (tracked by `.open`) or the

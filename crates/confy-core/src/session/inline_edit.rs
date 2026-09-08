@@ -86,6 +86,7 @@ impl Session {
                             cursor: 0,
                             options: opts,
                             from_schema: true,
+                            from_kind_switch: false,
                         });
                         self.notice = None;
                         return;
@@ -112,6 +113,7 @@ impl Session {
                         cursor,
                         options: opts,
                         from_schema: false,
+                        from_kind_switch: false,
                     });
                     self.notice = None;
                     return;

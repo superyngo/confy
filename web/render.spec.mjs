@@ -36,7 +36,7 @@ async function bundle(entry) {
   return import(modUrl);
 }
 
-const { renderRow, escapeHtml } = await bundle("render.ts");
+const { renderRow, escapeHtml, valuePicker } = await bundle("render.ts");
 const { panelHTML } = await bundle("panel.ts");
 
 // Hostile payloads: each must appear in the rendered HTML only in escaped form.
@@ -243,6 +243,21 @@ console.log("\n-- panelHTML(): Key field is the authored spelling, not the decod
     noLitHtml.includes('data-field="name" value="plain"'),
     noLitHtml,
   );
+}
+
+// ---- valuePicker(): only a *value* SchemaEnum draws the inline <select> ----
+// A `from_kind_switch` picker is the ADR 0012 datetime type list, which the
+// host renders in its kind-option surfaces; drawing it inline too doubled the
+// widget and made one kind list look unlike every other one.
+console.log("\n-- valuePicker(): kind-switch pickers are not value pickers --");
+{
+  const se = (extra) => ({ SchemaEnum: { options: ["a", "b"], cursor: 1, from_schema: false, ...extra } });
+  check("Normal mode has no value picker", valuePicker("Normal") === null);
+  check(
+    "schema/bool picker renders inline",
+    JSON.stringify(valuePicker(se({ from_kind_switch: false }))) === JSON.stringify({ options: ["a", "b"], cursor: 1 }),
+  );
+  check("datetime kind picker does not render inline", valuePicker(se({ from_kind_switch: true })) === null);
 }
 
 console.log(failures === 0 ? "\nALL RENDER-ESCAPING CHECKS PASSED" : `\n${failures} FAILURES`);

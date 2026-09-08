@@ -1174,6 +1174,9 @@ impl Session {
             options,
             cursor: 0,
             from_schema: false,
+            // These are kind options wearing the value picker (ADR 0012), so a
+            // host must render them in its kind-option surface.
+            from_kind_switch: true,
         })
     }
 

@@ -119,3 +119,29 @@ is what makes an aligned *translated* list possible at all.
 The original decision — the divert itself, the value-`Replace` commit, the fill policy — is
 unchanged. The "**zero host changes**" claim in the Decision section was separately found to be
 false and is corrected in the plan document; it was a web-host routing bug, not an ADR one.
+
+## Amendment 2 (2026-09-08) — reusing the value *mode* must not mean reusing the value *widget*
+
+The Decision's second cheapness argument ("`Mode::SchemaEnum` is already rendered by all four
+hosts, so this reaches every host with zero host code") was true and still cost something it
+didn't predict: each host renders that mode in whatever surface it uses for picking a **value**.
+On the desktop web UI that is an inline `<select>` in the row's value cell — so the one kind
+switch that went through this route appeared as a dropdown inside the row, while every other
+kind switch was a list box (a popover on a badge click, the `#overlay` list on `K`). Same
+operation, two different gestures and two different widgets: the user's report was that it read
+as an inequality, not as a feature.
+
+`SchemaEnumState`/`ModeView::SchemaEnum` therefore gain **`from_kind_switch: bool`**. Unlike the
+neighbouring `from_schema` — which hosts use only to *title* the popup — this one selects a
+**widget**: these options are kind options, so a host with a dedicated kind-option surface
+renders them there. Desktop now routes by entry point, matching the notation lists exactly
+(badge click → `#kindMenu` popover anchored at the badge; `K` → `#overlay` list), and gates its
+inline `<select>` off (`render.ts::valuePicker`) so the widget is never drawn twice. TUI and
+touch already had one surface for both and needed no change.
+
+The alternative — inferring it host-side from "the last intent I dispatched was
+`OpenKindSwitch`" — was rejected: it is shadow state duplicating something core already knows,
+and it survives re-renders only by accident (every `SchemaEnumMove` re-enters the render pass).
+
+This is the honest correction of the "zero host changes" claim: the *mode* was free, the
+*presentation* was not.

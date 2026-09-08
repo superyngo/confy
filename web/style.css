@@ -311,6 +311,12 @@ body.paste-mode .drop-line{background:transparent;border-top:2px dashed var(--dr
 .menu-item.danger{color:var(--t-bool)}
 .menu-item.danger .ic{color:var(--t-bool)}
 .menu-item.sel{background:var(--accent-soft);font-weight:600}
+/* Kind/type option label: core pads `"<name>  <sample>"` into aligned columns
+   (model::kind_label::align_options), which only survives in a monospaced,
+   space-preserving cell — HTML collapses runs of spaces everywhere else. Used
+   by the `#kindMenu` popover and the `#overlay` list, so a notation switch and
+   the datetime type switch read identically. */
+.kind-label{font-family:var(--mono);font-size:12.5px;white-space:pre}
 .menu-sep{height:1px;background:var(--border);margin:5px 6px}
 .menu-label{font-size:11px;color:var(--faint);padding:6px 10px 3px;font-weight:600;letter-spacing:.03em}
 

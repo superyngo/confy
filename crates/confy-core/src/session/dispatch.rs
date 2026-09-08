@@ -506,6 +506,7 @@ impl super::Session {
                 cursor: st.cursor,
                 options: st.options.iter().map(|(label, _)| label.clone()).collect(),
                 from_schema: st.from_schema,
+                from_kind_switch: st.from_kind_switch,
             },
             Mode::Convert(st) => ModeView::Convert(ConvertView {
                 step: st.step,

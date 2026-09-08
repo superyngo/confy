@@ -214,7 +214,10 @@ export type ModeView =
   | "Detail"
   | { Help: { tab: "Help" | "About" } }
   | { Edit: EditView }
-  | { SchemaEnum: { options: string[]; cursor: number; from_schema: boolean } };
+  // `from_kind_switch`: the ADR 0012 datetime type pick. These are kind
+  // options, so the desktop host renders them in its kind-option surfaces
+  // (`#kindMenu` popover / `#overlay` list), not as an inline value `<select>`.
+  | { SchemaEnum: { options: string[]; cursor: number; from_schema: boolean; from_kind_switch: boolean } };
 
 // Schema-driven editing constraint for one node (session::schema::EditHint,
 // mirrors the Rust enum exactly). `Enum`'s pairs are `[label, value]` tuples

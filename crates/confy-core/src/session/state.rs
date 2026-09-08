@@ -183,12 +183,20 @@ pub struct AddPickerState {
 /// `Session::schema_enum_commit` splices in directly via
 /// `ConfigDocument::scalar_fragment`.
 ///
-/// `from_schema` distinguishes the two ways this mode is entered: a real
-/// schema `enum`/`const`/`oneOf`-of-`const` constraint (`true`), or the
+/// `from_schema` distinguishes two of the three ways this mode is entered: a
+/// real schema `enum`/`const`/`oneOf`-of-`const` constraint (`true`), or the
 /// schema-independent boolean fallback — a `bool` scalar always offers its
 /// own two-option `true`/`false` picker (`false`). Hosts use it only to title
 /// the popup ("Schema value" vs a neutral "Value"); every other behaviour
 /// (move/jump/commit/cancel) is identical.
+///
+/// `from_kind_switch` marks the third: `K` on a TOML datetime, which is a
+/// *type* pick wearing this widget (ADR 0012). It is not a styling hint but a
+/// **widget** one — those options are kind options, so a host that renders
+/// kind options in a dedicated list (the web UI's popover / overlay list) must
+/// render these there too, not in whatever surface it uses for picking a
+/// *value*. Without it the desktop web UI drew this one picker as an inline
+/// `<select>` in the value cell while every other kind list was a list box.
 #[derive(Clone, Debug)]
 pub struct SchemaEnumState {
     pub path: Path,
@@ -198,6 +206,7 @@ pub struct SchemaEnumState {
     pub options: Vec<(String, String)>,
     pub cursor: usize,
     pub from_schema: bool,
+    pub from_kind_switch: bool,
 }
 
 pub enum PromptKind {

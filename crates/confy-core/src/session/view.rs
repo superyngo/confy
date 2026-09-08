@@ -196,11 +196,15 @@ pub enum ModeView {
     /// display labels; the chosen value is committed core-side by
     /// `Session::schema_enum_commit`. `from_schema` is `false` when the
     /// picker is the schema-independent `bool` `true`/`false` fallback —
-    /// hosts use it to title the popup, nothing else.
+    /// hosts use it to title the popup, nothing else. `from_kind_switch` is
+    /// `true` for the ADR 0012 datetime type pick, and unlike `from_schema` it
+    /// selects a **widget**: those options are kind options, so a host with a
+    /// dedicated kind-option surface renders them there.
     SchemaEnum {
         cursor: usize,
         options: Vec<String>,
         from_schema: bool,
+        from_kind_switch: bool,
     },
     /// The `C` document-conversion flow is open.
     Convert(ConvertView),

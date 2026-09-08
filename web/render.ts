@@ -212,6 +212,23 @@ export function renderRow(
   return s;
 }
 
+/** The inline `<select>` shown in a row's value cell for `Mode::SchemaEnum` —
+ * or `null` when that mode is not a *value* pick at all.
+ *
+ * A `from_kind_switch` picker is the ADR 0012 datetime **type** list: those are
+ * kind options, and the host draws them in its kind-option surfaces
+ * (`#kindMenu` popover / `#overlay` list, `ui.ts`), so drawing them here too
+ * would double the widget — which is exactly what it used to do, leaving one
+ * kind list looking like an inline dropdown while every other one was a list
+ * box. Exported so the gate is testable without a DOM. */
+export function valuePicker(
+  mode: SessionSnapshot["mode"],
+): { options: string[]; cursor: number } | null {
+  if (typeof mode !== "object" || !("SchemaEnum" in mode)) return null;
+  const se = mode.SchemaEnum;
+  return se.from_kind_switch ? null : { options: se.options, cursor: se.cursor };
+}
+
 /** Render the whole tree into `treeEl` and scroll the cursor row into view.
  *
  * Reconciles by `data-path` key instead of rebuilding `innerHTML`
@@ -232,10 +249,7 @@ export function renderTree(
   edit: EditView | null,
 ): void {
   const rows = snap.rows;
-  const schemaEnum =
-    typeof snap.mode === "object" && "SchemaEnum" in snap.mode
-      ? { options: snap.mode.SchemaEnum.options, cursor: snap.mode.SchemaEnum.cursor }
-      : null;
+  const schemaEnum = valuePicker(snap.mode);
   // Clipboard source rows get a distinct class (copy vs cut) so they read
   // differently from the selection box.
   const clipKeys = new Set(snap.clipboard_paths.map((p) => JSON.stringify(p)));
