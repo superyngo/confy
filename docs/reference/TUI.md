@@ -22,7 +22,12 @@ written — `None` for keyless nodes (array elements, comments, AoT entries, Roo
 quoted keys as `IDENT` tokens that keep their quotes, so the sign is derived from the token
 text. Single-line arrays and inline tables still carry their one-line source repr in `value`
 (a multiline array leaves it `None`) — this drives both the VALUE column and the
-inline-editability rule below. Golden tests in `cst_project.rs` freeze the projected shape
+inline-editability rule below. A **container's** repr is the authored one-liner verbatim, padding
+included; a **scalar's** is the token *trimmed*. YAML makes the difference visible: its plain-scalar
+token runs to the `,`/`]`/`}`, so the raw text of `2` in `[ 1, 2 ]` is `"2 "` — the repr is a
+display/search value (VALUE column, filter haystack, per-char highlight), and letting the author's
+padding into it made filter results depend on spelling. Serialization never reads it (it
+concatenates CST tokens), so trimming costs no fidelity. Golden tests in `cst_project.rs` freeze the projected shape
 (snapshotted at toml_edit parity when the legacy backend was retired; regenerated when `sign=`
 and container formats landed). The **KIND column** (formerly TYPE/FORMAT; takes 40% of the
 terminal width for NAME, kind at the 2/5 mark, value the remainder) renders the type/notation facet as a

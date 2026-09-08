@@ -1035,8 +1035,16 @@ fn classify_scalar_token(tok: &SyntaxToken) -> (NodeKind, Format, String) {
             )
         }
         SyntaxKind::PLAIN => {
-            let text = tok.text().to_string();
-            let (kind, fmt) = classify_plain_scalar(text.trim());
+            // The lexer's plain token runs to the delimiter, so inside a flow
+            // collection it swallows the whitespace before `,`/`]`/`}` — and a
+            // plain YAML scalar can't carry trailing whitespace anyway (quote
+            // it to keep some). Typing already trimmed; the repr must too, or
+            // `[ 1, 2 ]` projects `"2 "` where `[1, 2]` projects `"2"` and the
+            // filter's answer starts depending on the author's padding. The
+            // repr is display/search only — serialization concatenates CST
+            // tokens, so trimming here cannot affect round-trip.
+            let text = tok.text().trim().to_string();
+            let (kind, fmt) = classify_plain_scalar(&text);
             (kind, fmt, text)
         }
         _ => {
@@ -1152,6 +1160,61 @@ mod tests {
             &crate::model::yaml::syntax::SyntaxNode::new_root(g),
             "c.yaml",
         )
+    }
+
+    /// A flow item's projected `value` must not depend on the author's padding.
+    /// The lexer's plain token runs to the delimiter, so `[ 1, 2 ]` used to
+    /// project `"2 "` (space before `]`) and `[ a , b ]` both `"a "` and `"b "`
+    /// (space before `,`) while `[1, 2]` projected `"2"` — a filter needle
+    /// ending in a space then matched one spelling and not the other. Block
+    /// style, quoted tokens, TOML and JSON were always clean; the reprs below
+    /// are the full measured table.
+    #[test]
+    fn a_plain_scalars_repr_is_independent_of_flow_padding() {
+        let reprs = |src: &str| -> Vec<Option<String>> {
+            fn walk(ns: &[Node], out: &mut Vec<Option<String>>) {
+                for n in ns {
+                    out.push(n.value.clone());
+                    walk(&n.children, out);
+                }
+            }
+            let t = tree(src);
+            let mut v = Vec::new();
+            walk(&t.root.children, &mut v);
+            v
+        };
+        let s = |xs: &[&str]| -> Vec<Option<String>> {
+            xs.iter().map(|x| Some(x.to_string())).collect()
+        };
+        // Padded and unpadded spellings agree element for element. (The
+        // container's own repr stays verbatim — it is the authored one-liner.)
+        assert_eq!(reprs("g: [ 1, 2 ]\n")[1..], reprs("g: [1, 2]\n")[1..]);
+        assert_eq!(reprs("g: [ 1, 2 ]\n"), s(&["[ 1, 2 ]", "1", "2"]));
+        assert_eq!(reprs("g: [ a , b ]\n"), s(&["[ a , b ]", "a", "b"]));
+        assert_eq!(
+            reprs("g: { a: 1, b: 2 }\n"),
+            s(&["{ a: 1, b: 2 }", "1", "2"])
+        );
+        // A quoted token keeps its flanks; only the padding is gone.
+        assert_eq!(
+            reprs("g: [ \"x\" , 2 ]\n"),
+            s(&["[ \"x\" , 2 ]", "\"x\"", "2"])
+        );
+        // Block style was never affected — guard against over-trimming it.
+        assert_eq!(reprs("a: 1  \nb: 2\n"), s(&["1", "2"]));
+        assert_eq!(
+            reprs("a:\n  - 1 \n  - 2\n"),
+            vec![None, Some("1".into()), Some("2".into())]
+        );
+        // The document itself is untouched: the repr is display/search only.
+        for src in ["g: [ 1, 2 ]\n", "g: [ a , b ]\n", "a: 1  \n"] {
+            let g = crate::model::yaml::parse::parse(src).unwrap();
+            assert_eq!(
+                crate::model::yaml::syntax::SyntaxNode::new_root(g).to_string(),
+                src,
+                "round trip {src:?}"
+            );
+        }
     }
 
     #[test]

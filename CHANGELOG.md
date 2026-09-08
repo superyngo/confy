@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-08 (17)
+
+**Fixed**
+
+- **A YAML flow item's projected value carried the padding before its delimiter.** The lexer's
+  plain-scalar token runs to the `,`/`]`/`}`, so `g: [ 1, 2 ]` projected the second element as
+  `"2 "` and `g: [ a , b ]` projected both as `"a "`/`"b "`, while the unpadded `g: [1, 2]`
+  projected `"2"` — `classify_scalar_token` already trimmed for *type detection* but kept the raw
+  text as the repr. The one user-visible consequence was that **filtering depended on the author's
+  spacing**: a needle ending in a space matched the padded spelling and not the unpadded one (and
+  the per-char highlight marked the invisible trailing space). Block style, quoted tokens, TOML and
+  JSON were never affected. Decoding (`to_value`/convert/schema), type detection, the inline
+  editor's buffer, `serialize_fragment` and the `←`/`→` nudge all trimmed or bypassed the repr
+  already, so nothing else changed — and serialization concatenates CST tokens, so round-trip is
+  unaffected.
+
 ### Unreleased Update - 2026-09-08 (16)
 
 **Fixed**
