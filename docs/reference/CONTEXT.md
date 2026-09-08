@@ -549,15 +549,27 @@ one parse per mutation, not two. KIND tags are the KIND-column vocabulary.
 | **Remark / EditComment / InsertComment** | Comments are first-class — see *Comment* / *Trailing comment*. Remark on an **array element** is YAML-only, by design: YAML comments are first-class line tokens attachable to any sequence item, while TOML's array is a single-token span and JSON's is a comma-list — neither has a per-element comment syntax to splice into. TOML and JSON return `Unsupported`/`Illegal` for `Target::ArrayElement`; this is a genuine format-capability difference, not a bug. |
 | **SetTrailingBlankLines** | The one variant that is **not** a green-tree splice: a format-neutral text splice (`model/blank_lines.rs`) rewriting the blank run at an offset the backend supplies (`ConfigDocument::trailing_blank_anchor`). That anchor is the node's **contiguous extent end** — the same extent `Delete` covers — so a `[table]`'s run sits after its last member and a sub-table is *inside* it, not after it, and a branch's last child shares the branch's run (both anchors coincide). Two shared normalizations make the anchor trustworthy in every backend: **`anchor_at` retracts back over the run**, because several spans already swallow it (TOML's index-derived section extent, a YAML `MAP_ENTRY` whose value is a block map/seq/scalar, a JSON `//` comment token) and an anchor placed *after* a run makes it invisible — `count_after` reports 0 while the node's own `Replace` still overwrites the lines, silently deleting them; and **`owns_line_tail` rejects a node that doesn't own the end of its line** (only its separator comma, whitespace or a trailing comment may follow), so a member of a single-line `{ … }`/`[ … ]` reports `None` instead of claiming its container's run. A comment **block** anchors past its last line, not its first. Whitespace-only lines are normalized to empty; `n = 0` removes the run entirely; at EOF a terminating newline is emitted before the run. JSON keeps the separator comma *before* the run. `None` (⇒ `Unsupported`) for a YAML opaque node, any inline-collection member, and the whole-document path. |
 
-**Multiline-array layout.** An element insert reproduces the array's own layout: the separator
-is `,` + the trivia measured in front of its existing elements (`array_element_lead`), so a
-multiline array keeps one element per line at the author's own indent (2-space, 4-space, tab) and
-a single-line one keeps `, `. Deleting the **last** element of a trailing-comma multiline array
-also retracts back over that element's indent, which the comma-after cut would otherwise strand in
-front of the `]` — the retract stops at anything that still owns the indent (a surviving element,
-or the deleted element's own EOL comment). **Known rough edges** in the same area: deleting an
-array's leading standalone comment leaves the following element's indent doubled, and inserting
-before a `2 ]`-style inline close writes the comma as `2 , 9`.
+**Multiline-array layout.** Three separate rules keep an array's authored spelling across an
+element edit, none of which is a constant:
+
+- **Insert separator** — `,` + the trivia measured in front of the array's existing elements
+  (`array_element_lead`), so a multiline array keeps one element per line at the author's own
+  indent (2-space, 4-space, tab) and a single-line one keeps `, `.
+- **Close padding** — taplo bakes the padding between the last element and the `]` *into* that
+  element's `VALUE` node (`[ 1 ]` ⇒ `VALUE "1 "`), so an append lands *behind* it. The padding is
+  detached and re-emitted after the new element (`detach_value_trailing_pad`), keeping
+  `[ 1, 9 ]` rather than `[ 1 , 9]`.
+- **Line ownership on delete** — a span that owns a whole line takes that line's indent with it.
+  `extend_over_newline` covers the tail; `retract_over_line_indent` covers the head, guarded on
+  the preceding element being a `NEWLINE`/`[`/start-of-file so a *trailing* comment's separating
+  space (preceded by a `,`) is never swallowed. Deleting the **last** element of a trailing-comma
+  array retracts the same way (that cut takes the comma *after* the element, so its indent would
+  otherwise strand in front of the `]`), but only when nothing else still owns the indent — a
+  surviving element, or the deleted element's own EOL comment, keeps its column.
+
+**Known rough edge:** inserting into an array whose only child is a comment
+(`a = [`⏎`  # only`⏎`]`) appends at column 0 — the empty-array branch splices before the `]`
+without consulting `array_element_lead`.
 
 **Flow fragments.** A YAML flow-seq *element* has no `Target` of its own — the projection
 indexes it as `Target::Element(<the whole FLOW_SEQ>)`, since every edit needs the collection plus

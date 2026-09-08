@@ -18,9 +18,13 @@ fn insert_elem(src: &str, index: usize) -> String {
 }
 
 fn delete_elem(src: &str, index: usize) -> String {
+    delete_elem_at(&[Seg::Key("a".into()), Seg::Index(index)], src)
+}
+
+fn delete_elem_at(path: &[Seg], src: &str) -> String {
     let mut doc = CstDocument::from_str(src).unwrap();
     doc.apply(Mutation::Delete {
-        path: vec![Seg::Key("a".into()), Seg::Index(index)],
+        path: path.to_vec(),
     })
     .unwrap();
     doc.serialize()
@@ -102,6 +106,78 @@ fn deleting_the_last_multiline_element_leaves_no_stray_indent() {
     // Single-line arrays and inline tables keep their existing behaviour.
     assert_eq!(delete_elem("a = [1, 2]\n", 1), "a = [1]\n");
     assert_eq!(delete_elem("a = [1, 2,]\n", 1), "a = [1,]\n");
+}
+
+/// Deleting a **standalone comment line** takes that line's own indent with it.
+/// The comment's span used to start at the `#`, leaving the `WHITESPACE` that
+/// indented it in front of the *next* element, whose own indent then stacked on
+/// top (`  1,` came back as `    1,`).
+#[test]
+fn deleting_a_comment_line_takes_its_indent_with_it() {
+    // Leading, middle and trailing position; the comment's index is its slot in
+    // the parent's full child sequence.
+    assert_eq!(
+        delete_elem("a = [\n  # lead\n  1,\n  2,\n]\n", 0),
+        "a = [\n  1,\n  2,\n]\n"
+    );
+    assert_eq!(
+        delete_elem("a = [\n  1,\n  # mid\n  2,\n]\n", 1),
+        "a = [\n  1,\n  2,\n]\n"
+    );
+    assert_eq!(
+        delete_elem("a = [\n  1,\n  2,\n  # tail\n]\n", 2),
+        "a = [\n  1,\n  2,\n]\n"
+    );
+
+    // Consecutive `#` lines are one Comment node: the whole block goes, and so
+    // does the indent of its first line.
+    assert_eq!(
+        delete_elem("a = [\n  # l1\n  # l2\n  1,\n]\n", 0),
+        "a = [\n  1,\n]\n"
+    );
+    // The comment is the array's only child.
+    assert_eq!(delete_elem("a = [\n  # only\n]\n", 0), "a = [\n]\n");
+    // The indent is the author's, not a constant.
+    assert_eq!(
+        delete_elem("a = [\n    # lead\n    1,\n]\n", 0),
+        "a = [\n    1,\n]\n"
+    );
+
+    // Unindented comments at root and table scope are unaffected (no leading
+    // WHITESPACE to retract over).
+    assert_eq!(delete_elem_at(&[Seg::Index(0)], "# c\nb = 1\n"), "b = 1\n");
+    assert_eq!(
+        delete_elem_at(&[Seg::Index(1)], "b = 1\n# c\nc = 2\n"),
+        "b = 1\nc = 2\n"
+    );
+    assert_eq!(
+        delete_elem_at(&[Seg::Key("t".into()), Seg::Index(0)], "[t]\n# c\nb = 1\n"),
+        "[t]\nb = 1\n"
+    );
+}
+
+/// taplo bakes the padding between an array's last element and its `]` *into*
+/// that element's `VALUE` node, so appending after the VALUE used to put the new
+/// separator behind that space (`[ 1 ]` → `[ 1 , 0]`). The padding is moved out
+/// and re-emitted after the new element instead.
+#[test]
+fn appending_keeps_the_padding_before_the_closing_bracket() {
+    assert_eq!(insert_elem("a = [ 1 ]\n", 1), "a = [ 1, 9 ]\n");
+    assert_eq!(insert_elem("a = [ 1, 2 ]\n", 2), "a = [ 1, 2, 9 ]\n");
+    assert_eq!(insert_elem("a = [ 1\t]\n", 1), "a = [ 1, 9\t]\n");
+    // A multiline array whose `]` shares the last element's line.
+    assert_eq!(
+        insert_elem("a = [\n  1,\n  2 ]\n", 2),
+        "a = [\n  1,\n  2,\n  9 ]\n"
+    );
+    // No padding to move: unchanged.
+    assert_eq!(insert_elem("a = [1, 2]\n", 2), "a = [1, 2, 9]\n");
+    assert_eq!(
+        insert_elem("a = [\n  1,\n  2]\n", 2),
+        "a = [\n  1,\n  2,\n  9]\n"
+    );
+    // Inserting *before* an element never touched the padding.
+    assert_eq!(insert_elem("a = [ 1, 2 ]\n", 1), "a = [ 1, 9, 2 ]\n");
 }
 
 #[test]

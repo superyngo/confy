@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-08 (19)
+
+**Fixed**
+
+- **Deleting a standalone comment line inside a TOML array doubled the next element's indent.**
+  The comment's delete span started at the `#`, so the `WHITESPACE` that indented that line
+  survived and stacked on top of the following element's own indent: `a = [`⏎`  # lead`⏎`  1,`
+  came back as `  ` + `  1,` = `    1,`. A span that owns a whole line now takes that line's
+  indent with it (`retract_over_line_indent`, the head-side mirror of `extend_over_newline`),
+  which also fixes the same comment in the middle and tail positions, a multi-line `#` block, and
+  a comment that is the array's only child. Unindented comments at root and table scope are
+  unaffected, and a *trailing* comment's separating space is explicitly out of the span.
+- **Appending to an array with padding before its `]` put the comma behind that padding.**
+  `a = [ 1 ]` + one element became `a = [ 1 , 0]`. taplo bakes that padding *into* the last
+  element's `VALUE` node, so the append landed after it; the padding is now detached and
+  re-emitted after the new element, giving `a = [ 1, 0 ]`. Covers `[ 1, 2 ]`, a tab pad, and a
+  multiline array whose `]` shares the last element's line.
+
+One rough edge remains and is recorded in `CONTEXT.md`: inserting into an array whose only child
+is a comment appends at column 0.
+
 ### Unreleased Update - 2026-09-08 (18)
 
 **Fixed**

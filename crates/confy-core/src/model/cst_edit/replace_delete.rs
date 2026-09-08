@@ -12,7 +12,7 @@ use super::move_paste::quote_key_seg;
 use super::rename::is_key_seg;
 use super::tree_nav::{
     comment_block_range, extend_over_newline, is_scalar_kind, next_is_header, node_at,
-    resolve_insert_at,
+    resolve_insert_at, retract_over_line_indent,
 };
 
 use crate::model::cst_project::{header_path, walk, CstIndex, Target};
@@ -647,6 +647,7 @@ pub(crate) fn delete(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError>
         Target::Comment(first) => {
             let parent = first.parent().ok_or(MutateError::NotFound)?;
             let (start, end) = comment_block_range(&parent, &first);
+            let start = retract_over_line_indent(&parent, start);
             let end = extend_over_newline(&parent, end);
             parent.splice_children(start..end, vec![]);
             Ok(())

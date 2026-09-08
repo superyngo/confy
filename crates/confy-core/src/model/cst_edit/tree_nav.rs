@@ -224,6 +224,37 @@ pub(crate) fn extend_over_newline(parent: &SyntaxNode, at: usize) -> usize {
     }
 }
 
+/// The mirror of [`extend_over_newline`] at the *start* of a line-owning span: if
+/// the element before `at` is the `WHITESPACE` that indents that line — i.e. it is
+/// itself preceded by a `NEWLINE`, a `[` or nothing at all — return its index, so
+/// a splice takes the indent with the line instead of stranding it.
+///
+/// Inside a multiline array a standalone comment line is `NEWLINE WHITESPACE
+/// COMMENT`; deleting only `COMMENT NEWLINE` left that `WHITESPACE` in front of
+/// the *next* element, whose own indent then stacked on top of it (`  1,` came
+/// back as `    1,`). The `NEWLINE`/`[`/start-of-file guard is what keeps a
+/// *trailing* comment's separating space (`1, # one` — preceded by a `,`) out of
+/// the span.
+pub(crate) fn retract_over_line_indent(parent: &SyntaxNode, at: usize) -> usize {
+    if at == 0 {
+        return at;
+    }
+    let els: Vec<_> = parent.children_with_tokens().collect();
+    let is_ws = matches!(els.get(at - 1), Some(NodeOrToken::Token(t))
+        if t.kind() == SyntaxKind::WHITESPACE);
+    if !is_ws {
+        return at;
+    }
+    let line_start = at < 2
+        || matches!(els.get(at - 2), Some(NodeOrToken::Token(t))
+            if matches!(t.kind(), SyntaxKind::NEWLINE | SyntaxKind::BRACKET_START));
+    if line_start {
+        at - 1
+    } else {
+        at
+    }
+}
+
 /// The `[start, end)` child-index range of the comment block beginning at `first`
 /// within `parent`: consecutive `COMMENT` tokens separated by single newlines.
 pub(crate) fn comment_block_range(parent: &SyntaxNode, first: &SyntaxToken) -> (usize, usize) {

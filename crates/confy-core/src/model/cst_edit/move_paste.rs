@@ -648,8 +648,14 @@ pub(crate) fn array_insert(
         ins.extend(array_sep_with(&lead));
         arr.splice_children(at..at, ins);
     } else if let Some(&last) = value_pos.last() {
+        // taplo bakes the padding between the last element and the `]` *into* that
+        // element's VALUE node (`[ 1 ]` → VALUE "1 "), so appending after the VALUE
+        // put the separator behind that space (`[ 1 , 9]`). Move the padding out and
+        // re-emit it after the new element, where it belongs (`[ 1, 9 ]`).
+        let pad = detach_value_trailing_pad(&els[last]);
         let mut ins = array_sep_with(&lead);
         ins.push(NodeOrToken::Node(new_val));
+        ins.extend(pad);
         arr.splice_children(last + 1..last + 1, ins);
     } else {
         // Empty array: insert before the closing bracket.
@@ -747,6 +753,28 @@ fn array_element_lead(arr: &SyntaxNode) -> String {
         }
     }
     " ".to_string()
+}
+
+/// Detach and return the run of `WHITESPACE` tokens taplo baked onto the **end** of
+/// a `VALUE` node (the padding an author wrote between the last element and the
+/// `]`). Empty for every value that has none, so the caller can always re-emit it
+/// unconditionally after the element it now follows.
+fn detach_value_trailing_pad(
+    el: &taplo::syntax::SyntaxElement,
+) -> Vec<taplo::syntax::SyntaxElement> {
+    let NodeOrToken::Node(value) = el else {
+        return vec![];
+    };
+    let kids: Vec<taplo::syntax::SyntaxElement> = value.children_with_tokens().collect();
+    let keep = kids
+        .iter()
+        .rposition(|c| !matches!(c, NodeOrToken::Token(t) if t.kind() == SyntaxKind::WHITESPACE))
+        .map_or(0, |i| i + 1);
+    let pad = kids[keep..].to_vec();
+    for p in &pad {
+        p.detach();
+    }
+    pad
 }
 
 /// A fresh detached separator run for an array element: a `,` followed by the
