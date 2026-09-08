@@ -85,6 +85,12 @@ A scalar **or comment** add opens the inline editor on the seed; pressing **Esc*
 — no node (for a comment, the blank separator goes too), no undo/redo crumb — so a mistaken `a`
 is undone in one keystroke.
 
+Committing that seed instead (Enter, or a host that cannot keep an editor open — touch) is
+**also one undo step**: the commit re-authors the literal the insert just wrote, and
+`History::push` drops a snapshot identical to the current one, so the pair never stacks two
+entries for one `a`. That rule is general — Enter on an unedited value and a `K` switch to the
+notation a node already uses are likewise not undo steps.
+
 **`e` on a `bool`** does not open the text editor at all: it opens the two-option `true`/`false`
 picker popup (`overlay_schema_enum.rs`, `Mode::SchemaEnum` with `from_schema: false`, so the popup
 is titled ` Value ` rather than ` Schema value `) — same widget and same keys as a schema

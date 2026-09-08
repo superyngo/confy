@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-08 (8)
+
+**Fixed**
+
+- **A mutation that changes nothing is no longer an undo step.** `History::push` drops a
+  snapshot identical to the current one, so adding a node and committing its seed unchanged is
+  one `z`, not two (the touch host always takes that path — it cannot keep an inline editor
+  open, so it commits the seed), and the same holds for Enter on an unedited value or a `K`
+  switch to the notation a node already uses. Defining it in `History` rather than at each
+  call site keeps one definition of "an undoable entry" and keeps `history_len` — which the VS
+  Code host diffs to mirror the undo stack — honest. A no-op push keeps the redo `future`: with
+  the text unchanged there is nothing to diverge from.
+
 ### Unreleased Update - 2026-09-08 (7)
 
 **Fixed**

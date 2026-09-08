@@ -290,7 +290,20 @@ impl History {
             future: Vec::new(),
         }
     }
+    /// An undo step is a *change*. A snapshot identical to `current` is
+    /// therefore dropped, not stacked: several mutations legitimately re-author
+    /// what is already there (committing an Add-picker seed at its default
+    /// value, Enter on an unedited value, a `K` switch to the notation the node
+    /// already uses), and each one used to cost the user an extra `z` that
+    /// visibly did nothing. Doing it here rather than per-call-site keeps this
+    /// the single definition of "an undoable entry" — and keeps `depth()`, which
+    /// the VS Code host diffs to mirror the undo stack, honest. The redo
+    /// `future` survives: with the text unchanged there is nothing to diverge
+    /// from, so a no-op mutation after an undo must not strand the redo.
     pub fn push(&mut self, snapshot: String) {
+        if snapshot == self.current {
+            return;
+        }
         self.past
             .push_back(std::mem::replace(&mut self.current, snapshot));
         if self.past.len() > MAX_HISTORY {
@@ -348,5 +361,28 @@ mod tests {
         h.push("v2".to_string());
         assert_eq!(h.redo(), None, "redo stack must be cleared by push");
         assert_eq!(h.undo(), Some("v0".to_string()));
+    }
+
+    #[test]
+    fn push_of_identical_snapshot_is_not_an_undo_step() {
+        let mut h = History::new("v0".to_string());
+        h.push("v1".to_string());
+        h.push("v1".to_string());
+        assert_eq!(h.depth(), 1, "re-authoring the same text is not a step");
+        assert_eq!(h.undo(), Some("v0".to_string()));
+        assert_eq!(h.undo(), None);
+    }
+
+    #[test]
+    fn identical_push_keeps_redo_future() {
+        let mut h = History::new("v0".to_string());
+        h.push("v1".to_string());
+        assert_eq!(h.undo(), Some("v0".to_string()));
+        h.push("v0".to_string());
+        assert_eq!(
+            h.redo(),
+            Some("v1".to_string()),
+            "no-op must not strand redo"
+        );
     }
 }

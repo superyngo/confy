@@ -3045,6 +3045,30 @@ fn add_picker_escape_inserts_nothing() {
     );
 }
 
+// Committing an Add-picker seed at its default value re-authors the text the
+// insert just wrote, so it must not cost a second undo entry: one `a` is one
+// `z` (the touch host always takes this path -- it cannot render `Mode::Edit`,
+// so it commits the seed instead of leaving the editor open).
+#[test]
+fn add_then_commit_seed_unchanged_is_one_undo_step() {
+    let mut s = toml_session("a = 1\n");
+    s.dispatch(Intent::CursorDown); // onto 'a'
+    s.dispatch(Intent::AddSibling);
+    let snap = s.dispatch(Intent::AddPickerCommit); // first kind = String
+    assert_eq!(snap.history_len, 1, "the insert is the only step");
+    let snap = s.dispatch(Intent::EditCommit);
+    assert_eq!(
+        snap.history_len, 1,
+        "committing the seed unchanged adds no second step"
+    );
+    s.dispatch(Intent::Undo);
+    assert_eq!(
+        s.serialize().unwrap(),
+        "a = 1\n",
+        "one undo returns to the pre-add document"
+    );
+}
+
 #[test]
 fn add_picker_toml_offers_one_consolidated_datetime_kind() {
     let mut s = toml_session("a = 1\n");
