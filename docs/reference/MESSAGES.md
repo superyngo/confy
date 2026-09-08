@@ -388,26 +388,37 @@ follow-up (not tracked by an issue as of this writing).
 
 ## 8. Known follow-ups (non-blocking, recorded for later)
 
+All three re-verified 2026-09-09 and still open — see
+[`../audit/2026-09-09-open-findings-reverification.md`](../audit/2026-09-09-open-findings-reverification.md)
+for the evidence and the suggested order.
+
 - **Web `?diag=1`'s `lastSeenSeq` doesn't reset on a file swap.** Opening a new
-  file via `openText()` replaces the underlying `ConfySession` (and therefore
-  its diag ring, which restarts its `seq` from 0) without resetting `web/ui.ts`'s
-  module-level `lastSeenSeq` counter — the next few post-swap events with
-  `seq` below the old high-water mark are silently skipped in the console
-  drain until `seq` catches back up. Benign (only affects the debug-only
-  `?diag=1` console trace, never the ring itself or any user-visible surface);
-  fix is a one-line `lastSeenSeq = -1` on file swap.
+  file replaces the underlying `ConfySession` (and therefore its diag ring, which
+  restarts its `seq` from 0) without resetting `web/ui.ts`'s module-level
+  `lastSeenSeq` counter — the post-swap events with `seq` below the old
+  high-water mark are silently skipped in the console drain until `seq` catches
+  back up. `lastSeenSeq` is advanced only inside `drainDiagIfEnabled` and reset
+  nowhere, and **8** paths replace the session, so the reset belongs next to a
+  single session-replacement helper rather than at each site. Touch has no drain
+  at all — the `?diag=1` trace is desktop-only. Benign: it affects only the
+  debug-only console trace, never the ring itself or any user-visible surface.
 - **The TUI `~` overlay shows the OLDEST 20 events, not the newest.**
   `draw_diag_overlay` collects the whole ring in `seq` order and hands it to a
   `Paragraph` whose box is sized `lines.len().min(20)`; a `Paragraph` renders from
   its first line, so once the ring holds more than 20 events every event *after*
   the 20th is clipped — exactly the recent ones an operator opened the overlay to
-  see. The ring caps at 256, and a single mutation already emits 3 events
-  (`dispatch` + `mutation` + `notice`), so the overlay goes blind after roughly
-  seven interactions. The docstring's "newest last" describes the intended
+  see. There is no scroll state, no `.rev()` and no tail-take, and `App` carries
+  no diag scroll field. The ring caps at 256; a dispatch that sets a notice emits
+  3 events and one that doesn't emits 2, so the overlay goes blind after **7
+  interactions with notices, 10 without**. No other host renders the ring, so the
+  defect is TUI-only. The docstring's "newest last" describes the intended
   behavior, which was never implemented: Phase 2 deliberately shipped "no scroll
   state" and the windowing was overlooked with it. Fix is to take the tail before
   rendering (`skip(len.saturating_sub(20))`), or add real scroll state.
-- **Touch `sev-*` toast classes have no dedicated CSS yet.** The classes are
-  applied (§5.3) but touch's stylesheet doesn't yet give `Warn`/`Error` a
-  visually distinct tint from `Success`/`Info` beyond the timer difference —
-  cosmetic, deferred, MVP-scope.
+- **Touch `sev-*` toast classes have no dedicated CSS yet.** `web/touch/app.ts`'s
+  `renderNotice` applies the classes (§5.3) but `web/touch/style.css` has
+  `.toast`/`.toast.show` and zero `sev-*` rules, so a `Warn` differs from a
+  `Success` only by its auto-hide timer (3000 ms vs 1600 ms). Note `web/style.css`
+  *does* style `sev-warn`/`sev-success` — for the desktop footer status line, not
+  the toast — so the two hosts currently disagree on whether severity is visible
+  at all. Cosmetic, deferred, MVP-scope.

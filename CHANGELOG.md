@@ -8,6 +8,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-09 (22)
+
+**Docs — re-verify every open finding, with fresh measurements**
+
+New record [`docs/audit/2026-09-09-open-findings-reverification.md`](docs/audit/2026-09-09-open-findings-reverification.md):
+a per-finding triage of everything still recorded as open — the 21 items of the 2026-08-29
+architecture audit, the three `MESSAGES.md` §8 follow-ups, and the one `Approved`-but-unshipped
+plan. Four read-only verification passes (verdict only where a symbol could be pointed at) plus
+fresh `cargo bench -p confy-core --bench perf` runs at the audit's own document sizes.
+No code fixed; the point is that the next work session starts from measured ground truth.
+
+**22 findings: 8 FIXED, 5 PARTIAL, 9 OPEN.** Both headline P0s are still open — and both are
+*differently* open than recorded:
+
+- **`Move` is quadratic — worse than the audit measured.** Every one of its numbers is
+  exceeded: at 7,001 nodes a single-source `Move` is **527 ms** (audit: 752 ms was the *upper*
+  bound at that size) and an 8-source move is **4.18 s**; at 98,001 nodes one move is
+  **101 s**. 14× the nodes costs 36× a `Replace` but **192×** a `Move`. The decisive new datum
+  the audit never took: **YAML's `move_nodes` is already 53× faster** than TOML's at 7k nodes
+  (79 ms vs 4.18 s for 8 sources), because it threads one `walk` result through the opaque
+  check, the capture and the shift. TOML does `1 + |S| + |F|` full walks, JSON `2·|S| + 1`.
+  So the fix needs no design — YAML is the working in-repo reference, and its margin is the
+  measured target. This also downgrades the audit's "one shared fix for three backends":
+  YAML is largely done.
+- **The double serialize per keystroke is still there, via a different route.** The audit's
+  exact claim *is* fixed — `apply` returns the text and `on_mutation_success` pushes that very
+  string into `History`, so the undo snapshot no longer serializes. But
+  `sync_schema_hint()` → `detect_and_request_schema()` calls `doc.serialize()` unconditionally
+  on every mutation, purely to hand the text to `detect_hint` — even when the document has no
+  schema hint. 16.4 ms per keystroke at 98k nodes. The fix is now XS: `on_mutation_success`
+  already holds the text; pass it in. Both other callers (in `undo_redo.rs`) also have it.
+
+Cross-backend drift: the empty-document insert and the JSON quoted-key rename are **fixed**
+(JSON now detects an already-quoted key instead of blind-wrapping, and compares decoded against
+decoded). **Remark-an-array-element is not** — still `Unsupported` (TOML) / `Illegal` (JSON) /
+`Ok` (YAML), one gesture and three outcomes, two of which disagree about which error variant
+means "does not apply here" (a user-visible severity difference). The parity test gap is
+`PARTIAL` in the shape that matters: two files now iterate formats, but each leaves the third
+format in a separate block below the loop — exactly what lets drift through.
+
+Also verified fixed since the audit: `ViewRow.badge_label`/`badge_note` (so `kind-labels.ts` no
+longer re-derives badges and `help-content.ts` reads the i18n catalog), `to_view_row`'s
+per-row allocations, web CI running both the wasm smoke and the web specs, a `cargo audit` job,
+`proptest` round-trip properties for all three backends, and the inline-test extraction for
+three of the four "god objects" (`json/edit.rs` is the one left, 2,864 lines and unsplit).
+Still open: `Intent` bypass (~15-20 sites), `String` undo snapshots, `MutateError` mixing
+interactive outcomes with real errors, and `CHANGELOG.md` — which has **grown 42%** since being
+flagged (482 KB / 4,130 lines); the trend is the finding, not the size.
+
+`MESSAGES.md` §8 sharpened with what verification turned up: the TUI `~` overlay goes blind
+after **7 interactions with notices, 10 without** (a dispatch emits 2 events, 3 with a notice),
+and the defect is TUI-only. The web `lastSeenSeq` reset has **8** session-replacement paths, so
+it belongs in one helper rather than at each site, and touch has no drain at all. Touch's
+`sev-*` toasts differ only by a 3000 ms vs 1600 ms timer — while `web/style.css` *does* tint
+`sev-warn`/`sev-success` for the desktop footer, so the two hosts disagree on whether severity
+is visible at all.
+
+The `Approved` JSON/JSONC parser-simplification plan's **premise is refuted**: both halves are
+effectively done (the comment write-gate is gone, and the "unify two parsers" half has no work
+because `model/json/parse.rs` is the only parser). It should be closed rather than left reading
+as agreed-but-unstarted work.
+
 ### Unreleased Update - 2026-09-09 (21)
 
 **Docs — full audit and reorganization**
