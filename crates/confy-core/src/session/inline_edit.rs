@@ -25,6 +25,14 @@ impl Session {
         if self.guard_clipboard_locked() {
             return;
         }
+        // A read-only node (YAML opaque span, JSONC `/* */` block comment) is
+        // guarded HERE, not per host: `e` routes to the inline editor for a
+        // one-line value, and only the `$EDITOR` leg used to check. The editor
+        // opened, then the commit failed with a parser-level message.
+        if self.cursor_is_read_only() {
+            self.set_notice(Notice::core(self.lang, self.readonly_notice_key(), &[]));
+            return;
+        }
         let row = match self.cursor_row() {
             Some(r) => r,
             None => return,

@@ -425,7 +425,7 @@ impl super::Session {
             .map(|n| n.read_only)
             .unwrap_or(false)
         {
-            self.set_notice(Notice::core(self.lang, "core.readonly", &[]));
+            self.set_notice(Notice::core(self.lang, self.readonly_notice_key(), &[]));
             return;
         }
         if let Some(node) = self.tree.node_at(&cursor_path) {

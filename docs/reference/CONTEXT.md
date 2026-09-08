@@ -153,7 +153,11 @@ _Avoid_: Inline comment node (it is never a node), suffix comment.
 **Read-only node**:
 A node whose `Node.read_only` flag is set: displayed in the tree and copyable, but rejecting edit
 (`e`/`E`), delete (`d`), cut (`x`), and remark (`r`). Produced by JSONC `/* */` block comments
-(a Comment node) and by YAML **opaque nodes** (any kind).
+(a Comment node) and by YAML **opaque nodes** (any kind). The rejection happens in **core**, on
+both `e` routes — `begin_inline_edit` as well as the `$EDITOR` one — so no host can open an editor
+on read-only content and discover it only at commit time. Because one flag has two sources, the
+message does too: `core.readonly.comment` names the JSONC block comment, `core.readonly.opaque` the
+YAML out-of-subset span (`Session::readonly_notice_key` picks by node kind).
 
 **Opaque node**:
 A YAML node holding an out-of-subset construct — `&anchor`, `*alias`, `<<:` merge key, `!tag`, or

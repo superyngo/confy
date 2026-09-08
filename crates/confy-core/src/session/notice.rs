@@ -74,7 +74,8 @@ pub fn severity_of(key: &str) -> Severity {
         | "tui.host.save-error"
         | "tui.lang.save-failed" => Severity::Error,
 
-        "core.readonly"
+        "core.readonly.comment"
+        | "core.readonly.opaque"
         | "core.action.unavailable"
         | "core.clipboard.action-locked"
         | "core.trailing.inline-unsupported"
@@ -91,7 +92,6 @@ pub fn severity_of(key: &str) -> Severity {
         | "core.add.unsupported"
         | "core.schema.violation"
         | "web.host.fxios-save-hint"
-        | "tui.host.readonly-comment"
         | "web.host.schema.load-error"
         | "tui.host.schema-load-error"
         | "web.host.json-comments-detected"
@@ -152,7 +152,8 @@ mod tests {
             ("core.undo.error", Severity::Error),
             ("core.redo.error", Severity::Error),
             ("core.kind-switch.error", Severity::Error),
-            ("core.readonly", Severity::Warn),
+            ("core.readonly.comment", Severity::Warn),
+            ("core.readonly.opaque", Severity::Warn),
             ("core.clipboard.action-locked", Severity::Warn),
             ("core.trailing.inline-unsupported", Severity::Warn),
             ("core.reveal.hidden-by-filter", Severity::Warn),
@@ -184,7 +185,7 @@ mod tests {
             ("core.add.placeholder", Severity::Info),
             ("core.convert.aborted", Severity::Info),
         ];
-        assert_eq!(cases.len(), 42, "42 keys: §2.2's 40 (11 Error + 13 Warn + 7 Success + 9 Info) + controller-approved core.schema.violation (pass-through wrapper for the dynamic schema-violation advisory) + core.add.unsupported (Add-type picker: opaque/read-only parent has no legal add options)");
+        assert_eq!(cases.len(), 43, "43 keys: §2.2's 40 (11 Error + 13 Warn + 7 Success + 9 Info) + controller-approved core.schema.violation (pass-through wrapper for the dynamic schema-violation advisory) + core.add.unsupported (Add-type picker: opaque/read-only parent has no legal add options) + the read-only rejection split in two (core.readonly.comment for a JSONC block comment, core.readonly.opaque for a YAML out-of-subset span — one text can't name both sources)");
         for (key, expected) in cases {
             assert_eq!(severity_of(key), *expected, "key {key} classified wrong");
         }

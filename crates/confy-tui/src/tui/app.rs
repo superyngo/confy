@@ -651,9 +651,13 @@ impl App {
             return;
         }
         if self.cursor_is_read_only() {
+            // The message names the actual source (JSONC block comment vs YAML
+            // opaque span); `tui.host.readonly-comment` said "block comment"
+            // for both.
+            let key = self.session.readonly_notice_key().to_string();
             self.session
                 .dispatch(confy_core::session::Intent::SetHostNotice {
-                    key: "tui.host.readonly-comment".to_string(),
+                    key,
                     args: vec![],
                     source: confy_core::session::notice::NoticeSource::HostTui,
                 });

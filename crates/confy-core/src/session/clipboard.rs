@@ -17,7 +17,7 @@ impl Session {
             return;
         }
         if self.cursor_is_read_only() {
-            self.set_notice(Notice::core(self.lang, "core.readonly", &[]));
+            self.set_notice(Notice::core(self.lang, self.readonly_notice_key(), &[]));
             return;
         }
         let paths = self.selected_paths();
@@ -97,7 +97,7 @@ impl Session {
     /// message, and (cut only) the read-only guard.
     fn capture_selected(&mut self, cut: bool) {
         if cut && self.cursor_is_read_only() {
-            self.set_notice(Notice::core(self.lang, "core.readonly", &[]));
+            self.set_notice(Notice::core(self.lang, self.readonly_notice_key(), &[]));
             return;
         }
         if let Some(cb) = &mut self.clipboard {
@@ -527,7 +527,7 @@ impl Session {
             return;
         }
         if self.cursor_is_read_only() {
-            self.set_notice(Notice::core(self.lang, "core.readonly", &[]));
+            self.set_notice(Notice::core(self.lang, self.readonly_notice_key(), &[]));
             return;
         }
         let paths = self.selected_paths();

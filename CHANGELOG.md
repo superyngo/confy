@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-08 (16)
+
+**Fixed**
+
+- **`e` on a read-only node opened the editor anyway.** Only the `$EDITOR` route checked
+  `Node.read_only`; `e` on a one-line value routes to the **inline** editor, which didn't — so a
+  YAML opaque span or a JSONC `/* */` block comment let you type, then failed at commit with a
+  parser-level `invalid value: expected ':', found Some(NEWLINE)`. The guard now lives in
+  `Session::begin_inline_edit`, i.e. in core, so every host (TUI, web, touch, VS Code) refuses
+  before an editor opens and reports the same read-only message the `E`/`d`/`x`/`r` paths do.
+- **The read-only rejection no longer mislabels its source.** One hard-coded
+  "read-only node (block comment)" served both sources of the flag, so a YAML anchor/alias/merge/tag
+  was reported as a block comment. `core.readonly` is split into `core.readonly.comment` (JSONC
+  block comment) and `core.readonly.opaque` ("read-only node (out-of-subset YAML:
+  anchor/alias/merge/tag)"), picked by node kind in `Session::readonly_notice_key`; the TUI's
+  now-redundant host duplicate `tui.host.readonly-comment` is gone.
+
 ### Unreleased Update - 2026-09-08 (15)
 
 **Fixed**

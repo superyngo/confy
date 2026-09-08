@@ -97,8 +97,8 @@ Four levels, one meaning each:
 `severity_of(key: &str) -> Severity` (`notice.rs:45`) is the single source of
 truth for every `core.*` and host-notice key — there is no explicit-severity
 constructor and no escape hatch; a key not yet in the table panics rather than
-silently defaulting, so a new Notice call site can't ship unclassified. 42
-`core.*` keys are classified today (11 Error + 14 Warn + 7 Success + 9 Info,
+silently defaulting, so a new Notice call site can't ship unclassified. 43
+`core.*` keys are classified today (11 Error + 15 Warn + 7 Success + 9 Info,
 plus one controller-approved pass-through wrapper, `core.schema.violation`,
 for the dynamic schema-violation advisory text) — see `notice.rs`'s own
 `severity_of_covers_the_full_catalog_table` test for the byte-identical,

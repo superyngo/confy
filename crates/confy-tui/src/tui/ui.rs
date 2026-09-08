@@ -1098,7 +1098,7 @@ mod tests {
                 Color::Green,
             ),
             (
-                "core.readonly",
+                "core.readonly.opaque",
                 confy_core::session::notice::Severity::Warn,
                 Color::Yellow,
             ),

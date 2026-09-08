@@ -3687,6 +3687,43 @@ fn editor_round_trip_of_a_nested_flow_collection_element() {
     assert_eq!(s.serialize().unwrap(), "g: [ {x: 9, y: 8}, 2 ]\nz: 3\n");
 }
 
+/// `e` on a read-only node must be refused **before** any editor opens, on the
+/// inline route too — that route bypassed the guard, so the editor opened and
+/// only the commit failed, with a parser-level "expected `:`" message. The
+/// rejection also names the actual source: the flag is shared by a YAML opaque
+/// span and a JSONC `/* */` block comment.
+#[test]
+fn inline_edit_is_refused_on_a_read_only_node_and_names_its_source() {
+    let mut s = yaml_session("g: [ &a 1, 2 ]\nz: 3\n");
+    s.dispatch(Intent::CursorDown);
+    let snap = s.dispatch(Intent::BeginEdit);
+    assert!(
+        matches!(snap.mode, ModeView::Normal),
+        "no editor may open on an opaque node, got {:?}",
+        snap.mode
+    );
+    assert_eq!(s.readonly_notice_key(), "core.readonly.opaque");
+    assert_eq!(
+        s.notice.as_ref().map(|n| n.text.as_str()),
+        Some("read-only node (out-of-subset YAML: anchor/alias/merge/tag)")
+    );
+    assert_eq!(s.serialize().unwrap(), "g: [ &a 1, 2 ]\nz: 3\n");
+
+    // Same flag, other source: the message keeps saying "block comment".
+    let mut j = Session::new(
+        AnyDocument::from_str_as("{\n  /* blk */\n  \"a\": 1\n}\n", DocFormat::Json).unwrap(),
+    );
+    j.dispatch(Intent::ExpandAll);
+    j.dispatch(Intent::CursorDown);
+    let snap = j.dispatch(Intent::BeginEdit);
+    assert!(matches!(snap.mode, ModeView::Normal));
+    assert_eq!(j.readonly_notice_key(), "core.readonly.comment");
+    assert_eq!(
+        j.notice.as_ref().map(|n| n.text.as_str()),
+        Some("read-only node (block comment)")
+    );
+}
+
 /// BEHAVIOR_MATRIX tables A/C, "own external precise edit": an item of a
 /// one-line flow collection captures **that item alone** in every backend, and
 /// committing the untouched buffer is byte-identical (the collection's authored

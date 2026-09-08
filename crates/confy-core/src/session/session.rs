@@ -1634,6 +1634,23 @@ impl Session {
         self.cursor_row().map(|r| r.read_only).unwrap_or(false)
     }
 
+    /// Which read-only rejection message the cursor node deserves. The flag is
+    /// shared by two unrelated sources — a JSONC `/* */` block comment and a
+    /// YAML opaque span (anchor/alias/merge/tag) — so one hard-coded
+    /// "(block comment)" text mislabels whichever it isn't.
+    pub fn readonly_notice_key(&self) -> &'static str {
+        let is_comment = self
+            .cursor_row()
+            .and_then(|r| self.tree.node_at(&r.path))
+            .map(|n| matches!(n.kind, NodeKind::Comment(_)))
+            .unwrap_or(false);
+        if is_comment {
+            "core.readonly.comment"
+        } else {
+            "core.readonly.opaque"
+        }
+    }
+
     pub fn edit_target_kind(&self) -> EditKind {
         let path = match self.cursor_row() {
             Some(r) => r.path,
