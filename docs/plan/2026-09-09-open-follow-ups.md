@@ -37,19 +37,6 @@ fold into whichever touch task comes next.
 **Acceptance.** `?diag=1` on the touch entry prints the same `[confy-diag] …` lines, with the
 cursor reset on session swap as the desktop host now does.
 
-### F6 — `model/json/edit.rs` is the last unsplit production file
-
-Priority **P2** · Effort **S** · Verified 2026-09-09 · From audit 2026-08-29
-
-2,864 lines, of which 1,090 are an inline `#[cfg(test)] mod tests`. The other three "god
-objects" were resolved by extracting tests to a sibling `tests.rs` via `#[path = "tests.rs"]`
-(`cst_edit/mod.rs` 295 production lines, `tui/app.rs` 1,009, `yaml/edit/mod.rs` 147). JSON is
-the one file that is genuinely monolithic *production* code, and it would benefit from YAML's
-`block`/`flow`/`mutations`/`convert` split.
-
-**Acceptance.** Tests in a sibling `tests.rs`; production code split along YAML's boundaries.
-Pure code motion — no behavior change, no new tests.
-
 ### F7 — `Intent` is not exhaustive
 
 Priority **P2** (raised from P3 on 2026-09-09: measured, and the consequence is larger than
@@ -217,4 +204,5 @@ optionally `CARGO_INCREMENTAL=0` for the test path.
 | 2026-09-09 | **F14** YAML `Replace` silently dropped everything past the first node — now `Fragment("fragment must be a single value")`; two of the four filed rows were misdiagnosed and moved to *Watching* | `08fc59c` |
 | 2026-09-09 | **F3** TUI `~` overlay windowed the ring's head — now the tail, with a `last N of M` title and an empty-ring line | `0db6b79` |
 | 2026-09-09 | **F4** Web `?diag=1` cursor now resets on session swap — the record's "8 replacement sites" was one (`openText`) | `ccb0999` |
-| 2026-09-09 | **F5** Touch `sev-*` toasts styled — border/left-bar tint per severity, matching the desktop status hues | (this commit) |
+| 2026-09-09 | **F5** Touch `sev-*` toasts styled — border/left-bar tint per severity, matching the desktop status hues | `4379723` |
+| 2026-09-09 | **F6** `json/edit.rs` split — 8 production files (max 377 lines, was 1,774 in one) + sibling `tests.rs`; all 67 tests preserved | (this commit) |

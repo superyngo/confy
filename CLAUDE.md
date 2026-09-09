@@ -172,7 +172,15 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
       parse.rs     lossless lexer + recursive-descent parser → rowan GreenTree (JSONC-aware)
       doc.rs       JsonDocument: from_str/serialize/apply (atomic commit + validate_semantics)
       project.rs   GreenTree → NodeTree projection (// comments as real nodes; golden tests)
-      edit.rs      rowan splice helpers: one fn per Mutation variant for JSON/JSONC
+      edit/        rowan splice helpers, split by construct (F6, 2026-09-09) — mod.rs
+                   (atomic dispatch + validate_semantics), resolve.rs (path→Target +
+                   fragment serialization), fragment.rs (fragment parsing/adaptation +
+                   trailing-comment extraction), container.rs (destination OBJECT/ARRAY
+                   lookup, item read-back, inline/multiline rebuild + indent detection),
+                   replace_delete.rs (Replace/Delete), insert.rs (Insert/Move),
+                   mutations.rs (Rename/Remark/EditComment/InsertComment/
+                   SetTrailingComment/SetTrailingBlankLines + extent helpers),
+                   convert.rs (ConvertKind: Inline↔Multiline, float Plain↔Exponent)
     yaml/
       mod.rs       re-exports for the YAML-subset backend
       syntax.rs    SyntaxKind enum + rowan Language impl (hand-rolled YAML token/node kinds)

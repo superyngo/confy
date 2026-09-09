@@ -4,7 +4,7 @@ A normalized, cross-backend (TOML / JSON / JSONC / YAML) account of how a node's
 governs each editing behavior in the TUI. This is the canonical, self-contained reference — there
 is deliberately no condensed second copy anywhere. Vocabulary is in
 [glossary.md](glossary.md), per-`Mutation` mechanics in [MUTATIONS.md](MUTATIONS.md), and the
-per-row splice code in each backend's engine (`cst_edit/`, `json/edit.rs`, `yaml/edit/`).
+per-row splice code in each backend's engine (`cst_edit/`, `json/edit/`, `yaml/edit/`).
 
 The goal of the matrix is **one model for three formats**: the TUI implements each behavior *once* and
 parameterizes the cross-backend differences through `ConfigDocument` facets — so the TUI never
@@ -193,7 +193,7 @@ format is purely additive:
 | `kind_options(path)` | the `K` flow↔block popup list | per-node | per-node | per-node |
 | `split_value_comment(buffer)` / `replace_preserves_trailing_comment()` | trailing-comment edit | `#` lexer / `true` | `//` lexer / `true` | `#` lexer / `false` |
 
-**Not abstracted, by design:** the per-backend splice engines (`cst_edit/`, `json/edit.rs`,
+**Not abstracted, by design:** the per-backend splice engines (`cst_edit/`, `json/edit/`,
 `yaml/edit/`) share a **contract** (the `Mutation` enum), not a **mechanism** — the three `rowan`
 green trees have different shapes (taplo vs hand-rolled JSON vs YAML reindent). The `Mutation` enum
 *is* the abstraction; a shared splice core would add complexity for no behavior gain.

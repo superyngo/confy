@@ -8,6 +8,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-09 (31)
+
+**`json/edit.rs` was the last god object; it is now eight files**
+
+F6. 2,892 lines — 1,802 production plus a 1,090-line inline `#[cfg(test)] mod tests`. The other
+three had already been dealt with (`cst_edit/mod.rs` 295 production lines, `tui/app.rs` 1,009,
+`yaml/edit/mod.rs` 147), each by extracting tests to a sibling `tests.rs` via
+`#[path = "tests.rs"]`; JSON was the one genuinely monolithic *production* file left.
+
+Split by construct, the same axis YAML uses — not by arbitrary size:
+
+| file | lines | holds |
+|---|---|---|
+| `mod.rs` | 100 | atomic dispatch (`apply`) + `validate_semantics` + the module wiring |
+| `resolve.rs` | 80 | path → `Target`, fragment serialization |
+| `fragment.rs` | 224 | what the caller's text *means*: parse, adapt, trailing-comment extraction |
+| `container.rs` | 335 | destination OBJECT/ARRAY lookup, item read-back, inline/multiline rebuild, indent detection |
+| `replace_delete.rs` | 244 | `Replace`, `Delete` |
+| `insert.rs` | 211 | `Insert`, `Move` |
+| `mutations.rs` | 377 | Rename, Remark, EditComment, InsertComment, SetTrailingComment, SetTrailingBlankLines + extent helpers |
+| `convert.rs` | 320 | `ConvertKind`: Inline↔Multiline, float Plain↔Exponent |
+| `tests.rs` | 1,091 | the 67 tests, unchanged |
+
+Largest production file: **377 lines, down from 1,774**. `resolve`/`fragment`/`container` are
+the three layers every splice goes through, so they are files rather than sections; the rest is
+one file per `Mutation` family.
+
+**Pure code motion.** No behavior change, no new tests, no renamed public items — the six
+`pub`/`pub(crate)` entry points (`resolve`, `serialize_fragment`, `apply`, `extent_end_offset`,
+the two `fragment_*_trailing_comment`) are re-exported from `mod.rs`, so `doc.rs` is untouched.
+Private `fn`s became `pub(super) fn`; one `const TRAILING_MARKER` followed. Verified the test
+count is identical before and after (67 `#[test]` in both), all 34 suites pass, clippy is clean,
+and the wasm functional smoke still passes.
+
+`CLAUDE.md`'s module map and `BEHAVIOR_MATRIX.md`'s two `json/edit.rs` references now name the
+directory.
+
 ### Unreleased Update - 2026-09-09 (30)
 
 **Touch severity toasts finally look like their severity**
