@@ -764,11 +764,18 @@ This section covers the web-specific diagnostics export mechanics only.
 The Web UI surfaces `confy-core`'s in-Session 256-event diagnostic ring (`DiagEvent`) through the
 WASM FFI method `ConfySession.diagLog()` (`diag_log()` in `crates/confy-ffi`).
 
-When the page URL includes `?diag=1`, `drainDiagIfEnabled()` in `web/ui.ts` runs after every
-`dispatch` cycle, diffing returned events against a module-level `lastSeenSeq` counter and printing
-only newly-recorded events to `console.debug` with a `[confy-diag] [LEVEL] KIND DETAIL` prefix.
-Because events are filtered by monotonic `seq`, successive user interactions emit only their own
-trace deltas without re-logging historical events.
+When the page URL includes `?diag=1`, `drainDiagIfEnabled(session)` — exported by **`web/diag.ts`**
+and called from the `render()` of **both** orchestrators (`ui.ts` and `touch/app.ts`) — diffs the
+returned events against a module-level `lastSeenSeq` counter and prints only newly-recorded events
+to `console.debug` with a `[confy-diag] [LEVEL] KIND DETAIL` prefix. Because events are filtered by
+monotonic `seq`, successive user interactions emit only their own trace deltas without re-logging
+historical events. Each orchestrator calls `resetDiagCursor()` at its single session-swap site
+(`openText`): a replacement `Session` starts a new ring at `seq = 0`, so an inherited high-water
+mark would silently swallow every event of the newly-opened document.
+
+It is one shared module rather than a copy per host because it was a copy per host — precisely
+one, in `ui.ts` — which made the trace desktop-only (F15). Measured 2026-09-09 on the touch entry:
+three keystrokes logged **0** lines before, **12** after.
 
 ## Desktop + Mobile (Tauri)
 

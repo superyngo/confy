@@ -25,18 +25,6 @@ Effort is XS (< 1 h) / S (a session) / M (multi-session).
 
 ## Open
 
-### F15 — Touch has no `?diag=1` drain
-
-Priority **P3** · Effort **XS** · Opened 2026-09-09 (split out while closing F4)
-
-`drainDiagIfEnabled` lives only in `web/ui.ts`; `web/touch/app.ts` has no equivalent, so the
-`?diag=1` console trace is desktop-only even though both hosts drive the same `ConfySession`
-and the same ring. Not a defect in the drain that exists — a missing surface. Small enough to
-fold into whichever touch task comes next.
-
-**Acceptance.** `?diag=1` on the touch entry prints the same `[confy-diag] …` lines, with the
-cursor reset on session swap as the desktop host now does.
-
 ### F9 — Undo stores full text snapshots
 
 Priority **P3** · Effort **M** · Verified 2026-09-09 · From audit 2026-08-29
@@ -141,5 +129,6 @@ optionally `CARGO_INCREMENTAL=0` for the test path.
 | 2026-09-09 | **F4** Web `?diag=1` cursor now resets on session swap — the record's "8 replacement sites" was one (`openText`) | `ccb0999` |
 | 2026-09-09 | **F5** Touch `sev-*` toasts styled — border/left-bar tint per severity, matching the desktop status hues | `4379723` |
 | 2026-09-09 | **F6** `json/edit.rs` split — 8 production files (max 377 lines, was 1,774 in one) + sibling `tests.rs`; all 67 tests preserved | `739132e` |
-| 2026-09-09 | **F7** Diag taps moved `dispatch()` → `apply()` — the TUI's `~` ring went 0 → 32 events on the same 16 keystrokes; the filed "~15-20 bypass sites" was 5, of which 4 now go through Intents (`ConvertWriteDone`, `SetStrictJson`, `SetPasteSlot`) | (this commit) |
-| 2026-09-09 | **F8** `MutateError` taxonomy documented + enforced — Root delete `NotFound`→`Unsupported` (3 backends), JSON unterminated string `Illegal`→`Fragment` (lexer emits ERROR), 2 new parity tests | (this commit) |
+| 2026-09-09 | **F7** Diag taps moved `dispatch()` → `apply()` — the TUI's `~` ring went 0 → 32 events on the same 16 keystrokes; the filed "~15-20 bypass sites" was 5, of which 4 now go through Intents (`ConvertWriteDone`, `SetStrictJson`, `SetPasteSlot`) | `8cc0ccb` |
+| 2026-09-09 | **F8** `MutateError` taxonomy documented + enforced — Root delete `NotFound`→`Unsupported` (3 backends), JSON unterminated string `Illegal`→`Fragment` (lexer emits ERROR), 2 new parity tests | `8cc0ccb` |
+| 2026-09-09 | **F15** `?diag=1` drain extracted to shared `web/diag.ts`; touch went 0 → 12 logged lines on 3 keystrokes, desktop unaffected | (this commit) |

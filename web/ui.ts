@@ -80,6 +80,7 @@ import type {
   ViewRow,
 } from "./types.js";
 import { createBatcher, modeTag } from "./mode.js";
+import { drainDiagIfEnabled, resetDiagCursor } from "./diag.js";
 import { navRowCount, resolveKeyIntent, treePageStep } from "./key-intent.js";
 import { drawnCursorFallback } from "./path-utils.js";
 
@@ -290,11 +291,9 @@ function openText(
   const next = replaceSession(session, text, format, (msg) => setStatus("", msg));
   if (!next) return;
   session = next;
-  // The new Session carries a new diag ring whose `seq` restarts at 0, so a
-  // cursor from the old one is a high-water mark the replacement can never
-  // reach — every post-swap event would be skipped until it caught up. Reset
-  // it here, at the one site that swaps the session.
-  lastSeenSeq = -1;
+  // The new Session carries a new diag ring whose `seq` restarts at 0 — see
+  // `resetDiagCursor`. This is the one site that swaps the session.
+  resetDiagCursor();
   fileHandle = handle;
   fileName = name;
   setSampleMode(asSample);
@@ -450,24 +449,12 @@ function onArmedPasteHover(ev: MouseEvent) {
   }
   renderHoverCue(snap, slot);
 }
-let lastSeenSeq = -1;
-function drainDiagIfEnabled() {
-  if (typeof location === "undefined") return;
-  if (new URLSearchParams(location.search).get("diag") !== "1") return;
-  if (!session) return;
-  const events = session.diagLog();
-  for (const e of events) {
-    if (e.seq <= lastSeenSeq) continue;
-    console.debug(`[confy-diag] [${e.level}] ${e.kind} ${e.detail}`);
-    lastSeenSeq = e.seq;
-  }
-}
 
 
 // ---- render ----
 function render() {
   if (!snap || !session) return;
-  drainDiagIfEnabled();
+  drainDiagIfEnabled(session);
   fmtPill.textContent = snap.doc_format.toUpperCase();
   fmtPill.classList.toggle("toggleable", inSampleMode());
   fmtPill.title = inSampleMode() ? "Sample — click to switch format" : "document format";

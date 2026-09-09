@@ -302,6 +302,10 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
                  render.ts stays wasm-free and node-bundleable. Used by render.ts + touch/render.ts
   i18n.ts        catalog wrapper: t()/tArgs() over ../i18n/*.json, en-fallback chain,
                  getLang()/setLang() persisted in localStorage["confy-lang"]
+  diag.ts        the `?diag=1` console drain, shared by BOTH orchestrators:
+                 `drainDiagIfEnabled(session)` per render + `resetDiagCursor()` at each
+                 host's session swap. One module because the copy that lived in ui.ts
+                 made the trace desktop-only (F15)
   select.ts      pure pointer-selection logic → `SetSelection`/`SetCursor`: plain/⇧-range/
                  ⌘-toggle clicks (segmented additive range via an anchor+base snapshot) + marquee
   dnd.ts         HTML5 grip drag-reparent → `MoveSelectionTo {sources,slot,cut}`: the destination is

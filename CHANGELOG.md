@@ -8,6 +8,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-09 (33)
+
+**The `?diag=1` trace was desktop-only because there was one copy of it**
+
+F15, opened while closing F4. `drainDiagIfEnabled` lived in `web/ui.ts`; `web/touch/app.ts` had
+no equivalent, even though both orchestrators drive the same `ConfySession` and the same
+256-event ring. Measured in a real browser on the touch entry (`touch.html?ui=touch&diag=1`,
+420×820), three `j` keystrokes:
+
+| entry | before | after |
+|---|---|---|
+| touch | **0** `[confy-diag]` lines | **12** — `dispatch CursorDown` / `mutation CursorDown ok` / `dispatch SetSelection` / … |
+| desktop | 8 on two keystrokes | 8 — unchanged |
+
+Extracted to a shared `web/diag.ts` (`drainDiagIfEnabled(session)` + `resetDiagCursor()`) rather
+than pasting a second copy into the touch orchestrator. The reason is the bug itself: this went
+unnoticed precisely because it was per-host code, and the cursor-reset rule that F4 added to
+`ui.ts` would have needed adding twice, in two places nobody cross-checks. Both hosts now call
+the drain from `render()` and the reset at their single `openText` session swap — verified in the
+browser that a desktop format swap still logs the new session's events (8 → 19 across the swap)
+rather than swallowing them.
+
+`diag-export.spec.mjs` retargeted at the shared module and now asserts **both** hosts wire it up,
+so a third entry point can't quietly ship without the trace. `WEBUI.md` §Diagnostics,
+`MESSAGES.md` §4.1/§8 and `CLAUDE.md`'s module map updated; the backlog's last XS is closed.
+
 ### Unreleased Update - 2026-09-09 (32)
 
 **The TUI's diagnostic ring was empty because the taps were on the wrong function**

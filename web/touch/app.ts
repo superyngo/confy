@@ -43,6 +43,7 @@ import {
   type OpenedFile,
 } from "../fs.js";
 import { createBatcher, modeTag } from "../mode.js";
+import { drainDiagIfEnabled, resetDiagCursor } from "../diag.js";
 import {
   doConvertWrite,
   doQuickSave,
@@ -528,6 +529,7 @@ function renderDetailBody(
 // ---- render ----
 function render() {
   if (!snap || !session) return;
+  drainDiagIfEnabled(session);
   fmtPill.textContent = snap.doc_format.toUpperCase();
   fmtPill.classList.toggle("toggleable", inSampleMode());
   fmtPill.title = inSampleMode() ? t("web.toolbar.fmtPill.sampleTitle") : t("web.toolbar.fmtPill.title");
@@ -1715,6 +1717,9 @@ function openText(
   const next = replaceSession(session, text, format, io.err);
   if (!next) return;
   session = next;
+  // The new Session carries a new diag ring whose `seq` restarts at 0 — see
+  // `resetDiagCursor`. This is the one site that swaps the session.
+  resetDiagCursor();
   fileHandle = handle;
   fileName = name;
   setSampleMode(asSample);

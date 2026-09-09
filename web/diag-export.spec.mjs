@@ -33,12 +33,19 @@ const confySrc = readFileSync(path.join(here, "confy.ts"), "utf8");
 check("confy.ts imports DiagEvent from ./types.js", confySrc.includes("DiagEvent"));
 check("confy.ts Session class has diagLog method", confySrc.includes("diagLog(") && confySrc.includes("diag_log()"));
 
-// 3. web/ui.ts has ?diag=1 drain logic
+// 3. web/diag.ts holds the ?diag=1 drain, and BOTH orchestrators use it.
+// It lived in ui.ts until F15 (2026-09-09), which made the trace desktop-only.
+const diagSrc = readFileSync(path.join(here, "diag.ts"), "utf8");
+check("diag.ts checks ?diag=1 in URLSearchParams", diagSrc.includes('"diag"') && diagSrc.includes('"1"'));
+check("diag.ts calls diagLog()", diagSrc.includes("diagLog()"));
+check("diag.ts logs with [confy-diag] prefix and console.debug", diagSrc.includes("[confy-diag]") && diagSrc.includes("console.debug"));
+check("diag.ts exports a cursor reset for the session swap", diagSrc.includes("export function resetDiagCursor"));
 const uiSrc = readFileSync(path.join(here, "ui.ts"), "utf8");
-check("ui.ts checks ?diag=1 in URLSearchParams", uiSrc.includes('"diag"') && uiSrc.includes('"1"'));
-check("ui.ts calls diagLog()", uiSrc.includes("session.diagLog()") || uiSrc.includes("session?.diagLog()") || uiSrc.includes("diagLog()"));
-check("ui.ts logs with [confy-diag] prefix and console.debug", uiSrc.includes("[confy-diag]") && uiSrc.includes("console.debug"));
-check("ui.ts render() calls the diag drain", uiSrc.includes("drainDiagIfEnabled") || uiSrc.includes("drainDiag"));
+const touchSrc = readFileSync(path.join(here, "touch", "app.ts"), "utf8");
+for (const [host, src] of [["ui.ts", uiSrc], ["touch/app.ts", touchSrc]]) {
+  check(`${host} render() calls the shared diag drain`, src.includes("drainDiagIfEnabled(session)"));
+  check(`${host} resets the diag cursor when the session is swapped`, src.includes("resetDiagCursor()"));
+}
 
 console.log("\n-- Task 17 Behavioral: ?diag=1 console drain logic --");
 
