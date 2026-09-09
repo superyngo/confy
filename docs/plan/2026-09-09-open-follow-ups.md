@@ -54,19 +54,6 @@ Recorded so the ceiling is known rather than rediscovered.
 **Acceptance.** TOML `Move ×8` at 7,001 nodes approaches YAML's 79 ms. Verified with
 `cargo bench -p confy-core --bench perf -- --nodes 500`.
 
-### F11 — Dependency upgrades not yet taken
-
-Priority **P3** · Effort **S-M** · Verified 2026-09-09 · From audit 2026-08-29
-
-Landed: `thiserror 2`, `unicode-width 0.2`, `dirs 6`, `ratatui 0.30`, `crossterm 0.29`.
-Remaining: `jsonschema 0.30 → 0.44` (M/Low); `fuzzy-matcher 0.3` is unmaintained and
-`nucleo-matcher` is ~6× faster (M/Med — it changes match *scoring*, so the fuzzy-filter
-highlight tests are the real work); `ureq 2 → 3` is a Sans-IO rewrite for a single GET,
-**deliberately deferred**.
-
-**Acceptance.** Upgrades land as one bundled commit; the fuzzy swap keeps `KEYMAP.md`'s
-machine-checked highlight parity green on both hosts.
-
 ### F12 — `CHANGELOG.md` should be split by version series
 
 Priority **P3** · Effort **S** · Verified 2026-09-09 · From audit 2026-08-29
@@ -76,18 +63,6 @@ trend is the finding, not the size. Split before v1.0.0.
 
 **Acceptance.** Root `CHANGELOG.md` holds the current series and links to
 `docs/reference/changelog/` archives; the release workflow's version check still passes.
-
-### F13 — `target/` build hygiene
-
-Priority **P3** · Effort **XS** · Verified 2026-09-09 · From audit 2026-08-29 (late finding)
-
-Maintainer action, not a code change. `target/debug/incremental` still exists, and there is no
-`.cargo/config.toml` or `CARGO_INCREMENTAL` setting anywhere. The audit measured
-`cargo test -p confy-core --lib` at 546 tests in 0.09 s but **110 s wall** — over 99.9% of it
-cargo stat-ing fingerprints across 664 k files.
-
-**Acceptance.** `rm -rf target/debug/incremental` (a cache, safe to drop) or `cargo clean`;
-optionally `CARGO_INCREMENTAL=0` for the test path.
 
 ---
 
@@ -131,4 +106,6 @@ optionally `CARGO_INCREMENTAL=0` for the test path.
 | 2026-09-09 | **F6** `json/edit.rs` split — 8 production files (max 377 lines, was 1,774 in one) + sibling `tests.rs`; all 67 tests preserved | `739132e` |
 | 2026-09-09 | **F7** Diag taps moved `dispatch()` → `apply()` — the TUI's `~` ring went 0 → 32 events on the same 16 keystrokes; the filed "~15-20 bypass sites" was 5, of which 4 now go through Intents (`ConvertWriteDone`, `SetStrictJson`, `SetPasteSlot`) | `8cc0ccb` |
 | 2026-09-09 | **F8** `MutateError` taxonomy documented + enforced — Root delete `NotFound`→`Unsupported` (3 backends), JSON unterminated string `Illegal`→`Fragment` (lexer emits ERROR), 2 new parity tests | `8cc0ccb` |
-| 2026-09-09 | **F15** `?diag=1` drain extracted to shared `web/diag.ts`; touch went 0 → 12 logged lines on 3 keystrokes, desktop unaffected | (this commit) |
+| 2026-09-09 | **F15** `?diag=1` drain extracted to shared `web/diag.ts`; touch went 0 → 12 logged lines on 3 keystrokes, desktop unaffected | `5612849` |
+| 2026-09-09 | **F13** `.cargo/config.toml` with `incremental = false` — `target/debug/incremental` was 23 GB / 120k files (47% of `target/`) for ~1.6 s per edit rebuild | (this commit) |
+| 2026-09-09 | **F11** `jsonschema 0.30 → 0.55` (fields became methods) and `fuzzy-matcher 0.3 → nucleo-matcher 0.3` (unmaintained → maintained); `ureq 2` still deliberately deferred | (this commit) |

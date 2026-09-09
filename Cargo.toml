@@ -15,8 +15,8 @@ thiserror = "2"
 taplo = "0.14"            # lossless rowan CST backend (comments as real nodes)
 rowan = "=0.15.18"        # lossless hand-rolled JSON/JSONC CST (same version taplo uses)
 tempfile = "3"
-fuzzy-matcher = "0.3"
-jsonschema = { version = "0.30", default-features = false }
+nucleo-matcher = "0.3"
+jsonschema = { version = "0.55", default-features = false }
 regex = "1"
 ureq = "2"
 serde = { version = "1", features = ["derive"] }

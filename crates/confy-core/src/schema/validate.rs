@@ -17,8 +17,10 @@ pub fn validate(projection: &Json, compiled: &Validator, map: &PointerMap) -> Ve
     compiled
         .iter_errors(projection)
         .map(|err| {
-            let pointer = err.instance_path.to_string();
-            let schema_path = err.schema_path.to_string();
+            // `instance_path`/`schema_path`/`kind` became accessor methods in
+            // jsonschema 0.55 (were public fields through 0.30).
+            let pointer = err.instance_path().to_string();
+            let schema_path = err.schema_path().to_string();
             let keyword = schema_path.rsplit('/').next().unwrap_or("").to_string();
             let path = map.resolve(&pointer).cloned().unwrap_or_default();
             let message = err.to_string();
@@ -30,7 +32,7 @@ pub fn validate(projection: &Json, compiled: &Validator, map: &PointerMap) -> Ve
             // so a string value that merely contains "null", or a nullable
             // `type` union that includes `"null"` as one alternative, are
             // not misclassified.
-            let category = match &err.kind {
+            let category = match err.kind() {
                 ValidationErrorKind::Type {
                     kind: TypeKind::Single(JsonType::Null),
                 } => Category::Representation,

@@ -1,0 +1,23 @@
+# Incremental compilation is off for this workspace (F13, 2026-09-09).
+#
+# Measured on an M4 with a fully warm build:
+#
+#   target/                       49 GB / 484,567 files
+#   target/debug/incremental      23 GB / 120,313 files   <- 47% of the size
+#
+# What that cache buys is ~1.6 s on an edit-then-`cargo test -p confy-core --lib`
+# rebuild (5.3 s off vs 3.7 s on). What it costs is 23 GB and a quarter of every
+# `cargo` invocation's fingerprint stat walk — which is invisible while the
+# filesystem cache is warm (a no-op run is 0.32 s either way) and dominant when
+# it is not: the 2026-08-29 audit clocked one cold no-op run at 110 s wall for
+# 0.09 s of tests.
+#
+# Note the audit's diagnosis — "over 99.9% of it cargo stat-ing fingerprints" —
+# is only true cold; warm, incremental costs nothing per invocation. The reason
+# to disable it here is the 23 GB and the cold-start tail, not steady-state
+# speed. Delete this file to get the 1.6 s back.
+#
+# CI never benefits from it at all (each job starts from a fresh checkout), and
+# `[profile.release]` in the root Cargo.toml already implies no incremental.
+[build]
+incremental = false

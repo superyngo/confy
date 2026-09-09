@@ -8,6 +8,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-09 (34)
+
+**Build hygiene, and the last two dependency upgrades**
+
+**F13 — `.cargo/config.toml`, `incremental = false`.** Measured on an M4 with a fully warm build:
+
+| | size | files |
+|---|---|---|
+| `target/` | 49 GB | 484,567 |
+| `target/debug/incremental` | **23 GB** | **120,313** |
+
+Half the build directory, for a cache worth ~1.6 s on an edit-then-test rebuild (5.3 s with it
+off vs 3.7 s on). The audit's diagnosis — "110 s wall for 0.09 s of tests, over 99.9% of it cargo
+stat-ing fingerprints" — **only reproduces on a cold filesystem cache**: measured warm, a no-op
+`cargo test -p confy-core --lib` is 0.32 s with incremental either way. So the reason to disable
+it is the 23 GB and the cold-start tail, not steady-state speed, and the config file says so, in
+case a future maintainer wants the 1.6 s back. CI never benefited (fresh checkout per job).
+
+The existing `target/debug/incremental` is left alone — deleting a user's build cache is not this
+change's business. `rm -rf target/debug/incremental` reclaims it whenever you like.
+
+**F11 — `jsonschema 0.30 → 0.55`.** Not 0.44 as filed; 0.55.1 is current. `instance_path`,
+`schema_path` and `kind` became accessor methods (were public fields), which is the entire
+migration — 4 call sites in `schema/validate.rs` and `schema/hints_edit.rs`. Cost, measured:
+
+| | raw | gzip |
+|---|---|---|
+| wasm before | 4,052,894 | 1,281,394 |
+| wasm after (both upgrades) | 4,581,319 | 1,423,614 |
+
+**+139 KB gzipped (+11%)**, and 5 new transitive crates (`jsonschema-regex`, `jsonschema-value`,
+`data-encoding`, `micromap`, `unicode-general-category`). Recorded rather than glossed: this is
+the price of the upgrade, and it is paid by every web visitor.
+
+**F11 — `fuzzy-matcher 0.3 → nucleo-matcher 0.3.1.** The old crate is unmaintained. The surface
+is two functions (`session/search.rs`), but the matcher is shared by the TUI's `highlight_spans`
+and the web's `mark.fz` runs through one wasm export, so a scoring change shows up on both.
+`Matcher` holds reusable scratch buffers and needs `&mut`, so the shared instance became a
+`thread_local!` `RefCell` instead of a `LazyLock`; indices are sorted and deduplicated once here
+rather than at each of the three call sites.
+
+Two deliberate behavior changes, both verified on the real binary and suited to a haystack that
+*is* `path + value + comment` joined by spaces:
+
+- **A space now separates independent, order-free terms.** `8080 server` and `server 8080` both
+  match `server.port 8080`; before, the space had to appear literally and in order, so neither did.
+- **Unicode folding.** Typing `cafe` matches and highlights `"café"` — confirmed in the TUI, which
+  marked `c a f é` and narrowed the tree to that row. Before, it did not match.
+
+Everything else stays a literal fuzzy subsequence: `^`, `$`, `!`, `'` have no special meaning
+(nucleo's anchor/negation syntax lives in `Pattern::parse`, which confy does not call). Verified
+the web surface separately in a real browser: `prt` still produces exactly three `mark.fz` runs.
+
+`TUI.md` §Filter documents both changes; `WEBUI.md` and the FFI doc comment no longer name
+`SkimMatcherV2`.
+
 ### Unreleased Update - 2026-09-09 (33)
 
 **The `?diag=1` trace was desktop-only because there was one copy of it**

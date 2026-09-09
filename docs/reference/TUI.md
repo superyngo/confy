@@ -177,6 +177,19 @@ style so a `comment_advisory` value stays underlined underneath. Transient overl
 inline editor) close back into the filtered selection via `Session::resting_mode` (`FilterResults` when
 `filtered_paths.is_some()`, else `Normal`) — `exit_detail`/`edit_cancel`/`edit_commit` use it.
 
+**Matcher semantics.** `session/search.rs` wraps `nucleo-matcher` (swapped from the unmaintained
+`fuzzy-matcher 0.3` in F11, 2026-09-09), configured `CaseMatching::Smart` +
+`Normalization::Smart`. Two deliberate differences from the old matcher, both of which suit a
+haystack that *is* `path + value + comment` joined by spaces:
+
+- **A space separates independent terms**, order-free. `server 8080` and `8080 server` both match
+  `server.port 8080`; previously the space had to appear literally, in order, so neither did.
+- **Unicode-folding**: `cafe` matches `café`. Previously it did not.
+
+Everything else is a literal fuzzy subsequence — `^`, `$`, `!` and `'` carry no special meaning
+(`nucleo`'s anchor/negation syntax needs `Pattern::parse`, which confy does not use), so a query
+containing them looks for those characters, exactly as before.
+
 ## Type filter
 
 `f` opens `Mode::TypeFilter`, a modal checkbox popup (`tui/type_filter.rs`) that

@@ -258,19 +258,19 @@ mod parity_tests {
         let errors: Vec<_> = compiled.iter_errors(&doc).collect();
         let summary: Vec<String> = errors
             .iter()
-            .map(|e| format!("{} ({})", e.instance_path, e.schema_path))
+            .map(|e| format!("{} ({})", e.instance_path(), e.schema_path()))
             .collect();
         // Exactly one violation per region: properties/plain,
         // patternProperties/host_1/items, additionalProperties/…/minimum,
         // and additionalProperties → $ref → items/minLength.
         assert_eq!(errors.len(), 4, "regions violated: {summary:?}");
         for err in &errors {
-            let path = pointer_to_path(&err.instance_path.to_string());
+            let path = pointer_to_path(&err.instance_path().to_string());
             assert!(
                 resolve_subschema(&schema, &schema, &path).is_some(),
                 "validator flagged {path:?} ({}) but the hint walker cannot \
                  resolve it — the keyword whitelist has fallen behind again",
-                err.instance_path
+                err.instance_path()
             );
         }
     }

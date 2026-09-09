@@ -93,7 +93,7 @@ multi-line modal with `initial`, awaits the result, and re-dispatches
 **One free export: `fuzzy_indices(haystack: string, needle: string) => Uint32Array |
 undefined`.** Not a `ConfySession` method — it is pure and stateless, so hosts call it per
 rendered cell while a filter is active to mark the matched characters. It wraps
-`confy_core::session::search::fuzzy_indices`, the *same* `SkimMatcherV2` the TUI's
+`confy_core::session::search::fuzzy_indices`, the *same* `nucleo-matcher` the TUI's
 `highlight_spans` uses, so the two surfaces cannot drift apart; a reimplemented TS scorer
 would have. Returns `undefined` on no match or an empty needle. The indices are **char**
 offsets (declared `Vec<u32>` because that is what marshals to a `Uint32Array`), so JS must
