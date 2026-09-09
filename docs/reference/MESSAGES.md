@@ -283,6 +283,14 @@ This is touch's one genuine severity-behavior divergence from desktop's
 click-to-clear-forever `Error` treatment, a deliberate small-viewport trade-off
 rather than an oversight.
 
+Severity is also **visible**, not only encoded in the class: the toast carries a
+4px left bar plus a tinted border/background per severity (`web/touch/style.css`,
+`.toast.sev-*`), using the same hues the desktop status line does — `--warn` for
+`Warn`, `--t-bool` for `Error` (which is additionally bolded), and `--t-string`
+for `Success`, because touch's palette has no `--drop`. `Info` is deliberately
+neutral: it is the default and needs no signal. Until 2026-09-09 the classes were
+applied but unstyled, so a `Warn` and a `Success` differed only by their timer.
+
 ### 5.4 VS Code extension host — a permanent, separate carve-out
 
 The extension host's own native popups
@@ -388,7 +396,7 @@ follow-up (not tracked by an issue as of this writing).
 
 ## 8. Known follow-ups (non-blocking, recorded for later)
 
-Re-verified 2026-09-09 and still open. They are tracked as **F5/F7/F8/F15** in
+Re-verified 2026-09-09 and still open. They are tracked as **F7/F8/F15** in
 [`../plan/2026-09-09-open-follow-ups.md`](../plan/2026-09-09-open-follow-ups.md), the single
 live backlog, which carries their acceptance criteria; the evidence is in
 [`../audit/2026-09-09-open-findings-reverification.md`](../audit/2026-09-09-open-findings-reverification.md).
@@ -409,13 +417,6 @@ live backlog, which carries their acceptance criteria; the evidence is in
   dispatching. A `dispatch` line that always names the same Intent is not a
   trace. Tracked as **F7**; the `~` overlay's tail-take fix (2026-09-09) made
   the window useful, it did not make the channel complete.
-- **Touch `sev-*` toast classes have no dedicated CSS yet.** `web/touch/app.ts`'s
-  `renderNotice` applies the classes (§5.3) but `web/touch/style.css` has
-  `.toast`/`.toast.show` and zero `sev-*` rules, so a `Warn` differs from a
-  `Success` only by its auto-hide timer (3000 ms vs 1600 ms). Note `web/style.css`
-  *does* style `sev-warn`/`sev-success` — for the desktop footer status line, not
-  the toast — so the two hosts currently disagree on whether severity is visible
-  at all. Cosmetic, deferred, MVP-scope.
 - **One mistake, two severities: JSON reports a bad fragment as `Illegal`,**
   TOML and YAML as `Fragment`. Measured 2026-09-09 on a value `Replace` of an
   unterminated string: TOML `Fragment("unexpected token")`, JSON

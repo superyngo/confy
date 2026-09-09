@@ -8,6 +8,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-09 (30)
+
+**Touch severity toasts finally look like their severity**
+
+F5, the last of the three original `MESSAGES.md` §8 items. `renderNotice` has applied
+`sev-info`/`sev-success`/`sev-warn`/`sev-error` to the toast since it was written, and
+`web/touch/style.css` styled **none** of them — so a `Warn` and a `Success` differed only by how
+long they stayed up (3000 ms vs 1600 ms). Desktop tints its status line by severity, so the two
+hosts disagreed on whether severity was visible at all.
+
+Each toast now carries a 4px left bar plus a tinted border and background, in the hues the
+desktop status line already uses: `--warn` for `Warn`, `--t-bool` for `Error` (also bolded),
+`--t-string` for `Success`. `Info` stays neutral — it is the default and needs no signal. The
+tint goes on the border rather than the text because the chip is dark in both themes and the
+text has to stay legible against it.
+
+**A screenshot lied and a computed-style check caught it.** The first version used `--drop` for
+`Success`, matching desktop exactly. It rendered as a white border, which read as "thin green,
+probably fine" in the screenshot. Querying `getComputedStyle` instead:
+
+```
+success  bg=rgba(0,0,0,0)  border=oklch(0.95 0.01 240)   ← transparent + currentColor
+warn     bg=oklch(0.38 0.0392 222)  border=oklch(0.8 0.14 75)
+```
+
+`--drop` is **not defined in `web/touch/style.css` at all** — the two web palettes are not the
+same set — so `var(--drop)` fell back to `currentColor` and the whole `color-mix` collapsed.
+`--t-string` (identical in both files) stands in, with the reason in the CSS comment. The token
+gap itself is recorded under *Watching*: a shared token file would remove the class of bug, but
+it is not worth it for one token.
+
+Verified in a real browser at a 420×820 touch viewport, all four severities, both themes.
+
+`MESSAGES.md` §5.3 now describes the styling as part of touch's notice contract, and its §8
+entry is gone. **All three original §8 items are now closed**; the two that remain there (F7,
+F15) were found by measuring while closing them.
+
 ### Unreleased Update - 2026-09-09 (29)
 
 **The web diag cursor outlived the session it was counting**

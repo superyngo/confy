@@ -37,19 +37,6 @@ fold into whichever touch task comes next.
 **Acceptance.** `?diag=1` on the touch entry prints the same `[confy-diag] …` lines, with the
 cursor reset on session swap as the desktop host now does.
 
-### F5 — Touch `sev-*` toast classes have no CSS
-
-Priority **P3** · Effort **XS** · Verified 2026-09-09 · From `MESSAGES.md` §8
-
-`web/touch/app.ts`'s `renderNotice` applies the classes; `web/touch/style.css` has
-`.toast`/`.toast.show` and zero `sev-*` rules, so a `Warn` differs from a `Success` only by its
-auto-hide timer (3000 ms vs 1600 ms). `web/style.css` *does* tint `sev-warn`/`sev-success` — for
-the desktop footer status line — so the two hosts currently disagree on whether severity is
-visible at all. Cosmetic, MVP-deferred.
-
-**Acceptance.** Warn/Error toasts are visually distinct from Success/Info on touch, using the
-desktop footer's existing hues. §8 entry removed.
-
 ### F6 — `model/json/edit.rs` is the last unsplit production file
 
 Priority **P2** · Effort **S** · Verified 2026-09-09 · From audit 2026-08-29
@@ -209,6 +196,12 @@ optionally `CARGO_INCREMENTAL=0` for the test path.
   `Illegal("expected R_BRACE, found None")` where TOML and YAML return `Fragment(…)` for the
   same class of input. Same family as F1's `Unsupported`/`Illegal` split; fold into F8
   (`MutateError` taxonomy) rather than patching per-backend.
+- **The two web palettes are not the same set.** `web/style.css` defines `--drop` (the
+  drop-indicator green, also the desktop status line's Success hue); `web/touch/style.css`
+  does **not** define it at all, so `var(--drop)` silently falls back to `currentColor` on
+  touch — caught 2026-09-09 only because a computed-style check contradicted the screenshot.
+  The touch severity toasts use `--t-string` for Success instead, with the reason in the CSS
+  comment. A shared token file would remove the class of bug; not worth it for one token.
 
 ---
 
@@ -223,4 +216,5 @@ optionally `CARGO_INCREMENTAL=0` for the test path.
 | 2026-09-09 | **F2** 3-format parity suite — `tests/format_parity.rs`, 9 behaviors, exhaustive-`match` fixtures | `72805c0` |
 | 2026-09-09 | **F14** YAML `Replace` silently dropped everything past the first node — now `Fragment("fragment must be a single value")`; two of the four filed rows were misdiagnosed and moved to *Watching* | `08fc59c` |
 | 2026-09-09 | **F3** TUI `~` overlay windowed the ring's head — now the tail, with a `last N of M` title and an empty-ring line | `0db6b79` |
-| 2026-09-09 | **F4** Web `?diag=1` cursor now resets on session swap — the record's "8 replacement sites" was one (`openText`) | (this commit) |
+| 2026-09-09 | **F4** Web `?diag=1` cursor now resets on session swap — the record's "8 replacement sites" was one (`openText`) | `ccb0999` |
+| 2026-09-09 | **F5** Touch `sev-*` toasts styled — border/left-bar tint per severity, matching the desktop status hues | (this commit) |

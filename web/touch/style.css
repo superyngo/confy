@@ -360,6 +360,35 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none
 }
 .toast.show{opacity:1;visibility:visible;transform:translate(-50%,0)}
 
+/* Severity accents. `renderNotice` has always applied `sev-info`/`sev-success`/
+   `sev-warn`/`sev-error` (MESSAGES.md §5.3) but nothing styled them, so a
+   warning and a success differed only by how long they stayed up — severity was
+   visible on desktop's footer status and invisible here. Same three tokens the
+   desktop status line uses for warn (`--warn`) and error (`--t-bool`). Success
+   differs by necessity: desktop tints it `--drop`, which **touch does not
+   define** (its palette has no drop-indicator token), so the nearest shared
+   green — `--t-string`, identical in both files — stands in. `info` stays
+   neutral: it is the default and needs no signal.
+   The toast chip is dark in both themes, so the tint goes on the border and a
+   left bar rather than the text, which must stay legible against it. */
+.toast{border-left:4px solid transparent}
+.toast.sev-success{
+  border-color:color-mix(in oklch, var(--t-string) 45%, transparent);
+  border-left-color:var(--t-string);
+  background:color-mix(in oklch, var(--t-string) 16%, oklch(30% 0.02 250));
+}
+.toast.sev-warn{
+  border-color:color-mix(in oklch, var(--warn) 45%, transparent);
+  border-left-color:var(--warn);
+  background:color-mix(in oklch, var(--warn) 16%, oklch(30% 0.02 250));
+}
+.toast.sev-error{
+  border-color:color-mix(in oklch, var(--t-bool) 45%, transparent);
+  border-left-color:var(--t-bool);
+  background:color-mix(in oklch, var(--t-bool) 18%, oklch(30% 0.02 250));
+  font-weight:600;
+}
+
 /* ============================================================
    容器查詢：折疊 / 小平板（≥600px）→ 雙欄常駐詳情
    ============================================================ */
