@@ -8,6 +8,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-09 (29)
+
+**The web diag cursor outlived the session it was counting**
+
+F4, the last of the three `MESSAGES.md` §8 diag items. `web/ui.ts`'s `lastSeenSeq` is a
+high-water mark over the ring's `seq`, advanced only inside `drainDiagIfEnabled` and reset
+nowhere. A new `Session` brings a **new ring, restarting at `seq = 0`** — so after opening a
+second document every event sat below the inherited mark and was skipped.
+
+Measured in a real browser (`?diag=1`, `console.debug` captured):
+
+| | before | after |
+|---|---|---|
+| 5 keystrokes, first document | 20 events logged | 22 |
+| swap document, 3 more keystrokes | **0** | **19** |
+
+Not "some events delayed" — the trace goes completely silent for the rest of the session, since
+the new ring would have to emit as many events as the old one before it caught up. Exactly the
+failure mode where a debug channel is worse than none: it looks like nothing is happening.
+
+The fix is one line plus its reasoning, at `openText` — the single site that swaps the session.
+
+**The record was wrong about the shape of the fix.** It said **8** paths replace the
+`ConfySession`, and concluded the reset "belongs next to a single session-replacement helper,
+not at each site". There is **one** assignment in `ui.ts` (and one in `touch/app.ts`), both
+already funnelled through `host-io.ts`'s `replaceSession`. The refactor the finding recommended
+had already happened; only the reset was missing.
+
+**Split out as F15:** touch has no `?diag=1` drain at all — `drainDiagIfEnabled` exists only in
+`ui.ts`, so the trace is desktop-only even though both hosts drive the same ring. That is a
+missing surface, not a defect in the drain, so it gets its own row rather than blocking this one.
+
+`MESSAGES.md` §4.1's `?diag=1` row now records the reset and the reason for it; §8's entry is
+replaced by the touch gap.
+
 ### Unreleased Update - 2026-09-09 (28)
 
 **The `~` diag overlay showed the ring's head; it now shows its tail — and the measurement found

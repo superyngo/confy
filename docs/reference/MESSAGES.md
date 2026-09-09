@@ -211,7 +211,7 @@ needs to see.
 |---|---|---|
 | `~` overlay | TUI | `overlay_diag.rs`'s `draw_diag_overlay` — a centered, read-only popup, per-level color (`Error` red / `Warn` yellow / `Info` cyan / `Debug` dark gray). Host-owned UI state (`App.diag_overlay_open`), not a core `Mode`; `~`/`Esc` closes, mutually exclusive with the language picker. **No scroll state** (Phase 2), but it windows on the ring's **tail** — the last 20 events, further clamped to what the terminal can show — because an operator opens it to see what just happened. The title reports the window (` Diagnostics — last 20 of 25 `) so a clipped view is never mistaken for the whole ring; an empty ring says `(no events yet)` rather than drawing an empty box. |
 | `diag_log()` | FFI (any wasm host) | `ConfySession.diag_log()` (`crates/confy-ffi/src/lib.rs`) serializes the whole ring to a JS array via `serde-wasm-bindgen`. |
-| `?diag=1` | Web (desktop/touch/VS Code webview) | `drainDiagIfEnabled()` (`web/ui.ts`), called every `render()`. Diffs `session.diagLog()` against a module-level `lastSeenSeq`, printing only newly-recorded events to `console.debug` as `[confy-diag] [LEVEL] KIND DETAIL` — successive interactions log only their own delta, never replay history. Gated behind the query param so it's zero-cost when absent (no console noise in normal use). |
+| `?diag=1` | Web (desktop only — see §8) | `drainDiagIfEnabled()` (`web/ui.ts`), called every `render()`. Diffs `session.diagLog()` against a module-level `lastSeenSeq`, printing only newly-recorded events to `console.debug` as `[confy-diag] [LEVEL] KIND DETAIL` — successive interactions log only their own delta, never replay history. **The cursor resets when the session is swapped** (`openText`): a new `Session` starts a new ring at `seq = 0`, so an inherited high-water mark would silently swallow every event of the newly-opened document. Gated behind the query param so it's zero-cost when absent (no console noise in normal use). |
 
 ## 5. Per-host channel, behavior, and rendering
 
@@ -388,21 +388,17 @@ follow-up (not tracked by an issue as of this writing).
 
 ## 8. Known follow-ups (non-blocking, recorded for later)
 
-Re-verified 2026-09-09 and still open. They are tracked as **F4/F5/F7/F8** in
+Re-verified 2026-09-09 and still open. They are tracked as **F5/F7/F8/F15** in
 [`../plan/2026-09-09-open-follow-ups.md`](../plan/2026-09-09-open-follow-ups.md), the single
 live backlog, which carries their acceptance criteria; the evidence is in
 [`../audit/2026-09-09-open-findings-reverification.md`](../audit/2026-09-09-open-findings-reverification.md).
 
-- **Web `?diag=1`'s `lastSeenSeq` doesn't reset on a file swap.** Opening a new
-  file replaces the underlying `ConfySession` (and therefore its diag ring, which
-  restarts its `seq` from 0) without resetting `web/ui.ts`'s module-level
-  `lastSeenSeq` counter — the post-swap events with `seq` below the old
-  high-water mark are silently skipped in the console drain until `seq` catches
-  back up. `lastSeenSeq` is advanced only inside `drainDiagIfEnabled` and reset
-  nowhere, and **8** paths replace the session, so the reset belongs next to a
-  single session-replacement helper rather than at each site. Touch has no drain
-  at all — the `?diag=1` trace is desktop-only. Benign: it affects only the
-  debug-only console trace, never the ring itself or any user-visible surface.
+- **The `?diag=1` trace is desktop-only.** `drainDiagIfEnabled` lives in
+  `web/ui.ts` and has no counterpart in `web/touch/app.ts`, although both hosts
+  drive the same `ConfySession` and the same ring. Tracked as **F15**. (The
+  companion defect — a `lastSeenSeq` that outlived the session it counted, so
+  every post-swap event was skipped — was fixed 2026-09-09; the drain resets its
+  cursor at the one site that swaps the session.)
 - **In the TUI, the only Intent that reaches `dispatch` is `SetHostNotice`.**
   Measured 2026-09-09 on the real binary: 34 navigation keystrokes left the ring
   **empty**, and every event that does appear arrives as the same fixed triple

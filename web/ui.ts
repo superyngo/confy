@@ -290,6 +290,11 @@ function openText(
   const next = replaceSession(session, text, format, (msg) => setStatus("", msg));
   if (!next) return;
   session = next;
+  // The new Session carries a new diag ring whose `seq` restarts at 0, so a
+  // cursor from the old one is a high-water mark the replacement can never
+  // reach — every post-swap event would be skipped until it caught up. Reset
+  // it here, at the one site that swaps the session.
+  lastSeenSeq = -1;
   fileHandle = handle;
   fileName = name;
   setSampleMode(asSample);

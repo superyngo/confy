@@ -25,18 +25,17 @@ Effort is XS (< 1 h) / S (a session) / M (multi-session).
 
 ## Open
 
-### F4 — Web `?diag=1`'s `lastSeenSeq` is never reset
+### F15 — Touch has no `?diag=1` drain
 
-Priority **P3** · Effort **XS** · Verified 2026-09-09 · From `MESSAGES.md` §8
+Priority **P3** · Effort **XS** · Opened 2026-09-09 (split out while closing F4)
 
-`web/ui.ts`'s module-level `lastSeenSeq` is advanced only inside `drainDiagIfEnabled` and reset
-nowhere, while **8** paths replace the `ConfySession` (whose ring restarts at `seq = 0`) — so
-post-swap events below the old high-water mark are skipped in the console drain. Because there
-are 8 sites, the reset belongs next to a single session-replacement helper, not at each one.
-Touch has no drain at all, so the trace is desktop-only. Debug-only blast radius.
+`drainDiagIfEnabled` lives only in `web/ui.ts`; `web/touch/app.ts` has no equivalent, so the
+`?diag=1` console trace is desktop-only even though both hosts drive the same `ConfySession`
+and the same ring. Not a defect in the drain that exists — a missing surface. Small enough to
+fold into whichever touch task comes next.
 
-**Acceptance.** Open file A, emit events, open file B: the first post-swap event appears in the
-console. §8 entry removed.
+**Acceptance.** `?diag=1` on the touch entry prints the same `[confy-diag] …` lines, with the
+cursor reset on session swap as the desktop host now does.
 
 ### F5 — Touch `sev-*` toast classes have no CSS
 
@@ -223,4 +222,5 @@ optionally `CARGO_INCREMENTAL=0` for the test path.
 | 2026-09-09 | **F1** Remark semantics unified — own-line rule, uniform `Unsupported`, array elements now remarkable in TOML+JSON | `72805c0` |
 | 2026-09-09 | **F2** 3-format parity suite — `tests/format_parity.rs`, 9 behaviors, exhaustive-`match` fixtures | `72805c0` |
 | 2026-09-09 | **F14** YAML `Replace` silently dropped everything past the first node — now `Fragment("fragment must be a single value")`; two of the four filed rows were misdiagnosed and moved to *Watching* | `08fc59c` |
-| 2026-09-09 | **F3** TUI `~` overlay windowed the ring's head — now the tail, with a `last N of M` title and an empty-ring line | (this commit) |
+| 2026-09-09 | **F3** TUI `~` overlay windowed the ring's head — now the tail, with a `last N of M` title and an empty-ring line | `0db6b79` |
+| 2026-09-09 | **F4** Web `?diag=1` cursor now resets on session swap — the record's "8 replacement sites" was one (`openText`) | (this commit) |
