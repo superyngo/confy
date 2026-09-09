@@ -376,6 +376,23 @@ pub enum KindTarget {
     StringFolded,
 }
 
+/// Why a `Mutation` did not commit. The document is always left untouched.
+///
+/// The variants split into two groups, and which group a case belongs to is
+/// part of the contract (F8) — a host reads it to decide whether to keep the
+/// user in the interaction or abandon it:
+///
+/// - **Recoverable / interactive** — `Collision` (answer a prompt: overwrite,
+///   rename, cancel) and `Fragment` (the text is malformed; keep the editor
+///   open so it can be retyped).
+/// - **Terminal** — `NotFound` (the path is gone), `Illegal` (this position
+///   would break the format's rules) and `Unsupported` (the gesture does not
+///   apply to this node, or the format has no such notation). Report and stop.
+///
+/// Picking the wrong variant is a real defect, not a cosmetic one: an
+/// unterminated JSON fragment used to surface as `Illegal` and close the
+/// editor, where the identical TOML input surfaced as `Fragment` and kept it
+/// open. `tests/format_parity.rs` pins the taxonomy across all three backends.
 #[derive(Debug, thiserror::Error)]
 pub enum MutateError {
     #[error("path not found")]
@@ -390,7 +407,11 @@ pub enum MutateError {
     /// semantic legality — see the cross-layer-ops plan (D1/D5).
     #[error("{0}")]
     Illegal(String),
-    #[error("operation not supported by this format")]
+    /// The gesture does not apply here — an undeletable Root, a read-only
+    /// opaque YAML span, or a notation the format simply doesn't have. Worded
+    /// without "by this format" because the first two cases are about the
+    /// *node*, not the backend.
+    #[error("operation not supported here")]
     Unsupported,
 }
 

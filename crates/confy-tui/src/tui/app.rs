@@ -477,11 +477,7 @@ impl App {
                         args: vec![path.to_string()],
                         source: confy_core::session::notice::NoticeSource::HostTui,
                     });
-                self.session.mode = if self.session.filtered_paths.is_some() {
-                    Mode::FilterResults
-                } else {
-                    Mode::Normal
-                };
+                self.session.apply(Intent::ConvertWriteDone);
             }
             Err(e) => {
                 self.session
@@ -490,7 +486,7 @@ impl App {
                         args: vec![e.to_string()],
                         source: confy_core::session::notice::NoticeSource::HostTui,
                     });
-                self.session.mode = Mode::Normal;
+                self.session.apply(Intent::ConvertWriteDone);
             }
         }
     }

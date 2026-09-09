@@ -160,6 +160,12 @@ pub enum Intent {
     ConvertRun,
     ConvertConfirm,
     ExitConvert,
+    /// The host finished (or failed) writing a converted file and needs the
+    /// session back at rest. Unlike `ExitConvert` this **keeps** the notice
+    /// the host just set, which is the whole reason it exists: the TUI used
+    /// to assign `session.mode` by hand here, bypassing the command channel
+    /// (F7).
+    ConvertWriteDone,
 
     // ---- Detail popup (i) ----
     ToggleDetail,
@@ -236,6 +242,12 @@ pub enum Intent {
     /// wire contract simple; an unrecognized code leaves the current language
     /// unchanged (never panics).
     SetLang(String),
+
+    // ---- Host-supplied load-time configuration ----
+    /// Mark the open document as plain `.json` (no `.jsonc`), which the
+    /// comment advisory keys off. Set once by the host right after load; an
+    /// Intent rather than a field write so the command channel sees it (F7).
+    SetStrictJson(bool),
 
     // ---- Host notices ----
     /// **Not a user action** — the internal channel hosts use to report

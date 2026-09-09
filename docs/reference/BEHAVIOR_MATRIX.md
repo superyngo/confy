@@ -226,6 +226,17 @@ green trees have different shapes (taplo vs hand-rolled JSON vs YAML reindent). 
   backend reports the inapplicable case as **`Unsupported`** — never `Illegal` (which means a rule
   was broken) and never `NotFound` (the node is perfectly addressable; `Delete` and `Replace` both
   reach it). Enforced across all three formats by `tests/format_parity.rs`.
+- **The failure variant is part of the behavior, not an implementation detail** (F8). A host
+  branches on it: `Fragment` keeps the inline editor open so the text can be retyped,
+  `Collision` opens a prompt, and `NotFound`/`Illegal`/`Unsupported` just report and stop. So
+  the same situation must yield the same variant in every format, or the identical typo behaves
+  differently depending only on the file's extension. Two rules follow, both pinned by
+  `tests/format_parity.rs`: **malformed fragment text is always `Fragment`**, never `Illegal`
+  (a lenient lexer that lets the bad text through to the document-level backstop turns one into
+  the other — the reason JSON's lexer marks an unterminated string as an error token); and **the
+  Root is `Unsupported`, not `NotFound`** — it is not missing, it is undeletable. YAML is the one
+  documented exception to the first rule: its subset lexer accepts an unterminated scalar on
+  *load* as well, so fragment and document agree and neither is tightened alone.
 
 ---
 

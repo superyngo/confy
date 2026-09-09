@@ -604,6 +604,12 @@ pub(crate) fn edit_comment(tree: &SyntaxNode, path: &[Seg], text: &str) -> Resul
 /// removed with its trailing newline. Because comments are independent nodes now,
 /// deleting an entry leaves any adjacent comment in place for free.
 pub(crate) fn delete(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
+    // The Root is not *missing*, it is undeletable — `NotFound` used to make
+    // the TUI say "delete error: path not found" on the `d` key over the root
+    // row. `Unsupported` is the honest variant (F8).
+    if path.is_empty() {
+        return Err(MutateError::Unsupported);
+    }
     let (proj, idx) = walk(tree, "");
     // A table's definition is an open set of member spans (dotted entries and/or
     // `[…]` sections, possibly scattered) — delete fans out over all of them, in

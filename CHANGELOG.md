@@ -8,6 +8,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-09 (32)
+
+**The TUI's diagnostic ring was empty because the taps were on the wrong function**
+
+F7 + F8. Two host↔core contract defects, done together.
+
+**F7 — the `~` overlay recorded nothing.** Measured on the real binary before touching anything:
+16 navigation keystrokes (`9jjkjjkkjj0919jj`), then `~` → `Diagnostics — 0`, `(no events yet)`.
+
+The filed cause did not survive re-measurement. It read "~15-20 sites in `tui/app.rs` and
+`tui/mod.rs` mutate `Session` fields directly, bypassing `dispatch`". Counting only production
+code — the rest were test setup — there were **five**, and the TUI already routed every keystroke
+through `Session::apply(Intent)`. The real cause: **the diag taps sat on `dispatch()`**, which is
+`apply()` plus a render snapshot, and the TUI deliberately calls the cheaper `apply()` to build
+its own row list. So the taps traced the Web UI and nothing else.
+
+Moved both taps into `apply()`. `dispatch()` delegates there, so each intent is still recorded
+exactly once.
+
+| same 16 keystrokes | ring | first lines |
+|---|---|---|
+| before | `Diagnostics — 0` | `(no events yet)` |
+| after | `Diagnostics — last 20 of 32` | `[Debug] dispatch CursorUp` / `[Info ] mutation CursorUp ok` / `dispatch CollapseAll` / `dispatch ExpandAll` / `dispatch ExpandLevel` … |
+
+Of the five direct field writes, four now go through the command channel: two new Intents
+(`ConvertWriteDone` — back to rest but **keeping** the notice the host just set, the one thing
+`ExitConvert` can't do; `SetStrictJson` — the load-time `.json` flag) and one that already
+existed (`SetPasteSlot`, for the paste-mode re-assert after a rebuild). The fifth stays and now
+says why in a comment: `apply()` performs the same `last_action_was_shift_select` reset, but
+`~`, the language picker and `Noop` are handled entirely host-side and never reach `apply`.
+
+**F8 — the failure variant is behavior, and two cases had the wrong one.** A host branches on
+`MutateError`: `Fragment` keeps the inline editor open for a retype, `Collision` opens a prompt,
+the rest report and stop. So the same situation must produce the same variant in every format.
+
+| case | before | after |
+|---|---|---|
+| `d` on the Root row (real binary) | `NotFound` → *"delete error: path not found"* | `Unsupported` → *"delete error: operation not supported here"* |
+| JSON `Replace` with `"unclosed` | `Illegal("expected R_BRACE, found None")` | `Fragment("unexpected token: …")` — matching TOML |
+| JSON `Replace` with `[1, ` | `Fragment(…)` | unchanged — the record's claim that this one diverged was wrong |
+| YAML, both fragments | `Ok` | unchanged — documented exception, now asserted |
+
+The root is not *missing*, it is undeletable; all three backends now say so, and `Unsupported`'s
+wording dropped "by this format" since the root and a read-only YAML span are about the *node*.
+The JSON divergence was narrower than filed and had a concrete mechanism: the lexer emitted
+`STRING` for a string that ran to EOF, so the splice passed and the *document-level* backstop
+failed instead — producing `Illegal`. It now emits `ERROR` (still lossless), so the fragment is
+rejected where it is parsed.
+
+The taxonomy is written on the enum itself and pinned by two new `tests/format_parity.rs` cases
+(12 behaviors now). YAML's leniency is asserted as the exception rather than left unstated, so
+the day its lexer tightens, a test says so.
+
+`MESSAGES.md` §4/§8 and `BEHAVIOR_MATRIX.md` §8 updated; three backlog entries closed (F7, F8,
+and the *Watching* bullet that folded into F8).
+
 ### Unreleased Update - 2026-09-09 (31)
 
 **`json/edit.rs` was the last god object; it is now eight files**

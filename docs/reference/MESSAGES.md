@@ -189,8 +189,8 @@ whole workspace:
 
 | Kind | When | Level |
 |---|---|---|
-| `dispatch` | Every `Intent`, first thing in `dispatch()` | Debug |
-| `mutation` | After `apply()` — whether the intent's notice slot changed to a fresh Error | Error if a new Error notice just surfaced, else Info |
+| `dispatch` | Every `Intent`, first thing in `Session::apply()` | Debug |
+| `mutation` | At the end of `apply()` — whether the intent's notice slot changed to a fresh Error | Error if a new Error notice just surfaced, else Info |
 | `notice` | Every Notice assignment, core-internal or host-authored, via the sole `set_notice` write path — capturing the **rendered text verbatim** plus `severity=`/`source=` | Info |
 
 A host-authored notice is **not** a separate `host_notice` kind: it arrives through
@@ -198,6 +198,13 @@ A host-authored notice is **not** a separate `host_notice` kind: it arrives thro
 with its provenance in the `source=` field. Schema and convert outcomes have no diag
 kind of their own today — they are visible only through the `dispatch`/`mutation`/
 `notice` events their intents produce.
+
+**The taps sit on `apply()`, not `dispatch()`** (F7, 2026-09-09). `dispatch()` is
+`apply()` plus a render snapshot, and the TUI deliberately calls the cheaper
+`apply()` — so while the taps lived on the outer function they traced the Web UI
+only, and the TUI's `~` overlay stayed empty no matter what the user did (measured:
+16 navigation keystrokes, `Diagnostics — 0`). Moving them inward records every host
+exactly once, since `dispatch` delegates.
 
 Capturing rendered text in `notice` events is a deliberate
 exception to "diagnostics are English-only": the English-only rule governs
@@ -396,9 +403,10 @@ follow-up (not tracked by an issue as of this writing).
 
 ## 8. Known follow-ups (non-blocking, recorded for later)
 
-Re-verified 2026-09-09 and still open. They are tracked as **F7/F8/F15** in
+Re-verified 2026-09-09. **F7 and F8 were closed the same day** (their bullets below
+record what was measured and what changed); **F15** remains open in
 [`../plan/2026-09-09-open-follow-ups.md`](../plan/2026-09-09-open-follow-ups.md), the single
-live backlog, which carries their acceptance criteria; the evidence is in
+live backlog, which carries its acceptance criteria; the evidence is in
 [`../audit/2026-09-09-open-findings-reverification.md`](../audit/2026-09-09-open-findings-reverification.md).
 
 - **The `?diag=1` trace is desktop-only.** `drainDiagIfEnabled` lives in
@@ -407,26 +415,33 @@ live backlog, which carries their acceptance criteria; the evidence is in
   companion defect — a `lastSeenSeq` that outlived the session it counted, so
   every post-swap event was skipped — was fixed 2026-09-09; the drain resets its
   cursor at the one site that swaps the session.)
-- **In the TUI, the only Intent that reaches `dispatch` is `SetHostNotice`.**
-  Measured 2026-09-09 on the real binary: 34 navigation keystrokes left the ring
-  **empty**, and every event that does appear arrives as the same fixed triple
-  (`dispatch SetHostNotice` / `notice …` / `mutation SetHostNotice ok`). The
-  channel therefore records *messages the host already displayed* and nothing
-  else — no navigation, no mutation, no mode change — because ~15-20 sites in
-  `tui/app.rs` and `tui/mod.rs` mutate `Session` fields directly instead of
-  dispatching. A `dispatch` line that always names the same Intent is not a
-  trace. Tracked as **F7**; the `~` overlay's tail-take fix (2026-09-09) made
-  the window useful, it did not make the channel complete.
-- **One mistake, two severities: JSON reports a bad fragment as `Illegal`,**
-  TOML and YAML as `Fragment`. Measured 2026-09-09 on a value `Replace` of an
-  unterminated string: TOML `Fragment("unexpected token")`, JSON
-  `Illegal("expected R_BRACE, found None")`. §2 maps the two variants to
-  different severities, so the user sees a different message class for the same
-  typo depending only on which format the file is in. This is the *fragment*
-  half of the variant confusion; the *gesture-does-not-apply* half was unified
-  to `Unsupported` across all three backends on 2026-09-09 (`72805c0`) — by
-  hand, per backend, which is the work **F8** (`MutateError` taxonomy) exists to
-  make unnecessary. Fix it there, not per-backend. Note the YAML row is not
-  simply "missing validation": its subset lexer accepts an unterminated scalar
-  *on load* too, so `Replace` and load agree; see the backlog's *Watching*
-  section before tightening either.
+- **FIXED 2026-09-09 — in the TUI, the only Intent that reached `dispatch` was
+  `SetHostNotice`.** Measured on the real binary: 16 navigation keystrokes left
+  the ring **empty** (`Diagnostics — 0`), and every event that did appear arrived
+  as the same fixed triple (`dispatch SetHostNotice` / `notice …` /
+  `mutation SetHostNotice ok`). The filed cause — "~15-20 sites mutate `Session`
+  fields directly" — did **not** survive re-measurement: production code had only
+  **five** such sites (the rest were test setup), and the TUI already routed keys
+  through `Session::apply(Intent)`. The real cause was that the taps sat on
+  `dispatch()`, the one entry point the TUI skips. Moving them into `apply()`
+  (§4) took the same 16 keystrokes from 0 to 32 events. Tracked as **F7**.
+- **FIXED 2026-09-09 — the Root row reported `NotFound`.** `d` on the root said
+  *"delete error: path not found"*, which is wrong twice over: the root is not
+  missing, and the message invites the user to look for a path problem. All three
+  backends now return `Unsupported`, and that variant's wording dropped "by this
+  format" (the root and a read-only YAML span are about the *node*). Part of **F8**.
+- **FIXED 2026-09-09 — one mistake, two severities: JSON reported a bad fragment
+  as `Illegal`,** TOML as `Fragment`. Measured on a value `Replace`: TOML
+  `Fragment("unexpected token")`, JSON `Illegal("expected R_BRACE, found None")`.
+  §2 maps the two variants to different severities, and a host keeps the inline
+  editor open for `Fragment` but not for `Illegal` — so the same typo behaved
+  differently purely by file format. Re-measurement narrowed it: only the
+  *unterminated string* case diverged (`[1, ` already agreed), and the mechanism
+  was the JSON lexer emitting `STRING` for a string that ran to EOF, so the splice
+  passed and the document-level backstop failed instead. The lexer now emits
+  `ERROR` for an unterminated string (still lossless), so it rejects as `Fragment`
+  at the splice. `tests/format_parity.rs` pins both this and the Root row. The
+  YAML row is deliberately left as-is and asserted as such: its subset lexer
+  accepts an unterminated scalar *on load* too, so `Replace` and load agree — see
+  the backlog's *Watching* section before tightening either. Part of **F8**, whose
+  other half is the now-documented variant taxonomy on `MutateError` itself.

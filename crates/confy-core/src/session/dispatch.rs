@@ -47,7 +47,24 @@ impl super::Session {
     /// use `dispatch()` instead; callers that already know no redraw is
     /// needed (or that will build their own host-side row list regardless,
     /// like the TUI) can call this directly and skip that cost.
+    ///
+    /// The diag `dispatch`/`mutation` taps live **here**, not in `dispatch()`:
+    /// the TUI intentionally calls `apply()` to skip the snapshot, so taps on
+    /// the outer function traced the Web UI only and left the TUI's `~` ring
+    /// permanently empty (F7). `dispatch()` delegates here, so each intent is
+    /// still recorded exactly once.
     pub fn apply(&mut self, intent: Intent) -> ApplyOutcome {
+        // Diag `dispatch` tap (spec §7): every intent, Debug level, first.
+        let variant = variant_name(&intent);
+        self.diag
+            .push(DiagLevel::Debug, "dispatch", variant.clone());
+
+        // Remember the notice slot across the match so the `mutation` tap can
+        // tell a *newly surfaced* Error (failure) from one left over from an
+        // earlier intent (navigation intents don't touch the slot). `Notice`
+        // has no `PartialEq`, so compare by (severity, text) fingerprint.
+        let notice_before = self.notice.as_ref().map(|n| (n.severity, n.text.clone()));
+
         // Any non-shift-extend action ends the current shift multi-select round,
         // so the next Shift+Arrow begins a fresh one (mirrors the TUI loop).
         if !matches!(intent, Intent::ExtendSelectUp | Intent::ExtendSelectDown) {
@@ -162,6 +179,10 @@ impl super::Session {
             Intent::ConvertRun => convert_write = self.convert_run(),
             Intent::ConvertConfirm => convert_write = self.convert_confirm(),
             Intent::ExitConvert => self.exit_convert(),
+            // Back to rest, but keep the notice the host just set — the one
+            // difference from `ExitConvert`.
+            Intent::ConvertWriteDone => self.mode = self.resting_mode(),
+            Intent::SetStrictJson(on) => self.strict_json = on,
 
             // ---- Detail popup (i) ----
             Intent::ToggleDetail => self.toggle_detail(),
@@ -308,6 +329,29 @@ impl super::Session {
                 }
             }
         }
+        // Diag `mutation` tap: Error when this intent *newly* surfaced an
+        // error notice, Info otherwise.
+        let notice_after = self.notice.as_ref().map(|n| (n.severity, n.text.clone()));
+        let failed = notice_before != notice_after
+            && matches!(&self.notice, Some(n) if n.severity == Severity::Error);
+        self.diag.push(
+            if failed {
+                DiagLevel::Error
+            } else {
+                DiagLevel::Info
+            },
+            "mutation",
+            if failed {
+                format!(
+                    "{} err text={:?}",
+                    variant,
+                    self.notice.as_ref().map(|n| n.text.as_str()).unwrap_or("")
+                )
+            } else {
+                format!("{} ok", variant)
+            },
+        );
+
         ApplyOutcome {
             convert_write,
             quit,
@@ -329,37 +373,9 @@ impl super::Session {
     /// visible tree + modal surfaces + transient signals (`external_edit`,
     /// `convert_write`, `quit`). No structured row diff yet.
     pub fn dispatch(&mut self, intent: Intent) -> SessionSnapshot {
-        // Diag `dispatch` tap (spec §7): every intent, Debug level, first.
-        let variant = variant_name(&intent);
-        self.diag
-            .push(DiagLevel::Debug, "dispatch", variant.clone());
-
-        // Remember the notice slot across `apply` so the `mutation` tap can
-        // tell a *newly surfaced* Error (failure) from one left over from an
-        // earlier intent (navigation intents don't touch the slot). `Notice`
-        // has no `PartialEq`, so compare by (severity, text) fingerprint.
-        let notice_before = self.notice.as_ref().map(|n| (n.severity, n.text.clone()));
+        // The diag taps live in `apply()` (below), which this delegates to —
+        // see its doc comment.
         let outcome = self.apply(intent);
-        let notice_after = self.notice.as_ref().map(|n| (n.severity, n.text.clone()));
-        let failed = notice_before != notice_after
-            && matches!(&self.notice, Some(n) if n.severity == Severity::Error);
-        self.diag.push(
-            if failed {
-                DiagLevel::Error
-            } else {
-                DiagLevel::Info
-            },
-            "mutation",
-            if failed {
-                format!(
-                    "{} err text={:?}",
-                    variant,
-                    self.notice.as_ref().map(|n| n.text.as_str()).unwrap_or("")
-                )
-            } else {
-                format!("{} ok", variant)
-            },
-        );
 
         // Snap the cursor onto a visible row and drop a stale paste slot after
         // any structural change (delete/collapse/filter), mirroring the TUI's

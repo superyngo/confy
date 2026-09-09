@@ -367,3 +367,63 @@ fn a_multi_node_fragment_is_rejected_in_every_format() {
         }
     }
 }
+
+/// **The `MutateError` taxonomy is a contract** (F8). Which variant a case
+/// yields decides what the host does next — `Fragment` keeps the inline
+/// editor open, `Collision` opens a prompt, the rest just report and stop —
+/// so a backend picking a different variant for the same situation is a
+/// user-visible divergence, not an internal detail.
+#[test]
+fn the_root_is_undeletable_not_missing_in_every_format() {
+    for f in ALL {
+        let src = match f {
+            DocFormat::Toml => "a = 1\n",
+            DocFormat::Json => "{\n  \"a\": 1\n}\n",
+            DocFormat::Yaml => "a: 1\n",
+        };
+        let mut d = doc(f, src);
+        let e = d.apply(Mutation::Delete { path: vec![] });
+        assert!(
+            matches!(e, Err(MutateError::Unsupported)),
+            "{}: `d` on the Root row must be Unsupported (the root is not \
+             *missing*, it is undeletable) — got {e:?}",
+            name(f)
+        );
+        assert_eq!(d.serialize(), src, "{}: mutated on failure", name(f));
+    }
+}
+
+/// An unterminated fragment is malformed *text*, so it must reject as
+/// `Fragment` — the variant that keeps the editor open for a retype — and
+/// never as `Illegal`, which reads as "this position is not allowed".
+///
+/// YAML is the documented exception: its subset lexer accepts these at the
+/// *document* level too, so fragment and document agree and neither is
+/// tightened alone (backlog *Watching*). It is asserted here so the day that
+/// changes, this test is what says so.
+#[test]
+fn an_unterminated_fragment_rejects_as_fragment_not_illegal() {
+    for f in ALL {
+        let src = match f {
+            DocFormat::Toml => "a = 1\n",
+            DocFormat::Json => "{\n  \"a\": 1\n}\n",
+            DocFormat::Yaml => "a: 1\n",
+        };
+        for frag in ["\"unclosed", "[1, "] {
+            let mut d = doc(f, src);
+            let e = d.apply(Mutation::Replace {
+                path: vec![Seg::Key("a".into())],
+                fragment: frag.into(),
+            });
+            match f {
+                DocFormat::Toml | DocFormat::Json => assert!(
+                    matches!(e, Err(MutateError::Fragment(_))),
+                    "{}: {frag:?} must reject as Fragment, got {e:?}",
+                    name(f)
+                ),
+                // Lenient by design, and consistent with its own loader.
+                DocFormat::Yaml => assert!(e.is_ok(), "{}: {frag:?} -> {e:?}", name(f)),
+            }
+        }
+    }
+}

@@ -412,6 +412,12 @@ pub(crate) fn parse_value_fragment(fragment: &str) -> Result<SyntaxNode, MutateE
 /// removing the node from its parent MAPPING / SEQUENCE is all we need.
 /// Comment tokens (COMMENT + NEWLINE) are free children of their container.
 pub(crate) fn delete(tree: &SyntaxNode, idx: &YamlIndex, path: &[Seg]) -> Result<(), MutateError> {
+    // The Root is not *missing*, it is undeletable — `NotFound` used to make
+    // the TUI say "delete error: path not found" on the `d` key over the root
+    // row. `Unsupported` is the honest variant (F8).
+    if path.is_empty() {
+        return Err(MutateError::Unsupported);
+    }
     match resolve_in(idx, path).ok_or(MutateError::NotFound)? {
         Target::MapEntry(entry) => {
             // If the entry's value is an opaque node, block mutation.

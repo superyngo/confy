@@ -253,6 +253,7 @@ pub(crate) fn lex(src: &str) -> Vec<Lexeme> {
             }
             b'"' => {
                 i += 1;
+                let mut terminated = false;
                 while i < b.len() {
                     match b[i] {
                         b'\\' => {
@@ -264,12 +265,23 @@ pub(crate) fn lex(src: &str) -> Vec<Lexeme> {
                         }
                         b'"' => {
                             i += 1;
+                            terminated = true;
                             break;
                         }
                         _ => i += 1,
                     }
                 }
-                STRING
+                // An unterminated string is not a STRING: it swallowed the rest
+                // of the input, including any `}`/`]` that closed its container.
+                // Kept as an ERROR token — still lossless, but `value()`/`member()`
+                // now reject it, so a bad *fragment* fails as `Fragment` at the
+                // splice instead of passing and blowing up in the document-level
+                // backstop as `Illegal` (F8).
+                if terminated {
+                    STRING
+                } else {
+                    ERROR
+                }
             }
             b'-' | b'0'..=b'9' => {
                 if b[i] == b'-' {

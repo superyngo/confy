@@ -50,7 +50,8 @@ pub fn run(
         .and_then(|e| e.to_str())
         .is_some_and(|e| e.eq_ignore_ascii_case("json"));
     if is_plain_json {
-        app.session.strict_json = true;
+        app.session
+            .apply(confy_core::session::Intent::SetStrictJson(true));
         if app
             .session
             .doc
@@ -570,6 +571,11 @@ fn run_event_loop(
             ) {
                 app.session.last_action_was_shift_select = false;
             }
+            // (This is the one direct `session.<field> =` left in the host, and
+            // it is deliberate: `Session::apply` performs the same reset, but
+            // several KeyActions — `~`, the language picker, `Noop` — are
+            // handled entirely host-side and never reach `apply`, so dropping
+            // this would leave a stale shift round open after them. F7.)
             match action {
                 keys::KeyAction::CursorDown => app.cursor_down(),
                 keys::KeyAction::CursorUp => app.cursor_up(),
@@ -589,8 +595,8 @@ fn run_event_loop(
                             app.toggle_expand();
                             app.rebuild_rows();
                             // rebuild reset the slot — keep the user on the branch.
-                            app.session.paste_slot = Some(crate::tui::state::PasteSlot::Into(
-                                app.session.cursor.clone(),
+                            app.session.apply(confy_core::session::Intent::SetPasteSlot(
+                                crate::tui::state::PasteSlot::Into(app.session.cursor.clone()),
                             ));
                         }
                     } else if let Some(r) = app.cursor_row() {

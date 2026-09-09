@@ -37,68 +37,6 @@ fold into whichever touch task comes next.
 **Acceptance.** `?diag=1` on the touch entry prints the same `[confy-diag] …` lines, with the
 cursor reset on session swap as the desktop host now does.
 
-### F7 — `Intent` is not exhaustive
-
-Priority **P2** (raised from P3 on 2026-09-09: measured, and the consequence is larger than
-"not exhaustive" suggested) · Effort **S** · Verified 2026-09-09 · From audit 2026-08-29
-
-~15-20 sites in `crates/confy-tui/src/tui/app.rs` and `tui/mod.rs` mutate `Session` directly
-(`self.session.mode = Mode::Normal`, `session.paste_slot = Some(…)`, `session.toggle_expand()`),
-bypassing `dispatch` and therefore invisible to the diag ring and to `ApplyOutcome`. All the
-needed variants already exist. Closing this unlocks deterministic record/replay: a session
-becomes a replayable `Vec<Intent>`.
-
-**Acceptance.** No direct `session.<field> =` outside `confy-core`; a scripted session replays
-headlessly from its captured `Vec<Intent>`.
-
-**Measured 2026-09-09** (real binary, while fixing F3). The consequence is not theoretical: in
-a live TUI session, **the only `Intent` that ever reaches `dispatch` is `SetHostNotice`**. 34
-navigation keystrokes (`j`/`k`/`9`) produced an **empty** diag ring — the `~` overlay drew as a
-two-row borders-only sliver. Every event that does appear comes in the same fixed triple:
-
-```
-[Debug] dispatch SetHostNotice
-[Info ] notice  severity=… source=HostTui text="…"
-[Info ] mutation SetHostNotice ok
-```
-
-So the TUI's diagnostic channel currently records *messages the host already displayed* and
-nothing else — no navigation, no mutation, no mode change. A "dispatch" line naming an Intent
-that is always the same one is not a trace. This is the strongest argument for closing
-F7, and it means F3's tail-take fix made a small window *useful*; it did not make the channel
-*complete*.
-
-### F8 — `MutateError` mixes interactive outcomes with real errors
-
-Priority **P2** (raised from P3 on 2026-09-09: it now has a measured, user-visible symptom, the
-table below) · Effort **S** · Verified 2026-09-09 · From audit 2026-08-29
-
-`Collision` and `Fragment` are prompts the user answers; `NotFound`, `Illegal` and `Unsupported`
-are failures. A host cannot tell them apart by type. `anyhow` is already out of the parse
-signature (`AnyDocument::from_str_as` returns `Result<Self, ParseError>`), so this is the
-remaining half.
-
-**Two measured cases are folded in here** (found 2026-09-09 while closing F1/F2/F14 — do not
-patch them per-backend, they are symptoms of this taxonomy):
-
-| input | TOML | JSON | YAML |
-|---|---|---|---|
-| unterminated fragment (`"unclosed`, `[1, `) | `Fragment(…)` | **`Illegal("expected R_BRACE, found None")`** | `Ok` — lexer is lenient, see *Watching* |
-| gesture does not apply here | `Unsupported` | *was* `Illegal(…)` | *was* `NotFound` |
-| `d` on the Root row (measured 2026-09-09, real binary) | `NotFound` → *"delete error: path not found"* | — | — |
-
-The second row was unified to `Unsupported` everywhere by F1 (`72805c0`) — by hand, per backend,
-which is exactly the work this finding removes the need for. The first row is still uneven: JSON
-reports a *rule violation* for what TOML calls *unparseable input*, and `MESSAGES.md` §2 maps
-those to different severities, so a user sees a different message per format for one mistake.
-
-The third row is the same mistake in a different place: the root is not *missing*, it is
-*undeletable*, so `Unsupported` is the honest variant and the message should say so. A user
-reasonably reads "path not found" as a confy bug.
-
-**Acceptance.** A host can match "needs an answer" vs "failed" without string inspection; the
-severity mapping in `MESSAGES.md` §2 follows the type rather than the key.
-
 ### F9 — Undo stores full text snapshots
 
 Priority **P3** · Effort **M** · Verified 2026-09-09 · From audit 2026-08-29
@@ -178,11 +116,8 @@ optionally `CARGO_INCREMENTAL=0` for the test path.
   `x: {a: ` all lex as plain scalars. This was filed as half of F14 and is **not** a defect:
   `AnyDocument::from_str_as` accepts the same text from disk, so `Replace` and load agree.
   Tightening one without the other would mean a value you can open but cannot retype. Only
-  fix these together, and only if the subset parser is made strict on purpose.
-- **`MutateError` variant choice on a bad fragment is still uneven.** JSON returns
-  `Illegal("expected R_BRACE, found None")` where TOML and YAML return `Fragment(…)` for the
-  same class of input. Same family as F1's `Unsupported`/`Illegal` split; fold into F8
-  (`MutateError` taxonomy) rather than patching per-backend.
+  fix these together, and only if the subset parser is made strict on purpose. Asserted as
+  the documented exception in `tests/format_parity.rs` (F8), so the day it changes, a test says so.
 - **The two web palettes are not the same set.** `web/style.css` defines `--drop` (the
   drop-indicator green, also the desktop status line's Success hue); `web/touch/style.css`
   does **not** define it at all, so `var(--drop)` silently falls back to `currentColor` on
@@ -205,4 +140,6 @@ optionally `CARGO_INCREMENTAL=0` for the test path.
 | 2026-09-09 | **F3** TUI `~` overlay windowed the ring's head — now the tail, with a `last N of M` title and an empty-ring line | `0db6b79` |
 | 2026-09-09 | **F4** Web `?diag=1` cursor now resets on session swap — the record's "8 replacement sites" was one (`openText`) | `ccb0999` |
 | 2026-09-09 | **F5** Touch `sev-*` toasts styled — border/left-bar tint per severity, matching the desktop status hues | `4379723` |
-| 2026-09-09 | **F6** `json/edit.rs` split — 8 production files (max 377 lines, was 1,774 in one) + sibling `tests.rs`; all 67 tests preserved | (this commit) |
+| 2026-09-09 | **F6** `json/edit.rs` split — 8 production files (max 377 lines, was 1,774 in one) + sibling `tests.rs`; all 67 tests preserved | `739132e` |
+| 2026-09-09 | **F7** Diag taps moved `dispatch()` → `apply()` — the TUI's `~` ring went 0 → 32 events on the same 16 keystrokes; the filed "~15-20 bypass sites" was 5, of which 4 now go through Intents (`ConvertWriteDone`, `SetStrictJson`, `SetPasteSlot`) | (this commit) |
+| 2026-09-09 | **F8** `MutateError` taxonomy documented + enforced — Root delete `NotFound`→`Unsupported` (3 backends), JSON unterminated string `Illegal`→`Fragment` (lexer emits ERROR), 2 new parity tests | (this commit) |

@@ -59,6 +59,12 @@ pub(super) fn replace_node(old: &SyntaxNode, new: SyntaxNode) {
 }
 
 pub(super) fn delete(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError> {
+    // The Root is not *missing*, it is undeletable — `NotFound` used to make
+    // the TUI say "delete error: path not found" on the `d` key over the root
+    // row. `Unsupported` is the honest variant (F8).
+    if path.is_empty() {
+        return Err(MutateError::Unsupported);
+    }
     match resolve(tree, path).ok_or(MutateError::NotFound)? {
         Target::Member(m) => delete_item(&m),
         Target::Element(v) => delete_item(&v),
