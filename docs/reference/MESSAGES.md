@@ -209,7 +209,7 @@ needs to see.
 
 | Export | Host | Mechanism |
 |---|---|---|
-| `~` overlay | TUI | `overlay_diag.rs`'s `draw_diag_overlay` — a centered, read-only popup, per-level color (`Error` red / `Warn` yellow / `Info` cyan / `Debug` dark gray). Host-owned UI state (`App.diag_overlay_open`), not a core `Mode`; `~`/`Esc` closes, mutually exclusive with the language picker. It has **no scroll state and no windowing**: it renders the ring oldest-first into a box sized `min(len, 20)`, so on a ring holding more than 20 events the newest are the ones that fall off the bottom — see §8. |
+| `~` overlay | TUI | `overlay_diag.rs`'s `draw_diag_overlay` — a centered, read-only popup, per-level color (`Error` red / `Warn` yellow / `Info` cyan / `Debug` dark gray). Host-owned UI state (`App.diag_overlay_open`), not a core `Mode`; `~`/`Esc` closes, mutually exclusive with the language picker. **No scroll state** (Phase 2), but it windows on the ring's **tail** — the last 20 events, further clamped to what the terminal can show — because an operator opens it to see what just happened. The title reports the window (` Diagnostics — last 20 of 25 `) so a clipped view is never mistaken for the whole ring; an empty ring says `(no events yet)` rather than drawing an empty box. |
 | `diag_log()` | FFI (any wasm host) | `ConfySession.diag_log()` (`crates/confy-ffi/src/lib.rs`) serializes the whole ring to a JS array via `serde-wasm-bindgen`. |
 | `?diag=1` | Web (desktop/touch/VS Code webview) | `drainDiagIfEnabled()` (`web/ui.ts`), called every `render()`. Diffs `session.diagLog()` against a module-level `lastSeenSeq`, printing only newly-recorded events to `console.debug` as `[confy-diag] [LEVEL] KIND DETAIL` — successive interactions log only their own delta, never replay history. Gated behind the query param so it's zero-cost when absent (no console noise in normal use). |
 
@@ -388,7 +388,7 @@ follow-up (not tracked by an issue as of this writing).
 
 ## 8. Known follow-ups (non-blocking, recorded for later)
 
-Re-verified 2026-09-09 and still open. They are tracked as **F3/F4/F5/F8** in
+Re-verified 2026-09-09 and still open. They are tracked as **F4/F5/F7/F8** in
 [`../plan/2026-09-09-open-follow-ups.md`](../plan/2026-09-09-open-follow-ups.md), the single
 live backlog, which carries their acceptance criteria; the evidence is in
 [`../audit/2026-09-09-open-findings-reverification.md`](../audit/2026-09-09-open-findings-reverification.md).
@@ -403,19 +403,16 @@ live backlog, which carries their acceptance criteria; the evidence is in
   single session-replacement helper rather than at each site. Touch has no drain
   at all — the `?diag=1` trace is desktop-only. Benign: it affects only the
   debug-only console trace, never the ring itself or any user-visible surface.
-- **The TUI `~` overlay shows the OLDEST 20 events, not the newest.**
-  `draw_diag_overlay` collects the whole ring in `seq` order and hands it to a
-  `Paragraph` whose box is sized `lines.len().min(20)`; a `Paragraph` renders from
-  its first line, so once the ring holds more than 20 events every event *after*
-  the 20th is clipped — exactly the recent ones an operator opened the overlay to
-  see. There is no scroll state, no `.rev()` and no tail-take, and `App` carries
-  no diag scroll field. The ring caps at 256; a dispatch that sets a notice emits
-  3 events and one that doesn't emits 2, so the overlay goes blind after **7
-  interactions with notices, 10 without**. No other host renders the ring, so the
-  defect is TUI-only. The docstring's "newest last" describes the intended
-  behavior, which was never implemented: Phase 2 deliberately shipped "no scroll
-  state" and the windowing was overlooked with it. Fix is to take the tail before
-  rendering (`skip(len.saturating_sub(20))`), or add real scroll state.
+- **In the TUI, the only Intent that reaches `dispatch` is `SetHostNotice`.**
+  Measured 2026-09-09 on the real binary: 34 navigation keystrokes left the ring
+  **empty**, and every event that does appear arrives as the same fixed triple
+  (`dispatch SetHostNotice` / `notice …` / `mutation SetHostNotice ok`). The
+  channel therefore records *messages the host already displayed* and nothing
+  else — no navigation, no mutation, no mode change — because ~15-20 sites in
+  `tui/app.rs` and `tui/mod.rs` mutate `Session` fields directly instead of
+  dispatching. A `dispatch` line that always names the same Intent is not a
+  trace. Tracked as **F7**; the `~` overlay's tail-take fix (2026-09-09) made
+  the window useful, it did not make the channel complete.
 - **Touch `sev-*` toast classes have no dedicated CSS yet.** `web/touch/app.ts`'s
   `renderNotice` applies the classes (§5.3) but `web/touch/style.css` has
   `.toast`/`.toast.show` and zero `sev-*` rules, so a `Warn` differs from a

@@ -8,6 +8,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-09 (28)
+
+**The `~` diag overlay showed the ring's head; it now shows its tail — and the measurement found
+something worse behind it**
+
+F3. `draw_diag_overlay` collected the whole ring oldest-first, sized the box `min(len, 20)`, and
+handed the **full** vector to a `Paragraph` — which renders from line 0. So past 20 events the
+overlay clipped exactly the recent activity an operator opened it to see.
+
+Real-binary evidence, identical keystrokes (`wwwwwwwwd~` — eight saves, then a delete that
+fails):
+
+| | before | after |
+|---|---|---|
+| title | ` Diagnostics ` | ` Diagnostics — last 20 of 25 ` |
+| last visible line | `notice … "no changes to save"` (event 20 of 25) | `notice severity=Error … "delete error: path not found"` |
+| the failure just triggered | **absent** — the overlay was byte-identical to the one drawn before the `d` | present, at the bottom |
+
+The fix takes the tail before rendering, clamps the window to what the terminal can actually
+show, and reports the window in the title so a clipped view is never mistaken for the whole
+ring. An empty ring now says `(no events yet)` instead of drawing a two-row borders-only sliver.
+
+**What the measurement exposed.** Getting to 20 events was harder than it should have been: 34
+navigation keystrokes produced an **empty ring**. In a live TUI session the *only* Intent that
+ever reaches `dispatch` is `SetHostNotice`, so every recorded event is the same fixed triple:
+
+```
+[Debug] dispatch SetHostNotice
+[Info ] notice  severity=… source=HostTui text="…"
+[Info ] mutation SetHostNotice ok
+```
+
+The diagnostic channel records *messages the host already displayed* and nothing else — no
+navigation, no mutation, no mode change — because ~15-20 sites in `tui/app.rs` and `tui/mod.rs`
+set `Session` fields directly instead of dispatching. A `dispatch` line that always names the
+same Intent is not a trace. That is **F7**, whose priority is **raised P3 → P2** with this
+evidence attached: this fix made a small window useful, it did not make the channel complete.
+
+`MESSAGES.md` §4.1's overlay row now describes the tail window, and its §8 entry is replaced —
+the old "shows the oldest 20" is fixed, the new one records what is actually wrong with the
+channel.
+
+Also seen, unrelated and not fixed: `d` on the Root row reports *delete error: path not found*.
+The root is not missing, it is undeletable — the same class of wrong-variant message F1 cleaned
+up for Remark. Noted for F8.
+
 ### Unreleased Update - 2026-09-09 (27)
 
 **The "recorded not fixed" observation gets a real home, in three places**

@@ -25,24 +25,6 @@ Effort is XS (< 1 h) / S (a session) / M (multi-session).
 
 ## Open
 
-### F3 — TUI `~` diag overlay shows the oldest 20 events
-
-Priority **P2** · Effort **XS** · Verified 2026-09-09 · From `MESSAGES.md` §8
-
-`draw_diag_overlay` (`crates/confy-tui/src/tui/overlay_diag.rs`) collects the ring oldest-first
-and sizes the box `lines.len().min(20)`; `Paragraph` renders from line 0, so everything after
-the 20th is clipped — exactly the recent activity an operator opens the overlay to see. No
-scroll state, no `.rev()`, no tail-take; `App` has no diag scroll field. Ring `CAPACITY = 256`;
-a dispatch emits 2 events and 3 with a notice, so the overlay goes **blind after 7 interactions
-with notices, 10 without**. TUI-only — no other host renders the ring. The docstring's
-"newest last" describes an intent that was never implemented.
-
-Fix: take the tail before rendering (`skip(len.saturating_sub(20))`), or add real scroll state.
-
-**Acceptance.** Real-binary run: after 10+ mutations, `~` shows the most recent events with the
-last one at the bottom. Same keystrokes before and after. `MESSAGES.md` §4.1's overlay row and
-the `draw_diag_overlay` docstring corrected; the §8 entry removed.
-
 ### F4 — Web `?diag=1`'s `lastSeenSeq` is never reset
 
 Priority **P3** · Effort **XS** · Verified 2026-09-09 · From `MESSAGES.md` §8
@@ -84,7 +66,8 @@ Pure code motion — no behavior change, no new tests.
 
 ### F7 — `Intent` is not exhaustive
 
-Priority **P3** · Effort **S** · Verified 2026-09-09 · From audit 2026-08-29
+Priority **P2** (raised from P3 on 2026-09-09: measured, and the consequence is larger than
+"not exhaustive" suggested) · Effort **S** · Verified 2026-09-09 · From audit 2026-08-29
 
 ~15-20 sites in `crates/confy-tui/src/tui/app.rs` and `tui/mod.rs` mutate `Session` directly
 (`self.session.mode = Mode::Normal`, `session.paste_slot = Some(…)`, `session.toggle_expand()`),
@@ -94,6 +77,23 @@ becomes a replayable `Vec<Intent>`.
 
 **Acceptance.** No direct `session.<field> =` outside `confy-core`; a scripted session replays
 headlessly from its captured `Vec<Intent>`.
+
+**Measured 2026-09-09** (real binary, while fixing F3). The consequence is not theoretical: in
+a live TUI session, **the only `Intent` that ever reaches `dispatch` is `SetHostNotice`**. 34
+navigation keystrokes (`j`/`k`/`9`) produced an **empty** diag ring — the `~` overlay drew as a
+two-row borders-only sliver. Every event that does appear comes in the same fixed triple:
+
+```
+[Debug] dispatch SetHostNotice
+[Info ] notice  severity=… source=HostTui text="…"
+[Info ] mutation SetHostNotice ok
+```
+
+So the TUI's diagnostic channel currently records *messages the host already displayed* and
+nothing else — no navigation, no mutation, no mode change. A "dispatch" line naming an Intent
+that is always the same one is not a trace. This is the strongest argument for closing
+F7, and it means F3's tail-take fix made a small window *useful*; it did not make the channel
+*complete*.
 
 ### F8 — `MutateError` mixes interactive outcomes with real errors
 
@@ -112,11 +112,16 @@ patch them per-backend, they are symptoms of this taxonomy):
 |---|---|---|---|
 | unterminated fragment (`"unclosed`, `[1, `) | `Fragment(…)` | **`Illegal("expected R_BRACE, found None")`** | `Ok` — lexer is lenient, see *Watching* |
 | gesture does not apply here | `Unsupported` | *was* `Illegal(…)` | *was* `NotFound` |
+| `d` on the Root row (measured 2026-09-09, real binary) | `NotFound` → *"delete error: path not found"* | — | — |
 
 The second row was unified to `Unsupported` everywhere by F1 (`72805c0`) — by hand, per backend,
 which is exactly the work this finding removes the need for. The first row is still uneven: JSON
 reports a *rule violation* for what TOML calls *unparseable input*, and `MESSAGES.md` §2 maps
 those to different severities, so a user sees a different message per format for one mistake.
+
+The third row is the same mistake in a different place: the root is not *missing*, it is
+*undeletable*, so `Unsupported` is the honest variant and the message should say so. A user
+reasonably reads "path not found" as a confy bug.
 
 **Acceptance.** A host can match "needs an answer" vs "failed" without string inspection; the
 severity mapping in `MESSAGES.md` §2 follows the type rather than the key.
@@ -217,4 +222,5 @@ optionally `CARGO_INCREMENTAL=0` for the test path.
 | 2026-09-09 | JSON/JSONC parser-simplification plan — premise refuted, both halves already done | (record closed) |
 | 2026-09-09 | **F1** Remark semantics unified — own-line rule, uniform `Unsupported`, array elements now remarkable in TOML+JSON | `72805c0` |
 | 2026-09-09 | **F2** 3-format parity suite — `tests/format_parity.rs`, 9 behaviors, exhaustive-`match` fixtures | `72805c0` |
-| 2026-09-09 | **F14** YAML `Replace` silently dropped everything past the first node — now `Fragment("fragment must be a single value")`; two of the four filed rows were misdiagnosed and moved to *Watching* | (this commit) |
+| 2026-09-09 | **F14** YAML `Replace` silently dropped everything past the first node — now `Fragment("fragment must be a single value")`; two of the four filed rows were misdiagnosed and moved to *Watching* | `08fc59c` |
+| 2026-09-09 | **F3** TUI `~` overlay windowed the ring's head — now the tail, with a `last N of M` title and an empty-ring line | (this commit) |
