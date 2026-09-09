@@ -10,7 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Unreleased Update - 2026-09-09 (38)
+## [v1.2.0] - 2026-09-09
+
+### Update - 2026-09-09 (38)
 
 **Documentation audit — every living doc re-verified against the code**
 
@@ -63,7 +65,7 @@ gained a fourth machine-checked row for `BEHAVIOR_MATRIX.md` §8.
 
 No code changed. The four `keymap_doc_*` drift-guard tests still pass.
 
-### Unreleased Update - 2026-09-09 (37)
+### Update - 2026-09-09 (37)
 
 **F12 — `CHANGELOG.md` split by version series; the backlog is now empty**
 
@@ -96,7 +98,7 @@ With F12 closed, `docs/plan/2026-09-09-open-follow-ups.md` has an empty `## Open
 its `Status:` is now `Resolved (2026-09-09)` — all 15 findings from the 2026-08-29 audit and
 the 2026-09-09 re-verification are Done, and the record joins the frozen set.
 
-### Unreleased Update - 2026-09-09 (36)
+### Update - 2026-09-09 (36)
 
 **F10 — the live-index invariant had three edges, not one; `Move ×8` −93%**
 
@@ -146,7 +148,7 @@ byte-identical output from both. Full workspace suite green (34 suites), includi
 
 `MUTATIONS.md`'s live-index invariant now states all three rules with the measurements.
 
-### Unreleased Update - 2026-09-09 (35)
+### Update - 2026-09-09 (35)
 
 **F9 — undo history gets a byte cap; the filed fix is refuted**
 
@@ -184,7 +186,7 @@ identical keystrokes (`9j` `→→→` `w` `zz` `w` `yy` `w`), file on disk read
 ADR 0003 gains a dated amendment: it explicitly left "revisit compressed/diffed snapshots" open,
 and that door is now closed with numbers.
 
-### Unreleased Update - 2026-09-09 (34)
+### Update - 2026-09-09 (34)
 
 **Build hygiene, and the last two dependency upgrades**
 
@@ -240,7 +242,7 @@ the web surface separately in a real browser: `prt` still produces exactly three
 `TUI.md` §Filter documents both changes; `WEBUI.md` and the FFI doc comment no longer name
 `SkimMatcherV2`.
 
-### Unreleased Update - 2026-09-09 (33)
+### Update - 2026-09-09 (33)
 
 **The `?diag=1` trace was desktop-only because there was one copy of it**
 
@@ -266,7 +268,7 @@ rather than swallowing them.
 so a third entry point can't quietly ship without the trace. `WEBUI.md` §Diagnostics,
 `MESSAGES.md` §4.1/§8 and `CLAUDE.md`'s module map updated; the backlog's last XS is closed.
 
-### Unreleased Update - 2026-09-09 (32)
+### Update - 2026-09-09 (32)
 
 **The TUI's diagnostic ring was empty because the taps were on the wrong function**
 
@@ -322,7 +324,7 @@ the day its lexer tightens, a test says so.
 `MESSAGES.md` §4/§8 and `BEHAVIOR_MATRIX.md` §8 updated; three backlog entries closed (F7, F8,
 and the *Watching* bullet that folded into F8).
 
-### Unreleased Update - 2026-09-09 (31)
+### Update - 2026-09-09 (31)
 
 **`json/edit.rs` was the last god object; it is now eight files**
 
@@ -359,7 +361,7 @@ and the wasm functional smoke still passes.
 `CLAUDE.md`'s module map and `BEHAVIOR_MATRIX.md`'s two `json/edit.rs` references now name the
 directory.
 
-### Unreleased Update - 2026-09-09 (30)
+### Update - 2026-09-09 (30)
 
 **Touch severity toasts finally look like their severity**
 
@@ -396,7 +398,7 @@ Verified in a real browser at a 420×820 touch viewport, all four severities, bo
 entry is gone. **All three original §8 items are now closed**; the two that remain there (F7,
 F15) were found by measuring while closing them.
 
-### Unreleased Update - 2026-09-09 (29)
+### Update - 2026-09-09 (29)
 
 **The web diag cursor outlived the session it was counting**
 
@@ -431,7 +433,7 @@ missing surface, not a defect in the drain, so it gets its own row rather than b
 `MESSAGES.md` §4.1's `?diag=1` row now records the reset and the reason for it; §8's entry is
 replaced by the touch gap.
 
-### Unreleased Update - 2026-09-09 (28)
+### Update - 2026-09-09 (28)
 
 **The `~` diag overlay showed the ring's head; it now shows its tail — and the measurement found
 something worse behind it**
@@ -477,7 +479,7 @@ Also seen, unrelated and not fixed: `d` on the Root row reports *delete error: p
 The root is not missing, it is undeletable — the same class of wrong-variant message F1 cleaned
 up for Remark. Noted for F8.
 
-### Unreleased Update - 2026-09-09 (27)
+### Update - 2026-09-09 (27)
 
 **The "recorded not fixed" observation gets a real home, in three places**
 
@@ -501,7 +503,7 @@ would look for them:
 Explicit instruction in all three: **fix it in F8, not per-backend.** The last two commits show
 what per-backend patching costs.
 
-### Unreleased Update - 2026-09-09 (26)
+### Update - 2026-09-09 (26)
 
 **A YAML fragment is one node, and the surplus is no longer thrown away**
 
@@ -550,7 +552,7 @@ Also observed, recorded not fixed: JSON returns `Illegal` where TOML and YAML re
 for the same class of bad input — the same variant confusion F1 cleaned up for Remark. Folded
 into F8 (`MutateError` taxonomy) rather than patched per-backend.
 
-### Unreleased Update - 2026-09-09 (25)
+### Update - 2026-09-09 (25)
 
 **One gesture, three formats, one outcome — and a suite that keeps it that way**
 
@@ -600,7 +602,7 @@ fragment collapses to a corrupt `x: x: a`, losing the sibling. Only a literal ta
 Tracked as **F14** in the backlog with the full table; the parity suite's one per-format fork
 marks the spot.
 
-### Unreleased Update - 2026-09-09 (24)
+### Update - 2026-09-09 (24)
 
 **Docs — every follow-up now has one home**
 
@@ -633,7 +635,7 @@ handles), recorded so the ceiling is known rather than rediscovered; and the *Wa
 that `JsonDocument` does not override `rename_key_segs` — not a live defect, since JSON keys are
 always quoted and the trait default coincides, but the last asymmetry in that area.
 
-### Unreleased Update - 2026-09-09 (23)
+### Update - 2026-09-09 (23)
 
 **Perf — the two P0s from the 2026-08-29 audit**
 
@@ -700,7 +702,7 @@ Verified on the real binary, not just the bench: a cut-and-paste `Move` of `[b]`
 produces the correct `[a.b]` and preserves the `#:schema` hint line, and `z` restores the
 original byte-for-byte — exercising the threaded `sync_schema_hint(&snapshot)` path.
 
-### Unreleased Update - 2026-09-09 (22)
+### Update - 2026-09-09 (22)
 
 **Docs — re-verify every open finding, with fresh measurements**
 
@@ -762,7 +764,7 @@ effectively done (the comment write-gate is gone, and the "unify two parsers" ha
 because `model/json/parse.rs` is the only parser). It should be closed rather than left reading
 as agreed-but-unstarted work.
 
-### Unreleased Update - 2026-09-09 (21)
+### Update - 2026-09-09 (21)
 
 **Docs — full audit and reorganization**
 
@@ -870,7 +872,7 @@ counts (48 / 28 / 2, not 47 / 18 / 2), the claim that **no** taplo DOM is used (
 `functional_smoke.mjs` check count (129), the VS Code extension's publish status (it contradicted
 `RELEASES.md`: it is on the Marketplace and Open VSX), and a test inventory missing 11 files.
 
-### Unreleased Update - 2026-09-08 (20)
+### Update - 2026-09-08 (20)
 
 **Fixed**
 
@@ -886,7 +888,7 @@ counts (48 / 28 / 2, not 47 / 18 / 2), the claim that **no** taplo DOM is used (
 This clears the last rough edge recorded for multiline-array element editing; `CONTEXT.md`'s
 *Multiline-array layout* section now lists four rules and no open cases.
 
-### Unreleased Update - 2026-09-08 (19)
+### Update - 2026-09-08 (19)
 
 **Fixed**
 
@@ -907,7 +909,7 @@ This clears the last rough edge recorded for multiline-array element editing; `C
 One rough edge remains and is recorded in `CONTEXT.md`: inserting into an array whose only child
 is a comment appends at column 0.
 
-### Unreleased Update - 2026-09-08 (18)
+### Update - 2026-09-08 (18)
 
 **Fixed**
 
@@ -929,7 +931,7 @@ Two rough edges remain in the same area and are now recorded concretely in `CONT
 as one vague note: deleting an array's leading standalone comment doubles the next element's
 indent, and inserting before a `2 ]`-style inline close writes `2 , 9`.
 
-### Unreleased Update - 2026-09-08 (17)
+### Update - 2026-09-08 (17)
 
 **Fixed**
 
@@ -945,7 +947,7 @@ indent, and inserting before a `2 ]`-style inline close writes `2 , 9`.
   already, so nothing else changed — and serialization concatenates CST tokens, so round-trip is
   unaffected.
 
-### Unreleased Update - 2026-09-08 (16)
+### Update - 2026-09-08 (16)
 
 **Fixed**
 
@@ -962,7 +964,7 @@ indent, and inserting before a `2 ]`-style inline close writes `2 , 9`.
   anchor/alias/merge/tag)"), picked by node kind in `Session::readonly_notice_key`; the TUI's
   now-redundant host duplicate `tui.host.readonly-comment` is gone.
 
-### Unreleased Update - 2026-09-08 (15)
+### Update - 2026-09-08 (15)
 
 **Fixed**
 
@@ -985,7 +987,7 @@ indent, and inserting before a `2 ]`-style inline close writes `2 , 9`.
   block level already makes for an anchored value: it renders and copies, every mutation answers
   `Unsupported`, and the file round-trips byte-identically.
 
-### Unreleased Update - 2026-09-08 (14)
+### Update - 2026-09-08 (14)
 
 **Fixed**
 
@@ -1011,7 +1013,7 @@ indent, and inserting before a `2 ]`-style inline close writes `2 , 9`.
   `NotFound`); it now answers `Unsupported`, matching `kind_options`, which offers a one-line item no
   block layout.
 
-### Unreleased Update - 2026-09-08 (13)
+### Update - 2026-09-08 (13)
 
 **Docs**
 
@@ -1030,7 +1032,7 @@ indent, and inserting before a `2 ]`-style inline close writes `2 , 9`.
   (`f: { n: {x: 1} }`) it is precise. Table A note ³, and pinned by
   `a_nested_flow_collection_as_a_seq_element_is_unaddressable`.
 
-### Unreleased Update - 2026-09-08 (12)
+### Update - 2026-09-08 (12)
 
 **Fixed**
 
@@ -1047,7 +1049,7 @@ indent, and inserting before a `2 ]`-style inline close writes `2 , 9`.
   and copy/`Move` carry the element alone. Flow *map members* were never affected (their target is
   the `FLOW_ENTRY`).
 
-### Unreleased Update - 2026-09-08 (11)
+### Update - 2026-09-08 (11)
 
 **Fixed**
 
@@ -1072,7 +1074,7 @@ indent, and inserting before a `2 ]`-style inline close writes `2 , 9`.
   element (`g: [[ 1, 2, 3 ], 2, 3 ]`); copy over-captures the same way. Predates this work and is
   unrelated to the padding. Recorded as a known rough edge in CONTEXT.md.
 
-### Unreleased Update - 2026-09-08 (10)
+### Update - 2026-09-08 (10)
 
 **Fixed**
 
@@ -1116,7 +1118,7 @@ indent, and inserting before a `2 ]`-style inline close writes `2 , 9`.
   `{ a: 1, b: 2}`. A bare `Mutation::Replace` reproduces it with no editor involved. Recorded as a
   known rough edge in CONTEXT.md.
 
-### Unreleased Update - 2026-09-08 (9)
+### Update - 2026-09-08 (9)
 
 **Changed**
 
@@ -1167,7 +1169,7 @@ indent, and inserting before a `2 ]`-style inline close writes `2 , 9`.
   `web.prompt.btn.continue` and `tui.prompt.blank-reparent.legend` are retired from both
   catalogs; `core.blank.error` remains for a failed blank splice.
 
-### Unreleased Update - 2026-09-08 (8)
+### Update - 2026-09-08 (8)
 
 **Fixed**
 
@@ -1180,7 +1182,7 @@ indent, and inserting before a `2 ]`-style inline close writes `2 , 9`.
   Code host diffs to mirror the undo stack — honest. A no-op push keeps the redo `future`: with
   the text unchanged there is nothing to diverge from.
 
-### Unreleased Update - 2026-09-08 (7)
+### Update - 2026-09-08 (7)
 
 **Fixed**
 
@@ -1207,7 +1209,7 @@ indent, and inserting before a `2 ]`-style inline close writes `2 , 9`.
   `<select>`), so touch's value sheet could only be committed, never cancelled — and cancelling
   is what removes a freshly-added placeholder (`created_on_add`).
 
-### Unreleased Update - 2026-09-08 (6)
+### Update - 2026-09-08 (6)
 
 **Fixed**
 
@@ -1226,7 +1228,7 @@ indent, and inserting before a `2 ]`-style inline close writes `2 , 9`.
   route it (container / multi-line → external editor, `bool`/enum → value picker), backing out
   only of the inline-editor branch — the one case with no touch surface — into the panel.
 
-### Unreleased Update - 2026-09-08 (5)
+### Update - 2026-09-08 (5)
 
 **Changed**
 
@@ -1250,7 +1252,7 @@ indent, and inserting before a `2 ]`-style inline close writes `2 , 9`.
   visible). It now wraps and sizes its box from the question's *display* width, so a zh-TW
   confirm gets the rows its double-width glyphs need.
 
-### Unreleased Update - 2026-09-08 (4)
+### Update - 2026-09-08 (4)
 
 **Fixed**
 
@@ -1271,7 +1273,7 @@ indent, and inserting before a `2 ]`-style inline close writes `2 , 9`.
   `onTreeClick` also cancels a live picker before the click's own navigation runs: the mode is
   modal in core, so hiding the popover without leaving the mode was never enough.
 
-### Unreleased Update - 2026-09-08 (3)
+### Update - 2026-09-08 (3)
 
 **Changed**
 
@@ -1299,7 +1301,7 @@ indent, and inserting before a `2 ]`-style inline close writes `2 , 9`.
 
   TUI and touch needed no change: each already had one surface for both kinds of list.
 
-### Unreleased Update - 2026-09-08 (2)
+### Update - 2026-09-08 (2)
 
 **Changed**
 
@@ -1332,7 +1334,7 @@ indent, and inserting before a `2 ]`-style inline close writes `2 , 9`.
   confirm's parenthetical is `（…）` with no leading space (`core.prompt.note`,
   `core.list.sep`).
 
-### Unreleased Update - 2026-09-08
+### Update - 2026-09-08
 
 **Fixed**
 
@@ -1351,7 +1353,7 @@ indent, and inserting before a `2 ]`-style inline close writes `2 , 9`.
   The originating plan asserted "no host code change" and the web test suite stayed green
   throughout — nothing was broken, so nothing failed. Reported by user testing.
 
-### Unreleased Update - 2026-09-07 (4)
+### Update - 2026-09-07 (4)
 
 **Added**
 
@@ -1395,7 +1397,7 @@ indent, and inserting before a `2 ]`-style inline close writes `2 , 9`.
 - Deliberate non-goal: no absolute numeric entry ("set to 4") and no key binding; the two
   Action-menu items are the whole surface.
 
-### Unreleased Update - 2026-09-07 (3)
+### Update - 2026-09-07 (3)
 
 **Added**
 
@@ -1427,7 +1429,7 @@ indent, and inserting before a `2 ]`-style inline close writes `2 , 9`.
   never has to fill anything in. The other three types are reachable from `K` (above). Four
   now-dead `core.add.type.*` catalog keys were pruned from both catalogs.
 
-### Unreleased Update - 2026-09-07 (2)
+### Update - 2026-09-07 (2)
 
 **Added**
 
@@ -1449,7 +1451,7 @@ indent, and inserting before a `2 ]`-style inline close writes `2 , 9`.
   characters, so once it moved into column 1 (above) it sat flush against the next cell's
   checkbox.
 
-### Unreleased Update - 2026-09-07
+### Update - 2026-09-07
 
 **Changed**
 
