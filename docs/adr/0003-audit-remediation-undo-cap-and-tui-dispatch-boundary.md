@@ -126,3 +126,26 @@ completing the exit — the exact four paths this ADR's two dedup fixes touch.
   change (`dispatch()` reads the same state internally).
 - **TUI: leave 100% direct, drop the routing task entirely** — rejected: leaves the audit's
   actual finding (hand-duplicated cross-cutting mutation logic) unaddressed.
+
+## Amendment — 2026-09-09 (F9): a second cap, on bytes
+
+The entry cap alone leaves memory linear in *document size*. Measured on a synthetic TOML
+document at three sizes, a full 200-entry stack costs a steady **~201× the document text**:
+
+| document | full stack | undo (re-parse) |
+|---|---|---|
+| 3.5 KB | 0.7 MB | 49 µs |
+| 36 KB | 7.3 MB | 493 µs |
+| 1.07 MB | **216 MB** | 15.5 ms |
+
+So `MAX_HISTORY_BYTES = 16 MiB` now applies alongside `MAX_HISTORY = 200`, tighter one wins:
+every document up to ~80 KB keeps the full 200 steps, and past that the *depth* shrinks instead
+of the footprint growing. At least one undo step always survives.
+
+This also **refutes the follow-up this ADR left open** — "revisit compressed/diffed snapshots",
+filed as F9 with `rowan::GreenNode` structural sharing as the proposed shape. Latency was never
+the problem (15 ms at 1 MB, and undo is not a keystroke-rate operation), and a green tree is the
+*expensive* representation: a loaded 1.07 MB document occupies ~94 MB resident, roughly 70× its
+text, so 200 shared green snapshots would have to share almost perfectly just to break even with
+200 plain `String`s. The byte cap gets the same bound in ~20 lines with no `ConfigDocument`
+trait change and no per-backend work.

@@ -269,6 +269,17 @@ pub struct Clipboard {
 /// (ADR 0003).
 const MAX_HISTORY: usize = 200;
 
+/// Second cap, on *bytes* rather than entries. An entry is a full serialized
+/// snapshot, so the entry cap alone makes memory linear in document size:
+/// measured (F9, 2026-09-09) at a steady **~201× the document** for a full
+/// stack — 0.7 MB for a 3.5 KB file, but **216 MB for a 1 MB one**. The
+/// entry cap is what a user perceives (200 `z` presses) and the byte cap is
+/// what the process pays, so both apply and the tighter one wins: every
+/// document up to ~80 KB keeps the full 200 steps, and past that the depth
+/// shrinks instead of the footprint growing. At least one undo step always
+/// survives, however large the document.
+const MAX_HISTORY_BYTES: usize = 16 * 1024 * 1024;
+
 pub struct History {
     past: std::collections::VecDeque<String>,
     current: String,
@@ -299,10 +310,20 @@ impl History {
         }
         self.past
             .push_back(std::mem::replace(&mut self.current, snapshot));
-        if self.past.len() > MAX_HISTORY {
+        self.future.clear();
+        // Both caps, tighter wins; the byte total is summed rather than
+        // tracked incrementally because it is at most 200 additions on a
+        // path that has just serialized the whole document anyway.
+        while self.past.len() > MAX_HISTORY
+            || (self.past.len() > 1 && self.bytes() > MAX_HISTORY_BYTES)
+        {
             self.past.pop_front();
         }
-        self.future.clear();
+    }
+    /// Bytes held by the undo stack (`past` + the redo `future`; `current` is
+    /// the live document, not a snapshot of it).
+    fn bytes(&self) -> usize {
+        self.past.iter().chain(&self.future).map(|s| s.len()).sum()
     }
     pub fn undo(&mut self) -> Option<String> {
         let prev = self.past.pop_back()?;
@@ -344,6 +365,29 @@ mod tests {
         assert_eq!(h.undo(), Some("v0".to_string()));
         assert_eq!(h.undo(), None);
         assert_eq!(h.redo(), Some("v1".to_string()));
+    }
+
+    #[test]
+    fn small_documents_keep_the_full_entry_depth() {
+        // 40 KB × 200 = 8 MB, half the byte budget: the entry cap is what bites.
+        let mut h = History::new("x".repeat(40 * 1024));
+        for i in 0..400 {
+            h.push(format!("{i}{}", "x".repeat(40 * 1024)));
+        }
+        assert_eq!(h.depth(), MAX_HISTORY);
+    }
+
+    #[test]
+    fn a_large_document_loses_depth_instead_of_growing_without_bound() {
+        let mut h = History::new("x".repeat(1024 * 1024));
+        for i in 0..400 {
+            h.push(format!("{i}{}", "x".repeat(1024 * 1024)));
+        }
+        assert!(h.depth() < MAX_HISTORY, "depth {} not capped", h.depth());
+        assert!(h.bytes() <= MAX_HISTORY_BYTES, "{} bytes", h.bytes());
+        // …but undo never becomes unavailable.
+        assert!(h.depth() >= 1);
+        assert!(h.undo().is_some());
     }
 
     #[test]

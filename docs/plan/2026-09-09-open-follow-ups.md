@@ -25,18 +25,6 @@ Effort is XS (< 1 h) / S (a session) / M (multi-session).
 
 ## Open
 
-### F9 — Undo stores full text snapshots
-
-Priority **P3** · Effort **M** · Verified 2026-09-09 · From audit 2026-08-29
-
-`History` (`session/state.rs`) keeps `String` snapshots, `MAX_HISTORY = 200`, and undo
-re-parses. Green trees are immutable and refcounted, so `rowan::GreenNode` snapshots would share
-unchanged subtrees: ~80-90% less RAM and O(1) undo. Genuinely cheaper now than when ADR 0003 was
-written. No user-visible symptom today — this is a standing improvement, not a defect.
-
-**Acceptance.** Undo/redo byte-identical to today across the full test suite, with a measured
-memory reduction on the perf bench.
-
 ### F10 — Remaining `Move` cost: capture and `insert_with` traverse under a live index
 
 Priority **P3** · Effort **M** · Opened 2026-09-09
@@ -107,5 +95,6 @@ trend is the finding, not the size. Split before v1.0.0.
 | 2026-09-09 | **F7** Diag taps moved `dispatch()` → `apply()` — the TUI's `~` ring went 0 → 32 events on the same 16 keystrokes; the filed "~15-20 bypass sites" was 5, of which 4 now go through Intents (`ConvertWriteDone`, `SetStrictJson`, `SetPasteSlot`) | `8cc0ccb` |
 | 2026-09-09 | **F8** `MutateError` taxonomy documented + enforced — Root delete `NotFound`→`Unsupported` (3 backends), JSON unterminated string `Illegal`→`Fragment` (lexer emits ERROR), 2 new parity tests | `8cc0ccb` |
 | 2026-09-09 | **F15** `?diag=1` drain extracted to shared `web/diag.ts`; touch went 0 → 12 logged lines on 3 keystrokes, desktop unaffected | `5612849` |
-| 2026-09-09 | **F13** `.cargo/config.toml` with `incremental = false` — `target/debug/incremental` was 23 GB / 120k files (47% of `target/`) for ~1.6 s per edit rebuild | (this commit) |
-| 2026-09-09 | **F11** `jsonschema 0.30 → 0.55` (fields became methods) and `fuzzy-matcher 0.3 → nucleo-matcher 0.3` (unmaintained → maintained); `ureq 2` still deliberately deferred | (this commit) |
+| 2026-09-09 | **F13** `.cargo/config.toml` with `incremental = false` — `target/debug/incremental` was 23 GB / 120k files (47% of `target/`) for ~1.6 s per edit rebuild | `1959801` |
+| 2026-09-09 | **F11** `jsonschema 0.30 → 0.55` (fields became methods) and `fuzzy-matcher 0.3 → nucleo-matcher 0.3` (unmaintained → maintained); `ureq 2` still deliberately deferred | `1959801` |
+| 2026-09-09 | **F9** — premise refuted by measurement (undo is 15 ms at 1 MB; a green tree costs ~70× its text). Fixed the real axis instead: a 16 MiB byte cap beside the 200-entry cap, ADR 0003 amended | (this commit) |

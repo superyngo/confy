@@ -8,6 +8,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-09 (35)
+
+**F9 — undo history gets a byte cap; the filed fix is refuted**
+
+The finding said undo stores full text snapshots and proposed `rowan::GreenNode` snapshots for
+structural sharing. Measured first, on a synthetic TOML document at three sizes, 200 mutations
+deep:
+
+| document | full 200-entry stack | one undo (re-parse) |
+|---|---|---|
+| 3.5 KB | 0.7 MB | 49 µs |
+| 36 KB | 7.3 MB | 493 µs |
+| 1.07 MB | **216 MB** | 15.5 ms |
+
+Two things fall out. **Latency was never the problem** — 15 ms at 1 MB, on an operation nobody
+performs at keystroke rate. And **a green tree is the expensive representation, not the cheap
+one**: the same 1.07 MB document sits at ~94 MB resident once loaded (~70× its text), so 200
+shared green snapshots would need near-perfect sharing just to match 200 plain `String`s. The
+proposed rewrite would have touched the `ConfigDocument` trait and all three backends to make
+the wrong axis faster.
+
+The real axis is memory, and it is linear in document size because only the *entry* count was
+capped. So `History` now enforces a second cap, `MAX_HISTORY_BYTES = 16 MiB`, alongside
+`MAX_HISTORY = 200`, tighter one wins: every document up to ~80 KB keeps the full 200 steps,
+larger ones lose *depth* instead of growing the footprint, and at least one undo step always
+survives. ~20 lines in `session/state.rs`, no trait change.
+
+RSS on the real binary turned out to be a **useless instrument** here and is recorded as such: a
+1.28 MB file sits at ~95 MB resident before any edit, and 20 nudges and 200 nudges both land at
+~257 MB, so parse-tree churn and allocator retention drown out the history entirely. The
+decisive measurements are the direct ones above plus two new `History` unit tests. What the real
+binary *did* verify is that the cap changes nothing a user sees: before and after binaries,
+identical keystrokes (`9j` `→→→` `w` `zz` `w` `yy` `w`), file on disk read back each time —
+`8083` / `8081` / `8083` from both.
+
+ADR 0003 gains a dated amendment: it explicitly left "revisit compressed/diffed snapshots" open,
+and that door is now closed with numbers.
+
 ### Unreleased Update - 2026-09-09 (34)
 
 **Build hygiene, and the last two dependency upgrades**
