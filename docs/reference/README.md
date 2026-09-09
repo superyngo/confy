@@ -35,6 +35,8 @@ investigation — lives in [`../spec/`](../spec/README.md), [`../plan/`](../plan
 - **[ROW_STATE_MODEL.md](ROW_STATE_MODEL.md)** — row cursor/selection/clipboard state model,
   unified across TUI/desktop/touch.
 - **[RELEASES.md](RELEASES.md)** — where each build ships, how it gets there, current status.
+- **[changelog/](changelog/README.md)** — archived release notes. The root `CHANGELOG.md`
+  carries `[Unreleased]` plus the current series only; completed series move here verbatim.
 
 ## Machine-checked claims
 

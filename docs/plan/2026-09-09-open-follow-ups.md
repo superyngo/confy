@@ -1,5 +1,5 @@
 # Open engineering follow-ups
-Status: In progress
+Status: Resolved (2026-09-09)
 
 The **single live backlog** for confy. Every recorded-but-unfixed item lives here with its
 evidence, its verdict date, and an acceptance criterion — so no defect survives only inside a
@@ -25,15 +25,7 @@ Effort is XS (< 1 h) / S (a session) / M (multi-session).
 
 ## Open
 
-### F12 — `CHANGELOG.md` should be split by version series
-
-Priority **P3** · Effort **S** · Verified 2026-09-09 · From audit 2026-08-29
-
-Flagged at 341 KB / 2,042 lines; now **482 KB / 4,130 lines** — it has grown 42% since. The
-trend is the finding, not the size. Split before v1.0.0.
-
-**Acceptance.** Root `CHANGELOG.md` holds the current series and links to
-`docs/reference/changelog/` archives; the release workflow's version check still passes.
+_Empty — every filed follow-up is closed; see the Done table below._
 
 ---
 
@@ -81,4 +73,5 @@ trend is the finding, not the size. Split before v1.0.0.
 | 2026-09-09 | **F13** `.cargo/config.toml` with `incremental = false` — `target/debug/incremental` was 23 GB / 120k files (47% of `target/`) for ~1.6 s per edit rebuild | `1959801` |
 | 2026-09-09 | **F11** `jsonschema 0.30 → 0.55` (fields became methods) and `fuzzy-matcher 0.3 → nucleo-matcher 0.3` (unmaintained → maintained); `ureq 2` still deliberately deferred | `1959801` |
 | 2026-09-09 | **F9** — premise refuted by measurement (undo is 15 ms at 1 MB; a green tree costs ~70× its text). Fixed the real axis instead: a 16 MiB byte cap beside the 200-entry cap, ADR 0003 amended | `88215e1` |
-| 2026-09-09 | **F10** — three live-index rules, not one: spans from the index, section text off the green tree, `insert_with` owns and drops its index before the splice. `Move ×8` 2.27 s → 158 ms (−93%) | (this commit) |
+| 2026-09-09 | **F10** — three live-index rules, not one: spans from the index, section text off the green tree, `insert_with` owns and drops its index before the splice. `Move ×8` 2.27 s → 158 ms (−93%) | `5691819` |
+| 2026-09-09 | **F12** — `CHANGELOG.md` split by series: root keeps `[Unreleased]` + v1.x (534 KB → 119 KB), v0.x archived verbatim under `docs/reference/changelog/` | (this commit) |

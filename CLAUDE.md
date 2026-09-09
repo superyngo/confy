@@ -47,7 +47,10 @@ build if any of them disagree with the tag:
   `editors/vscode/package-lock.json`'s root version via
   `npm install --package-lock-only` in `editors/vscode/`, so `npm ci` doesn't
   warn on a stale lockfile)
-- `CHANGELOG.md` must contain a `## [vX.Y.Z]` section for the tag
+- `CHANGELOG.md` must contain a `## [vX.Y.Z]` section for the tag. It holds `[Unreleased]`
+  plus the **current series only** — completed series are archived verbatim under
+  `docs/reference/changelog/` (its index says when and how). Never archive the series the
+  next tag belongs to.
 
 Bump all four in the same release commit, before tagging. Never tag with only
 `Cargo.toml` updated.
