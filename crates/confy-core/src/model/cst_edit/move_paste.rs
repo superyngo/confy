@@ -41,13 +41,20 @@ pub(crate) fn insert(
     suggested_key: Option<&str>,
 ) -> Result<(), MutateError> {
     let (proj, idx) = walk(tree, "");
-    insert_with(tree, &proj, &idx, target, toml, on_collision, suggested_key)
+    insert_with(tree, &proj, idx, target, toml, on_collision, suggested_key)
 }
 
+/// `idx` is taken **by value**: the index is dropped before the ROOT splice at
+/// the end. On a `clone_for_update` tree a splice has to renumber every live
+/// handle under the spliced parent, and a whole-document index keeps thousands
+/// of them alive — measured at 7k nodes (F10, 2026-09-09), the splice alone was
+/// **95 ms of a 95 ms call** (the resolution work above it totals ~52 µs).
+/// Owning the index is what makes dropping it here possible; every caller has
+/// one to give.
 fn insert_with(
     tree: &SyntaxNode,
     proj: &NodeTree,
-    idx: &CstIndex,
+    idx: CstIndex,
     target: &InsTarget,
     toml: &str,
     on_collision: OnCollision,
@@ -68,7 +75,7 @@ fn insert_with(
     let parent_spans = if matches!(parent.kind, NodeKind::Table)
         && matches!(target.parent.last(), Some(Seg::Key(_)))
     {
-        table_member_spans(tree, idx, &target.parent)
+        table_member_spans(&idx, &target.parent)
     } else {
         Vec::new()
     };
@@ -79,7 +86,7 @@ fn insert_with(
         .iter()
         .any(|s| matches!(s, MemberSpan::Section(_)));
     let parent_headerless =
-        !target.parent.is_empty() && is_headerless_table(idx, &proj.root, &target.parent);
+        !target.parent.is_empty() && is_headerless_table(&idx, &proj.root, &target.parent);
     // An *implicit* scope table (only `[a.sub]` sections were written, no dotted
     // members): an entry child gets the table's own `[a]` section synthesized at
     // its first definition instead of a dotted prefix.
@@ -99,7 +106,7 @@ fn insert_with(
         for i in (0..target.parent.len()).rev() {
             let anc_path = &target.parent[..=i];
             node_at(&proj.root, anc_path).ok_or(MutateError::NotFound)?;
-            if !is_headerless_table(idx, &proj.root, anc_path) {
+            if !is_headerless_table(&idx, &proj.root, anc_path) {
                 break;
             }
             if let Seg::Key(k) = &target.parent[i] {
@@ -188,7 +195,7 @@ fn insert_with(
         } else {
             wrap_keyed_as_inline_element(&frag_text)?
         };
-        return array_insert(idx, &target.parent, target.index, &element);
+        return array_insert(&idx, &target.parent, target.index, &element);
     }
 
     if matches!(parent.kind, NodeKind::ArrayOfTables) {
@@ -203,7 +210,7 @@ fn insert_with(
         }
         return aot_group_insert(
             tree,
-            idx,
+            &idx,
             parent,
             &target.parent,
             target.index,
@@ -249,7 +256,7 @@ fn insert_with(
             insert_with(
                 tree,
                 &proj2,
-                &idx2,
+                idx2,
                 &InsTarget {
                     parent: target.parent.clone(),
                     index,
@@ -301,8 +308,8 @@ fn insert_with(
         if node_at(&proj.root, &full).is_some() {
             return Err(MutateError::Collision(new_segs.join(".")));
         }
-        let raw_index = inline_raw_member_index(idx, parent, target.index);
-        return inline_table_insert(idx, &target.parent[..inline_len], raw_index, &frag);
+        let raw_index = inline_raw_member_index(&idx, parent, target.index);
+        return inline_table_insert(&idx, &target.parent[..inline_len], raw_index, &frag);
     }
 
     let frag_segs = fragment_key_segs(&frag);
@@ -436,13 +443,15 @@ fn insert_with(
         resolve_insert_at(
             tree,
             &proj.root,
-            idx,
+            &idx,
             &InsTarget {
                 parent: target.parent.clone(),
                 index: eff_index,
             },
         )?
     };
+    // Release the index before the splice — see this function's doc comment.
+    drop(idx);
     let els: Vec<_> = frag.children_with_tokens().collect();
     for e in &els {
         e.detach();
@@ -1053,7 +1062,7 @@ pub(crate) fn move_nodes(
         if node_at(&proj.root, p).is_some_and(|n| matches!(n.kind, NodeKind::Table))
             && matches!(p.last(), Some(Seg::Key(_)))
         {
-            let spans = table_member_spans(tree, &idx, p);
+            let spans = table_member_spans(&idx, p);
             if spans.iter().any(|s| matches!(s, MemberSpan::Section(_))) {
                 if let Some(text) = table_fragment(tree, &idx, &proj.root, p, true) {
                     frags.push((text, None));
@@ -1269,7 +1278,7 @@ pub(crate) fn move_nodes(
             insert_with(
                 tree,
                 &proj2,
-                &idx2,
+                idx2,
                 &InsTarget {
                     parent: target.parent.clone(),
                     index,

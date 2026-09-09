@@ -25,23 +25,6 @@ Effort is XS (< 1 h) / S (a session) / M (multi-session).
 
 ## Open
 
-### F10 — Remaining `Move` cost: capture and `insert_with` traverse under a live index
-
-Priority **P3** · Effort **M** · Opened 2026-09-09
-
-The [live-index invariant](../reference/MUTATIONS.md) fix took TOML `Move` down ~48% by
-dropping the whole-document index before the delete/insert phases. What is left — the capture
-phase and `insert_with` — traverses *through* an index by design, so each of those traversals
-still pays the 11-17× mutable-tree penalty. Removing it needs a structural change: a `CstIndex`
-that stores paths/offsets rather than live `SyntaxElement` handles, resolved on demand.
-
-Not urgent: at 7k nodes an 8-source move is 2.2 s, and config files of that size are already
-outside the design target (`docs/audit/2026-08-29-code-audit.md` § *Deliberately left alone*).
-Recorded so the ceiling is known rather than rediscovered.
-
-**Acceptance.** TOML `Move ×8` at 7,001 nodes approaches YAML's 79 ms. Verified with
-`cargo bench -p confy-core --bench perf -- --nodes 500`.
-
 ### F12 — `CHANGELOG.md` should be split by version series
 
 Priority **P3** · Effort **S** · Verified 2026-09-09 · From audit 2026-08-29
@@ -97,4 +80,5 @@ trend is the finding, not the size. Split before v1.0.0.
 | 2026-09-09 | **F15** `?diag=1` drain extracted to shared `web/diag.ts`; touch went 0 → 12 logged lines on 3 keystrokes, desktop unaffected | `5612849` |
 | 2026-09-09 | **F13** `.cargo/config.toml` with `incremental = false` — `target/debug/incremental` was 23 GB / 120k files (47% of `target/`) for ~1.6 s per edit rebuild | `1959801` |
 | 2026-09-09 | **F11** `jsonschema 0.30 → 0.55` (fields became methods) and `fuzzy-matcher 0.3 → nucleo-matcher 0.3` (unmaintained → maintained); `ureq 2` still deliberately deferred | `1959801` |
-| 2026-09-09 | **F9** — premise refuted by measurement (undo is 15 ms at 1 MB; a green tree costs ~70× its text). Fixed the real axis instead: a 16 MiB byte cap beside the 200-entry cap, ADR 0003 amended | (this commit) |
+| 2026-09-09 | **F9** — premise refuted by measurement (undo is 15 ms at 1 MB; a green tree costs ~70× its text). Fixed the real axis instead: a 16 MiB byte cap beside the 200-entry cap, ADR 0003 amended | `88215e1` |
+| 2026-09-09 | **F10** — three live-index rules, not one: spans from the index, section text off the green tree, `insert_with` owns and drops its index before the splice. `Move ×8` 2.27 s → 158 ms (−93%) | (this commit) |

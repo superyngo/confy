@@ -102,6 +102,27 @@ So `move_nodes` and `delete` `drop` their `(proj, idx)` the moment the owned dat
 by construction — its `project()` keeps only the owned `NodeTree` and `resolve()` discards its
 index on return — which is why the same "quadratic move" shape never appeared there.
 
+**The invariant has two more edges, both closed 2026-09-09 (F10).** Dropping the index before
+the phases was only half of it; the other half is that a *single* traversal or splice under a
+live index is already quadratic on its own:
+
+| under a live 7,001-node index | cost | without it |
+|---|---|---|
+| `tree.children().count()` over 5,000 ROOT children | 32 ms | **0.09 ms** |
+| `tree.splice_children(at..at, els)` at ROOT | ~95 ms | ~7 ms |
+
+So three rules, not one. **(1)** Drop the index before the phases (already above). **(2)** Never
+*scan* the tree for something the index already knows: `table_member_spans` gets its section
+headers from the index (`Target::Header`/`AotEntry` whose path is prefixed by the table's)
+instead of filtering `tree.children()`, and `section_span_text` reads its span off `tree.green()`
+— immutable data in the same child order, materializing nothing. **(3)** Drop the index before
+the splice: `insert_with` takes its `CstIndex` **by value** and drops it after the position is
+resolved, because a splice renumbers every live handle under the spliced parent.
+
+Together these took `Move ×8` at 7,001 nodes from **2.27 s to 158 ms (−93%)**, within 2× of the
+YAML backend's 82 ms; `Move ×1` went 296 ms → 33 ms. The remaining gap is the per-source
+`walk` each re-insert still does (5.5 ms) plus the shared `apply` envelope.
+
 | Variant | Behaviour |
 |---|---|
 | **Insert** | Adapts the fragment to the destination — forming/clamp rules are the *Insert / move legality* table. A keyed entry into a `[T/I]` inline table rebuilds the `{ … }` from members' verbatim source with normalized `, ` separators (front/middle/append; dup key = `Collision`; empty `{}` → `{ k = v }`). Keyed fragments into an `[A/T]` *group* synthesize one new `[[…]]` entry at the slot (`aot_group_insert`; multiple pasted nodes join via `joinable_entry` and pack into ONE entry; in-set dup keys follow on-rename/collision; a section fragment = `Illegal`). |

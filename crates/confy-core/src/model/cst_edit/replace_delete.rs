@@ -89,24 +89,34 @@ impl MemberSpan {
 /// The member spans of the table at `path`, in document order. Empty when `path`
 /// addresses no root-level table content (e.g. a sub-table of an AoT entry,
 /// whose path contains a `Seg::Index`).
-pub(crate) fn table_member_spans(
-    tree: &SyntaxNode,
-    idx: &CstIndex,
-    path: &[Seg],
-) -> Vec<MemberSpan> {
+pub(crate) fn table_member_spans(idx: &CstIndex, path: &[Seg]) -> Vec<MemberSpan> {
     if path.is_empty() {
         return Vec::new();
     }
-    let mut spans: Vec<MemberSpan> = tree
-        .children()
-        .filter(|n| {
-            matches!(
-                n.kind(),
-                SyntaxKind::TABLE_HEADER | SyntaxKind::TABLE_ARRAY_HEADER
-            ) && header_path(n).starts_with(path)
+    // Headers come from the **index**, not from a `tree.children()` scan. Both
+    // find the same nodes, but on a `clone_for_update` tree every child handle
+    // a scan materializes is registered in the parent's live-children list, and
+    // that registration is linear in the handles already live there — so a
+    // whole-document index (which this function is always called under) turns
+    // one root scan into a quadratic one. Measured at 7k nodes (F10,
+    // 2026-09-09): `tree.children().count()` over 5,000 root children is
+    // **32 ms with the index alive and 0.09 ms without it**, and that single
+    // scan was the bulk of `Move`'s cost — it runs once per source in the
+    // capture phase, once per `delete`, and once per `insert`. The index
+    // already holds every header's live node keyed by its projected path, so
+    // asking it costs a `Vec` filter and materializes nothing.
+    let mut spans: Vec<MemberSpan> = idx
+        .iter()
+        .filter_map(|(p, t)| match t {
+            Target::Header(h) | Target::AotEntry(h)
+                if p.len() >= path.len() && p[..path.len()] == *path =>
+            {
+                Some(MemberSpan::Section(h.clone()))
+            }
+            _ => None,
         })
-        .map(MemberSpan::Section)
         .collect();
+    spans.sort_by_key(|s| s.start());
     // A flat dotted member entry joins the set unless a member section already
     // covers it (an entry inside `[a.sub]` belongs to that section's span).
     let sec_ranges: Vec<(usize, usize)> = spans
@@ -131,9 +141,16 @@ pub(crate) fn table_member_spans(
 pub(crate) fn section_span_text(tree: &SyntaxNode, header: &SyntaxNode) -> String {
     let i = header.index();
     let end = section_end_strict_from(header);
-    let els: Vec<_> = tree.children_with_tokens().collect();
-    els[i..end]
-        .iter()
+    // Read the span off the **green** tree. `tree.children_with_tokens()`
+    // materializes a live handle for every ROOT child, and on a mutable tree
+    // under a whole-document index that is quadratic (F10, 2026-09-09) — this
+    // one line was most of a capture-phase `Move` source. The green children
+    // are plain immutable data in the same order, so the slice is identical.
+    let green = tree.green();
+    green
+        .children()
+        .skip(i)
+        .take(end - i)
         .map(|e| match e {
             NodeOrToken::Node(n) => n.to_string(),
             NodeOrToken::Token(t) => t.text().to_string(),
@@ -220,7 +237,7 @@ pub(crate) fn table_fragment(
     path: &[Seg],
     relative: bool,
 ) -> Option<String> {
-    let spans = table_member_spans(tree, idx, path);
+    let spans = table_member_spans(idx, path);
     if spans.is_empty() {
         return None;
     }
@@ -376,7 +393,7 @@ pub(crate) fn replace_value(
     if node_at(&proj.root, path).is_some_and(|n| matches!(n.kind, NodeKind::Table))
         && matches!(path.last(), Some(Seg::Key(_)))
     {
-        let spans = table_member_spans(tree, &idx, path);
+        let spans = table_member_spans(&idx, path);
         if spans.iter().any(|s| matches!(s, MemberSpan::Section(_))) {
             return replace_table_spans(tree, path, &spans, toml).map(|()| None);
         }
@@ -617,7 +634,7 @@ pub(crate) fn delete(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError>
     if node_at(&proj.root, path).is_some_and(|n| matches!(n.kind, NodeKind::Table))
         && matches!(path.last(), Some(Seg::Key(_)))
     {
-        let spans = table_member_spans(tree, &idx, path);
+        let spans = table_member_spans(&idx, path);
         if !spans.is_empty() {
             // Release the whole-document index before splicing: a rowan
             // mutable tree finds a child by scanning its *live* children,
@@ -1190,7 +1207,7 @@ pub(crate) fn remark(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError>
             let is_table =
                 node_at(&proj.root, path).is_some_and(|n| matches!(n.kind, NodeKind::Table));
             if is_table && matches!(path.last(), Some(Seg::Key(_))) {
-                let spans = table_member_spans(tree, &idx, path);
+                let spans = table_member_spans(&idx, path);
                 if !spans.is_empty() {
                     return remark_table_spans(tree, &spans);
                 }

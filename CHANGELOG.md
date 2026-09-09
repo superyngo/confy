@@ -8,6 +8,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-09 (36)
+
+**F10 — the live-index invariant had three edges, not one; `Move ×8` −93%**
+
+The earlier P0 fix dropped the whole-document `CstIndex` before `Move`'s delete/insert phases
+and took TOML `Move` down 48%. F10 filed the remainder as needing a structural `CstIndex`
+rewrite (paths instead of live handles). Measured per phase first, at 7,001 nodes:
+
+| phase | before | after |
+|---|---|---|
+| capture walk | 5.5 ms | 5.5 ms |
+| delete (per source) | 45 ms | 8 ms |
+| re-insert (per source) | 90 ms | 7 ms |
+
+The cost was never spread out — it was two specific operations, each quadratic *on its own*
+under a live index, because a `clone_for_update` parent tracks its live children in a scanned
+list:
+
+| under a live 7,001-node index | cost | without it |
+|---|---|---|
+| `tree.children().count()` over 5,000 ROOT children | 32 ms | **0.09 ms** |
+| `tree.splice_children` at ROOT | ~95 ms | ~7 ms |
+
+Three fixes follow directly, no rewrite:
+
+- **`table_member_spans` asks the index instead of scanning the tree.** It wanted every header
+  prefixed by the table's path; the index already holds exactly those, keyed by path.
+- **`section_span_text` reads its span off `tree.green()`** — immutable data in the same child
+  order, materializing no handles.
+- **`insert_with` takes its `CstIndex` by value and drops it** once the insert position is
+  resolved. Its resolution work totals ~52 µs; the 95 ms was entirely the final splice
+  renumbering thousands of live handles it no longer needed.
+
+| `--nodes 500` (7,001 nodes) | before | after | YAML |
+|---|---|---|---|
+| `Move ×1` | 296 ms | **33 ms** | 20 ms |
+| `Move ×4` | 1.15 s | **88 ms** | 46 ms |
+| `Move ×8` | 2.27 s | **158 ms** | 82 ms |
+
+−93% at 8 sources, within 2× of the YAML backend — the acceptance criterion was "approaches
+YAML's 79 ms". What is left is the per-source `walk` each re-insert still does (5.5 ms) plus
+the shared `apply` envelope, so the filed `CstIndex` rewrite stays unnecessary.
+
+Verified on the real binary, not just the bench: before and after builds, identical keystrokes
+(`0j` `x` `jj` `v` `w`) moving `[alpha]` past `[beta]` in a file with an interior comment —
+byte-identical output from both. Full workspace suite green (34 suites), including the
+`roundtrip*` and `format_parity` sets that pin move/delete/insert layout.
+
+`MUTATIONS.md`'s live-index invariant now states all three rules with the measurements.
+
 ### Unreleased Update - 2026-09-09 (35)
 
 **F9 — undo history gets a byte cap; the filed fix is refuted**

@@ -622,7 +622,7 @@ pub(crate) fn convert_table(
     else {
         return Err(MutateError::Unsupported);
     };
-    let spans = table_member_spans(tree, idx, path);
+    let spans = table_member_spans(idx, path);
     if spans.iter().any(|s| match s {
         MemberSpan::Section(sh) => header_path(sh) != *path,
         MemberSpan::Entry(_) => true,
