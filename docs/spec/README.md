@@ -29,4 +29,15 @@ Nothing open.
 | 2026-08-28 | [JSON/JSONC comment write-gate removal — Design](2026-08-28-json-jsonc-comment-gate-removal-design.md) | Shipped (2026-08-28) |
 | 2026-08-30 | [Action menu — centralized node operations across desktop, touch, and TUI](2026-08-30-action-menu-design.md) | Shipped (2026-08-30) |
 
+## Prototype assets
+
+Two static mockups that later specs and reference docs cite as the *verbatim* visual source.
+They are frozen alongside the records that consumed them, and have no `Status:` line of their
+own because they are not Markdown records:
+
+| Asset | Ported by |
+|---|---|
+| [2026-06-24-design_index_model.html](2026-06-24-design_index_model.html) | the desktop web UI — `web/index.html`/`web/style.css` carry its `<style>` block verbatim ([plan](../plan/2026-06-24-web-native-ui.md)) |
+| [2026-06-26-web-respons-migrate-to-touch-ready.html](2026-06-26-web-respons-migrate-to-touch-ready.html) | the touch UI — `web/touch/` ([WEBUI.md § Touch UI](../reference/WEBUI.md)) |
+
 See also [`../adr/`](../adr/README.md) for the decisions this material produced.

@@ -57,7 +57,7 @@ hand-maintained field-by-field marshalling.
 **Rust snake_case** names (`schema_hint`, `schema_violations`, `had_comments_at_open`); the
 generated `pkg/confy_ffi.js` glue is the proof. `web/confy.ts` then wraps that raw class in a
 `Session` class exposing **camelCase** (`schemaHint`, `hadCommentsAtOpen`) for methods the web
-code uses. That wrapper covers 14 methods and omits `schema_violations`, `outline`, and
+code uses. That wrapper covers 16 methods and omits `schema_violations`, `outline`, and
 `external_edit`, which are reached on the raw `ConfySession`. The VS Code extension
 deliberately bypasses the wrapper and types the raw class directly
 (`editors/vscode/src/wasmSession.ts`), so it calls the **snake_case** names — renaming an FFI
@@ -71,7 +71,7 @@ method means updating both spellings.
 | `visibleRows` | `() => ViewRow[]` | convenience; subset of `snapshot`. |
 | `serialize` | `() => string` | current document text (host writes/downloads). |
 | `isDirty` | `() => boolean` | |
-| `docFormat` | `() => DocFormat` | |
+| `docFormat` | `() => "toml" \| "json" \| "yaml"` | |
 | `kindOptions` | `(path: Seg[]) => KindOption[]` | per-node convertible kinds (drives the `K` popup). |
 | `children` | `(path: Seg[]) => ChildView[]` | immediate children of the node at `path` as `ChildView[]` (`{ key, path, type_label, is_branch }`), independent of expansion state; feeds the breadcrumb mini-tree's lazy expansion. |
 | `externalEdit` | `() => { initial, kind } \| undefined` | the current external-edit request, if any (§8.2). |
@@ -450,7 +450,7 @@ shapes round-trip). Key types:
 
 The touch experience is **not** the desktop UI with gestures bolted on — that was tried and
 rejected as low-fidelity. Instead `web/touch/` is a **separate, prototype-faithful UI** that
-ports `docs/superpowers/specs/2026-06-26-web-respons-migrate-to-touch-ready.html` verbatim in
+ports `docs/spec/2026-06-26-web-respons-migrate-to-touch-ready.html` verbatim in
 look & gesture, but drives the **same `confy-core` Session** through the shared
 `confy.ts`/`Intent` contract — exactly how the desktop UI relates to the core. The prototype's
 only discarded part is its fake `TREE`/DOM-as-state model; everything mutating goes through
@@ -458,12 +458,16 @@ only discarded part is its fake `TREE`/DOM-as-state model; everything mutating g
 like desktop; ADR 0003 documents the one exception — the TUI calls `Session` methods directly
 for its ~40 mutating calls instead of routing through `dispatch`). Beyond the core (`confy.ts`,
 `types.ts`, `fs.ts`, the Intent contract), the two UIs now share several **single-source UI
-modules** so look & behavior can't drift: `web/panel.ts` (node edit/detail panel), `web/convert-dialog.ts` (the Save / Convert form),
-`web/typefilter.ts` (the type-filter grid), `web/action-menu-items.ts` (shared item
-rendering for `Mode::ActionMenu`), `web/add-picker-items.ts` (shared item rendering for
-`Mode::AddPicker`), `web/escape.ts` (the one HTML escaper every render module uses),
-`web/toolbar-fold.ts` (the shared header/filter-row "⋯ More" fold registry), and
-`web/vscode.ts` (the VS Code webview host adapter and protocol bridge). `convert-dialog.ts` is
+modules** so look & behavior can't drift: `web/panel.ts` (node edit/detail panel),
+`web/convert-dialog.ts` (the Save / Convert form), `web/typefilter.ts` (the type-filter grid),
+`web/action-menu-items.ts` (shared item rendering for `Mode::ActionMenu`),
+`web/add-picker-items.ts` (shared item rendering for `Mode::AddPicker`), `web/escape.ts` (the one
+HTML escaper every render module uses), `web/toolbar-fold.ts` (the shared header/filter-row "⋯
+More" fold registry), `web/diag.ts` (the `?diag=1` console drain), `web/mode.ts` (shared
+`modeTag` and `createBatcher`), `web/path-utils.ts` (shared `drawnCursorFallback`),
+`web/key-intent.ts` (shared `resolveKeyIntent`), `web/fab.ts` (shared FAB markup and sync),
+`web/host-io.ts` (shared I/O and theme helpers), and `web/vscode.ts` (the VS Code webview host
+adapter and protocol bridge). `convert-dialog.ts` is
 **container-agnostic** — it
 operates over a host-supplied `ConvertSurface` (`isOpen/open/close/onCancel`), so desktop hosts the
 form in a native `<dialog>` while touch hosts the **same form in a bottom `.sheet`** (all touch
@@ -817,9 +821,11 @@ Workers Builds** Git integration (config lives in the CF dashboard, not in a
 GitHub Actions workflow). The repo carries two deploy files:
 
 - `web/cf-build.sh` — the CF **build command** (`bash web/cf-build.sh`): installs
-  Rust/wasm-pack if absent, runs `wasm-pack build --target web` + `npm install &&
-  node build.mjs`, then assembles a clean runtime-only `web/dist` (html/css/js/map
-  + `pkg/`, no `node_modules`/sources). `web/dist` is gitignored.
+  Rust/wasm-pack if absent, runs wasm-pack with `CARGO_PROFILE_RELEASE_OPT_LEVEL=z`, then
+  `node functional_smoke.mjs`, then `npm ci && node build.mjs && npm run typecheck && npm test`,
+  and there is no separate assembly step because `build.mjs` itself invokes
+  `web/assemble-dist.mjs` (the single source of truth for the runtime-only dist file list).
+  `web/dist` is gitignored.
 - `wrangler.toml` — the CF **deploy command** (`npx wrangler deploy`) reads it:
   an assets-only Worker named `confy` serving `web/dist`.
 
@@ -842,9 +848,9 @@ version-stamped cache busting needed), each successful response is copied into t
 shell (both HTML entries, both CSS/JS bundles, `pkg/confy_ffi.js` + the wasm, the
 manifest) is precached on install, so the app works offline after the very first visit.
 Navigation requests match the cache with `ignoreSearch` (the entry-router query strings
-`?ui=` / `?url=` are volatile). `cf-build.sh` copies `manifest.webmanifest`, `sw.js`,
-and `icons/` into `dist`; installed-app launches hit `start_url: "./"` and the normal
-coarse-pointer router bounces to the touch UI.
+`?ui=` / `?url=` are volatile). `web/assemble-dist.mjs` (run by `build.mjs`) copies
+`manifest.webmanifest`, `sw.js`, and `icons/` into `dist`; installed-app launches hit
+`start_url: "./"` and the normal coarse-pointer router bounces to the touch UI.
 
 ## Future structured-diff evolution
 

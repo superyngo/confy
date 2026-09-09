@@ -1,15 +1,21 @@
 # confy architecture audit — 2026-08-29
-Status: In progress
+Status: Resolved (2026-09-09)
 
 Focus: better implementation / design / tech stack / architecture (not bug hunting).
 Six parallel read-only audits. Baseline: clean tree on `main`, 35 commits ahead of `origin/main`.
 
 Detailed reports:
-- `01-backend-abstraction.md` — three-backend model layer
-- `02-session-host-seam.md` — core/host boundary
-- `05-core-api-perf.md` — core API design + measured perf
+- [`01-backend-abstraction.md`](2026-08-29-code-audit/01-backend-abstraction.md) — three-backend model layer
+- [`02-session-host-seam.md`](2026-08-29-code-audit/02-session-host-seam.md) — core/host boundary
+- [`05-core-api-perf.md`](2026-08-29-code-audit/05-core-api-perf.md) — core API design + measured perf
 - Tech stack, web frontend, and tests/CI findings are inlined below (those agents reported
-  structured findings rather than writing files).
+  structured findings rather than writing files), which is why 03/04/06 have no file.
+
+**Resolution.** Every finding here was re-verified on 2026-09-09
+([`2026-09-09-open-findings-reverification.md`](2026-09-09-open-findings-reverification.md))
+and then closed or consciously parked: the fixes are the F1–F15 rows in
+[`../plan/2026-09-09-open-follow-ups.md`](../plan/2026-09-09-open-follow-ups.md), and the
+deliberately-not-fixed remainder is that record's *Watching* section.
 
 ---
 

@@ -10,6 +10,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-09 (38)
+
+**Documentation audit — every living doc re-verified against the code**
+
+A full sweep of `docs/reference/`, the four working-record indexes, `CLAUDE.md`, `README.md` and
+`CONTEXT.md`, checked against the tree as it stands after the F1–F15 remediation wave. Record:
+[`docs/audit/2026-09-09-documentation-audit.md`](docs/audit/2026-09-09-documentation-audit.md).
+
+The structure held up — zero broken links, zero unindexed documents, zero filename violations,
+every `Status:` value legal, and the whole 49-row `KEYMAP.md` table plus all 33 README
+keybindings verified against both implementations. What had rotted was accuracy:
+
+- **`MUTATIONS.md` and `BEHAVIOR_MATRIX.md` disagreed on Remark.** `MUTATIONS.md` still called
+  remarking an array element "YAML-only, by design"; F1 unified it on 2026-09-09 and
+  `tests/format_parity.rs` pins all three formats. Rewritten to the own-line rule, deferring to
+  §8 rather than restating it.
+- **Ten dead `docs/superpowers/…` paths** in six reference docs, left by the 2026-09-09 folder
+  move. They survived the link checker because they are inline code spans, not links (one also
+  had the wrong filename). All corrected.
+- **`MESSAGES.md` §8 was a 46-line resolved-bug backlog** living in the folder whose README says
+  "current behavior only", and §4 pointed at it for a follow-up that had already closed. Section
+  removed — its content is in the re-verification record, the backlog, and this changelog.
+- **`glossary.md`'s "full vocabulary"** mis-stated the Detail `Sign:` line (`(B)`/`(Q)`/`(D)`/`(-)`
+  are Type-filter glyphs; the line spells out `bare`/`quoted`/`dotted`/`none`), dropped the
+  in-bracket padding from the integer tags (`[I:dec]` → `[I:dec ]`), omitted all four datetime
+  tags, and filed JSON's `[T/M]` under TOML.
+- **Recounted metrics in `CLAUDE.md`:** `taplo::parser::parse` is 49 call sites (not 48) and
+  `crates/confy-core/tests/` holds 19 integration suites (not 18). `functional_smoke.mjs`'s 129
+  checks and the taplo syntax/dom counts (28/2) re-measured as already correct.
+- **Gaps filled:** the `C` convert overlay was undocumented in `TUI.md`, whose `~` overlay also
+  still described pre-F3 behavior; `VSCODE.md`'s protocol table missed four `HostToWebview`
+  schema-response variants; `TAURI.md`'s File menu missed Save As; `CHROME.md`'s inventory missed
+  the format pill; `BEHAVIOR_MATRIX.md` §7 missed two `ConfigDocument` facets and credited
+  `App::external_edit_path` to the wrong type; `WEBUI.md` had a 14-vs-16 method count, an
+  impossible `docFormat` signature, and a `cf-build.sh` description two rewrites out of date;
+  `README.md` never documented `--format`; and `CLAUDE.md`'s module map omitted ten real paths
+  (`web/touch/`, `touch.html`, `path-utils.ts`, `vscode.ts`, `vscode-protocol.ts`, `sw.js`,
+  `assemble-dist.mjs`, `schema/mod.rs`, `format_parity.rs`, `json/edit/tests.rs`).
+- **Stale line-number citations** in `ROW_STATE_MODEL.md` replaced with symbol names, matching
+  the "files and symbols, never line numbers" rule the re-verification record set.
+
+Organization: the backlog contradicted both indexes — it read `Resolved` while `plan/README.md`
+and `CONTEXT.md` called it the one living record. Resolved by filing the item that made the
+contradiction real: `MESSAGES.md` §7.2 recorded that `ConvertResult.warnings` is raw untranslated
+English on every convert surface, and it had never become a backlog row — exactly the "survives
+only where nobody looks" case the backlog exists to prevent. `2026-08-29-code-audit.md` is frozen
+`Resolved (2026-09-09)` now that all 21 findings are closed or parked, with its three sub-reports
+linked instead of named; the re-verification record's `Status:` moved to line 2; the two unowned
+prototype `.html` assets in `docs/spec/` gained an index table; and `docs/reference/README.md`
+gained a fourth machine-checked row for `BEHAVIOR_MATRIX.md` §8.
+
+No code changed. The four `keymap_doc_*` drift-guard tests still pass.
+
 ### Unreleased Update - 2026-09-09 (37)
 
 **F12 — `CHANGELOG.md` split by version series; the backlog is now empty**

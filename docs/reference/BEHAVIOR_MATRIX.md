@@ -154,7 +154,7 @@ See table B, note ².
 
 > `e` / `E` captures and Replaces **just the edited node** in every backend — no truncation.
 
-`App::external_edit_path` resolves the capture:
+`Session::external_edit_path` resolves the capture:
 
 - A standard-array **element** (`x[0]`, `x[0][1]`) has no key; its bare repr isn't
   `Replace`-addressable on its own in TOML/JSON, so its edited repr is wrapped as the value-Replace
@@ -190,8 +190,10 @@ format is purely additive:
 | `array_elements_addressable()` | array **element itself** `Replace` precision (direct-index routing + external-edit wrap) | `false` | `false` | `true` |
 | `array_member_keys_addressable()` | a **member reached via `Key` under an array index** (`x[0].a`) inline-vs-`$EDITOR` routing | `false` | `true` | `true` |
 | `rename_can_change_type()` | dotted-key rename → `[T/D]` type-change check | `true` | `false` | `false` |
+| `rename_key_segs(new_key)` | rename literal decoded into path segments | multiple segments (dotted) | single segment | single segment |
 | `kind_options(path)` | the `K` flow↔block popup list | per-node | per-node | per-node |
 | `split_value_comment(buffer)` / `replace_preserves_trailing_comment()` | trailing-comment edit | `#` lexer / `true` | `//` lexer / `true` | `#` lexer / `false` |
+| `fragment_trailing_comment(path, fragment)` | whether a replace fragment manages its own trailing comment | extracted from fragment | extracted from member fragment | `None` (default; `Replace` drops) |
 
 **Not abstracted, by design:** the per-backend splice engines (`cst_edit/`, `json/edit/`,
 `yaml/edit/`) share a **contract** (the `Mutation` enum), not a **mechanism** — the three `rowan`

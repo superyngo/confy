@@ -11,9 +11,7 @@ carried the change is in `CHANGELOG.md`.
 
 ## In progress
 
-- [2026-08-29-code-audit.md](2026-08-29-code-audit.md) — confy architecture audit — 2026-08-29 · `In progress`
-  — per-finding status re-verified 2026-09-09; its still-open items are tracked in
-  [`../plan/2026-09-09-open-follow-ups.md`](../plan/2026-09-09-open-follow-ups.md)
+Nothing open.
 
 ## Landed
 
@@ -22,6 +20,8 @@ carried the change is in `CHANGELOG.md`.
 | 2026-08-11 | [Code Audit Report — confy](2026-08-11-optimization-organization-integration-cleanliness-audit.md) | Resolved (2026-08-28) |
 | 2026-08-16 | [Clipboard/paste bugs found while grilling ADR 0004](2026-08-16-clipboard-paste-bugs.md) | Resolved (2026-08-28) |
 | 2026-08-19 | [Copy/cut/paste row-state integration audit — TUI / desktop / touch](2026-08-19-clipboard-row-state-integration-audit.md) | Resolved (2026-08-28) |
+| 2026-08-29 | [confy architecture audit](2026-08-29-code-audit.md) | Resolved (2026-09-09) |
 | 2026-09-09 | [Open-findings re-verification](2026-09-09-open-findings-reverification.md) | Resolved (2026-09-09) |
+| 2026-09-09 | [Documentation audit — accuracy, cleanliness, organization](2026-09-09-documentation-audit.md) | Resolved (2026-09-09) |
 
 See also [`../adr/`](../adr/README.md) for the decisions this material produced.

@@ -11,9 +11,9 @@ Every behavior difference from the browser/Tauri hosts is gated in `ui.ts` on `V
 builds are byte-identical when it is absent. See `editors/vscode/README.md` for
 build/install/use, and CLAUDE.md's module map for the extension-host-side file layout.
 
-Design record: `docs/superpowers/specs/2026-07-15-vscode-extension-design.md`. M1.5
+Design record: `docs/spec/2026-07-15-vscode-extension-design.md`. M1.5
 rebased the provider from `CustomEditorProvider` onto `CustomTextEditorProvider`
-(plan: `docs/superpowers/plans/2026-07-16-vscode-m1_5-shared-dirty-state.md`); 0.2.1
+(plan: `docs/plan/2026-07-16-vscode-m1-5-shared-dirty-state.md`); 0.2.1
 fixed the title-bar toggle to truly swap the tab in place and promoted "Open Text Editor
 to the Side" to an `editor/title` icon button. M1.6 (0.3.0) hid the whole confy toolbar
 header in this host and moved Save As/Convert, Help, About, and language to the editor
@@ -76,6 +76,10 @@ the mode is `"auto"`. The persisted choice rides back on every `init` (same prin
 | host→webview | `exec { action: "save-as" \| "help" \| "about" }` | "…" menu commands with no in-webview chrome left to click: open the Save/Convert dialog, or the Help overlay on the Help/About tab. Ignored if no session or `staleTree` |
 | host→webview | `set-theme { theme }` | Theme picked from the "…" menu's confy: Theme submenu; calls the existing `trackVsCodeTheme(theme)` |
 | host→webview | `set-lang { lang }` | Language picked from the "…" menu's language submenu; calls the existing `chooseLang(lang)` |
+| host→webview | `schema-file { text }` | Response to `read-schema-file`: local `$schema` file contents read by the host via `vscode.workspace.fs` |
+| host→webview | `schema-file-error { message }` | Response to `read-schema-file`: error message if local schema file cannot be read |
+| host→webview | `schema-url { text }` | Response to `read-schema-url`: remote `$schema` contents fetched by the host |
+| host→webview | `schema-url-error { message }` | Response to `read-schema-url`: error message if remote schema fetch fails |
 | webview→host | `ready` | Boot handshake |
 | webview→host | `edit { text }` | A Session mutation happened: `text` is `session.serialize()`. The host applies it as a minimal-span `WorkspaceEdit` (common prefix/suffix trim) — VS Code's dirty/undo/save machinery takes over from there |
 | webview→host | `request-undo` / `request-redo` | Webview keyboard/toolbar undo/redo forward to the workbench, which owns the text document's stacks |

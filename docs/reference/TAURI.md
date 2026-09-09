@@ -58,7 +58,7 @@ the built-in sample in the chosen format, i.e. `loadSample(format, openSample)`,
 fallback `main()` takes with no startup file/URL; no confirmation, matching a browser refresh /
 Open ▸ Browse Local File `CmdOrCtrl+O` (native picker, unchanged `doOpen`) / Open from URL…
 (the existing combined open modal, `openUrlModal()` focuses the URL field directly instead of
-the Browse button) / Open Recent ▸ dynamic submenu / Save `CmdOrCtrl+S`),
+the Browse button) / Open Recent ▸ dynamic submenu / Save `CmdOrCtrl+S` / Save As),
 Edit (node-op items only — Undo/Redo/Copy/Cut/Paste Node as custom `MenuItem`s dispatching
 Session intents; deliberately **no** native `Predefined` Cut/Copy/Paste/SelectAll, which would
 compete with the webview's own focused-text-field handling), View (Toggle Theme / Zoom In-Out-Reset /
@@ -155,7 +155,7 @@ in place to an already-open handle was always unaffected by this flag — `doQui
 consulted it on the no-handle-yet (first save) branch, which is now unconditional everywhere except
 the VS Code webview host (`ui.ts`'s separate `VSHOST` gate, unrelated to mobile). See
 `docs/adr/0001-android-save-as-persistable-grant.md` and
-`docs/superpowers/plans/2026-08-06-mobile-m2-saveas-fileassoc-plan.md` for the full rationale and
+`docs/plan/2026-08-06-mobile-m2-saveas-fileassoc-plan.md` for the full rationale and
 the kill+relaunch persistable-grant verification.
 
 ### JSON Schema on Android
@@ -166,7 +166,7 @@ A local/relative-path schema hint (`#:schema ./s.json` or a bare relative-path
 being opened*, not a directory — there is no way to read a second file relative to it. This
 degrades soft (`SchemaStatus.load_error`, editing unaffected) — see ADR 0001 for why
 `pick_writable` exists (a durability gap, not a read/write capability gap) and
-`docs/superpowers/specs/2026-08-10-json-schema-support-design.md`'s Tauri/Android section
+`docs/spec/2026-08-10-json-schema-support-design.md`'s Tauri/Android section
 for the full reasoning. **URL-based hints work identically to desktop** — no new capability
 needed (plain `fetch()`, already used by "Open from URL…"). Schema attachment is
 detection-only (in-document `$schema`/`#:schema`/yaml-language-server-modeline annotations
@@ -225,7 +225,7 @@ Store feature graphic) and `PRIVACY.md` / `web/privacy.html` (the privacy-policy
 listing points to).
 
 **Build/sign/install verified end-to-end (2026-08-06).** The M1 toolchain setup
-(`docs/superpowers/plans/2026-07-13-mobile-m1-android-plan.md`) is CLI-only and still current —
+(`docs/plan/2026-07-13-mobile-m1-android-plan.md`) is CLI-only and still current —
 no Android Studio installed or needed (`android-commandlinetools` under
 `ANDROID_HOME=/opt/homebrew/share/android-commandlinetools`: build-tools 34/35, platforms 34/36,
 NDK 27, plus JDK 21 and the `rustup` android targets). `cargo tauri android build --debug --apk`

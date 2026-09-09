@@ -1,5 +1,5 @@
 # Open engineering follow-ups
-Status: Resolved (2026-09-09)
+Status: In progress
 
 The **single live backlog** for confy. Every recorded-but-unfixed item lives here with its
 evidence, its verdict date, and an acceptance criterion — so no defect survives only inside a
@@ -14,8 +14,10 @@ Scope and lifecycle:
   named, never a line number. The source records
   ([2026-08-29 audit](../audit/2026-08-29-code-audit.md),
   [2026-09-09 re-verification](../audit/2026-09-09-open-findings-reverification.md),
-  [`MESSAGES.md` §8](../reference/MESSAGES.md)) stay frozen; this file is where their open
-  items are tracked.
+  [2026-09-09 documentation audit](../audit/2026-09-09-documentation-audit.md)) stay frozen;
+  this file is where their open items are tracked. `MESSAGES.md` §8 used to be a fourth
+  source; its items are all in *Done* below and the section was removed from the reference
+  doc on 2026-09-09, since `docs/reference/` carries current behavior only.
 - When the last row reaches Done, this record's `Status:` becomes `Resolved (date)` and it
   joins the frozen set.
 
@@ -25,7 +27,9 @@ Effort is XS (< 1 h) / S (a session) / M (multi-session).
 
 ## Open
 
-_Empty — every filed follow-up is closed; see the Done table below._
+| Opened | Item | Evidence | Effort | Acceptance |
+|---|---|---|---|---|
+| 2026-09-09 | **Convert warnings bypass i18n.** `ConvertResult.warnings` is a `Vec<String>` of raw English ("comments will be dropped", "duplicate key merged"), rendered ad hoc by every convert surface — CLI stderr, the TUI's `overlay_convert`, the web convert dialog — instead of going through `tr`/`tr_args` like every other user-facing string. | `model/convert.rs` (`ConvertResult.warnings`); consumers `crates/confy-tui/src/tui/overlay_convert.rs`, `web/convert-dialog.ts`. Recorded in `MESSAGES.md` §7.2 as out-of-scope since the message-system work, never filed as a row. | S | Each warning is a catalog key with args; `MESSAGES.md` §7.2 drops the "bypasses i18n" caveat; a zh-TW convert shows translated warnings. |
 
 ---
 

@@ -18,7 +18,7 @@ the ones before it; a row can be in several at once.
 | 1 | Cursor | 提示定位 | `Session.cursor: Path` (`session.rs`) | TUI keyboard, desktop keyboard. Desktop mouse **hover** is a separate, core-invisible signal — see §1a. Touch has no equivalent. |
 | 2 | Focal row | 選取 | Derived: `selected_paths()`'s target for single-row mutating ops — edit value/key/comment (`session.rs`) | Always equals `cursor`, or the last/focal member of a non-empty `Selection` (`set_selection` keeps the clicked/typed path last). Remark, delete, and copy/cut are **not** in this group — they consume the whole `Selection` (§1c). |
 | 3 | Locked selection | 鎖定選取 | `Session.selection: Selection` non-empty (`session.rs`, `selection/selection.rs`) | TUI: `s` (`ToggleSelect`) / Shift+↑↓ (`ExtendSelectUp/Down`). Desktop: Ctrl/Shift+click, marquee (`web/select.ts`). Touch: single-tap `selectOnly()` writes a 1-path `Selection`; modifier taps go through `resolveClick` (range/toggle); post-paste re-selects the landed batch (§6d). All surfaces show the leading-bar marker. |
-| 4 | Clipboard-armed (cut/copy mode) | 剪下複製模式 | `Session.clipboard.is_some()` (`session.rs`, `state.rs`) | `c`/`x`/Copy/Cut on any surface. Freezes state #3 (four guards: `session.rs:1441, 1453, 1467, 1485`) — entering #4 does not require #3 to be non-empty first; a bare cursor with an empty `Selection` can still be copied/cut via the fallback in `selected_paths()`. |
+| 4 | Clipboard-armed (cut/copy mode) | 剪下複製模式 | `Session.clipboard.is_some()` (`session.rs`, `state.rs`) | `c`/`x`/Copy/Cut on any surface. Freezes state #3 (four guards in `session.rs`: `toggle_select`, `set_selection`, `extend_select_up`, `extend_select_down`) — entering #4 does not require #3 to be non-empty first; a bare cursor with an empty `Selection` can still be copied/cut via the fallback in `selected_paths()`. |
 | 5 | Clipboard source | cut/copy source | `Session.clipboard.sources: Vec<Path>`, colored by `clipboard.cut: bool` (`state.rs`) | Only meaningful while #4 is active. |
 
 ### 1a. Hover is not a core state
@@ -218,7 +218,7 @@ inventing a new gesture:
   commit-on-release behavior. The FAB (`web/touch/app.ts`) still performs the
   actual `Paste`.
 - Caret disambiguation must move earlier: today it only resolves at tap time
-  (`handleTap`, `web/touch/app.ts:1364, 1393-1406`); a pointerdown-level
+  (`handleTap`, `web/touch/app.ts`); a pointerdown-level
   `closest('.caret')` bail is required so a caret press that never moves still falls
   through to the existing `act === "caret"` branch (`SetCursor` + `ToggleExpand`),
   mirroring the existing `closest('.drag-handle')` gate (`web/touch/app.ts`) that
@@ -347,7 +347,7 @@ The governing architectural decision is recorded in ADR 0005 (`../adr/0005-row-c
 - Desktop's marquee (`web/select.ts`/`web/ui.ts`'s `installMarquee`) now guards
   `clipboard_count`/`paste-mode` like every other affordance §5 disables while
   armed — found and fixed via the integration audit
-  (`docs/superpowers/audits/2026-08-19-clipboard-row-state-integration-audit.md`).
+  (`docs/audit/2026-08-19-clipboard-row-state-integration-audit.md`).
 - Any change to node-kind/format mutation mechanics, `PasteSlot`/`Into`/`After`
   targeting semantics, or the AoT atomic-move behavior — all owned by ADR 0004
   (and, for pointer-driven targeting, ADR 0010), `glossary.md`,

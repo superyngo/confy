@@ -192,7 +192,7 @@ containing them looks for those characters, exactly as before.
 
 ## Type filter
 
-`f` opens `Mode::TypeFilter`, a modal checkbox popup (`tui/type_filter.rs`) that
+`f` opens `Mode::TypeFilter`, a modal checkbox popup (`overlay_type_filter.rs`) that
 filters by a node's **type facets** — the same `KeySign`/`NodeKind`/`Format` the KIND column shows.
 `TypeToken` enumerates one leaf atom per KIND slot and `classify(kind, format, doc, read_only)` is
 the arm-for-arm inverse of `type_tag` (so popup and column can't drift; `layout(doc)` shows only the
@@ -237,7 +237,7 @@ overlapping) rather than re-extending the first anchor.
 
 `m` opens `Mode::ActionMenu { cursor }`, a modal popup (`overlay_action_menu.rs`, same
 shape as the `K` kind-switch popup) listing the eight core-owned Action menu items
-(design doc `docs/superpowers/specs/2026-08-30-action-menu-design.md` §2, ADR 0009):
+(design doc `docs/spec/2026-08-30-action-menu-design.md` §2, ADR 0009):
 Edit in editor, Add child, Append sibling, Copy, Cut, Toggle comment, Detail, Delete
 (separated by a rule and shown in red). `Session::action_menu_items()` derives each
 item's `enabled` flag fresh from `selected_paths()` every frame — a single-path item
@@ -292,6 +292,15 @@ cosmetic (ADR 0012):
 `e` on a datetime is unaffected — it still opens the inline editor for free-form literal
 editing. Only `K` picks a type.
 
+## Convert document (`C`)
+
+`C` on the root node opens `Mode::Convert` (`overlay_convert.rs`, `draw_convert_overlay`), a
+modal multi-step popup for converting the entire document to another format. It advances
+through three steps: `ConvertStep::Format` (picks the target format via `↑↓`/`Enter`),
+`ConvertStep::Path` (types the output filename, with `Tab` toggling the `.json` ↔ `.jsonc`
+extension for JSON targets), and `ConvertStep::Confirm` (displays any lossy-conversion
+warnings before confirming the write with `y`/`Enter`).
+
 ## Language / i18n (TUI)
 
 Language is a host-owned preference layered on top of `confy-core`'s catalog (see root
@@ -301,13 +310,14 @@ config.rs`; `$XDG_CONFIG_HOME/confy/config.toml` else `~/.config/confy/config.to
 macOS/Linux, `%APPDATA%\confy\config.toml` on Windows via `dirs::config_dir()`) > default `en`.
 A missing/unparsable config file is never an error — it just falls back to defaults.
 
-`l` opens a small host-side popup (`App::open_lang_picker`, same pattern as the kind-switch
-popup) listing the available languages; selecting one dispatches `Intent::SetLang`, calls
-`save_config` (best-effort — a write failure surfaces as a status message via
-`tui.lang.save-failed`, never a crash), and confirms via `tui.lang.saved`. The About screen (`?` →
-About tab) appends two host-only lines after the core's translated `about_text(lang)` body:
-`Config: <path>` (the resolved path, shown even before the file exists) and `Language: <code>` —
-these can't live in the core catalog since the config path is filesystem-specific to this host.
+`l` opens a small host-side popup (`overlay_lang_picker.rs`, `App::open_lang_picker`, same
+pattern as the kind-switch popup) listing the available languages; selecting one dispatches
+`Intent::SetLang`, calls `save_config` (best-effort — a write failure surfaces as a status
+message via `tui.lang.save-failed`, never a crash), and confirms via `tui.lang.saved`. The About
+screen (`?` → About tab, `overlay_help.rs`) appends two host-only lines after the core's
+translated `about_text(lang)` body: `Config: <path>` (the resolved path, shown even before the
+file exists) and `Language: <code>` — these can't live in the core catalog since the config path
+is filesystem-specific to this host.
 `tui/keys.rs::help_text(format, lang)` and every prompt/status string in `tui/ui.rs` route through
 the same `tui.*` catalog keys as the rest of the TUI; CJK lines in the `?` cheatsheet and detail
 popup were manually eyeballed for the double-width alignment risk noted in the i18n plan.
@@ -383,8 +393,10 @@ none of the three apply. Mirrors `web/panel.ts`'s Schema field exactly (§ Share
 panel, `WEBUI.md`), so the same schema information is available in both UIs.
 
 `~` opens a read-only diagnostics overlay (`overlay_diag.rs`, `draw_diag_overlay`), a centered
-popup displaying the Session's bounded 256-event diagnostic ring (`session.diag`), newest last,
-with per-level coloring (`DiagLevel` Error red / Warn yellow / Info cyan / Debug dark gray). Like
+popup displaying a windowed tail of the Session's bounded 256-event diagnostic ring (`session.diag`)
+— the last 20 events clamped to available height, a dynamic title (`Diagnostics — last N of M`
+when clipped, `Diagnostics — M` when not), and `(no events yet)` on an empty ring — with per-level
+coloring (`DiagLevel` Error red / Warn yellow / Info cyan / Debug dark gray). Like
 the `l` language picker, this is host-owned UI state (`App.diag_overlay_open`), not a core `Mode`:
 `~` or `Esc` closes the overlay, other keys are swallowed while open, and opening is mutually
 exclusive with the language picker (`app.lang_picker.is_some()`).

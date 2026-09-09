@@ -1,5 +1,4 @@
 # Open-findings re-verification — 2026-09-09
-
 Status: Resolved (2026-09-09)
 
 Re-verifies every finding still recorded as open on 2026-09-09: the 21 items of

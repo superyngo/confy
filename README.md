@@ -21,6 +21,7 @@ and § VS Code extension below for the GUI/editor builds.
 
 ```
 confy <file.toml>
+confy <file> --format <toml|json|jsonc|yaml>
 confy <https://example.com/config.toml>
 ```
 

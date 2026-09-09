@@ -1,6 +1,6 @@
 # MESSAGES.md — the Notice/diagnostics message system, unified across all hosts
 
-The design record is `docs/superpowers/specs/2026-08-21-message-system-design.md`
+The design record is `docs/spec/2026-08-21-message-system-design.md`
 (15+8-question grill, §11/§12) and ADR 0008 (`docs/adr/0008-in-session-diagnostic-ring-over-tracing.md`).
 This document is the reference: the data model, the severity classification table,
 per-host channel/rendering behavior, and where the platforms deliberately agree vs.
@@ -168,9 +168,8 @@ A bounded `VecDeque<DiagEvent>` living on `Session` itself (`session/diag.rs`),
 not the `tracing`/`log` crates — kept as ordinary, headlessly-testable data so
 `Session` stays a pure, host-free value (`Session` is fully unit-testable and
 compiles unchanged for TUI/wasm/VS Code; a global `tracing` subscriber would
-fight that). Capacity 256, oldest evicted, monotonic `seq: u64` (never resets,
-even across a VS Code file-swap — see the Task 17 review's one Minor finding,
-still open as a follow-up, §8).
+fight that). Capacity 256, oldest evicted, monotonic `seq: u64` — it never resets
+within a Session, not even across a VS Code file-swap.
 
 ```rust
 pub struct DiagEvent {
@@ -373,7 +372,7 @@ with `.env("XDG_CONFIG_HOME", tmpdir)` instead of relying on the ambient one —
 
 Two more user-facing text mechanisms exist in the codebase, entirely outside
 the Notice/Prompt-question/Diagnostic-event model above — noted here (closing
-a gap `docs/superpowers/plans/2026-08-28-json-jsonc-parser-simplification-ssot.md`
+a gap `docs/plan/2026-08-28-json-jsonc-parser-simplification-ssot.md`
 found: neither had a home in this document) so a future audit doesn't mistake
 their absence above for an oversight in §1's channel inventory, which is
 scoped to the Notice-system model only.
@@ -399,51 +398,6 @@ host's own convert-confirm surface (CLI stderr, TUI's `overlay_convert`, web's
 convert-dialog) rather than through `tr`/`tr_args` — this channel bypasses
 i18n entirely, unlike every other user-facing string in this document.
 Unifying it into the catalog/Notice model is a known, explicitly out-of-scope
-follow-up (not tracked by an issue as of this writing).
+follow-up, tracked as a row in
+[`../plan/2026-09-09-open-follow-ups.md`](../plan/2026-09-09-open-follow-ups.md).
 
-## 8. Known follow-ups (non-blocking, recorded for later)
-
-Re-verified 2026-09-09, and **all three were closed the same day** — the bullets below record
-what was measured and what changed, and are kept rather than deleted because the measurements
-are the reason each fix looks the way it does. The single live backlog is
-[`../plan/2026-09-09-open-follow-ups.md`](../plan/2026-09-09-open-follow-ups.md); the evidence is in
-[`../audit/2026-09-09-open-findings-reverification.md`](../audit/2026-09-09-open-findings-reverification.md).
-
-- **FIXED 2026-09-09 — the `?diag=1` trace was desktop-only.** `drainDiagIfEnabled` lived
-  in `web/ui.ts` with no counterpart in `web/touch/app.ts`, although both hosts drive the
-  same `ConfySession` and the same ring. Measured on the touch entry: three keystrokes
-  logged **0** lines before, **12** after. Fixed by extracting the drain to a shared
-  `web/diag.ts` that both orchestrators import — one copy, so the cursor rule can't drift.
-  Tracked as **F15**. (The companion defect — a `lastSeenSeq` that outlived the session it
-  counted, so every post-swap event was skipped — was fixed earlier the same day; each host
-  now calls `resetDiagCursor()` at its single session-swap site.)
-- **FIXED 2026-09-09 — in the TUI, the only Intent that reached `dispatch` was
-  `SetHostNotice`.** Measured on the real binary: 16 navigation keystrokes left
-  the ring **empty** (`Diagnostics — 0`), and every event that did appear arrived
-  as the same fixed triple (`dispatch SetHostNotice` / `notice …` /
-  `mutation SetHostNotice ok`). The filed cause — "~15-20 sites mutate `Session`
-  fields directly" — did **not** survive re-measurement: production code had only
-  **five** such sites (the rest were test setup), and the TUI already routed keys
-  through `Session::apply(Intent)`. The real cause was that the taps sat on
-  `dispatch()`, the one entry point the TUI skips. Moving them into `apply()`
-  (§4) took the same 16 keystrokes from 0 to 32 events. Tracked as **F7**.
-- **FIXED 2026-09-09 — the Root row reported `NotFound`.** `d` on the root said
-  *"delete error: path not found"*, which is wrong twice over: the root is not
-  missing, and the message invites the user to look for a path problem. All three
-  backends now return `Unsupported`, and that variant's wording dropped "by this
-  format" (the root and a read-only YAML span are about the *node*). Part of **F8**.
-- **FIXED 2026-09-09 — one mistake, two severities: JSON reported a bad fragment
-  as `Illegal`,** TOML as `Fragment`. Measured on a value `Replace`: TOML
-  `Fragment("unexpected token")`, JSON `Illegal("expected R_BRACE, found None")`.
-  §2 maps the two variants to different severities, and a host keeps the inline
-  editor open for `Fragment` but not for `Illegal` — so the same typo behaved
-  differently purely by file format. Re-measurement narrowed it: only the
-  *unterminated string* case diverged (`[1, ` already agreed), and the mechanism
-  was the JSON lexer emitting `STRING` for a string that ran to EOF, so the splice
-  passed and the document-level backstop failed instead. The lexer now emits
-  `ERROR` for an unterminated string (still lossless), so it rejects as `Fragment`
-  at the splice. `tests/format_parity.rs` pins both this and the Root row. The
-  YAML row is deliberately left as-is and asserted as such: its subset lexer
-  accepts an unterminated scalar *on load* too, so `Replace` and load agree — see
-  the backlog's *Watching* section before tightening either. Part of **F8**, whose
-  other half is the now-documented variant taxonomy on `MutateError` itself.

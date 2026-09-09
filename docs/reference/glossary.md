@@ -452,17 +452,23 @@ _Avoid_: Validation error, hard constraint (confy has none).
 
 ## KIND column tags (full vocabulary)
 
-TOML: `[T/S]` scope table, `[T/D]` dotted table, `[T/I]` inline table, `[T/M]` multiline object
-(JSON only), `[T/E]` array-of-tables **entry** (one `[[…]]` occurrence — TOML only; the group
-itself is `[A/T]`), `[A/I]`/`[A/M]` inline/multiline array, `[A/T]` array-of-tables (TOML only).
-Scalars: `[S:str ]`/`[S:mstr]`/`[S:lit ]`/`[S:mlit]` strings, `[I:dec]`/`[I:hex]`/`[I:oct]`/
-`[I:bin]` integers, `[F:flt ]`/`[F:exp ]`/`[F:inf ]`/`[F:nan ]` floats, `[B:bool]`, `[S:null]`
-(JSON/YAML null), datetime types. `[G]` root, `[C]` comment.
+TOML: `[T/S]` scope table, `[T/D]` dotted table, `[T/I]` inline table, `[T/E]` array-of-tables
+**entry** (one `[[…]]` occurrence — TOML only; the group itself is `[A/T]`), `[A/I]`/`[A/M]`
+inline/multiline array, `[A/T]` array-of-tables (TOML only).
+JSON: `[T/M]` multiline object.
+Scalars: `[S:str ]`/`[S:mstr]`/`[S:lit ]`/`[S:mlit]` strings, `[I:dec ]`/`[I:hex ]`/`[I:oct ]`/
+`[I:bin ]` integers, `[F:flt ]`/`[F:exp ]`/`[F:inf ]`/`[F:nan ]` floats, `[B:bool]`, `[S:null]`
+(JSON/YAML null), `[D:odt ]`/`[D:ldt ]`/`[D:ldat]`/`[D:ltim]` the four TOML datetime types
+(offset-datetime, local-datetime, local-date, local-time). `[G]` root, `[C]` comment.
 YAML: `[A/B]`/`[A/F]` block/flow sequence, `[T/B]`/`[T/F]` block/flow mapping (`[T/F]` also the YAML
 inline table), `[S:sq  ]`/`[S:dq  ]`/`[S:lit ]`/`[S:fold]` string styles, `[opaq ]` out-of-subset
-read-only (no datetime, no `[A/T]`/`[T/D]`, no `[I:bin]`).
-Key sign is **not** part of this column; `(B)` bare, `(Q)` quoted, `(D)` dotted, and `(-)` keyless
-are Type-filter facets, shown per node on the Detail popup's `Sign:` line.
+read-only (no datetime, no `[A/T]`/`[T/D]`, no `[I:bin ]`).
+Every tag is padded to 8 display cells, the padding sitting **inside** the brackets
+(`[I:dec ]`, `[S:sq  ]`) so the column aligns; `format_kind_tag` in `tui/app.rs` is the source.
+Key sign is **not** part of this column: `(B)` bare, `(Q)` quoted, `(D)` dotted and `(-)` no key
+are **Type-filter** facets (the `f` popup's Sign row). A node's own key sign is spelled out in
+full on the Detail popup's `Sign:` line — `bare`, `quoted`, `dotted`, or `none`
+(`status_fmt.rs::key_sign_label`).
 
 ## Flagged ambiguities
 

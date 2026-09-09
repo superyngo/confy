@@ -32,6 +32,7 @@ Save/Save-As action sheet — not part of the fold system below), then `#editGro
 
 | Control | Desktop id | Touch `data-act` | Row·Group | i18n title key |
 |---|---|---|---|---|
+| Format pill | `#fmtPill` | `cyclefmt` | header (ungrouped) | `web.toolbar.fmtPill.title` |
 | Open | `#btnOpen` | `open` | header (ungrouped) | `web.toolbar.open.title` |
 | Save | `#btnSave` | `save` | header (ungrouped) | `web.toolbar.save.title`/`.label` |
 | Save As / Convert | `#btnSaveAs` | *(touch: Save sheet's 2nd choice)* | header (ungrouped) | `web.toolbar.saveAs.title` |

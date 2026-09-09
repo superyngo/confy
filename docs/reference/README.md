@@ -47,5 +47,6 @@ These files carry claims a test enforces, so they cannot silently drift:
 | `KEYMAP.md` | the normal-mode key table | `crates/confy-tui/src/tui/keys.rs` tests + `web/keymap-parity.spec.mjs` |
 | `MESSAGES.md` | the `core.*` notice-key severity table | `crates/confy-core/src/session/notice.rs::severity_of_covers_the_full_catalog_table` |
 | `MUTATIONS.md` | multiline-array insert/delete layout | `crates/confy-core/tests/roundtrip.rs` |
+| `BEHAVIOR_MATRIX.md` | §8's cross-format invariants (Remark's own-line rule, the `MutateError` variant taxonomy, single-value `Replace` fragments) | `crates/confy-core/tests/format_parity.rs` |
 
 See also [`../adr/`](../adr/README.md) for the decision records behind this shape.

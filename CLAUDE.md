@@ -105,7 +105,7 @@ untouched.
 ([tamasfe/taplo#715](https://github.com/tamasfe/taplo/issues/715)); the repo is stalled but
 not archived, no ownership transfer has happened, and `rowan =0.15.18` is exact-pinned to
 match taplo's internal version. `confy`'s taplo surface is small and measurable —
-`taplo::parser::parse` (48 call sites), `taplo::syntax::*`/`taplo::rowan::*` (28 sites), and
+`taplo::parser::parse` (49 call sites), `taplo::syntax::*`/`taplo::rowan::*` (28 sites), and
 `taplo::dom` (2 sites: `into_dom()` + matching `taplo::dom::Error::ConflictingKeys` in
 `cst_edit/mod.rs`'s `validate_dom`, the TOML backend's post-splice duplicate-key backstop —
 JSON and YAML hand-roll the equivalent in their own `validate_semantics`). None of taplo's
@@ -252,13 +252,14 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
                    TypeFilterView/TypeFilterRow/TypeFilterCellView (the WASM wire contract)
     dispatch.rs    Stage-2 command channel: Session::dispatch(Intent) -> SessionSnapshot
                    (mode-dependent Intent→method routing; the only entry point the Web UI uses)
-  schema/          JSON Schema detection/validation/constrained-editing: types.rs (SchemaSource/
-                   SchemaState/SchemaStatus/Violation/EditHint), hints.rs (per-format hint
+  schema/          JSON Schema detection/validation/constrained-editing: mod.rs (re-exports),
+                   types.rs (SchemaSource/SchemaState/SchemaStatus/Violation/EditHint),
+                   hints.rs (per-format hint
                    detection), value_bridge.rs (Node+Value → JSON projection with a Path per
                    node), validate.rs (`jsonschema`, draft 2020-12, ADR 0002), hints_edit.rs
                    (sub-schema resolution for the constrained-value picker + `schema_info`),
                    dirty_check.rs (per-mutation "does this path carry a constraint" skip)
-crates/confy-core/tests/  18 integration suites + fixtures/. The gates named in the port design
+crates/confy-core/tests/  19 integration suites + fixtures/. The gates named in the port design
                           record: no_fs_gate.rs (§7), serde_roundtrip.rs (§7 #3),
                           session_headless.rs (§7 #4 scripted Session tests, #5 fake-Host
                           `$EDITOR` flow, + dispatch() tests). Round-trip/byte-fidelity:
@@ -266,13 +267,17 @@ crates/confy-core/tests/  18 integration suites + fixtures/. The gates named in 
                           roundtrip_json.rs, roundtrip_yaml.rs, roundtrip_proptest.rs,
                           yaml_scratch.rs, key_repr.rs, hostile_input.rs (nesting cap),
                           insert_after_trailing_comment.rs,
-                          external_edit_clears_trailing_comment.rs. Session/schema/notice:
+                          external_edit_clears_trailing_comment.rs. Cross-format:
+                          format_parity.rs (one behavior, three backends — 9 behaviors incl.
+                          Remark's own-line rule and the `MutateError` variant taxonomy).
+                          Session/schema/notice:
                           schema_headless.rs, session_schema_fetch_request.rs, session_notice.rs,
                           session_snapshot_notice.rs, prompt_question.rs, modal_lock.rs (every
                           guarded method no-ops + sets status while the clipboard is armed,
                           ADR 0005 §5).
                           Unit tests also live in-tree next to the code they cover:
-                          model/cst_edit/tests.rs, model/yaml/edit/tests.rs (and
+                          model/cst_edit/tests.rs, model/json/edit/tests.rs,
+                          model/yaml/edit/tests.rs (and
                           crates/confy-tui/src/tui/tests.rs for the TUI).
 
 crates/confy-ffi/         Stage-2 WASM wrapper over confy-core (wasm-bindgen + serde-wasm-bindgen)
@@ -352,6 +357,12 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
   key-intent.ts  pure "which Intent does this (mode, key) pair mean" resolution — the single
                  keymap source both orchestrators dispatch through (KEYMAP.md is its SSOT doc)
   mode.ts        shared `modeTag()` helper over the `ModeView` union
+  path-utils.ts  shared path helpers; `drawnCursorFallback` re-targets a cursor sitting on the
+                 undrawn root (neither web host draws it), used by ui.ts and touch/app.ts
+  vscode-protocol.ts  the typed host↔webview message contract (`HostToWebview`/`WebviewToHost`),
+                 the ONE file both `web/vscode.ts` and the extension import — see VSCODE.md
+  vscode.ts      the in-webview VS Code client: posts/receives that protocol, tracks the
+                 editor theme, and routes schema reads through the extension host
   escape.ts      the one HTML escaper (`escapeHtml`/`escapeAttr`) every render module uses
   kind-labels.ts shared `ViewRow` lookups/predicates (value-hue labels, row-anatomy helpers,
                  `kindWord` — the kind as a word for the two surfaces with room for one,
@@ -364,13 +375,18 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
   fab.ts         shared floating "actions / paste" button (FAB) behavior + markup
   action-menu-items.ts / add-picker-items.ts  shared item rendering for `Mode::ActionMenu` /
                  `Mode::AddPicker`, so the desktop popup and the touch sheet stay identical
-  entry-desktop.js / entry-touch.js / register-sw.js  the per-entry boot scripts (pointer-based
-                 desktop↔touch router; https-only service-worker registration). **External
+  entry-desktop.js / entry-touch.js / register-sw.js / sw.js  the per-entry boot scripts
+                 (pointer-based desktop↔touch router; https-only service-worker registration)
+                 plus the service worker itself (offline app-shell cache). **External
                  files, never inline `<script>`** — the Tauri shell's CSP forbids inline script;
                  new ones must be added to `assemble-dist.mjs`'s copy list (TAURI.md §CSP)
-  index.html / style.css (design `<style>` **verbatim** + a fenced app-only appendix; dark+light
+  touch/         the touch host: app.ts (orchestrator), render.ts (row tree), style.css —
+                 a separate UI over the SAME Session, sharing the modules marked shared above
+  index.html / touch.html / style.css (design `<style>` **verbatim** + a fenced app-only
+                 appendix; dark+light
                  via :root[data-theme]; header/filter-row button layout — see CHROME.md) /
-                 build.mjs (esbuild) / serve.mjs / cf-build.sh
+                 build.mjs (esbuild) / assemble-dist.mjs (the runtime-only web/dist file list,
+                 run by build.mjs) / serve.mjs / cf-build.sh
                  (Cloudflare Workers Builds build command → runtime-only web/dist; deployed with
                  root `wrangler.toml` to confy.turkeyang.net — see WEBUI.md §Deployment)
 
@@ -502,8 +518,9 @@ editors/vscode/          third host shell, published to the VS Marketplace and O
                           of truth for content/dirty/undo/save/revert/hot-exit) via a shared
                           `web/vscode-protocol.ts` message contract — mechanics, the protocol
                           table, and the 0.2.1 tab-swap fix are in **`VSCODE.md`**.
-                          `web/vscode-protocol.ts`/`web/vscode.ts` are imported here as
-                          `../../../web/vscode-protocol.ts`, so protocol drift is a compile error;
+                          `web/vscode-protocol.ts` is imported here as
+                          `../../../web/vscode-protocol.js` (and by `web/vscode.ts` on the
+                          webview side), so protocol drift is a compile error;
                           every other `web/` behavior difference is gated on `ui.ts`'s `VSHOST`
                           flag (`isVsCode()`). `media/` is a build-time copy of `web/dist`
                           (gitignored, staged by `build.mjs`) — the extension ships no web source
