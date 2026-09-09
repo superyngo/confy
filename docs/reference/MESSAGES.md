@@ -388,7 +388,7 @@ follow-up (not tracked by an issue as of this writing).
 
 ## 8. Known follow-ups (non-blocking, recorded for later)
 
-All three re-verified 2026-09-09 and still open. They are tracked as **F3/F4/F5** in
+Re-verified 2026-09-09 and still open. They are tracked as **F3/F4/F5/F8** in
 [`../plan/2026-09-09-open-follow-ups.md`](../plan/2026-09-09-open-follow-ups.md), the single
 live backlog, which carries their acceptance criteria; the evidence is in
 [`../audit/2026-09-09-open-findings-reverification.md`](../audit/2026-09-09-open-findings-reverification.md).
@@ -423,3 +423,16 @@ live backlog, which carries their acceptance criteria; the evidence is in
   *does* style `sev-warn`/`sev-success` — for the desktop footer status line, not
   the toast — so the two hosts currently disagree on whether severity is visible
   at all. Cosmetic, deferred, MVP-scope.
+- **One mistake, two severities: JSON reports a bad fragment as `Illegal`,**
+  TOML and YAML as `Fragment`. Measured 2026-09-09 on a value `Replace` of an
+  unterminated string: TOML `Fragment("unexpected token")`, JSON
+  `Illegal("expected R_BRACE, found None")`. §2 maps the two variants to
+  different severities, so the user sees a different message class for the same
+  typo depending only on which format the file is in. This is the *fragment*
+  half of the variant confusion; the *gesture-does-not-apply* half was unified
+  to `Unsupported` across all three backends on 2026-09-09 (`72805c0`) — by
+  hand, per backend, which is the work **F8** (`MutateError` taxonomy) exists to
+  make unnecessary. Fix it there, not per-backend. Note the YAML row is not
+  simply "missing validation": its subset lexer accepts an unterminated scalar
+  *on load* too, so `Replace` and load agree; see the backlog's *Watching*
+  section before tightening either.

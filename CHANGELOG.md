@@ -8,6 +8,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unreleased Update - 2026-09-09 (27)
+
+**The "recorded not fixed" observation gets a real home, in three places**
+
+Closing F1 and F14 each surfaced a variant mismatch that was noted in a commit message and
+nowhere else — which is exactly how a finding gets lost. Both are now written down where someone
+would look for them:
+
+- **`F8` in the backlog** carries the measured table. JSON reports an unterminated fragment as
+  `Illegal("expected R_BRACE, found None")` where TOML reports `Fragment("unexpected token")`;
+  the gesture-does-not-apply half (`Unsupported` vs `Illegal` vs `NotFound`) was unified by hand
+  per backend in `72805c0`, which is precisely the manual work this finding exists to remove.
+  Priority **raised P3 → P2**, with the reason recorded inline: it now has a measured,
+  user-visible symptom rather than being an internal tidiness item.
+- **`MESSAGES.md` §8** gains the entry from the *message* angle — one typo produces two
+  different severity classes depending only on the file's format — and its header now tracks
+  **F3/F4/F5/F8** instead of "all three".
+- The **YAML caveat travels with it**: that row is not missing validation, its lexer accepts an
+  unterminated scalar on load too, so `Replace` and load agree. Anyone tightening it is pointed
+  at the backlog's *Watching* section first.
+
+Explicit instruction in all three: **fix it in F8, not per-backend.** The last two commits show
+what per-backend patching costs.
+
 ### Unreleased Update - 2026-09-09 (26)
 
 **A YAML fragment is one node, and the surplus is no longer thrown away**

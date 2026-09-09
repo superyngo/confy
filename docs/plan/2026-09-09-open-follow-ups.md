@@ -97,12 +97,26 @@ headlessly from its captured `Vec<Intent>`.
 
 ### F8 — `MutateError` mixes interactive outcomes with real errors
 
-Priority **P3** · Effort **S** · Verified 2026-09-09 · From audit 2026-08-29
+Priority **P2** (raised from P3 on 2026-09-09: it now has a measured, user-visible symptom, the
+table below) · Effort **S** · Verified 2026-09-09 · From audit 2026-08-29
 
 `Collision` and `Fragment` are prompts the user answers; `NotFound`, `Illegal` and `Unsupported`
 are failures. A host cannot tell them apart by type. `anyhow` is already out of the parse
 signature (`AnyDocument::from_str_as` returns `Result<Self, ParseError>`), so this is the
-remaining half. Best done **with F1/F2**, which is what exposes the confusion.
+remaining half.
+
+**Two measured cases are folded in here** (found 2026-09-09 while closing F1/F2/F14 — do not
+patch them per-backend, they are symptoms of this taxonomy):
+
+| input | TOML | JSON | YAML |
+|---|---|---|---|
+| unterminated fragment (`"unclosed`, `[1, `) | `Fragment(…)` | **`Illegal("expected R_BRACE, found None")`** | `Ok` — lexer is lenient, see *Watching* |
+| gesture does not apply here | `Unsupported` | *was* `Illegal(…)` | *was* `NotFound` |
+
+The second row was unified to `Unsupported` everywhere by F1 (`72805c0`) — by hand, per backend,
+which is exactly the work this finding removes the need for. The first row is still uneven: JSON
+reports a *rule violation* for what TOML calls *unparseable input*, and `MESSAGES.md` §2 maps
+those to different severities, so a user sees a different message per format for one mistake.
 
 **Acceptance.** A host can match "needs an answer" vs "failed" without string inspection; the
 severity mapping in `MESSAGES.md` §2 follows the type rather than the key.
