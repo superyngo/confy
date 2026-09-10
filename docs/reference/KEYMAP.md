@@ -230,4 +230,7 @@ text does not claim otherwise.
 
 - `docs/reference/TUI.md` — TUI behaviour; `?` overlay text lives in `i18n/*.json` (`tui.help.*`).
 - `docs/reference/WEBUI.md` — web/touch behaviour and chrome.
+- `docs/reference/HOST_PARITY.md` — the index of every **non-keyboard** host divergence
+  (rendering, row state, editing, chrome, capabilities). This file stays the authority for
+  keys; its rows there are summaries that point back here.
 - `web/help-content.ts` — the web `?` overlay text (en + zh-TW, web + VS Code variants).

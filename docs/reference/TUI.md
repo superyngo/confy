@@ -7,7 +7,9 @@ For the inline-vs-`$EDITOR` boundary see `BEHAVIOR_MATRIX.md §6`. The keyboard 
 themselves are **not** documented here: `KEYMAP.md` is the TUI ↔ Web single source of
 truth for them, and its table is machine-checked against `map_key` (`src/tui/keys.rs`).
 The TUI calling `Session` methods directly rather than routing every mutation through
-`dispatch(Intent)` (as the other hosts do) is a deliberate exception — ADR 0003.
+`dispatch(Intent)` (as the other hosts do) is a deliberate exception — ADR 0003. Every
+*other* place this host deliberately differs from the web ones is indexed, one line each,
+in `HOST_PARITY.md`.
 
 ## Rendering
 
@@ -119,7 +121,9 @@ strings) are collapsed to a one-line preview (first line + ` …`) by `cell_prev
 A trailing comment
 is **shown in-row** (dimmed, after the value, in the VALUE cell — `value_cell` in `ui.rs`) and is
 **edited inline together with the value**: `begin_inline_edit` seeds the Value buffer as
-`value  # comment`, and `edit_commit` splits it back via `ConfigDocument::split_value_comment`
+`value  # comment` (a **host divergence** — the web hosts strip that suffix and edit the
+comment in a separate cell, see `WEBUI.md`), and `edit_commit` splits it back via
+`ConfigDocument::split_value_comment`
 (which lexes through the backend so a `#`/`//` *inside a string* is not the comment). A change
 from the baseline (`EditState.orig_trailing`) is staged in `Session.pending_trailing` and applied by
 `apply_replace` as a `Mutation::SetTrailingComment { path, comment: Option<String> }` right after
@@ -140,6 +144,15 @@ is the sole field — no name, `Tab` is a no-op — and `edit_commit` routes to
 `Mutation::EditComment`, staying in the editor on a non-`#` validation error); `E`, a merged
 multi-line comment, or one with an `Array` ancestor open `$EDITOR` with the raw text. Deleting a
 comment (`d`) is a plain token removal at its `Seg::Index` slot.
+
+A comment the open format doesn't officially allow (a `.json` document's comment, which confy
+accepts) is flagged with `comment_advisory`: the TUI swaps the dim style for an **underlined
+warn-colored** one and puts the full advisory text in the `i` Detail popup's `Note:` section.
+That is the terminal's stand-in for the web tree's wavy underline plus hover tooltip —
+terminals have no hover (`HOST_PARITY.md`).
+
+The TUI also **draws the root/file row** (see Navigation below); neither web host does, which
+is the origin of several web-only cursor and paste-slot corrections — `HOST_PARITY.md` §2.
 
 ## Navigation
 
@@ -308,7 +321,10 @@ Language is a host-owned preference layered on top of `confy-core`'s catalog (se
 never written back) > `~/.config/confy/config.toml`'s `lang = "…"` (`crates/confy-tui/src/
 config.rs`; `$XDG_CONFIG_HOME/confy/config.toml` else `~/.config/confy/config.toml` on
 macOS/Linux, `%APPDATA%\confy\config.toml` on Windows via `dirs::config_dir()`) > default `en`.
-A missing/unparsable config file is never an error — it just falls back to defaults.
+On macOS that `~/.config` path is a **deliberate terminal-tool convention**, not
+`~/Library/Application Support` — a `confy` user edits this file by hand next to their other
+CLI configs. (The web hosts have no config file at all; they persist language and theme in
+`localStorage`.)
 
 `l` opens a small host-side popup (`overlay_lang_picker.rs`, `App::open_lang_picker`, same
 pattern as the kind-switch popup) listing the available languages; selecting one dispatches

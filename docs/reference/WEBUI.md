@@ -10,6 +10,9 @@ their own docs: the Tauri desktop/Android app in `TAURI.md`, the VS Code extensi
 `VSCODE.md`. The port design record is `PORTING.md` (§8 records the Stage-2 transport
 decisions). Keyboard bindings live in `KEYMAP.md`, the TUI ↔ Web single source of truth,
 whose table is machine-checked against `resolveKeyIntent` by `web/keymap-parity.spec.mjs`.
+Every deliberate difference between this host and the TUI — beyond keys — is indexed one
+line at a time in `HOST_PARITY.md`; each row points back at the section here (or in
+`ROW_STATE_MODEL.md`/`CHROME.md`/`MESSAGES.md`) that owns the detail.
 
 ## Architecture
 
@@ -282,7 +285,11 @@ shapes round-trip). Key types:
   is ever entered; search now matches **scalar values**, not just keys/paths/comments).
   **Matched chars are marked in the tree**, same as the TUI: `web/highlight.ts` wraps them in
   `<mark class="fz">` (amber wash, `mark.fz` in both stylesheets) inside the key, value and
-  comment-row cells on **desktop and touch**. It calls the very matcher the TUI highlights with —
+  comment-row cells on **desktop and touch**. The mark is a translucent *background* here,
+  not a foreground repaint, so the value cell keeps its own type color underneath (`.t-string`
+  /`.t-number`/…) and `.comment-advisory`'s wavy underline still reads — the TUI has to
+  repaint the foreground instead, because a terminal cell cannot layer alpha
+  (`highlight_spans_styled`). It calls the very matcher the TUI highlights with —
   `fuzzy_indices` is a free `#[wasm_bindgen]` export (`crates/confy-ffi/src/lib.rs`) over
   `confy_core::session::search`, so the two surfaces can't drift apart. The matcher is *registered*
   by `confy.ts`'s `load()` (`setFuzzyMatcher`) rather than imported by `render.ts`, keeping the
@@ -386,6 +393,11 @@ shapes round-trip). Key types:
   commit handlers read the input value **before** dispatching `SetCursor` (which rebuilds the panel
   DOM and detaches the input), and the separate **trailing-comment cell sends raw text** —
   `Session::set_trailing_comment` prepends the backend's marker (`#`/`//`) when missing.
+  A **host divergence lives here**: core bundles a scalar's trailing comment into the
+  inline-edit buffer as `value␠␠# comment` (the TUI edits both at once), so the web strips
+  that suffix when seeding the value `<input>` (`web/render.ts`) and re-appends the unchanged
+  comment on commit (`web/ui.ts`) — typing over a value never drops its comment, and the
+  comment is edited in its own cell instead.
 - **Help.** The `?` overlay appends a **per-format KIND legend** (`KIND_LEGEND`, keyed by
   `doc_format`, ported from the TUI's per-backend help) explaining each container/scalar
   label·notation for the open file's format.

@@ -25,6 +25,9 @@ investigation — lives in [`../spec/`](../spec/README.md), [`../plan/`](../plan
 - **[CHROME.md](CHROME.md)** — header/toolbar chrome: button inventory, responsive fold order,
   per-host trimming. Shared by desktop and touch.
 - **[KEYMAP.md](KEYMAP.md)** — TUI ↔ Web keyboard bindings, plus the deliberate divergences.
+- **[HOST_PARITY.md](HOST_PARITY.md)** — the index of **every** deliberate TUI ↔ web/touch/
+  VS Code/Tauri divergence, not just keys: one line each, pointing at the doc that owns the
+  detail. Read it before adding host-specific behavior.
 - **[TAURI.md](TAURI.md)** — desktop + Android app shell (`confy-tauri`).
 - **[VSCODE.md](VSCODE.md)** — VS Code extension host (`editors/vscode`).
 

@@ -7,6 +7,9 @@ implementation history. Node-kind and per-format mutation mechanics are not repe
 here — see `MUTATIONS.md`'s "Insert / move legality" table and `BEHAVIOR_MATRIX.md`. TUI
 mechanics beyond row state live in `TUI.md`; web/desktop/touch architecture beyond row
 state lives in `WEBUI.md`.
+The host divergences this document specifies (post-paste highlight, `Escape` press count,
+the undrawn root row's slots, target-aiming affordances, the selection marker) each carry a
+one-line row in `HOST_PARITY.md`, which indexes them alongside every other host difference.
 
 ## 1. The five states
 
