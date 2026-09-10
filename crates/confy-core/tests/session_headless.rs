@@ -4376,3 +4376,32 @@ fn document_level_action_is_always_available_and_edits_the_whole_file() {
         assert_eq!(ext.initial, "a = 1\n", "hidden={hidden}: the whole file");
     }
 }
+
+#[test]
+fn dispatch_set_filename_names_the_root_row() {
+    let mut s = toml_session("a = 1\n");
+    assert_eq!(s.visible_rows()[0].key, "", "no host has named it yet");
+    let snap = s.dispatch(Intent::SetFilename("config.toml".into()));
+    assert_eq!(
+        snap.rows[0].key, "config.toml",
+        "the Root row carries the host's filename (ADR 0013 D9)"
+    );
+}
+
+#[test]
+fn dispatch_set_root_visible_switches_modes_through_the_command_channel() {
+    let mut s = toml_session("a = 1\nb = 2\n");
+    let visible = s.dispatch(Intent::SetRootVisible(true));
+    assert_eq!(visible.rows[0].path.len(), 0, "root-visible draws the Root");
+    assert!(visible.cursor.is_empty());
+    let hidden = s.dispatch(Intent::SetRootVisible(false));
+    assert!(
+        hidden.rows.iter().all(|r| !r.path.is_empty()),
+        "root-hidden emits no Root row"
+    );
+    assert_eq!(
+        hidden.cursor,
+        vec![Seg::Key("a".into())],
+        "and re-seats the cursor off it"
+    );
+}

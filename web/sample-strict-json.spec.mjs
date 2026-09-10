@@ -23,7 +23,9 @@ function check(name, cond, extra = "") {
 for (const file of ["ui.ts", "touch/app.ts"]) {
   const src = readFileSync(path.join(here, file), "utf8");
   console.log(`-- ${file} --`);
-  const openTextBody = src.slice(src.indexOf("function openText("), src.indexOf("function openText(") + 2200);
+  // Window sized to reach the whole body; `openText` grew when the two
+  // load-time dispatches (`SetFilename`/`SetRootVisible`, ADR 0013) landed.
+  const openTextBody = src.slice(src.indexOf("function openText("), src.indexOf("function openText(") + 3000);
 
   check(
     `${file}: openText computes isPlainJson from format+asSample, not just the name regex`,

@@ -10,6 +10,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-10 (9)
+
+**Added**
+
+- **`Intent::SetFilename` + `Intent::SetRootVisible`** (ADR 0013 D9/D10, slice 3 of
+  `docs/spec/2026-09-10-web-root-row-alignment.md`) — host-supplied load-time configuration
+  arriving through the one command channel, not an ffi side channel: both are `Session` state,
+  and a side channel would punch a hole in the `?diag=1` trace. `SetFilename` finally gives the
+  web a way to name the Root row (core is filesystem-free, so the filename only ever comes from
+  the host — until now `rows[0].key` was `""` in every web host, design record §1 E2), and
+  `SetRootVisible` selects the mode added in the previous entry. Both web orchestrators
+  dispatch the filename from `openText`, which is also the funnel every save-as / save-a-copy /
+  convert-write passes through (`HostIo.adoptFile`), so a renamed file re-labels its Root row.
+  Mirrored in `web/types.ts`; no new ffi method (`dispatch` already marshals every `Intent`).
+  13 new checks in `crates/confy-ffi/functional_smoke.mjs` drive **both** modes over the real
+  wasm wire. Only the desktop orchestrator dispatches `SetRootVisible` yet (`true`); touch and
+  VS Code stay on the `true` default until the slice that deletes their host-side stand-ins, so
+  no commit ships a half-migrated tree.
+
 ### Update - 2026-09-10 (8)
 
 **Added**

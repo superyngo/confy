@@ -580,5 +580,44 @@ check("diag_log() grows monotonically after second dispatch",
   "len=" + diagEvents2.length);
 diagSession.free();
 
+// ---- 30. SetFilename / SetRootVisible: host-supplied load-time config (ADR 0013) ----
+const rootSession = new ConfySession("a = 1\nb = 2\n", "toml");
+check("Root row is nameless until the host names it", rootSession.snapshot().rows[0].key === "");
+let rSnap = rootSession.dispatch(tuple("SetFilename", "config.toml"));
+check("SetFilename names the Root row", rSnap.rows[0].key === "config.toml", rSnap.rows[0].key);
+check("Root badge is ⌂·<format>", rSnap.rows[0].badge_label === "⌂" && rSnap.rows[0].badge_note === "toml",
+  rSnap.rows[0].badge_label + "/" + rSnap.rows[0].badge_note);
+check("root-visible: row 0 is the Root at depth 0", rSnap.rows[0].path.length === 0 && rSnap.rows[0].depth === 0);
+const visibleCount = rSnap.rows.length;
+rSnap = rootSession.dispatch(tuple("SetRootVisible", false));
+check("root-hidden: no row addresses the document", rSnap.rows.every(r => r.path.length > 0));
+check("root-hidden: exactly one row fewer", rSnap.rows.length === visibleCount - 1, "len=" + rSnap.rows.length);
+check("root-hidden: top-level rows sit at depth 0", rSnap.rows[0].depth === 0);
+check("root-hidden: cursor is re-seated off the Root", rSnap.cursor.length > 0, JSON.stringify(rSnap.cursor));
+// No Into([])/After([]) slot to overshoot onto once the clipboard is armed.
+rootSession.dispatch(unit("ToggleSelect"));
+rootSession.dispatch(unit("CopySelected"));
+rSnap = rootSession.dispatch(unit("CursorHome"));
+const slot = rSnap.paste_slot;
+const slotPath = slot && ("Into" in slot ? slot.Into : "After" in slot ? slot.After : null);
+check("root-hidden: no paste slot addresses the document", slotPath === null || slotPath.length > 0, JSON.stringify(slot));
+// The `[G] root` facet is gone from the type-filter grid, and the one
+// document-level action is present. Fresh session: the armed clipboard above
+// holds the modal lock, which refuses every popup (ADR 0005 §5).
+const rootSession2 = new ConfySession("a = 1\nb = 2\n", "toml");
+rootSession2.dispatch(tuple("SetRootVisible", false));
+const tfSnap = rootSession2.dispatch(unit("EnterTypeFilter"));
+const tfLabels = ("TypeFilter" in tfSnap.mode ? tfSnap.mode.TypeFilter.rows : [])
+  .flatMap(r => ("Cells" in r ? r.Cells : [])).map(c => c.label);
+check("root-hidden: type-filter grid rendered", tfLabels.length > 0, JSON.stringify(tfSnap.mode));
+check("root-hidden: no [G] root facet", !tfLabels.includes("[G] root"), tfLabels.join(","));
+rootSession2.dispatch(unit("ExitTypeFilter"));
+const amSnap = rootSession2.dispatch(unit("OpenActionMenu"));
+const amItems = "ActionMenu" in amSnap.mode ? amSnap.mode.ActionMenu.items : [];
+const da = amItems.find(i => i.id === "EditDocument");
+check("root-hidden: document-level action present + enabled", !!da && da.enabled === true, JSON.stringify(amItems.map(i => i.id)));
+rootSession2.free();
+rootSession.free();
+
 console.log(failures === 0 ? "\nALL FUNCTIONAL CHECKS PASSED" : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

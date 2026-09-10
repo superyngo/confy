@@ -1758,6 +1758,11 @@ function openText(
   // A fresh Session always boots at core's default lang (`en`) — sync it to
   // the selector's persisted choice so status/error/About text match.
   snap = session.dispatch({ SetLang: getLang() });
+  // The Root's display label (ADR 0013 D9) — dispatched by every host, even
+  // root-hidden ones: the panel/header still name the open file. Touch's
+  // `SetRootVisible: false` lands with the stand-in deletion (slice 4), so
+  // no commit ships a half-migrated tree.
+  snap = session.dispatch({ SetFilename: name || "" });
   // One-shot advisory when the file already had comments at open (a JSONC
   // upgrade the user didn't ask for) — mirrors web/ui.ts's openText.
   if (isPlainJson && session.hadCommentsAtOpen()) {

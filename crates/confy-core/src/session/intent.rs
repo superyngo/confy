@@ -248,6 +248,16 @@ pub enum Intent {
     /// comment advisory keys off. Set once by the host right after load; an
     /// Intent rather than a field write so the command channel sees it (F7).
     SetStrictJson(bool),
+    /// Set the projection Root's display label — the filename the host
+    /// derived from its own I/O layer (core is filesystem-free). An Intent
+    /// rather than an ffi side channel: the label is `Session` state, and a
+    /// side channel would punch a hole in the `?diag=1` trace (ADR 0013 D9).
+    /// Dispatched by every host at open and after a save-as/convert.
+    SetFilename(String),
+    /// Does this host draw the **Root** row? (ADR 0013 D5/D10.) `true` for
+    /// the TUI and desktop web, `false` for touch and VS Code. Dispatched at
+    /// open; switching to root-hidden re-seats a cursor sitting on the Root.
+    SetRootVisible(bool),
 
     // ---- Host notices ----
     /// **Not a user action** — the internal channel hosts use to report

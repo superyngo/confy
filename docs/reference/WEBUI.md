@@ -120,6 +120,12 @@ shapes round-trip). Key types:
   resolved by the same `slot_target` a keyboard `Paste` uses, ADR 0010),
   `CommitEdit {value?,name?}`, `CommitKind {path,target}`, `SetFilter(String)`,
   `SetConvertFormat(DocFormat)`, `SetConvertPath(String)`.
+  Two further intents carry **host-supplied load-time configuration**, dispatched from
+  `openText` right after `SetLang` rather than written through an ffi side channel — both
+  are `Session` state, and a side channel would punch a hole in the `?diag=1` trace
+  (ADR 0013 D9/D10): `SetFilename(String)` names the **Root** row (core is
+  filesystem-free, so the filename only ever arrives from the host) and
+  `SetRootVisible(bool)` picks the host's **root-visible / root-hidden** mode.
 - **`SessionSnapshot`** — full renderable state (21 fields total): `doc_format`, `is_dirty`,
   `mode: ModeView`, `rows: ViewRow[]`, `cursor: Seg[]`, `notice: Notice | undefined`,
   `detail_text`, `external_edit`, `convert_write`, `clipboard_count`, `clipboard_cut`,

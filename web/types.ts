@@ -367,6 +367,10 @@ export type Intent =
   | "Escape" | { PromptKey: string } | "QuitRequested" | "Save"
   // i18n
   | { SetLang: string }
+  // Host-supplied load-time configuration (ADR 0013 D9/D10): the Root's
+  // display label, and whether this host draws the Root row at all.
+  | { SetFilename: string }
+  | { SetRootVisible: boolean }
   | { SetHostNotice: { key: string; args: string[]; source: NoticeSource } }
   // Schema — host ↔ core async handshake (spec §1): host resolves
   // `schema_fetch_request`'s text and dispatches `SchemaLoaded` back; the enum

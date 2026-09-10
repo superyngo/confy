@@ -311,6 +311,17 @@ function openText(
   // A fresh Session always boots at core's default lang (`en`) — sync it to the
   // selector's persisted choice so status/error/About text match immediately.
   snap = session.dispatch({ SetLang: getLang() });
+  // The Root's display label (ADR 0013 D9). Core is filesystem-free, so the
+  // filename only ever arrives from the host — until now the web never sent
+  // it and the Root row was nameless (design record §1 E2). Sample docs pass
+  // the literal "sample" as `name`.
+  snap = session.dispatch({ SetFilename: name || "" });
+  // Root visibility is core state, not a renderer flag (ADR 0013 D5/D10).
+  // Desktop web is root-visible, like the TUI. VS Code shares this
+  // orchestrator but is root-hidden — it flips this in the slice that also
+  // deletes the host-side stand-ins, so no commit renders a half-migrated
+  // tree.
+  snap = session.dispatch({ SetRootVisible: true });
   // One-shot advisory when the file already had comments at open (a JSONC
   // upgrade the user didn't ask for) — dispatched after SetLang, which
   // clears any pending notice. Comments added later in-session are covered

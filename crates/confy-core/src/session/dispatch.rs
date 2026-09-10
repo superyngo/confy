@@ -183,6 +183,13 @@ impl super::Session {
             // difference from `ExitConvert`.
             Intent::ConvertWriteDone => self.mode = self.resting_mode(),
             Intent::SetStrictJson(on) => self.strict_json = on,
+            Intent::SetFilename(name) => {
+                if let Some(d) = self.doc.as_mut() {
+                    d.set_filename(name);
+                    self.tree = d.project();
+                }
+            }
+            Intent::SetRootVisible(on) => self.set_root_visible(on),
 
             // ---- Detail popup (i) ----
             Intent::ToggleDetail => self.toggle_detail(),
