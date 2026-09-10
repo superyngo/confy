@@ -237,9 +237,12 @@ pub(crate) fn edit_comment(
     path: &[Seg],
     text: &str,
 ) -> Result<(), MutateError> {
-    // Validate: every line must start with `#` (after leading whitespace).
+    // Validate: every non-blank line must start with `#` (after leading
+    // whitespace). A blank line is allowed — it is the authored separator that
+    // splits the block into several projected Comment nodes; rejecting it made
+    // the multiline editor drop the whole edit.
     for line in text.lines() {
-        if !line.trim_start().starts_with('#') {
+        if !line.trim().is_empty() && !line.trim_start().starts_with('#') {
             return Err(MutateError::Fragment(
                 "every line of a comment must start with #".into(),
             ));

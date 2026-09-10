@@ -861,8 +861,16 @@ impl Session {
     /// node's own run (`multiline_edit_initial` packaged them in): split them
     /// off, or `EditComment` would splice them *inside* the comment block —
     /// where a blank line splits it into two projected nodes.
+    ///
+    /// A buffer whose *interior* carries blank lines commits as several
+    /// Comment nodes (that is the projection rule), so `path` afterwards names
+    /// only the **first** of them: applying the packaged run there rewrote the
+    /// first interior gap — deleting it for the usual `n = 0` — and left the
+    /// real trailing run unset. The run is applied to the last spliced group
+    /// instead, which for an unsplit block is `path` itself.
     pub fn apply_edit_comment(&mut self, path: Path, text: String) {
         let (body, blanks) = self.split_packaged_blank(&path, text);
+        let groups = crate::model::blank_lines::blank_separated_groups(&body);
         let doc = match self.doc.as_mut() {
             Some(d) => d,
             None => return,
@@ -872,7 +880,8 @@ impl Session {
             text: body,
         }) {
             Ok(text) => {
-                let text = self.apply_packaged_blank(&path, blanks, text);
+                let tail = last_group_path(&path, groups);
+                let text = self.apply_packaged_blank(&tail, blanks, text);
                 self.on_mutation_success(None, text)
             }
             Err(MutateError::Fragment(msg)) => {
@@ -1225,4 +1234,18 @@ fn bool_flip(repr: &str) -> Option<String> {
     } else {
         t.to_string()
     })
+}
+
+/// The path of the **last** node an edited comment buffer of `groups`
+/// blank-separated groups commits as, given the path the block was opened on.
+/// Sibling nodes are index-addressed within their parent's item space and the
+/// groups land consecutively, so the last one sits `groups - 1` items further
+/// along. `groups <= 1` (and a non-`Index` tail, which cannot happen for a
+/// comment) returns `path` unchanged.
+fn last_group_path(path: &Path, groups: usize) -> Path {
+    let mut out = path.clone();
+    if let Some(Seg::Index(i)) = out.last_mut() {
+        *i += groups.saturating_sub(1);
+    }
+    out
 }

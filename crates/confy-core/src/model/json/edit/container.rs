@@ -204,9 +204,15 @@ pub(super) fn rebuild_multiline(container: &SyntaxNode, items: &[String]) -> Str
     let mut lines: Vec<String> = Vec::new();
     for (i, item) in items.iter().enumerate() {
         if is_comment_item(item) {
-            // Comments are emitted as-is, one line per item (no comma).
+            // Comments are emitted as-is, one line per item (no comma). A
+            // blank separator line inside the block stays *empty* — indenting
+            // it would write trailing whitespace no author typed.
             for line in item.lines() {
-                lines.push(format!("{item_indent}{line}"));
+                if line.trim().is_empty() {
+                    lines.push(String::new());
+                } else {
+                    lines.push(format!("{item_indent}{line}"));
+                }
             }
         } else {
             // Non-comment: comma if there is a later non-comment item. A

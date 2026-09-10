@@ -174,9 +174,12 @@ pub(super) fn remark(tree: &SyntaxNode, path: &[Seg]) -> Result<(), MutateError>
 }
 
 pub(super) fn edit_comment(tree: &SyntaxNode, path: &[Seg], text: &str) -> Result<(), MutateError> {
-    // Validate: every line must start with "//".
+    // Validate: every non-blank line must start with "//". A blank line is
+    // allowed — it is the authored separator that splits the block into
+    // several projected Comment nodes (same rule as `insert_comment`);
+    // rejecting it made the multiline editor drop the whole edit.
     for line in text.lines() {
-        if !line.trim_start().starts_with("//") {
+        if !line.trim().is_empty() && !line.trim_start().starts_with("//") {
             return Err(MutateError::Fragment(
                 "every line of a comment must start with //".into(),
             ));

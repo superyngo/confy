@@ -177,6 +177,26 @@ pub(crate) fn split_trailing_run(text: &str) -> (String, usize) {
     (format!("{core}\n"), newlines.saturating_sub(1))
 }
 
+/// How many **blank-line-separated groups** a multiline-editor body splits
+/// into. A comment block is one projected node only while its lines are
+/// consecutive (every backend's block walk breaks on a blank line), so a
+/// buffer the user split with blank lines commits as *this many* Comment
+/// nodes — and the packaged trailing run belongs after the **last** of them
+/// (`Session::apply_edit_comment`). Never 0 for a non-blank body.
+pub(crate) fn blank_separated_groups(text: &str) -> usize {
+    let mut groups = 0usize;
+    let mut in_group = false;
+    for line in text.lines() {
+        if line.trim().is_empty() {
+            in_group = false;
+        } else if !in_group {
+            in_group = true;
+            groups += 1;
+        }
+    }
+    groups
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -281,5 +301,17 @@ mod tests {
             ("a = 1\n".to_string(), 1)
         );
         assert_eq!(split_trailing_run("\n\n"), (String::new(), 0));
+    }
+
+    #[test]
+    fn blank_separated_groups_counts_the_nodes_a_buffer_commits_as() {
+        assert_eq!(blank_separated_groups("# a\n# b\n# c\n"), 1);
+        assert_eq!(blank_separated_groups("# a\n\n# b\n"), 2);
+        // A run of several blanks is still one separator.
+        assert_eq!(blank_separated_groups("# a\n\n\n# b\n# c\n"), 2);
+        // Leading/trailing blanks separate nothing.
+        assert_eq!(blank_separated_groups("\n# a\n\n"), 1);
+        assert_eq!(blank_separated_groups("  \n"), 0);
+        assert_eq!(blank_separated_groups(""), 0);
     }
 }
