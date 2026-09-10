@@ -10,6 +10,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-10 (6)
+
+**Fixed**
+
+- **Blank lines added *inside* a comment block in the multiline editor were eaten (and the
+  edit's trailing run lost).** Editing one Comment node and splitting it with blank lines
+  (`# a` ⏎⏎ `# b` ⏎⏎ `# c`) saved as `# a` / `# b` / blank / `# c`: the **first** gap
+  vanished, merging two groups, while the run the buffer ended with never landed.
+  `Session::apply_edit_comment` splits the buffer's trailing blank lines off before
+  `Mutation::EditComment` and re-applies them afterwards with
+  `SetTrailingBlankLines { path, n }` — using the path the editor was opened on. That holds
+  only while the block stays **one** node: a buffer with interior blank lines commits as one
+  Comment node per blank-separated group (the projection rule), so `path` then named just the
+  *first* group and the run was written into the first interior gap instead — set to `n`,
+  i.e. **deleted** for the usual `n = 0`. The real trailing run was never set at all. The run
+  is now applied to the **last** spliced group (`blank_lines::blank_separated_groups` counts
+  them; for an unsplit block the target is `path` itself, unchanged behavior). The
+  "`n` equals the current count ⇒ skip" short-circuit is why leaving one extra blank line at
+  the buffer's end used to look correct — the mis-aimed write happened to be a no-op.
+- **JSON/JSONC and YAML refused such a buffer outright, discarding the content edit with
+  it.** Their `edit_comment` validators required *every* line to start with `//`/`#`, so one
+  blank separator failed the whole mutation ("every line of a comment must start with //") and
+  the document was left untouched — the text changes went with it. Both now exempt blank
+  lines, matching TOML and their own `insert_comment`. JSON's multiline rebuild emits such a
+  separator as a genuinely **empty** line rather than an indented one, so no trailing
+  whitespace is written.
+- Verified on the real binary (TUI + `$EDITOR`) for TOML and JSONC, not only in-process;
+  pinned by `session_headless.rs::a_comment_buffer_split_by_blank_lines_keeps_every_run`
+  (three backends, five TOML buffers) plus a `blank_lines` unit test.
+- **Not fixed here** (pre-existing, unrelated to blank lines): TOML `EditComment` on a comment
+  block **inside a multiline array** loses the continuation lines' indent — `arr = [` / `  # 1`
+  / `  # 2` edited to two lines writes the second at column 0. The block fragment opens without
+  indent and the splice re-emits it verbatim; the existing test only asserts `contains`.
+
 ### Update - 2026-09-10 (5)
 
 **Documentation**

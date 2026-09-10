@@ -4023,3 +4023,105 @@ fn editor_buffer_with_an_invalid_fragment_touches_nothing() {
     );
     assert_eq!(s.serialize().unwrap(), "a = 1\n\nb = 2\n");
 }
+
+/// A comment buffer the user split with **interior blank lines** commits as
+/// one Comment node per blank-separated group (the projection rule), so the
+/// packaged trailing run belongs after the **last** group. It used to be
+/// applied to `path`, which after the splice named only the *first* group: the
+/// first interior gap was rewritten to the packaged count — deleted outright
+/// for the usual `n = 0`, merging two groups back together — while the real
+/// trailing run was never set at all. JSON and YAML rejected a blank line in
+/// the buffer outright, dropping the content edit with it.
+#[test]
+fn a_comment_buffer_split_by_blank_lines_keeps_every_run() {
+    const TOML_SRC: &str = "# 1\n# 2\n# 3\nz = 1\n";
+    const JSON_SRC: &str = "{\n  // 1\n  // 2\n  \"z\": 1\n}\n";
+    const YAML_SRC: &str = "# 1\n# 2\nz: 1\n";
+    // (format, source, edited buffer, serialized result, comment nodes)
+    let cases: &[(DocFormat, &str, &str, &str, usize)] = &[
+        (
+            DocFormat::Toml,
+            TOML_SRC,
+            "# a\n# b\n# c\n",
+            "# a\n# b\n# c\nz = 1\n",
+            1,
+        ),
+        (
+            DocFormat::Toml,
+            TOML_SRC,
+            "# a\n\n\n# b\n# c\n",
+            "# a\n\n\n# b\n# c\nz = 1\n",
+            2,
+        ),
+        (
+            DocFormat::Toml,
+            TOML_SRC,
+            "# a\n\n# b\n\n# c\n\n# d\n",
+            "# a\n\n# b\n\n# c\n\n# d\nz = 1\n",
+            4,
+        ),
+        (
+            DocFormat::Toml,
+            TOML_SRC,
+            "# a\n\n# b\n\n# c\n\n",
+            "# a\n\n# b\n\n# c\n\nz = 1\n",
+            3,
+        ),
+        (
+            DocFormat::Toml,
+            TOML_SRC,
+            "# a\n# b\n\n\n",
+            "# a\n# b\n\n\nz = 1\n",
+            1,
+        ),
+        (
+            DocFormat::Json,
+            JSON_SRC,
+            "// a\n\n// b\n",
+            "{\n  // a\n\n  // b\n  \"z\": 1\n}\n",
+            2,
+        ),
+        (
+            DocFormat::Json,
+            JSON_SRC,
+            "// a\n\n// b\n\n",
+            "{\n  // a\n\n  // b\n\n  \"z\": 1\n}\n",
+            2,
+        ),
+        (
+            DocFormat::Yaml,
+            YAML_SRC,
+            "# a\n\n# b\n",
+            "# a\n\n# b\nz: 1\n",
+            2,
+        ),
+        (
+            DocFormat::Yaml,
+            YAML_SRC,
+            "# a\n\n# b\n\n",
+            "# a\n\n# b\n\nz: 1\n",
+            2,
+        ),
+    ];
+    for (fmt, src, buf, want, comments) in cases {
+        let mut s = Session::new(AnyDocument::from_str_as(src, *fmt).unwrap());
+        let snap = s.dispatch(Intent::ApplyEditComment {
+            path: vec![Seg::Index(0)],
+            text: buf.to_string(),
+        });
+        assert!(
+            snap.notice.is_none(),
+            "{fmt:?} buffer {buf:?} reported {:?}",
+            snap.notice
+        );
+        assert_eq!(&s.serialize().unwrap().as_str(), want, "{fmt:?} {buf:?}");
+        let got = s
+            .tree
+            .root
+            .children
+            .iter()
+            .filter(|n| matches!(n.kind, confy_core::model::node::NodeKind::Comment(_)))
+            .count();
+        assert_eq!(got, *comments, "{fmt:?} {buf:?} comment nodes");
+    }
+}

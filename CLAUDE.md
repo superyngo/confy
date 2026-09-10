@@ -149,7 +149,9 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
     blank_lines.rs the one format-neutral trailing-blank-run text splice (count_after/splice),
                    shared by all three backends' SetTrailingBlankLines, plus the
                    with_trailing_run/split_trailing_run pair that packages a node's run into
-                   the multiline editor's buffer and splits it back off on commit
+                   the multiline editor's buffer and splits it back off on commit, and
+                   blank_separated_groups — how many Comment nodes an edited comment buffer
+                   commits as, so the packaged run lands after the LAST of them
     kind_label.rs  align_options: the one `"<name>  <sample>"` picker-label format, name column
                    padded in display cells (unicode-width, so a translated CJK name still lines
                    up). Used by all three backends' kind_options AND the datetime type picker
