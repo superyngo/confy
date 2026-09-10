@@ -10,6 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-10 (2)
+
+**Fixed**
+
+- **Save As / Convert stacked a second extension onto a `.jsonc` or `.yml` name** — the
+  reported `xxx.jsonc.json`. Three places treated `.json`/`.yaml` as the *only* spelling of
+  their format, though `.jsonc` and `.yml` are the same `DocFormat` (glossary §*Comment
+  advisory*): `host-io.ts`'s `ensureExt` appended `.json` to a name already ending in
+  `.jsonc`; `targetTagFor` failed its `endsWith(".json")` test on `.jsonc` and fell through
+  to `Toml`, so a TOML→JSONC convert offered `x.jsonc.toml`; and `fs.ts`'s save-picker
+  accept list named one extension per format, which makes Chromium enforce it on the
+  returned name (a `.jsonc` suggestion comes back `.jsonc.json`) even when the app asks for
+  the right thing. `ensureExt` now keeps any extension that already names the target format,
+  `targetTagFor` routes through `formatFromName`, and the picker accepts both spellings.
+  Covered by five new `web/host-io.spec.mjs` checks (all three stacked names reproduced
+  before the fix).
+
 ### Update - 2026-09-10
 
 **Fixed**

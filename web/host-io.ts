@@ -79,12 +79,12 @@ export function formatFromNameOrType(
 }
 
 // The `DocFormat` tag a convert output path implies (extension → target).
+// Routed through `formatFromName` so the synonyms count: `.jsonc` is a `Json`
+// output and `.yml` a `Yaml` one, where an `endsWith(".json")` test fell
+// through to `Toml` and picked the wrong target extension.
 function targetTagFor(path: string): string {
-  return path.endsWith(".json")
-    ? "Json"
-    : path.endsWith(".yaml") || path.endsWith(".yml")
-      ? "Yaml"
-      : "Toml";
+  const fmt = formatFromName(path.toLowerCase());
+  return fmt === "json" ? "Json" : fmt === "yaml" ? "Yaml" : "Toml";
 }
 
 // The open file's stem (no directory, no extension) — the suggested output name.
@@ -94,9 +94,15 @@ export function fileStem(io: HostIo): string {
   return dot > 0 ? base.slice(0, dot) : base;
 }
 
-// Ensure `name` ends with `ext` (which must start with `.`), avoiding duplicates.
+// Ensure `name` carries an extension for `ext`'s format (`ext` starts with
+// `.`). A name already spelled with a *synonym* of that extension — `.jsonc`
+// for `.json`, `.yml` for `.yaml`, both the same `DocFormat` — is left alone:
+// appending would stack a second extension (the reported `x.jsonc.json`).
 function ensureExt(name: string, ext: string): string {
-  return name.endsWith(ext) ? name : name + ext;
+  const lower = name.toLowerCase();
+  return /\.(toml|jsonc?|ya?ml)$/.test(lower) && formatFromName(lower) === formatFromName(ext)
+    ? name
+    : name + ext;
 }
 
 // Parse `text` into a fresh Session; a parse failure is reported through

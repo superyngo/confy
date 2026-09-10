@@ -151,6 +151,23 @@ console.log("\n-- doSaveAsCopy() --");
   check("reports ok with the saved name", io.calls.ok.some((m) => m.includes("copy.toml")), JSON.stringify(io.calls.ok));
   delete globalThis.window;
 }
+{
+  // `.jsonc` is a JSON file (`docs/reference/glossary.md` "Comment advisory":
+  // `.json`/`.jsonc` both compile to `DocFormat::Json`), so saving a copy of
+  // one must NOT grow a second extension — the reported `xxx.jsonc.json`.
+  let opts = null;
+  const picked = fakeHandle("x.jsonc");
+  globalThis.window = { showSaveFilePicker: async (o) => ((opts = o), picked) };
+  const io = fakeIo({ getSnap: () => ({ doc_format: "Json" }), getFileName: () => "x.jsonc" });
+  await doSaveAsCopy(io, "x.jsonc");
+  check("`.jsonc` copy keeps its extension (no `.json` appended)", opts?.suggestedName === "x.jsonc", JSON.stringify(opts));
+  check(
+    "the JSON save picker accepts `.jsonc` too (else the browser appends `.json`)",
+    JSON.stringify(opts?.types ?? []).includes(".jsonc"),
+    JSON.stringify(opts?.types),
+  );
+  delete globalThis.window;
+}
 
 // ---- doConvertWrite ----
 console.log("\n-- doConvertWrite() --");
@@ -167,6 +184,38 @@ console.log("\n-- doConvertWrite() --");
     JSON.stringify(io.calls.adoptFile),
   );
   check("reports ok mentioning the converted name", io.calls.ok.some((m) => m.includes("out.json")), JSON.stringify(io.calls.ok));
+  delete globalThis.window;
+}
+{
+  // Convert TOML -> JSONC: the output path's `.jsonc` implies the `Json`
+  // target, and the suggested name must stay `x.jsonc` (was `x.jsonc.toml`,
+  // since `.jsonc` failed the `.json` test and fell through to Toml).
+  let opts = null;
+  const picked = fakeHandle("x.jsonc");
+  globalThis.window = { showSaveFilePicker: async (o) => ((opts = o), picked) };
+  const io = fakeIo();
+  await doConvertWrite(io, "/tmp/x.jsonc", '{"key":1} // c');
+  check("`.jsonc` output keeps its extension", opts?.suggestedName === "x.jsonc", JSON.stringify(opts));
+  check(
+    "`.jsonc` output adopts the JSON format",
+    io.calls.adoptFile[0]?.format === "json",
+    JSON.stringify(io.calls.adoptFile),
+  );
+  delete globalThis.window;
+}
+{
+  // Same for YAML's `.yml` synonym (was `x.yml.yaml`).
+  let opts = null;
+  const picked = fakeHandle("x.yml");
+  globalThis.window = { showSaveFilePicker: async (o) => ((opts = o), picked) };
+  const io = fakeIo();
+  await doConvertWrite(io, "/tmp/x.yml", "key: 1\n");
+  check("`.yml` output keeps its extension", opts?.suggestedName === "x.yml", JSON.stringify(opts));
+  check(
+    "the YAML save picker accepts `.yml` too",
+    JSON.stringify(opts?.types ?? []).includes(".yml"),
+    JSON.stringify(opts?.types),
+  );
   delete globalThis.window;
 }
 
