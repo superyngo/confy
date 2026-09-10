@@ -98,16 +98,16 @@ Four levels, one meaning each:
 truth for every notice key — there is no explicit-severity
 constructor and no escape hatch; a key not yet in the table panics rather than
 silently defaulting, so a new Notice call site can't ship unclassified. The table
-classifies **68** keys: **45 `core.*`** notice keys (12 Error + 17 Warn + 7 Success
-+ 9 Info) and **23** host-authored `tui.*`/`web.*` keys (§3). `core.schema.violation`
+classifies **69** keys: **46 `core.*`** notice keys (12 Error + 17 Warn + 7 Success
++ 10 Info) and **23** host-authored `tui.*`/`web.*` keys (§3). `core.schema.violation`
 is a controller-approved pass-through wrapper (`Warn`) carrying the dynamic
 schema-violation advisory text, and is counted inside those 17. See `notice.rs`'s own
 `severity_of_covers_the_full_catalog_table` test for the exhaustive `core.*` list;
 that test *is* the maintained reference, not duplicated here to avoid drift, and its
-`cases.len() == 45` assertion is the tripwire that catches this section going stale.
+`cases.len() == 46` assertion is the tripwire that catches this section going stale.
 The host keys are classified by the same table but are deliberately outside that test.
 
-**These 45 are only the notice keys.** `i18n/en.json` holds 102 `core.*` keys in
+**These 46 are only the notice keys.** `i18n/en.json` holds 103 `core.*` keys in
 total; the rest are prompts (`core.prompt.*`), picker and label text
 (`core.dt.*`, `core.action.*`, `core.add.type.*`, `core.detail.*`, `core.hint.*`,
 `core.comment.advisory`, `core.schema.count`) and would **panic** if passed to

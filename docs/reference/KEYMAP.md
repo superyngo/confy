@@ -56,7 +56,7 @@ TUI's character arms match with a modifier wildcard (`(KeyCode::Char('c'), _)`),
 | `PageDown` | `PageDown` | `tree-page(1)` | both | web page size is DOM-derived (`treePageStep`) |
 | `Shift+ArrowUp` | `ExtendSelectUp` | `intent:ExtendSelectUp` | both | range select |
 | `Shift+ArrowDown` | `ExtendSelectDown` | `intent:ExtendSelectDown` | both | range select |
-| `s` | `ToggleSelect` | `intent:ToggleSelect` | both | |
+| `s` | `ToggleSelect` | `intent:ToggleSelect` | both | never selects the **Root** (ADR 0013 §2) — on the TUI file row it now reports instead of selecting, and a ⇧-range stops at the first top-level Node |
 | `Space` | `ToggleExpand` | `native:toggle-branches` | both | web batches multi-branch toggle host-side |
 | `0` | `CollapseAll` | `intent:CollapseAll` | both | |
 | `9` | `ExpandAll` | `intent:ExpandAll` | both | |

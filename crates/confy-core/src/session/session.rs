@@ -1560,8 +1560,23 @@ impl Session {
         }
     }
 
+    /// The Root takes the cursor but is never selected (ADR 0013 §2): a
+    /// selection containing `[]` means "the whole document" through
+    /// `selection::normalize`'s ancestor fold, which is a *document*
+    /// operation wearing a Node-selection costume. Guarded once here, at the
+    /// selection boundary, rather than re-checked at every selection-driven
+    /// operation. Reporting (rather than silently dropping) matters because
+    /// this same guard is what makes a ⇧-range refuse to grow past the top.
+    pub(crate) fn notice_root_not_selectable(&mut self) {
+        self.set_notice(Notice::core(self.lang, "core.selection.root-excluded", &[]));
+    }
+
     pub fn toggle_select(&mut self) {
         if self.clipboard.is_some() {
+            return;
+        }
+        if self.cursor.is_empty() {
+            self.notice_root_not_selectable();
             return;
         }
         self.selection.toggle(self.cursor.clone());
@@ -1577,7 +1592,14 @@ impl Session {
             return;
         }
         let visible: std::collections::HashSet<Path> = self.visible_paths().into_iter().collect();
-        let kept: Vec<Path> = paths.into_iter().filter(|p| visible.contains(p)).collect();
+        let asked = paths.len();
+        let kept: Vec<Path> = paths
+            .into_iter()
+            .filter(|p| !p.is_empty() && visible.contains(p))
+            .collect();
+        if kept.len() < asked {
+            self.notice_root_not_selectable();
+        }
         if let Some(focal) = kept.last() {
             self.cursor = focal.clone();
         }
@@ -1591,21 +1613,29 @@ impl Session {
             return;
         }
         let rows = self.visible_rows();
+        let idx = rows.iter().position(|r| r.path == self.cursor).unwrap_or(0);
+        if self.cursor.is_empty() || idx == 0 || rows[idx - 1].path.is_empty() {
+            // Either the cursor already sits on the Root, or the row above it
+            // is the Root: a range stops at the first top-level Node.
+            self.notice_root_not_selectable();
+            return;
+        }
         if !self.last_action_was_shift_select {
             self.selection.begin_round(self.cursor.clone());
         }
-        let idx = rows.iter().position(|r| r.path == self.cursor).unwrap_or(0);
-        if idx > 0 {
-            self.cursor = rows[idx - 1].path.clone();
-            let visible = rows.iter().map(|r| r.path.clone()).collect::<Vec<_>>();
-            let to = self.cursor.clone();
-            self.selection.extend_round_to(&visible, &to);
-        }
+        self.cursor = rows[idx - 1].path.clone();
+        let visible = rows.iter().map(|r| r.path.clone()).collect::<Vec<_>>();
+        let to = self.cursor.clone();
+        self.selection.extend_round_to(&visible, &to);
         self.last_action_was_shift_select = true;
     }
 
     pub fn extend_select_down(&mut self) {
         if self.clipboard.is_some() {
+            return;
+        }
+        if self.cursor.is_empty() {
+            self.notice_root_not_selectable();
             return;
         }
         let rows = self.visible_rows();

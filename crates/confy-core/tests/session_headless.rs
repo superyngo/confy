@@ -1134,6 +1134,9 @@ fn dispatch_clipboard_count_reflects_copy_then_clears() {
 #[test]
 fn dispatch_clipboard_cut_flag_and_exit_type_filter() {
     let mut s = toml_session("a = 1\nb = 2\n");
+    // The cursor boots on the Root, which is never selected or cut (ADR 0013
+    // §2) — step onto a real Node first.
+    s.dispatch(Intent::CursorDown);
     s.dispatch(Intent::ToggleSelect);
     let snap = s.dispatch(Intent::CutSelected);
     assert!(snap.clipboard_cut, "cut sets the cut flag");
@@ -4123,5 +4126,96 @@ fn a_comment_buffer_split_by_blank_lines_keeps_every_run() {
             .filter(|n| matches!(n.kind, confy_core::model::node::NodeKind::Comment(_)))
             .count();
         assert_eq!(got, *comments, "{fmt:?} {buf:?} comment nodes");
+    }
+}
+
+// ---- ADR 0013: the Root takes the cursor but is never selected ----
+
+#[test]
+fn root_is_never_selected_by_any_selection_entry_point() {
+    use confy_core::session::Severity;
+    let mut s = toml_session("a = 1\nb = 2\n");
+    let a = || vec![Seg::Key("a".into())];
+    // Boot cursor is the Root.
+    assert!(s.cursor.is_empty());
+
+    s.toggle_select();
+    assert!(s.selection.is_empty(), "toggle_select drops the Root");
+    assert_eq!(
+        s.notice.as_ref().map(|n| n.severity),
+        Some(Severity::Info),
+        "the guard reports rather than silently no-opping"
+    );
+
+    s.set_selection(vec![vec![], a()]);
+    assert_eq!(
+        s.selected_paths(),
+        vec![a()],
+        "set_selection keeps the real Node and drops the Root"
+    );
+
+    // A ⇧-range refuses to grow past the first top-level Node.
+    s.set_selection(vec![a()]);
+    s.extend_select_up();
+    assert_eq!(s.cursor, a(), "cursor stays put");
+    assert_eq!(
+        s.selected_paths(),
+        vec![a()],
+        "the Root never joins a range"
+    );
+
+    // Downward from the Root selects nothing either.
+    s.selection.clear();
+    s.set_cursor(vec![]);
+    s.extend_select_down();
+    assert!(s.selection.is_empty(), "extend_select_down drops the Root");
+}
+
+#[test]
+fn root_can_never_arm_the_clipboard() {
+    for cut in [false, true] {
+        let mut s = toml_session("a = 1\n");
+        // No explicit selection: `selected_paths()` falls back to the cursor,
+        // which boots on the Root.
+        if cut {
+            s.cut_selected();
+        } else {
+            s.copy_selected();
+        }
+        assert!(
+            s.clipboard.is_none(),
+            "cut={cut} must not arm the clipboard with the Root"
+        );
+    }
+}
+
+#[test]
+fn action_menu_disables_node_scoped_items_on_the_root() {
+    use confy_core::session::ActionId;
+    let s = toml_session("a = 1\n");
+    let items = s.action_menu_items();
+    let by = |id: ActionId| items.iter().find(|i| i.id == id).unwrap().enabled;
+    assert!(!by(ActionId::Cut), "Cut");
+    assert!(!by(ActionId::Copy), "Copy");
+    assert!(!by(ActionId::Remark), "Remark");
+    assert!(!by(ActionId::Delete), "Delete");
+    // Whole-document operations stay reachable from the Root row.
+    assert!(by(ActionId::Edit), "Edit (the whole file as text)");
+    assert!(by(ActionId::AddChild), "AddChild (append at the end)");
+}
+
+#[test]
+fn root_badge_names_the_document_format() {
+    for (fmt, src, note) in [
+        (DocFormat::Toml, "a = 1\n", "toml"),
+        (DocFormat::Json, "{\"a\": 1}\n", "json"),
+        (DocFormat::Yaml, "a: 1\n", "yaml"),
+    ] {
+        let doc = AnyDocument::from_str_as(src, fmt).unwrap();
+        let s = Session::new(doc);
+        let rows = s.visible_rows();
+        assert_eq!(rows[0].path.len(), 0, "{fmt:?} row 0 is the Root");
+        assert_eq!(rows[0].badge_label, "⌂", "{fmt:?} label");
+        assert_eq!(rows[0].badge_note, note, "{fmt:?} note");
     }
 }

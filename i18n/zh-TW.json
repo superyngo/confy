@@ -85,6 +85,7 @@
   "core.redo.empty": "沒有可重做的操作",
   "core.redo.error": "重做失敗：{0}",
   "core.selection.cleared": "已清除選取",
+  "core.selection.root-excluded": "整份檔案無法被選取 —— 請在檔案列使用「編輯」",
   "core.prompt.confirm-quit": "尚有未儲存的變更 —— 是否離開？",
   "core.save.saved": "已儲存",
   "core.save.nothing": "沒有變更需要儲存",

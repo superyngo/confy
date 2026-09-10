@@ -85,6 +85,7 @@
   "core.redo.empty": "nothing to redo",
   "core.redo.error": "redo restore error: {0}",
   "core.selection.cleared": "selection cleared",
+  "core.selection.root-excluded": "the whole file can't be selected — use Edit on the file row",
   "core.prompt.confirm-quit": "unsaved changes — quit?",
   "core.save.saved": "Saved",
   "core.save.nothing": "no changes to save",

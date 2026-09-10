@@ -10,6 +10,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-10 (7)
+
+**Changed**
+
+- **The Root (the file row) takes the cursor but is never selected** — ADR 0013 §2, the
+  first slice of the root-row alignment design record
+  (`docs/spec/2026-09-10-web-root-row-alignment.md`). All four selection entry points
+  (`toggle_select` / `set_selection` / `extend_select_up` / `extend_select_down`; core has
+  no `select_all`) drop the empty path and report the new `core.selection.root-excluded`
+  Info notice, so a ⇧-range now stops at the first top-level Node. A selection containing
+  the Root meant "the whole document" through `selection::normalize`'s ancestor fold — a
+  document operation wearing a Node-selection costume — and that fold is now unreachable
+  from any UI. **TUI behavior change**: `s` on the file row used to select it
+  (`KEYMAP.md`, `TUI.md` §Multi-select).
+- The web kind badge for the Root now reads `⌂·<format>` (`⌂·toml` / `⌂·json` /
+  `⌂·yaml`) instead of being blank, from the one `badge_label_note` every host shares. A
+  glyph needs no catalog key and collides with neither the `{}` nor the `[]` container
+  outline. The TUI keeps its own bracketed `[G]` KIND vocabulary (`HOST_PARITY.md` §5).
+
+**Fixed**
+
+- **Cut on the Root armed the clipboard with a fragment that could never paste** (a
+  self-subtree drop is always rejected), leaving the modal lock a dead end until `Esc` —
+  reachable in the TUI today via `x`/`m` with the cursor on the file row, and about to
+  become reachable by pointer once the desktop web draws the Root row. Cut/Copy on the
+  Root now refuse, and the Action menu dims Copy / Cut / Toggle comment / Delete whenever
+  the target is the Root.
+- `Delete` and `Toggle comment` on the Root reported backend-level rejections — "operation
+  not supported here" and, worse, the misdescribing "path not found" — instead of saying
+  the Root is not a Node. Both keyboard paths now report
+  `core.selection.root-excluded`.
+
 ### Update - 2026-09-10 (6)
 
 **Fixed**

@@ -246,6 +246,12 @@ Shift+Arrow after any non-shift key (tracked by `Session.last_action_was_shift_s
 loop) starts a fresh round, folding the old one into `committed` — so runs union (separate or
 overlapping) rather than re-extending the first anchor.
 
+The **Root** (the file row) takes the cursor but is never selected: `s` on it, or a
+Shift+Arrow run reaching it, reports `core.selection.root-excluded` and leaves the
+selection alone (ADR 0013 §2 — a selected Root means "the whole document" through
+`normalize`'s ancestor fold, which is a document operation, not a Node selection).
+Whole-document editing lives on the Root row's own `E`/Edit instead.
+
 ## Action menu
 
 `m` opens `Mode::ActionMenu { cursor }`, a modal popup (`overlay_action_menu.rs`, same
@@ -255,8 +261,9 @@ Edit in editor, Add child, Append sibling, Copy, Cut, Toggle comment, Detail, De
 (separated by a rule and shown in red). `Session::action_menu_items()` derives each
 item's `enabled` flag fresh from `selected_paths()` every frame — a single-path item
 (Edit in editor / Add child / Append sibling / Detail) dims on a multi-node selection;
-the four set-applying items (Copy / Cut / Toggle comment / Delete) dim only if any
-targeted node is read-only. Disabled items stay visible (dimmed), never hidden, so
+the four set-applying items (Copy / Cut / Toggle comment / Delete) dim if any
+targeted node is read-only, or if the target is the Root (none of the four has a
+meaning there — ADR 0013 §2). Disabled items stay visible (dimmed), never hidden, so
 cursor position is stable. Up/Down (or j/k) move the cursor, skipping disabled items;
 Home/End jump to the first/last enabled item (`App::action_menu_jump_edge` — core's
 stride-by-delta move means the host sends the exact `target − cursor` offset), and

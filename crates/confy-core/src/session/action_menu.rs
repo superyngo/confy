@@ -42,6 +42,12 @@ impl Session {
         let any_read_only = paths
             .iter()
             .any(|p| self.tree.node_at(p).map(|n| n.read_only).unwrap_or(false));
+        // Four items are node-scoped and have no meaning on the Root, which
+        // reaches this menu through `selected_paths()`'s cursor fallback
+        // (ADR 0013 §2): `Delete` rejects with `Unsupported`, `Remark` with
+        // the misleading `NotFound`, and Cut/Copy would arm the clipboard
+        // with a fragment that can never paste.
+        let targets_root = paths.iter().any(|p| p.is_empty());
         let mk = |id: ActionId, key: &str, enabled: bool, separator_before: bool, danger: bool| {
             ActionItemView {
                 id,
@@ -73,18 +79,24 @@ impl Session {
                 false,
                 false,
             ),
-            mk(ActionId::Copy, "core.action.copy", true, false, false),
+            mk(
+                ActionId::Copy,
+                "core.action.copy",
+                !targets_root,
+                false,
+                false,
+            ),
             mk(
                 ActionId::Cut,
                 "core.action.cut",
-                !any_read_only,
+                !any_read_only && !targets_root,
                 false,
                 false,
             ),
             mk(
                 ActionId::Remark,
                 "core.action.remark",
-                !any_read_only,
+                !any_read_only && !targets_root,
                 false,
                 false,
             ),
@@ -98,7 +110,7 @@ impl Session {
             mk(
                 ActionId::Delete,
                 "core.action.delete",
-                !any_read_only,
+                !any_read_only && !targets_root,
                 true,
                 true,
             ),

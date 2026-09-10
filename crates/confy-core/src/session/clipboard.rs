@@ -24,6 +24,13 @@ impl Session {
         if paths.is_empty() {
             return;
         }
+        // Same guard as the action-menu flag, for the keyboard path: `Delete`
+        // on the Root rejects with `Unsupported` deep in the backend, which
+        // reads as an internal failure rather than "that isn't a Node".
+        if paths.iter().any(|p| p.is_empty()) {
+            self.notice_root_not_selectable();
+            return;
+        }
         let mut paths = paths;
         paths.sort_by_key(|b| std::cmp::Reverse(b.len()));
         // Row index of the topmost deletion target — the cursor snaps back
@@ -115,6 +122,14 @@ impl Session {
         }
         let paths = self.selected_paths();
         if paths.is_empty() {
+            return;
+        }
+        // The Root is never a clipboard fragment (ADR 0013 §2): it can never
+        // paste anywhere (self-subtree reject), so arming it leaves the modal
+        // lock a dead end. Reachable here through `selected_paths()`'s cursor
+        // fallback, since the Root takes the cursor.
+        if paths.iter().any(|p| p.is_empty()) {
+            self.notice_root_not_selectable();
             return;
         }
         let doc = match self.doc.as_ref() {
@@ -532,6 +547,12 @@ impl Session {
         }
         let paths = self.selected_paths();
         if paths.is_empty() {
+            return;
+        }
+        // Same guard as the action-menu flag: `Remark` on the Root rejects
+        // with `NotFound`, whose "path not found" text misdescribes it.
+        if paths.iter().any(|p| p.is_empty()) {
+            self.notice_root_not_selectable();
             return;
         }
         // Same contract as `delete_selected`: an active multi-select wins

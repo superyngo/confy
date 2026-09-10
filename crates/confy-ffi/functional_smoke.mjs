@@ -168,6 +168,8 @@ if (tf) {
 // ---- 12. clipboard_count reflects copy ----
 const s6 = new ConfySession("a = 1\nb = 2\n", "toml");
 check("clipboard empty initially", isNull(s6.snapshot().clipboard_count));
+// The cursor boots on the Root, which is never selected or copied (ADR 0013).
+s6.dispatch(unit("CursorDown"));
 s6.dispatch(unit("ToggleSelect"));
 const snap6 = s6.dispatch(unit("CopySelected"));
 check("clipboard_count set after copy", snap6.clipboard_count === 1, String(snap6.clipboard_count));

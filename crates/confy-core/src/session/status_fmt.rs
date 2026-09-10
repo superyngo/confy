@@ -45,6 +45,20 @@ pub fn badge_label_note(
     scalar_type: Option<ScalarType>,
     doc: DocFormat,
 ) -> (&'static str, &'static str) {
+    // The Root has no kind to switch and no notation of its own, so its badge
+    // names the document instead: `⌂·toml` (ADR 0013 D3). A glyph needs no
+    // catalog key and collides with neither `{}` nor `[]`. The TUI keeps its
+    // own bracketed `[G]` KIND vocabulary (HOST_PARITY.md §5).
+    if matches!(kind, NodeKind::Root) {
+        return (
+            "⌂",
+            match doc {
+                DocFormat::Toml => "toml",
+                DocFormat::Json => "json",
+                DocFormat::Yaml => "yaml",
+            },
+        );
+    }
     let label = match node_type_label_str(kind) {
         // Every table/map notation shares one glyph, every array/sequence
         // notation the other; the distinguishing notation is the note's job.

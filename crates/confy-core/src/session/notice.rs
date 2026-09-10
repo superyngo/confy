@@ -120,6 +120,7 @@ pub fn severity_of(key: &str) -> Severity {
         | "core.clipboard.empty"
         | "core.clipboard.cleared"
         | "core.selection.cleared"
+        | "core.selection.root-excluded"
         | "core.undo.empty"
         | "core.redo.empty"
         | "core.paste.cancelled"
@@ -181,6 +182,7 @@ mod tests {
             ("core.clipboard.empty", Severity::Info),
             ("core.clipboard.cleared", Severity::Info),
             ("core.selection.cleared", Severity::Info),
+            ("core.selection.root-excluded", Severity::Info),
             ("core.undo.empty", Severity::Info),
             ("core.redo.empty", Severity::Info),
             ("core.paste.cancelled", Severity::Info),
@@ -189,8 +191,8 @@ mod tests {
         ];
         assert_eq!(
             cases.len(),
-            45,
-            "45 `core.*` notice keys: 12 Error + 17 Warn + 7 Success + 9 Info. \
+            46,
+            "46 `core.*` notice keys: 12 Error + 17 Warn + 7 Success + 10 Info. \
              This list mirrors every `core.` arm of `severity_of` above; the 23 \
              host-authored `tui.*`/`web.*` keys it also classifies are out of scope \
              here. Keep it in step with MESSAGES.md §2.2 — the two are checked \
