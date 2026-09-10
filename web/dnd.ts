@@ -22,7 +22,7 @@
 // drops with the document untouched.
 import type { Intent, Path, PasteSlot, SessionSnapshot } from "./types.js";
 import { pathEq as eq } from "./path-utils.js";
-import { slotLineIndentPx } from "./slot-line.js";
+import { rootSlotLine, slotLineIndentPx } from "./slot-line.js";
 
 export function installDnd(
   treeEl: HTMLElement,
@@ -102,6 +102,22 @@ export function installDnd(
     // why there is no `before` case left to draw.
     slot = pointerSlot(path, (ev.clientY - r.top) / r.height) ?? null;
     if (!slot) return;
+    // The root row is never drawn, so its two slots get a stand-in edge
+    // (`rootSlotLine`). This is the fix for "a drag can't reach the very
+    // top": the first row's top band already classified as `After(root)` =
+    // root index 0, but the line fell back to the hovered row's own bottom
+    // edge below, which is exactly where `After(<first row>)` draws — the two
+    // destinations looked identical, so the top one looked unreachable.
+    const rootLine = rootSlotLine(treeEl, slot);
+    if (rootLine) {
+      const rr = rootLine.vRow.getBoundingClientRect();
+      const wrr = wrap.getBoundingClientRect();
+      const rootIndent = (rootLine.hRow.querySelector(".indent") as HTMLElement | null)?.offsetWidth ?? 0;
+      dropLine.style.top = `${(rootLine.edge === "top" ? rr.top : rr.bottom) - wrr.top + wrap.scrollTop}px`;
+      dropLine.style.left = `${rootIndent + 8}px`;
+      dropLine.style.display = "block";
+      return;
+    }
     if ("Into" in slot) {
       row.classList.add("drag-over-into");
       return;

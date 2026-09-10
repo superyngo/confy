@@ -358,13 +358,17 @@ fnsB.forEach((s, i) => check(`${NAMES_B[i]} extracted verbatim (build B)`, !!s))
 globalThis.CSS = { escape: (s) => s };
 let modB = null;
 {
-  const src = `let treeEl = null;
+  const src = `import { rootSlotLine, slotLineIndentPx } from "./slot-line.js";
+let treeEl = null;
 let reordering = false;
 export function setEnv(e) { if ("treeEl" in e) treeEl = e.treeEl; }
 export ${fnsB[0]}
 `;
   const built = await esbuild.build({
     stdin: { contents: src, resolveDir: here, loader: "ts" },
+    // `bundle` inlines the real `slot-line.ts` helpers the cue calls for its
+    // line geometry (`slotLineIndentPx`, `rootSlotLine`).
+    bundle: true,
     write: false,
     format: "esm",
     target: "es2022",

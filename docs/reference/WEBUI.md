@@ -215,7 +215,12 @@ shapes round-trip). Key types:
   `pointerSlot(path, relY)` for the destination and keeps that `PasteSlot` verbatim — a
   branch mid-band is `Into` (`.drag-over-into` outline), anything else is `After(p)`
   (horizontal `#dropLine` under `p`'s row, one indent step deeper when `p` is an expanded
-  branch, since that slot inserts as its first child — `slot-line.ts`). `drop` sends the slot
+  branch, since that slot inserts as its first child — `slot-line.ts`). The **first drawn
+  row's top band** classifies as `After(root)` — the only pointer route to "drop above
+  everything", since neither web host draws the root row — so its line is drawn at that
+  row's *top* edge (`rootSlotLine`, `slot-line.ts`); drawing it under the hovered row made
+  it pixel-identical to `After(<first row>)`, i.e. the document top looked unreachable.
+  `drop` sends the slot
   as-is; core resolves it with `slot_target`, the same call an armed keyboard `Paste` makes,
   so a drag and a paste released at the same pixel always land together (ADR 0010). The host
   derives no parent/index and no band threshold of its own; a self-subtree drop, a collision
@@ -586,8 +591,11 @@ edits to the verbatim desktop CSS.
   the target row for `Into`. `Home`/`g` (and `k` from the first row) can leave the cursor on the
   document's undrawn root row — neither web host draws it, so a shared `drawnCursorFallback()`
   (`web/path-utils.ts`) re-targets the first drawn row after every keyboard nav dispatch, in
-  both `touchNavSelect` here and desktop `ui.ts`'s `navSelect`. The paste-mode analogue,
-  `Into(root)`, is drawn as an insertion line at the very top of the tree instead.
+  both `touchNavSelect` here and desktop `ui.ts`'s `navSelect`. Paste mode's analogue is
+  `rootSlotLine` (`web/slot-line.ts`, shared with desktop): the root row's two slots are both
+  drawn as insertion lines, since neither has a row to outline — `After(root)` (insert at the
+  document's top) at the first row's top edge and `Into(root)` (append at its end, which is
+  where `slot_target` resolves `Into` to) at the last row's bottom edge.
 - **Swipe actions.** A left-swipe on a row's `.row-main` slides it open to reveal a red Delete
   action (`.row-del`); a right-swipe slides it the other way to reveal a neutral Remark action
   (`.row-remark`, toggles the node to/from a comment — desktop's `r` key). One row is open at a

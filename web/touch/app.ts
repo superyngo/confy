@@ -68,7 +68,7 @@ import {
 import { IC, esc, treeHTML } from "./render.js";
 import { fabHTML, syncFab } from "../fab.js";
 import { drawnCursorFallback, parentOf, pathEq } from "../path-utils.js";
-import { slotLineIndentPx } from "../slot-line.js";
+import { rootSlotLine, slotLineIndentPx } from "../slot-line.js";
 import { resolveClick, resetAnchor, type Mods } from "../select.js";
 import { panelHTML, wirePanel, schemaHintText } from "../panel.js";
 import { bindPromptClicks, promptButtonsHTML, promptTitle } from "../prompt.js";
@@ -420,19 +420,21 @@ function renderPasteSlotCue(snap: SessionSnapshot, slotOverride?: PasteSlot) {
   }
   const reorderLine = treeEl.querySelector<HTMLElement>(".reorder-line");
   if (reorderLine) {
-    if (slot && "Into" in slot && slot.Into.length === 0) {
-      // `Into(root)` — "insert as the document's first child", the slot
-      // paste-mode `Home` lands on. There is no root row to outline
-      // (`treeHTML` never draws the empty path), so the only way to keep this
-      // target visible is the insertion line at the very top of the tree, at
-      // the first row's own indent (the paste-slot twin of the undrawn-root
-      // problem `drawnCursorFallback` solves for the cursor).
-      const firstRow = treeEl.querySelector<HTMLElement>(".row");
-      const firstMain = firstRow?.querySelector<HTMLElement>(".row-main");
-      reorderLine.style.top = "0px";
+    // Neither web host draws the root row, so its two slots borrow a row edge
+    // (`rootSlotLine`, shared with desktop): `After(root)` the FIRST row's top
+    // (insert at the document's very top, the slot the pointer's first-row top
+    // band and paste-mode `↑` both reach) and `Into(root)` the LAST row's
+    // bottom (append at the document's very end — `slot_target` resolves
+    // `Into` to `children.len()`, so this used to be drawn at the wrong end).
+    const rootLine = rootSlotLine(treeEl, slot);
+    if (rootLine) {
+      const treeTop = treeEl.getBoundingClientRect().top;
+      const rr = rootLine.vRow.getBoundingClientRect();
+      const rootMain = rootLine.hRow.querySelector<HTMLElement>(".row-main");
+      reorderLine.style.top = `${(rootLine.edge === "top" ? rr.top : rr.bottom) - treeTop}px`;
       reorderLine.style.left = `${
-        firstMain && typeof getComputedStyle !== "undefined"
-          ? parseFloat(getComputedStyle(firstMain).paddingLeft) || 0
+        rootMain && typeof getComputedStyle !== "undefined"
+          ? parseFloat(getComputedStyle(rootMain).paddingLeft) || 0
           : 0
       }px`;
       reorderLine.style.display = "block";
@@ -479,7 +481,9 @@ function renderPasteSlotCue(snap: SessionSnapshot, slotOverride?: PasteSlot) {
 // the insertion slot, not the cursor (core `move_paste_slot`), so it is the
 // `.reorder-line` for the two slots drawn as a line — `After` (drawn at the
 // anchor row's *bottom* edge, so scrolling only that row can still leave the
-// line clipped) and `Into(root)` (drawn at the tree's top, no row of its own)
+// line clipped) and both slots of the undrawn root row (`After(root)` at the
+// first row's top edge, `Into(root)` at the last row's bottom edge — neither
+// has a row of its own; see `rootSlotLine`)
 // — and the target row for any other `Into`. Otherwise it is the cursor row.
 function scrollFocusIntoView() {
   if (rawView || !snap) return;
@@ -1370,6 +1374,25 @@ function onReorderMove(y: number) {
     return;
   }
   reSlot = slot;
+  // Undrawn root row (shared decision, `rootSlotLine`): the first row's top
+  // band means "drop at the document's very top", which the `?? hit` fallback
+  // below drew under the hovered row instead — indistinguishable from
+  // dropping *after* that row, so the top looked unreachable.
+  const rootLine = rootSlotLine(treeEl, slot);
+  if (rootLine) {
+    clearInto();
+    const treeTop = treeEl.getBoundingClientRect().top;
+    const rr = rootLine.vRow.getBoundingClientRect();
+    const rootMain = rootLine.hRow.querySelector<HTMLElement>(".row-main");
+    reLine.style.top = `${(rootLine.edge === "top" ? rr.top : rr.bottom) - treeTop}px`;
+    reLine.style.left = `${
+      rootMain && typeof getComputedStyle !== "undefined"
+        ? parseFloat(getComputedStyle(rootMain).paddingLeft) || 0
+        : 0
+    }px`;
+    reLine.style.display = "block";
+    return;
+  }
   if ("Into" in slot) {
     reLine.style.display = "none";
     if (reInto !== hit) {

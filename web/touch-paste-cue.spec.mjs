@@ -64,7 +64,7 @@ globalThis.getComputedStyle = (el) => ({
 let mod = null;
 {
   const src = `import { parentOf, pathEq } from "./path-utils.js";
-import { slotLineIndentPx } from "./slot-line.js";
+import { rootSlotLine, slotLineIndentPx } from "./slot-line.js";
 let snap = null;
 let treeEl = null;
 let reordering = false;

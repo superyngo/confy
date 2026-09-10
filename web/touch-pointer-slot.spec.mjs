@@ -101,7 +101,7 @@ let mod = null;
 {
   const src = `import { resolveClick } from "./select.js";
 import { pathEq } from "./path-utils.js";
-import { slotLineIndentPx } from "./slot-line.js";
+import { rootSlotLine, slotLineIndentPx } from "./slot-line.js";
 let session = null;
 let snap = null;
 let treeEl = null;
