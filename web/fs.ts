@@ -48,12 +48,24 @@ const ACCEPT: Record<string, string> = {
   yaml: "application/yaml",
 };
 
+// Every extension that names a file of this format. The synonyms matter to the
+// *save* picker: Chromium enforces the selected file type's extension on the
+// name it returns, so a `.jsonc`/`.yml` suggestion offered against a `.json`/
+// `.yaml`-only accept list comes back with a second extension stacked on
+// (`x.jsonc` → `x.jsonc.json`). `.json`/`.jsonc` are one `DocFormat` (see
+// docs/reference/glossary.md "Comment advisory"), as are `.yaml`/`.yml`.
+const EXTS: Record<string, string[]> = {
+  toml: [".toml"],
+  json: [".json", ".jsonc"],
+  yaml: [".yaml", ".yml"],
+};
+
 function acceptFor(format: string) {
   const ext = format === "Toml" ? "toml" : format === "Json" ? "json" : "yaml";
   return [
     {
       description: `${ext.toUpperCase()} config`,
-      accept: { [ACCEPT[ext]]: [`.${ext}`] },
+      accept: { [ACCEPT[ext]]: EXTS[ext] },
     },
   ];
 }
