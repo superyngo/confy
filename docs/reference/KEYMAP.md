@@ -118,6 +118,12 @@ These are **decided, not accidental**. Do not "fix" them without changing this s
   `DocFormat`, it is `Json` with a `.jsonc` extension seeded.
 - **Quit** — `q` maps to `QuitRequested` on both, but the web passes `vshost: true` in the VS
   Code and touch hosts, which suppresses it: those surfaces have no "quit the app" concept.
+- **Root visibility** — every binding in the table means the same Intent on both surfaces, but
+  what `Home`/`g` (and `k`/PageUp from the top) can *land on* depends on the host's mode
+  (`Session.root_visible`, ADR 0013): a **root-visible** host (TUI, desktop web) has a Root row
+  to stop on, a **root-hidden** one (touch, VS Code) stops at the first top-level Node because
+  core emits no Root row. Same for paste mode's first slots. This is core state, not a keymap
+  difference — no key is remapped.
 
 ### Present on one surface only
 

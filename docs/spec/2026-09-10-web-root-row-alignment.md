@@ -1,8 +1,12 @@
 # Web UI draws the document Root row (TUI alignment) — Design evaluation
 
-Status: Draft
+Status: Shipped (2026-09-10)
 
-**Classification:** Planning (design evaluation). No code changed by this record.
+**Classification:** Planning (design evaluation). Implemented in four commits — `01622af`
+(core: Root cursor-only + dimmed set-operations), `d945721` (root visibility becomes core
+state + the document-level Action item), `50ea816` (`SetFilename`/`SetRootVisible` intents),
+`0bc6df7` (hosts: the drawn desktop Root row, all seven stand-ins deleted). See
+[ADR 0013](../adr/0013-root-visibility-is-core-state.md).
 
 Evaluates one change: **the web hosts render the document Root row**, as the TUI already does
 (`crates/confy-tui/src/tui/ui.rs`), instead of dropping it from the row list

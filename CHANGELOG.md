@@ -10,6 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-10 (11)
+
+**Docs**
+
+- **Root row alignment is closed out** (slice 5, the documentation sweep, of
+  `docs/spec/2026-09-10-web-root-row-alignment.md`): the design record is frozen as
+  `Shipped (2026-09-10)` and lists the four implementing commits, ADR 0013 is `implemented`,
+  and the record moved from `docs/spec/README.md` §In progress (now empty) to §Landed.
+- `TUI.md` states the TUI as one of the two **root-visible** hosts and names the root-hidden
+  always-expanded rule in `flatten_for_mode` (a collapsed Root in root-hidden mode would leave
+  no row to re-toggle). `KEYMAP.md` gains a divergence bullet: no key is remapped by root
+  visibility, but what `Home`/`g` can land on follows the host's mode. `CHROME.md` needed no
+  change — the Root row and the empty state are tree content, not chrome.
+- `docs/plan/2026-09-09-open-follow-ups.md`: rows 33/34/35 (E4 blank tree, E5 root-only type
+  filter, the three impossible Root operations) closed into **Done** as one entry with all four
+  commits; one row remains open (i18n for convert warnings).
+
 ### Update - 2026-09-10 (10)
 
 **Changed**
@@ -27,8 +44,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Deleted, not made conditional (the point of making this core state): the `render.ts` and
   `touch/render.ts` row filters and depth shifts, `path-utils.ts`'s `drawnCursorFallback` and
   `overshotUndrawnRootSlot`, `slot-line.ts`'s `rootSlotLine` and its five call sites,
-  `select.ts`'s root filter, touch's `drawnAsLine` root case / `web.badge.none` cursor
-  fallback / detail-panel suppression, and the `SetCursor: []` `host-io.ts` used to fake
+  `select.ts`'s root filter, touch's `drawnAsLine` root case, its header-badge root branch
+  (`web.badge.none` now covers only the genuinely cursor-less empty document) and its
+  detail-panel suppression, and the `SetCursor: []` `host-io.ts` used to fake
   before `OpenConvert` (now sent only when a Root row actually exists).
 - Two E-issues from the design record's §1 survey are fixed **structurally** rather than
   guarded, and both were confirmed in a real browser: collapsing the Root at boot (`Space`)

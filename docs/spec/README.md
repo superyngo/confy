@@ -11,9 +11,7 @@ carried the change is in `CHANGELOG.md`.
 
 ## In progress
 
-| Date | Document | Status |
-|---|---|---|
-| 2026-09-10 | [Web UI draws the document Root row (TUI alignment) — Design evaluation](2026-09-10-web-root-row-alignment.md) | Draft |
+_None._
 
 ## Landed
 
@@ -30,6 +28,7 @@ carried the change is in `CHANGELOG.md`.
 | 2026-08-21 | [VS Code Schema Hints (Diagnostics + Hover) — Design](2026-08-21-vscode-schema-hints-design.md) | Shipped (2026-08-28) |
 | 2026-08-28 | [JSON/JSONC comment write-gate removal — Design](2026-08-28-json-jsonc-comment-gate-removal-design.md) | Shipped (2026-08-28) |
 | 2026-08-30 | [Action menu — centralized node operations across desktop, touch, and TUI](2026-08-30-action-menu-design.md) | Shipped (2026-08-30) |
+| 2026-09-10 | [Web UI draws the document Root row (TUI alignment) — Design evaluation](2026-09-10-web-root-row-alignment.md) | Shipped (2026-09-10) |
 
 ## Prototype assets
 

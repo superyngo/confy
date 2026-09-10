@@ -151,15 +151,19 @@ warn-colored** one and puts the full advisory text in the `i` Detail popup's `No
 That is the terminal's stand-in for the web tree's wavy underline plus hover tooltip —
 terminals have no hover (`HOST_PARITY.md`).
 
-The TUI also **draws the root/file row** (see Navigation below); neither web host does, which
-is the origin of several web-only cursor and paste-slot corrections — `HOST_PARITY.md` §2.
+The TUI **draws the root/file row** (see Navigation below): it is a **root-visible** host, one
+of the two, with desktop web — root visibility is core state (`Session.root_visible`, ADR
+0013), so the row exists inside core rather than being a renderer choice, and the root-hidden
+hosts (touch, VS Code) never receive it. `HOST_PARITY.md` §2.
 
 ## Navigation
 
 Expand/collapse state is a `Session.expanded: HashSet<Path>` of open branch paths. The
 **root/file node has the empty path** and is collapsible like any branch — `flatten` treats it
 uniformly; the Session seeds `[]` into `expanded` so it starts open, and `collapse_all` (`0`) re-inserts
-`[]` so it keeps the file node open (only an explicit toggle on the root row hides everything).
+`[]` so it keeps the file node open (only an explicit toggle on the root row hides everything;
+in **root-hidden** mode `flatten_for_mode` treats `[]` as unconditionally expanded, since there
+would be no row left to re-toggle).
 Beyond the all-at-once `9`/`0`, **`1`/`2` work one level at a time**: `expand_level` (`1`) inserts
 the shallowest not-yet-expanded depth of the cursor branch's subtree per press; `collapse_level`
 (`2`) collapses an open branch in place, else moves the cursor up to its parent branch and collapses
