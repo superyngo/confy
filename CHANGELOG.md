@@ -10,6 +10,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-10
+
+**Fixed**
+
+- **The TOML table-capture paste error named the wrong side of the insertion point.** Moving
+  or pasting a scope `[table]` above a scalar reported `paste error: a table here would
+  capture the keys above it` — but the keys a header captures are the ones that *follow* it.
+  The message now reads `a table here would capture the keys below it`, the wording the
+  kind-switch path (`cst_edit/convert.rs`) already used for the same rule. The mirrored
+  leaf-side message (`a key here would be captured by the table above it`) was already
+  correct and is unchanged; `check_partition`'s doc comment carried the same inverted
+  phrasing and was corrected with it.
+
 ## [v1.2.0] - 2026-09-09
 
 ### Update - 2026-09-09 (38)
