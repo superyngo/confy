@@ -83,6 +83,7 @@ YAML subset via hand-rolled lossless parsers) sit behind one `ConfigDocument` tr
 | WASM FFI wire contract (`Intent`/`SessionSnapshot`/`ViewRow`), web-native architecture, touch UI, deployment | [`docs/reference/WEBUI.md`](docs/reference/WEBUI.md) |
 | Header/toolbar button inventory, fold order, per-host trimming | [`docs/reference/CHROME.md`](docs/reference/CHROME.md) |
 | Keyboard bindings and the deliberate TUI↔Web divergences | [`docs/reference/KEYMAP.md`](docs/reference/KEYMAP.md) |
+| Every **other** deliberate host divergence (rendering, row state, editing, chrome, capabilities), one row each | [`docs/reference/HOST_PARITY.md`](docs/reference/HOST_PARITY.md) |
 | Notice/prompt/diagnostics message system, severity table, per-host channels | [`docs/reference/MESSAGES.md`](docs/reference/MESSAGES.md) |
 | Row cursor/selection/clipboard state model and its modal lock | [`docs/reference/ROW_STATE_MODEL.md`](docs/reference/ROW_STATE_MODEL.md) |
 | Desktop + Android shell: native menu, file I/O, recent files, the Android picker plugin | [`docs/reference/TAURI.md`](docs/reference/TAURI.md) |

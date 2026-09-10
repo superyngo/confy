@@ -10,6 +10,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-10 (5)
+
+**Documentation**
+
+- **New `docs/reference/HOST_PARITY.md` — one index of every deliberate host divergence.**
+  The TUI↔web differences were scattered across seven reference docs, five ADRs, `CLAUDE.md`
+  and a handful of code comments, so "is this difference on purpose?" had no single place to
+  ask; `KEYMAP.md` only ever covered the keyboard slice. The new file is an **index, not a
+  spec**: ~45 divergences as one-liners in six sections (Input · the undrawn root row · row/
+  cursor/clipboard state · editing · rendering · chrome, messages, capabilities), each row
+  naming the doc that owns the detail, plus a "Not divergences" list of the core-owned
+  behavior that must stay identical and a maintenance rule (a new host-specific behavior adds
+  a row in the same commit). Indexed from `docs/reference/README.md` and `CLAUDE.md`'s
+  contract table, and cross-linked from `KEYMAP.md`, `TUI.md`, `WEBUI.md` and
+  `ROW_STATE_MODEL.md`.
+- **Four divergences that only existed in code comments are now in the reference docs**: the
+  web stripping/re-appending core's bundled `value␠␠# comment` inline-edit buffer so the
+  comment gets its own cell (`WEBUI.md`, `TUI.md`); the fuzzy-match mark being a translucent
+  background on the web but a foreground repaint in the TUI, because a terminal cell can't
+  layer alpha (`WEBUI.md`); the TUI's underlined warn style as the stand-in for the web's
+  wavy underline + hover tooltip on a non-standard-JSON comment (`TUI.md`); and `~/.config`
+  on macOS being a deliberate terminal-tool convention rather than
+  `~/Library/Application Support` (`TUI.md`).
+
 ### Update - 2026-09-10 (4)
 
 **Fixed**
