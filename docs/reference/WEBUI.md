@@ -595,7 +595,12 @@ edits to the verbatim desktop CSS.
   `rootSlotLine` (`web/slot-line.ts`, shared with desktop): the root row's two slots are both
   drawn as insertion lines, since neither has a row to outline — `After(root)` (insert at the
   document's top) at the first row's top edge and `Into(root)` (append at its end, which is
-  where `slot_target` resolves `Into` to) at the last row's bottom edge.
+  where `slot_target` resolves `Into` to) at the last row's bottom edge. That `Into(root)` is
+  also core's *first* slot in stepping order, so `↑`/`k`/PageUp/`Home` from the top of the
+  tree used to jump the insertion point to the document's far end and clamp there; both hosts
+  now step one slot back down onto `After(root)` when an upward nav lands on it
+  (`overshotUndrawnRootSlot`, `web/path-utils.ts`). Core's order is unchanged — the TUI draws
+  the root row, so stepping onto it reads correctly there.
 - **Swipe actions.** A left-swipe on a row's `.row-main` slides it open to reveal a red Delete
   action (`.row-del`); a right-swipe slides it the other way to reveal a neutral Remark action
   (`.row-remark`, toggles the node to/from a comment — desktop's `r` key). One row is open at a

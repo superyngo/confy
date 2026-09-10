@@ -211,6 +211,20 @@ TUI is unchanged: `PasteSlot` arrow-key stepping already exists and already work
   **last** row's bottom edge. Before that, stepping to the top of paste mode showed no cue
   at all for two steps, and a drag aimed at the very top drew its line under the hovered
   row, indistinguishable from `After(<first row>)`.
+- **Stepping *up* onto the root row's `Into` slot is corrected web-side only.**
+  `paste_slots()` lists each row's `Into` before its `After`, so the root row's `Into` is
+  index 0 — above everything in the stepping order, while `slot_target` resolves it to
+  `children.len()`, an append at the document's *end*. The TUI draws the root row, so
+  landing there highlights a real visible row and reads correctly; **core's order is
+  therefore unchanged**. In the web hosts, where that row isn't drawn, `↑`/`k`/PageUp/`Home`
+  from the top of the tree instead threw the insertion point to the far end of the document
+  and clamped there (index 0 can't step further) — a move in the opposite direction, onto a
+  slot the user was not aiming at. `overshotUndrawnRootSlot()` (`web/path-utils.ts`, the
+  paste-mode sibling of `drawnCursorFallback`) detects exactly that combination — upward
+  intent + resulting slot `Into(root)` — and both `navSelect`/`touchNavSelect` step one slot
+  back down onto `After(root)`, the document top. Downward navigation and `End` are left
+  alone: reaching the append slot from below is correct, and it is drawn at the last row's
+  bottom edge.
 
 ### 6b. Touch — body-drag continuously repositions the target; FAB still commits
 
