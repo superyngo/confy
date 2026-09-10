@@ -22,9 +22,10 @@
 //      normally, but in paste mode the `.reorder-line` for `After` /
 //      `Into(root)` and the target row for a deeper `Into` (core routes arrows
 //      to `move_paste_slot`, so the cursor does not move at all);
-//   5. `Into(root)` — the slot paste-mode `Home` lands on — is drawn as an
-//      insertion line at the tree's top, since `treeHTML` never draws the root
-//      row;
+//   5. the undrawn root row's two slots are both drawn as insertion lines,
+//      since `treeHTML` never draws that row: `After(root)` (insert at the
+//      document's top) at the first row's top edge, `Into(root)` (append at
+//      its end) at the last row's bottom edge;
 //   6. `drawnCursorFallback` re-targets a cursor left on the undrawn root row
 //      (`g`/Home, `k` from the first row), in BOTH web hosts.
 //
@@ -113,7 +114,7 @@ globalThis.getComputedStyle = (el) => ({
   getPropertyValue: (prop) => (prop === "--indent" ? (el?._indentStep ?? "18px") : ""),
 });
 
-const src = `import { slotLineIndentPx } from "./slot-line.js";
+const src = `import { rootSlotLine, slotLineIndentPx } from "./slot-line.js";
 export { drawnCursorFallback } from "./path-utils.js";
 let snap = null;
 let treeEl = null;
@@ -180,7 +181,10 @@ const treeEl = {
     const m = sel.match(/^\.row\[data-path='(.+)'\]$/);
     return m ? (rows.find((r) => r.dataset.path === m[1]) ?? null) : null;
   },
-  querySelectorAll: (sel) => (sel === ".drop-into" ? rows.filter((r) => r.classes.has("drop-into")) : []),
+  // `.row` (no path filter) is what `rootSlotLine` reads to find the first /
+  // last drawn row standing in for the never-drawn root row.
+  querySelectorAll: (sel) =>
+    sel === ".row" ? rows : sel === ".drop-into" ? rows.filter((r) => r.classes.has("drop-into")) : [],
   getBoundingClientRect: () => ({ top: -pane.scrollTop }),
 };
 const cursorAt = (i) => ({ cursor: [{ Index: i }], paste_slot: undefined, rows: [] });
@@ -245,24 +249,39 @@ check(
   String(run(intoSlot([{ Index: 5 }]), { scrollTop: 0 })),
 );
 check(
-  "Into(root) — paste-mode Home — scrolls the tree back to the top",
-  run(intoSlot([]), { scrollTop: 400 }) === 0,
-  String(run(intoSlot([]), { scrollTop: 400 })),
+  // `Into(root)` resolves to `children.len()` (core `slot_target`) — an append
+  // at the document's very END, so its line is drawn at the last row's bottom
+  // edge and the scroll must chase it down, not back to the top. The touch
+  // host used to draw this slot at the tree's top, i.e. at the wrong end.
+  "Into(root) — append at the document end — scrolls the line at the tree's bottom into view",
+  run(intoSlot([]), { scrollTop: 0 }) === 9 * ROW_H + ROW_H + 2.5 - PANE_H,
+  String(run(intoSlot([]), { scrollTop: 0 })),
 );
 check(
   "paste-mode navigation ignores where the (frozen) cursor is",
   run({ cursor: [{ Index: 9 }], paste_slot: { After: [{ Index: 1 }] }, rows: [] }, { scrollTop: 0 }) === 0,
 );
 
-// ---- 3. renderPasteSlotCue: Into(root) is drawn at the tree's top ----
-console.log("\n-- renderPasteSlotCue(): Into(root) ----");
+// ---- 3. renderPasteSlotCue: the undrawn root row's two slots ----
+console.log("\n-- renderPasteSlotCue(): After(root) / Into(root) ----");
 {
   pane = mkPane(PANE_H, 0);
   mod.setEnv({ snap: null, treeEl, treePane: pane, rawView: false, reordering: false });
+  // `After(root)` = root index 0 (`resolve_target`): the document's very top.
+  mod.renderPasteSlotCue({ paste_slot: { After: [] } });
+  check("After(root) shows the insertion line", line.style.display === "block");
+  check("After(root) draws it at the first row's TOP edge", line.style.top === "0px", line.style.top);
+  check("After(root) uses the first row's own indent", line.style.left === "10px", line.style.left);
+  // `Into(root)` = append at `children.len()`: the document's very end.
   mod.renderPasteSlotCue({ paste_slot: { Into: [] } });
   check("Into(root) shows the insertion line", line.style.display === "block");
-  check("Into(root) draws it at the very top of the tree", line.style.top === "0px", line.style.top);
-  check("Into(root) uses the first row's own indent", line.style.left === "10px", line.style.left);
+  check(
+    "Into(root) draws it at the LAST row's bottom edge, where the append lands",
+    line.style.top === `${9 * ROW_H + ROW_H}px`,
+    line.style.top,
+  );
+  check("Into(root) still uses the top-level indent", line.style.left === "10px", line.style.left);
+  check("neither root slot outlines a row", !rows.some((r) => r.classes.has("drop-into")));
   mod.renderPasteSlotCue({ paste_slot: { Into: [{ Index: 2 }] } });
   check(
     "a deeper Into still outlines the row and hides the line (unchanged)",

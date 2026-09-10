@@ -10,6 +10,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-10 (3)
+
+**Fixed**
+
+- **The undrawn root row's two paste slots had no cue in either web host.** `treeHTML` never
+  draws the root row, but core's `paste_slots()` emits `Into(root)`/`After(root)` first and
+  `pointer_slot` resolves the *first drawn row's top band* to `After(root)` — the only route
+  to "insert above everything" (root index 0, per `resolve_target`). Both surfaced wrong:
+  - **Paste mode.** Stepping `↑` to the top of the list lost the insertion line for the last
+    two steps (both slots' row lookup missed), so the document's top and end looked
+    unreachable. Reproduced live in the browser: the cue went `display:none` on the third
+    `↑` and stayed hidden.
+  - **Drag.** `dnd.ts` fell back to the *hovered* row's bottom edge, which is exactly where
+    `After(<first row>)` draws — the top 3/4 of the first row and its bottom quarter drew a
+    pixel-identical line for two different destinations, so dragging to the very top looked
+    like it stopped below the first node. Same fallback in touch's `onReorderMove`.
+  - **Touch's `Into(root)`** was drawn at the tree's *top* on the assumption that `Into` means
+    "first child"; `slot_target` resolves it to `children.len()`, i.e. an append at the
+    document's **end**.
+  New shared `rootSlotLine()` (`web/slot-line.ts`, next to the existing indent rule) resolves
+  a root-anchored slot to its stand-in row edge — `After(root)` → first row's top,
+  `Into(root)` → last row's bottom, both at the top-level indent — and all four cue sites
+  (desktop confirmed + hover + drag, touch cue + reorder drag) use it. Two new
+  `session_headless.rs` tests pin the core semantics both cues now mirror; the web specs gain
+  root-slot coverage on the real extracted function bodies.
+
 ### Update - 2026-09-10 (2)
 
 **Fixed**

@@ -51,7 +51,7 @@ import type { Lang } from "./i18n.js";
 import { resolveClick, resetAnchor, rowsInRect, setAnchor } from "./select.js";
 import { foldedEntries, type ToolbarEntry } from "./toolbar-fold.js";
 import { installDnd } from "./dnd.js";
-import { slotLineIndentPx } from "./slot-line.js";
+import { rootSlotLine, slotLineIndentPx } from "./slot-line.js";
 import { panelHTML, wirePanel, schemaHintText } from "./panel.js";
 import { renderCrumbs, wireCrumbDismiss } from "./breadcrumb.js";
 import { bindPromptClicks, promptButtonsHTML } from "./prompt.js";
@@ -368,6 +368,20 @@ function renderConfirmedPasteCue(snap: SessionSnapshot) {
     return;
   }
   const slot: PasteSlot = snap.paste_slot ?? { After: snap.cursor };
+  // The root row is never drawn, so both of its slots would otherwise show
+  // nothing at all — the two invisible steps at the top of paste-mode
+  // stepping. `rootSlotLine` says which row edge stands in for it.
+  const rootLine = rootSlotLine(tree, slot);
+  if (rootLine) {
+    const wrap = $("treeWrap");
+    const rr = rootLine.vRow.getBoundingClientRect();
+    const wrr = wrap.getBoundingClientRect();
+    const rootIndent = (rootLine.hRow.querySelector(".indent") as HTMLElement | null)?.offsetWidth ?? 0;
+    pasteTargetLine.style.top = `${(rootLine.edge === "top" ? rr.top : rr.bottom) - wrr.top + wrap.scrollTop}px`;
+    pasteTargetLine.style.left = `${rootIndent + 8}px`;
+    pasteTargetLine.style.display = "block";
+    return;
+  }
   if ("Into" in slot) {
     pasteTargetLine.style.display = "none";
     tree
@@ -411,6 +425,21 @@ function renderHoverCue(snap: SessionSnapshot, slot: PasteSlot | undefined) {
   const sameAsConfirmed = slot && JSON.stringify(slot) === JSON.stringify(effectiveConfirmed);
   if (!slot || rawView || sameAsConfirmed) {
     dropLine.style.display = "none";
+    return;
+  }
+  // Same undrawn-root stand-in as the confirmed layer above: the first drawn
+  // row's top band classifies as `After(root)`, and drawing it under the
+  // hovered row (the old `?? row` fallback in `dnd.ts`) made "drop at the very
+  // top" pixel-identical to "drop after the first node".
+  const rootLine = rootSlotLine(tree, slot);
+  if (rootLine) {
+    const wrap = $("treeWrap");
+    const rr = rootLine.vRow.getBoundingClientRect();
+    const wrr = wrap.getBoundingClientRect();
+    const rootIndent = (rootLine.hRow.querySelector(".indent") as HTMLElement | null)?.offsetWidth ?? 0;
+    dropLine.style.top = `${(rootLine.edge === "top" ? rr.top : rr.bottom) - wrr.top + wrap.scrollTop}px`;
+    dropLine.style.left = `${rootIndent + 8}px`;
+    dropLine.style.display = "block";
     return;
   }
   if ("Into" in slot) {

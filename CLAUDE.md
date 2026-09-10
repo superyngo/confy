@@ -320,9 +320,13 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
                  core's `pointerSlot(path,relY)` verbatim (`Into` outline / `After` `#dropLine`),
                  resolved by the same `slot_target` a keyboard Paste uses — no host-side
                  parent/index or band threshold (ADR 0010); self-subtree drop rejected
-  slot-line.ts   `slotLineIndentPx()` — the one rule for an insertion line's indent, shared by the
-                 web drag/armed cues and touch's `.reorder-line`: `After(<expanded branch>)` inserts
-                 as its first child, so the line sits one `--indent` step deeper (as the TUI draws it)
+  slot-line.ts   the two shared rules for an insertion line's placement, used by the web
+                 drag/armed cues and touch's `.reorder-line`. `slotLineIndentPx()` owns the
+                 indent: `After(<expanded branch>)` inserts as its first child, so the line
+                 sits one `--indent` step deeper (as the TUI draws it). `rootSlotLine()` owns
+                 the **undrawn root row** — neither web host draws it, so its two slots borrow
+                 a row edge: `After(root)` (document top) the first row's top edge,
+                 `Into(root)` (append at the document end) the last row's bottom edge
   panel.ts       shared node detail/edit panel (`panelHTML`/`wirePanel`) — one module rendering
                  the desktop Detail aside AND the touch edit sheet identically (locked field order
                  Key/Value/Trailing comment/Kind/Path/Children/Sign/Blank after); a panel input's Enter/Escape

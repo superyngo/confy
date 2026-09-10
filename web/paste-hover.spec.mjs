@@ -111,7 +111,7 @@ let setSession = null;
 let setSnap = null;
 let setEnv = null;
 if (confirmedMatch && cueMatch && hoverMatch) {
-  const src = `import { slotLineIndentPx } from "./slot-line.js";
+  const src = `import { rootSlotLine, slotLineIndentPx } from "./slot-line.js";
 let session, snap, $, tree, rawView, CSS;
 export function setSession(s) { session = s; }
 export function setSnap(s) { snap = s; }
@@ -166,12 +166,16 @@ function mkRow(pathArr, top, height) {
 function mkTree(rows) {
   return {
     querySelector: (sel) => rows.find((r) => sel.includes(r.dataset.path)) ?? null,
+    // `.row` (no path) is `rootSlotLine`'s lookup for the undrawn root row's
+    // stand-in edges; the class selectors are the cue layers' own sweeps.
     querySelectorAll: (sel) =>
-      sel === ".drag-over-into"
-        ? rows.filter((r) => r.classes.has("drag-over-into"))
-        : sel === ".paste-target"
-          ? rows.filter((r) => r.classes.has("paste-target"))
-          : [],
+      sel === ".row"
+        ? rows
+        : sel === ".drag-over-into"
+          ? rows.filter((r) => r.classes.has("drag-over-into"))
+          : sel === ".paste-target"
+            ? rows.filter((r) => r.classes.has("paste-target"))
+            : [],
   };
 }
 const evOn = (rowEl, clientY) => ({
@@ -255,6 +259,39 @@ console.log("\n-- After(expanded branch): the line indents one level deeper --")
     env2.dropLine.style.left === "54px",
     JSON.stringify(env2.dropLine.style),
   );
+}
+
+// The undrawn root row: hovering the FIRST drawn row's top band classifies as
+// `After(root)` (core `pointer_slot` walks back one slot in `paste_slots()`'s
+// flattened order), i.e. "insert above everything". The cue used to fall back
+// to the hovered row's own bottom edge, drawing it exactly where
+// `After(<first row>)` draws — so the very top looked unreachable.
+console.log("\n-- After(root)/Into(root): the undrawn root row's two slots --");
+{
+  const first = mkRow(A, 100, 40);
+  const last = mkRow(C, 300, 40);
+  const { dropLine } = freshEnv([first, last]);
+  setSnap({ clipboard_count: 1, cursor: B, paste_slot: undefined });
+  setSession(sessionStub({ After: [] }, []));
+  onArmedPasteHover(evOn(first, 105)); // top band of the first drawn row
+  check("After(root) shows the line", dropLine.style.display === "block");
+  check(
+    "After(root) sits at the FIRST row's TOP edge, not any row's bottom",
+    dropLine.style.top === "100px",
+    JSON.stringify(dropLine.style),
+  );
+
+  const env2 = freshEnv([first, last]);
+  setSnap({ clipboard_count: 1, cursor: B, paste_slot: undefined });
+  setSession(sessionStub({ Into: [] }, []));
+  onArmedPasteHover(evOn(first, 105));
+  check("Into(root) shows a line rather than outlining a row", env2.dropLine.style.display === "block");
+  check(
+    "Into(root) sits at the LAST row's BOTTOM edge (append at the document end)",
+    env2.dropLine.style.top === "340px",
+    JSON.stringify(env2.dropLine.style),
+  );
+  check("Into(root) outlines no row", !first.classes.has("drag-over-into") && !last.classes.has("drag-over-into"));
 }
 
 console.log("\n-- declined pointerSlot clears the hover cue (no fallback to the committed target) --");

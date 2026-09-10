@@ -1495,6 +1495,66 @@ fn move_selection_to_after_an_expanded_branch_lands_as_its_first_child() {
 }
 
 #[test]
+fn move_selection_to_first_drawn_rows_top_band_lands_at_the_document_top() {
+    // Neither web host draws the root row (`web/render.ts`'s `treeHTML`), so
+    // the first *drawn* row's top band is the only pointer route to "insert
+    // above everything" — it classifies as `After(root)`, whose target is
+    // root index 0 (`resolve_target`). Pins that the route exists in core; the
+    // hosts' remaining job is to draw the cue in the right place.
+    let mut s = toml_session("a = 1\nb = 2\n");
+    let a = vec![Seg::Key("a".into())];
+    let b = vec![Seg::Key("b".into())];
+    let slot = s.pointer_slot(&a, 0.1).unwrap();
+    assert_eq!(slot, PasteSlot::After(vec![]), "top band of the first row");
+    let snap = s.dispatch(Intent::MoveSelectionTo {
+        sources: vec![b],
+        slot,
+        cut: true,
+    });
+    assert!(
+        snap.error_text().is_none(),
+        "move should succeed: {:?}",
+        snap.error_text()
+    );
+    assert_eq!(s.serialize().unwrap(), "b = 2\na = 1\n");
+}
+
+#[test]
+fn into_root_slot_appends_at_the_document_end() {
+    // The root row's OTHER slot: `Into(root)` resolves to `children.len()`
+    // (`slot_target`) — an append at the document's very END, not its start.
+    // Pinned because it is the pair of `After(root)` above (paste-mode `Home`
+    // lands on it) and because the touch host's cue drew it at the tree's top,
+    // i.e. at the wrong end, on the assumption that `Into` meant "first child".
+    let mut s = toml_session("a = 1\nb = 2\n");
+    let b = vec![Seg::Key("b".into())];
+    let snap = s.dispatch(Intent::MoveSelectionTo {
+        sources: vec![b],
+        slot: PasteSlot::Into(vec![]),
+        cut: true,
+    });
+    assert!(
+        snap.error_text().is_none(),
+        "move should succeed: {:?}",
+        snap.error_text()
+    );
+    assert_eq!(
+        s.serialize().unwrap(),
+        "a = 1\nb = 2\n",
+        "b re-appended last"
+    );
+    // Distinguishable from `After(root)`: move `a` instead, which must land
+    // after `b` rather than before it.
+    let a = vec![Seg::Key("a".into())];
+    s.dispatch(Intent::MoveSelectionTo {
+        sources: vec![a],
+        slot: PasteSlot::Into(vec![]),
+        cut: true,
+    });
+    assert_eq!(s.serialize().unwrap(), "b = 2\na = 1\n");
+}
+
+#[test]
 fn move_selection_to_and_paste_agree_for_every_pointer_band() {
     let fixture = "a = 1\n[b]\nc = 2\nd = 3\n[e]\nf = 4\n";
     let a = vec![Seg::Key("a".into())];

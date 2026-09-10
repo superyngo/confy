@@ -201,6 +201,16 @@ TUI is unchanged: `PasteSlot` arrow-key stepping already exists and already work
   moving the mouse fully off the tree (or onto the paste button) to see it — the hover
   layer now clears to nothing on `mouseleave` instead of falling back to redrawing the
   committed slot, since the confirmed layer already shows it independently.
+- **The root row's two slots have no row to paint.** Neither web host draws the root row
+  (`treeHTML`, `web/render.ts` / `web/touch/render.ts`), yet both of its slots are legal and
+  reachable — the keyboard steps onto them (`paste_slots()` emits them first) and a pointer
+  in the *first* drawn row's top band classifies as `After(root)`. Both are therefore drawn
+  as insertion lines on a stand-in row edge (`rootSlotLine`, `web/slot-line.ts`, shared by
+  desktop and touch): `After(root)` — root index 0, the document's top — at the **first**
+  row's top edge, `Into(root)` — `children.len()`, an append at the document's end — at the
+  **last** row's bottom edge. Before that, stepping to the top of paste mode showed no cue
+  at all for two steps, and a drag aimed at the very top drew its line under the hovered
+  row, indistinguishable from `After(<first row>)`.
 
 ### 6b. Touch — body-drag continuously repositions the target; FAB still commits
 
