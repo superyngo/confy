@@ -1676,7 +1676,13 @@ fn insert_table_before_scalar_is_rejected() {
             suggested_key: None,
         })
         .unwrap_err();
-    assert!(matches!(err, MutateError::Illegal(_)), "got {err:?}");
+    // The captured keys are the ones *below* the header the paste writes —
+    // the message must say so (it used to read "above it", naming the wrong
+    // side of the insertion point).
+    assert!(
+        matches!(&err, MutateError::Illegal(m) if m == "a table here would capture the keys below it"),
+        "got {err:?}"
+    );
     assert_eq!(d.serialize(), "a = 1\n");
 }
 

@@ -569,11 +569,11 @@ pub(crate) fn unpack_inline_table(value_text: &str) -> Option<Vec<String>> {
 
 /// D5 (TOML table-capture): within a table/root the legal layout is partitioned —
 /// a leading region (scalars / arrays / inline tables) then a header region
-/// (sub-`[table]` / `[[aot]]`). A `[table]`/`[[aot]]` header before the keys above
-/// it would capture them; a plain key after a header would be re-keyed into that
-/// section. So a header-like fragment may only land at index `>= split`, a leaf-like
-/// one only at index `<= split`, where `split` is the parent's first sub-table/AoT
-/// child index (or `len` when it has none).
+/// (sub-`[table]` / `[[aot]]`). A `[table]`/`[[aot]]` header placed before the
+/// keys that follow it would capture them; a plain key after a header would be
+/// re-keyed into that section. So a header-like fragment may only land at index
+/// `>= split`, a leaf-like one only at index `<= split`, where `split` is the
+/// parent's first sub-table/AoT child index (or `len` when it has none).
 pub(crate) fn check_partition(
     parent: &Node,
     frag: &SyntaxNode,
@@ -602,7 +602,7 @@ pub(crate) fn check_partition(
     if header_like {
         if index < split {
             return Err(MutateError::Illegal(
-                "a table here would capture the keys above it".into(),
+                "a table here would capture the keys below it".into(),
             ));
         }
     } else if index > split {
