@@ -96,8 +96,13 @@ for (const [host, block] of [["touch touchNavSelect", touchNavBlock], ["desktop 
     block,
   );
   check(
-    `${host} skips the correction in paste mode (arrows move the slot, cursor is frozen)`,
-    /if \(snap && \(snap\.clipboard_count \?\? 0\) === 0\) \{/.test(block),
+    `${host} leaves the cursor correction alone in paste mode (arrows move the slot)`,
+    /if \(snap && \(snap\.clipboard_count \?\? 0\) > 0\) \{/.test(block),
+    block,
+  );
+  check(
+    `${host} steps back down when an upward nav overshoots onto the undrawn root's Into slot`,
+    /if \(overshotUndrawnRootSlot\(i, snap\)\) send\("CursorDown"\);/.test(block),
     block,
   );
 }
@@ -115,7 +120,7 @@ globalThis.getComputedStyle = (el) => ({
 });
 
 const src = `import { rootSlotLine, slotLineIndentPx } from "./slot-line.js";
-export { drawnCursorFallback } from "./path-utils.js";
+export { drawnCursorFallback, overshotUndrawnRootSlot } from "./path-utils.js";
 let snap = null;
 let treeEl = null;
 let treePane = null;
@@ -304,6 +309,28 @@ check(
 check(
   "empty document: nothing to re-target",
   mod.drawnCursorFallback({ cursor: [], rows: [{ path: [] }] }) === null,
+);
+
+// ---- 5. overshotUndrawnRootSlot (shared by both hosts) ----
+console.log("\n-- overshotUndrawnRootSlot() ----");
+const rootInto = { paste_slot: { Into: [] } };
+check(
+  "upward nav landing on the undrawn root's Into slot (= append at the document END) is an overshoot",
+  mod.overshotUndrawnRootSlot("CursorUp", rootInto) === true,
+);
+check("Home counts as upward", mod.overshotUndrawnRootSlot("CursorHome", rootInto) === true);
+check("PageUp counts as upward", mod.overshotUndrawnRootSlot({ PageUp: 8 }, rootInto) === true);
+check(
+  "downward nav is left alone - reaching the append slot from below is correct",
+  mod.overshotUndrawnRootSlot("CursorDown", rootInto) === false &&
+    mod.overshotUndrawnRootSlot("CursorEnd", rootInto) === false &&
+    mod.overshotUndrawnRootSlot({ PageDown: 8 }, rootInto) === false,
+);
+check(
+  "any other slot is not an overshoot",
+  mod.overshotUndrawnRootSlot("CursorUp", { paste_slot: { After: [] } }) === false &&
+    mod.overshotUndrawnRootSlot("CursorUp", { paste_slot: { Into: [{ Key: "t" }] } }) === false &&
+    mod.overshotUndrawnRootSlot("CursorUp", { paste_slot: null }) === false,
 );
 
 console.log(failures === 0 ? "\nALL TOUCH KEY-SCROLL CHECKS PASSED" : `\n${failures} FAILURES`);

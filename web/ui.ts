@@ -82,7 +82,7 @@ import type {
 import { createBatcher, modeTag } from "./mode.js";
 import { drainDiagIfEnabled, resetDiagCursor } from "./diag.js";
 import { navRowCount, resolveKeyIntent, treePageStep } from "./key-intent.js";
-import { drawnCursorFallback } from "./path-utils.js";
+import { drawnCursorFallback, overshotUndrawnRootSlot } from "./path-utils.js";
 
 let session: Session | null = null;
 let snap: SessionSnapshot | null = null;
@@ -1085,7 +1085,15 @@ function toggleSelectedBranches() {
 // and the selection is frozen.
 function navSelect(i: Intent) {
   send(i);
-  if (snap && (snap.clipboard_count ?? 0) === 0) {
+  if (snap && (snap.clipboard_count ?? 0) > 0) {
+    // Paste mode: the arrows move the insertion slot, not the cursor. An
+    // upward step can overshoot onto the undrawn root row's `Into` slot (an
+    // append at the document's END) — step back down onto `After(root)`, the
+    // top (`overshotUndrawnRootSlot`).
+    if (overshotUndrawnRootSlot(i, snap)) send("CursorDown");
+    return;
+  }
+  if (snap) {
     // `g`/Home (and `k` from the first drawn row) can land core's cursor on the
     // undrawn root row — re-target the first drawn row so the cursor bar never
     // vanishes (`drawnCursorFallback`). Before the `SetSelection` below, so the

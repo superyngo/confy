@@ -10,6 +10,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-10 (4)
+
+**Fixed**
+
+- **Web paste mode could still step the insertion point onto the undrawn root row.**
+  Follow-up to (3), which drew both root slots but left the *stepping order* alone:
+  `paste_slots()` lists each row's `Into` before its `After`, so `Into(root)` is index 0 —
+  above everything — while `slot_target` resolves it to `children.len()`, an append at the
+  document's **end**. So `↑`/`k`/PageUp/`Home` from the top of the tree threw the insertion
+  point to the opposite end of the document and clamped there, reading as "the target moved
+  somewhere invisible above the first node" in hosts that don't draw the root row. Fixed
+  **web-side only**: `overshotUndrawnRootSlot()` (`web/path-utils.ts`, the paste-mode sibling
+  of `drawnCursorFallback`) flags an upward nav that landed on `Into(root)`, and
+  `navSelect`/`touchNavSelect` step one slot back down onto `After(root)` — the document's
+  top. Downward navigation and `End` are untouched (reaching the append slot from below is
+  correct). **Core and the TUI are deliberately unchanged**: the TUI draws the root row, so
+  stepping onto it highlights a real, visible row there. Verified in Chromium — `↑`/`Home`
+  now rest on a visible line at the first row's top edge, `End` on the append line at the
+  last row's bottom, and a cut node pasted after clamping lands as the document's first node.
+
 ### Update - 2026-09-10 (3)
 
 **Fixed**

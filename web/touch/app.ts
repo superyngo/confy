@@ -67,7 +67,7 @@ import {
 } from "../samples.js";
 import { IC, esc, treeHTML } from "./render.js";
 import { fabHTML, syncFab } from "../fab.js";
-import { drawnCursorFallback, parentOf, pathEq } from "../path-utils.js";
+import { drawnCursorFallback, overshotUndrawnRootSlot, parentOf, pathEq } from "../path-utils.js";
 import { rootSlotLine, slotLineIndentPx } from "../slot-line.js";
 import { resolveClick, resetAnchor, type Mods } from "../select.js";
 import { panelHTML, wirePanel, schemaHintText } from "../panel.js";
@@ -1825,7 +1825,15 @@ async function doOpen() {
 // move the insertion slot instead).
 function touchNavSelect(i: Intent) {
   send(i);
-  if (snap && (snap.clipboard_count ?? 0) === 0) {
+  if (snap && (snap.clipboard_count ?? 0) > 0) {
+    // Paste mode: same web-only overshoot correction desktop's `navSelect`
+    // applies — an upward step can land on the undrawn root row's `Into`
+    // slot, which appends at the document's END; step back down onto
+    // `After(root)`, the top (`overshotUndrawnRootSlot`).
+    if (overshotUndrawnRootSlot(i, snap)) send("CursorDown");
+    return;
+  }
+  if (snap) {
     // Same root-row correction desktop's `navSelect` applies: `g`/Home (and
     // `k` from the first drawn row) can leave core's cursor on the undrawn
     // root row, i.e. an invisible focus cursor (`drawnCursorFallback`). Must
