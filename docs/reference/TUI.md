@@ -255,10 +255,14 @@ Whole-document editing lives on the Root row's own `E`/Edit instead.
 ## Action menu
 
 `m` opens `Mode::ActionMenu { cursor }`, a modal popup (`overlay_action_menu.rs`, same
-shape as the `K` kind-switch popup) listing the eight core-owned Action menu items
+shape as the `K` kind-switch popup) listing the nine core-owned Action menu items
 (design doc `docs/spec/2026-08-30-action-menu-design.md` §2, ADR 0009):
 Edit in editor, Add child, Append sibling, Copy, Cut, Toggle comment, Detail, Delete
-(separated by a rule and shown in red). `Session::action_menu_items()` derives each
+(separated by a rule and shown in red), then — behind a second rule — the one
+**document-level** item, *Edit whole file as text* (`ActionId::EditDocument`, ADR 0013
+D7). That last item is scoped to the file rather than the selection, so it is always
+enabled; it is the entry point root-hidden hosts have no Root row to reach.
+`Session::action_menu_items()` derives each
 item's `enabled` flag fresh from `selected_paths()` every frame — a single-path item
 (Edit in editor / Add child / Append sibling / Detail) dims on a multi-node selection;
 the four set-applying items (Copy / Cut / Toggle comment / Delete) dim if any

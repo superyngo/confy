@@ -25,6 +25,7 @@
   "core.action.remark": "切換註解",
   "core.action.detail": "詳細資訊",
   "core.action.delete": "刪除",
+  "core.action.edit-document": "以文字編輯整份檔案",
   "core.blank.error": "無法設定空行：{0}",
   "core.convert.root-only": "convert：請先移動到 root/file 節點（按 C 鍵）",
   "core.convert.aborted": "轉換已中止：{0}",

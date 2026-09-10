@@ -22,7 +22,7 @@ use crate::session::i18n::{tr_args, Lang};
 use crate::session::intent::Intent;
 use crate::session::notice::{Notice, NoticeSource, Severity};
 use crate::session::state::{EditKind, KindSwitchState, Mode, PendingExternalEdit, PromptKind};
-use crate::session::type_filter::{layout, LayoutRow};
+use crate::session::type_filter::{layout_for, LayoutRow};
 use crate::session::view::{
     AddOptionView, ConvertView, EditView, ExternalEdit, ExternalEditKind, KindOptionView, ModeView,
     PromptView, SessionSnapshot, TypeFilterCellView, TypeFilterRow, TypeFilterView,
@@ -464,6 +464,22 @@ impl super::Session {
         });
     }
 
+    /// Document-scoped counterpart of `begin_external_edit` (ADR 0013 D7):
+    /// edit the **whole file** as text, independent of the cursor. Every
+    /// backend already supports a `Replace` at the empty path, so this needs
+    /// no new mutation — only an entry point, which is exactly what the web
+    /// lacked (design record §1 E6).
+    pub(crate) fn begin_external_edit_document(&mut self) {
+        if self.guard_clipboard_locked() {
+            return;
+        }
+        self.pending_external_edit = Some(PendingExternalEdit {
+            path: Vec::new(),
+            wrap_element: false,
+            is_comment: false,
+        });
+    }
+
     fn mode_view(&self) -> ModeView {
         match &self.mode {
             Mode::Normal => ModeView::Normal,
@@ -548,7 +564,7 @@ impl super::Session {
         // `nav_rows` indexing matches `tf.row`, so we track the cell-row index
         // separately to mark the cursor cell within the flattened layout.
         let mut cell_row_idx = 0usize;
-        for lr in layout(fmt) {
+        for lr in layout_for(fmt, self.root_visible) {
             match lr {
                 LayoutRow::Header(h) => rows.push(TypeFilterRow::Header(h.to_string())),
                 LayoutRow::Cells(cells) => {

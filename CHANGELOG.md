@@ -10,6 +10,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-10 (8)
+
+**Added**
+
+- **Root visibility is core state** (ADR 0013 D5, slice 2 of
+  `docs/spec/2026-09-10-web-root-row-alignment.md`): `Session.root_visible` — default `true`,
+  set by the host via `Session::set_root_visible` — selects between two self-consistent modes
+  instead of a renderer flag. **Root-visible** (TUI, and the desktop web from slice 4 on) is
+  today's shape. **Root-hidden** (touch, VS Code) makes core omit the Root row, shift every
+  remaining depth one step left, omit the Root's two `Into([])`/`After([])` paste slots, never
+  seat the cursor on `[]`, retarget a `RevealPath([])` to the first drawn row, drop the
+  `[G] root` type-filter facet (`layout_for`/`nav_rows_for`), and stop requiring a Root cursor
+  for Convert. The Root also counts as unconditionally expanded there, so the collapsed-Root
+  empty tree (design record §1 E4) is unreachable rather than guarded. An empty document in
+  root-hidden mode legitimately draws **zero** rows — that empty state belongs to the host
+  (D11).
+- **One document-level Action-menu item: *Edit whole file as text*** (`ActionId::EditDocument`,
+  `core.action.edit-document`, ADR 0013 D7) — its own section behind a second separator, always
+  enabled because it is scoped to the file rather than the selection. Every backend already
+  supported a whole-document `Replace`; what was missing was an entry point, and root-hidden
+  hosts have no Root row to offer one. Shown in the TUI too (ADR 0009's single item list).
+
 ### Update - 2026-09-10 (7)
 
 **Changed**

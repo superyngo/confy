@@ -233,7 +233,35 @@ pub enum LayoutRow {
     Cells(Vec<Cell>),
 }
 
+/// The full facet grid for `format`, in **root-visible** shape. Root-hidden
+/// hosts must go through `layout_for` — see ADR 0013 D5.
 pub fn layout(format: DocFormat) -> Vec<LayoutRow> {
+    layout_for(format, true)
+}
+
+/// `layout` with root visibility applied: in root-hidden mode the `[G] root`
+/// facet is dropped, because a filter that can only match a row the host never
+/// draws is a guaranteed empty tree (spec §1 E5) rather than a filter.
+pub fn layout_for(format: DocFormat, root_visible: bool) -> Vec<LayoutRow> {
+    let rows = full_layout(format);
+    if root_visible {
+        return rows;
+    }
+    rows.into_iter()
+        .filter_map(|r| match r {
+            LayoutRow::Cells(cells) => {
+                let kept: Vec<Cell> = cells
+                    .into_iter()
+                    .filter(|c| !matches!(c, Cell::Token(TypeToken::Root)))
+                    .collect();
+                (!kept.is_empty()).then_some(LayoutRow::Cells(kept))
+            }
+            header => Some(header),
+        })
+        .collect()
+}
+
+fn full_layout(format: DocFormat) -> Vec<LayoutRow> {
     use Cell::*;
     use Group as G;
     use KeySign as K;
@@ -348,7 +376,11 @@ pub fn layout(format: DocFormat) -> Vec<LayoutRow> {
 }
 
 pub fn nav_rows(format: DocFormat) -> Vec<Vec<Cell>> {
-    layout(format)
+    nav_rows_for(format, true)
+}
+
+pub fn nav_rows_for(format: DocFormat, root_visible: bool) -> Vec<Vec<Cell>> {
+    layout_for(format, root_visible)
         .into_iter()
         .filter_map(|r| match r {
             LayoutRow::Cells(cells) => Some(cells),
@@ -482,8 +514,8 @@ impl TypeFilter {
         }
     }
 
-    pub fn move_cursor(&mut self, dr: i32, dc: i32, format: DocFormat) {
-        let rows = nav_rows(format);
+    pub fn move_cursor(&mut self, dr: i32, dc: i32, format: DocFormat, root_visible: bool) {
+        let rows = nav_rows_for(format, root_visible);
         if rows.is_empty() {
             return;
         }
@@ -501,15 +533,15 @@ impl TypeFilter {
         }
     }
 
-    pub fn current_cell(&self, format: DocFormat) -> Option<Cell> {
-        nav_rows(format)
+    pub fn current_cell(&self, format: DocFormat, root_visible: bool) -> Option<Cell> {
+        nav_rows_for(format, root_visible)
             .get(self.row)
             .and_then(|r| r.get(self.col))
             .copied()
     }
 
-    pub fn toggle_current(&mut self, format: DocFormat) {
-        if let Some(cell) = self.current_cell(format) {
+    pub fn toggle_current(&mut self, format: DocFormat, root_visible: bool) {
+        if let Some(cell) = self.current_cell(format, root_visible) {
             self.toggle(cell);
         }
     }
@@ -835,18 +867,18 @@ mod tests {
         let fmt = DocFormat::Toml;
         let mut f = TypeFilter::default();
         let rows = nav_rows(fmt);
-        f.move_cursor(-1, 0, fmt);
+        f.move_cursor(-1, 0, fmt, true);
         assert_eq!(f.row, 0);
         // Row 0 is now the single-cell Reverse row; move to "Key sign" (row 2,
         // width 2) to exercise column clamping the way this test always has —
         // row 1 is the single-cell Flags row.
-        f.move_cursor(2, 0, fmt);
+        f.move_cursor(2, 0, fmt, true);
         assert_eq!(f.row, 2);
-        f.move_cursor(0, -1, fmt);
+        f.move_cursor(0, -1, fmt, true);
         assert_eq!(f.col, 0);
-        f.move_cursor(0, 1, fmt);
+        f.move_cursor(0, 1, fmt, true);
         assert_eq!(f.col, 1);
-        f.move_cursor(1000, 0, fmt);
+        f.move_cursor(1000, 0, fmt, true);
         assert_eq!(f.row, rows.len() - 1);
         assert!(f.col < rows[f.row].len());
     }

@@ -114,6 +114,17 @@ impl Session {
                 true,
                 true,
             ),
+            // The one document-level item (ADR 0013 D7): scoped to the file,
+            // not the selection, so it is always enabled — including on the
+            // Root row itself, and in root-hidden mode where there is no Root
+            // row to reach the whole-file edit from at all.
+            mk(
+                ActionId::EditDocument,
+                "core.action.edit-document",
+                true,
+                true,
+                false,
+            ),
         ]
     }
 
@@ -204,6 +215,7 @@ impl Session {
             ActionId::Remark => self.remark(),
             ActionId::Detail => self.toggle_detail(),
             ActionId::Delete => self.delete_selected(),
+            ActionId::EditDocument => self.begin_external_edit_document(),
         }
     }
 
@@ -244,7 +256,8 @@ mod tests {
         let mut s = session_with_two_scalars();
         s.cursor = vec![Seg::Key("c".into())];
         let items = s.action_menu_items();
-        assert_eq!(items.len(), 8);
+        // 8 node-scoped items + the one document-level item (ADR 0013 D7).
+        assert_eq!(items.len(), 9);
         let disabled: Vec<ActionId> = items
             .iter()
             .filter(|it| !it.enabled)
@@ -272,7 +285,9 @@ mod tests {
                 ActionId::Copy,
                 ActionId::Cut,
                 ActionId::Remark,
-                ActionId::Delete
+                ActionId::Delete,
+                // Document-scoped: never dimmed by the selection's shape.
+                ActionId::EditDocument,
             ]
         );
     }

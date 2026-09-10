@@ -4219,3 +4219,160 @@ fn root_badge_names_the_document_format() {
         assert_eq!(rows[0].badge_note, note, "{fmt:?} note");
     }
 }
+
+// ---- ADR 0013 D5: root-hidden mode (touch, VS Code) ----
+
+fn hidden_session(src: &str) -> Session {
+    let mut s = toml_session(src);
+    s.set_root_visible(false);
+    s
+}
+
+#[test]
+fn root_hidden_omits_the_root_row_and_shifts_every_depth_left() {
+    let s = hidden_session("a = 1\n[t]\nb = 2\n");
+    let visible = toml_session("a = 1\n[t]\nb = 2\n");
+    let vis_rows = visible.visible_rows();
+    let hid_rows = s.visible_rows();
+    assert_eq!(vis_rows[0].path.len(), 0, "root-visible keeps the Root");
+    assert_eq!(
+        hid_rows.len(),
+        vis_rows.len() - 1,
+        "exactly the Root is gone"
+    );
+    assert!(
+        hid_rows.iter().all(|r| !r.path.is_empty()),
+        "no row addresses the document itself"
+    );
+    // `a` and `[t]` are top-level: depth 1 with the Root drawn, 0 without —
+    // the shift the two web hosts used to apply themselves.
+    assert_eq!(vis_rows[1].depth, 1);
+    assert_eq!(hid_rows[0].depth, 0);
+    assert_eq!(hid_rows[0].path_display, vis_rows[1].path_display);
+}
+
+#[test]
+fn root_hidden_has_no_root_paste_slots() {
+    let mut s = hidden_session("a = 1\nb = 2\n");
+    s.toggle_select();
+    s.copy_selected();
+    assert!(s.clipboard.is_some(), "clipboard armed on a real Node");
+    let slots = s.paste_slots();
+    assert!(
+        !slots.iter().any(|sl| matches!(
+            sl,
+            PasteSlot::Into(p) | PasteSlot::After(p) if p.is_empty()
+        )),
+        "{slots:?} must contain neither Into([]) nor After([])"
+    );
+    // The same document in root-visible mode does offer both.
+    let mut v = toml_session("a = 1\nb = 2\n");
+    v.cursor_down();
+    v.toggle_select();
+    v.copy_selected();
+    assert!(v
+        .paste_slots()
+        .iter()
+        .any(|sl| matches!(sl, PasteSlot::Into(p) if p.is_empty())));
+}
+
+#[test]
+fn root_hidden_never_seats_the_cursor_on_the_root() {
+    let mut s = toml_session("a = 1\nb = 2\n");
+    assert!(s.cursor.is_empty(), "boots on the Root while visible");
+    s.set_root_visible(false);
+    assert_eq!(
+        s.cursor,
+        vec![Seg::Key("a".into())],
+        "switching modes re-seats the cursor onto a drawn row"
+    );
+    s.cursor_home();
+    assert_eq!(s.cursor, vec![Seg::Key("a".into())], "Home stops at row 0");
+    s.cursor_up();
+    assert_eq!(s.cursor, vec![Seg::Key("a".into())], "up-at-top stays put");
+}
+
+#[test]
+fn root_hidden_drops_the_root_type_filter_facet() {
+    use confy_core::session::type_filter::{layout_for, Cell, LayoutRow, TypeToken};
+    let has_root = |root_visible: bool| {
+        layout_for(DocFormat::Toml, root_visible)
+            .iter()
+            .any(|r| match r {
+                LayoutRow::Cells(cs) => cs.contains(&Cell::Token(TypeToken::Root)),
+                LayoutRow::Header(_) => false,
+            })
+    };
+    assert!(has_root(true), "root-visible keeps the [G] root facet");
+    assert!(!has_root(false), "root-hidden drops it");
+}
+
+#[test]
+fn root_hidden_reveal_of_the_root_lands_on_the_first_row() {
+    let mut s = hidden_session("a = 1\nb = 2\n");
+    s.cursor_down();
+    s.reveal_path(vec![]);
+    assert_eq!(
+        s.cursor,
+        vec![Seg::Key("a".into())],
+        "the breadcrumb's ⌂ still means the document top"
+    );
+    assert!(
+        s.notice.is_none(),
+        "and it is not reported as filter-hidden: {:?}",
+        s.notice
+    );
+}
+
+#[test]
+fn root_hidden_open_convert_needs_no_root_cursor() {
+    let mut s = hidden_session("a = 1\nb = 2\n");
+    s.cursor_down();
+    s.open_convert();
+    assert!(
+        matches!(s.mode, Mode::Convert(_)),
+        "convert opens from any row"
+    );
+    assert!(s.notice.is_none(), "no root-only complaint: {:?}", s.notice);
+    // Root-visible mode still demands the Root row.
+    let mut v = toml_session("a = 1\n");
+    v.cursor_down();
+    v.open_convert();
+    assert!(!matches!(v.mode, Mode::Convert(_)));
+    assert!(v.notice.is_some());
+}
+
+#[test]
+fn root_hidden_empty_document_draws_no_rows() {
+    // D11: zero rows is legal in root-hidden mode — the empty state is the
+    // host's, not a core exception.
+    let s = hidden_session("");
+    assert!(s.visible_rows().is_empty());
+}
+
+#[test]
+fn document_level_action_is_always_available_and_edits_the_whole_file() {
+    use confy_core::session::{ActionId, ExternalEditKind};
+    for hidden in [false, true] {
+        let mut s = toml_session("a = 1\n");
+        if hidden {
+            s.set_root_visible(false);
+        }
+        let items = s.action_menu_items();
+        let it = items
+            .iter()
+            .find(|i| i.id == ActionId::EditDocument)
+            .unwrap_or_else(|| panic!("hidden={hidden}: no document-level item"));
+        assert!(it.enabled, "hidden={hidden}: always enabled");
+        assert!(it.separator_before, "hidden={hidden}: own section");
+        s.open_action_menu();
+        s.action_menu_pick(ActionId::EditDocument);
+        let ext = s.snapshot().external_edit.expect("external edit requested");
+        assert!(
+            matches!(&ext.kind, ExternalEditKind::Value { path } if path.is_empty()),
+            "hidden={hidden}: {:?}",
+            ext.kind
+        );
+        assert_eq!(ext.initial, "a = 1\n", "hidden={hidden}: the whole file");
+    }
+}

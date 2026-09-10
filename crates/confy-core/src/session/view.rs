@@ -134,6 +134,11 @@ pub enum ActionId {
     Remark,
     Detail,
     Delete,
+    /// The one **document-level** item (ADR 0013 D7): edit the whole file as
+    /// text. Always present, always enabled, and scoped to the document
+    /// rather than the selection — it is the web's only entry point to the
+    /// whole-file edit the TUI reaches from the Root row.
+    EditDocument,
 }
 
 /// One row of the Action menu.
@@ -143,7 +148,7 @@ pub struct ActionItemView {
     /// Localized via `tr(self.lang, "core.action.<id>")`.
     pub label: String,
     pub enabled: bool,
-    /// `true` only for `Delete` (renders a rule above it).
+    /// `true` for `Delete` and for `EditDocument` (renders a rule above it).
     pub separator_before: bool,
     /// `true` only for `Delete` (renders destructive-styled).
     pub danger: bool,

@@ -141,7 +141,10 @@ export type ActionId =
   | "Cut"
   | "Remark"
   | "Detail"
-  | "Delete";
+  | "Delete"
+  // The one document-level item (ADR 0013 D7), separator-led and always
+  // enabled: edit the whole file as text.
+  | "EditDocument";
 
 export interface ActionItemView {
   id: ActionId;

@@ -25,6 +25,7 @@
   "core.action.remark": "Toggle comment",
   "core.action.detail": "Detail",
   "core.action.delete": "Delete",
+  "core.action.edit-document": "Edit whole file as text",
   "core.blank.error": "cannot set blank lines: {0}",
   "core.convert.root-only": "convert: move to the root/file node first (key C)",
   "core.convert.aborted": "conversion aborted: {0}",

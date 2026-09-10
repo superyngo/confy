@@ -68,6 +68,15 @@ pub struct Session {
     /// advisory even though the edit itself is never blocked. Set once after
     /// `Session::new`/`from_tree`; never toggled by mutations. Default `false`.
     pub strict_json: bool,
+    /// Host-supplied: does this host draw the **Root** row? (ADR 0013 §3,
+    /// D5 — root visibility is core state, not a renderer flag.) Root-visible
+    /// hosts (TUI, desktop web) get the Root as row 0 at depth 0, with its two
+    /// paste slots and its `root` type-filter facet. Root-hidden hosts (touch,
+    /// VS Code) get none of that: core omits the row, omits the slots, never
+    /// seats the cursor on `[]`, and shifts every remaining depth one step
+    /// left — so a host never hides a row core emitted and then compensates
+    /// for the hole. Default `true` (the TUI's shape, and the projection's).
+    pub root_visible: bool,
 }
 
 /// Paste-mode slot navigation step: a relative move or a jump to either edge.
@@ -133,6 +142,7 @@ impl Session {
             prompt_from_commit_edit: None,
             lang: Lang::default(),
             strict_json: false,
+            root_visible: true,
         }
     }
 
@@ -159,12 +169,26 @@ impl Session {
         self.notice = None;
     }
 
+    /// Host-supplied at open (ADR 0013 D5/D10): whether this host draws the
+    /// **Root** row. Switching to root-hidden re-seats a cursor sitting on the
+    /// Root — the mode's invariant is that `[]` is never the cursor — so the
+    /// host never has to compensate for one it cannot draw.
+    pub fn set_root_visible(&mut self, visible: bool) {
+        self.root_visible = visible;
+        if !visible && self.cursor.is_empty() {
+            self.cursor = self
+                .visible_rows()
+                .first()
+                .map(|r| r.path.clone())
+                .unwrap_or_default();
+        }
+    }
+
     /// Pure: flatten the tree through the expand set and filter — borrowed
     /// rows, zero clones. Cursor/selection/lookup helpers use this;
     /// `visible_rows` builds the owned `ViewRow` transport on top of it.
     fn visible_nodes(&self) -> Vec<VisibleRow<'_>> {
-        let expanded = &self.expanded;
-        let rows = self.tree.flatten(&|p| expanded.contains(p));
+        let rows = self.flatten_for_mode();
         match &self.filtered_paths {
             Some(fp) => rows
                 .into_iter()
@@ -172,6 +196,30 @@ impl Session {
                 .collect(),
             None => rows,
         }
+    }
+
+    /// The one mode-aware flatten (ADR 0013 D5). In root-hidden mode the Root
+    /// row is dropped and every remaining depth shifts one step left, so a
+    /// top-level Node sits flush at depth 0 exactly as the two web hosts used
+    /// to redraw it themselves. The Root is also treated as unconditionally
+    /// expanded there: with no row to toggle, a collapsed Root would mean a
+    /// permanently empty tree (spec §1 E4) rather than a recoverable state.
+    fn flatten_for_mode(&self) -> Vec<VisibleRow<'_>> {
+        let expanded = &self.expanded;
+        let root_hidden = !self.root_visible;
+        let rows = self
+            .tree
+            .flatten(&|p| expanded.contains(p) || (root_hidden && p.is_empty()));
+        if self.root_visible {
+            return rows;
+        }
+        rows.into_iter()
+            .filter(|r| !r.node.path.is_empty())
+            .map(|r| VisibleRow {
+                depth: r.depth - 1,
+                ..r
+            })
+            .collect()
     }
 
     /// Pure: flatten the tree through the expand set and filter, baking in
@@ -188,8 +236,10 @@ impl Session {
     /// *unfiltered* flatten and the filter applied afterwards — filtering first
     /// would punch holes in the ancestor chain.
     pub fn visible_rows(&self) -> Vec<ViewRow> {
-        let expanded = &self.expanded;
-        let all = self.tree.flatten(&|p| expanded.contains(p));
+        // Mode-aware: root-hidden mode has no Root row and every depth is one
+        // step shallower, which keeps `chain[r.depth]` self-consistent (a
+        // top-level Node is then depth 0 and starts a fresh chain).
+        let all = self.flatten_for_mode();
         // Cumulative display path at each depth; `chain[d]` is the display path
         // of the current row at depth `d`.
         let mut chain: Vec<String> = Vec::with_capacity(16);
@@ -427,6 +477,17 @@ impl Session {
         if self.tree.node_at(&path).is_none() {
             return;
         }
+        // Root-hidden mode has no Root row to land on (ADR 0013 D5), but the
+        // breadcrumb's `⌂` segment still means "the document top" — retarget
+        // it to the first row rather than reporting it as filter-hidden.
+        let path = if path.is_empty() && !self.root_visible {
+            match self.visible_rows().first() {
+                Some(r) => r.path.clone(),
+                None => return,
+            }
+        } else {
+            path
+        };
         for i in 0..path.len() {
             self.expanded.insert(path[..i].to_vec());
         }
@@ -1058,12 +1119,12 @@ impl Session {
 
     pub fn type_filter_move(&mut self, dr: i32, dc: i32) {
         let fmt = self.doc_format();
-        self.type_filter.move_cursor(dr, dc, fmt);
+        self.type_filter.move_cursor(dr, dc, fmt, self.root_visible);
     }
 
     pub fn type_filter_toggle(&mut self) {
         let fmt = self.doc_format();
-        self.type_filter.toggle_current(fmt);
+        self.type_filter.toggle_current(fmt, self.root_visible);
         if self.type_filter.is_active() {
             self.last_filter_applied = Some(FilterLayer::Type);
         }
@@ -1283,17 +1344,24 @@ impl Session {
         if self.guard_clipboard_locked() {
             return;
         }
-        let Some(is_root) = self
-            .visible_nodes()
-            .iter()
-            .find(|r| r.node.path == self.cursor)
-            .map(|r| r.node.path.is_empty())
-        else {
-            return;
-        };
-        if !is_root {
-            self.set_notice(Notice::core(self.lang, "core.convert.root-only", &[]));
-            return;
+        // Convert is a whole-document operation. In root-visible mode it is
+        // reached from the Root row, so requiring the cursor there keeps the
+        // action legible; in root-hidden mode there is no such row (ADR 0013
+        // D5) and no cursor position to demand — the host used to fake one by
+        // dispatching `SetCursor: []` first.
+        if self.root_visible {
+            let Some(is_root) = self
+                .visible_nodes()
+                .iter()
+                .find(|r| r.node.path == self.cursor)
+                .map(|r| r.node.path.is_empty())
+            else {
+                return;
+            };
+            if !is_root {
+                self.set_notice(Notice::core(self.lang, "core.convert.root-only", &[]));
+                return;
+            }
         }
         let Some(doc) = &self.doc else {
             return;
