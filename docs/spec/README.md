@@ -11,7 +11,9 @@ carried the change is in `CHANGELOG.md`.
 
 ## In progress
 
-Nothing open.
+| Date | Document | Status |
+|---|---|---|
+| 2026-09-10 | [Web UI draws the document Root row (TUI alignment) — Design evaluation](2026-09-10-web-root-row-alignment.md) | Draft |
 
 ## Landed
 

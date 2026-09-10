@@ -26,8 +26,24 @@ _Avoid_: Entry, item.
 
 **Root**:
 The single top-of-tree **Node** whose key is the filename. Every other Node descends from it.
-There is exactly one Root per open file.
+There is exactly one Root per open file. The Root **takes the cursor but is never selected**:
+every selection entry point drops it, so a range or marquee reaching the top stops at the first
+top-level Node (a Node-scoped operation on the whole document would otherwise mean "replace the
+file", which only the document-level actions express). Root-scoped operations — edit the whole
+file as text, append at the document end, convert the document — are therefore reached from the
+Root as a *cursor* target or from the document-level **Action menu** section, never from a
+selection.
 _Avoid_: File header (as a separate concept), top node.
+
+**Root-visible / root-hidden**:
+The two modes a host opens a **Session** in, deciding whether the **Root** is part of the tree
+at all. Root-visible (TUI, desktop web): the Root is a row, a cursor target, a drop target, and
+contributes its own indent level. Root-hidden (touch, VS Code): the Session omits the Root row
+and its two paste slots, never seats the cursor on it, retargets **Reveal** to the first
+top-level Node, and offers no `root` type-filter facet — the host renders no compensation of
+its own, and loses no capability, because the document-level Action-menu section carries the
+root-scoped operations. Both modes are honored inside the core, not in a renderer.
+_Avoid_: "drawRoot flag", "root-less", hiding the row in the host.
 
 **Branch node**:
 A **Node** that has children and can be expanded/collapsed: a table, array-of-tables, array, or
@@ -269,8 +285,9 @@ name).
 **Reveal**:
 Make the Node at a given path visible in the main tree — expand **all** of its ancestors, move
 the cursor onto it, and select it (a single-node selection replacing any prior one; in paste
-mode the clipboard-frozen selection is left untouched, and the root — which has no selectable
-row — only takes the cursor). If an active filter (text or type) still hides the Node, the expansion
+mode the clipboard-frozen selection is left untouched). Revealing the **Root** only ever moves
+the cursor, never selects (see **Root**), and in **root-hidden** mode it lands on the first
+top-level Node instead. If an active filter (text or type) still hides the Node, the expansion
 sticks, the cursor stays put, and the status line reports that the target is hidden by the
 filter. Canonical name for the breadcrumb / mini-tree jump.
 _Avoid_: Jump, Go-to (they describe only the cursor move, not the ancestor expansion).
