@@ -305,7 +305,11 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
                  (`{}·scope`, `[]·multi`, `[]·AoT`, YAML `·block`/`·flow`); scalars keep
                  short words (`str·"…"`, `int·0x`). The kind as a *word* lives only where
                  there is room for one — the badge's hover title (`ui.ts`) and the panel's
-                 Kind field — via `kind-labels.ts`'s `kindWord`. `escapeAttr` for `data-path`
+                 Kind field — via `kind-labels.ts`'s `kindWord`. `escapeAttr` for `data-path`.
+                 Draws EVERY row core hands it, including the **Root** row in a root-visible
+                 host (filename + `⌂·<format>` badge, no grip, inert badge — ADR 0013
+                 D8/D12); a root-hidden host instead gets zero rows for an empty document,
+                 whose `.tree-empty` state (with the one `AddChild([])` affordance) lives here
   highlight.ts   fuzzy-filter match marks: `highlightHtml(text, needle)` → escaped HTML with
                  `<mark class="fz">` runs (coalesced, char-indexed via `Array.from`). Web mirror
                  of the TUI's `highlight_spans`, driven by the SAME matcher — the wasm free export
@@ -318,18 +322,20 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
                  host's session swap. One module because the copy that lived in ui.ts
                  made the trace desktop-only (F15)
   select.ts      pure pointer-selection logic → `SetSelection`/`SetCursor`: plain/⇧-range/
-                 ⌘-toggle clicks (segmented additive range via an anchor+base snapshot) + marquee
+                 ⌘-toggle clicks (segmented additive range via an anchor+base snapshot) +
+                 marquee. Neither a click nor a marquee ever yields the **Root** path: it takes
+                 the cursor but is never selected (ADR 0013 D1), so a ⇧-range stops at the
+                 first top-level Node just as the keyboard's does
   dnd.ts         HTML5 grip drag-reparent → `MoveSelectionTo {sources,slot,cut}`: the destination is
                  core's `pointerSlot(path,relY)` verbatim (`Into` outline / `After` `#dropLine`),
                  resolved by the same `slot_target` a keyboard Paste uses — no host-side
                  parent/index or band threshold (ADR 0010); self-subtree drop rejected
-  slot-line.ts   the two shared rules for an insertion line's placement, used by the web
-                 drag/armed cues and touch's `.reorder-line`. `slotLineIndentPx()` owns the
-                 indent: `After(<expanded branch>)` inserts as its first child, so the line
-                 sits one `--indent` step deeper (as the TUI draws it). `rootSlotLine()` owns
-                 the **undrawn root row** — neither web host draws it, so its two slots borrow
-                 a row edge: `After(root)` (document top) the first row's top edge,
-                 `Into(root)` (append at the document end) the last row's bottom edge
+  slot-line.ts   the one shared rule for an insertion line's horizontal placement, used by the
+                 web drag/armed cues and touch's `.reorder-line`: `slotLineIndentPx()` —
+                 `After(<expanded branch>)` inserts as its first child, so the line sits one
+                 `--indent` step deeper (as the TUI draws it). Root-anchored slots need no
+                 special case: root-visible hosts draw the Root row, root-hidden ones never
+                 receive such a slot (ADR 0013)
   panel.ts       shared node detail/edit panel (`panelHTML`/`wirePanel`) — one module rendering
                  the desktop Detail aside AND the touch edit sheet identically (locked field order
                  Key/Value/Trailing comment/Kind/Path/Children/Sign/Blank after); a panel input's Enter/Escape
@@ -349,10 +355,10 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
                  convert dialog, `#overlay` for Help/Prompt/KindSwitch only), Tree|Raw read-only
                  view toggle (`session.serialize()`), keyboard→Intent map (mirrors tui/keys.rs),
                  theme toggle, FS open/save, `#url-modal` Open-from-URL, external-edit modal,
-                 paste-mode cursor target; `navSelect` re-targets an undrawn-root cursor via
-                 `path-utils.ts`'s `drawnCursorFallback` (shared with touch's `touchNavSelect`) —
-                 `Home`/`g` can otherwise leave an invisible cursor, since neither web host draws
-                 the root row. Touch's `app.ts` mirrors this plus its own keyboard
+                 paste-mode cursor target; the Root row is a real row here (desktop is
+                 **root-visible**, ADR 0013), so `navSelect` only collapses the selection —
+                 clearing it when the cursor lands on the Root, which takes the cursor but is
+                 never selected. Touch's `app.ts` mirrors this plus its own keyboard
                  `scrollFocusIntoView()` (minimal-scroll the tree pane to follow the cursor / the
                  paste-mode `.reorder-line`/`.drop-into` row past a viewport edge — `render()`
                  otherwise restores `scrollTop` verbatim across every re-render)
@@ -364,8 +370,8 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
   key-intent.ts  pure "which Intent does this (mode, key) pair mean" resolution — the single
                  keymap source both orchestrators dispatch through (KEYMAP.md is its SSOT doc)
   mode.ts        shared `modeTag()` helper over the `ModeView` union
-  path-utils.ts  shared path helpers; `drawnCursorFallback` re-targets a cursor sitting on the
-                 undrawn root (neither web host draws it), used by ui.ts and touch/app.ts
+  path-utils.ts  shared path helpers (`pathEq`/`parentOf`/`siblingIndex`) — the two
+                 undrawn-root stand-ins died with ADR 0013 (root visibility is core state)
   vscode-protocol.ts  the typed host↔webview message contract (`HostToWebview`/`WebviewToHost`),
                  the ONE file both `web/vscode.ts` and the extension import — see VSCODE.md
   vscode.ts      the in-webview VS Code client: posts/receives that protocol, tracks the

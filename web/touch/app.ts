@@ -67,8 +67,8 @@ import {
 } from "../samples.js";
 import { IC, esc, treeHTML } from "./render.js";
 import { fabHTML, syncFab } from "../fab.js";
-import { drawnCursorFallback, overshotUndrawnRootSlot, parentOf, pathEq } from "../path-utils.js";
-import { rootSlotLine, slotLineIndentPx } from "../slot-line.js";
+import { parentOf, pathEq } from "../path-utils.js";
+import { slotLineIndentPx } from "../slot-line.js";
 import { resolveClick, resetAnchor, type Mods } from "../select.js";
 import { panelHTML, wirePanel, schemaHintText } from "../panel.js";
 import { bindPromptClicks, promptButtonsHTML, promptTitle } from "../prompt.js";
@@ -420,25 +420,7 @@ function renderPasteSlotCue(snap: SessionSnapshot, slotOverride?: PasteSlot) {
   }
   const reorderLine = treeEl.querySelector<HTMLElement>(".reorder-line");
   if (reorderLine) {
-    // Neither web host draws the root row, so its two slots borrow a row edge
-    // (`rootSlotLine`, shared with desktop): `After(root)` the FIRST row's top
-    // (insert at the document's very top, the slot the pointer's first-row top
-    // band and paste-mode `↑` both reach) and `Into(root)` the LAST row's
-    // bottom (append at the document's very end — `slot_target` resolves
-    // `Into` to `children.len()`, so this used to be drawn at the wrong end).
-    const rootLine = rootSlotLine(treeEl, slot);
-    if (rootLine) {
-      const treeTop = treeEl.getBoundingClientRect().top;
-      const rr = rootLine.vRow.getBoundingClientRect();
-      const rootMain = rootLine.hRow.querySelector<HTMLElement>(".row-main");
-      reorderLine.style.top = `${(rootLine.edge === "top" ? rr.top : rr.bottom) - treeTop}px`;
-      reorderLine.style.left = `${
-        rootMain && typeof getComputedStyle !== "undefined"
-          ? parseFloat(getComputedStyle(rootMain).paddingLeft) || 0
-          : 0
-      }px`;
-      reorderLine.style.display = "block";
-    } else if (slot && "After" in slot) {
+    if (slot && "After" in slot) {
       const rowEl = treeEl.querySelector<HTMLElement>(
         `.row[data-path='${CSS.escape(JSON.stringify(slot.After))}']`,
       );
@@ -479,16 +461,14 @@ function renderPasteSlotCue(snap: SessionSnapshot, slotOverride?: PasteSlot) {
 //
 // The anchor is whatever the focus visually *is*. In paste mode arrows move
 // the insertion slot, not the cursor (core `move_paste_slot`), so it is the
-// `.reorder-line` for the two slots drawn as a line — `After` (drawn at the
-// anchor row's *bottom* edge, so scrolling only that row can still leave the
-// line clipped) and both slots of the undrawn root row (`After(root)` at the
-// first row's top edge, `Into(root)` at the last row's bottom edge — neither
-// has a row of its own; see `rootSlotLine`)
-// — and the target row for any other `Into`. Otherwise it is the cursor row.
+// `.reorder-line` for `After` (drawn at the anchor row's *bottom* edge, so
+// scrolling only that row can still leave the line clipped) — and the target
+// row for any `Into`. Otherwise it is the cursor row. Touch is root-hidden
+// (ADR 0013 D5), so no root-anchored slot reaches here at all.
 function scrollFocusIntoView() {
   if (rawView || !snap) return;
   const slot = snap.paste_slot;
-  const drawnAsLine = !!slot && ("After" in slot || slot.Into.length === 0);
+  const drawnAsLine = !!slot && "After" in slot;
   const line = treeEl.querySelector<HTMLElement>(".reorder-line");
   const anchor =
     drawnAsLine && line && line.style.display === "block"
@@ -552,8 +532,10 @@ function render() {
     // detail panel.
     statusEl.textContent = schemaHintText(session.schemaHint(snap.cursor)) || t("web.status.ready");
   }
+  // Root-hidden: core's cursor is never the document (ADR 0013 D5), so the
+  // badge no longer needs a "no row" stand-in — every cursor row has a key.
   const cur = cursorRow();
-  selBadge.textContent = cur && cur.path.length ? lastKey(cur.path) : t("web.badge.none");
+  selBadge.textContent = cur ? lastKey(cur.path) : t("web.badge.none");
   const armed = (snap.clipboard_count ?? 0) > 0;
   clipBadge.textContent = tArgs("web.badge.clipboard", [String(snap.clipboard_count ?? 0)]);
   clipBadge.classList.toggle("armed", armed);
@@ -602,12 +584,15 @@ function render() {
     const schemaEnum =
       typeof snap.mode === "object" && "SchemaEnum" in snap.mode ? snap.mode.SchemaEnum : undefined;
     if (isWide()) {
-      if (cur && cur.path.length) {
+      // No `path.length` guard: root-hidden means every cursor row is a real
+      // Node (ADR 0013 D5). `cur` is still optional — an empty document has
+      // no rows at all, which is exactly the empty state below.
+      if (cur) {
         renderDetailBody(dpBody, dpBody.parentElement!, cur, schemaEnum);
       } else {
         dpBody.innerHTML = '<div class="dp-empty">Tap any node<br>to edit its value and metadata here</div>';
       }
-    } else if (sheets.detail.classList.contains("open") && cur && cur.path.length) {
+    } else if (sheets.detail.classList.contains("open") && cur) {
       const wrap = sheets.detail.querySelector<HTMLElement>(".detail-wrap");
       if (wrap) renderDetailBody(wrap, wrap, cur, schemaEnum);
     }
@@ -1374,25 +1359,6 @@ function onReorderMove(y: number) {
     return;
   }
   reSlot = slot;
-  // Undrawn root row (shared decision, `rootSlotLine`): the first row's top
-  // band means "drop at the document's very top", which the `?? hit` fallback
-  // below drew under the hovered row instead — indistinguishable from
-  // dropping *after* that row, so the top looked unreachable.
-  const rootLine = rootSlotLine(treeEl, slot);
-  if (rootLine) {
-    clearInto();
-    const treeTop = treeEl.getBoundingClientRect().top;
-    const rr = rootLine.vRow.getBoundingClientRect();
-    const rootMain = rootLine.hRow.querySelector<HTMLElement>(".row-main");
-    reLine.style.top = `${(rootLine.edge === "top" ? rr.top : rr.bottom) - treeTop}px`;
-    reLine.style.left = `${
-      rootMain && typeof getComputedStyle !== "undefined"
-        ? parseFloat(getComputedStyle(rootMain).paddingLeft) || 0
-        : 0
-    }px`;
-    reLine.style.display = "block";
-    return;
-  }
   if ("Into" in slot) {
     reLine.style.display = "none";
     if (reInto !== hit) {
@@ -1631,7 +1597,10 @@ function installTreeGestures() {
   // the pointer flow above) is enough since nothing here needs drag/swipe
   // tracking, and a tap that hits a `.row` never reaches this listener target.
   treePane.addEventListener("click", (e) => {
-    if ((e.target as HTMLElement).closest(".row")) return;
+    const el = e.target as HTMLElement;
+    // The zero-row empty state's only affordance (root-hidden, ADR 0013 D11).
+    if (el.closest('[data-act="addroot"]')) return send("AddChild");
+    if (el.closest(".row")) return;
     if (snap?.rows.some((r) => r.selected)) send({ SetSelection: { paths: [] } });
     if (snap?.notice?.severity === "error") statusEl.textContent = (session ? schemaHintText(session.schemaHint(snap.cursor)) : "") || t("web.status.ready");
   });
@@ -1759,10 +1728,12 @@ function openText(
   // the selector's persisted choice so status/error/About text match.
   snap = session.dispatch({ SetLang: getLang() });
   // The Root's display label (ADR 0013 D9) — dispatched by every host, even
-  // root-hidden ones: the panel/header still name the open file. Touch's
-  // `SetRootVisible: false` lands with the stand-in deletion (slice 4), so
-  // no commit ships a half-migrated tree.
+  // root-hidden ones: the panel and the Save/Convert form still name the open
+  // file.
   snap = session.dispatch({ SetFilename: name || "" });
+  // Touch is root-hidden (ADR 0013 D2/D5): the Root row is dropped inside
+  // core, so no host-side row filter or depth shift exists to go stale.
+  snap = session.dispatch({ SetRootVisible: false });
   // One-shot advisory when the file already had comments at open (a JSONC
   // upgrade the user didn't ask for) — mirrors web/ui.ts's openText.
   if (isPlainJson && session.hadCommentsAtOpen()) {
@@ -1830,23 +1801,11 @@ async function doOpen() {
 // move the insertion slot instead).
 function touchNavSelect(i: Intent) {
   send(i);
-  if (snap && (snap.clipboard_count ?? 0) > 0) {
-    // Paste mode: same web-only overshoot correction desktop's `navSelect`
-    // applies — an upward step can land on the undrawn root row's `Into`
-    // slot, which appends at the document's END; step back down onto
-    // `After(root)`, the top (`overshotUndrawnRootSlot`).
-    if (overshotUndrawnRootSlot(i, snap)) send("CursorDown");
-    return;
-  }
-  if (snap) {
-    // Same root-row correction desktop's `navSelect` applies: `g`/Home (and
-    // `k` from the first drawn row) can leave core's cursor on the undrawn
-    // root row, i.e. an invisible focus cursor (`drawnCursorFallback`). Must
-    // precede the `SetSelection` so it collapses onto the corrected cursor.
-    const drawn = drawnCursorFallback(snap);
-    if (drawn) send({ SetCursor: drawn });
-    send({ SetSelection: { paths: [snap!.cursor] } });
-  }
+  // Paste mode: arrows move the insertion slot, not the cursor. Root-hidden,
+  // so no root-anchored slot or cursor exists to correct (ADR 0013 D5) —
+  // both web-only stand-ins died with it.
+  if (snap && (snap.clipboard_count ?? 0) > 0) return;
+  if (snap) send({ SetSelection: { paths: [snap.cursor] } });
 }
 
 // Mirrors desktop `ui.ts`'s `toggleSelectedBranches`: Space on a single/zero

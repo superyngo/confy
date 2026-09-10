@@ -88,8 +88,18 @@ console.log("\n-- treeHTML(): After slot does not bake a row class (line is draw
 
 console.log("\n-- treeHTML(): still emits the trailing .reorder-line the After cue reuses --");
 {
-  const html = treeHTML(makeSnap([], undefined));
+  const html = treeHTML(makeSnap([makeRow({ path: [{ Key: "b" }], key: "b" })], undefined));
   check('trailing reorder-line element present', html.includes('<div class="reorder-line"></div>'));
+}
+
+console.log("\n-- treeHTML(): a ZERO-row document is the host's empty state (ADR 0013 D11) --");
+{
+  // Touch is root-hidden, so an empty document has no row at all — not even a
+  // Root row to stand on. The pane must offer a way in rather than read blank.
+  const html = treeHTML(makeSnap([], undefined));
+  check("empty document renders the empty state", html.includes('class="tree-empty"'));
+  check("empty state carries the add affordance", html.includes('data-act="addroot"'));
+  check("empty state draws no rows", !html.includes('class="row'));
 }
 
 console.log("\n-- treeHTML(): has_descendant_violation gets warn-branch, stably regardless of expand state --");

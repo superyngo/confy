@@ -10,6 +10,7 @@
 // `isVsCode()` true) and `window.addEventListener`/`removeEventListener`
 // (the postMessage channel `requestSchemaFile` listens on).
 import path from "node:path";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import * as esbuild from "esbuild";
 
@@ -82,5 +83,27 @@ console.log("-- readSiblingFile() VS Code branch --");
   check("rejection carries the host's message", message === "ENOENT");
 }
 
+
+// ---- VS Code is a root-hidden host (ADR 0013 D2/D7) ----
+// Source-level checks: `ui.ts` boots wasm + DOM at module top level, so it
+// cannot be imported in Node (same reason armed-paste.spec.mjs reads it as
+// text). The extension host itself is exercised by the VSIX flow, not here.
+{
+  const uiTs = readFileSync(path.join(here, "ui.ts"), "utf8");
+  check(
+    "openText picks root visibility per host - desktop visible, VS Code hidden",
+    /session\.dispatch\(\{ SetRootVisible: !VSHOST \}\)/.test(uiTs),
+  );
+  const menuBlock = uiTs.match(/^function buildActionMenu\(\)[\s\S]*?\n\}/m)?.[0] ?? "";
+  check(
+    "the document-level action item is suppressed in VS Code (its editor owns whole-file text)",
+    /VSHOST && it\.id === "EditDocument" \? "" : actionItemHTML\(it, i, i === am\.cursor\)/.test(menuBlock),
+    menuBlock,
+  );
+  check(
+    "suppression keeps core's real item index in data-i (no remapping)",
+    /\.map\(\(it, i\) =>/.test(menuBlock),
+  );
+}
 console.log(failures === 0 ? "\nALL FS/VSCODE-SCHEMA CHECKS PASSED" : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

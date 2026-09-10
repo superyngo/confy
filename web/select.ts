@@ -7,9 +7,6 @@
 import type { Path, SessionSnapshot } from "./types.js";
 import { pathEq as eq } from "./path-utils.js";
 
-function visiblePaths(snap: SessionSnapshot): Path[] {
-  return snap.rows.filter((r) => r.path.length > 0).map((r) => r.path);
-}
 function selectedPaths(snap: SessionSnapshot): Path[] {
   return snap.rows.filter((r) => r.selected).map((r) => r.path);
 }
@@ -59,7 +56,11 @@ export function resolveClick(
   clicked: Path,
   ev: Mods,
 ): Path[] {
-  const all = visiblePaths(snap);
+  // Selectable rows only. The Root row is excluded even where it IS drawn
+  // (desktop): it takes the cursor but is never selected (ADR 0013 D1), and
+  // core would strip it anyway — emitting an Info notice per click. A ⇧-range
+  // therefore stops at the first top-level Node, like `extend_select_up`.
+  const all = snap.rows.filter((r) => r.path.length > 0).map((r) => r.path);
   if (ev.shiftKey && anchor) {
     const ai = all.findIndex((p) => eq(p, anchor!));
     const ti = all.findIndex((p) => eq(p, clicked));
@@ -89,7 +90,10 @@ export function resolveClick(
   return [clicked];
 }
 
-/** Paths of every `.row` whose bounding box intersects the marquee `rect`. */
+/** Paths of every **selectable** `.row` whose bounding box intersects the
+ * marquee `rect`. The drawn Root row is skipped for the same reason
+ * `resolveClick` skips it: it is never selected (ADR 0013 D1), and sweeping
+ * over it would otherwise fire an Info notice mid-drag. */
 export function rowsInRect(treeEl: HTMLElement, rect: DOMRect): Path[] {
   const out: Path[] = [];
   treeEl.querySelectorAll<HTMLElement>(".row").forEach((el) => {
@@ -99,7 +103,8 @@ export function rowsInRect(treeEl: HTMLElement, rect: DOMRect): Path[] {
       r.top > rect.bottom ||
       r.right < rect.left ||
       r.left > rect.right;
-    if (!miss && el.dataset.path) out.push(JSON.parse(el.dataset.path) as Path);
+    const p = el.dataset.path ? (JSON.parse(el.dataset.path) as Path) : null;
+    if (!miss && p && p.length > 0) out.push(p);
   });
   return out;
 }

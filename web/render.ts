@@ -94,9 +94,15 @@ function renderValue(
 }
 
 // The per-row kind badge: friendly kind label + notation suffix + chevron.
-function renderKindBadge(r: ViewRow): string {
+//
+// The Root's badge (core gives it `⌂` + the document format) is **inert**
+// (ADR 0013 D12): a document has no kind to switch to, so it is a `<span>`
+// with no `data-kind` hook and no chevron — clicking it does nothing rather
+// than opening an empty `K` picker.
+function renderKindBadge(r: ViewRow, isRoot: boolean): string {
   const { badge_label: label, badge_note: note } = r;
   const suffix = note ? `<span class="kind-note">·${escapeHtml(note)}</span>` : "";
+  if (isRoot) return `<span class="kind inert">${escapeHtml(label)}${suffix}</span>`;
   return `<button class="kind" data-kind="1">${escapeHtml(label)}${suffix} ${IC_CHEV}</button>`;
 }
 
@@ -114,21 +120,26 @@ export function renderRow(
 ): string {
   const pathAttr = escapeHtml(JSON.stringify(r.path));
   const comment = isCommentRow(r);
+  // The document Root, drawn only in root-visible mode (desktop web, TUI).
+  // It is a real row — cursor, expand/collapse, hover ⋮ — but it can never be
+  // selected, moved, or kind-switched (ADR 0013 D1/D12).
+  const isRoot = r.path.length === 0;
   const expanded = r.is_branch && isExpanded(rows, idx);
   const cls =
     `row${r.is_branch ? " branch" : ""}${expanded ? " open" : ""}` +
     `${r.is_cursor ? " cursor" : ""}${r.selected ? " selected" : ""}` +
     `${r.read_only ? " readonly" : ""}${comment ? " comment-row" : ""}${clip}` +
     `${r.violations ? " schema-violation" : ""}${pasteInto ? " paste-target" : ""}` +
-    `${r.is_branch && r.has_descendant_violation ? " warn-branch" : ""}`;
+    `${r.is_branch && r.has_descendant_violation ? " warn-branch" : ""}` +
+    `${isRoot ? " root-row" : ""}`;
   let s = `<div class="${cls}" data-path="${pathAttr}" data-index="${idx}">`;
   // Indentation: a single spacer whose width scales with depth (the design's
-  // `indent.style.width = depth*22`). The synthetic root (depth 0) is not drawn,
-  // so real top-level nodes (depth 1) sit flush-left and each deeper level adds
-  // one `--indent` step. (A zero-width span per level — the previous approach —
-  // left every node flush-left with no level hint.)
-  const level = Math.max(0, r.depth - 1);
-  s += `<span class="indent" style="width:calc(var(--indent) * ${level})"></span>`;
+  // `indent.style.width = depth*22`). `r.depth` is used verbatim — core owns
+  // the shift: in root-hidden mode (touch, VS Code) it drops the Root row and
+  // re-bases every remaining depth, so top-level nodes arrive at 0 either way
+  // (ADR 0013 D5). In root-visible mode the drawn Root row costs one level,
+  // exactly as the TUI draws it (D8).
+  s += `<span class="indent" style="width:calc(var(--indent) * ${r.depth})"></span>`;
   // Disclosure caret (rotates on expand); leaves get an aligned hidden caret.
   s += `<button class="caret${r.is_branch ? "" : " leaf"}" data-caret="1">${IC_CARET}</button>`;
   // Schema-warning triangle: rides in the flex flow right after the caret,
@@ -178,6 +189,11 @@ export function renderRow(
       // decoration is drawn here — it would double the quotes. Plain input,
       // same as any other key.
       s += `<input class="cell-input key-input mono" data-editing="name" style="${editWidthStyle(edit.buffer)}" value="${escapeHtml(edit.buffer)}" />`;
+    } else if (isRoot) {
+      // The document's filename, supplied by the host via `SetFilename`. Not
+      // a rename target: renaming the Root would mean renaming the file, which
+      // is the host's Save-As flow, not a document mutation.
+      s += `<span class="key">${highlightHtml(r.key, filter)}</span>`;
     } else if (r.key) {
       s += `<span class="key" data-edit="key">${highlightHtml(r.key_literal ?? r.key, filter)}</span>`;
     }
@@ -191,7 +207,7 @@ export function renderRow(
       s += `<span class="val ${vcls}${editingValue ? " editing" : ""} mono" data-edit="val">${renderValue(r, edit, schemaEnum, filter)}</span>`;
     }
     // Kind badge (type + notation + chevron).
-    if (!r.read_only) s += renderKindBadge(r);
+    if (!r.read_only) s += renderKindBadge(r, isRoot);
     // Trailing same-line comment.
     if (r.trailing_comment) {
       const advisoryCls = r.comment_advisory ? " comment-advisory" : "";
@@ -204,8 +220,12 @@ export function renderRow(
   // Action menu — desktop.paste-mode hides row-actions wholesale, so the
   // grip now disappears with the rest during an armed clipboard, same as
   // it did with the old ⋮ button).
+  //
+  // The Root row gets NO grip: `Mutation::Move` on the document is
+  // `Unsupported`, so a draggable grip there could only ever fail (D12 — the
+  // row keeps its hover ⋮, which core dims per action).
   s += `<span class="row-actions">`;
-  s += `<span class="drag-handle" data-grip="1" draggable="true">${IC_GRIP}</span>`;
+  if (!isRoot) s += `<span class="drag-handle" data-grip="1" draggable="true">${IC_GRIP}</span>`;
   s += `</span>`;
 
   s += `</div>`;
@@ -268,11 +288,12 @@ export function renderTree(
     effectivePasteSlot && "Into" in effectivePasteSlot
       ? JSON.stringify(effectivePasteSlot.Into)
       : null;
-  // The synthetic root (empty path) is not rendered; `idx` stays the real
-  // `snap.rows` index so a click maps back to the right node.
+  // Every row core hands us is drawn — including the Root row, which core
+  // omits entirely in root-hidden mode (ADR 0013 D5), so no host-side filter
+  // is needed or wanted. `idx` is the real `snap.rows` index either way, so a
+  // click maps back to the right node.
   const next: { key: string; html: string }[] = [];
   rows.forEach((r, idx) => {
-    if (r.path.length === 0) return;
     next.push({
       key: JSON.stringify(r.path),
       html: renderRow(
@@ -324,6 +345,23 @@ export function renderTree(
   }
   // Anything left in `existing` is a row that no longer appears — drop it.
   for (const stale of existing.values()) stale.remove();
+  // A **root-hidden** host (VS Code) can legitimately render ZERO rows: an
+  // empty document has no Root row to stand on (ADR 0013 D11 — core gets no
+  // zero-children exception, the empty state is the host's). The keyboard
+  // still has `a`; this is the pointer's only way in. Root-visible hosts never
+  // see it — the Root row is always drawn there.
+  const emptyEl = treeEl.querySelector(".tree-empty");
+  if (rows.length === 0) {
+    if (!emptyEl) {
+      treeEl.insertAdjacentHTML(
+        "beforeend",
+        `<div class="tree-empty"><p>${escapeHtml(t("web.tree.empty"))}</p>` +
+          `<button data-act="addroot">${escapeHtml(t("web.tree.empty.add"))}</button></div>`,
+      );
+    }
+  } else {
+    emptyEl?.remove();
+  }
 
   const cur = treeEl.querySelector(".row.cursor") as HTMLElement | null;
   cur?.scrollIntoView({ block: "nearest" });

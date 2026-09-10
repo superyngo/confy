@@ -887,3 +887,17 @@ mark.fz{
   background:color-mix(in oklch,var(--warn) 30%,transparent);
   color:inherit;font-weight:700;border-radius:2px;padding:0 1px;margin:0 -1px;
 }
+
+/* ===== Document Root row + the zero-row empty state (ADR 0013) ===== */
+/* The Root row is a real row but never a selection or a drag source: its badge
+   is inert (`span.kind.inert`, no chevron) and it has no grip, so the whole
+   row reads as document chrome rather than an editable Node (D12). */
+.row.root-row .key{font-weight:700}
+.row.root-row .kind.inert{
+  cursor:default;background:transparent;border-style:dashed;opacity:.85;
+}
+/* Root-hidden hosts (VS Code) can legitimately draw ZERO rows — an empty
+   document has no Root row to fall back on, so the host owns the empty state
+   (D11). Root-visible hosts never see this. */
+.tree-empty{padding:44px 22px;text-align:center;color:var(--muted)}
+.tree-empty p{margin:0 0 14px}

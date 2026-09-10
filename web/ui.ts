@@ -51,7 +51,7 @@ import type { Lang } from "./i18n.js";
 import { resolveClick, resetAnchor, rowsInRect, setAnchor } from "./select.js";
 import { foldedEntries, type ToolbarEntry } from "./toolbar-fold.js";
 import { installDnd } from "./dnd.js";
-import { rootSlotLine, slotLineIndentPx } from "./slot-line.js";
+import { slotLineIndentPx } from "./slot-line.js";
 import { panelHTML, wirePanel, schemaHintText } from "./panel.js";
 import { renderCrumbs, wireCrumbDismiss } from "./breadcrumb.js";
 import { bindPromptClicks, promptButtonsHTML } from "./prompt.js";
@@ -82,7 +82,6 @@ import type {
 import { createBatcher, modeTag } from "./mode.js";
 import { drainDiagIfEnabled, resetDiagCursor } from "./diag.js";
 import { navRowCount, resolveKeyIntent, treePageStep } from "./key-intent.js";
-import { drawnCursorFallback, overshotUndrawnRootSlot } from "./path-utils.js";
 
 let session: Session | null = null;
 let snap: SessionSnapshot | null = null;
@@ -312,16 +311,15 @@ function openText(
   // selector's persisted choice so status/error/About text match immediately.
   snap = session.dispatch({ SetLang: getLang() });
   // The Root's display label (ADR 0013 D9). Core is filesystem-free, so the
-  // filename only ever arrives from the host — until now the web never sent
-  // it and the Root row was nameless (design record §1 E2). Sample docs pass
-  // the literal "sample" as `name`.
-  snap = session.dispatch({ SetFilename: name || "" });
+  // filename only ever arrives from the host. Desktop DRAWS the Root row, so a
+  // handle-less document (New, a sample, a paste) needs a stand-in label —
+  // an empty key would render a row with nothing but a badge.
+  snap = session.dispatch({ SetFilename: name || t("web.root.untitled") });
   // Root visibility is core state, not a renderer flag (ADR 0013 D5/D10).
-  // Desktop web is root-visible, like the TUI. VS Code shares this
-  // orchestrator but is root-hidden — it flips this in the slice that also
-  // deletes the host-side stand-ins, so no commit renders a half-migrated
-  // tree.
-  snap = session.dispatch({ SetRootVisible: true });
+  // Desktop web is root-visible, like the TUI; VS Code shares this
+  // orchestrator but is root-hidden — its own editor tab already names the
+  // file, and whole-document text editing is what it is for (D2).
+  snap = session.dispatch({ SetRootVisible: !VSHOST });
   // One-shot advisory when the file already had comments at open (a JSONC
   // upgrade the user didn't ask for) — dispatched after SetLang, which
   // clears any pending notice. Comments added later in-session are covered
@@ -379,20 +377,6 @@ function renderConfirmedPasteCue(snap: SessionSnapshot) {
     return;
   }
   const slot: PasteSlot = snap.paste_slot ?? { After: snap.cursor };
-  // The root row is never drawn, so both of its slots would otherwise show
-  // nothing at all — the two invisible steps at the top of paste-mode
-  // stepping. `rootSlotLine` says which row edge stands in for it.
-  const rootLine = rootSlotLine(tree, slot);
-  if (rootLine) {
-    const wrap = $("treeWrap");
-    const rr = rootLine.vRow.getBoundingClientRect();
-    const wrr = wrap.getBoundingClientRect();
-    const rootIndent = (rootLine.hRow.querySelector(".indent") as HTMLElement | null)?.offsetWidth ?? 0;
-    pasteTargetLine.style.top = `${(rootLine.edge === "top" ? rr.top : rr.bottom) - wrr.top + wrap.scrollTop}px`;
-    pasteTargetLine.style.left = `${rootIndent + 8}px`;
-    pasteTargetLine.style.display = "block";
-    return;
-  }
   if ("Into" in slot) {
     pasteTargetLine.style.display = "none";
     tree
@@ -436,21 +420,6 @@ function renderHoverCue(snap: SessionSnapshot, slot: PasteSlot | undefined) {
   const sameAsConfirmed = slot && JSON.stringify(slot) === JSON.stringify(effectiveConfirmed);
   if (!slot || rawView || sameAsConfirmed) {
     dropLine.style.display = "none";
-    return;
-  }
-  // Same undrawn-root stand-in as the confirmed layer above: the first drawn
-  // row's top band classifies as `After(root)`, and drawing it under the
-  // hovered row (the old `?? row` fallback in `dnd.ts`) made "drop at the very
-  // top" pixel-identical to "drop after the first node".
-  const rootLine = rootSlotLine(tree, slot);
-  if (rootLine) {
-    const wrap = $("treeWrap");
-    const rr = rootLine.vRow.getBoundingClientRect();
-    const wrr = wrap.getBoundingClientRect();
-    const rootIndent = (rootLine.hRow.querySelector(".indent") as HTMLElement | null)?.offsetWidth ?? 0;
-    dropLine.style.top = `${(rootLine.edge === "top" ? rr.top : rr.bottom) - wrr.top + wrap.scrollTop}px`;
-    dropLine.style.left = `${rootIndent + 8}px`;
-    dropLine.style.display = "block";
     return;
   }
   if ("Into" in slot) {
@@ -1097,21 +1066,18 @@ function toggleSelectedBranches() {
 function navSelect(i: Intent) {
   send(i);
   if (snap && (snap.clipboard_count ?? 0) > 0) {
-    // Paste mode: the arrows move the insertion slot, not the cursor. An
-    // upward step can overshoot onto the undrawn root row's `Into` slot (an
-    // append at the document's END) — step back down onto `After(root)`, the
-    // top (`overshotUndrawnRootSlot`).
-    if (overshotUndrawnRootSlot(i, snap)) send("CursorDown");
+    // Paste mode: the arrows move the insertion slot, not the cursor. Both
+    // root-anchored slots sit on the drawn Root row here (root-visible), so
+    // there is no invisible overshoot to correct — that stand-in died with
+    // ADR 0013 D5.
     return;
   }
   if (snap) {
-    // `g`/Home (and `k` from the first drawn row) can land core's cursor on the
-    // undrawn root row — re-target the first drawn row so the cursor bar never
-    // vanishes (`drawnCursorFallback`). Before the `SetSelection` below, so the
-    // selection collapses onto the corrected cursor.
-    const drawn = drawnCursorFallback(snap);
-    if (drawn) send({ SetCursor: drawn });
-    send({ SetSelection: { paths: [snap!.cursor] } });
+    // The Root row takes the cursor but is never selected (D1), so `g`/Home
+    // clears the selection rather than asking core to select the document —
+    // which would only earn an Info notice per keystroke.
+    const onRoot = snap.cursor.length === 0;
+    send({ SetSelection: { paths: onRoot ? [] : [snap.cursor] } });
   }
 }
 
@@ -1317,6 +1283,15 @@ function armedPasteTarget(path: Path, ev: MouseEvent): Intent {
 function focusRow(path: Path, ev: MouseEvent) {
   if (!snap) return;
   if ((snap.clipboard_count ?? 0) > 0) return send(armedPasteTarget(path, ev));
+  // The Root row takes the cursor but is never selected (ADR 0013 D1), and
+  // core moves the cursor only to a selection's focal path — so clicking it
+  // has to say `SetCursor` explicitly, or the row would be unclickable.
+  if (path.length === 0) {
+    resetAnchor();
+    send({ SetCursor: [] });
+    if (snap.rows.some((r) => r.selected)) send({ SetSelection: { paths: [] } });
+    return;
+  }
   send({ SetSelection: { paths: resolveClick(snap, path, ev) } });
 }
 
@@ -1330,6 +1305,8 @@ function onTreeClick(ev: MouseEvent) {
   const target = ev.target as HTMLElement;
   // Clicks inside the live edit input are handled by the input itself.
   if (target.closest("[data-editing]")) return;
+  // The zero-row empty state's only affordance (root-hidden hosts, D11).
+  if (target.closest('[data-act="addroot"]')) return send("AddChild");
   const rowEl = target.closest(".row") as HTMLElement | null;
   if (!rowEl) {
     // Click on empty tree space (including the wrap's blank area below the
@@ -1421,7 +1398,8 @@ function onTreeClick(ev: MouseEvent) {
     return;
   }
   lastBodyClick = plain ? { key, t: Date.now() } : null;
-  send({ SetSelection: { paths: resolveClick(snap, path, ev) } });
+  // Through `focusRow` so the Root row's cursor-only rule (D1) is stated once.
+  focusRow(path, ev);
 }
 // Last plain empty-area body click (path + time) for manual double-click detect.
 let lastBodyClick: { key: string; t: number } | null = null;
@@ -1813,9 +1791,17 @@ function buildActionMenu(): HTMLElement {
     menu.innerHTML = "";
     return menu;
   }
+  // VS Code suppresses the document-level "edit whole file as text" item
+  // (ADR 0013 D2/D7): its own text editor already owns whole-file editing, the
+  // same reason `q`/`Ctrl+O` are suppressed there. `data-i` stays core's real
+  // item index, so the click handler needs no remapping.
   menu.innerHTML =
     `<div class="menu-label">${escapeHtml(am.target_label)}</div>` +
-    am.items.map((it, i) => actionItemHTML(it, i, i === am.cursor)).join("");
+    am.items
+      .map((it, i) =>
+        VSHOST && it.id === "EditDocument" ? "" : actionItemHTML(it, i, i === am.cursor),
+      )
+      .join("");
   menu.querySelectorAll<HTMLElement>("[data-i]:not([disabled])").forEach((b) => {
     const i = Number(b.dataset.i);
     b.onclick = () => {

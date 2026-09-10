@@ -1,6 +1,6 @@
 # Root visibility is core state, and the Root is never selected
 
-Status: accepted, not yet implemented (2026-09-10)
+Status: accepted, implemented (2026-09-10)
 Design record: [`../spec/2026-09-10-web-root-row-alignment.md`](../spec/2026-09-10-web-root-row-alignment.md)
 (evidence E1–E9, decisions D1–D14)
 

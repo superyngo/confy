@@ -204,30 +204,22 @@ TUI is unchanged: `PasteSlot` arrow-key stepping already exists and already work
   moving the mouse fully off the tree (or onto the paste button) to see it — the hover
   layer now clears to nothing on `mouseleave` instead of falling back to redrawing the
   committed slot, since the confirmed layer already shows it independently.
-- **The root row's two slots have no row to paint.** Neither web host draws the root row
-  (`treeHTML`, `web/render.ts` / `web/touch/render.ts`), yet both of its slots are legal and
-  reachable — the keyboard steps onto them (`paste_slots()` emits them first) and a pointer
-  in the *first* drawn row's top band classifies as `After(root)`. Both are therefore drawn
-  as insertion lines on a stand-in row edge (`rootSlotLine`, `web/slot-line.ts`, shared by
-  desktop and touch): `After(root)` — root index 0, the document's top — at the **first**
-  row's top edge, `Into(root)` — `children.len()`, an append at the document's end — at the
-  **last** row's bottom edge. Before that, stepping to the top of paste mode showed no cue
-  at all for two steps, and a drag aimed at the very top drew its line under the hovered
-  row, indistinguishable from `After(<first row>)`.
-- **Stepping *up* onto the root row's `Into` slot is corrected web-side only.**
-  `paste_slots()` lists each row's `Into` before its `After`, so the root row's `Into` is
-  index 0 — above everything in the stepping order, while `slot_target` resolves it to
-  `children.len()`, an append at the document's *end*. The TUI draws the root row, so
-  landing there highlights a real visible row and reads correctly; **core's order is
-  therefore unchanged**. In the web hosts, where that row isn't drawn, `↑`/`k`/PageUp/`Home`
-  from the top of the tree instead threw the insertion point to the far end of the document
-  and clamped there (index 0 can't step further) — a move in the opposite direction, onto a
-  slot the user was not aiming at. `overshotUndrawnRootSlot()` (`web/path-utils.ts`, the
-  paste-mode sibling of `drawnCursorFallback`) detects exactly that combination — upward
-  intent + resulting slot `Into(root)` — and both `navSelect`/`touchNavSelect` step one slot
-  back down onto `After(root)`, the document top. Downward navigation and `End` are left
-  alone: reaching the append slot from below is correct, and it is drawn at the last row's
-  bottom edge.
+- **The Root's two slots need no stand-in.** Root visibility is core state
+  ([ADR 0013](../adr/0013-root-visibility-is-core-state.md)): desktop is **root-visible**, so
+  the Root row is drawn and both root-anchored slots resolve through the same per-row lookup
+  as any other — `Into([])` outlines the Root row, `After([])` draws its line at that row's
+  bottom edge, one indent step deeper because the Root is an expanded branch, i.e. visually
+  "the document's first child". Touch and VS Code are **root-hidden**, so `paste_slots()`
+  emits neither slot and there is nothing to draw. The three stand-ins this section used to
+  specify (`rootSlotLine`, `drawnCursorFallback`, `overshotUndrawnRootSlot`) are deleted, and
+  **core's slot order is unchanged**: `paste_slots()` still lists each row's `Into` before its
+  `After`.
+- **The Root takes the cursor but is never selected** (all hosts, both modes): `s`/click/
+  ⇧-range on it reports Info `core.selection.root-excluded` instead of selecting, and
+  Copy/Cut/Remark/Delete are dimmed when the target resolves to it. A ⇧-range therefore stops
+  at the first top-level Node. Desktop's own consequence: a click on the Root row sends
+  `SetCursor` explicitly (core moves the cursor only to a selection's focal path), and `g`/
+  `Home` clears the selection rather than asking core to select the document.
 
 ### 6b. Touch — body-drag continuously repositions the target; FAB still commits
 

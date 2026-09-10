@@ -202,7 +202,7 @@ console.log("\n-- renderConfirmedPasteCue redraws the Into class + After line --
   if (cueMatch) {
     const built = await esbuild.build({
       stdin: {
-        contents: `import { rootSlotLine, slotLineIndentPx } from "./slot-line.js";
+        contents: `import { slotLineIndentPx } from "./slot-line.js";
 let $, tree, rawView, CSS;
 export function setEnv(e) { $ = e.$; tree = e.tree; rawView = e.rawView; CSS = e.CSS; }
 export ${cueMatch[0]}\n`,
@@ -229,22 +229,23 @@ export ${cueMatch[0]}\n`,
     getBoundingClientRect: () => ({ bottom: 40 }),
     querySelector: () => ({ offsetWidth: 12 }),
   };
-  // Two drawn rows: the shims that answer `querySelectorAll(".row")` are what
-  // `rootSlotLine` reads for the undrawn root row's stand-in edges.
-  const firstRow = {
-    classList: { contains: () => false },
+  // The drawn **Root** row (root-visible desktop): an expanded branch, so
+  // `slotLineIndentPx` pushes an `After` line one `--indent` step deeper.
+  const rootRow = {
+    classList: {
+      contains: (c) => c === "branch" || c === "open",
+      add: (c) => cueOps.push(`add ${c}`),
+    },
     getBoundingClientRect: () => ({ top: 100, bottom: 130 }),
     querySelector: () => ({ offsetWidth: 0 }),
   };
-  const lastRow = {
-    classList: { contains: () => false },
-    getBoundingClientRect: () => ({ top: 200, bottom: 230 }),
-    querySelector: () => ({ offsetWidth: 44 }),
-  };
   const cueTree = {
-    querySelector: (sel) => (sel.includes('"Key":"b"') ? intoRow : sel.includes('"Key":"c"') ? afterRow : null),
-    querySelectorAll: (sel) => (sel === ".row" ? [firstRow, lastRow] : []),
+    querySelector: (sel) =>
+      sel.includes('"Key":"b"') ? intoRow : sel.includes('"Key":"c"') ? afterRow : sel.includes("[]") ? rootRow : null,
+    querySelectorAll: () => [],
   };
+  // `slotLineIndentPx` reads the live `--indent` custom property.
+  globalThis.getComputedStyle = () => ({ getPropertyValue: () => "22px" });
   setEnv({
     $: (id) => (id === "pasteTargetLine" ? cueTargetLine : { getBoundingClientRect: () => ({ top: 5 }), scrollTop: 3 }),
     tree: cueTree,
@@ -260,34 +261,31 @@ export ${cueMatch[0]}\n`,
   check("After line at row indent + 8px", cueTargetLine.style.left === "20px", JSON.stringify(cueTargetLine.style));
   cue({ clipboard_count: 0, cursor: [], paste_slot: undefined });
   check("unarmed snapshot hides the line", cueTargetLine.style.display === "none");
-  // The root row is never drawn (`treeHTML`), so paste-mode stepping onto
-  // either of its two slots used to show nothing at all — the reported "line
-  // disappears for two steps at the top". `After(root)` is root index 0 (the
-  // document's very top) and `Into(root)` is `children.len()` (its very end).
+  // Desktop is **root-visible** (ADR 0013 D2): the Root row is drawn, so both
+  // root-anchored slots resolve through the SAME per-row lookup as any other
+  // slot — the old undrawn-root stand-in (`rootSlotLine`) is gone.
+  //   `After([])` = root index 0, the document's very top: the line sits at the
+  //   Root row's bottom edge, one indent level deeper because the Root is an
+  //   expanded branch (`slotLineIndentPx`) — which is exactly "first child of
+  //   the document".
+  //   `Into([])` = `children.len()`, an append at the end: drawn as the Root
+  //   row's own `.paste-target` outline, like every other `Into`.
   cue({ clipboard_count: 1, cursor: [], paste_slot: { After: [] } });
   check("After(root) shows the line", cueTargetLine.style.display === "block");
   check(
-    "After(root) draws it at the FIRST row's top edge (100 - 5 + 3)",
-    cueTargetLine.style.top === "98px",
+    "After(root) draws it at the Root row's bottom edge (130 - 5 + 3)",
+    cueTargetLine.style.top === "128px",
     JSON.stringify(cueTargetLine.style),
   );
   check(
-    "After(root) uses the first row's own (top-level) indent",
-    cueTargetLine.style.left === "8px",
+    "After(root) indents one level deeper - the insert lands as the document's first child",
+    cueTargetLine.style.left === "30px",
     JSON.stringify(cueTargetLine.style),
   );
+  cueOps.length = 0;
   cue({ clipboard_count: 1, cursor: [], paste_slot: { Into: [] } });
-  check("Into(root) shows the line too", cueTargetLine.style.display === "block");
-  check(
-    "Into(root) draws it at the LAST row's bottom edge (230 - 5 + 3), where the append lands",
-    cueTargetLine.style.top === "228px",
-    JSON.stringify(cueTargetLine.style),
-  );
-  check(
-    "Into(root) still uses the top-level indent, not the last row's own",
-    cueTargetLine.style.left === "8px",
-    JSON.stringify(cueTargetLine.style),
-  );
+  check("Into(root) outlines the drawn Root row", cueOps.includes("add paste-target"));
+  check("Into(root) draws no line", cueTargetLine.style.display === "none");
 }
 
 // ---- ui.ts wiring: installDnd's 4th argument re-invokes both cue layers ----

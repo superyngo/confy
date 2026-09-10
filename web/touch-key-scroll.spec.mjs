@@ -1,6 +1,5 @@
 // Plain-Node test for the touch UI's keyboard-nav scroll follow
-// (`scrollFocusIntoView`) and the shared undrawn-root cursor correction
-// (`drawnCursorFallback`).
+// (`scrollFocusIntoView`) and the two web orchestrators' nav wiring.
 //
 // The defect: `render()` re-applies the captured `treePane.scrollTop` verbatim
 // after the `innerHTML` rebuild (so a tap never snaps the pane to the top),
@@ -19,15 +18,13 @@
 //      which would also scroll the page and slide the `position:absolute` app
 //      shell out from under its bottom-anchored sheets;
 //   4. the anchor follows what the focus visually *is*: the cursor row
-//      normally, but in paste mode the `.reorder-line` for `After` /
-//      `Into(root)` and the target row for a deeper `Into` (core routes arrows
-//      to `move_paste_slot`, so the cursor does not move at all);
-//   5. the undrawn root row's two slots are both drawn as insertion lines,
-//      since `treeHTML` never draws that row: `After(root)` (insert at the
-//      document's top) at the first row's top edge, `Into(root)` (append at
-//      its end) at the last row's bottom edge;
-//   6. `drawnCursorFallback` re-targets a cursor left on the undrawn root row
-//      (`g`/Home, `k` from the first row), in BOTH web hosts.
+//      normally, but in paste mode the `.reorder-line` for `After` and the
+//      target row for an `Into` (core routes arrows to `move_paste_slot`, so
+//      the cursor does not move at all);
+//   5. touch is **root-hidden** (ADR 0013 D2/D5), so core emits no root row,
+//      root cursor, or root-anchored paste slot — the two web-only stand-ins
+//      (`drawnCursorFallback`, `overshotUndrawnRootSlot`) are gone, and
+//      neither orchestrator may reintroduce them.
 //
 // Follows touch-paste-cue.spec.mjs's convention: no test framework, just a
 // `check()` tally; `touch/app.ts` can't be imported in Node (wasm + DOM boot at
@@ -35,8 +32,8 @@
 // extracted verbatim from the source and type-stripped via esbuild into a
 // wrapper module supplying the module-level state they close over — the
 // behavioral checks run the real shipped function bodies, not
-// reimplementations. `drawnCursorFallback` is imported from the real
-// `path-utils.ts`.
+// reimplementations. The orchestrators' nav wiring is checked as source text
+// for the same reason.
 import path from "node:path";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -89,23 +86,37 @@ const uiNavBlock = uiTs.match(/^function navSelect\(i: Intent\) \{[\s\S]*?\n\}/m
 for (const [host, block] of [["touch touchNavSelect", touchNavBlock], ["desktop navSelect", uiNavBlock]]) {
   check(`${host} found in source`, block.length > 0);
   check(
-    `${host} re-targets an undrawn-root cursor BEFORE collapsing the selection onto it`,
-    /const drawn = drawnCursorFallback\(snap\);\n\s*if \(drawn\) send\(\{ SetCursor: drawn \}\);\n\s*send\(\{ SetSelection: \{ paths: \[snap!\.cursor\] \} \}\);/.test(
-      block,
-    ),
+    `${host} collapses the selection onto the new cursor row`,
+    /send\(\{ SetSelection: \{ paths: (\[snap\.cursor\]|onRoot \? \[\] : \[snap\.cursor\]) \} \}\)/.test(block),
     block,
   );
   check(
-    `${host} leaves the cursor correction alone in paste mode (arrows move the slot)`,
-    /if \(snap && \(snap\.clipboard_count \?\? 0\) > 0\) \{/.test(block),
+    `${host} leaves the selection frozen in paste mode (arrows move the slot)`,
+    /clipboard_count \?\? 0\) > 0\)/.test(block),
+    block,
+  );
+  // Both undrawn-root stand-ins are GONE (ADR 0013 D5): root-hidden hosts
+  // never receive a root row/cursor/slot, and on root-visible desktop the
+  // Root row is drawn, so there is nothing invisible to correct.
+  check(
+    `${host} carries no undrawn-root cursor stand-in`,
+    !/drawnCursorFallback/.test(block),
     block,
   );
   check(
-    `${host} steps back down when an upward nav overshoots onto the undrawn root's Into slot`,
-    /if \(overshotUndrawnRootSlot\(i, snap\)\) send\("CursorDown"\);/.test(block),
+    `${host} carries no undrawn-root paste-slot overshoot stand-in`,
+    !/overshotUndrawnRootSlot/.test(block),
     block,
   );
 }
+// The desktop host draws the Root row, which takes the cursor but is never
+// selected (D1) — so `g`/Home clears the selection instead of asking core to
+// select the document.
+check(
+  "desktop navSelect clears the selection when the cursor lands on the Root row",
+  /const onRoot = snap\.cursor\.length === 0;/.test(uiNavBlock),
+  uiNavBlock,
+);
 
 // ---- extract + execute the real functions from touch/app.ts ----
 console.log("\n-- extraction --");
@@ -119,8 +130,7 @@ globalThis.getComputedStyle = (el) => ({
   getPropertyValue: (prop) => (prop === "--indent" ? (el?._indentStep ?? "18px") : ""),
 });
 
-const src = `import { rootSlotLine, slotLineIndentPx } from "./slot-line.js";
-export { drawnCursorFallback, overshotUndrawnRootSlot } from "./path-utils.js";
+const src = `import { slotLineIndentPx } from "./slot-line.js";
 let snap = null;
 let treeEl = null;
 let treePane = null;
@@ -254,12 +264,11 @@ check(
   String(run(intoSlot([{ Index: 5 }]), { scrollTop: 0 })),
 );
 check(
-  // `Into(root)` resolves to `children.len()` (core `slot_target`) — an append
-  // at the document's very END, so its line is drawn at the last row's bottom
-  // edge and the scroll must chase it down, not back to the top. The touch
-  // host used to draw this slot at the tree's top, i.e. at the wrong end.
-  "Into(root) — append at the document end — scrolls the line at the tree's bottom into view",
-  run(intoSlot([]), { scrollTop: 0 }) === 9 * ROW_H + ROW_H + 2.5 - PANE_H,
+  // Root-hidden: `Into([])` can no longer be produced by core here, and with
+  // no root row drawn the cue draws no line — so there is nothing to chase
+  // and `scrollTop` must stay put rather than jumping to either end.
+  "a root-anchored slot (impossible on a root-hidden host) scrolls nowhere",
+  run(intoSlot([]), { scrollTop: 0 }) === 0,
   String(run(intoSlot([]), { scrollTop: 0 })),
 );
 check(
@@ -267,25 +276,19 @@ check(
   run({ cursor: [{ Index: 9 }], paste_slot: { After: [{ Index: 1 }] }, rows: [] }, { scrollTop: 0 }) === 0,
 );
 
-// ---- 3. renderPasteSlotCue: the undrawn root row's two slots ----
-console.log("\n-- renderPasteSlotCue(): After(root) / Into(root) ----");
+// ---- 3. renderPasteSlotCue: a root-anchored slot never reaches touch ----
+// Touch is root-hidden (ADR 0013 D5), so `paste_slots()` emits no `Into([])`/
+// `After([])` at all — the stand-in that used to borrow the first/last row's
+// edge for them is gone. Feed one anyway: the cue must degrade to drawing
+// nothing rather than resurrecting a phantom line at the wrong end.
+console.log("\n-- renderPasteSlotCue(): no root-anchored slot exists ----");
 {
   pane = mkPane(PANE_H, 0);
   mod.setEnv({ snap: null, treeEl, treePane: pane, rawView: false, reordering: false });
-  // `After(root)` = root index 0 (`resolve_target`): the document's very top.
   mod.renderPasteSlotCue({ paste_slot: { After: [] } });
-  check("After(root) shows the insertion line", line.style.display === "block");
-  check("After(root) draws it at the first row's TOP edge", line.style.top === "0px", line.style.top);
-  check("After(root) uses the first row's own indent", line.style.left === "10px", line.style.left);
-  // `Into(root)` = append at `children.len()`: the document's very end.
+  check("After(root) draws no line", line.style.display === "none", line.style.display);
   mod.renderPasteSlotCue({ paste_slot: { Into: [] } });
-  check("Into(root) shows the insertion line", line.style.display === "block");
-  check(
-    "Into(root) draws it at the LAST row's bottom edge, where the append lands",
-    line.style.top === `${9 * ROW_H + ROW_H}px`,
-    line.style.top,
-  );
-  check("Into(root) still uses the top-level indent", line.style.left === "10px", line.style.left);
+  check("Into(root) draws no line", line.style.display === "none", line.style.display);
   check("neither root slot outlines a row", !rows.some((r) => r.classes.has("drop-into")));
   mod.renderPasteSlotCue({ paste_slot: { Into: [{ Index: 2 }] } });
   check(
@@ -294,44 +297,11 @@ console.log("\n-- renderPasteSlotCue(): After(root) / Into(root) ----");
   );
 }
 
-// ---- 4. drawnCursorFallback (shared by both hosts) ----
-console.log("\n-- drawnCursorFallback() ----");
-const snapRows = [{ path: [] }, { path: [{ Index: 0 }] }, { path: [{ Key: "a" }] }];
-check(
-  "cursor on the undrawn root row re-targets the first drawn row",
-  JSON.stringify(mod.drawnCursorFallback({ cursor: [], rows: snapRows })) ===
-    JSON.stringify([{ Index: 0 }]),
-);
-check(
-  "cursor already on a drawn row is left alone",
-  mod.drawnCursorFallback({ cursor: [{ Key: "a" }], rows: snapRows }) === null,
-);
-check(
-  "empty document: nothing to re-target",
-  mod.drawnCursorFallback({ cursor: [], rows: [{ path: [] }] }) === null,
-);
-
-// ---- 5. overshotUndrawnRootSlot (shared by both hosts) ----
-console.log("\n-- overshotUndrawnRootSlot() ----");
-const rootInto = { paste_slot: { Into: [] } };
-check(
-  "upward nav landing on the undrawn root's Into slot (= append at the document END) is an overshoot",
-  mod.overshotUndrawnRootSlot("CursorUp", rootInto) === true,
-);
-check("Home counts as upward", mod.overshotUndrawnRootSlot("CursorHome", rootInto) === true);
-check("PageUp counts as upward", mod.overshotUndrawnRootSlot({ PageUp: 8 }, rootInto) === true);
-check(
-  "downward nav is left alone - reaching the append slot from below is correct",
-  mod.overshotUndrawnRootSlot("CursorDown", rootInto) === false &&
-    mod.overshotUndrawnRootSlot("CursorEnd", rootInto) === false &&
-    mod.overshotUndrawnRootSlot({ PageDown: 8 }, rootInto) === false,
-);
-check(
-  "any other slot is not an overshoot",
-  mod.overshotUndrawnRootSlot("CursorUp", { paste_slot: { After: [] } }) === false &&
-    mod.overshotUndrawnRootSlot("CursorUp", { paste_slot: { Into: [{ Key: "t" }] } }) === false &&
-    mod.overshotUndrawnRootSlot("CursorUp", { paste_slot: null }) === false,
-);
+// (The two shared undrawn-root helpers — `drawnCursorFallback` and
+// `overshotUndrawnRootSlot` — were deleted with ADR 0013 D5: root visibility
+// is core state, so a root-hidden host receives no root row, cursor, or slot
+// to correct, and root-visible desktop draws the row. The wiring checks above
+// assert neither orchestrator reintroduces them.)
 
 console.log(failures === 0 ? "\nALL TOUCH KEY-SCROLL CHECKS PASSED" : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

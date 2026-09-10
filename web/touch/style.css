@@ -740,3 +740,9 @@ mark.fz{
   background:color-mix(in oklch,var(--warn) 30%,transparent);
   color:inherit;font-weight:700;border-radius:2px;padding:0 1px;margin:0 -1px;
 }
+
+/* ===== Zero-row empty state (root-hidden host; ADR 0013 D11) =====
+   Touch never draws the Root row, so an empty document has no row at all —
+   the tree pane would otherwise read as broken rather than empty. */
+.tree-empty{padding:48px 22px;text-align:center;color:var(--faint);line-height:1.7}
+.tree-empty p{margin:0 0 16px;font-size:14px}

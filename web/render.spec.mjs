@@ -260,5 +260,40 @@ console.log("\n-- valuePicker(): kind-switch pickers are not value pickers --");
   check("datetime kind picker does not render inline", valuePicker(se({ from_kind_switch: true })) === null);
 }
 
+// ---- the drawn Root row (root-visible desktop; ADR 0013 D8/D12) ----
+// The Root is a real row — cursor, caret, hover ⋮ — but not an editable Node:
+// no drag grip (`Mutation::Move` on the document is `Unsupported`), an inert
+// kind badge (a document has no kind to switch to), and its filename cell is
+// not a rename target (renaming the file is the host's Save-As flow).
+console.log("\n-- renderRow(): the drawn Root row --");
+{
+  const rootRow = makeRow({
+    path: [],
+    depth: 0,
+    is_branch: true,
+    key: "config.toml",
+    value: null,
+    child_count: 3,
+    badge_label: "⌂",
+    badge_note: "toml",
+  });
+  const html = renderRow(rootRow, 0, [rootRow], null, null, "");
+  check("marked with .root-row", html.includes("root-row"));
+  check("indent spacer stays at level 0", html.includes("var(--indent) * 0"));
+  check("filename shown in the key cell", html.includes("config.toml"));
+  check("filename is not a rename target", !html.includes('data-edit="key"'));
+  check("no drag grip", !html.includes('data-grip="1"'));
+  check("badge is inert - no kind-switch hook", !html.includes('data-kind="1"'));
+  check("badge shows core's ⌂ + format note", html.includes("⌂") && html.includes("toml"));
+
+  // A top-level Node now sits one level deeper than the Root, exactly as the
+  // TUI draws it (D8) — `r.depth` is used verbatim, no host-side shift.
+  const child = makeRow({ path: [{ Key: "a" }], depth: 1 });
+  const childHtml = renderRow(child, 1, [child], null, null, "");
+  check("a top-level Node indents one level under the Root", childHtml.includes("var(--indent) * 1"));
+  check("an ordinary row keeps its grip", childHtml.includes('data-grip="1"'));
+  check("an ordinary row keeps a live kind badge", childHtml.includes('data-kind="1"'));
+}
+
 console.log(failures === 0 ? "\nALL RENDER-ESCAPING CHECKS PASSED" : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

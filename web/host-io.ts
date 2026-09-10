@@ -209,13 +209,19 @@ export async function doQuickSave(io: HostIo): Promise<void> {
   io.send("Save");
 }
 
-// Open the unified "Save / Convert" panel from the root node. `open_convert`
-// leaves `target` = the current format (the panel's default), so the dialog
-// opens on "save in the current format"; seed the output name from the open
-// file's stem (core would otherwise default to "out.<ext>").
+// Open the unified "Save / Convert" panel. Convert is a whole-document
+// operation, so in **root-visible** mode core requires the cursor on the Root
+// row (the TUI rule) — seat it there first, which is a visible, legible move
+// now that the row is drawn. In **root-hidden** mode (touch, VS Code) there is
+// no such row and core demands no cursor position (ADR 0013 D5), so seating
+// one would only throw the cursor onto a row that does not exist.
+// `open_convert` leaves `target` = the current format (the panel's default),
+// so the dialog opens on "save in the current format"; seed the output name
+// from the open file's stem (core would otherwise default to "out.<ext>").
 export function openSaveConvert(io: HostIo): void {
+  const rootDrawn = io.getSnap()?.rows[0]?.path.length === 0;
   io.batch(() => {
-    io.send({ SetCursor: [] });
+    if (rootDrawn) io.send({ SetCursor: [] });
     io.send("OpenConvert");
     io.send({
       SetConvertPath: fileStem(io) + extForTag(io.getSnap()?.doc_format ?? "Toml"),

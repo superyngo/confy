@@ -9,6 +9,7 @@ import type { SessionSnapshot, ViewRow } from "../types.js";
 import { escapeHtml as esc } from "../escape.js";
 import { isCommentRow, isExpanded, isPositional, valueTypeClass } from "../kind-labels.js";
 import { highlightHtml } from "../highlight.js";
+import { t } from "../i18n.js";
 
 // The shared quote-safe escaper, under this module's traditional short name.
 export { esc };
@@ -71,7 +72,9 @@ function rowHTML(
 ): string {
   const branch = r.is_branch;
   const comment = isCommentRow(r);
-  const pad = 10 + Math.max(0, r.depth - 1) * 18;
+  // `r.depth` verbatim: touch is root-hidden, so core drops the Root row and
+  // re-bases every remaining depth — top-level nodes arrive at 0 (ADR 0013 D5).
+  const pad = 10 + r.depth * 18;
   const expanded = branch && isExpanded(rows, idx);
   const type = branch ? containerKind(r) : r.scalar_type ?? "string";
   const dataPath = esc(JSON.stringify(r.path));
@@ -151,20 +154,29 @@ export function treeHTML(snap: SessionSnapshot): string {
     snap.paste_slot && "Into" in snap.paste_slot ? JSON.stringify(snap.paste_slot.Into) : null;
   const clipKeys = new Set(snap.clipboard_paths.map((p) => JSON.stringify(p)));
   const clipCls: " clip-copy" | " clip-cut" = snap.clipboard_cut ? " clip-cut" : " clip-copy";
+  // No root-row filter: touch is root-hidden, so core's snapshot contains no
+  // row addressing the document at all (ADR 0013 D5) — and an empty document
+  // therefore has ZERO rows, whose empty state is the host's (D11). The FAB
+  // can still open the Action menu there, but the tree itself must not read
+  // as "broken/blank".
+  if (rows.length === 0) {
+    return (
+      `<div class="tree-empty"><p>${esc(t("web.tree.empty"))}</p>` +
+      `<button data-act="addroot">${esc(t("web.tree.empty.add"))}</button></div>`
+    );
+  }
   return (
     rows
       .map((r, idx) =>
-        r.path.length === 0
-          ? ""
-          : rowHTML(
-              r,
-              idx,
-              rows,
-              pasteIntoPath === JSON.stringify(r.path),
-              clipKeys.has(JSON.stringify(r.path)) ? clipCls : "",
-              snap.doc_format,
-              snap.filter ?? "",
-            ),
+        rowHTML(
+          r,
+          idx,
+          rows,
+          pasteIntoPath === JSON.stringify(r.path),
+          clipKeys.has(JSON.stringify(r.path)) ? clipCls : "",
+          snap.doc_format,
+          snap.filter ?? "",
+        ),
       )
       .join("") + '<div class="reorder-line"></div>'
   );

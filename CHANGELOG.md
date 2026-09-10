@@ -10,6 +10,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-10 (10)
+
+**Changed**
+
+- **The web hosts now split into root-visible and root-hidden, and every root stand-in is
+  gone** (slice 4 — the host leg — of `docs/spec/2026-09-10-web-root-row-alignment.md`,
+  ADR 0013). **Desktop web draws the document Root row** for the first time: the filename in
+  the NAME cell (`Intent::SetFilename`, `(untitled)` when there is no handle), core's
+  `⌂·<format>` badge, the item count, and one indent level for every row beneath it — the
+  TUI's layout (D8). The row takes the cursor, expands/collapses, and carries the hover `⋮`,
+  but it is **not an editable Node**: no drag grip (`Move` on the document is `Unsupported`),
+  an inert badge (no kind to switch to), and its filename is not a rename target (D12).
+  **Touch and VS Code became root-hidden** — core drops the Root row and re-bases every depth,
+  so their renderers need no filter and no `depth - 1`.
+- Deleted, not made conditional (the point of making this core state): the `render.ts` and
+  `touch/render.ts` row filters and depth shifts, `path-utils.ts`'s `drawnCursorFallback` and
+  `overshotUndrawnRootSlot`, `slot-line.ts`'s `rootSlotLine` and its five call sites,
+  `select.ts`'s root filter, touch's `drawnAsLine` root case / `web.badge.none` cursor
+  fallback / detail-panel suppression, and the `SetCursor: []` `host-io.ts` used to fake
+  before `OpenConvert` (now sent only when a Root row actually exists).
+- Two E-issues from the design record's §1 survey are fixed **structurally** rather than
+  guarded, and both were confirmed in a real browser: collapsing the Root at boot (`Space`)
+  used to leave a blank tree with no row to re-expand — it now collapses to the Root row
+  itself (E4); a type filter narrowed to `[G] root` used to blank the tree the same way and
+  now shows that one row (E5). Paste mode's two root slots are visibly cued for the first time
+  (`Home` outlines the Root row, `↓` draws the insertion line at its bottom edge) instead of
+  being two invisible steps that a host correction papered over.
+
+**Added**
+
+- **A host-owned empty state for a zero-row document** (D11): root-hidden hosts legitimately
+  render no rows at all for an empty file, so `render.ts`/`touch/render.ts` draw a
+  `.tree-empty` panel whose one button dispatches `AddChild`. Core gets no zero-children
+  exception. Verified end-to-end on the touch build: emptied document → hint + button → Add
+  picker → node created, empty state gone.
+- VS Code **suppresses** the document-level "Edit whole file as text" Action-menu item its own
+  text editor owns (D2/D7), the same way it suppresses `q`/`Ctrl+O`; `data-i` keeps core's real
+  item index, so nothing remaps.
+- New catalog keys `web.root.untitled`, `web.tree.empty`, `web.tree.empty.add` (en + zh-TW).
+
+**Docs / tests**
+
+- `HOST_PARITY.md` §2 rewritten from "the undrawn root row (web only)" into *root-visible vs
+  root-hidden*, with a per-host table, a snapshot-shape table, and the two remaining rules that
+  are genuinely behavioral. `WEBUI.md`, `ROW_STATE_MODEL.md` §6a and the `CLAUDE.md` module map
+  no longer describe deleted code.
+- Specs rewritten against the two modes: `armed-paste`, `paste-hover` (both root slots now
+  resolve to the drawn Root row), `touch-key-scroll` (asserts neither orchestrator
+  reintroduces a stand-in), `touch-render` (zero rows = the empty state). New: `render.spec`
+  pins the drawn Root row's anatomy, `fs-vscode-schema` pins `SetRootVisible: !VSHOST` and the
+  item suppression.
+
+**Observation (not acted on).** With the correction deleted, `Into([])` is reachable from
+`Home` in paste mode, and core resolves it to root index **0** (a prepend), not the
+`children.len()` append the old host comments asserted. Behavior is identical in the TUI, so it
+is core's own, pre-existing, and out of this slice's scope — recorded here so slice 5's sweep
+can decide whether the doc or the resolution is what's wrong.
+
 ### Update - 2026-09-10 (9)
 
 **Added**

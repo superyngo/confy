@@ -358,7 +358,7 @@ fnsB.forEach((s, i) => check(`${NAMES_B[i]} extracted verbatim (build B)`, !!s))
 globalThis.CSS = { escape: (s) => s };
 let modB = null;
 {
-  const src = `import { rootSlotLine, slotLineIndentPx } from "./slot-line.js";
+  const src = `import { slotLineIndentPx } from "./slot-line.js";
 let treeEl = null;
 let reordering = false;
 export function setEnv(e) { if ("treeEl" in e) treeEl = e.treeEl; }

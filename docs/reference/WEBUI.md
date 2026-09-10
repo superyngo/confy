@@ -224,12 +224,11 @@ shapes round-trip). Key types:
   `pointerSlot(path, relY)` for the destination and keeps that `PasteSlot` verbatim — a
   branch mid-band is `Into` (`.drag-over-into` outline), anything else is `After(p)`
   (horizontal `#dropLine` under `p`'s row, one indent step deeper when `p` is an expanded
-  branch, since that slot inserts as its first child — `slot-line.ts`). The **first drawn
-  row's top band** classifies as `After(root)` — the only pointer route to "drop above
-  everything", since neither web host draws the root row — so its line is drawn at that
-  row's *top* edge (`rootSlotLine`, `slot-line.ts`); drawing it under the hovered row made
-  it pixel-identical to `After(<first row>)`, i.e. the document top looked unreachable.
-  `drop` sends the slot
+  branch, since that slot inserts as its first child — `slot-line.ts`). The **first top-level
+  row's top band** classifies as `After(root)` — the pointer route to "drop above
+  everything" — and needs no special case: desktop is **root-visible** (ADR 0013), so that
+  slot's line lands on the drawn Root row's own bottom edge, indented one step deeper, which
+  is precisely "the document's first child". `drop` sends the slot
   as-is; core resolves it with `slot_target`, the same call an armed keyboard `Paste` makes,
   so a drag and a paste released at the same pixel always land together (ADR 0010). The host
   derives no parent/index and no band threshold of its own; a self-subtree drop, a collision
@@ -487,7 +486,7 @@ modules** so look & behavior can't drift: `web/panel.ts` (node edit/detail panel
 `web/add-picker-items.ts` (shared item rendering for `Mode::AddPicker`), `web/escape.ts` (the one
 HTML escaper every render module uses), `web/toolbar-fold.ts` (the shared header/filter-row "⋯
 More" fold registry), `web/diag.ts` (the `?diag=1` console drain), `web/mode.ts` (shared
-`modeTag` and `createBatcher`), `web/path-utils.ts` (shared `drawnCursorFallback`),
+`modeTag` and `createBatcher`), `web/path-utils.ts` (shared `Path` helpers),
 `web/key-intent.ts` (shared `resolveKeyIntent`), `web/fab.ts` (shared FAB markup and sync),
 `web/host-io.ts` (shared I/O and theme helpers), and `web/vscode.ts` (the VS Code webview host
 adapter and protocol bridge). `convert-dialog.ts` is
@@ -606,19 +605,12 @@ edits to the verbatim desktop CSS.
   its bottom-anchored sheets). The anchor is `.row.cursor` normally; in paste mode, where arrows
   move the insertion slot and not the cursor, it's the `.reorder-line` for an `After` slot
   (drawn at the target row's bottom edge — scrolling only the row can still clip the line) or
-  the target row for `Into`. `Home`/`g` (and `k` from the first row) can leave the cursor on the
-  document's undrawn root row — neither web host draws it, so a shared `drawnCursorFallback()`
-  (`web/path-utils.ts`) re-targets the first drawn row after every keyboard nav dispatch, in
-  both `touchNavSelect` here and desktop `ui.ts`'s `navSelect`. Paste mode's analogue is
-  `rootSlotLine` (`web/slot-line.ts`, shared with desktop): the root row's two slots are both
-  drawn as insertion lines, since neither has a row to outline — `After(root)` (insert at the
-  document's top) at the first row's top edge and `Into(root)` (append at its end, which is
-  where `slot_target` resolves `Into` to) at the last row's bottom edge. That `Into(root)` is
-  also core's *first* slot in stepping order, so `↑`/`k`/PageUp/`Home` from the top of the
-  tree used to jump the insertion point to the document's far end and clamp there; both hosts
-  now step one slot back down onto `After(root)` when an upward nav lands on it
-  (`overshotUndrawnRootSlot`, `web/path-utils.ts`). Core's order is unchanged — the TUI draws
-  the root row, so stepping onto it reads correctly there.
+  the target row for `Into`. No root-row correction exists on either side any more: touch is
+  **root-hidden** (ADR 0013), so core emits no root row, no `[]` cursor and no root-anchored
+  paste slot at all, while root-visible desktop draws the Root row and cues its two slots on
+  it like any other. The two web-only stand-ins this section used to describe
+  (`drawnCursorFallback`, `overshotUndrawnRootSlot`) are deleted; core's slot order is
+  unchanged.
 - **Swipe actions.** A left-swipe on a row's `.row-main` slides it open to reveal a red Delete
   action (`.row-del`); a right-swipe slides it the other way to reveal a neutral Remark action
   (`.row-remark`, toggles the node to/from a comment — desktop's `r` key). One row is open at a

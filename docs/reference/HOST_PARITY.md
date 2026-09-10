@@ -37,20 +37,44 @@ a row the host doesn't draw…).
 | Row actions | keys only (`d`, `r`) | touch adds swipe-left Delete / swipe-right Remark | no keys on a phone | [WEBUI.md](WEBUI.md) §Swipe actions |
 | Multi-select gestures | `s`, ⇧↑↓ | desktop adds ⌘/⇧-click **and marquee**; touch uses tap / modifier-tap (no marquee) | marquee is pointer-only and fights list scrolling | [ROW_STATE_MODEL.md](ROW_STATE_MODEL.md) §1 |
 
-## 2. The undrawn root row (web only)
+## 2. Root visibility — root-visible vs root-hidden hosts
 
-The single biggest source of host-specific code, and worth its own section because three
-separate behaviors hang off it: **the TUI draws the document root row; neither web host does**
-(`crates/confy-tui/src/tui/ui.rs` vs `web/render.ts` / `web/touch/render.ts`).
+Worth its own section because it is a **core mode**, not a rendering choice
+([ADR 0013](../adr/0013-root-visibility-is-core-state.md)): `Session.root_visible`, set by the
+host at load time via `Intent::SetRootVisible`, decides whether the document **Root** exists
+as a row *inside core* at all.
 
-| Consequence | TUI | Web | Authority |
-|---|---|---|---|
-| Cursor on the root | a real, visible row | invisible focus cursor → `drawnCursorFallback()` re-targets the first drawn row after every keyboard nav | [WEBUI.md](WEBUI.md) §External-keyboard shortcut parity; `web/path-utils.ts` |
-| `After(root)` paste slot | insertion line under the root row | drawn at the **first** row's *top* edge (`rootSlotLine`) — the only pointer route to "insert above everything" is that row's top band | [ROW_STATE_MODEL.md](ROW_STATE_MODEL.md) §6a |
-| `Into(root)` paste slot | highlights the root row | drawn at the **last** row's *bottom* edge (it appends at `children.len()`), and an *upward* nav that lands on it is stepped back down onto `After(root)` (`overshotUndrawnRootSlot`) | ditto |
+| Host | Mode | Why |
+|---|---|---|
+| TUI | **root-visible** | a file row is the terminal's only place to hang whole-document state (name, format, dirty) |
+| web desktop | **root-visible** | wide viewport; the row is also the drop target for "append at the document end" and the reachable home of document-level actions |
+| web touch | **root-hidden** | a phone's tree pane cannot spend a row and an indent level on chrome the header already shows |
+| VS Code | **root-hidden** | the editor tab already names the file, and its own text editor owns whole-file editing |
 
-Core's slot order is **unchanged** by the last row: `paste_slots()` still emits each row's
-`Into` before its `After`, because that reads correctly on the host that draws the root.
+What each mode means for the snapshot every host renders:
+
+| | root-visible | root-hidden |
+|---|---|---|
+| Row for the document | drawn, `path == []`, `depth == 0` | **absent** — no row addresses the document |
+| Top-level Node depth | `1` (one indent step under the Root) | `0` |
+| Cursor | may sit on the Root (`g`/Home) | never `[]` |
+| Paste slots | includes `Into([])` / `After([])` | neither is emitted |
+| Type filter | includes the `[G] root` facet | facet absent |
+| Collapsed Root | legal — the Root row stays, so it can be re-expanded | Root is treated as unconditionally expanded |
+| Empty document | the Root row is still there | **zero rows** — the host owns the empty state (D11) |
+
+Because the mode lives in core, **no host carries a root stand-in**: the web's seven of them
+(row filter, `depth - 1`, `drawnCursorFallback`, `overshotUndrawnRootSlot`, `rootSlotLine`,
+the `select.ts` filter, the pre-`OpenConvert` `SetCursor: []`) were deleted rather than made
+conditional. Two per-host rules remain, and they are *behavioral*, not compensating:
+
+| Rule | Where | Authority |
+|---|---|---|
+| The Root takes the cursor but is **never selected** — selecting it reports Info `core.selection.root-excluded`; Copy/Cut/Remark/Delete are dimmed on it | all hosts, both modes | [ROW_STATE_MODEL.md](ROW_STATE_MODEL.md) §6a; [TUI.md](TUI.md) §Multi-select |
+| The drawn Root row has **no drag grip** and an **inert kind badge** (a document has no kind; `Move` on it is `Unsupported`) | web desktop | `web/render.ts`; ADR 0013 D12 |
+
+Core's slot order is **unchanged** by any of this: `paste_slots()` still emits each row's
+`Into` before its `After`.
 
 ## 3. Row / cursor / clipboard state
 
