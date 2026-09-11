@@ -30,6 +30,9 @@ Effort is XS (< 1 h) / S (a session) / M (multi-session).
 | Opened | Item | Evidence | Effort | Acceptance |
 |---|---|---|---|---|
 | 2026-09-09 | **Convert warnings bypass i18n.** `ConvertResult.warnings` is a `Vec<String>` of raw English ("comments will be dropped", "duplicate key merged"), rendered ad hoc by every convert surface — CLI stderr, the TUI's `overlay_convert`, the web convert dialog — instead of going through `tr`/`tr_args` like every other user-facing string. | `model/convert.rs` (`ConvertResult.warnings`); consumers `crates/confy-tui/src/tui/overlay_convert.rs`, `web/convert-dialog.ts`. Recorded in `MESSAGES.md` §7.2 as out-of-scope since the message-system work, never filed as a row. | S | Each warning is a catalog key with args; `MESSAGES.md` §7.2 drops the "bypasses i18n" caveat; a zh-TW convert shows translated warnings. |
+| 2026-09-11 | **The clipboard can be armed with the Root, dead-ending the modal lock.** The cursor starts on `[]`; `m` (Action menu) on it lets **Cut succeed** — the clipboard holds a node that can never paste (self-subtree reject) and holds the modal lock (ADR 0005 §5) until `Esc`. `Delete` reports "operation not supported here", `Remark` the misleading "path not found". | `session/clipboard.rs` (`cut_selected`, `move_selection_to`), `session/action_menu.rs` — no guard at the selection boundary on main. Measured through the wasm channel (branch E7/E8); re-verified by reading main's selection path. Retrospective: `docs/debug/2026-09-11-root-row-alignment-retrospective.md` P1. | S | A cursor/selection on the Root cannot arm the clipboard, and menu operations on it are refused with accurate notices. Branch `root-row-alignment` `01622af` is the reference fix (direction-neutral — cherry-pick). The new root-hidden direction makes it unreachable, but the boundary guard is the durable fix (retrospective Q3). |
+| 2026-09-11 | **Two web-only blank trees.** `Space` with the cursor on the Root collapses the file; core returns one row, both web renderers filter it out — a blank tree with no cursor, recoverable only via `9`. `f` → the `[G] root` type-filter facet does the same by pointer alone. | `web/render.ts` + `web/touch/render.ts` root filters; facet in `session/type_filter.rs`. Measured through the wasm channel (branch E4/E5). Retrospective P2. | S | No host renders a blank tree from a Root-anchored state. The new direction (every host root-hidden) removes both structurally; until it lands, `9` recovers. |
+| 2026-09-11 | **The web has no entry point for whole-document operations.** Whole-file `Replace` exists in all three backends and `BeginEditExternal` on the Root hands back the entire file, but no web host can reach either — this was the original trigger of the root-row work and survives its reversal. | `model/cst_edit/` whole-document paths; web keyboard map has no document-level route. Retrospective P3. | S | A document-level Action-menu item ("edit the whole file as text", branch `d945721`'s `EditDocument`) lands under the new direction; VS Code may suppress it (its editor owns whole-file text). |
 
 ---
 
@@ -54,6 +57,13 @@ Effort is XS (< 1 h) / S (a session) / M (multi-session).
   touch — caught 2026-09-09 only because a computed-style check contradicted the screenshot.
   The touch severity toasts use `--t-string` for Success instead, with the reason in the CSS
   comment. A shared token file would remove the class of bug; not worth it for one token.
+- **`Into([])` resolution — two trees, two readings.** The branch CHANGELOG observed
+  `Into([])` resolving to root **index 0 (prepend)**; main's `slot_target`
+  (`session/session.rs`, `PasteSlot::Into(p) => children.len()`, untouched by the branch)
+  reads as **append**, matching the host comments. The observation did not reproduce on
+  main and may be a branch-mode artifact or a misread. Re-measure once, on whichever tree
+  the root-hidden redesign builds on, before trusting either way
+  (`docs/debug/2026-09-11-root-row-alignment-retrospective.md`).
 
 ---
 

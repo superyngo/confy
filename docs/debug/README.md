@@ -11,7 +11,7 @@ carried the change is in `CHANGELOG.md`.
 
 ## In progress
 
-Nothing open.
+- [2026-09-11 — Root-row alignment: retrospective and handoff](2026-09-11-root-row-alignment-retrospective.md)
 
 ## Landed
 

@@ -10,6 +10,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-11 (1)
+
+**Docs**
+
+- **The root-row-alignment direction was reversed before release, and the work preserved on
+  branch `root-row-alignment`** (six commits, `e8e8d5b`..`f2bfef3`; `main` rewound to
+  `b0f40e1`, nothing rewritten). New direction: **every host — the TUI included — is
+  root-hidden**; the TUI's root row was the asymmetry's origin, so aligning web to it was the
+  wrong axis. Code on `main` is unchanged by this; the landing is documentation-only.
+- **`docs/debug/2026-09-11-root-row-alignment-retrospective.md`** (new) — what survives the
+  reversal and what is discarded, the three problems that remain live on `main` (Root-armed
+  clipboard dead-end; the two web blank trees; no whole-document entry point on web), the
+  `Into([])` observation that did not reproduce on `main`, five process lessons, and the five
+  questions the redesign must settle. Listed in `docs/debug/README.md` §In progress.
+- `docs/plan/2026-09-09-open-follow-ups.md` — the three problems filed as Open rows, plus a
+  *Watching* entry for the `Into([])` two-trees discrepancy. No new documentation folder: the
+  retrospective lives in the existing `docs/debug/` taxonomy (handoff notes from
+  investigations); trust stays location-based.
+
 ### Update - 2026-09-10 (6)
 
 **Fixed**
