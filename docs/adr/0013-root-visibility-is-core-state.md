@@ -1,8 +1,18 @@
 # Root visibility is core state, and the Root is never selected
 
-Status: accepted, implemented (2026-09-10)
+Status: Superseded (2026-09-11) — direction reversed before any release; see the note below
 Design record: [`../spec/2026-09-10-web-root-row-alignment.md`](../spec/2026-09-10-web-root-row-alignment.md)
 (evidence E1–E9, decisions D1–D14)
+
+> **Superseded 2026-09-11, before any release.** The direction was reversed: every host —
+> the TUI included — goes **root-hidden**, instead of teaching hosts to draw the Root. The
+> TUI's root row was the asymmetry's origin, so "web aligns to TUI" was the wrong axis; the
+> design record's *Considered options* never enumerated the reverse alignment. The
+> implementation this ADR describes is preserved on this branch (`e8e8d5b`..`f2bfef3`);
+> `main` was rewound to `b0f40e1` with nothing rewritten. The salvage list, the defects that
+> remain live on `main`, and the redesign questions are in
+> `docs/debug/2026-09-11-root-row-alignment-retrospective.md` on `main`; a replacement ADR
+> will take the 0013 number there.
 
 ## Context
 

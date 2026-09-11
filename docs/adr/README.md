@@ -22,11 +22,13 @@ the old one superseded.
 | [0010](0010-pointer-drops-resolve-through-pasteslot.md) | Pointer drops resolve through `PasteSlot` end to end (hosts derive no parent/index), and inline containers keep their `Into` band | Implemented (2026-09-01) |
 | [0011](0011-bool-toggle-on-the-intent-nudge-path-only.md) | A bool toggles on the `Intent::Nudge` (keyboard) path only, never inside `nudge_scalar` — pointer wheel/swipe nudging stays numeric | Implemented (2026-09-07) |
 | [0012](0012-datetime-cross-type-switch-is-a-value-replace.md) | A TOML datetime cross-type switch is a value `Replace` behind the `K` key, not a `ConvertKind` | Implemented (2026-09-07) |
-| [0013](0013-root-visibility-is-core-state.md) | Root visibility is `Session` state (root-visible / root-hidden), hosts render no compensation, and the Root takes the cursor but is never selected | Accepted, not yet implemented (2026-09-10) |
+| [0013](0013-root-visibility-is-core-state.md) | Root visibility is `Session` state (root-visible / root-hidden), hosts render no compensation, and the Root takes the cursor but is never selected | Superseded (2026-09-11) — direction reversed before any release; replacement will be a fresh 0013 on `main` |
 
 ADR 0004 §1's `format != Format::Inline` clause and its host-computed `MoveSelectionTo`
 `target`/`index` payload are superseded by ADR 0010. ADR 0011 partially reverses commit `534dd4a`
-(bool nudge removal) for the keyboard only. No ADR has been superseded in full to date.
+(bool nudge removal) for the keyboard only. ADR 0013 was superseded in full (2026-09-11) before
+any release — direction reversed; the branch keeps its implementation, and a fresh 0013 on `main`
+will record the replacement decision.
 
 See also [`../spec/`](../spec/README.md), [`../plan/`](../plan/README.md),
 [`../audit/`](../audit/README.md), and [`../debug/`](../debug/README.md) for the design records,
