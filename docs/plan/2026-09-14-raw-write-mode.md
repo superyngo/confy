@@ -26,7 +26,7 @@ task estimated over ~60k is already split.
 | # | Task | Est. tokens | Breakpoint state |
 |---|---|---|---|
 | T1 | RS0 evidence — identity Apply × 4 formats | ~35k | **Done (2026-09-14)** — Evidence §, no product code |
-| T2 | RS0 evidence — failure, `doc_revision`, offsets | ~30k | Evidence §, no product code |
+| T2 | RS0 evidence — failure, `doc_revision`, offsets | ~30k | **Done (2026-09-14)** — Evidence §, no product code |
 | T3 | RS1a core — `doc_revision` + `history_len` warning | ~25k | commit, `cargo test -p confy-core` |
 | T4 | RS1b core — intent, Action item, `apply_document_text` | ~55k | commit, headless tests |
 | T5 | RS1c core — empty-path mutation/undo guard (R21/R24) | ~30k | commit, headless tests |
@@ -100,7 +100,9 @@ section-leading separator (root-hidden record D8/D9), always enabled, never dang
 `apply_document_text(text)` (R20): empty-path `Mutation::Replace` + `on_mutation_success`
 only — **no** `split_packaged_blank`, no trailing-comment extraction, no `wrap_element`; route
 the empty-path Apply to it instead of `apply_external_replace`. Add
-`core.document.apply-failed` with the backend error as a `tr_args` arg (R26).
+`core.document.apply-failed` with the backend error as a `tr_args` arg, raised at
+`Severity::Error` **regardless of the inner cause** — T2's F4 measured parse failures
+noticing as `warn` (R26 as amended).
 
 **Acceptance.** `cargo test -p confy-core`; headless tests for: the intent opening a pending
 edit at `[]`; the armed-clipboard refusal (R11); an Apply at `[]` committing exactly once; a
@@ -152,9 +154,10 @@ Manual pass in a real browser: the swap is jump-free.
 `i18n/*.json`.
 
 **Change.** R13's crumbs-row Raw control band registered in `toolbar-fold.ts`; R12's un-hiding;
-the shared `byteToCodeUnit` helper (T2's fixture is its test) and the two selection branches for
-R14/R15; R16 one-way only; R17's jump gated on a clean buffer with
-`web.raw.jump-needs-apply`.
+the shared `byteToCodeUnit` helper — T2 left it a concrete failing case (`drift === 8` on the
+CJK+emoji fixture) — and the two selection branches for R14/R15, selecting the node's **whole
+member, key included** (R29/F5: no value-only range exists); R16 one-way only; R17's jump
+gated on a clean buffer with `web.raw.jump-needs-apply`.
 
 **Acceptance.** `npm test` incl. a breadcrumb pick selecting the right span in both states and a
 pick on a dirty buffer moving the cursor but not the caret; `npm run typecheck`.

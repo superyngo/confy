@@ -66,9 +66,10 @@ new mutation.
 | R23 | An identity Apply that is **not** byte-identical is a **ship blocker** for that format (Q1), fixed in the backend before RS2, scoped to the identity case only | "Open the whole-file editor, change nothing, press Apply" is the likeliest first action; a byte change there violates the repo's byte-fidelity invariant. Not a licence to renormalize whole-file Replace in general |
 | R24 | **R21's lock is passive, and it covers undo/redo** (settled 2026-09-14): no chrome is pre-disabled — a refused intent answers with a notice. But `Undo`/`Redo` are inside the lock, not outside it | The desktop user cannot see the tree while the document buffer is open (touch's sheet covers it), so a pre-emptive dimming has nothing to dim. Undo/redo are *not* harmless here: they swap the whole document text, which is precisely the stale-buffer overwrite R21 exists to prevent |
 | R25 | **`doc_revision` and `history_len` coexist** (settled 2026-09-14), and `history_len`'s doc-comment gains an explicit warning: it is *not* a commit counter — identical snapshots are deduped and old entries are evicted by the undo cap; use `doc_revision` for commit facts. Replacing `history_len` with `can_undo`/`can_redo` is a follow-up, not this feature's business | Keeps the change additive. The trap that produced the broken R5 detector was the field's *name* reading like a commit count; a warning at the definition is where the next reader will be |
-| R26 | **One new message key, `core.document.apply-failed`**, with the backend's error string as a `tr_args` argument — covering all three failure classes (fragment parse, `validate_semantics`, YAML multi-doc reject) | The user needs "the whole file was not applied, because X". Three keys would overlap semantically; and the framing goes through `tr_args` rather than surfacing raw English, which is the mistake `MESSAGES.md` already records for convert warnings |
+| R26 | **One new message key, `core.document.apply-failed`**, with the backend's error string as a `tr_args` argument — covering all three failure classes (fragment parse, `validate_semantics`, YAML multi-doc reject). **Amended by T2's F4 (2026-09-14): it is raised at `Severity::Error` regardless of the inner cause**, because a parse failure notices as `warn` today and a rejected whole buffer is not a "proceeded, with a caveat" event | The user needs "the whole file was not applied, because X". Three keys would overlap semantically; and the framing goes through `tr_args` rather than surfacing raw English, which is the mistake `MESSAGES.md` already records for convert warnings |
 | R27 | **The host state becomes a three-way `rawState: "off" \| "view" \| "write"`**, replacing `rawView: boolean`; `body.raw-view`/`body.raw-write` derive from it in one place | A boolean pair (`rawView` + `rawWrite`) admits the impossible `off + write` state — exactly the incoherence that breeds R8's clobber class. Three lines in RS2, and the CSS classes gain a single source |
 | R28 | **ADR 0014's claim is the wider one**: *whole-document editing is carried by each host's existing multi-line text surface — the desktop's Raw pane in write mode, touch's external-edit sheet, the TUI's `$EDITOR`, and VS Code's own editor — not by one uniform new surface.* `doc_revision` (R5) is **not** ADR material: it is an additive snapshot field, reversible, and lives here | The question a future reader actually asks is "why are these three different?", not "why isn't it a popup on the desktop". An ADR needs all three of hard-to-reverse, surprising, and a real trade-off; the field fails the first |
+| R29 | **The jump selects the node's whole member, key included** (F5, 2026-09-14): `outline()`'s `text_range` spans `target = "needle"`, not `"needle"`; a value-only range does not exist in the wire contract. T8 promises row-text selection, not value selection | Discovered by measurement rather than assumed. Adding a value-only range would be new FFI surface for a cosmetic difference, and selecting the member is also the more useful target for "show me where this is" |
 
 ### Switching has to be seamless — the concrete rules
 
@@ -213,3 +214,56 @@ Three notes the measurement settled beyond Q1's wording:
    happens to be inert at the empty path *today*. R20's dedicated `apply_document_text` stays
    as decided: inertness by coincidence at one call site is not a contract, and T4 must not
    depend on it.
+
+### T2 — failure, the `history_len` detector, byte offsets (measured 2026-09-14)
+
+Same harness, section *RS0/T2*, 18 further checks.
+
+**T2.1 — a broken Apply never commits.** Five fixtures across the three backends —
+TOML unbalanced `[server`, TOML duplicate key, JSON unbalanced brace, JSON duplicate key,
+YAML multi-document — all leave `serialize()` byte-unchanged with `history_len === 0`, and
+all raise a non-empty notice. R4's "a failed Apply is a notice, not lost work" holds at the
+backend level.
+
+**F4 (new finding, contradicts R26's assumption of one failure class).** The notice
+**severity is not uniform**: a *parse* failure is `warn`, a *semantic* failure is `error`.
+
+| Fixture | severity | text |
+|---|---|---|
+| TOML unbalanced | `warn` | `invalid TOML: expected "]" (7..8)` |
+| TOML duplicate key | `error` | `error: key collision: port` |
+| JSON unbalanced | `warn` | `invalid JSON: expected R_BRACE, found None` |
+| JSON duplicate key | `error` | `error: key collision: a` |
+| YAML multi-doc | `warn` | `invalid YAML: multi-document YAML is not supported` |
+
+Consequence for R26: a whole-file Apply that **rejected the user's entire buffer** can
+surface as a *warning*, which `MESSAGES.md`'s severity table reserves for "proceeded, with a
+caveat". T4 must therefore wrap the whole-file failure in `core.document.apply-failed` at
+**`Severity::Error` regardless of the inner cause**, carrying the backend text as the
+`tr_args` argument — the inner severities stay as they are for every other call site. This is
+a refinement of R26, not a new decision; recorded here because the flat "one key" wording did
+not anticipate a severity mismatch.
+
+**T2.2 — `history_len` is provably not a commit counter (the R5 failing-before evidence).**
+Two cases, both measured:
+
+- a no-change Apply commits and leaves `history_len === 0` (`History::push`'s dedup);
+- at the undo cap, `history_len` is pinned at **200** across a further successful commit that
+  demonstrably changed `serialize()`.
+
+Both are exactly the false "Apply failed" readings R5 rejects. T3's `doc_revision` must move
+in both.
+
+**F5 (new finding, narrows R14/R15).** `outline()`'s `text_range` for a leaf spans the
+**whole member** — for `target = "needle"` the range slices `target = "needle"`, not
+`"needle"`. The value-only range does not exist in the wire contract; `key_text_range` slices
+`target` exactly. So R15's jump selects **the node's row text**, and the design record's
+"select that node's text" wording means the member, key included. T8 must not promise a
+value-only selection.
+
+**T2.3 — the byte→code-unit drift is real and quantified.** Fixture
+`note = "設定檔 🎉 comment"\ntarget = "needle"\n`: the target member's byte offset runs **8
+ahead** of its JS code-unit offset (3 CJK × 3 bytes = 9 bytes / 3 units, plus an astral emoji
+at 4 bytes / 2 units → +6 +2 = 8). Slicing `serialize()` by the raw byte numbers in JS
+returns the wrong substring, so T8's `byteToCodeUnit` helper has its failing-before case:
+`drift === 8` on this fixture.

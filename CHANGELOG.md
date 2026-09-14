@@ -10,6 +10,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-14 (3)
+
+**Tests**
+
+- **Raw write mode T2 — failure behavior, the failed-Apply detector, and byte offsets
+  measured** (`crates/confy-ffi/functional_smoke.mjs`, *RS0/T2*, 18 checks). A broken
+  whole-file Apply never commits on any backend (TOML/JSON unbalanced, TOML/JSON duplicate
+  key, YAML multi-document). Two measurements produced design changes:
+  - **Notice severity is not uniform** — a *parse* failure notices as `warn`, a *semantic*
+    failure as `error`. So a rejected whole buffer could surface as a mere warning; the
+    feature's `core.document.apply-failed` will be raised at `Severity::Error` regardless of
+    the inner cause (design record R26, amended).
+  - **`outline()`'s `text_range` spans a leaf's whole member** (`target = "needle"`), not just
+    the value — there is no value-only range in the wire contract, so the planned Raw-pane
+    jump selects the node's row text (new decision R29).
+  - `history_len`'s unsuitability as a commit detector is now pinned by tests in both of its
+    failure modes (dedup of a no-change Apply; pinned at 200 at the undo cap while a real
+    commit lands), and the byte→code-unit drift has a quantified failing case (`drift === 8`
+    on a CJK+emoji fixture) for the web helper to satisfy.
+
 ### Update - 2026-09-14 (2)
 
 **Tests**

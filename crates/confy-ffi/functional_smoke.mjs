@@ -614,5 +614,90 @@ for (const [label, fmt, text] of identityFixtures) {
   liveSession.free();
 }
 
+// ---- RS0/T2. Failure, the `history_len` detector, and byte offsets ----
+// docs/plan/2026-09-14-raw-write-mode.md T2.
+
+// T2.1 — an Apply of deliberately broken text must not commit and must leave
+// the document untouched. MEASURED FINDING (2026-09-14): the notice severity
+// is *not* uniform — a **parse** failure speaks as `warn`, a **semantic**
+// failure (key collision) as `error`. Recorded as F4 in the design record;
+// this block pins today's behavior so R26 can decide deliberately.
+const brokenFixtures = [
+  ["toml-unbalanced", "toml", `[server]\nport = 8080\n`, `[server\nport = 8080\n`, "warn"],
+  ["toml-duplicate-key", "toml", `[server]\nport = 8080\n`, `[server]\nport = 1\nport = 2\n`, "error"],
+  ["json-unbalanced", "json", `{\n  "a": 1\n}\n`, `{\n  "a": 1\n`, "warn"],
+  ["json-duplicate-key", "json", `{\n  "a": 1\n}\n`, `{\n  "a": 1,\n  "a": 2\n}\n`, "error"],
+  ["yaml-multi-doc", "yaml", `a: 1\n`, `---\na: 1\n---\nb: 2\n`, "warn"],
+];
+for (const [label, fmt, good, bad, severity] of brokenFixtures) {
+  const bs = new ConfySession(good, fmt);
+  const snapBad = bs.dispatch({ ApplyReplace: { path: [], text: bad } });
+  check(`[${label}] broken Apply does not commit`,
+    bs.serialize() === good && snapBad.history_len === 0,
+    `history_len=${snapBad.history_len} doc=${JSON.stringify(bs.serialize())}`);
+  check(`[${label}] broken Apply notices (severity ${severity})`,
+    snapBad.notice?.severity === severity && snapBad.notice.text.length > 0,
+    JSON.stringify(snapBad.notice));
+  bs.free();
+}
+
+// T2.2 — the R5 premise: `history_len` is NOT a commit counter. Two cases,
+// both expected to leave it flat while the document really was committed.
+// This is the failing-before evidence T3's `doc_revision` must turn green.
+const detSrc = `[server]\nport = 8080\n`;
+const det = new ConfySession(detSrc, "toml");
+const detIdentity = det.dispatch({ ApplyReplace: { path: [], text: detSrc } });
+check("[detector] a no-change Apply leaves history_len at 0 (dedup)",
+  detIdentity.history_len === 0, "history_len=" + detIdentity.history_len);
+check("[detector] ...and the document is intact", det.serialize() === detSrc);
+det.free();
+
+// At the undo cap (MAX_HISTORY = 200): further successful commits keep
+// history_len pinned, so a host comparing it before/after reads "failed".
+const cap = new ConfySession(`port = 8080\n`, "toml");
+let capSnap = cap.dispatch(unit("CursorDown")); // onto the `port` leaf
+for (let i = 0; i < 205; i++) capSnap = cap.dispatch({ Nudge: 1 });
+const atCap = capSnap.history_len;
+const textAtCap = cap.serialize();
+capSnap = cap.dispatch({ Nudge: 1 });
+check("[detector] history_len is pinned at the undo cap (200)",
+  atCap === 200 && capSnap.history_len === 200,
+  `atCap=${atCap} after=${capSnap.history_len}`);
+check("[detector] ...while that commit really did change the document",
+  cap.serialize() !== textAtCap,
+  `${JSON.stringify(textAtCap)} -> ${JSON.stringify(cap.serialize())}`);
+cap.free();
+
+// T2.3 — R14/R15: `outline()`'s byte `text_range` over a fixture with CJK
+// *and* an emoji before the target. MEASURED FINDING (2026-09-14): a leaf's
+// `text_range` spans the WHOLE member (`target = "needle"`), not just the
+// value — so R15's jump selects the node's row text. Byte offsets must slice
+// `serialize()` exactly; the naive JS code-unit slice of the same numbers
+// must not (the silent-corruption case `byteToCodeUnit` exists to fix).
+const wideSrc = `note = "設定檔 🎉 comment"\ntarget = "needle"\n`;
+const wide = new ConfySession(wideSrc, "toml");
+const wideOutline = wide.outline();
+const targetNode = wideOutline.find(n => n.key === "target");
+const wideBytes = new TextEncoder().encode(wideSrc);
+const byteSlice = new TextDecoder().decode(
+  wideBytes.slice(targetNode.text_range[0], targetNode.text_range[1]));
+check("[offsets] text_range are BYTE offsets spanning the whole member",
+  byteSlice === `target = "needle"`, JSON.stringify(byteSlice));
+const naive = wideSrc.slice(targetNode.text_range[0], targetNode.text_range[1]);
+check("[offsets] a naive code-unit slice of the same range is WRONG",
+  naive !== byteSlice, JSON.stringify(naive));
+// The exact drift the helper must correct, for T8's unit test: 3 CJK chars
+// (3 bytes each) + one astral emoji (4 bytes / 2 code units) sit before the
+// target, so the byte offset runs ahead of the JS code-unit offset.
+const codeUnitStart = wideSrc.indexOf(`target = "needle"`);
+const drift = targetNode.text_range[0] - codeUnitStart;
+check("[offsets] the byte→code-unit drift is non-zero (helper is required)",
+  drift === 8, `drift=${drift} (byte=${targetNode.text_range[0]} cu=${codeUnitStart})`);
+const keyByteSlice = new TextDecoder().decode(
+  wideBytes.slice(targetNode.key_text_range[0], targetNode.key_text_range[1]));
+check("[offsets] key_text_range slices the key exactly",
+  keyByteSlice === "target", JSON.stringify(keyByteSlice));
+wide.free();
+
 console.log(failures === 0 ? "\nALL FUNCTIONAL CHECKS PASSED" : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);
