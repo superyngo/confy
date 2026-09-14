@@ -10,6 +10,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-14 (7)
+
+**Changed**
+
+- **`rawView: boolean` → `rawState: "off" | "view" | "write"`** in `web/ui.ts` and
+  `web/touch/app.ts` (R27), a pure refactor with no behavior change — `"write"` is
+  unreachable until T7 lands the textarea. `setRawView(raw)` is now `setRawState(next)`;
+  `body.raw-write` is derived alongside `body.raw-view` in the same `setRawState`, so T7's
+  diff only has to reach the state, not the class-toggle wiring. Every boolean call site
+  (`resolveKeyIntent`, `scrollFocusIntoView`, the paste/drop cue guards) now reads
+  `rawState !== "off"` inline; touch keeps the tri-state shape for parity even though it
+  never reaches `"write"` (R18/R19: touch text edits always route to the sheet). Updated the
+  matching extraction shims in `armed-paste.spec.mjs`, `paste-hover.spec.mjs`,
+  `modal-lock.spec.mjs`, `touch-key-scroll.spec.mjs`, and `touch-modal-lock.spec.mjs` — each
+  splices real source functions closing over the module-level flag by name, so the shim's
+  stand-in variable had to be renamed too. `npm test` (915 checks) and `npm run typecheck`
+  unchanged-green.
+
 ### Update - 2026-09-14 (6)
 
 **Added**

@@ -203,8 +203,8 @@ console.log("\n-- renderConfirmedPasteCue redraws the Into class + After line --
     const built = await esbuild.build({
       stdin: {
         contents: `import { rootSlotLine, slotLineIndentPx } from "./slot-line.js";
-let $, tree, rawView, CSS;
-export function setEnv(e) { $ = e.$; tree = e.tree; rawView = e.rawView; CSS = e.CSS; }
+let $, tree, rawState, CSS;
+export function setEnv(e) { $ = e.$; tree = e.tree; rawState = e.rawState; CSS = e.CSS; }
 export ${cueMatch[0]}\n`,
         resolveDir: here,
         loader: "ts",
@@ -248,7 +248,7 @@ export ${cueMatch[0]}\n`,
   setEnv({
     $: (id) => (id === "pasteTargetLine" ? cueTargetLine : { getBoundingClientRect: () => ({ top: 5 }), scrollTop: 3 }),
     tree: cueTree,
-    rawView: false,
+    rawState: "off",
     CSS: { escape: (s) => s },
   });
   cue({ clipboard_count: 1, cursor: [], paste_slot: { Into: [{ Key: "b" }] } });

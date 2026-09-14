@@ -124,13 +124,13 @@ export { drawnCursorFallback, overshotUndrawnRootSlot } from "./path-utils.js";
 let snap = null;
 let treeEl = null;
 let treePane = null;
-let rawView = false;
+let rawState = "off";
 let reordering = false;
 export function setEnv(e) {
   if ("snap" in e) snap = e.snap;
   if ("treeEl" in e) treeEl = e.treeEl;
   if ("treePane" in e) treePane = e.treePane;
-  if ("rawView" in e) rawView = e.rawView;
+  if ("rawState" in e) rawState = e.rawState;
   if ("reordering" in e) reordering = e.reordering;
 }
 export ${fns[0]}
@@ -197,7 +197,7 @@ const PANE_H = 216; // exactly 4 rows
 
 function run(snap, { scrollTop = 0, rawView = false } = {}) {
   pane = mkPane(PANE_H, scrollTop);
-  mod.setEnv({ snap, treeEl, treePane: pane, rawView, reordering: false });
+  mod.setEnv({ snap, treeEl, treePane: pane, rawState: rawView ? "view" : "off", reordering: false });
   if (snap) mod.renderPasteSlotCue(snap);
   mod.scrollFocusIntoView();
   return pane.scrollTop;
@@ -271,7 +271,7 @@ check(
 console.log("\n-- renderPasteSlotCue(): After(root) / Into(root) ----");
 {
   pane = mkPane(PANE_H, 0);
-  mod.setEnv({ snap: null, treeEl, treePane: pane, rawView: false, reordering: false });
+  mod.setEnv({ snap: null, treeEl, treePane: pane, rawState: "off", reordering: false });
   // `After(root)` = root index 0 (`resolve_target`): the document's very top.
   mod.renderPasteSlotCue({ paste_slot: { After: [] } });
   check("After(root) shows the insertion line", line.style.display === "block");

@@ -102,7 +102,11 @@ let fileName: string | null = "sample";
 // Guards `schema_fetch_request` (§comment-advisory follow-up issue #2): see
 // web/ui.ts's identical flag for the rationale.
 let schemaFetchInFlight = false;
-let rawView = false;
+// Tree vs read-only Raw text view vs Raw write mode. Touch never reaches
+// `"write"` (R18/R19: every text edit routes to the sheet, not a write-mode
+// pane) but shares the tri-state shape with the desktop host (T6).
+type RawState = "off" | "view" | "write";
+let rawState: RawState = "off";
 let searchTimer: number | undefined;
 
 // ---- DOM refs (cached after the shell mounts) ----
@@ -388,8 +392,8 @@ function isWide(): boolean {
 }
 // Tree ↔ Raw view toggle. The button label/active state is reflected in render();
 // reused by the toggle button and the folded ⋯ menu item.
-function setRawView(raw: boolean) {
-  rawView = raw;
+function setRawState(next: RawState) {
+  rawState = next;
   render();
 }
 
@@ -486,7 +490,7 @@ function renderPasteSlotCue(snap: SessionSnapshot, slotOverride?: PasteSlot) {
 // has a row of its own; see `rootSlotLine`)
 // — and the target row for any other `Into`. Otherwise it is the cursor row.
 function scrollFocusIntoView() {
-  if (rawView || !snap) return;
+  if (rawState !== "off" || !snap) return;
   const slot = snap.paste_slot;
   const drawnAsLine = !!slot && ("After" in slot || slot.Into.length === 0);
   const line = treeEl.querySelector<HTMLElement>(".reorder-line");
@@ -568,11 +572,11 @@ function render() {
   // View toggle: label is the view tapping switches TO; `active` while in Raw.
   const vt = app.querySelector<HTMLElement>(".viewtoggle");
   if (vt) {
-    vt.textContent = rawView ? "Tree" : "Raw";
-    vt.classList.toggle("active", rawView);
+    vt.textContent = rawState !== "off" ? "Tree" : "Raw";
+    vt.classList.toggle("active", rawState !== "off");
   }
 
-  if (rawView) {
+  if (rawState !== "off") {
     rawEl.textContent = session.serialize();
     app.classList.add("raw");
   } else {
@@ -598,7 +602,7 @@ function render() {
   // paths (mirrors the tree-pane preservation above and `renderFilterSheet`'s
   // `.sheet-body` preservation) — otherwise every nudge step snaps the panel's
   // own scroll back to the top.
-  if (!rawView) {
+  if (rawState === "off") {
     const schemaEnum =
       typeof snap.mode === "object" && "SchemaEnum" in snap.mode ? snap.mode.SchemaEnum : undefined;
     if (isWide()) {
@@ -889,7 +893,7 @@ const MENU_CANDIDATES: ToolbarEntry[] = [
     key: '[data-act="toggleview"]',
     icon: IC.open,
     labelKey: "web.menu.toggleView",
-    run: () => setRawView(!rawView),
+    run: () => setRawState(rawState === "off" ? "view" : "off"),
   },
 ];
 // A toolbar control is "folded" (→ belongs in the menu) when it's not laid out
@@ -1765,7 +1769,7 @@ function openText(
       SetHostNotice: { key: "web.host.json-comments-detected", args: [], source: "host-web" },
     });
   }
-  rawView = false;
+  rawState = "off";
   render();
 }
 // A file the OS opened us with (mobile file-association "Open with"), cold
@@ -1946,7 +1950,7 @@ function onKey(ev: KeyboardEvent) {
 
   // `vshost: true` also suppresses `q`/QuitRequested — a web/touch surface has
   // no "quit the app" concept to bind it to.
-  const result = resolveKeyIntent(snap.mode, ev.key, { ctrl: ev.ctrlKey || ev.metaKey, shift: ev.shiftKey }, rawView, true);
+  const result = resolveKeyIntent(snap.mode, ev.key, { ctrl: ev.ctrlKey || ev.metaKey, shift: ev.shiftKey }, rawState !== "off", true);
   if (!result) return;
   handleKeyResult(result, ev);
   // Every *resolved* key gets the focus scrolled back into view — one path for
@@ -2132,7 +2136,7 @@ function installShellHandlers() {
           send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
           return;
         }
-        setRawView(!rawView);
+        setRawState(rawState === "off" ? "view" : "off");
         break;
       case "searchclear":
         if ((snap?.clipboard_count ?? 0) > 0) {

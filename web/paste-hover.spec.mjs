@@ -112,10 +112,10 @@ let setSnap = null;
 let setEnv = null;
 if (confirmedMatch && cueMatch && hoverMatch) {
   const src = `import { rootSlotLine, slotLineIndentPx } from "./slot-line.js";
-let session, snap, $, tree, rawView, CSS;
+let session, snap, $, tree, rawState, CSS;
 export function setSession(s) { session = s; }
 export function setSnap(s) { snap = s; }
-export function setEnv(e) { $ = e.$; tree = e.tree; rawView = e.rawView; CSS = e.CSS; }
+export function setEnv(e) { $ = e.$; tree = e.tree; rawState = e.rawState; CSS = e.CSS; }
 export ${confirmedMatch[0]}
 export ${cueMatch[0]}
 export ${hoverMatch[0]}
@@ -196,7 +196,7 @@ function freshEnv(rows) {
   setEnv({
     $: (id) => (id === "dropLine" ? dropLine : id === "pasteTargetLine" ? pasteTargetLine : wrap),
     tree,
-    rawView: false,
+    rawState: "off",
     CSS: { escape: (s) => s },
   });
   return { dropLine, pasteTargetLine, tree };

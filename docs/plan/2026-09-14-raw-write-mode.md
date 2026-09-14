@@ -30,7 +30,7 @@ task estimated over ~60k is already split.
 | T3 | RS1a core — `doc_revision` + `history_len` warning | ~25k | **Done (2026-09-14)** — commit, `cargo test -p confy-core` green |
 | T4 | RS1b core — intent, Action item, `apply_document_text` | ~55k | **Done (2026-09-14)** — commit, 4 headless + 4 smoke checks |
 | T5 | RS1c core — empty-path mutation/undo guard (R21/R24) | ~30k | **Done (2026-09-14)** — commit, 4 headless tests |
-| T6 | RS2a web — `rawState` refactor (R27), no new feature | ~40k | commit, `npm test` green |
+| T6 | RS2a web — `rawState` refactor (R27), no new feature | ~40k | **Done (2026-09-14)** — commit, `npm test` (915) unchanged-green |
 | T7 | RS2b web — the `#rawEdit` textarea + R4–R8 + cues | ~60k | commit, `raw-write.spec.mjs` |
 | T8 | RS2c web — crumbs control band (R13) + jump (R14–R17) | ~50k | commit, spec + manual pass |
 | T9 | RS3 touch — empty-path sheet rules (R18/R19) | ~30k | commit, touch spec |

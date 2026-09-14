@@ -111,9 +111,11 @@ function $<T extends HTMLElement = HTMLElement>(id: string): T {
 const tree = $<HTMLDivElement>("tree");
 const overlay = $("overlay");
 const overlayScrim = $("overlayScrim");
-// Tree vs read-only Raw text view (#12, read-only first). The Session stays the
-// single source of truth; Raw is just `session.serialize()` rendered live.
-let rawView = false;
+// Tree vs read-only Raw text view (#12, read-only first) vs Raw write mode
+// (T7+, unreachable until then). The Session stays the single source of
+// truth; Raw is just `session.serialize()` rendered live in view state.
+type RawState = "off" | "view" | "write";
+let rawState: RawState = "off";
 const statusEl = $("status");
 const errorEl = $("error");
 const toastEl = $("toast");
@@ -326,13 +328,17 @@ function openText(
 // Switch between the interactive tree and the read-only serialized text. Raw is
 // a *view* of the same document — no editing — so it just re-renders. The
 // single toggle button's label is the view tapping/clicking switches TO
-// (mirrors touch/app.ts's `setRawView`); `active` while in Raw.
-function setRawView(raw: boolean) {
-  rawView = raw;
+// (mirrors touch/app.ts's `setRawView`); `active` while in Raw. `"write"` is
+// unreachable until T7; `body.raw-write` is derived here in the same place as
+// `body.raw-view` so T7's diff only has to reach the state, not the wiring.
+function setRawState(next: RawState) {
+  rawState = next;
+  const shown = rawState !== "off";
   const vt = $("btnViewToggle");
-  vt.textContent = raw ? t("web.toolbar.viewToggle.tree") : t("web.toolbar.viewToggle.raw");
-  vt.classList.toggle("active", raw);
-  document.body.classList.toggle("raw-view", raw);
+  vt.textContent = shown ? t("web.toolbar.viewToggle.tree") : t("web.toolbar.viewToggle.raw");
+  vt.classList.toggle("active", shown);
+  document.body.classList.toggle("raw-view", shown);
+  document.body.classList.toggle("raw-write", rawState === "write");
   render();
 }
 
@@ -341,7 +347,7 @@ function setRawView(raw: boolean) {
 // toggling back is instant.
 function renderRawOrTree() {
   const rawEl = $("raw");
-  if (rawView) {
+  if (rawState !== "off") {
     rawEl.textContent = session!.serialize();
     rawEl.classList.remove("hidden");
     tree.classList.add("hidden");
@@ -363,7 +369,7 @@ function renderRawOrTree() {
 function renderConfirmedPasteCue(snap: SessionSnapshot) {
   tree.querySelectorAll(".paste-target").forEach((el) => el.classList.remove("paste-target"));
   const pasteTargetLine = $("pasteTargetLine");
-  if ((snap.clipboard_count ?? 0) === 0 || rawView) {
+  if ((snap.clipboard_count ?? 0) === 0 || rawState !== "off") {
     pasteTargetLine.style.display = "none";
     return;
   }
@@ -423,7 +429,7 @@ function renderHoverCue(snap: SessionSnapshot, slot: PasteSlot | undefined) {
   const dropLine = $("dropLine");
   const effectiveConfirmed: PasteSlot = snap.paste_slot ?? { After: snap.cursor };
   const sameAsConfirmed = slot && JSON.stringify(slot) === JSON.stringify(effectiveConfirmed);
-  if (!slot || rawView || sameAsConfirmed) {
+  if (!slot || rawState !== "off" || sameAsConfirmed) {
     dropLine.style.display = "none";
     return;
   }
@@ -515,8 +521,8 @@ function render() {
   renderRawOrTree();
   renderConfirmedPasteCue(snap);
   renderHoverCue(snap, undefined);
-  crumbsEl.classList.toggle("hidden", rawView);
-  if (!rawView) {
+  crumbsEl.classList.toggle("hidden", rawState !== "off");
+  if (rawState === "off") {
     renderCrumbs(crumbsEl, snap, {
       children: (p) => session!.children(p),
       jump: (p) => {
@@ -831,7 +837,7 @@ function onKey(ev: KeyboardEvent) {
     snap.mode,
     ev.key,
     { ctrl: ev.ctrlKey || ev.metaKey, shift: ev.shiftKey },
-    rawView,
+    rawState !== "off",
     VSHOST,
   );
   if (!result) return;
@@ -1918,7 +1924,7 @@ const TOOLBAR_ENTRIES: ToolbarEntry[] = [
   { key: "btnInfo", labelKey: "web.toolbar.info.title", run: () => send("EnterHelp") },
   { key: "btnExpandAll", labelKey: "web.toolbar.expandAll.title", run: () => send("ExpandAll") },
   { key: "btnCollapseAll", labelKey: "web.toolbar.collapseAll.title", run: () => send("CollapseAll") },
-  { key: "btnViewToggle", labelKey: "web.toolbar.viewToggle.title", run: () => setRawView(!rawView) },
+  { key: "btnViewToggle", labelKey: "web.toolbar.viewToggle.title", run: () => setRawState(rawState === "off" ? "view" : "off") },
 ];
 
 // The "⋯ More" overflow menu (shown only under the narrow breakpoint): only the
@@ -2119,7 +2125,7 @@ function bindGlobal() {
     // Toggle: open the popup, or close it keeping the filter applied.
     send(snap && modeTag(snap.mode) === "TypeFilter" ? "CommitTypeFilter" : "EnterTypeFilter");
   });
-  $("btnViewToggle").addEventListener("click", () => setRawView(!rawView));
+  $("btnViewToggle").addEventListener("click", () => setRawState(rawState === "off" ? "view" : "off"));
   // Floating add / paste / actions button — mirrors the touch FAB. Armed
   // clipboard presses Paste directly; otherwise it opens the centralized
   // Action menu (design doc `docs/spec/2026-08-30-action-menu-design.md`).
@@ -2179,7 +2185,7 @@ function installMarquee() {
     if (ev.button !== 0) return;
     // Raw view is read-only serialized text (`.raw-view` sets user-select:text) —
     // leave mouse drags entirely to native text selection, not row rubber-banding.
-    if (rawView) return;
+    if (rawState !== "off") return;
     // While the clipboard is armed, marquee must not hijack the gesture: any
     // incidental >4px drift during what the user intends as an armed click
     // would otherwise fire a no-op `SetSelection` (ADR 0005 §5 freezes it

@@ -242,7 +242,7 @@ console.log("\n-- behavioral: installMarquee modal lock --");
 
   const windowListeners = {};
   const sent = [];
-  const rawView = false;
+  const rawState = "off";
   const snap = { rows: [{ path: [{ Key: "a" }], selected: false }] };
 
   const boxStyle = { display: "" };
@@ -263,11 +263,11 @@ console.log("\n-- behavioral: installMarquee modal lock --");
   const setAnchor = () => {};
 
   const src = `const $ = (id) => (id === "treeWrap" ? wrapStub : boxStub);
-let wrapStub, boxStub, tree, send, rowsInRect, setAnchor, rawView, snap, suppressClick;
+let wrapStub, boxStub, tree, send, rowsInRect, setAnchor, rawState, snap, suppressClick;
 export function setEnv(e) {
   wrapStub = e.wrap; boxStub = e.box; tree = e.tree;
   send = e.send; rowsInRect = e.rowsInRect; setAnchor = e.setAnchor;
-  rawView = e.rawView; snap = e.snap; suppressClick = false;
+  rawState = e.rawState; snap = e.snap; suppressClick = false;
 }
 const document = { body: { classList: { contains: (c) => e_bodyClasses.has(c) } } };
 let e_bodyClasses = new Set();
@@ -285,7 +285,7 @@ export { installMarquee };
   const modUrl = "data:text/javascript;base64," + Buffer.from(built.outputFiles[0].text).toString("base64");
   const mod = await import(modUrl);
 
-  mod.setEnv({ wrap, box, tree, send, rowsInRect, setAnchor, rawView, snap });
+  mod.setEnv({ wrap, box, tree, send, rowsInRect, setAnchor, rawState, snap });
   mod.installMarquee();
   const mousedown = treeListeners["mousedown"];
   check("mousedown listener registered", typeof mousedown === "function");
