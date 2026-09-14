@@ -54,6 +54,7 @@ import { installDnd } from "./dnd.js";
 import { rootSlotLine, slotLineIndentPx } from "./slot-line.js";
 import { panelHTML, wirePanel, schemaHintText } from "./panel.js";
 import { renderCrumbs, wireCrumbDismiss } from "./breadcrumb.js";
+import { byteToCodeUnit, findOutlineByPath } from "./text-offset.js";
 import { bindPromptClicks, promptButtonsHTML } from "./prompt.js";
 import { typeFilterHTML, wireTypeFilter } from "./typefilter.js";
 import {
@@ -481,6 +482,63 @@ function renderRawOrTree() {
   }
 }
 
+// R14/R16/R17: a breadcrumb pick additionally selects the node's source
+// span in the Raw pane — one way only (moving the caret never moves the
+// tree cursor back; the inverse has no core query, Q4). Gated on a clean
+// write buffer: `text_range`s come from the last commit, so a dirty
+// buffer's text_range may point into text that is no longer there, and the
+// host cannot know whether the buffer even parses until an Apply is
+// attempted (R17). Raw view has no separate buffer — it always mirrors
+// `session.serialize()` live — so the gate only applies in write mode.
+function jumpSelectRawSpan(path: Path) {
+  if (rawState === "off" || !session) return;
+  const editEl = $<HTMLTextAreaElement>("rawEdit");
+  if (rawState === "write" && editEl.value !== rawWriteBaseline) {
+    statusEl.textContent = t("web.raw.jump-needs-apply");
+    return;
+  }
+  const node = findOutlineByPath(session.outline(), path);
+  if (!node) return;
+  const text = session.serialize();
+  const start = byteToCodeUnit(text, node.text_range[0]);
+  const end = byteToCodeUnit(text, node.text_range[1]);
+  if (rawState === "write") {
+    editEl.focus();
+    editEl.setSelectionRange(start, end);
+    return;
+  }
+  const pre = $("raw");
+  const textNode = pre.firstChild;
+  if (!textNode) return;
+  const range = document.createRange();
+  range.setStart(textNode, start);
+  range.setEnd(textNode, end);
+  const sel = window.getSelection();
+  sel?.removeAllRanges();
+  sel?.addRange(range);
+  pre.focus();
+  const rect = range.getClientRects()[0];
+  const paneRect = pre.getBoundingClientRect();
+  if (rect && (rect.top < paneRect.top || rect.bottom > paneRect.bottom)) {
+    pre.scrollTop += rect.top - paneRect.top - paneRect.height / 2;
+  }
+}
+
+// R13: the crumbs-row Raw control band — the 檢視|編輯 segmented pair (both
+// Raw states), plus Apply/Save (write only). Renders only while Raw is
+// active; the header's Tree/Raw toggle (`btnViewToggle`) is unaffected.
+function renderRawControls() {
+  const band = $("rawControls");
+  band.classList.toggle("hidden", rawState === "off");
+  if (rawState === "off") return;
+  $("btnRawView").classList.toggle("active", rawState === "view");
+  $("btnRawEdit").classList.toggle("active", rawState === "write");
+  const applyBtn = $("btnRawApply");
+  const saveBtn = $("btnRawSave");
+  applyBtn.classList.toggle("hidden", rawState !== "write");
+  saveBtn.classList.toggle("hidden", rawState !== "write");
+}
+
 // Confirmed paste target (ROW_STATE_MODEL.md §6, state #6): always reflects
 // where `v`/Paste would actually land — `snap.paste_slot` is core's own
 // `effective_paste_slot()` (`session.rs`), surfaced whenever the clipboard
@@ -651,20 +709,22 @@ function render() {
   renderRawOrTree();
   renderConfirmedPasteCue(snap);
   renderHoverCue(snap, undefined);
-  crumbsEl.classList.toggle("hidden", rawState !== "off");
-  if (rawState === "off") {
-    renderCrumbs(crumbsEl, snap, {
-      children: (p) => session!.children(p),
-      jump: (p) => {
-        send({ RevealPath: p });
-        // Center the revealed row (dispatch is sync, so the tree is already
-        // re-rendered); skipped when the filter kept the cursor put.
-        if (snap && JSON.stringify(snap.cursor) === JSON.stringify(p)) {
-          tree.querySelector(".row.cursor")?.scrollIntoView({ block: "center", behavior: "smooth" });
-        }
-      },
-    });
-  }
+  // R12: the crumbs row stays visible and live in both Raw states — it is
+  // driven by the same `snap.cursor`/`children(path)` it already uses in
+  // Tree, so no Raw-specific rendering is needed.
+  renderCrumbs(crumbsEl, snap, {
+    children: (p) => session!.children(p),
+    jump: (p) => {
+      send({ RevealPath: p });
+      // Center the revealed row (dispatch is sync, so the tree is already
+      // re-rendered); skipped when the filter kept the cursor put.
+      if (snap && JSON.stringify(snap.cursor) === JSON.stringify(p)) {
+        tree.querySelector(".row.cursor")?.scrollIntoView({ block: "center", behavior: "smooth" });
+      }
+      jumpSelectRawSpan(p);
+    },
+  });
+  renderRawControls();
   focusInlineEdit();
   if (typeof snap.mode === "object" && "SchemaEnum" in snap.mode) focusSchemaEnumSelect();
   renderKindPickerPop();
@@ -2058,14 +2118,32 @@ const TOOLBAR_ENTRIES: ToolbarEntry[] = [
   { key: "btnInfo", labelKey: "web.toolbar.info.title", run: () => send("EnterHelp") },
   { key: "btnExpandAll", labelKey: "web.toolbar.expandAll.title", run: () => send("ExpandAll") },
   { key: "btnCollapseAll", labelKey: "web.toolbar.collapseAll.title", run: () => send("CollapseAll") },
-  { key: "btnViewToggle", labelKey: "web.toolbar.viewToggle.title", run: () => setRawState(rawState === "off" ? "view" : "off") },
+  { key: "btnViewToggle", labelKey: "web.toolbar.viewToggle.title", run: () => (rawState === "write" ? exitRawWrite() : setRawState(rawState === "off" ? "view" : "off")) },
+  { key: "btnRawView", labelKey: "web.raw.controls.view", run: () => rawState === "write" && exitRawWrite() },
+  { key: "btnRawEdit", labelKey: "web.raw.controls.edit", run: () => rawState !== "write" && send("BeginEditDocument") },
+  { key: "btnRawApply", labelKey: "web.raw.controls.apply", run: () => applyRawEdit() },
+  { key: "btnRawSave", labelKey: "web.raw.controls.save", run: () => void rawEditSave() },
 ];
 
 // The "⋯ More" overflow menu (shown only under the narrow breakpoint): only the
 // secondary actions the CSS actually hides from the toolbar / filter row at the
 // current width, as a popup.
+// Candidates that are only ever "folded" (in the `isToolbarFolded` sense) for
+// a business reason, not a narrow width: the raw-controls band is hidden
+// outright when Raw is off, and Apply/Save are hidden within it unless Raw
+// is in write mode. `isToolbarFolded`'s `offsetParent === null` check can't
+// tell "hidden by width" from "hidden by state", so exclude them here
+// instead of letting them appear in the overflow menu whenever Raw is off.
+const RAW_PAIR_KEYS: Record<string, true> = { btnRawView: true, btnRawEdit: true };
+const RAW_ACTION_KEYS: Record<string, true> = { btnRawApply: true, btnRawSave: true };
 function buildMoreMenu(): HTMLElement {
-  const items = foldedEntries(TOOLBAR_ENTRIES, isToolbarFolded);
+  let candidates = TOOLBAR_ENTRIES;
+  if (rawState === "off") {
+    candidates = candidates.filter((e) => !RAW_PAIR_KEYS[e.key] && !RAW_ACTION_KEYS[e.key]);
+  } else if (rawState !== "write") {
+    candidates = candidates.filter((e) => !RAW_ACTION_KEYS[e.key]);
+  }
+  const items = foldedEntries(candidates, isToolbarFolded);
   const menu = $("moreMenu");
   menu.innerHTML = items
     .map((e, i) => `<button class="menu-item" data-i="${i}">${escapeHtml(t(e.labelKey))}</button>`)
@@ -2260,7 +2338,25 @@ function bindGlobal() {
     // Toggle: open the popup, or close it keeping the filter applied.
     send(snap && modeTag(snap.mode) === "TypeFilter" ? "CommitTypeFilter" : "EnterTypeFilter");
   });
-  $("btnViewToggle").addEventListener("click", () => setRawState(rawState === "off" ? "view" : "off"));
+  $("btnViewToggle").addEventListener("click", () => {
+    // Leaving write mode through the header toggle must go through the same
+    // R7 confirm-gate as Escape — it swaps the whole document buffer away,
+    // exactly the stale-buffer overwrite that gate exists to prevent.
+    if (rawState === "write") {
+      exitRawWrite();
+      return;
+    }
+    setRawState(rawState === "off" ? "view" : "off");
+  });
+  // R13: the crumbs-row Raw control band.
+  $("btnRawView").addEventListener("click", () => {
+    if (rawState === "write") exitRawWrite();
+  });
+  $("btnRawEdit").addEventListener("click", () => {
+    if (rawState !== "write") send("BeginEditDocument");
+  });
+  $("btnRawApply").addEventListener("click", () => applyRawEdit());
+  $("btnRawSave").addEventListener("click", () => void rawEditSave());
   // Floating add / paste / actions button — mirrors the touch FAB. Armed
   // clipboard presses Paste directly; otherwise it opens the centralized
   // Action menu (design doc `docs/spec/2026-08-30-action-menu-design.md`).

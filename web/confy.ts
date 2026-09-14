@@ -12,6 +12,7 @@ import type {
   EditHint,
   Intent,
   KindOptionView,
+  OutlineNode,
   PasteSlot,
   Path,
   SessionSnapshot,
@@ -144,6 +145,14 @@ export class Session {
   /** Immediate children of the node at `path` (breadcrumb mini-tree). */
   children(path: Path): ChildView[] {
     return this.raw.children(path) as ChildView[];
+  }
+
+  /**
+   * Read-only symbol tree, independent of cursor/expansion state — the Raw
+   * breadcrumb jump's source for a node's `text_range` (T8, R14/R15).
+   */
+  outline(): OutlineNode[] {
+    return this.raw.outline() as OutlineNode[];
   }
 
   /**

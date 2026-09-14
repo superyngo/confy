@@ -98,8 +98,18 @@
       </div>
     </div>
 
-    <!-- ===== breadcrumb (cursor path — see web/breadcrumb.ts) ===== -->
-    <nav class="crumbs" id="crumbs" aria-label="breadcrumb"></nav>
+    <!-- ===== breadcrumb (cursor path — see web/breadcrumb.ts) + Raw
+         control band (R13, T8: view|edit pair, apply, save — right end of
+         the row, rendered only while Raw is active) ===== -->
+    <div class="crumbs-row">
+      <nav class="crumbs" id="crumbs" aria-label="breadcrumb"></nav>
+      <div class="raw-controls hidden" id="rawControls">
+        <button class="seg-btn" id="btnRawView" data-i18n-title="web.raw.controls.view" title="View" data-foldable="true"><span data-i18n="web.raw.controls.view">View</span></button>
+        <button class="seg-btn" id="btnRawEdit" data-i18n-title="web.raw.controls.edit" title="Edit" data-foldable="true"><span data-i18n="web.raw.controls.edit">Edit</span></button>
+        <button class="tbtn hidden" id="btnRawApply" data-i18n-title="web.raw.controls.apply" title="Apply" data-foldable="true"><span data-i18n="web.raw.controls.apply">Apply</span></button>
+        <button class="tbtn hidden" id="btnRawSave" data-i18n-title="web.raw.controls.save" title="Save" data-foldable="true"><span data-i18n="web.raw.controls.save">Save</span></button>
+      </div>
+    </div>
 
     <!-- ===== main ===== -->
     <div class="main">

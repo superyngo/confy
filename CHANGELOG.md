@@ -10,6 +10,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-14 (9)
+
+**Added**
+
+- **The Raw pane's crumbs-row control band and breadcrumb jump**
+  (`docs/plan/2026-09-14-raw-write-mode.md` T8, RS2c; R12–R17/R29): the breadcrumb bar now
+  stays visible and live in **both** Raw states (R12 — `crumbsEl.classList.toggle("hidden", …)`
+  removed; it is driven by the same `snap.cursor`/`children(path)` it already used in Tree).
+  A new right-end control band (`#rawControls`, R13) renders only while Raw is active: a
+  `檢視|編輯` (View|Edit) segmented pair (both Raw states — `Edit` dispatches
+  `BeginEditDocument`, `View` calls the confirm-gated `exitRawWrite()`) plus **Apply**/**Save**
+  buttons (write only, calling the same `applyRawEdit`/`rawEditSave` the keyboard shortcuts
+  use). All four are registered in `TOOLBAR_ENTRIES` (`toolbar-fold.ts`'s overflow-menu
+  mechanism), excluded from the "⋯ More" menu while their band/buttons are hidden for a
+  business reason rather than a narrow width. The header's Tree/Raw toggle
+  (`btnViewToggle`) now also routes through `exitRawWrite()`'s confirm-gate when leaving write
+  mode, instead of bypassing it straight to `"off"`.
+- **The breadcrumb jump additionally selects the node's source span in the Raw pane** (R14):
+  clicking a segment or mini-tree row still dispatches `RevealPath`, and now also resolves the
+  path's `text_range` from a new `session.outline()` wrapper (`web/confy.ts`, mirroring
+  `crates/confy-ffi`'s existing `outline()` export) and selects it — a DOM `Range`/`Selection`
+  in Raw **view**, `<textarea>.setSelectionRange` in Raw **write** — scrolling it into view.
+  One-way only (R16): moving the caret in write mode never moves the tree cursor back. New
+  `web/text-offset.ts`: `byteToCodeUnit` (R15 — `outline()`'s `text_range` is UTF-8 bytes, DOM
+  selection APIs index UTF-16 code units; converts one offset, quantified against T2's
+  CJK+emoji fixture, `drift === 8`) and `findOutlineByPath`. The selected span is the node's
+  **whole member, key included** (R29/F5 narrowed this: `text_range` already spans
+  `target = "needle"`, not just the value; no value-only range exists in the wire contract).
+  Gated on a clean write buffer (R17): while the textarea differs from the last-applied
+  baseline, a pick still moves the tree cursor but leaves the caret alone and reports
+  `web.raw.jump-needs-apply` — `text_range`s come from the last commit, so a dirty buffer's
+  offsets may point into text that is no longer there.
+- New `web/raw-jump.spec.mjs` (26 checks): unit-tests `byteToCodeUnit`/`findOutlineByPath`
+  directly (both pure, DOM-free) and extracts `jumpSelectRawSpan`/`renderRawControls`
+  verbatim from `ui.ts`; manually verified in a real browser (breadcrumb pick selecting
+  `[servers]` end-to-end in Raw view, the same pick selecting `[about]`'s whole member in Raw
+  write, and a dirty-buffer pick moving the cursor but leaving the caret and reporting the
+  status line).
+
 ### Update - 2026-09-14 (8)
 
 **Added**

@@ -103,6 +103,20 @@ export interface ChildView {
   is_branch: boolean;
 }
 
+// ---- Outline query (session::view::OutlineNode, ffi `outline`) — used by
+// the Raw breadcrumb jump (T8, R14/R15/R29): `text_range` is UTF-8 byte
+// offsets over `serialize()`, spanning the whole member (key included, F5),
+// not the value alone.
+export interface OutlineNode {
+  key: string;
+  path: Path;
+  type_label: string;
+  value: string | undefined;
+  text_range: [number, number];
+  key_text_range: [number, number] | undefined;
+  children: OutlineNode[];
+}
+
 // ---- Mode projection (session::view::ModeView) ----
 export type PromptView =
   | "ConfirmQuit"
