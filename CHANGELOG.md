@@ -10,6 +10,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-14 (10)
+
+**Added**
+
+- **Touch keeps its existing external-edit sheet for whole-file editing**
+  (`docs/plan/2026-09-14-raw-write-mode.md` T9, RS3; R18/R19): unlike desktop's new Raw write
+  mode (T7/T8), touch has no breadcrumb and its Raw pane is a read-only `<pre>` with no room
+  for a control band, so the Action menu's *Edit whole file as text* item (already reachable —
+  T4's `BeginEditDocument` surfaces it identically on both hosts) keeps routing to the same
+  bottom sheet a per-node multi-line value/comment edit already uses (`web/touch/app.ts`'s
+  `openExternalEdit`) — no new surface, no write mode. The one behavior change: a whole-file
+  Apply (`path.length === 0`) that fails to commit now keeps the sheet open with the buffer
+  text intact instead of closing unconditionally, detected the same way the desktop Raw pane
+  does — `doc_revision` not moving — since closing on failure would otherwise silently discard
+  the entire file's unsaved edit. A per-node value/comment Apply (empty path never applies
+  there) keeps closing unconditionally, unchanged.
+- New `web/touch-ext-apply.spec.mjs` (15 checks): extracts `openExternalEdit` verbatim from
+  `touch/app.ts` and exercises it against a stubbed sheet/session — routing for both an empty
+  and a per-node path, a failed whole-file Apply leaving the sheet open, a succeeding
+  whole-file Apply closing it, and the unconditional-close control cases (per-node value,
+  comment). Manually verified in the real touch host (forced via `?ui=touch`, since headless
+  Chromium's fine pointer otherwise bounces `touch.html` back to the desktop entry): the Action
+  menu's *Edit whole file as text* opens the sheet with the whole document, an unparsable Apply
+  keeps it open with the invalid text and shows the failure notice inline, and Cancel discards
+  it leaving the document untouched.
+
 ### Update - 2026-09-14 (9)
 
 **Added**

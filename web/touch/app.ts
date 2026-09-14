@@ -1093,10 +1093,21 @@ function openExternalEdit(ext: { initial: string; kind: unknown }) {
   const txt = sheets.ext.querySelector<HTMLTextAreaElement>(".ext-text")!;
   txt.value = ext.initial;
   // Apply is wired directly (no data-act) so the shell delegation never double-fires.
+  // R19: a whole-file edit (empty path) must NOT close on a failed Apply — closing
+  // unconditionally would silently discard the entire buffer on an unparsable edit,
+  // unlike a per-node edit where a failure just leaves that one field unchanged
+  // elsewhere. Detect failure the same way the desktop Raw pane does: doc_revision
+  // does not move. Per-node edits (path.length > 0) keep the prior unconditional close.
   sheets.ext.querySelector<HTMLElement>(".ext-apply")!.onclick = () => {
-    closeSheets();
+    const isDocumentEdit = path.length === 0;
+    const beforeRev = snap?.doc_revision;
+    if (!isDocumentEdit) closeSheets();
     if (kind.Value) send({ ApplyReplace: { path, text: txt.value } });
     else send({ ApplyEditComment: { path, text: txt.value } });
+    if (isDocumentEdit) {
+      if (snap?.doc_revision === beforeRev) return;
+      closeSheets();
+    }
   };
   openSheet("ext");
   // preventScroll: `.app` is position:absolute (scrolls with the page), and
