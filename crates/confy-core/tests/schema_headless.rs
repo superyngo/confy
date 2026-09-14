@@ -1613,9 +1613,9 @@ fn a_yaml_anchor_no_longer_silences_every_violation_marker() {
         row("schema.poll_ms").violations.is_some(),
         "the multipleOf violation must survive an anchor elsewhere in the file"
     );
-    // The branch/root summary markers (hollow △) come back with them.
+    // The branch summary marker (hollow △) comes back with them. The Root has
+    // no row to carry one since ADR 0013 D1.
     assert!(row("schema").has_descendant_violation);
-    assert!(row("(root)").has_descendant_violation);
     // The opaque rows themselves are never flagged — confy cannot decode
     // their values, so it has nothing to judge them by.
     assert!(row("pinned").violations.is_none());

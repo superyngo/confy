@@ -190,14 +190,14 @@ fn cursor_moves_and_expand_reveals_children() {
     let mut app = sample();
     app.rebuild_rows();
     // collapsed: root, a, b
-    assert_eq!(app.visible_keys(), vec!["f.toml", "a", "b"]);
+    assert_eq!(app.visible_keys(), vec!["a", "b"]);
     // D3 (ADR 0013): the cursor is seeded on `a`, never on the Root row.
     app.toggle_expand(); // expand a
     app.rebuild_rows();
-    assert_eq!(app.visible_keys(), vec!["f.toml", "a", "x", "b"]);
+    assert_eq!(app.visible_keys(), vec!["a", "x", "b"]);
     app.collapse_all();
     app.rebuild_rows();
-    assert_eq!(app.visible_keys(), vec!["f.toml", "a", "b"]);
+    assert_eq!(app.visible_keys(), vec!["a", "b"]);
 }
 
 /// D2 (ADR 0013): the Root has no collapsed state. `Space` on it — reachable
@@ -207,14 +207,15 @@ fn cursor_moves_and_expand_reveals_children() {
 fn root_node_cannot_be_collapsed() {
     let mut app = sample();
     app.rebuild_rows();
-    assert_eq!(app.visible_keys(), vec!["f.toml", "a", "b"]);
-    app.session.cursor = Vec::new();
-    app.toggle_expand();
-    app.rebuild_rows();
-    assert_eq!(app.visible_keys(), vec!["f.toml", "a", "b"]);
-    app.toggle_expand();
-    app.rebuild_rows();
-    assert_eq!(app.visible_keys(), vec!["f.toml", "a", "b"]);
+    assert_eq!(app.visible_keys(), vec!["a", "b"]);
+    // Seated directly each time: D1 makes the Root unreachable as a cursor, so
+    // `rebuild_rows` snaps a stale root cursor back onto a real row.
+    for _ in 0..2 {
+        app.session.cursor = Vec::new();
+        app.toggle_expand();
+        app.rebuild_rows();
+        assert_eq!(app.visible_keys(), vec!["a", "b"]);
+    }
 }
 
 #[test]
@@ -238,7 +239,7 @@ fn rebuild_preserves_path_keyed_selection() {
 fn selection_ops_are_blocked_while_clipboard_active() {
     let mut app = sample();
     // Move cursor to a leaf so we have something selectable.
-    app.select_row(1);
+    app.select_row(0);
     // Load a clipboard (simulates copy).
     app.session.clipboard = Some(Clipboard {
         fragments: vec!["x = 1\n".into()],
@@ -271,22 +272,22 @@ fn expand_all_reveals_all_descendants() {
     let mut app = sample();
     app.expand_all();
     app.rebuild_rows();
-    assert_eq!(app.visible_keys(), vec!["f.toml", "a", "x", "b"]);
+    assert_eq!(app.visible_keys(), vec!["a", "x", "b"]);
     // round-trip symmetry: collapse_all then expand_all returns to full view
     app.collapse_all();
     app.rebuild_rows();
-    assert_eq!(app.visible_keys(), vec!["f.toml", "a", "b"]);
+    assert_eq!(app.visible_keys(), vec!["a", "b"]);
     app.expand_all();
     app.rebuild_rows();
-    assert_eq!(app.visible_keys(), vec!["f.toml", "a", "x", "b"]);
+    assert_eq!(app.visible_keys(), vec!["a", "x", "b"]);
 }
 
 #[test]
 fn expand_level_reveals_one_depth_per_press() {
     // Nested headers: a > { p, b > { q, c > { r } } }.
     let mut app = app_with("[a]\np = 1\n[a.b]\nq = 2\n[a.b.c]\nr = 3\n");
-    // visible_keys()[0] is the root (temp-file name); compare the rest.
-    let below = |app: &App| app.visible_keys()[1..].to_vec();
+    // The Root is not a row (ADR 0013 D1), so every key IS a real node.
+    let below = |app: &App| app.visible_keys();
     app.collapse_all();
     app.rebuild_rows();
     assert_eq!(below(&app), vec!["a"]);
@@ -307,7 +308,7 @@ fn expand_level_reveals_one_depth_per_press() {
 #[test]
 fn collapse_level_in_place_on_open_branch_else_ascends() {
     let mut app = app_with("[a]\np = 1\n[a.b]\nq = 2\n");
-    let below = |app: &App| app.visible_keys()[1..].to_vec();
+    let below = |app: &App| app.visible_keys();
     app.collapse_all();
     app.rebuild_rows();
     app.select_row(app.visible_keys().iter().position(|k| k == "a").unwrap());
@@ -333,15 +334,15 @@ fn collapse_level_never_collapses_root() {
     let mut app = app_with("[a]\np = 1\n[a.b]\nq = 2\n");
     app.collapse_all();
     app.rebuild_rows();
-    assert_eq!(app.visible_keys()[1..], ["a"]);
+    assert_eq!(app.visible_keys(), vec!["a"]);
     app.select_row(app.visible_keys().iter().position(|k| k == "a").unwrap());
     // `a` is a closed top-level branch: collapse_level ascends toward
     // root, but must stop short of collapsing the root itself.
     app.collapse_level();
     app.rebuild_rows();
     assert_eq!(
-        app.visible_keys()[1..],
-        ["a"],
+        app.visible_keys(),
+        vec!["a"],
         "top-level nodes stay visible"
     );
     // D2: the Root's expand state is no longer a set member at all — it is
@@ -353,12 +354,12 @@ fn shift_rounds_union_across_a_plain_move_and_esc_clears() {
     use std::collections::HashSet;
     let mut app = app_with("a = 1\nb = 2\nc = 3\nd = 4\ne = 5\n");
     app.rebuild_rows();
-    // rows: f.toml(0) a(1) b(2) c(3) d(4) e(5)
-    app.select_row(1);
-    app.extend_select_down(); // round 1 -> {1,2}
+    // rows: a(0) b(1) c(2) d(3) e(4)
+    app.select_row(0);
+    app.extend_select_down(); // round 1 -> {0,1}
                               // a non-shift key (handled in the event loop) resets the flag:
     app.session.last_action_was_shift_select = false;
-    app.select_row(4);
+    app.select_row(3);
     app.extend_select_down(); // round 2 from a fresh anchor -> {4,5}
                               // Selection is path-keyed (§3); map back to row indices for the assertion.
     let sel: HashSet<usize> = app
@@ -369,7 +370,7 @@ fn shift_rounds_union_across_a_plain_move_and_esc_clears() {
         .collect();
     assert_eq!(
         sel,
-        HashSet::from([1, 2, 4, 5]),
+        HashSet::from([0, 1, 3, 4]),
         "second round must union, not extend from round 1's anchor"
     );
     app.escape(); // Esc in normal mode clears the selection
@@ -439,23 +440,14 @@ fn kind_switch_converts_scalar_via_popup() {
 }
 
 #[test]
-fn convert_flow_opens_only_on_root() {
+fn convert_flow_opens_from_any_row() {
     let mut app = app_with("a = 1\n");
-    // On a non-root node it refuses.
+    // D10 (ADR 0013): Convert is document-scoped — it used to refuse anywhere
+    // but the Root row, a precondition that died with the row. It opens from
+    // an ordinary node row, offering the other two formats.
     app.select_row(app.rows.iter().position(|r| r.key == "a").unwrap());
     app.open_convert();
-    assert!(matches!(app.session.mode, Mode::Normal));
-    assert!(app
-        .session
-        .notice
-        .as_ref()
-        .map(|n| n.text.as_str())
-        .unwrap_or("")
-        .contains("root"));
-    // On the root node it opens with the other two formats offered.
-    app.session.notice = None;
-    app.select_row(app.rows.iter().position(|r| r.path.is_empty()).unwrap());
-    app.open_convert();
+    assert!(app.session.notice.is_none(), "{:?}", app.session.notice);
     let Mode::Convert(st) = &app.session.mode else {
         panic!("convert flow should be open");
     };
@@ -470,7 +462,6 @@ fn convert_flow_writes_target_file() {
     let mut app = app_with("a = 1\nb = \"x\"\n");
     let out = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
     app.source_path = Some(out.path().to_path_buf());
-    app.select_row(app.rows.iter().position(|r| r.path.is_empty()).unwrap());
     app.open_convert();
     // Pick JSON.
     if let Mode::Convert(st) = &mut app.session.mode {
@@ -505,7 +496,6 @@ fn convert_flow_writes_target_file() {
 #[test]
 fn convert_toggle_jsonc_ext_flips_extension_on_json_target() {
     let mut app = app_with("a = 1\n");
-    app.select_row(app.rows.iter().position(|r| r.path.is_empty()).unwrap());
     app.open_convert();
     if let Mode::Convert(st) = &mut app.session.mode {
         st.cursor = st
@@ -539,7 +529,6 @@ fn convert_toggle_jsonc_ext_flips_extension_on_json_target() {
 #[test]
 fn convert_toggle_jsonc_ext_is_noop_for_non_json_target() {
     let mut app = app_with("a = 1\n");
-    app.select_row(app.rows.iter().position(|r| r.path.is_empty()).unwrap());
     app.open_convert();
     if let Mode::Convert(st) = &mut app.session.mode {
         st.cursor = st
@@ -564,7 +553,6 @@ fn convert_toggle_jsonc_ext_is_noop_for_non_json_target() {
 fn convert_flow_lossy_requires_confirm() {
     let mut app = app_with("n = 0xFF\n");
     let out = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
-    app.select_row(app.rows.iter().position(|r| r.path.is_empty()).unwrap());
     app.open_convert();
     if let Mode::Convert(st) = &mut app.session.mode {
         st.cursor = st
@@ -669,8 +657,7 @@ fn dotted_tables_load_collapsed() {
     // `a.b.c = 1` nests into `a → b → c`; like any branch, `[T/D]` tables start
     // collapsed, so only the top `a` shows until expanded.
     let app = app_with("a.b.c = 1\n");
-    // [0] is the (temp-file) root key; the dotted table `a` follows, collapsed.
-    assert_eq!(&app.visible_keys()[1..], &["a"]);
+    assert_eq!(app.visible_keys(), vec!["a"]);
 }
 
 /// First visible row whose projected node is a Comment (identified by kind —
@@ -724,7 +711,7 @@ fn edit_node_comment_unmodified_editor_is_a_noop() {
 fn apply_edit_comment_updates_doc_and_rows() {
     use crate::model::document::ConfigDocument;
     let mut app = app_with("# old\nx = 1\n");
-    let cpath = app.rows[1].path.clone(); // row 0 is root, row 1 the comment
+    let cpath = app.rows[0].path.clone(); // row 0 is the leading comment
     app.apply_edit_comment(cpath, "# new\n".into());
     assert!(
         app.session.notice.is_none(),
@@ -737,14 +724,14 @@ fn apply_edit_comment_updates_doc_and_rows() {
         "serialize: {s:?}"
     );
     // The rebuilt rows reflect the edited comment.
-    assert_eq!(app.rows[1].value.as_deref(), Some("# new"));
+    assert_eq!(app.rows[0].value.as_deref(), Some("# new"));
 }
 
 #[test]
 fn apply_edit_comment_rejects_non_comment_and_keeps_doc() {
     let mut app = app_with("# keep\nx = 1\n");
     let before = app.session.doc.as_ref().unwrap().serialize();
-    let cpath = app.rows[1].path.clone();
+    let cpath = app.rows[0].path.clone();
     app.apply_edit_comment(cpath, "not a comment\n".into());
     assert!(
         app.session.notice.is_some(),
@@ -758,7 +745,7 @@ fn single_line_comment_edits_inline() {
     let mut app = app_with("# old\nx = 1\n");
     app.expand_all();
     app.rebuild_rows();
-    app.select_row(1); // the comment node
+    app.select_row(0); // the comment node
     assert_eq!(app.edit_target_kind(), EditKind::Inline);
     app.begin_inline_edit();
     let e = match &app.session.mode {
@@ -839,7 +826,7 @@ fn multiline_comment_routes_external() {
     let mut app = app_with("# a\n# b\nx = 1\n");
     app.expand_all();
     app.rebuild_rows();
-    app.select_row(1); // merged multi-line comment node
+    app.select_row(0); // merged multi-line comment node
     assert_eq!(app.edit_target_kind(), EditKind::External);
 }
 
@@ -849,7 +836,7 @@ fn inline_comment_commit_rejects_non_comment_and_stays_in_editor() {
     let before = app.session.doc.as_ref().unwrap().serialize();
     app.expand_all();
     app.rebuild_rows();
-    app.select_row(1);
+    app.select_row(0);
     app.begin_inline_edit();
     if let Mode::Edit(ref mut e) = app.session.mode {
         e.buffer = "not a comment".into();
@@ -1002,7 +989,7 @@ fn apply_insert_valid_pushes_history_and_rebuilds() {
 fn cut_then_paste_moves_node() {
     let mut app = app_with("a = 1\n[dest]\n");
     // cursor on `a` (row 1, after root)
-    app.select_row(1);
+    app.select_row(0);
     // cut
     app.cut_selected();
     assert!(app.session.clipboard.is_some());
@@ -1034,7 +1021,7 @@ fn cut_then_paste_moves_node() {
 #[test]
 fn delete_selected_removes_node() {
     let mut app = app_with("a = 1\nb = 2\n");
-    app.select_row(1); // on `a`
+    app.select_row(0); // on `a`
     app.delete_selected();
     let s = app.session.doc.as_ref().unwrap().serialize();
     assert!(!s.contains("a = 1"));
@@ -1044,7 +1031,7 @@ fn delete_selected_removes_node() {
 #[test]
 fn undo_restores_after_delete() {
     let mut app = app_with("a = 1\n");
-    app.select_row(1);
+    app.select_row(0);
     app.delete_selected();
     assert!(!app
         .session
@@ -1068,7 +1055,7 @@ fn undo_restores_after_delete() {
 #[test]
 fn redo_reapplies_after_undo() {
     let mut app = app_with("a = 1\n");
-    app.select_row(1);
+    app.select_row(0);
     app.delete_selected();
     app.undo();
     assert!(app
@@ -1093,7 +1080,7 @@ fn redo_reapplies_after_undo() {
 #[test]
 fn remark_toggles_comment() {
     let mut app = app_with("port = 8080\n");
-    app.select_row(1); // on port
+    app.select_row(0); // on port
     app.remark();
     let s = app.session.doc.as_ref().unwrap().serialize();
     assert!(
@@ -1105,11 +1092,11 @@ fn remark_toggles_comment() {
 #[test]
 fn remark_preserves_cursor_row() {
     let mut app = app_with("a = 1\nport = 8080\nb = 2\n");
-    app.select_row(2); // on port (rows: 0 root, 1 a, 2 port, 3 b)
+    app.select_row(1); // on port (rows: 0 a, 1 port, 2 b)
     app.remark();
     assert_eq!(
         app.cursor_row_index(),
-        Some(2),
+        Some(1),
         "cursor should stay on the remarked row, not jump to first row"
     );
 }
@@ -1588,7 +1575,7 @@ fn edit_target_kind_array_of_inline_tables_scalar_is_inline() {
 #[test]
 fn nudge_writes_back_through_replace() {
     let mut app = app_with("port = 8080\n");
-    app.select_row(1); // on port
+    app.select_row(0); // on port
     app.nudge(1);
     assert!(app
         .session
@@ -1608,7 +1595,7 @@ fn edit_cancel_clears_staged_trailing_comment() {
     app.edit_cancel();
     assert!(app.session.pending_trailing.is_none());
     // A subsequent nudge writes only the value, no stray comment.
-    app.select_row(1);
+    app.select_row(0);
     app.nudge(1);
     let out = app.session.doc.as_ref().unwrap().serialize();
     assert!(
@@ -1620,7 +1607,7 @@ fn edit_cancel_clears_staged_trailing_comment() {
 #[test]
 fn inline_commit_same_type_applies_replace() {
     let mut app = app_with("port = 8080\n");
-    app.select_row(1);
+    app.select_row(0);
     app.begin_inline_edit();
     for _ in 0..4 {
         app.edit_backspace();
@@ -1643,7 +1630,7 @@ fn inline_commit_same_type_applies_replace() {
 fn inline_tab_edits_name_and_renames_key_on_commit() {
     use crate::tui::state::EditField;
     let mut app = app_with("port = 8080\n");
-    app.select_row(1);
+    app.select_row(0);
     app.begin_inline_edit();
     // Tab switches to the Name field (active buffer becomes the key "port").
     app.edit_toggle_field();
@@ -1667,7 +1654,7 @@ fn inline_rename_to_dotted_confirms_and_converts_to_table() {
     // rename, turning it into a `[T/D]` table (issue 4).
     use crate::tui::state::EditField;
     let mut app = app_with("foo = 1\n");
-    app.select_row(1);
+    app.select_row(0);
     app.begin_inline_edit();
     app.edit_toggle_field();
     assert!(matches!(&app.session.mode, Mode::Edit(e) if e.field == EditField::Name));
@@ -1690,7 +1677,7 @@ fn inline_rename_to_dotted_confirms_and_converts_to_table() {
 #[test]
 fn inline_rename_to_dotted_cancel_leaves_doc_untouched() {
     let mut app = app_with("foo = 1\n");
-    app.select_row(1);
+    app.select_row(0);
     app.begin_inline_edit();
     app.edit_toggle_field();
     for c in ".x".chars() {
@@ -1716,7 +1703,7 @@ fn inline_tab_is_noop_for_array_element() {
 #[test]
 fn inline_commit_type_change_enters_prompt_then_confirms() {
     let mut app = app_with("port = 8080\n");
-    app.select_row(1);
+    app.select_row(0);
     app.begin_inline_edit();
     for _ in 0..4 {
         app.edit_backspace();
@@ -1748,7 +1735,7 @@ fn inline_commit_type_change_enters_prompt_then_confirms() {
 fn inline_commit_invalid_toml_keeps_editor_open() {
     let mut app = app_with("port = 8080\n");
     let before = app.session.doc.as_ref().unwrap().serialize();
-    app.select_row(1);
+    app.select_row(0);
     app.begin_inline_edit();
     for _ in 0..4 {
         app.edit_backspace();
@@ -1772,7 +1759,7 @@ fn inline_commit_invalid_toml_keeps_editor_open() {
 #[test]
 fn inline_editor_home_end_move_cursor() {
     let mut app = app_with("port = 8080\n");
-    app.select_row(1);
+    app.select_row(0);
     app.begin_inline_edit();
     // buffer is "8080", cursor starts at end (4)
     app.edit_cursor_home();
@@ -1792,7 +1779,7 @@ fn inline_editor_home_end_move_cursor() {
 #[test]
 fn add_node_inserts_empty_string_and_enters_edit() {
     let mut app = app_with("a = 1\n");
-    app.select_row(1); // on a
+    app.select_row(0); // on a
     app.add_node();
     app.session
         .apply(confy_core::session::Intent::AddPickerCommit);
@@ -1988,17 +1975,21 @@ fn add_on_expanded_table_appends_scalar_child() {
 }
 
 #[test]
-fn add_root_scalar_lands_before_first_table() {
-    // D5 clamp: `a` on the root appends a scalar, clamped to before `[t]`.
+fn add_top_level_scalar_lands_before_first_table() {
+    // D5 clamp: adding a top-level scalar is clamped to before `[t]`. The add
+    // starts from the first top-level row (the Root is not a row, ADR 0013
+    // D1), so it is a *sibling* add and inherits that row's kind — an integer.
     let mut app = app_with("a = 1\n[t]\nx = 1\n");
-    app.select_row(0); // root
+    // The Root is no longer a row (ADR 0013 D1), so the scalar add starts from
+    // `a`, the first top-level row — same target, same D5 clamp.
+    app.select_row(0); // `a`
     app.add_node();
     app.session
         .apply(confy_core::session::Intent::AddPickerCommit);
     app.rebuild_rows();
     assert_eq!(
         app.session.doc.as_ref().unwrap().serialize(),
-        "a = 1\nnew_field = \"\"\n[t]\nx = 1\n"
+        "a = 1\nnew_field = 0\n[t]\nx = 1\n"
     );
 }
 
@@ -2054,7 +2045,7 @@ fn detail_distinguishes_inline_table_format() {
 #[test]
 fn detail_scroll_clamps_to_range() {
     let mut app = app_with("port = 8080\n");
-    app.select_row(1);
+    app.select_row(0);
     app.open_detail();
     assert_eq!(app.detail_scroll, 0, "opens at top");
     app.detail_scroll_by(-1, 5);
@@ -2070,7 +2061,7 @@ fn detail_scroll_clamps_to_range() {
 #[test]
 fn detail_view_shows_type_and_value() {
     let mut app = app_with("port = 8080\n");
-    app.select_row(1); // on port (row 0 is root)
+    app.select_row(0); // on port (row 0 is root)
     app.open_detail();
     let detail = app
         .session
@@ -2094,7 +2085,7 @@ fn detail_view_shows_type_and_value() {
 #[test]
 fn detail_view_shows_comment_type_and_full_text() {
     let mut app = app_with("# one\n# two\na = 1\n");
-    app.select_row(1); // on the merged comment node (row 0 is root)
+    app.select_row(0); // on the merged comment node (row 0 is root)
     app.open_detail();
     let detail = app
         .session
@@ -2117,7 +2108,7 @@ fn detail_path_includes_array_index() {
     // Expand the array branch so its elements are flattened into rows.
     app.session.expanded.insert(vec![Seg::Key("hosts".into())]);
     app.rebuild_rows();
-    app.select_row(3); // hosts[1] = "b" (root=0, hosts=1, [0]=2, [1]=3)
+    app.select_row(2); // hosts[1] = "b" (root=0, hosts=1, [0]=2, [1]=3)
     app.open_detail();
     let detail = app
         .session
@@ -2133,7 +2124,7 @@ fn detail_path_includes_array_index() {
 #[test]
 fn esc_from_clipboard_with_selection_clears_clipboard_first() {
     let mut app = sample();
-    app.select_row(1);
+    app.select_row(0);
     // Simulate: user selected row 1 then pressed 'c'
     app.session.selection.toggle(app.row_path(1));
     app.session.clipboard = Some(Clipboard {
@@ -2184,16 +2175,18 @@ fn paste_slots_interleave_into_then_after() {
     let mut app = app_with("a = 1\n[t]\nx = 1\n");
     app.session.expanded.insert(vec![Seg::Key("t".into())]);
     app.rebuild_rows();
-    // rows: 0 root(branch), 1 a(leaf), 2 [t](branch), 3 t.x(leaf)
+    // rows: 0 a(leaf), 1 [t](branch), 2 t.x(leaf). D5 (ADR 0013) emits the
+    // slots in **screen order**: the document-top slot (`After([])`) first,
+    // then each row's own, then the document-end slot (`Into([])`) last.
     assert_eq!(
         app.paste_slots(),
         vec![
-            PasteSlot::Into(app.row_path(0)),
+            PasteSlot::After(Vec::new()),
             PasteSlot::After(app.row_path(0)),
+            PasteSlot::Into(app.row_path(1)),
             PasteSlot::After(app.row_path(1)),
-            PasteSlot::Into(app.row_path(2)),
             PasteSlot::After(app.row_path(2)),
-            PasteSlot::After(app.row_path(3)),
+            PasteSlot::Into(Vec::new()),
         ]
     );
 }
@@ -2201,10 +2194,10 @@ fn paste_slots_interleave_into_then_after() {
 #[test]
 fn default_paste_slot_is_after_cursor() {
     let mut app = app_with("a = 1\nb = 2\n");
-    app.select_row(1);
+    app.select_row(0);
     assert_eq!(
         app.effective_paste_slot(),
-        PasteSlot::After(app.row_path(1))
+        PasteSlot::After(app.row_path(0))
     );
 }
 
@@ -2213,8 +2206,8 @@ fn into_slot_targets_last_child_of_branch() {
     let mut app = app_with("[t]\nx = 1\ny = 2\n");
     app.session.expanded.insert(vec![Seg::Key("t".into())]);
     app.rebuild_rows();
-    // rows: 0 root, 1 [t], 2 t.x, 3 t.y
-    let target = app.slot_target(PasteSlot::Into(app.row_path(1))).unwrap();
+    // rows: 0 [t], 1 t.x, 2 t.y
+    let target = app.slot_target(PasteSlot::Into(app.row_path(0))).unwrap();
     assert_eq!(target.parent, vec![Seg::Key("t".into())]);
     assert_eq!(target.index, 2, "append after both existing children");
 }
@@ -2247,14 +2240,14 @@ fn paste_into_collapsed_branch_appends_as_child() {
     // [t] collapsed; paste with the Into(t) slot lands inside it (idea 2),
     // not as a top-level sibling.
     let mut app = app_with("[t]\nx = 1\n");
-    // rows: 0 root, 1 [t] (collapsed by default)
-    app.select_row(1);
+    // rows: 0 [t] (collapsed by default)
+    app.select_row(0);
     app.session.clipboard = Some(Clipboard {
         fragments: vec!["y = 9\n".into()],
         cut: false,
         sources: vec![vec![Seg::Key("y".into())]],
     });
-    app.session.paste_slot = Some(PasteSlot::Into(app.row_path(1)));
+    app.session.paste_slot = Some(PasteSlot::Into(app.row_path(0)));
     app.paste();
     assert!(
         app.session.notice.is_none(),
@@ -2273,14 +2266,14 @@ fn paste_scalar_after_table_rejected_preserves_clipboard() {
     // D5/D4: pasting a scalar into the root slot *after* a table is illegal
     // (would be captured by the table). The paste must fail non-destructively.
     let mut app = app_with("a = 1\n[t]\nx = 1\n");
-    // rows: 0 root, 1 a, 2 [t] (collapsed)
+    // rows: 0 a, 1 [t] (collapsed)
     app.session.clipboard = Some(Clipboard {
         fragments: vec!["z = 9\n".into()],
         cut: false,
         sources: vec![vec![Seg::Key("a".into())]],
     });
     // Aim the slot at "after [t]" (root append, past the header).
-    app.session.paste_slot = Some(PasteSlot::After(app.row_path(2)));
+    app.session.paste_slot = Some(PasteSlot::After(app.row_path(1)));
     app.paste();
     assert!(
         app.session.clipboard.is_some(),
@@ -2414,10 +2407,10 @@ fn paste_bare_value_into_table_synthesizes_placeholder_key() {
 fn cut_paste_same_scope_moves_without_collision() {
     let mut app = app_with("a = 1\nb = 2\n");
     app.rebuild_rows();
-    app.select_row(1); // on `a`
+    app.select_row(0); // on `a`
     app.cut_selected();
     assert!(app.session.clipboard.is_some());
-    app.select_row(2); // on `b`
+    app.select_row(1); // on `b`
     app.paste();
     assert!(
         matches!(app.session.mode, Mode::Normal),

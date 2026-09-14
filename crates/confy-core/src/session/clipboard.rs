@@ -21,7 +21,7 @@ impl Session {
             return;
         }
         let paths = self.selected_paths();
-        if paths.is_empty() || self.guard_root_operand(&paths) {
+        if self.guard_root_operand(&paths) || paths.is_empty() {
             return;
         }
         let mut paths = paths;
@@ -114,7 +114,7 @@ impl Session {
             return;
         }
         let paths = self.selected_paths();
-        if paths.is_empty() || self.guard_root_operand(&paths) {
+        if self.guard_root_operand(&paths) || paths.is_empty() {
             return;
         }
         let doc = match self.doc.as_ref() {
@@ -534,7 +534,7 @@ impl Session {
             return;
         }
         let paths = self.selected_paths();
-        if paths.is_empty() || self.guard_root_operand(&paths) {
+        if self.guard_root_operand(&paths) || paths.is_empty() {
             return;
         }
         // Same contract as `delete_selected`: an active multi-select wins

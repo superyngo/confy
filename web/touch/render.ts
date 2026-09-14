@@ -71,7 +71,8 @@ function rowHTML(
 ): string {
   const branch = r.is_branch;
   const comment = isCommentRow(r);
-  const pad = 10 + Math.max(0, r.depth - 1) * 18;
+  // Core rebases depth (ADR 0013 D4): a top-level Node is depth 0.
+  const pad = 10 + r.depth * 18;
   const expanded = branch && isExpanded(rows, idx);
   const type = branch ? containerKind(r) : r.scalar_type ?? "string";
   const dataPath = esc(JSON.stringify(r.path));

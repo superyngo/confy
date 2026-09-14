@@ -36,14 +36,15 @@ let snap = s.snapshot();
 check("loads TOML, format=Toml", snap.doc_format === "Toml");
 check("default lang is en", snap.lang === "en", snap.lang);
 check("starts in Normal mode", snap.mode === "Normal");
-check("root + server branch visible", snap.rows.length === 2, JSON.stringify(snap.rows.map(r => r.key)));
+// The Root is never a row (ADR 0013 D1), so a one-table file is one row.
+check("server branch visible", snap.rows.length === 1, JSON.stringify(snap.rows.map(r => r.key)));
 check("history_len 0 on fresh session", snap.history_len === 0, snap.history_len);
 
 // ---- 2. Navigate into the branch + expand ----
-snap = s.dispatch(unit("CursorDown")); // onto [server]
+// D3 seeds the cursor on the first top-level Node already.
 check("cursor on server", snap.cursor[0]?.Key === "server", JSON.stringify(snap.cursor));
 snap = s.dispatch(unit("ToggleExpand")); // expand server
-check("expanded shows host+port", snap.rows.length === 4, "len=" + snap.rows.length);
+check("expanded shows host+port", snap.rows.length === 3, "len=" + snap.rows.length);
 check("cursor row flagged", snap.rows.some(r => r.is_cursor && r.key === "server"));
 // Kind-badge wire: each row carries a type_label, branches a child_count.
 const serverRow = snap.rows.find(r => r.key === "server");

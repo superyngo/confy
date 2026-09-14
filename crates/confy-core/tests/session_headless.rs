@@ -27,8 +27,7 @@ fn keys(s: &Session) -> Vec<String> {
 #[test]
 fn cursor_down_advances_to_next_row() {
     let mut s = toml_session("a = 1\nb = 2\n");
-    // rows: [root(key=""), a, b]
-    s.cursor_down(); // on 'a'
+    // rows: [a, b] — the Root is not a row (ADR 0013 D1).
     s.cursor_down(); // on 'b'
     let rows = s.visible_rows();
     let cursor_row = rows.iter().find(|r| r.is_cursor).unwrap();
@@ -38,12 +37,11 @@ fn cursor_down_advances_to_next_row() {
 #[test]
 fn expand_collapse_works_headlessly() {
     let mut s = toml_session("[a]\nx = 1\n");
-    assert_eq!(s.visible_rows().len(), 2, "before expand: root + a");
-    s.cursor_down(); // on 'a'
+    assert_eq!(s.visible_rows().len(), 1, "before expand: just 'a'");
     s.toggle_expand();
-    assert_eq!(s.visible_rows().len(), 3, "after expand: root, a, x");
+    assert_eq!(s.visible_rows().len(), 2, "after expand: a, x");
     s.collapse_all();
-    assert_eq!(s.visible_rows().len(), 2);
+    assert_eq!(s.visible_rows().len(), 1);
 }
 
 // ---- Filter ----
@@ -131,10 +129,10 @@ fn edit_target_kind_inline_for_simple_scalar() {
 #[test]
 fn edit_target_kind_external_for_root() {
     let mut s = toml_session("port = 8080\n");
-    // D3 (ADR 0013): the Root is no longer the default cursor, so target it
-    // explicitly — the empty path still routes to the external editor, which
-    // is what the document-scoped `BeginEditDocument` relies on.
-    s.dispatch(Intent::SetCursor(Vec::new()));
+    // D1/D3 (ADR 0013): the Root is neither the default cursor nor reachable
+    // as one, so seat it directly — the empty path still routes to the
+    // external editor, which is what `BeginEditDocument` relies on.
+    s.cursor = Vec::new();
     assert_eq!(s.edit_target_kind(), EditKind::External);
 }
 
@@ -371,8 +369,8 @@ fn dispatch_navigation_updates_cursor_in_snapshot() {
 #[test]
 fn dispatch_set_cursor_moves_cursor_by_path() {
     let mut s = toml_session("a = 1\nb = 2\nc = 3\n");
-    // Row 0 is the root; 'c' is the third leaf.
-    let target = s.visible_paths()[3].clone();
+    // 'c' is the third row — the Root is not a row (ADR 0013 D1).
+    let target = s.visible_paths()[2].clone();
     let snap = s.dispatch(Intent::SetCursor(target.clone()));
     assert_eq!(snap.cursor, target);
     let cursor_row = snap.rows.iter().find(|r| r.is_cursor).unwrap();
@@ -386,12 +384,11 @@ fn dispatch_set_cursor_moves_cursor_by_path() {
 #[test]
 fn dispatch_toggle_expand_branch_then_collapse() {
     let mut s = toml_session("[a]\nx = 1\n");
-    s.dispatch(Intent::CursorDown); // onto branch 'a'
     let snap = s.dispatch(Intent::ToggleExpand);
-    // root + a + x once expanded
-    assert_eq!(snap.rows.len(), 3);
-    let snap = s.dispatch(Intent::CollapseAll);
+    // a + x once expanded
     assert_eq!(snap.rows.len(), 2);
+    let snap = s.dispatch(Intent::CollapseAll);
+    assert_eq!(snap.rows.len(), 1);
 }
 
 #[test]
@@ -449,7 +446,7 @@ fn apply_outcome_quit_matches_dispatch_snapshot_quit() {
 #[test]
 fn dispatch_commit_edit_replaces_value() {
     let mut s = toml_session("a = 1\nb = 2\n");
-    let a = s.visible_paths()[1].clone();
+    let a = s.visible_paths()[0].clone();
     s.dispatch(Intent::SetCursor(a));
     let snap = s.dispatch(Intent::CommitEdit {
         value: Some("42".into()),
@@ -463,7 +460,7 @@ fn dispatch_commit_edit_replaces_value() {
 #[test]
 fn dispatch_commit_edit_renames_key() {
     let mut s = toml_session("a = 1\n");
-    let a = s.visible_paths()[1].clone();
+    let a = s.visible_paths()[0].clone();
     s.dispatch(Intent::SetCursor(a));
     s.dispatch(Intent::CommitEdit {
         value: None,
@@ -549,7 +546,7 @@ fn dispatch_commit_edit_from_detail_returns_to_detail() {
     // A panel-origin (Detail-mode) commit returns to Detail so the host's
     // panel stays open, instead of dropping to Normal.
     let mut s = toml_session("a = 1\n");
-    let a = s.visible_paths()[1].clone();
+    let a = s.visible_paths()[0].clone();
     s.dispatch(Intent::SetCursor(a));
     s.dispatch(Intent::ToggleDetail);
     let snap = s.dispatch(Intent::CommitEdit {
@@ -565,7 +562,7 @@ fn dispatch_commit_edit_failure_is_one_shot() {
     // A retry branch (invalid value) must not leave a dangling Mode::Edit for
     // the pointer host — it cancels, surfaces the message, and returns to Detail.
     let mut s = toml_session("a = 1\n");
-    let a = s.visible_paths()[1].clone();
+    let a = s.visible_paths()[0].clone();
     s.dispatch(Intent::SetCursor(a));
     s.dispatch(Intent::ToggleDetail);
     let snap = s.dispatch(Intent::CommitEdit {
@@ -584,7 +581,7 @@ fn dispatch_commit_edit_type_change_prompt_from_detail() {
     // Type-changing value commit defers to the TypeChange prompt; both answers
     // resolve back to Detail (never into Mode::Edit — one-shot host).
     let mut s = toml_session("a = 1\n");
-    let a = s.visible_paths()[1].clone();
+    let a = s.visible_paths()[0].clone();
 
     // 'y' applies and returns to Detail.
     s.dispatch(Intent::SetCursor(a.clone()));
@@ -614,7 +611,7 @@ fn dispatch_commit_edit_type_change_prompt_from_normal_stays_editing_free() {
     // Outside Detail the one-shot rule still applies: 'n' must not restore
     // Mode::Edit (the pointer host has no live editor to show).
     let mut s = toml_session("a = 1\n");
-    let a = s.visible_paths()[1].clone();
+    let a = s.visible_paths()[0].clone();
     s.dispatch(Intent::SetCursor(a));
     let snap = s.dispatch(Intent::CommitEdit {
         value: Some("\"str\"".into()),
@@ -634,7 +631,7 @@ fn dispatch_set_trailing_comment_marks_raw_text() {
     // The Web panel sends raw text (no marker); the session must prepend the
     // backend's comment prefix so the result is a valid trailing comment.
     let mut s = toml_session("a = 1\n");
-    let a = s.visible_paths()[1].clone();
+    let a = s.visible_paths()[0].clone();
     let snap = s.dispatch(Intent::SetTrailing {
         path: a,
         comment: Some("hello".into()),
@@ -648,7 +645,7 @@ fn dispatch_set_trailing_comment_marks_raw_text() {
 
     // Already-marked text is left as-is (no double "# #").
     let mut s = toml_session("a = 1\n");
-    let a = s.visible_paths()[1].clone();
+    let a = s.visible_paths()[0].clone();
     s.dispatch(Intent::SetTrailing {
         path: a,
         comment: Some("# hi".into()),
@@ -686,7 +683,7 @@ fn dispatch_set_trailing_comment_json_and_yaml() {
 
     let doc = AnyDocument::from_str_as("a: 1\n", DocFormat::Yaml).unwrap();
     let mut s = Session::new(doc);
-    let a = s.visible_paths()[1].clone();
+    let a = s.visible_paths()[0].clone();
     let snap = s.dispatch(Intent::SetTrailing {
         path: a,
         comment: Some("note".into()),
@@ -702,7 +699,7 @@ fn dispatch_set_trailing_comment_json_and_yaml() {
 #[test]
 fn dispatch_commit_kind_switches_integer_radix() {
     let mut s = toml_session("n = 255\n");
-    let n = s.visible_paths()[1].clone();
+    let n = s.visible_paths()[0].clone();
     let snap = s.dispatch(Intent::CommitKind {
         path: n,
         target: confy_core::model::document::KindTarget::IntHex,
@@ -1442,8 +1439,9 @@ fn dispatch_move_comment_into_collapsed_table_lands_inside() {
         "comment is a child of [t], not a root sibling: path={:?}",
         note.path
     );
+    // D4 (ADR 0013) rebased depth: a top-level Node is 0, so a child is >= 1.
     assert!(
-        note.depth >= 2,
+        note.depth >= 1,
         "comment nested under [t]: depth={}",
         note.depth
     );
@@ -2482,7 +2480,9 @@ fn rename_remaps_stale_selection_so_the_next_copy_targets_the_right_node() {
 
     // Paste the correctly-captured fragment to root, then delete it -- both
     // must now succeed on the first try (previously: "fragment is not a
-    // value" then "path not found").
+    // value" then "path not found"). In paste mode `Home` is the *document
+    // top* slot since D5 (ADR 0013) put `paste_slots()` in screen order — it
+    // used to be `Into(root)`, i.e. the document end.
     s.cursor_home();
     s.paste();
     assert!(
@@ -2492,7 +2492,7 @@ fn rename_remaps_stale_selection_so_the_next_copy_targets_the_right_node() {
     );
     assert_eq!(
         s.serialize().unwrap(),
-        "{ \"new_field\": {\"a\":1, \"inner\": {\"a\":1}}, \"inner\": {\"a\":1} }\n"
+        "{ \"inner\": {\"a\":1}, \"new_field\": {\"a\":1, \"inner\": {\"a\":1}} }\n"
     );
 
     s.delete_selected();
@@ -4404,32 +4404,59 @@ fn span_of_resolves_yaml_and_json_comments() {
 #[test]
 fn the_root_can_never_arm_the_clipboard() {
     let mut s = toml_session("a = 1\nb = 2\n");
-    s.dispatch(Intent::SetCursor(Vec::new()));
-    let snap = s.dispatch(Intent::CutSelected);
-    assert_eq!(snap.clipboard_count, None, "no clipboard armed on the Root");
+    // D1 makes the Root unreachable as a cursor: `SetCursor([])` no-ops and
+    // `compute_rows` snaps any stale root cursor onto a real row. So the guard
+    // is exercised by calling the methods directly — it is the insurance layer
+    // behind that unreachability, not a substitute for it.
+    s.cursor = Vec::new();
+    s.cut_selected();
+    assert!(s.clipboard.is_none(), "no clipboard armed on the Root");
     assert_eq!(
-        snap.status_text(),
+        s.notice.as_ref().map(|n| n.text.as_str()),
         Some(
             "the document file itself is not a row — use the Actions menu for whole-file operations"
         )
     );
     // Copy, Delete and Remark refuse identically, and the document is untouched.
-    for intent in [Intent::CopySelected, Intent::DeleteSelected, Intent::Remark] {
-        let snap = s.dispatch(intent);
-        assert_eq!(snap.clipboard_count, None);
-        assert!(snap.status_text().is_some(), "refusal is reported");
+    for call in [
+        Session::copy_selected as fn(&mut Session),
+        Session::delete_selected,
+        Session::remark,
+    ] {
+        s.cursor = Vec::new();
+        s.notice = None;
+        call(&mut s);
+        assert!(s.clipboard.is_none());
+        assert!(s.notice.is_some(), "refusal is reported");
     }
     assert_eq!(s.serialize().unwrap(), "a = 1\nb = 2\n");
+}
+
+/// D1/D3 together: the Root is not reachable as a cursor at all — the pointer
+/// intent no-ops and a stale root cursor is snapped onto a real row by the
+/// next rebuild. This is what makes D7's guard pure insurance.
+#[test]
+fn the_root_is_unreachable_as_a_cursor() {
+    let mut s = toml_session("a = 1\nb = 2\n");
+    let snap = s.dispatch(Intent::SetCursor(Vec::new()));
+    assert_eq!(snap.cursor, vec![Seg::Key("a".into())], "SetCursor no-ops");
+    s.cursor = Vec::new();
+    let snap = s.dispatch(Intent::OpenActionMenu);
+    assert_eq!(
+        snap.cursor,
+        vec![Seg::Key("a".into())],
+        "stale cursor snaps"
+    );
 }
 
 /// D7: none of the selection entry points admits the Root.
 #[test]
 fn the_root_never_enters_the_selection() {
     let mut s = toml_session("a = 1\nb = 2\n");
-    s.dispatch(Intent::SetCursor(Vec::new()));
-    let snap = s.dispatch(Intent::ToggleSelect);
+    s.cursor = Vec::new();
+    s.toggle_select();
     assert!(
-        snap.rows.iter().all(|r| !r.selected),
+        s.selection.is_empty(),
         "ToggleSelect on the Root selects nothing"
     );
     // The pointer route drops it while keeping the real rows.
@@ -4511,15 +4538,12 @@ fn no_route_collapses_the_document_into_an_empty_tree() {
 #[test]
 fn the_action_menu_on_the_root_offers_only_the_document_item() {
     let mut s = toml_session("a = 1\n");
-    s.dispatch(Intent::SetCursor(Vec::new()));
-    let snap = s.dispatch(Intent::OpenActionMenu);
-    let ModeView::ActionMenu { items, .. } = snap.mode else {
-        panic!("expected the action menu, got {:?}", snap.mode);
-    };
+    s.cursor = Vec::new();
+    let items = s.action_menu_items();
     let enabled: Vec<&str> = items
         .iter()
         .filter(|it| it.enabled)
         .map(|it| it.label.as_str())
         .collect();
-    assert_eq!(enabled, vec!["Edit whole file"], "items: {items:?}");
+    assert_eq!(enabled, vec!["Edit whole file"]);
 }

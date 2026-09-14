@@ -123,11 +123,11 @@ export function renderRow(
     `${r.is_branch && r.has_descendant_violation ? " warn-branch" : ""}`;
   let s = `<div class="${cls}" data-path="${pathAttr}" data-index="${idx}">`;
   // Indentation: a single spacer whose width scales with depth (the design's
-  // `indent.style.width = depth*22`). The synthetic root (depth 0) is not drawn,
-  // so real top-level nodes (depth 1) sit flush-left and each deeper level adds
-  // one `--indent` step. (A zero-width span per level — the previous approach —
+  // `indent.style.width = depth*22`). Core rebases depth (ADR 0013 D4), so a
+  // top-level Node is depth 0 and sits flush-left; each deeper level adds one
+  // `--indent` step. (A zero-width span per level — the previous approach —
   // left every node flush-left with no level hint.)
-  const level = Math.max(0, r.depth - 1);
+  const level = r.depth;
   s += `<span class="indent" style="width:calc(var(--indent) * ${level})"></span>`;
   // Disclosure caret (rotates on expand); leaves get an aligned hidden caret.
   s += `<button class="caret${r.is_branch ? "" : " leaf"}" data-caret="1">${IC_CARET}</button>`;

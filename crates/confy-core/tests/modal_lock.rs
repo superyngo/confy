@@ -256,8 +256,8 @@ fn toggle_expand_allowed_while_clipboard_armed() {
     // server is collapsed by default; toggle should expand it
     s.toggle_expand();
     assert!(
-        s.visible_rows().len() >= 3,
-        "expand must succeed: root + server + port"
+        s.visible_rows().len() >= 2,
+        "expand must succeed: server + port"
     );
 }
 

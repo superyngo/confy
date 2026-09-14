@@ -42,7 +42,19 @@ impl Session {
         }
         let cursor_row = match self.cursor_row() {
             Some(r) => r,
-            None => return,
+            // D12 (ADR 0013): no cursor row at all means a zero-row document —
+            // the add target is the document itself, appended at the end.
+            None => {
+                let index = self.tree.root.children.len();
+                self.open_add_picker(
+                    Target {
+                        parent: Vec::new(),
+                        index,
+                    },
+                    None,
+                );
+                return;
+            }
         };
         let expanded = self.expanded.contains(&cursor_row.path);
         let is_append = match force_append {

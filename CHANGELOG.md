@@ -10,6 +10,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-14 (19)
+
+**Changed — root-hidden alignment S2 (T5–T9): the Root stops being a row**
+
+The direction-committing half of `docs/plan/2026-09-11-root-hidden-alignment.md` (ADR 0013
+D1/D4/D5/D10/D11/D12/D13 + D15). The TUI's `document file` row is **gone** — every host now
+agrees, which is what the whole project was for.
+
+- **D1/D4 — the Root is dropped from both flattens and depth is rebased**, so a top-level Node
+  is depth 0. The Root keeps its place in the *model* (`node_at(&[])`,
+  `Target { parent: [] }`, every whole-document mutation); it is only never a view row.
+  `view_row_at([])` returns `None`, and both web renderers lost their
+  `Math.max(0, r.depth - 1)` correction.
+- **D15 — the TUI title bar reads the new `Session::root_key`** instead of `app.rows.first()`,
+  which would otherwise have blanked the moment the row disappeared.
+- **D5 — `paste_slots()` is emitted in screen order:** the document-top slot (`After([])`,
+  root index 0) first, each row's `Into`/`After` next, the document-end slot (`Into([])`,
+  append at `children.len()`) last. They used to fall out of row 0 in the opposite order, so
+  paste-mode `Home` meant "document end". `slot_target` resolves both edge slots from the tree
+  (looking for their row returned `None`, i.e. a silently no-op move), and stepping onto them
+  no longer drags the cursor to the empty path.
+- **D10 — Convert (`C`) is document-scoped** and works from any row; its root-cursor
+  precondition became unsatisfiable, and `core.convert.root-only` is retired from both
+  catalogs (the web host's faked `SetCursor: []` is deleted in the web slice).
+- **D11 — the `[G] root` type-filter facet is gone** from all three format layouts.
+- **D12/D13 —** with no cursor row (a zero-row document) the add target is now
+  `Target { parent: [], index: children.len() }`, and `RevealPath([])` (breadcrumb `⌂`)
+  retargets to the first row in core.
+- **D7's guard gained a second case:** `selected_paths()` returns nothing for a Root cursor
+  now, so "no operand while the cursor is on the Root" gets the same refusal.
+- **Verified on the real `confy` binary** (tmux, `--lang en`): the title bar still names the
+  file, the first row is a top-level Node at the leftmost indent, and `C` opens the Convert
+  popup from an ordinary node row. Plus `cargo test --workspace`, `clippy --workspace
+  --all-targets -D warnings`, `functional_smoke.mjs`, `npm run typecheck`, `npm test`.
+- **Test churn:** ~90 assertions across `session_headless.rs`, `modal_lock.rs`,
+  `schema_headless.rs`, `tui/tests.rs`, `tui/ui.rs` and `functional_smoke.mjs` lost their
+  row-0-is-the-Root assumption (row indices, `visible_keys()` prefixes, the `KEY_X` render
+  column, and the two `△` summary counts). `convert_flow_opens_only_on_root` became
+  `convert_flow_opens_from_any_row`.
+
 ### Update - 2026-09-14 (18)
 
 **Fixed — root-hidden alignment S1 (T2–T4): the Root stops behaving like a row**

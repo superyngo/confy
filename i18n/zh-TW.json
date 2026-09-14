@@ -29,7 +29,6 @@
   "core.action.edit-document": "編輯全檔",
   "core.document.apply-failed": "整份檔案未套用：{0}",
   "core.blank.error": "無法設定空行：{0}",
-  "core.convert.root-only": "convert：請先移動到 root/file 節點（按 C 鍵）",
   "core.convert.aborted": "轉換已中止：{0}",
   "core.comment.invalid": "無效的 comment：{0}",
   "core.comment.advisory": "comment 不是標準 JSON 的一部分 —— 此檔案正以 JSONC 方式編輯",

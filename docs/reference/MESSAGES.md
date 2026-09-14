@@ -98,11 +98,13 @@ Four levels, one meaning each:
 truth for every notice key — there is no explicit-severity
 constructor and no escape hatch; a key not yet in the table panics rather than
 silently defaulting, so a new Notice call site can't ship unclassified. The table
-classifies **69** keys: **46 `core.*`** notice keys (12 Error + 18 Warn + 7 Success
+classifies **68** keys: **45 `core.*`** notice keys (12 Error + 17 Warn + 7 Success
 + 9 Info) and **23** host-authored `tui.*`/`web.*` keys (§3). The newest `Warn` is
 `core.selection.root-excluded` — D7 of ADR 0013: the document Root is never an
 operand of a row operation (Cut/Copy/Remark/Delete refuse it; the Action menu dims
-every node-scoped item on it, leaving only the document-scoped `Edit whole file`). `core.schema.violation`
+every node-scoped item on it, leaving only the document-scoped `Edit whole file`). It
+replaces `core.convert.root-only`, retired by the same ADR's D10 — Convert is
+document-scoped and no longer demands a Root cursor. `core.schema.violation`
 is a controller-approved pass-through wrapper (`Warn`) carrying the dynamic
 schema-violation advisory text, and is counted inside those 17. See `notice.rs`'s own
 `severity_of_covers_the_full_catalog_table` test for the exhaustive `core.*` list;

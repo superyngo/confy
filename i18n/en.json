@@ -29,7 +29,6 @@
   "core.action.edit-document": "Edit whole file",
   "core.document.apply-failed": "the whole file was not applied: {0}",
   "core.blank.error": "cannot set blank lines: {0}",
-  "core.convert.root-only": "convert: move to the root/file node first (key C)",
   "core.convert.aborted": "conversion aborted: {0}",
   "core.comment.invalid": "invalid comment: {0}",
   "core.comment.advisory": "comments aren't part of standard JSON — this file is being edited as JSONC",

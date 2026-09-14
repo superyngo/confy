@@ -16,11 +16,11 @@ copied from the design record's slices; nothing here adds scope to it.
 | T2 | D7 selection guard — `[]` cannot enter the selection | S1 | **Done** (2026-09-14) |
 | T3 | D3 cursor seeding in core — first top-level Node | S1 | **Done** (2026-09-14) |
 | T4 | D2 Root unconditionally expanded | S1 | **Done** (2026-09-14) |
-| T5 | D1 root-hidden flatten + D4 depth rebase | S2 | Open |
-| T6 | D5 paste-slot screen order | S2 | Open |
-| T7 | D10 Convert drops its root-cursor precondition | S2 | Open |
-| T8 | D11 `[G] root` facet / `TypeToken::Root` retired | S2 | Open |
-| T9 | D12 zero-row document target + D13 `RevealPath([])` retarget | S2 | Open |
+| T5 | D1 root-hidden flatten + D4 depth rebase | S2 | **Done** (2026-09-14) |
+| T6 | D5 paste-slot screen order | S2 | **Done** (2026-09-14) |
+| T7 | D10 Convert drops its root-cursor precondition | S2 | **Done** (2026-09-14) |
+| T8 | D11 `[G] root` facet / `TypeToken::Root` retired | S2 | **Done** (2026-09-14) |
+| T9 | D12 zero-row document target + D13 `RevealPath([])` retarget | S2 | **Done** (2026-09-14) |
 | — | D8/D9 document-scoped action | S3 | **Done** — shipped by the Raw-write record (ADR 0014); placement verified by E6 |
 | T10 | D15 title bar + D6 document-edge insertion lines + D12 TUI empty state + the `9`/`0`/`1`/`2`/`e`/`i` root special cases and ~65 row-index test assumptions | S4 | Open |
 | T11 | Web/touch/VS Code stand-in deletions + D6 rename + D12 empty state + the `*.spec.mjs` suites | S5 | Open |
@@ -68,6 +68,30 @@ leftmost indent, both document edges cue in paste mode, `C` works from any row) 
 - **T2 additionally dims the Action menu's node-scoped items on the Root** (the backlog row's
   own acceptance wording), leaving only document-scoped `Edit whole file`. The refusal notice
   stays as the keyboard backstop.
+
+### S2 (T5–T9)
+
+- **T5 forced the TUI's root row out in the same commit**, as the ordering constraint predicted:
+  `compute_rows` feeds `app.rows`, so dropping the Root there removes the drawn row. D15 (the
+  title bar reading the new `Session::root_key` instead of `rows.first()`) therefore landed here
+  rather than in T10 — without it the title bar goes blank.
+- **Three core lookups had to learn the document edges.** `slot_target` resolved a slot by
+  *finding its row*, so both `[]` slots returned `None` (silently no-op moves) until they were
+  resolved from the tree instead. `paste_slots` now emits them explicitly (D5) instead of
+  inheriting them from row 0, and `move_paste_slot` no longer drags the cursor onto `[]`.
+- **D7's guard needed a second case.** `selected_paths()` returns *nothing* for a Root cursor
+  now, so `paths.is_empty()` short-circuited before the guard; the guard also treats "no operand
+  while the cursor is on the Root" as the Root case.
+- **`Home` in paste mode changed meaning** (a real, intended D5 consequence): the first slot is
+  the document *top* (`After([])`), where it used to be `Into([])`, the document *end*.
+- **T8 removed the `[G] root` facet from all three layouts but kept `TypeToken::Root`** as a
+  classification value: `classify` still maps `NodeKind::Root`, and filter ancestor-keeping
+  still puts `[]` in `filtered_paths`. Deleting the variant is vocabulary cleanup for S6.
+- **T9's host empty states are still open** (S4/S5); the core half — an add target of
+  `Target { parent: [], index: children.len() }` with no cursor row, and `RevealPath([])`
+  retargeting to the first row — is done.
+- **Web/touch renderers lost `Math.max(0, r.depth - 1)`** here too, since D4 rebased depth in
+  core; the remaining web stand-in deletions are still T11.
 
 ## Ordering constraint
 

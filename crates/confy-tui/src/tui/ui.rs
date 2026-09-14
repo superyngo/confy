@@ -267,7 +267,10 @@ pub fn draw(f: &mut Frame, app: &App) {
 fn draw_title(f: &mut Frame, area: Rect, app: &App) {
     use confy_core::session::tr_args;
     use unicode_width::UnicodeWidthStr;
-    let filename = app.rows.first().map(|r| r.key.as_str()).unwrap_or("");
+    // D15 (ADR 0013): read the Root node's key directly. It used to be
+    // `app.rows.first()`, which worked only while the Root was drawn as row 0 —
+    // now that it is never a row, that read would blank the title bar.
+    let filename = app.session.root_key();
     let version = format!("v{}", env!("CARGO_PKG_VERSION"));
     let left = tr_args(app.session.lang, "tui.title", &[filename]);
     let width = area.width as usize;
@@ -350,8 +353,6 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
         {
             let indent = "  ".repeat(row.depth);
             let marker = if row.is_branch {
-                // Every branch — including the root/file node (empty path) — shows
-                // its real expanded state; the root is seeded open at startup.
                 if app.is_expanded(&row.path) {
                     "▾ "
                 } else {
@@ -786,10 +787,11 @@ mod tests {
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
 
-    /// Buffer column where a depth-1 row's key glyph lands in the NAME cell
-    /// (1 selection-marker col + 2 indent + 2 branch marker + 1 warning-marker col
-    /// + 1 spacing col before the key).
-    const KEY_X: u16 = 7;
+    /// Buffer column where a **top-level** row's key glyph lands in the NAME
+    /// cell: 1 selection-marker col + 2 branch marker + 1 warning-marker col +
+    /// 1 spacing col before the key. ADR 0013 D4 rebased depth, so a top-level
+    /// row no longer pays the Root's indent step.
+    const KEY_X: u16 = 5;
 
     #[test]
     fn highlight_spans_marks_matched_chars() {
@@ -984,7 +986,7 @@ mod tests {
             crate::model::cst_doc::CstDocument::from_str("port = 8080\n").unwrap(),
         );
         let mut app = App::new(doc);
-        app.select_row(1); // on port
+        app.select_row(0); // on port
         app.begin_inline_edit();
         for _ in 0..4 {
             app.edit_backspace();
@@ -1021,7 +1023,7 @@ mod tests {
             crate::model::yaml::doc::YamlDocument::from_str("\"a b\": 1\n").unwrap(),
         );
         let mut app = App::new(doc);
-        app.select_row(1); // on "a b"
+        app.select_row(0); // on "a b"
         app.begin_inline_rename();
         // The rename buffer itself now carries the literal source text
         // (quotes included), seeded from `key_literal_text` — the quote
@@ -1059,7 +1061,7 @@ mod tests {
             crate::model::cst_doc::CstDocument::from_str("port = 8080\n").unwrap(),
         );
         let mut app = App::new(doc);
-        app.select_row(1);
+        app.select_row(0);
         app.begin_inline_edit();
         for _ in 0..4 {
             app.edit_backspace();
@@ -1154,7 +1156,7 @@ mod tests {
             crate::model::cst_doc::CstDocument::from_str(&format!("blob = \"{long}\"\n")).unwrap(),
         );
         let mut app = App::new(doc);
-        app.select_row(1); // on blob
+        app.select_row(0); // on blob
         app.open_detail();
         let render_detail = |app: &App| -> String {
             let mut t = Terminal::new(TestBackend::new(60, 20)).unwrap();
@@ -1189,7 +1191,7 @@ mod tests {
             Ok(schema.to_string()),
         );
         app.rebuild_rows();
-        app.select_row(1); // cursor on port
+        app.select_row(0); // cursor on port
         app.open_detail();
         let full = detail_full_text(&app);
         assert!(full.contains("Schema:"), "section appended: {full:?}");
@@ -1211,7 +1213,7 @@ mod tests {
             Ok(schema.to_string()),
         );
         clean.rebuild_rows();
-        clean.select_row(1);
+        clean.select_row(0);
         clean.open_detail();
         let clean_full = detail_full_text(&clean);
         assert!(
@@ -1238,7 +1240,7 @@ mod tests {
             Ok(schema.to_string()),
         );
         app.rebuild_rows();
-        app.select_row(1); // cursor on env
+        app.select_row(0); // cursor on env
         app.open_detail();
         let full = detail_full_text(&app);
         assert!(full.contains("Schema:"), "section appended: {full:?}");
@@ -1266,7 +1268,7 @@ mod tests {
             Ok(schema.to_string()),
         );
         app.rebuild_rows();
-        app.select_row(1); // cursor on host
+        app.select_row(0); // cursor on host
         app.open_detail();
         let full = detail_full_text(&app);
         assert!(full.contains("Schema:"), "section appended: {full:?}");
@@ -1287,7 +1289,7 @@ mod tests {
         let mut app = App::new(doc);
         app.session.strict_json = true;
         app.rebuild_rows();
-        app.select_row(1); // the leading standalone comment (rows[0] is root)
+        app.select_row(0); // the leading standalone comment
         let full = detail_full_text(&app);
         assert!(full.contains("Note:"), "section appended: {full:?}");
         assert!(
@@ -1574,9 +1576,9 @@ mod tests {
             crate::model::cst_doc::CstDocument::from_str("a = 1\nb = 2\nc = 3\n").unwrap(),
         );
         let mut app = App::new(doc);
-        app.select_row(2); // rows[0] is the root; rows[1]=a, rows[2]=b, rows[3]=c — cursor on `b`
-        app.session.selection.toggle(app.row_path(2)); // lock-select the cursor row too
-        app.session.selection.toggle(app.row_path(3)); // and a second, non-cursor row (`c`)
+        app.select_row(1); // rows[0]=a, rows[1]=b, rows[2]=c — cursor on `b`
+        app.session.selection.toggle(app.row_path(1)); // lock-select the cursor row too
+        app.session.selection.toggle(app.row_path(2)); // and a second, non-cursor row (`c`)
         let mut terminal = Terminal::new(TestBackend::new(40, 8)).unwrap();
         terminal.draw(|fr| draw(fr, &app)).unwrap();
         let buf = terminal.backend().buffer().clone();
@@ -1624,9 +1626,9 @@ mod tests {
             crate::model::cst_doc::CstDocument::from_str("s = \"x\"\no = 2\n").unwrap(),
         );
         let mut app = App::new(doc);
-        app.select_row(2); // cursor on `o`, so `s` is not the cursor row
-        let s_path = app.row_path(1);
-        let o_path = app.row_path(2);
+        app.select_row(1); // cursor on `o`, so `s` is not the cursor row
+        let s_path = app.row_path(0);
+        let o_path = app.row_path(1);
         app.session.clipboard = Some(Clipboard {
             fragments: vec!["z = 1\n".into()],
             cut: false,
@@ -1658,7 +1660,7 @@ mod tests {
             crate::model::cst_doc::CstDocument::from_str("a = 1\nb = 2\n").unwrap(),
         );
         let mut app = App::new(doc);
-        let a_path = app.row_path(1); // rows[0] is the root; `a` is the first real row
+        let a_path = app.row_path(0); // rows[0] is the root; `a` is the first real row
         app.session.clipboard = Some(Clipboard {
             fragments: vec!["a = 1\n".into()],
             cut: false,
@@ -1723,8 +1725,9 @@ mod tests {
             .filter(|&(x, y)| buf2[(x, y)].symbol() == "▲")
             .count();
         assert_eq!(
-            hollow_count, 2,
-            "root and server only summarize a descendant violation"
+            hollow_count, 1,
+            "only `server` summarizes a descendant violation (the Root has no \
+             row since ADR 0013 D1)"
         );
         assert_eq!(filled_count, 1, "only port itself violates");
     }
@@ -1760,6 +1763,9 @@ mod tests {
             .filter(|&(x, y)| buf[(x, y)].symbol() == "△")
             .count();
         assert_eq!(filled, 1, "the violating `port` row must draw a filled ▲");
-        assert_eq!(hollow, 1, "the root summarizes it with a hollow △");
+        assert_eq!(
+            hollow, 0,
+            "nothing else summarizes it — the Root has no row (ADR 0013 D1)"
+        );
     }
 }

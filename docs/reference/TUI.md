@@ -151,15 +151,17 @@ warn-colored** one and puts the full advisory text in the `i` Detail popup's `No
 That is the terminal's stand-in for the web tree's wavy underline plus hover tooltip —
 terminals have no hover (`HOST_PARITY.md`).
 
-The TUI also **draws the root/file row** (see Navigation below); neither web host does, which
-is the origin of several web-only cursor and paste-slot corrections — `HOST_PARITY.md` §2.
+The TUI **no longer draws a root/file row** — ADR 0013: the Root is never a view row on any
+host. The filename lives in the title bar (`draw_title` reads `Session::root_key`), and the
+first row is a top-level Node at the leftmost indent.
 
 ## Navigation
 
 Expand/collapse state is a `Session.expanded: HashSet<Path>` of open branch paths. The
-**root/file node has the empty path** and is collapsible like any branch — `flatten` treats it
-uniformly; the Session seeds `[]` into `expanded` so it starts open, and `collapse_all` (`0`) re-inserts
-`[]` so it keeps the file node open (only an explicit toggle on the root row hides everything).
+**root/file node has the empty path** and is **expanded by contract** (ADR 0013 D2): both
+flattens read `p.is_empty() || expanded.contains(p)`, so no membership is seeded and
+`collapse_all` (`0`) cannot hide the first layer. Depth is rebased with it (D4) — a top-level
+Node is depth 0.
 Beyond the all-at-once `9`/`0`, **`1`/`2` work one level at a time**: `expand_level` (`1`) inserts
 the shallowest not-yet-expanded depth of the cursor branch's subtree per press; `collapse_level`
 (`2`) collapses an open branch in place, else moves the cursor up to its parent branch and collapses
@@ -307,7 +309,8 @@ editing. Only `K` picks a type.
 
 ## Convert document (`C`)
 
-`C` on the root node opens `Mode::Convert` (`overlay_convert.rs`, `draw_convert_overlay`), a
+`C` opens `Mode::Convert` from **any** row (ADR 0013 D10 — Convert is document-scoped; it used
+to demand a Root cursor) (`overlay_convert.rs`, `draw_convert_overlay`), a
 modal multi-step popup for converting the entire document to another format. It advances
 through three steps: `ConvertStep::Format` (picks the target format via `↑↓`/`Enter`),
 `ConvertStep::Path` (types the output filename, with `Tab` toggling the `.json` ↔ `.jsonc`

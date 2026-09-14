@@ -191,13 +191,23 @@ impl Session {
         // `CollapseLevel` refused to remove it) and collapsing it produced a
         // one-row core tree that both web hosts draw as zero rows — a tree
         // with no rows and no cursor (design record P2/E5).
-        let rows = self.tree.flatten(&|p| p.is_empty() || expanded.contains(p));
+        // D1/D4 (ADR 0013): the Root is dropped from the row list and every
+        // remaining depth is rebased by one, so a top-level Node is depth 0.
+        // The Root keeps its place in the *model* — `node_at(&[])`,
+        // `Target { parent: [] }` and every whole-document mutation are
+        // untouched; it is only never a view row.
+        let rows = self
+            .tree
+            .flatten(&|p| p.is_empty() || expanded.contains(p))
+            .into_iter()
+            .filter(|r| !r.node.path.is_empty())
+            .map(|mut r| {
+                r.depth -= 1;
+                r
+            });
         match &self.filtered_paths {
-            Some(fp) => rows
-                .into_iter()
-                .filter(|r| fp.contains(&r.node.path))
-                .collect(),
-            None => rows,
+            Some(fp) => rows.filter(|r| fp.contains(&r.node.path)).collect(),
+            None => rows.collect(),
         }
     }
 
@@ -243,18 +253,21 @@ impl Session {
                 None => {}
             }
             chain.push(disp);
+            // D1 (ADR 0013): the Root is never a row. It still has to walk
+            // through the loop above, because `chain` is the ancestor
+            // accumulator every child's display path is built on.
+            if r.node.path.is_empty() {
+                continue;
+            }
             if let Some(fp) = &self.filtered_paths {
                 if !fp.contains(&r.node.path) {
                     continue;
                 }
             }
-            let display = if r.node.path.is_empty() {
-                "(root)".to_string()
-            } else {
-                // Safe: just pushed.
-                chain[r.depth].clone()
-            };
-            out.push(self.to_view_row(r.node, r.depth, display));
+            // Safe: just pushed.
+            let display = chain[r.depth].clone();
+            // D4: depth is rebased so a top-level Node is depth 0.
+            out.push(self.to_view_row(r.node, r.depth - 1, display));
         }
         out
     }
@@ -387,13 +400,16 @@ impl Session {
     /// `visible_rows()` (not found in the tree, or hidden by a collapsed
     /// ancestor / active filter) — same semantics, cheaper path.
     pub fn view_row_at(&self, path: &Path) -> Option<ViewRow> {
-        if !self.is_path_visible(path) {
+        // D1 (ADR 0013): the Root is never a view row, so it has no
+        // single-row projection either.
+        if path.is_empty() || !self.is_path_visible(path) {
             return None;
         }
         let node = self.tree.node_at(path)?;
         // No ancestor chain available here, so derive it directly. One row, so
-        // `human_path`'s per-segment tree descent is irrelevant.
-        Some(self.to_view_row(node, path.len(), self.human_path(path)))
+        // `human_path`'s per-segment tree descent is irrelevant. D4: depth is
+        // rebased, so a top-level Node (`path.len() == 1`) is depth 0.
+        Some(self.to_view_row(node, path.len() - 1, self.human_path(path)))
     }
 
     /// `view_row_at(&self.cursor)` — the single most common single-row lookup.
@@ -453,9 +469,17 @@ impl Session {
     /// `path`, then place the cursor on it. Unknown paths are ignored; if an
     /// active filter still hides the row, the expansion sticks, the cursor
     /// stays put, and the status line says so.
-    pub fn reveal_path(&mut self, path: Path) {
+    pub fn reveal_path(&mut self, mut path: Path) {
         if self.tree.node_at(&path).is_none() {
             return;
+        }
+        // D13 (ADR 0013): revealing the document itself (the breadcrumb `⌂`)
+        // retargets to the first row — the Root has none.
+        if path.is_empty() {
+            match self.visible_nodes().first().map(|r| r.node.path.clone()) {
+                Some(first) => path = first,
+                None => return,
+            }
         }
         for i in 0..path.len() {
             self.expanded.insert(path[..i].to_vec());
@@ -464,9 +488,8 @@ impl Session {
         if visible {
             self.cursor = path.clone();
             // Reveal also selects the target (single-node selection) — except
-            // the root, which has no selectable row, and paste mode, where the
-            // clipboard freezes the selection.
-            if self.clipboard.is_none() && !path.is_empty() {
+            // in paste mode, where the clipboard freezes the selection.
+            if self.clipboard.is_none() {
                 self.selection.set_all(vec![path]);
             }
         } else {
@@ -717,15 +740,23 @@ impl Session {
         }
     }
 
+    /// Every legal insertion slot, in **screen order** (D5, ADR 0013): the
+    /// document-top slot first, then each row's `Into`/`After`, then the
+    /// document-end slot last. The two document-edge slots are the Root's own
+    /// (`After([])` resolves to root index 0, `Into([])` appends at
+    /// `children.len()`), and since the Root is no longer a row they are
+    /// emitted explicitly rather than falling out of row 0.
     pub fn paste_slots(&self) -> Vec<PasteSlot> {
         let rows = self.visible_nodes();
-        let mut slots = Vec::with_capacity(rows.len() * 2);
+        let mut slots = Vec::with_capacity(rows.len() * 2 + 2);
+        slots.push(PasteSlot::After(Vec::new()));
         for row in rows.iter() {
             if row.node.is_branch() {
                 slots.push(PasteSlot::Into(row.node.path.clone()));
             }
             slots.push(PasteSlot::After(row.node.path.clone()));
         }
+        slots.push(PasteSlot::Into(Vec::new()));
         slots
     }
 
@@ -751,14 +782,34 @@ impl Session {
             }
         };
         let slot = slots[next].clone();
-        self.cursor = match &slot {
-            PasteSlot::Into(p) | PasteSlot::After(p) => p.clone(),
-        };
+        // The two document-edge slots carry the empty path; the cursor must not
+        // follow them there (D1: the Root is not a row), so it stays put and
+        // the slot alone moves.
+        match &slot {
+            PasteSlot::Into(p) | PasteSlot::After(p) if !p.is_empty() => {
+                self.cursor = p.clone();
+            }
+            _ => {}
+        }
         self.paste_slot = Some(slot);
     }
 
     pub fn slot_target(&self, slot: PasteSlot) -> Option<Target> {
         let rows = self.visible_nodes();
+        // D1/D5 (ADR 0013): the two document-edge slots name the Root, which is
+        // not in `rows` any more — resolve them from the tree instead.
+        // `After([])` is the document top (index 0), `Into([])` the end.
+        let (PasteSlot::Into(p) | PasteSlot::After(p)) = &slot;
+        if p.is_empty() {
+            let index = match slot {
+                PasteSlot::Into(_) => self.tree.root.children.len(),
+                PasteSlot::After(_) => 0,
+            };
+            return Some(Target {
+                parent: Vec::new(),
+                index,
+            });
+        }
         match slot {
             PasteSlot::Into(p) => {
                 let row = rows.iter().find(|r| r.node.path == p)?;
@@ -852,6 +903,14 @@ impl Session {
             self.cursor = path.clone();
             self.paste_slot = Some(slot);
         }
+    }
+
+    /// The Root node's key — the document's display label (the filename a
+    /// host set via `set_filename`). D15 (ADR 0013): with the Root no longer a
+    /// view row, a host chrome that names the document has to read it from the
+    /// tree instead of from row 0.
+    pub fn root_key(&self) -> &str {
+        &self.tree.root.key
     }
 
     pub fn is_expanded(&self, path: &Path) -> bool {
@@ -1353,18 +1412,10 @@ impl Session {
         if self.guard_clipboard_locked() {
             return;
         }
-        let Some(is_root) = self
-            .visible_nodes()
-            .iter()
-            .find(|r| r.node.path == self.cursor)
-            .map(|r| r.node.path.is_empty())
-        else {
-            return;
-        };
-        if !is_root {
-            self.set_notice(Notice::core(self.lang, "core.convert.root-only", &[]));
-            return;
-        }
+        // D10 (ADR 0013): Convert is document-scoped, so it no longer demands
+        // a Root cursor — a precondition that became unsatisfiable once the
+        // Root stopped being a row (the web host used to fake `SetCursor([])`
+        // just to get past it). `core.convert.root-only` is retired.
         let Some(doc) = &self.doc else {
             return;
         };
@@ -1648,7 +1699,12 @@ impl Session {
     /// lock (ADR 0005 §5) with `Esc` as its only exit (design record P1/E4).
     /// Whole-document work has its own document-scoped route (ADR 0014).
     pub(crate) fn guard_root_operand(&mut self, paths: &[Path]) -> bool {
-        if !paths.iter().any(|p| p.is_empty()) {
+        // `selected_paths()` returns *nothing* for a Root cursor now that the
+        // Root has no view row (D1), so "no operand at all while the cursor
+        // sits on the Root" is the same case and gets the same refusal.
+        let root = paths.iter().any(|p| p.is_empty())
+            || (paths.is_empty() && self.selection.is_empty() && self.cursor.is_empty());
+        if !root {
             return false;
         }
         self.set_notice(Notice::core(self.lang, "core.selection.root-excluded", &[]));
