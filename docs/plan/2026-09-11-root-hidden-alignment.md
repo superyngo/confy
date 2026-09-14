@@ -24,7 +24,7 @@ copied from the design record's slices; nothing here adds scope to it.
 | — | D8/D9 document-scoped action | S3 | **Done** — shipped by the Raw-write record (ADR 0014); placement verified by E6 |
 | T10 | D15 title bar + D6 document-edge insertion lines + D12 TUI empty state + the `9`/`0`/`1`/`2`/`e`/`i` root special cases and ~65 row-index test assumptions | S4 | **Done** (2026-09-14) |
 | T11 | Web/touch/VS Code stand-in deletions + D6 rename + D12 empty state + the `*.spec.mjs` suites | S5 | **Done** (2026-09-14) |
-| T12 | Remaining reference docs (D16, `HOST_PARITY.md` §2 deletion, `ROW_STATE_MODEL.md` §6a, `MESSAGES.md` keys) + backlog/retrospective/record status flips | S6 | Open |
+| T12 | Remaining reference docs (D16, `HOST_PARITY.md` §2 deletion, `ROW_STATE_MODEL.md` §6a, `MESSAGES.md` keys) + backlog/retrospective/record status flips | S6 | **Done** (2026-09-14) |
 
 ## Task detail
 
@@ -127,6 +127,24 @@ leftmost indent, both document edges cue in paste mode, `C` works from any row) 
   zero-row `treeHTML` check had to move to a one-row snapshot).
 - **`HOST_PARITY.md` §2 is deleted** ("the undrawn root row (web only)") — the divergence it
   documented no longer exists. Sections were not renumbered: §3 onward keep their anchors.
+
+### S6 (T12)
+
+- **D16** — the glossary's **Root** entry now states the contract (model node, empty path,
+  never a view row, its two slots are the document-edge slots) and adds "root row" to its
+  _Avoid_ list.
+- **`ROW_STATE_MODEL.md` §6a** rewritten: the two document-edge bullets replace the
+  root-row/stand-in pair, and the `compute_rows` staleness caveat is recorded there.
+- **`TypeToken::Root` retired** (vocabulary cleanup, D11's second half): `classify` now returns
+  `Option<TypeToken>` — `None` for the Root, the one kind with no facet — and the TUI's
+  `type_tag` returns an empty tag for it. The `[G]|root/file node` row is deleted from the Help
+  KIND legend in all three formats × both catalogs, with the remaining `containers.N` keys
+  renumbered (the TUI's legend reader walks `N` from 1 until a key is missing, so a gap would
+  truncate the list).
+- **Backlog/record statuses flipped**: the three Open rows in
+  `docs/plan/2026-09-09-open-follow-ups.md` moved to Done, the retrospective is
+  `Resolved (2026-09-14)` with each of P1/P2/P4 mapped to the decision that closed it, the
+  design record is `Shipped`, and ADR 0013's status records the implementation commits.
 
 ## Ordering constraint
 

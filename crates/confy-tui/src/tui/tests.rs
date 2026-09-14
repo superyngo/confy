@@ -77,7 +77,6 @@ fn type_tag_is_fixed_pitch() {
     // The key-sign facet is no longer part of the tag; the column is the
     // 8-column type/notation slot only.
     let cases = [
-        (NodeKind::Root, Format::Plain, Toml, false, "[G]     "),
         (
             NodeKind::Comment("# c".into()),
             Format::Plain,
@@ -183,6 +182,8 @@ fn type_tag_is_fixed_pitch() {
         assert_eq!(tag, expected);
         assert_eq!(tag.chars().count(), 8, "tag must be 8 cols: {tag:?}");
     }
+    // D11 (ADR 0013): the Root has no facet and no row, so no KIND tag either.
+    assert_eq!(type_tag(&NodeKind::Root, Format::Plain, Toml, false), "");
 }
 
 #[test]

@@ -963,8 +963,11 @@ pub(crate) fn type_tag(
     read_only: bool,
 ) -> String {
     use confy_core::session::{classify, TypeToken};
-    let slot: &str = match classify(kind, format, doc, read_only) {
-        TypeToken::Root => "[G]",
+    // `None` = the Root, which has no facet and no row (ADR 0013 D11).
+    let Some(token) = classify(kind, format, doc, read_only) else {
+        return String::new();
+    };
+    let slot: &str = match token {
         TypeToken::Comment => "[C]",
         TypeToken::Opaque => "[opaq ]",
         TypeToken::SeqBlock => "[A/B]",

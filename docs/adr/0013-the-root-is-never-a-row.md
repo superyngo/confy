@@ -1,6 +1,6 @@
 # ADR 0013 — The document Root is a model node, never a view row, on every host
 
-- **Status:** Accepted (2026-09-11) — implementation pending
+- **Status:** Accepted (2026-09-11); **implemented 2026-09-14** (`dc69a47`…`4328778`, plan `docs/plan/2026-09-11-root-hidden-alignment.md`)
 - **Scope:** `confy-core` (`session/session.rs`, `session/clipboard.rs`, `session/action_menu.rs`,
   `session/type_filter.rs`, `session/insertion.rs`), `confy-tui` (`tui/ui.rs`), `web/`
   (desktop + touch + VS Code hosts)

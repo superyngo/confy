@@ -8,7 +8,7 @@ here — see `MUTATIONS.md`'s "Insert / move legality" table and `BEHAVIOR_MATRI
 mechanics beyond row state live in `TUI.md`; web/desktop/touch architecture beyond row
 state lives in `WEBUI.md`.
 The host divergences this document specifies (post-paste highlight, `Escape` press count,
-the undrawn root row's slots, target-aiming affordances, the selection marker) each carry a
+the document-edge slots, target-aiming affordances, the selection marker) each carry a
 one-line row in `HOST_PARITY.md`, which indexes them alongside every other host difference.
 
 ## 1. The five states
@@ -204,30 +204,24 @@ TUI is unchanged: `PasteSlot` arrow-key stepping already exists and already work
   moving the mouse fully off the tree (or onto the paste button) to see it — the hover
   layer now clears to nothing on `mouseleave` instead of falling back to redrawing the
   committed slot, since the confirmed layer already shows it independently.
-- **The root row's two slots have no row to paint.** Neither web host draws the root row
-  (`treeHTML`, `web/render.ts` / `web/touch/render.ts`), yet both of its slots are legal and
-  reachable — the keyboard steps onto them (`paste_slots()` emits them first) and a pointer
-  in the *first* drawn row's top band classifies as `After(root)`. Both are therefore drawn
-  as insertion lines on a stand-in row edge (`rootSlotLine`, `web/slot-line.ts`, shared by
-  desktop and touch): `After(root)` — root index 0, the document's top — at the **first**
-  row's top edge, `Into(root)` — `children.len()`, an append at the document's end — at the
-  **last** row's bottom edge. Before that, stepping to the top of paste mode showed no cue
-  at all for two steps, and a drag aimed at the very top drew its line under the hovered
-  row, indistinguishable from `After(<first row>)`.
-- **Stepping *up* onto the root row's `Into` slot is corrected web-side only.**
-  `paste_slots()` lists each row's `Into` before its `After`, so the root row's `Into` is
-  index 0 — above everything in the stepping order, while `slot_target` resolves it to
-  `children.len()`, an append at the document's *end*. The TUI draws the root row, so
-  landing there highlights a real visible row and reads correctly; **core's order is
-  therefore unchanged**. In the web hosts, where that row isn't drawn, `↑`/`k`/PageUp/`Home`
-  from the top of the tree instead threw the insertion point to the far end of the document
-  and clamped there (index 0 can't step further) — a move in the opposite direction, onto a
-  slot the user was not aiming at. `overshotUndrawnRootSlot()` (`web/path-utils.ts`, the
-  paste-mode sibling of `drawnCursorFallback`) detects exactly that combination — upward
-  intent + resulting slot `Into(root)` — and both `navSelect`/`touchNavSelect` step one slot
-  back down onto `After(root)`, the document top. Downward navigation and `End` are left
-  alone: reaching the append slot from below is correct, and it is drawn at the last row's
-  bottom edge.
+- **The two document-edge slots have no row to paint — on any host.** The Root is never a
+  view row (ADR 0013 D1), yet both of its slots are legal and reachable: the keyboard steps
+  onto them (`paste_slots()` emits `After([])` first and `Into([])` last, in screen order —
+  D5) and a pointer in the *first* drawn row's top band classifies as `After([])`. Both are
+  therefore drawn as insertion lines on a borrowed row edge (`documentEdgeLine`,
+  `web/slot-line.ts`, shared by desktop and touch; the TUI does the same at its viewport
+  edges, D6): `After([])` — root index 0, the document's top — at the **first** row's top
+  edge, `Into([])` — `children.len()`, an append at the document's end — at the **last**
+  row's bottom edge. Before that, stepping to the top of paste mode showed no cue at all for
+  two steps, and a drag aimed at the very top drew its line under the hovered row,
+  indistinguishable from `After(<first row>)`.
+- **No host-side stepping correction any more.** Core used to list each row's `Into` before
+  its `After` with the Root's `Into` at index 0 — so an upward step landed on an append at
+  the document's *end*, and both web hosts corrected it (`overshotUndrawnRootSlot`). D5
+  reordered the slots in core instead: upward now reaches the document top, `End` the
+  document end, and the two stand-ins are deleted. One caveat the fix exposed: `compute_rows`
+  drops a slot whose path is no longer a visible row, and had to be taught that the
+  empty-path edge slots are never stale.
 
 ### 6b. Touch — body-drag continuously repositions the target; FAB still commits
 

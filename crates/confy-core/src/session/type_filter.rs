@@ -5,7 +5,6 @@ use std::collections::HashSet;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TypeToken {
-    Root,
     Comment,
     ArrayInline,
     ArrayMultiline,
@@ -47,12 +46,20 @@ pub enum TypeToken {
     Opaque,
 }
 
-pub fn classify(kind: &NodeKind, format: Format, doc: DocFormat, read_only: bool) -> TypeToken {
+/// The facet a node falls under. `None` for the **Root**, which has no facet
+/// because it is never a view row (ADR 0013 D11) — it is neither filterable
+/// nor badge-able, and `TypeToken::Root`/the `[G] root` facet are retired.
+pub fn classify(
+    kind: &NodeKind,
+    format: Format,
+    doc: DocFormat,
+    read_only: bool,
+) -> Option<TypeToken> {
     if read_only && doc == DocFormat::Yaml {
-        return TypeToken::Opaque;
+        return Some(TypeToken::Opaque);
     }
-    match kind {
-        NodeKind::Root => TypeToken::Root,
+    Some(match kind {
+        NodeKind::Root => return None,
         NodeKind::Comment(_) => TypeToken::Comment,
         NodeKind::Array => match (doc, format) {
             (DocFormat::Yaml, Format::Block) => TypeToken::SeqBlock,
@@ -102,7 +109,7 @@ pub fn classify(kind: &NodeKind, format: Format, doc: DocFormat, read_only: bool
             (ScalarType::LocalDate, _) => TypeToken::LDate,
             (ScalarType::LocalTime, _) => TypeToken::LTime,
         },
-    }
+    })
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -188,7 +195,6 @@ impl Cell {
 fn token_label(t: TypeToken) -> &'static str {
     use TypeToken::*;
     match t {
-        Root => "[G] root",
         Comment => "[C] comment",
         ArrayInline => "[A/I] inline",
         ArrayMultiline => "[A/M] multiline",
@@ -413,8 +419,8 @@ impl TypeFilter {
         has_comment: bool,
     ) -> bool {
         let sign_ok = self.key_signs.is_empty() || self.key_signs.contains(&key_sign);
-        let type_ok =
-            self.types.is_empty() || self.types.contains(&classify(kind, format, doc, read_only));
+        let type_ok = self.types.is_empty()
+            || classify(kind, format, doc, read_only).is_some_and(|t| self.types.contains(&t));
         let warning_ok = !self.warning_only || has_warning;
         let comment_ok = !self.comment_only || has_comment;
         sign_ok && type_ok && warning_ok && comment_ok
@@ -595,8 +601,9 @@ mod tests {
 
     #[test]
     fn classify_covers_every_kind_slot() {
-        let c = |k: &NodeKind, f| classify(k, f, DocFormat::Toml, false);
-        assert_eq!(c(&NodeKind::Root, Format::Plain), TypeToken::Root);
+        let c = |k: &NodeKind, f| classify(k, f, DocFormat::Toml, false).unwrap();
+        // D11 (ADR 0013): the Root has no facet — it is never a row.
+        assert!(classify(&NodeKind::Root, Format::Plain, DocFormat::Toml, false).is_none());
         assert_eq!(
             c(&NodeKind::Comment("# x".into()), Format::Plain),
             TypeToken::Comment
@@ -666,7 +673,7 @@ mod tests {
 
     #[test]
     fn classify_json_object_inline_vs_multiline() {
-        let c = |k: &NodeKind, f| classify(k, f, DocFormat::Json, false);
+        let c = |k: &NodeKind, f| classify(k, f, DocFormat::Json, false).unwrap();
         assert_eq!(c(&NodeKind::Table, Format::Inline), TypeToken::InlineTable);
         assert_eq!(
             c(&NodeKind::Table, Format::Multiline),
@@ -676,7 +683,7 @@ mod tests {
 
     #[test]
     fn classify_covers_every_yaml_slot() {
-        let c = |k: &NodeKind, f| classify(k, f, DocFormat::Yaml, false);
+        let c = |k: &NodeKind, f| classify(k, f, DocFormat::Yaml, false).unwrap();
         assert_eq!(c(&NodeKind::Array, Format::Block), TypeToken::SeqBlock);
         assert_eq!(c(&NodeKind::Array, Format::Inline), TypeToken::SeqFlow);
         assert_eq!(c(&NodeKind::Table, Format::Block), TypeToken::MapBlock);
@@ -693,7 +700,7 @@ mod tests {
         assert_eq!(s(Format::Plain), TypeToken::StrBasic);
         assert_eq!(
             classify(&NodeKind::Table, Format::Block, DocFormat::Yaml, true),
-            TypeToken::Opaque
+            Some(TypeToken::Opaque)
         );
         assert_eq!(
             classify(
@@ -702,7 +709,7 @@ mod tests {
                 DocFormat::Yaml,
                 true
             ),
-            TypeToken::Opaque
+            Some(TypeToken::Opaque)
         );
         assert_ne!(
             classify(
@@ -711,7 +718,7 @@ mod tests {
                 DocFormat::Json,
                 true
             ),
-            TypeToken::Opaque
+            Some(TypeToken::Opaque)
         );
     }
 

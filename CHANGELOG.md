@@ -10,6 +10,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-14 (22)
+
+**Changed — root-hidden alignment S6 (T12): the vocabulary and the records**
+
+Closes `docs/plan/2026-09-11-root-hidden-alignment.md` (T0–T12) and with it ADR 0013.
+
+- **D16 — the glossary's `Root` entry states the contract**: a model node at the empty path
+  (the parent of every whole-document `Target`) that is **never a view row** — no host draws
+  it, no cursor sits on it, it is never a row-operation operand, and its two paste slots are
+  the *document-edge* slots. "root row" joins its _Avoid_ list.
+- **`TypeToken::Root` retired** (D11's second half): `classify()` now returns
+  `Option<TypeToken>`, `None` for the Root — the one kind with no facet — and the TUI's
+  `type_tag` returns an empty tag for it. The `[G] root/file node` row is deleted from the
+  Help KIND legend in all three formats × both catalogs, with the remaining `containers.N`
+  keys renumbered (the legend reader walks `N` from 1 until a key is missing, so a gap would
+  truncate the list). Verified on the real binary: the legend still ends at `[T/E]`.
+- **`ROW_STATE_MODEL.md` §6a rewritten** around the document-edge slots (including the
+  `compute_rows` staleness caveat), and its §-index line updated.
+- **Records flipped**: the three Open rows in `docs/plan/2026-09-09-open-follow-ups.md` move to
+  Done, the retrospective is `Resolved (2026-09-14)` with P1/P2/P4 each mapped to the decision
+  that closed it, the design record is `Shipped`, and ADR 0013's status names the commits.
+
 ### Update - 2026-09-14 (21)
 
 **Fixed — a document-edge paste slot was wiped the instant it was set**

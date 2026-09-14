@@ -25,9 +25,14 @@ operates on. (Where wenv would say "Entry" — confy never says Entry.)
 _Avoid_: Entry, item.
 
 **Root**:
-The single top-of-tree **Node** whose key is the filename. Every other Node descends from it.
-There is exactly one Root per open file.
-_Avoid_: File header (as a separate concept), top node.
+The single top-of-tree **Node** whose key is the filename, addressed by the **empty path**
+(`[]`). Every other Node descends from it. There is exactly one Root per open file.
+**The Root is never a view row** (ADR 0013): it is a model node — the parent of every
+whole-document `Target`, the subject of every document-scoped operation — but no host draws
+it, no cursor sits on it, and it is never a selection or row-operation operand. Its two paste
+slots are the **document-edge slots** (`After([])` = the document top, `Into([])` = append at
+the document end), drawn on a borrowed row edge instead of a row of its own.
+_Avoid_: File header (as a separate concept), top node, root row.
 
 **Branch node**:
 A **Node** that has children and can be expanded/collapsed: a table, array-of-tables, array, or
