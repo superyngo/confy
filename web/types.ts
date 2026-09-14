@@ -141,6 +141,9 @@ export type ActionId =
   | "Cut"
   | "Remark"
   | "Detail"
+  // The one document-level item, separator-led and always enabled: edit the
+  // whole file as text.
+  | "EditDocument"
   | "Delete";
 
 export interface ActionItemView {
@@ -342,7 +345,7 @@ export type Intent =
   // Help
   | "EnterHelp" | "ExitHelp" | "ToggleHelpTab"
   // Inline edit
-  | "BeginEdit" | "BeginEditExternal" | "BeginRename" | "EditToggleField"
+  | "BeginEdit" | "BeginEditExternal" | "BeginEditDocument" | "BeginRename" | "EditToggleField"
   | { EditChar: string }
   | "EditBackspace" | "EditDelete"
   | "EditCursorLeft" | "EditCursorRight" | "EditCursorHome" | "EditCursorEnd"

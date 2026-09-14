@@ -226,6 +226,7 @@ impl super::Session {
                 }
             }
             Intent::BeginEditExternal => self.begin_external_edit(),
+            Intent::BeginEditDocument => self.begin_external_edit_document(),
             Intent::BeginRename => self.begin_inline_rename(),
             Intent::EditToggleField => self.edit_toggle_field(),
             // Horizontal viewport clamp is host-owned (terminal width); no-op headlessly.
@@ -248,7 +249,13 @@ impl super::Session {
                     .map(|p| p.wrap_element)
                     .unwrap_or(false);
                 self.pending_external_edit = None;
-                self.apply_external_replace(path, text, wrap);
+                if path.is_empty() {
+                    // Whole-document Apply: deliberately NOT the per-node
+                    // commit path — see `apply_document_text` (R20).
+                    self.apply_document_text(text);
+                } else {
+                    self.apply_external_replace(path, text, wrap);
+                }
             }
             Intent::ApplyEditComment { path, text } => {
                 self.pending_external_edit = None;
@@ -461,6 +468,22 @@ impl super::Session {
         self.pending_external_edit = Some(PendingExternalEdit {
             path,
             wrap_element,
+            is_comment: false,
+        });
+    }
+
+    /// Document-scoped counterpart of `begin_external_edit`: edit the **whole
+    /// file** as text, independent of the cursor. Every backend already
+    /// supports a `Replace` at the empty path, so this needs no new mutation —
+    /// only an entry point. The resolving `ApplyReplace { path: [] }` routes to
+    /// `apply_document_text`, not to the per-node commit path.
+    pub(crate) fn begin_external_edit_document(&mut self) {
+        if self.guard_clipboard_locked() {
+            return;
+        }
+        self.pending_external_edit = Some(PendingExternalEdit {
+            path: Vec::new(),
+            wrap_element: false,
             is_comment: false,
         });
     }

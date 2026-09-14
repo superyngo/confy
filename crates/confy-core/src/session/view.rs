@@ -133,6 +133,11 @@ pub enum ActionId {
     Cut,
     Remark,
     Detail,
+    /// The one **document-level** item: edit the whole file as text. Always
+    /// present, always enabled, and scoped to the document rather than the
+    /// selection — on the desktop web host it is the entry point into the Raw
+    /// pane's write mode, and on touch/TUI into the whole-file text surface.
+    EditDocument,
     Delete,
 }
 
@@ -143,7 +148,8 @@ pub struct ActionItemView {
     /// Localized via `tr(self.lang, "core.action.<id>")`.
     pub label: String,
     pub enabled: bool,
-    /// `true` only for `Delete` (renders a rule above it).
+    /// `true` only for `EditDocument`, which leads the last section (renders a
+    /// rule above it).
     pub separator_before: bool,
     /// `true` only for `Delete` (renders destructive-styled).
     pub danger: bool,

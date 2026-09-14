@@ -68,6 +68,11 @@ pub fn severity_of(key: &str) -> Severity {
         | "core.redo.error"
         | "core.kind-switch.error"
         | "core.blank.error"
+        // A rejected whole-document Apply: the user's entire buffer was not
+        // applied. The backends notice a *parse* failure at `warn` (measured
+        // 2026-09-14), which is the "proceeded, with a caveat" tier — wrong
+        // for this, so the document-level key is `Error` for every cause.
+        | "core.document.apply-failed"
         | "tui.host.convert-write-failed"
         | "tui.host.editor-error"
         | "tui.host.no-save-path"

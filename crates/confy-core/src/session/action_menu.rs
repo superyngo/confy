@@ -21,7 +21,7 @@ impl Session {
         self.mode = Mode::ActionMenu { cursor: 0 };
     }
 
-    /// Builds the eight-item list against the *current* `selected_paths()` —
+    /// Builds the nine-item list against the *current* `selected_paths()` —
     /// called fresh from `mode_view()` every snapshot, so a selection change
     /// while the menu is open never goes stale.
     ///
@@ -95,11 +95,23 @@ impl Session {
                 false,
                 false,
             ),
+            // The one **document-level** item: scoped to the file, not the
+            // selection, so it is always enabled — including on a read-only
+            // node, and in every host where no Root row exists to reach the
+            // whole-file edit from. It leads the last section, so it carries
+            // the separator `Delete` used to own.
+            mk(
+                ActionId::EditDocument,
+                "core.action.edit-document",
+                true,
+                true,
+                false,
+            ),
             mk(
                 ActionId::Delete,
                 "core.action.delete",
                 !any_read_only,
-                true,
+                false,
                 true,
             ),
         ]
@@ -191,6 +203,7 @@ impl Session {
             ActionId::Cut => self.cut_selected(),
             ActionId::Remark => self.remark(),
             ActionId::Detail => self.toggle_detail(),
+            ActionId::EditDocument => self.begin_external_edit_document(),
             ActionId::Delete => self.delete_selected(),
         }
     }
@@ -232,7 +245,8 @@ mod tests {
         let mut s = session_with_two_scalars();
         s.cursor = vec![Seg::Key("c".into())];
         let items = s.action_menu_items();
-        assert_eq!(items.len(), 8);
+        // 8 node-scoped items + the one document-level item.
+        assert_eq!(items.len(), 9);
         let disabled: Vec<ActionId> = items
             .iter()
             .filter(|it| !it.enabled)
@@ -260,6 +274,8 @@ mod tests {
                 ActionId::Copy,
                 ActionId::Cut,
                 ActionId::Remark,
+                // Document-scoped: never dimmed by the selection's shape.
+                ActionId::EditDocument,
                 ActionId::Delete
             ]
         );

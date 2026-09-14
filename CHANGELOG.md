@@ -10,6 +10,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-14 (5)
+
+**Added**
+
+- **One document-level Action-menu item: "Edit whole file as text"** (`ActionId::EditDocument`,
+  `core.action.edit-document`). It is scoped to the file rather than the selection, so it is
+  always enabled — including on a read-only node and in hosts that draw no Root row, which
+  since ADR 0013 is every web host. It leads the menu's last section, taking over the
+  separator `Delete` used to carry, and is never styled destructive.
+- **`Intent::BeginEditDocument`** — opens the whole document in the host's own multi-line text
+  surface, independent of the cursor; the document-scoped counterpart of `BeginEditExternal`.
+  Refuses while the clipboard is armed, like every other modal-open path (ADR 0005 §5).
+- **`Session::apply_document_text`** — the whole-document commit, resolving an `ApplyReplace` at
+  the empty path. Deliberately *not* the per-node external-edit path: that one runs
+  trailing-blank splitting, trailing-comment extraction and the keyless-element re-wrap, all
+  node-shaped operations that merely happen to be inert on a whole file. A file's own final
+  newline must never be reinterpreted as a node's trailing blank run.
+- **`core.document.apply-failed`** (en + zh-TW), raised at `Severity::Error` for every cause.
+  The backends notice a *parse* failure at `warn`, which is the "proceeded, with a caveat"
+  tier — wrong for "none of your text was applied". The backend's own reason rides along as the
+  message argument. A rejected buffer leaves the document byte-identical.
+
 ### Update - 2026-09-14 (4)
 
 **Added**

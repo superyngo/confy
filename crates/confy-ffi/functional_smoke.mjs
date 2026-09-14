@@ -617,27 +617,33 @@ for (const [label, fmt, text] of identityFixtures) {
 // ---- RS0/T2. Failure, the `history_len` detector, and byte offsets ----
 // docs/plan/2026-09-14-raw-write-mode.md T2.
 
-// T2.1 — an Apply of deliberately broken text must not commit and must leave
-// the document untouched. MEASURED FINDING (2026-09-14): the notice severity
-// is *not* uniform — a **parse** failure speaks as `warn`, a **semantic**
-// failure (key collision) as `error`. Recorded as F4 in the design record;
-// this block pins today's behavior so R26 can decide deliberately.
+// T2.1 / T4 — an Apply of deliberately broken text must not commit and must
+// leave the document untouched. T2 MEASURED (2026-09-14) that the backends'
+// own severity is *not* uniform — a **parse** failure speaks as `warn`, a
+// **semantic** failure (key collision) as `error` — which is why T4 wraps the
+// whole-document failure in `core.document.apply-failed` at `error` for every
+// cause (F4 → R26 as amended): "none of your text was applied" is never a
+// proceed-with-caveat event. All five therefore expect `error` here; the inner
+// backend text still rides along as the `{0}` argument.
 const brokenFixtures = [
-  ["toml-unbalanced", "toml", `[server]\nport = 8080\n`, `[server\nport = 8080\n`, "warn"],
-  ["toml-duplicate-key", "toml", `[server]\nport = 8080\n`, `[server]\nport = 1\nport = 2\n`, "error"],
-  ["json-unbalanced", "json", `{\n  "a": 1\n}\n`, `{\n  "a": 1\n`, "warn"],
-  ["json-duplicate-key", "json", `{\n  "a": 1\n}\n`, `{\n  "a": 1,\n  "a": 2\n}\n`, "error"],
-  ["yaml-multi-doc", "yaml", `a: 1\n`, `---\na: 1\n---\nb: 2\n`, "warn"],
+  ["toml-unbalanced", "toml", `[server]\nport = 8080\n`, `[server\nport = 8080\n`],
+  ["toml-duplicate-key", "toml", `[server]\nport = 8080\n`, `[server]\nport = 1\nport = 2\n`],
+  ["json-unbalanced", "json", `{\n  "a": 1\n}\n`, `{\n  "a": 1\n`],
+  ["json-duplicate-key", "json", `{\n  "a": 1\n}\n`, `{\n  "a": 1,\n  "a": 2\n}\n`],
+  ["yaml-multi-doc", "yaml", `a: 1\n`, `---\na: 1\n---\nb: 2\n`],
 ];
-for (const [label, fmt, good, bad, severity] of brokenFixtures) {
+for (const [label, fmt, good, bad] of brokenFixtures) {
   const bs = new ConfySession(good, fmt);
   const snapBad = bs.dispatch({ ApplyReplace: { path: [], text: bad } });
   check(`[${label}] broken Apply does not commit`,
     bs.serialize() === good && snapBad.history_len === 0,
     `history_len=${snapBad.history_len} doc=${JSON.stringify(bs.serialize())}`);
-  check(`[${label}] broken Apply notices (severity ${severity})`,
-    snapBad.notice?.severity === severity && snapBad.notice.text.length > 0,
+  check(`[${label}] broken Apply notices at severity error (T4)`,
+    snapBad.notice?.severity === "error" && snapBad.notice.text.length > 0,
     JSON.stringify(snapBad.notice));
+  check(`[${label}] ...and the notice carries the backend's reason`,
+    /\S/.test(snapBad.notice.text.split(":").slice(1).join(":")),
+    JSON.stringify(snapBad.notice.text));
   bs.free();
 }
 
@@ -705,6 +711,31 @@ const keyByteSlice = new TextDecoder().decode(
 check("[offsets] key_text_range slices the key exactly",
   keyByteSlice === "target", JSON.stringify(keyByteSlice));
 wide.free();
+
+// ---- RS1b/T4. The document-level Action item + its intent ----
+const amSrc = `[server]\nport = 8080\n`;
+const am = new ConfySession(amSrc, "toml");
+let amSnap = am.dispatch(unit("OpenActionMenu"));
+const amItems = amSnap.mode?.ActionMenu?.items ?? [];
+const editDoc = amItems.find((it) => it.id === "EditDocument");
+check("[action] the menu carries the document-level item", !!editDoc,
+  JSON.stringify(amItems.map((it) => it.id)));
+check("[action] ...always enabled, never dangerous",
+  editDoc?.enabled === true && editDoc?.danger === false, JSON.stringify(editDoc));
+check("[action] ...and leads the last section, just above Delete",
+  editDoc?.separator_before === true &&
+  amItems[amItems.indexOf(editDoc) + 1]?.id === "Delete" &&
+  amItems[amItems.indexOf(editDoc) + 1]?.separator_before === false,
+  JSON.stringify(amItems.slice(-2)));
+// The intent is cursor-independent: the buffer is the whole file.
+am.dispatch(unit("Escape"));
+am.dispatch(unit("CursorDown"));
+amSnap = am.dispatch(unit("BeginEditDocument"));
+check("[action] BeginEditDocument opens the whole file at the empty path",
+  amSnap.external_edit?.initial === amSrc &&
+  amSnap.external_edit?.kind?.Value?.path?.length === 0,
+  JSON.stringify(amSnap.external_edit));
+am.free();
 
 console.log(failures === 0 ? "\nALL FUNCTIONAL CHECKS PASSED" : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

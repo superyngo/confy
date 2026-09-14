@@ -4,8 +4,8 @@ use confy_core::model::any_doc::AnyDocument;
 use confy_core::model::document::{ConfigDocument, DocFormat};
 use confy_core::model::node::{Format, Seg};
 use confy_core::session::{
-    EditKind, EditTextOutcome, HelpTab, Host, Intent, Mode, ModeView, PasteSlot, PromptKind,
-    Session,
+    EditKind, EditTextOutcome, ExternalEditKind, HelpTab, Host, Intent, Mode, ModeView, PasteSlot,
+    PromptKind, Session,
 };
 
 fn toml_session(src: &str) -> Session {
@@ -4190,4 +4190,77 @@ fn undo_and_redo_move_the_revision_forward() {
     let redone = s.dispatch(Intent::Redo);
     assert_eq!(s.serialize().unwrap(), "a = 1\n");
     assert_eq!(redone.doc_revision, r0 + 2);
+}
+
+/// `BeginEditDocument` opens a pending external edit at the **empty path**,
+/// whatever the cursor is on — the item is document-scoped.
+#[test]
+fn begin_edit_document_targets_the_empty_path() {
+    let mut s = toml_session("[server]\nport = 8080\n");
+    s.dispatch(Intent::CursorDown);
+    s.dispatch(Intent::CursorDown); // onto the `port` leaf
+    let snap = s.dispatch(Intent::BeginEditDocument);
+    let ext = snap.external_edit.expect("a pending external edit");
+    match &ext.kind {
+        ExternalEditKind::Value { path } => assert!(path.is_empty(), "path = {path:?}"),
+        other => panic!("expected a value edit, got {other:?}"),
+    }
+    assert_eq!(
+        ext.initial, "[server]\nport = 8080\n",
+        "the buffer is the whole file"
+    );
+}
+
+/// R11: like every other modal-open path, the document edit refuses while the
+/// clipboard is armed (ADR 0005 §5).
+#[test]
+fn begin_edit_document_refuses_while_clipboard_armed() {
+    let mut s = toml_session("a = 1\nb = 2\n");
+    s.dispatch(Intent::CursorDown);
+    s.dispatch(Intent::CopySelected);
+    let snap = s.dispatch(Intent::BeginEditDocument);
+    assert!(snap.external_edit.is_none(), "must not open");
+    assert!(snap.notice.is_some(), "and must say why");
+}
+
+/// An Apply at `[]` commits the whole file exactly once, through
+/// `apply_document_text` rather than the per-node commit path.
+#[test]
+fn apply_at_the_empty_path_commits_the_whole_file_once() {
+    let mut s = toml_session("a = 1\n");
+    let before = s.snapshot().doc_revision;
+    let snap = s.dispatch(Intent::ApplyReplace {
+        path: vec![],
+        text: "a = 1\nb = 2\n".to_string(),
+    });
+    assert!(snap.notice.is_none(), "notice: {:?}", snap.notice);
+    assert_eq!(s.serialize().unwrap(), "a = 1\nb = 2\n");
+    assert_eq!(snap.doc_revision, before + 1, "exactly one commit");
+}
+
+/// A rejected buffer leaves the document byte-identical and reports the
+/// document-level key at `Severity::Error` — even for a *parse* failure, which
+/// the backend itself notices at `warn` (F4).
+#[test]
+fn failed_document_apply_is_an_error_and_changes_nothing() {
+    let src = "[server]\nport = 8080\n";
+    for bad in ["[server\nport = 8080\n", "a = 1\na = 2\n"] {
+        let mut s = toml_session(src);
+        let snap = s.dispatch(Intent::ApplyReplace {
+            path: vec![],
+            text: bad.to_string(),
+        });
+        assert_eq!(s.serialize().unwrap(), src, "document must be untouched");
+        let notice = snap.notice.as_ref().expect("a notice");
+        assert!(
+            matches!(notice.severity, confy_core::session::Severity::Error),
+            "{bad:?} noticed as {:?}",
+            notice.severity
+        );
+        assert!(
+            snap.error_text().is_some(),
+            "and must fill the error slot: {notice:?}"
+        );
+        assert_eq!(snap.doc_revision, 0, "nothing committed");
+    }
 }

@@ -677,6 +677,39 @@ impl Session {
         }
     }
 
+    /// Whole-document commit: `text` is the complete new file, replacing it at
+    /// the empty path. Deliberately **not** `apply_external_replace`, even
+    /// though the two look interchangeable at `[]`: that path runs
+    /// `split_packaged_blank`, trailing-comment extraction and the
+    /// `wrap_element` re-wrap, all of which are node-shaped operations. They
+    /// measure as inert on a whole file today (design record Evidence, T1), but
+    /// inertness by coincidence is not a contract — a file's own final newline
+    /// must never be reinterpreted as a node's trailing blank run. So this is
+    /// the minimal path: one `Replace`, then the shared commit funnel.
+    ///
+    /// A rejected buffer (unparsable text, a duplicate key, YAML multi-doc)
+    /// leaves the document untouched — every backend's `apply` is atomic — and
+    /// reports `core.document.apply-failed`. That key is registered
+    /// `Severity::Error` in `severity_of` whatever the inner cause, because the
+    /// backends notice a *parse* failure at `warn` (measured, T2/F4) and "none
+    /// of your text was applied" is not a proceed-with-caveat event.
+    pub fn apply_document_text(&mut self, text: String) {
+        let Some(doc) = self.doc.as_mut() else {
+            return;
+        };
+        match doc.apply(Mutation::Replace {
+            path: Vec::new(),
+            fragment: text,
+        }) {
+            Ok(new_text) => self.on_mutation_success(None, new_text),
+            Err(e) => self.set_notice(Notice::core(
+                self.lang,
+                "core.document.apply-failed",
+                &[&e.to_string()],
+            )),
+        }
+    }
+
     /// External-editor commit (host popup / TUI `$EDITOR`): `text` is the
     /// fragment's complete, authoritative representation, unlike the inline
     /// editor's value-only fragment (which manages the comment separately via

@@ -189,6 +189,12 @@ pub enum Intent {
     /// scalars. Mirrors the TUI's `E` key (`App::edit_node`, always
     /// external regardless of node kind or schema).
     BeginEditExternal,
+    /// Open the **whole document** as text, independent of the cursor — the
+    /// document-scoped counterpart of `BeginEditExternal`. The host surfaces it
+    /// in its own multi-line text surface (the desktop Raw pane's write mode,
+    /// touch's edit sheet, the TUI's `$EDITOR`); the resolving intent is an
+    /// `ApplyReplace` at the empty path.
+    BeginEditDocument,
     BeginRename,
     EditToggleField,
     EditClampScroll(usize),
