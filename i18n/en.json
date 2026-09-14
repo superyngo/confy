@@ -17,7 +17,7 @@
   "core.action.title": "Actions",
   "core.action.targets": "{0} node(s)",
   "core.action.unavailable": "that action isn't available for the current selection",
-  "core.action.edit": "Edit in editor",
+  "core.action.edit": "Edit",
   "core.action.add-child": "Add child",
   "core.action.add-sibling": "Append sibling",
   "core.action.copy": "Copy",

@@ -194,7 +194,8 @@ The failure surfaces as an `Error` **Notice**, exactly as pressing `r` does toda
 | Delete | `DeleteSelected` |
 
 Every item is one core intent — no host-mapped exceptions. The `Edit` item is labeled
-**"Edit in editor"** because it dispatches `BeginEditExternal` (the TUI's `E`, not `e`);
+**"Edit in editor"** because it dispatches `BeginEditExternal` (the TUI's `E`, not `e`)
+*(label shortened to just **"Edit"** on 2026-09-14 — which intent it dispatches is unchanged)*;
 inline editing is unchanged and stays on click / `e` / the panel.
 
 ### Intents

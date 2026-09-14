@@ -17,7 +17,7 @@
   "core.action.title": "操作",
   "core.action.targets": "{0} 個節點",
   "core.action.unavailable": "目前選取的節點無法執行此操作",
-  "core.action.edit": "在編輯器中編輯",
+  "core.action.edit": "編輯",
   "core.action.add-child": "新增子節點",
   "core.action.add-sibling": "新增同層節點",
   "core.action.copy": "複製",

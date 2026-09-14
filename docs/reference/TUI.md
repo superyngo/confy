@@ -251,10 +251,10 @@ overlapping) rather than re-extending the first anchor.
 `m` opens `Mode::ActionMenu { cursor }`, a modal popup (`overlay_action_menu.rs`, same
 shape as the `K` kind-switch popup) listing the eight core-owned Action menu items
 (design doc `docs/spec/2026-08-30-action-menu-design.md` §2, ADR 0009):
-Edit in editor, Add child, Append sibling, Copy, Cut, Toggle comment, Detail, Delete
+Edit, Add child, Append sibling, Copy, Cut, Toggle comment, Detail, Delete
 (separated by a rule and shown in red). `Session::action_menu_items()` derives each
 item's `enabled` flag fresh from `selected_paths()` every frame — a single-path item
-(Edit in editor / Add child / Append sibling / Detail) dims on a multi-node selection;
+(Edit / Add child / Append sibling / Detail) dims on a multi-node selection;
 the four set-applying items (Copy / Cut / Toggle comment / Delete) dim only if any
 targeted node is read-only. Disabled items stay visible (dimmed), never hidden, so
 cursor position is stable. Up/Down (or j/k) move the cursor, skipping disabled items;

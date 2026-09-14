@@ -275,6 +275,24 @@ console.log("\n-- exitRawWrite(): R7 confirm gated on dirtiness --");
   check("a clean buffer exits without ever asking for confirmation", confirmCalls === 0);
   check("a clean buffer's exit still reaches setRawState(\"view\")", setRawStateCalls[0] === "view");
 }
+// The header's Tree/Raw button passes its own landing state: one press from
+// write mode reaches Tree, no detour through Raw view (2026-09-14).
+{
+  freshEnv({ serialize: () => "a = 1\n" });
+  mod.enterRawWrite("a = 1\n");
+  mod.exitRawWrite("off");
+  check("exitRawWrite(\"off\") lands on Tree in one press", setRawStateCalls.length === 1 && setRawStateCalls[0] === "off");
+  check("the one-press exit still peels the pending edit via Escape", sentIntents.length === 1 && sentIntents[0] === "Escape");
+}
+{
+  freshEnv({ serialize: () => "a = 1\n" });
+  mod.enterRawWrite("a = 1\n");
+  els.rawEdit.value = "a = 1\nb = 2\n"; // dirty
+  confirmAnswer = false;
+  mod.exitRawWrite("off");
+  check("the one-press exit takes the same R7 confirm gate", mod.getRawState() === "write" && setRawStateCalls.length === 0);
+}
+
 
 console.log(failures === 0 ? "\nALL RAW WRITE-MODE CHECKS PASSED" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

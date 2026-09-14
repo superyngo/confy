@@ -447,12 +447,17 @@ async function rawEditSave(): Promise<void> {
 // per-node modal's cancel path plus the confirm this feature's whole-file
 // payload warrants. No scroll hand-off: the pane the user was reading is the
 // same element in view mode, `readonly` instead of writable.
-function exitRawWrite(): void {
+//
+// `to` is where the exit lands (2026-09-14): `"view"` for Escape and the
+// band's toggle, `"off"` for the header's Tree/Raw button — pressing "Tree"
+// means Tree, so it takes ONE press from write mode, not a detour through
+// Raw view. Both share this one gate; only the landing state differs.
+function exitRawWrite(to: RawState = "view"): void {
   const editEl = $<HTMLTextAreaElement>("rawEdit");
   if (editEl.value !== rawWriteBaseline && !confirm(t("web.raw.discard-confirm"))) return;
   rawWriteBaseline = null;
   send("Escape");
-  setRawState("view");
+  setRawState(to);
 }
 
 // The band's first control is one toggle, so both directions live in one
@@ -2194,7 +2199,7 @@ const TOOLBAR_ENTRIES: ToolbarEntry[] = [
   { key: "btnInfo", labelKey: "web.toolbar.info.title", run: () => send("EnterHelp") },
   { key: "btnExpandAll", labelKey: "web.toolbar.expandAll.title", run: () => send("ExpandAll") },
   { key: "btnCollapseAll", labelKey: "web.toolbar.collapseAll.title", run: () => send("CollapseAll") },
-  { key: "btnViewToggle", labelKey: "web.toolbar.viewToggle.title", run: () => (rawState === "write" ? exitRawWrite() : setRawState(rawState === "off" ? "view" : "off")) },
+  { key: "btnViewToggle", labelKey: "web.toolbar.viewToggle.title", run: () => (rawState === "write" ? exitRawWrite("off") : setRawState(rawState === "off" ? "view" : "off")) },
   { key: "btnRawEdit", labelKey: "web.raw.controls.edit", run: () => toggleRawWrite() },
   { key: "btnRawApply", labelKey: "web.raw.controls.apply", run: () => applyRawEdit() },
   { key: "btnRawCancel", labelKey: "web.raw.controls.cancel", run: () => revertRawEdit() },
@@ -2427,9 +2432,11 @@ function bindGlobal() {
   $("btnViewToggle").addEventListener("click", () => {
     // Leaving write mode through the header toggle must go through the same
     // R7 confirm-gate as Escape — it swaps the whole document buffer away,
-    // exactly the stale-buffer overwrite that gate exists to prevent.
+    // exactly the stale-buffer overwrite that gate exists to prevent. It
+    // lands on Tree in ONE press, though: the button says Tree, so a detour
+    // through Raw view would make it lie (fixed 2026-09-14).
     if (rawState === "write") {
-      exitRawWrite();
+      exitRawWrite("off");
       return;
     }
     setRawState(rawState === "off" ? "view" : "off");

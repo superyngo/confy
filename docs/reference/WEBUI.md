@@ -342,7 +342,9 @@ shapes round-trip). Key types:
   the buffer verbatim instead of re-seeding it from a stale `serialize()`. `⌘S` applies-if-dirty
   then saves; a failed Apply's `⌘S` does not save. `Esc` confirm-gates only on a dirty buffer
   (R7); the header Tree/Raw toggle and a breadcrumb jump elsewhere in the document both route a
-  dirty write-mode exit through the same gate, never straight to `"off"`. Render never clobbers
+  dirty write-mode exit through the same gate — the toggle then lands on **Tree in one press**
+  (`exitRawWrite("off")`, 2026-09-14: the button says Tree, so a stop in Raw view made it lie),
+  while `Esc` and the band's own toggle land on Raw view. Render never clobbers
   the buffer while write mode is open (R8: the re-seed is reachable only from the `"view"`
   branch). Because Raw view's pane is a focusable textarea, `document.body`'s key delegation
   skips only a **writable** one — a readonly pane never swallows a shortcut. A crumbs-row

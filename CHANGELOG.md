@@ -10,6 +10,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-14 (16)
+
+**Changed — `core.action.edit` shortened to just "Edit"**
+
+- `在編輯器中編輯` → **`編輯`** (`Edit in editor` → `Edit`). Which intent it dispatches
+  (`BeginEditExternal`, the TUI's `E`) is unchanged; only the label is shorter. Verified over
+  the rebuilt wasm channel — the full menu now reads `編輯 / 新增子節點 / 新增同層節點 / 複製 /
+  剪下 / 切換註解 / 詳細資訊 / 編輯全檔 / 刪除`. `TUI.md`'s two item inventories follow.
+
+**Fixed — the header Tree/Raw button now reaches Tree in one press from write mode**
+
+- Pressing the header toggle while in Raw **write** mode exited to Raw *view*, so getting back
+  to the tree took two presses even though the button read `Tree`. `exitRawWrite` now takes its
+  landing state (`exitRawWrite(to: RawState = "view")`): `Esc` and the band's own toggle still
+  land on Raw view, the header button passes `"off"`. The R7 dirty-buffer confirm gate is
+  shared by both paths — the destination is the only difference.
+- Verified in a real browser: in write mode (`body` = `raw-view raw-write`, button reads
+  `Tree`) → one press → `body` = `""`, button reads `Raw`, 32 tree rows drawn. Dirty buffer:
+  declining the confirm stays in write mode, accepting it lands on the tree directly.
+  Two new `raw-write.spec.mjs` checks pin both (`exitRawWrite("off")` calls `setRawState`
+  exactly once with `"off"`, and takes the same gate).
+
 ### Update - 2026-09-14 (15)
 
 **Changed — the Raw toggle reads the state you are IN, and the Action item is shorter**
