@@ -13,7 +13,7 @@ use super::session::Session;
 
 impl Session {
     pub fn delete_selected(&mut self) {
-        if self.guard_clipboard_locked() {
+        if self.guard_clipboard_locked() || self.guard_document_edit_locked() {
             return;
         }
         if self.cursor_is_read_only() {
@@ -141,6 +141,9 @@ impl Session {
     }
 
     pub fn paste(&mut self) {
+        if self.guard_document_edit_locked() {
+            return;
+        }
         let cb = match self.clipboard.take() {
             Some(cb) => cb,
             None => {
@@ -176,7 +179,7 @@ impl Session {
     /// into its own subtree is rejected; the document is untouched on any
     /// failure, and a slot whose row is no longer visible is ignored.
     pub fn move_selection_to(&mut self, sources: Vec<Path>, slot: PasteSlot, cut: bool) {
-        if self.guard_clipboard_locked() {
+        if self.guard_clipboard_locked() || self.guard_document_edit_locked() {
             return;
         }
         if self.doc.is_none() {
@@ -523,7 +526,7 @@ impl Session {
     }
 
     pub fn remark(&mut self) {
-        if self.guard_clipboard_locked() {
+        if self.guard_clipboard_locked() || self.guard_document_edit_locked() {
             return;
         }
         if self.cursor_is_read_only() {

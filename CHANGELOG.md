@@ -10,6 +10,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-14 (6)
+
+**Added**
+
+- **The empty-path lock (R21/R24).** While a whole-document pending edit
+  (`Intent::BeginEditDocument`) is open, every mutating intent and `Undo`/`Redo`
+  are refused with a new `core.document.edit-locked` notice
+  (`Severity::Warn`, mirrors `core.clipboard.action-locked`'s shape) and
+  change nothing. The pending buffer stands for the entire document text, so
+  a core mutation underneath it would be silently discarded the moment the
+  host later applies that stale buffer, and `Undo`/`Redo` swap the whole
+  document text out from under it — exactly the overwrite the lock exists to
+  prevent. A pending edit at a **non**-empty path (a per-node external edit)
+  is unaffected — navigation, delete, undo and redo all keep working.
+  Implemented as `Session::guard_document_edit_locked`, called alongside the
+  existing `guard_clipboard_locked` at every mutation entry point
+  (`delete_selected`, `paste`, `move_selection_to`, `remark`,
+  `add_node`/`add_child`/`add_sibling`, inline edit, `nudge`, `commit_kind`,
+  `undo`, `redo`).
+
 ### Update - 2026-09-14 (5)
 
 **Added**

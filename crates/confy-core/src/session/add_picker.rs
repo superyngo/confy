@@ -34,7 +34,7 @@ impl Session {
     }
 
     fn add_node_impl(&mut self, force_append: Option<bool>) {
-        if self.guard_clipboard_locked() {
+        if self.guard_clipboard_locked() || self.guard_document_edit_locked() {
             return;
         }
         if self.doc.is_none() {

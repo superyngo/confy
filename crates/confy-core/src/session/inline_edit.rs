@@ -22,7 +22,7 @@ impl Session {
     }
 
     fn begin_inline_edit_impl(&mut self, allow_schema_enum: bool) {
-        if self.guard_clipboard_locked() {
+        if self.guard_clipboard_locked() || self.guard_document_edit_locked() {
             return;
         }
         // A read-only node (YAML opaque span, JSONC `/* */` block comment) is
@@ -1061,7 +1061,7 @@ impl Session {
     /// keeping the flip on this Intent-only path restores the keyboard
     /// affordance without reviving that misfire (ADR 0011).
     pub fn nudge(&mut self, delta: i64) {
-        if self.guard_clipboard_locked() {
+        if self.guard_clipboard_locked() || self.guard_document_edit_locked() {
             return;
         }
         let path = match self.cursor_row() {

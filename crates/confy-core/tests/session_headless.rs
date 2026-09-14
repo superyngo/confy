@@ -4264,3 +4264,93 @@ fn failed_document_apply_is_an_error_and_changes_nothing() {
         assert_eq!(snap.doc_revision, 0, "nothing committed");
     }
 }
+
+// ---- T5 / RS1c: the empty-path lock (R21/R24) ----
+
+/// While a whole-document pending edit (`BeginEditDocument`) is open, a
+/// mutating intent is refused with a notice and changes nothing — the pending
+/// buffer stands for the entire document text, so a mutation underneath it
+/// would be silently discarded the moment the host applies that stale buffer.
+#[test]
+fn mutating_intent_is_refused_while_the_document_edit_is_open() {
+    let mut s = toml_session("a = 1\nb = 2\n");
+    s.dispatch(Intent::BeginEditDocument);
+    s.dispatch(Intent::CursorDown); // navigation still works
+    let snap = s.dispatch(Intent::DeleteSelected);
+    assert_eq!(s.serialize().unwrap(), "a = 1\nb = 2\n", "nothing deleted");
+    let notice = snap.notice.as_ref().expect("a notice");
+    assert!(!notice.text.is_empty());
+    assert!(
+        matches!(notice.severity, confy_core::session::Severity::Warn),
+        "got {:?}",
+        notice.severity
+    );
+    // The pending document edit itself must survive the refused intent.
+    assert!(snap.external_edit.is_some());
+}
+
+/// `Undo` swaps the whole document text out from under the pending buffer —
+/// exactly the overwrite the lock exists to prevent — so it is refused too.
+#[test]
+fn undo_is_refused_while_the_document_edit_is_open() {
+    let mut s = toml_session("a = 1\n");
+    s.dispatch(Intent::ApplyReplace {
+        path: vec![],
+        text: "a = 1\nb = 2\n".to_string(),
+    });
+    assert_eq!(s.serialize().unwrap(), "a = 1\nb = 2\n");
+    s.dispatch(Intent::BeginEditDocument);
+    let snap = s.dispatch(Intent::Undo);
+    assert_eq!(
+        s.serialize().unwrap(),
+        "a = 1\nb = 2\n",
+        "undo must not run"
+    );
+    assert!(snap.notice.is_some(), "and must say why");
+}
+
+/// `Redo` is refused the same way as `Undo`.
+#[test]
+fn redo_is_refused_while_the_document_edit_is_open() {
+    let mut s = toml_session("a = 1\n");
+    s.dispatch(Intent::ApplyReplace {
+        path: vec![],
+        text: "a = 1\nb = 2\n".to_string(),
+    });
+    s.dispatch(Intent::Undo);
+    assert_eq!(s.serialize().unwrap(), "a = 1\n");
+    s.dispatch(Intent::BeginEditDocument);
+    let snap = s.dispatch(Intent::Redo);
+    assert_eq!(s.serialize().unwrap(), "a = 1\n", "redo must not run");
+    assert!(snap.notice.is_some(), "and must say why");
+}
+
+/// Control case: a pending edit at a **non**-empty path (a per-node external
+/// edit) does not lock — mutations and undo/redo keep working normally. This
+/// is what makes the empty-path check the actual gate, not any pending edit.
+#[test]
+fn a_per_node_pending_edit_does_not_lock_mutations_or_undo_redo() {
+    let mut s = toml_session("a = 1\nb = 2\n");
+    s.dispatch(Intent::CursorDown); // onto `a`
+    let snap = s.dispatch(Intent::BeginEditExternal);
+    let ext = snap.external_edit.expect("a pending per-node edit");
+    match &ext.kind {
+        ExternalEditKind::Value { path } => assert!(!path.is_empty()),
+        other => panic!("expected a value edit, got {other:?}"),
+    }
+    let snap = s.dispatch(Intent::DeleteSelected);
+    assert_eq!(s.serialize().unwrap(), "b = 2\n", "delete still ran");
+    assert!(snap.notice.is_none(), "no lock notice: {:?}", snap.notice);
+
+    // Undo/redo likewise unaffected by a per-node pending edit.
+    let mut s2 = toml_session("a = 1\n");
+    s2.dispatch(Intent::ApplyReplace {
+        path: vec![],
+        text: "a = 1\nb = 2\n".to_string(),
+    });
+    s2.dispatch(Intent::CursorDown);
+    s2.dispatch(Intent::BeginEditExternal);
+    let snap = s2.dispatch(Intent::Undo);
+    assert_eq!(s2.serialize().unwrap(), "a = 1\n", "undo still ran");
+    assert!(snap.notice.is_none(), "no lock notice: {:?}", snap.notice);
+}

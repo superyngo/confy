@@ -74,6 +74,7 @@
   "core.clipboard.empty": "clipboard empty",
   "core.clipboard.cleared": "clipboard cleared",
   "core.clipboard.action-locked": "action disabled while clipboard is armed — paste (v) or discard (Esc) first",
+  "core.document.edit-locked": "action disabled while the whole file is open for editing — apply or cancel that edit first",
   "core.move.self": "can't move a node into itself",
   "core.paste.comment-illegal": "paste error: comments can only go into a table or the document",
   "core.prompt.collision": "collision on key '{0}'",

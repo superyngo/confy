@@ -83,6 +83,9 @@ pub fn severity_of(key: &str) -> Severity {
         | "core.readonly.opaque"
         | "core.action.unavailable"
         | "core.clipboard.action-locked"
+        // The empty-path lock (R21/R24): a mutating intent or Undo/Redo
+        // refused while the whole-document external edit is in flight.
+        | "core.document.edit-locked"
         | "core.trailing.inline-unsupported"
         | "core.reveal.hidden-by-filter"
         | "core.move.self"

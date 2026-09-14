@@ -839,6 +839,23 @@ impl Session {
         }
     }
 
+    /// Returns `true` (and sets a notice) while a whole-document external
+    /// edit is in flight — `pending_external_edit` holding the **empty**
+    /// path (R21/R24). That buffer stands for the entire document text, so a
+    /// core mutation applied underneath it would be silently discarded the
+    /// moment the host later applies the stale buffer, and `Undo`/`Redo`
+    /// swap the whole document text out from under it — exactly the
+    /// overwrite this lock exists to prevent. A pending edit at a **non**-
+    /// empty path (a per-node external edit) is unaffected.
+    pub(crate) fn guard_document_edit_locked(&mut self) -> bool {
+        if matches!(&self.pending_external_edit, Some(p) if p.path.is_empty()) {
+            self.set_notice(Notice::core(self.lang, "core.document.edit-locked", &[]));
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn doc_format(&self) -> DocFormat {
         self.doc.as_ref().map_or(DocFormat::Toml, |d| d.format())
     }
@@ -1267,7 +1284,7 @@ impl Session {
     /// analogue of `open_kind_switch` + `kind_switch_commit`, with no popup dance.
     /// `target` must come from `kind_options(path)`.
     pub fn commit_kind(&mut self, path: Path, target: crate::model::document::KindTarget) {
-        if self.guard_clipboard_locked() {
+        if self.guard_clipboard_locked() || self.guard_document_edit_locked() {
             return;
         }
         self.mode = self.resting_mode();
