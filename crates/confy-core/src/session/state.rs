@@ -348,6 +348,12 @@ impl History {
     /// Undoable-entry count (`past.len()`). Hosts that mirror the undo stack
     /// (VS Code) diff this across dispatches: it grows on a history push and
     /// shrinks when `cancel_last` rolls the newest entry back (add→Esc).
+    ///
+    /// **Not a commit counter**, despite reading like one: a snapshot equal to
+    /// `current` is deduped by `push`, and both caps above evict from the
+    /// front, so this legitimately stays flat — or pinned at `MAX_HISTORY` —
+    /// across a mutation that really did commit. Code asking "did that
+    /// commit?" must diff `Session::doc_revision` instead.
     pub fn depth(&self) -> usize {
         self.past.len()
     }

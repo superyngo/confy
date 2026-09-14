@@ -421,6 +421,7 @@ impl super::Session {
             lang: self.lang.code().to_string(),
             cursor_blank_after: self.trailing_blank_lines(),
             history_len: self.history.as_ref().map(|h| h.depth()).unwrap_or(0),
+            doc_revision: self.doc_revision,
         }
     }
 

@@ -4125,3 +4125,69 @@ fn a_comment_buffer_split_by_blank_lines_keeps_every_run() {
         assert_eq!(got, *comments, "{fmt:?} {buf:?} comment nodes");
     }
 }
+
+/// `doc_revision` moves where `history_len` is flat, case 1: a whole-document
+/// Apply whose text equals what is already there still *commits* — the backend
+/// ran and succeeded — but `History::push` dedups the identical snapshot, so
+/// the depth stays 0. A host that read `history_len` would call this a failed
+/// Apply (design record R5's failing-before evidence, measured as T2).
+#[test]
+fn identity_apply_bumps_revision_while_history_len_stays_flat() {
+    let src = "a = 1\n";
+    let mut s = toml_session(src);
+    assert_eq!(s.snapshot().doc_revision, 0);
+
+    let snap = s.dispatch(Intent::ApplyReplace {
+        path: vec![],
+        text: src.to_string(),
+    });
+    assert!(snap.notice.is_none(), "notice: {:?}", snap.notice);
+    assert_eq!(
+        s.serialize().unwrap(),
+        src,
+        "identity Apply must round-trip"
+    );
+    assert_eq!(snap.history_len, 0, "the identical snapshot is deduped");
+    assert_eq!(snap.doc_revision, 1, "but the commit happened");
+}
+
+/// Case 2: at the undo cap, `history_len` is *pinned* — the front entry is
+/// evicted for every new one — so it reads the same across a commit that
+/// demonstrably changed the document. `doc_revision` still moves.
+#[test]
+fn revision_moves_at_the_undo_cap_where_history_len_is_pinned() {
+    let mut s = toml_session("a = 0\n");
+    s.dispatch(Intent::CursorDown); // the cursor must sit on the leaf to nudge
+    for _ in 0..205 {
+        s.dispatch(Intent::Nudge(1));
+    }
+    let before = s.snapshot();
+    let text_before = s.serialize().unwrap();
+    assert_eq!(before.history_len, 200, "expected the cap to be saturated");
+
+    let after = s.dispatch(Intent::Nudge(1));
+    assert_ne!(
+        s.serialize().unwrap(),
+        text_before,
+        "the guard mutation must really change the document"
+    );
+    assert_eq!(after.history_len, before.history_len, "pinned at the cap");
+    assert_eq!(after.doc_revision, before.doc_revision + 1);
+}
+
+/// An undo is itself a commit: the document text changed, so the revision goes
+/// *forward*, never back. (`history_len` moves the other way here.)
+#[test]
+fn undo_and_redo_move_the_revision_forward() {
+    let mut s = toml_session("a = 0\n");
+    s.dispatch(Intent::CursorDown);
+    let r0 = s.dispatch(Intent::Nudge(1)).doc_revision;
+
+    let undone = s.dispatch(Intent::Undo);
+    assert_eq!(s.serialize().unwrap(), "a = 0\n");
+    assert_eq!(undone.doc_revision, r0 + 1, "an undo is a commit");
+
+    let redone = s.dispatch(Intent::Redo);
+    assert_eq!(s.serialize().unwrap(), "a = 1\n");
+    assert_eq!(redone.doc_revision, r0 + 2);
+}

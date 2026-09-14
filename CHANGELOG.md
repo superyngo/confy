@@ -10,6 +10,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-14 (4)
+
+**Added**
+
+- **`doc_revision` on `SessionSnapshot`** — a monotonic successful-commit counter, incremented
+  exactly once per committed mutation (including an undo or redo, each of which changes the
+  document text and so moves the revision *forward*, never back). A host can now ask "did the
+  mutation I just dispatched commit?", which is what the coming Raw-pane whole-document Apply
+  needs. Mirrored in `web/types.ts`.
+
+**Documentation**
+
+- **`history_len` is documented as what it is: a depth, not a commit count.** Both it and
+  `History::depth()` now warn at the definition that a snapshot identical to the current one is
+  deduped and that the undo caps evict from the front, so the value legitimately stays flat —
+  or pinned at 200 — across a mutation that really did commit. Reading it as a commit counter is
+  the trap that produced an earlier wrong design; new tests in `session_headless.rs` and
+  `functional_smoke.mjs` pin both failure modes.
+
 ### Update - 2026-09-14 (3)
 
 **Tests**

@@ -27,7 +27,7 @@ task estimated over ~60k is already split.
 |---|---|---|---|
 | T1 | RS0 evidence — identity Apply × 4 formats | ~35k | **Done (2026-09-14)** — Evidence §, no product code |
 | T2 | RS0 evidence — failure, `doc_revision`, offsets | ~30k | **Done (2026-09-14)** — Evidence §, no product code |
-| T3 | RS1a core — `doc_revision` + `history_len` warning | ~25k | commit, `cargo test -p confy-core` |
+| T3 | RS1a core — `doc_revision` + `history_len` warning | ~25k | **Done (2026-09-14)** — commit, `cargo test -p confy-core` green |
 | T4 | RS1b core — intent, Action item, `apply_document_text` | ~55k | commit, headless tests |
 | T5 | RS1c core — empty-path mutation/undo guard (R21/R24) | ~30k | commit, headless tests |
 | T6 | RS2a web — `rawState` refactor (R27), no new feature | ~40k | commit, `npm test` green |

@@ -641,15 +641,18 @@ for (const [label, fmt, good, bad, severity] of brokenFixtures) {
   bs.free();
 }
 
-// T2.2 — the R5 premise: `history_len` is NOT a commit counter. Two cases,
-// both expected to leave it flat while the document really was committed.
-// This is the failing-before evidence T3's `doc_revision` must turn green.
+// T2.2 / T3 — the R5 premise: `history_len` is NOT a commit counter, and
+// `doc_revision` is. Two cases, both leaving the depth flat while the
+// document really was committed: T2 recorded them as failing-before evidence,
+// and T3 (2026-09-14) added the field that now reads them correctly.
 const detSrc = `[server]\nport = 8080\n`;
 const det = new ConfySession(detSrc, "toml");
 const detIdentity = det.dispatch({ ApplyReplace: { path: [], text: detSrc } });
 check("[detector] a no-change Apply leaves history_len at 0 (dedup)",
   detIdentity.history_len === 0, "history_len=" + detIdentity.history_len);
 check("[detector] ...and the document is intact", det.serialize() === detSrc);
+check("[detector] ...but doc_revision moved (T3)",
+  detIdentity.doc_revision === 1, "doc_revision=" + detIdentity.doc_revision);
 det.free();
 
 // At the undo cap (MAX_HISTORY = 200): further successful commits keep
@@ -658,6 +661,7 @@ const cap = new ConfySession(`port = 8080\n`, "toml");
 let capSnap = cap.dispatch(unit("CursorDown")); // onto the `port` leaf
 for (let i = 0; i < 205; i++) capSnap = cap.dispatch({ Nudge: 1 });
 const atCap = capSnap.history_len;
+const atCapRev = capSnap.doc_revision;
 const textAtCap = cap.serialize();
 capSnap = cap.dispatch({ Nudge: 1 });
 check("[detector] history_len is pinned at the undo cap (200)",
@@ -666,6 +670,9 @@ check("[detector] history_len is pinned at the undo cap (200)",
 check("[detector] ...while that commit really did change the document",
   cap.serialize() !== textAtCap,
   `${JSON.stringify(textAtCap)} -> ${JSON.stringify(cap.serialize())}`);
+check("[detector] ...and doc_revision moved anyway (T3)",
+  capSnap.doc_revision === atCapRev + 1,
+  `${atCapRev} -> ${capSnap.doc_revision}`);
 cap.free();
 
 // T2.3 — R14/R15: `outline()`'s byte `text_range` over a fixture with CJK

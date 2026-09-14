@@ -343,9 +343,17 @@ pub struct SessionSnapshot {
     /// per-`ViewRow` because resolving the anchor walks the document, so a
     /// per-row field would cost one walk per visible row.
     pub cursor_blank_after: Option<usize>,
-    /// Undo-history depth (`History::depth()`, 0 before the first edit or
+    /// Undo-history **depth** (`History::depth()`, 0 before the first edit or
     /// when no document is loaded).
+    ///
+    /// **Not a commit counter.** A depth is not a tally: `History::push`
+    /// drops a snapshot identical to the current one, and both undo caps
+    /// evict from the front, so this field legitimately stays flat across a
+    /// successful mutation. Use `doc_revision` to ask "did that commit?".
     pub history_len: usize,
+    /// Monotonic successful-commit counter (`Session::doc_revision`) — moves
+    /// forward once per committed mutation, including an undo or redo.
+    pub doc_revision: u64,
     pub schema_status: Option<crate::schema::SchemaStatus>,
     /// Set when a detected/explicit schema source needs the host to resolve
     /// its text (local read or URL fetch) and dispatch `Intent::SchemaLoaded`

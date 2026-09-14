@@ -26,6 +26,17 @@ pub struct Session {
     pub selection: Selection,
     pub last_action_was_shift_select: bool,
     pub history: Option<History>,
+    /// Monotonic **successful-commit** counter: incremented exactly once per
+    /// mutation that the backend committed, and never decremented — an undo
+    /// or redo is itself a commit, so it moves the revision forward too.
+    ///
+    /// Exists because `history_len` cannot answer "did that commit?": it is a
+    /// *depth*, so it stays flat when a snapshot equals the current one
+    /// (`History::push`'s dedup) and when the undo cap evicts an entry. A host
+    /// that needs to know whether the mutation it just dispatched landed —
+    /// notably the desktop Raw pane's whole-document Apply — must diff this
+    /// across the snapshot, not `history_len`.
+    pub doc_revision: u64,
     pub notice: Option<Notice>,
     pub diag: crate::session::diag::DiagRing,
     pub schema: Option<crate::schema::SchemaState>,
@@ -111,6 +122,7 @@ impl Session {
             expanded,
             selection: Selection::new(),
             last_action_was_shift_select: false,
+            doc_revision: 0,
             history: None,
             notice: None,
             diag: Default::default(),
@@ -2029,6 +2041,9 @@ impl Session {
         } else {
             false
         };
+        // Exactly one increment per committed mutation: this is the single
+        // funnel every backend-`apply` success path already runs through.
+        self.doc_revision = self.doc_revision.wrapping_add(1);
         self.notice = None;
         let skip_revalidate = match (touched, self.schema.as_ref()) {
             (Some(path), Some(schema)) if schema.fully_analyzable => schema

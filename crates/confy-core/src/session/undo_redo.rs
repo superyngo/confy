@@ -26,6 +26,9 @@ impl Session {
             Ok(()) => {
                 self.tree = doc.project();
                 self.notice = None;
+                // An undo is a commit: the document text changed, so the
+                // revision moves forward (never backward).
+                self.doc_revision = self.doc_revision.wrapping_add(1);
                 self.revalidate_schema();
                 self.sync_schema_hint(&snapshot);
             }
@@ -56,6 +59,7 @@ impl Session {
             Ok(()) => {
                 self.tree = doc.project();
                 self.notice = None;
+                self.doc_revision = self.doc_revision.wrapping_add(1);
                 self.revalidate_schema();
                 self.sync_schema_hint(&snapshot);
             }

@@ -285,7 +285,8 @@ export interface SessionSnapshot {
   quit: boolean;
   lang: string; // active UI language code ("en" / "zh-TW")
   cursor_blank_after: number | null; // cursor node's trailing blank-line count
-  history_len: number; // undo-history depth; VS Code host diffs it (see vscode-protocol.ts)
+  history_len: number; // undo-history DEPTH, not a commit count (deduped/capped); VS Code host diffs it
+  doc_revision: number; // monotonic successful-commit counter; diff this to ask "did that commit?"
 }
 
 // ---- Intent (session::intent::Intent) ----
