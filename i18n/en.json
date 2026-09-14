@@ -124,6 +124,7 @@
   "tui.lang.save-failed": "language saved for session, but writing config failed: {0}",
   "tui.about.config": "Config:   {0}",
   "tui.about.language": "Language: {0}",
+  "web.tree.empty": "Empty document — use ＋ to add the first node",
   "web.app.title": "confy — config tree editor",
   "web.toolbar.fmtPill.title": "document format",
   "web.toolbar.fmtPill.sampleTitle": "Sample — tap to switch format",

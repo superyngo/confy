@@ -8,7 +8,7 @@ import type { Path, SessionSnapshot } from "./types.js";
 import { pathEq as eq } from "./path-utils.js";
 
 function visiblePaths(snap: SessionSnapshot): Path[] {
-  return snap.rows.filter((r) => r.path.length > 0).map((r) => r.path);
+  return snap.rows.map((r) => r.path);
 }
 function selectedPaths(snap: SessionSnapshot): Path[] {
   return snap.rows.filter((r) => r.selected).map((r) => r.path);

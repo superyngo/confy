@@ -124,6 +124,7 @@
   "tui.lang.save-failed": "本次會話語言已套用，但寫入設定檔失敗：{0}",
   "tui.about.config": "設定檔： {0}",
   "tui.about.language": "語言：   {0}",
+  "web.tree.empty": "空白文件 —— 用 ＋ 新增第一個節點",
   "web.app.title": "confy — 結構化設定檔編輯器",
   "web.toolbar.fmtPill.title": "文件格式",
   "web.toolbar.fmtPill.sampleTitle": "範例 — 點按以切換格式",

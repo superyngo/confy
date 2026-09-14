@@ -427,8 +427,11 @@ impl Session {
         }
         // Drop a paste slot whose row is no longer visible (stale after a
         // structural change); a still-valid slot survives paste-mode navigation.
+        // The two document-edge slots (D5, ADR 0013) name the Root, which has no
+        // row on purpose — they are never stale, and testing them by row is what
+        // silently wiped them the instant `Home`/`End` set one.
         if let Some(PasteSlot::Into(p) | PasteSlot::After(p)) = &self.paste_slot {
-            if !rows.iter().any(|r| &r.path == p) {
+            if !p.is_empty() && !rows.iter().any(|r| &r.path == p) {
                 self.paste_slot = None;
             }
         }

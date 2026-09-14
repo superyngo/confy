@@ -9,6 +9,7 @@ import type { SessionSnapshot, ViewRow } from "../types.js";
 import { escapeHtml as esc } from "../escape.js";
 import { isCommentRow, isExpanded, isPositional, valueTypeClass } from "../kind-labels.js";
 import { highlightHtml } from "../highlight.js";
+import { t } from "../i18n.js";
 
 // The shared quote-safe escaper, under this module's traditional short name.
 export { esc };
@@ -152,20 +153,23 @@ export function treeHTML(snap: SessionSnapshot): string {
     snap.paste_slot && "Into" in snap.paste_slot ? JSON.stringify(snap.paste_slot.Into) : null;
   const clipKeys = new Set(snap.clipboard_paths.map((p) => JSON.stringify(p)));
   const clipCls: " clip-copy" | " clip-cut" = snap.clipboard_cut ? " clip-cut" : " clip-copy";
+  // D12 (ADR 0013): no top-level Node means no rows at all now that the Root
+  // isn't one — draw the same empty-document hint desktop does.
+  if (rows.length === 0) {
+    return `<div class="tree-empty">${esc(t("web.tree.empty"))}</div>`;
+  }
   return (
     rows
       .map((r, idx) =>
-        r.path.length === 0
-          ? ""
-          : rowHTML(
-              r,
-              idx,
-              rows,
-              pasteIntoPath === JSON.stringify(r.path),
-              clipKeys.has(JSON.stringify(r.path)) ? clipCls : "",
-              snap.doc_format,
-              snap.filter ?? "",
-            ),
+        rowHTML(
+          r,
+          idx,
+          rows,
+          pasteIntoPath === JSON.stringify(r.path),
+          clipKeys.has(JSON.stringify(r.path)) ? clipCls : "",
+          snap.doc_format,
+          snap.filter ?? "",
+        ),
       )
       .join("") + '<div class="reorder-line"></div>'
   );

@@ -23,7 +23,7 @@ copied from the design record's slices; nothing here adds scope to it.
 | T9 | D12 zero-row document target + D13 `RevealPath([])` retarget | S2 | **Done** (2026-09-14) |
 | — | D8/D9 document-scoped action | S3 | **Done** — shipped by the Raw-write record (ADR 0014); placement verified by E6 |
 | T10 | D15 title bar + D6 document-edge insertion lines + D12 TUI empty state + the `9`/`0`/`1`/`2`/`e`/`i` root special cases and ~65 row-index test assumptions | S4 | **Done** (2026-09-14) |
-| T11 | Web/touch/VS Code stand-in deletions + D6 rename + D12 empty state + the `*.spec.mjs` suites | S5 | Open |
+| T11 | Web/touch/VS Code stand-in deletions + D6 rename + D12 empty state + the `*.spec.mjs` suites | S5 | **Done** (2026-09-14) |
 | T12 | Remaining reference docs (D16, `HOST_PARITY.md` §2 deletion, `ROW_STATE_MODEL.md` §6a, `MESSAGES.md` keys) + backlog/retrospective/record status flips | S6 | Open |
 
 ## Task detail
@@ -107,6 +107,26 @@ leftmost indent, both document edges cue in paste mode, `C` works from any row) 
   `extend_select_*` anchor guards plus the `rows[idx - 1].path.is_empty()` row test, and
   `edit_target_kind`'s. `toggle_select`'s guard stays: an empty document leaves the cursor at
   `[]` with no row to move to.
+
+### S5 (T11)
+
+- **A real bug fell out of the browser check, not the test suites**: `compute_rows` dropped any
+  paste slot whose path wasn't a visible row, so both document-edge slots were wiped the instant
+  `Home`/`End` set one (the snapshot then fell back to `After(cursor)`). Every unit test passed;
+  only stepping the slots in a real browser showed it. `compute_rows` now exempts the empty path.
+- **Six web stand-ins deleted**: `drawnCursorFallback` and `overshotUndrawnRootSlot`
+  (`path-utils.ts`, plus their two call sites in `navSelect`/`touchNavSelect`), `select.ts`'s
+  root filter, `host-io.ts`'s faked `SetCursor: []` before `OpenConvert` (dead after D10), and
+  the two `r.path.length === 0` row skips in `render.ts`/`touch/render.ts`.
+  `rootSlotLine`/`RootSlotLine` → `documentEdgeLine`/`DocumentEdgeLine`.
+- **D12's web empty state** is a `.tree-empty` div (new `web.tree.empty` key, one CSS rule per
+  sheet), returned early by both renderers. Verified in a real headless Chromium by deleting
+  every top-level node.
+- **`touch-key-scroll.spec.mjs` lost its sections 4 and 5** and now asserts the *absence* of both
+  corrections in the two nav functions; `touch-render.spec.mjs` gained the empty-state case (its
+  zero-row `treeHTML` check had to move to a one-row snapshot).
+- **`HOST_PARITY.md` §2 is deleted** ("the undrawn root row (web only)") — the divergence it
+  documented no longer exists. Sections were not renumbered: §3 onward keep their anchors.
 
 ## Ordering constraint
 

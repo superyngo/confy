@@ -268,11 +268,15 @@ export function renderTree(
     effectivePasteSlot && "Into" in effectivePasteSlot
       ? JSON.stringify(effectivePasteSlot.Into)
       : null;
-  // The synthetic root (empty path) is not rendered; `idx` stays the real
-  // `snap.rows` index so a click maps back to the right node.
+  // D12 (ADR 0013): the Root is no longer a row on any host, so a document
+  // with no top-level Node has nothing to draw — say so, and name the control
+  // that adds the first node.
+  if (rows.length === 0) {
+    treeEl.innerHTML = `<div class="tree-empty">${escapeHtml(t("web.tree.empty"))}</div>`;
+    return;
+  }
   const next: { key: string; html: string }[] = [];
   rows.forEach((r, idx) => {
-    if (r.path.length === 0) return;
     next.push({
       key: JSON.stringify(r.path),
       html: renderRow(

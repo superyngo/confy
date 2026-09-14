@@ -202,7 +202,7 @@ console.log("\n-- renderConfirmedPasteCue redraws the Into class + After line --
   if (cueMatch) {
     const built = await esbuild.build({
       stdin: {
-        contents: `import { rootSlotLine, slotLineIndentPx } from "./slot-line.js";
+        contents: `import { documentEdgeLine, slotLineIndentPx } from "./slot-line.js";
 let $, tree, rawState, CSS;
 export function setEnv(e) { $ = e.$; tree = e.tree; rawState = e.rawState; CSS = e.CSS; }
 export ${cueMatch[0]}\n`,
@@ -230,7 +230,7 @@ export ${cueMatch[0]}\n`,
     querySelector: () => ({ offsetWidth: 12 }),
   };
   // Two drawn rows: the shims that answer `querySelectorAll(".row")` are what
-  // `rootSlotLine` reads for the undrawn root row's stand-in edges.
+  // `documentEdgeLine` reads for the undrawn root row's stand-in edges.
   const firstRow = {
     classList: { contains: () => false },
     getBoundingClientRect: () => ({ top: 100, bottom: 130 }),

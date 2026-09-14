@@ -10,6 +10,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-14 (21)
+
+**Fixed — a document-edge paste slot was wiped the instant it was set**
+
+`compute_rows` drops a paste slot whose path is no longer a visible row (stale after a
+structural change) — and the two document-edge slots (`After([])`/`Into([])`) name the Root,
+which has no row on purpose, so `Home`/`End` set one and the very next rebuild threw it away,
+silently falling back to `After(cursor)`. Every unit test passed; only stepping the slots in a
+real browser surfaced it. The check now exempts the empty path.
+
+**Removed — root-hidden alignment S5 (T11): the web stand-ins are gone**
+
+With core no longer emitting a Root row (and emitting the paste slots in screen order), the
+host-side corrections that hid it have nothing left to correct:
+
+- **`drawnCursorFallback` and `overshotUndrawnRootSlot` deleted** (`web/path-utils.ts`) along
+  with their call sites in desktop `navSelect` and touch `touchNavSelect`, `select.ts`'s
+  root filter, `host-io.ts`'s faked `SetCursor: []` before `OpenConvert` (dead since D10), and
+  the `r.path.length === 0` row skips in `render.ts` / `touch/render.ts`.
+- **`slot-line.ts`'s `rootSlotLine` → `documentEdgeLine`** (`RootSlotLine` →
+  `DocumentEdgeLine`): the two slots it draws are a document-edge rule on every host now, not a
+  web-only stand-in.
+- **D12 — a zero-row document draws a `.tree-empty` hint** on both web hosts (new
+  `web.tree.empty`: "Empty document — use ＋ to add the first node").
+- **`HOST_PARITY.md` §2 ("the undrawn root row") is deleted** — the divergence is gone.
+- **Verified in a real headless Chromium** against the built `web/dist`: `Home` puts the
+  insertion line at the first row's top edge (6px) and `End` at the last row's bottom edge
+  (306px), and deleting every top-level node shows the empty-document hint. Plus `npm run
+  typecheck`, `npm test`, `functional_smoke.mjs`, `cargo test --workspace`, `clippy
+  --workspace --all-targets -D warnings`, and a re-run of the TUI tmux check.
+
 ### Update - 2026-09-14 (20)
 
 **Changed — root-hidden alignment S4 (T10): the TUI's replacements for the Root row**

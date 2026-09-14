@@ -111,7 +111,7 @@ let setSession = null;
 let setSnap = null;
 let setEnv = null;
 if (confirmedMatch && cueMatch && hoverMatch) {
-  const src = `import { rootSlotLine, slotLineIndentPx } from "./slot-line.js";
+  const src = `import { documentEdgeLine, slotLineIndentPx } from "./slot-line.js";
 let session, snap, $, tree, rawState, CSS;
 export function setSession(s) { session = s; }
 export function setSnap(s) { snap = s; }
@@ -166,7 +166,7 @@ function mkRow(pathArr, top, height) {
 function mkTree(rows) {
   return {
     querySelector: (sel) => rows.find((r) => sel.includes(r.dataset.path)) ?? null,
-    // `.row` (no path) is `rootSlotLine`'s lookup for the undrawn root row's
+    // `.row` (no path) is `documentEdgeLine`'s lookup for the undrawn root row's
     // stand-in edges; the class selectors are the cue layers' own sweeps.
     querySelectorAll: (sel) =>
       sel === ".row"

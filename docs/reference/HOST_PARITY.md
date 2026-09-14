@@ -37,21 +37,6 @@ a row the host doesn't draw…).
 | Row actions | keys only (`d`, `r`) | touch adds swipe-left Delete / swipe-right Remark | no keys on a phone | [WEBUI.md](WEBUI.md) §Swipe actions |
 | Multi-select gestures | `s`, ⇧↑↓ | desktop adds ⌘/⇧-click **and marquee**; touch uses tap / modifier-tap (no marquee) | marquee is pointer-only and fights list scrolling | [ROW_STATE_MODEL.md](ROW_STATE_MODEL.md) §1 |
 
-## 2. The undrawn root row (web only)
-
-The single biggest source of host-specific code, and worth its own section because three
-separate behaviors hang off it: **the TUI draws the document root row; neither web host does**
-(`crates/confy-tui/src/tui/ui.rs` vs `web/render.ts` / `web/touch/render.ts`).
-
-| Consequence | TUI | Web | Authority |
-|---|---|---|---|
-| Cursor on the root | a real, visible row | invisible focus cursor → `drawnCursorFallback()` re-targets the first drawn row after every keyboard nav | [WEBUI.md](WEBUI.md) §External-keyboard shortcut parity; `web/path-utils.ts` |
-| `After(root)` paste slot | insertion line under the root row | drawn at the **first** row's *top* edge (`rootSlotLine`) — the only pointer route to "insert above everything" is that row's top band | [ROW_STATE_MODEL.md](ROW_STATE_MODEL.md) §6a |
-| `Into(root)` paste slot | highlights the root row | drawn at the **last** row's *bottom* edge (it appends at `children.len()`), and an *upward* nav that lands on it is stepped back down onto `After(root)` (`overshotUndrawnRootSlot`) | ditto |
-
-Core's slot order is **unchanged** by the last row: `paste_slots()` still emits each row's
-`Into` before its `After`, because that reads correctly on the host that draws the root.
-
 ## 3. Row / cursor / clipboard state
 
 | Divergence | TUI | Web | Why | Authority |

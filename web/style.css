@@ -934,3 +934,9 @@ mark.fz{
   background:color-mix(in oklch,var(--warn) 30%,transparent);
   color:inherit;font-weight:700;border-radius:2px;padding:0 1px;margin:0 -1px;
 }
+
+/* Empty-document hint (ADR 0013 D12): with the Root no longer a row, a file
+   with no top-level Node renders no rows at all — this is what stands in. */
+.tree-empty {
+  padding: 18px 14px; color: var(--muted); font-style: italic;
+}

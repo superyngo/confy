@@ -1,6 +1,5 @@
 // Plain-Node test for the touch UI's keyboard-nav scroll follow
-// (`scrollFocusIntoView`) and the shared undrawn-root cursor correction
-// (`drawnCursorFallback`).
+// (`scrollFocusIntoView`).
 //
 // The defect: `render()` re-applies the captured `treePane.scrollTop` verbatim
 // after the `innerHTML` rebuild (so a tap never snaps the pane to the top),
@@ -22,12 +21,10 @@
 //      normally, but in paste mode the `.reorder-line` for `After` /
 //      `Into(root)` and the target row for a deeper `Into` (core routes arrows
 //      to `move_paste_slot`, so the cursor does not move at all);
-//   5. the undrawn root row's two slots are both drawn as insertion lines,
-//      since `treeHTML` never draws that row: `After(root)` (insert at the
-//      document's top) at the first row's top edge, `Into(root)` (append at
-//      its end) at the last row's bottom edge;
-//   6. `drawnCursorFallback` re-targets a cursor left on the undrawn root row
-//      (`g`/Home, `k` from the first row), in BOTH web hosts.
+//   5. the two document-edge slots are both drawn as insertion lines, since
+//      the Root is never a row (ADR 0013): `After([])` (insert at the
+//      document's top) at the first row's top edge, `Into([])` (append at its
+//      end) at the last row's bottom edge.
 //
 // Follows touch-paste-cue.spec.mjs's convention: no test framework, just a
 // `check()` tally; `touch/app.ts` can't be imported in Node (wasm + DOM boot at
@@ -35,8 +32,7 @@
 // extracted verbatim from the source and type-stripped via esbuild into a
 // wrapper module supplying the module-level state they close over — the
 // behavioral checks run the real shipped function bodies, not
-// reimplementations. `drawnCursorFallback` is imported from the real
-// `path-utils.ts`.
+// reimplementations.
 import path from "node:path";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -89,20 +85,18 @@ const uiNavBlock = uiTs.match(/^function navSelect\(i: Intent\) \{[\s\S]*?\n\}/m
 for (const [host, block] of [["touch touchNavSelect", touchNavBlock], ["desktop navSelect", uiNavBlock]]) {
   check(`${host} found in source`, block.length > 0);
   check(
-    `${host} re-targets an undrawn-root cursor BEFORE collapsing the selection onto it`,
-    /const drawn = drawnCursorFallback\(snap\);\n\s*if \(drawn\) send\(\{ SetCursor: drawn \}\);\n\s*send\(\{ SetSelection: \{ paths: \[snap!\.cursor\] \} \}\);/.test(
-      block,
-    ),
+    `${host} collapses the selection onto the cursor`,
+    /send\(\{ SetSelection: \{ paths: \[snap!\.cursor\] \} \}\);/.test(block),
     block,
   );
   check(
-    `${host} leaves the cursor correction alone in paste mode (arrows move the slot)`,
+    `${host} leaves the selection alone in paste mode (arrows move the slot)`,
     /if \(snap && \(snap\.clipboard_count \?\? 0\) > 0\) \{/.test(block),
     block,
   );
   check(
-    `${host} steps back down when an upward nav overshoots onto the undrawn root's Into slot`,
-    /if \(overshotUndrawnRootSlot\(i, snap\)\) send\("CursorDown"\);/.test(block),
+    `${host} carries NO undrawn-root cursor/slot correction (ADR 0013: core emits slots in screen order)`,
+    !/drawnCursorFallback|overshotUndrawnRootSlot/.test(block),
     block,
   );
 }
@@ -119,8 +113,7 @@ globalThis.getComputedStyle = (el) => ({
   getPropertyValue: (prop) => (prop === "--indent" ? (el?._indentStep ?? "18px") : ""),
 });
 
-const src = `import { rootSlotLine, slotLineIndentPx } from "./slot-line.js";
-export { drawnCursorFallback, overshotUndrawnRootSlot } from "./path-utils.js";
+const src = `import { documentEdgeLine, slotLineIndentPx } from "./slot-line.js";
 let snap = null;
 let treeEl = null;
 let treePane = null;
@@ -186,7 +179,7 @@ const treeEl = {
     const m = sel.match(/^\.row\[data-path='(.+)'\]$/);
     return m ? (rows.find((r) => r.dataset.path === m[1]) ?? null) : null;
   },
-  // `.row` (no path filter) is what `rootSlotLine` reads to find the first /
+  // `.row` (no path filter) is what `documentEdgeLine` reads to find the first /
   // last drawn row standing in for the never-drawn root row.
   querySelectorAll: (sel) =>
     sel === ".row" ? rows : sel === ".drop-into" ? rows.filter((r) => r.classes.has("drop-into")) : [],
@@ -293,45 +286,6 @@ console.log("\n-- renderPasteSlotCue(): After(root) / Into(root) ----");
     rows[2].classes.has("drop-into") && line.style.display === "none",
   );
 }
-
-// ---- 4. drawnCursorFallback (shared by both hosts) ----
-console.log("\n-- drawnCursorFallback() ----");
-const snapRows = [{ path: [] }, { path: [{ Index: 0 }] }, { path: [{ Key: "a" }] }];
-check(
-  "cursor on the undrawn root row re-targets the first drawn row",
-  JSON.stringify(mod.drawnCursorFallback({ cursor: [], rows: snapRows })) ===
-    JSON.stringify([{ Index: 0 }]),
-);
-check(
-  "cursor already on a drawn row is left alone",
-  mod.drawnCursorFallback({ cursor: [{ Key: "a" }], rows: snapRows }) === null,
-);
-check(
-  "empty document: nothing to re-target",
-  mod.drawnCursorFallback({ cursor: [], rows: [{ path: [] }] }) === null,
-);
-
-// ---- 5. overshotUndrawnRootSlot (shared by both hosts) ----
-console.log("\n-- overshotUndrawnRootSlot() ----");
-const rootInto = { paste_slot: { Into: [] } };
-check(
-  "upward nav landing on the undrawn root's Into slot (= append at the document END) is an overshoot",
-  mod.overshotUndrawnRootSlot("CursorUp", rootInto) === true,
-);
-check("Home counts as upward", mod.overshotUndrawnRootSlot("CursorHome", rootInto) === true);
-check("PageUp counts as upward", mod.overshotUndrawnRootSlot({ PageUp: 8 }, rootInto) === true);
-check(
-  "downward nav is left alone - reaching the append slot from below is correct",
-  mod.overshotUndrawnRootSlot("CursorDown", rootInto) === false &&
-    mod.overshotUndrawnRootSlot("CursorEnd", rootInto) === false &&
-    mod.overshotUndrawnRootSlot({ PageDown: 8 }, rootInto) === false,
-);
-check(
-  "any other slot is not an overshoot",
-  mod.overshotUndrawnRootSlot("CursorUp", { paste_slot: { After: [] } }) === false &&
-    mod.overshotUndrawnRootSlot("CursorUp", { paste_slot: { Into: [{ Key: "t" }] } }) === false &&
-    mod.overshotUndrawnRootSlot("CursorUp", { paste_slot: null }) === false,
-);
 
 console.log(failures === 0 ? "\nALL TOUCH KEY-SCROLL CHECKS PASSED" : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

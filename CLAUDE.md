@@ -328,10 +328,10 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
   slot-line.ts   the two shared rules for an insertion line's placement, used by the web
                  drag/armed cues and touch's `.reorder-line`. `slotLineIndentPx()` owns the
                  indent: `After(<expanded branch>)` inserts as its first child, so the line
-                 sits one `--indent` step deeper (as the TUI draws it). `rootSlotLine()` owns
-                 the **undrawn root row** — neither web host draws it, so its two slots borrow
-                 a row edge: `After(root)` (document top) the first row's top edge,
-                 `Into(root)` (append at the document end) the last row's bottom edge
+                 sits one `--indent` step deeper (as the TUI draws it). `documentEdgeLine()`
+                 owns the two **document-edge** slots — the Root is never a row (ADR 0013), so
+                 they borrow a row edge: `After([])` (document top) the first row's top edge,
+                 `Into([])` (append at the document end) the last row's bottom edge
   panel.ts       shared node detail/edit panel (`panelHTML`/`wirePanel`) — one module rendering
                  the desktop Detail aside AND the touch edit sheet identically (locked field order
                  Key/Value/Trailing comment/Kind/Path/Children/Sign/Blank after); a panel input's Enter/Escape
@@ -355,10 +355,7 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
                  `docs/spec/2026-09-11-raw-write-mode-design.md`),
                  keyboard→Intent map (mirrors tui/keys.rs),
                  theme toggle, FS open/save, `#url-modal` Open-from-URL, external-edit modal,
-                 paste-mode cursor target; `navSelect` re-targets an undrawn-root cursor via
-                 `path-utils.ts`'s `drawnCursorFallback` (shared with touch's `touchNavSelect`) —
-                 `Home`/`g` can otherwise leave an invisible cursor, since neither web host draws
-                 the root row. Touch's `app.ts` mirrors this plus its own keyboard
+                 paste-mode cursor target. Touch's `app.ts` mirrors this plus its own keyboard
                  `scrollFocusIntoView()` (minimal-scroll the tree pane to follow the cursor / the
                  paste-mode `.reorder-line`/`.drop-into` row past a viewport edge — `render()`
                  otherwise restores `scrollTop` verbatim across every re-render)
@@ -370,8 +367,7 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
   key-intent.ts  pure "which Intent does this (mode, key) pair mean" resolution — the single
                  keymap source both orchestrators dispatch through (KEYMAP.md is its SSOT doc)
   mode.ts        shared `modeTag()` helper over the `ModeView` union
-  path-utils.ts  shared path helpers; `drawnCursorFallback` re-targets a cursor sitting on the
-                 undrawn root (neither web host draws it), used by ui.ts and touch/app.ts
+  path-utils.ts  shared path helpers (pathEq/parentOf/siblingIndex)
   text-offset.ts pure/DOM-free: `byteToCodeUnit(text, byteOffset)` converts core's UTF-8 byte
                  `text_range` offsets to JS UTF-16 code-unit offsets — what the Raw pane's
                  breadcrumb jump feeds `setSelectionRange` (R14–R17). The path→node lookup

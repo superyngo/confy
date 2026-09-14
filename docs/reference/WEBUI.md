@@ -219,9 +219,9 @@ shapes round-trip). Key types:
   branch mid-band is `Into` (`.drag-over-into` outline), anything else is `After(p)`
   (horizontal `#dropLine` under `p`'s row, one indent step deeper when `p` is an expanded
   branch, since that slot inserts as its first child — `slot-line.ts`). The **first drawn
-  row's top band** classifies as `After(root)` — the only pointer route to "drop above
-  everything", since neither web host draws the root row — so its line is drawn at that
-  row's *top* edge (`rootSlotLine`, `slot-line.ts`); drawing it under the hovered row made
+  row's top band** classifies as `After([])` — the only pointer route to "drop above
+  everything"; the Root has no row on any host (ADR 0013), so its line is drawn at that
+  row's *top* edge (`documentEdgeLine`, `slot-line.ts`); drawing it under the hovered row made
   it pixel-identical to `After(<first row>)`, i.e. the document top looked unreachable.
   `drop` sends the slot
   as-is; core resolves it with `slot_target`, the same call an armed keyboard `Paste` makes,
@@ -520,7 +520,7 @@ modules** so look & behavior can't drift: `web/panel.ts` (node edit/detail panel
 `web/add-picker-items.ts` (shared item rendering for `Mode::AddPicker`), `web/escape.ts` (the one
 HTML escaper every render module uses), `web/toolbar-fold.ts` (the shared header/filter-row "⋯
 More" fold registry), `web/diag.ts` (the `?diag=1` console drain), `web/mode.ts` (shared
-`modeTag` and `createBatcher`), `web/path-utils.ts` (shared `drawnCursorFallback`),
+`modeTag` and `createBatcher`), `web/path-utils.ts` (shared `Path` helpers),
 `web/key-intent.ts` (shared `resolveKeyIntent`), `web/fab.ts` (shared FAB markup and sync),
 `web/host-io.ts` (shared I/O and theme helpers), and `web/vscode.ts` (the VS Code webview host
 adapter and protocol bridge). `convert-dialog.ts` is
@@ -554,7 +554,8 @@ edits to the verbatim desktop CSS.
 - `touch/render.ts` — pure `SessionSnapshot → HTML`. Ports the prototype's row anatomy (caret /
   key / `=` / typed value / count / kind badge / comment / grip) but every row is a real
   `ViewRow`; flat list (the snapshot is the visible-row projection, so collapsed branches omit
-  descendants — no `.children` nesting), root row skipped, `data-path` attribute-safe. The
+  descendants — no `.children` nesting), `data-path` attribute-safe. A zero-row document draws
+  the `.tree-empty` hint instead (ADR 0013 D12), as desktop's `renderTree` does. The
   prototype's right-side branch `>` chevron is dropped. A comment/trailing-comment span gets the
   `comment-advisory` class (wavy underline, matching desktop) when `ViewRow.comment_advisory` is
   set. Each non-read-only row carries two hidden buttons behind `.row-main`: `.row-del` (revealed
@@ -639,19 +640,13 @@ edits to the verbatim desktop CSS.
   its bottom-anchored sheets). The anchor is `.row.cursor` normally; in paste mode, where arrows
   move the insertion slot and not the cursor, it's the `.reorder-line` for an `After` slot
   (drawn at the target row's bottom edge — scrolling only the row can still clip the line) or
-  the target row for `Into`. `Home`/`g` (and `k` from the first row) can leave the cursor on the
-  document's undrawn root row — neither web host draws it, so a shared `drawnCursorFallback()`
-  (`web/path-utils.ts`) re-targets the first drawn row after every keyboard nav dispatch, in
-  both `touchNavSelect` here and desktop `ui.ts`'s `navSelect`. Paste mode's analogue is
-  `rootSlotLine` (`web/slot-line.ts`, shared with desktop): the root row's two slots are both
-  drawn as insertion lines, since neither has a row to outline — `After(root)` (insert at the
-  document's top) at the first row's top edge and `Into(root)` (append at its end, which is
-  where `slot_target` resolves `Into` to) at the last row's bottom edge. That `Into(root)` is
-  also core's *first* slot in stepping order, so `↑`/`k`/PageUp/`Home` from the top of the
-  tree used to jump the insertion point to the document's far end and clamp there; both hosts
-  now step one slot back down onto `After(root)` when an upward nav lands on it
-  (`overshotUndrawnRootSlot`, `web/path-utils.ts`). Core's order is unchanged — the TUI draws
-  the root row, so stepping onto it reads correctly there.
+  the target row for `Into`. The two **document-edge** slots have no row on any host (ADR 0013
+  D1), so `documentEdgeLine` (`web/slot-line.ts`, shared with desktop) draws both as insertion
+  lines: `After([])` (insert at the document's top, core's FIRST slot in stepping order) at the
+  first row's top edge, and `Into([])` (append at `children.len()`, the LAST slot) at the last
+  row's bottom edge. Core emits them in that screen order (D5), so `↑`/`k`/PageUp/`Home` from
+  the top of the tree reaches the document top and `End` the document end — no host-side
+  correction, and none of the old `drawnCursorFallback`/`overshotUndrawnRootSlot` stand-ins.
 - **Swipe actions.** A left-swipe on a row's `.row-main` slides it open to reveal a red Delete
   action (`.row-del`); a right-swipe slides it the other way to reveal a neutral Remark action
   (`.row-remark`, toggles the node to/from a comment — desktop's `r` key). One row is open at a

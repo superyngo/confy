@@ -88,8 +88,17 @@ console.log("\n-- treeHTML(): After slot does not bake a row class (line is draw
 
 console.log("\n-- treeHTML(): still emits the trailing .reorder-line the After cue reuses --");
 {
-  const html = treeHTML(makeSnap([], undefined));
+  const html = treeHTML(makeSnap([makeRow({ path: [{ Key: "b" }], key: "b" })], undefined));
   check('trailing reorder-line element present', html.includes('<div class="reorder-line"></div>'));
+}
+
+// D12 (ADR 0013): the Root is never a row, so a document with no top-level
+// Node has zero rows — the hint replaces the (otherwise blank) tree.
+console.log("\n-- treeHTML(): zero rows renders the empty-document hint --");
+{
+  const html = treeHTML(makeSnap([], undefined));
+  check("empty document renders .tree-empty", html.includes('class="tree-empty"'));
+  check("empty document draws no rows and no reorder-line", !html.includes("reorder-line"));
 }
 
 console.log("\n-- treeHTML(): has_descendant_violation gets warn-branch, stably regardless of expand state --");

@@ -67,8 +67,8 @@ import {
 } from "../samples.js";
 import { IC, esc, treeHTML } from "./render.js";
 import { fabHTML, syncFab } from "../fab.js";
-import { drawnCursorFallback, overshotUndrawnRootSlot, parentOf, pathEq } from "../path-utils.js";
-import { rootSlotLine, slotLineIndentPx } from "../slot-line.js";
+import { parentOf, pathEq } from "../path-utils.js";
+import { documentEdgeLine, slotLineIndentPx } from "../slot-line.js";
 import { resolveClick, resetAnchor, type Mods } from "../select.js";
 import { panelHTML, wirePanel, schemaHintText } from "../panel.js";
 import { bindPromptClicks, promptButtonsHTML, promptTitle } from "../prompt.js";
@@ -425,12 +425,12 @@ function renderPasteSlotCue(snap: SessionSnapshot, slotOverride?: PasteSlot) {
   const reorderLine = treeEl.querySelector<HTMLElement>(".reorder-line");
   if (reorderLine) {
     // Neither web host draws the root row, so its two slots borrow a row edge
-    // (`rootSlotLine`, shared with desktop): `After(root)` the FIRST row's top
+    // (`documentEdgeLine`, shared with desktop): `After(root)` the FIRST row's top
     // (insert at the document's very top, the slot the pointer's first-row top
     // band and paste-mode `↑` both reach) and `Into(root)` the LAST row's
     // bottom (append at the document's very end — `slot_target` resolves
     // `Into` to `children.len()`, so this used to be drawn at the wrong end).
-    const rootLine = rootSlotLine(treeEl, slot);
+    const rootLine = documentEdgeLine(treeEl, slot);
     if (rootLine) {
       const treeTop = treeEl.getBoundingClientRect().top;
       const rr = rootLine.vRow.getBoundingClientRect();
@@ -487,7 +487,7 @@ function renderPasteSlotCue(snap: SessionSnapshot, slotOverride?: PasteSlot) {
 // anchor row's *bottom* edge, so scrolling only that row can still leave the
 // line clipped) and both slots of the undrawn root row (`After(root)` at the
 // first row's top edge, `Into(root)` at the last row's bottom edge — neither
-// has a row of its own; see `rootSlotLine`)
+// has a row of its own; see `documentEdgeLine`)
 // — and the target row for any other `Into`. Otherwise it is the cursor row.
 function scrollFocusIntoView() {
   if (rawState !== "off" || !snap) return;
@@ -1389,11 +1389,11 @@ function onReorderMove(y: number) {
     return;
   }
   reSlot = slot;
-  // Undrawn root row (shared decision, `rootSlotLine`): the first row's top
+  // Undrawn root row (shared decision, `documentEdgeLine`): the first row's top
   // band means "drop at the document's very top", which the `?? hit` fallback
   // below drew under the hovered row instead — indistinguishable from
   // dropping *after* that row, so the top looked unreachable.
-  const rootLine = rootSlotLine(treeEl, slot);
+  const rootLine = documentEdgeLine(treeEl, slot);
   if (rootLine) {
     clearInto();
     const treeTop = treeEl.getBoundingClientRect().top;
@@ -1841,20 +1841,11 @@ async function doOpen() {
 function touchNavSelect(i: Intent) {
   send(i);
   if (snap && (snap.clipboard_count ?? 0) > 0) {
-    // Paste mode: same web-only overshoot correction desktop's `navSelect`
-    // applies — an upward step can land on the undrawn root row's `Into`
-    // slot, which appends at the document's END; step back down onto
-    // `After(root)`, the top (`overshotUndrawnRootSlot`).
-    if (overshotUndrawnRootSlot(i, snap)) send("CursorDown");
+    // Paste mode: the arrows move the insertion slot. Core emits them in
+    // screen order (ADR 0013 D5), so no host-side correction.
     return;
   }
   if (snap) {
-    // Same root-row correction desktop's `navSelect` applies: `g`/Home (and
-    // `k` from the first drawn row) can leave core's cursor on the undrawn
-    // root row, i.e. an invisible focus cursor (`drawnCursorFallback`). Must
-    // precede the `SetSelection` so it collapses onto the corrected cursor.
-    const drawn = drawnCursorFallback(snap);
-    if (drawn) send({ SetCursor: drawn });
     send({ SetSelection: { paths: [snap!.cursor] } });
   }
 }

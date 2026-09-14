@@ -209,13 +209,15 @@ export async function doQuickSave(io: HostIo): Promise<void> {
   io.send("Save");
 }
 
-// Open the unified "Save / Convert" panel from the root node. `open_convert`
+// Open the unified "Save / Convert" panel. Convert is document-scoped (ADR
+// 0013 D10) and no longer needs a Root cursor — this used to fake one with a
+// `SetCursor: []` that the Root's own row no longer exists to justify.
+// `open_convert`
 // leaves `target` = the current format (the panel's default), so the dialog
 // opens on "save in the current format"; seed the output name from the open
 // file's stem (core would otherwise default to "out.<ext>").
 export function openSaveConvert(io: HostIo): void {
   io.batch(() => {
-    io.send({ SetCursor: [] });
     io.send("OpenConvert");
     io.send({
       SetConvertPath: fileStem(io) + extForTag(io.getSnap()?.doc_format ?? "Toml"),

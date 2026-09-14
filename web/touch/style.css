@@ -740,3 +740,6 @@ mark.fz{
   background:color-mix(in oklch,var(--warn) 30%,transparent);
   color:inherit;font-weight:700;border-radius:2px;padding:0 1px;margin:0 -1px;
 }
+
+/* Empty-document hint — same contract as the desktop sheet's (ADR 0013 D12). */
+.tree-empty{padding:18px 14px;color:var(--muted);font-style:italic}

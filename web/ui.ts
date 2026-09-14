@@ -51,7 +51,7 @@ import type { Lang } from "./i18n.js";
 import { resolveClick, resetAnchor, rowsInRect, setAnchor } from "./select.js";
 import { foldedEntries, type ToolbarEntry } from "./toolbar-fold.js";
 import { installDnd } from "./dnd.js";
-import { rootSlotLine, slotLineIndentPx } from "./slot-line.js";
+import { documentEdgeLine, slotLineIndentPx } from "./slot-line.js";
 import { panelHTML, wirePanel, schemaHintText } from "./panel.js";
 import { renderCrumbs, wireCrumbDismiss } from "./breadcrumb.js";
 import { byteToCodeUnit } from "./text-offset.js";
@@ -84,7 +84,6 @@ import type {
 import { createBatcher, modeTag } from "./mode.js";
 import { drainDiagIfEnabled, resetDiagCursor } from "./diag.js";
 import { navRowCount, resolveKeyIntent, treePageStep } from "./key-intent.js";
-import { drawnCursorFallback, overshotUndrawnRootSlot } from "./path-utils.js";
 
 let session: Session | null = null;
 let snap: SessionSnapshot | null = null;
@@ -628,8 +627,8 @@ function renderConfirmedPasteCue(snap: SessionSnapshot) {
   const slot: PasteSlot = snap.paste_slot ?? { After: snap.cursor };
   // The root row is never drawn, so both of its slots would otherwise show
   // nothing at all — the two invisible steps at the top of paste-mode
-  // stepping. `rootSlotLine` says which row edge stands in for it.
-  const rootLine = rootSlotLine(tree, slot);
+  // stepping. `documentEdgeLine` says which row edge stands in for it.
+  const rootLine = documentEdgeLine(tree, slot);
   if (rootLine) {
     const wrap = $("treeWrap");
     const rr = rootLine.vRow.getBoundingClientRect();
@@ -689,7 +688,7 @@ function renderHoverCue(snap: SessionSnapshot, slot: PasteSlot | undefined) {
   // row's top band classifies as `After(root)`, and drawing it under the
   // hovered row (the old `?? row` fallback in `dnd.ts`) made "drop at the very
   // top" pixel-identical to "drop after the first node".
-  const rootLine = rootSlotLine(tree, slot);
+  const rootLine = documentEdgeLine(tree, slot);
   if (rootLine) {
     const wrap = $("treeWrap");
     const rr = rootLine.vRow.getBoundingClientRect();
@@ -1367,20 +1366,12 @@ function toggleSelectedBranches() {
 function navSelect(i: Intent) {
   send(i);
   if (snap && (snap.clipboard_count ?? 0) > 0) {
-    // Paste mode: the arrows move the insertion slot, not the cursor. An
-    // upward step can overshoot onto the undrawn root row's `Into` slot (an
-    // append at the document's END) — step back down onto `After(root)`, the
-    // top (`overshotUndrawnRootSlot`).
-    if (overshotUndrawnRootSlot(i, snap)) send("CursorDown");
+    // Paste mode: the arrows move the insertion slot, not the cursor. Core
+    // emits the slots in screen order now (ADR 0013 D5), so an upward step
+    // reaches the document *top* — no host-side correction.
     return;
   }
   if (snap) {
-    // `g`/Home (and `k` from the first drawn row) can land core's cursor on the
-    // undrawn root row — re-target the first drawn row so the cursor bar never
-    // vanishes (`drawnCursorFallback`). Before the `SetSelection` below, so the
-    // selection collapses onto the corrected cursor.
-    const drawn = drawnCursorFallback(snap);
-    if (drawn) send({ SetCursor: drawn });
     send({ SetSelection: { paths: [snap!.cursor] } });
   }
 }
