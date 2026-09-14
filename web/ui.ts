@@ -561,8 +561,9 @@ function scrollRawToOffset(el: HTMLTextAreaElement, text: string, offset: number
 // **toggle**, 套用, 取消: three same-size controls that are all present
 // whenever Raw is active. Nothing appears or disappears under the pointer; a
 // control that does not apply to the live state is `disabled`, so the band's
-// geometry is static. The toggle's label is the state a press switches TO
-// (like the header's Tree/Raw button). Apply and Cancel share one enable
+// geometry is static. The toggle's label is the **current** state — 檢視 while
+// viewing, 編輯 (blue/`.active`) while editing — the same reading as the
+// header's Tree/Raw button's own `.active`. Apply and Cancel share one enable
 // rule — a write buffer that differs from the last applied text — because
 // they are the two halves of the same decision: commit it or discard it.
 // There is no Save control here: ⌘S applies-then-saves and the header owns
@@ -573,7 +574,7 @@ function renderRawControls() {
   if (rawState === "off") return;
   const editBtn = $<HTMLButtonElement>("btnRawEdit");
   const writing = rawState === "write";
-  const label = t(writing ? "web.raw.controls.view" : "web.raw.controls.edit");
+  const label = t(writing ? "web.raw.controls.edit" : "web.raw.controls.view");
   $("btnRawEditLabel").textContent = label;
   editBtn.title = label;
   editBtn.setAttribute("aria-pressed", String(writing));

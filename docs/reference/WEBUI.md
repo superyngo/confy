@@ -335,7 +335,7 @@ shapes round-trip). Key types:
   scroll on every switch. View mode mirrors `session.serialize()` — the live document, unsaved
   edits included — re-seeded on render **only when the text actually changed**, so an unrelated
   re-render never resets the reading position. Write mode is entered when a pending external
-  edit opens at the **empty path**: the Action menu's *Edit whole file as text* item
+  edit opens at the **empty path**: the Action menu's *Edit whole file* item
   (`ActionId::EditDocument`, always enabled, document-scoped) or the band's Edit control.
   `⌘↩` applies (`ApplyReplace { path: [], text }` via `apply_document_text`, staying in write
   mode either way); `doc_revision` not moving is how the host detects a failed Apply and keeps
@@ -346,8 +346,8 @@ shapes round-trip). Key types:
   the buffer while write mode is open (R8: the re-seed is reachable only from the `"view"`
   branch). Because Raw view's pane is a focusable textarea, `document.body`'s key delegation
   skips only a **writable** one — a readonly pane never swallows a shortcut. A crumbs-row
-  **control band** (`#rawControls`, R13) renders only while Raw is active: an Edit ⇄ View
-  **toggle**, Apply, Cancel — three same-size controls that are always present, with the
+  **control band** (`#rawControls`, R13) renders only while Raw is active: a View ⇄ Edit
+  **toggle** (its label is the state you are IN, blue while editing), Apply, Cancel — three same-size controls that are always present, with the
   inapplicable one `disabled` (Apply and Cancel share one rule: write mode with a dirty
   buffer; the toggle only under VS Code). Cancel discards the edits back to the last applied
   text and stays in write mode. `CHROME.md` owns the
@@ -672,7 +672,7 @@ edits to the verbatim desktop CSS.
   mirroring core. Multi-line value/comment edits route to an external-edit **bottom sheet** (in
   `.app`, standard sheet chrome) via `ApplyReplace`/`ApplyEditComment` — the same handshake the
   desktop uses. The **same sheet** also carries whole-document edits (empty path, R18): touch
-  has no write-mode textarea panel of its own, so the Action menu's *Edit whole file as text*
+  has no write-mode textarea panel of its own, so the Action menu's *Edit whole file*
   item opens this sheet with the full document instead. Its Apply handler treats the empty
   path specially (R19) — a failed whole-file Apply (`doc_revision` not moving) leaves the sheet
   **open** with the buffer intact rather than closing unconditionally, since discarding it would

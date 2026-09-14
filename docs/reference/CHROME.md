@@ -93,13 +93,14 @@ not apply to the live state is `disabled`, never hidden.
 
 | Control | Desktop id | Enabled when | i18n title key |
 |---|---|---|---|
-| **Edit ⇄ View** (one toggle) | `#btnRawEdit` | always, except **disabled under VS Code** (R10) | `web.raw.controls.edit` in Raw view, `web.raw.controls.view` in Raw write |
+| **View ⇄ Edit** (one toggle) | `#btnRawEdit` | always, except **disabled under VS Code** (R10) | `web.raw.controls.view` in Raw view, `web.raw.controls.edit` in Raw write |
 | Apply | `#btnRawApply` | Raw write **and** a dirty document buffer | `web.raw.controls.apply` |
 | Cancel | `#btnRawCancel` | identical to Apply's rule | `web.raw.controls.cancel` |
 
 The first control is a **toggle**, not a pair (amended 2026-09-14): its label/title is the
-state a press switches TO — Edit while viewing, View while editing — mirroring the header's
-own Tree/Raw button, with `aria-pressed` and `.active` carrying the current state. Pressing
+**current** state — View while viewing, Edit (blue, `.active`, `aria-pressed`) while editing.
+It reads as a state indicator you press to leave, which is what `.active` already meant on the
+header's Tree/Raw button. Pressing
 it while editing takes the same confirm-gated exit `Esc` does, so a dirty buffer is never
 lost silently. Apply and Cancel share **one** enable rule because they are the two halves of
 the same decision: commit the changes or discard them. Cancel re-seeds the pane from the

@@ -10,6 +10,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-14 (15)
+
+**Changed — the Raw toggle reads the state you are IN, and the Action item is shorter**
+
+- `core.action.edit-document` shortened: `以文字編輯整份檔案` → **`編輯全檔`** (`Edit whole file
+  as text` → `Edit whole file`). Verified through the wasm command channel on both catalogs
+  (`OpenActionMenu` item labels: `["Edit whole file"]` / `["編輯全檔"]`).
+- The band's toggle now labels the **current** state instead of the destination — `檢視` while
+  viewing, `編輯` while editing — and its `.active` gets the header Tree/Raw tab's solid accent
+  fill, so "blue = you are editing" reads the same in both places. The `#rawControls` prefix on
+  that CSS rule is load-bearing: `.seg-btn.active`'s faint tint is declared later in
+  `style.css` and would otherwise win on equal specificity (measured: the first attempt left
+  the button at `oklch(0.34 0.06 250)` instead of the tab's `oklch(0.72 0.14 250)`).
+- Verified in a real browser: view → label `View`, transparent; press → label `Edit`,
+  background `oklch(0.72 0.14 250)` with `color: var(--bg)`, byte-identical to the header
+  tab's active fill; press again → back to `View`, no fill. zh-TW: `檢視`/`編輯`/`套用`/`取消`.
+- Docs: `CHROME.md` band table + toggle rule, `WEBUI.md`, `KEYMAP.md`, `HOST_PARITY.md`, and
+  the raw-write design record's R13 amendment; `raw-jump.spec.mjs`'s two label checks flipped.
+
 ### Update - 2026-09-14 (14)
 
 **Changed — the Raw band is a toggle plus an Apply/Cancel pair (web desktop)**

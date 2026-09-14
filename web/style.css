@@ -643,6 +643,12 @@ body.raw-write #rawEdit:focus { box-shadow: inset 0 0 0 1px var(--accent); }
    greyed instead. */
 .raw-ctl { min-width: 62px; justify-content: center; text-align: center; }
 .raw-ctl:disabled { opacity: .42; cursor: default; }
+/* The Edit state reads like the header's Tree/Raw tab: the toggle carries the
+   state you are IN, so `.active` gets the same solid accent fill rather than
+   `.seg-btn.active`'s faint tint. The `#rawControls` prefix is load-bearing:
+   `.seg-btn.active` is declared LATER in this file, so an equal-specificity
+   rule here would lose to it. */
+#rawControls .raw-ctl.active { background: var(--accent); color: var(--bg); border-color: transparent; font-weight: 600; }
 
 /* Clipboard source rows — solid full-row fills in the same visual language as
    the cursor's (ADR 0005 §2): cut = green, copy = purple. These rules sit

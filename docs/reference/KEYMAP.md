@@ -237,7 +237,7 @@ see WEBUI.md's touch Raw entry and R18/R19).
 | --- | --- | --- |
 | `⌘↩` / `Ctrl+↩` | Apply (`ApplyReplace { path: [], text }`) | Stays in write mode either way; a failed Apply (`doc_revision` unchanged) leaves the buffer verbatim instead of re-seeding it |
 | `⌘S` / `Ctrl+S` | Apply-if-dirty, then save | Does not save if the Apply just failed. **Keyboard-only** — the crumbs-row band has no Save button (removed 2026-09-14); the header's Save control is the pointer route |
-| `Escape` | Exit to Raw view | Confirm-gated only when the buffer is dirty (R7) — a clean buffer exits immediately. The band's Edit ⇄ View toggle takes the same gate |
+| `Escape` | Exit to Raw view | Confirm-gated only when the buffer is dirty (R7) — a clean buffer exits immediately. The band's View ⇄ Edit toggle takes the same gate |
 
 Discarding the edits *without* leaving write mode has **no key** — that is the band's Cancel
 control only (`CHROME.md`); `Escape` deliberately means "leave the mode".
