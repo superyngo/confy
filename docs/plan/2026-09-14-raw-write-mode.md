@@ -34,7 +34,7 @@ task estimated over ~60k is already split.
 | T7 | RS2b web — the `#rawEdit` textarea + R4–R8 + cues | ~60k | **Done (2026-09-14)** — commit, `raw-write.spec.mjs` (34 checks) + manual browser pass |
 | T8 | RS2c web — crumbs control band (R13) + jump (R14–R17) | ~50k | **Done (2026-09-14)** — commit, `raw-jump.spec.mjs` (26 checks) + manual browser pass |
 | T9 | RS3 touch — empty-path sheet rules (R18/R19) | ~30k | **Done (2026-09-14)** — commit, `touch-ext-apply.spec.mjs` (15 checks) + manual browser pass |
-| T10 | RS4 VS Code suppression (R10) | ~20k | commit, typecheck |
+| T10 | RS4 VS Code suppression (R10) | ~20k | **Done (2026-09-14)** — commit, `raw-jump.spec.mjs` extended (2 checks), typecheck, build |
 | T11 | RS4 docs — 7 reference docs + CHANGELOG + follow-ups | ~45k | commit, docs only |
 
 Total ≈ 420k across 11 sessions. **Never carry two tasks into one commit** — CLAUDE.md's

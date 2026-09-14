@@ -533,6 +533,9 @@ function renderRawControls() {
   if (rawState === "off") return;
   $("btnRawView").classList.toggle("active", rawState === "view");
   $("btnRawEdit").classList.toggle("active", rawState === "write");
+  // R10: VS Code's own TextDocument is this feature's single owner — the
+  // Edit control that would open a second editable copy is suppressed.
+  $("btnRawEdit").classList.toggle("hidden", VSHOST);
   const applyBtn = $("btnRawApply");
   const saveBtn = $("btnRawSave");
   applyBtn.classList.toggle("hidden", rawState !== "write");
@@ -1040,6 +1043,16 @@ function onKey(ev: KeyboardEvent) {
     case "intent":
       if (result.preventDefault) ev.preventDefault();
       if (result.intent === "OpenActionMenu") return openActionMenuFromKeyboard();
+      // R10: EditDocument's button is never rendered under VSHOST (see
+      // buildActionMenu), but core's own cursor stepping doesn't know that
+      // and can still land Enter's committed item on it — block the commit
+      // here so the whole-file editor stays fully unreachable, not just
+      // unclickable.
+      if (VSHOST && result.intent === "ActionMenuCommit") {
+        const mode = snap.mode;
+        const am = typeof mode === "object" && "ActionMenu" in mode ? mode.ActionMenu : null;
+        if (am && am.items[am.cursor]?.id === "EditDocument") return;
+      }
       return send(result.intent);
     case "nav":
       if (result.preventDefault) ev.preventDefault();
@@ -2004,7 +2017,7 @@ function buildActionMenu(): HTMLElement {
   }
   menu.innerHTML =
     `<div class="menu-label">${escapeHtml(am.target_label)}</div>` +
-    am.items.map((it, i) => actionItemHTML(it, i, i === am.cursor)).join("");
+    am.items.map((it, i) => (VSHOST && it.id === "EditDocument" ? "" : actionItemHTML(it, i, i === am.cursor))).join("");
   menu.querySelectorAll<HTMLElement>("[data-i]:not([disabled])").forEach((b) => {
     const i = Number(b.dataset.i);
     b.onclick = () => {
@@ -2120,7 +2133,7 @@ const TOOLBAR_ENTRIES: ToolbarEntry[] = [
   { key: "btnCollapseAll", labelKey: "web.toolbar.collapseAll.title", run: () => send("CollapseAll") },
   { key: "btnViewToggle", labelKey: "web.toolbar.viewToggle.title", run: () => (rawState === "write" ? exitRawWrite() : setRawState(rawState === "off" ? "view" : "off")) },
   { key: "btnRawView", labelKey: "web.raw.controls.view", run: () => rawState === "write" && exitRawWrite() },
-  { key: "btnRawEdit", labelKey: "web.raw.controls.edit", run: () => rawState !== "write" && send("BeginEditDocument") },
+  { key: "btnRawEdit", labelKey: "web.raw.controls.edit", run: () => rawState !== "write" && !VSHOST && send("BeginEditDocument") },
   { key: "btnRawApply", labelKey: "web.raw.controls.apply", run: () => applyRawEdit() },
   { key: "btnRawSave", labelKey: "web.raw.controls.save", run: () => void rawEditSave() },
 ];
@@ -2143,6 +2156,9 @@ function buildMoreMenu(): HTMLElement {
   } else if (rawState !== "write") {
     candidates = candidates.filter((e) => !RAW_ACTION_KEYS[e.key]);
   }
+  // R10: never surface the whole-file Edit control in the overflow menu
+  // under VS Code either.
+  if (VSHOST) candidates = candidates.filter((e) => e.key !== "btnRawEdit");
   const items = foldedEntries(candidates, isToolbarFolded);
   const menu = $("moreMenu");
   menu.innerHTML = items
@@ -2353,7 +2369,7 @@ function bindGlobal() {
     if (rawState === "write") exitRawWrite();
   });
   $("btnRawEdit").addEventListener("click", () => {
-    if (rawState !== "write") send("BeginEditDocument");
+    if (rawState !== "write" && !VSHOST) send("BeginEditDocument");
   });
   $("btnRawApply").addEventListener("click", () => applyRawEdit());
   $("btnRawSave").addEventListener("click", () => void rawEditSave());

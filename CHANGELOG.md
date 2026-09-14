@@ -10,6 +10,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-14 (11)
+
+**Added**
+
+- **VS Code suppresses whole-document editing** (`docs/plan/2026-09-14-raw-write-mode.md` T10,
+  RS4; R10): the workbench's own `TextDocument` is already the single source of truth for the
+  open file's content/dirty/undo/save (`docs/reference/VSCODE.md`) — a second editable copy in
+  the webview would be two owners of one document (ADR 0007), so under `VSHOST` the Raw pane's
+  Edit control (the crumbs-row band's `btnRawEdit`) and the Action menu's *Edit whole file as
+  text* item are both suppressed, on every reachable path: rendering (the button/menu item is
+  never drawn, so it can't be clicked, and its `TOOLBAR_ENTRIES` entry is excluded from the "⋯
+  More" overflow menu too), the click handlers, and — since core's own Action-menu cursor
+  stepping doesn't know about the host and can still land keyboard `Enter` on the hidden item —
+  the `onKey` commit dispatch itself, which now checks the cursor's item id before forwarding
+  `ActionMenuCommit` to core. Raw *view* (read-only) is unaffected; only the entry point into
+  write mode is gone. `web/raw-jump.spec.mjs` gains 2 checks for `renderRawControls`'s
+  VSHOST-hidden case; `npm run typecheck` and `node build.mjs` both stay clean, confirming the
+  VS Code extension (which embeds `web/dist` verbatim) still builds.
+
 ### Update - 2026-09-14 (10)
 
 **Added**

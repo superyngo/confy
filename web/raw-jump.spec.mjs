@@ -81,7 +81,7 @@ const names = ["jumpSelectRawSpan", "renderRawControls"];
 const fns = names.map((n) => uiTs.match(new RegExp(`^function ${n}\\([\\s\\S]*?\\n\\}`, "m"))?.[0]);
 fns.forEach((s, i) => check(`${names[i]} extracted verbatim`, !!s));
 
-const src = `let snap, session, rawState = "off", rawWriteBaseline = null, statusEl;
+const src = `let snap, session, rawState = "off", rawWriteBaseline = null, statusEl, VSHOST = false;
 function t(key) { return key; }
 function findOutlineByPath(nodes, path) {
   const pathEq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -98,7 +98,7 @@ function byteToCodeUnit(text, byteOffset) { return byteOffset; } // ASCII-only f
 ${fns[0]}
 ${fns[1]}
 export { jumpSelectRawSpan, renderRawControls, setEnv };
-function setEnv(e) { snap = e.snap; session = e.session; rawState = e.rawState; rawWriteBaseline = e.rawWriteBaseline; statusEl = e.statusEl; }
+function setEnv(e) { snap = e.snap; session = e.session; rawState = e.rawState; rawWriteBaseline = e.rawWriteBaseline; statusEl = e.statusEl; VSHOST = e.vshost ?? false; }
 `;
 
 const built = await esbuild.build({
@@ -136,7 +136,7 @@ function freshGlobalEnv(outline, opts = {}) {
   };
   globalThis.window = { getSelection: () => ({ removeAllRanges: () => selectionCalls.push("clear"), addRange: () => selectionCalls.push("add") }) };
   const sessionStub = { outline: () => outline, serialize: () => opts.text ?? "target = \"needle\"\n" };
-  mod.setEnv({ snap: {}, session: sessionStub, rawState: opts.rawState ?? "view", rawWriteBaseline: opts.baseline ?? "text", statusEl: { set textContent(v) { statusTextCalls.push(v); } } });
+  mod.setEnv({ snap: {}, session: sessionStub, rawState: opts.rawState ?? "view", rawWriteBaseline: opts.baseline ?? "text", statusEl: { set textContent(v) { statusTextCalls.push(v); } }, vshost: opts.vshost });
 }
 
 // ---- Raw view: a jump selects the node's span via Range/Selection ----
@@ -206,6 +206,15 @@ console.log("\n-- renderRawControls(): band + pair + apply/save visibility --");
   check("apply shown in write", !els.btnRawApply.classList.contains("hidden"));
   check("save shown in write", !els.btnRawSave.classList.contains("hidden"));
 }
+{
+  // R10: VS Code's own TextDocument owns whole-document editing — the Raw
+  // pane's Edit control is suppressed there, View is unaffected.
+  freshGlobalEnv([], { rawState: "view", vshost: true });
+  mod.renderRawControls();
+  check("edit control hidden under VSHOST", els.btnRawEdit.classList.contains("hidden"));
+  check("view control still shown under VSHOST", !els.rawControls.classList.contains("hidden"));
+}
+
 
 console.log(failures === 0 ? "\nALL RAW JUMP CHECKS PASSED" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);
