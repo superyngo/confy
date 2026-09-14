@@ -77,7 +77,7 @@ console.log("\n-- findOutlineByPath() --");
 
 // ---- 3. jumpSelectRawSpan / renderRawControls: extracted verbatim ----
 const uiTs = readFileSync(path.join(here, "ui.ts"), "utf8");
-const names = ["jumpSelectRawSpan", "renderRawControls"];
+const names = ["jumpSelectRawSpan", "scrollRawToOffset", "renderRawControls"];
 const fns = names.map((n) => uiTs.match(new RegExp(`^function ${n}\\([\\s\\S]*?\\n\\}`, "m"))?.[0]);
 fns.forEach((s, i) => check(`${names[i]} extracted verbatim`, !!s));
 
@@ -97,6 +97,7 @@ function findOutlineByPath(nodes, path) {
 function byteToCodeUnit(text, byteOffset) { return byteOffset; } // ASCII-only fixtures below
 ${fns[0]}
 ${fns[1]}
+${fns[2]}
 export { jumpSelectRawSpan, renderRawControls, setEnv };
 function setEnv(e) { snap = e.snap; session = e.session; rawState = e.rawState; rawWriteBaseline = e.rawWriteBaseline; statusEl = e.statusEl; VSHOST = e.vshost ?? false; }
 `;
@@ -115,60 +116,55 @@ function mkClassList() {
   return { toggle: (c, on) => (on ? s.add(c) : s.delete(c)), contains: (c) => s.has(c) };
 }
 function mkEl(overrides = {}) {
-  return { value: "", textContent: "", classList: mkClassList(), focus() {}, setSelectionRange() {}, firstChild: null, scrollTop: 0, getBoundingClientRect: () => ({ top: 0, bottom: 100 }), ...overrides };
+  return {
+    value: "", textContent: "", disabled: false, classList: mkClassList(), focus() {},
+    setSelectionRange() {}, scrollTop: 0, clientHeight: 300,
+    ...overrides,
+  };
 }
 
 let els;
 let statusTextCalls;
-let rangeCalls;
-let selectionCalls;
 function freshGlobalEnv(outline, opts = {}) {
-  els = { rawEdit: mkEl({ value: opts.editValue ?? "text" }), raw: mkEl({ firstChild: opts.rawHasTextNode === false ? null : { nodeType: 3 } }), rawControls: mkEl(), btnRawView: mkEl(), btnRawEdit: mkEl(), btnRawApply: mkEl(), btnRawSave: mkEl() };
+  // One element in both Raw states (2026-09-14): no `#raw` `<pre>`, no
+  // Range/Selection branch — the jump is `setSelectionRange` + an explicit
+  // scroll in view mode exactly as in write mode.
+  els = { rawEdit: mkEl({ value: opts.editValue ?? "text" }), rawControls: mkEl(), btnRawView: mkEl(), btnRawEdit: mkEl(), btnRawApply: mkEl() };
   statusTextCalls = [];
-  rangeCalls = [];
-  selectionCalls = [];
   globalThis.$ = (id) => els[id];
-  globalThis.document = {
-    createRange: () => {
-      const r = { setStart: (n, o) => rangeCalls.push(["setStart", o]), setEnd: (n, o) => rangeCalls.push(["setEnd", o]), getClientRects: () => [] };
-      return r;
-    },
-  };
-  globalThis.window = { getSelection: () => ({ removeAllRanges: () => selectionCalls.push("clear"), addRange: () => selectionCalls.push("add") }) };
+  globalThis.getComputedStyle = () => ({ lineHeight: "20px", paddingTop: "8px" });
   const sessionStub = { outline: () => outline, serialize: () => opts.text ?? "target = \"needle\"\n" };
   mod.setEnv({ snap: {}, session: sessionStub, rawState: opts.rawState ?? "view", rawWriteBaseline: opts.baseline ?? "text", statusEl: { set textContent(v) { statusTextCalls.push(v); } }, vshost: opts.vshost });
 }
 
-// ---- Raw view: a jump selects the node's span via Range/Selection ----
-console.log("\n-- jumpSelectRawSpan(): Raw view selects via Range/Selection --");
-{
+// ---- Both Raw states: a jump selects the node's span and scrolls to it ----
+console.log("\n-- jumpSelectRawSpan(): one path for view and write --");
+for (const state of ["view", "write"]) {
   const outline = [{ key: "target", path: [{ Key: "target" }], type_label: "string", value: "needle", text_range: [0, 17], key_text_range: [0, 6], children: [] }];
-  freshGlobalEnv(outline, { rawState: "view" });
-  mod.jumpSelectRawSpan([{ Key: "target" }]);
-  check("Range.setStart called with the node's start offset", rangeCalls.some((c) => c[0] === "setStart" && c[1] === 0));
-  check("Range.setEnd called with the node's end offset", rangeCalls.some((c) => c[0] === "setEnd" && c[1] === 17));
-  check("Selection cleared then a range added", selectionCalls[0] === "clear" && selectionCalls[1] === "add");
-}
-{
-  // R29/F5: the selected range is the whole member (key included), not a
-  // value-only span — the outline's own `text_range` already encodes this,
-  // and this call site must use it verbatim rather than `key_text_range`.
-  const outline = [{ key: "target", path: [{ Key: "target" }], type_label: "string", value: "needle", text_range: [0, 17], key_text_range: [0, 6], children: [] }];
-  freshGlobalEnv(outline, { rawState: "view" });
-  mod.jumpSelectRawSpan([{ Key: "target" }]);
-  check("selects text_range (whole member), not key_text_range", rangeCalls.some((c) => c[0] === "setEnd" && c[1] === 17));
-}
-
-// ---- Raw write, clean buffer: selects via setSelectionRange ----
-console.log("\n-- jumpSelectRawSpan(): Raw write (clean buffer) sets the textarea selection --");
-{
-  const outline = [{ key: "target", path: [{ Key: "target" }], type_label: "string", value: "needle", text_range: [0, 17], key_text_range: [0, 6], children: [] }];
-  freshGlobalEnv(outline, { rawState: "write", editValue: "text", baseline: "text" });
+  freshGlobalEnv(outline, { rawState: state, editValue: "text", baseline: "text" });
   let sel = null;
   els.rawEdit.setSelectionRange = (s, e) => (sel = [s, e]);
   mod.jumpSelectRawSpan([{ Key: "target" }]);
-  check("setSelectionRange called with the node's span", sel && sel[0] === 0 && sel[1] === 17, sel);
-  check("no status text set (buffer was clean)", statusTextCalls.length === 0);
+  check(`${state}: setSelectionRange gets the node's span`, sel && sel[0] === 0 && sel[1] === 17, JSON.stringify(sel));
+  check(`${state}: R29/F5 selects text_range (whole member), not key_text_range`, sel && sel[1] === 17);
+  check(`${state}: no status text set (clean buffer)`, statusTextCalls.length === 0);
+}
+{
+  // The scroll is explicit: `setSelectionRange` alone never scrolls (measured
+  // 2026-09-14 — the span landed 4.9k px below the viewport in both states).
+  // Line 20 of the text, 20px lines, 8px padding, 300px pane → 8+400-100.
+  const text = Array.from({ length: 40 }, (_, i) => `line_${i} = ${i}`).join("\n") + "\n";
+  const offset = text.split("\n").slice(0, 20).join("\n").length + 1;
+  const outline = [{ key: "line_20", path: [{ Key: "line_20" }], type_label: "integer", value: "20", text_range: [offset, offset + 12], key_text_range: [offset, offset + 7], children: [] }];
+  freshGlobalEnv(outline, { rawState: "view", text });
+  mod.jumpSelectRawSpan([{ Key: "line_20" }]);
+  check("the span's line is scrolled a third of the pane down", els.rawEdit.scrollTop === 8 + 20 * 20 - 100, els.rawEdit.scrollTop);
+}
+{
+  // A span already near the top clamps at 0 rather than scrolling negative.
+  freshGlobalEnv([{ key: "target", path: [{ Key: "target" }], type_label: "string", value: "needle", text_range: [0, 17], key_text_range: [0, 6], children: [] }], { rawState: "view" });
+  mod.jumpSelectRawSpan([{ Key: "target" }]);
+  check("a span at the top clamps the scroll at 0", els.rawEdit.scrollTop === 0);
 }
 
 // ---- R17: Raw write, dirty buffer — reports instead of moving the caret ----
@@ -180,11 +176,12 @@ console.log("\n-- jumpSelectRawSpan(): R17 dirty write buffer is gated --");
   els.rawEdit.setSelectionRange = () => (selCalled = true);
   mod.jumpSelectRawSpan([{ Key: "target" }]);
   check("setSelectionRange is never called on a dirty buffer", !selCalled);
+  check("the pane is not scrolled on a dirty buffer", els.rawEdit.scrollTop === 0);
   check("status reports web.raw.jump-needs-apply instead", statusTextCalls.length === 1);
 }
 
-// ---- renderRawControls(): band visibility per rawState ----
-console.log("\n-- renderRawControls(): band + pair + apply/save visibility --");
+// ---- renderRawControls(): static band, disabled-not-hidden (2026-09-14) ----
+console.log("\n-- renderRawControls(): three same-size controls, always present --");
 {
   freshGlobalEnv([], { rawState: "off" });
   mod.renderRawControls();
@@ -194,24 +191,32 @@ console.log("\n-- renderRawControls(): band + pair + apply/save visibility --");
   freshGlobalEnv([], { rawState: "view" });
   mod.renderRawControls();
   check("band shown in view", !els.rawControls.classList.contains("hidden"));
-  check("view pair marked active", els.btnRawView.classList.contains("active"));
-  check("edit pair not active", !els.btnRawEdit.classList.contains("active"));
-  check("apply hidden in view", els.btnRawApply.classList.contains("hidden"));
-  check("save hidden in view", els.btnRawSave.classList.contains("hidden"));
+  check("view control marked active", els.btnRawView.classList.contains("active"));
+  check("edit control not active", !els.btnRawEdit.classList.contains("active"));
+  check("apply is present, never hidden", !els.btnRawApply.classList.contains("hidden"));
+  check("apply is disabled in view mode", els.btnRawApply.disabled === true);
+  check("edit is enabled in view mode", els.btnRawEdit.disabled === false);
 }
 {
-  freshGlobalEnv([], { rawState: "write" });
+  // Write mode with a clean buffer: nothing to apply yet.
+  freshGlobalEnv([], { rawState: "write", editValue: "text", baseline: "text" });
   mod.renderRawControls();
-  check("edit pair marked active in write", els.btnRawEdit.classList.contains("active"));
-  check("apply shown in write", !els.btnRawApply.classList.contains("hidden"));
-  check("save shown in write", !els.btnRawSave.classList.contains("hidden"));
+  check("edit control marked active in write", els.btnRawEdit.classList.contains("active"));
+  check("apply stays disabled while the buffer is clean", els.btnRawApply.disabled === true);
+}
+{
+  freshGlobalEnv([], { rawState: "write", editValue: "edited", baseline: "text" });
+  mod.renderRawControls();
+  check("apply enables as soon as the buffer is dirty", els.btnRawApply.disabled === false);
 }
 {
   // R10: VS Code's own TextDocument owns whole-document editing — the Raw
-  // pane's Edit control is suppressed there, View is unaffected.
+  // pane's Edit control is unreachable there, disabled rather than hidden so
+  // the band keeps its static geometry.
   freshGlobalEnv([], { rawState: "view", vshost: true });
   mod.renderRawControls();
-  check("edit control hidden under VSHOST", els.btnRawEdit.classList.contains("hidden"));
+  check("edit control disabled under VSHOST", els.btnRawEdit.disabled === true);
+  check("edit control is not hidden under VSHOST", !els.btnRawEdit.classList.contains("hidden"));
   check("view control still shown under VSHOST", !els.rawControls.classList.contains("hidden"));
 }
 

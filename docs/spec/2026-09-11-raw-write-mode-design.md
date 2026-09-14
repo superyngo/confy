@@ -53,8 +53,8 @@ new mutation.
 | R10 | **VS Code: no write mode.** The workbench's own text editor is the raw editor; the item and the pane's Edit button are suppressed under `VSHOST` | VS Code owns the buffer, dirty state and undo (ADR 0007 / `VSCODE.md`); a second editable text surface over the same `TextDocument` is two owners of one buffer |
 | R11 | The pane never becomes editable while the **clipboard is armed** — `begin_external_edit_document` already returns early on `guard_clipboard_locked()` | ADR 0005 §5; no new rule, just don't fake the mode host-side |
 | R12 | **Raw keeps the breadcrumb.** `ui.ts:518`'s `crumbsEl.classList.toggle("hidden", rawView)` is deleted: the crumbs row stays visible and live in both Raw states, driven by the same `snap.cursor` + `children(path)` it already uses — no Raw-specific rendering | The cursor still exists in Raw (the Session is unchanged by the view toggle); hiding the one widget that says *where you are* was the least defensible part of Raw view. Desktop/VS Code only — the touch host has no breadcrumb at all |
-| R13 | **Raw-specific controls live at the right end of the crumbs row**, not in the header: the `檢視 \| 編輯` pair, **套用** (`⌘↩`), and **存檔**. They render only in Raw, and register as `toolbar-fold.ts` entries like every other foldable control | The header is global chrome (open/save/undo/theme); a mode-scoped control set next to the mode-scoped navigator reads as one band. `CHROME.md` owns the inventory, so it gets a Raw row |
-| R14 | **Breadcrumb jump in Raw = select the node's source span.** A segment/mini-tree pick still sends `RevealPath`, and the host additionally resolves that path's `text_range` from `session.outline()` (already exported over wasm, `OutlineNode.text_range`, `ffi/src/lib.rs:175`) and (a) in **view** mode selects that span in the `<pre>`'s single text node via the DOM `Range`/`Selection` API, (b) in **write** mode sets the textarea's `selectionStart`/`End` to it — in both cases scrolling it into view | Reuses the existing outline transport and the existing Reveal intent; no new core query, and "跳選" is literally a text selection in both states |
+| R13 | **Raw-specific controls live at the right end of the crumbs row**, not in the header: the `檢視 \| 編輯` pair, **套用** (`⌘↩`). *(Amended 2026-09-14: the **存檔** button is removed — it duplicated the header's Save and was never a requirement; `⌘S` keeps its apply-then-save meaning. The three remaining controls are always rendered at the same width, with the inapplicable one `disabled`, so the band never changes geometry under the pointer.)* They render only in Raw, and register as `toolbar-fold.ts` entries like every other foldable control | The header is global chrome (open/save/undo/theme); a mode-scoped control set next to the mode-scoped navigator reads as one band. `CHROME.md` owns the inventory, so it gets a Raw row |
+| R14 | **Breadcrumb jump in Raw = select the node's source span.** A segment/mini-tree pick still sends `RevealPath`, and the host additionally resolves that path's `text_range` from `session.outline()` (already exported over wasm, `OutlineNode.text_range`, `ffi/src/lib.rs:175`) and sets the pane's `selectionStart`/`End` to it, scrolling the span's line a third of the pane down. *(Amended 2026-09-14: one code path, not two — the pane is a single `<textarea>` in both Raw states, so the DOM `Range`/`Selection` branch is gone; and the scroll is computed explicitly, because `setSelectionRange` does not scroll and the original `<pre>` was not even a scroll container, so as shipped neither state scrolled at all)* | Reuses the existing outline transport and the existing Reveal intent; no new core query, and "跳選" is literally a text selection in both states |
 | R15 | **`text_range` is UTF-8 bytes; JS offsets are UTF-16 code units.** The conversion is one shared helper (byte offset → code-unit offset over the serialized text), used by both branches of R14 and unit-tested against a CJK + emoji fixture | The silent-corruption trap: a document with any non-ASCII byte before the target makes a naive `slice(byteOffset)` land mid-character. Cheap to get right once, invisible when wrong |
 | R16 | **The mapping is one-way only (path → span).** Moving the caret in write mode does **not** move the tree cursor or the breadcrumb | The inverse (offset → path) has no core query today, and inventing a host-side one over raw text is exactly the kind of second source of truth this record exists to avoid. Recorded as Q4, not silently assumed |
 | R17 | **Jump is gated on a clean buffer (settled 2026-09-11, was Q5).** The breadcrumb's *display* stays live in both Raw states. Its *jump* selects source text only while the buffer equals the last committed `serialize()`; while the buffer is **dirty**, a pick still sends `RevealPath` (tree cursor + expansion move) but moves no caret/selection, and the status line says so (`web.raw.jump-needs-apply`) | `text_range`s come from the last commit, so on a dirty buffer they point into text that may no longer exist there. Worse, the host cannot know whether the buffer even *parses* until an Apply is attempted — "dirty" is the only honest observable proxy. An offset that silently lands 40 lines off is a worse failure than a disabled jump with a reason |
@@ -73,15 +73,27 @@ new mutation.
 
 ### Switching has to be seamless — the concrete rules
 
-`<pre>` → `<textarea>` is the one place a naive implementation jumps: different UA defaults for
-font, line-height, padding, and box-sizing, plus a lost scroll position.
+**Amended 2026-09-14 (post-ship, measured in a real browser).** The two-element design below
+did not deliver a seamless switch and was replaced by a **single-element pane**: one
+`<textarea id="rawEdit">`, `readonly` in Raw view and writable in Raw write, absolutely
+positioned over the whole `.tree-wrap` box. What the shipped two-element version actually did:
+the `<pre>` never scrolled (`.tree-wrap` owned the scroll, `overflow: visible` on the `<pre>`),
+so the textarea's `min-height: 100%` gave write mode a *second*, 86px shorter scroll container
+(539px against the `<pre>`'s 625px, the difference being the wrap's `padding-bottom: 80px` FAB
+reserve), the "copy `scrollTop` across the swap" rule copied a value that was always 0 — so
+entering write mode after reading to line 100 jumped back to the file head — and the text
+shifted ~10px vertically. With one element there is nothing to copy and nothing to keep in
+sync; R13's Save button was dropped in the same change and the band's three controls became
+static and same-size (see `CHROME.md`).
 
-| Rule | Implementation |
+| Rule | Implementation (2026-09-14) |
 |---|---|
-| Identical box | `#rawEdit` (the textarea) inherits the exact `#raw.raw-view` metrics — `padding: 8px 10px`, `font-size: 13px`, `line-height: 1.55`, `tab-size: 2`, `white-space: pre`, `font-family: inherit` from `.mono`, `border: 0`, `resize: none`, `background: transparent` — declared as **one shared selector list** (`#raw.raw-view, #rawEdit`), never two drifting rule blocks |
-| No scroll jump | Copy `scrollTop`/`scrollLeft` across the swap in both directions; focus the textarea **after** the copy |
+| Identical box | Not "two rule blocks kept in sync" but **one element**: `#rawEdit` carries the only metrics block (`padding: 8px 10px`, `font-size: 13px`, `line-height: 1.55`, `tab-size: 2`, `white-space: pre`, `resize: none`, transparent background), and `border-left` is 2px transparent in view mode so write mode's accent changes only the border color, never the text's position |
+| One scroll container | `#rawEdit { position: absolute; inset: 0; overflow: auto }` + `body.raw-view .tree-wrap { overflow: hidden; padding: 0 }` — the pane owns the only scrollbar, at the full pane height, in both states |
+| No scroll jump | Structural: the element that scrolls is the element that stays. The scroll is explicitly preserved only where a `.value` assignment would reset it (entering write mode, a committed Apply, and a view-mode re-seed — which is itself skipped when the text is unchanged) |
 | No layout animation | Transition **only** `background-color`, `border-color`, `box-shadow` (~120 ms, compositor-cheap). Never height/padding/font-size |
-| Caret continuity | Entering write mode places the caret at offset 0 and does not scroll; the user's reading position stays where the `<pre>` had it |
+| Caret continuity | Entering write mode seats the caret at offset 0 and restores the scroll around that call, so the reading position is exactly where view mode had it |
+| Keyboard | `document.body`'s key delegation skips only a **writable** textarea, so the readonly view-mode pane (which the breadcrumb jump focuses to show its selection) never swallows a shortcut |
 
 ### State legibility — the cues
 

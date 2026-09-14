@@ -356,6 +356,10 @@ function applyRawChrome() {
   vt.classList.toggle("active", shown);
   document.body.classList.toggle("raw-view", shown);
   document.body.classList.toggle("raw-write", rawState === "write");
+  // Single-element Raw pane (2026-09-14): view ↔ write is one attribute on
+  // one `<textarea>`, derived here alongside the body classes (R27's "one
+  // place"), so no code path can leave the box editable outside write mode.
+  $<HTMLTextAreaElement>("rawEdit").readOnly = rawState !== "write";
 }
 
 // R1/R2: a pending *document-level* external edit (empty path) routes to the
@@ -373,21 +377,25 @@ function maybeEnterRawWrite() {
   if (path.length === 0) enterRawWrite(snap.external_edit.initial);
 }
 
-// Seeds `#rawEdit` from the pending edit's initial text (the whole document,
-// R20/`multiline_edit_initial(&[])`), copies scroll position from the `<pre>`
-// it replaces (Switching table: "no scroll jump"), and places the caret at
-// offset 0 without scrolling (Switching table: "caret continuity").
+// Seeds the pane from the pending edit's initial text (the whole document,
+// R20/`multiline_edit_initial(&[])`) and places the caret at offset 0.
+// Nothing is swapped and nothing is copied: view and write are the same
+// element, so the reading position simply stays where it was (Switching
+// table: "no scroll jump" / "caret continuity" are now structural). The
+// scroll position is restored around `focus()`/`setSelectionRange()` because
+// seating a caret at offset 0 is the one thing that could scroll it away.
 function enterRawWrite(initial: string) {
-  const rawEl = $("raw");
   const editEl = $<HTMLTextAreaElement>("rawEdit");
+  const top = editEl.scrollTop;
+  const left = editEl.scrollLeft;
   editEl.value = initial;
-  editEl.scrollTop = rawEl.scrollTop;
-  editEl.scrollLeft = rawEl.scrollLeft;
   rawWriteBaseline = initial;
   rawState = "write";
   applyRawChrome();
   editEl.focus();
   editEl.setSelectionRange(0, 0);
+  editEl.scrollTop = top;
+  editEl.scrollLeft = left;
 }
 
 // R4/R5: Apply (⌘/Ctrl+Enter) commits the whole buffer and stays in write
@@ -405,9 +413,21 @@ function applyRawEdit(): boolean {
   send({ ApplyReplace: { path: [], text: editEl.value } });
   const committed = !!snap && snap.doc_revision !== before;
   if (committed) {
+    // Re-seeding a `<textarea>` resets its scroll and caret, and the pane is
+    // now the scroll container itself — so both are restored around the
+    // assignment (with the `<pre>` gone, nothing else holds the position).
+    const top = editEl.scrollTop;
+    const selStart = editEl.selectionStart;
+    const selEnd = editEl.selectionEnd;
     rawWriteBaseline = session!.serialize();
     editEl.value = rawWriteBaseline;
+    editEl.scrollTop = top;
+    editEl.setSelectionRange(selStart, selEnd);
   }
+  // The band's Apply state is derived from the baseline, which this function
+  // moves *after* `send()`'s own render pass has already drawn it — so the
+  // freshly-clean buffer needs one more pass or Apply stays enabled.
+  renderRawControls();
   return committed;
 }
 
@@ -425,26 +445,24 @@ async function rawEditSave(): Promise<void> {
 // via `Escape` (lifting the empty-path lock, R21/R24) — gated on a confirm
 // only when the buffer differs from the last-applied baseline, matching the
 // per-node modal's cancel path plus the confirm this feature's whole-file
-// payload warrants. Copies scroll position back onto the `<pre>` (Switching
-// table: "no scroll jump" applies to both directions of the swap).
+// payload warrants. No scroll hand-off: the pane the user was reading is the
+// same element in view mode, `readonly` instead of writable.
 function exitRawWrite(): void {
   const editEl = $<HTMLTextAreaElement>("rawEdit");
   if (editEl.value !== rawWriteBaseline && !confirm(t("web.raw.discard-confirm"))) return;
-  const scrollTop = editEl.scrollTop;
-  const scrollLeft = editEl.scrollLeft;
   rawWriteBaseline = null;
   send("Escape");
   setRawState("view");
-  const rawEl = $("raw");
-  rawEl.scrollTop = scrollTop;
-  rawEl.scrollLeft = scrollLeft;
 }
 
 // ⌘/Ctrl+Enter Apply, ⌘/Ctrl+S apply-if-dirty-then-save, Esc exit — the only
 // keys write mode itself handles; every other key is native `<textarea>`
-// typing (`document.body`'s global key-delegation already skips a focused
-// TEXTAREA, so `onKey`/`resolveKeyIntent` never see these presses).
+// typing. In Raw *view* the same element is `readonly` and handles nothing:
+// the press falls through to `document.body`'s global delegation (which
+// skips only a *writable* textarea), so Raw view keeps every shortcut it
+// had when it was a `<pre>`.
 function onRawEditKey(ev: KeyboardEvent) {
+  if ((ev.target as HTMLTextAreaElement).readOnly) return;
   const mod = ev.ctrlKey || ev.metaKey;
   if (mod && ev.key === "Enter") {
     ev.preventDefault();
@@ -458,28 +476,27 @@ function onRawEditKey(ev: KeyboardEvent) {
   }
 }
 
-// Render whichever view is active. Raw view shows `session.serialize()` (the
-// live document, including unsaved edits) read-only; write mode (R8) never
-// touches `#rawEdit`'s value/selection here — the render loop owns the
-// `<pre>`, the user owns the textarea.
+// Render whichever view is active. Raw *view* mirrors `session.serialize()`
+// (the live document, including unsaved edits) into the same `<textarea>`
+// the write mode types in; R8 holds because the assignment is reachable only
+// from the `"view"` branch — in write mode the user owns the buffer and the
+// render loop never touches its value, scroll or selection. The view-mode
+// re-seed is skipped when the text is unchanged (assigning `.value` would
+// otherwise reset the reading position on every unrelated re-render).
 function renderRawOrTree() {
-  const rawEl = $("raw");
-  const editEl = $("rawEdit");
-  if (rawState === "write") {
-    rawEl.classList.add("hidden");
-    editEl.classList.remove("hidden");
-    tree.classList.add("hidden");
-  } else if (rawState === "view") {
-    rawEl.textContent = session!.serialize();
-    rawEl.classList.remove("hidden");
-    editEl.classList.add("hidden");
-    tree.classList.add("hidden");
-  } else {
-    rawEl.classList.add("hidden");
-    editEl.classList.add("hidden");
-    tree.classList.remove("hidden");
-    renderTree(tree, snap!, getEdit());
+  const editEl = $<HTMLTextAreaElement>("rawEdit");
+  const raw = rawState !== "off";
+  editEl.classList.toggle("hidden", !raw);
+  tree.classList.toggle("hidden", raw);
+  if (rawState === "view") {
+    const text = session!.serialize();
+    if (editEl.value !== text) {
+      const top = editEl.scrollTop;
+      editEl.value = text;
+      editEl.scrollTop = top;
+    }
   }
+  if (!raw) renderTree(tree, snap!, getEdit());
 }
 
 // R14/R16/R17: a breadcrumb pick additionally selects the node's source
@@ -490,6 +507,10 @@ function renderRawOrTree() {
 // host cannot know whether the buffer even parses until an Apply is
 // attempted (R17). Raw view has no separate buffer — it always mirrors
 // `session.serialize()` live — so the gate only applies in write mode.
+// One code path for both states since the pane is one element: select, then
+// scroll the span into view explicitly (`setSelectionRange` alone does not
+// scroll — measured 2026-09-14: the selection landed 4.9k px below the
+// viewport in both states).
 function jumpSelectRawSpan(path: Path) {
   if (rawState === "off" || !session) return;
   const editEl = $<HTMLTextAreaElement>("rawEdit");
@@ -502,44 +523,46 @@ function jumpSelectRawSpan(path: Path) {
   const text = session.serialize();
   const start = byteToCodeUnit(text, node.text_range[0]);
   const end = byteToCodeUnit(text, node.text_range[1]);
-  if (rawState === "write") {
-    editEl.focus();
-    editEl.setSelectionRange(start, end);
-    return;
-  }
-  const pre = $("raw");
-  const textNode = pre.firstChild;
-  if (!textNode) return;
-  const range = document.createRange();
-  range.setStart(textNode, start);
-  range.setEnd(textNode, end);
-  const sel = window.getSelection();
-  sel?.removeAllRanges();
-  sel?.addRange(range);
-  pre.focus();
-  const rect = range.getClientRects()[0];
-  const paneRect = pre.getBoundingClientRect();
-  if (rect && (rect.top < paneRect.top || rect.bottom > paneRect.bottom)) {
-    pre.scrollTop += rect.top - paneRect.top - paneRect.height / 2;
-  }
+  editEl.focus();
+  editEl.setSelectionRange(start, end);
+  scrollRawToOffset(editEl, text, start);
 }
 
-// R13: the crumbs-row Raw control band — the 檢視|編輯 segmented pair (both
-// Raw states), plus Apply/Save (write only). Renders only while Raw is
-// active; the header's Tree/Raw toggle (`btnViewToggle`) is unaffected.
+// Put the line holding `offset` a third of the pane down, the way the tree's
+// own Reveal centers a row. Line height comes from the computed style rather
+// than a constant so the rule survives a font-size change.
+function scrollRawToOffset(el: HTMLTextAreaElement, text: string, offset: number) {
+  let line = 0;
+  for (let i = 0; i < offset && i < text.length; i++) {
+    if (text.charCodeAt(i) === 10) line++;
+  }
+  const cs = getComputedStyle(el);
+  const lineHeight = parseFloat(cs.lineHeight) || 20;
+  const padTop = parseFloat(cs.paddingTop) || 0;
+  el.scrollTop = Math.max(0, padTop + line * lineHeight - el.clientHeight / 3);
+}
+
+// R13 (amended 2026-09-14): the crumbs-row Raw control band — 檢視 | 編輯 |
+// 套用, three same-size controls that are all present whenever Raw is
+// active. Nothing appears or disappears under the pointer any more; a
+// control that does not apply to the live state is `disabled`, so the band's
+// geometry is static. The Save button is gone: ⌘S still applies-then-saves
+// and the header owns the only Save control.
 function renderRawControls() {
   const band = $("rawControls");
   band.classList.toggle("hidden", rawState === "off");
   if (rawState === "off") return;
+  const editBtn = $<HTMLButtonElement>("btnRawEdit");
+  const applyBtn = $<HTMLButtonElement>("btnRawApply");
   $("btnRawView").classList.toggle("active", rawState === "view");
-  $("btnRawEdit").classList.toggle("active", rawState === "write");
+  editBtn.classList.toggle("active", rawState === "write");
   // R10: VS Code's own TextDocument is this feature's single owner — the
-  // Edit control that would open a second editable copy is suppressed.
-  $("btnRawEdit").classList.toggle("hidden", VSHOST);
-  const applyBtn = $("btnRawApply");
-  const saveBtn = $("btnRawSave");
-  applyBtn.classList.toggle("hidden", rawState !== "write");
-  saveBtn.classList.toggle("hidden", rawState !== "write");
+  // control that would open a second editable copy is unreachable there
+  // (disabled rather than hidden, so the band stays the same size).
+  editBtn.disabled = VSHOST;
+  // Apply is live only when there is something to apply: write mode with a
+  // document buffer that differs from the last applied text.
+  applyBtn.disabled = rawState !== "write" || $<HTMLTextAreaElement>("rawEdit").value === rawWriteBaseline;
 }
 
 // Confirmed paste target (ROW_STATE_MODEL.md §6, state #6): always reflects
@@ -2135,7 +2158,6 @@ const TOOLBAR_ENTRIES: ToolbarEntry[] = [
   { key: "btnRawView", labelKey: "web.raw.controls.view", run: () => rawState === "write" && exitRawWrite() },
   { key: "btnRawEdit", labelKey: "web.raw.controls.edit", run: () => rawState !== "write" && !VSHOST && send("BeginEditDocument") },
   { key: "btnRawApply", labelKey: "web.raw.controls.apply", run: () => applyRawEdit() },
-  { key: "btnRawSave", labelKey: "web.raw.controls.save", run: () => void rawEditSave() },
 ];
 
 // The "⋯ More" overflow menu (shown only under the narrow breakpoint): only the
@@ -2143,12 +2165,12 @@ const TOOLBAR_ENTRIES: ToolbarEntry[] = [
 // current width, as a popup.
 // Candidates that are only ever "folded" (in the `isToolbarFolded` sense) for
 // a business reason, not a narrow width: the raw-controls band is hidden
-// outright when Raw is off, and Apply/Save are hidden within it unless Raw
-// is in write mode. `isToolbarFolded`'s `offsetParent === null` check can't
+// outright when Raw is off, and Apply is inert within it unless Raw is in
+// write mode. `isToolbarFolded`'s `offsetParent === null` check can't
 // tell "hidden by width" from "hidden by state", so exclude them here
 // instead of letting them appear in the overflow menu whenever Raw is off.
 const RAW_PAIR_KEYS: Record<string, true> = { btnRawView: true, btnRawEdit: true };
-const RAW_ACTION_KEYS: Record<string, true> = { btnRawApply: true, btnRawSave: true };
+const RAW_ACTION_KEYS: Record<string, true> = { btnRawApply: true };
 function buildMoreMenu(): HTMLElement {
   let candidates = TOOLBAR_ENTRIES;
   if (rawState === "off") {
@@ -2266,6 +2288,9 @@ function bindConvertDialog() {
 function bindGlobal() {
   tree.addEventListener("keydown", onKey);
   $("rawEdit").addEventListener("keydown", (ev) => onRawEditKey(ev as KeyboardEvent));
+  // Keeps Apply's enabled state honest between renders: dirtiness is a
+  // property of the buffer, which only typing changes.
+  $("rawEdit").addEventListener("input", renderRawControls);
   // Prompt overlay Yes/No/… buttons (renderOverlay rewrites the innerHTML per
   // render; the delegated listener on the stable #overlay survives).
   bindPromptClicks(overlay, (i) => send(i));
@@ -2313,8 +2338,13 @@ function bindGlobal() {
       // Don't hijack text entry / native form widgets (search box, convert
       // dialog inputs) — they own their own keys. A focused BUTTON must NOT be
       // guarded, or every shortcut dies after clicking a toolbar/row button.
-      const tag = (document.activeElement as HTMLElement)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      // A *readonly* textarea (the Raw pane in view mode, which the jump
+      // focuses to show its selection) owns no keys either, so it must not
+      // swallow shortcuts.
+      const active = document.activeElement as HTMLElement | null;
+      const tag = active?.tagName;
+      if (tag === "INPUT" || tag === "SELECT") return;
+      if (tag === "TEXTAREA" && !(active as HTMLTextAreaElement).readOnly) return;
       onKey(ev);
     }
   });
@@ -2372,7 +2402,6 @@ function bindGlobal() {
     if (rawState !== "write" && !VSHOST) send("BeginEditDocument");
   });
   $("btnRawApply").addEventListener("click", () => applyRawEdit());
-  $("btnRawSave").addEventListener("click", () => void rawEditSave());
   // Floating add / paste / actions button — mirrors the touch FAB. Armed
   // clipboard presses Paste directly; otherwise it opens the centralized
   // Action menu (design doc `docs/spec/2026-08-30-action-menu-design.md`).

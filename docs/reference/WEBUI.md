@@ -325,34 +325,43 @@ shapes round-trip). Key types:
   detail aside stays open underneath a prompt (`renderDetailPanel` leaves `.open` untouched on
   `Prompt`), and the core returns to `Mode::Detail` when a panel-origin prompt resolves.
 - **Tree | Raw view | Raw write.** `rawState: "off" | "view" | "write"` (`web/ui.ts`; R27,
-  `docs/spec/2026-09-11-raw-write-mode-design.md`) drives the main pane. `"view"` is the
-  original **read-only** `<pre>` of `session.serialize()` — the live document (unsaved edits
-  included), re-serialized on every render so it never drifts. `"write"` is a `<textarea
-  id="rawEdit">` sharing one selector list with `#raw.raw-view` for every layout metric, entered
-  automatically when a pending external edit opens at the **empty path** — the Action menu's
-  *Edit whole file as text* item (`ActionId::EditDocument`, always enabled, document-scoped) or
-  VS Code's own suppression aside (R10, below). `⌘↩` applies (`ApplyReplace { path: [], text }`
-  via `apply_document_text`, staying in write mode either way); `doc_revision` not moving is how
-  the host detects a failed Apply and keeps the buffer verbatim instead of re-seeding it from a
-  stale `serialize()`. `⌘S` applies-if-dirty then saves; a failed Apply's `⌘S` does not save.
-  `Esc` confirm-gates only on a dirty buffer (R7); the header Tree/Raw toggle and a breadcrumb
-  jump elsewhere in the document both route a dirty write-mode exit through the same gate,
-  never straight to `"off"`. Render never clobbers the textarea's live value/selection while it
-  is open (R8). A crumbs-row **control band** (`#rawControls`, R13) renders only while Raw is
-  active: a View|Edit segmented pair (`btnRawView`/`btnRawEdit`) in both Raw states, plus
-  Apply/Save (`btnRawApply`/`btnRawSave`) in write mode only; all four are `TOOLBAR_ENTRIES`
-  members, excluded from the "⋯ More" overflow menu whenever hidden for a business reason
-  rather than a narrow-width fold. The breadcrumb bar itself stays visible and live in **both**
-  Raw states, and a breadcrumb pick additionally selects the node's whole-member source span
-  (key included, R29) in the Raw pane — `Range`/`Selection` in view, `setSelectionRange` in
-  write — via `byteToCodeUnit` (core's UTF-8 byte `text_range` → JS UTF-16 code-unit offsets)
-  and `outline()`; one-way only (a write-mode caret move never moves the tree cursor), and
-  gated on a clean write buffer (`web.raw.jump-needs-apply` otherwise — the tree cursor still
-  moves via `RevealPath`, only the text selection is skipped). Touch keeps Raw **view**
-  read-only with no write mode of its own; its whole-file edit path is the existing
-  external-edit bottom sheet (R18/R19, below). VS Code suppresses the Edit control and the
-  Action menu item entirely (R10): its own `TextDocument` is already this feature's one owner
-  (ADR 0007), so a second editable copy in the webview is never offered.
+  `docs/spec/2026-09-11-raw-write-mode-design.md`) drives the main pane. **The Raw pane is one
+  element in both states** (2026-09-14): a single `<textarea id="rawEdit">`, `readonly` in Raw
+  view and writable in Raw write, absolutely positioned over the whole `.tree-wrap` box and
+  owning the only scrollbar (`body.raw-view .tree-wrap` drops the wrap's own padding and
+  overflow). There is no `<pre>` ↔ `<textarea>` swap, so the box, the metrics, the scroll
+  position and the reading position are the same object across the switch — the earlier
+  two-element design put a second, shorter scroll container inside the first and reset the
+  scroll on every switch. View mode mirrors `session.serialize()` — the live document, unsaved
+  edits included — re-seeded on render **only when the text actually changed**, so an unrelated
+  re-render never resets the reading position. Write mode is entered when a pending external
+  edit opens at the **empty path**: the Action menu's *Edit whole file as text* item
+  (`ActionId::EditDocument`, always enabled, document-scoped) or the band's Edit control.
+  `⌘↩` applies (`ApplyReplace { path: [], text }` via `apply_document_text`, staying in write
+  mode either way); `doc_revision` not moving is how the host detects a failed Apply and keeps
+  the buffer verbatim instead of re-seeding it from a stale `serialize()`. `⌘S` applies-if-dirty
+  then saves; a failed Apply's `⌘S` does not save. `Esc` confirm-gates only on a dirty buffer
+  (R7); the header Tree/Raw toggle and a breadcrumb jump elsewhere in the document both route a
+  dirty write-mode exit through the same gate, never straight to `"off"`. Render never clobbers
+  the buffer while write mode is open (R8: the re-seed is reachable only from the `"view"`
+  branch). Because Raw view's pane is a focusable textarea, `document.body`'s key delegation
+  skips only a **writable** one — a readonly pane never swallows a shortcut. A crumbs-row
+  **control band** (`#rawControls`, R13) renders only while Raw is active: View | Edit | Apply,
+  three same-size controls that are always present, with the inapplicable one `disabled`
+  (Apply outside write mode or on a clean buffer; Edit under VS Code) — `CHROME.md` owns the
+  inventory. The breadcrumb bar itself stays visible and live in **both** Raw states, and a
+  breadcrumb pick additionally selects the node's whole-member source span (key included, R29)
+  in the Raw pane — one code path for both states now: `setSelectionRange` plus an **explicit**
+  scroll that puts the span's line a third of the pane down (`scrollRawToOffset`;
+  `setSelectionRange` alone does not scroll, measured 2026-09-14), via `byteToCodeUnit` (core's
+  UTF-8 byte `text_range` → JS UTF-16 code-unit offsets) and `outline()`. One-way only (a
+  write-mode caret move never moves the tree cursor), and gated on a clean write buffer
+  (`web.raw.jump-needs-apply` otherwise — the tree cursor still moves via `RevealPath`, only
+  the text selection is skipped). Touch keeps Raw **view** read-only with no write mode of its
+  own; its whole-file edit path is the existing external-edit bottom sheet (R18/R19, below).
+  VS Code suppresses the Action menu item and disables the band's Edit control (R10): its own
+  `TextDocument` is already this feature's one owner (ADR 0007), so a second editable copy in
+  the webview is never offered.
 - **Paste mode.** While the clipboard holds a cut/copy the selection is frozen
   (`Session::set_selection` is a no-op), so a row click positions the paste target
   instead: `armedPasteTarget()` reads the click's row-relative Y and calls

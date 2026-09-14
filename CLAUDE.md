@@ -349,8 +349,10 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
   ui.ts          orchestrator: holds the latest snapshot, renders via render.ts + the modal
                  surfaces (detail aside, native search box, `#tfPop` type-filter grid, `#convDlg`
                  convert dialog, `#overlay` for Help/Prompt/KindSwitch only), Tree|Raw view|Raw
-                 write (`rawState`; a `<textarea>` entered at the empty path, `#rawControls`
-                 crumbs-row band, `docs/spec/2026-09-11-raw-write-mode-design.md`),
+                 write (`rawState`; ONE `<textarea id="rawEdit">` for both Raw states —
+                 `readonly` in view, writable at the empty path — plus the `#rawControls`
+                 crumbs-row band of three same-size controls,
+                 `docs/spec/2026-09-11-raw-write-mode-design.md`),
                  keyboard→Intent map (mirrors tui/keys.rs),
                  theme toggle, FS open/save, `#url-modal` Open-from-URL, external-edit modal,
                  paste-mode cursor target; `navSelect` re-targets an undrawn-root cursor via

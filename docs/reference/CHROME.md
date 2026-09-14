@@ -85,23 +85,28 @@ check (parses both markup and registry, asserts the id/`data-act` sets match).
 
 A third row — `.crumbs-row`, wrapping the breadcrumb `<nav>` plus a `#rawControls` band —
 renders only while `rawState !== "off"` (`docs/spec/2026-09-11-raw-write-mode-design.md`
-R13; `WEBUI.md`'s Tree | Raw view | Raw write entry has the full behavior). Four buttons,
-all `TOOLBAR_ENTRIES` members and all `data-foldable="true"`:
+R13, amended 2026-09-14; `WEBUI.md`'s Tree | Raw view | Raw write entry has the full
+behavior). **Three** buttons, all `TOOLBAR_ENTRIES` members, all `data-foldable="true"`,
+and all the same width (`.raw-ctl { min-width: 62px }`): the band's geometry is static, so
+nothing appears or disappears under the pointer as the state changes. A control that does
+not apply to the live state is `disabled`, never hidden.
 
-| Control | Desktop id | Visible when | i18n title key |
+| Control | Desktop id | Enabled when | i18n title key |
 |---|---|---|---|
-| View | `#btnRawView` | Raw view or write | `web.raw.controls.view` |
-| Edit | `#btnRawEdit` | Raw view or write; **hidden under VS Code** (R10) | `web.raw.controls.edit` |
-| Apply | `#btnRawApply` | Raw write only | `web.raw.controls.apply` |
-| Save | `#btnRawSave` | Raw write only | `web.raw.controls.save` |
+| View | `#btnRawView` | always (while Raw is active) | `web.raw.controls.view` |
+| Edit | `#btnRawEdit` | always, except **disabled under VS Code** (R10) | `web.raw.controls.edit` |
+| Apply | `#btnRawApply` | Raw write **and** a dirty document buffer | `web.raw.controls.apply` |
 
-These are excluded from the "⋯ More" overflow menu whenever they are hidden for a
-**business reason** (Raw off, Raw view without Apply/Save, VS Code without Edit) rather
-than a narrow-width fold — `isToolbarFolded`'s `offsetParent === null` check can't
-distinguish the two causes, so `ui.ts`'s `buildMoreMenu` filters `RAW_PAIR_KEYS`/
-`RAW_ACTION_KEYS` (and, under `VSHOST`, `btnRawEdit`) out of the candidate list before
-folding runs. No touch equivalent — touch has no write mode or control band of its own
-(R18/R19).
+There is deliberately **no Save button**: `⌘S` still means apply-if-dirty-then-save
+(`KEYMAP.md`), and the header already owns the one Save control. It was removed on
+2026-09-14 as an unrequested duplicate.
+
+The band is excluded from the "⋯ More" overflow menu whenever it is hidden for a
+**business reason** (Raw off, or Apply outside write mode) rather than a narrow-width
+fold — `isToolbarFolded`'s `offsetParent === null` check can't distinguish the two causes,
+so `ui.ts`'s `buildMoreMenu` filters `RAW_PAIR_KEYS`/`RAW_ACTION_KEYS` (and, under
+`VSHOST`, `btnRawEdit`) out of the candidate list before folding runs. No touch
+equivalent — touch has no write mode or control band of its own (R18/R19).
 
 ## Per-host chrome trimming
 

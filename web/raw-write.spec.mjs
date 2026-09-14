@@ -33,8 +33,8 @@ const fns = names.map((n) => uiTs.match(new RegExp(`^(?:async )?function ${n}\\(
 fns.forEach((s, i) => check(`${names[i]} extracted verbatim`, !!s));
 
 check(
-  "renderRawOrTree never assigns #rawEdit.value (R8: render never clobbers the buffer)",
-  !!fns[5] && !/editEl\.value\s*=/.test(fns[5]),
+  "renderRawOrTree re-seeds the pane only in the \"view\" branch (R8: write is the user's buffer)",
+  !!fns[5] && /if \(rawState === "view"\) \{[\s\S]*editEl\.value = text;/.test(fns[5]),
 );
 check(
   "applyRawEdit reads doc_revision, not history_len, to detect commit (R5)",
@@ -52,6 +52,7 @@ function doSave() { return doSaveFn(); }
 function renderTree(...a) { return renderTreeFn(...a); }
 function getEdit() { return getEditFn(); }
 function applyRawChrome() {}
+function renderRawControls() {}
 const tree = { get classList() { return treeEl.classList; } };
 export function setEnv(e) {
   if ("snap" in e) snap = e.snap;
@@ -91,11 +92,13 @@ function mkClassList() {
   return { add: (c) => s.add(c), remove: (c) => s.delete(c), contains: (c) => s.has(c), set: s };
 }
 function mkEl() {
-  return { value: "", textContent: "", scrollTop: 0, scrollLeft: 0, classList: mkClassList(), focus() {}, setSelectionRange() {} };
+  return { value: "", textContent: "", scrollTop: 0, scrollLeft: 0, selectionStart: 0, selectionEnd: 0, readOnly: true, classList: mkClassList(), focus() {}, setSelectionRange(s, e) { this.selectionStart = s; this.selectionEnd = e; } };
 }
 let els;
 function freshEls() {
-  els = { raw: mkEl(), rawEdit: mkEl(), btnViewToggle: mkEl(), treeWrap: mkEl() };
+  // The Raw pane is one element in both states (2026-09-14) — there is no
+  // `#raw` `<pre>` to swap with any more.
+  els = { rawEdit: mkEl(), btnViewToggle: mkEl(), treeWrap: mkEl() };
   return els;
 }
 
@@ -151,22 +154,36 @@ console.log("\n-- maybeEnterRawWrite(): R1 empty-path routing --");
   check("a repeat render while write is already open never re-seeds (R8)", els.rawEdit.value === "a = 1\nb = 2\n");
 }
 
-// ---- 2. Switching table: identical-box scroll continuity, both directions ----
-console.log("\n-- enterRawWrite() / exitRawWrite(): scroll survives both swaps --");
+// ---- 2. Single-element pane: the reading position survives both swaps ----
+console.log("\n-- enterRawWrite() / exitRawWrite(): one element keeps its own scroll --");
 {
   freshEnv({ serialize: () => "a = 1\n" });
-  els.raw.scrollTop = 42;
-  els.raw.scrollLeft = 7;
+  els.rawEdit.scrollTop = 42;
+  els.rawEdit.scrollLeft = 7;
   mod.enterRawWrite("a = 1\n");
-  check("entering write copies #raw's scroll onto #rawEdit", els.rawEdit.scrollTop === 42 && els.rawEdit.scrollLeft === 7);
+  check("entering write leaves the pane's scroll where it was", els.rawEdit.scrollTop === 42 && els.rawEdit.scrollLeft === 7);
+  check("entering write seats the caret at offset 0", els.rawEdit.selectionStart === 0 && els.rawEdit.selectionEnd === 0);
 
   els.rawEdit.scrollTop = 99;
-  els.rawEdit.scrollLeft = 3;
   els.rawEdit.value = mod.getBaseline(); // clean buffer — no confirm needed
   mod.exitRawWrite();
-  check("exiting write copies #rawEdit's scroll back onto #raw", els.raw.scrollTop === 99 && els.raw.scrollLeft === 3);
+  check("exiting write leaves the pane's scroll untouched (no hand-off)", els.rawEdit.scrollTop === 99);
   check("exitRawWrite hands off to setRawState(\"view\")", setRawStateCalls.length === 1 && setRawStateCalls[0] === "view");
   check("exitRawWrite peels core's pending edit via Escape", sentIntents.length === 1 && sentIntents[0] === "Escape");
+}
+{
+  // A successful Apply re-seeds `.value`, which natively resets a textarea's
+  // scroll — the pane is now the scroll container, so it must be restored.
+  freshEnv({ serialize: () => "a = 2\n" });
+  mod.setEnv({
+    snap: { doc_revision: 5 },
+    send: (i) => { sentIntents.push(i); mod.setEnv({ snap: { doc_revision: 6 } }); },
+  });
+  mod.enterRawWrite("a = 1\n");
+  els.rawEdit.value = "a = 2\n";
+  els.rawEdit.scrollTop = 120;
+  mod.applyRawEdit();
+  check("a committed Apply keeps the pane's scroll position", els.rawEdit.scrollTop === 120);
 }
 
 // ---- 3. R4/R5: Apply outcome is read off doc_revision, never the notice ----

@@ -99,15 +99,17 @@
     </div>
 
     <!-- ===== breadcrumb (cursor path — see web/breadcrumb.ts) + Raw
-         control band (R13, T8: view|edit pair, apply, save — right end of
-         the row, rendered only while Raw is active) ===== -->
+         control band (R13, amended 2026-09-14: three same-size controls —
+         view | edit | apply — always rendered while Raw is active, never
+         appearing/disappearing; unreachable ones are `disabled`. The Save
+         button was removed: ⌘S still saves, the header already owns a Save
+         control) ===== -->
     <div class="crumbs-row">
       <nav class="crumbs" id="crumbs" aria-label="breadcrumb"></nav>
       <div class="raw-controls hidden" id="rawControls">
-        <button class="seg-btn" id="btnRawView" data-i18n-title="web.raw.controls.view" title="View" data-foldable="true"><span data-i18n="web.raw.controls.view">View</span></button>
-        <button class="seg-btn" id="btnRawEdit" data-i18n-title="web.raw.controls.edit" title="Edit" data-foldable="true"><span data-i18n="web.raw.controls.edit">Edit</span></button>
-        <button class="tbtn hidden" id="btnRawApply" data-i18n-title="web.raw.controls.apply" title="Apply" data-foldable="true"><span data-i18n="web.raw.controls.apply">Apply</span></button>
-        <button class="tbtn hidden" id="btnRawSave" data-i18n-title="web.raw.controls.save" title="Save" data-foldable="true"><span data-i18n="web.raw.controls.save">Save</span></button>
+        <button class="seg-btn raw-ctl" id="btnRawView" data-i18n-title="web.raw.controls.view" title="View" data-foldable="true"><span data-i18n="web.raw.controls.view">View</span></button>
+        <button class="seg-btn raw-ctl" id="btnRawEdit" data-i18n-title="web.raw.controls.edit" title="Edit" data-foldable="true"><span data-i18n="web.raw.controls.edit">Edit</span></button>
+        <button class="seg-btn raw-ctl" id="btnRawApply" data-i18n-title="web.raw.controls.apply" title="Apply" data-foldable="true"><span data-i18n="web.raw.controls.apply">Apply</span></button>
       </div>
     </div>
 
@@ -115,8 +117,11 @@
     <div class="main">
       <div class="tree-wrap" id="treeWrap">
         <div id="tree" tabindex="0"></div>
-        <pre id="raw" class="raw-view mono hidden" tabindex="0" aria-readonly="true"></pre>
-        <textarea id="rawEdit" class="raw-view mono hidden" spellcheck="false" aria-label="Raw document editor"></textarea>
+        <!-- The Raw pane is ONE element in both states (2026-09-14): a
+             `<textarea>` that is `readonly` in Raw view and writable in Raw
+             write. No <pre>↔<textarea> swap, so the box, the metrics and the
+             scroll container are the same object in both states. -->
+        <textarea id="rawEdit" class="raw-pane mono hidden" spellcheck="false" readonly aria-label="Raw document"></textarea>
         <div class="marquee" id="marquee"></div>
         <div class="drop-line" id="dropLine"></div>
         <div class="paste-target-line" id="pasteTargetLine"></div>

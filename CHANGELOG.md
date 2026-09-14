@@ -10,6 +10,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-14 (13)
+
+**Fixed / Changed — the Raw pane is one element (web desktop)**
+
+- **View ↔ edit is no longer a swap.** The Raw pane was a read-only `<pre id="raw">` plus a
+  separate `<textarea id="rawEdit">`; it is now **one `<textarea>`**, `readonly` in Raw view and
+  writable in Raw write, absolutely positioned over the whole `.tree-wrap` box and owning the
+  only scrollbar (`body.raw-view .tree-wrap` drops the wrap's padding/overflow). Measured in a
+  real browser on a 306-line document, the old design: the `<pre>` never scrolled (the wrap did),
+  so write mode got a *second*, 86px shorter scroll container (539px vs 625px — the wrap's 80px
+  FAB padding reserve), the "copy scrollTop across the swap" rule copied a value that was always
+  0 (so entering edit mode jumped back to the file head), and the text shifted ~10px. After: both
+  states are the same box (`rect [130,0,1280,634]`), a scroll of 2000px survives the switch, and
+  `.tree-wrap` no longer scrolls at all in Raw.
+- **The crumbs-row band is static.** `檢視 | 編輯 | 套用`, three controls at the same width (62px
+  measured), always present while Raw is active; the inapplicable one is `disabled`, not hidden,
+  so nothing pops in or out under the pointer. **Apply is greyed** in Raw view and in write mode
+  until the document buffer is actually dirty (it re-disables after a successful Apply). VS
+  Code's R10 suppression is now a `disabled` Edit control rather than a hidden one.
+- **The 存檔 button is removed** — it duplicated the header's Save and was never a requirement.
+  `⌘S` keeps its apply-if-dirty-then-save meaning (`KEYMAP.md`); `web.raw.controls.save` is
+  retired from both catalogs.
+- **A breadcrumb jump now scrolls to the span.** `jumpSelectRawSpan` selected the right text in
+  both Raw states but never scrolled to it: view mode nudged `#raw.scrollTop` on an element that
+  was not a scroll container (measured: selection 4,929px below a 634px viewport, `scrollTop`
+  stuck at 0), and `setSelectionRange` does not scroll either. One code path now — select, then
+  `scrollRawToOffset` puts the span's line a third of the pane down (verified: `scrollTop` 0 →
+  5,565 with `[target]\nneedle = "找到我"` selected).
+- A **readonly** textarea no longer swallows shortcuts: `document.body`'s key delegation skips
+  only a *writable* one, so the view-mode pane (which the jump focuses to show its selection)
+  stays transparent to the global keymap.
+- Verification: `npm run typecheck` clean; `npm test` green (`raw-write.spec.mjs` rewritten for
+  the single-element pane incl. a committed-Apply scroll check, `raw-jump.spec.mjs` rewritten for
+  the unified jump path + the static band, both suites pass); real-browser pass on a 306-line
+  TOML covering every number quoted above, plus `⌘↩` Apply and `Esc` exit from the keyboard.
+- Docs: `WEBUI.md` Tree | Raw view | Raw write rewritten; `CHROME.md`'s band section (4 → 3
+  controls, disabled-not-hidden); `KEYMAP.md`'s `⌘S` row; `HOST_PARITY.md` §4/§6 rows;
+  `CLAUDE.md` module map; `docs/spec/2026-09-11-raw-write-mode-design.md` R13/R14 and the
+  *Switching* table amended in place with the measurements and the reason the shipped design
+  failed. `docs/plan/2026-09-09-open-follow-ups.md` files a new **Open** row: ADR 0013 (no host
+  draws the Root row) is accepted but unimplemented — the TUI still shows the `document file`
+  row and the web hosts still carry the stand-ins.
+
 ### Update - 2026-09-14 (12)
 
 **Documentation**
