@@ -10,6 +10,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-14 (17)
+
+**Docs — root-hidden alignment: SD + S0 (documentation and evidence only, no product code)**
+
+- `docs/spec/2026-09-11-root-hidden-alignment-design.md` promoted `Draft` → **`Approved`**, and
+  `docs/plan/2026-09-11-root-hidden-alignment.md` added as its task-by-task plan (T0–T12 against
+  slices SD–S6, each with the record's own acceptance). ADR 0013 already existed and is listed.
+- **S0 baseline evidence E1–E6** recorded in the design record, measured on main at `21cbea9`
+  (throwaway core test + the real wasm channel + the real `confy` binary under tmux):
+  - **E2** the TUI does still draw the Root (`▾ s0.toml [G]` as row 0) while the title bar names
+    the same file — so D15 is the precondition for removing the row, as the record says.
+  - **E3** settles the backlog's *Watching* row: `Into([])` is paste-slot **index 0** but
+    resolves to `Target { parent: [], index: children.len() }` — the document's **end** — while
+    `After([])` resolves to index 0, the top. The branch's "prepend" reading does not reproduce.
+    P4 confirmed; D5 is the fix.
+  - **E4** P1 reproduced: `CutSelected` with the seeded `[]` cursor arms the clipboard
+    (`clipboard_count = 1`), and `OpenActionMenu` right afterwards returns **zero items** — the
+    modal lock with `Esc` as its only exit.
+  - **E5** P2 reproduced: `ToggleExpand` on `[]` returns 1 core row, of which the web renderers
+    draw 0 — a blank tree with no cursor.
+  - **E6** P3 and **slice S3 are already done**, shipped by the sibling Raw-write record
+    (ADR 0014); D9's placement verified over the wasm channel — `Edit whole file` sits
+    immediately above `Delete`, always enabled. Remaining work: S1, S2, S4, S5, S6.
+
 ### Update - 2026-09-14 (16)
 
 **Changed — `core.action.edit` shortened to just "Edit"**

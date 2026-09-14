@@ -1,5 +1,5 @@
 # Root-hidden alignment — the document Root is never a row, on any host
-Status: Draft
+Status: Approved (2026-09-14) — SD + S0 landed; plan: [`../plan/2026-09-11-root-hidden-alignment.md`](../plan/2026-09-11-root-hidden-alignment.md)
 
 Predecessor: [`../debug/2026-09-11-root-row-alignment-retrospective.md`](../debug/2026-09-11-root-row-alignment-retrospective.md)
 (the reversed *web-aligns-to-TUI* attempt; branch `root-row-alignment`, `e8e8d5b`..`f2bfef3`).
@@ -176,4 +176,56 @@ doc still claims a host draws the Root row.
 
 ## Evidence
 
-To be filled by S0.
+Measured on **main at `21cbea9`** (2026-09-14) by S0: a throwaway `confy-core` integration
+test for the core readings, the real wasm channel (`crates/confy-ffi/pkg`) for the host-facing
+ones, and the real `target/debug/confy` binary under `tmux` for the TUI. Fixture:
+`title = "t"` + `[a] x = 1` (+ `[b] y = 2` where a third row matters).
+
+**E1 — the Root is row 0 at depth 0, and the cursor starts on it.** Core rows:
+`0: path=[] depth=0 key=""`, `1: [title] depth=1`, `2: [a] depth=1`, `3: [b] depth=1`;
+`cursor = []`. Confirms D1/D3/D4's premise (the depth rebase is exactly one level).
+
+**E2 — the TUI really draws it.** Real binary, `--lang en`:
+```
+confy — s0.toml ──────────────────────────────────────────────── v1.2.0
+  NAME                                   KIND     VALUE
+ ▾   s0.toml                             [G]
+       title                             [S:str ] "t"
+   ▸   a                                 [T/S]
+```
+Row 0 is the file; the title bar names the file too — so removing the row costs nothing in
+the title bar *provided* D15 lands (`draw_title` reads `app.rows.first()` today).
+
+**E3 — P4 reproduced, and the *Watching* row is settled: main appends.**
+`paste_slots()` on the 3-row fixture, each resolved through `slot_target`:
+```
+0: Into([])      -> Target { parent: [], index: 3 }   <- document END
+1: After([])     -> Target { parent: [], index: 0 }   <- document TOP
+2: After([title])-> Target { parent: [], index: 1 }
+3: Into([a])     -> Target { parent: [a], index: 1 }
+4: After([a])    -> Target { parent: [], index: 2 }
+5: Into([b])     -> Target { parent: [b], index: 1 }
+6: After([b])    -> Target { parent: [], index: 3 }
+```
+`Into([])` is slot **index 0** on screen but resolves to the document's **end** — the exact
+contradiction D5 re-orders away. The branch's "`Into([])` prepends" observation does **not**
+reproduce: it is `children.len()` here, an append. The backlog's *Watching* row is answered.
+
+**E4 — P1 reproduced, on the wasm channel.** A fresh session (cursor on `[]`) →
+`CutSelected` → `clipboard_count = 1`: the clipboard is armed with the Root. In core the same
+call reports `cut 1 node(s)`. `OpenActionMenu` immediately afterwards returns **zero items**
+(the armed clipboard holds the modal lock, ADR 0005 §5), so the state is reachable and its
+only exit is `Esc`. D7's guard is required.
+
+**E5 — P2 reproduced, on the wasm channel.** `ToggleExpand` with the cursor on `[]` →
+core returns **1 row**, of which the web renderers draw **0** (`rows.filter(path.length > 0)`).
+A blank tree with no cursor. D2 removes the route structurally.
+
+**E6 — P3 is closed, and so is S3.** Its fix shipped as the sibling Raw-write record
+(`ActionId::EditDocument` + `Intent::BeginEditDocument`, ADR 0014, `5190d7a`…`d54539a`).
+D9's placement is already satisfied: `OpenActionMenu` over the wasm channel returns
+`Edit / Add child / Append sibling / Copy / Cut / Toggle comment / Detail / **Edit whole
+file** / Delete` — the document item sits immediately above `Delete`, always enabled.
+**S3 is therefore done**; the remaining work is S1, S2, S4, S5, S6.
+
+No P is struck: P1, P2 and P4 are reproduced above, and P3 is reproduced-then-fixed.
