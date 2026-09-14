@@ -324,11 +324,35 @@ shapes round-trip). Key types:
   answers `n` — a prompt is always *answered*, never just hidden (peel-on-dismiss). The desktop
   detail aside stays open underneath a prompt (`renderDetailPanel` leaves `.open` untouched on
   `Prompt`), and the core returns to `Mode::Detail` when a panel-origin prompt resolves.
-- **Tree | Raw view.** A segmented toggle flips the main pane between the interactive tree
-  and a **read-only** `<pre>` of `session.serialize()` — the live document (unsaved edits
-  included), re-serialized on every render so it never drifts. Read-only first: no in-Raw
-  editing, so Save still serializes from the Session (always valid); an editable Raw tab +
-  save-time format guard is a later step.
+- **Tree | Raw view | Raw write.** `rawState: "off" | "view" | "write"` (`web/ui.ts`; R27,
+  `docs/spec/2026-09-11-raw-write-mode-design.md`) drives the main pane. `"view"` is the
+  original **read-only** `<pre>` of `session.serialize()` — the live document (unsaved edits
+  included), re-serialized on every render so it never drifts. `"write"` is a `<textarea
+  id="rawEdit">` sharing one selector list with `#raw.raw-view` for every layout metric, entered
+  automatically when a pending external edit opens at the **empty path** — the Action menu's
+  *Edit whole file as text* item (`ActionId::EditDocument`, always enabled, document-scoped) or
+  VS Code's own suppression aside (R10, below). `⌘↩` applies (`ApplyReplace { path: [], text }`
+  via `apply_document_text`, staying in write mode either way); `doc_revision` not moving is how
+  the host detects a failed Apply and keeps the buffer verbatim instead of re-seeding it from a
+  stale `serialize()`. `⌘S` applies-if-dirty then saves; a failed Apply's `⌘S` does not save.
+  `Esc` confirm-gates only on a dirty buffer (R7); the header Tree/Raw toggle and a breadcrumb
+  jump elsewhere in the document both route a dirty write-mode exit through the same gate,
+  never straight to `"off"`. Render never clobbers the textarea's live value/selection while it
+  is open (R8). A crumbs-row **control band** (`#rawControls`, R13) renders only while Raw is
+  active: a View|Edit segmented pair (`btnRawView`/`btnRawEdit`) in both Raw states, plus
+  Apply/Save (`btnRawApply`/`btnRawSave`) in write mode only; all four are `TOOLBAR_ENTRIES`
+  members, excluded from the "⋯ More" overflow menu whenever hidden for a business reason
+  rather than a narrow-width fold. The breadcrumb bar itself stays visible and live in **both**
+  Raw states, and a breadcrumb pick additionally selects the node's whole-member source span
+  (key included, R29) in the Raw pane — `Range`/`Selection` in view, `setSelectionRange` in
+  write — via `byteToCodeUnit` (core's UTF-8 byte `text_range` → JS UTF-16 code-unit offsets)
+  and `outline()`; one-way only (a write-mode caret move never moves the tree cursor), and
+  gated on a clean write buffer (`web.raw.jump-needs-apply` otherwise — the tree cursor still
+  moves via `RevealPath`, only the text selection is skipped). Touch keeps Raw **view**
+  read-only with no write mode of its own; its whole-file edit path is the existing
+  external-edit bottom sheet (R18/R19, below). VS Code suppresses the Edit control and the
+  Action menu item entirely (R10): its own `TextDocument` is already this feature's one owner
+  (ADR 0007), so a second editable copy in the webview is never offered.
 - **Paste mode.** While the clipboard holds a cut/copy the selection is frozen
   (`Session::set_selection` is a no-op), so a row click positions the paste target
   instead: `armedPasteTarget()` reads the click's row-relative Y and calls
@@ -634,7 +658,13 @@ edits to the verbatim desktop CSS.
 - **Read-only / opaque rows** (`ViewRow.read_only`) render without grip/kind and reject edits —
   mirroring core. Multi-line value/comment edits route to an external-edit **bottom sheet** (in
   `.app`, standard sheet chrome) via `ApplyReplace`/`ApplyEditComment` — the same handshake the
-  desktop uses. Dismissing it (scrim/grab/×/Cancel) sends `Escape` to peel core's pending edit, so
+  desktop uses. The **same sheet** also carries whole-document edits (empty path, R18): touch
+  has no write-mode textarea panel of its own, so the Action menu's *Edit whole file as text*
+  item opens this sheet with the full document instead. Its Apply handler treats the empty
+  path specially (R19) — a failed whole-file Apply (`doc_revision` not moving) leaves the sheet
+  **open** with the buffer intact rather than closing unconditionally, since discarding it would
+  silently drop the entire edit; a per-node value/comment Apply keeps closing unconditionally
+  either way. Dismissing it (scrim/grab/×/Cancel) sends `Escape` to peel core's pending edit, so
   the sheet can't re-pop on the next render.
 - the initial sample document is the **same demo-tour sample as the desktop UI** (shared,
   build-stamped): one backbone tree across all three formats plus a per-format `showcase`

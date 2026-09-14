@@ -81,6 +81,28 @@ list is `ui.ts`'s `TOOLBAR_ENTRIES` (keyed by element id); touch's is `touch/app
 list, and vice versa** — enforced by `web/toolbar-fold.spec.mjs`'s structural regression
 check (parses both markup and registry, asserts the id/`data-act` sets match).
 
+## The crumbs-row Raw control band (desktop only)
+
+A third row — `.crumbs-row`, wrapping the breadcrumb `<nav>` plus a `#rawControls` band —
+renders only while `rawState !== "off"` (`docs/spec/2026-09-11-raw-write-mode-design.md`
+R13; `WEBUI.md`'s Tree | Raw view | Raw write entry has the full behavior). Four buttons,
+all `TOOLBAR_ENTRIES` members and all `data-foldable="true"`:
+
+| Control | Desktop id | Visible when | i18n title key |
+|---|---|---|---|
+| View | `#btnRawView` | Raw view or write | `web.raw.controls.view` |
+| Edit | `#btnRawEdit` | Raw view or write; **hidden under VS Code** (R10) | `web.raw.controls.edit` |
+| Apply | `#btnRawApply` | Raw write only | `web.raw.controls.apply` |
+| Save | `#btnRawSave` | Raw write only | `web.raw.controls.save` |
+
+These are excluded from the "⋯ More" overflow menu whenever they are hidden for a
+**business reason** (Raw off, Raw view without Apply/Save, VS Code without Edit) rather
+than a narrow-width fold — `isToolbarFolded`'s `offsetParent === null` check can't
+distinguish the two causes, so `ui.ts`'s `buildMoreMenu` filters `RAW_PAIR_KEYS`/
+`RAW_ACTION_KEYS` (and, under `VSHOST`, `btnRawEdit`) out of the candidate list before
+folding runs. No touch equivalent — touch has no write mode or control band of its own
+(R18/R19).
+
 ## Per-host chrome trimming
 
 | Host | Header row 1 | Filter row 2 | Undo/Redo | Raw/Tree toggle | Native replacement |

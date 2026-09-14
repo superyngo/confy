@@ -10,6 +10,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-14 (12)
+
+**Documentation**
+
+- **Raw write mode ships** (`docs/plan/2026-09-14-raw-write-mode.md` T11, RS4 — the plan's
+  final task; both the plan and `docs/spec/2026-09-11-raw-write-mode-design.md` flip Status to
+  `Shipped (2026-09-14)`; ADR 0014 flips to `implemented (2026-09-14)`): documentation caught up
+  to the T1–T10 implementation, verified against the actual code rather than restated from the
+  design record. `WEBUI.md`'s Tree | Raw view section is rewritten as **Tree | Raw view | Raw
+  write** (the `rawState` tri-state, the `#rawEdit` textarea, `⌘↩`/`⌘S`/`Esc`, the crumbs-row
+  control band, the breadcrumb jump, VS Code suppression) and its touch external-edit-sheet
+  paragraph gains the R18/R19 whole-file routing rule. `CHROME.md` gains a new "crumbs-row Raw
+  control band" section documenting the four `#rawControls` buttons and their overflow-menu
+  exclusion rule. `KEYMAP.md` gains a "Raw write mode (desktop web only)" section for
+  `⌘↩`/`⌘S`/`Esc`, outside the machine-checked normal-mode table since `rawState` is host-local,
+  not a core `Mode`. `HOST_PARITY.md` gains a §4 row for the whole-document edit's per-host
+  entry point (Raw write vs. touch's sheet), amends the breadcrumb row for R12's both-Raw-states
+  visibility, and gains a §6 row for VS Code's R10 suppression. `CLAUDE.md`'s module map updates
+  `ui.ts`'s Tree/Raw description (was "read-only"), adds the new `web/text-offset.ts`, and notes
+  `apply_document_text` on `inline_edit.rs`. `docs/plan/2026-09-09-open-follow-ups.md` moves its
+  **P3** row ("the web has no entry point for whole-document operations") to *Done*, and files a
+  new **Q4** row (caret → cursor, the breadcrumb jump's un-implemented inverse — settled out of
+  scope at ship time, `docs/spec/2026-09-11-raw-write-mode-design.md`'s own Q4). `MESSAGES.md`
+  needed no changes: `core.document.apply-failed`/`core.document.edit-locked` were already
+  covered by the existing severity table (still 45 `core.*` keys, `cargo test -p confy-core`'s
+  `severity_of_covers_the_full_catalog_table` unchanged) and `web.raw.*` status strings already
+  fall under the documented "chrome strings, not notices" bucket.
+- `rg` confirms no reference doc still describes Raw as read-only-only outside the frozen
+  `docs/reference/changelog/v0.x.md` archive (correctly historical).
+- Verification: `cargo test -p confy-core` green; `npm run typecheck` clean; `npm test` (999
+  checks, unchanged from T10 — docs-only task); `node functional_smoke.mjs` (13 checks) green.
+
 ### Update - 2026-09-14 (11)
 
 **Added**

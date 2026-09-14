@@ -227,7 +227,9 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
     diag.rs        DiagLevel, DiagEvent (monotonic seq, kind, detail), DiagRing (bounded 256-event ring)
                    — see MESSAGES.md §4
     inline_edit.rs inline-editor buffer lifecycle (begin_inline_edit*/edit_*/edit_commit) +
-                   value/rename/nudge/add-node mutation-application methods that commit through it
+                   value/rename/nudge/add-node mutation-application methods that commit through
+                   it, plus `apply_document_text` — the empty-path whole-document `Replace`
+                   (R20): commit-only, no packaged-blank split/trailing-comment/wrap_element
     schema_hint.rs nudge_scalar + format_nudged: the `←`/`→` value step (a schema `multipleOf`
                    becomes the step; bounds clamp inward to that grid), plus parse_repr /
                    format_nudged_like — the notation-aware decode/render the schema clamp
@@ -346,8 +348,10 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
                  Reveal; popup state is ephemeral
   ui.ts          orchestrator: holds the latest snapshot, renders via render.ts + the modal
                  surfaces (detail aside, native search box, `#tfPop` type-filter grid, `#convDlg`
-                 convert dialog, `#overlay` for Help/Prompt/KindSwitch only), Tree|Raw read-only
-                 view toggle (`session.serialize()`), keyboard→Intent map (mirrors tui/keys.rs),
+                 convert dialog, `#overlay` for Help/Prompt/KindSwitch only), Tree|Raw view|Raw
+                 write (`rawState`; a `<textarea>` entered at the empty path, `#rawControls`
+                 crumbs-row band, `docs/spec/2026-09-11-raw-write-mode-design.md`),
+                 keyboard→Intent map (mirrors tui/keys.rs),
                  theme toggle, FS open/save, `#url-modal` Open-from-URL, external-edit modal,
                  paste-mode cursor target; `navSelect` re-targets an undrawn-root cursor via
                  `path-utils.ts`'s `drawnCursorFallback` (shared with touch's `touchNavSelect`) —
@@ -366,6 +370,10 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
   mode.ts        shared `modeTag()` helper over the `ModeView` union
   path-utils.ts  shared path helpers; `drawnCursorFallback` re-targets a cursor sitting on the
                  undrawn root (neither web host draws it), used by ui.ts and touch/app.ts
+  text-offset.ts pure/DOM-free: `byteToCodeUnit(text, byteOffset)` converts core's UTF-8 byte
+                 `outline()`/`text_range` offsets to JS UTF-16 code-unit offsets;
+                 `findOutlineByPath(nodes, path)` walks an `OutlineNode[]` tree — the pair the
+                 Raw pane's breadcrumb jump uses to select a node's source span (R14–R17)
   vscode-protocol.ts  the typed host↔webview message contract (`HostToWebview`/`WebviewToHost`),
                  the ONE file both `web/vscode.ts` and the extension import — see VSCODE.md
   vscode.ts      the in-webview VS Code client: posts/receives that protocol, tracks the

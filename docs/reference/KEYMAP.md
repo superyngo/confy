@@ -226,6 +226,19 @@ The Help overlay's `help.row.edit` ("Edit (inline or editor)") and `help.row.for
 reason: "editor" means `$EDITOR` on the TUI and an in-app modal/sheet on Web, and the row
 text does not claim otherwise.
 
+## Raw write mode (desktop web only)
+
+`docs/spec/2026-09-11-raw-write-mode-design.md` (R4–R8). Not part of the machine-checked
+table above: Raw write is a host-local `rawState`, not a core `Mode`, and has no TUI or
+touch equivalent (touch keeps the existing external-edit sheet for the whole-file case;
+see WEBUI.md's touch Raw entry and R18/R19).
+
+| Key | Effect | Notes |
+| --- | --- | --- |
+| `⌘↩` / `Ctrl+↩` | Apply (`ApplyReplace { path: [], text }`) | Stays in write mode either way; a failed Apply (`doc_revision` unchanged) leaves the buffer verbatim instead of re-seeding it |
+| `⌘S` / `Ctrl+S` | Apply-if-dirty, then save | Does not save if the Apply just failed |
+| `Escape` | Exit to Raw view | Confirm-gated only when the buffer is dirty (R7) — a clean buffer exits immediately |
+
 ## Related documents
 
 - `docs/reference/TUI.md` — TUI behaviour; `?` overlay text lives in `i18n/*.json` (`tui.help.*`).

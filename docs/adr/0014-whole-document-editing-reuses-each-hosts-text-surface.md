@@ -1,6 +1,6 @@
 # ADR 0014 — Whole-document editing reuses each host's existing text surface
 
-- **Status:** Accepted (2026-09-14), implementation pending
+- **Status:** Accepted (2026-09-14), implemented (2026-09-14)
 - **Scope:** `web/ui.ts` (Raw pane), `web/touch/app.ts` (external-edit sheet),
   `crates/confy-tui/src/tui/editor.rs` (`$EDITOR`), `editors/vscode/` (VS Code's own editor),
   `confy-core` (`session/inline_edit.rs`, `session/intent.rs`, `session/action_menu.rs`)
