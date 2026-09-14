@@ -10,6 +10,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-14 (2)
+
+**Tests**
+
+- **Raw write mode T1 — the identity-Apply measurement (Q1) is answered: byte-identical on
+  every format.** `crates/confy-ffi/functional_smoke.mjs` gains an *RS0/T1* section (18
+  checks) driving `ApplyReplace { path: [], text }` through the real wasm channel over six
+  fixtures — TOML (comments + `[[tasks]]`), JSON, JSONC (leading/inner/trailing `//`), YAML,
+  TOML with no final newline, YAML with CRLF. Each asserts `serialize()` equals the input
+  byte-for-byte, that applying the **untouched** document buffer changes nothing, and — as a
+  false-positive guard — that the same route commits a *modified* whole-file text with
+  `history_len === 1`. No backend fix is needed before RS2 (the design record's R23 ship
+  blocker is not triggered); results recorded in the record's Evidence section.
+
+### Update - 2026-09-14 (1)
+
+**Docs**
+
+- **ADR 0014 — whole-document editing reuses each host's existing text surface** (new,
+  `docs/adr/0014-whole-document-editing-reuses-each-hosts-text-surface.md`): core owns one
+  operation (one Intent, one document-scoped Action item, one whole-file `Replace`) and each
+  host routes it to the surface it already has — the desktop's Raw pane switching to write
+  mode, touch's external-edit sheet, the TUI's `$EDITOR`, VS Code's own editor (suppressed).
+  The rejected alternative, one uniform whole-file modal, is absurd on the TUI and redundant
+  in VS Code. Indexed in `docs/adr/README.md`.
+- **`docs/spec/2026-09-11-raw-write-mode-design.md`** — `Approved (2026-09-14)`; a grilling
+  pass added R20–R28 and corrected two decisions that were provably wrong: the failed-Apply
+  detector (`history_len` is deduped by `History::push` and evicted by the undo cap, so a
+  successful no-change Apply read as a failure — replaced by a monotonic `doc_revision`), and
+  the reuse of `apply_external_replace` for the whole file (its per-node blank/trailing-comment
+  packaging would have turned the file's final newline into a mutation — replaced by a
+  dedicated `apply_document_text`). Q1 narrowed from "does the route exist" (it does, in all
+  three backends) to "is an identity Apply byte-identical, per format", with a non-identical
+  format a ship blocker.
+- **`docs/plan/2026-09-14-raw-write-mode.md`** (new) — 11 session-sized tasks, each one commit
+  with its own verification command, **token estimate**, and a breakpoint state that survives a
+  compaction or a cold start.
+- **`docs/reference/glossary.md`** — three entries for the vocabulary this feature introduces:
+  **Raw pane** (states *Raw view* / *Raw write*), **Document buffer** (the unapplied whole-file
+  text, contrasted with core's *fragment*), and **Apply** (sending a document buffer into the
+  `Session`, distinct from core's *commit* — one Apply can fail to commit).
+
 ### Update - 2026-09-11 (1)
 
 **Docs**

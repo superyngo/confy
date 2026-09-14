@@ -254,6 +254,25 @@ is the format-dispatch entry point.
 _Avoid_: assuming a bug in one format's parser generalizes to another — the
 three backends share only the CST shape, not an implementation.
 
+**Raw pane**:
+The host surface that shows the document as text rather than as a tree (`web/ui.ts`'s
+`#raw`, touch's `pre.raw-view`). It has two states: **Raw view** (read-only, the
+serialized document) and **Raw write** (an editable **document buffer**). The pane is a
+*view of* the document, never a second source of truth — the `Session` stays canonical.
+_Avoid_: "raw mode" (ambiguous between the two states).
+
+**Document buffer**:
+The unapplied whole-file text a user holds while the Raw pane is in **Raw write** (or while
+a host's whole-file external edit is in flight). Contrast **fragment** — core's per-node
+text unit. A document buffer differing from the document is *not* the same thing as the
+document differing from disk, which is what the dirty dot means.
+
+**Apply**:
+Sending a **document buffer** into the `Session` (`Mutation::Replace` at the empty path).
+Distinct from **commit**: one Apply can fail to commit — the buffer must parse *and* pass
+`validate_semantics`, and a failed Apply leaves both the document and the buffer untouched.
+_Avoid_: using *Apply* and *commit* interchangeably.
+
 **Remark**:
 The toggle that turns a live Node into a **Comment** (and back). Canonical name for what the
 `r` key does. Selection-aware: with a Locked selection active it acts on the whole

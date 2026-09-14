@@ -578,5 +578,41 @@ check("diag_log() grows monotonically after second dispatch",
   "len=" + diagEvents2.length);
 diagSession.free();
 
+// ---- RS0/T1. Identity Apply is byte-identical, per format ----
+// docs/plan/2026-09-14-raw-write-mode.md T1 / design record Q1+R23: opening the
+// whole document as text and applying it UNTOUCHED must not change a byte.
+// Measured through the real command channel with `ApplyReplace { path: [], text }`
+// (the route `Intent::BeginEditDocument` will reuse), so this measures the three
+// backends' empty-path `Replace`, not the intent.
+const identityFixtures = [
+  ["toml", "toml", `# leading comment\n\n[server]\nhost = "localhost"  # trailing\nport = 8080\n\n[[tasks]]\nname = "a"\n`],
+  ["json", "json", `{\n  "server": {\n    "host": "localhost",\n    "port": 8080\n  },\n  "tasks": [\n    1,\n    2\n  ]\n}\n`],
+  ["jsonc", "json", `// leading comment\n{\n  // inner\n  "server": { "host": "localhost" }, // trailing\n  "tasks": []\n}\n`],
+  ["yaml", "yaml", `# leading comment\nserver:\n  host: localhost  # trailing\n  port: 8080\ntasks:\n  - a\n  - b\n`],
+  ["toml-no-final-newline", "toml", `[server]\nport = 8080`],
+  ["yaml-crlf", "yaml", `server:\r\n  port: 8080\r\n`],
+];
+for (const [label, fmt, text] of identityFixtures) {
+  const idSession = new ConfySession(text, fmt);
+  const before = idSession.serialize();
+  check(`[${label}] serialize() is the input byte-for-byte`, before === text,
+    `\n    in : ${JSON.stringify(text)}\n    out: ${JSON.stringify(before)}`);
+  const after0 = idSession.dispatch({ ApplyReplace: { path: [], text: before } });
+  const after = idSession.serialize();
+  check(`[${label}] identity Apply is byte-identical`, after === before,
+    `\n    before: ${JSON.stringify(before)}\n    after : ${JSON.stringify(after)}` +
+    `\n    notice: ${JSON.stringify(after0.notice)}`);
+  idSession.free();
+  // Guard against a false positive: an identity Apply that silently did
+  // nothing looks identical too. Prove the same route commits a real change.
+  const liveSession = new ConfySession(text, fmt);
+  const changed = liveSession.serialize().replace("8080", "9090").replace("localhost", "127.0.0.1");
+  const liveSnap = liveSession.dispatch({ ApplyReplace: { path: [], text: changed } });
+  check(`[${label}] the same route commits a real edit`,
+    liveSession.serialize() === changed && liveSnap.history_len === 1,
+    `history_len=${liveSnap.history_len} notice=${JSON.stringify(liveSnap.notice)}`);
+  liveSession.free();
+}
+
 console.log(failures === 0 ? "\nALL FUNCTIONAL CHECKS PASSED" : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

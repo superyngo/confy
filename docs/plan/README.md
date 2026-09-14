@@ -13,8 +13,11 @@ carried the change is in `CHANGELOG.md`.
 
 - [2026-09-09-open-follow-ups.md](2026-09-09-open-follow-ups.md) — the single live backlog:
   every recorded-but-unfixed item, with evidence and acceptance criteria · `In progress`
+- [2026-09-14-raw-write-mode.md](2026-09-14-raw-write-mode.md) — whole-document editing (Raw
+  write mode), 11 session-sized tasks with token budgets · `Approved`
 
-This is the one record here that is *not* frozen on landing — see its own scope note.
+The follow-ups backlog is the one record here that is *not* frozen on landing — see its own
+scope note.
 
 ## Landed
 

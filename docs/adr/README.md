@@ -22,6 +22,8 @@ the old one superseded.
 | [0010](0010-pointer-drops-resolve-through-pasteslot.md) | Pointer drops resolve through `PasteSlot` end to end (hosts derive no parent/index), and inline containers keep their `Into` band | Implemented (2026-09-01) |
 | [0011](0011-bool-toggle-on-the-intent-nudge-path-only.md) | A bool toggles on the `Intent::Nudge` (keyboard) path only, never inside `nudge_scalar` — pointer wheel/swipe nudging stays numeric | Implemented (2026-09-07) |
 | [0012](0012-datetime-cross-type-switch-is-a-value-replace.md) | A TOML datetime cross-type switch is a value `Replace` behind the `K` key, not a `ConvertKind` | Implemented (2026-09-07) |
+| [0013](0013-the-root-is-never-a-row.md) | The document Root is a model node, never a view row — every host is root-hidden; whole-document operations become document-scoped commands | Accepted (2026-09-11), implementation pending |
+| [0014](0014-whole-document-editing-reuses-each-hosts-text-surface.md) | Whole-document editing is carried by each host's existing multi-line text surface (desktop Raw pane in write mode, touch's external-edit sheet, the TUI's `$EDITOR`, VS Code's own editor), not by one uniform new surface | Accepted (2026-09-14), implementation pending |
 
 ADR 0004 §1's `format != Format::Inline` clause and its host-computed `MoveSelectionTo`
 `target`/`index` payload are superseded by ADR 0010. ADR 0011 partially reverses commit `534dd4a`
