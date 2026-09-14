@@ -609,14 +609,28 @@ dialog::backdrop{background:oklch(15% 0.02 250 / .5);backdrop-filter:blur(2px)}
 .kind-note { opacity: .6; }
 .key.elem { color: var(--faint); }  /* dim [0]/[1] array-element index label */
 
-/* Tree/Raw view toggle + read-only raw text (#12). The active tab reads like a
-   pressed segment; the raw pane fills the tree-wrap and scrolls on its own. */
+/* Tree/Raw view toggle + read-only raw text (#12) / Raw write mode (T7).
+   The active tab reads like a pressed segment; the raw pane fills the
+   tree-wrap and scrolls on its own. `#raw` (view) and `#rawEdit` (write)
+   share one metrics selector list (spec "Switching" table: identical box)
+   so the `<pre>` ↔ `<textarea>` swap never drifts across two rule blocks. */
 .viewtab.active { background: var(--accent); color: var(--bg); border-color: transparent; font-weight: 600; }
-#raw.raw-view {
+#raw.raw-view, #rawEdit {
   margin: 0; padding: 8px 10px; white-space: pre; tab-size: 2;
   font-size: 13px; line-height: 1.55; color: var(--fg);
-  user-select: text; cursor: text; outline: none;
+  font-family: inherit; border: 0; resize: none; background: transparent;
+  outline: none; box-sizing: border-box; width: 100%;
+  transition: background-color .12s, border-color .12s, box-shadow .12s;
 }
+#raw.raw-view { user-select: text; cursor: text; }
+#rawEdit { min-height: 100%; }
+/* Cue #2 (State legibility): write mode gets an accent border + tint + focus
+   ring; view mode has neither. */
+body.raw-write #rawEdit {
+  border-left: 2px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+body.raw-write #rawEdit:focus { box-shadow: inset 0 0 0 1px var(--accent); }
 
 /* Clipboard source rows — solid full-row fills in the same visual language as
    the cursor's (ADR 0005 §2): cut = green, copy = purple. These rules sit

@@ -10,6 +10,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-14 (8)
+
+**Added**
+
+- **The Raw pane gains a write mode** (`docs/plan/2026-09-14-raw-write-mode.md` T7, RS2b;
+  R1/R2/R4–R8): a pending document-level external edit (empty path — the Action menu's *Edit
+  whole file*) now routes to a new `#rawEdit` textarea filling the Raw pane, in place of the
+  per-node `#ext-modal` popup. `⌘/Ctrl+Enter` Applies (`ApplyReplace { path: [], text }`) and
+  stays in write mode regardless of outcome (R4); commit/failure is read off `doc_revision`
+  (R5) — never `history_len` or the notice, since a rejected buffer can surface at any
+  severity. `⌘/Ctrl+S` applies only if the buffer is dirty, then saves; it never saves after a
+  failed Apply (R6). `Esc` exits to Raw view, peeling core's pending edit via `Escape`, gated
+  on a confirm (`web.raw.discard-confirm`) only when the buffer differs from the last-applied
+  baseline (R7). `render()` never writes to `#rawEdit` while it is open (R8) — entry is
+  guarded so the textarea is seeded exactly once per pending edit, not on every unrelated
+  re-render. `#raw.raw-view`/`#rawEdit` now share one CSS metrics selector list, and scroll
+  position is copied across the swap in both directions (no scroll jump), with the caret
+  placed at offset 0 on entry. Two new cues: a footer hint line
+  (`web.raw.write-hint`, shown only in write mode) and a `body.raw-write` accent
+  border/tint/focus-ring on `#rawEdit`. New `web/raw-write.spec.mjs` (34 checks) extracts and
+  exercises the real `enterRawWrite`/`maybeEnterRawWrite`/`applyRawEdit`/`rawEditSave`/
+  `exitRawWrite`/`renderRawOrTree` bodies; manually verified in a real browser (entry, typing,
+  Apply, the confirm-gated Escape both ways, scroll continuity). The crumbs-row control band
+  (R13), the breadcrumb jump (R14–R17), and VS Code suppression (R10) are follow-up tasks
+  (T8/T10) — until then the existing view-toggle button and breadcrumb-hiding behavior are
+  unchanged.
+
 ### Update - 2026-09-14 (7)
 
 **Changed**

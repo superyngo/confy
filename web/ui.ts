@@ -68,6 +68,7 @@ import type {
   ConvertView,
   EditField,
   ExternalEdit,
+  ExternalEditKind,
   Intent,
   ModeView,
   Notice,
@@ -111,11 +112,19 @@ function $<T extends HTMLElement = HTMLElement>(id: string): T {
 const tree = $<HTMLDivElement>("tree");
 const overlay = $("overlay");
 const overlayScrim = $("overlayScrim");
-// Tree vs read-only Raw text view (#12, read-only first) vs Raw write mode
-// (T7+, unreachable until then). The Session stays the single source of
-// truth; Raw is just `session.serialize()` rendered live in view state.
+// Tree vs read-only Raw text view (#12) vs Raw write mode (T7): a pending
+// document-level external edit (empty path) routes here instead of the
+// per-node `#ext-modal`. The Session stays the single source of truth; the
+// document buffer (R22) is host-local text that only reaches the Session on
+// an explicit Apply.
 type RawState = "off" | "view" | "write";
 let rawState: RawState = "off";
+// The last-applied text while write mode is open — the R6/R7 dirty check
+// compares the live `#rawEdit` value against this, never against
+// `session.serialize()` directly (R22: an un-applied buffer is not the
+// document). Seeded on entry, re-seeded after each successful Apply (R5),
+// `null` whenever write mode is not open.
+let rawWriteBaseline: string | null = null;
 const statusEl = $("status");
 const errorEl = $("error");
 const toastEl = $("toast");
@@ -325,34 +334,148 @@ function openText(
   render();
 }
 
-// Switch between the interactive tree and the read-only serialized text. Raw is
-// a *view* of the same document — no editing — so it just re-renders. The
-// single toggle button's label is the view tapping/clicking switches TO
-// (mirrors touch/app.ts's `setRawView`); `active` while in Raw. `"write"` is
-// unreachable until T7; `body.raw-write` is derived here in the same place as
-// `body.raw-view` so T7's diff only has to reach the state, not the wiring.
+// Switch between the interactive tree and the read-only serialized text.
+// `off`/`view` are a *view* of the same document — no editing — so they just
+// re-render. The single toggle button's label is the view tapping/clicking
+// switches TO (mirrors touch/app.ts's `setRawState`); `active` while in Raw.
+// `body.raw-view`/`body.raw-write` derive from `rawState` here in one place
+// (R27) — the manual entry point (this button). `enterRawWrite` below is the
+// automatic one (R1/R2), applying the same chrome without recursing into
+// `render()` (it runs from inside `render()` itself).
 function setRawState(next: RawState) {
   rawState = next;
+  applyRawChrome();
+  render();
+}
+
+function applyRawChrome() {
   const shown = rawState !== "off";
   const vt = $("btnViewToggle");
   vt.textContent = shown ? t("web.toolbar.viewToggle.tree") : t("web.toolbar.viewToggle.raw");
   vt.classList.toggle("active", shown);
   document.body.classList.toggle("raw-view", shown);
   document.body.classList.toggle("raw-write", rawState === "write");
-  render();
 }
 
-// Render whichever view is active. Raw shows `session.serialize()` (the live
-// document, including unsaved edits) read-only; the tree is hidden but kept so
-// toggling back is instant.
+// R1/R2: a pending *document-level* external edit (empty path) routes to the
+// Raw pane's write mode instead of the per-node `#ext-modal` — checked from
+// `render()`, before `renderRawOrTree()`, so this pass already ends in the
+// right end state. Guarded on `rawState !== "write"` so it seeds the
+// textarea exactly once per pending edit (R8): `pending_external_edit`
+// (and therefore `snap.external_edit`) stays truthy across every render
+// until an actual Apply/Escape, so without the guard an unrelated re-render
+// (theme toggle, a notice clearing) would clobber the user's typing.
+function maybeEnterRawWrite() {
+  if (!snap?.external_edit || rawState === "write") return;
+  const kind = snap.external_edit.kind;
+  const path = "Value" in kind ? kind.Value.path : kind.Comment.path;
+  if (path.length === 0) enterRawWrite(snap.external_edit.initial);
+}
+
+// Seeds `#rawEdit` from the pending edit's initial text (the whole document,
+// R20/`multiline_edit_initial(&[])`), copies scroll position from the `<pre>`
+// it replaces (Switching table: "no scroll jump"), and places the caret at
+// offset 0 without scrolling (Switching table: "caret continuity").
+function enterRawWrite(initial: string) {
+  const rawEl = $("raw");
+  const editEl = $<HTMLTextAreaElement>("rawEdit");
+  editEl.value = initial;
+  editEl.scrollTop = rawEl.scrollTop;
+  editEl.scrollLeft = rawEl.scrollLeft;
+  rawWriteBaseline = initial;
+  rawState = "write";
+  applyRawChrome();
+  editEl.focus();
+  editEl.setSelectionRange(0, 0);
+}
+
+// R4/R5: Apply (⌘/Ctrl+Enter) commits the whole buffer and stays in write
+// mode regardless of outcome — success is read off `doc_revision` (R5),
+// never `history_len` (provably not a commit counter: a no-change Apply, or
+// one at the undo cap, leaves it flat while `doc_revision` still moves) and
+// never the notice (a rejected buffer can surface at any severity, F4). A
+// commit re-seeds the textarea from the canonical `serialize()` and moves
+// the dirty baseline forward; a failure leaves the buffer — and the
+// baseline — exactly as the user left them, so the notice is the only
+// visible change (R4: "a failed Apply is a notice, not lost work").
+function applyRawEdit(): boolean {
+  const editEl = $<HTMLTextAreaElement>("rawEdit");
+  const before = snap?.doc_revision;
+  send({ ApplyReplace: { path: [], text: editEl.value } });
+  const committed = !!snap && snap.doc_revision !== before;
+  if (committed) {
+    rawWriteBaseline = session!.serialize();
+    editEl.value = rawWriteBaseline;
+  }
+  return committed;
+}
+
+// R6: ⌘/Ctrl+S in write mode always means "save what I see" — apply the
+// buffer first only if it is dirty (differs from the last-applied
+// baseline), and stop before saving if that Apply did not commit. A clean
+// buffer saves directly, without a pointless Apply/`doc_revision` bump.
+async function rawEditSave(): Promise<void> {
+  const editEl = $<HTMLTextAreaElement>("rawEdit");
+  if (editEl.value !== rawWriteBaseline && !applyRawEdit()) return;
+  await doSave();
+}
+
+// R7: Escape exits write mode back to Raw view, peeling core's pending edit
+// via `Escape` (lifting the empty-path lock, R21/R24) — gated on a confirm
+// only when the buffer differs from the last-applied baseline, matching the
+// per-node modal's cancel path plus the confirm this feature's whole-file
+// payload warrants. Copies scroll position back onto the `<pre>` (Switching
+// table: "no scroll jump" applies to both directions of the swap).
+function exitRawWrite(): void {
+  const editEl = $<HTMLTextAreaElement>("rawEdit");
+  if (editEl.value !== rawWriteBaseline && !confirm(t("web.raw.discard-confirm"))) return;
+  const scrollTop = editEl.scrollTop;
+  const scrollLeft = editEl.scrollLeft;
+  rawWriteBaseline = null;
+  send("Escape");
+  setRawState("view");
+  const rawEl = $("raw");
+  rawEl.scrollTop = scrollTop;
+  rawEl.scrollLeft = scrollLeft;
+}
+
+// ⌘/Ctrl+Enter Apply, ⌘/Ctrl+S apply-if-dirty-then-save, Esc exit — the only
+// keys write mode itself handles; every other key is native `<textarea>`
+// typing (`document.body`'s global key-delegation already skips a focused
+// TEXTAREA, so `onKey`/`resolveKeyIntent` never see these presses).
+function onRawEditKey(ev: KeyboardEvent) {
+  const mod = ev.ctrlKey || ev.metaKey;
+  if (mod && ev.key === "Enter") {
+    ev.preventDefault();
+    applyRawEdit();
+  } else if (mod && (ev.key === "s" || ev.key === "S")) {
+    ev.preventDefault();
+    void rawEditSave();
+  } else if (ev.key === "Escape") {
+    ev.preventDefault();
+    exitRawWrite();
+  }
+}
+
+// Render whichever view is active. Raw view shows `session.serialize()` (the
+// live document, including unsaved edits) read-only; write mode (R8) never
+// touches `#rawEdit`'s value/selection here — the render loop owns the
+// `<pre>`, the user owns the textarea.
 function renderRawOrTree() {
   const rawEl = $("raw");
-  if (rawState !== "off") {
+  const editEl = $("rawEdit");
+  if (rawState === "write") {
+    rawEl.classList.add("hidden");
+    editEl.classList.remove("hidden");
+    tree.classList.add("hidden");
+  } else if (rawState === "view") {
     rawEl.textContent = session!.serialize();
     rawEl.classList.remove("hidden");
+    editEl.classList.add("hidden");
     tree.classList.add("hidden");
   } else {
     rawEl.classList.add("hidden");
+    editEl.classList.add("hidden");
     tree.classList.remove("hidden");
     renderTree(tree, snap!, getEdit());
   }
@@ -504,20 +627,27 @@ function render() {
   // Render notice (severity-driven)
   renderNotice(snap.notice);
   if (!snap.notice) {
-    // Idle schema hint — mirrors the TUI status line's dynamic behavior
-    // (tooltip-like: appears while the cursor sits on a schema-constrained
-    // node, clears the instant it moves off). Only surfaces when no notice
-    // is showing.
-    let statusText = schemaHintText(session.schemaHint(snap.cursor));
-    if (snap.schema_status && snap.schema_status.violation_count > 0) {
-      statusText = `${statusText} · ${tArgs("core.schema.count", [String(snap.schema_status.violation_count)])}`.trim();
+    if (rawState === "write") {
+      // Cue #3 (State legibility): appears only in write mode, so its
+      // presence is itself part of the cue.
+      statusEl.textContent = t("web.raw.write-hint");
+    } else {
+      // Idle schema hint — mirrors the TUI status line's dynamic behavior
+      // (tooltip-like: appears while the cursor sits on a schema-constrained
+      // node, clears the instant it moves off). Only surfaces when no notice
+      // is showing.
+      let statusText = schemaHintText(session.schemaHint(snap.cursor));
+      if (snap.schema_status && snap.schema_status.violation_count > 0) {
+        statusText = `${statusText} · ${tArgs("core.schema.count", [String(snap.schema_status.violation_count)])}`.trim();
+      }
+      statusEl.textContent = statusText;
     }
-    statusEl.textContent = statusText;
   }
 
   // Active type-filter indicator on the funnel button (same `.on` + dot
   // mechanism as the touch UI, driven by the shared snapshot flag).
   $("btnTypeFilter").classList.toggle("on", snap.type_filter_active);
+  maybeEnterRawWrite();
   renderRawOrTree();
   renderConfirmedPasteCue(snap);
   renderHoverCue(snap, undefined);
@@ -546,7 +676,11 @@ function render() {
   renderOverlay();
   renderFooter();
   updateSaveLabel();
-  if (snap.external_edit) openExternalEdit(snap.external_edit);
+  if (snap.external_edit) {
+    const kind = snap.external_edit.kind;
+    const path = "Value" in kind ? kind.Value.path : kind.Comment.path;
+    if (path.length > 0) openExternalEdit(snap.external_edit);
+  }
   if (snap.convert_write) {
     if (VSHOST) {
       const [outPath, outText] = snap.convert_write;
@@ -2037,6 +2171,7 @@ function bindConvertDialog() {
 
 function bindGlobal() {
   tree.addEventListener("keydown", onKey);
+  $("rawEdit").addEventListener("keydown", (ev) => onRawEditKey(ev as KeyboardEvent));
   // Prompt overlay Yes/No/… buttons (renderOverlay rewrites the innerHTML per
   // render; the delegated listener on the stable #overlay survives).
   bindPromptClicks(overlay, (i) => send(i));

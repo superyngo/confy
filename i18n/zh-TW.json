@@ -146,6 +146,8 @@
   "web.toolbar.viewToggle.title": "切換 Tree／Raw 檢視",
   "web.toolbar.viewToggle.raw": "Raw",
   "web.toolbar.viewToggle.tree": "Tree",
+  "web.raw.write-hint": "⌘↩ 套用 · ⌘S 套用並存檔 · Esc 離開編輯",
+  "web.raw.discard-confirm": "要捨棄整份檔案尚未套用的變更嗎？",
   "web.search.placeholder": "搜尋 key 或 value…（按 / 聚焦）",
   "web.crumbs.root.title": "文件根節點",
   "web.crumbs.browse.title": "瀏覽節點樹",
