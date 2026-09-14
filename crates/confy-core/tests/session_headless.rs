@@ -130,8 +130,11 @@ fn edit_target_kind_inline_for_simple_scalar() {
 
 #[test]
 fn edit_target_kind_external_for_root() {
-    let s = toml_session("port = 8080\n");
-    // cursor is on root (default)
+    let mut s = toml_session("port = 8080\n");
+    // D3 (ADR 0013): the Root is no longer the default cursor, so target it
+    // explicitly — the empty path still routes to the external editor, which
+    // is what the document-scoped `BeginEditDocument` relies on.
+    s.dispatch(Intent::SetCursor(Vec::new()));
     assert_eq!(s.edit_target_kind(), EditKind::External);
 }
 
@@ -159,7 +162,6 @@ fn quit_requested_prompts_when_dirty() {
 #[test]
 fn visible_rows_marks_cursor_and_selection() {
     let mut s = toml_session("a = 1\nb = 2\n");
-    s.cursor_down(); // cursor on 'a'
     s.toggle_select(); // select 'a'
     s.cursor_down(); // cursor on 'b'
     let rows = s.visible_rows();
@@ -352,7 +354,13 @@ fn fake_host_cancelled_edit_leaves_doc_untouched() {
 #[test]
 fn dispatch_navigation_updates_cursor_in_snapshot() {
     let mut s = toml_session("a = 1\nb = 2\n");
+    // D3 (ADR 0013): the cursor is seeded on the first top-level Node, so the
+    // snapshot already names `a` before any navigation.
+    let snap = s.snapshot();
+    assert_eq!(snap.cursor, vec![Seg::Key("a".into())]);
     let snap = s.dispatch(Intent::CursorDown);
+    assert_eq!(snap.cursor, vec![Seg::Key("b".into())], "one step moves on");
+    let snap = s.dispatch(Intent::CursorUp);
     assert_eq!(snap.cursor, vec![Seg::Key("a".into())]);
     // The cursor row is flagged in the snapshot's rows (full-state transport).
     let cursor_row = snap.rows.iter().find(|r| r.is_cursor).unwrap();
@@ -1122,7 +1130,6 @@ fn dispatch_clipboard_count_reflects_copy_then_clears() {
     // Nothing on the clipboard initially.
     assert_eq!(s.snapshot().clipboard_count, None);
     // Select the 'a' row and copy it.
-    s.dispatch(Intent::CursorDown);
     s.dispatch(Intent::ToggleSelect);
     let snap = s.dispatch(Intent::CopySelected);
     assert_eq!(snap.clipboard_count, Some(1));
@@ -1162,7 +1169,6 @@ fn dispatch_paste_drops_selection_and_moves_only_the_cursor_onto_the_pasted_node
     let mut s = toml_session("[t1]\nx = 1\n[t2]\ny = 2\n");
     s.dispatch(Intent::ExpandAll);
     // Navigate onto t1.x (root → t1 → x).
-    s.dispatch(Intent::CursorDown); // t1
     s.dispatch(Intent::CursorDown); // x
     s.dispatch(Intent::ToggleSelect); // select t1.x
     s.dispatch(Intent::CopySelected);
@@ -1846,7 +1852,6 @@ fn remark_targets_selection_over_cursor() {
     // With an active multi-select, remark acts on the SELECTED nodes (like
     // delete/copy), not only on the cursor row.
     let mut s = toml_session("a = 1\nb = 2\nc = 3\n");
-    s.cursor_down(); // cursor on a
     s.toggle_select(); // select a
     s.cursor_down(); // cursor on b
     s.toggle_select(); // select b (cursor stays on b)
@@ -1882,7 +1887,6 @@ fn remark_selection_remaps_to_merged_block_and_back() {
     // selection must remap onto that block (not keep the stale Key paths,
     // which silently no-op every later operation).
     let mut s = toml_session("a = 1\nb = 2\nc = 3\n");
-    s.cursor_down();
     s.toggle_select();
     s.cursor_down();
     s.toggle_select();
@@ -1903,7 +1907,6 @@ fn remark_selection_expands_when_unremarking_merged_block() {
     // Reverse direction: un-remarking a selected merged block splits it back
     // into N live rows; the selection must expand onto all of them.
     let mut s = toml_session("# a = 1\n# b = 2\nc = 3\n");
-    s.cursor_down(); // first content row = the merged comment block
     s.toggle_select();
     s.remark();
     let sel = s.selected_paths();
@@ -1928,7 +1931,6 @@ fn remark_selection_tracks_scattered_rows() {
     // (Key<->Index); the selection must follow the swapped addresses so a
     // second remark still resolves (un-comments both).
     let mut s = toml_session("a = 1\nb = 2\nc = 3\n");
-    s.cursor_down();
     s.toggle_select(); // a
     s.cursor_down();
     s.cursor_down();
@@ -1974,7 +1976,6 @@ fn delete_selected_drops_stale_paths() {
     // (now dead) paths — a dead selection silently blocks the next
     // operation until Esc clears it.
     let mut s = toml_session("a = 1\nb = 2\nc = 3\nd = 4\n");
-    s.cursor_down();
     s.toggle_select();
     s.cursor_down();
     s.toggle_select();
@@ -2003,8 +2004,9 @@ fn delete_selected_snaps_cursor_to_deletion_point() {
     // never used it, so `compute_rows`'s unresolvable-cursor fallback threw the
     // cursor to row 0. Deleting deep in a large file sent the user to the top.
     let mut s = toml_session("a = 1\nb = 2\nc = 3\nd = 4\ne = 5\n");
-    // Select 'c' and 'd' (rows 3 and 4; row 0 is the root).
-    for _ in 0..3 {
+    // Select 'c' and 'd'. D3 (ADR 0013) seeds the cursor on 'a', so two steps
+    // reach 'c' — row 0 is still the Root row, but no cursor ever sits on it.
+    for _ in 0..2 {
         s.cursor_down();
     }
     s.toggle_select();
@@ -2027,9 +2029,7 @@ fn delete_selected_at_tail_clamps_cursor_to_last_row() {
     // Deleting the final rows leaves `first_idx` past the end of the shortened
     // list; it must clamp instead of panicking or falling back to row 0.
     let mut s = toml_session("a = 1\nb = 2\nc = 3\n");
-    for _ in 0..2 {
-        s.cursor_down();
-    }
+    s.cursor_down(); // D3: seeded on 'a', one step reaches 'b'
     s.toggle_select();
     s.cursor_down();
     s.toggle_select();
@@ -2133,7 +2133,9 @@ fn reveal_path_ignores_unknown_path() {
     );
     let rows = s.visible_rows();
     let cursor_row = rows.iter().find(|r| r.is_cursor).unwrap();
-    assert_eq!(cursor_row.key, "", "cursor stays on root");
+    // D3 (ADR 0013): the seeded cursor is the first top-level Node, and an
+    // unknown reveal path leaves it exactly there.
+    assert_eq!(cursor_row.key, "a", "cursor did not move");
 }
 
 #[test]
@@ -3538,7 +3540,6 @@ fn open_editor(s: &mut Session) -> (Vec<Seg>, String) {
 #[test]
 fn editor_buffer_packages_the_trailing_blank_run() {
     let mut s = toml_session("a = 1\n\n\nb = 2\n");
-    s.dispatch(Intent::CursorDown);
     let (_, buf) = open_editor(&mut s);
     assert_eq!(buf, "a = 1\n\n\n", "two blank lines are part of the buffer");
 }
@@ -3546,7 +3547,6 @@ fn editor_buffer_packages_the_trailing_blank_run() {
 #[test]
 fn editor_buffer_grows_and_removes_the_run() {
     let mut s = toml_session("a = 1\nb = 2\n");
-    s.dispatch(Intent::CursorDown);
     let (path, buf) = open_editor(&mut s);
     assert_eq!(buf, "a = 1\n");
     s.dispatch(Intent::ApplyReplace {
@@ -3585,7 +3585,6 @@ fn editor_round_trip_of_an_untouched_buffer_changes_nothing() {
 #[test]
 fn editor_value_and_blank_change_undo_together() {
     let mut s = toml_session("a = 1\nb = 2\n");
-    s.dispatch(Intent::CursorDown);
     let (path, _) = open_editor(&mut s);
     s.dispatch(Intent::ApplyReplace {
         path,
@@ -3604,7 +3603,6 @@ fn editor_value_and_blank_change_undo_together() {
 #[test]
 fn editor_buffer_sets_a_tables_run() {
     let mut s = toml_session("[t]\nx = 1\n[u]\ny = 2\n");
-    s.dispatch(Intent::CursorDown);
     let (path, buf) = open_editor(&mut s);
     assert_eq!(buf, "[t]\nx = 1\n");
     s.dispatch(Intent::ApplyReplace {
@@ -3617,7 +3615,6 @@ fn editor_buffer_sets_a_tables_run() {
 #[test]
 fn editor_buffer_keeps_the_trailing_comment_while_setting_the_run() {
     let mut s = toml_session("a = 1  # keep\nb = 2\n");
-    s.dispatch(Intent::CursorDown);
     let (path, _) = open_editor(&mut s);
     s.dispatch(Intent::ApplyReplace {
         path,
@@ -3629,7 +3626,6 @@ fn editor_buffer_keeps_the_trailing_comment_while_setting_the_run() {
 #[test]
 fn editor_buffer_packages_the_run_in_yaml_and_json() {
     let mut y = yaml_session("a: 1\n\nb: 2\n");
-    y.dispatch(Intent::CursorDown);
     let (path, buf) = open_editor(&mut y);
     assert_eq!(buf, "a: 1\n\n");
     y.dispatch(Intent::ApplyReplace {
@@ -3641,7 +3637,6 @@ fn editor_buffer_packages_the_run_in_yaml_and_json() {
     let doc =
         AnyDocument::from_str_as("{\n  \"a\": 1,\n\n  \"b\": 2\n}\n", DocFormat::Json).unwrap();
     let mut j = Session::new(doc);
-    j.dispatch(Intent::CursorDown);
     let (path, buf) = open_editor(&mut j);
     assert_eq!(buf, "\"a\": 1\n\n");
     j.dispatch(Intent::ApplyReplace {
@@ -3657,7 +3652,6 @@ fn editor_buffer_packages_the_run_in_yaml_and_json() {
 #[test]
 fn editor_buffer_packages_a_comment_nodes_run() {
     let mut s = toml_session("# note\n\na = 1\n");
-    s.dispatch(Intent::CursorDown);
     let (path, buf) = open_editor(&mut s);
     assert_eq!(buf, "# note\n\n");
     s.dispatch(Intent::ApplyEditComment {
@@ -3687,7 +3681,6 @@ fn editor_buffer_packages_nothing_for_a_flow_member() {
 #[test]
 fn editor_round_trip_keeps_a_padded_flow_maps_closing_space() {
     let mut s = yaml_session("m: { a: 1, b: 2 }\nz: 3\n");
-    s.dispatch(Intent::CursorDown);
     s.dispatch(Intent::ToggleExpand);
     for _ in 0..2 {
         s.dispatch(Intent::CursorDown);
@@ -3705,7 +3698,6 @@ fn editor_round_trip_keeps_a_padded_flow_maps_closing_space() {
 #[test]
 fn editor_round_trip_of_a_flow_seq_element_edits_only_that_element() {
     let mut s = yaml_session("g: [ 1, 2, 3 ]\nz: 3\n");
-    s.dispatch(Intent::CursorDown);
     s.dispatch(Intent::ToggleExpand);
     s.dispatch(Intent::CursorDown);
     let (path, buf) = open_editor(&mut s);
@@ -3730,7 +3722,6 @@ fn editor_round_trip_of_a_flow_seq_element_edits_only_that_element() {
 #[test]
 fn editor_round_trip_of_a_nested_flow_collection_element() {
     let mut s = yaml_session("g: [ {x: 1}, 2 ]\nz: 3\n");
-    s.dispatch(Intent::CursorDown);
     s.dispatch(Intent::ToggleExpand);
     s.dispatch(Intent::CursorDown);
     let (path, buf) = open_editor(&mut s);
@@ -3755,7 +3746,6 @@ fn editor_round_trip_of_a_nested_flow_collection_element() {
 #[test]
 fn inline_edit_is_refused_on_a_read_only_node_and_names_its_source() {
     let mut s = yaml_session("g: [ &a 1, 2 ]\nz: 3\n");
-    s.dispatch(Intent::CursorDown);
     let snap = s.dispatch(Intent::BeginEdit);
     assert!(
         matches!(snap.mode, ModeView::Normal),
@@ -3774,7 +3764,6 @@ fn inline_edit_is_refused_on_a_read_only_node_and_names_its_source() {
         AnyDocument::from_str_as("{\n  /* blk */\n  \"a\": 1\n}\n", DocFormat::Json).unwrap(),
     );
     j.dispatch(Intent::ExpandAll);
-    j.dispatch(Intent::CursorDown);
     let snap = j.dispatch(Intent::BeginEdit);
     assert!(matches!(snap.mode, ModeView::Normal));
     assert_eq!(j.readonly_notice_key(), "core.readonly.comment");
@@ -3851,7 +3840,18 @@ fn external_edit_of_a_flow_item_is_precise_in_every_backend() {
 fn editor_buffer_keeps_a_files_trailing_blanks_on_a_whole_document_edit() {
     for src in ["a = 1\n\n\n", "a = 1\n\n\nb = 2"] {
         let mut s = toml_session(src);
-        let (path, buf) = open_editor(&mut s);
+        // D3 / ADR 0014: the whole-file buffer comes from the document-scoped
+        // intent, not from parking the cursor on a Root row.
+        let ext = s
+            .dispatch(Intent::BeginEditDocument)
+            .external_edit
+            .expect("a pending document edit");
+        let path = match ext.kind {
+            confy_core::session::ExternalEditKind::Value { path } => path,
+            other => panic!("expected a value edit, got {other:?}"),
+        };
+        let buf = ext.initial;
+        assert!(path.is_empty(), "the document edit is the empty path");
         assert_eq!(buf, src, "the root packages its text verbatim");
         s.dispatch(Intent::ApplyReplace { path, text: buf });
         assert_eq!(s.serialize().unwrap(), src, "round trip of {src:?}");
@@ -3889,7 +3889,6 @@ fn editor_buffer_packages_a_run_its_span_swallows() {
     ];
     for (fmt, src, want) in cases {
         let mut s = Session::new(AnyDocument::from_str_as(src, *fmt).unwrap());
-        s.dispatch(Intent::CursorDown);
         let (path, buf) = open_editor(&mut s);
         assert_eq!(&buf.as_str(), want, "buffer for {src:?}");
         s.dispatch(Intent::ApplyReplace {
@@ -3918,7 +3917,6 @@ fn editor_buffer_packages_a_run_its_span_swallows() {
 fn editor_buffer_packages_a_json_comment_blocks_run() {
     let src = "{\n  // a\n  // b\n\n\n  \"x\": 1\n}\n";
     let mut s = Session::new(AnyDocument::from_str_as(src, DocFormat::Json).unwrap());
-    s.dispatch(Intent::CursorDown);
     let (path, buf) = open_editor(&mut s);
     assert_eq!(buf, "// a\n// b\n\n\n");
     s.dispatch(Intent::ApplyEditComment { path, text: buf });
@@ -4331,7 +4329,6 @@ fn redo_is_refused_while_the_document_edit_is_open() {
 #[test]
 fn a_per_node_pending_edit_does_not_lock_mutations_or_undo_redo() {
     let mut s = toml_session("a = 1\nb = 2\n");
-    s.dispatch(Intent::CursorDown); // onto `a`
     let snap = s.dispatch(Intent::BeginEditExternal);
     let ext = snap.external_edit.expect("a pending per-node edit");
     match &ext.kind {
@@ -4396,4 +4393,133 @@ fn span_of_resolves_yaml_and_json_comments() {
     let js = Session::new(doc);
     let (start, end) = js.span_of(&vec![Seg::Index(0)]).expect("json comment");
     assert_eq!(&jsrc[start as usize..end as usize], "// note");
+}
+
+// ---- Root-hidden alignment, slice S1 (ADR 0013: D7 / D3 / D2) ----
+
+/// D7: the Root can never be an operand of a *row* operation. Before this
+/// guard, `CutSelected` with the (then default) Root cursor armed the
+/// clipboard with a node that can never paste, and the armed clipboard held
+/// the modal lock with `Esc` as its only exit (design record P1/E4).
+#[test]
+fn the_root_can_never_arm_the_clipboard() {
+    let mut s = toml_session("a = 1\nb = 2\n");
+    s.dispatch(Intent::SetCursor(Vec::new()));
+    let snap = s.dispatch(Intent::CutSelected);
+    assert_eq!(snap.clipboard_count, None, "no clipboard armed on the Root");
+    assert_eq!(
+        snap.status_text(),
+        Some(
+            "the document file itself is not a row — use the Actions menu for whole-file operations"
+        )
+    );
+    // Copy, Delete and Remark refuse identically, and the document is untouched.
+    for intent in [Intent::CopySelected, Intent::DeleteSelected, Intent::Remark] {
+        let snap = s.dispatch(intent);
+        assert_eq!(snap.clipboard_count, None);
+        assert!(snap.status_text().is_some(), "refusal is reported");
+    }
+    assert_eq!(s.serialize().unwrap(), "a = 1\nb = 2\n");
+}
+
+/// D7: none of the selection entry points admits the Root.
+#[test]
+fn the_root_never_enters_the_selection() {
+    let mut s = toml_session("a = 1\nb = 2\n");
+    s.dispatch(Intent::SetCursor(Vec::new()));
+    let snap = s.dispatch(Intent::ToggleSelect);
+    assert!(
+        snap.rows.iter().all(|r| !r.selected),
+        "ToggleSelect on the Root selects nothing"
+    );
+    // The pointer route drops it while keeping the real rows.
+    let snap = s.dispatch(Intent::SetSelection {
+        paths: vec![Vec::new(), vec![Seg::Key("b".into())]],
+    });
+    let selected: Vec<&str> = snap
+        .rows
+        .iter()
+        .filter(|r| r.selected)
+        .map(|r| r.key.as_str())
+        .collect();
+    assert_eq!(selected, vec!["b"], "only the real row survives");
+    // A shift-range round never grows onto the Root either.
+    let mut s2 = toml_session("a = 1\nb = 2\n");
+    let snap = s2.dispatch(Intent::ExtendSelectUp);
+    assert!(
+        snap.rows.iter().all(|r| !(r.selected && r.path.is_empty())),
+        "the round refuses to extend onto the Root"
+    );
+    assert_eq!(
+        snap.cursor,
+        vec![Seg::Key("a".into())],
+        "cursor held at 'a'"
+    );
+}
+
+/// D3: a fresh Session seats the cursor on the first top-level Node, not on
+/// the Root — in core, for every host (the web hosts used to re-target it
+/// per keystroke with `drawnCursorFallback`).
+#[test]
+fn a_fresh_session_seats_the_cursor_on_the_first_top_level_node() {
+    for (src, fmt, want) in [
+        ("a = 1\nb = 2\n", DocFormat::Toml, "a"),
+        ("{\n  \"k\": 1\n}\n", DocFormat::Json, "k"),
+        ("m: 1\n", DocFormat::Yaml, "m"),
+    ] {
+        let s = Session::new(AnyDocument::from_str_as(src, fmt).unwrap());
+        let row = s.cursor_row().expect("a seeded cursor row");
+        assert_eq!(row.key, want, "seeded cursor for {src:?}");
+        assert!(!row.path.is_empty(), "never the Root");
+    }
+    // An empty document has no top-level Node to seat it on.
+    let s = Session::new(AnyDocument::from_str_as("", DocFormat::Toml).unwrap());
+    assert!(s.cursor_row().map(|r| r.path.is_empty()).unwrap_or(true));
+}
+
+/// D2: the Root is unconditionally expanded, so neither `CollapseAll` nor
+/// `Space` on the Root can produce the zero-row tree of P2/E5 (core returned
+/// one row, both web hosts drew none).
+#[test]
+fn no_route_collapses_the_document_into_an_empty_tree() {
+    let mut s = toml_session("a = 1\n[t]\nx = 1\n");
+    let snap = s.dispatch(Intent::CollapseAll);
+    let top: Vec<&str> = snap
+        .rows
+        .iter()
+        .filter(|r| r.path.len() == 1)
+        .map(|r| r.key.as_str())
+        .collect();
+    assert_eq!(top, vec!["a", "t"], "the first layer stays visible");
+    // `Space` on the Root is now inert rather than collapsing the file.
+    s.dispatch(Intent::SetCursor(Vec::new()));
+    let snap = s.dispatch(Intent::ToggleExpand);
+    assert!(
+        snap.rows.iter().any(|r| r.path.len() == 1),
+        "the document cannot be collapsed away: {:?}",
+        snap.rows.iter().map(|r| r.key.clone()).collect::<Vec<_>>()
+    );
+    // …and `CollapseLevel` from a top-level row cannot do it either.
+    s.dispatch(Intent::SetCursor(vec![Seg::Key("t".into())]));
+    let snap = s.dispatch(Intent::CollapseLevel);
+    assert!(snap.rows.iter().any(|r| r.path.len() == 1));
+}
+
+/// D7: with the cursor on the Root, every *node-scoped* Action item dims and
+/// only the document-scoped one stays live (the refusal notice remains the
+/// keyboard backstop).
+#[test]
+fn the_action_menu_on_the_root_offers_only_the_document_item() {
+    let mut s = toml_session("a = 1\n");
+    s.dispatch(Intent::SetCursor(Vec::new()));
+    let snap = s.dispatch(Intent::OpenActionMenu);
+    let ModeView::ActionMenu { items, .. } = snap.mode else {
+        panic!("expected the action menu, got {:?}", snap.mode);
+    };
+    let enabled: Vec<&str> = items
+        .iter()
+        .filter(|it| it.enabled)
+        .map(|it| it.label.as_str())
+        .collect();
+    assert_eq!(enabled, vec!["Edit whole file"], "items: {items:?}");
 }

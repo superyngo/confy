@@ -39,6 +39,11 @@ impl Session {
         let single_read_only = single.map(|n| n.read_only).unwrap_or(false);
         let single_is_branch = single.map(|n| n.is_branch()).unwrap_or(false);
         let single_has_parent = paths.len() == 1 && !paths[0].is_empty();
+        // D7 (ADR 0013): the Root is never an operand of a row operation, so
+        // every node-scoped item dims on it — the refusal notice
+        // (`guard_root_operand`) stays as the backstop for the keyboard keys.
+        // Only `EditDocument` is document-scoped and survives.
+        let root_target = paths.is_empty() || paths.iter().any(|p| p.is_empty());
         let any_read_only = paths
             .iter()
             .any(|p| self.tree.node_at(p).map(|n| n.read_only).unwrap_or(false));
@@ -55,14 +60,14 @@ impl Session {
             mk(
                 ActionId::Edit,
                 "core.action.edit",
-                paths.len() == 1 && !single_read_only,
+                paths.len() == 1 && !single_read_only && !root_target,
                 false,
                 false,
             ),
             mk(
                 ActionId::AddChild,
                 "core.action.add-child",
-                paths.len() == 1 && single_is_branch,
+                paths.len() == 1 && single_is_branch && !root_target,
                 false,
                 false,
             ),
@@ -73,25 +78,31 @@ impl Session {
                 false,
                 false,
             ),
-            mk(ActionId::Copy, "core.action.copy", true, false, false),
+            mk(
+                ActionId::Copy,
+                "core.action.copy",
+                !root_target,
+                false,
+                false,
+            ),
             mk(
                 ActionId::Cut,
                 "core.action.cut",
-                !any_read_only,
+                !any_read_only && !root_target,
                 false,
                 false,
             ),
             mk(
                 ActionId::Remark,
                 "core.action.remark",
-                !any_read_only,
+                !any_read_only && !root_target,
                 false,
                 false,
             ),
             mk(
                 ActionId::Detail,
                 "core.action.detail",
-                paths.len() == 1,
+                paths.len() == 1 && !root_target,
                 false,
                 false,
             ),
@@ -110,7 +121,7 @@ impl Session {
             mk(
                 ActionId::Delete,
                 "core.action.delete",
-                !any_read_only,
+                !any_read_only && !root_target,
                 false,
                 true,
             ),

@@ -114,11 +114,21 @@ impl Session {
 
     /// Construct a headless Session from a pre-built NodeTree (used in unit tests).
     pub fn from_tree(tree: NodeTree) -> Self {
-        let expanded = HashSet::from([Vec::new()]);
+        // D2: the Root's expand state is no longer part of the set at all.
+        let expanded = HashSet::new();
+        // D3 (ADR 0013): the cursor is seeded on the first **top-level** Node,
+        // never on the Root — the Root is a model node, not a row a cursor can
+        // sit on. An empty document has no row, hence the empty path.
+        let cursor = tree
+            .root
+            .children
+            .first()
+            .map(|n| n.path.clone())
+            .unwrap_or_default();
         Session {
             tree,
             doc: None,
-            cursor: Vec::new(),
+            cursor,
             expanded,
             selection: Selection::new(),
             last_action_was_shift_select: false,
@@ -176,7 +186,12 @@ impl Session {
     /// `visible_rows` builds the owned `ViewRow` transport on top of it.
     fn visible_nodes(&self) -> Vec<VisibleRow<'_>> {
         let expanded = &self.expanded;
-        let rows = self.tree.flatten(&|p| expanded.contains(p));
+        // D2 (ADR 0013): the Root is **unconditionally expanded**. Its
+        // expand state was never user-visible (`CollapseAll` re-inserted it,
+        // `CollapseLevel` refused to remove it) and collapsing it produced a
+        // one-row core tree that both web hosts draw as zero rows — a tree
+        // with no rows and no cursor (design record P2/E5).
+        let rows = self.tree.flatten(&|p| p.is_empty() || expanded.contains(p));
         match &self.filtered_paths {
             Some(fp) => rows
                 .into_iter()
@@ -201,7 +216,7 @@ impl Session {
     /// would punch holes in the ancestor chain.
     pub fn visible_rows(&self) -> Vec<ViewRow> {
         let expanded = &self.expanded;
-        let all = self.tree.flatten(&|p| expanded.contains(p));
+        let all = self.tree.flatten(&|p| p.is_empty() || expanded.contains(p));
         // Cumulative display path at each depth; `chain[d]` is the display path
         // of the current row at depth `d`.
         let mut chain: Vec<String> = Vec::with_capacity(16);
@@ -359,7 +374,10 @@ impl Session {
                 return false;
             }
         }
-        (0..path.len()).all(|i| self.expanded.contains(&path[..i]))
+        // D2 (ADR 0013): mirrors `visible_nodes`' predicate — the Root's
+        // prefix (`&path[..0]`, the empty path) is expanded unconditionally,
+        // so it is no longer required to be a member of the set.
+        (0..path.len()).all(|i| i == 0 || self.expanded.contains(&path[..i]))
     }
 
     /// O(depth) lookup of the `ViewRow` for one path, without materializing
@@ -557,14 +575,20 @@ impl Session {
         else {
             return;
         };
+        // D2: the Root has no collapsed state to toggle into.
+        if path.is_empty() {
+            return;
+        }
         if is_branch && !self.expanded.remove(&path) {
             self.expanded.insert(path);
         }
     }
 
     pub fn collapse_all(&mut self) {
+        // D2: no `insert(Vec::new())` — `visible_nodes`' predicate expands the
+        // Root unconditionally, so the first layer stays visible by contract
+        // rather than by this one re-insertion.
         self.expanded.clear();
-        self.expanded.insert(Vec::new());
     }
 
     pub fn expand_all(&mut self) {
@@ -831,7 +855,10 @@ impl Session {
     }
 
     pub fn is_expanded(&self, path: &Path) -> bool {
-        self.expanded.contains(path)
+        // D2 (ADR 0013): the Root is expanded by contract, not by membership —
+        // every caret/outline glyph must read it as open (the TUI drew a
+        // collapsed `▸` on a file whose children were all on screen).
+        path.is_empty() || self.expanded.contains(path)
     }
 
     pub(crate) fn resting_mode(&self) -> Mode {
@@ -1607,7 +1634,25 @@ impl Session {
         if self.clipboard.is_some() {
             return;
         }
+        // D7 (ADR 0013): the Root never enters the selection.
+        if self.cursor.is_empty() {
+            return;
+        }
         self.selection.toggle(self.cursor.clone());
+    }
+
+    /// D7 (ADR 0013): the document Root is never a legal operand of a *row*
+    /// operation. `true` means "refused, notice set" — the caller returns.
+    /// Without it, Cut on the Root succeeded and armed the clipboard with a
+    /// node that can never paste, while the armed clipboard held the modal
+    /// lock (ADR 0005 §5) with `Esc` as its only exit (design record P1/E4).
+    /// Whole-document work has its own document-scoped route (ADR 0014).
+    pub(crate) fn guard_root_operand(&mut self, paths: &[Path]) -> bool {
+        if !paths.iter().any(|p| p.is_empty()) {
+            return false;
+        }
+        self.set_notice(Notice::core(self.lang, "core.selection.root-excluded", &[]));
+        true
     }
 
     /// Pointer analogue of the keyboard selection keys: replace the whole
@@ -1620,7 +1665,11 @@ impl Session {
             return;
         }
         let visible: std::collections::HashSet<Path> = self.visible_paths().into_iter().collect();
-        let kept: Vec<Path> = paths.into_iter().filter(|p| visible.contains(p)).collect();
+        // D7: a pointer selection drops the Root along with anything invisible.
+        let kept: Vec<Path> = paths
+            .into_iter()
+            .filter(|p| !p.is_empty() && visible.contains(p))
+            .collect();
         if let Some(focal) = kept.last() {
             self.cursor = focal.clone();
         }
@@ -1633,12 +1682,21 @@ impl Session {
         if self.clipboard.is_some() {
             return;
         }
+        // D7: with the cursor still able to sit on the TUI's Root row, a
+        // range round must not be *anchored* there either — move, select
+        // nothing.
+        if self.cursor.is_empty() {
+            self.cursor_up();
+            return;
+        }
         let rows = self.visible_rows();
         if !self.last_action_was_shift_select {
             self.selection.begin_round(self.cursor.clone());
         }
         let idx = rows.iter().position(|r| r.path == self.cursor).unwrap_or(0);
-        if idx > 0 {
+        // D7: `idx > 1` where the Root is still row 0 on the TUI — a range
+        // round never grows onto it.
+        if idx > 0 && !rows[idx - 1].path.is_empty() {
             self.cursor = rows[idx - 1].path.clone();
             let visible = rows.iter().map(|r| r.path.clone()).collect::<Vec<_>>();
             let to = self.cursor.clone();
@@ -1649,6 +1707,11 @@ impl Session {
 
     pub fn extend_select_down(&mut self) {
         if self.clipboard.is_some() {
+            return;
+        }
+        // D7: see `extend_select_up` — no round anchored on the Root.
+        if self.cursor.is_empty() {
+            self.cursor_down();
             return;
         }
         let rows = self.visible_rows();

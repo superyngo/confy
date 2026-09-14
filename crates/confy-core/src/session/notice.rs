@@ -96,6 +96,7 @@ pub fn severity_of(key: &str) -> Severity {
         | "core.fragment.invalid"
         | "core.remark.invalid"
         | "core.convert.root-only"
+        | "core.selection.root-excluded"
         | "core.kind-switch.unsupported"
         | "core.add.unsupported"
         | "core.schema.violation"
@@ -175,6 +176,7 @@ mod tests {
             ("core.fragment.invalid", Severity::Warn),
             ("core.remark.invalid", Severity::Warn),
             ("core.convert.root-only", Severity::Warn),
+            ("core.selection.root-excluded", Severity::Warn),
             ("core.kind-switch.unsupported", Severity::Warn),
             ("core.add.unsupported", Severity::Warn),
             ("core.schema.violation", Severity::Warn),
@@ -197,8 +199,8 @@ mod tests {
         ];
         assert_eq!(
             cases.len(),
-            45,
-            "45 `core.*` notice keys: 12 Error + 17 Warn + 7 Success + 9 Info. \
+            46,
+            "46 `core.*` notice keys: 12 Error + 18 Warn + 7 Success + 9 Info. \
              This list mirrors every `core.` arm of `severity_of` above; the 23 \
              host-authored `tui.*`/`web.*` keys it also classifies are out of scope \
              here. Keep it in step with MESSAGES.md §2.2 — the two are checked \

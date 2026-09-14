@@ -13,9 +13,9 @@ copied from the design record's slices; nothing here adds scope to it.
 |---|---|---|---|
 | T0 | ADR 0013 + design record `Approved` + this plan | SD | **Done** (ADR `2026-09-11`; record/plan `2026-09-14`) |
 | T1 | Baseline evidence E1–E6 | S0 | **Done** (2026-09-14) |
-| T2 | D7 selection guard — `[]` cannot enter the selection | S1 | Open |
-| T3 | D3 cursor seeding in core — first top-level Node | S1 | Open |
-| T4 | D2 Root unconditionally expanded | S1 | Open |
+| T2 | D7 selection guard — `[]` cannot enter the selection | S1 | **Done** (2026-09-14) |
+| T3 | D3 cursor seeding in core — first top-level Node | S1 | **Done** (2026-09-14) |
+| T4 | D2 Root unconditionally expanded | S1 | **Done** (2026-09-14) |
 | T5 | D1 root-hidden flatten + D4 depth rebase | S2 | Open |
 | T6 | D5 paste-slot screen order | S2 | Open |
 | T7 | D10 Convert drops its root-cursor precondition | S2 | Open |
@@ -52,6 +52,22 @@ is the before-picture); a zero-child document yields zero rows and a legal add t
 real-binary TUI pass (title bar still names the file, first row is a top-level Node at the
 leftmost indent, both document edges cue in paste mode, `C` works from any row) and
 `rg` returning no hits for the deleted web symbols.
+
+## Deviations recorded while implementing
+
+- **T4 kept `collapse_level`'s two root guards.** The design record's D2 says they die with
+  the re-insertion. They cannot yet: `path.is_empty()` guards a `path.len() - 1` underflow, and
+  `target.is_empty()` is what stops a top-level row's collapse from parking the cursor on the
+  Root while the TUI still draws that row. Both become removable in T10, once no cursor can
+  reach the Root at all.
+- **T4 also had to fix two Root-expanded readers the record does not name:** `is_path_visible`
+  (an ancestor-prefix walk that required `[]` in the expand set, so every single-row lookup —
+  `cursor_row`, hence the whole Action menu — went blind) and `is_expanded` (the TUI drew a
+  collapsed `▾`→`▸` caret on a file whose children were all on screen). Both now mirror
+  `visible_nodes`' predicate.
+- **T2 additionally dims the Action menu's node-scoped items on the Root** (the backlog row's
+  own acceptance wording), leaving only document-scoped `Edit whole file`. The refusal notice
+  stays as the keyboard backstop.
 
 ## Ordering constraint
 

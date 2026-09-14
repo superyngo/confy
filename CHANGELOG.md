@@ -10,6 +10,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-14 (18)
+
+**Fixed — root-hidden alignment S1 (T2–T4): the Root stops behaving like a row**
+
+Direction-neutral core mechanism from `docs/plan/2026-09-11-root-hidden-alignment.md`
+(ADR 0013 D7/D3/D2). The TUI still *draws* the Root row — that is S2/S4 — so it remains the
+parity oracle; what changes is that no cursor is seeded there, nothing selects it, no row
+operation accepts it, and it can no longer be collapsed.
+
+- **D7 — the Root is never an operand of a row operation.** New `guard_root_operand`, called by
+  `cut_selected`/`copy_selected`, `delete_selected` and `remark`: the refusal is the new
+  `core.selection.root-excluded` (`Warn`, both catalogs). Previously `Cut` on the (then default)
+  Root cursor **succeeded**, arming the clipboard with a node that can never paste while the
+  armed clipboard held the modal lock (ADR 0005 §5) with `Esc` as its only exit — measured as
+  E4 this morning. All four selection entry points now drop `[]` as well (`ToggleSelect`,
+  `SetSelection`, and both ⇧-range rounds, which refuse to anchor or extend onto it), and the
+  **Action menu dims every node-scoped item** on the Root, leaving only document-scoped
+  `Edit whole file`.
+- **D3 — cursor seeding moved into core.** `Session::from_tree` seats the cursor on the first
+  top-level Node instead of on the Root (an empty document keeps the empty path). This is the
+  core answer to what the web hosts patched per keystroke with `drawnCursorFallback` — that
+  deletion is S5, not this slice.
+- **D2 — the Root is unconditionally expanded.** `visible_nodes`/`visible_rows` flatten with
+  `p.is_empty() || expanded.contains(p)`, `collapse_all` no longer re-inserts `[]`, and
+  `ToggleExpand` on the Root is inert. `Space` there used to return one core row, which both
+  web renderers draw as **zero** — a tree with no rows and no cursor (E5). Two readers the
+  design record did not name had to follow: `is_path_visible` (its ancestor-prefix walk
+  required `[]` in the set, so every single-row lookup — `cursor_row`, hence the whole Action
+  menu — went blind) and `is_expanded` (the TUI drew a collapsed `▸` caret on a file whose
+  children were all on screen).
+- **Verified on the real `confy` binary** (tmux, `--lang en`): the caret reads `▾`, `Up` onto
+  the Root followed by `Space` leaves all rows in place, `r` there reports the new refusal, and
+  the Action menu shows `Edit whole file` as its only live item. Plus `cargo test --workspace`,
+  `cargo clippy --workspace --all-targets -D warnings`, `functional_smoke.mjs`,
+  `npm run typecheck`, `npm test`.
+- **Test churn:** 5 new headless tests pin D7/D3/D2 and the menu dimming; ~28 existing
+  `session_headless.rs` tests plus 3 TUI tests lost the leading `CursorDown` that used to step
+  off the Root row (`root_node_can_collapse_and_expand` became
+  `root_node_cannot_be_collapsed`), and the whole-document buffer test now opens through
+  `BeginEditDocument` rather than by parking the cursor on the Root.
+
 ### Update - 2026-09-14 (17)
 
 **Docs — root-hidden alignment: SD + S0 (documentation and evidence only, no product code)**

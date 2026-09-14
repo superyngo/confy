@@ -107,7 +107,7 @@ check("old hello gone", !out.includes("hello"), out);
 // The buffer packages the node's trailing blank lines, and the commit splits
 // them back off — the node and its run are one editable package.
 const s2b = new ConfySession(`a = 1\n\n\nb = 2\n`, "toml");
-s2b.dispatch(unit("CursorDown"));
+// D3 (ADR 0013): the cursor is seeded on `a`, so no step off a Root row.
 const extB = s2b.dispatch(unit("BeginEditExternal")).external_edit;
 check("buffer carries the trailing blank run", extB.initial === "a = 1\n\n\n", JSON.stringify(extB.initial));
 s2b.dispatch(tuple("ApplyReplace", { path: extB.kind.Value.path, text: "a = 1\n" }));

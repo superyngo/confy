@@ -191,7 +191,7 @@ fn cursor_moves_and_expand_reveals_children() {
     app.rebuild_rows();
     // collapsed: root, a, b
     assert_eq!(app.visible_keys(), vec!["f.toml", "a", "b"]);
-    app.cursor_down(); // on `a`
+    // D3 (ADR 0013): the cursor is seeded on `a`, never on the Root row.
     app.toggle_expand(); // expand a
     app.rebuild_rows();
     assert_eq!(app.visible_keys(), vec!["f.toml", "a", "x", "b"]);
@@ -200,16 +200,18 @@ fn cursor_moves_and_expand_reveals_children() {
     assert_eq!(app.visible_keys(), vec!["f.toml", "a", "b"]);
 }
 
+/// D2 (ADR 0013): the Root has no collapsed state. `Space` on it — reachable
+/// only by pointing the cursor there explicitly, since D3 never seeds it — is
+/// inert, where it used to collapse the file into a single row (P2/E5).
 #[test]
-fn root_node_can_collapse_and_expand() {
+fn root_node_cannot_be_collapsed() {
     let mut app = sample();
     app.rebuild_rows();
     assert_eq!(app.visible_keys(), vec!["f.toml", "a", "b"]);
-    // cursor is on the root row; toggling collapses the whole file node.
+    app.session.cursor = Vec::new();
     app.toggle_expand();
     app.rebuild_rows();
-    assert_eq!(app.visible_keys(), vec!["f.toml"]);
-    // toggling again re-opens it.
+    assert_eq!(app.visible_keys(), vec!["f.toml", "a", "b"]);
     app.toggle_expand();
     app.rebuild_rows();
     assert_eq!(app.visible_keys(), vec!["f.toml", "a", "b"]);
@@ -342,10 +344,8 @@ fn collapse_level_never_collapses_root() {
         ["a"],
         "top-level nodes stay visible"
     );
-    assert!(
-        app.session.expanded.contains(&Vec::new()),
-        "root must remain expanded"
-    );
+    // D2: the Root's expand state is no longer a set member at all — it is
+    // expanded by contract, which is what keeps the first layer visible above.
 }
 
 #[test]
