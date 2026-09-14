@@ -151,6 +151,7 @@
   "web.raw.controls.view": "檢視",
   "web.raw.controls.edit": "編輯",
   "web.raw.controls.apply": "套用",
+  "web.raw.controls.cancel": "取消",
   "web.raw.jump-needs-apply": "請先套用緩衝區內容才能跳選此節點",
   "web.search.placeholder": "搜尋 key 或 value…（按 / 聚焦）",
   "web.crumbs.root.title": "文件根節點",

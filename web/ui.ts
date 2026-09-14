@@ -54,7 +54,7 @@ import { installDnd } from "./dnd.js";
 import { rootSlotLine, slotLineIndentPx } from "./slot-line.js";
 import { panelHTML, wirePanel, schemaHintText } from "./panel.js";
 import { renderCrumbs, wireCrumbDismiss } from "./breadcrumb.js";
-import { byteToCodeUnit, findOutlineByPath } from "./text-offset.js";
+import { byteToCodeUnit } from "./text-offset.js";
 import { bindPromptClicks, promptButtonsHTML } from "./prompt.js";
 import { typeFilterHTML, wireTypeFilter } from "./typefilter.js";
 import {
@@ -455,6 +455,18 @@ function exitRawWrite(): void {
   setRawState("view");
 }
 
+// The band's first control is one toggle, so both directions live in one
+// function (shared by the button, the overflow-menu entry): into write mode
+// via core's pending-edit flow, out of it via the same confirm-gated exit
+// Escape uses. VS Code (R10) never enters, so the toggle is disabled there.
+function toggleRawWrite(): void {
+  if (rawState === "write") {
+    exitRawWrite();
+    return;
+  }
+  if (!VSHOST) send("BeginEditDocument");
+}
+
 // ⌘/Ctrl+Enter Apply, ⌘/Ctrl+S apply-if-dirty-then-save, Esc exit — the only
 // keys write mode itself handles; every other key is native `<textarea>`
 // typing. In Raw *view* the same element is `readonly` and handles nothing:
@@ -518,11 +530,14 @@ function jumpSelectRawSpan(path: Path) {
     statusEl.textContent = t("web.raw.jump-needs-apply");
     return;
   }
-  const node = findOutlineByPath(session.outline(), path);
-  if (!node) return;
+  // `span_of` rather than the `outline()` walk: outline omits Comment nodes
+  // by design (VS Code symbols), which made a jump to a comment row a
+  // silent no-op even though the projection carries its real text_range.
+  const span = session.spanOf(path);
+  if (!span) return;
   const text = session.serialize();
-  const start = byteToCodeUnit(text, node.text_range[0]);
-  const end = byteToCodeUnit(text, node.text_range[1]);
+  const start = byteToCodeUnit(text, span[0]);
+  const end = byteToCodeUnit(text, span[1]);
   editEl.focus();
   editEl.setSelectionRange(start, end);
   scrollRawToOffset(editEl, text, start);
@@ -542,27 +557,51 @@ function scrollRawToOffset(el: HTMLTextAreaElement, text: string, offset: number
   el.scrollTop = Math.max(0, padTop + line * lineHeight - el.clientHeight / 3);
 }
 
-// R13 (amended 2026-09-14): the crumbs-row Raw control band — 檢視 | 編輯 |
-// 套用, three same-size controls that are all present whenever Raw is
-// active. Nothing appears or disappears under the pointer any more; a
+// R13 (amended 2026-09-14): the crumbs-row Raw control band — a 編輯/檢視
+// **toggle**, 套用, 取消: three same-size controls that are all present
+// whenever Raw is active. Nothing appears or disappears under the pointer; a
 // control that does not apply to the live state is `disabled`, so the band's
-// geometry is static. The Save button is gone: ⌘S still applies-then-saves
-// and the header owns the only Save control.
+// geometry is static. The toggle's label is the state a press switches TO
+// (like the header's Tree/Raw button). Apply and Cancel share one enable
+// rule — a write buffer that differs from the last applied text — because
+// they are the two halves of the same decision: commit it or discard it.
+// There is no Save control here: ⌘S applies-then-saves and the header owns
+// the only Save.
 function renderRawControls() {
   const band = $("rawControls");
   band.classList.toggle("hidden", rawState === "off");
   if (rawState === "off") return;
   const editBtn = $<HTMLButtonElement>("btnRawEdit");
-  const applyBtn = $<HTMLButtonElement>("btnRawApply");
-  $("btnRawView").classList.toggle("active", rawState === "view");
-  editBtn.classList.toggle("active", rawState === "write");
+  const writing = rawState === "write";
+  const label = t(writing ? "web.raw.controls.view" : "web.raw.controls.edit");
+  $("btnRawEditLabel").textContent = label;
+  editBtn.title = label;
+  editBtn.setAttribute("aria-pressed", String(writing));
+  editBtn.classList.toggle("active", writing);
   // R10: VS Code's own TextDocument is this feature's single owner — the
   // control that would open a second editable copy is unreachable there
-  // (disabled rather than hidden, so the band stays the same size).
+  // (disabled rather than hidden, so the band stays the same size). Write
+  // mode is therefore never reached, so disabling the toggle outright can't
+  // trap anyone in it.
   editBtn.disabled = VSHOST;
-  // Apply is live only when there is something to apply: write mode with a
-  // document buffer that differs from the last applied text.
-  applyBtn.disabled = rawState !== "write" || $<HTMLTextAreaElement>("rawEdit").value === rawWriteBaseline;
+  const dirty = writing && $<HTMLTextAreaElement>("rawEdit").value !== rawWriteBaseline;
+  $<HTMLButtonElement>("btnRawApply").disabled = !dirty;
+  $<HTMLButtonElement>("btnRawCancel").disabled = !dirty;
+}
+
+// Cancel: discard the edits back to the last applied text and stay in write
+// mode (the Apply/Cancel pair is about the *changes*, not about the mode —
+// leaving write mode is the toggle's and Escape's job). The scroll position
+// is preserved around the re-seed for the same reason `applyRawEdit` does
+// it: assigning `.value` resets the pane, which is the scroll container.
+function revertRawEdit() {
+  const editEl = $<HTMLTextAreaElement>("rawEdit");
+  if (rawState !== "write" || rawWriteBaseline === null || editEl.value === rawWriteBaseline) return;
+  const top = editEl.scrollTop;
+  editEl.value = rawWriteBaseline;
+  editEl.scrollTop = top;
+  editEl.setSelectionRange(0, 0);
+  renderRawControls();
 }
 
 // Confirmed paste target (ROW_STATE_MODEL.md §6, state #6): always reflects
@@ -2155,9 +2194,9 @@ const TOOLBAR_ENTRIES: ToolbarEntry[] = [
   { key: "btnExpandAll", labelKey: "web.toolbar.expandAll.title", run: () => send("ExpandAll") },
   { key: "btnCollapseAll", labelKey: "web.toolbar.collapseAll.title", run: () => send("CollapseAll") },
   { key: "btnViewToggle", labelKey: "web.toolbar.viewToggle.title", run: () => (rawState === "write" ? exitRawWrite() : setRawState(rawState === "off" ? "view" : "off")) },
-  { key: "btnRawView", labelKey: "web.raw.controls.view", run: () => rawState === "write" && exitRawWrite() },
-  { key: "btnRawEdit", labelKey: "web.raw.controls.edit", run: () => rawState !== "write" && !VSHOST && send("BeginEditDocument") },
+  { key: "btnRawEdit", labelKey: "web.raw.controls.edit", run: () => toggleRawWrite() },
   { key: "btnRawApply", labelKey: "web.raw.controls.apply", run: () => applyRawEdit() },
+  { key: "btnRawCancel", labelKey: "web.raw.controls.cancel", run: () => revertRawEdit() },
 ];
 
 // The "⋯ More" overflow menu (shown only under the narrow breakpoint): only the
@@ -2165,12 +2204,12 @@ const TOOLBAR_ENTRIES: ToolbarEntry[] = [
 // current width, as a popup.
 // Candidates that are only ever "folded" (in the `isToolbarFolded` sense) for
 // a business reason, not a narrow width: the raw-controls band is hidden
-// outright when Raw is off, and Apply is inert within it unless Raw is in
-// write mode. `isToolbarFolded`'s `offsetParent === null` check can't
+// outright when Raw is off, and Apply/Cancel are inert within it unless Raw
+// is in write mode. `isToolbarFolded`'s `offsetParent === null` check can't
 // tell "hidden by width" from "hidden by state", so exclude them here
 // instead of letting them appear in the overflow menu whenever Raw is off.
-const RAW_PAIR_KEYS: Record<string, true> = { btnRawView: true, btnRawEdit: true };
-const RAW_ACTION_KEYS: Record<string, true> = { btnRawApply: true };
+const RAW_PAIR_KEYS: Record<string, true> = { btnRawEdit: true };
+const RAW_ACTION_KEYS: Record<string, true> = { btnRawApply: true, btnRawCancel: true };
 function buildMoreMenu(): HTMLElement {
   let candidates = TOOLBAR_ENTRIES;
   if (rawState === "off") {
@@ -2394,14 +2433,12 @@ function bindGlobal() {
     }
     setRawState(rawState === "off" ? "view" : "off");
   });
-  // R13: the crumbs-row Raw control band.
-  $("btnRawView").addEventListener("click", () => {
-    if (rawState === "write") exitRawWrite();
-  });
-  $("btnRawEdit").addEventListener("click", () => {
-    if (rawState !== "write" && !VSHOST) send("BeginEditDocument");
-  });
+  // R13: the crumbs-row Raw control band — one toggle plus the Apply/Cancel
+  // pair (both inert unless the write buffer is dirty; the render disables
+  // them, these guards keep a programmatic click honest).
+  $("btnRawEdit").addEventListener("click", () => toggleRawWrite());
   $("btnRawApply").addEventListener("click", () => applyRawEdit());
+  $("btnRawCancel").addEventListener("click", () => revertRawEdit());
   // Floating add / paste / actions button — mirrors the touch FAB. Armed
   // clipboard presses Paste directly; otherwise it opens the centralized
   // Action menu (design doc `docs/spec/2026-08-30-action-menu-design.md`).

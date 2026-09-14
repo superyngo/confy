@@ -151,6 +151,7 @@
   "web.raw.controls.view": "View",
   "web.raw.controls.edit": "Edit",
   "web.raw.controls.apply": "Apply",
+  "web.raw.controls.cancel": "Cancel",
   "web.raw.jump-needs-apply": "Apply the buffer first to jump to this node",
   "web.search.placeholder": "search keys or values…  ( / to focus )",
   "web.crumbs.root.title": "Document root",

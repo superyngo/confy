@@ -4354,3 +4354,46 @@ fn a_per_node_pending_edit_does_not_lock_mutations_or_undo_redo() {
     assert_eq!(s2.serialize().unwrap(), "a = 1\n", "undo still ran");
     assert!(snap.notice.is_none(), "no lock notice: {:?}", snap.notice);
 }
+
+// ---- span_of: the Raw breadcrumb jump's per-path source span ----
+
+/// `outline()` omits Comment nodes on purpose (an editor Outline listing
+/// comments as symbols is noise), which made the web Raw pane's breadcrumb
+/// jump a silent no-op on a comment row even though the projection carries
+/// the comment's real `text_range`. `span_of` is the query that answers it.
+#[test]
+fn span_of_resolves_comments_and_live_nodes_alike() {
+    let src = "# lead\nname = \"a\"\n\n[srv]\n# inner\nport = 1\n";
+    let s = toml_session(src);
+    let comment = vec![Seg::Index(0)];
+    assert!(
+        s.outline().iter().all(|n| n.path != comment),
+        "outline still carries the comment — this test's premise is stale"
+    );
+    let (start, end) = s.span_of(&comment).expect("comment has a span");
+    assert_eq!(&src[start as usize..end as usize], "# lead");
+
+    let nested = vec![Seg::Key("srv".into()), Seg::Index(0)];
+    let (start, end) = s.span_of(&nested).expect("nested comment has a span");
+    assert_eq!(&src[start as usize..end as usize], "# inner");
+
+    let leaf = vec![Seg::Key("name".into())];
+    let (start, end) = s.span_of(&leaf).expect("leaf has a span");
+    assert_eq!(&src[start as usize..end as usize], "name = \"a\"");
+
+    assert_eq!(s.span_of(&vec![Seg::Key("nope".into())]), None);
+}
+
+#[test]
+fn span_of_resolves_yaml_and_json_comments() {
+    let ysrc = "# top\nkey: 1\n";
+    let ys = yaml_session(ysrc);
+    let (start, end) = ys.span_of(&vec![Seg::Index(0)]).expect("yaml comment");
+    assert_eq!(&ysrc[start as usize..end as usize], "# top");
+
+    let jsrc = "{\n  // note\n  \"a\": 1\n}\n";
+    let doc = AnyDocument::from_str_as(jsrc, DocFormat::Json).unwrap();
+    let js = Session::new(doc);
+    let (start, end) = js.span_of(&vec![Seg::Index(0)]).expect("json comment");
+    assert_eq!(&jsrc[start as usize..end as usize], "// note");
+}

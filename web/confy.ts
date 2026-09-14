@@ -148,11 +148,20 @@ export class Session {
   }
 
   /**
-   * Read-only symbol tree, independent of cursor/expansion state — the Raw
-   * breadcrumb jump's source for a node's `text_range` (T8, R14/R15).
+   * Read-only symbol tree, independent of cursor/expansion state (VS Code
+   * Outline). Comments are omitted by design — use `spanOf` for a jump.
    */
   outline(): OutlineNode[] {
     return this.raw.outline() as OutlineNode[];
+  }
+
+  /**
+   * Source span `[start, end)` (UTF-8 byte offsets) of one node, **comments
+   * included** — the Raw breadcrumb jump's source (R14/R15). `outline()`
+   * drops comment nodes, which made a jump to a comment a silent no-op.
+   */
+  spanOf(path: Path): [number, number] | undefined {
+    return this.raw.span_of(path) as [number, number] | undefined;
   }
 
   /**

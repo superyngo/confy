@@ -373,9 +373,11 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
   path-utils.ts  shared path helpers; `drawnCursorFallback` re-targets a cursor sitting on the
                  undrawn root (neither web host draws it), used by ui.ts and touch/app.ts
   text-offset.ts pure/DOM-free: `byteToCodeUnit(text, byteOffset)` converts core's UTF-8 byte
-                 `outline()`/`text_range` offsets to JS UTF-16 code-unit offsets;
-                 `findOutlineByPath(nodes, path)` walks an `OutlineNode[]` tree — the pair the
-                 Raw pane's breadcrumb jump uses to select a node's source span (R14–R17)
+                 `text_range` offsets to JS UTF-16 code-unit offsets — what the Raw pane's
+                 breadcrumb jump feeds `setSelectionRange` (R14–R17). The path→node lookup
+                 that lived here is gone (2026-09-14): it walked `outline()`, which omits
+                 Comment nodes, so a jump to a comment row was a silent no-op; core answers
+                 per path now (`Session::span_of`, ffi `span_of`)
   vscode-protocol.ts  the typed host↔webview message contract (`HostToWebview`/`WebviewToHost`),
                  the ONE file both `web/vscode.ts` and the extension import — see VSCODE.md
   vscode.ts      the in-webview VS Code client: posts/receives that protocol, tracks the

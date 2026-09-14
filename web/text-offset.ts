@@ -1,11 +1,11 @@
-// T8 (R14/R15/R29): the Raw breadcrumb jump's shared byte-offset helpers,
-// kept pure and DOM-free so both the Raw view and Raw write selection
-// branches in ui.ts use one conversion, and so it is directly importable by
-// a spec without going through ui.ts's wasm-dependent module graph.
-import type { OutlineNode, Path } from "./types.js";
-import { pathEq } from "./path-utils.js";
+// T8 (R14/R15/R29): the Raw breadcrumb jump's byte-offset conversion, kept
+// pure and DOM-free so it is directly importable by a spec without going
+// through ui.ts's wasm-dependent module graph. The path→node lookup that
+// used to live here is gone (2026-09-14): it walked `session.outline()`,
+// which omits Comment nodes by design, so a jump to a comment row was a
+// silent no-op — core answers it directly now (`Session::span_of`).
 
-// `OutlineNode.text_range` is UTF-8 byte offsets over `serialize()`; DOM
+// Core's `text_range`s are UTF-8 byte offsets over `serialize()`; DOM
 // APIs (`Range`, `<textarea>.setSelectionRange`) index by UTF-16 code unit.
 // A document with any non-ASCII byte before the target makes a naive
 // `slice(byteOffset)` land mid-character — measured and quantified in the
@@ -25,15 +25,3 @@ export function byteToCodeUnit(text: string, byteOffset: number): number {
   return text.length;
 }
 
-// Depth-first lookup by exact path match, mirroring the outline's own
-// nesting (F5: the whole member — key included — not a value-only node).
-export function findOutlineByPath(nodes: OutlineNode[], path: Path): OutlineNode | undefined {
-  for (const n of nodes) {
-    if (pathEq(n.path, path)) return n;
-    if (path.length > n.path.length) {
-      const hit = findOutlineByPath(n.children, path);
-      if (hit) return hit;
-    }
-  }
-  return undefined;
-}

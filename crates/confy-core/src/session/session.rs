@@ -499,6 +499,20 @@ impl Session {
         self.tree.root.children.iter().filter_map(convert).collect()
     }
 
+    /// Source span of the node at `path`, **comments included** — the Raw
+    /// pane's breadcrumb jump (`web/ui.ts`'s `jumpSelectRawSpan`).
+    /// Deliberately not `outline()`: that transport omits `Comment` nodes on
+    /// purpose (an editor Outline listing comments as symbols would be
+    /// noise), which made a jump to a comment row a silent no-op even though
+    /// the projection carries the comment's real `text_range`. A narrow
+    /// per-path query also spares the host a whole-document outline
+    /// serialization per jump. Unknown paths return `None`.
+    pub fn span_of(&self, path: &Path) -> Option<(u32, u32)> {
+        self.tree
+            .node_at(path)
+            .map(|n| (n.text_range.start as u32, n.text_range.end as u32))
+    }
+
     pub fn cursor_down(&mut self) {
         if self.clipboard.is_some() {
             self.move_paste_slot(SlotMove::Delta(1));

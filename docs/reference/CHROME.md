@@ -93,16 +93,25 @@ not apply to the live state is `disabled`, never hidden.
 
 | Control | Desktop id | Enabled when | i18n title key |
 |---|---|---|---|
-| View | `#btnRawView` | always (while Raw is active) | `web.raw.controls.view` |
-| Edit | `#btnRawEdit` | always, except **disabled under VS Code** (R10) | `web.raw.controls.edit` |
+| **Edit ⇄ View** (one toggle) | `#btnRawEdit` | always, except **disabled under VS Code** (R10) | `web.raw.controls.edit` in Raw view, `web.raw.controls.view` in Raw write |
 | Apply | `#btnRawApply` | Raw write **and** a dirty document buffer | `web.raw.controls.apply` |
+| Cancel | `#btnRawCancel` | identical to Apply's rule | `web.raw.controls.cancel` |
+
+The first control is a **toggle**, not a pair (amended 2026-09-14): its label/title is the
+state a press switches TO — Edit while viewing, View while editing — mirroring the header's
+own Tree/Raw button, with `aria-pressed` and `.active` carrying the current state. Pressing
+it while editing takes the same confirm-gated exit `Esc` does, so a dirty buffer is never
+lost silently. Apply and Cancel share **one** enable rule because they are the two halves of
+the same decision: commit the changes or discard them. Cancel re-seeds the pane from the
+last-applied text (scroll preserved) and **stays in write mode** — leaving the mode is the
+toggle's and `Esc`'s job.
 
 There is deliberately **no Save button**: `⌘S` still means apply-if-dirty-then-save
 (`KEYMAP.md`), and the header already owns the one Save control. It was removed on
 2026-09-14 as an unrequested duplicate.
 
 The band is excluded from the "⋯ More" overflow menu whenever it is hidden for a
-**business reason** (Raw off, or Apply outside write mode) rather than a narrow-width
+**business reason** (Raw off, or Apply/Cancel outside write mode) rather than a narrow-width
 fold — `isToolbarFolded`'s `offsetParent === null` check can't distinguish the two causes,
 so `ui.ts`'s `buildMoreMenu` filters `RAW_PAIR_KEYS`/`RAW_ACTION_KEYS` (and, under
 `VSHOST`, `btnRawEdit`) out of the candidate list before folding runs. No touch

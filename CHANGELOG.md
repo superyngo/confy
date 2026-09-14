@@ -10,6 +10,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-14 (14)
+
+**Changed — the Raw band is a toggle plus an Apply/Cancel pair (web desktop)**
+
+- The `檢視 | 編輯` pair collapses into **one toggle** (`#btnRawEdit`): its label/title is the
+  state a press switches to (Edit while viewing, View while editing), with `aria-pressed` and
+  `.active` carrying the current state — the header's Tree/Raw button already worked this way.
+  Pressing it while editing takes the same confirm-gated exit `Esc` does.
+- A **Cancel** control (`#btnRawCancel`, `web.raw.controls.cancel` in both catalogs) joins Apply
+  under the **identical** enable rule (write mode + a dirty buffer), because they are the two
+  halves of one decision: commit the changes or discard them. Cancel re-seeds the pane from the
+  last-applied text with the scroll position preserved and **stays in write mode**; leaving the
+  mode remains the toggle's and `Esc`'s job. Verified in a real browser: dirty → both enable,
+  Cancel → text back to baseline, `scrollTop` unchanged, both back to disabled, still in write.
+- The band is still three same-width (62px measured) always-present controls; the overflow-menu
+  exclusion lists follow the new ids.
+
+**Fixed — a breadcrumb jump could not target a comment node**
+
+- Clicking a comment row in the breadcrumb mini-tree moved the tree cursor (the crumb bar read
+  `⌂›#[0]›`) but did **nothing** in the Raw pane: no selection, no scroll, no message. Root
+  cause was one layer — `Session::outline()` omits `NodeKind::Comment` on purpose (an editor
+  Outline listing comments as symbols is noise), and `jumpSelectRawSpan` was the only consumer
+  using it to look up a `text_range`, so `findOutlineByPath` returned `undefined` and the
+  function returned silently. The comment's real span was in the projection the whole time.
+- Fix: a narrow core query `Session::span_of(path) -> Option<(u32, u32)>` (comments included,
+  via `node_at`), exported over wasm as `span_of` and wrapped as `Session.spanOf`. `outline()`
+  is untouched, so the VS Code symbol tree does not grow comment entries. The jump also no
+  longer serializes the whole outline across the wasm boundary on every pick.
+- `findOutlineByPath` was orphaned by the fix and is removed (`web/text-offset.ts` keeps
+  `byteToCodeUnit`).
+- Verified: new `session_headless.rs` tests (`span_of_resolves_comments_and_live_nodes_alike`,
+  `span_of_resolves_yaml_and_json_comments` — TOML top-level + nested, YAML, JSONC, plus the
+  assertion that `outline()` still omits the comment, so the test fails loudly if that premise
+  changes); real browser on a 156-line fixture: top-level comment selects
+  `# long fixture for raw-pane scroll measurement`, and `[{"Key":"section_25"},{"Index":0}]`
+  selects `# comment inside section 25` with `scrollTop` 0 → 2396.
+- Verification: `cargo test -p confy-core` green; `wasm-pack build --target web` +
+  `node functional_smoke.mjs` green; `npm run typecheck` clean; `npm test` green
+  (`raw-jump.spec.mjs` rewritten for `spanOf`, the toggle, Cancel and `revertRawEdit`).
+- Docs: `CHROME.md` band table/rules, `WEBUI.md`, `KEYMAP.md` (no key discards without exiting
+  — that is Cancel only), `HOST_PARITY.md`, `CLAUDE.md`'s `text-offset.ts` entry, and the
+  raw-write design record's R13/R14 amended again in place.
+
 ### Update - 2026-09-14 (13)
 
 **Fixed / Changed — the Raw pane is one element (web desktop)**

@@ -1,8 +1,8 @@
 // Plain-Node test for ui.ts's Raw breadcrumb jump (T8 of
 // docs/plan/2026-09-14-raw-write-mode.md, RS2c — R12-R17/R29). Follows
-// raw-write.spec.mjs's convention: `byteToCodeUnit`/`findOutlineByPath` are
-// pure and DOM-free, so `text-offset.ts` is imported directly; `ui.ts`'s
-// `jumpSelectRawSpan`/`renderRawControls` are extracted verbatim and
+// raw-write.spec.mjs's convention: `byteToCodeUnit` is pure and DOM-free, so
+// `text-offset.ts` is imported directly; `ui.ts`'s
+// `jumpSelectRawSpan`/`renderRawControls`/`revertRawEdit` are extracted verbatim and
 // type-stripped via esbuild, run against a fake `document`/`window`.
 import path from "node:path";
 import { readFileSync } from "node:fs";
@@ -28,7 +28,7 @@ const textOffsetBuilt = await esbuild.build({
   format: "esm",
   target: "es2022",
 });
-const { byteToCodeUnit, findOutlineByPath } = await import(
+const { byteToCodeUnit } = await import(
   "data:text/javascript;base64," + Buffer.from(textOffsetBuilt.outputFiles[0].text).toString("base64")
 );
 
@@ -61,44 +61,20 @@ console.log("-- byteToCodeUnit() --");
   );
 }
 
-// ---- 2. findOutlineByPath: nested lookup, whole-member range (R29) ----
-console.log("\n-- findOutlineByPath() --");
-{
-  const tree = [
-    { key: "a", path: [{ Key: "a" }], type_label: "table", value: undefined, text_range: [0, 5], key_text_range: undefined, children: [
-      { key: "b", path: [{ Key: "a" }, { Key: "b" }], type_label: "string", value: "x", text_range: [10, 20], key_text_range: [10, 11], children: [] },
-    ] },
-  ];
-  check("finds a top-level node by path", findOutlineByPath(tree, [{ Key: "a" }])?.text_range[0] === 0);
-  const nested = findOutlineByPath(tree, [{ Key: "a" }, { Key: "b" }]);
-  check("finds a nested node by path", nested?.text_range[0] === 10 && nested?.text_range[1] === 20);
-  check("returns undefined for a path with no match", findOutlineByPath(tree, [{ Key: "missing" }]) === undefined);
-}
-
-// ---- 3. jumpSelectRawSpan / renderRawControls: extracted verbatim ----
+// ---- 2. jumpSelectRawSpan / renderRawControls / revertRawEdit ----
 const uiTs = readFileSync(path.join(here, "ui.ts"), "utf8");
-const names = ["jumpSelectRawSpan", "scrollRawToOffset", "renderRawControls"];
+const names = ["jumpSelectRawSpan", "scrollRawToOffset", "renderRawControls", "revertRawEdit"];
 const fns = names.map((n) => uiTs.match(new RegExp(`^function ${n}\\([\\s\\S]*?\\n\\}`, "m"))?.[0]);
 fns.forEach((s, i) => check(`${names[i]} extracted verbatim`, !!s));
 
 const src = `let snap, session, rawState = "off", rawWriteBaseline = null, statusEl, VSHOST = false;
 function t(key) { return key; }
-function findOutlineByPath(nodes, path) {
-  const pathEq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-  for (const n of nodes) {
-    if (pathEq(n.path, path)) return n;
-    if (path.length > n.path.length) {
-      const hit = findOutlineByPath(n.children, path);
-      if (hit) return hit;
-    }
-  }
-  return undefined;
-}
 function byteToCodeUnit(text, byteOffset) { return byteOffset; } // ASCII-only fixtures below
 ${fns[0]}
 ${fns[1]}
 ${fns[2]}
-export { jumpSelectRawSpan, renderRawControls, setEnv };
+${fns[3]}
+export { jumpSelectRawSpan, renderRawControls, revertRawEdit, setEnv };
 function setEnv(e) { snap = e.snap; session = e.session; rawState = e.rawState; rawWriteBaseline = e.rawWriteBaseline; statusEl = e.statusEl; VSHOST = e.vshost ?? false; }
 `;
 
@@ -125,29 +101,58 @@ function mkEl(overrides = {}) {
 
 let els;
 let statusTextCalls;
-function freshGlobalEnv(outline, opts = {}) {
+function freshGlobalEnv(spans, opts = {}) {
   // One element in both Raw states (2026-09-14): no `#raw` `<pre>`, no
   // Range/Selection branch — the jump is `setSelectionRange` + an explicit
   // scroll in view mode exactly as in write mode.
-  els = { rawEdit: mkEl({ value: opts.editValue ?? "text" }), rawControls: mkEl(), btnRawView: mkEl(), btnRawEdit: mkEl(), btnRawApply: mkEl() };
+  els = {
+    rawEdit: mkEl({ value: opts.editValue ?? "text" }),
+    rawControls: mkEl(),
+    btnRawEdit: mkEl({ setAttribute(k, v) { this[k] = v; } }),
+    btnRawEditLabel: mkEl(),
+    btnRawApply: mkEl(),
+    btnRawCancel: mkEl(),
+  };
   statusTextCalls = [];
   globalThis.$ = (id) => els[id];
   globalThis.getComputedStyle = () => ({ lineHeight: "20px", paddingTop: "8px" });
-  const sessionStub = { outline: () => outline, serialize: () => opts.text ?? "target = \"needle\"\n" };
+  // `spanOf` replaced the `outline()` walk (2026-09-14): outline omits
+  // Comment nodes, so a jump to a comment row used to be a silent no-op.
+  const sessionStub = { spanOf: (p) => spans[JSON.stringify(p)], serialize: () => opts.text ?? "target = \"needle\"\n" };
   mod.setEnv({ snap: {}, session: sessionStub, rawState: opts.rawState ?? "view", rawWriteBaseline: opts.baseline ?? "text", statusEl: { set textContent(v) { statusTextCalls.push(v); } }, vshost: opts.vshost });
 }
 
 // ---- Both Raw states: a jump selects the node's span and scrolls to it ----
 console.log("\n-- jumpSelectRawSpan(): one path for view and write --");
 for (const state of ["view", "write"]) {
-  const outline = [{ key: "target", path: [{ Key: "target" }], type_label: "string", value: "needle", text_range: [0, 17], key_text_range: [0, 6], children: [] }];
-  freshGlobalEnv(outline, { rawState: state, editValue: "text", baseline: "text" });
+  const spans = { '[{"Key":"target"}]': [0, 17] };
+  freshGlobalEnv(spans, { rawState: state, editValue: "text", baseline: "text" });
   let sel = null;
   els.rawEdit.setSelectionRange = (s, e) => (sel = [s, e]);
   mod.jumpSelectRawSpan([{ Key: "target" }]);
   check(`${state}: setSelectionRange gets the node's span`, sel && sel[0] === 0 && sel[1] === 17, JSON.stringify(sel));
-  check(`${state}: R29/F5 selects text_range (whole member), not key_text_range`, sel && sel[1] === 17);
+  check(`${state}: R29/F5 selects the whole member's span`, sel && sel[1] === 17);
   check(`${state}: no status text set (clean buffer)`, statusTextCalls.length === 0);
+}
+{
+  // The defect fixed 2026-09-14: `outline()` omits Comment nodes, so the old
+  // `findOutlineByPath(session.outline(), path)` lookup made a jump to a
+  // comment row a silent no-op (measured: selection unmoved, scrollTop 0, no
+  // status). `span_of` answers for comments too — the host asks per path now.
+  const commentPath = [{ Index: 0 }];
+  freshGlobalEnv({ '[{"Index":0}]': [0, 6] }, { rawState: "view", text: "# lead\nname = 1\n" });
+  let sel = null;
+  els.rawEdit.setSelectionRange = (s, e) => (sel = [s, e]);
+  mod.jumpSelectRawSpan(commentPath);
+  check("a comment row's span is selected, not skipped", sel && sel[0] === 0 && sel[1] === 6, JSON.stringify(sel));
+}
+{
+  // An unknown path is still a no-op (core returns undefined).
+  freshGlobalEnv({}, { rawState: "view" });
+  let selCalled = false;
+  els.rawEdit.setSelectionRange = () => (selCalled = true);
+  mod.jumpSelectRawSpan([{ Key: "missing" }]);
+  check("an unresolvable path selects nothing", !selCalled);
 }
 {
   // The scroll is explicit: `setSelectionRange` alone never scrolls (measured
@@ -155,14 +160,13 @@ for (const state of ["view", "write"]) {
   // Line 20 of the text, 20px lines, 8px padding, 300px pane → 8+400-100.
   const text = Array.from({ length: 40 }, (_, i) => `line_${i} = ${i}`).join("\n") + "\n";
   const offset = text.split("\n").slice(0, 20).join("\n").length + 1;
-  const outline = [{ key: "line_20", path: [{ Key: "line_20" }], type_label: "integer", value: "20", text_range: [offset, offset + 12], key_text_range: [offset, offset + 7], children: [] }];
-  freshGlobalEnv(outline, { rawState: "view", text });
+  freshGlobalEnv({ '[{"Key":"line_20"}]': [offset, offset + 12] }, { rawState: "view", text });
   mod.jumpSelectRawSpan([{ Key: "line_20" }]);
   check("the span's line is scrolled a third of the pane down", els.rawEdit.scrollTop === 8 + 20 * 20 - 100, els.rawEdit.scrollTop);
 }
 {
   // A span already near the top clamps at 0 rather than scrolling negative.
-  freshGlobalEnv([{ key: "target", path: [{ Key: "target" }], type_label: "string", value: "needle", text_range: [0, 17], key_text_range: [0, 6], children: [] }], { rawState: "view" });
+  freshGlobalEnv({ '[{"Key":"target"}]': [0, 17] }, { rawState: "view" });
   mod.jumpSelectRawSpan([{ Key: "target" }]);
   check("a span at the top clamps the scroll at 0", els.rawEdit.scrollTop === 0);
 }
@@ -170,8 +174,7 @@ for (const state of ["view", "write"]) {
 // ---- R17: Raw write, dirty buffer — reports instead of moving the caret ----
 console.log("\n-- jumpSelectRawSpan(): R17 dirty write buffer is gated --");
 {
-  const outline = [{ key: "target", path: [{ Key: "target" }], type_label: "string", value: "needle", text_range: [0, 17], key_text_range: [0, 6], children: [] }];
-  freshGlobalEnv(outline, { rawState: "write", editValue: "edited text", baseline: "text" });
+  freshGlobalEnv({ '[{"Key":"target"}]': [0, 17] }, { rawState: "write", editValue: "edited text", baseline: "text" });
   let selCalled = false;
   els.rawEdit.setSelectionRange = () => (selCalled = true);
   mod.jumpSelectRawSpan([{ Key: "target" }]);
@@ -180,44 +183,68 @@ console.log("\n-- jumpSelectRawSpan(): R17 dirty write buffer is gated --");
   check("status reports web.raw.jump-needs-apply instead", statusTextCalls.length === 1);
 }
 
-// ---- renderRawControls(): static band, disabled-not-hidden (2026-09-14) ----
-console.log("\n-- renderRawControls(): three same-size controls, always present --");
+// ---- renderRawControls(): toggle + Apply/Cancel pair (2026-09-14) ----
+console.log("\n-- renderRawControls(): a toggle plus the Apply/Cancel pair --");
 {
-  freshGlobalEnv([], { rawState: "off" });
+  freshGlobalEnv({}, { rawState: "off" });
   mod.renderRawControls();
   check("band hidden when rawState is off", els.rawControls.classList.contains("hidden"));
 }
 {
-  freshGlobalEnv([], { rawState: "view" });
+  freshGlobalEnv({}, { rawState: "view" });
   mod.renderRawControls();
   check("band shown in view", !els.rawControls.classList.contains("hidden"));
-  check("view control marked active", els.btnRawView.classList.contains("active"));
-  check("edit control not active", !els.btnRawEdit.classList.contains("active"));
+  check("the toggle offers Edit while viewing", els.btnRawEditLabel.textContent === "web.raw.controls.edit");
+  check("the toggle's title matches its label", els.btnRawEdit.title === "web.raw.controls.edit");
+  check("toggle not pressed in view", els.btnRawEdit["aria-pressed"] === "false");
+  check("toggle not active in view", !els.btnRawEdit.classList.contains("active"));
   check("apply is present, never hidden", !els.btnRawApply.classList.contains("hidden"));
   check("apply is disabled in view mode", els.btnRawApply.disabled === true);
-  check("edit is enabled in view mode", els.btnRawEdit.disabled === false);
+  check("cancel is disabled in view mode", els.btnRawCancel.disabled === true);
+  check("the toggle is enabled in view mode", els.btnRawEdit.disabled === false);
 }
 {
-  // Write mode with a clean buffer: nothing to apply yet.
-  freshGlobalEnv([], { rawState: "write", editValue: "text", baseline: "text" });
+  // Write mode with a clean buffer: nothing to apply and nothing to discard.
+  freshGlobalEnv({}, { rawState: "write", editValue: "text", baseline: "text" });
   mod.renderRawControls();
-  check("edit control marked active in write", els.btnRawEdit.classList.contains("active"));
+  check("the toggle offers View while editing", els.btnRawEditLabel.textContent === "web.raw.controls.view");
+  check("toggle marked pressed in write", els.btnRawEdit["aria-pressed"] === "true");
+  check("toggle marked active in write", els.btnRawEdit.classList.contains("active"));
   check("apply stays disabled while the buffer is clean", els.btnRawApply.disabled === true);
+  check("cancel stays disabled while the buffer is clean", els.btnRawCancel.disabled === true);
 }
 {
-  freshGlobalEnv([], { rawState: "write", editValue: "edited", baseline: "text" });
+  freshGlobalEnv({}, { rawState: "write", editValue: "edited", baseline: "text" });
   mod.renderRawControls();
   check("apply enables as soon as the buffer is dirty", els.btnRawApply.disabled === false);
+  check("cancel shares Apply's enable rule exactly", els.btnRawCancel.disabled === false);
 }
 {
   // R10: VS Code's own TextDocument owns whole-document editing — the Raw
-  // pane's Edit control is unreachable there, disabled rather than hidden so
-  // the band keeps its static geometry.
-  freshGlobalEnv([], { rawState: "view", vshost: true });
+  // pane's toggle is unreachable there, disabled rather than hidden so the
+  // band keeps its static geometry.
+  freshGlobalEnv({}, { rawState: "view", vshost: true });
   mod.renderRawControls();
-  check("edit control disabled under VSHOST", els.btnRawEdit.disabled === true);
-  check("edit control is not hidden under VSHOST", !els.btnRawEdit.classList.contains("hidden"));
-  check("view control still shown under VSHOST", !els.rawControls.classList.contains("hidden"));
+  check("the toggle is disabled under VSHOST", els.btnRawEdit.disabled === true);
+  check("the toggle is not hidden under VSHOST", !els.btnRawEdit.classList.contains("hidden"));
+  check("the band is still shown under VSHOST", !els.rawControls.classList.contains("hidden"));
+}
+
+// ---- revertRawEdit(): discard the changes, keep the mode ----
+console.log("\n-- revertRawEdit(): Apply's mirror image --");
+{
+  freshGlobalEnv({}, { rawState: "write", editValue: "edited", baseline: "text" });
+  els.rawEdit.scrollTop = 500;
+  mod.revertRawEdit();
+  check("the buffer returns to the last applied text", els.rawEdit.value === "text");
+  check("the scroll position survives the re-seed", els.rawEdit.scrollTop === 500);
+  check("apply goes back to disabled after a revert", els.btnRawApply.disabled === true);
+  check("cancel goes back to disabled after a revert", els.btnRawCancel.disabled === true);
+}
+{
+  freshGlobalEnv({}, { rawState: "view", editValue: "whatever", baseline: "text" });
+  mod.revertRawEdit();
+  check("revert is inert in Raw view", els.rawEdit.value === "whatever");
 }
 
 

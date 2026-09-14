@@ -346,15 +346,19 @@ shapes round-trip). Key types:
   the buffer while write mode is open (R8: the re-seed is reachable only from the `"view"`
   branch). Because Raw view's pane is a focusable textarea, `document.body`'s key delegation
   skips only a **writable** one — a readonly pane never swallows a shortcut. A crumbs-row
-  **control band** (`#rawControls`, R13) renders only while Raw is active: View | Edit | Apply,
-  three same-size controls that are always present, with the inapplicable one `disabled`
-  (Apply outside write mode or on a clean buffer; Edit under VS Code) — `CHROME.md` owns the
+  **control band** (`#rawControls`, R13) renders only while Raw is active: an Edit ⇄ View
+  **toggle**, Apply, Cancel — three same-size controls that are always present, with the
+  inapplicable one `disabled` (Apply and Cancel share one rule: write mode with a dirty
+  buffer; the toggle only under VS Code). Cancel discards the edits back to the last applied
+  text and stays in write mode. `CHROME.md` owns the
   inventory. The breadcrumb bar itself stays visible and live in **both** Raw states, and a
   breadcrumb pick additionally selects the node's whole-member source span (key included, R29)
   in the Raw pane — one code path for both states now: `setSelectionRange` plus an **explicit**
   scroll that puts the span's line a third of the pane down (`scrollRawToOffset`;
   `setSelectionRange` alone does not scroll, measured 2026-09-14), via `byteToCodeUnit` (core's
-  UTF-8 byte `text_range` → JS UTF-16 code-unit offsets) and `outline()`. One-way only (a
+  UTF-8 byte `text_range` → JS UTF-16 code-unit offsets) and `span_of(path)` — a per-path core
+  query, **not** `outline()`, which omits Comment nodes by design and therefore made a jump to
+  a comment row a silent no-op until 2026-09-14. One-way only (a
   write-mode caret move never moves the tree cursor), and gated on a clean write buffer
   (`web.raw.jump-needs-apply` otherwise — the tree cursor still moves via `RevealPath`, only
   the text selection is skipped). Touch keeps Raw **view** read-only with no write mode of its

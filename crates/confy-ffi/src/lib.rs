@@ -176,6 +176,14 @@ impl ConfySession {
         to_value(&self.session.outline()).map_err(js_serde_error)
     }
 
+    /// Source span `[start, end)` (UTF-8 byte offsets) of the node at `path`,
+    /// **comments included** — the Raw pane's breadcrumb jump. `outline()`
+    /// omits comments by design, so it cannot answer this.
+    pub fn span_of(&self, path: JsValue) -> Result<JsValue, JsValue> {
+        let path: Path = from_value(path).map_err(js_serde_error)?;
+        to_value(&self.session.span_of(&path)).map_err(js_serde_error)
+    }
+
     /// Current schema violations with resolved `text_range`s — the
     /// native-editor Diagnostics data source (VS Code schema-hints design).
     pub fn schema_violations(&self) -> Result<JsValue, JsValue> {
