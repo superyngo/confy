@@ -155,6 +155,9 @@ The TUI **no longer draws a root/file row** — ADR 0013: the Root is never a vi
 host. The filename lives in the title bar (`draw_title` reads `Session::root_key`), and the
 first row is a top-level Node at the leftmost indent.
 
+A document with no top-level Node draws a single dim hint line (`tui.tree.empty`, ADR 0013 D12)
+where the rows would be — without the Root row there is otherwise nothing at all in the pane.
+
 ## Navigation
 
 Expand/collapse state is a `Session.expanded: HashSet<Path>` of open branch paths. The
@@ -357,7 +360,11 @@ selection mode: while `clipboard.is_some()`, the three selection mutators (`togg
 `extend_select_up`/`down`) early-return, so selection is frozen; pressing `c`/`x` again **toggles** the
 existing clipboard's mode (copy ↔ cut) instead of re-capturing. Render cues (`draw_tree`): cursor row
 blue, cut source green, copy source magenta (three mutually exclusive full-row fills), and a locked
-selection paints no fill at all — only its `●` marker — so it composes with any of them. `Esc` in
+selection paints no fill at all — only its `●` marker — so it composes with any of them. An
+`After` slot draws a standalone green insertion line under its row (`paste_line_row`), and the
+**two document-edge slots** (ADR 0013 D6) borrow the viewport edges instead of a row: `After([])`
+(paste at the document top, the first slot `Home` reaches) draws above the first row, `Into([])`
+(append at the document end, the last) draws below the last — the cues the Root row used to carry. `Esc` in
 `Mode::Normal` peels one layer per press: clipboard first
 (keeping any live selection, status "clipboard cleared"), then selection. Paste (`v`) resolves the
 insertion `Target` with `resolve_target` over `true_sibling_index` (position in the *full* tree, so

@@ -10,6 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Update - 2026-09-14 (20)
+
+**Changed — root-hidden alignment S4 (T10): the TUI's replacements for the Root row**
+
+- **D6 — the two document-edge paste slots now have cues.** `After([])` (paste at the document
+  top, the slot `Home` reaches) draws a green insertion line above the first row; `Into([])`
+  (append at the document end) draws one below the last. They hang off the viewport edges rather
+  than a row, since neither has one any more — this is what the Root row's own `Into`/`After`
+  cues used to provide. Verified on the real binary.
+- **D12 — a document with no top-level Node draws a hint line** (new `tui.tree.empty` in both
+  catalogs: "(empty document) — press `a` to add the first node") instead of an empty pane.
+- **Removed the now-dead root special cases** in `confy-core`, since no host can put the cursor
+  on the Root: `toggle_expand`'s early-return, `collapse_level`'s first guard, both
+  `extend_select_up`/`down` anchor guards and their `rows[idx - 1]` root test, and
+  `edit_target_kind`'s. `collapse_level`'s `target.is_empty()` check stays — a top-level Node's
+  parent *is* the Root — as does `toggle_select`'s, for the empty-document cursor.
+
 ### Update - 2026-09-14 (19)
 
 **Changed — root-hidden alignment S2 (T5–T9): the Root stops being a row**

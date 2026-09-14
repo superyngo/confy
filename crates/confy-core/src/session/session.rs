@@ -598,10 +598,6 @@ impl Session {
         else {
             return;
         };
-        // D2: the Root has no collapsed state to toggle into.
-        if path.is_empty() {
-            return;
-        }
         if is_branch && !self.expanded.remove(&path) {
             self.expanded.insert(path);
         }
@@ -666,14 +662,12 @@ impl Session {
         let is_open_branch = is_branch && self.expanded.contains(&path);
         let target = if is_open_branch {
             path
-        } else if path.is_empty() {
-            return;
         } else {
             path[..path.len() - 1].to_vec()
         };
+        // A top-level Node's parent is the Root, which is expanded by contract
+        // (D2) — there is nothing above the first layer to ascend to.
         if target.is_empty() {
-            // Never collapse the root itself: like `CollapseAll`, the root
-            // always stays expanded so the first-layer nodes remain visible.
             return;
         }
         self.expanded.remove(&target);
@@ -1738,21 +1732,12 @@ impl Session {
         if self.clipboard.is_some() {
             return;
         }
-        // D7: with the cursor still able to sit on the TUI's Root row, a
-        // range round must not be *anchored* there either — move, select
-        // nothing.
-        if self.cursor.is_empty() {
-            self.cursor_up();
-            return;
-        }
         let rows = self.visible_rows();
         if !self.last_action_was_shift_select {
             self.selection.begin_round(self.cursor.clone());
         }
         let idx = rows.iter().position(|r| r.path == self.cursor).unwrap_or(0);
-        // D7: `idx > 1` where the Root is still row 0 on the TUI — a range
-        // round never grows onto it.
-        if idx > 0 && !rows[idx - 1].path.is_empty() {
+        if idx > 0 {
             self.cursor = rows[idx - 1].path.clone();
             let visible = rows.iter().map(|r| r.path.clone()).collect::<Vec<_>>();
             let to = self.cursor.clone();
@@ -1763,11 +1748,6 @@ impl Session {
 
     pub fn extend_select_down(&mut self) {
         if self.clipboard.is_some() {
-            return;
-        }
-        // D7: see `extend_select_up` — no round anchored on the Root.
-        if self.cursor.is_empty() {
-            self.cursor_down();
             return;
         }
         let rows = self.visible_rows();
@@ -1818,9 +1798,6 @@ impl Session {
             Some(r) => r.path,
             None => return EditKind::External,
         };
-        if path.is_empty() {
-            return EditKind::External;
-        }
         let node = match self.tree.node_at(&path) {
             Some(n) => n,
             None => return EditKind::External,

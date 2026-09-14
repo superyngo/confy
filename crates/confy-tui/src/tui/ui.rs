@@ -344,11 +344,39 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
         }
     }
     let end = (start + viewport_h).min(total);
+    // D12 (ADR 0013): with the Root no longer drawn, a document with no
+    // top-level Node has *nothing* to draw — say so instead of showing a bare
+    // pane, and name the key that adds the first node.
+    if total == 0 {
+        let hint = confy_core::session::tr(app.session.lang, "tui.tree.empty");
+        f.render_widget(
+            Paragraph::new(hint).style(Style::default().fg(Color::DarkGray)),
+            area,
+        );
+        return;
+    }
     let mut rows: Vec<Row> = Vec::with_capacity(viewport_h + 1);
     // Display index (into `rows`, which may include an inserted green line) of the
     // active paste cue, so the viewport scrolls to it; else the plain cursor —
     // relative to `start` now that `rows` only ever holds the visible window.
     let mut selected_display = cursor_idx.map(|idx| idx - start).unwrap_or(0);
+    // D6 (ADR 0013): the two document-edge slots have no row to hang off, so
+    // they borrow the viewport edges — `After([])` (paste at the document top)
+    // draws its line above the first row, `Into([])` (append at the document
+    // end) below the last. Both only when the window actually reaches that
+    // edge. This replaces the Root row's `Into`/`After` cues.
+    let edge_line = |width: u16| -> Row<'static> {
+        Row::new([
+            Cell::from("─".repeat(width as usize)),
+            Cell::from(""),
+            Cell::from(""),
+        ])
+        .style(Style::default().fg(Color::Green))
+    };
+    if start == 0 && matches!(&active_slot, Some(PasteSlot::After(p)) if p.is_empty()) {
+        selected_display = 0;
+        rows.push(edge_line(area.width));
+    }
     for (i, row) in app.rows.iter().enumerate().skip(start).take(end - start) {
         {
             let indent = "  ".repeat(row.depth);
@@ -486,6 +514,12 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
             selected_display = rows.len();
             rows.push(paste_line_row(row, expanded, area.width));
         }
+    }
+    // D6: the document-end slot (`Into([])`, append after the last top-level
+    // Node) draws below the final row.
+    if end == total && matches!(&active_slot, Some(PasteSlot::Into(p)) if p.is_empty()) {
+        selected_display = rows.len();
+        rows.push(edge_line(area.width));
     }
 
     let table = Table::new(

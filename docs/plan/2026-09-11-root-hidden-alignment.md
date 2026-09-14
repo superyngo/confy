@@ -22,7 +22,7 @@ copied from the design record's slices; nothing here adds scope to it.
 | T8 | D11 `[G] root` facet / `TypeToken::Root` retired | S2 | **Done** (2026-09-14) |
 | T9 | D12 zero-row document target + D13 `RevealPath([])` retarget | S2 | **Done** (2026-09-14) |
 | — | D8/D9 document-scoped action | S3 | **Done** — shipped by the Raw-write record (ADR 0014); placement verified by E6 |
-| T10 | D15 title bar + D6 document-edge insertion lines + D12 TUI empty state + the `9`/`0`/`1`/`2`/`e`/`i` root special cases and ~65 row-index test assumptions | S4 | Open |
+| T10 | D15 title bar + D6 document-edge insertion lines + D12 TUI empty state + the `9`/`0`/`1`/`2`/`e`/`i` root special cases and ~65 row-index test assumptions | S4 | **Done** (2026-09-14) |
 | T11 | Web/touch/VS Code stand-in deletions + D6 rename + D12 empty state + the `*.spec.mjs` suites | S5 | Open |
 | T12 | Remaining reference docs (D16, `HOST_PARITY.md` §2 deletion, `ROW_STATE_MODEL.md` §6a, `MESSAGES.md` keys) + backlog/retrospective/record status flips | S6 | Open |
 
@@ -92,6 +92,21 @@ leftmost indent, both document edges cue in paste mode, `C` works from any row) 
   retargeting to the first row — is done.
 - **Web/touch renderers lost `Math.max(0, r.depth - 1)`** here too, since D4 rebased depth in
   core; the remaining web stand-in deletions are still T11.
+
+### S4 (T10)
+
+- **D6's two edge lines are drawn by `draw_tree` itself, not by `paste_line_row`** — they hang off
+  the viewport edges (`start == 0` / `end == total`), not off a `RowSnapshot`, so they share only
+  the green `─` styling. Verified on the real binary: `Home` puts the line above the first row,
+  `End` below the last.
+- **D12's empty state is a `Paragraph`, drawn instead of the `Table`** when `app.rows` is empty
+  (new `tui.tree.empty` in both catalogs). Verified on an empty `.toml`.
+- **Dead root guards removed** now that no host can put the cursor on the Root:
+  `toggle_expand`'s `path.is_empty()` early-return, `collapse_level`'s first one (its
+  `target.is_empty()` check *stays* — a top-level Node's parent IS the Root), both
+  `extend_select_*` anchor guards plus the `rows[idx - 1].path.is_empty()` row test, and
+  `edit_target_kind`'s. `toggle_select`'s guard stays: an empty document leaves the cursor at
+  `[]` with no row to move to.
 
 ## Ordering constraint
 
