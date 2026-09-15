@@ -94,6 +94,12 @@ pub fn severity_of(key: &str) -> Severity {
         | "core.value.invalid"
         | "core.comment.invalid"
         | "core.fragment.invalid"
+        // A rejected Block edit: `Warn`, not `Error`, precisely because the
+        // host keeps its editor open holding the user's text (design record
+        // §5-6) — no typing is lost. Contrast `core.document.apply-failed`,
+        // which is `Error` because that route closes its surface.
+        | "core.block.invalid"
+        | "core.block.empty"
         | "core.remark.invalid"
         | "core.selection.root-excluded"
         | "core.kind-switch.unsupported"
@@ -175,6 +181,8 @@ mod tests {
             ("core.value.invalid", Severity::Warn),
             ("core.comment.invalid", Severity::Warn),
             ("core.fragment.invalid", Severity::Warn),
+            ("core.block.invalid", Severity::Warn),
+            ("core.block.empty", Severity::Warn),
             ("core.remark.invalid", Severity::Warn),
             ("core.selection.root-excluded", Severity::Warn),
             ("core.kind-switch.unsupported", Severity::Warn),
@@ -199,8 +207,8 @@ mod tests {
         ];
         assert_eq!(
             cases.len(),
-            47,
-            "47 `core.*` notice keys: 13 Error + 18 Warn + 7 Success + 9 Info. \
+            49,
+            "49 `core.*` notice keys: 13 Error + 20 Warn + 7 Success + 9 Info. \
              This list mirrors every `core.` arm of `severity_of` above; the 23 \
              host-authored `tui.*`/`web.*` keys it also classifies are out of scope \
              here. Keep it in step with MESSAGES.md §2.2 — the two are checked \

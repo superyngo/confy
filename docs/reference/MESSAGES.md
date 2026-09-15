@@ -98,9 +98,12 @@ Four levels, one meaning each:
 truth for every notice key — there is no explicit-severity
 constructor and no escape hatch; a key not yet in the table panics rather than
 silently defaulting, so a new Notice call site can't ship unclassified. The table
-classifies **70** keys: **47 `core.*`** notice keys (13 Error + 18 Warn + 7 Success
-+ 9 Info) and **23** host-authored `tui.*`/`web.*` keys (§3). The newest entries are
-ADR 0014's pair — `core.document.apply-failed` (Error: the whole-file buffer did not
+classifies **72** keys: **49 `core.*`** notice keys (13 Error + 20 Warn + 7 Success
++ 9 Info) and **23** host-authored `tui.*`/`web.*` keys (§3). The newest entries are the
+Block editor's pair — `core.block.invalid` and `core.block.empty`, both **`Warn`**, not
+`Error`: a rejected Block leaves the host's editor open holding the user's text, so nothing
+they typed is lost (the design record's §5-6; `core.block.empty` points the user at `d`
+instead of deleting). Before them, ADR 0014's pair — `core.document.apply-failed` (Error: the whole-file buffer did not
 parse, so nothing was committed) and `core.document.edit-locked` (Warn: a row operation
 refused while the empty-path edit holds the document) — alongside
 `core.selection.root-excluded`, D7 of ADR 0013: the document Root is never an
@@ -109,10 +112,10 @@ every node-scoped item on it, leaving only the document-scoped `Edit whole file`
 replaces `core.convert.root-only`, retired by the same ADR's D10 — Convert is
 document-scoped and no longer demands a Root cursor. `core.schema.violation`
 is a controller-approved pass-through wrapper (`Warn`) carrying the dynamic
-schema-violation advisory text, and is counted inside those 18. See `notice.rs`'s own
+schema-violation advisory text, and is counted inside those 20. See `notice.rs`'s own
 `severity_of_covers_the_full_catalog_table` test for the exhaustive `core.*` list;
 that test *is* the maintained reference, not duplicated here to avoid drift, and its
-`cases.len() == 47` assertion is the tripwire that catches this section going stale.
+`cases.len() == 49` assertion is the tripwire that catches this section going stale.
 The host keys are classified by the same table but are deliberately outside that test.
 
 **These 47 are only the notice keys.** `i18n/en.json` holds 105 `core.*` keys in

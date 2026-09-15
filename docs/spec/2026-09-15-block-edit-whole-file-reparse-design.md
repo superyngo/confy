@@ -246,10 +246,22 @@ A new data-driven `crates/confy-core/tests/block_edit_parity.rs` holds the matri
   applied; Comment ↔ live ⇒ applied; duplicate key ⇒ rejected and document untouched; empty
   buffer ⇒ rejected
 
-Plus a proptest (alongside `tests/roundtrip_proptest.rs`): random document, random Node, buffer
-returned unmodified ⇒ the document is byte-identical. Under this design that invariant is a pure
-string equality, which is exactly why it can be swept randomly — and it is the invariant a
-mis-computed span breaks first.
+Plus an exhaustive identity sweep (`tests/block_edit_identity.rs`) over
+`roundtrip_proptest.rs`'s fixture corpus × **every** node in it: buffer returned unmodified ⇒
+the document is byte-identical.
+
+**Corrected during implementation (2026-09-15).** This record originally claimed that sweep is
+"the invariant a mis-computed span breaks first". It is not: the seed and the commit both read
+`node_text_spans`, so a *symmetric* span error cancels — adding 1 to every TOML span end leaves
+the sweep green (verified by mutation). Span boundaries are pinned instead by the three
+per-backend unit suites, which assert the exact slice, and by the parity matrix, which asserts
+the exact resulting document. The sweep's real job is asymmetry: panics, out-of-bounds or
+inverted ranges, and multi-span sets that overlap or splice in the wrong order.
+
+One matrix case earned a note of its own for the same reason: the "cut later spans in reverse
+document order" rule is **unobservable with two spans** (`skip(1)` leaves one), so the scattered
+table case uses **three** runs. Mutation-checked: reversing the cut order is missed by every
+two-span case and caught by the three-run one.
 
 Real-binary verification, per repo conduct: the TUI ships in the same commit as the core, so
 every behavior above — including the re-spawn on rejection — is reproduced on the actual `confy`

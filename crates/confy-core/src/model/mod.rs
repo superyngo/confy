@@ -1,5 +1,6 @@
 pub mod any_doc;
 pub(crate) mod blank_lines;
+pub(crate) mod block_splice;
 pub mod convert;
 pub mod cst_doc;
 pub mod cst_edit;

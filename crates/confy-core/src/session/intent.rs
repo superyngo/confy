@@ -219,6 +219,16 @@ pub enum Intent {
         path: crate::model::node::Path,
         text: String,
     },
+    /// Host already obtained the edited **Block** text for `path` — the text
+    /// of the span(s) that node owns (design record
+    /// `docs/spec/2026-09-15-block-edit-whole-file-reparse-design.md` §5).
+    /// Additive: `ApplyReplace`/`ApplyEditComment` keep working, and
+    /// `ApplyReplace` at the empty path stays the whole-document route (Raw
+    /// write mode and the VS Code reparse channel).
+    ApplyBlockText {
+        path: crate::model::node::Path,
+        text: String,
+    },
 
     // ---- Mutations ----
     Nudge(i64),

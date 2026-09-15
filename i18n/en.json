@@ -45,6 +45,8 @@
   "core.value.invalid": "invalid value: {0}",
   "core.trailing.update-failed": "comment update failed: {0}",
   "core.fragment.invalid": "invalid {0}: {1}",
+  "core.block.invalid": "the edited block was not applied: {0}",
+  "core.block.empty": "an empty block is not applied — use d to delete this node",
   "core.add.placeholder": "added placeholder node — rename with F2",
   "core.add.error": "add error: {0}",
   "core.add.picker.title": "Add node",

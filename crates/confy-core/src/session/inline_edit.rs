@@ -710,6 +710,133 @@ impl Session {
         }
     }
 
+    /// The **Block** text for `path` — what a host seeds its multi-line editor
+    /// with on the `ApplyBlockText` route, and the exact text
+    /// `apply_block_text` will splice back. Empty when the node owns no Block.
+    ///
+    /// Deliberately separate from `multiline_edit_initial`, which serves the
+    /// older `ApplyReplace` route and packages the trailing blank run through
+    /// `blank_lines::with_trailing_run`; here the run arrives as part of the
+    /// span, so the seed and the commit are the *same* string — which is what
+    /// makes "an unmodified buffer leaves the document byte-identical" a plain
+    /// string equality (`tests/block_edit_identity.rs`).
+    pub fn block_text(&self, path: &Path) -> String {
+        let Some(doc) = self.doc.as_ref() else {
+            return String::new();
+        };
+        let spans = doc.node_text_spans(path);
+        if spans.is_empty() {
+            return String::new();
+        }
+        let text = doc.serialize();
+        spans
+            .iter()
+            .filter_map(|&(a, b)| text.get(a..b))
+            .collect::<Vec<_>>()
+            .join("")
+    }
+
+    /// Block commit (design record
+    /// `docs/spec/2026-09-15-block-edit-whole-file-reparse-design.md` §4):
+    /// `text` is the complete text of the span(s) the node at `path` owns. It
+    /// is spliced into the document's own text and committed at the **empty**
+    /// path, so legality is exactly "does the whole file still parse and
+    /// validate" — which is how a key rename, N sibling nodes and a
+    /// Comment↔live conversion all become legal without a new `Mutation`
+    /// variant, and how anything illegal is refused by machinery that already
+    /// exists (the backends' atomic commit-on-success, taplo's DOM validate,
+    /// JSON's duplicate-key scan).
+    ///
+    /// A rejected buffer reports `core.block.invalid` at `Warn`: the host keeps
+    /// its editor open holding the user's text, so nothing is lost. Hosts
+    /// detect the rejection from `doc_revision` staying put, never from the
+    /// notice — the established rule (F4, `web/ui.ts`'s `applyRawEdit`).
+    /// An empty buffer is refused outright (`core.block.empty`); deletion is
+    /// `d`, which has its own confirmation and multi-select semantics.
+    pub fn apply_block_text(&mut self, path: Path, text: String) {
+        if text.trim().is_empty() {
+            self.set_notice(Notice::core(self.lang, "core.block.empty", &[]));
+            return;
+        }
+        let Some(doc) = self.doc.as_ref() else {
+            return;
+        };
+        let spans = doc.node_text_spans(&path);
+        if spans.is_empty() {
+            // The backend cannot express this node as a Block. Same key as a
+            // rejected buffer — from the user's side both mean "your text was
+            // not applied and the document is untouched" — with the cause as
+            // the argument, so the catalog stays at the two keys the design
+            // record specifies.
+            self.set_notice(Notice::core(
+                self.lang,
+                "core.block.invalid",
+                &["this node has no editable block"],
+            ));
+            return;
+        }
+        let new_text = crate::model::block_splice::splice_spans(&doc.serialize(), &spans, &text);
+        let anchor = spans[0].0;
+        let Some(doc) = self.doc.as_mut() else {
+            return;
+        };
+        match doc.apply(Mutation::Replace {
+            path: Vec::new(),
+            fragment: new_text,
+        }) {
+            // `touched: None` = always revalidate the schema in full. The
+            // one-path fast skip is unsound for a commit that can add or
+            // rename arbitrary paths, and a missed soft Violation is a feature
+            // that silently does not exist (design record §7).
+            Ok(new_text) => {
+                self.on_mutation_success(None, new_text);
+                self.reanchor_cursor_after_block(&path, anchor);
+            }
+            Err(e) => self.set_notice(Notice::core(
+                self.lang,
+                "core.block.invalid",
+                &[&e.to_string()],
+            )),
+        }
+    }
+
+    /// Cursor re-anchor after a Block commit (design record §5): the pre-edit
+    /// path if it still resolves, else the first node starting at or after the
+    /// edited span's start offset, else leave it to `compute_rows`, which
+    /// snaps a vanished path to the first row.
+    ///
+    /// Span-based, not row-index-based: a key rename must land on the renamed
+    /// node, and a row index only coincides with that while the row count is
+    /// unchanged.
+    fn reanchor_cursor_after_block(&mut self, path: &Path, anchor: usize) {
+        if self.tree.node_at(path).is_some() {
+            return;
+        }
+        if let Some(p) = self.path_at_offset(anchor) {
+            // Only the cursor moves here: every host calls `compute_rows`
+            // after a dispatch, and that is where the snap-to-visible and the
+            // stale-paste-slot cleanup already live.
+            self.cursor = p;
+        }
+    }
+
+    /// The path of the first node in document order whose own span starts at
+    /// or after `offset`. Used only by the Block re-anchor above.
+    fn path_at_offset(&self, offset: usize) -> Option<Path> {
+        let doc = self.doc.as_ref()?;
+        let mut best: Option<(usize, Path)> = None;
+        let mut stack: Vec<&crate::model::node::Node> = self.tree.root.children.iter().collect();
+        while let Some(n) = stack.pop() {
+            if let Some(&(start, _)) = doc.node_text_spans(&n.path).first() {
+                if start >= offset && best.as_ref().is_none_or(|(b, _)| start < *b) {
+                    best = Some((start, n.path.clone()));
+                }
+            }
+            stack.extend(n.children.iter());
+        }
+        best.map(|(_, p)| p)
+    }
+
     /// External-editor commit (host popup / TUI `$EDITOR`): `text` is the
     /// fragment's complete, authoritative representation, unlike the inline
     /// editor's value-only fragment (which manages the comment separately via

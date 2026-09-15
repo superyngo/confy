@@ -261,6 +261,10 @@ impl super::Session {
                 self.pending_external_edit = None;
                 self.apply_edit_comment(path, text);
             }
+            Intent::ApplyBlockText { path, text } => {
+                self.pending_external_edit = None;
+                self.apply_block_text(path, text);
+            }
 
             // ---- Mutations ----
             Intent::Nudge(d) => self.nudge(d),

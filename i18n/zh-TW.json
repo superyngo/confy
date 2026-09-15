@@ -45,6 +45,8 @@
   "core.value.invalid": "無效的值：{0}",
   "core.trailing.update-failed": "comment 更新失敗：{0}",
   "core.fragment.invalid": "無效的 {0}：{1}",
+  "core.block.invalid": "編輯的區塊未套用：{0}",
+  "core.block.empty": "空白區塊不會套用 —— 請用 d 刪除這個節點",
   "core.add.placeholder": "已新增暫代節點 —— 按 F2 重新命名",
   "core.add.error": "新增失敗：{0}",
   "core.add.picker.title": "新增節點",
