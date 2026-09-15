@@ -47,6 +47,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   block's remaining lines; the two local workarounds this had grown in the span walk are gone
   with it, so the block's end has one algorithm.
 
+**Removed**
+
+- Eleven orphaned i18n keys, from both catalogs: `tui.prompt.{collision,confirm-quit,
+  type-change,array-upgrade}` (prompt text renders core-side; the TUI uses the `.legend`
+  siblings), `web.prompt.q.{arrayUpgrade,confirmQuit}` (the web reads
+  `ModeView::Prompt.question`), `core.action.title`, and `web.host.{add.node,add.child,
+  add.sibling,kind.no-options}` — the last four also dropped from `severity_of`, whose
+  host-key count goes 23 → 19.
+
 **Changed**
 
 - The multi-line editor (`e` / `$EDITOR`) now edits a Node's **Block** — the text of the byte
@@ -67,6 +76,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   which the whole-file `E` route already relied on. They stay read-only *structurally* — no
   rename, kind switch, remark, or paste-into. `read_only` accordingly means "not structurally
   editable", restated in the glossary and BEHAVIOR_MATRIX.
+- Docs: the **Block** ↔ **Remark** relationship is now stated — Remark comments the lines of
+  the Node's Block minus that Block's trailing blank run, which is where the own-line rule
+  comes from (both `glossary.md` entries and `MUTATIONS.md`'s Remark row).
 
 **Removed**
 

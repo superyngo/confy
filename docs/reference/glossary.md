@@ -46,7 +46,8 @@ whitespace, with the separating `,` outside it. One Node may own several spans (
 **consolidates** them at the first. Computed by `ConfigDocument::node_text_spans`, committed by
 `Session::apply_block_text` — which text-splices it into the document and reparses the whole
 file, so a Block may rename its Node's key, emit several sibling Nodes, or cross the
-Comment/live boundary.
+Comment/live boundary. **Remark** comments out the same lines a Block owns (minus the trailing
+blank run), which is why it needs a Node that occupies its own line(s).
 _Avoid_: Fragment (the old 1:1 per-Node buffer this replaced), region, chunk.
 
 **Branch node**:
@@ -303,7 +304,9 @@ The toggle that turns a live Node into a **Comment** (and back). Canonical name 
 `r` key does. Selection-aware: with a Locked selection active it acts on the whole
 selection (adjacent rows merge into one comment block; un-remarking a selected block
 expands the selection onto every restored row — see `ROW_STATE_MODEL.md` §1c); otherwise
-it targets the cursor row.
+it targets the cursor row. The lines it comments are the Node's **Block** minus that Block's
+trailing blank run — hence the own-line requirement: inside a single-line collection a Block
+is a token range sharing its line with siblings, and a comment leader would swallow them.
 Its user-facing label is **"Toggle comment"** on every host (menus, help text); *Remark* is
 the term of art the code and these docs use. Both are correct in their own register — do
 not let either drift into the other's.

@@ -98,8 +98,8 @@ Four levels, one meaning each:
 truth for every notice key — there is no explicit-severity
 constructor and no escape hatch; a key not yet in the table panics rather than
 silently defaulting, so a new Notice call site can't ship unclassified. The table
-classifies **72** keys: **49 `core.*`** notice keys (13 Error + 20 Warn + 7 Success
-+ 9 Info) and **23** host-authored `tui.*`/`web.*` keys (§3). The newest entries are the
+classifies **68** keys: **49 `core.*`** notice keys (13 Error + 20 Warn + 7 Success
++ 9 Info) and **19** host-authored `tui.*`/`web.*` keys (§3). The newest entries are the
 Block editor's pair — `core.block.invalid` and `core.block.empty`, both **`Warn`**, not
 `Error`: a rejected Block leaves the host's editor open holding the user's text, so nothing
 they typed is lost (the design record's §5-6; `core.block.empty` points the user at `d`
@@ -118,7 +118,7 @@ that test *is* the maintained reference, not duplicated here to avoid drift, and
 `cases.len() == 49` assertion is the tripwire that catches this section going stale.
 The host keys are classified by the same table but are deliberately outside that test.
 
-**These 47 are only the notice keys.** `i18n/en.json` holds 105 `core.*` keys in
+**These 68 are only the notice keys.** `i18n/en.json` holds 106 `core.*` keys in
 total; the rest are prompts (`core.prompt.*`), picker and label text
 (`core.dt.*`, `core.action.*`, `core.add.type.*`, `core.detail.*`, `core.hint.*`,
 `core.comment.advisory`, `core.schema.count`) and would **panic** if passed to

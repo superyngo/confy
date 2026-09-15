@@ -121,9 +121,6 @@ pub fn severity_of(key: &str) -> Severity {
         | "web.host.save-ok"
         | "web.host.download-ok"
         | "web.host.delete.ok"
-        | "web.host.add.node"
-        | "web.host.add.child"
-        | "web.host.add.sibling"
         | "web.host.kind.changed"
         | "web.host.value.changed"
         | "tui.host.saved"
@@ -139,7 +136,6 @@ pub fn severity_of(key: &str) -> Severity {
         | "core.paste.cancelled"
         | "core.add.placeholder"
         | "core.convert.aborted"
-        | "web.host.kind.no-options"
         | "tui.host.no-changes" => Severity::Info,
         _ => panic!("severity_of: unmapped notice key {key:?} — add it to the table in notice.rs"),
     }
@@ -209,7 +205,7 @@ mod tests {
             cases.len(),
             49,
             "49 `core.*` notice keys: 13 Error + 20 Warn + 7 Success + 9 Info. \
-             This list mirrors every `core.` arm of `severity_of` above; the 23 \
+             This list mirrors every `core.` arm of `severity_of` above; the 19 \
              host-authored `tui.*`/`web.*` keys it also classifies are out of scope \
              here. Keep it in step with MESSAGES.md §2.2 — the two are checked \
              against each other by hand, and this count is the tripwire."
