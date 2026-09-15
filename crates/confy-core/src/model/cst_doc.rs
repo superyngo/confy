@@ -83,6 +83,10 @@ impl ConfigDocument for CstDocument {
         crate::model::cst_edit::trailing_blank_anchor(&self.syntax, path).ok()
     }
 
+    fn node_text_spans(&self, path: &[Seg]) -> Vec<(usize, usize)> {
+        crate::model::cst_edit::spans::node_text_spans(&self.syntax, path)
+    }
+
     fn kind_options(&self, path: &[Seg]) -> Vec<(String, KindTarget)> {
         use crate::model::document::KindTarget as KT;
         use crate::model::kind_label::align_options;

@@ -23,6 +23,7 @@ pub(crate) mod escape;
 mod move_paste;
 mod rename;
 mod replace_delete;
+pub(crate) mod spans;
 mod tree_nav;
 
 use crate::model::cst_project::{walk, Target};

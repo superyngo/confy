@@ -87,8 +87,10 @@ pub(crate) fn count_after(text: &str, end: usize) -> usize {
     n
 }
 
-/// `(blank line count, byte length of the run)` starting at `end`.
-fn measure(text: &str, end: usize) -> (usize, usize) {
+/// `(blank line count, byte length of the run)` starting at `end`. The byte
+/// length is what a **Block** span adds to its anchor to swallow its own
+/// trailing run (`ConfigDocument::node_text_spans`).
+pub(crate) fn measure(text: &str, end: usize) -> (usize, usize) {
     let rest = &text[end.min(text.len())..];
     let mut n = 0usize;
     let mut consumed = 0usize;
