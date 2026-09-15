@@ -27,9 +27,12 @@ Effort is XS (< 1 h) / S (a session) / M (multi-session).
 
 ## Open
 
+**None open as of 2026-09-15.** The last four rows were evaluated on 2026-09-15 (four
+read-only scouts plus first-hand measurement): two shipped, one closed as stale, one moved to
+Watching. New rows keep the table shape below.
+
 | Opened | Item | Evidence | Effort | Acceptance |
 |---|---|---|---|---|
-| 2026-09-14 | **Q4 — caret → cursor, the inverse of the Raw pane's breadcrumb jump.** A breadcrumb pick selects a Node's source span in the Raw pane (path → offset, R14–R16); moving the caret/text-selection in the Raw pane does **not** move the tree cursor or breadcrumb back (offset → path). Settled out of scope at ship time (Q4, `docs/spec/2026-09-11-raw-write-mode-design.md`). | `web/ui.ts`'s `jumpSelectRawSpan` is one-way only. The private `Session::path_at_offset` (`session/inline_edit.rs:852`) is **not** reusable: its predicate is `start >= offset` (first Node at or after a splice anchor), so a caret *inside* a Node's span misses it and resolves to the next Node — a real query needs containment plus innermost descent. Scoped 2026-09-15. | S–M | A core containment query exists and is exported through `Session`/FFI, `web/text-offset.ts` gains the `codeUnitToByte` inverse, and a Raw-pane caret move updates the tree cursor/breadcrumb on both Raw states without re-entering `jumpSelectRawSpan` (latch + debounce). TUI/touch/VS Code are out of scope: no Raw pane, no breadcrumb, write mode suppressed by R10. |
 
 ---
 
@@ -114,3 +117,4 @@ Effort is XS (< 1 h) / S (a session) / M (multi-session).
 | 2026-09-15 | `Block` ↔ `Remark` relationship stated — both glossary entries and `MUTATIONS.md`'s Remark row now say Remark comments the Block's lines minus its trailing blank run, which is where the own-line rule comes from | `b8465c6` |
 | 2026-09-15 | **Convert warnings bypass i18n** — the thirteen lossy-normalization notes are now a structured `ConvertWarning` enum in `model/` with `catalog_key()`, translated at the edge (`Session`'s convert projection, the CLI); `ConvertView.warnings` stays `Vec<String>`, so the wasm wire contract and every host renderer are untouched. The row's own examples were invented: convert never drops comments and never merges duplicate keys | `6bfc5c2` |
 | 2026-09-15 | **The trailing-comment double pass** — closed as **stale**, not fixed. `edit_commit` splits the comment off before building the fragment, so `replace_value` returns `None` and `cst_edit/mod.rs:81-84` takes the `None => tree` arm: a plain inline value edit on a commented Node never calls `set_trailing_comment`. No host commits per keystroke either (TUI on `Enter`, web on `Enter`/`blur`). The spec §1 **14× does not reproduce**: measured 2026-09-15 on 5000 sections (release, median of 9) — TOML `Replace` 227 ms with or without a trailing comment on the Node, `SetTrailingComment` 615 ms, `Replace` with a comment-bearing fragment 664 ms (2.7–2.9×, and only when the user changes a comment); YAML 59–61 ms on every route. Reopen only on a fresh measurement | `6bfc5c2` |
+| 2026-09-15 | **Q4 — caret → cursor** shipped: `Session::node_at_offset` (innermost containing Node, also on the wasm surface), `codeUnitToByte` as `byteToCodeUnit`'s inverse, and a guarded Raw-pane caret listener (one-shot latch + 50 ms debounce + identity short-circuit). Verified in a real browser in both Raw states, including the dirty-write-buffer gate | `e29bcbb` |

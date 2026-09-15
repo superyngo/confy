@@ -89,6 +89,7 @@ method means updating both spellings.
 | `schemaViolations` | `() => ViolationView[]` | current violations with resolved `text_range`s — the native-editor Diagnostics data source. |
 | `outline` | `() => OutlineNode[]` | read-only symbol tree for editor Outline/breadcrumb integrations, independent of cursor/expansion state. |
 | `spanOf` / `span_of` | `(path: Seg[]) => [number, number] \| undefined` | the node's whole-member UTF-8 **byte** span, Comment rows included — what the Raw pane's breadcrumb jump feeds `byteToCodeUnit` before `setSelectionRange` (R14–R17, R29). Core answers per path so no host re-walks `outline()`, which omits comments. |
+| `nodeAtOffset` / `node_at_offset` | `(offset: number) => Seg[] \| undefined` | `spanOf`'s inverse: the **innermost** Node whose span contains a UTF-8 byte offset, Comment rows included — the Raw pane's caret → cursor sync (Q4, landed 2026-09-15). `undefined` between Nodes (a blank line) or out of range. Deliberately not the Block editor's private `path_at_offset`, which resolves the first Node at or *after* a splice anchor and so skips the Node a caret sits inside. |
 | `pointerSlot` | `(path: Seg[], relY: number) => PasteSlot \| undefined` | pointer-drop classification (row + relative vertical position → the `PasteSlot` it represents). Every pointer surface calls this instead of hand-rolling it (ADR 0004 §1). |
 
 `external_edit` in the snapshot is the async handshake (§8.2): the UI opens its
@@ -370,9 +371,14 @@ shapes round-trip). Key types:
   `setSelectionRange` alone does not scroll, measured 2026-09-14), via `byteToCodeUnit` (core's
   UTF-8 byte `text_range` → JS UTF-16 code-unit offsets) and `span_of(path)` — a per-path core
   query, **not** `outline()`, which omits Comment nodes by design and therefore made a jump to
-  a comment row a silent no-op until 2026-09-14. One-way only (a
-  write-mode caret move never moves the tree cursor), and gated on a clean write buffer
-  (`web.raw.jump-needs-apply` otherwise — the tree cursor still moves via `RevealPath`, only
+  a comment row a silent no-op until 2026-09-14. **Two-way since 2026-09-15** (Q4): moving the
+  caret in the Raw pane moves the tree cursor (and so the breadcrumb) onto the Node the caret
+  sits in, via `node_at_offset` and `codeUnitToByte`, dispatched as `RevealPath`. Three guards
+  keep the binding from oscillating — a one-shot latch armed by the jump itself, a 50 ms
+  debounce so a drag-select or held arrow key collapses to one dispatch, and an identity
+  short-circuit when the resolved Node is already the cursor. Both directions are gated on a
+  clean write buffer (`text_range`s describe the last commit, R17): the jump reports
+  `web.raw.jump-needs-apply` — the tree cursor still moves via `RevealPath`, only
   the text selection is skipped). Touch keeps Raw **view** read-only with no write mode of its
   own; its whole-file edit path is the existing external-edit bottom sheet (R18/R19, below).
   VS Code suppresses the Action menu item and disables the band's Edit control (R10): its own

@@ -12,6 +12,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 2026-09-15
 
+**Added**
+
+- The web Raw pane's breadcrumb mapping is **two-way** now (Q4). Moving the caret in the Raw
+  pane moves the tree cursor and breadcrumb onto the Node the caret sits in — the inverse of
+  the breadcrumb pick, which already selected a Node's source span. Core answers it with
+  `Session::node_at_offset` (also on the wasm surface), the **innermost** Node whose span
+  contains a byte offset; the Block editor's own `path_at_offset` could not be reused because
+  it resolves the first Node at or *after* a splice anchor and so skips the Node a caret is
+  inside. Three guards keep a two-way binding from oscillating: a one-shot latch armed by the
+  jump, a 50 ms debounce so a drag-select or held arrow key collapses to one dispatch, and an
+  identity short-circuit when the resolved Node is already the cursor. Both directions stay
+  gated on a clean Raw-write buffer, since `text_range`s describe the last commit. TUI, touch
+  and VS Code are unaffected: no Raw pane, no breadcrumb, write mode suppressed.
+
 **Fixed**
 
 - Cross-format convert's lossy-normalization warnings are **translated** now. All thirteen

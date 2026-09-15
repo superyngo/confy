@@ -4403,6 +4403,65 @@ fn span_of_resolves_yaml_and_json_comments() {
     assert_eq!(&jsrc[start as usize..end as usize], "// note");
 }
 
+/// The inverse direction (Raw caret → tree cursor). The key property is
+/// *innermost*: an offset inside `[srv]`'s body must resolve to the leaf, not
+/// to the Branch node whose span also contains it — the reason the Block
+/// editor's own `path_at_offset` (first Node at or after an anchor) cannot be
+/// reused here.
+#[test]
+fn node_at_offset_resolves_the_innermost_node_containing_the_caret() {
+    let src = "# lead\nname = \"a\"\n\n[srv]\n# inner\nport = 1\n";
+    let s = toml_session(src);
+    let at = |needle: &str, delta: usize| s.node_at_offset(src.find(needle).unwrap() + delta);
+
+    assert_eq!(at("# lead", 3), Some(vec![Seg::Index(0)]));
+    assert_eq!(at("name", 2), Some(vec![Seg::Key("name".into())]));
+    // Inside the section body: the innermost Node, not `[srv]` itself.
+    assert_eq!(
+        at("port", 2),
+        Some(vec![Seg::Key("srv".into()), Seg::Key("port".into())])
+    );
+    assert_eq!(
+        at("# inner", 1),
+        Some(vec![Seg::Key("srv".into()), Seg::Index(0)])
+    );
+    // The header line itself belongs to the Branch node.
+    assert_eq!(at("[srv]", 1), Some(vec![Seg::Key("srv".into())]));
+
+    // The blank line between `name` and `[srv]` belongs to no Node, and an
+    // offset past the end resolves to nothing rather than clamping.
+    assert_eq!(at("\n\n[srv]", 1), None);
+    assert_eq!(s.node_at_offset(src.len() + 10), None);
+}
+
+/// Round-trip against `span_of`: every Node's own start offset must resolve
+/// back to that same Node, in all three formats.
+#[test]
+fn node_at_offset_is_the_inverse_of_span_of() {
+    let ysrc = "# top\nkey: 1\nmap:\n  inner: 2\n";
+    let ys = yaml_session(ysrc);
+    for path in [
+        vec![Seg::Index(0)],
+        vec![Seg::Key("key".into())],
+        vec![Seg::Key("map".into()), Seg::Key("inner".into())],
+    ] {
+        let (start, _) = ys.span_of(&path).expect("span");
+        assert_eq!(ys.node_at_offset(start as usize), Some(path));
+    }
+
+    let jsrc = "{\n  // note\n  \"a\": { \"b\": 1 }\n}\n";
+    let doc = AnyDocument::from_str_as(jsrc, DocFormat::Json).unwrap();
+    let js = Session::new(doc);
+    for path in [
+        vec![Seg::Index(0)],
+        vec![Seg::Key("a".into())],
+        vec![Seg::Key("a".into()), Seg::Key("b".into())],
+    ] {
+        let (start, _) = js.span_of(&path).expect("span");
+        assert_eq!(js.node_at_offset(start as usize), Some(path));
+    }
+}
+
 // ---- Root-hidden alignment, slice S1 (ADR 0013: D7 / D3 / D2) ----
 
 /// D7: the Root can never be an operand of a *row* operation. Before this

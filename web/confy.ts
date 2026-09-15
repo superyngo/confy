@@ -165,6 +165,15 @@ export class Session {
   }
 
   /**
+   * The innermost node whose span contains `offset` (a UTF-8 byte offset over
+   * `serialize()`), comments included — `spanOf`'s inverse, driving the Raw
+   * pane's caret → cursor sync (Q4). `undefined` between nodes or out of range.
+   */
+  nodeAtOffset(offset: number): Path | undefined {
+    return this.raw.node_at_offset(offset) as Path | undefined;
+  }
+
+  /**
    * Pointer-drop classification (ADR 0004 §1): "this row, this relative
    * vertical position" (`0` = row top, `1` = row bottom) -> the `PasteSlot`
    * it represents, or `undefined` if the row is no longer visible.

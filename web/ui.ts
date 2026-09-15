@@ -54,7 +54,7 @@ import { installDnd } from "./dnd.js";
 import { documentEdgeLine, slotLineIndentPx } from "./slot-line.js";
 import { panelHTML, wirePanel, schemaHintText } from "./panel.js";
 import { renderCrumbs, wireCrumbDismiss } from "./breadcrumb.js";
-import { byteToCodeUnit } from "./text-offset.js";
+import { byteToCodeUnit, codeUnitToByte } from "./text-offset.js";
 import { bindPromptClicks, promptButtonsHTML } from "./prompt.js";
 import { typeFilterHTML, wireTypeFilter } from "./typefilter.js";
 import {
@@ -538,9 +538,10 @@ function renderRawOrTree() {
   if (!raw) renderTree(tree, snap!, getEdit());
 }
 
-// R14/R16/R17: a breadcrumb pick additionally selects the node's source
-// span in the Raw pane — one way only (moving the caret never moves the
-// tree cursor back; the inverse has no core query, Q4). Gated on a clean
+// R14/R16: a breadcrumb pick additionally selects the node's source span in
+// the Raw pane. The inverse direction (caret → cursor) is
+// `syncCursorFromRawCaret` below, which is why this one sets
+// `rawJumpLatch` — the two would otherwise chase each other. Gated on a clean
 // write buffer: `text_range`s come from the last commit, so a dirty
 // buffer's text_range may point into text that is no longer there, and the
 // host cannot know whether the buffer even parses until an Apply is
@@ -565,9 +566,50 @@ function jumpSelectRawSpan(path: Path) {
   const text = session.serialize();
   const start = byteToCodeUnit(text, span[0]);
   const end = byteToCodeUnit(text, span[1]);
+  rawJumpLatch = true;
   editEl.focus();
   editEl.setSelectionRange(start, end);
   scrollRawToOffset(editEl, text, start);
+}
+
+// Q4, the inverse of the breadcrumb jump: moving the caret in the Raw pane
+// moves the tree cursor (and so the breadcrumb) onto the Node the caret is
+// sitting in. Core answers `offset -> path` with `node_at_offset`, the
+// innermost containing Node — `spanOf`'s exact inverse.
+//
+// Three guards, because a two-way binding loops by default:
+//   1. `rawJumpLatch` — a jump *we* performed must not bounce back as a
+//      caret move. The latch is consumed by the next sync attempt.
+//   2. debounce — a drag-select or held arrow key fires per code unit; one
+//      dispatch per settled caret is enough (50 ms, the same order as the
+//      render loop).
+//   3. identity short-circuit — resolving to the Node already under the
+//      cursor dispatches nothing, so an unrelated re-render cannot be
+//      triggered by simply clicking inside the current row.
+// The dirty-write-buffer gate is R17's, for R17's reason: `text_range`s come
+// from the last commit, so they do not describe an uncommitted buffer.
+let rawJumpLatch = false;
+let rawCaretTimer = 0;
+
+function onRawCaretMove() {
+  clearTimeout(rawCaretTimer);
+  rawCaretTimer = window.setTimeout(syncCursorFromRawCaret, 50);
+}
+
+function syncCursorFromRawCaret() {
+  rawCaretTimer = 0;
+  if (rawJumpLatch) {
+    rawJumpLatch = false;
+    return;
+  }
+  if (rawState === "off" || !session || !snap) return;
+  const editEl = $<HTMLTextAreaElement>("rawEdit");
+  if (rawState === "write" && editEl.value !== rawWriteBaseline) return;
+  const text = session.serialize();
+  const path = session.nodeAtOffset(codeUnitToByte(text, editEl.selectionStart));
+  if (!path) return;
+  if (JSON.stringify(path) === JSON.stringify(snap.cursor)) return;
+  send({ RevealPath: path });
 }
 
 // Put the line holding `offset` a third of the pane down, the way the tree's
@@ -2360,6 +2402,12 @@ function bindConvertDialog() {
 
 function bindGlobal() {
   tree.addEventListener("keydown", onKey);
+  // Q4 caret → cursor. `selectionchange` on the element is not universally
+  // supported, so the three events that can move a textarea caret are bound
+  // instead; `onRawCaretMove` debounces them into one dispatch.
+  for (const ev of ["keyup", "mouseup", "select"]) {
+    $("rawEdit").addEventListener(ev, onRawCaretMove);
+  }
   $("rawEdit").addEventListener("keydown", (ev) => onRawEditKey(ev as KeyboardEvent));
   // No `input` listener on the pane: neither band control's enabled state
   // depends on the buffer's dirtiness any more (2026-09-15).

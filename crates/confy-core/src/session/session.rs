@@ -557,6 +557,29 @@ impl Session {
             .map(|n| (n.text_range.start as u32, n.text_range.end as u32))
     }
 
+    /// The **innermost** Node whose source span contains `offset`, comments
+    /// included — the inverse of [`Self::span_of`], answering the Raw pane's
+    /// caret → cursor direction (`web/ui.ts`'s selection listener).
+    /// Deliberately *not* `inline_edit`'s private `path_at_offset`: that one
+    /// resolves the first Node starting **at or after** a splice anchor, so a
+    /// caret inside a Node's span skips to the next Node. Here a Branch node
+    /// hands the answer to whichever child still contains the offset, so the
+    /// result is the row the caret is actually sitting in. An offset in the
+    /// gap between two Nodes (a blank line, a `]` closer) belongs to no Node
+    /// and returns `None`, as does an out-of-range offset.
+    pub fn node_at_offset(&self, offset: usize) -> Option<Path> {
+        fn descend(nodes: &[crate::model::node::Node], offset: usize) -> Option<Path> {
+            for n in nodes {
+                if offset < n.text_range.start || offset >= n.text_range.end {
+                    continue;
+                }
+                return descend(&n.children, offset).or_else(|| Some(n.path.clone()));
+            }
+            None
+        }
+        descend(&self.tree.root.children, offset)
+    }
+
     pub fn cursor_down(&mut self) {
         if self.clipboard.is_some() {
             self.move_paste_slot(SlotMove::Delta(1));

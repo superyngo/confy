@@ -184,6 +184,14 @@ impl ConfySession {
         to_value(&self.session.span_of(&path)).map_err(js_serde_error)
     }
 
+    /// The innermost Node containing `offset` (a UTF-8 byte offset over
+    /// `serialize()`), comments included — the inverse of `span_of`, driving
+    /// the Raw pane's caret → cursor sync. `undefined` when the offset falls
+    /// between Nodes or outside the document.
+    pub fn node_at_offset(&self, offset: u32) -> Result<JsValue, JsValue> {
+        to_value(&self.session.node_at_offset(offset as usize)).map_err(js_serde_error)
+    }
+
     /// Current schema violations with resolved `text_range`s — the
     /// native-editor Diagnostics data source (VS Code schema-hints design).
     pub fn schema_violations(&self) -> Result<JsValue, JsValue> {

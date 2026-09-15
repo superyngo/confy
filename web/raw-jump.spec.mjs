@@ -68,14 +68,18 @@ const fns = names.map((n) => uiTs.match(new RegExp(`^function ${n}\\([\\s\\S]*?\
 fns.forEach((s, i) => check(`${names[i]} extracted verbatim`, !!s));
 
 const src = `let snap, session, rawState = "off", rawWriteBaseline = null, statusEl, VSHOST = false;
+// The jump sets this so the caret → cursor sync (raw-caret-sync.spec.mjs)
+// does not bounce our own selection back as a cursor move.
+let rawJumpLatch = false;
 function t(key) { return key; }
 function byteToCodeUnit(text, byteOffset) { return byteOffset; } // ASCII-only fixtures below
 ${fns[0]}
 ${fns[1]}
 ${fns[2]}
 ${fns[3]}
-export { jumpSelectRawSpan, renderRawControls, revertRawEdit, setEnv };
-function setEnv(e) { snap = e.snap; session = e.session; rawState = e.rawState; rawWriteBaseline = e.rawWriteBaseline; statusEl = e.statusEl; VSHOST = e.vshost ?? false; }
+export { jumpSelectRawSpan, renderRawControls, revertRawEdit, setEnv, latch };
+function setEnv(e) { snap = e.snap; session = e.session; rawState = e.rawState; rawWriteBaseline = e.rawWriteBaseline; statusEl = e.statusEl; VSHOST = e.vshost ?? false; rawJumpLatch = false; }
+function latch() { return rawJumpLatch; }
 `;
 
 const built = await esbuild.build({
@@ -132,6 +136,7 @@ for (const state of ["view", "write"]) {
   check(`${state}: setSelectionRange gets the node's span`, sel && sel[0] === 0 && sel[1] === 17, JSON.stringify(sel));
   check(`${state}: R29/F5 selects the whole member's span`, sel && sel[1] === 17);
   check(`${state}: no status text set (clean buffer)`, statusTextCalls.length === 0);
+  check(`${state}: the jump arms rawJumpLatch (Q4 loop guard)`, mod.latch() === true);
 }
 {
   // The defect fixed 2026-09-14: `outline()` omits Comment nodes, so the old
