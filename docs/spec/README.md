@@ -11,7 +11,9 @@ carried the change is in `CHANGELOG.md`.
 
 ## In progress
 
-Nothing open.
+| Date | Document | Status |
+|---|---|---|
+| 2026-09-15 | [Block edit via whole-file reparse](2026-09-15-block-edit-whole-file-reparse-design.md) | Draft |
 
 ## Landed
 
