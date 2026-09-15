@@ -68,6 +68,10 @@ impl ConfigDocument for JsonDocument {
         crate::model::json::edit::extent_end_offset(&self.syntax, path).ok()
     }
 
+    fn node_text_spans(&self, path: &[Seg]) -> Vec<(usize, usize)> {
+        crate::model::json::edit::spans::node_text_spans(&self.syntax, path)
+    }
+
     fn fragment_trailing_comment(&self, path: &[Seg], fragment: &str) -> Option<String> {
         match crate::model::json::edit::resolve(&self.syntax, path) {
             Some(crate::model::json::project::Target::Member(_)) => {

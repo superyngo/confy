@@ -10,6 +10,7 @@ mod insert;
 mod mutations;
 mod replace_delete;
 mod resolve;
+pub(crate) mod spans;
 
 use container::*;
 use convert::*;
