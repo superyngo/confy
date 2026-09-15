@@ -13,6 +13,9 @@ carried the change is in `CHANGELOG.md`.
 
 - [2026-09-09-open-follow-ups.md](2026-09-09-open-follow-ups.md) — the single live backlog:
   every recorded-but-unfixed item, with evidence and acceptance criteria · `In progress`
+- [2026-09-15-block-edit-whole-file-reparse-plan.md](2026-09-15-block-edit-whole-file-reparse-plan.md)
+  — the multi-line editor commits a Node's **Block** through the whole-document reparse route,
+  from [`../spec/2026-09-15-block-edit-whole-file-reparse-design.md`](../spec/2026-09-15-block-edit-whole-file-reparse-design.md) · `In progress`
 
 The follow-ups backlog is the one record here that is *not* frozen on landing — see its own
 scope note.
