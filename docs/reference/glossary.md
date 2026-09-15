@@ -38,7 +38,9 @@ _Avoid_: File header (as a separate concept), top node, root row.
 The byte span(s) a **Node** owns, as text — what the multi-line editor (`e` / `$EDITOR`, the web
 pop-up) opens and commits. A Block covers the Node's body, its **trailing comment** and its
 trailing blank-line run; a *preceding* standalone **Comment** is an independent Node and never
-part of it. Inside a flow collection a Block is the Node's own token range trimmed of
+part of it. A **block-formatted** JSON/TOML member carries its own separating `,` — that comma is
+inside the span it owns, which is how a buffer can legally hand back several members — while
+inside a *flow* collection a Block is the Node's own token range trimmed of
 whitespace, with the separating `,` outside it. One Node may own several spans (a scattered
 `[T/S]`, a `[T/D]` dotted table, a scattered `[A/T]` group), in which case a commit
 **consolidates** them at the first. Computed by `ConfigDocument::node_text_spans`, committed by

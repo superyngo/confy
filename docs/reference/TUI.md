@@ -74,8 +74,9 @@ node's key or emit several sibling nodes; a rejected buffer re-spawns `$EDITOR` 
 user's own text, and the error goes to the notice line, never into the buffer
 ([BEHAVIOR_MATRIX.md](BEHAVIOR_MATRIX.md) §6.3). A Block starts at the node's own
 header/value line and carries its trailing comment and trailing blank run — an adjacent
-standalone comment is an independent node and is never part of it. A **Comment** row is the one
-exception still on the older comment-only route (`apply_edit_comment`). The editor command comes from `$EDITOR`, then `$VISUAL`, then `vi` (`notepad` on
+standalone comment is an independent node and is never part of it. A **Comment** row takes the
+same route: its Block is its whole comment block, so deleting the `#` in the buffer un-comments
+the Node. The editor command comes from `$EDITOR`, then `$VISUAL`, then `vi` (`notepad` on
 Windows); it is shell-split (`tui/editor.rs`, `shell-words`) so `EDITOR="code --wait"` works, and
 the scratch file carries the document's own extension (`.toml`/`.json`/`.yaml`) so the editor
 picks the right syntax mode. On return the event loop repaints via `full_redraw` (a query-free

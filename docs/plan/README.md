@@ -13,9 +13,6 @@ carried the change is in `CHANGELOG.md`.
 
 - [2026-09-09-open-follow-ups.md](2026-09-09-open-follow-ups.md) — the single live backlog:
   every recorded-but-unfixed item, with evidence and acceptance criteria · `In progress`
-- [2026-09-15-block-edit-whole-file-reparse-plan.md](2026-09-15-block-edit-whole-file-reparse-plan.md)
-  — the multi-line editor commits a Node's **Block** through the whole-document reparse route,
-  from [`../spec/2026-09-15-block-edit-whole-file-reparse-design.md`](../spec/2026-09-15-block-edit-whole-file-reparse-design.md) · `In progress`
 
 The follow-ups backlog is the one record here that is *not* frozen on landing — see its own
 scope note.
@@ -71,5 +68,6 @@ scope note.
 | 2026-09-07 | [Trailing blank lines are an explicit, undoable node operation](2026-09-07-trailing-blank-lines.md) | Shipped (2026-09-07) |
 | 2026-09-11 | [Root-hidden alignment — S0–S6](2026-09-11-root-hidden-alignment.md) | Shipped (2026-09-14) |
 | 2026-09-14 | [Raw write mode — whole-document editing, T1–T10](2026-09-14-raw-write-mode.md) | Shipped (2026-09-14) |
+| 2026-09-15 | [Block edit via whole-file reparse](2026-09-15-block-edit-whole-file-reparse-plan.md) | Shipped (2026-09-15) |
 
 See also [`../adr/`](../adr/README.md) for the decisions this material produced.

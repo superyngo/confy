@@ -214,7 +214,12 @@ pub enum Intent {
         path: crate::model::node::Path,
         text: String,
     },
-    /// Host already obtained edited comment text.
+    /// Host committed a Comment node's text from an **inline, single-line**
+    /// field (the desktop panel's `comment-node` input). This is the panel's
+    /// shortcut into the inline editor's `EditComment` commit, not the
+    /// multi-line editor's route — that one is `ApplyBlockText`, whose buffer
+    /// is document text carrying the node's own `#` markers and indent, which
+    /// a one-line field cannot express.
     ApplyEditComment {
         path: crate::model::node::Path,
         text: String,
@@ -222,9 +227,9 @@ pub enum Intent {
     /// Host already obtained the edited **Block** text for `path` — the text
     /// of the span(s) that node owns (design record
     /// `docs/spec/2026-09-15-block-edit-whole-file-reparse-design.md` §5).
-    /// Additive: `ApplyReplace`/`ApplyEditComment` keep working, and
-    /// `ApplyReplace` at the empty path stays the whole-document route (Raw
-    /// write mode and the VS Code reparse channel).
+    /// This is the per-node multi-line commit for **every** node kind,
+    /// comments included. `ApplyReplace` at the empty path stays the
+    /// whole-document route (Raw write mode and the VS Code reparse channel).
     ApplyBlockText {
         path: crate::model::node::Path,
         text: String,

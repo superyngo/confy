@@ -800,6 +800,31 @@ impl Session {
         }
     }
 
+    /// Inline, single-line Comment commit (`Intent::ApplyEditComment`, the
+    /// desktop panel's `comment-node` field). Deliberately **not** the
+    /// multi-line route: `text` is the comment's projected text, so it takes
+    /// the same `EditComment` mutation the inline editor's `edit_commit` uses.
+    /// A multi-line buffer is `apply_block_text` instead — it carries the
+    /// node's `#` markers, its indent and its trailing newline, none of which
+    /// a one-line field has.
+    pub fn apply_edit_comment(&mut self, path: Path, text: String) {
+        let doc = match self.doc.as_mut() {
+            Some(d) => d,
+            None => return,
+        };
+        match doc.apply(Mutation::EditComment { path, text }) {
+            Ok(text) => self.on_mutation_success(None, text),
+            Err(MutateError::Fragment(msg)) => {
+                self.set_notice(Notice::core(self.lang, "core.comment.invalid", &[&msg]));
+            }
+            Err(e) => self.set_notice(Notice::core(
+                self.lang,
+                "core.error.generic",
+                &[&e.to_string()],
+            )),
+        }
+    }
+
     /// Cursor re-anchor after a Block commit (design record §5): the pre-edit
     /// path if it still resolves, else the first node starting at or after the
     /// edited span's start offset, else leave it to `compute_rows`, which
@@ -837,30 +862,24 @@ impl Session {
         best.map(|(_, p)| p)
     }
 
-    /// External-editor commit (host popup / TUI `$EDITOR`): `text` is the
-    /// fragment's complete, authoritative representation, unlike the inline
-    /// editor's value-only fragment (which manages the comment separately via
-    /// `pending_trailing`). Its trailing blank lines are split back off the
-    /// buffer (`multiline_edit_initial` packaged them in) and re-applied after
-    /// the `Replace`; `wrap_element` re-wraps the **body** as a keyless element
-    /// (`scalar_fragment(None, …)`) — the wrap has to happen after the split or
-    /// it would eat the blank run.
+    /// Non-empty-path `ApplyReplace`: `text` is the fragment's complete,
+    /// authoritative representation, unlike the inline editor's value-only
+    /// fragment (which manages the comment separately via `pending_trailing`).
+    ///
+    /// Since the Block switchover no host reaches this: every per-node
+    /// multi-line commit is `ApplyBlockText`, and `ApplyReplace` is the
+    /// whole-document route at the empty path. What is left is the fragment
+    /// entry point itself — so the buffer is taken verbatim, with no
+    /// blank-run unpackaging and no `wrap_element` re-wrap (both existed only
+    /// to undo what `multiline_edit_initial` packaged into a seed).
     ///
     /// If the node had a trailing comment before this
     /// edit and the returned fragment doesn't write one, the user explicitly
     /// deleted it in their editor — force the clear rather than falling
     /// through to `Replace`'s "preserve the old comment when the fragment is
     /// silent about it" default (comment-advisory follow-up issue #4).
-    pub fn apply_external_replace(&mut self, path: Path, text: String, wrap_element: bool) {
-        let (body, blanks) = self.split_packaged_blank(&path, text);
-        let body = if wrap_element {
-            match self.doc.as_ref() {
-                Some(d) => d.scalar_fragment(None, body.trim_end_matches('\n')),
-                None => return,
-            }
-        } else {
-            body
-        };
+    pub fn apply_external_replace(&mut self, path: Path, text: String) {
+        let body = text;
         let had_comment = self
             .tree
             .node_at(&path)
@@ -874,26 +893,7 @@ impl Session {
                 self.pending_trailing = Some(None);
             }
         }
-        self.pending_blank = blanks;
         self.apply_replace(path, body);
-    }
-
-    /// The buffer half of the multiline-editor package: split an edited buffer
-    /// into `(body, Some(trailing blank lines))`, or — when the node at `path`
-    /// **cannot carry a run** (the whole-document edit, a YAML flow member or
-    /// opaque span) — hand the text back verbatim with `None`, since
-    /// `multiline_edit_initial` packaged no run in either.
-    fn split_packaged_blank(&self, path: &Path, text: String) -> (String, Option<usize>) {
-        let carries = self
-            .doc
-            .as_ref()
-            .and_then(|d| d.trailing_blank_anchor(path))
-            .is_some();
-        if !carries {
-            return (text, None);
-        }
-        let (body, n) = crate::model::blank_lines::split_trailing_run(&text);
-        (body, Some(n))
     }
 
     pub fn apply_replace(&mut self, path: Path, edited: String) {
@@ -1013,45 +1013,6 @@ impl Session {
                     &[&e.to_string()],
                 ));
             }
-        }
-    }
-
-    /// Comment-node commit from the multiline editor. Like
-    /// `apply_external_replace`, the buffer's trailing blank lines are the
-    /// node's own run (`multiline_edit_initial` packaged them in): split them
-    /// off, or `EditComment` would splice them *inside* the comment block —
-    /// where a blank line splits it into two projected nodes.
-    ///
-    /// A buffer whose *interior* carries blank lines commits as several
-    /// Comment nodes (that is the projection rule), so `path` afterwards names
-    /// only the **first** of them: applying the packaged run there rewrote the
-    /// first interior gap — deleting it for the usual `n = 0` — and left the
-    /// real trailing run unset. The run is applied to the last spliced group
-    /// instead, which for an unsplit block is `path` itself.
-    pub fn apply_edit_comment(&mut self, path: Path, text: String) {
-        let (body, blanks) = self.split_packaged_blank(&path, text);
-        let groups = crate::model::blank_lines::blank_separated_groups(&body);
-        let doc = match self.doc.as_mut() {
-            Some(d) => d,
-            None => return,
-        };
-        match doc.apply(Mutation::EditComment {
-            path: path.clone(),
-            text: body,
-        }) {
-            Ok(text) => {
-                let tail = last_group_path(&path, groups);
-                let text = self.apply_packaged_blank(&tail, blanks, text);
-                self.on_mutation_success(None, text)
-            }
-            Err(MutateError::Fragment(msg)) => {
-                self.set_notice(Notice::core(self.lang, "core.comment.invalid", &[&msg]));
-            }
-            Err(e) => self.set_notice(Notice::core(
-                self.lang,
-                "core.error.generic",
-                &[&e.to_string()],
-            )),
         }
     }
 
@@ -1394,18 +1355,4 @@ fn bool_flip(repr: &str) -> Option<String> {
     } else {
         t.to_string()
     })
-}
-
-/// The path of the **last** node an edited comment buffer of `groups`
-/// blank-separated groups commits as, given the path the block was opened on.
-/// Sibling nodes are index-addressed within their parent's item space and the
-/// groups land consecutively, so the last one sits `groups - 1` items further
-/// along. `groups <= 1` (and a non-`Index` tail, which cannot happen for a
-/// comment) returns `path` unchanged.
-fn last_group_path(path: &Path, groups: usize) -> Path {
-    let mut out = path.clone();
-    if let Some(Seg::Index(i)) = out.last_mut() {
-        *i += groups.saturating_sub(1);
-    }
-    out
 }

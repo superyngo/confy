@@ -45,7 +45,8 @@ Whole-document operations stop being "operations performed on the Root row" and 
 
 - **Edit whole file** is an Action-menu item (`ActionId::EditDocument`), placed immediately
   above `Delete` and carrying that section's separator. It dispatches the whole-file external
-  edit that already exists (`external_edit_path(&[])` returns the empty path unwrapped).
+  edit that already exists (`begin_external_edit_document` pends the empty path, whose buffer is
+  the whole file and whose commit is `ApplyReplace { path: [] }`).
 - **Convert** (`C`) drops its root-cursor precondition; `core.convert.root-only` is retired.
 
 Two invariants make the removal total rather than another host-side hide:

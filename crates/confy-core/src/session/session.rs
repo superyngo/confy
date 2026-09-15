@@ -1877,25 +1877,6 @@ impl Session {
         }
     }
 
-    pub fn external_edit_path(&self, path: &Path) -> (Path, bool) {
-        let is_array_element = matches!(path.last(), Some(Seg::Index(_)))
-            && path
-                .len()
-                .checked_sub(1)
-                .and_then(|plen| self.tree.node_at(&path[..plen]))
-                .map(|n| matches!(n.kind, NodeKind::Array))
-                .unwrap_or(false);
-        if is_array_element {
-            let addressable = self
-                .doc
-                .as_ref()
-                .map(|d| d.array_elements_addressable())
-                .unwrap_or(false);
-            return (path.clone(), !addressable);
-        }
-        (path.clone(), false)
-    }
-
     pub fn no_array_ancestor(&self, path: &[Seg]) -> bool {
         (1..path.len()).all(|i| {
             self.tree

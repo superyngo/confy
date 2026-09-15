@@ -94,7 +94,7 @@ method means updating both spellings.
 `external_edit` in the snapshot is the async handshake (§8.2): the UI opens its
 multi-line modal with `initial`, awaits the result, and re-dispatches
 `ApplyBlockText { path, text }` — the node's **Block**, so the buffer may rename its key or
-emit several siblings — or `ApplyEditComment { path, text }` for a Comment row. A rejected
+emit several siblings, or un-comment a Comment row. A rejected
 Block keeps the modal open holding the user's text; success is read off `doc_revision`, never
 the notice ([BEHAVIOR_MATRIX.md](BEHAVIOR_MATRIX.md) §6.3).
 
@@ -172,8 +172,8 @@ shapes round-trip). Key types:
   modal state; the UI re-renders wholesale. A structured row diff is a future G2
   optimization, not present now.
 - **Async editor via signal, not callback** (§8.2). The sync `Host` trait is a TUI
-  concern; WASM uses `externalEdit` in the snapshot + a follow-up `ApplyReplace`/
-  `ApplyEditComment` intent, so the browser modal can be `Promise`-based.
+  concern; WASM uses `externalEdit` in the snapshot + a follow-up `ApplyBlockText`
+  intent (`ApplyReplace` at the empty path), so the browser modal can be `Promise`-based.
 
 ## Web UI architecture
 
@@ -451,9 +451,9 @@ shapes round-trip). Key types:
   `doc_format`, ported from the TUI's per-backend help) explaining each container/scalar
   label·notation for the open file's format.
 - **External edit modal.** When `snapshot.externalEdit` is set, a `<textarea>` modal opens
-  with `initial`; on submit the UI dispatches `ApplyBlockText` (`ApplyEditComment` for a
-  Comment row) with the request's path and the edited text, and **stays open** if the commit
-  was rejected (`doc_revision` did not move) so the user keeps what they typed.
+  with `initial`; on submit the UI dispatches `ApplyBlockText` with the request's path and the
+  edited text — one route for every node kind, comments included — and **stays open** if the
+  commit was rejected (`doc_revision` did not move) so the user keeps what they typed.
 - **File I/O — File System Access API with download fallback.** All file I/O is
   host-owned (`web/fs.ts`); core `Intent::Save` only clears the dirty flag. The toolbar's
   right-side control is a **`.split-btn`**: `#btnSave` saves in place (`doSave`) and the
@@ -606,7 +606,8 @@ edits to the verbatim desktop CSS.
   when the node can carry one, fed by `SessionSnapshot.cursor_blank_after` — snapshot-level, not
   per-`ViewRow`, since resolving the anchor walks the document; **Schema** and **Advisory** cards
   render when constraints, violations, or strict-JSON comment notes apply). Key → `CommitEdit {name}`, value → `CommitEdit {value}`, trailing →
-  `SetTrailing`, comment node → `ApplyEditComment`, kind button → kind sheet. The panel has no
+  `SetTrailing`, comment node → `ApplyEditComment` (the panel's *one-line* field, which has
+  neither the `#` markers nor the indent a Block carries), kind button → kind sheet. The panel has no
   Delete/Copy/Cut buttons — node operations live in the Action menu (ADR 0009). After each
   dispatch `wirePanel` surfaces `snapshot.error` via the host toast (failures are reported,
   not silent).
@@ -681,8 +682,8 @@ edits to the verbatim desktop CSS.
   the view it switches to) flips the view (`session.serialize()`) and folds into the `⋯` menu.
 - **Read-only / opaque rows** (`ViewRow.read_only`) render without grip/kind and reject
   *structural* edits — mirroring core. Multi-line value/comment edits route to an external-edit
-  **bottom sheet** (in `.app`, standard sheet chrome) via `ApplyBlockText`/`ApplyEditComment` —
-  the same handshake the desktop uses. The **same sheet** also carries whole-document edits
+  **bottom sheet** (in `.app`, standard sheet chrome) via `ApplyBlockText` — the same handshake
+  the desktop uses. The **same sheet** also carries whole-document edits
   (empty path, R18, which stays `ApplyReplace`): touch has no write-mode textarea panel of its
   own, so the Action menu's *Edit whole file* item opens this sheet with the full document
   instead. Its Apply handler keeps the sheet **open** whenever the commit was rejected

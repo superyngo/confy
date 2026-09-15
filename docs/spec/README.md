@@ -11,9 +11,7 @@ carried the change is in `CHANGELOG.md`.
 
 ## In progress
 
-| Date | Document | Status |
-|---|---|---|
-| 2026-09-15 | [Block edit via whole-file reparse](2026-09-15-block-edit-whole-file-reparse-design.md) | Draft |
+_(none)_
 
 ## Landed
 
@@ -32,6 +30,7 @@ carried the change is in `CHANGELOG.md`.
 | 2026-08-30 | [Action menu — centralized node operations across desktop, touch, and TUI](2026-08-30-action-menu-design.md) | Shipped (2026-08-30) |
 | 2026-09-11 | [Raw write mode — whole-document editing on the web hosts](2026-09-11-raw-write-mode-design.md) | Shipped (2026-09-14) |
 | 2026-09-11 | [Root-hidden alignment — the Root stops being a row on every host](2026-09-11-root-hidden-alignment-design.md) | Shipped (2026-09-14) |
+| 2026-09-15 | [Block edit via whole-file reparse](2026-09-15-block-edit-whole-file-reparse-design.md) | Shipped (2026-09-15) |
 
 ## Prototype assets
 

@@ -1,5 +1,5 @@
 # Block edit via whole-file reparse — Design
-Status: Draft
+Status: Shipped (2026-09-15)
 
 ## Summary
 

@@ -668,41 +668,6 @@ impl App {
             Some(r) => r.clone(),
             None => return,
         };
-        if let Some(node) = self.session.tree.node_at(&cursor_row.path) {
-            if let NodeKind::Comment(_) = &node.kind {
-                if self.session.no_array_ancestor(&cursor_row.path) {
-                    // $EDITOR initial = the core-built multiline buffer (the
-                    // raw CST fragment with per-line indent, PLUS the node's
-                    // trailing blank lines): the same producer the web pop-up
-                    // editor uses. The DOM projection text would flatten a
-                    // nested remarked block's indent on open.
-                    let initial = self.session.multiline_edit_initial(&cursor_row.path);
-                    if initial.is_empty() {
-                        return;
-                    }
-                    let edited =
-                        match crate::tui::editor::edit_text(&initial, self.session.doc_format()) {
-                            Ok(t) => t,
-                            Err(e) => {
-                                self.session
-                                    .dispatch(confy_core::session::Intent::SetHostNotice {
-                                        key: "tui.host.editor-error".to_string(),
-                                        args: vec![e.to_string()],
-                                        source: confy_core::session::notice::NoticeSource::HostTui,
-                                    });
-                                return;
-                            }
-                        };
-                    // Unmodified buffer = quit without saving: cancel instead
-                    // of splicing the text back (which would dirty the doc).
-                    if edited == initial {
-                        return;
-                    }
-                    self.apply_edit_comment(cursor_row.path.clone(), edited);
-                    return;
-                }
-            }
-        }
         self.edit_block_at(cursor_row.path.clone());
     }
 
@@ -759,47 +724,11 @@ impl App {
         let Some(pending) = self.session.pending_external_edit.take() else {
             return;
         };
-        if !pending.is_comment {
-            // The Block route, same as `edit_node`. Comments deliberately keep
-            // the old 1:1 fragment route in this task — `apply_edit_comment`
-            // is retired separately (plan Task 8), not forgotten here.
-            self.edit_block_at(pending.path);
-            return;
-        }
-        let initial = self.session.multiline_edit_initial(&pending.path);
-        if initial.is_empty() {
-            return;
-        }
-        let edited = match crate::tui::editor::edit_text(&initial, self.session.doc_format()) {
-            Ok(t) => t,
-            Err(e) => {
-                self.session
-                    .dispatch(confy_core::session::Intent::SetHostNotice {
-                        key: "tui.host.editor-error".to_string(),
-                        args: vec![e.to_string()],
-                        source: confy_core::session::notice::NoticeSource::HostTui,
-                    });
-                return;
-            }
-        };
-        // Unmodified buffer = quit without saving: cancel instead of
-        // splicing the text back (which would dirty the doc).
-        if edited == initial {
-            return;
-        }
-        self.apply_edit_comment(pending.path, edited);
+        self.edit_block_at(pending.path);
     }
 
     pub fn edit_target_kind(&self) -> EditKind {
         self.session.edit_target_kind()
-    }
-    /// Test-only since the Block switchover: the `$EDITOR` route no longer
-    /// redirects an array element to its enclosing array. `Session` still uses
-    /// it for the Action menu's `pending_external_edit` (retired in plan
-    /// Task 8, with the tests below).
-    #[cfg(test)]
-    pub(crate) fn external_edit_path(&self, path: &Path) -> (Path, bool) {
-        self.session.external_edit_path(path)
     }
     pub fn begin_inline_edit(&mut self) {
         self.session.begin_inline_edit();
@@ -854,11 +783,7 @@ impl App {
     /// lines are the node's own run.
     #[cfg(test)]
     pub(crate) fn apply_replace(&mut self, path: Path, edited: String) {
-        self.session.apply_external_replace(path, edited, false);
-        self.rebuild_rows();
-    }
-    pub(crate) fn apply_edit_comment(&mut self, path: Path, text: String) {
-        self.session.apply_edit_comment(path, text);
+        self.session.apply_external_replace(path, edited);
         self.rebuild_rows();
     }
     #[cfg(test)]

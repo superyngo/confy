@@ -168,16 +168,14 @@ than read as a deletion — `d` is the delete gesture.
 A Block is **not truncated to a container**: a multi-span Node (a scattered `[T/S]`, a `[T/D]`
 dotted table) hands over all of its spans joined, and the commit consolidates them at the first.
 
-`Session::external_edit_path` still resolves the Action menu's capture:
+Precision is a property of the **span** each Node owns, not of a resolved fragment target — the
+`Session::external_edit_path` redirection this section used to describe is retired:
 
-- A standard-array **element** (`x[0]`, `x[0][1]`) has no key; its bare repr isn't
-  `Replace`-addressable on its own in TOML/JSON, so its edited repr is wrapped as the value-Replace
-  form (`scalar_fragment(None, …)` → TOML `__elem__ = …`, JSON a bare value). YAML's `- value`
-  fragment is addressable directly — no wrap.
-- A key / index reached **through** an array index (`x[0].a`, `x[0].a.b`) is `Replace`-addressable
-  directly too: the inline splice rebuilds the enclosing `{ … }` / `[ … ]` element in place. So the
-  whole path is kept and the edit lands precisely (this closed the last TOML/JSON gap; earlier those
-  truncated to the whole array).
+- A standard-array **element** (`x[0]`, `x[0][1]`) owns its own token range, so its Block is that
+  element's bare text. No synthetic carrier (`__elem__ = …`) and no wrap: the buffer is document
+  text, spliced where the element sits.
+- A key / index reached **through** an array index (`x[0].a`, `x[0].a.b`) owns its own span too,
+  so the edit lands precisely instead of truncating to the whole array.
 - An **item of a one-line flow collection** captures that item alone — the flow-map member
   (`b: 2`), the flow-seq element (`1`), the inline-table member (`y = 2`), the JSON object member
   (`"y": 2`) — and its commit splices over the item's own **trailing-whitespace-excluded** span, so

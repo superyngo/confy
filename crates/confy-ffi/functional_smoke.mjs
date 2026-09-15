@@ -96,22 +96,22 @@ const ext = snap2.external_edit;
 const extPath = ext.kind.Value.path;
 check("external initial contains hello", ext.initial.includes("hello"), ext.initial);
 
-// Host edits asynchronously, returns edited text via ApplyReplace.
+// Host edits asynchronously, returns the edited Block via ApplyBlockText.
 const edited = 'notes = """\nWORLD\n"""\n';
-snap2 = s2.dispatch(tuple("ApplyReplace", { path: extPath, text: edited }));
+snap2 = s2.dispatch(tuple("ApplyBlockText", { path: extPath, text: edited }));
 check("apply succeeds (no error)", isNull(snap2.notice) || snap2.notice.severity !== "error", JSON.stringify(snap2.notice));
 check("pending cleared", isNull(snap2.external_edit));
 const out = s2.serialize();
 check("doc reflects WORLD", out.includes("WORLD"), out);
 check("old hello gone", !out.includes("hello"), out);
 
-// The buffer packages the node's trailing blank lines, and the commit splits
-// them back off — the node and its run are one editable package.
+// A node's Block includes its own trailing blank run, so the same buffer both
+// carries and clears the run — no split step, and no separate blank-line op.
 const s2b = new ConfySession(`a = 1\n\n\nb = 2\n`, "toml");
 // D3 (ADR 0013): the cursor is seeded on `a`, so no step off a Root row.
 const extB = s2b.dispatch(unit("BeginEditExternal")).external_edit;
 check("buffer carries the trailing blank run", extB.initial === "a = 1\n\n\n", JSON.stringify(extB.initial));
-s2b.dispatch(tuple("ApplyReplace", { path: extB.kind.Value.path, text: "a = 1\n" }));
+s2b.dispatch(tuple("ApplyBlockText", { path: extB.kind.Value.path, text: "a = 1\n" }));
 check("deleting the blank lines in the buffer removes the run", s2b.serialize() === "a = 1\nb = 2\n", s2b.serialize());
 
 // ---- 7. Undo/redo ----

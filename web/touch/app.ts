@@ -1076,9 +1076,12 @@ function openExternalEdit(ext: { initial: string; kind: unknown }) {
     return;
   }
   if (sheets.ext.classList.contains("open")) return;
-  const kind = ext.kind as { Value?: { path: Path }; Comment?: { path: Path } };
-  const isComment = !!kind.Comment;
-  const path = (kind.Value ?? kind.Comment)!.path;
+  // One kind since the Block switchover (the buffer is the node's own
+  // document text whatever the node is), so the Comment title comes off the
+  // row itself rather than off a kind variant that no longer exists.
+  const kind = ext.kind as { Value: { path: Path } };
+  const path = kind.Value.path;
+  const isComment = (snap?.rows ?? []).some((r) => r.type_label === "comment" && pathEq(r.path, path));
   const title = isComment
     ? t("web.editModal.editComment")
     : esc(tArgs("web.editModal.editValue", [lastKey(path) || t("web.editModal.value")]));
@@ -1100,11 +1103,6 @@ function openExternalEdit(ext: { initial: string; kind: unknown }) {
   // rule is now the rule for every value edit. Failure is detected the way the
   // desktop Raw pane detects it: `doc_revision` does not move.
   sheets.ext.querySelector<HTMLElement>(".ext-apply")!.onclick = () => {
-    if (!kind.Value) {
-      closeSheets();
-      send({ ApplyEditComment: { path, text: txt.value } });
-      return;
-    }
     const beforeRev = snap?.doc_revision;
     // The empty path is the whole-document edit (ADR 0014), not a Block.
     if (path.length === 0) send({ ApplyReplace: { path, text: txt.value } });

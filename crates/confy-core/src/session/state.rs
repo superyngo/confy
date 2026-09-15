@@ -26,18 +26,16 @@ pub enum FilterLayer {
 }
 
 /// In-flight async external edit (PORTING §8.2). Set when `dispatch` routes an
-/// edit to the external path; consumed by the follow-up `ApplyReplace` /
-/// `ApplyEditComment` intent. The host only ever sees the `initial` text and
-/// returns edited text — this struct remembers the resolution the core needs.
+/// edit to the external path; consumed by the follow-up `ApplyBlockText` (or
+/// `ApplyReplace` at the empty path). The host only ever sees the `initial`
+/// text and returns edited text — this struct remembers the target path.
+///
+/// Since the Block switchover there is nothing else to remember: the buffer is
+/// the node's own document text whatever the node is, so the fragment-era
+/// `wrap_element` re-wrap and the `is_comment` branch are both gone.
 #[derive(Clone, Debug)]
 pub struct PendingExternalEdit {
     pub path: Path,
-    /// True when the edited text is a bare value that must be re-wrapped via
-    /// `scalar_fragment(None, …)` (the array-element form). Mirrors App::edit_node.
-    pub wrap_element: bool,
-    /// True when this is a standalone-comment edit (`apply_edit_comment`), not a
-    /// value replace.
-    pub is_comment: bool,
 }
 
 /// The editing mode the session is in.

@@ -237,10 +237,10 @@ fn external_edit_round_trips_under_a_quoted_key() {
     for src in ["\"a b\": 1\nz: 9\n", "'a b': 1\nz: 9\n"] {
         let mut s = session(src, DocFormat::Yaml);
         let path = vec![Seg::Key("a b".into())];
-        let seed = s.doc.as_ref().unwrap().serialize_fragment(&path);
+        let seed = s.block_text(&path);
 
-        // Committing the fragment unchanged must be a no-op.
-        s.apply_external_replace(path.clone(), seed.clone(), false);
+        // Committing the Block unchanged must be a no-op.
+        s.apply_block_text(path.clone(), seed.clone());
         assert_eq!(
             s.serialize().unwrap(),
             src,
@@ -249,7 +249,7 @@ fn external_edit_round_trips_under_a_quoted_key() {
 
         // Changing only the value must keep the key's spelling and the sibling.
         let mut s2 = session(src, DocFormat::Yaml);
-        s2.apply_external_replace(path, seed.replace(": 1", ": 42"), false);
+        s2.apply_block_text(path, seed.replace(": 1", ": 42"));
         let out = s2.serialize().unwrap();
         assert_eq!(out, src.replace(": 1", ": 42"), "value edit of {src:?}");
         assert!(out.contains("z: 9"), "sibling lost: {out}");
@@ -261,8 +261,8 @@ fn external_edit_round_trips_under_a_quoted_container_key() {
     for src in ["\"a b\":\n  c: 1\nz: 9\n", "'a b':\n  c: 1\nz: 9\n"] {
         let mut s = session(src, DocFormat::Yaml);
         let path = vec![Seg::Key("a b".into())];
-        let seed = s.doc.as_ref().unwrap().serialize_fragment(&path);
-        s.apply_external_replace(path, seed.replace("c: 1", "c: 2"), false);
+        let seed = s.block_text(&path);
+        s.apply_block_text(path, seed.replace("c: 1", "c: 2"));
         let out = s.serialize().unwrap();
         assert_eq!(
             out,

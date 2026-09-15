@@ -197,16 +197,21 @@ console.log("\n-- openExternalEdit(): an accepted Block closes --");
   check("an accepted Block closes the sheet", closeSheetsCalls === 1);
 }
 
-// ---- 5. Comment edits (always per-node — never empty path) keep closing unconditionally ----
-console.log("\n-- openExternalEdit(): a comment edit still closes unconditionally --");
+// ---- 5. A Comment row takes the same Block route (its own intent is gone) ----
+console.log("\n-- openExternalEdit(): a comment is committed as a Block --");
 {
   const sheetsExt = freshEnv();
-  mod.setEnv({ snap: { clipboard_count: 0, doc_revision: 5 } });
-  mod.openExternalEdit({ initial: "a comment", kind: { Comment: { path: [{ Key: "name" }] } } });
-  sheetsExt._txt.value = "an edited comment";
+  let rev = 5;
+  mod.setEnv({
+    snap: { clipboard_count: 0, rows: [], get doc_revision() { return rev; } },
+    send: (i) => { sent.push(i); rev = 6; },
+  });
+  mod.openExternalEdit({ initial: "# c\n", kind: { Value: { path: [{ Index: 0 }] } } });
+  sheetsExt._txt.value = "c = 1\n"; // un-commenting: only the Block route can express it
   sheetsExt._applyBtn.onclick();
-  check("closeSheets is still called unconditionally for a comment edit", closeSheetsCalls === 1);
-  check("ApplyEditComment was dispatched", JSON.stringify(sent[0]) === JSON.stringify({ ApplyEditComment: { path: [{ Key: "name" }], text: "an edited comment" } }));
+  check("ApplyBlockText was dispatched for a comment row", !!sent[0]?.ApplyBlockText);
+  check("no comment-only intent is used any more", !sent.some((i) => i.ApplyEditComment));
+  check("it closes on success", closeSheetsCalls === 1);
 }
 
 console.log(failures === 0 ? "\nALL TOUCH EXT-APPLY CHECKS PASSED" : `\n${failures} FAILURE(S)`);

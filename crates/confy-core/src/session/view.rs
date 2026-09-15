@@ -280,18 +280,22 @@ pub struct TypeFilterView {
     pub active: bool,
 }
 
-/// Which kind of external edit the host's async modal should perform.
+/// Which kind of external edit the host's async modal should perform. Since
+/// the Block switchover there is exactly one: the buffer is the node's own
+/// document text whatever the node is, so a Comment needs no separate variant
+/// (the enum is kept because it carries the resolving path and the wire
+/// contract is `{ "Value": { path } }`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ExternalEditKind {
-    /// Replace a value fragment at `path`.
+    /// Commit the edited **Block** at `path` — or, at the empty path, the
+    /// whole document (ADR 0014).
     Value { path: Path },
-    /// Replace a standalone comment's text at `path`.
-    Comment { path: Path },
 }
 
 /// A request for the host to open its async multi-line editor (PORTING §8.2).
-/// The host returns the edited text via a follow-up `Intent::ApplyReplace` /
-/// `Intent::ApplyEditComment`; on cancel it dispatches `Escape`.
+/// The host returns the edited text via a follow-up `Intent::ApplyBlockText`
+/// (`Intent::ApplyReplace` at the empty path); on cancel it dispatches
+/// `Escape`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExternalEdit {
     pub initial: String,

@@ -24,17 +24,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `[T/S]`/`[T/D]` table hands over all of its spans joined and consolidates at the first.
   All three hosts: the TUI's `$EDITOR`, the desktop pop-up and the touch sheet — the two web
   surfaces keep the pop-up/sheet **open holding your text** instead of re-spawning an editor.
-  (A **Comment** row still uses the older comment-only route, so un-commenting a row in the
-  buffer is not accepted yet — that machinery is retired in the next step of the same plan.)
-  ([spec](docs/spec/2026-09-15-block-edit-whole-file-reparse-design.md))
+  A **Comment** row takes the same route, so deleting the `#` in the buffer **un-comments** the
+  Node (and adding one comments it out) — a conversion the old per-Node route could not express
+  at all. ([spec](docs/spec/2026-09-15-block-edit-whole-file-reparse-design.md))
 - YAML **opaque** nodes (`&anchor`, `*alias`, `<<:` merge, `!tag`) are now **text**-editable
   through `e`: that route reparses the whole file and recomputes opaque fencing from scratch,
   which the whole-file `E` route already relied on. They stay read-only *structurally* — no
   rename, kind switch, remark, or paste-into. `read_only` accordingly means "not structurally
   editable", restated in the glossary and BEHAVIOR_MATRIX.
 
+**Removed**
+
+- The per-Node fragment plumbing the Block editor replaced: `Session::external_edit_path` (the
+  array-element `__elem__ = …` wrap and the "which path can this fragment address" redirection),
+  `apply_external_replace`'s `wrap_element` parameter and the buffer's packaged-blank split, and
+  `ExternalEditKind::Comment`. `Intent::ApplyEditComment` survives as the desktop panel's
+  **one-line** comment field only — a field with neither the `#` markers nor the indent a Block
+  carries — and no longer splits blank lines off the text it is given.
+
 **Fixed**
 
+- The **web** external editor seeded its buffer from the old fragment producer while committing
+  a Block, which is a seed/commit mismatch: handing the buffer back untouched was itself an
+  edit. Measured across `tests/block_edit_identity.rs`'s corpus, **193 of 779** Nodes were
+  affected — every JSON/TOML block-formatted member (its separating comma), every array element
+  (the `__elem__ = …` carrier) and every node with a packaged trailing blank run. Both web hosts
+  now seed from `block_text`, the same producer the TUI uses; verified over the real wasm
+  boundary. (Introduced in this same unreleased series, so no shipped release is affected.)
 - TOML: a value `Replace` whose fragment spells a **different key** is now rejected as
   `Fragment` instead of applying the value and dropping the key silently — renaming a key in
   the `$EDITOR`/pop-up buffer used to report success and change nothing. The synthetic carriers

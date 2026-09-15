@@ -243,24 +243,16 @@ impl super::Session {
 
             // ---- External edit resolution (host returned edited text) ----
             Intent::ApplyReplace { path, text } => {
-                let wrap = self
-                    .pending_external_edit
-                    .as_ref()
-                    .map(|p| p.wrap_element)
-                    .unwrap_or(false);
                 self.pending_external_edit = None;
                 if path.is_empty() {
                     // Whole-document Apply: deliberately NOT the per-node
                     // commit path — see `apply_document_text` (R20).
                     self.apply_document_text(text);
                 } else {
-                    self.apply_external_replace(path, text, wrap);
+                    self.apply_external_replace(path, text);
                 }
             }
-            Intent::ApplyEditComment { path, text } => {
-                self.pending_external_edit = None;
-                self.apply_edit_comment(path, text);
-            }
+            Intent::ApplyEditComment { path, text } => self.apply_edit_comment(path, text),
             Intent::ApplyBlockText { path, text } => {
                 self.pending_external_edit = None;
                 self.apply_block_text(path, text);
@@ -437,8 +429,11 @@ impl super::Session {
     }
 
     /// Resolve an edit intent that routed external: record the target so the
-    /// follow-up `ApplyReplace`/`ApplyEditComment` can complete. Mirrors
-    /// `App::edit_node` minus the spawn (§8.2).
+    /// follow-up `ApplyBlockText` can complete. Mirrors `App::edit_node` minus
+    /// the spawn (§8.2) — including its `read_only` narrowing: `read_only`
+    /// means "not **structurally** editable", so a YAML opaque span is
+    /// text-editable through the Block route while a read-only *Comment* (a
+    /// JSONC block comment, which owns no Block) stays refused.
     pub(crate) fn begin_external_edit(&mut self) {
         if self.guard_clipboard_locked() {
             return;
@@ -452,28 +447,12 @@ impl super::Session {
             .node_at(&cursor_path)
             .map(|n| n.read_only)
             .unwrap_or(false)
+            && self.readonly_notice_key() == "core.readonly.comment"
         {
             self.set_notice(Notice::core(self.lang, self.readonly_notice_key(), &[]));
             return;
         }
-        if let Some(node) = self.tree.node_at(&cursor_path) {
-            if let NodeKind::Comment(_) = &node.kind {
-                if self.no_array_ancestor(&cursor_path) {
-                    self.pending_external_edit = Some(PendingExternalEdit {
-                        path: cursor_path,
-                        wrap_element: false,
-                        is_comment: true,
-                    });
-                    return;
-                }
-            }
-        }
-        let (path, wrap_element) = self.external_edit_path(&cursor_path);
-        self.pending_external_edit = Some(PendingExternalEdit {
-            path,
-            wrap_element,
-            is_comment: false,
-        });
+        self.pending_external_edit = Some(PendingExternalEdit { path: cursor_path });
     }
 
     /// Document-scoped counterpart of `begin_external_edit`: edit the **whole
@@ -485,11 +464,7 @@ impl super::Session {
         if self.guard_clipboard_locked() {
             return;
         }
-        self.pending_external_edit = Some(PendingExternalEdit {
-            path: Vec::new(),
-            wrap_element: false,
-            is_comment: false,
-        });
+        self.pending_external_edit = Some(PendingExternalEdit { path: Vec::new() });
     }
 
     fn mode_view(&self) -> ModeView {
@@ -605,23 +580,26 @@ impl super::Session {
 
     fn external_edit_view(&self) -> Option<ExternalEdit> {
         let pe = self.pending_external_edit.as_ref()?;
-        // The initial comes from `multiline_edit_initial` — the one producer
-        // both hosts share. It reads the document's CST fragment, not the DOM
-        // projection: the projection's comment merge drops each line's leading
-        // INDENT, which flattened a nested remarked block on open — and spliced
-        // that flattening back in when the host returned the untouched buffer.
-        // It also packages the node's trailing blank lines into the buffer.
-        let initial = self.multiline_edit_initial(&pe.path);
-        let kind = if pe.is_comment {
-            ExternalEditKind::Comment {
-                path: pe.path.clone(),
-            }
+        // The seed must be **exactly** what the resolving commit consumes, or
+        // returning the buffer untouched would itself edit the document. The
+        // per-node commit is `ApplyBlockText`, so the seed is `block_text` —
+        // the same producer the TUI's `$EDITOR` route uses. (Seeding from
+        // `multiline_edit_initial` instead diverged for 193 of the 779 Blocks
+        // in `tests/block_edit_identity.rs`'s corpus: a JSON/TOML element's
+        // separating comma, an array element's `__elem__ = …` synthetic
+        // carrier, and the packaged trailing blank run.) The empty path is the
+        // whole document (ADR 0014), which is not a Block.
+        let initial = if pe.path.is_empty() {
+            self.multiline_edit_initial(&pe.path)
         } else {
-            ExternalEditKind::Value {
-                path: pe.path.clone(),
-            }
+            self.block_text(&pe.path)
         };
-        Some(ExternalEdit { initial, kind })
+        Some(ExternalEdit {
+            initial,
+            kind: ExternalEditKind::Value {
+                path: pe.path.clone(),
+            },
+        })
     }
 }
 

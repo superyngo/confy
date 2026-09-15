@@ -122,7 +122,8 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
     inline_edit.rs inline-editor buffer lifecycle (begin_inline_edit*/edit_*/edit_commit) +
                    value/rename/nudge/add-node mutation-application methods that commit through
                    it, plus `apply_document_text` — the empty-path whole-document `Replace`
-                   (R20): commit-only, no packaged-blank split/trailing-comment/wrap_element
+                   (R20): commit-only — plus `block_text`/`apply_block_text`, the per-node
+                   Block seed + splice commit (BEHAVIOR_MATRIX.md §6.3)
     schema_hint.rs nudge_scalar + format_nudged: the `←`/`→` value step (a schema `multipleOf`
                    becomes the step; bounds clamp inward to that grid), plus parse_repr /
                    format_nudged_like — the notation-aware decode/render the schema clamp

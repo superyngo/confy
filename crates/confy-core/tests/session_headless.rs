@@ -299,11 +299,9 @@ fn fake_host_multiline_edit_applies_headlessly() {
     // 1. The routing decision is core-side and pure.
     assert_eq!(s.edit_target_kind(), EditKind::External);
 
-    let cursor_path = s.cursor_row_path().expect("cursor on a row");
-    // 2. Core resolves the fragment target (no host needed).
-    let (path, wrap) = s.external_edit_path(&cursor_path);
-    assert!(!wrap, "keyed multiline scalar is not an element wrap");
-    let initial = s.doc.as_ref().unwrap().serialize_fragment(&path);
+    let path = s.cursor_row_path().expect("cursor on a row");
+    // 2. Core produces the buffer (no host needed): the node's Block.
+    let initial = s.block_text(&path);
 
     // 3. The host callback — the only touch of the outside world.
     let host = FakeHost {
@@ -316,8 +314,8 @@ fn fake_host_multiline_edit_applies_headlessly() {
     };
     assert_eq!(host.seen.borrow().as_deref(), Some(initial.as_str()));
 
-    // 4. Core applies the edited fragment.
-    s.apply_replace(path, edited);
+    // 4. Core applies the edited Block.
+    s.apply_block_text(path, edited);
     assert!(
         s.snapshot().error_text().is_none(),
         "unexpected error: {:?}",
@@ -334,14 +332,13 @@ fn fake_host_cancelled_edit_leaves_doc_untouched() {
     let src = "notes = \"\"\"\nline1\n\"\"\"\n";
     let mut s = toml_session(src);
     s.cursor_down();
-    let cursor_path = s.cursor_row_path().unwrap();
-    let (path, _) = s.external_edit_path(&cursor_path);
+    let path = s.cursor_row_path().unwrap();
 
     let host = FakeHost {
         edited: String::new(),
         seen: std::cell::RefCell::new(None),
     };
-    let _ = host.edit_text(s.doc.as_ref().unwrap().serialize_fragment(&path));
+    let _ = host.edit_text(s.block_text(&path));
     // Host cancelled — core never receives an apply, so the doc is unchanged.
     let text = s.serialize().unwrap();
     assert!(text.contains("line1"), "doc untouched on cancel: {text}");
@@ -843,7 +840,6 @@ fn dispatch_multiline_edit_signals_external_edit_then_applies() {
     assert!(ext.initial.contains("line1"));
     let path = match ext.kind {
         confy_core::session::ExternalEditKind::Value { path } => path,
-        other => panic!("expected Value, got {other:?}"),
     };
     // Host edits (async modal) and returns the new fragment.
     let edited = "notes = \"\"\"\nEDITED\n\"\"\"\n".to_string();
@@ -924,7 +920,6 @@ fn dispatch_external_edit_applies_edited_trailing_comment() {
     );
     let path = match ext.kind {
         confy_core::session::ExternalEditKind::Value { path } => path,
-        other => panic!("expected Value, got {other:?}"),
     };
     let snap = s.dispatch(Intent::ApplyReplace {
         path,
@@ -3521,8 +3516,11 @@ fn yaml_date_looking_scalar_gets_no_datetime_picker() {
 // ---- Trailing blank lines: the multiline-editor package ----
 //
 // A node and the blank lines after it are edited as ONE package: the buffer the
-// host opens carries the run as literal empty lines, and the commit splits them
-// back off. There is no separate "add/remove a blank line" operation.
+// host opens carries the run as literal empty lines. Since the Block
+// switchover that is not a "package" bolted onto a fragment — the node's Block
+// *is* its text plus its own trailing run (`node_text_spans`), so the same
+// buffer both grows and clears the run with no split step. There is still no
+// separate "add/remove a blank line" operation.
 
 /// Routes the external editor and returns `(value path, buffer)`.
 fn open_editor(s: &mut Session) -> (Vec<Seg>, String) {
@@ -3530,10 +3528,7 @@ fn open_editor(s: &mut Session) -> (Vec<Seg>, String) {
     let ext = snap
         .external_edit
         .expect("BeginEditExternal routes external");
-    let path = match ext.kind {
-        confy_core::session::ExternalEditKind::Value { path } => path,
-        confy_core::session::ExternalEditKind::Comment { path } => path,
-    };
+    let confy_core::session::ExternalEditKind::Value { path } = ext.kind;
     (path, ext.initial)
 }
 
@@ -3549,7 +3544,7 @@ fn editor_buffer_grows_and_removes_the_run() {
     let mut s = toml_session("a = 1\nb = 2\n");
     let (path, buf) = open_editor(&mut s);
     assert_eq!(buf, "a = 1\n");
-    s.dispatch(Intent::ApplyReplace {
+    s.dispatch(Intent::ApplyBlockText {
         path,
         text: "a = 1\n\n\n".to_string(),
     });
@@ -3557,7 +3552,7 @@ fn editor_buffer_grows_and_removes_the_run() {
     // …and back down again — the same buffer both grows and clears the run.
     let (path2, buf2) = open_editor(&mut s);
     assert_eq!(buf2, "a = 1\n\n\n");
-    s.dispatch(Intent::ApplyReplace {
+    s.dispatch(Intent::ApplyBlockText {
         path: path2,
         text: "a = 1\n".to_string(),
     });
@@ -3576,7 +3571,7 @@ fn editor_round_trip_of_an_untouched_buffer_changes_nothing() {
         let mut s = toml_session(src);
         s.dispatch(Intent::CursorDown);
         let (path, buf) = open_editor(&mut s);
-        s.dispatch(Intent::ApplyReplace { path, text: buf });
+        s.dispatch(Intent::ApplyBlockText { path, text: buf });
         assert_eq!(s.serialize().unwrap(), src, "round trip of {src:?}");
     }
 }
@@ -3586,7 +3581,7 @@ fn editor_round_trip_of_an_untouched_buffer_changes_nothing() {
 fn editor_value_and_blank_change_undo_together() {
     let mut s = toml_session("a = 1\nb = 2\n");
     let (path, _) = open_editor(&mut s);
-    s.dispatch(Intent::ApplyReplace {
+    s.dispatch(Intent::ApplyBlockText {
         path,
         text: "a = 9\n\n".to_string(),
     });
@@ -3605,7 +3600,7 @@ fn editor_buffer_sets_a_tables_run() {
     let mut s = toml_session("[t]\nx = 1\n[u]\ny = 2\n");
     let (path, buf) = open_editor(&mut s);
     assert_eq!(buf, "[t]\nx = 1\n");
-    s.dispatch(Intent::ApplyReplace {
+    s.dispatch(Intent::ApplyBlockText {
         path,
         text: "[t]\nx = 1\n\n".to_string(),
     });
@@ -3616,7 +3611,7 @@ fn editor_buffer_sets_a_tables_run() {
 fn editor_buffer_keeps_the_trailing_comment_while_setting_the_run() {
     let mut s = toml_session("a = 1  # keep\nb = 2\n");
     let (path, _) = open_editor(&mut s);
-    s.dispatch(Intent::ApplyReplace {
+    s.dispatch(Intent::ApplyBlockText {
         path,
         text: "a = 1  # keep\n\n".to_string(),
     });
@@ -3628,7 +3623,7 @@ fn editor_buffer_packages_the_run_in_yaml_and_json() {
     let mut y = yaml_session("a: 1\n\nb: 2\n");
     let (path, buf) = open_editor(&mut y);
     assert_eq!(buf, "a: 1\n\n");
-    y.dispatch(Intent::ApplyReplace {
+    y.dispatch(Intent::ApplyBlockText {
         path,
         text: "a: 1\n".to_string(),
     });
@@ -3638,10 +3633,13 @@ fn editor_buffer_packages_the_run_in_yaml_and_json() {
         AnyDocument::from_str_as("{\n  \"a\": 1,\n\n  \"b\": 2\n}\n", DocFormat::Json).unwrap();
     let mut j = Session::new(doc);
     let (path, buf) = open_editor(&mut j);
-    assert_eq!(buf, "\"a\": 1\n\n");
-    j.dispatch(Intent::ApplyReplace {
+    // A JSON member's Block carries its separating comma — that comma is
+    // inside the span the node owns (`node_text_spans`), which is how a
+    // buffer can legally rename the key or hand back several members.
+    assert_eq!(buf, "\"a\": 1,\n\n");
+    j.dispatch(Intent::ApplyBlockText {
         path,
-        text: "\"a\": 1\n".to_string(),
+        text: "\"a\": 1,\n".to_string(),
     });
     assert_eq!(j.serialize().unwrap(), "{\n  \"a\": 1,\n  \"b\": 2\n}\n");
 }
@@ -3654,7 +3652,7 @@ fn editor_buffer_packages_a_comment_nodes_run() {
     let mut s = toml_session("# note\n\na = 1\n");
     let (path, buf) = open_editor(&mut s);
     assert_eq!(buf, "# note\n\n");
-    s.dispatch(Intent::ApplyEditComment {
+    s.dispatch(Intent::ApplyBlockText {
         path,
         text: "# edited\n".to_string(),
     });
@@ -3672,7 +3670,7 @@ fn editor_buffer_packages_nothing_for_a_flow_member() {
     s.dispatch(Intent::CursorDown);
     let (path, buf) = open_editor(&mut s);
     assert_eq!(buf, "a: 1", "no run to package, no newline invented");
-    s.dispatch(Intent::ApplyReplace { path, text: buf });
+    s.dispatch(Intent::ApplyBlockText { path, text: buf });
     assert_eq!(s.serialize().unwrap(), "m: {a: 1, b: 2}\n");
 }
 
@@ -3687,7 +3685,7 @@ fn editor_round_trip_keeps_a_padded_flow_maps_closing_space() {
     }
     let (path, buf) = open_editor(&mut s);
     assert_eq!(buf, "b: 2", "the last member, packaged verbatim");
-    s.dispatch(Intent::ApplyReplace { path, text: buf });
+    s.dispatch(Intent::ApplyBlockText { path, text: buf });
     assert_eq!(s.serialize().unwrap(), "m: { a: 1, b: 2 }\nz: 3\n");
 }
 
@@ -3702,12 +3700,12 @@ fn editor_round_trip_of_a_flow_seq_element_edits_only_that_element() {
     s.dispatch(Intent::CursorDown);
     let (path, buf) = open_editor(&mut s);
     assert_eq!(buf, "1", "the element alone");
-    s.dispatch(Intent::ApplyReplace {
+    s.dispatch(Intent::ApplyBlockText {
         path: path.clone(),
         text: buf,
     });
     assert_eq!(s.serialize().unwrap(), "g: [ 1, 2, 3 ]\nz: 3\n");
-    s.dispatch(Intent::ApplyReplace {
+    s.dispatch(Intent::ApplyBlockText {
         path,
         text: "9".to_string(),
     });
@@ -3726,12 +3724,12 @@ fn editor_round_trip_of_a_nested_flow_collection_element() {
     s.dispatch(Intent::CursorDown);
     let (path, buf) = open_editor(&mut s);
     assert_eq!(buf, "{x: 1}", "the nested collection alone");
-    s.dispatch(Intent::ApplyReplace {
+    s.dispatch(Intent::ApplyBlockText {
         path: path.clone(),
         text: buf,
     });
     assert_eq!(s.serialize().unwrap(), "g: [ {x: 1}, 2 ]\nz: 3\n");
-    s.dispatch(Intent::ApplyReplace {
+    s.dispatch(Intent::ApplyBlockText {
         path,
         text: "{x: 9, y: 8}".to_string(),
     });
@@ -3785,13 +3783,13 @@ fn external_edit_of_a_flow_item_is_precise_in_every_backend() {
             "a = [ 1, 2, 3 ]\n",
             DocFormat::Toml,
             vec![Seg::Key("a".into()), Seg::Index(1)],
-            "2\n",
+            "2",
         ),
         (
             "t = { x = 1, y = 2 }\n",
             DocFormat::Toml,
             vec![Seg::Key("t".into()), Seg::Key("y".into())],
-            "y = 2 \n",
+            "y = 2",
         ),
         (
             "{ \"a\": [ 1, 2, 3 ] }\n",
@@ -3821,10 +3819,9 @@ fn external_edit_of_a_flow_item_is_precise_in_every_backend() {
     for (src, fmt, p, want) in cases {
         let doc = AnyDocument::from_str_as(src, *fmt).unwrap();
         let mut s = Session::new(doc);
-        let (path, wrap) = s.external_edit_path(p);
-        let buf = s.multiline_edit_initial(&path);
+        let buf = s.block_text(p);
         assert_eq!(&buf, want, "buffer for {p:?} in {src:?}");
-        s.apply_external_replace(path, buf, wrap);
+        s.apply_block_text(p.clone(), buf);
         assert_eq!(
             &s.serialize().unwrap(),
             src,
@@ -3848,12 +3845,11 @@ fn editor_buffer_keeps_a_files_trailing_blanks_on_a_whole_document_edit() {
             .expect("a pending document edit");
         let path = match ext.kind {
             confy_core::session::ExternalEditKind::Value { path } => path,
-            other => panic!("expected a value edit, got {other:?}"),
         };
         let buf = ext.initial;
         assert!(path.is_empty(), "the document edit is the empty path");
         assert_eq!(buf, src, "the root packages its text verbatim");
-        s.dispatch(Intent::ApplyReplace { path, text: buf });
+        s.dispatch(Intent::ApplyBlockText { path, text: buf });
         assert_eq!(s.serialize().unwrap(), src, "round trip of {src:?}");
     }
 }
@@ -3891,14 +3887,14 @@ fn editor_buffer_packages_a_run_its_span_swallows() {
         let mut s = Session::new(AnyDocument::from_str_as(src, *fmt).unwrap());
         let (path, buf) = open_editor(&mut s);
         assert_eq!(&buf.as_str(), want, "buffer for {src:?}");
-        s.dispatch(Intent::ApplyReplace {
+        s.dispatch(Intent::ApplyBlockText {
             path: path.clone(),
             text: buf,
         });
         assert_eq!(s.serialize().unwrap(), *src, "round trip of {src:?}");
         // …and deleting them in the buffer really removes them.
         let (path2, buf2) = open_editor(&mut s);
-        s.dispatch(Intent::ApplyReplace {
+        s.dispatch(Intent::ApplyBlockText {
             path: path2,
             text: buf2.trim_end_matches('\n').to_string() + "\n",
         });
@@ -3912,14 +3908,15 @@ fn editor_buffer_packages_a_run_its_span_swallows() {
 }
 
 /// A JSON `//` comment block anchors past its **last** line, so its run is
-/// packaged (and an untouched buffer does not eat it).
+/// part of the Block (and an untouched buffer does not eat it). The buffer
+/// keeps each line's authored indent, since it is the document's own text.
 #[test]
 fn editor_buffer_packages_a_json_comment_blocks_run() {
     let src = "{\n  // a\n  // b\n\n\n  \"x\": 1\n}\n";
     let mut s = Session::new(AnyDocument::from_str_as(src, DocFormat::Json).unwrap());
     let (path, buf) = open_editor(&mut s);
-    assert_eq!(buf, "// a\n// b\n\n\n");
-    s.dispatch(Intent::ApplyEditComment { path, text: buf });
+    assert_eq!(buf, "// a\n  // b\n\n\n");
+    s.dispatch(Intent::ApplyBlockText { path, text: buf });
     assert_eq!(s.serialize().unwrap(), src);
 }
 
@@ -3992,9 +3989,11 @@ fn a_run_at_a_branchs_end_belongs_to_its_last_child_too() {
         "the last child's run IS the branch's run"
     );
 
-    // Editing it through the last child moves the branch's count with it.
+    // Editing it through the last child moves the branch's count with it —
+    // the run is inside the child's Block, so a buffer that drops the blank
+    // lines drops them for the branch too.
     let mut s = Session::new(AnyDocument::from_str_as(src, DocFormat::Toml).unwrap());
-    s.apply_external_replace(pitch.clone(), "pitch = \"p\"\n".to_string(), false);
+    s.apply_block_text(pitch.clone(), "pitch = \"p\"\n".to_string());
     let doc = s.doc.as_ref().unwrap();
     assert_eq!(doc.trailing_blank_lines(&pitch), Some(0));
     assert_eq!(doc.trailing_blank_lines(&about), Some(0));
@@ -4010,7 +4009,7 @@ fn editor_buffer_with_an_invalid_fragment_touches_nothing() {
     let mut s = toml_session("a = 1\n\nb = 2\n");
     s.dispatch(Intent::CursorDown);
     let (path, _) = open_editor(&mut s);
-    let snap = s.dispatch(Intent::ApplyReplace {
+    let snap = s.dispatch(Intent::ApplyBlockText {
         path,
         text: "a = [1,\n\n\n".to_string(),
     });
@@ -4023,13 +4022,16 @@ fn editor_buffer_with_an_invalid_fragment_touches_nothing() {
 }
 
 /// A comment buffer the user split with **interior blank lines** commits as
-/// one Comment node per blank-separated group (the projection rule), so the
-/// packaged trailing run belongs after the **last** group. It used to be
-/// applied to `path`, which after the splice named only the *first* group: the
-/// first interior gap was rewritten to the packaged count — deleted outright
-/// for the usual `n = 0`, merging two groups back together — while the real
-/// trailing run was never set at all. JSON and YAML rejected a blank line in
-/// the buffer outright, dropping the content edit with it.
+/// one Comment node per blank-separated group (the projection rule), and every
+/// run — interior and trailing — survives. This was the hardest case for the
+/// retired comment route, which had to split the packaged trailing run off and
+/// re-apply it to the *last* group; the Block route has nothing to split,
+/// because the buffer already **is** the text those lines occupy.
+///
+/// It is also where Block editing is visibly textual: the JSON cases splice
+/// the buffer verbatim, so a line the user un-indented stays un-indented (the
+/// seed carried the indent; deleting it is an edit like any other). The old
+/// route re-derived the indent instead.
 #[test]
 fn a_comment_buffer_split_by_blank_lines_keeps_every_run() {
     const TOML_SRC: &str = "# 1\n# 2\n# 3\nz = 1\n";
@@ -4076,14 +4078,14 @@ fn a_comment_buffer_split_by_blank_lines_keeps_every_run() {
             DocFormat::Json,
             JSON_SRC,
             "// a\n\n// b\n",
-            "{\n  // a\n\n  // b\n  \"z\": 1\n}\n",
+            "{\n  // a\n\n// b\n  \"z\": 1\n}\n",
             2,
         ),
         (
             DocFormat::Json,
             JSON_SRC,
             "// a\n\n// b\n\n",
-            "{\n  // a\n\n  // b\n\n  \"z\": 1\n}\n",
+            "{\n  // a\n\n// b\n\n  \"z\": 1\n}\n",
             2,
         ),
         (
@@ -4103,7 +4105,7 @@ fn a_comment_buffer_split_by_blank_lines_keeps_every_run() {
     ];
     for (fmt, src, buf, want, comments) in cases {
         let mut s = Session::new(AnyDocument::from_str_as(src, *fmt).unwrap());
-        let snap = s.dispatch(Intent::ApplyEditComment {
+        let snap = s.dispatch(Intent::ApplyBlockText {
             path: vec![Seg::Index(0)],
             text: buf.to_string(),
         });
@@ -4201,7 +4203,6 @@ fn begin_edit_document_targets_the_empty_path() {
     let ext = snap.external_edit.expect("a pending external edit");
     match &ext.kind {
         ExternalEditKind::Value { path } => assert!(path.is_empty(), "path = {path:?}"),
-        other => panic!("expected a value edit, got {other:?}"),
     }
     assert_eq!(
         ext.initial, "[server]\nport = 8080\n",
@@ -4333,7 +4334,6 @@ fn a_per_node_pending_edit_does_not_lock_mutations_or_undo_redo() {
     let ext = snap.external_edit.expect("a pending per-node edit");
     match &ext.kind {
         ExternalEditKind::Value { path } => assert!(!path.is_empty()),
-        other => panic!("expected a value edit, got {other:?}"),
     }
     let snap = s.dispatch(Intent::DeleteSelected);
     assert_eq!(s.serialize().unwrap(), "b = 2\n", "delete still ran");

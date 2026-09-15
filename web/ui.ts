@@ -1403,8 +1403,10 @@ function openExternalEdit(ext: { initial: string; kind: unknown }) {
   txt.value = ext.initial;
   modal.classList.remove("hidden");
   txt.focus();
-  const kind = ext.kind as { Value?: { path: unknown }; Comment?: { path: unknown } };
-  const path = (kind.Value ?? kind.Comment)!.path as unknown;
+  // One kind since the Block switchover: the buffer is the node's own
+  // document text whatever the node is (a Comment included).
+  const kind = ext.kind as { Value: { path: unknown } };
+  const path = kind.Value.path as unknown;
   const confirm = $("ext-confirm");
   const cancel = $("ext-cancel");
   const close = () => {
@@ -1414,11 +1416,6 @@ function openExternalEdit(ext: { initial: string; kind: unknown }) {
     txt.onkeydown = null;
   };
   confirm.onclick = () => {
-    if (!kind.Value) {
-      close();
-      send({ ApplyEditComment: { path: path as never, text: txt.value } });
-      return;
-    }
     // The Block route (BEHAVIOR_MATRIX §6.3): a rejected buffer must not cost
     // the user their typing, so the pop-up stays open holding their text and
     // the error arrives as a notice — the TUI's `$EDITOR` re-spawn, expressed

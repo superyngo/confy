@@ -110,17 +110,19 @@ console.log("\n-- openExternalEdit(): an accepted Block closes --");
   check("the rename crossed the wire", sent[0]?.ApplyBlockText?.text === "renamed = 1\n");
 }
 
-// ---- 3. A Comment still uses the comment-only route (retired in Task 8) ----
-console.log("\n-- openExternalEdit(): a comment edit is unchanged --");
+// ---- 3. A Comment row is a Block too (no separate route any more) ----
+console.log("\n-- openExternalEdit(): a comment is committed as a Block --");
 {
   const env = freshEnv();
   sent.length = 0;
-  mod.setEnv({ els: env.els, snap: { doc_revision: 5 }, send: (i) => sent.push(i) });
-  mod.openExternalEdit({ initial: "# c\n", kind: { Comment: { path: [{ Key: "c" }] } } });
-  env.els["ext-text"].value = "# edited\n";
+  let rev = 5;
+  mod.setEnv({ els: env.els, snap: { get doc_revision() { return rev; } }, send: (i) => { sent.push(i); rev = 6; } });
+  mod.openExternalEdit({ initial: "# c\n", kind: { Value: { path: [{ Index: 0 }] } } });
+  env.els["ext-text"].value = "c = 1\n"; // un-commenting, which the old route could not express
   env.els["ext-confirm"].onclick();
-  check("ApplyEditComment was dispatched", !!sent[0]?.ApplyEditComment);
-  check("a comment edit still closes unconditionally", !env.isOpen());
+  check("ApplyBlockText was dispatched for a comment row", !!sent[0]?.ApplyBlockText);
+  check("no comment-only intent is used any more", !sent.some((i) => i.ApplyEditComment));
+  check("it closes on success", !env.isOpen());
 }
 
 console.log(failures === 0 ? "\nALL BLOCK-EDIT CHECKS PASSED" : `\n${failures} FAILURE(S)`);

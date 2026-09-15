@@ -901,37 +901,74 @@ fn e_on_an_array_element_seeds_the_bare_element_text() {
     );
 }
 
+#[cfg(unix)]
 #[test]
-fn apply_edit_comment_updates_doc_and_rows() {
+fn a_comments_block_is_its_whole_comment_block() {
+    // Comments were the last node type still on the retired comment-only
+    // route (`apply_edit_comment`). They now take the same Block route as
+    // every other Node: the buffer is the whole comment block, and editing
+    // it commits through the whole-document splice.
     use crate::model::document::ConfigDocument;
-    let mut app = app_with("# old\nx = 1\n");
-    let cpath = app.rows[0].path.clone(); // row 0 is the leading comment
-    app.apply_edit_comment(cpath, "# new\n".into());
+    let mut app = app_with("# old one\n# old two\nx = 1\n");
+    app.session.cursor = app.rows[0].path.clone(); // the leading comment block
+    let _g = crate::tui::editor::tests::ENV_LOCK.lock();
+    let (_d, log) = fake_editor(&["# new one\\n# new two\\n# new three\\n"]);
+    app.edit_node();
+    assert_eq!(
+        spawns_seen(&log),
+        vec!["# old one\n# old two\n".to_string()],
+        "the seed is the whole comment block, not one line"
+    );
     assert!(
         app.session.notice.is_none(),
-        "unexpected status: {:?}",
+        "unexpected notice: {:?}",
         app.session.notice
     );
-    let s = app.session.doc.as_ref().unwrap().serialize();
-    assert!(
-        s.contains("# new") && !s.contains("# old"),
-        "serialize: {s:?}"
+    assert_eq!(
+        app.session.doc.as_ref().unwrap().serialize(),
+        "# new one\n# new two\n# new three\nx = 1\n"
     );
-    // The rebuilt rows reflect the edited comment.
-    assert_eq!(app.rows[0].value.as_deref(), Some("# new"));
+    assert_eq!(
+        app.rows[0].value.as_deref(),
+        Some("# new one\n# new two\n# new three")
+    );
 }
 
+#[cfg(unix)]
 #[test]
-fn apply_edit_comment_rejects_non_comment_and_keeps_doc() {
-    let mut app = app_with("# keep\nx = 1\n");
-    let before = app.session.doc.as_ref().unwrap().serialize();
-    let cpath = app.rows[0].path.clone();
-    app.apply_edit_comment(cpath, "not a comment\n".into());
-    assert!(
-        app.session.notice.is_some(),
-        "invalid comment must surface in error"
+fn a_comment_block_can_become_a_live_node() {
+    // The capability the comment-only route could not express at all: the
+    // buffer is document text, so deleting the `#` un-comments the Node
+    // (spec §4 — Comment <-> live conversion).
+    use crate::model::document::ConfigDocument;
+    let mut app = app_with("# y = 2\nx = 1\n");
+    app.session.cursor = app.rows[0].path.clone();
+    let _g = crate::tui::editor::tests::ENV_LOCK.lock();
+    let (_d, log) = fake_editor(&["y = 2\\n"]);
+    app.edit_node();
+    assert_eq!(spawns_seen(&log).len(), 1, "it must be accepted on pass 1");
+    assert_eq!(
+        app.session.doc.as_ref().unwrap().serialize(),
+        "y = 2\nx = 1\n",
+        "status={:?}",
+        app.session.notice
     );
-    assert_eq!(app.session.doc.as_ref().unwrap().serialize(), before);
+}
+
+#[cfg(unix)]
+#[test]
+fn an_invalid_comment_block_is_rejected_and_keeps_the_doc() {
+    use crate::model::document::ConfigDocument;
+    let src = "# keep\nx = 1\n";
+    let mut app = app_with(src);
+    app.session.cursor = app.rows[0].path.clone();
+    let _g = crate::tui::editor::tests::ENV_LOCK.lock();
+    // Not a comment and not parseable either: rejected, then given up on.
+    let (_d, log) = fake_editor(&["not a comment\\n", "not a comment\\n"]);
+    app.edit_node();
+    assert_eq!(spawns_seen(&log).len(), 2, "the rejection must re-spawn");
+    assert!(app.session.notice.is_some(), "the rejection must surface");
+    assert_eq!(app.session.doc.as_ref().unwrap().serialize(), src);
 }
 
 #[test]
@@ -3170,22 +3207,14 @@ fn yaml_block_seq_first_multikey_element_replace_roundtrips() {
 
 #[test]
 fn toml_array_element_external_edit_replaces_only_that_element() {
-    // BUG FIX: the `$EDITOR` path now captures + Replaces just the array element
-    // (previously it truncated to the whole `arr`, matching YAML's per-element
-    // precision). This mirrors edit_node's commit: the edited element repr is
-    // wrapped via `scalar_fragment(None, …)` → TOML `__elem__ = …`.
+    // BUG FIX (kept as a regression): `$EDITOR` captures + commits just the
+    // array element, never truncating to the whole `arr`. The Block route
+    // makes this structural — the element's Block is its own token range, so
+    // there is no fragment to wrap in a `__elem__` carrier any more.
     let mut app = app_with("arr = [\n  \"a\",\n  \"b\",\n]\n");
     let p = vec![Seg::Key("arr".into()), Seg::Index(0)];
-    let (path, wrap) = app.external_edit_path(&p);
-    assert_eq!(path, p, "edits the element, not the whole array");
-    assert!(wrap, "TOML element fragment needs the __elem__ wrap");
-    let wrapped = app
-        .session
-        .doc
-        .as_ref()
-        .unwrap()
-        .scalar_fragment(None, "\"z\"");
-    app.apply_replace(path, wrapped);
+    assert_eq!(app.session.block_text(&p), "\"a\",\n", "the element alone");
+    app.session.apply_block_text(p, "\"z\",\n".into());
     assert!(
         app.session.notice.is_none() && app.session.notice.is_none(),
         "status {:?} error {:?}",
@@ -3266,20 +3295,12 @@ fn json_array_element_nested_in_object_edits_inline() {
 
 #[test]
 fn json_array_element_external_edit_replaces_only_that_element() {
-    // BUG FIX parity: `E` on a JSON array element (e.g. an object) Replaces just
-    // that element. The edited repr wraps as a bare value (`scalar_fragment(None)`).
+    // BUG FIX parity (kept as a regression): `E` on a JSON array element
+    // commits just that element — its Block, comma included.
     let mut app = app_with_json("{\n  \"arr\": [\n    { \"a\": 1 },\n    { \"b\": 2 }\n  ]\n}\n");
     let p = vec![Seg::Key("arr".into()), Seg::Index(0)];
-    let (path, wrap) = app.external_edit_path(&p);
-    assert_eq!(path, p);
-    assert!(wrap, "JSON element fragment also wrapped (bare value)");
-    let wrapped = app
-        .session
-        .doc
-        .as_ref()
-        .unwrap()
-        .scalar_fragment(None, "{ \"a\": 9 }");
-    app.apply_replace(path, wrapped);
+    assert_eq!(app.session.block_text(&p), "{ \"a\": 1 },\n");
+    app.session.apply_block_text(p, "{ \"a\": 9 },\n".into());
     assert!(
         app.session.notice.is_none() && app.session.notice.is_none(),
         "status {:?} error {:?}",
@@ -3295,25 +3316,20 @@ fn json_array_element_external_edit_replaces_only_that_element() {
 
 #[test]
 fn yaml_block_seq_element_external_path_needs_no_wrap() {
-    // YAML's `- value` element fragment is Replace-addressable directly, so the
-    // external path is the element with NO wrap (the per-element standard the
-    // TOML/JSON fix aligns to).
+    // YAML's `- value` element is its own Block — the per-element standard the
+    // TOML/JSON fix aligned to, now expressed as span ownership.
     let app = app_with_yaml("plugins:\n  - name: a\n  - name: b\n");
     let p = vec![Seg::Key("plugins".into()), Seg::Index(1)];
-    let (path, wrap) = app.external_edit_path(&p);
-    assert_eq!(path, p);
-    assert!(!wrap, "YAML element needs no wrap");
+    assert_eq!(app.session.block_text(&p), "  - name: b\n");
 }
 
 #[test]
 fn aot_entry_external_path_is_the_entry_not_wrapped() {
-    // Guard: an AoT entry (`product[1]`, parent is ArrayOfTables not Array) is not
-    // a standard-array element — its whole `[[product]]` block is the fragment.
+    // Guard: an AoT entry (`product[1]`, parent is ArrayOfTables not Array) is
+    // not a standard-array element — its whole `[[product]]` block is its Block.
     let app = app_with("[[product]]\nname = \"Hammer\"\n[[product]]\nname = \"Nail\"\n");
     let p = vec![Seg::Key("product".into()), Seg::Index(1)];
-    let (path, wrap) = app.external_edit_path(&p);
-    assert_eq!(path, p);
-    assert!(!wrap, "AoT entry is not a standard-array element");
+    assert_eq!(app.session.block_text(&p), "[[product]]\nname = \"Nail\"\n");
 }
 
 #[test]
@@ -3324,10 +3340,12 @@ fn toml_key_through_array_index_external_path_is_precise() {
     // truncating to the whole `arr` (matching YAML's per-node precision).
     let mut app = app_with("arr = [\n  { a = \"x\", b = 2 },\n  { a = \"y\" },\n]\n");
     let p = vec![Seg::Key("arr".into()), Seg::Index(0), Seg::Key("a".into())];
-    let (path, wrap) = app.external_edit_path(&p);
-    assert_eq!(path, p, "the member is addressed, not the whole array");
-    assert!(!wrap, "a keyed member fragment needs no element wrap");
-    app.apply_replace(path, "a = \"z\"\n".into());
+    assert_eq!(
+        app.session.block_text(&p),
+        "a = \"x\"",
+        "the member is addressed, not the whole array"
+    );
+    app.session.apply_block_text(p, "a = \"z\"".into());
     assert!(
         app.session.notice.is_none() && app.session.notice.is_none(),
         "status {:?} error {:?}",
@@ -3348,10 +3366,8 @@ fn json_key_through_array_index_external_path_is_precise() {
     let mut app =
         app_with_json("{\n  \"arr\": [\n    { \"a\": 1, \"b\": 2 },\n    { \"a\": 3 }\n  ]\n}\n");
     let p = vec![Seg::Key("arr".into()), Seg::Index(0), Seg::Key("a".into())];
-    let (path, wrap) = app.external_edit_path(&p);
-    assert_eq!(path, p);
-    assert!(!wrap);
-    app.apply_replace(path, "\"a\": 99\n".into());
+    assert_eq!(app.session.block_text(&p), "\"a\": 1");
+    app.session.apply_block_text(p, "\"a\": 99".into());
     assert!(
         app.session.notice.is_none() && app.session.notice.is_none(),
         "status {:?} error {:?}",
