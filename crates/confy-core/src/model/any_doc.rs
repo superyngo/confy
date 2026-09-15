@@ -100,6 +100,9 @@ impl ConfigDocument for AnyDocument {
     fn trailing_blank_anchor(&self, path: &[Seg]) -> Option<usize> {
         delegate!(self, d => d.trailing_blank_anchor(path))
     }
+    fn node_text_spans(&self, path: &[Seg]) -> Vec<(usize, usize)> {
+        delegate!(self, d => d.node_text_spans(path))
+    }
     fn scalar_fragment(&self, key: Option<&str>, value: &str) -> String {
         delegate!(self, d => d.scalar_fragment(key, value))
     }

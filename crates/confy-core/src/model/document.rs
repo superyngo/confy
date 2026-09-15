@@ -70,6 +70,26 @@ pub trait ConfigDocument: Sized {
         ))
     }
 
+    /// The byte spans of `path`'s **Block** — the text a multi-line edit owns
+    /// (`Session::apply_block_text`). Offsets index [`Self::serialize`]'s
+    /// output, sorted ascending and non-overlapping.
+    ///
+    /// A span covers the node's body, its trailing EOL comment, and its
+    /// trailing blank-line run; a *preceding* standalone Comment is an
+    /// independent node and is never included. Inside a flow collection the
+    /// span is the node's own token range trimmed of surrounding whitespace,
+    /// and the separating `,` stays **outside** it — a comma belongs to the
+    /// container, not to any member.
+    ///
+    /// A node may own several spans (a scattered `[T/S]`, a `[T/D]` dotted
+    /// table, a scattered `[A/T]` group). An empty `Vec` means the backend
+    /// cannot express this node as a Block, and the caller must refuse the
+    /// edit rather than guess.
+    fn node_text_spans(&self, path: &[crate::model::node::Seg]) -> Vec<(usize, usize)> {
+        let _ = path;
+        Vec::new()
+    }
+
     /// Wrap a value repr (and optional key) into a one-node fragment in this
     /// format, suitable for `Replace`/`Insert` from the inline editor and
     /// `nudge`: `key = value` (TOML) / `"key": value` (JSON). With `key: None`
