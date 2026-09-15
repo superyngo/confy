@@ -67,12 +67,15 @@ and comes back with its prefix, its authored hex digit case and its digit groupi
 (decoding those reprs as a decimal number fails, which used to make every non-decimal integer
 ignore the schema entirely). A fractional
 `multipleOf` is ignored on an integer-style value, and a float keeps its decimal point, so a
-nudge never retypes the node. `edit_node` keeps the **full** path — it never truncates to an
-enclosing array (`external_edit_path`); an array element the backend cannot address on its own
-is instead flagged for wrapping, and AoT-entry indices and the keys below them are addressed
-directly. A `$EDITOR` fragment starts at the node's own
-header/value line — an adjacent standalone comment is an independent node and is never part of
-the fragment. The editor command comes from `$EDITOR`, then `$VISUAL`, then `vi` (`notepad` on
+nudge never retypes the node. `edit_node` opens the cursor node's **Block** (glossary) — the text of the byte span(s) it
+owns, never truncated to an enclosing array — and commits it with `Intent::ApplyBlockText`,
+which splices the returned text back and reparses the whole file. So the buffer may rename the
+node's key or emit several sibling nodes; a rejected buffer re-spawns `$EDITOR` seeded with the
+user's own text, and the error goes to the notice line, never into the buffer
+([BEHAVIOR_MATRIX.md](BEHAVIOR_MATRIX.md) §6.3). A Block starts at the node's own
+header/value line and carries its trailing comment and trailing blank run — an adjacent
+standalone comment is an independent node and is never part of it. A **Comment** row is the one
+exception still on the older comment-only route (`apply_edit_comment`). The editor command comes from `$EDITOR`, then `$VISUAL`, then `vi` (`notepad` on
 Windows); it is shell-split (`tui/editor.rs`, `shell-words`) so `EDITOR="code --wait"` works, and
 the scratch file carries the document's own extension (`.toml`/`.json`/`.yaml`) so the editor
 picks the right syntax mode. On return the event loop repaints via `full_redraw` (a query-free

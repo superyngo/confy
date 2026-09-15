@@ -34,6 +34,19 @@ slots are the **document-edge slots** (`After([])` = the document top, `Into([])
 the document end), drawn on a borrowed row edge instead of a row of its own.
 _Avoid_: File header (as a separate concept), top node, root row.
 
+**Block**:
+The byte span(s) a **Node** owns, as text — what the multi-line editor (`e` / `$EDITOR`, the web
+pop-up) opens and commits. A Block covers the Node's body, its **trailing comment** and its
+trailing blank-line run; a *preceding* standalone **Comment** is an independent Node and never
+part of it. Inside a flow collection a Block is the Node's own token range trimmed of
+whitespace, with the separating `,` outside it. One Node may own several spans (a scattered
+`[T/S]`, a `[T/D]` dotted table, a scattered `[A/T]` group), in which case a commit
+**consolidates** them at the first. Computed by `ConfigDocument::node_text_spans`, committed by
+`Session::apply_block_text` — which text-splices it into the document and reparses the whole
+file, so a Block may rename its Node's key, emit several sibling Nodes, or cross the
+Comment/live boundary.
+_Avoid_: Fragment (the old 1:1 per-Node buffer this replaced), region, chunk.
+
 **Branch node**:
 A **Node** that has children and can be expanded/collapsed: a table, array-of-tables, array, or
 inline table.
@@ -166,11 +179,16 @@ in the Node's Detail view. Only standalone comments become **Comment** Nodes.
 _Avoid_: Inline comment node (it is never a node), suffix comment.
 
 **Read-only node**:
-A node whose `Node.read_only` flag is set: displayed in the tree and copyable, but rejecting edit
-(`e`/`E`), delete (`d`), cut (`x`), and remark (`r`). Produced by JSONC `/* */` block comments
-(a Comment node) and by YAML **opaque nodes** (any kind). The rejection happens in **core**, on
-both `e` routes — `begin_inline_edit` as well as the `$EDITOR` one — so no host can open an editor
-on read-only content and discover it only at commit time. Because one flag has two sources, the
+A node whose `Node.read_only` flag is set: **not structurally editable** — rejecting rename, kind
+switch (`K`), delete (`d`), cut (`x`), remark (`r`), and paste-into — while displayed in the tree
+and copyable. Produced by JSONC `/* */` block comments (a Comment node) and by YAML **opaque
+nodes** (any kind). Structural rejection happens in **core**, so no host can open a rename on
+read-only content and discover it only at commit time.
+
+"Not writable" would now be too strong: an opaque node's **Block** is text-editable through the
+multi-line editor, because that route reparses the whole file and recomputes opaque fencing from
+scratch, so nothing about it needs to be preserved by the edit. A read-only *Comment* (JSONC
+`/* */`) is still refused there — it owns no Block of its own. Because one flag has two sources, the
 message does too: `core.readonly.comment` names the JSONC block comment, `core.readonly.opaque` the
 YAML out-of-subset span (`Session::readonly_notice_key` picks by node kind).
 

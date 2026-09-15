@@ -150,11 +150,25 @@ never routes through the picker branch.
 
 See table B, note ².
 
-### 6.3 Uniform external-editor precise range
+### 6.3 The multi-line editor edits a Block
 
-> `e` / `E` captures and Replaces **just the edited node** in every backend — no truncation.
+> A multi-line edit is accepted if and only if its buffer parses, on its own, as a legal Node
+> sequence at the edited Node's container level. Otherwise the whole commit is rejected and
+> the document is untouched. Backends differ only where the format's grammar differs.
 
-`Session::external_edit_path` resolves the capture:
+`e` / `E` opens the cursor Node's **Block** (glossary) — the text of the byte span(s) it owns —
+and commits it by text-splicing it back and reparsing the whole file. So the buffer may **rename
+the Node's key**, emit **several sibling Nodes**, or turn a Comment into live content and back;
+the old 1:1 "one buffer = one Node's value" restriction is gone. A rejected buffer costs the
+user nothing: the host keeps its editor open holding their text (TUI re-spawns `$EDITOR` seeded
+with it), and the error travels on the notice channel, never inside the buffer
+(`core.block.invalid` / `core.block.empty`, both `Warn`). An **empty** buffer is refused rather
+than read as a deletion — `d` is the delete gesture.
+
+A Block is **not truncated to a container**: a multi-span Node (a scattered `[T/S]`, a `[T/D]`
+dotted table) hands over all of its spans joined, and the commit consolidates them at the first.
+
+`Session::external_edit_path` still resolves the Action menu's capture:
 
 - A standard-array **element** (`x[0]`, `x[0][1]`) has no key; its bare repr isn't
   `Replace`-addressable on its own in TOML/JSON, so its edited repr is wrapped as the value-Replace
@@ -211,8 +225,10 @@ green trees have different shapes (taplo vs hand-rolled JSON vs YAML reindent). 
 - **First-class comments.** A standalone comment is a real node in document order — navigable,
   selectable, movable, deletable — and moving/copying another node never drags a comment with it. An
   end-of-line comment is instead the owning node's `trailing_comment` decoration and travels with it.
-- **YAML opaque nodes** (`&anchor`, `*alias`, `<<:` merge, `!tag`, multi-line flow) are read-only:
-  every behavior on or into them returns `Unsupported`, whatever the underlying kind. **Schema
+- **YAML opaque nodes** (`&anchor`, `*alias`, `<<:` merge, `!tag`, multi-line flow) are read-only
+  **structurally**: every *structural* behavior on or into them returns `Unsupported`, whatever the
+  underlying kind. Their **Block** is text-editable (`e`), because that route reparses the whole
+  file and recomputes opaque fencing from scratch. **Schema
   validation skips them** rather than giving up on the file — an opaque node carries no Violation of
   its own (confy cannot decode its value), while every other node in the document validates
   normally. Document **conversion** is the stricter case: an opaque node aborts it outright.

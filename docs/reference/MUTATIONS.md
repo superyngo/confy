@@ -81,9 +81,11 @@ row you edited is where the result appears.
 | `[T/D]` dotted | member lines, full keys | first member line | dotted style kept |
 | **Mixed** | canonical scope form: synthesized `[a]` header + dotted members folded under it + sections | first member *section* | dotted definitions are consumed — required for the header to be legal |
 
-A consolidating rewrite (2+ spans) validates the returned block: every header must stay inside
-the table's subtree and the block must start with a `[header]` line, else `Illegal` and the
-document is untouched. A single-span (contiguous) edit keeps the old unchecked-splice freedom.
+A consolidating rewrite (2+ spans) is what a **Block** commit produces for a scattered table;
+its legality is whatever the whole-file reparse and the DOM validation accept. There is no
+"every header must stay inside the subtree" and no "the block must start with a `[header]` line"
+check any more: those existed because the old mechanism could only consolidate in place, so a
+header leaving the subtree was necessarily an accident — with a Block it is an intent.
 
 ## Mutation mechanics
 

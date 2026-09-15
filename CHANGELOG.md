@@ -12,6 +12,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 2026-09-15
 
+**Changed**
+
+- The multi-line editor (`e` / `$EDITOR`) now edits a Node's **Block** — the text of the byte
+  spans it owns — instead of a fragment bound 1:1 to that Node. A buffer may **rename the
+  Node's key** or emit **several sibling Nodes**;
+  it is accepted if and only if it parses as a legal Node sequence at the Node's container
+  level. Otherwise the whole commit is rejected, the document is untouched, and `$EDITOR`
+  reopens **holding your text** — the error arrives as a `Warn` notice, never inside the
+  buffer. An empty buffer is refused rather than read as a deletion (`d` deletes). A scattered
+  `[T/S]`/`[T/D]` table hands over all of its spans joined and consolidates at the first.
+  (TUI first; the web hosts follow. A **Comment** row still uses the older comment-only route,
+  so un-commenting a row in the buffer is not accepted yet — that machinery is retired in the
+  next step of the same plan.)
+  ([spec](docs/spec/2026-09-15-block-edit-whole-file-reparse-design.md))
+- YAML **opaque** nodes (`&anchor`, `*alias`, `<<:` merge, `!tag`) are now **text**-editable
+  through `e`: that route reparses the whole file and recomputes opaque fencing from scratch,
+  which the whole-file `E` route already relied on. They stay read-only *structurally* — no
+  rename, kind switch, remark, or paste-into. `read_only` accordingly means "not structurally
+  editable", restated in the glossary and BEHAVIOR_MATRIX.
+
 **Fixed**
 
 - TOML: a value `Replace` whose fragment spells a **different key** is now rejected as

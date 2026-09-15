@@ -646,10 +646,15 @@ impl App {
                 });
             return;
         }
-        if self.cursor_is_read_only() {
-            // The message names the actual source (JSONC block comment vs YAML
-            // opaque span); `tui.host.readonly-comment` said "block comment"
-            // for both.
+        // `read_only` narrows to "not **structurally** editable" (design
+        // record §5): a YAML opaque span is now text-editable through the
+        // Block route — the whole-file `E` route already rewrote it, because
+        // the opaque guard is `!path.is_empty()`-scoped. Rename, `K`, remark
+        // and paste-into still refuse it, elsewhere. A read-only *Comment*
+        // (a JSONC block comment) stays refused: it has no Block of its own.
+        if self.cursor_is_read_only()
+            && self.session.readonly_notice_key() == "core.readonly.comment"
+        {
             let key = self.session.readonly_notice_key().to_string();
             self.session
                 .dispatch(confy_core::session::Intent::SetHostNotice {
@@ -698,24 +703,52 @@ impl App {
                 }
             }
         }
-        let (path, wrap_element) = self.external_edit_path(&cursor_row.path);
-        let fragment = self.session.multiline_edit_initial(&path);
-        let edited = match crate::tui::editor::edit_text(&fragment, self.session.doc_format()) {
-            Ok(t) => t,
-            Err(e) => {
-                self.session
-                    .dispatch(confy_core::session::Intent::SetHostNotice {
-                        key: "tui.host.editor-error".to_string(),
-                        args: vec![e.to_string()],
-                        source: confy_core::session::notice::NoticeSource::HostTui,
-                    });
+        self.edit_block_at(cursor_row.path.clone());
+    }
+
+    /// Spawn `$EDITOR` on the Block at `path` and commit it, **re-spawning
+    /// seeded with the user's own text** while the commit is rejected (design
+    /// record §5: a rejected buffer must never cost the user their typing, and
+    /// the error travels on the notice channel, never inside the buffer).
+    ///
+    /// Rejection is read off `doc_revision`, not off the notice: a Block commit
+    /// is atomic, so an unmoved revision *is* the rejection signal — the same
+    /// one the web host already uses for the whole-file editor.
+    /// HOST SPLIT: spawns $EDITOR.
+    fn edit_block_at(&mut self, path: Path) {
+        let mut buffer = self.session.block_text(&path);
+        if buffer.is_empty() {
+            return;
+        }
+        loop {
+            let edited = match crate::tui::editor::edit_text(&buffer, self.session.doc_format()) {
+                Ok(t) => t,
+                Err(e) => {
+                    self.session
+                        .dispatch(confy_core::session::Intent::SetHostNotice {
+                            key: "tui.host.editor-error".to_string(),
+                            args: vec![e.to_string()],
+                            source: confy_core::session::notice::NoticeSource::HostTui,
+                        });
+                    return;
+                }
+            };
+            // Unmodified buffer = quit without saving: cancel rather than
+            // splicing identical text back and dirtying the document.
+            if edited == buffer {
                 return;
             }
-        };
-        // The element wrap lives in core, after it splits the buffer's trailing
-        // blank lines back off — wrapping here would eat them.
-        self.session
-            .apply_external_replace(path, edited, wrap_element);
+            let before = self.session.doc_revision;
+            self.session
+                .dispatch(confy_core::session::Intent::ApplyBlockText {
+                    path: path.clone(),
+                    text: edited.clone(),
+                });
+            if self.session.doc_revision != before {
+                break;
+            }
+            buffer = edited;
+        }
         self.rebuild_rows();
     }
 
@@ -726,6 +759,13 @@ impl App {
         let Some(pending) = self.session.pending_external_edit.take() else {
             return;
         };
+        if !pending.is_comment {
+            // The Block route, same as `edit_node`. Comments deliberately keep
+            // the old 1:1 fragment route in this task — `apply_edit_comment`
+            // is retired separately (plan Task 8), not forgotten here.
+            self.edit_block_at(pending.path);
+            return;
+        }
         let initial = self.session.multiline_edit_initial(&pending.path);
         if initial.is_empty() {
             return;
@@ -742,23 +782,22 @@ impl App {
                 return;
             }
         };
-        if pending.is_comment {
-            // Unmodified buffer = quit without saving: cancel instead of
-            // splicing the text back (which would dirty the doc).
-            if edited == initial {
-                return;
-            }
-            self.apply_edit_comment(pending.path, edited);
+        // Unmodified buffer = quit without saving: cancel instead of
+        // splicing the text back (which would dirty the doc).
+        if edited == initial {
             return;
         }
-        self.session
-            .apply_external_replace(pending.path, edited, pending.wrap_element);
-        self.rebuild_rows();
+        self.apply_edit_comment(pending.path, edited);
     }
 
     pub fn edit_target_kind(&self) -> EditKind {
         self.session.edit_target_kind()
     }
+    /// Test-only since the Block switchover: the `$EDITOR` route no longer
+    /// redirects an array element to its enclosing array. `Session` still uses
+    /// it for the Action menu's `pending_external_edit` (retired in plan
+    /// Task 8, with the tests below).
+    #[cfg(test)]
     pub(crate) fn external_edit_path(&self, path: &Path) -> (Path, bool) {
         self.session.external_edit_path(path)
     }

@@ -708,6 +708,199 @@ fn edit_node_comment_unmodified_editor_is_a_noop() {
     );
 }
 
+/// Installs a `$EDITOR` that rewrites the buffer from a canned script, one
+/// entry per spawn, and logs every buffer it was handed. Real spawn, real
+/// `edit_text` — the re-spawn loop is the thing under test, so faking the
+/// editor *call* would fake away the test.
+///
+/// Returns the log path; read it with `spawns_seen`.
+#[cfg(unix)]
+fn fake_editor(replies: &[&str]) -> (tempfile::TempDir, std::path::PathBuf) {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let log = dir.path().join("seen.log");
+    let mut sh = String::from("#!/bin/sh\nn=0\n[ -f \"$C\" ] && n=$(cat \"$C\")\n");
+    sh.push_str("n=$((n+1)); echo $n > \"$C\"\n");
+    sh.push_str("printf '%s' \"--- \" >> \"$L\"; cat \"$1\" >> \"$L\"\n");
+    sh.push_str("case $n in\n");
+    for (i, r) in replies.iter().enumerate() {
+        // The reply text is written through `printf %b` so the test can spell
+        // newlines as `\n` without the shell re-splitting them.
+        sh.push_str(&format!("{}) printf '%b' '{}' > \"$1\" ;;\n", i + 1, r));
+    }
+    sh.push_str("*) exit 1 ;;\nesac\n");
+    let script = dir.path().join("ed.sh");
+    std::fs::write(&script, sh).unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::env::set_var("C", dir.path().join("count"));
+    std::env::set_var("L", &log);
+    std::env::set_var("EDITOR", &script);
+    (dir, log)
+}
+
+#[cfg(unix)]
+fn spawns_seen(log: &std::path::Path) -> Vec<String> {
+    std::fs::read_to_string(log)
+        .unwrap_or_default()
+        .split("--- ")
+        .skip(1)
+        .map(str::to_string)
+        .collect()
+}
+
+#[cfg(unix)]
+#[test]
+fn e_on_a_leaf_can_rename_its_key() {
+    // The gesture the old 1:1 fragment mechanism silently dropped (and, after
+    // the Task 0 guard, rejected): the Block carries the key, so renaming it
+    // in the buffer renames the node.
+    use crate::model::document::ConfigDocument;
+    let mut app = app_with("[s]\nk1 = 1\nk2 = 2\n");
+    app.expand_all();
+    app.rebuild_rows();
+    app.session.cursor = app
+        .rows
+        .iter()
+        .find(|r| r.key == "k1")
+        .unwrap()
+        .path
+        .clone();
+    let _g = crate::tui::editor::tests::ENV_LOCK.lock();
+    let (_d, _log) = fake_editor(&["renamed = 1\\n"]);
+    app.edit_node();
+    assert_eq!(
+        app.session.doc.as_ref().unwrap().serialize(),
+        "[s]\nrenamed = 1\nk2 = 2\n",
+        "status={:?}",
+        app.session.notice
+    );
+    // Spec §5's span re-anchor: the cursor follows the renamed node rather
+    // than staying on a path that no longer resolves.
+    assert_eq!(
+        app.session.cursor.last(),
+        Some(&crate::model::node::Seg::Key("renamed".into()))
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn e_on_a_leaf_can_emit_two_siblings() {
+    use crate::model::document::ConfigDocument;
+    let mut app = app_with("[s]\nk1 = 1\nk2 = 2\n");
+    app.expand_all();
+    app.rebuild_rows();
+    app.session.cursor = app
+        .rows
+        .iter()
+        .find(|r| r.key == "k1")
+        .unwrap()
+        .path
+        .clone();
+    let _g = crate::tui::editor::tests::ENV_LOCK.lock();
+    let (_d, _log) = fake_editor(&["k1 = 1\\nk3 = 3\\n"]);
+    app.edit_node();
+    assert_eq!(
+        app.session.doc.as_ref().unwrap().serialize(),
+        "[s]\nk1 = 1\nk3 = 3\nk2 = 2\n",
+        "status={:?}",
+        app.session.notice
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_rejected_block_reopens_the_editor_with_the_users_own_text() {
+    use crate::model::document::ConfigDocument;
+    let mut app = app_with("[s]\nk1 = 1\nk2 = 2\n");
+    app.expand_all();
+    app.rebuild_rows();
+    app.session.cursor = app
+        .rows
+        .iter()
+        .find(|r| r.key == "k1")
+        .unwrap()
+        .path
+        .clone();
+    let _g = crate::tui::editor::tests::ENV_LOCK.lock();
+    // Pass 1 writes a duplicate key (rejected); pass 2 fixes it.
+    let (_d, log) = fake_editor(&["k2 = 7\\n", "k1 = 7\\n"]);
+    app.edit_node();
+    let seen = spawns_seen(&log);
+    assert_eq!(
+        seen.len(),
+        2,
+        "the rejection must re-spawn $EDITOR: {seen:?}"
+    );
+    assert_eq!(seen[0], "k1 = 1\n", "first spawn seeds the Block");
+    assert_eq!(
+        seen[1], "k2 = 7\n",
+        "the retry is seeded with the user's own text, not the original Block"
+    );
+    // The error travels on the notice channel, never inside the buffer.
+    assert!(
+        !seen[1].contains('#'),
+        "an error leaked into the buffer: {seen:?}"
+    );
+    assert_eq!(
+        app.session.doc.as_ref().unwrap().serialize(),
+        "[s]\nk1 = 7\nk2 = 2\n",
+        "status={:?}",
+        app.session.notice
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn an_empty_block_is_refused_and_never_deletes() {
+    use crate::model::document::ConfigDocument;
+    let src = "[s]\nk1 = 1\nk2 = 2\n";
+    let mut app = app_with(src);
+    app.expand_all();
+    app.rebuild_rows();
+    app.session.cursor = app
+        .rows
+        .iter()
+        .find(|r| r.key == "k1")
+        .unwrap()
+        .path
+        .clone();
+    let _g = crate::tui::editor::tests::ENV_LOCK.lock();
+    // An empty buffer is a rejection, so the loop re-spawns; pass 2 gives up
+    // by handing back the same text it was seeded with (quit-without-save).
+    let (_d, log) = fake_editor(&["", ""]);
+    app.edit_node();
+    assert_eq!(
+        app.session.doc.as_ref().unwrap().serialize(),
+        src,
+        "an empty Block must not delete the node"
+    );
+    assert_eq!(spawns_seen(&log).len(), 2);
+}
+
+#[cfg(unix)]
+#[test]
+fn e_on_an_array_element_seeds_the_bare_element_text() {
+    // The Block is the element's own token range — not the old
+    // `__elem__ = …` synthetic carrier `multiline_edit_initial` wraps it in,
+    // and not the whole array the old route redirected to. Mutation-checked:
+    // seeding from `multiline_edit_initial` instead fails this test.
+    use crate::model::document::ConfigDocument;
+    let mut app = app_with("a = [1, 2]\n");
+    app.expand_all();
+    app.rebuild_rows();
+    app.session.cursor = app.rows.last().unwrap().path.clone();
+    let _g = crate::tui::editor::tests::ENV_LOCK.lock();
+    let (_d, log) = fake_editor(&["9"]);
+    app.edit_node();
+    assert_eq!(spawns_seen(&log), vec!["2".to_string()]);
+    assert_eq!(
+        app.session.doc.as_ref().unwrap().serialize(),
+        "a = [1, 9]\n",
+        "status={:?}",
+        app.session.notice
+    );
+}
+
 #[test]
 fn apply_edit_comment_updates_doc_and_rows() {
     use crate::model::document::ConfigDocument;
