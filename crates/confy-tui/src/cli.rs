@@ -303,7 +303,7 @@ fn run_convert(
             )
         );
         for w in &result.warnings {
-            eprintln!("  • {w}");
+            eprintln!("  • {}", tr(lang, w.catalog_key()));
         }
         if !yes {
             confirm_or_bail(

@@ -227,7 +227,15 @@ pub trait ConfigDocument: Sized {
     /// gathered during the walk (notation that the default-style render will
     /// drop). `Err(ConvertAbort)` when the document holds a construct that cannot
     /// be represented at all (a YAML opaque node). The source is never modified.
-    fn to_value(&self) -> Result<(crate::model::value::Value, Vec<String>), ConvertAbort> {
+    fn to_value(
+        &self,
+    ) -> Result<
+        (
+            crate::model::value::Value,
+            Vec<crate::model::convert::ConvertWarning>,
+        ),
+        ConvertAbort,
+    > {
         crate::model::convert::tree_to_value(&self.project(), self.format())
     }
 }

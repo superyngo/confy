@@ -125,6 +125,30 @@ fn lossy_conversion_with_yes_writes_and_warns() {
     assert_eq!(fs::read_to_string(&output).unwrap(), "{\n  \"n\": 255\n}\n");
 }
 
+/// The lossy-normalization warnings go through the catalog like every other
+/// user-facing string (`ConvertWarning::catalog_key`), so a zh-TW run shows
+/// them translated instead of the raw English.
+#[test]
+fn lossy_conversion_warning_is_translated_in_zh_tw() {
+    let dir = TempDir::new().unwrap();
+    let input = dir.path().join("in.toml");
+    let output = dir.path().join("out.json");
+    fs::write(&input, "n = 0xFF\n").unwrap();
+
+    confy()
+        .args([
+            "convert",
+            input.to_str().unwrap(),
+            output.to_str().unwrap(),
+            "--yes",
+            "--lang",
+            "zh-TW",
+        ])
+        .assert()
+        .success()
+        .stderr(contains("非十進位整數寫法已正規化為十進位"));
+}
+
 #[test]
 fn null_to_toml_aborts_with_no_file() {
     let dir = TempDir::new().unwrap();

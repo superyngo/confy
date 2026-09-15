@@ -22,12 +22,54 @@ use crate::model::node::{Format, Node, NodeKind, NodeTree, ScalarType, Seg};
 use crate::model::value::{Item, Value};
 use crate::schema::{hints, SchemaSource};
 
+/// One lossy-normalization note a conversion can report. Carried **structured**
+/// through the pipeline and translated at the edge (`Session`'s convert
+/// projection, the CLI) via [`ConvertWarning::catalog_key`] - `model/` has no
+/// `Lang` and must not gain one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ConvertWarning {
+    HintDroppedJsonRoot,
+    HintDroppedYamlRoot,
+    HintDroppedTomlRoot,
+    ArrayOfTablesStyle,
+    NonDecimalInt,
+    MultilineString,
+    QuotedScalar,
+    BlockScalar,
+    ExponentFloat,
+    DottedTable,
+    InlineTable,
+    DatetimeToString,
+    NonFiniteToString,
+}
+
+impl ConvertWarning {
+    /// The `i18n` catalog key whose text this warning renders as.
+    pub fn catalog_key(self) -> &'static str {
+        match self {
+            Self::HintDroppedJsonRoot => "core.convert.warn.hint-dropped-json-root",
+            Self::HintDroppedYamlRoot => "core.convert.warn.hint-dropped-yaml-root",
+            Self::HintDroppedTomlRoot => "core.convert.warn.hint-dropped-toml-root",
+            Self::ArrayOfTablesStyle => "core.convert.warn.array-of-tables-style",
+            Self::NonDecimalInt => "core.convert.warn.non-decimal-int",
+            Self::MultilineString => "core.convert.warn.multiline-string",
+            Self::QuotedScalar => "core.convert.warn.quoted-scalar",
+            Self::BlockScalar => "core.convert.warn.block-scalar",
+            Self::ExponentFloat => "core.convert.warn.exponent-float",
+            Self::DottedTable => "core.convert.warn.dotted-table",
+            Self::InlineTable => "core.convert.warn.inline-table",
+            Self::DatetimeToString => "core.convert.warn.datetime-to-string",
+            Self::NonFiniteToString => "core.convert.warn.non-finite-to-string",
+        }
+    }
+}
+
 /// The result of a successful conversion: the rendered output text plus the
 /// up-front list of (deduplicated) lossy-normalization warnings.
 #[derive(Debug)]
 pub struct ConvertResult {
     pub text: String,
-    pub warnings: Vec<String>,
+    pub warnings: Vec<ConvertWarning>,
 }
 
 /// Convert `doc` to `target`, applying the spec's loss & legality policy.
@@ -135,7 +177,12 @@ fn remove_line(text: &mut String, idx: usize) {
         .join("\n");
 }
 
-fn inject_hint(value: &mut Value, target: DocFormat, raw: &str, warnings: &mut Vec<String>) {
+fn inject_hint(
+    value: &mut Value,
+    target: DocFormat,
+    raw: &str,
+    warnings: &mut Vec<ConvertWarning>,
+) {
     match target {
         DocFormat::Json => match value {
             Value::Map(items) => items.insert(
@@ -146,20 +193,18 @@ fn inject_hint(value: &mut Value, target: DocFormat, raw: &str, warnings: &mut V
                     trailing: None,
                 },
             ),
-            _ => warnings.push("schema hint dropped: JSON $schema requires an object root".into()),
+            _ => warnings.push(ConvertWarning::HintDroppedJsonRoot),
         },
         DocFormat::Yaml => match value {
             Value::Map(items) | Value::Seq(items) => items.insert(
                 0,
                 Item::Comment(format!("yaml-language-server: $schema={raw}")),
             ),
-            _ => warnings.push(
-                "schema hint dropped: YAML modeline requires a mapping or sequence root".into(),
-            ),
+            _ => warnings.push(ConvertWarning::HintDroppedYamlRoot),
         },
         DocFormat::Toml => match value {
             Value::Map(items) => items.insert(0, Item::Comment(format!(":schema {raw}"))),
-            _ => warnings.push("schema hint dropped: TOML root must be a table".into()),
+            _ => warnings.push(ConvertWarning::HintDroppedTomlRoot),
         },
     }
 }
@@ -172,7 +217,7 @@ fn inject_hint(value: &mut Value, target: DocFormat, raw: &str, warnings: &mut V
 pub fn tree_to_value(
     tree: &NodeTree,
     src: DocFormat,
-) -> Result<(Value, Vec<String>), ConvertAbort> {
+) -> Result<(Value, Vec<ConvertWarning>), ConvertAbort> {
     lower(tree, src, false)
 }
 
@@ -195,7 +240,7 @@ pub fn tree_to_value(
 pub fn tree_to_value_lenient(
     tree: &NodeTree,
     src: DocFormat,
-) -> Result<(Value, Vec<String>), ConvertAbort> {
+) -> Result<(Value, Vec<ConvertWarning>), ConvertAbort> {
     lower(tree, src, true)
 }
 
@@ -203,7 +248,7 @@ fn lower(
     tree: &NodeTree,
     src: DocFormat,
     skip_opaque: bool,
-) -> Result<(Value, Vec<String>), ConvertAbort> {
+) -> Result<(Value, Vec<ConvertWarning>), ConvertAbort> {
     let mut warnings = Vec::new();
     let value = root_to_value(&tree.root, src, skip_opaque, &mut warnings)?;
     warnings.sort();
@@ -221,7 +266,7 @@ fn root_to_value(
     root: &Node,
     src: DocFormat,
     skip_opaque: bool,
-    warnings: &mut Vec<String>,
+    warnings: &mut Vec<ConvertWarning>,
 ) -> Result<Value, ConvertAbort> {
     let non_comment: Vec<&Node> = root.children.iter().filter(|c| !is_comment(c)).collect();
 
@@ -251,7 +296,7 @@ fn node_value(
     node: &Node,
     src: DocFormat,
     skip_opaque: bool,
-    warnings: &mut Vec<String>,
+    warnings: &mut Vec<ConvertWarning>,
 ) -> Result<Value, ConvertAbort> {
     if is_opaque(node) {
         return Err(ConvertAbort(
@@ -260,7 +305,7 @@ fn node_value(
         ));
     }
     if let Some(note) = style_note(node) {
-        warnings.push(note.to_string());
+        warnings.push(note);
     }
     match &node.kind {
         NodeKind::Table | NodeKind::InlineTable => Ok(Value::Map(items_of(
@@ -292,7 +337,7 @@ fn items_of(
     children: &[Node],
     src: DocFormat,
     skip_opaque: bool,
-    warnings: &mut Vec<String>,
+    warnings: &mut Vec<ConvertWarning>,
 ) -> Result<Vec<Item>, ConvertAbort> {
     let mut out = Vec::with_capacity(children.len());
     for child in children {
@@ -321,25 +366,21 @@ fn items_of(
 
 /// A node's writing style that the default-style render will drop, as a warning
 /// (or `None` when the style is already the target-neutral default).
-fn style_note(node: &Node) -> Option<&'static str> {
+fn style_note(node: &Node) -> Option<ConvertWarning> {
     if matches!(node.kind, NodeKind::ArrayOfTables) {
-        return Some("array-of-tables normalized to the target's default array style");
+        return Some(ConvertWarning::ArrayOfTablesStyle);
     }
     match node.format {
-        Format::Hex | Format::Octal | Format::Binary => {
-            Some("non-decimal integer notation normalized to decimal")
-        }
+        Format::Hex | Format::Octal | Format::Binary => Some(ConvertWarning::NonDecimalInt),
         Format::MultilineBasic | Format::Literal | Format::MultilineLiteral => {
-            Some("multiline/literal string style normalized")
+            Some(ConvertWarning::MultilineString)
         }
-        Format::SingleQuoted | Format::DoubleQuoted => {
-            Some("quoted scalar style normalized to plain where possible")
-        }
-        Format::LiteralBlock | Format::Folded => Some("block scalar (| / >) style normalized"),
-        Format::Exponent => Some("exponent float notation normalized"),
-        Format::Dotted => Some("dotted-key table normalized to a standard table"),
+        Format::SingleQuoted | Format::DoubleQuoted => Some(ConvertWarning::QuotedScalar),
+        Format::LiteralBlock | Format::Folded => Some(ConvertWarning::BlockScalar),
+        Format::Exponent => Some(ConvertWarning::ExponentFloat),
+        Format::Dotted => Some(ConvertWarning::DottedTable),
         Format::Inline if matches!(node.kind, NodeKind::InlineTable) => {
-            Some("inline table / flow mapping normalized to a standard table")
+            Some(ConvertWarning::InlineTable)
         }
         _ => None,
     }
@@ -585,7 +626,7 @@ fn push_hex(out: &mut String, chars: &mut std::str::Chars, n: usize) {
 fn analyze(
     value: &Value,
     target: DocFormat,
-    warnings: &mut Vec<String>,
+    warnings: &mut Vec<ConvertWarning>,
 ) -> Result<(), ConvertAbort> {
     if target == DocFormat::Toml && value.has_null() {
         let mut paths = Vec::new();
@@ -596,11 +637,10 @@ fn analyze(
         )));
     }
     if target != DocFormat::Toml && value.has_datetime() {
-        warnings.push("TOML datetime values converted to quoted strings".into());
+        warnings.push(ConvertWarning::DatetimeToString);
     }
     if target == DocFormat::Json && has_nonfinite(value) {
-        warnings
-            .push("non-finite floats (inf/nan) converted to strings (JSON has no inf/nan)".into());
+        warnings.push(ConvertWarning::NonFiniteToString);
     }
     Ok(())
 }
@@ -1411,10 +1451,7 @@ mod tests {
             DocFormat::Json,
         );
         assert_eq!(r.text, "[\n  1,\n  2\n]\n");
-        assert_eq!(
-            r.warnings,
-            vec!["schema hint dropped: JSON $schema requires an object root".to_string()]
-        );
+        assert_eq!(r.warnings, vec![ConvertWarning::HintDroppedJsonRoot]);
     }
 
     #[test]
@@ -1515,14 +1552,14 @@ mod tests {
             DocFormat::Json,
         );
         assert_eq!(r.text, "{\n  \"when\": \"2021-01-01T00:00:00Z\"\n}\n");
-        assert!(r.warnings.iter().any(|w| w.contains("datetime")));
+        assert!(r.warnings.contains(&ConvertWarning::DatetimeToString));
     }
 
     #[test]
     fn radix_int_normalized_and_warned() {
         let r = convert_str("n = 0xFF\n", DocFormat::Toml, DocFormat::Json);
         assert_eq!(r.text, "{\n  \"n\": 255\n}\n");
-        assert!(r.warnings.iter().any(|w| w.contains("non-decimal")));
+        assert!(r.warnings.contains(&ConvertWarning::NonDecimalInt));
     }
 
     #[test]

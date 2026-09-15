@@ -14,6 +14,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Fixed**
 
+- Cross-format convert's lossy-normalization warnings are **translated** now. All thirteen
+  of them (three schema-hint drops, eight style normalizations, two semantic-loss
+  conversions) were raw English in every surface — CLI stderr, the TUI convert overlay, the
+  web convert dialog — the last user-facing text in the app that bypassed the catalog. They
+  are a structured `ConvertWarning` enum in `model/` (which has no `Lang` and must not gain
+  one) carrying `catalog_key()`, resolved at the same edge as every other string: the
+  `Session` convert projection and the CLI. `ConvertView.warnings` stays `Vec<String>`, so
+  the wasm wire contract, `web/types.ts` and all three host renderers are untouched.
+
 - The Block editor's cursor re-anchor made a **key rename** quadratic: it asked the backend
   for every node's spans, and each such query serializes and projects the whole document. A
   rename in a 37 KB / 3,000-node TOML file took **20.7 s** (500 sections: 4.5 s; 200: 0.65 s),

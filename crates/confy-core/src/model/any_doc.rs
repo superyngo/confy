@@ -146,8 +146,13 @@ impl ConfigDocument for AnyDocument {
     }
     fn to_value(
         &self,
-    ) -> Result<(crate::model::value::Value, Vec<String>), crate::model::document::ConvertAbort>
-    {
+    ) -> Result<
+        (
+            crate::model::value::Value,
+            Vec<crate::model::convert::ConvertWarning>,
+        ),
+        crate::model::document::ConvertAbort,
+    > {
         delegate!(self, d => d.to_value())
     }
 }

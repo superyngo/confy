@@ -1549,7 +1549,16 @@ impl Session {
                     Some((path, result.text))
                 } else {
                     if let Mode::Convert(st) = &mut self.mode {
-                        st.warnings = result.warnings;
+                        // `ConvertWarning` stays structured in `model/`; the text is
+                        // resolved here, the same edge where every other user-facing
+                        // string is (`Notice`, `Prompt.question`).
+                        st.warnings = result
+                            .warnings
+                            .iter()
+                            .map(|w| {
+                                crate::session::i18n::tr(self.lang, w.catalog_key()).to_string()
+                            })
+                            .collect();
                         st.text = result.text;
                         st.step = crate::session::state::ConvertStep::Confirm;
                     }

@@ -118,10 +118,11 @@ that test *is* the maintained reference, not duplicated here to avoid drift, and
 `cases.len() == 49` assertion is the tripwire that catches this section going stale.
 The host keys are classified by the same table but are deliberately outside that test.
 
-**These 68 are only the notice keys.** `i18n/en.json` holds 106 `core.*` keys in
+**These 68 are only the notice keys.** `i18n/en.json` holds 119 `core.*` keys in
 total; the rest are prompts (`core.prompt.*`), picker and label text
 (`core.dt.*`, `core.action.*`, `core.add.type.*`, `core.detail.*`, `core.hint.*`,
-`core.comment.advisory`, `core.schema.count`) and would **panic** if passed to
+`core.comment.advisory`, `core.schema.count`), the thirteen convert warnings
+(`core.convert.warn.*`, §7.2) and would **panic** if passed to
 `severity_of` — they are never notices.
 Among the host-authored keys (§3):
 `web.host.schema.load-error` / `tui.host.schema-load-error` (`Warn`) report a
@@ -402,13 +403,16 @@ but never contend for the same storage.
 
 ### 7.2 Convert warnings (`ConvertResult.warnings`)
 
-A `Vec<String>` of **raw, untranslated** English strings returned by
-cross-format convert/save-as (lossy-conversion notes — e.g. "comments will be
-dropped", "duplicate key merged"). Rendered as an ad hoc bullet list by each
-host's own convert-confirm surface (CLI stderr, TUI's `overlay_convert`, web's
-convert-dialog) rather than through `tr`/`tr_args` — this channel bypasses
-i18n entirely, unlike every other user-facing string in this document.
-Unifying it into the catalog/Notice model is a known, explicitly out-of-scope
-follow-up, tracked as a row in
-[`../plan/2026-09-09-open-follow-ups.md`](../plan/2026-09-09-open-follow-ups.md).
+A `Vec<ConvertWarning>` returned by cross-format convert/save-as: **thirteen**
+lossy-normalization notes, all argument-free (three schema-hint drops, eight
+style normalizations, two semantic-loss conversions). The enum is
+**structured in `model/`** — which has no `Lang` and must not gain one — and
+carries `catalog_key() -> &'static str`; the text is resolved at the edge, the
+same place every other user-facing string is: `Session`'s convert projection
+(`ConvertView.warnings` stays a `Vec<String>` of already-translated text, so
+the wasm wire contract is untouched) and the CLI's own `tr` call. Each host
+then renders the strings as its own bullet list (CLI stderr, TUI's
+`overlay_convert`, web's convert-dialog). Not a Notice: these are an up-front
+**confirmation** list, shown before the write, not a post-hoc status message,
+so they have no severity and never occupy `Session.notice`.
 
