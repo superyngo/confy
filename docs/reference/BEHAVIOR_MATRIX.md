@@ -84,8 +84,8 @@ How a container behaves *toward its own children and its own shape*.
 |---|---|---|---|---|---|
 | holds standalone comment node | ✓ | ✗ | ✓ | ✗ | ✓ |
 | insert / append child forming | add line | rebuild `[ … ]` | add line | rebuild `{ … }` | add line / section |
-| add: expanded → append child | ✓ scalar (clamp) | ✓ bare elem (rebuild) | ✓ bare elem | ✓ member (rebuild) | ✓ scalar (clamp) |
-| switch layout flow↔block (`K`) | ✗ (root) | ✓ → block | ✓ → flow² | ✓ → block | ✓ → flow² |
+| add: expanded → insert as **first** child (`index: 0`) | ✓ only on an empty document (there is no Root row — the host adds at `[]`) | ✓ bare elem (rebuild) | ✓ bare elem | ✓ member (rebuild) | ✓ scalar (clamp) |
+| switch layout flow↔block (`K`) | ✗ (the document has no row) | ✓ → block | ✓ → flow² | ✓ → block; a `[T/D]` offers **both** (`[T/I]` flow and `[T/S]` block) | ✓ → flow² |
 
 ² **`K` layout switch** toggles a container between its flow and block layout (TOML `[A/I]`↔`[A/M]`
 and `[T/I]`↔`[T/D]`↔`[T/S]`; JSON object/array Inline↔Multiline; YAML map/seq block↔flow). The
@@ -194,6 +194,8 @@ format is purely additive:
 | `kind_options(path)` | the `K` flow↔block popup list | per-node | per-node | per-node |
 | `split_value_comment(buffer)` / `replace_preserves_trailing_comment()` | trailing-comment edit | `#` lexer / `true` | `//` lexer / `true` | `#` lexer / `false` |
 | `fragment_trailing_comment(path, fragment)` | whether a replace fragment manages its own trailing comment | extracted from fragment | extracted from member fragment | `None` (default; `Replace` drops) |
+| `value_kind(value)` | what an inline-editor buffer parses as — the type-change check before a `Replace` | TOML scalar grammar | JSON scalar grammar | YAML-subset scalar grammar |
+| `trailing_blank_anchor(path)` | where a node's contiguous extent ends, so `SetTrailingBlankLines` splices after the right line | `cst_edit::trailing_blank_anchor` (section/AoT-group aware) | `json::edit::extent_end_offset` | `yaml::edit::trailing_blank_anchor` |
 
 **Not abstracted, by design:** the per-backend splice engines (`cst_edit/`, `json/edit/`,
 `yaml/edit/`) share a **contract** (the `Mutation` enum), not a **mechanism** — the three `rowan`

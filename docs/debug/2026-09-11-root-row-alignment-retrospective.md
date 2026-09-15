@@ -1,5 +1,7 @@
 # Root-row alignment — retrospective and handoff
-Status: Resolved (2026-09-14) — every problem below is closed by
+Status: Resolved (2026-09-14)
+
+Every problem below is closed by
 [`../plan/2026-09-11-root-hidden-alignment.md`](../plan/2026-09-11-root-hidden-alignment.md)
 T0–T12 (`dc69a47`…`4328778`); P3 shipped earlier with ADR 0014.
 **P1** closed by D7's `guard_root_operand` + D1 (no Root row to cursor onto); **P2** closed

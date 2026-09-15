@@ -161,8 +161,10 @@ mod tests {
             ("core.redo.error", Severity::Error),
             ("core.kind-switch.error", Severity::Error),
             ("core.blank.error", Severity::Error),
+            ("core.document.apply-failed", Severity::Error),
             ("core.readonly.comment", Severity::Warn),
             ("core.readonly.opaque", Severity::Warn),
+            ("core.document.edit-locked", Severity::Warn),
             ("core.action.unavailable", Severity::Warn),
             ("core.clipboard.action-locked", Severity::Warn),
             ("core.trailing.inline-unsupported", Severity::Warn),
@@ -197,8 +199,8 @@ mod tests {
         ];
         assert_eq!(
             cases.len(),
-            45,
-            "45 `core.*` notice keys: 12 Error + 17 Warn + 7 Success + 9 Info. \
+            47,
+            "47 `core.*` notice keys: 13 Error + 18 Warn + 7 Success + 9 Info. \
              This list mirrors every `core.` arm of `severity_of` above; the 23 \
              host-authored `tui.*`/`web.*` keys it also classifies are out of scope \
              here. Keep it in step with MESSAGES.md §2.2 — the two are checked \

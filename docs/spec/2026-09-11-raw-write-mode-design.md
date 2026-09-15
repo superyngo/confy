@@ -1,5 +1,7 @@
 # The Raw pane gains a write mode — whole-document editing in place, not in a popup
-Status: Shipped (2026-09-14) — Q1 was RS0's measurement, answered in the Evidence section
+Status: Shipped (2026-09-14)
+
+Note: Q1 was RS0's measurement; it is answered in the Evidence section below.
 
 Sibling record: [`2026-09-11-root-hidden-alignment-design.md`](2026-09-11-root-hidden-alignment-design.md)
 (its **P3** — "the web has no entry point for whole-document operations" — is what this record

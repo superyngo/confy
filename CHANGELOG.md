@@ -12,6 +12,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 2026-09-15
 
+**Docs — second documentation audit: `CLAUDE.md` splits, 42 drift defects fixed**
+
+Record: [`docs/audit/2026-09-15-documentation-audit.md`](docs/audit/2026-09-15-documentation-audit.md).
+Every living document re-verified against the code at `b5b9647`; frozen records untouched
+except where a `Status:` line broke the value set.
+
+- **New [`docs/reference/ARCHITECTURE.md`](docs/reference/ARCHITECTURE.md)** owns the workspace
+  shape, the full module map, the host file-I/O boundary, per-host build/packaging, and the
+  `taplo` dependency surface. `CLAUDE.md` drops to conduct only — commands, release process,
+  doc-pointer table, the two review-gate invariants, the `taplo` decision plus its `cargo audit`
+  trigger, terminology — 587 → 121 lines (`wens-dev-principles docs 3`). The map was corrected
+  while moving: `benches/perf.rs`, `confy-tauri`'s `build.rs`/`msix/`/`play/`, the picker
+  crate's `src/*.rs`/`guest-js/`/`permissions/`, `web/privacy.html`/`manifest.webmanifest`/
+  `icons/`/`run-tests.mjs` + 37 spec suites, and `editors/vscode/src/`/`test-integration/`.
+- **Corrected against the code**: the `a`-add inserts as the **first** child, not the last
+  (`TUI.md`, `BEHAVIOR_MATRIX.md` Table B); `[G]` root and the `format_kind_tag` name are gone
+  from `glossary.md` and its padding rule now distinguishes inside- from outside-bracket
+  padding; Escape peels clipboard before selection (`HOST_PARITY.md`); fuzzy marks are
+  yellow+bold+underline, not reverse/bold; desktop `Space` is `native:toggle-branches`;
+  `BEHAVIOR_MATRIX.md §7` gains the `value_kind` and `trailing_blank_anchor` facets and a
+  `[T/D]` offers both flow and block; `WEBUI.md`'s breadcrumb/Save-split-button/file-input/
+  `.toast`/`add-picker-items` claims and its dead `PORTING.md` citation; `README.md` no longer
+  ties `C` to a Root node; `VSCODE.md` now records the ADR 0014 R10 suppression.
+- **Counts re-derived**: `functional_smoke.mjs` 129 → **176**, `confy.ts` 16 → **18** methods,
+  `SessionSnapshot` 21 → **22** fields (`doc_revision`), `MESSAGES.md` 68/45 → **70/47** keys,
+  `en.json` 102 → **105** `core.*`. Unchanged and re-confirmed: taplo 49/28/2, 19 core suites,
+  1,241-LOC vendoring scope, 427-key catalog parity.
+- **Fixed a drifted invariant test**: `severity_of_covers_the_full_catalog_table` listed 45
+  `core.*` keys and asserted 45 while `severity_of` had 47 — ADR 0014's
+  `core.document.apply-failed`/`core.document.edit-locked` were never added, so the stale doc
+  and the stale test agreed with each other.
+- **Reference stops carrying history and roadmap**: `ROW_STATE_MODEL.md`'s implementation-history
+  and resolved-bug sections become one *Boundaries* section; `WEBUI.md`'s structured-diff
+  roadmap moves to the living backlog's *Watching*.
+- **Records**: three unindexed 2026-09-11 documents added, two stale *In progress* rows moved to
+  *Landed*, four status lines normalized to the legal value set, ADR 0013/0014 marked
+  `Implemented (2026-09-14)`, `HOST_PARITY.md` renumbered §1–§5 (ADR 0013 had deleted §2), and
+  one new backlog row for four groups of orphaned i18n keys.
+
 **Changed — Raw write mode's crumbs-row band: two symmetric controls**
 
 - The band is now **Edit → Apply** plus **Cancel** (was View⇄Edit toggle / Apply / Cancel).

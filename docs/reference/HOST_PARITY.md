@@ -33,11 +33,11 @@ a row the host doesn't draw…).
 | `q` quit | quits | quits on web desktop; **suppressed** under VS Code and touch (`vshost`) | an editor tab / PWA has nothing to quit | [KEYMAP.md](KEYMAP.md) §Same capability… |
 | `.json` ↔ `.jsonc` on Convert | `Tab` toggles the extension on the Path step | a `Jsonc` pseudo-tag in the format `<select>` | `Tab` can't collide with typing a path | ditto |
 | Page step | `terminal_height / 2` | derived from the scroll container's row ratio, then halved | no fixed row height in the DOM | ditto §Implementation differences |
-| `Escape` order | reaches core immediately (filter → locked selection → clipboard) | dismisses the topmost **host-local** sheet/modal first, then core | DOM overlays live outside core's `Mode` | ditto |
+| `Escape` order | reaches core immediately (mode/overlay → clipboard → locked selection, `Session::escape`) | dismisses the topmost **host-local** sheet/modal first, then core | DOM overlays live outside core's `Mode` | ditto |
 | Row actions | keys only (`d`, `r`) | touch adds swipe-left Delete / swipe-right Remark | no keys on a phone | [WEBUI.md](WEBUI.md) §Swipe actions |
 | Multi-select gestures | `s`, ⇧↑↓ | desktop adds ⌘/⇧-click **and marquee**; touch uses tap / modifier-tap (no marquee) | marquee is pointer-only and fights list scrolling | [ROW_STATE_MODEL.md](ROW_STATE_MODEL.md) §1 |
 
-## 3. Row / cursor / clipboard state
+## 2. Row / cursor / clipboard state
 
 | Divergence | TUI | Web | Why | Authority |
 |---|---|---|---|---|
@@ -47,7 +47,7 @@ a row the host doesn't draw…).
 | Selection marker | `●` glyph in the NAME cell (leaves cell backgrounds free) | 3px left accent bar (`::before`) | terminal cell fills are already spent on cursor/cut/copy | [ROW_STATE_MODEL.md](ROW_STATE_MODEL.md) §3 |
 | Edge auto-scroll while dragging | n/a | desktop inherits native HTML5 drag scroll; touch hand-rolls a RAF edge loop | custom pointer gestures get no native container scroll | [ROW_STATE_MODEL.md](ROW_STATE_MODEL.md) §6c |
 
-## 4. Editing
+## 3. Editing
 
 | Divergence | TUI | Web | Why | Authority |
 |---|---|---|---|---|
@@ -60,17 +60,17 @@ a row the host doesn't draw…).
 | Datetime type switch | the enum-picker popup (`Mode::SchemaEnum`) | the Kind popover, with the in-row `<select>` suppressed | one widget per concept: kind switches are popovers | [ADR 0012](../adr/0012-datetime-cross-type-switch-is-a-value-replace.md) |
 | Trailing-comment creation | can only edit one that already exists | can create / change / clear it on any node | falls out of the bundled-buffer editor above | [ADR 0009](../adr/0009-centralized-action-menu-core-owned.md) |
 | Core call boundary | mutations go through `Session::apply(Intent)`, inspection reads `Session` directly (no snapshot on pure navigation) | everything goes through `Session::dispatch(Intent) -> SessionSnapshot` | avoids an O(visible rows) snapshot per arrow key in the hot TUI loop | [TUI.md](TUI.md); [ADR 0003](../adr/0003-audit-remediation-undo-cap-and-tui-dispatch-boundary.md) |
-| Whole-document (empty-path) edit | reachable by moving the cursor onto the Root row, same handshake as any node | desktop: Raw pane **write mode** (`rawState: "write"` — the pane is ONE `<textarea>` in both Raw states, `readonly` in view), entered from the Action menu's *Edit whole file* or the crumbs-row band's Edit control (whose label becomes Apply in write mode; Apply and Cancel both commit-and-exit / discard-and-exit); touch: the same external-edit **bottom sheet** a per-node multiline edit uses, with the empty path as one more case (no write mode of its own) | web hides the Root row (§2), so it needs its own entry point; touch has no room for a control band | `docs/spec/2026-09-11-raw-write-mode-design.md` R1–R4, R18–R19; [WEBUI.md](WEBUI.md) §Tree \| Raw view \| Raw write |
+| Whole-document (empty-path) edit | reached from the Action menu (`m` → *Edit whole file*), which spawns `$EDITOR` on the serialized document | desktop: Raw pane **write mode** (`rawState: "write"` — the pane is ONE `<textarea>` in both Raw states, `readonly` in view), entered from the Action menu's *Edit whole file* or the crumbs-row band's Edit control (whose label becomes Apply in write mode; Apply and Cancel both commit-and-exit / discard-and-exit); touch: the same external-edit **bottom sheet** a per-node multiline edit uses, with the empty path as one more case (no write mode of its own) | no host draws a Root row (ADR 0013), so the operation needs an entry point that is not a row; each host spends the text surface it already has, and touch has no room for a control band | [ADR 0014](../adr/0014-whole-document-editing-reuses-each-hosts-text-surface.md); `docs/spec/2026-09-11-raw-write-mode-design.md` R1–R4, R18–R19; [WEBUI.md](WEBUI.md) §Tree \| Raw view \| Raw write |
 
-## 5. Rendering
+## 4. Rendering
 
 | Divergence | TUI | Web | Why | Authority |
 |---|---|---|---|---|
 | KIND badge vocabulary | monospace bracket tags (`[T/S]`, `[S:mstr]`, `[D:odt]`) | a `label·notation` pill (`{}·scope`, `[]·multi`, `str·"…"`) | two notations for two widgets — deliberately **not** unified, incl. in the Help legend | [KEYMAP.md](KEYMAP.md) §Help overlay parity; [TUI.md](TUI.md); [WEBUI.md](WEBUI.md) |
-| Fuzzy-filter match marks | repaints the foreground (reverse/bold) | a translucent wash (`<mark class="fz">`) so the value's own type color still reads through | a terminal cell can't layer alpha | `web/style.css` (`.fz`); `crates/confy-tui/src/tui/ui.rs` |
+| Fuzzy-filter match marks | repaints the matched characters (yellow + bold + underline, `highlight_spans_styled`) | a translucent wash (`<mark class="fz">`) so the value's own type color still reads through | a terminal cell can't layer alpha | `web/style.css` (`.fz`); `crates/confy-tui/src/tui/ui.rs` |
 | Comment advisory (non-standard JSON comment) | underlined warn style; the full note lives in the `i` Detail popup | wavy underline + native hover tooltip (touch: the detail sheet) | terminals have no hover | `crates/confy-tui/src/tui/ui.rs`; `web/style.css` (`.comment-advisory`) |
 
-## 6. Chrome, messages, capabilities
+## 5. Chrome, messages, capabilities
 
 | Divergence | TUI | Web | Why | Authority |
 |---|---|---|---|---|
@@ -81,9 +81,9 @@ a row the host doesn't draw…).
 | Save affordance | keys only (`Ctrl+S`, `C` for Convert) | desktop split button (Save ∕ Save As…); touch one Save button opening an action sheet | the touch split pill regressed on mobile CSS | [CHROME.md](CHROME.md) |
 | Breadcrumb bar | none (title/status carry the path) | desktop, Tauri, VS Code only — deliberately **absent on touch**; stays visible and live in both Raw view **and** Raw write, and a pick additionally selects the node's source span in the Raw pane | touch is sheet-driven with a weak cursor concept | [WEBUI.md](WEBUI.md) §Breadcrumb bar, §Tree \| Raw view \| Raw write; `docs/spec/2026-09-11-raw-write-mode-design.md` R12, R14–R17 |
 | Native menu accelerators | n/a | Tauri's Edit-menu node items carry **no** OS accelerators, and no predefined clipboard items | a window-menu accelerator steals the keystroke before the webview sees it, breaking text inputs | [TAURI.md](TAURI.md) §Desktop menu |
-| File I/O | direct fs + atomic temp-rename + BOM re-emit | File System Access API (+ download fallback, `?url=`); Tauri desktop `tauri_plugin_fs`; Android SAF via `tauri-plugin-confy-picker`; VS Code `TextDocument` | core is filesystem-free; every host brings its own sandbox | [CLAUDE.md](../../CLAUDE.md); [TAURI.md](TAURI.md); [VSCODE.md](VSCODE.md) |
-| Whole-document edit's Edit control | n/a | suppressed under VS Code — the Action menu item is absent and the band's Edit control is **disabled** (not hidden, so the band keeps its static geometry) — the webview's own `TextDocument` is already this feature's one owner | a second editable copy would be two owners of one document | [ADR 0007](../adr/0007-vscode-schema-session-in-place-replace.md); `docs/spec/2026-09-11-raw-write-mode-design.md` R10 |
-| Save As / Convert to a **new** file | always available | unavailable on Tauri **Android** (M1) — writing in place is unaffected | no new-destination picker on mobile yet | [TAURI.md](TAURI.md) |
+| File I/O | direct fs + atomic temp-rename + BOM re-emit | File System Access API (+ download fallback, `?url=`); Tauri desktop `tauri_plugin_fs`; Android SAF via `tauri-plugin-confy-picker`; VS Code `TextDocument` | core is filesystem-free; every host brings its own sandbox | [ARCHITECTURE.md](ARCHITECTURE.md) §Host file I/O; [TAURI.md](TAURI.md); [VSCODE.md](VSCODE.md) |
+| Whole-document edit's Edit control | n/a | suppressed under VS Code — the Action menu item is absent and the band's primary control is **disabled** (not hidden, so the band keeps its static geometry) — the webview's own `TextDocument` is already this feature's one owner | a second editable copy would be two owners of one document | [ADR 0014](../adr/0014-whole-document-editing-reuses-each-hosts-text-surface.md); [ADR 0007](../adr/0007-vscode-schema-session-in-place-replace.md); `docs/spec/2026-09-11-raw-write-mode-design.md` R10 |
+| Save As / Convert to a **new** file | always available | available on every platform since M2 (Android goes through `tauri-plugin-confy-picker`'s `create_writable`, which takes a persistable write grant); the web falls back to a download when the File System Access API is absent | stock `tauri-plugin-dialog`'s Android save dialog never took a write grant, so M1 had `canSaveAs()` hardcoded `false` | [TAURI.md](TAURI.md) §Save As; [ADR 0001](../adr/0001-android-save-as-persistable-grant.md) |
 | Local `$schema` sibling file | resolved against the open file's directory | web resolves URLs only; Android can't reach a sibling file (SAF grants one file) | per-file URI grants | [TAURI.md](TAURI.md); [WEBUI.md](WEBUI.md) |
 | Preferences | `~/.config/confy/config.toml` (`%APPDATA%` on Windows) — deliberately the terminal-tool path on macOS, **not** `~/Library/Application Support` | `localStorage` (`confy-lang`, `confy-theme`) | platform convention vs browser sandbox | [TUI.md](TUI.md); `crates/confy-tui/src/config.rs` |
 

@@ -293,8 +293,9 @@ name).
 **Reveal**:
 Make the Node at a given path visible in the main tree — expand **all** of its ancestors, move
 the cursor onto it, and select it (a single-node selection replacing any prior one; in paste
-mode the clipboard-frozen selection is left untouched, and the root — which has no selectable
-row — only takes the cursor). If an active filter (text or type) still hides the Node, the expansion
+mode the clipboard-frozen selection is left untouched; revealing the document itself — the empty
+path, the breadcrumb's `⌂` — retargets to the first visible row and reveals *that*, since the
+**Root** is never a row). If an active filter (text or type) still hides the Node, the expansion
 sticks, the cursor stays put, and the status line reports that the target is hidden by the
 filter. Canonical name for the breadcrumb / mini-tree jump.
 _Avoid_: Jump, Go-to (they describe only the cursor move, not the ancestor expansion).
@@ -373,6 +374,29 @@ menu selecting **type facets** — **Key sign**, **Format/kind** (the KIND-colum
 facet match. Both narrow the same filtered list and **intersect** (a Node must pass the Text filter
 and every Type-filter facet); selections *within* each facet group union. _Avoid_: calling either
 one "search" exclusively — both are filters.
+
+**Whole-document editing**:
+Editing the document's entire text as one buffer and committing it as a single `Replace` at the
+**empty path** — the one `Target` whose parent is the **Root**. Core exposes it as one operation
+(`Session::apply_document_text`, reached through `Intent::BeginEditDocument` or the Action menu's
+*Edit whole file*) and each host spends it on the text surface it already has: the TUI's
+`$EDITOR`, the desktop Web UI's **Raw write mode**, touch's external-edit sheet. Suppressed under
+VS Code, whose own editor already owns that surface. Commit is atomic and validated like any
+other **Mutation**: a buffer that fails to parse leaves the document untouched.
+_Avoid_: root edit, whole-file replace, raw edit (that names one host's surface, not the operation).
+
+**Raw write mode** (Web):
+The desktop Web UI's surface for **whole-document editing**: the Raw pane's single `<textarea>`
+with `readonly` dropped (`rawState: "write"`). Its crumbs-row band has exactly two controls — a
+primary action labelled *Edit* in Raw view and *Apply* in Raw write, plus *Cancel* — and both
+leave write mode, one committing and one discarding.
+_Avoid_: Raw edit mode, source mode, text mode.
+
+**`doc_revision`**:
+A monotonic counter on `SessionSnapshot`, incremented once per **successful** commit. A host
+compares it across dispatches to tell "the document changed" from "a failed mutation left it
+alone" without diffing text; it is not a version number and never decreases (undo also bumps it).
+_Avoid_: version, generation, dirty counter (`is_dirty` is a separate, unsaved-changes flag).
 
 ### Messages & diagnostics
 
@@ -483,12 +507,15 @@ JSON: `[T/M]` multiline object.
 Scalars: `[S:str ]`/`[S:mstr]`/`[S:lit ]`/`[S:mlit]` strings, `[I:dec ]`/`[I:hex ]`/`[I:oct ]`/
 `[I:bin ]` integers, `[F:flt ]`/`[F:exp ]`/`[F:inf ]`/`[F:nan ]` floats, `[B:bool]`, `[S:null]`
 (JSON/YAML null), `[D:odt ]`/`[D:ldt ]`/`[D:ldat]`/`[D:ltim]` the four TOML datetime types
-(offset-datetime, local-datetime, local-date, local-time). `[G]` root, `[C]` comment.
+(offset-datetime, local-datetime, local-date, local-time). `[C]` comment. The Root has **no**
+tag: it is never a view row (ADR 0013), so `classify` returns `None` for it.
 YAML: `[A/B]`/`[A/F]` block/flow sequence, `[T/B]`/`[T/F]` block/flow mapping (`[T/F]` also the YAML
 inline table), `[S:sq  ]`/`[S:dq  ]`/`[S:lit ]`/`[S:fold]` string styles, `[opaq ]` out-of-subset
 read-only (no datetime, no `[A/T]`/`[T/D]`, no `[I:bin ]`).
-Every tag is padded to 8 display cells, the padding sitting **inside** the brackets
-(`[I:dec ]`, `[S:sq  ]`) so the column aligns; `format_kind_tag` in `tui/app.rs` is the source.
+Every tag occupies 8 display cells. The six-character scalar/opaque tags carry their padding
+**inside** the brackets (`[I:dec ]`, `[S:sq  ]`, `[opaq ]`) so the notation column lines up; the
+short container and comment tags (`[C]`, `[A/B]`, `[T/S]`) are padded on the right *outside* the
+brackets by the `{slot:<8}` format. `type_tag` in `tui/app.rs` is the source.
 Key sign is **not** part of this column: `(B)` bare, `(Q)` quoted, `(D)` dotted and `(-)` no key
 are **Type-filter** facets (the `f` popup's Sign row). A node's own key sign is spelled out in
 full on the Detail popup's `Sign:` line — `bare`, `quoted`, `dotted`, or `none`

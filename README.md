@@ -46,8 +46,8 @@ data key is instead re-authored in the target format's own convention); notation
 confirm y/n, otherwise pass `--yes`). An **existing destination file is never overwritten
 silently** — same y/n confirmation, or `--yes`. A conversion **aborts and writes nothing** when the source
 holds something the target can't represent (`null` → TOML, or a YAML opaque node → any target).
-**The source file is never modified.** The same flow is available inside the TUI on the Root node
-via `C`.
+**The source file is never modified.** The same flow is available inside the TUI via `C`, from
+any row.
 
 ## Language
 
@@ -161,7 +161,7 @@ Maintainer quick check: `cd editors/vscode && npm run integration-test`.
 | `m` | Action menu — edit / add child / add sibling / copy / cut / toggle comment / detail / delete for the cursor row or selection |
 | `r` | Remark (toggle comment-out) |
 | `K` | Kind switch (scalar notation / container style) |
-| `C` | Convert document to another format (Root node) |
+| `C` | Convert document to another format |
 | `l` | Language picker (English / 繁體中文) |
 | `z` | Undo |
 | `y` | Redo |

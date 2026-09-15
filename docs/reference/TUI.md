@@ -83,8 +83,9 @@ that non-answering PTYs time out on). TOML has no null, so there is no clear-val
 `tui/overlay_add_picker.rs`): a popup listing the node kinds that are *legal* for the resolved
 insertion Target, filtered by the parent's kind and the document's format, with the cursor
 pre-set to the kind the cursor row already is (String otherwise). Picking a kind seeds its
-default literal and inserts it as a **next sibling** in the cursor's scope — or, on the **root
-or an expanded branch**, as that branch's last child. Container/scalar seeds
+default literal and inserts it as a **next sibling** in the cursor's scope — or, on an
+**expanded branch** (and on an empty document, where the target is the empty path), as that
+branch's **first** child (`resolve_target` returns `index: 0`). Container/scalar seeds
 go through the backend's `scalar_fragment` (no hard-coded notation), **except an array/seq element
 seed**, which uses `array_element_fragment` so it is a **bare keyless** element in every backend
 (TOML included — previously TOML seeded a `{ __elem__ = "" }` inline table). A scalar appended into a
@@ -128,7 +129,8 @@ comment in a separate cell, see `WEBUI.md`), and `edit_commit` splits it back vi
 from the baseline (`EditState.orig_trailing`) is staged in `Session.pending_trailing` and applied by
 `apply_replace` as a `Mutation::SetTrailingComment { path, comment: Option<String> }` right after
 the value `Replace` (one undo step); `edit_cancel` clears the stage so it can't leak onto a later
-nudge. `SetTrailingComment` is a uniform text-splice in each backend's `edit.rs` (replace the span
+nudge. `SetTrailingComment` is a uniform text-splice in each backend's edit layer —
+`cst_edit/`, `json/edit/mutations.rs`, `yaml/edit/mutations.rs` (replace the span
 from the value's content end — past a separator comma for a multiline-array element — to the next
 newline), `comment: None` clears, and it handles both keyed entries and **array elements**
 (`Target::Element`/`ArrayElement`). **Array elements** carry an editable trailing comment too: a
@@ -216,7 +218,7 @@ filters by a node's **type facets** — the same `KeySign`/`NodeKind`/`Format` t
 the arm-for-arm inverse of `type_tag` (so popup and column can't drift; `layout(doc)` shows only the
 loaded backend's reachable facets — JSON/YAML omit TOML-only rows, YAML adds block/flow + opaque). The popup groups three facet sets —
 **key sign**
-(`(B)/(Q)/(D)/(-)`), **type** (root/comment + array/table/string/integer/float/bool/date groups,
+(`(B)/(Q)/(D)/(-)`), **type** (comment + array/table/string/integer/float/bool/date groups,
 `[A/T]` grouped under **arrays** and `[T/E]` — one `[[…]]` entry — under tables), and **Flags** (`(!) has warning` / `has comment`) — each multi-format group carrying an **`all`** quick-toggle row that
 is **tristate** (`group_state`: `[x]` all / `[~]` some / `[ ]` none; Space selects-or-clears the
 whole group). `TypeFilter::matches` ANDs the three facet sets and unions within each; an empty set is no
@@ -323,7 +325,7 @@ warnings before confirming the write with `y`/`Enter`).
 ## Language / i18n (TUI)
 
 Language is a host-owned preference layered on top of `confy-core`'s catalog (see root
-`CLAUDE.md` §Architecture *i18n*). Resolution order: `--lang <code>` CLI flag (session-only,
+[`ARCHITECTURE.md`](ARCHITECTURE.md) §Module map, *i18n*). Resolution order: `--lang <code>` CLI flag (session-only,
 never written back) > `~/.config/confy/config.toml`'s `lang = "…"` (`crates/confy-tui/src/
 config.rs`; `$XDG_CONFIG_HOME/confy/config.toml` else `~/.config/confy/config.toml` on
 macOS/Linux, `%APPDATA%\confy\config.toml` on Windows via `dirs::config_dir()`) > default `en`.

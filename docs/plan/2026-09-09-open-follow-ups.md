@@ -31,14 +31,16 @@ Effort is XS (< 1 h) / S (a session) / M (multi-session).
 |---|---|---|---|---|
 | 2026-09-09 | **Convert warnings bypass i18n.** `ConvertResult.warnings` is a `Vec<String>` of raw English ("comments will be dropped", "duplicate key merged"), rendered ad hoc by every convert surface — CLI stderr, the TUI's `overlay_convert`, the web convert dialog — instead of going through `tr`/`tr_args` like every other user-facing string. | `model/convert.rs` (`ConvertResult.warnings`); consumers `crates/confy-tui/src/tui/overlay_convert.rs`, `web/convert-dialog.ts`. Recorded in `MESSAGES.md` §7.2 as out-of-scope since the message-system work, never filed as a row. | S | Each warning is a catalog key with args; `MESSAGES.md` §7.2 drops the "bypasses i18n" caveat; a zh-TW convert shows translated warnings. |
 | 2026-09-14 | **Q4 — caret → cursor, the inverse of the Raw pane's breadcrumb jump.** A breadcrumb pick selects a node's source span in the Raw pane (path → offset, R14–R16); moving the caret/text-selection in the Raw pane does **not** move the tree cursor or breadcrumb back (offset → path). Settled out of scope at ship time (Q4, `docs/spec/2026-09-11-raw-write-mode-design.md`). | `web/ui.ts`'s `jumpSelectRawSpan` is one-way only; no `node_at_offset(offset) -> Path` query exists in core. Recorded so it is tracked rather than remembered. | S | A core `node_at_offset` query (or equivalent CST walk) exists and a Raw-pane caret move updates the tree cursor/breadcrumb to match, on both Raw states. |
+| 2026-09-15 | **Four groups of orphaned i18n keys.** `tui.prompt.{collision,confirm-quit,type-change,array-upgrade}` (prompts render core-side now, and the TUI legends use `tui.prompt.<kind>.legend`), `web.prompt.q.{arrayUpgrade,confirmQuit}` (the web reads `ModeView::Prompt.question`), `core.action.title`, and `web.host.{add.node,add.child,add.sibling,kind.no-options}` are defined in both catalogs but referenced by no source file — the `web.host.*` four are only reachable through `severity_of`'s table. | `i18n/en.json` + `i18n/zh-TW.json`; `severity_of` in `session/notice.rs` for the `web.host.*` four; found by the 2026-09-15 documentation audit. | XS | Each group is either deleted from both catalogs (and from `severity_of`, adjusting `severity_of_covers_the_full_catalog_table`'s host-key count) or given a real call site; a catalog-vs-source orphan grep comes back empty. |
 
 ---
 
 ## Watching (no action planned)
 
-- **`taplo` is unmaintained upstream.** Recorded as a known risk in `CLAUDE.md` with the
-  ~1,240-LOC vendoring scope, and `rust-ci.yml` has an active `cargo audit` step — the agreed
-  trigger. Do not migrate pre-emptively; `tombi` is still not a usable dependency.
+- **`taplo` is unmaintained upstream.** The decision and its `cargo audit` trigger are in
+  `CLAUDE.md` §Known Risks; the measured surface and the ~1,240-LOC vendoring scope are in
+  `docs/reference/ARCHITECTURE.md` §Dependency surface. `rust-ci.yml`'s `cargo audit` step is
+  the agreed trigger; do not migrate pre-emptively — `tombi` is still not a usable dependency.
 - **`JsonDocument` does not override `rename_key_segs`.** TOML and YAML both do, to decode a
   rename's literal with their own key lexer. Not a live defect — JSON keys are always quoted, so
   the trait default coincides — but it is the last asymmetry in that area, and it would become a
@@ -62,6 +64,12 @@ Effort is XS (< 1 h) / S (a session) / M (multi-session).
   observation does not reproduce and is treated as a branch-mode artifact. This contradiction
   between screen order and resolution is P4, and D5 of
   `docs/spec/2026-09-11-root-hidden-alignment-design.md` re-orders it away.
+- **Structured row-diff transport (the old G2 idea).** The full-snapshot transport is the
+  shipped baseline; if re-render latency ever becomes measurable on large files, the additive
+  upgrade is a `delta` field on `SessionSnapshot` (or a sibling `dispatchDelta`) plus
+  `Path`-keyed row patching, with `snapshot()` kept as the resync fallback. Nothing is built,
+  and the `Path`-keyed `ViewRow` already is the identity such a diff would key on. Moved here
+  from `WEBUI.md` on 2026-09-15 — `docs/reference/` carries current behavior, not roadmap.
 
 ---
 

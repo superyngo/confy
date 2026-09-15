@@ -1,5 +1,5 @@
 # Plan — Root-hidden alignment (the document Root is never a row)
-Status: Approved (2026-09-14)
+Status: Shipped (2026-09-14)
 
 Design record: [`../spec/2026-09-11-root-hidden-alignment-design.md`](../spec/2026-09-11-root-hidden-alignment-design.md)
 (decisions D1–D16, slices SD–S6, Evidence E1–E6).

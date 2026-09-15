@@ -1,5 +1,7 @@
 # Root-hidden alignment — the document Root is never a row, on any host
-Status: Shipped (2026-09-14) — S0–S6 landed (`dc69a47`…`4328778`); plan: [`../plan/2026-09-11-root-hidden-alignment.md`](../plan/2026-09-11-root-hidden-alignment.md)
+Status: Shipped (2026-09-14)
+
+S0–S6 landed (`dc69a47`…`4328778`); plan: [`../plan/2026-09-11-root-hidden-alignment.md`](../plan/2026-09-11-root-hidden-alignment.md)
 
 Predecessor: [`../debug/2026-09-11-root-row-alignment-retrospective.md`](../debug/2026-09-11-root-row-alignment-retrospective.md)
 (the reversed *web-aligns-to-TUI* attempt; branch `root-row-alignment`, `e8e8d5b`..`f2bfef3`).

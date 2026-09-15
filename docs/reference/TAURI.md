@@ -4,7 +4,7 @@
 and, since Mobile M1, Android — adding only native file I/O and a menu bar on top of the
 same Session/webview contract `WEBUI.md` documents. This file covers what's specific to
 the Tauri host; the web bundle itself (render/pointer internals, touch UI, i18n, PWA,
-deployment) stays in `WEBUI.md`. See CLAUDE.md's module map for the crate's file layout
+deployment) stays in `WEBUI.md`. See [`ARCHITECTURE.md`](ARCHITECTURE.md)'s module map for the crate's file layout
 and build commands (`cargo tauri build` / `cargo tauri android build`), and
 `confy-tauri-lessons` (memory) for durable architecture lessons (B-lite pattern,
 `window.__TAURI__` globals, capability sub-sets, RGBA icons, the slow release profile).

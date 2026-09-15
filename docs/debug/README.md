@@ -11,7 +11,7 @@ carried the change is in `CHANGELOG.md`.
 
 ## In progress
 
-- [2026-09-11 — Root-row alignment: retrospective and handoff](2026-09-11-root-row-alignment-retrospective.md)
+Nothing open.
 
 ## Landed
 
@@ -20,5 +20,6 @@ carried the change is in `CHANGELOG.md`.
 | 2026-08-21 | [Debug Handoff: VS Code Native-Editor Features Not Working](2026-08-21-vscode-native-editor-features-not-working.md) | Resolved (2026-08-28) |
 | 2026-08-28 | [YAML quoted-key rename/edit — status memo](2026-08-28-yaml-quoted-key-edit-memo.md) | Resolved (2026-08-28) |
 | 2026-09-01 | [Pointer-drop `PasteSlot` alignment — probe](2026-09-01-pointer-drop-pasteslot-probe.md) | Resolved (2026-09-01) |
+| 2026-09-11 | [Root-row alignment: retrospective and handoff](2026-09-11-root-row-alignment-retrospective.md) | Resolved (2026-09-14) |
 
 See also [`../adr/`](../adr/README.md) for the decisions this material produced.

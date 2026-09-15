@@ -4,6 +4,12 @@ Current behavior only. Anything historical — a superseded design, a shipped pl
 investigation — lives in [`../spec/`](../spec/README.md), [`../plan/`](../plan/README.md),
 [`../debug/`](../debug/README.md), or [`../audit/`](../audit/README.md), never here.
 
+## Layout
+
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** — where the code lives: workspace shape, the full
+  module map, the host file-I/O boundary, per-host build/packaging, and the `taplo` dependency
+  surface. Read it before looking for a file.
+
 ## Model
 
 - **[glossary.md](glossary.md)** — canonical vocabulary; read first. Node/Root/Branch/Leaf/

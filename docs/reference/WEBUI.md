@@ -7,8 +7,9 @@ shared model glossary lives in `glossary.md`, nested behavior in `BEHAVIOR_MATRI
 TUI mechanics in `TUI.md`, the cross-platform row cursor/selection/clipboard state
 model in `ROW_STATE_MODEL.md`. Two native shells embed this same `web/` bundle and get
 their own docs: the Tauri desktop/Android app in `TAURI.md`, the VS Code extension in
-`VSCODE.md`. The port design record is `PORTING.md` (§8 records the Stage-2 transport
-decisions). Keyboard bindings live in `KEYMAP.md`, the TUI ↔ Web single source of truth,
+`VSCODE.md`. The port design record is
+[`../spec/2026-06-17-headless-core-port.md`](../spec/2026-06-17-headless-core-port.md) (§8 records
+the Stage-2 transport decisions). Keyboard bindings live in `KEYMAP.md`, the TUI ↔ Web single source of truth,
 whose table is machine-checked against `resolveKeyIntent` by `web/keymap-parity.spec.mjs`.
 Every deliberate difference between this host and the TUI — beyond keys — is indexed one
 line at a time in `HOST_PARITY.md`; each row points back at the section here (or in
@@ -60,7 +61,7 @@ hand-maintained field-by-field marshalling.
 **Rust snake_case** names (`schema_hint`, `schema_violations`, `had_comments_at_open`); the
 generated `pkg/confy_ffi.js` glue is the proof. `web/confy.ts` then wraps that raw class in a
 `Session` class exposing **camelCase** (`schemaHint`, `hadCommentsAtOpen`) for methods the web
-code uses. That wrapper covers 16 methods and omits `schema_violations`, `outline`, and
+code uses. That wrapper covers 18 methods and omits `schema_violations` and
 `external_edit`, which are reached on the raw `ConfySession`. The VS Code extension
 deliberately bypasses the wrapper and types the raw class directly
 (`editors/vscode/src/wasmSession.ts`), so it calls the **snake_case** names — renaming an FFI
@@ -87,6 +88,7 @@ method means updating both spellings.
 | `schemaInfo` | `(path: Seg[]) => string \| undefined` | `description`/`type`/`format`/`pattern` from the resolved subschema. Orthogonal to `schemaHint`: covers the plain-typed field that hint leaves at `None`. |
 | `schemaViolations` | `() => ViolationView[]` | current violations with resolved `text_range`s — the native-editor Diagnostics data source. |
 | `outline` | `() => OutlineNode[]` | read-only symbol tree for editor Outline/breadcrumb integrations, independent of cursor/expansion state. |
+| `spanOf` / `span_of` | `(path: Seg[]) => [number, number] \| undefined` | the node's whole-member UTF-8 **byte** span, Comment rows included — what the Raw pane's breadcrumb jump feeds `byteToCodeUnit` before `setSelectionRange` (R14–R17, R29). Core answers per path so no host re-walks `outline()`, which omits comments. |
 | `pointerSlot` | `(path: Seg[], relY: number) => PasteSlot \| undefined` | pointer-drop classification (row + relative vertical position → the `PasteSlot` it represents). Every pointer surface calls this instead of hand-rolling it (ADR 0004 §1). |
 
 `external_edit` in the snapshot is the async handshake (§8.2): the UI opens its
@@ -120,13 +122,14 @@ shapes round-trip). Key types:
   resolved by the same `slot_target` a keyboard `Paste` uses, ADR 0010),
   `CommitEdit {value?,name?}`, `CommitKind {path,target}`, `SetFilter(String)`,
   `SetConvertFormat(DocFormat)`, `SetConvertPath(String)`.
-- **`SessionSnapshot`** — full renderable state (21 fields total): `doc_format`, `is_dirty`,
+- **`SessionSnapshot`** — full renderable state (22 fields total): `doc_format`, `is_dirty`,
   `mode: ModeView`, `rows: ViewRow[]`, `cursor: Seg[]`, `notice: Notice | undefined`,
   `detail_text`, `external_edit`, `convert_write`, `clipboard_count`, `clipboard_cut`,
   `clipboard_paths`, `paste_slot`, `type_filter_active`, `filter` (the live text-filter query —
   present in **every** mode, unlike `ModeView::Filter`'s `text`, which exists only while the search
   input is focused; pointer hosts need it to keep drawing match highlights after focus leaves the box),
-  `quit`, `lang`, `cursor_blank_after`, `history_len`, `schema_status`, `schema_fetch_request`.
+  `quit`, `lang`, `cursor_blank_after`, `history_len`, `doc_revision` (the monotonic
+  successful-commit counter — see the glossary entry), `schema_status`, `schema_fetch_request`.
 - **`ModeView`** — a serializable projection of `Mode` + the modal edit surfaces:
   `Normal | Prompt | Filter {text,cursor} | FilterResults | TypeFilter {…grid…} |
   KindSwitch {cursor,options} | AddPicker {cursor,options} |
@@ -273,7 +276,7 @@ shapes round-trip). Key types:
   Action button closes
   the menu, matching the already-toggling type-filter button and kind badge. **Every popup
   closes on Esc** — the click-menus via `anyClickMenuOpen`, `#tfPop`/overlay/`#convDlg`/
-  inline editor/external-edit modal each in their own path, and the load-modal via its own
+  inline editor/external-edit modal each in their own path, and `#url-modal` via its own
   keydown handler (it early-returns from `onKey`, so it needs one). A **comment row's
   click target is the text only** (`.comment-row .comment` is `flex:0 1 auto` — no grow — so
   the empty space past the text no longer opens the editor; shrink is retained for the
@@ -304,8 +307,8 @@ shapes round-trip). Key types:
   way the TUI reads `Session.filter` directly. Desktop's `renderTree` row-reuse cache compares the
   full rendered HTML, so a query change invalidates it for free. `f`
   renders the `TypeFilterView` grid into the native `#tfPop` popover (tri-state cells; cell
-  click = `TypeFilterMove`+`TypeFilterToggle`; Apply/Cancel). The **Save button** (and `C`)
-  opens the native `#convDlg` as one unified **Save / Convert** panel: its format `<select>`
+  click = `TypeFilterMove`+`TypeFilterToggle`; Apply/Cancel). The **Save As button**
+  (`#btnSaveAs`, and `C`) opens the native `#convDlg` as one unified **Save / Convert** panel: its format `<select>`
   defaults to the current format with the filename prefilled from the open file's stem. Same
   format → a faithful "Save copy" of `serialize()`; a different format → the convert flow
   (`SetConvertFormat`/`SetConvertPath` → `ConvertRun`→`ConvertConfirm`; a lossy convert is a
@@ -448,15 +451,17 @@ shapes round-trip). Key types:
   with `initial`; on submit the UI dispatches `ApplyReplace`/`ApplyEditComment` with the
   request's path and the edited text.
 - **File I/O — File System Access API with download fallback.** All file I/O is
-  host-owned (`web/fs.ts`); core `Intent::Save` only clears the dirty flag. The toolbar
-  **Save** button opens the Save / Convert panel (above); **`⌘S`** is the instant
-  in-place fast path with this precedence: (1) write in place to the open
+  host-owned (`web/fs.ts`); core `Intent::Save` only clears the dirty flag. The toolbar's
+  right-side control is a **`.split-btn`**: `#btnSave` saves in place (`doSave`) and the
+  adjoining `#btnSaveAs` opens the Save / Convert panel (above) — touch instead has one Save
+  button that opens a save-choice sheet (`CHROME.md` owns the inventory). **`⌘S`** is the
+  instant in-place fast path with this precedence: (1) write in place to the open
   `FileSystemFileHandle`; (2) if the API is
   available but no handle is held, `showSaveFilePicker` Save-As (and the handle is
   kept so subsequent saves are in place); (3) download (Firefox/Safari/older
-  browsers). `Ctrl-o` / Open opens a real file via `showOpenFilePicker`; the Load
-  button (paste-into-textarea) is the always-available fallback. The "Open…" button is
-  hidden on browsers without the API. Convert output routes through Save-As when
+  browsers). `Ctrl-o` / Open opens a real file via `showOpenFilePicker`; browsers without
+  the API fall back to a hidden `<input type="file" id="fileInput">`, so the Open button is
+  always visible. Convert output routes through Save-As when
   available, else download. The capability is detected once at boot and isolated
   behind `web/fs.ts`; no editor logic depends on it.
 - **`?url=` deep-link.** Appending `?url=<encoded-url>` to the page URL opens that
@@ -478,8 +483,8 @@ shapes round-trip). Key types:
   Tauri and VS Code branches fetch natively and are unaffected.
 - **Theme.** A dark/light toggle (titlebar `☾`/`☀`) flips `:root[data-theme]`; CSS
   variables carry both palettes and the choice persists in `localStorage`.
-- **Responsive toolbar.** The toolbar holds a single right-side action button (**Save**,
-  opening the Save / Convert panel — the separate Convert button is gone). The full button
+- **Responsive toolbar.** The toolbar's right-side action is the **Save `.split-btn`**
+  (in-place Save + Save As / Convert — the separate Convert button is gone). The full button
   inventory, row/group layout, per-button fold breakpoint ladder, and VS Code/Tauri desktop
   trimming rules are documented once in **`CHROME.md`** (shared with the touch UI) — not
   restated here. The More popup lists the folded secondary actions but **not** Save / Convert
@@ -503,7 +508,7 @@ shapes round-trip). Key types:
   stale notice's toast entrance animation/timer on every such intent with a `lastNoticeKey`
   fingerprint (`${severity}|${text}`), re-triggering the toast display only when the key
   actually changes. On touch (`web/touch/app.ts`), all notices display via a unified
-  `#toast` styled by severity class (`.sev-info`, `.sev-success`, `.sev-warn`,
+  `.toast` element styled by severity class (`.sev-info`, `.sev-success`, `.sev-warn`,
   `.sev-error`) with longer duration for errors/warnings (3000ms vs 1600ms).
 
 ## Touch UI (dedicated `web/touch/` module)
@@ -520,8 +525,9 @@ for its ~40 mutating calls instead of routing through `dispatch`). Beyond the co
 `types.ts`, `fs.ts`, the Intent contract), the two UIs now share several **single-source UI
 modules** so look & behavior can't drift: `web/panel.ts` (node edit/detail panel),
 `web/convert-dialog.ts` (the Save / Convert form), `web/typefilter.ts` (the type-filter grid),
-`web/action-menu-items.ts` (shared item rendering for `Mode::ActionMenu`),
-`web/add-picker-items.ts` (shared item rendering for `Mode::AddPicker`), `web/escape.ts` (the one
+`web/action-menu-items.ts` (shared item rendering for `Mode::ActionMenu`;
+`web/add-picker-items.ts` does the same for `Mode::AddPicker` on **desktop only** — touch's
+add sheet draws its own grid), `web/escape.ts` (the one
 HTML escaper every render module uses), `web/toolbar-fold.ts` (the shared header/filter-row "⋯
 More" fold registry), `web/diag.ts` (the `?diag=1` console drain), `web/mode.ts` (shared
 `modeTag` and `createBatcher`), `web/path-utils.ts` (shared `Path` helpers),
@@ -743,7 +749,8 @@ target, the expansion sticks, the cursor stays, and the status line reports it.
 The mini-tree shows the same node set as the main tree (comments and read-only
 nodes included and jumpable). The popup is the module's only state — re-render,
 outside pointerdown, or a capture-phase Escape closes it (the Escape is
-swallowed so it doesn't also peel filter state). Hidden in Raw view. Not in the
+swallowed so it doesn't also peel filter state). It stays visible in both Raw states — the
+crumbs row is where the Raw control band lives. Not in the
 touch UI (deliberate — touch is sheet-driven with a weak cursor concept).
 
 `web/build.mjs` emits both bundles: `ui.ts → ui.js` (desktop, unchanged) and `touch/app.ts →
@@ -920,21 +927,6 @@ Navigation requests match the cache with `ignoreSearch` (the entry-router query 
 `?ui=` / `?url=` are volatile). `web/assemble-dist.mjs` (run by `build.mjs`) copies
 `manifest.webmanifest`, `sw.js`, and `icons/` into `dist`; installed-app launches hit
 `start_url: "./"` and the normal coarse-pointer router bounces to the touch UI.
-
-## Future structured-diff evolution
-
-The full-snapshot transport is the G1 baseline. If re-render latency becomes
-measurable on large files, G2 introduces a structured row diff without changing the
-`Intent` contract:
-
-1. Add `Update { rowsDirty, … }` (already exists, Phase E) as an optional
-   `delta` field on `SessionSnapshot`, or a sibling `dispatchDelta` entry point.
-2. Ship a row identity keyed by `Path` (already stable across mutations — that is
-   what the §3 reshape bought) so the UI can patch only changed/added/removed rows.
-3. Keep `snapshot()` as the full-state fallback for resync.
-
-No diff scaffolding is built now; the `Path`-keyed `ViewRow` is already the identity
-the diff would key on, so the upgrade is additive.
 
 ## VS Code (webview host)
 

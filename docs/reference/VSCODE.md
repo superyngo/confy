@@ -9,7 +9,7 @@ plus `web/vscode.ts`'s adapter, and the Session there is a *view* over that docu
 Every behavior difference from the browser/Tauri hosts is gated in `ui.ts` on `VSHOST`
 (`isVsCode()` — true only when `acquireVsCodeApi` exists), so the pure-browser and Tauri
 builds are byte-identical when it is absent. See `editors/vscode/README.md` for
-build/install/use, and CLAUDE.md's module map for the extension-host-side file layout.
+build/install/use, and [`ARCHITECTURE.md`](ARCHITECTURE.md)'s module map for the extension-host-side file layout.
 
 Design record: `docs/spec/2026-07-15-vscode-extension-design.md`. M1.5
 rebased the provider from `CustomEditorProvider` onto `CustomTextEditorProvider`
@@ -31,6 +31,13 @@ submenu below), Undo/Redo get no replacement UI (keyboard z / y / ⌘S already f
 workbench via `request-undo`/`request-redo`/`request-save`), and the filter row
 (search/type-filter/Expand-Collapse, plus the Raw/Tree toggle relocated in from the header)
 stays.
+
+**Whole-document editing is suppressed under this host** (ADR 0014 R10): `ActionId::EditDocument`
+is absent from the Action menu, the crumbs-row Raw band's primary control renders **disabled**
+(not hidden — the band keeps its static geometry), and the keyboard commit path is gated the same
+way (`VSHOST` in `web/ui.ts`). The webview's `TextDocument` already *is* the whole-file text
+surface, and a second editable copy would be two owners of one document. The Raw pane stays
+available read-only, so the format-highlighted source is still one keystroke away.
 
 Save As / Convert, Help, About, language, and theme — with no toolbar button left to click —
 move to the editor title's **"…" More Actions** menu: three commands (`confy.saveAsConvert`,

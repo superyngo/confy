@@ -2,8 +2,8 @@
 
 The decision record is ADR 0005 (`docs/adr/0005-row-cursor-selection-clipboard-state-model.md`).
 This document is the detail: per-state core mapping, per-platform entry-gesture tables,
-the visual design spec, the keybinding table, the cut/copy-mode redesign, and the
-implementation history. Node-kind and per-format mutation mechanics are not repeated
+the visual design spec, the keybinding table, and the cut/copy-mode design.
+Node-kind and per-format mutation mechanics are not repeated
 here — see `MUTATIONS.md`'s "Insert / move legality" table and `BEHAVIOR_MATRIX.md`. TUI
 mechanics beyond row state live in `TUI.md`; web/desktop/touch architecture beyond row
 state lives in `WEBUI.md`.
@@ -20,7 +20,7 @@ the ones before it; a row can be in several at once.
 |---|---|---|---|---|
 | 1 | Cursor | 提示定位 | `Session.cursor: Path` (`session.rs`) | TUI keyboard, desktop keyboard. Desktop mouse **hover** is a separate, core-invisible signal — see §1a. Touch has no equivalent. |
 | 2 | Focal row | 選取 | Derived: `selected_paths()`'s target for single-row mutating ops — edit value/key/comment (`session.rs`) | Always equals `cursor`, or the last/focal member of a non-empty `Selection` (`set_selection` keeps the clicked/typed path last). Remark, delete, and copy/cut are **not** in this group — they consume the whole `Selection` (§1c). |
-| 3 | Locked selection | 鎖定選取 | `Session.selection: Selection` non-empty (`session.rs`, `selection/selection.rs`) | TUI: `s` (`ToggleSelect`) / Shift+↑↓ (`ExtendSelectUp/Down`). Desktop: Ctrl/Shift+click, marquee (`web/select.ts`). Touch: single-tap `selectOnly()` writes a 1-path `Selection`; modifier taps go through `resolveClick` (range/toggle); post-paste re-selects the landed batch (§6d). All surfaces show the leading-bar marker. |
+| 3 | Locked selection | 鎖定選取 | `Session.selection: Selection` non-empty (`session.rs`, `session/selection.rs`) | TUI: `s` (`ToggleSelect`) / Shift+↑↓ (`ExtendSelectUp/Down`). Desktop: Ctrl/Shift+click, marquee (`web/select.ts`). Touch: single-tap `selectOnly()` writes a 1-path `Selection`; modifier taps go through `resolveClick` (range/toggle); post-paste re-selects the landed batch (§6d). All surfaces show the leading-bar marker. |
 | 4 | Clipboard-armed (cut/copy mode) | 剪下複製模式 | `Session.clipboard.is_some()` (`session.rs`, `state.rs`) | `c`/`x`/Copy/Cut on any surface. Freezes state #3 (four guards in `session.rs`: `toggle_select`, `set_selection`, `extend_select_up`, `extend_select_down`) — entering #4 does not require #3 to be non-empty first; a bare cursor with an empty `Selection` can still be copied/cut via the fallback in `selected_paths()`. |
 | 5 | Clipboard source | cut/copy source | `Session.clipboard.sources: Vec<Path>`, colored by `clipboard.cut: bool` (`state.rs`) | Only meaningful while #4 is active. |
 
@@ -153,7 +153,7 @@ not a target, state.
 
 | Key | TUI | Desktop |
 |---|---|---|
-| `Space` | `KeyAction::ToggleExpand` (`tui/keys.rs`) → `Intent::ToggleExpand` | `ToggleExpand` (`key-intent.ts`) |
+| `Space` | `KeyAction::ToggleExpand` (`tui/keys.rs`) → `Intent::ToggleExpand` | `native:toggle-branches` (`key-intent.ts`) — the host batches one `ToggleExpand` per selected branch |
 | `Enter` | `KeyAction::Info` (`tui/keys.rs`) → `Intent::ToggleDetail` | `ToggleDetail` (`key-intent.ts`) |
 | `i` | `KeyAction::Info` (`tui/keys.rs`) → `Intent::ToggleDetail`, unchanged alt binding | `ToggleDetail` (`key-intent.ts`), unchanged alt binding |
 
@@ -277,7 +277,7 @@ differently, appropriately to its own input model:
   on-screen the moment a key press moves onto it, so there is no drag-scroll gap
   to fill.
 
-### 6d. Post-paste highlight — desktop-only, new
+### 6d. Post-paste highlight — both web hosts; not the TUI
 
 After a `Paste` lands, core's `do_paste` (`clipboard.rs`) uniformly
 expands every collapsed ancestor of the destination and places `cursor` on the
@@ -326,8 +326,7 @@ Symptom (fixed): while armed, tapping/clicking any branch's caret toggled the
 **clipboard source** node's expand state, never the clicked one.
 
 Root cause under this model: `ToggleExpand` is defined against state #1 (`cursor`,
-`dispatch.rs`). The armed-click path only ever sent `SetPasteSlot` (state #6's
-target, unrelated to state #1) and never moved `cursor` — so `ToggleExpand` kept firing
+`dispatch.rs`). The armed-click path only ever sent `SetPasteSlot` (the paste target — a `PasteSlot`, unrelated to state #1) and never moved `cursor` — so `ToggleExpand` kept firing
 against wherever `cursor` had been frozen since the clipboard was armed, which visually
 read as "it always hits the source row" (the source row is usually where cursor was
 last sitting when `c`/`x` was pressed).
@@ -337,52 +336,22 @@ Fixed by sending an explicit `SetCursor` before `ToggleExpand` in both hosts
 
 **Formal invariant this model adds**: any `Intent` defined against state #1 (`cursor`)
 must resolve against the row the user actually invoked it on, even while state #4 is
-active and state #6 (paste target) is being set by the same gesture. `ToggleExpand` is
+active and the paste target (`PasteSlot`) is being set by the same gesture. `ToggleExpand` is
 the only such intent surfaced through the armed-click path today; any future intent
 added to that path must uphold the same invariant, checked by the same kind of
 regression test as the existing fix (`web/*.spec.mjs`, `touch-pointer-slot`/
 `touch-paste-cue`).
 
-## 8. Implementation history
+## 8. Boundaries — what this document does not own
 
-The row state model shipped across five sequential phases followed by a targeted
-ad-hoc round. Detailed execution records, review checkpoints, and migration steps
-are preserved in the frozen plans:
-
-- Phase 1 (Visual language): `../plan/2026-08-18-row-state-visual-language-phase1.md`
-- Phase 2 (Keybinding reversal): `../plan/2026-08-18-row-state-visual-language-phase2.md`
-- Phase 3 (Cut/copy modal lock): `../plan/2026-08-18-row-state-visual-language-phase3.md`
-- Phase 4 (Desktop hover preview): `../plan/2026-08-18-row-state-visual-language-phase4.md`
-- Phase 5 (Touch drag-to-target): `../plan/2026-08-18-row-state-visual-language-phase5.md`
-
-The governing architectural decision is recorded in ADR 0005 (`../adr/0005-row-cursor-selection-clipboard-state-model.md`).
-
-## 9. Out of scope
-
-- Auto-scroll on edge-drag (§6c) — **implemented for touch**; desktop/TUI need no
-  equivalent (§6c explains why). No longer an open item.
-- §6d's post-paste highlight is now on both desktop and touch; TUI stays a
-  documented, deliberate asymmetry — not revisited unless real TUI users report
-  losing track of a multi-node paste (§6d explains why porting it verbatim would
-  be unsafe there).
-- Desktop's marquee (`web/select.ts`/`web/ui.ts`'s `installMarquee`) now guards
-  `clipboard_count`/`paste-mode` like every other affordance §5 disables while
-  armed — found and fixed via the integration audit
-  (`docs/audit/2026-08-19-clipboard-row-state-integration-audit.md`).
-- Any change to node-kind/format mutation mechanics, `PasteSlot`/`Into`/`After`
-  targeting semantics, or the AoT atomic-move behavior — all owned by ADR 0004
-  (and, for pointer-driven targeting, ADR 0010), `glossary.md`,
-  `BEHAVIOR_MATRIX.md`, untouched here.
-- ~~TUI `type_col_cell`'s fill-skip doesn't cover the paste-slot `Into` target
-  row's green fill~~ — **fixed** (`tui/ui.rs`, `type_col_cell` call site now
-  passes `is_cursor || in_clipboard_source || into_here`). Correction to the
-  original note: `Into` slots are only ever offered on branch rows
-  (`Session::paste_slots`/`pointer_slot` both gate on `is_branch()` — and, since
-  ADR 0010, on nothing else: an `Inline` single-line container gets its `Into`
-  band from the pointer too), and a
-  branch's `type_label` never carries a KIND colour, so the collision was not
-  reachable through normal keyboard/pointer paste-slot cycling — it was
-  reachable only through the WASM `Intent::SetPasteSlot` boundary, which does
-  not re-validate `is_branch`. Fixed defensively regardless, with a regression
-  test (`paste_target_into_fill_suppresses_kind_tag_color`) that drives the
-  state directly to pin the render-layer contract.
+- **Node-kind and per-format mutation mechanics**, `PasteSlot`/`Into`/`After` targeting
+  semantics, and the AoT atomic-move behavior: owned by [ADR 0004](../adr/0004-unified-clipboard-move-targeting.md)
+  (and, for pointer-driven targeting, [ADR 0010](../adr/0010-pointer-drops-resolve-through-pasteslot.md)),
+  [`glossary.md`](glossary.md) and [`BEHAVIOR_MATRIX.md`](BEHAVIOR_MATRIX.md).
+- **Two deliberate host asymmetries** — §6c's edge auto-scroll (touch only) and §6d's
+  post-paste highlight (both web hosts, not the TUI) — each state their own reasoning, and each
+  carries a row in [`HOST_PARITY.md`](HOST_PARITY.md). Neither is an open item.
+- **How the model was rolled out** is not reference material: the five phase plans
+  (`../plan/2026-08-18-row-state-visual-language-phase1.md` … `phase5.md`) and the integration
+  audit (`../audit/2026-08-19-clipboard-row-state-integration-audit.md`) are the frozen record,
+  indexed by their folder READMEs.

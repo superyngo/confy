@@ -28,6 +28,8 @@ Nothing open.
 | 2026-08-21 | [VS Code Schema Hints (Diagnostics + Hover) — Design](2026-08-21-vscode-schema-hints-design.md) | Shipped (2026-08-28) |
 | 2026-08-28 | [JSON/JSONC comment write-gate removal — Design](2026-08-28-json-jsonc-comment-gate-removal-design.md) | Shipped (2026-08-28) |
 | 2026-08-30 | [Action menu — centralized node operations across desktop, touch, and TUI](2026-08-30-action-menu-design.md) | Shipped (2026-08-30) |
+| 2026-09-11 | [Raw write mode — whole-document editing on the web hosts](2026-09-11-raw-write-mode-design.md) | Shipped (2026-09-14) |
+| 2026-09-11 | [Root-hidden alignment — the Root stops being a row on every host](2026-09-11-root-hidden-alignment-design.md) | Shipped (2026-09-14) |
 
 ## Prototype assets
 

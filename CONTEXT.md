@@ -33,9 +33,11 @@ otherwise it survives only where nobody looks.
 1. [`docs/reference/glossary.md`](docs/reference/glossary.md) — the vocabulary every other file
    and every identifier uses. Read first; the terms are not interchangeable with their synonyms.
 2. [`docs/reference/README.md`](docs/reference/README.md) — the subsystem and host map.
-3. [`docs/adr/README.md`](docs/adr/README.md) — why the shape is what it is.
-4. `CLAUDE.md` — build/test commands, release process, module map, and repo conduct.
-5. `CHANGELOG.md` — what changed recently (`[Unreleased]` + the current series; earlier series
+3. [`docs/reference/ARCHITECTURE.md`](docs/reference/ARCHITECTURE.md) — the workspace shape and
+   module map: which crate and file owns what.
+4. [`docs/adr/README.md`](docs/adr/README.md) — why the shape is what it is.
+5. `CLAUDE.md` — build/test commands, release process, and repo conduct.
+6. `CHANGELOG.md` — what changed recently (`[Unreleased]` + the current series; earlier series
    are archived under [`docs/reference/changelog/`](docs/reference/changelog/README.md)).
 
 ## Conventions
