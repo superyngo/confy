@@ -10,6 +10,7 @@ mod convert;
 mod flow;
 mod mutations;
 mod resolve;
+pub(crate) mod spans;
 
 // Re-exported so external callers (yaml/doc.rs, model/convert.rs,
 // yaml/project.rs) keep their existing crate::model::yaml::edit::X paths --

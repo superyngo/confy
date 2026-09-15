@@ -70,6 +70,10 @@ impl ConfigDocument for YamlDocument {
         crate::model::yaml::edit::trailing_blank_anchor(&self.syntax, &idx, path).ok()
     }
 
+    fn node_text_spans(&self, path: &[Seg]) -> Vec<(usize, usize)> {
+        crate::model::yaml::edit::spans::node_text_spans(&self.syntax, path)
+    }
+
     fn kind_options(&self, path: &[Seg]) -> Vec<(String, KindTarget)> {
         kind_options(&self.project(), path)
     }
