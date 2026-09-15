@@ -90,6 +90,16 @@ mod tests {
     }
 
     #[test]
+    fn member_span_excludes_a_preceding_standalone_comment() {
+        // That comment is a Node of its own with its own Block; the member's
+        // span starts at its key token.
+        assert_eq!(
+            spans_of("{\n  // lead\n  \"a\": 1\n}\n", &[key("a")]),
+            vec!["\"a\": 1\n"]
+        );
+    }
+
+    #[test]
     fn member_span_includes_its_trailing_blank_run() {
         assert_eq!(
             spans_of("{\n  \"a\": 1,\n\n\n  \"b\": 2\n}\n", &[key("a")]),

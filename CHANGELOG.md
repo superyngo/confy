@@ -30,6 +30,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   deleted `wrap_element`, the `ARCHITECTURE.md` module map listed two deleted `blank_lines`
   functions and none of the four new modules, and the glossary called the editor's buffer a
   "fragment" — the word its own **Block** entry tells you to avoid.
+- A latent backwards-range slice in the TOML span walk: `end_of(Target::AotGroup)` returned
+  `0`, which the `Unsupported`-extent fallback would have handed to `&full[start..0]`. That
+  fallback is for a node sharing a line with a flow collection, which an `[[array-of-tables]]`
+  group never is, so it was unreachable — `end_of` now returns `Option` and the group declines
+  instead of trusting that. Block-edit span coverage closed with it: TOML's **scattered** AoT
+  group (spec §3's third multi-span shape), the "a preceding standalone Comment is excluded"
+  rule for JSON and YAML (previously TOML-only), and eight parity-matrix rows for the shapes
+  JSON/YAML had none — branch, array element / sequence item, flow member, comment block.
 
 **Changed**
 

@@ -155,6 +155,16 @@ mod tests {
     }
 
     #[test]
+    fn leaf_span_excludes_a_preceding_standalone_comment() {
+        // The comment is its own Node with its own Block; the leaf's span
+        // starts at its own indentation.
+        assert_eq!(
+            spans_of("a:\n  # lead\n  b: 1\n", &[key("a"), key("b")]),
+            vec!["  b: 1\n"]
+        );
+    }
+
+    #[test]
     fn mapping_branch_span_covers_its_children() {
         assert_eq!(
             spans_of("a:\n  b: 1\nz: 9\n", &[key("a")]),

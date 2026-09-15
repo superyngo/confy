@@ -114,17 +114,20 @@ fn single_span(
         // its own token range trimmed of the padding taplo bakes in
         // (`[ 1 ]` ⇒ `VALUE "1 "`); the separating `,` stays outside, because a
         // comma belongs to the container, not to any member.
-        Err(_) => Some(trimmed(full, start, end_of(&target))),
+        // An AoT *group* has no single token range to fall back on, and it
+        // never shares a line with a flow collection, so this arm is not
+        // reachable for it — refuse rather than build a backwards range.
+        Err(_) => Some(trimmed(full, start, end_of(&target)?)),
     }
 }
 
-fn end_of(target: &Target) -> usize {
+fn end_of(target: &Target) -> Option<usize> {
     match target {
         Target::Entry(n) | Target::ArrayElement(n) | Target::Header(n) | Target::AotEntry(n) => {
-            usize::from(n.text_range().end())
+            Some(usize::from(n.text_range().end()))
         }
-        Target::Comment(t) => usize::from(t.text_range().end()),
-        Target::AotGroup => 0,
+        Target::Comment(t) => Some(usize::from(t.text_range().end())),
+        Target::AotGroup => None,
     }
 }
 
@@ -255,6 +258,16 @@ mod tests {
         assert_eq!(
             spans_of("[[p]]\nn = 1\n[[p]]\nn = 2\n", &[key("p")]),
             vec!["[[p]]\nn = 1\n[[p]]\nn = 2\n"]
+        );
+    }
+
+    #[test]
+    fn scattered_aot_group_yields_one_span_per_run() {
+        // Spec §3's third multi-span shape: a foreign section splits the group,
+        // so it is two spans, not the one a contiguous group merges to.
+        assert_eq!(
+            spans_of("[[p]]\nn = 1\n[q]\nm = 2\n[[p]]\nn = 3\n", &[key("p")]),
+            vec!["[[p]]\nn = 1\n", "[[p]]\nn = 3\n"]
         );
     }
 

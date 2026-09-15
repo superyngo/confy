@@ -194,6 +194,36 @@ const CASES: &[Case] = &[
         buffer: "",
         expect: None,
     },
+    // The shapes JSON had no row for: a branch, an array element, a flow
+    // member, a comment block.
+    Case {
+        name: "json/branch/rename-key",
+        src: "{\n  \"a\": {\n    \"b\": 1\n  },\n  \"z\": 9\n}\n",
+        path: &["a"],
+        buffer: "\"renamed\": {\n    \"b\": 1\n  },\n",
+        expect: Some("{\n  \"renamed\": {\n    \"b\": 1\n  },\n  \"z\": 9\n}\n"),
+    },
+    Case {
+        name: "json/element/two-siblings",
+        src: "{\n  \"arr\": [\n    1,\n    2\n  ]\n}\n",
+        path: &["arr", "#0"],
+        buffer: "1,\n    9,\n",
+        expect: Some("{\n  \"arr\": [\n    1,\n    9,\n    2\n  ]\n}\n"),
+    },
+    Case {
+        name: "json/flow-member/unchanged",
+        src: "{\n  \"o\": { \"x\": 1, \"y\": 2 }\n}\n",
+        path: &["o", "x"],
+        buffer: "\"x\": 1",
+        expect: Some("{\n  \"o\": { \"x\": 1, \"y\": 2 }\n}\n"),
+    },
+    Case {
+        name: "json/comment/to-live",
+        src: "{\n  // \"a\": 1,\n  \"z\": 9\n}\n",
+        path: &["#0"],
+        buffer: "\"a\": 1,\n",
+        expect: Some("{\n  \"a\": 1,\n  \"z\": 9\n}\n"),
+    },
     // ---- format: YAML ----
     Case {
         name: "yaml/leaf/unchanged",
@@ -222,6 +252,36 @@ const CASES: &[Case] = &[
         path: &["a", "b"],
         buffer: "",
         expect: None,
+    },
+    // The shapes YAML had no row for: a branch, a sequence item, a flow
+    // member, a comment block.
+    Case {
+        name: "yaml/branch/rename-key",
+        src: "a:\n  b: 1\nz: 9\n",
+        path: &["a"],
+        buffer: "renamed:\n  b: 1\n",
+        expect: Some("renamed:\n  b: 1\nz: 9\n"),
+    },
+    Case {
+        name: "yaml/seq-item/two-siblings",
+        src: "s:\n  - 1\n  - 2\n",
+        path: &["s", "#0"],
+        buffer: "  - 1\n  - 9\n",
+        expect: Some("s:\n  - 1\n  - 9\n  - 2\n"),
+    },
+    Case {
+        name: "yaml/flow-member/unchanged",
+        src: "o: { x: 1, y: 2 }\n",
+        path: &["o", "x"],
+        buffer: "x: 1",
+        expect: Some("o: { x: 1, y: 2 }\n"),
+    },
+    Case {
+        name: "yaml/comment/to-live",
+        src: "# a: 1\nz: 9\n",
+        path: &["#0"],
+        buffer: "a: 1\n",
+        expect: Some("a: 1\nz: 9\n"),
     },
     // The opaque policy: read-only *structurally*, editable as text.
     Case {
