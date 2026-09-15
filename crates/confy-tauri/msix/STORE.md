@@ -2,9 +2,9 @@
 
 The release workflow produces an **unsigned** `confy-desktop-windows-x86_64.msix`
 built by `pack-msix.ps1` from `AppxManifest.xml`. The package also contains the
-TUI binary as `confy.exe`, exposed on PATH after install via the
-`windows.appExecutionAlias` in the manifest (resolves through
-`%LOCALAPPDATA%\Microsoft\WindowsApps`). Unsigned is intentional: the
+TUI binary as `confy.exe`, exposed on PATH after install via a
+`windows.appExecutionAlias` on its **own** `<Application>` manifest node
+(resolves through `%LOCALAPPDATA%\Microsoft\WindowsApps`). Unsigned is intentional: the
 Store re-signs every submission with its own certificate, and a package signed
 with a non-Store cert is rejected.
 
@@ -121,3 +121,14 @@ Add-AppxPackage confy-desktop-windows-x86_64.msix
   a submission created via the API must only be changed via the API; editing
   it in Partner Center can leave it uncommittable, requiring a discard.
   <https://learn.microsoft.com/windows/uwp/monetize/manage-app-submissions>
+- **AppExecutionAlias must live on its own `<Application>` node.** An alias
+  always launches the `Executable` of the `<Application>` node the
+  `windows.appExecutionAlias` extension is declared under — never a
+  same-named file bundled elsewhere in the package. `AppxManifest.xml` once
+  nested the alias under the GUI's `Application Id="confy"
+  Executable="confy-desktop.exe"` node, so the `confy` alias silently
+  launched the GUI instead of the bundled TUI even though `confy.exe` was
+  physically staged in the package. Fixed by giving the TUI its own
+  `Application Id="confy-cli" Executable="confy.exe"` node
+  (`AppListEntry="none"`, hidden from the Start menu) and moving the alias
+  extension there.
