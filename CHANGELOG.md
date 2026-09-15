@@ -117,6 +117,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   which is its one live caller), and with it `blank_lines::with_trailing_run` /
   `trim_trailing_blank_lines`, whose last consumer that branch was.
 
+**Docs**
+
+- The Block-edit implementation audit is a frozen record now
+  (`docs/audit/2026-09-15-block-edit-implementation-audit.md`, indexed in that folder's README
+  and cross-linked from both the design record and the plan): one blocking performance defect,
+  nine smaller findings, each with the commit that fixed it, plus the two scout claims that
+  were wrong. It also carries the same-day backlog sweep, which emptied the Open section of
+  `docs/plan/2026-09-09-open-follow-ups.md`.
+- Nine commit citations across `CHANGELOG.md` and four plan docs pointed at **unreachable**
+  objects: each was written as a placeholder, `sed`-ed to the real hash, then `git commit
+  --amend`-ed — which rewrote the commit the citation had just named. All nine now name their
+  reachable commit, and `CLAUDE.md` gained the rule plus the one-line check that finds them.
+  (The five remaining unreachable hashes are deliberate: the `root-row-alignment` record cites
+  the abandoned branch it documents.)
+- `ARCHITECTURE.md` corrections: `text-offset.ts` now documents both conversion directions,
+  `session.rs` names the two span queries the Raw panes bind through, `block_edit_parity.rs`
+  joins the integration-suite list, and two stale counts (19 → 21 core suites, 37 → 39 web
+  spec suites) are current. The Block-edit plan gained the `Status:` line every `docs/plan/`
+  document is required to carry — it was the only one missing.
+
 **Fixed**
 
 - The **web** external editor seeded its buffer from the old fragment producer while committing
@@ -784,7 +804,7 @@ operation accepts it, and it can no longer be collapsed.
 
 - **The root-row-alignment direction was reversed before release, and the work preserved on
   branch `root-row-alignment`** (six commits, `e8e8d5b`..`f2bfef3`; `main` rewound to
-  `b0f40e1`, nothing rewritten). New direction: **every host — the TUI included — is
+  `090de73`, nothing rewritten). New direction: **every host — the TUI included — is
   root-hidden**; the TUI's root row was the asymmetry's origin, so aligning web to it was the
   wrong axis. Code on `main` is unchanged by this; the landing is documentation-only.
 - **`docs/debug/2026-09-11-root-row-alignment-retrospective.md`** (new) — what survives the

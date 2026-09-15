@@ -1,4 +1,7 @@
 # Block Edit via Whole-File Reparse — Implementation Plan
+Status: Shipped (2026-09-15)
+
+Post-ship audit: [`../audit/2026-09-15-block-edit-implementation-audit.md`](../audit/2026-09-15-block-edit-implementation-audit.md)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development`
 > (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use

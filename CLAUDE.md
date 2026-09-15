@@ -59,6 +59,25 @@ Bump all four in the same release commit, before tagging. Never tag with only
 `crates/confy-tauri/msix/listings/listingData-9PLCJGQ3C654.csv` — set the `ReleaseNotes`
 column to describe the new version in the same release commit.
 
+## Commit citations
+
+A doc row that names the commit closing it must name a **reachable** hash. The trap: write the
+row with a placeholder, `sed` the real hash in, then `git commit --amend` — the amend rewrites
+the commit, so the citation points at an unreachable object. Nine citations across
+`CHANGELOG.md` and four plan docs were dangling this way on 2026-09-15. Either land the commit
+and cite it from the next one, or verify before pushing:
+
+```sh
+rg -o '`[0-9a-f]{7,10}`' --no-filename CHANGELOG.md docs/**/*.md | tr -d '`' | sort -u \
+  | xargs -I{} sh -c 'git cat-file -t {} >/dev/null 2>&1 && \
+      { git merge-base --is-ancestor {} HEAD || echo "unreachable: {}"; }'
+```
+
+On 2026-09-15 that leaves exactly five hits — the `root-row-alignment` ones below.
+
+Hashes on a *deliberately abandoned* branch are fine when the doc says so (the
+`root-row-alignment` record cites six such commits on purpose) — keep that branch alive.
+
 ## Architecture — where each contract is documented
 
 This file is the **conduct** file: commands, release mechanics, and repo rules. It deliberately

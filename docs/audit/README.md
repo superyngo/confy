@@ -24,5 +24,6 @@ Nothing open.
 | 2026-09-09 | [Open-findings re-verification](2026-09-09-open-findings-reverification.md) | Resolved (2026-09-09) |
 | 2026-09-09 | [Documentation audit — accuracy, cleanliness, organization](2026-09-09-documentation-audit.md) | Resolved (2026-09-09) |
 | 2026-09-15 | [Documentation audit — drift since 2026-09-09, and CLAUDE.md's split](2026-09-15-documentation-audit.md) | Resolved (2026-09-15) |
+| 2026-09-15 | [Block-edit implementation audit — the landed code against its design record](2026-09-15-block-edit-implementation-audit.md) | Resolved (2026-09-15) |
 
 See also [`../adr/`](../adr/README.md) for the decisions this material produced.

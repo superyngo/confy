@@ -1,6 +1,8 @@
 # Block edit via whole-file reparse — Design
 Status: Shipped (2026-09-15)
 
+Post-ship audit: [`../audit/2026-09-15-block-edit-implementation-audit.md`](../audit/2026-09-15-block-edit-implementation-audit.md) — one blocking perf defect, nine smaller findings, all fixed 2026-09-15.
+
 ## Summary
 
 Change what the multi-line editor (the web/touch pop-up, the TUI `$EDITOR` spawn) *means* on

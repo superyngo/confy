@@ -1,7 +1,7 @@
 # TOML datetime kind switch: `K` picks among the 4 datetime types, one consolidated `a` entry
 Status: Shipped (2026-09-07)
 
-Landed 2026-09-07 (`d6c923b`, `76c602c`, `5ec5511`); the frozen decision is **ADR 0012**.
+Landed 2026-09-07 (`c7f81a0`, `d91996e`, `05a1624`); the frozen decision is **ADR 0012**.
 One deviation from the plan as written: Task 1's
 `retype_fills_a_missing_component_and_reports_it` expected `LocalTime → LocalDate` to report
 only `FilledDate`, but it correctly reports `[FilledDate, DroppedTime]` — a fill and a drop

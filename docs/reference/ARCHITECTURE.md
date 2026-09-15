@@ -107,7 +107,10 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
                    — see MESSAGES.md for the full message-system reference
     session.rs     Session struct (all CORE state + methods): visible_rows/compute_rows, navigation,
                    filter/type-filter, kind-switch, convert (no fs), edit routing,
-                   escape, prompt-key dispatch, quit flow; plus free fns: node_type_label,
+                   escape, prompt-key dispatch, quit flow; the two span queries the hosts'
+                   Raw panes bind through — `span_of(path)` (a Node's whole-member byte span,
+                   comments included) and its inverse `node_at_offset(offset)` (the innermost
+                   Node containing a byte offset, 2026-09-15) — plus free fns: node_type_label,
                    format_label
     clipboard.rs   cut/copy/paste + the paste collision/array-upgrade prompt sub-state-machine
     action_menu.rs core-owned Action menu: one item list + open/cursor state, read by every host
@@ -164,7 +167,7 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
                    dirty_check.rs (per-mutation "does this path carry a constraint" skip)
 crates/confy-core/benches/perf.rs   the `cargo bench -p confy-core` harness (no criterion;
                           plain `main()` + medians, `--nodes N` for a synthetic document)
-crates/confy-core/tests/  19 integration suites + fixtures/. The gates named in the port design
+crates/confy-core/tests/  21 integration suites + fixtures/. The gates named in the port design
                           record: no_fs_gate.rs (§7), serde_roundtrip.rs (§7 #3),
                           session_headless.rs (§7 #4 scripted Session tests, #5 fake-Host
                           `$EDITOR` flow, + dispatch() tests). Round-trip/byte-fidelity:
@@ -179,7 +182,9 @@ crates/confy-core/tests/  19 integration suites + fixtures/. The gates named in 
                           schema_headless.rs, session_schema_fetch_request.rs, session_notice.rs,
                           session_snapshot_notice.rs, prompt_question.rs, modal_lock.rs (every
                           guarded method no-ops + sets status while the clipboard is armed,
-                          ADR 0005 §5).
+                          ADR 0005 §5), block_edit_parity.rs (the Block editor's cross-format
+                          matrix — 34 cases over 9 node shapes x 3 formats, plus the
+                          re-anchor's linear-cost regression test).
                           Unit tests also live in-tree next to the code they cover:
                           model/cst_edit/tests.rs, model/json/edit/tests.rs,
                           model/yaml/edit/tests.rs (and
@@ -269,12 +274,14 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
                  keymap source both orchestrators dispatch through (KEYMAP.md is its SSOT doc)
   mode.ts        shared `modeTag()` helper over the `ModeView` union
   path-utils.ts  shared path helpers (pathEq/parentOf/siblingIndex)
-  text-offset.ts pure/DOM-free: `byteToCodeUnit(text, byteOffset)` converts core's UTF-8 byte
-                 `text_range` offsets to JS UTF-16 code-unit offsets — what the Raw pane's
-                 breadcrumb jump feeds `setSelectionRange` (R14–R17). The path→node lookup
-                 that lived here is gone (2026-09-14): it walked `outline()`, which omits
-                 Comment nodes, so a jump to a comment row was a silent no-op; core answers
-                 per path now (`Session::span_of`, ffi `span_of`)
+  text-offset.ts pure/DOM-free offset conversion, both directions: `byteToCodeUnit(text,
+                 byteOffset)` turns core's UTF-8 byte `text_range` offsets into JS UTF-16
+                 code-unit offsets (what the Raw pane's breadcrumb jump feeds
+                 `setSelectionRange`, R14–R17), and `codeUnitToByte(text, codeUnit)` inverts it
+                 for the caret → cursor direction added 2026-09-15 (`Session::node_at_offset`).
+                 The path→node lookup that lived here is gone (2026-09-14): it walked
+                 `outline()`, which omits Comment nodes, so a jump to a comment row was a
+                 silent no-op; core answers per path now (`Session::span_of`, ffi `span_of`)
   vscode-protocol.ts  the typed host↔webview message contract (`HostToWebview`/`WebviewToHost`),
                  the ONE file both `web/vscode.ts` and the extension import — see VSCODE.md
   vscode.ts      the in-webview VS Code client: posts/receives that protocol, tracks the
@@ -293,7 +300,7 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
                  `Mode::AddPicker`, so the desktop popup and the touch sheet stay identical
   privacy.html   the PWA/store privacy page (also root `PRIVACY.md`); manifest.webmanifest +
                  icons/ are the installable-app manifest and its icon set
-  run-tests.mjs / *.spec.mjs  the plain-Node spec harness (`npm test`) and its 37 suites
+  run-tests.mjs / *.spec.mjs  the plain-Node spec harness (`npm test`) and its 39 suites
   entry-desktop.js / entry-touch.js / register-sw.js / sw.js  the per-entry boot scripts
                  (pointer-based desktop↔touch router; https-only service-worker registration)
                  plus the service worker itself (offline app-shell cache). **External

@@ -15,7 +15,7 @@ goes root-hidden**. The TUI's root row was the origin of the asymmetry; aligning
 was the wrong direction, and the reverse alignment is cheaper everywhere.
 
 This record is the handoff to the redesign. The full implementation is preserved on branch
-**`root-row-alignment`** (six commits, `e8e8d5b`..`f2bfef3`); `main` was rewound to `b0f40e1`
+**`root-row-alignment`** (six commits, `e8e8d5b`..`f2bfef3`); `main` was rewound to `090de73`
 without rewriting anything. Findings below are re-verified against **main's current tree**,
 not the branch.
 
