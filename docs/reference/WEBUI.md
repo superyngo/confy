@@ -93,7 +93,10 @@ method means updating both spellings.
 
 `external_edit` in the snapshot is the async handshake (§8.2): the UI opens its
 multi-line modal with `initial`, awaits the result, and re-dispatches
-`ApplyReplace { path, text }` / `ApplyEditComment { path, text }`.
+`ApplyBlockText { path, text }` — the node's **Block**, so the buffer may rename its key or
+emit several siblings — or `ApplyEditComment { path, text }` for a Comment row. A rejected
+Block keeps the modal open holding the user's text; success is read off `doc_revision`, never
+the notice ([BEHAVIOR_MATRIX.md](BEHAVIOR_MATRIX.md) §6.3).
 
 **One free export: `fuzzy_indices(haystack: string, needle: string) => Uint32Array |
 undefined`.** Not a `ConfySession` method — it is pure and stateless, so hosts call it per
@@ -448,8 +451,9 @@ shapes round-trip). Key types:
   `doc_format`, ported from the TUI's per-backend help) explaining each container/scalar
   label·notation for the open file's format.
 - **External edit modal.** When `snapshot.externalEdit` is set, a `<textarea>` modal opens
-  with `initial`; on submit the UI dispatches `ApplyReplace`/`ApplyEditComment` with the
-  request's path and the edited text.
+  with `initial`; on submit the UI dispatches `ApplyBlockText` (`ApplyEditComment` for a
+  Comment row) with the request's path and the edited text, and **stays open** if the commit
+  was rejected (`doc_revision` did not move) so the user keeps what they typed.
 - **File I/O — File System Access API with download fallback.** All file I/O is
   host-owned (`web/fs.ts`); core `Intent::Save` only clears the dirty flag. The toolbar's
   right-side control is a **`.split-btn`**: `#btnSave` saves in place (`doSave`) and the
@@ -675,16 +679,17 @@ edits to the verbatim desktop CSS.
   (frozen once a real file is opened/saved), matching desktop — it no longer opens convert.
 - search input → debounced `SetFilter`; a single **Tree/Raw toggle button** (`.viewtoggle`, label =
   the view it switches to) flips the view (`session.serialize()`) and folds into the `⋯` menu.
-- **Read-only / opaque rows** (`ViewRow.read_only`) render without grip/kind and reject edits —
-  mirroring core. Multi-line value/comment edits route to an external-edit **bottom sheet** (in
-  `.app`, standard sheet chrome) via `ApplyReplace`/`ApplyEditComment` — the same handshake the
-  desktop uses. The **same sheet** also carries whole-document edits (empty path, R18): touch
-  has no write-mode textarea panel of its own, so the Action menu's *Edit whole file*
-  item opens this sheet with the full document instead. Its Apply handler treats the empty
-  path specially (R19) — a failed whole-file Apply (`doc_revision` not moving) leaves the sheet
-  **open** with the buffer intact rather than closing unconditionally, since discarding it would
-  silently drop the entire edit; a per-node value/comment Apply keeps closing unconditionally
-  either way. Dismissing it (scrim/grab/×/Cancel) sends `Escape` to peel core's pending edit, so
+- **Read-only / opaque rows** (`ViewRow.read_only`) render without grip/kind and reject
+  *structural* edits — mirroring core. Multi-line value/comment edits route to an external-edit
+  **bottom sheet** (in `.app`, standard sheet chrome) via `ApplyBlockText`/`ApplyEditComment` —
+  the same handshake the desktop uses. The **same sheet** also carries whole-document edits
+  (empty path, R18, which stays `ApplyReplace`): touch has no write-mode textarea panel of its
+  own, so the Action menu's *Edit whole file* item opens this sheet with the full document
+  instead. Its Apply handler keeps the sheet **open** whenever the commit was rejected
+  (`doc_revision` not moving), with the buffer intact rather than closing unconditionally, since
+  discarding it would silently drop the edit. That was R19's whole-file-only rule; the Block
+  switchover made it the rule for every value edit, because a rejected Block is exactly the case
+  where the user still needs their text. A Comment Apply still closes unconditionally. Dismissing it (scrim/grab/×/Cancel) sends `Escape` to peel core's pending edit, so
   the sheet can't re-pop on the next render.
 - the initial sample document is the **same demo-tour sample as the desktop UI** (shared,
   build-stamped): one backbone tree across all three formats plus a per-format `showcase`

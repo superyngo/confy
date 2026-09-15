@@ -22,9 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reopens **holding your text** — the error arrives as a `Warn` notice, never inside the
   buffer. An empty buffer is refused rather than read as a deletion (`d` deletes). A scattered
   `[T/S]`/`[T/D]` table hands over all of its spans joined and consolidates at the first.
-  (TUI first; the web hosts follow. A **Comment** row still uses the older comment-only route,
-  so un-commenting a row in the buffer is not accepted yet — that machinery is retired in the
-  next step of the same plan.)
+  All three hosts: the TUI's `$EDITOR`, the desktop pop-up and the touch sheet — the two web
+  surfaces keep the pop-up/sheet **open holding your text** instead of re-spawning an editor.
+  (A **Comment** row still uses the older comment-only route, so un-commenting a row in the
+  buffer is not accepted yet — that machinery is retired in the next step of the same plan.)
   ([spec](docs/spec/2026-09-15-block-edit-whole-file-reparse-design.md))
 - YAML **opaque** nodes (`&anchor`, `*alias`, `<<:` merge, `!tag`) are now **text**-editable
   through `e`: that route reparses the whole file and recomputes opaque fencing from scratch,

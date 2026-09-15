@@ -366,6 +366,7 @@ export type Intent =
   | "EditCommit" | "EditCancel"
   // External edit resolution (host → core)
   | { ApplyReplace: { path: Path; text: string } }
+  | { ApplyBlockText: { path: Path; text: string } }
   | { ApplyEditComment: { path: Path; text: string } }
   // Mutations
   | { Nudge: number }

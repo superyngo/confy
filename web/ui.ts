@@ -1414,9 +1414,22 @@ function openExternalEdit(ext: { initial: string; kind: unknown }) {
     txt.onkeydown = null;
   };
   confirm.onclick = () => {
-    close();
-    if (kind.Value) send({ ApplyReplace: { path: path as never, text: txt.value } });
-    else send({ ApplyEditComment: { path: path as never, text: txt.value } });
+    if (!kind.Value) {
+      close();
+      send({ ApplyEditComment: { path: path as never, text: txt.value } });
+      return;
+    }
+    // The Block route (BEHAVIOR_MATRIX §6.3): a rejected buffer must not cost
+    // the user their typing, so the pop-up stays open holding their text and
+    // the error arrives as a notice — the TUI's `$EDITOR` re-spawn, expressed
+    // in the surface this host has. Success is read off `doc_revision`, the
+    // same signal `applyRawEdit` uses and for the same reason (F4: a
+    // rejection can surface at any severity, so the notice cannot be the
+    // test).
+    const before = snap?.doc_revision;
+    send({ ApplyBlockText: { path: path as never, text: txt.value } });
+    if (!!snap && snap.doc_revision !== before) close();
+    else txt.focus();
   };
   const doCancel = () => {
     close();

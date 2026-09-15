@@ -159,18 +159,42 @@ console.log("\n-- openExternalEdit(): a succeeding whole-file Apply closes --");
   check("closeSheets WAS called after a successful whole-file Apply", closeSheetsCalls === 1);
 }
 
-// ---- 4. Control case: a per-node Apply keeps closing unconditionally (R18: unchanged) ----
-console.log("\n-- openExternalEdit(): a per-node Apply still closes unconditionally --");
+// ---- 4. A per-node Apply is a Block commit, and a REJECTED one keeps the
+//         sheet open holding the user's text (BEHAVIOR_MATRIX §6.3). This
+//         case asserted the opposite until the Block switchover: closing
+//         unconditionally is exactly the lost-work bug R19 named, and there
+//         is no longer a reason to tolerate it per-node. ----
+console.log("\n-- openExternalEdit(): a per-node Apply is a Block commit --");
 {
   const sheetsExt = freshEnv();
   mod.setEnv({
-    snap: { clipboard_count: 0, doc_revision: 5 }, // stays flat — would look "failed" if the guard applied here
+    snap: { clipboard_count: 0, doc_revision: 5 }, // stays flat = rejected
   });
-  mod.openExternalEdit({ initial: "before", kind: { Value: { path: [{ Key: "name" }] } } });
-  sheetsExt._txt.value = "new value";
+  mod.openExternalEdit({ initial: "name = 1\n", kind: { Value: { path: [{ Key: "name" }] } } });
+  sheetsExt._txt.value = "other = 1\n";
   sheetsExt._applyBtn.onclick();
-  check("closeSheets is still called unconditionally for a per-node edit", closeSheetsCalls === 1);
-  check("ApplyReplace was dispatched with the node's path", JSON.stringify(sent[0]) === JSON.stringify({ ApplyReplace: { path: [{ Key: "name" }], text: "new value" } }));
+  check(
+    "ApplyBlockText was dispatched with the node's path",
+    JSON.stringify(sent[0]) === JSON.stringify({ ApplyBlockText: { path: [{ Key: "name" }], text: "other = 1\n" } }),
+  );
+  check("a rejected Block keeps the sheet open", closeSheetsCalls === 0);
+  check("a rejected Block keeps the user's own text in the buffer", sheetsExt._txt.value === "other = 1\n");
+  check("the error is never written into the buffer", !sheetsExt._txt.value.includes("not applied"));
+}
+
+// ---- 4b. The accepted Block closes, same signal (doc_revision moved) ----
+console.log("\n-- openExternalEdit(): an accepted Block closes --");
+{
+  const sheetsExt = freshEnv();
+  let rev = 5;
+  mod.setEnv({
+    snap: { clipboard_count: 0, get doc_revision() { return rev; } },
+    send: (i) => { sent.push(i); rev = 6; },
+  });
+  mod.openExternalEdit({ initial: "name = 1\n", kind: { Value: { path: [{ Key: "name" }] } } });
+  sheetsExt._txt.value = "renamed = 1\n";
+  sheetsExt._applyBtn.onclick();
+  check("an accepted Block closes the sheet", closeSheetsCalls === 1);
 }
 
 // ---- 5. Comment edits (always per-node — never empty path) keep closing unconditionally ----

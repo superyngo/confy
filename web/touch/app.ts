@@ -1093,21 +1093,24 @@ function openExternalEdit(ext: { initial: string; kind: unknown }) {
   const txt = sheets.ext.querySelector<HTMLTextAreaElement>(".ext-text")!;
   txt.value = ext.initial;
   // Apply is wired directly (no data-act) so the shell delegation never double-fires.
-  // R19: a whole-file edit (empty path) must NOT close on a failed Apply — closing
-  // unconditionally would silently discard the entire buffer on an unparsable edit,
-  // unlike a per-node edit where a failure just leaves that one field unchanged
-  // elsewhere. Detect failure the same way the desktop Raw pane does: doc_revision
-  // does not move. Per-node edits (path.length > 0) keep the prior unconditional close.
+  // R19 + BEHAVIOR_MATRIX §6.3: a rejected commit must NOT close the sheet —
+  // closing would silently discard the buffer, and for a Block edit the whole
+  // point is that the user keeps their text (the TUI re-spawns `$EDITOR` with
+  // it; this host just leaves the sheet up). What used to be a whole-file-only
+  // rule is now the rule for every value edit. Failure is detected the way the
+  // desktop Raw pane detects it: `doc_revision` does not move.
   sheets.ext.querySelector<HTMLElement>(".ext-apply")!.onclick = () => {
-    const isDocumentEdit = path.length === 0;
-    const beforeRev = snap?.doc_revision;
-    if (!isDocumentEdit) closeSheets();
-    if (kind.Value) send({ ApplyReplace: { path, text: txt.value } });
-    else send({ ApplyEditComment: { path, text: txt.value } });
-    if (isDocumentEdit) {
-      if (snap?.doc_revision === beforeRev) return;
+    if (!kind.Value) {
       closeSheets();
+      send({ ApplyEditComment: { path, text: txt.value } });
+      return;
     }
+    const beforeRev = snap?.doc_revision;
+    // The empty path is the whole-document edit (ADR 0014), not a Block.
+    if (path.length === 0) send({ ApplyReplace: { path, text: txt.value } });
+    else send({ ApplyBlockText: { path, text: txt.value } });
+    if (snap?.doc_revision === beforeRev) return;
+    closeSheets();
   };
   openSheet("ext");
   // preventScroll: `.app` is position:absolute (scrolls with the page), and
