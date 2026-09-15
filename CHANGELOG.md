@@ -12,6 +12,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 2026-09-15
 
+**Fixed**
+
+- The Block editor's cursor re-anchor made a **key rename** quadratic: it asked the backend
+  for every node's spans, and each such query serializes and projects the whole document. A
+  rename in a 37 KB / 3,000-node TOML file took **20.7 s** (500 sections: 4.5 s; 200: 0.65 s),
+  while the same edit that keeps its key took 26 ms — the re-anchor only runs when the
+  pre-edit path stops resolving, which is exactly a rename. It now reads the projected
+  `Node::text_range` that `project()` already filled: **25 ms** for that same rename, flat
+  against the same-key cost. (Introduced in this same unreleased series, so no shipped
+  release is affected.)
+
 **Changed**
 
 - The multi-line editor (`e` / `$EDITOR`) now edits a Node's **Block** — the text of the byte

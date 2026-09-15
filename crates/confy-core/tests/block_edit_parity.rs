@@ -299,3 +299,48 @@ fn block_edit_matrix() {
         failures.join("\n---\n")
     );
 }
+
+/// A key rename makes the pre-edit path vanish, so the commit takes the §5
+/// span re-anchor. That re-anchor used to ask the backend for **every** node's
+/// spans, and each such query serializes + projects the whole document: this
+/// document took 20.9s before, against 26ms for the same edit that keeps its
+/// key. The wall-clock assertion is the point of the test — a correct
+/// re-anchor is linear, so the bound is loose enough to survive a slow CI box
+/// and still fail the quadratic version by three orders of magnitude.
+#[test]
+fn a_rename_reanchor_stays_linear_on_a_large_document() {
+    let mut src = String::from("title = \"perf\"\n\n");
+    for i in 0..1000 {
+        src.push_str(&format!(
+            "[sec{i}]\nname = \"s {i}\"\nport = {}\n\n",
+            8000 + i
+        ));
+    }
+    let doc = AnyDocument::from_str_as(&src, DocFormat::Toml).unwrap();
+    let mut s = Session::new(doc);
+    let path = vec![Seg::Key("sec500".into()), Seg::Key("port".into())];
+    // The re-anchor only shows in `cursor` once the row is visible: the
+    // trailing `compute_rows` snaps a cursor inside a collapsed branch to the
+    // first row, which would mask it.
+    s.dispatch(Intent::ExpandAll);
+    assert_eq!(s.block_text(&path), "port = 8500\n\n");
+
+    let t = std::time::Instant::now();
+    s.dispatch(Intent::ApplyBlockText {
+        path,
+        text: "renamed = 8500\n\n".to_string(),
+    });
+    let elapsed = t.elapsed();
+
+    assert!(
+        s.serialize().unwrap_or_default().contains("renamed = 8500"),
+        "the rename did not land: {:?}",
+        s.notice
+    );
+    // The cursor followed the renamed node (§5's span re-anchor).
+    assert_eq!(s.cursor.last(), Some(&Seg::Key("renamed".into())));
+    assert!(
+        elapsed < std::time::Duration::from_secs(2),
+        "rename re-anchor took {elapsed:?} — the per-node span query is back"
+    );
+}

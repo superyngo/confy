@@ -847,19 +847,23 @@ impl Session {
 
     /// The path of the first node in document order whose own span starts at
     /// or after `offset`. Used only by the Block re-anchor above.
+    ///
+    /// Reads the **projected** `Node::text_range`, which `project()` already
+    /// filled from the token in hand, rather than re-asking the backend for
+    /// each node's spans: `node_text_spans` serializes and projects the whole
+    /// document per call, so one query per node made a rename quadratic
+    /// (measured 20.9s on a 37KB / 3,000-node file before this).
     fn path_at_offset(&self, offset: usize) -> Option<Path> {
-        let doc = self.doc.as_ref()?;
-        let mut best: Option<(usize, Path)> = None;
+        let mut best: Option<(usize, &Path)> = None;
         let mut stack: Vec<&crate::model::node::Node> = self.tree.root.children.iter().collect();
         while let Some(n) = stack.pop() {
-            if let Some(&(start, _)) = doc.node_text_spans(&n.path).first() {
-                if start >= offset && best.as_ref().is_none_or(|(b, _)| start < *b) {
-                    best = Some((start, n.path.clone()));
-                }
+            let start = n.text_range.start;
+            if start >= offset && best.as_ref().is_none_or(|(b, _)| start < *b) {
+                best = Some((start, &n.path));
             }
             stack.extend(n.children.iter());
         }
-        best.map(|(_, p)| p)
+        best.map(|(_, p)| p.clone())
     }
 
     /// Non-empty-path `ApplyReplace`: `text` is the fragment's complete,
