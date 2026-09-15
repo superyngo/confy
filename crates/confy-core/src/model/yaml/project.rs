@@ -68,6 +68,7 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, YamlIndex)
 fn flush_comment_block(
     comment_lines: &mut Vec<String>,
     first_comment_tok: &mut Option<SyntaxToken>,
+    last_comment_tok: &mut Option<SyntaxToken>,
     parent_path: &[Seg],
     out: &mut Vec<Node>,
     idx: &mut YamlIndex,
@@ -77,7 +78,12 @@ fn flush_comment_block(
     }
     let text = comment_lines.join("\n");
     let tok = first_comment_tok.take().expect("set when non-empty");
-    let text_range = to_range(tok.text_range());
+    // The run is several COMMENT tokens (the lexer does not merge them), so the
+    // node's range is the first token's start to the **last** token's end. The
+    // index still carries the first token — every consumer that walks from it
+    // (delete, block text) wants the block's head.
+    let last = last_comment_tok.take().expect("set when non-empty");
+    let text_range = usize::from(tok.text_range().start())..usize::from(last.text_range().end());
     let i = out.len();
     let mut path = parent_path.to_vec();
     path.push(Seg::Index(i));
@@ -108,6 +114,7 @@ fn flush_comment_block(
 struct CommentAccumulator {
     lines: Vec<String>,
     first_tok: Option<SyntaxToken>,
+    last_tok: Option<SyntaxToken>,
     seen_newline: bool,
 }
 
@@ -117,6 +124,7 @@ impl CommentAccumulator {
         if self.lines.is_empty() {
             self.first_tok = Some(tok.clone());
         }
+        self.last_tok = Some(tok.clone());
         self.lines.push(tok.text().trim_end().to_string());
         self.seen_newline = false;
     }
@@ -135,7 +143,14 @@ impl CommentAccumulator {
 
     /// Emit the merged block (if any) as a Comment node.
     fn flush(&mut self, parent_path: &[Seg], out: &mut Vec<Node>, idx: &mut YamlIndex) {
-        flush_comment_block(&mut self.lines, &mut self.first_tok, parent_path, out, idx);
+        flush_comment_block(
+            &mut self.lines,
+            &mut self.first_tok,
+            &mut self.last_tok,
+            parent_path,
+            out,
+            idx,
+        );
     }
 }
 

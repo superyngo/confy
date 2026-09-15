@@ -42,13 +42,9 @@ pub(crate) fn node_text_spans(tree: &SyntaxNode, path: &[Seg]) -> Vec<(usize, us
         return Vec::new();
     };
     let (node_start, node_end) = match &target {
-        // A multi-line `#` block projects as ONE Comment node, but its
-        // `text_range` (like the index's token) covers only the **first**
-        // line, so the block's end has to be walked here.
-        Target::Comment(_) => (
-            node.text_range.start,
-            comment_block_end(node.text_range.end, &full),
-        ),
+        // A multi-line `#` block projects as ONE Comment node whose range
+        // spans the whole run (`project.rs`'s `flush_comment_block`).
+        Target::Comment(_) => (node.text_range.start, node.text_range.end),
         Target::MapEntry(n) | Target::Element(n) | Target::Opaque(n) => {
             if matches!(n.kind(), SyntaxKind::FLOW_MAP | SyntaxKind::FLOW_SEQ) {
                 (node.text_range.start, node.text_range.end)
@@ -73,13 +69,12 @@ pub(crate) fn node_text_spans(tree: &SyntaxNode, path: &[Seg]) -> Vec<(usize, us
     };
     let span = if owns_line {
         // `extent_end_offset` covers a block node's more-indented children,
-        // which `text_range` alone does not. It refuses an opaque node/value
-        // (rule 2) and reports a comment block's *first* line only, so those
-        // two fall back to the range resolved above.
-        let end = match (&target, extent_end_offset(tree, &idx, path)) {
-            (Target::Comment(_), _) => node_end,
-            (_, Ok(end)) => end,
-            (_, Err(_)) => blank_lines::line_boundary_at(&full, node_end),
+        // which `text_range` alone does not, and walks a comment block's
+        // remaining `#` lines. It refuses an opaque node/value (rule 2), which
+        // falls back to the range resolved above.
+        let end = match extent_end_offset(tree, &idx, path) {
+            Ok(end) => end,
+            Err(_) => blank_lines::line_boundary_at(&full, node_end),
         };
         (start, end + blank_lines::measure(&full, end).1)
     } else {
@@ -89,23 +84,6 @@ pub(crate) fn node_text_spans(tree: &SyntaxNode, path: &[Seg]) -> Vec<(usize, us
     };
     debug_assert!(span.0 <= span.1, "inverted YAML span {span:?}");
     vec![span]
-}
-
-/// The byte offset just past the last `#` line of the comment block whose
-/// first line ends at `first_line_end`: consecutive comment lines, ended by a
-/// blank line or any real node — the same run `CommentAccumulator` merges into
-/// one projected node.
-fn comment_block_end(first_line_end: usize, full: &str) -> usize {
-    let mut end = blank_lines::line_boundary_at(full, first_line_end);
-    loop {
-        let rest = &full[end..];
-        let line = rest.split_inclusive('\n').next().unwrap_or("");
-        if line.trim_start().starts_with('#') {
-            end += line.len();
-        } else {
-            return end;
-        }
-    }
 }
 
 /// `at`'s own line start — never past `at`.
@@ -177,6 +155,25 @@ mod tests {
         assert_eq!(
             spans_of("a: 1\n\n\nb: 2\n", &[key("a")]),
             vec!["a: 1\n\n\n"]
+        );
+    }
+
+    #[test]
+    fn comment_block_trailing_run_is_measured_after_the_whole_block() {
+        // The lexer does not merge a `#` run, so the block's extent has to walk
+        // past its first line — a 2-line block followed by two blanks used to
+        // report 0, measuring the blanks after line 1.
+        let doc = YamlDocument::from_str("# one\n# two\n\n\na: 1\n").unwrap();
+        let path = [Seg::Index(0)];
+        assert_eq!(doc.trailing_blank_lines(&path), Some(2));
+        assert_eq!(
+            doc.project().root.children[0].text_range,
+            0..11,
+            "the node's range spans both `#` lines"
+        );
+        assert_eq!(
+            spans_of("# one\n# two\n\n\na: 1\n", &path),
+            vec!["# one\n# two\n\n\n"]
         );
     }
 

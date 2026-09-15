@@ -38,6 +38,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   group (spec §3's third multi-span shape), the "a preceding standalone Comment is excluded"
   rule for JSON and YAML (previously TOML-only), and eight parity-matrix rows for the shapes
   JSON/YAML had none — branch, array element / sequence item, flow member, comment block.
+- YAML: a multi-line `#` comment block's **trailing blank count** was measured after its
+  *first* line, not after the block, so the Detail popup's `Blank after:` read 0 for a 2-line
+  block followed by two blank lines (and `SetTrailingBlankLines` anchored at the wrong
+  offset). The projection recorded only the run's first token — the lexer does not merge a
+  `#` run, contrary to what the extent code's own comment claimed. The Comment node's range
+  now spans first-token start to last-token end, and the extent walk continues through the
+  block's remaining lines; the two local workarounds this had grown in the span walk are gone
+  with it, so the block's end has one algorithm.
 
 **Changed**
 

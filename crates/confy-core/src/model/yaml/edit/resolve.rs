@@ -77,6 +77,7 @@ pub(crate) fn extent_end_offset(
     if is_opaque(idx, path) {
         return Err(MutateError::Unsupported);
     }
+    let full = tree.to_string();
     let at = match resolve_in(idx, path).ok_or(MutateError::NotFound)? {
         Target::MapEntry(n) | Target::Element(n) => {
             if super::block::entry_has_opaque_value(&n) {
@@ -92,17 +93,34 @@ pub(crate) fn extent_end_offset(
             usize::from(n.text_range().end())
         }
         // A comment *block*: past its last `#` line. Consecutive lines project
-        // as one Comment node, so the run follows the whole block. The token
-        // spans the block already (the lexer merges the run), so its own end is
-        // the block's end.
-        Target::Comment(t) => usize::from(t.text_range().end()),
+        // as one Comment node, so the run follows the whole block — and the
+        // lexer does **not** merge the run, so the indexed token covers only
+        // the block's first line and the rest has to be walked.
+        Target::Comment(t) => comment_block_end(usize::from(t.text_range().end()), &full),
         Target::Opaque(_) => return Err(MutateError::Unsupported),
     };
-    let full = tree.to_string();
+
     // Belt and braces with the FLOW check above: the shared line-ownership rule
     // (`blank_lines::owns_line_tail`) states it for every backend.
     if !crate::model::blank_lines::owns_line_tail(&full, at, &["#"]) {
         return Err(MutateError::Unsupported);
     }
     Ok(crate::model::blank_lines::anchor_at(&full, at))
+}
+
+/// The byte offset just past the last `#` line of the comment block whose
+/// first line ends at `first_line_end`: consecutive comment lines, ended by a
+/// blank line or any real node — the same run `CommentAccumulator` merges into
+/// one projected node.
+pub(crate) fn comment_block_end(first_line_end: usize, full: &str) -> usize {
+    let mut end = crate::model::blank_lines::line_boundary_at(full, first_line_end);
+    loop {
+        let rest = &full[end..];
+        let line = rest.split_inclusive('\n').next().unwrap_or("");
+        if line.trim_start().starts_with('#') {
+            end += line.len();
+        } else {
+            return end;
+        }
+    }
 }
