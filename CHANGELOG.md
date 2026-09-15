@@ -28,6 +28,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Fixed**
 
+- The Microsoft Store MSIX package's `confy` command-line alias launched the **GUI app**
+  instead of the bundled TUI binary. `AppxManifest.xml` declared the
+  `windows.appExecutionAlias` extension under the GUI's `<Application Id="confy"
+  Executable="confy-desktop.exe">` node; an App Execution Alias always launches the
+  `Executable` of the `<Application>` node it's declared under, regardless of which
+  same-named file the package also happens to contain, so the alias silently resolved to
+  `confy-desktop.exe`. Fixed by giving the TUI binary its own `<Application
+  Id="confy-cli" Executable="confy.exe">` node (`AppListEntry="none"`, hidden from the
+  Start menu) and moving the alias extension there.
+
 - Cross-format convert's lossy-normalization warnings are **translated** now. All thirteen
   of them (three schema-hint drops, eight style normalizations, two semantic-loss
   conversions) were raw English in every surface — CLI stderr, the TUI convert overlay, the

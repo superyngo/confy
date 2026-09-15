@@ -68,9 +68,28 @@
             </uap:SupportedFileTypes>
           </uap:FileTypeAssociation>
         </uap:Extension>
+      </Extensions>
+    </Application>
+    <!-- Separate Application entry for the bundled TUI binary: an
+         AppExecutionAlias always launches the Executable of the Application
+         node it is declared under, not just any same-named file in the
+         package, so the alias needs its own node pointing at confy.exe
+         rather than sitting under the GUI's Application above (which used
+         to make `confy`/the alias silently launch confy-desktop.exe
+         instead of the TUI). AppListEntry="none" keeps it out of the Start
+         menu / search results, since only the GUI app should show there. -->
+    <Application Id="confy-cli" Executable="confy.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        AppListEntry="none"
+        DisplayName="confy (CLI)"
+        Description="Terminal UI for TOML / JSON / JSONC / YAML config files"
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png" />
+      <Extensions>
         <!-- Expose the bundled TUI binary on PATH: after install, `confy`
-             resolves via %LOCALAPPDATA%\Microsoft\WindowsApps to the
-             package's confy.exe. -->
+             resolves via %LOCALAPPDATA%\Microsoft\WindowsApps to this
+             Application's confy.exe. -->
         <uap3:Extension Category="windows.appExecutionAlias">
           <uap3:AppExecutionAlias>
             <desktop:ExecutionAlias Alias="confy.exe" />
