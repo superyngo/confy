@@ -12,6 +12,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 2026-09-15
 
+**Fixed**
+
+- TOML: a value `Replace` whose fragment spells a **different key** is now rejected as
+  `Fragment` instead of applying the value and dropping the key silently — renaming a key in
+  the `$EDITOR`/pop-up buffer used to report success and change nothing. The synthetic carriers
+  `__k__`/`__elem__` mean "no key" and stay exempt, so the inline editor, kind switch and
+  array-element edits are unaffected. `docs/reference/MUTATIONS.md`'s `Replace` row promised
+  this rejection already; it now describes what the code does, including the surplus-*nodes*
+  gap that remains until the block editor moves to the whole-file route
+  ([spec](docs/spec/2026-09-15-block-edit-whole-file-reparse-design.md)).
+
 **Docs — second documentation audit: `CLAUDE.md` splits, 42 drift defects fixed**
 
 Record: [`docs/audit/2026-09-15-documentation-audit.md`](docs/audit/2026-09-15-documentation-audit.md).

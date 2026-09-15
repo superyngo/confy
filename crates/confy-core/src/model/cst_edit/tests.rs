@@ -120,6 +120,33 @@ fn replace_scalar_applies_edited_trailing_comment() {
 }
 
 #[test]
+fn replace_leaf_rejects_a_fragment_whose_key_differs() {
+    // The fragment is the node's *complete* representation, so a differing key
+    // used to be dropped silently: the value applied, the rename vanished, no
+    // notice (MUTATIONS.md `Replace`, F14).
+    let mut d = doc("[s]\nk1 = 1\n");
+    let err = d
+        .apply(Mutation::Replace {
+            path: vec![Seg::Key("s".into()), Seg::Key("k1".into())],
+            fragment: "renamed = 1\n".into(),
+        })
+        .unwrap_err();
+    assert!(matches!(err, MutateError::Fragment(_)), "got {err:?}");
+    assert_eq!(d.serialize(), "[s]\nk1 = 1\n", "rejection must be atomic");
+}
+
+#[test]
+fn replace_leaf_accepts_a_fragment_repeating_the_same_key() {
+    let mut d = doc("[s]\nk1 = 1\n");
+    d.apply(Mutation::Replace {
+        path: vec![Seg::Key("s".into()), Seg::Key("k1".into())],
+        fragment: "k1 = 2\n".into(),
+    })
+    .unwrap();
+    assert_eq!(d.serialize(), "[s]\nk1 = 2\n");
+}
+
+#[test]
 fn replace_array_element_in_place() {
     let mut d = doc("arr = [0x1, 0o2, 3] # tail\n");
     d.apply(Mutation::Replace {

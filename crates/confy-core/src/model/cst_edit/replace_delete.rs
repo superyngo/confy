@@ -446,6 +446,7 @@ pub(crate) fn replace_value(
         return Ok(None);
     }
 
+    let is_keyed_entry = matches!(target, Target::Entry(_));
     let value = match target {
         Target::Entry(entry) => entry
             .children()
@@ -461,6 +462,33 @@ pub(crate) fn replace_value(
         return Err(MutateError::Fragment(e.to_string()));
     }
     let frag = parse.into_syntax().clone_for_update();
+    // A keyed entry's fragment is the node's *complete* representation, so a
+    // key it spells out must be the node's own: only the VALUE's content is
+    // swapped below, so a differing key would be applied nowhere and reported
+    // nowhere (MUTATIONS.md `Replace`, F14).
+    //
+    // The two synthetic carrier keys are exempt, because they mean "no key":
+    // a value-only fragment is spelled `__k__ = <value>` (`cst_doc.rs:239`,
+    // the kind-switch builders in `convert.rs`) and an array element's
+    // `__elem__ = <value>` (`scalar_fragment(None, …)`). `inline_edit.rs`
+    // already reads `__elem__` as keyless.
+    if is_keyed_entry {
+        if let Some(Seg::Key(want)) = path.last() {
+            let frag_key = walk(&frag, "")
+                .0
+                .root
+                .children
+                .first()
+                .map(|n| n.key.clone())
+                .unwrap_or_default();
+            let synthetic = frag_key.is_empty() || frag_key == "__k__" || frag_key == "__elem__";
+            if !synthetic && &frag_key != want {
+                return Err(MutateError::Fragment(format!(
+                    "fragment key `{frag_key}` does not match `{want}`"
+                )));
+            }
+        }
+    }
     let new_value = frag
         .descendants()
         .find(|n| n.kind() == SyntaxKind::VALUE)
