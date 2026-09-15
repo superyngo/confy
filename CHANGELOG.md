@@ -10,6 +10,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 2026-09-15
+
+**Changed — Raw write mode's crumbs-row band: two symmetric controls**
+
+- The band is now **Edit → Apply** plus **Cancel** (was View⇄Edit toggle / Apply / Cancel).
+  The first control is an **action** whose label is the effect of pressing it: `Edit` in Raw
+  view, accent-filled as the one thing to do there; `Apply` in Raw write, with the fill
+  dropped so it sits level with `Cancel`.
+- **Both controls now leave write mode**: Apply commits the buffer *and* exits, Cancel
+  discards back to the last applied text *and* exits (no confirm — the press is the answer).
+  A *failed* Apply is the one case that stays put, keeping the buffer and its notice.
+- Neither is gated on a dirty buffer any more: they are the mode's two exits, so a clean
+  buffer still has a way out. `#btnRawApply` and the orphaned `web.raw.controls.view` key are
+  removed; the pane's `input` listener goes with them.
+- `⌘↩` keeps its **apply-and-stay** meaning (the checkpoint you press while still typing);
+  `Esc` keeps R7's dirty-buffer confirm.
+- Docs: `CHROME.md` (band section + table), `WEBUI.md`, `KEYMAP.md`, `HOST_PARITY.md`, and
+  `docs/spec/2026-09-11-raw-write-mode-design.md` R4/R13 amended.
+
 ### Update - 2026-09-14 (22)
 
 **Changed — root-hidden alignment S6 (T12): the vocabulary and the records**

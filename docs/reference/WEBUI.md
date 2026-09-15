@@ -338,21 +338,25 @@ shapes round-trip). Key types:
   edit opens at the **empty path**: the Action menu's *Edit whole file* item
   (`ActionId::EditDocument`, always enabled, document-scoped) or the band's Edit control.
   `⌘↩` applies (`ApplyReplace { path: [], text }` via `apply_document_text`, staying in write
-  mode either way); `doc_revision` not moving is how the host detects a failed Apply and keeps
+  mode either way — the keyboard's checkpoint, unlike the band's Apply, which also exits);
+  `doc_revision` not moving is how the host detects a failed Apply and keeps
   the buffer verbatim instead of re-seeding it from a stale `serialize()`. `⌘S` applies-if-dirty
   then saves; a failed Apply's `⌘S` does not save. `Esc` confirm-gates only on a dirty buffer
   (R7); the header Tree/Raw toggle and a breadcrumb jump elsewhere in the document both route a
   dirty write-mode exit through the same gate — the toggle then lands on **Tree in one press**
   (`exitRawWrite("off")`, 2026-09-14: the button says Tree, so a stop in Raw view made it lie),
-  while `Esc` and the band's own toggle land on Raw view. Render never clobbers
+  while `Esc` lands on Raw view (as do the band's own Apply/Cancel). Render never clobbers
   the buffer while write mode is open (R8: the re-seed is reachable only from the `"view"`
   branch). Because Raw view's pane is a focusable textarea, `document.body`'s key delegation
   skips only a **writable** one — a readonly pane never swallows a shortcut. A crumbs-row
-  **control band** (`#rawControls`, R13) renders only while Raw is active: a View ⇄ Edit
-  **toggle** (its label is the state you are IN, blue while editing), Apply, Cancel — three same-size controls that are always present, with the
-  inapplicable one `disabled` (Apply and Cancel share one rule: write mode with a dirty
-  buffer; the toggle only under VS Code). Cancel discards the edits back to the last applied
-  text and stays in write mode. `CHROME.md` owns the
+  **control band** (`#rawControls`, R13) renders only while Raw is active: a primary
+  **action** whose label is the press's effect (`Edit` in Raw view, accent-filled; `Apply`
+  in Raw write, level with Cancel) plus **Cancel** — two same-size controls that are always
+  present, the inapplicable one `disabled` (Cancel outside write mode; the primary one only
+  under VS Code). Since 2026-09-15 **both leave write mode**: Apply commits the buffer and
+  exits (a *failed* Apply stays, keeping buffer + notice, R4), Cancel discards back to the
+  last applied text and exits, with no confirm — so neither is gated on dirtiness, a clean
+  buffer still needing a way out. `CHROME.md` owns the
   inventory. The breadcrumb bar itself stays visible and live in **both** Raw states, and a
   breadcrumb pick additionally selects the node's whole-member source span (key included, R29)
   in the Raw pane — one code path for both states now: `setSelectionRange` plus an **explicit**

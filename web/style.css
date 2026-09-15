@@ -638,17 +638,18 @@ body.raw-write #rawEdit {
   background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 body.raw-write #rawEdit:focus { box-shadow: inset 0 0 0 1px var(--accent); }
-/* The band's three controls are the same size in every state (2026-09-14):
+/* The band's two controls are the same size in every state (2026-09-14):
    nothing appears or disappears under the pointer, an unreachable control is
    greyed instead. */
 .raw-ctl { min-width: 62px; justify-content: center; text-align: center; }
 .raw-ctl:disabled { opacity: .42; cursor: default; }
-/* The Edit state reads like the header's Tree/Raw tab: the toggle carries the
-   state you are IN, so `.active` gets the same solid accent fill rather than
-   `.seg-btn.active`'s faint tint. The `#rawControls` prefix is load-bearing:
-   `.seg-btn.active` is declared LATER in this file, so an equal-specificity
-   rule here would lose to it. */
-#rawControls .raw-ctl.active { background: var(--accent); color: var(--bg); border-color: transparent; font-weight: 600; }
+/* The primary control is an ACTION, not a state indicator (2026-09-15): it
+   reads `Edit` in Raw view — the one thing to press there, so it carries the
+   solid accent fill — and `Apply` in Raw write, where it drops the fill to sit
+   level with Cancel (both are exits; neither outranks the other). The
+   `#rawControls` prefix is load-bearing: `.seg-btn.active` is declared LATER in
+   this file, so an equal-specificity rule here would lose to it. */
+#rawControls .raw-ctl.primary { background: var(--accent); color: var(--bg); border-color: transparent; font-weight: 600; }
 
 /* Clipboard source rows — solid full-row fills in the same visual language as
    the cursor's (ADR 0005 §2): cut = green, copy = purple. These rules sit

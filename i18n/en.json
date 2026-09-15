@@ -150,7 +150,6 @@
   "web.toolbar.viewToggle.tree": "Tree",
   "web.raw.write-hint": "⌘/Ctrl+Enter Apply · ⌘/Ctrl+S Apply & Save · Esc Exit editing",
   "web.raw.discard-confirm": "Discard unapplied changes to the whole file?",
-  "web.raw.controls.view": "View",
   "web.raw.controls.edit": "Edit",
   "web.raw.controls.apply": "Apply",
   "web.raw.controls.cancel": "Cancel",

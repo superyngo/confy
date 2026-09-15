@@ -423,10 +423,8 @@ function applyRawEdit(): boolean {
     editEl.scrollTop = top;
     editEl.setSelectionRange(selStart, selEnd);
   }
-  // The band's Apply state is derived from the baseline, which this function
-  // moves *after* `send()`'s own render pass has already drawn it — so the
-  // freshly-clean buffer needs one more pass or Apply stays enabled.
-  renderRawControls();
+  // `renderRawControls` is not needed here: both band controls are enabled by
+  // the mode alone now (2026-09-15), and the mode did not change.
   return committed;
 }
 
@@ -459,16 +457,41 @@ function exitRawWrite(to: RawState = "view"): void {
   setRawState(to);
 }
 
-// The band's first control is one toggle, so both directions live in one
-// function (shared by the button, the overflow-menu entry): into write mode
-// via core's pending-edit flow, out of it via the same confirm-gated exit
-// Escape uses. VS Code (R10) never enters, so the toggle is disabled there.
-function toggleRawWrite(): void {
+// The band's first control is one ACTION button whose label is the effect of
+// pressing it (2026-09-15): `Edit` in Raw view enters write mode through
+// core's pending-edit flow, `Apply` in Raw write commits the buffer and
+// leaves. Shared by the button and the overflow-menu entry. VS Code (R10)
+// never enters, so it is disabled there.
+function rawPrimary(): void {
   if (rawState === "write") {
-    exitRawWrite();
+    applyRawAndExit();
     return;
   }
   if (!VSHOST) send("BeginEditDocument");
+}
+
+// The band's Apply (2026-09-15): commit *and* leave write mode, the mirror of
+// Cancel's discard-and-leave — both controls now end the mode, so neither is
+// a trap. Same shape as `rawEditSave`'s gate: a clean buffer just exits
+// (no pointless `doc_revision` bump), and a *failed* Apply returns early, so
+// R4 still holds — the buffer and the notice stay, nothing is lost. The
+// keyboard's `⌘↩` deliberately keeps its apply-and-stay meaning (KEYMAP.md):
+// it is the checkpoint you press while still typing.
+function applyRawAndExit(): void {
+  const editEl = $<HTMLTextAreaElement>("rawEdit");
+  if (editEl.value !== rawWriteBaseline && !applyRawEdit()) return;
+  exitRawWrite();
+}
+
+// The band's Cancel (2026-09-15): discard back to the last applied text and
+// leave write mode. No confirm — pressing a control labelled Cancel *is* the
+// confirmation (`exitRawWrite`'s own gate is then inert, the buffer being
+// clean by then); `Esc` keeps the confirm because it is a keystroke, not a
+// deliberate press on "discard".
+function cancelRawEdit(): void {
+  if (rawState !== "write") return;
+  revertRawEdit();
+  exitRawWrite();
 }
 
 // ⌘/Ctrl+Enter Apply, ⌘/Ctrl+S apply-if-dirty-then-save, Esc exit — the only
@@ -561,44 +584,41 @@ function scrollRawToOffset(el: HTMLTextAreaElement, text: string, offset: number
   el.scrollTop = Math.max(0, padTop + line * lineHeight - el.clientHeight / 3);
 }
 
-// R13 (amended 2026-09-14): the crumbs-row Raw control band — a 編輯/檢視
-// **toggle**, 套用, 取消: three same-size controls that are all present
+// R13 (amended 2026-09-15): the crumbs-row Raw control band — one primary
+// action (編輯 → 套用) plus 取消: two same-size controls that are both present
 // whenever Raw is active. Nothing appears or disappears under the pointer; a
 // control that does not apply to the live state is `disabled`, so the band's
-// geometry is static. The toggle's label is the **current** state — 檢視 while
-// viewing, 編輯 (blue/`.active`) while editing — the same reading as the
-// header's Tree/Raw button's own `.active`. Apply and Cancel share one enable
-// rule — a write buffer that differs from the last applied text — because
-// they are the two halves of the same decision: commit it or discard it.
-// There is no Save control here: ⌘S applies-then-saves and the header owns
-// the only Save.
+// geometry is static. The primary control's label is the **effect of pressing
+// it** — 編輯 in Raw view (accent-filled: the one thing to do there), 套用 in
+// Raw write, where it drops the fill to sit level with 取消 because both are
+// now exits (Apply = commit and leave, Cancel = discard and leave). They are
+// therefore enabled by the mode alone, not by a dirty buffer: a clean buffer
+// still needs a way out of write mode. There is no Save control here: ⌘S
+// applies-then-saves and the header owns the only Save.
 function renderRawControls() {
   const band = $("rawControls");
   band.classList.toggle("hidden", rawState === "off");
   if (rawState === "off") return;
   const editBtn = $<HTMLButtonElement>("btnRawEdit");
   const writing = rawState === "write";
-  const label = t(writing ? "web.raw.controls.edit" : "web.raw.controls.view");
+  const label = t(writing ? "web.raw.controls.apply" : "web.raw.controls.edit");
   $("btnRawEditLabel").textContent = label;
   editBtn.title = label;
-  editBtn.setAttribute("aria-pressed", String(writing));
-  editBtn.classList.toggle("active", writing);
+  editBtn.classList.toggle("primary", !writing);
   // R10: VS Code's own TextDocument is this feature's single owner — the
   // control that would open a second editable copy is unreachable there
   // (disabled rather than hidden, so the band stays the same size). Write
-  // mode is therefore never reached, so disabling the toggle outright can't
-  // trap anyone in it.
+  // mode is therefore never reached, so disabling it outright can't trap
+  // anyone in it.
   editBtn.disabled = VSHOST;
-  const dirty = writing && $<HTMLTextAreaElement>("rawEdit").value !== rawWriteBaseline;
-  $<HTMLButtonElement>("btnRawApply").disabled = !dirty;
-  $<HTMLButtonElement>("btnRawCancel").disabled = !dirty;
+  $<HTMLButtonElement>("btnRawCancel").disabled = !writing;
 }
 
-// Cancel: discard the edits back to the last applied text and stay in write
-// mode (the Apply/Cancel pair is about the *changes*, not about the mode —
-// leaving write mode is the toggle's and Escape's job). The scroll position
-// is preserved around the re-seed for the same reason `applyRawEdit` does
-// it: assigning `.value` resets the pane, which is the scroll container.
+// Cancel's first half: discard the edits back to the last applied text. The
+// mode change is `cancelRawEdit`'s second half — this function only touches
+// the buffer (`applyRawEdit` is its mirror image). The scroll position is
+// preserved around the re-seed for the same reason: assigning `.value`
+// resets the pane, which is the scroll container.
 function revertRawEdit() {
   const editEl = $<HTMLTextAreaElement>("rawEdit");
   if (rawState !== "write" || rawWriteBaseline === null || editEl.value === rawWriteBaseline) return;
@@ -2191,9 +2211,16 @@ const TOOLBAR_ENTRIES: ToolbarEntry[] = [
   { key: "btnExpandAll", labelKey: "web.toolbar.expandAll.title", run: () => send("ExpandAll") },
   { key: "btnCollapseAll", labelKey: "web.toolbar.collapseAll.title", run: () => send("CollapseAll") },
   { key: "btnViewToggle", labelKey: "web.toolbar.viewToggle.title", run: () => (rawState === "write" ? exitRawWrite("off") : setRawState(rawState === "off" ? "view" : "off")) },
-  { key: "btnRawEdit", labelKey: "web.raw.controls.edit", run: () => toggleRawWrite() },
-  { key: "btnRawApply", labelKey: "web.raw.controls.apply", run: () => applyRawEdit() },
-  { key: "btnRawCancel", labelKey: "web.raw.controls.cancel", run: () => revertRawEdit() },
+  // The primary control's menu row carries the same state-dependent label the
+  // button does (a getter: `TOOLBAR_ENTRIES` is built once, read per menu).
+  {
+    key: "btnRawEdit",
+    get labelKey() {
+      return rawState === "write" ? "web.raw.controls.apply" : "web.raw.controls.edit";
+    },
+    run: () => rawPrimary(),
+  },
+  { key: "btnRawCancel", labelKey: "web.raw.controls.cancel", run: () => cancelRawEdit() },
 ];
 
 // The "⋯ More" overflow menu (shown only under the narrow breakpoint): only the
@@ -2201,12 +2228,12 @@ const TOOLBAR_ENTRIES: ToolbarEntry[] = [
 // current width, as a popup.
 // Candidates that are only ever "folded" (in the `isToolbarFolded` sense) for
 // a business reason, not a narrow width: the raw-controls band is hidden
-// outright when Raw is off, and Apply/Cancel are inert within it unless Raw
+// outright when Raw is off, and Cancel is inert within it unless Raw
 // is in write mode. `isToolbarFolded`'s `offsetParent === null` check can't
 // tell "hidden by width" from "hidden by state", so exclude them here
 // instead of letting them appear in the overflow menu whenever Raw is off.
 const RAW_PAIR_KEYS: Record<string, true> = { btnRawEdit: true };
-const RAW_ACTION_KEYS: Record<string, true> = { btnRawApply: true, btnRawCancel: true };
+const RAW_ACTION_KEYS: Record<string, true> = { btnRawCancel: true };
 function buildMoreMenu(): HTMLElement {
   let candidates = TOOLBAR_ENTRIES;
   if (rawState === "off") {
@@ -2324,9 +2351,8 @@ function bindConvertDialog() {
 function bindGlobal() {
   tree.addEventListener("keydown", onKey);
   $("rawEdit").addEventListener("keydown", (ev) => onRawEditKey(ev as KeyboardEvent));
-  // Keeps Apply's enabled state honest between renders: dirtiness is a
-  // property of the buffer, which only typing changes.
-  $("rawEdit").addEventListener("input", renderRawControls);
+  // No `input` listener on the pane: neither band control's enabled state
+  // depends on the buffer's dirtiness any more (2026-09-15).
   // Prompt overlay Yes/No/… buttons (renderOverlay rewrites the innerHTML per
   // render; the delegated listener on the stable #overlay survives).
   bindPromptClicks(overlay, (i) => send(i));
@@ -2432,12 +2458,12 @@ function bindGlobal() {
     }
     setRawState(rawState === "off" ? "view" : "off");
   });
-  // R13: the crumbs-row Raw control band — one toggle plus the Apply/Cancel
-  // pair (both inert unless the write buffer is dirty; the render disables
-  // them, these guards keep a programmatic click honest).
-  $("btnRawEdit").addEventListener("click", () => toggleRawWrite());
-  $("btnRawApply").addEventListener("click", () => applyRawEdit());
-  $("btnRawCancel").addEventListener("click", () => revertRawEdit());
+  // R13: the crumbs-row Raw control band — the primary action (Edit → Apply)
+  // plus Cancel; both leave write mode (the render disables Cancel outside
+  // it, and these functions re-check the state so a programmatic click is
+  // honest too).
+  $("btnRawEdit").addEventListener("click", () => rawPrimary());
+  $("btnRawCancel").addEventListener("click", () => cancelRawEdit());
   // Floating add / paste / actions button — mirrors the touch FAB. Armed
   // clipboard presses Paste directly; otherwise it opens the centralized
   // Action menu (design doc `docs/spec/2026-08-30-action-menu-design.md`).

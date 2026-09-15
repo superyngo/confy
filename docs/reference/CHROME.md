@@ -85,38 +85,40 @@ check (parses both markup and registry, asserts the id/`data-act` sets match).
 
 A third row — `.crumbs-row`, wrapping the breadcrumb `<nav>` plus a `#rawControls` band —
 renders only while `rawState !== "off"` (`docs/spec/2026-09-11-raw-write-mode-design.md`
-R13, amended 2026-09-14; `WEBUI.md`'s Tree | Raw view | Raw write entry has the full
-behavior). **Three** buttons, all `TOOLBAR_ENTRIES` members, all `data-foldable="true"`,
-and all the same width (`.raw-ctl { min-width: 62px }`): the band's geometry is static, so
+R13, amended 2026-09-15; `WEBUI.md`'s Tree | Raw view | Raw write entry has the full
+behavior). **Two** buttons, both `TOOLBAR_ENTRIES` members, both `data-foldable="true"`,
+and both the same width (`.raw-ctl { min-width: 62px }`): the band's geometry is static, so
 nothing appears or disappears under the pointer as the state changes. A control that does
 not apply to the live state is `disabled`, never hidden.
 
 | Control | Desktop id | Enabled when | i18n title key |
 |---|---|---|---|
-| **View ⇄ Edit** (one toggle) | `#btnRawEdit` | always, except **disabled under VS Code** (R10) | `web.raw.controls.view` in Raw view, `web.raw.controls.edit` in Raw write |
-| Apply | `#btnRawApply` | Raw write **and** a dirty document buffer | `web.raw.controls.apply` |
-| Cancel | `#btnRawCancel` | identical to Apply's rule | `web.raw.controls.cancel` |
+| **Edit → Apply** (the primary action) | `#btnRawEdit` | always, except **disabled under VS Code** (R10) | `web.raw.controls.edit` in Raw view, `web.raw.controls.apply` in Raw write |
+| Cancel | `#btnRawCancel` | Raw write (the mode alone — not dirtiness) | `web.raw.controls.cancel` |
 
-The first control is a **toggle**, not a pair (amended 2026-09-14): its label/title is the
-**current** state — View while viewing, Edit (blue, `.active`, `aria-pressed`) while editing.
-It reads as a state indicator you press to leave, which is what `.active` already meant on the
-header's Tree/Raw button. Pressing
-it while editing takes the same confirm-gated exit `Esc` does, so a dirty buffer is never
-lost silently. Apply and Cancel share **one** enable rule because they are the two halves of
-the same decision: commit the changes or discard them. Cancel re-seeds the pane from the
-last-applied text (scroll preserved) and **stays in write mode** — leaving the mode is the
-toggle's and `Esc`'s job.
+The first control is an **action**, not a state toggle (amended 2026-09-15): its label/title
+is the **effect of pressing it** — `Edit` in Raw view, `Apply` in Raw write. In Raw view it
+carries the solid accent fill (`.primary`) as the one thing to do there; in Raw write it
+drops the fill to sit level with Cancel, because the two are now symmetric **exits**:
+**Apply commits the buffer and leaves** write mode, **Cancel discards it and leaves**. That
+symmetry is also why neither is gated on a dirty buffer — a clean buffer still needs a way
+out. A *failed* Apply is the one case that does not leave: the buffer and its notice stay
+(R4). Cancel asks for no confirmation — pressing a control labelled Cancel *is* the answer —
+while `Esc` keeps R7's confirm because it is a keystroke, not a deliberate press on
+"discard".
 
 There is deliberately **no Save button**: `⌘S` still means apply-if-dirty-then-save
 (`KEYMAP.md`), and the header already owns the one Save control. It was removed on
 2026-09-14 as an unrequested duplicate.
 
 The band is excluded from the "⋯ More" overflow menu whenever it is hidden for a
-**business reason** (Raw off, or Apply/Cancel outside write mode) rather than a narrow-width
+**business reason** (Raw off, or Cancel outside write mode) rather than a narrow-width
 fold — `isToolbarFolded`'s `offsetParent === null` check can't distinguish the two causes,
 so `ui.ts`'s `buildMoreMenu` filters `RAW_PAIR_KEYS`/`RAW_ACTION_KEYS` (and, under
-`VSHOST`, `btnRawEdit`) out of the candidate list before folding runs. No touch
-equivalent — touch has no write mode or control band of its own (R18/R19).
+`VSHOST`, `btnRawEdit`) out of the candidate list before folding runs. The primary control's
+menu row takes its label from a `labelKey` **getter**, so it reads `Apply` in write mode
+exactly as the button does. No touch equivalent — touch has no write mode or control band of
+its own (R18/R19).
 
 ## Per-host chrome trimming
 

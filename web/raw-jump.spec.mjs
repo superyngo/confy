@@ -108,9 +108,8 @@ function freshGlobalEnv(spans, opts = {}) {
   els = {
     rawEdit: mkEl({ value: opts.editValue ?? "text" }),
     rawControls: mkEl(),
-    btnRawEdit: mkEl({ setAttribute(k, v) { this[k] = v; } }),
+    btnRawEdit: mkEl(),
     btnRawEditLabel: mkEl(),
-    btnRawApply: mkEl(),
     btnRawCancel: mkEl(),
   };
   statusTextCalls = [];
@@ -183,8 +182,8 @@ console.log("\n-- jumpSelectRawSpan(): R17 dirty write buffer is gated --");
   check("status reports web.raw.jump-needs-apply instead", statusTextCalls.length === 1);
 }
 
-// ---- renderRawControls(): toggle + Apply/Cancel pair (2026-09-14) ----
-console.log("\n-- renderRawControls(): a toggle plus the Apply/Cancel pair --");
+// ---- renderRawControls(): the primary action + Cancel (2026-09-15) ----
+console.log("\n-- renderRawControls(): a primary action plus Cancel --");
 {
   freshGlobalEnv({}, { rawState: "off" });
   mod.renderRawControls();
@@ -194,43 +193,40 @@ console.log("\n-- renderRawControls(): a toggle plus the Apply/Cancel pair --");
   freshGlobalEnv({}, { rawState: "view" });
   mod.renderRawControls();
   check("band shown in view", !els.rawControls.classList.contains("hidden"));
-  check("the toggle reads the current state (View) while viewing", els.btnRawEditLabel.textContent === "web.raw.controls.view");
-  check("the toggle's title matches its label", els.btnRawEdit.title === "web.raw.controls.view");
-  check("toggle not pressed in view", els.btnRawEdit["aria-pressed"] === "false");
-  check("toggle not active in view", !els.btnRawEdit.classList.contains("active"));
-  check("apply is present, never hidden", !els.btnRawApply.classList.contains("hidden"));
-  check("apply is disabled in view mode", els.btnRawApply.disabled === true);
+  check("the primary control reads Edit while viewing", els.btnRawEditLabel.textContent === "web.raw.controls.edit");
+  check("the primary control's title matches its label", els.btnRawEdit.title === "web.raw.controls.edit");
+  check("Edit carries the accent fill in view", els.btnRawEdit.classList.contains("primary"));
+  check("the primary control is enabled in view mode", els.btnRawEdit.disabled === false);
+  check("cancel is present, never hidden", !els.btnRawCancel.classList.contains("hidden"));
   check("cancel is disabled in view mode", els.btnRawCancel.disabled === true);
-  check("the toggle is enabled in view mode", els.btnRawEdit.disabled === false);
 }
 {
-  // Write mode with a clean buffer: nothing to apply and nothing to discard.
+  // Write mode, clean buffer: both controls are still the way OUT of the mode.
   freshGlobalEnv({}, { rawState: "write", editValue: "text", baseline: "text" });
   mod.renderRawControls();
-  check("the toggle reads the current state (Edit) while editing", els.btnRawEditLabel.textContent === "web.raw.controls.edit");
-  check("toggle marked pressed in write", els.btnRawEdit["aria-pressed"] === "true");
-  check("toggle marked active in write", els.btnRawEdit.classList.contains("active"));
-  check("apply stays disabled while the buffer is clean", els.btnRawApply.disabled === true);
-  check("cancel stays disabled while the buffer is clean", els.btnRawCancel.disabled === true);
+  check("the primary control reads Apply while editing", els.btnRawEditLabel.textContent === "web.raw.controls.apply");
+  check("Apply drops the accent fill, level with Cancel", !els.btnRawEdit.classList.contains("primary"));
+  check("apply is enabled on a clean buffer (it is also the exit)", els.btnRawEdit.disabled === false);
+  check("cancel is enabled on a clean buffer (it is also the exit)", els.btnRawCancel.disabled === false);
 }
 {
   freshGlobalEnv({}, { rawState: "write", editValue: "edited", baseline: "text" });
   mod.renderRawControls();
-  check("apply enables as soon as the buffer is dirty", els.btnRawApply.disabled === false);
-  check("cancel shares Apply's enable rule exactly", els.btnRawCancel.disabled === false);
+  check("a dirty buffer changes nothing about the enable rule", els.btnRawEdit.disabled === false && els.btnRawCancel.disabled === false);
 }
 {
   // R10: VS Code's own TextDocument owns whole-document editing — the Raw
-  // pane's toggle is unreachable there, disabled rather than hidden so the
-  // band keeps its static geometry.
+  // pane's Edit control is unreachable there, disabled rather than hidden so
+  // the band keeps its static geometry.
   freshGlobalEnv({}, { rawState: "view", vshost: true });
   mod.renderRawControls();
-  check("the toggle is disabled under VSHOST", els.btnRawEdit.disabled === true);
-  check("the toggle is not hidden under VSHOST", !els.btnRawEdit.classList.contains("hidden"));
+  check("the primary control is disabled under VSHOST", els.btnRawEdit.disabled === true);
+  check("the primary control is not hidden under VSHOST", !els.btnRawEdit.classList.contains("hidden"));
   check("the band is still shown under VSHOST", !els.rawControls.classList.contains("hidden"));
 }
 
-// ---- revertRawEdit(): discard the changes, keep the mode ----
+// ---- revertRawEdit(): Cancel's buffer half (the mode half is cancelRawEdit,
+//      covered in raw-write.spec.mjs) ----
 console.log("\n-- revertRawEdit(): Apply's mirror image --");
 {
   freshGlobalEnv({}, { rawState: "write", editValue: "edited", baseline: "text" });
@@ -238,8 +234,6 @@ console.log("\n-- revertRawEdit(): Apply's mirror image --");
   mod.revertRawEdit();
   check("the buffer returns to the last applied text", els.rawEdit.value === "text");
   check("the scroll position survives the re-seed", els.rawEdit.scrollTop === 500);
-  check("apply goes back to disabled after a revert", els.btnRawApply.disabled === true);
-  check("cancel goes back to disabled after a revert", els.btnRawCancel.disabled === true);
 }
 {
   freshGlobalEnv({}, { rawState: "view", editValue: "whatever", baseline: "text" });

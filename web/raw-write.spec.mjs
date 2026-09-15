@@ -28,7 +28,7 @@ function check(name, cond, extra = "") {
 }
 const uiTs = readFileSync(path.join(here, "ui.ts"), "utf8");
 
-const names = ["enterRawWrite", "maybeEnterRawWrite", "applyRawEdit", "rawEditSave", "exitRawWrite", "renderRawOrTree"];
+const names = ["enterRawWrite", "maybeEnterRawWrite", "applyRawEdit", "rawEditSave", "exitRawWrite", "renderRawOrTree", "applyRawAndExit", "revertRawEdit", "cancelRawEdit"];
 const fns = names.map((n) => uiTs.match(new RegExp(`^(?:async )?function ${n}\\([\\s\\S]*?\\n\\}`, "m"))?.[0]);
 fns.forEach((s, i) => check(`${names[i]} extracted verbatim`, !!s));
 
@@ -76,6 +76,9 @@ export ${fns[2]}
 export ${fns[3]}
 export ${fns[4]}
 export ${fns[5]}
+export ${fns[6]}
+export ${fns[7]}
+export ${fns[8]}
 `;
 
 const built = await esbuild.build({
@@ -291,6 +294,53 @@ console.log("\n-- exitRawWrite(): R7 confirm gated on dirtiness --");
   confirmAnswer = false;
   mod.exitRawWrite("off");
   check("the one-press exit takes the same R7 confirm gate", mod.getRawState() === "write" && setRawStateCalls.length === 0);
+}
+// ---- 6. The band's Apply/Cancel both LEAVE write mode (2026-09-15) ----
+console.log("\n-- applyRawAndExit() / cancelRawEdit(): both controls exit --");
+{
+  freshEnv({ serialize: () => "a = 2\n" });
+  mod.setEnv({
+    snap: { doc_revision: 1 },
+    send: (i) => { sentIntents.push(i); mod.setEnv({ snap: { doc_revision: 2 } }); },
+  });
+  mod.enterRawWrite("a = 1\n");
+  els.rawEdit.value = "a = 2\n";
+  mod.applyRawAndExit();
+  check("a committed Apply leaves write mode", setRawStateCalls.length === 1 && setRawStateCalls[0] === "view");
+  check("the committed Apply dispatched the empty-path Replace", sentIntents.some((i) => i?.ApplyReplace?.path?.length === 0));
+  check("the exit peels the pending edit via Escape", sentIntents.includes("Escape"));
+}
+{
+  freshEnv({ serialize: () => "a = 1\n" });
+  mod.setEnv({ snap: { doc_revision: 1 } }); // never moves ⇒ Apply failed
+  mod.enterRawWrite("a = 1\n");
+  els.rawEdit.value = "still broken [[[";
+  mod.applyRawAndExit();
+  check("a failed Apply stays in write mode (R4)", setRawStateCalls.length === 0);
+  check("a failed Apply keeps the buffer verbatim", els.rawEdit.value === "still broken [[[");
+}
+{
+  freshEnv({ serialize: () => "a = 1\n" });
+  mod.setEnv({ snap: { doc_revision: 1 } });
+  mod.enterRawWrite("a = 1\n");
+  mod.applyRawAndExit(); // clean buffer
+  check("a clean buffer's Apply exits with no ApplyReplace dispatched", setRawStateCalls[0] === "view" && !sentIntents.some((i) => i?.ApplyReplace));
+}
+{
+  freshEnv({ serialize: () => "a = 1\n" });
+  mod.enterRawWrite("a = 1\n");
+  els.rawEdit.value = "a = 1\nb = 2\n"; // dirty
+  let confirmCalls = 0;
+  mod.setEnv({ confirm: () => { confirmCalls++; return false; } });
+  mod.cancelRawEdit();
+  check("Cancel restores the last applied text", els.rawEdit.value === "a = 1\n");
+  check("Cancel leaves write mode", setRawStateCalls.length === 1 && setRawStateCalls[0] === "view");
+  check("Cancel never asks for confirmation — the press IS the answer", confirmCalls === 0);
+}
+{
+  freshEnv({ serialize: () => "a = 1\n" });
+  mod.cancelRawEdit(); // rawState is "off"
+  check("Cancel is inert outside write mode", setRawStateCalls.length === 0 && sentIntents.length === 0);
 }
 
 

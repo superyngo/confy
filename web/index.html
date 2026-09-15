@@ -99,20 +99,19 @@
     </div>
 
     <!-- ===== breadcrumb (cursor path — see web/breadcrumb.ts) + Raw
-         control band (R13, amended 2026-09-14: three same-size controls —
-         a view/edit **toggle**, apply, cancel — always rendered while Raw
+         control band (`#rawControls`: both controls are present whenever Raw
          is active, never appearing/disappearing; a control that does not
-         apply to the live state is `disabled`. Apply and Cancel share one
-         enable rule (a dirty write buffer): commit changes / discard them.
+         apply to the live state is `disabled`. The primary control is an
+         action whose label is the press's effect — Edit while viewing, Apply
+         while editing; Apply and Cancel both also leave write mode.
          There is no Save control here — ⌘S saves, the header owns it) ===== -->
     <div class="crumbs-row">
       <nav class="crumbs" id="crumbs" aria-label="breadcrumb"></nav>
       <div class="raw-controls hidden" id="rawControls">
-        <!-- The first control is a toggle: its label/title is the state a
-             press switches TO (Edit while viewing, View while editing), so
-             it is set from `renderRawControls`, not `data-i18n`. -->
+        <!-- The first control's label/title is the action a press performs
+             (Edit while viewing, Apply while editing), so it is set from
+             `renderRawControls`, not `data-i18n`. -->
         <button class="seg-btn raw-ctl" id="btnRawEdit" title="Edit" data-foldable="true"><span id="btnRawEditLabel">Edit</span></button>
-        <button class="seg-btn raw-ctl" id="btnRawApply" data-i18n-title="web.raw.controls.apply" title="Apply" data-foldable="true"><span data-i18n="web.raw.controls.apply">Apply</span></button>
         <button class="seg-btn raw-ctl" id="btnRawCancel" data-i18n-title="web.raw.controls.cancel" title="Cancel" data-foldable="true"><span data-i18n="web.raw.controls.cancel">Cancel</span></button>
       </div>
     </div>
