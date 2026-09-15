@@ -171,8 +171,8 @@ sibling at the header's parent scope). Inserting a comment as a table's last chi
 outer header therefore emits a separating blank line so it stays inside. (JSON/YAML have explicit
 `}`/dedent delimiters and need no such rule.) Crossing the **0↔1** boundary therefore re-parents
 such a comment — no confirmation guards it, because the only way to change a blank run is the
-multiline editor, whose buffer *shows* that comment (a TOML section's extent reaches the next
-header, so the comment is inside the fragment) — see *Mutation mechanics*.
+multiline editor, whose buffer *shows* that comment (a TOML section's Block reaches the next
+header, so the comment is inside it) — see *Mutation mechanics*.
 
 **Trailing comment**:
 An end-of-line comment that shares a line with a value (`port = 8080  # http`). It is **not** a

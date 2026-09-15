@@ -372,7 +372,7 @@ function applyRawChrome() {
 function maybeEnterRawWrite() {
   if (!snap?.external_edit || rawState === "write") return;
   const kind = snap.external_edit.kind;
-  const path = "Value" in kind ? kind.Value.path : kind.Comment.path;
+  const path = kind.Value.path;
   if (path.length === 0) enterRawWrite(snap.external_edit.initial);
 }
 
@@ -828,7 +828,7 @@ function render() {
   updateSaveLabel();
   if (snap.external_edit) {
     const kind = snap.external_edit.kind;
-    const path = "Value" in kind ? kind.Value.path : kind.Comment.path;
+    const path = kind.Value.path;
     if (path.length > 0) openExternalEdit(snap.external_edit);
   }
   if (snap.convert_write) {

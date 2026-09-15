@@ -242,9 +242,9 @@ export type EditHint =
   | "None";
 
 // ---- External edit handshake (session::view::ExternalEdit, §8.2) ----
-export type ExternalEditKind =
-  | { Value: { path: Path } }
-  | { Comment: { path: Path } };
+// The Rust enum has one variant (`session::view::ExternalEditKind::Value`):
+// a Comment row's multi-line edit is a Block like any other.
+export type ExternalEditKind = { Value: { path: Path } };
 
 export interface ExternalEdit {
   initial: string;

@@ -127,45 +127,6 @@ pub(crate) fn splice(text: &str, end: usize, n: usize) -> String {
     out
 }
 
-/// Everything before `text`'s trailing blank lines and its final `\n`
-/// terminator — the "body" half of the multiline-editor package. Whitespace-only
-/// trailing lines count as blank (matching [`measure`]), so a buffer the user's
-/// editor left with `"  \n"` on the end still splits cleanly.
-fn trim_trailing_blank_lines(text: &str) -> &str {
-    let mut end = text.len();
-    while end > 0 {
-        let seg_start = text[..end].rfind('\n').map_or(0, |i| i + 1);
-        if !text[seg_start..end].trim().is_empty() {
-            break;
-        }
-        // Drop this blank (possibly empty) trailing line *and* the newline that
-        // terminated the line before it.
-        end = seg_start.saturating_sub(1);
-        if seg_start == 0 {
-            break;
-        }
-    }
-    &text[..end]
-}
-
-/// Build the multiline editor's buffer: a node's `body` fragment terminated by
-/// exactly one `\n`, followed by its `n` trailing blank lines. The node and its
-/// blank run are edited as **one package**, so `n` is authored as literal empty
-/// lines the user can add to or delete (`Session::multiline_edit_initial`).
-/// An all-blank `body` yields an empty buffer — there is nothing to package.
-pub(crate) fn with_trailing_run(body: &str, n: usize) -> String {
-    let core = trim_trailing_blank_lines(body);
-    if core.is_empty() {
-        return String::new();
-    }
-    let mut out = String::with_capacity(core.len() + n + 1);
-    out.push_str(core);
-    for _ in 0..=n {
-        out.push('\n');
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -241,17 +202,5 @@ mod tests {
         // and then emitting the blanks.
         assert_eq!(splice("a = 1", 5, 1), "a = 1\n\n");
         assert_eq!(splice("a = 1", 5, 0), "a = 1");
-    }
-
-    #[test]
-    fn with_trailing_run_packages_the_body_and_its_blanks() {
-        assert_eq!(with_trailing_run("a = 1\n", 0), "a = 1\n");
-        assert_eq!(with_trailing_run("a = 1\n", 2), "a = 1\n\n\n");
-        // A fragment that already carries trailing blanks (TOML's section
-        // extent swallows them) is normalized first, never doubled.
-        assert_eq!(with_trailing_run("[t]\nx = 1\n\n", 1), "[t]\nx = 1\n\n");
-        // A fragment with no terminator at all (JSON member, YAML element).
-        assert_eq!(with_trailing_run("  - name: b", 1), "  - name: b\n\n");
-        assert_eq!(with_trailing_run("", 3), "", "nothing to package");
     }
 }

@@ -360,7 +360,8 @@ capture **scope-relative** fragments: a node copied/cut out of a `[T/D]` table d
 dotted-ancestor key segments (`serialize_fragment_relative` for copy; `Mutation::Move` strips at
 capture for cut — `dotted_ancestor_prefix_len` + `strip_key_prefix`), so `dotted.test.bool_true`
 becomes `bool_true` and a paste re-prefixes only for the **destination** (`prefix_entry_key`) instead
-of stacking the source prefix. (The `$EDITOR` block edit still uses the full-key `serialize_fragment`.)
+of stacking the source prefix. (The `$EDITOR` block edit is unaffected: it hands over the Node's
+**Block** — its own source text, full keys as written — via `Session::block_text`.)
 Cut defers deletion until a successful paste. A loaded clipboard *is* "paste mode" and is kept distinct from
 selection mode: while `clipboard.is_some()`, the three selection mutators (`toggle_select`,
 `extend_select_up`/`down`) early-return, so selection is frozen; pressing `c`/`x` again **toggles** the

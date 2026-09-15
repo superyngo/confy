@@ -652,29 +652,25 @@ impl Session {
         self.apply_replace(e.path, format!("{leaf_key} = {value}\n"));
     }
 
-    /// The multiline editor's buffer for the node at `path` — the **one**
-    /// producer every host opens its editor with (core's `external_edit_view`
-    /// for the web/touch pop-up editor, the TUI's `$EDITOR` spawn). The buffer
-    /// packages the node's fragment **together with its trailing blank lines**
-    /// (`blank_lines::with_trailing_run`), so the run is edited as literal
-    /// empty lines the user can add to or delete rather than through a separate
-    /// action; the commit half is `apply_external_replace`/`apply_edit_comment`.
-    /// A node that cannot carry a run (the whole-document edit, a YAML flow
-    /// member or opaque span) packages its fragment **verbatim** — trimming
-    /// blank lines the commit cannot then restore would delete a file's own
-    /// trailing blanks on the first whole-document edit.
+    /// The **whole-document** editor seed (the desktop Raw pane, the touch
+    /// sheet's *Edit whole file*, the TUI's `E` on Root — all of which reach it
+    /// through `dispatch`'s `pe.path.is_empty()` arm). It is the one producer of
+    /// that buffer; its commit half is `apply_document_text`.
+    ///
+    /// A **Node's** buffer is not this: since the Block switchover every
+    /// non-empty path is seeded by `block_text` and committed by
+    /// `apply_block_text`. The two must not be crossed — seeding a Node from
+    /// here diverged from what the Block commit writes back for 193 of the 779
+    /// Blocks in the identity corpus (separating commas, `__elem__` carriers,
+    /// packaged trailing blank runs).
     pub fn multiline_edit_initial(&self, path: &Path) -> String {
         let Some(doc) = self.doc.as_ref() else {
             return String::new();
         };
-        let fragment = doc.serialize_fragment(path);
-        if fragment.is_empty() {
+        if !path.is_empty() {
             return String::new();
         }
-        match doc.trailing_blank_lines(path) {
-            Some(n) => crate::model::blank_lines::with_trailing_run(&fragment, n),
-            None => fragment,
-        }
+        doc.serialize_fragment(&[])
     }
 
     /// Whole-document commit: `text` is the complete new file, replacing it at
@@ -714,12 +710,12 @@ impl Session {
     /// with on the `ApplyBlockText` route, and the exact text
     /// `apply_block_text` will splice back. Empty when the node owns no Block.
     ///
-    /// Deliberately separate from `multiline_edit_initial`, which serves the
-    /// older `ApplyReplace` route and packages the trailing blank run through
-    /// `blank_lines::with_trailing_run`; here the run arrives as part of the
-    /// span, so the seed and the commit are the *same* string — which is what
-    /// makes "an unmodified buffer leaves the document byte-identical" a plain
-    /// string equality (`tests/block_edit_identity.rs`).
+    /// Deliberately separate from `multiline_edit_initial`, which seeds the
+    /// **whole-document** editor: here the node's trailing blank run arrives as
+    /// part of the span, so the seed and the commit are the *same* string —
+    /// which is what makes "an unmodified buffer leaves the document
+    /// byte-identical" a plain string equality
+    /// (`tests/block_edit_identity.rs`).
     pub fn block_text(&self, path: &Path) -> String {
         let Some(doc) = self.doc.as_ref() else {
             return String::new();

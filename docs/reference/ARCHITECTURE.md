@@ -39,12 +39,12 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
   model/
     mod.rs         re-exports
     text_range.rs  TextRange (byte-offset spans for source ranges) shared by rowan projections
-    blank_lines.rs the one format-neutral trailing-blank-run text splice (count_after/splice),
-                   shared by all three backends' SetTrailingBlankLines, plus the
-                   with_trailing_run/split_trailing_run pair that packages a node's run into
-                   the multiline editor's buffer and splits it back off on commit, and
-                   blank_separated_groups — how many Comment nodes an edited comment buffer
-                   commits as, so the packaged run lands after the LAST of them
+    blank_lines.rs the one format-neutral trailing-blank-run text splice
+                   (measure/count_after/splice), shared by all three backends'
+                   SetTrailingBlankLines
+    block_splice.rs splice_spans: the format-agnostic multi-span text splice a **Block** commit
+                   runs — later spans cut in reverse document order, the replacement text
+                   inserted at the first, then committed as one `Replace { path: [] }`
     kind_label.rs  align_options: the one `"<name>  <sample>"` picker-label format, name column
                    padded in display cells (unicode-width, so a translated CJK name still lines
                    up). Used by all three backends' kind_options AND the datetime type picker
@@ -64,7 +64,9 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
                    rename.rs (Rename), convert.rs (ConvertKind), dotted_table.rs (synthetic
                    `[T/D]` table helpers), aot_group.rs (`[[array-of-tables]]` group spans),
                    tree_nav.rs (shared projected-tree/CST-index navigation), escape.rs
-                   (basic-string escape helpers)
+                   (basic-string escape helpers), spans.rs (node_text_spans: the byte ranges a
+                   Node's Block owns — table/AoT member spans, EOL comment and trailing blank
+                   run included, a preceding standalone Comment excluded)
     json/
       mod.rs       re-exports for the JSON/JSONC backend
       syntax.rs    SyntaxKind enum + rowan Language impl (hand-rolled JSON token/node kinds)
@@ -79,7 +81,8 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
                    replace_delete.rs (Replace/Delete), insert.rs (Insert/Move),
                    mutations.rs (Rename/Remark/EditComment/InsertComment/
                    SetTrailingComment/SetTrailingBlankLines + extent helpers),
-                   convert.rs (ConvertKind: Inline↔Multiline, float Plain↔Exponent)
+                   convert.rs (ConvertKind: Inline↔Multiline, float Plain↔Exponent),
+                   spans.rs (node_text_spans; line-extent vs flow-member trimming)
     yaml/
       mod.rs       re-exports for the YAML-subset backend
       syntax.rs    SyntaxKind enum + rowan Language impl (hand-rolled YAML token/node kinds)
@@ -92,7 +95,8 @@ crates/confy-core/src/   headless core — pure, no terminal/UI/`tempfile` runti
                     flow.rs (`{ … }`/`[ … ]` flow-collection edits), mutations.rs
                     (Rename/Remark/EditComment/InsertComment/Move/SetTrailingComment),
                     convert.rs (ConvertKind: flow/block toggle + scalar notation),
-                    resolve.rs (reindent engine, path resolver, opaque guard)
+                    resolve.rs (reindent engine, path resolver, opaque guard), spans.rs
+                    (node_text_spans; verbatim indentation, opaque nodes get a Block)
   session/         §5 state-machine lift (Slice 4) — the complete headless Session, split
                    further across single-purpose files (Task 15, 2026-08-11 audit remediation)
     mod.rs         re-exports

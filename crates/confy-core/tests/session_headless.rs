@@ -4208,6 +4208,14 @@ fn begin_edit_document_targets_the_empty_path() {
         ext.initial, "[server]\nport = 8080\n",
         "the buffer is the whole file"
     );
+    // The seed is the file's own bytes, final blank lines included — they are
+    // the *file's*, never re-read as a node's trailing run.
+    let mut s = toml_session("a = 1\n\n[t]\nx = \"y\"\n\n\n");
+    let snap = s.dispatch(Intent::BeginEditDocument);
+    assert_eq!(
+        snap.external_edit.expect("pending").initial,
+        "a = 1\n\n[t]\nx = \"y\"\n\n\n"
+    );
 }
 
 /// R11: like every other modal-open path, the document edit refuses while the

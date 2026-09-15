@@ -690,7 +690,8 @@ edits to the verbatim desktop CSS.
   (`doc_revision` not moving), with the buffer intact rather than closing unconditionally, since
   discarding it would silently drop the edit. That was R19's whole-file-only rule; the Block
   switchover made it the rule for every value edit, because a rejected Block is exactly the case
-  where the user still needs their text. A Comment Apply still closes unconditionally. Dismissing it (scrim/grab/×/Cancel) sends `Escape` to peel core's pending edit, so
+  where the user still needs their text — a **Comment** row included: it commits the same
+  `ApplyBlockText` and stays open on the same test. Dismissing it (scrim/grab/×/Cancel) sends `Escape` to peel core's pending edit, so
   the sheet can't re-pop on the next render.
 - the initial sample document is the **same demo-tour sample as the desktop UI** (shared,
   build-stamped): one backbone tree across all three formats plus a per-format `showcase`

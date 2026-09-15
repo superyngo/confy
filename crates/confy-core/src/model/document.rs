@@ -130,10 +130,10 @@ pub trait ConfigDocument: Sized {
     /// Whether an array **element itself** (the node a bare sequence `Index` path
     /// resolves to, not a member reached further through it) is individually
     /// `Replace`-addressable as a bare fragment. YAML's block/flow elements are
-    /// (`true`); TOML/JSON elements are not (`false`), so the editor either
-    /// truncates to the whole array or wraps the element repr via `scalar_fragment`.
-    /// Drives the direct-index inline-vs-`$EDITOR` routing and the external-edit
-    /// element wrap.
+    /// (`true`); TOML/JSON elements are not (`false`), so an inline value edit
+    /// truncates to the whole array instead. Drives the direct-index
+    /// inline-vs-`$EDITOR` routing. (The `$EDITOR`/pop-up route is unaffected:
+    /// it edits the element's **Block** text, which needs no addressability.)
     fn array_elements_addressable(&self) -> bool {
         false
     }

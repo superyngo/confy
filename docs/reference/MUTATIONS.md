@@ -82,10 +82,13 @@ row you edited is where the result appears.
 | **Mixed** | canonical scope form: synthesized `[a]` header + dotted members folded under it + sections | first member *section* | dotted definitions are consumed — required for the header to be legal |
 
 A consolidating rewrite (2+ spans) is what a **Block** commit produces for a scattered table;
-its legality is whatever the whole-file reparse and the DOM validation accept. There is no
-"every header must stay inside the subtree" and no "the block must start with a `[header]` line"
-check any more: those existed because the old mechanism could only consolidate in place, so a
-header leaving the subtree was necessarily an accident — with a Block it is an intent.
+its legality is whatever the whole-file reparse and the DOM validation accept. The two older
+guards — "every header must stay inside the table's subtree" and "the block must start with a
+`[header]` line" (`model/cst_edit/replace_delete.rs`, `replace_table_spans`) — no longer apply
+to it: they existed because the old mechanism could only consolidate in place, so a header
+leaving the subtree was necessarily an accident, and with a Block it is an intent. They are
+still enforced on the path that reaches them, a `Mutation::Replace` at a **keyed** table path
+with 2+ spans; the Block route commits at `path: []`, so no host reaches them today.
 
 ## Mutation mechanics
 

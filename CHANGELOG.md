@@ -22,6 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Node::text_range` that `project()` already filled: **25 ms** for that same rename, flat
   against the same-key cost. (Introduced in this same unreleased series, so no shipped
   release is affected.)
+- Reference-doc drift left by the Block switchover: `MUTATIONS.md` said two
+  `replace_table_spans` guards were retired (they are still enforced on the keyed-path
+  `Mutation::Replace` the Block route no longer uses), `TUI.md` still credited
+  `serialize_fragment`, `WEBUI.md` still said a Comment Apply closes unconditionally,
+  `BEHAVIOR_MATRIX.md` and `ConfigDocument::array_elements_addressable`'s doc still cited the
+  deleted `wrap_element`, the `ARCHITECTURE.md` module map listed two deleted `blank_lines`
+  functions and none of the four new modules, and the glossary called the editor's buffer a
+  "fragment" — the word its own **Block** entry tells you to avoid.
 
 **Changed**
 
@@ -52,6 +60,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ExternalEditKind::Comment`. `Intent::ApplyEditComment` survives as the desktop panel's
   **one-line** comment field only — a field with neither the `#` markers nor the indent a Block
   carries — and no longer splits blank lines off the text it is given.
+- Three more leftovers the audit found: `web/types.ts`'s `ExternalEditKind.Comment` member
+  (the Rust enum has only `Value`, so it could never arrive), `multiline_edit_initial`'s
+  non-empty-path branch (dead since the switchover — it is now the whole-document seed only,
+  which is its one live caller), and with it `blank_lines::with_trailing_run` /
+  `trim_trailing_blank_lines`, whose last consumer that branch was.
 
 **Fixed**
 
