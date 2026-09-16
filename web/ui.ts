@@ -343,10 +343,27 @@ function openText(
 // automatic one (R1/R2), applying the same chrome without recursing into
 // `render()` (it runs from inside `render()` itself).
 function setRawState(next: RawState) {
+  if (rawState === "off" && next !== "off") saveTreeScroll();
   rawState = next;
   applyRawChrome();
   render();
 }
+
+// Read the live position only while the tree is the visible view — once Raw
+// is up the browser has already clamped it to 0.
+function saveTreeScroll() {
+  treeScrollTop = $("treeWrap").scrollTop;
+}
+
+// The tree's reading position while the Raw pane covers it (2026-09-16).
+// Unlike `#rawEdit` — which is itself `display:none`d and therefore has its
+// scroll preserved by the browser — the *scroller* `#treeWrap` stays
+// displayed in Raw and only its child `#tree` is hidden, so the content
+// height collapses to 0 and the browser commits `scrollTop = 0`. Saving it
+// here and restoring it in `renderRawOrTree` gives the tree the same
+// each-view-keeps-its-own-position guarantee the Raw pane already had
+// (touch gets this for free: it hides the whole pane).
+let treeScrollTop = 0;
 
 function applyRawChrome() {
   const shown = rawState !== "off";
@@ -384,6 +401,9 @@ function maybeEnterRawWrite() {
 // scroll position is restored around `focus()`/`setSelectionRange()` because
 // seating a caret at offset 0 is the one thing that could scroll it away.
 function enterRawWrite(initial: string) {
+  // "Edit whole file" can open write mode straight from the tree — the same
+  // hand-off `setRawState` makes, so the tree's position is saved here too.
+  if (rawState === "off") saveTreeScroll();
   const editEl = $<HTMLTextAreaElement>("rawEdit");
   const top = editEl.scrollTop;
   const left = editEl.scrollLeft;
@@ -575,6 +595,7 @@ function onRawEditKey(ev: KeyboardEvent) {
 function renderRawOrTree() {
   const editEl = $<HTMLTextAreaElement>("rawEdit");
   const raw = rawState !== "off";
+  const returning = !raw && tree.classList.contains("hidden");
   editEl.classList.toggle("hidden", !raw);
   tree.classList.toggle("hidden", raw);
   if (rawState === "view") {
@@ -585,6 +606,9 @@ function renderRawOrTree() {
       editEl.scrollTop = top;
     }
   }
+  // Restored *before* `renderTree` so a cursor that moved while Raw was up
+  // (the caret → cursor sync) still gets the last word via its scroll-follow.
+  if (returning) $("treeWrap").scrollTop = treeScrollTop;
   if (!raw) renderTree(tree, snap!, getEdit());
 }
 

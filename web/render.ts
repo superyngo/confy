@@ -329,6 +329,22 @@ export function renderTree(
   // Anything left in `existing` is a row that no longer appears — drop it.
   for (const stale of existing.values()) stale.remove();
 
-  const cur = treeEl.querySelector(".row.cursor") as HTMLElement | null;
-  cur?.scrollIntoView({ block: "nearest" });
+  // Scroll-follow only when the *anchor* actually moved (2026-09-16). This
+  // call used to run on every render, which silently re-derived the tree's
+  // viewport from the cursor: scrolling away to read (cursor off-screen) and
+  // then pressing any key snapped the pane back onto the cursor row — and
+  // back to the very top whenever the cursor was still on the first row.
+  // `nearest` made that invisible while the cursor happened to be visible.
+  // Touch draws the same line (`scrollFocusIntoView` runs per resolved key,
+  // never per render — `web/touch/app.ts`).
+  const anchor = JSON.stringify([snap.cursor, snap.paste_slot ?? null]);
+  if (anchor !== lastAnchor) {
+    lastAnchor = anchor;
+    const cur = treeEl.querySelector(".row.cursor") as HTMLElement | null;
+    cur?.scrollIntoView({ block: "nearest" });
+  }
 }
+
+// The anchor (cursor path + armed paste slot) the last `renderTree` scrolled
+// to. Module-level: one tree per host page.
+let lastAnchor = "";

@@ -341,7 +341,19 @@ shapes round-trip). Key types:
   two-element design put a second, shorter scroll container inside the first and reset the
   scroll on every switch. View mode mirrors `session.serialize()` — the live document, unsaved
   edits included — re-seeded on render **only when the text actually changed**, so an unrelated
-  re-render never resets the reading position. Write mode is entered when a pending external
+  re-render never resets the reading position.
+  **The tree keeps its own position across the same switch** (2026-09-16): its scroller is
+  `#treeWrap`, which — unlike `#rawEdit` — stays *displayed* in Raw with only its child
+  `#tree` hidden, so the content height collapses and the browser commits `scrollTop = 0`.
+  `setRawState`/`enterRawWrite` save the live value on the way out and `renderRawOrTree`
+  restores it on the way back (before `renderTree`, so a cursor moved by the caret→cursor
+  sync still gets the last word). Touch needs none of this: it hides the pane as a whole.
+  Related, same class of defect: `renderTree`'s cursor `scrollIntoView` runs **only when the
+  cursor + paste-slot anchor changed**, never per render — unconditionally it re-derived the
+  viewport from the cursor, so any keystroke yanked a scrolled-away reader back (and to the
+  top while the cursor sat on row 0). Touch has always scrolled per resolved key, not per
+  render (`scrollFocusIntoView`).
+  Write mode is entered when a pending external
   edit opens at the **empty path**: the Action menu's *Edit whole file* item
   (`ActionId::EditDocument`, always enabled, document-scoped) or the band's Edit control.
   `⌘↩` applies (`ApplyReplace { path: [], text }` via `apply_document_text`, staying in write

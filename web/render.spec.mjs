@@ -7,6 +7,7 @@
 // file bundles (esbuild's `build({ bundle: true, write: false })`, already a
 // devDependency; no jsdom, no new npm dependency) instead of transforming a
 import path from "node:path";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import * as esbuild from "esbuild";
 
@@ -259,6 +260,18 @@ console.log("\n-- valuePicker(): kind-switch pickers are not value pickers --");
   );
   check("datetime kind picker does not render inline", valuePicker(se({ from_kind_switch: true })) === null);
 }
+
+// ---- renderTree(): scroll-follow is gated on the anchor actually moving ----
+// Source-level (renderTree needs a real DOM; the browser behavior itself was
+// measured in Chromium on 2026-09-16). Unconditional `scrollIntoView` made
+// every render re-derive the tree's viewport from the cursor, so scrolling
+// away to read and then pressing any key snapped the pane back — and to the
+// very top while the cursor sat on the first row.
+const renderSrc = readFileSync(path.join(here, "render.ts"), "utf8");
+const follow = renderSrc.match(/const anchor = [\s\S]*?\n\}/)?.[0] ?? "";
+check("renderTree compares a cursor+paste-slot anchor before scrolling", /snap\.cursor/.test(follow) && /snap\.paste_slot/.test(follow));
+check("scrollIntoView is inside the anchor-changed branch", /if \(anchor !== lastAnchor\) \{[\s\S]*scrollIntoView/.test(follow));
+check("renderTree has no other scrollIntoView call", (renderSrc.match(/scrollIntoView/g) ?? []).length === 1);
 
 console.log(failures === 0 ? "\nALL RENDER-ESCAPING CHECKS PASSED" : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

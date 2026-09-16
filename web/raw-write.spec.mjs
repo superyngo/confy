@@ -35,7 +35,7 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 
 const uiTs = readFileSync(path.join(here, "ui.ts"), "utf8");
 
-const names = ["enterRawWrite", "maybeEnterRawWrite", "applyRawEdit", "rawEditSave", "exitRawWrite", "renderRawOrTree", "applyRawAndExit", "revertRawEdit", "cancelRawEdit"];
+const names = ["enterRawWrite", "maybeEnterRawWrite", "applyRawEdit", "rawEditSave", "exitRawWrite", "renderRawOrTree", "applyRawAndExit", "revertRawEdit", "cancelRawEdit", "saveTreeScroll"];
 const fns = names.map((n) => uiTs.match(new RegExp(`^(?:async )?function ${n}\\([\\s\\S]*?\\n\\}`, "m"))?.[0]);
 fns.forEach((s, i) => check(`${names[i]} extracted verbatim`, !!s));
 
@@ -48,7 +48,7 @@ check(
   !!fns[2] && /doc_revision/.test(fns[2]) && !/history_len/.test(fns[2]),
 );
 
-const src = `let snap, session, rawState = "off", rawWriteBaseline = null;
+const src = `let snap, session, rawState = "off", rawWriteBaseline = null, treeScrollTop = 0;
 let $fn, tFn, sendFn, askConfirmFn, setRawStateFn, doSaveFn, renderTreeFn, getEditFn, treeEl;
 function $(id) { return $fn(id); }
 function t(k) { return tFn(k); }
@@ -77,6 +77,8 @@ export function setEnv(e) {
 export function getRawState() { return rawState; }
 export function reset() { rawState = "off"; rawWriteBaseline = null; }
 export function getBaseline() { return rawWriteBaseline; }
+export function setTreeScroll(v) { treeScrollTop = v; }
+export function getTreeScroll() { return treeScrollTop; }
 export ${fns[0]}
 export ${fns[1]}
 export ${fns[2]}
@@ -86,6 +88,7 @@ export ${fns[5]}
 export ${fns[6]}
 export ${fns[7]}
 export ${fns[8]}
+export ${fns[9]}
 `;
 
 const built = await esbuild.build({
@@ -99,7 +102,14 @@ const mod = await import("data:text/javascript;base64," + Buffer.from(built.outp
 // ---- fakes: a tiny classList + two textish elements (#raw pre, #rawEdit textarea) ----
 function mkClassList() {
   const s = new Set();
-  return { add: (c) => s.add(c), remove: (c) => s.delete(c), contains: (c) => s.has(c), set: s };
+  return {
+    add: (c) => s.add(c),
+    remove: (c) => s.delete(c),
+    contains: (c) => s.has(c),
+    // `renderRawOrTree` hides/shows both panes through `toggle(cls, on)`.
+    toggle: (c, on) => (on ? s.add(c) : s.delete(c)),
+    set: s,
+  };
 }
 function mkEl() {
   return { value: "", textContent: "", scrollTop: 0, scrollLeft: 0, selectionStart: 0, selectionEnd: 0, readOnly: true, classList: mkClassList(), focus() {}, setSelectionRange(s, e) { this.selectionStart = s; this.selectionEnd = e; } };
@@ -194,6 +204,45 @@ console.log("\n-- enterRawWrite() / exitRawWrite(): one element keeps its own sc
   els.rawEdit.scrollTop = 120;
   mod.applyRawEdit();
   check("a committed Apply keeps the pane's scroll position", els.rawEdit.scrollTop === 120);
+}
+
+// ---- 2b. The *tree's* reading position survives the Raw round trip
+//          (2026-09-16). Measured defect: `#treeWrap` stays displayed while
+//          only `#tree` is hidden, so the browser clamps its scrollTop to 0
+//          the moment Raw opens — unlike `#rawEdit`, which is hidden itself
+//          and keeps its own. ----
+console.log("\n-- tree scroll across the Raw round trip --");
+{
+  freshEnv({ serialize: () => "a = 1\n" });
+  const treeCls = mkClassList();
+  mod.setEnv({ snap: { doc_revision: 0 }, tree: { classList: treeCls } });
+  els.treeWrap.scrollTop = 200;
+  mod.saveTreeScroll();
+  check("leaving the tree records its position", mod.getTreeScroll() === 200);
+  // Raw is up: the browser has clamped the live scroller.
+  els.treeWrap.scrollTop = 0;
+  treeCls.add("hidden");
+  mod.renderRawOrTree(); // rawState is "off" again -> returning
+  check("returning to the tree restores its position", els.treeWrap.scrollTop === 200);
+  check("the tree is unhidden on return", !treeCls.contains("hidden"));
+}
+{
+  // A plain tree re-render (the tree was never hidden) must NOT write the
+  // stale saved value over the user's live scrolling.
+  freshEnv({ serialize: () => "a = 1\n" });
+  mod.setEnv({ snap: { doc_revision: 0 }, tree: { classList: mkClassList() } });
+  mod.setTreeScroll(200);
+  els.treeWrap.scrollTop = 40;
+  mod.renderRawOrTree();
+  check("a tree-to-tree render leaves the live scroll alone", els.treeWrap.scrollTop === 40);
+}
+{
+  // "Edit whole file" opens write mode straight from the tree.
+  freshEnv({ serialize: () => "a = 1\n" });
+  mod.setEnv({ snap: { doc_revision: 0 } });
+  els.treeWrap.scrollTop = 310;
+  mod.enterRawWrite("a = 1\n");
+  check("entering write from the tree records the tree's position", mod.getTreeScroll() === 310);
 }
 
 // ---- 3. R4/R5: Apply outcome is read off doc_revision, never the notice ----

@@ -90,6 +90,7 @@ Watching. New rows keep the table shape below.
 
 | Closed | Item | Commit |
 |---|---|---|
+| 2026-09-16 | Desktop web tree lost its scroll on the Raw round trip (`#treeWrap` clamped to 0) and re-derived the viewport from the cursor on every render — saved/restored + anchor-gated `scrollIntoView`; evidence in `docs/tmp/claude-scratch/2026-09-16-scroll-preservation-audit.md` | (this commit) |
 | 2026-09-09 | Double serialize per mutation — `sync_schema_hint` now takes the text | `57630e4` |
 | 2026-09-09 | TOML `Move` quadratic — live-index release in `move_nodes`/`delete`, −48% | `57630e4` |
 | 2026-09-09 | JSON/JSONC parser-simplification plan — premise refuted, both halves already done | (record closed) |

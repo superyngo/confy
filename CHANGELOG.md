@@ -10,6 +10,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 2026-09-16
+
+**Fixed**
+
+- The desktop web tree no longer loses its reading position. Two causes, both measured in a
+  real Chromium: (1) switching to the Raw pane hid only `#tree` while the scroller `#treeWrap`
+  stayed displayed, so its content height collapsed and the browser committed `scrollTop = 0`
+  (200 → 0, and the return trip landed wherever the cursor happened to be) — the position is
+  now saved on the way out and restored on the way back, the guarantee the Raw pane itself
+  already had by being hidden as a whole; (2) `renderTree` called `scrollIntoView` on the
+  cursor row on *every* render, silently re-deriving the viewport from the cursor, so scrolling
+  away to read and then pressing any key snapped the pane back — and to the very top whenever
+  the cursor still sat on the first row. The scroll-follow now runs only when the cursor +
+  paste-slot anchor actually moved, matching touch, which has never scrolled per render.
+  Raw view ↔ write, Apply and Cancel already preserved their scroll and still do.
+
 ## [v1.3.1] - 2026-09-16
 
 ### 2026-09-16
