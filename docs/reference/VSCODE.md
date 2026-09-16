@@ -32,12 +32,14 @@ workbench via `request-undo`/`request-redo`/`request-save`), and the filter row
 (search/type-filter/Expand-Collapse, plus the Raw/Tree toggle relocated in from the header)
 stays.
 
-**Whole-document editing is suppressed under this host** (ADR 0014 R10): `ActionId::EditDocument`
-is absent from the Action menu, the crumbs-row Raw band's primary control renders **disabled**
-(not hidden — the band keeps its static geometry), and the keyboard commit path is gated the same
-way (`VSHOST` in `web/ui.ts`). The webview's `TextDocument` already *is* the whole-file text
-surface, and a second editable copy would be two owners of one document. The Raw pane stays
-available read-only, so the format-highlighted source is still one keystroke away.
+**Whole-document editing is enabled under this host** (ADR 0015, partially superseding ADR 0014
+R10): `ActionId::EditDocument` renders in the Action menu, the crumbs-row Raw band's primary
+control is enabled, and the Raw pane's write mode works the same as on desktop web — Apply
+dispatches the same `Session` mutation and `edit` message every ordinary tree edit already sends,
+so the webview's `TextDocument` stays the single owner of the buffer either way. VS Code's own
+native text editor (via the title-bar tab-swap) remains an equally valid, more full-featured way
+to edit the same file as raw text; the Raw pane's write mode is a convenience that avoids the tab
+swap, not a replacement for it.
 
 Save As / Convert, Help, About, language, and theme — with no toolbar button left to click —
 move to the editor title's **"…" More Actions** menu: three commands (`confy.saveAsConvert`,

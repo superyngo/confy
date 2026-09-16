@@ -220,12 +220,12 @@ console.log("\n-- renderRawControls(): a primary action plus Cancel --");
   check("a dirty buffer changes nothing about the enable rule", els.btnRawEdit.disabled === false && els.btnRawCancel.disabled === false);
 }
 {
-  // R10: VS Code's own TextDocument owns whole-document editing — the Raw
-  // pane's Edit control is unreachable there, disabled rather than hidden so
-  // the band keeps its static geometry.
+  // Whole-document editing is now supported under VS Code too (the Raw
+  // pane's Apply routes through the same Session mutation + `edit` message
+  // as every other edit, so VS Code's TextDocument stays the single owner).
   freshGlobalEnv({}, { rawState: "view", vshost: true });
   mod.renderRawControls();
-  check("the primary control is disabled under VSHOST", els.btnRawEdit.disabled === true);
+  check("the primary control is enabled under VSHOST", els.btnRawEdit.disabled === false);
   check("the primary control is not hidden under VSHOST", !els.btnRawEdit.classList.contains("hidden"));
   check("the band is still shown under VSHOST", !els.rawControls.classList.contains("hidden"));
 }

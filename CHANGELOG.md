@@ -10,6 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 2026-09-16
+
+**Changed**
+
+- VS Code now supports the Raw pane's write mode (whole-document editing) instead of suppressing
+  it: the Action menu's *Edit whole file* item and the crumbs-row band's primary control are no
+  longer disabled under this host. Apply routes through the same `Session` mutation and `edit`
+  message every ordinary tree edit already sends, so the webview's `TextDocument` stays the single
+  owner of the buffer — see [ADR 0015](docs/adr/0015-vscode-raw-pane-write-mode-enabled.md),
+  which partially supersedes ADR 0014's R10.
+
 ## [v1.3.0] - 2026-09-16
 
 ### 2026-09-15

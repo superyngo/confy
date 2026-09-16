@@ -23,11 +23,13 @@ the old one superseded.
 | [0011](0011-bool-toggle-on-the-intent-nudge-path-only.md) | A bool toggles on the `Intent::Nudge` (keyboard) path only, never inside `nudge_scalar` — pointer wheel/swipe nudging stays numeric | Implemented (2026-09-07) |
 | [0012](0012-datetime-cross-type-switch-is-a-value-replace.md) | A TOML datetime cross-type switch is a value `Replace` behind the `K` key, not a `ConvertKind` | Implemented (2026-09-07) |
 | [0013](0013-the-root-is-never-a-row.md) | The document Root is a model node, never a view row — every host is root-hidden; whole-document operations become document-scoped commands | Implemented (2026-09-14) |
-| [0014](0014-whole-document-editing-reuses-each-hosts-text-surface.md) | Whole-document editing is carried by each host's existing multi-line text surface (desktop Raw pane in write mode, touch's external-edit sheet, the TUI's `$EDITOR`, VS Code's own editor), not by one uniform new surface | Implemented (2026-09-14) |
+| [0014](0014-whole-document-editing-reuses-each-hosts-text-surface.md) | Whole-document editing is carried by each host's existing multi-line text surface (desktop Raw pane in write mode, touch's external-edit sheet, the TUI's `$EDITOR`, VS Code's own editor), not by one uniform new surface | Implemented (2026-09-14); R10 (VS Code) superseded by [0015](0015-vscode-raw-pane-write-mode-enabled.md) |
+| [0015](0015-vscode-raw-pane-write-mode-enabled.md) | VS Code enables the Raw pane's write mode too — the same `edit`/`WorkspaceEdit` path every tree edit already uses, not a second buffer | Implemented (2026-09-16) |
 
 ADR 0004 §1's `format != Format::Inline` clause and its host-computed `MoveSelectionTo`
 `target`/`index` payload are superseded by ADR 0010. ADR 0011 partially reverses commit `534dd4a`
-(bool nudge removal) for the keyboard only. No ADR has been superseded in full to date.
+(bool nudge removal) for the keyboard only. ADR 0015 partially supersedes ADR 0014's R10 (VS
+Code only); 0014's other rules are unaffected. No ADR has been superseded in full to date.
 
 See also [`../spec/`](../spec/README.md), [`../plan/`](../plan/README.md),
 [`../audit/`](../audit/README.md), and [`../debug/`](../debug/README.md) for the design records,

@@ -460,14 +460,13 @@ function exitRawWrite(to: RawState = "view"): void {
 // The band's first control is one ACTION button whose label is the effect of
 // pressing it (2026-09-15): `Edit` in Raw view enters write mode through
 // core's pending-edit flow, `Apply` in Raw write commits the buffer and
-// leaves. Shared by the button and the overflow-menu entry. VS Code (R10)
-// never enters, so it is disabled there.
+// leaves. Shared by the button and the overflow-menu entry.
 function rawPrimary(): void {
   if (rawState === "write") {
     applyRawAndExit();
     return;
   }
-  if (!VSHOST) send("BeginEditDocument");
+  send("BeginEditDocument");
 }
 
 // The band's Apply (2026-09-15): commit *and* leave write mode, the mirror of
@@ -647,12 +646,7 @@ function renderRawControls() {
   $("btnRawEditLabel").textContent = label;
   editBtn.title = label;
   editBtn.classList.toggle("primary", !writing);
-  // R10: VS Code's own TextDocument is this feature's single owner — the
-  // control that would open a second editable copy is unreachable there
-  // (disabled rather than hidden, so the band stays the same size). Write
-  // mode is therefore never reached, so disabling it outright can't trap
-  // anyone in it.
-  editBtn.disabled = VSHOST;
+  editBtn.disabled = false;
   $<HTMLButtonElement>("btnRawCancel").disabled = !writing;
 }
 
@@ -1172,16 +1166,6 @@ function onKey(ev: KeyboardEvent) {
     case "intent":
       if (result.preventDefault) ev.preventDefault();
       if (result.intent === "OpenActionMenu") return openActionMenuFromKeyboard();
-      // R10: EditDocument's button is never rendered under VSHOST (see
-      // buildActionMenu), but core's own cursor stepping doesn't know that
-      // and can still land Enter's committed item on it — block the commit
-      // here so the whole-file editor stays fully unreachable, not just
-      // unclickable.
-      if (VSHOST && result.intent === "ActionMenuCommit") {
-        const mode = snap.mode;
-        const am = typeof mode === "object" && "ActionMenu" in mode ? mode.ActionMenu : null;
-        if (am && am.items[am.cursor]?.id === "EditDocument") return;
-      }
       return send(result.intent);
     case "nav":
       if (result.preventDefault) ev.preventDefault();
@@ -2148,7 +2132,7 @@ function buildActionMenu(): HTMLElement {
   }
   menu.innerHTML =
     `<div class="menu-label">${escapeHtml(am.target_label)}</div>` +
-    am.items.map((it, i) => (VSHOST && it.id === "EditDocument" ? "" : actionItemHTML(it, i, i === am.cursor))).join("");
+    am.items.map((it, i) => actionItemHTML(it, i, i === am.cursor)).join("");
   menu.querySelectorAll<HTMLElement>("[data-i]:not([disabled])").forEach((b) => {
     const i = Number(b.dataset.i);
     b.onclick = () => {
@@ -2293,9 +2277,6 @@ function buildMoreMenu(): HTMLElement {
   } else if (rawState !== "write") {
     candidates = candidates.filter((e) => !RAW_ACTION_KEYS[e.key]);
   }
-  // R10: never surface the whole-file Edit control in the overflow menu
-  // under VS Code either.
-  if (VSHOST) candidates = candidates.filter((e) => e.key !== "btnRawEdit");
   const items = foldedEntries(candidates, isToolbarFolded);
   const menu = $("moreMenu");
   menu.innerHTML = items
