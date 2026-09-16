@@ -129,6 +129,6 @@ Add-AppxPackage confy-desktop-windows-x86_64.msix
   Executable="confy-desktop.exe"` node, so the `confy` alias silently
   launched the GUI instead of the bundled TUI even though `confy.exe` was
   physically staged in the package. Fixed by giving the TUI its own
-  `Application Id="confy-cli" Executable="confy.exe"` node
+  `Application Id="confycli" Executable="confy.exe"` node
   (`AppListEntry="none"`, hidden from the Start menu) and moving the alias
   extension there.

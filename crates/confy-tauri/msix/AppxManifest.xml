@@ -78,7 +78,7 @@
          to make `confy`/the alias silently launch confy-desktop.exe
          instead of the TUI). AppListEntry="none" keeps it out of the Start
          menu / search results, since only the GUI app should show there. -->
-    <Application Id="confy-cli" Executable="confy.exe" EntryPoint="Windows.FullTrustApplication">
+    <Application Id="confycli" Executable="confy.exe" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
         AppListEntry="none"
         DisplayName="confy (CLI)"
