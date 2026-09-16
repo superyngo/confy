@@ -33,6 +33,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`offsetAtScrollTop`), the selection is moved before the scroll is restored, and the
   restore is re-asserted after layout (`restorePaneScroll`). Verified on Firefox, Chromium,
   Microsoft Edge and WebKit.
+- `web/raw-jump.spec.mjs` runs its `revertRawEdit` block again instead of aborting the suite.
+  The spec assembles a synthetic module from functions extracted out of `ui.ts` by name, and the
+  Firefox fix above added `offsetAtScrollTop`/`restorePaneScroll` calls into `revertRawEdit`
+  whose definitions that list did not carry — so the block threw `ReferenceError` and `npm test`
+  exited non-zero. Both helpers are extracted and interpolated now, plus an inline
+  `requestAnimationFrame` stub for the post-layout re-assert, matching `raw-write.spec.mjs`.
 
 ## [v1.3.1] - 2026-09-16
 

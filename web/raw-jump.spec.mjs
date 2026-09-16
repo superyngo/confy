@@ -63,7 +63,7 @@ console.log("-- byteToCodeUnit() --");
 
 // ---- 2. jumpSelectRawSpan / renderRawControls / revertRawEdit ----
 const uiTs = readFileSync(path.join(here, "ui.ts"), "utf8");
-const names = ["jumpSelectRawSpan", "scrollRawToOffset", "renderRawControls", "revertRawEdit"];
+const names = ["jumpSelectRawSpan", "scrollRawToOffset", "renderRawControls", "revertRawEdit", "offsetAtScrollTop", "restorePaneScroll"];
 const fns = names.map((n) => uiTs.match(new RegExp(`^function ${n}\\([\\s\\S]*?\\n\\}`, "m"))?.[0]);
 fns.forEach((s, i) => check(`${names[i]} extracted verbatim`, !!s));
 
@@ -73,10 +73,13 @@ const src = `let snap, session, rawState = "off", rawWriteBaseline = null, statu
 let rawJumpLatch = false;
 function t(key) { return key; }
 function byteToCodeUnit(text, byteOffset) { return byteOffset; } // ASCII-only fixtures below
+function requestAnimationFrame(fn) { fn(); } // restorePaneScroll's post-layout re-assert, run inline
 ${fns[0]}
 ${fns[1]}
 ${fns[2]}
 ${fns[3]}
+${fns[4]}
+${fns[5]}
 export { jumpSelectRawSpan, renderRawControls, revertRawEdit, setEnv, latch };
 function setEnv(e) { snap = e.snap; session = e.session; rawState = e.rawState; rawWriteBaseline = e.rawWriteBaseline; statusEl = e.statusEl; VSHOST = e.vshost ?? false; staleTree = e.staleTree ?? false; rawJumpLatch = false; }
 function latch() { return rawJumpLatch; }
