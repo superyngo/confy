@@ -353,6 +353,14 @@ shapes round-trip). Key types:
   viewport from the cursor, so any keystroke yanked a scrolled-away reader back (and to the
   top while the cursor sat on row 0). Touch has always scrolled per resolved key, not per
   render (`scrollFocusIntoView`).
+  **The caret never goes to offset 0 while the pane is scrolled** (2026-09-16): every path
+  that moves it — `enterRawWrite`, `revertRawEdit` (Cancel), `applyRawEdit` — seats it on the
+  first *visible* line (`offsetAtScrollTop`, the inverse of `scrollRawToOffset`'s line
+  arithmetic), moves the selection *before* restoring the scroll, and re-asserts that restore
+  in a `requestAnimationFrame` (`restorePaneScroll`). Gecko scrolls a focused caret into
+  view, so a caret at 0 was a standing order to jump to the head: measured 480 → 10 in a real
+  Firefox on Edit and on a dirty Cancel, while a clean Cancel (early return, caret untouched)
+  and every Chromium/WebKit run were fine. It is also where the user asked to edit.
   Write mode is entered when a pending external
   edit opens at the **empty path**: the Action menu's *Edit whole file* item
   (`ActionId::EditDocument`, always enabled, document-scoped) or the band's Edit control.

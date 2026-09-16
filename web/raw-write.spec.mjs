@@ -35,7 +35,7 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 
 const uiTs = readFileSync(path.join(here, "ui.ts"), "utf8");
 
-const names = ["enterRawWrite", "maybeEnterRawWrite", "applyRawEdit", "rawEditSave", "exitRawWrite", "renderRawOrTree", "applyRawAndExit", "revertRawEdit", "cancelRawEdit", "saveTreeScroll"];
+const names = ["enterRawWrite", "maybeEnterRawWrite", "applyRawEdit", "rawEditSave", "exitRawWrite", "renderRawOrTree", "applyRawAndExit", "revertRawEdit", "cancelRawEdit", "saveTreeScroll", "offsetAtScrollTop", "restorePaneScroll"];
 const fns = names.map((n) => uiTs.match(new RegExp(`^(?:async )?function ${n}\\([\\s\\S]*?\\n\\}`, "m"))?.[0]);
 fns.forEach((s, i) => check(`${names[i]} extracted verbatim`, !!s));
 
@@ -60,6 +60,10 @@ function renderTree(...a) { return renderTreeFn(...a); }
 function getEdit() { return getEditFn(); }
 function applyRawChrome() {}
 function renderRawControls() {}
+// The pane's metrics (scrollRawToOffset uses the same two) and the
+// after-layout re-assert, which runs inline here.
+function getComputedStyle() { return { lineHeight: "20px", paddingTop: "8px" }; }
+function requestAnimationFrame(fn) { fn(); }
 const tree = { get classList() { return treeEl.classList; } };
 export function setEnv(e) {
   if ("snap" in e) snap = e.snap;
@@ -89,6 +93,8 @@ export ${fns[6]}
 export ${fns[7]}
 export ${fns[8]}
 export ${fns[9]}
+export ${fns[10]}
+export ${fns[11]}
 `;
 
 const built = await esbuild.build({
@@ -182,7 +188,7 @@ console.log("\n-- enterRawWrite() / exitRawWrite(): one element keeps its own sc
   els.rawEdit.scrollLeft = 7;
   mod.enterRawWrite("a = 1\n");
   check("entering write leaves the pane's scroll where it was", els.rawEdit.scrollTop === 42 && els.rawEdit.scrollLeft === 7);
-  check("entering write seats the caret at offset 0", els.rawEdit.selectionStart === 0 && els.rawEdit.selectionEnd === 0);
+  check("entering write seats the caret on the first visible line, not offset 0", els.rawEdit.selectionStart === 6 && els.rawEdit.selectionEnd === 6);
 
   els.rawEdit.scrollTop = 99;
   els.rawEdit.value = mod.getBaseline(); // clean buffer — no confirm needed
@@ -204,6 +210,27 @@ console.log("\n-- enterRawWrite() / exitRawWrite(): one element keeps its own sc
   els.rawEdit.scrollTop = 120;
   mod.applyRawEdit();
   check("a committed Apply keeps the pane's scroll position", els.rawEdit.scrollTop === 120);
+}
+{
+  // 2026-09-16, reported on Firefox: a focused caret at offset 0 makes the
+  // browser scroll a scrolled pane back to the head. Both paths that move the
+  // caret must therefore put it inside the viewport — here, exactly the first
+  // visible line (metrics stubbed at 20px line-height, 8px padding-top).
+  const TEXT = "l0\nl1\nl2\nl3\nl4\n"; // line N starts at offset 3N
+  freshEnv({ serialize: () => TEXT });
+  els.rawEdit.scrollTop = 8 + 3 * 20; // line 3 is at the top of the viewport
+  mod.enterRawWrite(TEXT);
+  check("the caret lands on the first visible line (offset 9 = line 3)", els.rawEdit.selectionStart === 9);
+  check("entering write from a scrolled pane keeps the scroll", els.rawEdit.scrollTop === 68);
+
+  // Dirty Cancel: the reported failure. A clean one returns early (checked
+  // separately below) — which is exactly why only the dirty one jumped.
+  els.rawEdit.value = "# typed\n" + TEXT;
+  els.rawEdit.scrollTop = 8 + 2 * 20;
+  mod.revertRawEdit();
+  check("a dirty Cancel reverts the buffer", els.rawEdit.value === TEXT);
+  check("a dirty Cancel keeps the pane's scroll", els.rawEdit.scrollTop === 48);
+  check("a dirty Cancel leaves the caret on the first visible line, not 0", els.rawEdit.selectionStart === 6);
 }
 
 // ---- 2b. The *tree's* reading position survives the Raw round trip

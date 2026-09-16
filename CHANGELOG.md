@@ -25,6 +25,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the cursor still sat on the first row. The scroll-follow now runs only when the cursor +
   paste-slot anchor actually moved, matching touch, which has never scrolled per render.
   Raw view ↔ write, Apply and Cancel already preserved their scroll and still do.
+- **Firefox**: entering Raw write mode, and cancelling a *dirty* Raw buffer, jumped the pane
+  back to the top (measured 480 → 10 in a real Firefox; a *clean* Cancel was fine because it
+  returns before touching the buffer). Both paths seated the caret at offset 0, and Gecko
+  scrolls a focused caret into view — Chromium and WebKit do not, which is why a full
+  Chromium pass missed it. The caret is now seated on the first *visible* line instead
+  (`offsetAtScrollTop`), the selection is moved before the scroll is restored, and the
+  restore is re-asserted after layout (`restorePaneScroll`). Verified on Firefox, Chromium,
+  Microsoft Edge and WebKit.
 
 ## [v1.3.1] - 2026-09-16
 

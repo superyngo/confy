@@ -394,12 +394,17 @@ function maybeEnterRawWrite() {
 }
 
 // Seeds the pane from the pending edit's initial text (the whole document,
-// R20/`multiline_edit_initial(&[])`) and places the caret at offset 0.
-// Nothing is swapped and nothing is copied: view and write are the same
-// element, so the reading position simply stays where it was (Switching
-// table: "no scroll jump" / "caret continuity" are now structural). The
-// scroll position is restored around `focus()`/`setSelectionRange()` because
-// seating a caret at offset 0 is the one thing that could scroll it away.
+// R20/`multiline_edit_initial(&[])`). Nothing is swapped and nothing is
+// copied: view and write are the same element, so the reading position
+// simply stays where it was (Switching table: "no scroll jump" / "caret
+// continuity" are now structural).
+//
+// The caret is seated on the **first visible line**, not offset 0
+// (2026-09-16). A caret at 0 in a scrolled pane is a standing order to the
+// browser to scroll back to the head the moment the element takes focus —
+// Firefox does exactly that (Chrome does not, which is why this survived a
+// full Chromium pass). It is also the wrong place to start typing: the user
+// asked to edit what they are looking at.
 function enterRawWrite(initial: string) {
   // "Edit whole file" can open write mode straight from the tree — the same
   // hand-off `setRawState` makes, so the tree's position is saved here too.
@@ -412,9 +417,37 @@ function enterRawWrite(initial: string) {
   rawState = "write";
   applyRawChrome();
   editEl.focus();
-  editEl.setSelectionRange(0, 0);
-  editEl.scrollTop = top;
-  editEl.scrollLeft = left;
+  const at = offsetAtScrollTop(editEl, initial, top);
+  editEl.setSelectionRange(at, at);
+  restorePaneScroll(editEl, top, left);
+}
+
+// First character of the topmost visible line, given a scroll offset.
+// Inverse of `scrollRawToOffset`'s line arithmetic, same metrics source.
+function offsetAtScrollTop(el: HTMLTextAreaElement, text: string, top: number): number {
+  const cs = getComputedStyle(el);
+  const lineHeight = parseFloat(cs.lineHeight) || 20;
+  const padTop = parseFloat(cs.paddingTop) || 0;
+  const line = Math.max(0, Math.round((top - padTop) / lineHeight));
+  let idx = 0;
+  for (let n = 0; n < line; n++) {
+    const nl = text.indexOf("\n", idx);
+    if (nl < 0) return idx;
+    idx = nl + 1;
+  }
+  return idx;
+}
+
+// Write the pane's scroll back, then once more after layout: a caret move on
+// a focused textarea can scroll it into view *asynchronously* (Firefox), i.e.
+// after a synchronous restore has already run.
+function restorePaneScroll(el: HTMLTextAreaElement, top: number, left: number) {
+  el.scrollTop = top;
+  el.scrollLeft = left;
+  requestAnimationFrame(() => {
+    el.scrollTop = top;
+    el.scrollLeft = left;
+  });
 }
 
 // R4/R5: Apply (⌘/Ctrl+Enter) commits the whole buffer and stays in write
@@ -436,12 +469,15 @@ function applyRawEdit(): boolean {
     // now the scroll container itself — so both are restored around the
     // assignment (with the `<pre>` gone, nothing else holds the position).
     const top = editEl.scrollTop;
+    const left = editEl.scrollLeft;
     const selStart = editEl.selectionStart;
     const selEnd = editEl.selectionEnd;
     rawWriteBaseline = session!.serialize();
     editEl.value = rawWriteBaseline;
-    editEl.scrollTop = top;
+    // Selection first, scroll last (+ re-asserted after layout): the caret
+    // is what a browser scrolls into view, so it must not have the final say.
     editEl.setSelectionRange(selStart, selEnd);
+    restorePaneScroll(editEl, top, left);
   }
   // `renderRawControls` is not needed here: both band controls are enabled by
   // the mode alone now (2026-09-15), and the mode did not change.
@@ -732,14 +768,20 @@ function renderRawControls() {
 // mode change is `cancelRawEdit`'s second half — this function only touches
 // the buffer (`applyRawEdit` is its mirror image). The scroll position is
 // preserved around the re-seed for the same reason: assigning `.value`
-// resets the pane, which is the scroll container.
+// resets the pane, which is the scroll container — and the caret is moved
+// *before* that restore, onto the first visible line rather than offset 0,
+// for `enterRawWrite`'s reason (a focused caret at 0 scrolls Firefox back to
+// the head; this is why a dirty Cancel jumped while a clean one — which
+// returns early above, touching neither value nor caret — did not).
 function revertRawEdit() {
   const editEl = $<HTMLTextAreaElement>("rawEdit");
   if (rawState !== "write" || rawWriteBaseline === null || editEl.value === rawWriteBaseline) return;
   const top = editEl.scrollTop;
+  const left = editEl.scrollLeft;
   editEl.value = rawWriteBaseline;
-  editEl.scrollTop = top;
-  editEl.setSelectionRange(0, 0);
+  const at = offsetAtScrollTop(editEl, rawWriteBaseline, top);
+  editEl.setSelectionRange(at, at);
+  restorePaneScroll(editEl, top, left);
   renderRawControls();
 }
 
