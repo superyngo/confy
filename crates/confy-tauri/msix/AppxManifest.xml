@@ -76,11 +76,11 @@
          package, so the alias needs its own node pointing at confy.exe
          rather than sitting under the GUI's Application above (which used
          to make `confy`/the alias silently launch confy-desktop.exe
-         instead of the TUI). AppListEntry="none" keeps it out of the Start
-         menu / search results, since only the GUI app should show there. -->
+         Note: AppListEntry="none" would make this a
+         headless app, which Store submission rejects without Microsoft's
+         "HeadlessAppBypass" waiver — so the CLI stays a visible entry. -->
     <Application Id="confycli" Executable="confy.exe" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
-        AppListEntry="none"
         DisplayName="confy (CLI)"
         Description="Terminal UI for TOML / JSON / JSONC / YAML config files"
         BackgroundColor="transparent"

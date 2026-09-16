@@ -130,5 +130,7 @@ Add-AppxPackage confy-desktop-windows-x86_64.msix
   launched the GUI instead of the bundled TUI even though `confy.exe` was
   physically staged in the package. Fixed by giving the TUI its own
   `Application Id="confycli" Executable="confy.exe"` node
-  (`AppListEntry="none"`, hidden from the Start menu) and moving the alias
-  extension there.
+  and moving the alias extension there. That node must stay **visible**: `AppListEntry="none"`
+  makes the app *headless*, and Store submission rejects headless apps
+  without Microsoft's "HeadlessAppBypass" waiver, so the CLI shows in the
+  Start menu as "confy (CLI)".

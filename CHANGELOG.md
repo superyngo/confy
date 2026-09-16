@@ -37,8 +37,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Executable` of the `<Application>` node it's declared under, regardless of which
   same-named file the package also happens to contain, so the alias silently resolved to
   `confy-desktop.exe`. Fixed by giving the TUI binary its own `<Application
-  Id="confy-cli" Executable="confy.exe">` node (`AppListEntry="none"`, hidden from the
-  Start menu) and moving the alias extension there.
+  Id="confycli" Executable="confy.exe">` node (the Id must match the MSIX
+  schema, which forbids hyphens) and moving the alias extension there. The
+  node stays **visible** in the Start menu as "confy (CLI)": hiding it with
+  `AppListEntry="none"` makes the app *headless*, which Store submission
+  rejects without Microsoft's "HeadlessAppBypass" waiver.
 
 - Cross-format convert's lossy-normalization warnings are **translated** now. All thirteen
   of them (three schema-hint drops, eight style normalizations, two semantic-loss
