@@ -438,6 +438,40 @@ async function rawEditSave(): Promise<void> {
   await doSave();
 }
 
+// In-page confirmation dialog (`#confirm-modal`), deliberately NOT
+// `window.confirm`: VS Code builds its webview iframe with
+// `sandbox="allow-scripts allow-same-origin allow-forms allow-pointer-lock
+// allow-downloads"` — no `allow-modals` — so Chromium resolves a native
+// `confirm()` to `false` without ever prompting (measured 2026-09-16 with
+// those exact flags). That silently trapped Raw write mode in that host:
+// Escape and the Tree/Raw toggle both took the "user said no" branch forever.
+// One in-page dialog keeps all three hosts on ONE code path (no VSHOST
+// branch) — `web/no-native-modal.spec.mjs` guards against a relapse.
+function askConfirm(message: string, okLabel: string): Promise<boolean> {
+  const modal = $("confirm-modal");
+  const ok = $<HTMLButtonElement>("confirmOk");
+  $("confirmMsg").textContent = message;
+  ok.textContent = okLabel;
+  modal.classList.remove("hidden");
+  ok.focus();
+  return new Promise<boolean>((resolve) => {
+    const done = (answer: boolean) => {
+      modal.classList.add("hidden");
+      modal.onkeydown = null;
+      resolve(answer);
+    };
+    ok.onclick = () => done(true);
+    $("confirmCancel").onclick = () => done(false);
+    // Keys are handled on the dialog itself (focus sits on its OK button), and
+    // stopped there so the tree's global delegation never sees them.
+    modal.onkeydown = (ev) => {
+      ev.stopPropagation();
+      if (ev.key === "Escape") done(false);
+      else if (ev.key === "Enter") done(true);
+    };
+  });
+}
+
 // R7: Escape exits write mode back to Raw view, peeling core's pending edit
 // via `Escape` (lifting the empty-path lock, R21/R24) — gated on a confirm
 // only when the buffer differs from the last-applied baseline, matching the
@@ -449,9 +483,14 @@ async function rawEditSave(): Promise<void> {
 // band's toggle, `"off"` for the header's Tree/Raw button — pressing "Tree"
 // means Tree, so it takes ONE press from write mode, not a detour through
 // Raw view. Both share this one gate; only the landing state differs.
-function exitRawWrite(to: RawState = "view"): void {
+async function exitRawWrite(to: RawState = "view"): Promise<void> {
   const editEl = $<HTMLTextAreaElement>("rawEdit");
-  if (editEl.value !== rawWriteBaseline && !confirm(t("web.raw.discard-confirm"))) return;
+  if (
+    editEl.value !== rawWriteBaseline &&
+    !(await askConfirm(t("web.raw.discard-confirm"), t("web.common.discard")))
+  ) {
+    return;
+  }
   rawWriteBaseline = null;
   send("Escape");
   setRawState(to);
@@ -461,11 +500,23 @@ function exitRawWrite(to: RawState = "view"): void {
 // pressing it (2026-09-15): `Edit` in Raw view enters write mode through
 // core's pending-edit flow, `Apply` in Raw write commits the buffer and
 // leaves. Shared by the button and the overflow-menu entry.
+// Whole-file editing is refused while the VS Code side-by-side text doesn't
+// parse (`staleTree`): an Apply made then bumps `doc_revision` and re-seeds
+// the buffer, but `notifyHost` drops the `edit` post, so the whole typed file
+// would be silently discarded by the next successful reload. Same rule the
+// host-side `exec` path already applies to Save As. Never true off VS Code.
+function editDocumentBlocked(): boolean {
+  if (!staleTree) return false;
+  setStatus("", t("web.vscode.staleTree"));
+  return true;
+}
+
 function rawPrimary(): void {
   if (rawState === "write") {
     applyRawAndExit();
     return;
   }
+  if (editDocumentBlocked()) return;
   send("BeginEditDocument");
 }
 
@@ -479,7 +530,7 @@ function rawPrimary(): void {
 function applyRawAndExit(): void {
   const editEl = $<HTMLTextAreaElement>("rawEdit");
   if (editEl.value !== rawWriteBaseline && !applyRawEdit()) return;
-  exitRawWrite();
+  void exitRawWrite();
 }
 
 // The band's Cancel (2026-09-15): discard back to the last applied text and
@@ -490,7 +541,7 @@ function applyRawAndExit(): void {
 function cancelRawEdit(): void {
   if (rawState !== "write") return;
   revertRawEdit();
-  exitRawWrite();
+  void exitRawWrite();
 }
 
 // ⌘/Ctrl+Enter Apply, ⌘/Ctrl+S apply-if-dirty-then-save, Esc exit — the only
@@ -510,7 +561,7 @@ function onRawEditKey(ev: KeyboardEvent) {
     void rawEditSave();
   } else if (ev.key === "Escape") {
     ev.preventDefault();
-    exitRawWrite();
+    void exitRawWrite();
   }
 }
 
@@ -646,7 +697,10 @@ function renderRawControls() {
   $("btnRawEditLabel").textContent = label;
   editBtn.title = label;
   editBtn.classList.toggle("primary", !writing);
-  editBtn.disabled = false;
+  // Enabled by the mode alone, except while the tree is paused (`staleTree`,
+  // VS Code only): entering write mode from a stale document would produce an
+  // Apply that never reaches the host — see `editDocumentBlocked`.
+  editBtn.disabled = !writing && staleTree;
   $<HTMLButtonElement>("btnRawCancel").disabled = !writing;
 }
 
@@ -1152,6 +1206,7 @@ function onKey(ev: KeyboardEvent) {
   if (!session || !snap) return;
   if (!document.getElementById("ext-modal")!.classList.contains("hidden")) return;
   if (!document.getElementById("url-modal")!.classList.contains("hidden")) return;
+  if (!document.getElementById("confirm-modal")!.classList.contains("hidden")) return;
 
   const result = resolveKeyIntent(
     snap.mode,
@@ -1166,6 +1221,12 @@ function onKey(ev: KeyboardEvent) {
     case "intent":
       if (result.preventDefault) ev.preventDefault();
       if (result.intent === "OpenActionMenu") return openActionMenuFromKeyboard();
+      // The Action menu's own whole-file item takes the same stale-tree gate
+      // the band's control does (the keyboard commits by cursor, so the id has
+      // to be read off the live mode here).
+      if (result.intent === "ActionMenuCommit" && actionMenuCursorIsEditDocument() && editDocumentBlocked()) {
+        return;
+      }
       return send(result.intent);
     case "nav":
       if (result.preventDefault) ev.preventDefault();
@@ -1298,6 +1359,21 @@ function restoreTreeState(saved: { expanded: Path[]; cursor: Path } | null) {
   render();
 }
 
+// A `text-changed` reload swaps in a brand-new Session, so core's pending
+// whole-file edit (and the empty-path lock it holds) is gone — while the host
+// is still sitting in Raw write mode with the user's buffer. Without this, an
+// Escape would no-op on the new Session and an Apply would silently overwrite
+// the newer side-by-side text using a baseline from the old one. Re-arm the
+// pending edit and re-seed the baseline to the reloaded text (keeping the
+// user's typing, which is the one thing the reload must not throw away), then
+// say so: the buffer is now dirty *relative to newer text*.
+function rearmRawWriteAfterReload() {
+  if (rawState !== "write" || !session) return;
+  hostDispatch("BeginEditDocument");
+  rawWriteBaseline = session.serialize();
+  setStatus("", t("web.raw.host-changed"));
+}
+
 // Reload the Session from host-provided text (init dirty carry / text-changed).
 function reloadFromHost(text: string, format: ConfigFormat, name: string | null) {
   const saved = captureTreeState();
@@ -1314,6 +1390,7 @@ function reloadFromHost(text: string, format: ConfigFormat, name: string | null)
   if (session !== before) {
     staleTree = false;
     restoreTreeState(saved);
+    rearmRawWriteAfterReload();
   } else {
     // Parse failed: replaceSession left the old session in place. Freeze it —
     // see staleTree above. Status carries the reason (replaceSession already
@@ -2122,6 +2199,14 @@ function renderKindPickerPop() {
   kindPickerAnchor = { path, x, y }; // `placePopAt`'s closePops() cleared it
 }
 
+// Whether the Action menu cursor currently sits on the whole-file item —
+// the keyboard commit path's half of the `editDocumentBlocked` gate.
+function actionMenuCursorIsEditDocument(): boolean {
+  const mode = snap?.mode;
+  const am = typeof mode === "object" && mode !== null && "ActionMenu" in mode ? mode.ActionMenu : null;
+  return am?.items[am.cursor]?.id === "EditDocument";
+}
+
 function buildActionMenu(): HTMLElement {
   const mode = snap!.mode;
   const am = typeof mode === "object" && "ActionMenu" in mode ? mode.ActionMenu : null;
@@ -2137,6 +2222,7 @@ function buildActionMenu(): HTMLElement {
     const i = Number(b.dataset.i);
     b.onclick = () => {
       closePops();
+      if (am.items[i].id === "EditDocument" && editDocumentBlocked()) return;
       send({ ActionMenuPick: am.items[i].id });
     };
   });
@@ -2246,7 +2332,7 @@ const TOOLBAR_ENTRIES: ToolbarEntry[] = [
   { key: "btnInfo", labelKey: "web.toolbar.info.title", run: () => send("EnterHelp") },
   { key: "btnExpandAll", labelKey: "web.toolbar.expandAll.title", run: () => send("ExpandAll") },
   { key: "btnCollapseAll", labelKey: "web.toolbar.collapseAll.title", run: () => send("CollapseAll") },
-  { key: "btnViewToggle", labelKey: "web.toolbar.viewToggle.title", run: () => (rawState === "write" ? exitRawWrite("off") : setRawState(rawState === "off" ? "view" : "off")) },
+  { key: "btnViewToggle", labelKey: "web.toolbar.viewToggle.title", run: () => (rawState === "write" ? void exitRawWrite("off") : setRawState(rawState === "off" ? "view" : "off")) },
   // The primary control's menu row carries the same state-dependent label the
   // button does (a getter: `TOOLBAR_ENTRIES` is built once, read per menu).
   {
@@ -2492,7 +2578,7 @@ function bindGlobal() {
     // lands on Tree in ONE press, though: the button says Tree, so a detour
     // through Raw view would make it lie (fixed 2026-09-14).
     if (rawState === "write") {
-      exitRawWrite("off");
+      void exitRawWrite("off");
       return;
     }
     setRawState(rawState === "off" ? "view" : "off");
@@ -2673,7 +2759,8 @@ function selectForMenu(path: Path) {
 function noModalOpen(): boolean {
   return (
     document.getElementById("ext-modal")!.classList.contains("hidden") &&
-    document.getElementById("url-modal")!.classList.contains("hidden")
+    document.getElementById("url-modal")!.classList.contains("hidden") &&
+    document.getElementById("confirm-modal")!.classList.contains("hidden")
   );
 }
 

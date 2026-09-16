@@ -349,7 +349,12 @@ shapes round-trip). Key types:
   `doc_revision` not moving is how the host detects a failed Apply and keeps
   the buffer verbatim instead of re-seeding it from a stale `serialize()`. `⌘S` applies-if-dirty
   then saves; a failed Apply's `⌘S` does not save. `Esc` confirm-gates only on a dirty buffer
-  (R7); the header Tree/Raw toggle and a breadcrumb jump elsewhere in the document both route a
+  (R7) — through the in-page `#confirm-modal` dialog (`askConfirm`), **never** `window.confirm`:
+  a VS Code webview's iframe sandbox omits `allow-modals`, so a native confirm resolves to
+  `false` without prompting and silently made Escape and the Tree/Raw toggle no-ops there
+  (fixed 2026-09-16; `web/no-native-modal.spec.mjs` guards it, and the dialog is host-neutral —
+  no `VSHOST` branch). The header Tree/Raw toggle and a breadcrumb jump elsewhere in the
+  document both route a
   dirty write-mode exit through the same gate — the toggle then lands on **Tree in one press**
   (`exitRawWrite("off")`, 2026-09-14: the button says Tree, so a stop in Raw view made it lie),
   while `Esc` lands on Raw view (as do the band's own Apply/Cancel). Render never clobbers
@@ -359,8 +364,8 @@ shapes round-trip). Key types:
   **control band** (`#rawControls`, R13) renders only while Raw is active: a primary
   **action** whose label is the press's effect (`Edit` in Raw view, accent-filled; `Apply`
   in Raw write, level with Cancel) plus **Cancel** — two same-size controls that are always
-  present, the inapplicable one `disabled` (Cancel outside write mode; the primary one only
-  under VS Code). Since 2026-09-15 **both leave write mode**: Apply commits the buffer and
+  present, the inapplicable one `disabled` (Cancel outside write mode; the primary one while
+  the VS Code tree is paused — see VSCODE.md § Stale-tree pause). Since 2026-09-15 **both leave write mode**: Apply commits the buffer and
   exits (a *failed* Apply stays, keeping buffer + notice, R4), Cancel discards back to the
   last applied text and exits, with no confirm — so neither is gated on dirtiness, a clean
   buffer still needing a way out. `CHROME.md` owns the

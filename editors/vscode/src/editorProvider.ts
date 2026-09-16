@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import type { HostToWebview, WebviewToHost } from "../../../web/vscode-protocol.js";
 
 import { formatFromName } from "./formatFromName.js";
+import { createWriteQueue } from "./writeQueue.js";
 
 function basename(uri: vscode.Uri): string {
   return uri.path.split("/").pop() ?? "config.toml";
@@ -52,6 +53,11 @@ export class ConfyEditorProvider implements vscode.CustomTextEditorProvider {
     // result equals it is the echo of our own applyEdit: skip it.
     let webviewText: string | null = null;
     let debounce: ReturnType<typeof setTimeout> | undefined;
+    // Webview writes are applied asynchronously (`applyWebviewEdit` awaits
+    // `workspace.applyEdit`), so anything that consumes the document's content
+    // queues behind the edits already started — see `writeQueue.ts` for why
+    // the Raw pane's ⌘S makes this mandatory rather than theoretical.
+    const writes = createWriteQueue();
 
     const postMsg = (msg: HostToWebview) => void panel.webview.postMessage(msg);
 
@@ -123,9 +129,11 @@ export class ConfyEditorProvider implements vscode.CustomTextEditorProvider {
           break;
         }
         case "edit":
-          void this.applyWebviewEdit(document, msg.text, (t) => {
-            webviewText = t;
-          }, postText);
+          void writes.run(() =>
+            this.applyWebviewEdit(document, msg.text, (t) => {
+              webviewText = t;
+            }, postText),
+          );
           break;
         case "request-undo":
           void vscode.commands.executeCommand("undo");
@@ -134,10 +142,10 @@ export class ConfyEditorProvider implements vscode.CustomTextEditorProvider {
           void vscode.commands.executeCommand("redo");
           break;
         case "request-save":
-          void vscode.commands.executeCommand("workbench.action.files.save");
+          void writes.run(() => vscode.commands.executeCommand("workbench.action.files.save"));
           break;
         case "convert-save":
-          void this.convertSave(document, msg.suggestedName, msg.text);
+          void writes.run(() => this.convertSave(document, msg.suggestedName, msg.text));
           break;
         case "parse-error":
           void this.parseError(document, panel, msg.message);

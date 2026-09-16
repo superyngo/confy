@@ -21,6 +21,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   owner of the buffer — see [ADR 0015](docs/adr/0015-vscode-raw-pane-write-mode-enabled.md),
   which partially supersedes ADR 0014's R10.
 
+**Fixed**
+
+- **The Raw pane's discard confirmation is an in-page dialog now** (`#confirm-modal`,
+  `askConfirm`), not `window.confirm`. VS Code builds its webview iframe with
+  `sandbox="allow-scripts allow-same-origin allow-forms allow-pointer-lock allow-downloads"` —
+  no `allow-modals` — so Chromium resolved the native confirm to `false` without ever prompting,
+  which made **Escape and the Tree/Raw toggle silent no-ops on a dirty buffer** in that host
+  (the only ways out were Apply, which commits, and Cancel, which discards). One dialog for
+  every host, no `VSHOST` branch; `web/no-native-modal.spec.mjs` fails the suite if a
+  `confirm`/`alert`/`prompt` call returns.
+- **A Raw-pane `⌘S` can no longer save pre-Apply text under VS Code.** `edit`, `request-save`
+  and `convert-save` queue through one chain (`editors/vscode/src/writeQueue.ts`,
+  unit-tested) — `applyWebviewEdit` awaits `workspace.applyEdit`, while apply-then-save arrives
+  as two messages in the same tick, so the save command could previously reach the workbench
+  first.
+- **Whole-file editing is refused while the VS Code tree is paused** (`staleTree`): the band's
+  primary control is disabled and both Action-menu commit paths report `web.vscode.staleTree`.
+  An Apply made then bumped `doc_revision` and re-seeded the buffer while `notifyHost` dropped
+  the post — the whole typed file was discarded by the next successful reload.
+- **A `text-changed` reload during Raw write mode re-arms instead of desyncing.** The reload
+  swaps in a new `Session`, dropping core's pending empty-path edit and its lock, so Escape
+  no-opped and an Apply overwrote newer side-by-side text using the old baseline.
+  `rearmRawWriteAfterReload` re-dispatches `BeginEditDocument`, re-seeds the baseline from the
+  reloaded text, and says so (`web.raw.host-changed`); the unapplied text is kept.
+- `editors/vscode/build.mjs` warns when `web/dist/` is older than `web/`'s sources — it only
+  *copies* that bundle, so a rebuilt-elsewhere checkout silently staged a pre-change webview
+  into `media/` (observed as stale Action menu wording). Mirrors `web/build.mjs`'s stale-`pkg/`
+  warning.
+
 ## [v1.3.0] - 2026-09-16
 
 ### 2026-09-15

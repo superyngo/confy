@@ -67,7 +67,7 @@ const names = ["jumpSelectRawSpan", "scrollRawToOffset", "renderRawControls", "r
 const fns = names.map((n) => uiTs.match(new RegExp(`^function ${n}\\([\\s\\S]*?\\n\\}`, "m"))?.[0]);
 fns.forEach((s, i) => check(`${names[i]} extracted verbatim`, !!s));
 
-const src = `let snap, session, rawState = "off", rawWriteBaseline = null, statusEl, VSHOST = false;
+const src = `let snap, session, rawState = "off", rawWriteBaseline = null, statusEl, VSHOST = false, staleTree = false;
 // The jump sets this so the caret → cursor sync (raw-caret-sync.spec.mjs)
 // does not bounce our own selection back as a cursor move.
 let rawJumpLatch = false;
@@ -78,7 +78,7 @@ ${fns[1]}
 ${fns[2]}
 ${fns[3]}
 export { jumpSelectRawSpan, renderRawControls, revertRawEdit, setEnv, latch };
-function setEnv(e) { snap = e.snap; session = e.session; rawState = e.rawState; rawWriteBaseline = e.rawWriteBaseline; statusEl = e.statusEl; VSHOST = e.vshost ?? false; rawJumpLatch = false; }
+function setEnv(e) { snap = e.snap; session = e.session; rawState = e.rawState; rawWriteBaseline = e.rawWriteBaseline; statusEl = e.statusEl; VSHOST = e.vshost ?? false; staleTree = e.staleTree ?? false; rawJumpLatch = false; }
 function latch() { return rawJumpLatch; }
 `;
 
@@ -122,7 +122,7 @@ function freshGlobalEnv(spans, opts = {}) {
   // `spanOf` replaced the `outline()` walk (2026-09-14): outline omits
   // Comment nodes, so a jump to a comment row used to be a silent no-op.
   const sessionStub = { spanOf: (p) => spans[JSON.stringify(p)], serialize: () => opts.text ?? "target = \"needle\"\n" };
-  mod.setEnv({ snap: {}, session: sessionStub, rawState: opts.rawState ?? "view", rawWriteBaseline: opts.baseline ?? "text", statusEl: { set textContent(v) { statusTextCalls.push(v); } }, vshost: opts.vshost });
+  mod.setEnv({ snap: {}, session: sessionStub, rawState: opts.rawState ?? "view", rawWriteBaseline: opts.baseline ?? "text", statusEl: { set textContent(v) { statusTextCalls.push(v); } }, vshost: opts.vshost, staleTree: opts.staleTree });
 }
 
 // ---- Both Raw states: a jump selects the node's span and scrolls to it ----
@@ -228,6 +228,21 @@ console.log("\n-- renderRawControls(): a primary action plus Cancel --");
   check("the primary control is enabled under VSHOST", els.btnRawEdit.disabled === false);
   check("the primary control is not hidden under VSHOST", !els.btnRawEdit.classList.contains("hidden"));
   check("the band is still shown under VSHOST", !els.rawControls.classList.contains("hidden"));
+}
+
+{
+  // Stale tree (VS Code: the side-by-side text doesn't parse): entering write
+  // mode then would produce an Apply that `notifyHost` never posts, so the
+  // primary control is disabled — while an already-open write mode keeps its
+  // way out (Apply/Cancel both still exit).
+  freshGlobalEnv({}, { rawState: "view", vshost: true, staleTree: true });
+  mod.renderRawControls();
+  check("the Edit control is disabled while the tree is stale", els.btnRawEdit.disabled === true);
+}
+{
+  freshGlobalEnv({}, { rawState: "write", vshost: true, staleTree: true, editValue: "text", baseline: "text" });
+  mod.renderRawControls();
+  check("a write mode already open stays exitable while stale", els.btnRawEdit.disabled === false && els.btnRawCancel.disabled === false);
 }
 
 // ---- revertRawEdit(): Cancel's buffer half (the mode half is cancelRawEdit,

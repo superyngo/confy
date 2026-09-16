@@ -41,6 +41,28 @@ native text editor (via the title-bar tab-swap) remains an equally valid, more f
 to edit the same file as raw text; the Raw pane's write mode is a convenience that avoids the tab
 swap, not a replacement for it.
 
+**No native modal dialogs in this host.** VS Code creates the webview iframe with
+`sandbox="allow-scripts allow-same-origin allow-forms allow-pointer-lock allow-downloads"` —
+no `allow-modals` — so Chromium resolves `window.confirm()` to `false` and ignores `alert()`
+without ever prompting (measured 2026-09-16 against VS Code 1.135's own flags). A native
+confirm therefore reads as a permanent "no": the Raw pane's Escape and Tree/Raw toggle were
+silent no-ops on a dirty buffer until the gate moved to the in-page `#confirm-modal`
+(`askConfirm`, WEBUI.md § *Tree | Raw view | Raw write*), which every host now shares.
+`web/no-native-modal.spec.mjs` fails the suite if a `confirm`/`alert`/`prompt` call comes back.
+
+**Whole-document editing is refused while the tree is paused.** Entering write mode during a
+stale-tree window (below) would produce an Apply that `notifyHost` never posts — the typed file
+would be dropped by the next successful reload — so the band's primary control is `disabled`
+and both Action-menu commit paths refuse with the `web.vscode.staleTree` message, matching the
+rule the host-side `exec` path already applies to Save As. A write mode that is *already* open
+keeps both of its exits.
+
+**A `text-changed` arriving during write mode re-arms, never clobbers.** The reload swaps in a
+new `Session`, so core's pending empty-path edit and its document lock are gone;
+`rearmRawWriteAfterReload` re-dispatches `BeginEditDocument`, re-seeds the dirty baseline from
+the reloaded text, and reports `web.raw.host-changed`. The user's unapplied text is kept (the
+one thing a reload must not discard) and is now knowingly dirty against newer text.
+
 Save As / Convert, Help, About, language, and theme — with no toolbar button left to click —
 move to the editor title's **"…" More Actions** menu: three commands (`confy.saveAsConvert`,
 `confy.help`, `confy.about`) each posting an `exec` message (below) to the active confy
@@ -106,6 +128,13 @@ this, local and remote `$schema` loading both silently failed inside the extensi
 relaxation, no `../` traversal sandboxing, no timeout/content-type/redirect checks.
 This serves the **custom editor webview**; the native text editors' diagnostics use
 the separate extension-host pipeline below instead.
+
+**Write serialization.** `edit`, `request-save` and `convert-save` all queue through one
+`createWriteQueue()` chain (`editors/vscode/src/writeQueue.ts`), because `applyWebviewEdit`
+awaits `workspace.applyEdit` while the next message's handler runs immediately. The Raw pane's
+`⌘S` posts `edit` and `request-save` in the **same tick** (apply-then-save is one keystroke),
+so unserialized the save command could reach the workbench before the edit landed and write
+the pre-Apply text. A rejected step never wedges the queue (`writeQueue.test.ts`).
 
 **Echo suppression.** The host tracks `webviewText` (last text the webview is known to
 hold — set on `ready`'s `init` reply, on every received `edit`, and on every posted
@@ -219,6 +248,11 @@ every run, so `editors/vscode/build.mjs` always stages current artifacts into `m
 `crates/confy-ffi/pkg/`, so skipping `wasm-pack` stages a stale wasm into `media/` and
 the webview silently runs the previous core (`build.mjs` prints a stale-`pkg/` warning —
 see WEBUI.md § *Local build*).
+
+`editors/vscode/build.mjs` does not build `web/dist` either — it only copies it — so it prints
+its own warning when `web/dist/ui.js` is older than `web/`'s `.ts`/`.html`/`.css` sources
+(added 2026-09-16, after a rebuilt-elsewhere checkout shipped a pre-change webview whose Action
+menu still showed the old wording). Skipping step 2 is as silent as skipping step 1 was.
 
 Recommended local verification for VS Code host changes:
 

@@ -8,8 +8,12 @@
 // `rawState`/`rawWriteBaseline` are declared inside the generated bundle
 // itself (the same trick every other extraction spec uses for module-level
 // `let`s the functions close over) — only the truly external dependencies
-// (`$`, `session`, `snap`, `send`, `t`, `confirm`, `setRawState`, `doSave`,
-// `tree`, `renderTree`, `getEdit`) are stubbed via `setEnv`.
+// (`$`, `session`, `snap`, `send`, `t`, `askConfirm`, `setRawState`,
+// `doSave`, `tree`, `renderTree`, `getEdit`) are stubbed via `setEnv`.
+// `exitRawWrite` is async now (the confirmation is an in-page dialog, not the
+// native `confirm()` a VS Code webview's sandbox silently answers "no") — so
+// every exit below is awaited, and `flush()` drains the paths that fire it
+// without returning its promise (`applyRawAndExit`, `cancelRawEdit`).
 import path from "node:path";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -26,6 +30,9 @@ function check(name, cond, extra = "") {
     failures++;
   }
 }
+// Drain the microtasks an un-awaited `void exitRawWrite()` runs behind.
+const flush = () => new Promise((r) => setTimeout(r, 0));
+
 const uiTs = readFileSync(path.join(here, "ui.ts"), "utf8");
 
 const names = ["enterRawWrite", "maybeEnterRawWrite", "applyRawEdit", "rawEditSave", "exitRawWrite", "renderRawOrTree", "applyRawAndExit", "revertRawEdit", "cancelRawEdit"];
@@ -42,11 +49,11 @@ check(
 );
 
 const src = `let snap, session, rawState = "off", rawWriteBaseline = null;
-let $fn, tFn, sendFn, confirmFn, setRawStateFn, doSaveFn, renderTreeFn, getEditFn, treeEl;
+let $fn, tFn, sendFn, askConfirmFn, setRawStateFn, doSaveFn, renderTreeFn, getEditFn, treeEl;
 function $(id) { return $fn(id); }
 function t(k) { return tFn(k); }
 function send(i) { return sendFn(i); }
-function confirm(m) { return confirmFn(m); }
+function askConfirm(m, ok) { return askConfirmFn(m, ok); }
 function setRawState(next) { return setRawStateFn(next); }
 function doSave() { return doSaveFn(); }
 function renderTree(...a) { return renderTreeFn(...a); }
@@ -60,7 +67,7 @@ export function setEnv(e) {
   if ("$" in e) $fn = e.$;
   if ("t" in e) tFn = e.t;
   if ("send" in e) sendFn = e.send;
-  if ("confirm" in e) confirmFn = e.confirm;
+  if ("askConfirm" in e) askConfirmFn = e.askConfirm;
   if ("setRawState" in e) setRawStateFn = e.setRawState;
   if ("doSave" in e) doSaveFn = e.doSave;
   if ("renderTree" in e) renderTreeFn = e.renderTree;
@@ -121,7 +128,7 @@ function freshEnv(session) {
     session,
     t: (k) => k,
     send: (i) => sentIntents.push(i),
-    confirm: (_m) => confirmAnswer,
+    askConfirm: (_m) => Promise.resolve(confirmAnswer),
     setRawState: (next) => setRawStateCalls.push(next),
     doSave: () => { doSaveCalls++; return Promise.resolve(); },
     renderTree: () => {},
@@ -169,7 +176,7 @@ console.log("\n-- enterRawWrite() / exitRawWrite(): one element keeps its own sc
 
   els.rawEdit.scrollTop = 99;
   els.rawEdit.value = mod.getBaseline(); // clean buffer — no confirm needed
-  mod.exitRawWrite();
+  await mod.exitRawWrite();
   check("exiting write leaves the pane's scroll untouched (no hand-off)", els.rawEdit.scrollTop === 99);
   check("exitRawWrite hands off to setRawState(\"view\")", setRawStateCalls.length === 1 && setRawStateCalls[0] === "view");
   check("exitRawWrite peels core's pending edit via Escape", sentIntents.length === 1 && sentIntents[0] === "Escape");
@@ -258,13 +265,13 @@ console.log("\n-- exitRawWrite(): R7 confirm gated on dirtiness --");
   mod.enterRawWrite("a = 1\n");
   els.rawEdit.value = "a = 1\nb = 2\n"; // dirty
   confirmAnswer = false;
-  mod.exitRawWrite();
+  await mod.exitRawWrite();
   check("declining the confirm on a dirty buffer stays in write mode", mod.getRawState() === "write");
   check("declining the confirm sends no Escape", sentIntents.length === 0);
   check("declining the confirm does not call setRawState", setRawStateCalls.length === 0);
 
   confirmAnswer = true;
-  mod.exitRawWrite();
+  await mod.exitRawWrite();
   check("accepting the confirm on a dirty buffer exits write mode", setRawStateCalls[0] === "view");
   check("accepting the confirm still peels the pending edit via Escape", sentIntents[0] === "Escape");
 }
@@ -273,8 +280,8 @@ console.log("\n-- exitRawWrite(): R7 confirm gated on dirtiness --");
   mod.enterRawWrite("a = 1\n");
   // Buffer untouched — clean — no confirm should even be consulted.
   let confirmCalls = 0;
-  mod.setEnv({ confirm: () => { confirmCalls++; return false; } });
-  mod.exitRawWrite();
+  mod.setEnv({ askConfirm: () => { confirmCalls++; return Promise.resolve(false); } });
+  await mod.exitRawWrite();
   check("a clean buffer exits without ever asking for confirmation", confirmCalls === 0);
   check("a clean buffer's exit still reaches setRawState(\"view\")", setRawStateCalls[0] === "view");
 }
@@ -283,7 +290,7 @@ console.log("\n-- exitRawWrite(): R7 confirm gated on dirtiness --");
 {
   freshEnv({ serialize: () => "a = 1\n" });
   mod.enterRawWrite("a = 1\n");
-  mod.exitRawWrite("off");
+  await mod.exitRawWrite("off");
   check("exitRawWrite(\"off\") lands on Tree in one press", setRawStateCalls.length === 1 && setRawStateCalls[0] === "off");
   check("the one-press exit still peels the pending edit via Escape", sentIntents.length === 1 && sentIntents[0] === "Escape");
 }
@@ -292,7 +299,7 @@ console.log("\n-- exitRawWrite(): R7 confirm gated on dirtiness --");
   mod.enterRawWrite("a = 1\n");
   els.rawEdit.value = "a = 1\nb = 2\n"; // dirty
   confirmAnswer = false;
-  mod.exitRawWrite("off");
+  await mod.exitRawWrite("off");
   check("the one-press exit takes the same R7 confirm gate", mod.getRawState() === "write" && setRawStateCalls.length === 0);
 }
 // ---- 6. The band's Apply/Cancel both LEAVE write mode (2026-09-15) ----
@@ -306,6 +313,7 @@ console.log("\n-- applyRawAndExit() / cancelRawEdit(): both controls exit --");
   mod.enterRawWrite("a = 1\n");
   els.rawEdit.value = "a = 2\n";
   mod.applyRawAndExit();
+  await flush();
   check("a committed Apply leaves write mode", setRawStateCalls.length === 1 && setRawStateCalls[0] === "view");
   check("the committed Apply dispatched the empty-path Replace", sentIntents.some((i) => i?.ApplyReplace?.path?.length === 0));
   check("the exit peels the pending edit via Escape", sentIntents.includes("Escape"));
@@ -316,6 +324,7 @@ console.log("\n-- applyRawAndExit() / cancelRawEdit(): both controls exit --");
   mod.enterRawWrite("a = 1\n");
   els.rawEdit.value = "still broken [[[";
   mod.applyRawAndExit();
+  await flush();
   check("a failed Apply stays in write mode (R4)", setRawStateCalls.length === 0);
   check("a failed Apply keeps the buffer verbatim", els.rawEdit.value === "still broken [[[");
 }
@@ -323,7 +332,8 @@ console.log("\n-- applyRawAndExit() / cancelRawEdit(): both controls exit --");
   freshEnv({ serialize: () => "a = 1\n" });
   mod.setEnv({ snap: { doc_revision: 1 } });
   mod.enterRawWrite("a = 1\n");
-  mod.applyRawAndExit(); // clean buffer
+  mod.applyRawAndExit();
+  await flush(); // clean buffer
   check("a clean buffer's Apply exits with no ApplyReplace dispatched", setRawStateCalls[0] === "view" && !sentIntents.some((i) => i?.ApplyReplace));
 }
 {
@@ -331,15 +341,17 @@ console.log("\n-- applyRawAndExit() / cancelRawEdit(): both controls exit --");
   mod.enterRawWrite("a = 1\n");
   els.rawEdit.value = "a = 1\nb = 2\n"; // dirty
   let confirmCalls = 0;
-  mod.setEnv({ confirm: () => { confirmCalls++; return false; } });
+  mod.setEnv({ askConfirm: () => { confirmCalls++; return Promise.resolve(false); } });
   mod.cancelRawEdit();
+  await flush();
   check("Cancel restores the last applied text", els.rawEdit.value === "a = 1\n");
   check("Cancel leaves write mode", setRawStateCalls.length === 1 && setRawStateCalls[0] === "view");
   check("Cancel never asks for confirmation — the press IS the answer", confirmCalls === 0);
 }
 {
   freshEnv({ serialize: () => "a = 1\n" });
-  mod.cancelRawEdit(); // rawState is "off"
+  mod.cancelRawEdit();
+  await flush(); // rawState is "off"
   check("Cancel is inert outside write mode", setRawStateCalls.length === 0 && sentIntents.length === 0);
 }
 
