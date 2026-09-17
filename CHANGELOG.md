@@ -30,7 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stack, so buffer undo can never cross an Apply and therefore never swaps committed document
   text under the buffer. Bare `z`/`y` still type characters in write mode.
   `docs/reference/KEYMAP.md`, `WEBUI.md` and `VSCODE.md` updated (the last also corrects its
-  claim that ⌘Z forwards to the workbench — only the bare keys do).
+  claim that ⌘Z forwards to the workbench — only the bare keys do). Verified on the real web
+  bundle and in a real VS Code window (2026-09-17).
 
 - The desktop web Raw control band's Edit/Apply/Cancel roles are swapped for a safer,
   more intuitive exit: the **left** control now toggles `Edit` ↔ `Cancel` in place

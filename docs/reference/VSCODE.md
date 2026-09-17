@@ -52,7 +52,8 @@ the browser and Tauri hosts take the same one — and it is the only undo route 
 here, since `host-vscode` hides both `header.toolbar` and `#histGroup`: there are no in-webview
 Undo/Redo buttons in this host to press. Core's `Undo`/`Redo` are untouched (and still
 refused while the buffer is open, R24), so the `TextDocument` is never rewound behind the
-user's back.
+user's back. Confirmed in a real VS Code window on 2026-09-17: ⌘Z/⇧⌘Z/Ctrl+Y edit the buffer
+and leave the side-by-side text and its dirty state alone.
 
 **No native modal dialogs in this host.** VS Code creates the webview iframe with
 `sandbox="allow-scripts allow-same-origin allow-forms allow-pointer-lock allow-downloads"` —
