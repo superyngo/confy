@@ -115,9 +115,9 @@ function freshGlobalEnv(spans, opts = {}) {
   els = {
     rawEdit: mkEl({ value: opts.editValue ?? "text" }),
     rawControls: mkEl(),
-    btnRawEdit: mkEl(),
-    btnRawEditLabel: mkEl(),
-    btnRawCancel: mkEl(),
+    btnRawToggle: mkEl(),
+    btnRawToggleLabel: mkEl(),
+    btnRawApply: mkEl(),
   };
   statusTextCalls = [];
   globalThis.$ = (id) => els[id];
@@ -190,8 +190,8 @@ console.log("\n-- jumpSelectRawSpan(): R17 dirty write buffer is gated --");
   check("status reports web.raw.jump-needs-apply instead", statusTextCalls.length === 1);
 }
 
-// ---- renderRawControls(): the primary action + Cancel (2026-09-15) ----
-console.log("\n-- renderRawControls(): a primary action plus Cancel --");
+// ---- renderRawControls(): a left Edit↔Cancel toggle + a static right Apply (2026-09-17) ----
+console.log("\n-- renderRawControls(): a left toggle plus a static Apply --");
 {
   freshGlobalEnv({}, { rawState: "off" });
   mod.renderRawControls();
@@ -201,26 +201,26 @@ console.log("\n-- renderRawControls(): a primary action plus Cancel --");
   freshGlobalEnv({}, { rawState: "view" });
   mod.renderRawControls();
   check("band shown in view", !els.rawControls.classList.contains("hidden"));
-  check("the primary control reads Edit while viewing", els.btnRawEditLabel.textContent === "web.raw.controls.edit");
-  check("the primary control's title matches its label", els.btnRawEdit.title === "web.raw.controls.edit");
-  check("Edit carries the accent fill in view", els.btnRawEdit.classList.contains("primary"));
-  check("the primary control is enabled in view mode", els.btnRawEdit.disabled === false);
-  check("cancel is present, never hidden", !els.btnRawCancel.classList.contains("hidden"));
-  check("cancel is disabled in view mode", els.btnRawCancel.disabled === true);
+  check("the left control reads Edit while viewing", els.btnRawToggleLabel.textContent === "web.raw.controls.edit");
+  check("the left control's title matches its label", els.btnRawToggle.title === "web.raw.controls.edit");
+  check("Edit carries the accent fill in view", els.btnRawToggle.classList.contains("primary"));
+  check("the left control is enabled in view mode", els.btnRawToggle.disabled === false);
+  check("apply is present, never hidden", !els.btnRawApply.classList.contains("hidden"));
+  check("apply is disabled in view mode", els.btnRawApply.disabled === true);
 }
 {
   // Write mode, clean buffer: both controls are still the way OUT of the mode.
   freshGlobalEnv({}, { rawState: "write", editValue: "text", baseline: "text" });
   mod.renderRawControls();
-  check("the primary control reads Apply while editing", els.btnRawEditLabel.textContent === "web.raw.controls.apply");
-  check("Apply drops the accent fill, level with Cancel", !els.btnRawEdit.classList.contains("primary"));
-  check("apply is enabled on a clean buffer (it is also the exit)", els.btnRawEdit.disabled === false);
-  check("cancel is enabled on a clean buffer (it is also the exit)", els.btnRawCancel.disabled === false);
+  check("the left control reads Cancel while editing", els.btnRawToggleLabel.textContent === "web.raw.controls.cancel");
+  check("Cancel drops the accent fill, level with Apply", !els.btnRawToggle.classList.contains("primary"));
+  check("cancel is enabled on a clean buffer (it is also the exit)", els.btnRawToggle.disabled === false);
+  check("apply is enabled on a clean buffer (it is also the exit)", els.btnRawApply.disabled === false);
 }
 {
   freshGlobalEnv({}, { rawState: "write", editValue: "edited", baseline: "text" });
   mod.renderRawControls();
-  check("a dirty buffer changes nothing about the enable rule", els.btnRawEdit.disabled === false && els.btnRawCancel.disabled === false);
+  check("a dirty buffer changes nothing about the enable rule", els.btnRawToggle.disabled === false && els.btnRawApply.disabled === false);
 }
 {
   // Whole-document editing is now supported under VS Code too (the Raw
@@ -228,24 +228,24 @@ console.log("\n-- renderRawControls(): a primary action plus Cancel --");
   // as every other edit, so VS Code's TextDocument stays the single owner).
   freshGlobalEnv({}, { rawState: "view", vshost: true });
   mod.renderRawControls();
-  check("the primary control is enabled under VSHOST", els.btnRawEdit.disabled === false);
-  check("the primary control is not hidden under VSHOST", !els.btnRawEdit.classList.contains("hidden"));
+  check("the left control is enabled under VSHOST", els.btnRawToggle.disabled === false);
+  check("the left control is not hidden under VSHOST", !els.btnRawToggle.classList.contains("hidden"));
   check("the band is still shown under VSHOST", !els.rawControls.classList.contains("hidden"));
 }
 
 {
   // Stale tree (VS Code: the side-by-side text doesn't parse): entering write
   // mode then would produce an Apply that `notifyHost` never posts, so the
-  // primary control is disabled — while an already-open write mode keeps its
-  // way out (Apply/Cancel both still exit).
+  // left control is disabled — while an already-open write mode keeps its
+  // way out (Cancel/Apply both still exit).
   freshGlobalEnv({}, { rawState: "view", vshost: true, staleTree: true });
   mod.renderRawControls();
-  check("the Edit control is disabled while the tree is stale", els.btnRawEdit.disabled === true);
+  check("the Edit control is disabled while the tree is stale", els.btnRawToggle.disabled === true);
 }
 {
   freshGlobalEnv({}, { rawState: "write", vshost: true, staleTree: true, editValue: "text", baseline: "text" });
   mod.renderRawControls();
-  check("a write mode already open stays exitable while stale", els.btnRawEdit.disabled === false && els.btnRawCancel.disabled === false);
+  check("a write mode already open stays exitable while stale", els.btnRawToggle.disabled === false && els.btnRawApply.disabled === false);
 }
 
 // ---- revertRawEdit(): Cancel's buffer half (the mode half is cancelRawEdit,

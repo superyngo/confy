@@ -10,6 +10,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 2026-09-17
+
+**Changed**
+
+- The desktop web Raw control band's Edit/Apply/Cancel roles are swapped for a safer,
+  more intuitive exit: the **left** control now toggles `Edit` ↔ `Cancel` in place
+  (`#btnRawToggle`, was `#btnRawEdit`) — clicking Edit to enter write mode and clicking the
+  same spot again discards and leaves; the **right** control is now a static `Apply`
+  (`#btnRawApply`, was `#btnRawCancel`), enabled only in write mode. Behavior (Apply commits
+  and exits, Cancel discards and exits, neither gated on dirtiness) is unchanged — only which
+  button occupies which slot. `docs/reference/CHROME.md` and `docs/reference/WEBUI.md` own the
+  updated inventory; `docs/spec/2026-09-11-raw-write-mode-design.md` R13 records the amendment.
+
 ## [v1.3.2] - 2026-09-16
 
 ### 2026-09-16

@@ -381,14 +381,16 @@ shapes round-trip). Key types:
   the buffer while write mode is open (R8: the re-seed is reachable only from the `"view"`
   branch). Because Raw view's pane is a focusable textarea, `document.body`'s key delegation
   skips only a **writable** one — a readonly pane never swallows a shortcut. A crumbs-row
-  **control band** (`#rawControls`, R13) renders only while Raw is active: a primary
-  **action** whose label is the press's effect (`Edit` in Raw view, accent-filled; `Apply`
-  in Raw write, level with Cancel) plus **Cancel** — two same-size controls that are always
-  present, the inapplicable one `disabled` (Cancel outside write mode; the primary one while
-  the VS Code tree is paused — see VSCODE.md § Stale-tree pause). Since 2026-09-15 **both leave write mode**: Apply commits the buffer and
-  exits (a *failed* Apply stays, keeping buffer + notice, R4), Cancel discards back to the
-  last applied text and exits, with no confirm — so neither is gated on dirtiness, a clean
-  buffer still needing a way out. `CHROME.md` owns the
+  **control band** (`#rawControls`, R13, roles swapped 2026-09-17) renders only while Raw is
+  active: a left **toggle** whose label is the press's effect (`Edit` in Raw view,
+  accent-filled; `Cancel` in Raw write, level with the right control) plus a static right
+  **Apply** — two same-size controls that are always present, the inapplicable one
+  `disabled` (Apply outside write mode; the left toggle while the VS Code tree is paused —
+  see VSCODE.md § Stale-tree pause). Since 2026-09-15 **both leave write mode**, and since
+  2026-09-17 Cancel sits where the user's pointer already is (the left slot): Apply commits
+  the buffer and exits (a *failed* Apply stays, keeping buffer + notice, R4), Cancel discards
+  back to the last applied text and exits, with no confirm — so neither is gated on
+  dirtiness, a clean buffer still needing a way out. `CHROME.md` owns the
   inventory. The breadcrumb bar itself stays visible and live in **both** Raw states, and a
   breadcrumb pick additionally selects the node's whole-member source span (key included, R29)
   in the Raw pane — one code path for both states now: `setSelectionRange` plus an **explicit**
