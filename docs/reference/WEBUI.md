@@ -411,6 +411,19 @@ shapes round-trip). Key types:
   VS Code suppresses the Action menu item and disables the band's Edit control (R10): its own
   `TextDocument` is already this feature's one owner (ADR 0007), so a second editable copy in
   the webview is never offered.
+  **Undo/redo in write mode mean the buffer, not the document** (2026-09-17): `⌘Z`/`⇧⌘Z`/`⌘Y`
+  and every undo affordance (`#btnUndo`/`#btnRedo`, the `⋯` rows, Tauri's native Edit menu,
+  touch's toolbar while its external-edit sheet is open) go through `rawBufferHistory` /
+  `touchHistory`, which drive the `<textarea>`'s own history with `document.execCommand`.
+  Core refuses `Undo`/`Redo` while the document buffer is open (R24), so the affordances used
+  to answer with the `core.document.edit-locked` notice instead of the undo the user asked
+  for. The keys are handled by confy rather than left to the browser because VS Code's webview
+  preload `preventDefault()`s ⌘/Ctrl+Z and ⌘/Ctrl+Y and forwards them to the workbench's
+  `undo` command, which never reaches the textarea (measured 2026-09-17: ⌘X/C/V work there,
+  ⌘Z/Y did nothing) — so the handler acts first and calls `stopPropagation`. R24's guarantee
+  survives because every programmatic `.value` write (entry, Apply, revert) clears the native
+  undo stack: buffer undo can never cross an Apply and therefore never swaps committed
+  document text under the buffer. Bare `z`/`y` keep typing characters.
 - **Paste mode.** While the clipboard holds a cut/copy the selection is frozen
   (`Session::set_selection` is a no-op), so a row click positions the paste target
   instead: `armedPasteTarget()` reads the click's row-relative Y and calls

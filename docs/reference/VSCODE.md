@@ -27,8 +27,8 @@ CSS/JS mechanism for each) are documented once, alongside every other host, in
 **`CHROME.md`** — not restated here. In short: the whole `header.toolbar` is hidden (the
 document is tab-bound — VS Code owns Open — destination picks are native save dialogs, the
 theme defaults to following VS Code's own theme, overridable via the "…" menu's Theme
-submenu below), Undo/Redo get no replacement UI (keyboard z / y / ⌘S already forward to the
-workbench via `request-undo`/`request-redo`/`request-save`), and the filter row
+submenu below), Undo/Redo get no replacement UI (the bare `z` / `y` keys and `⌘S` forward to
+the workbench via `request-undo`/`request-redo`/`request-save`), and the filter row
 (search/type-filter/Expand-Collapse, plus the Raw/Tree toggle relocated in from the header)
 stays.
 
@@ -40,6 +40,19 @@ so the webview's `TextDocument` stays the single owner of the buffer either way.
 native text editor (via the title-bar tab-swap) remains an equally valid, more full-featured way
 to edit the same file as raw text; the Raw pane's write mode is a convenience that avoids the tab
 swap, not a replacement for it.
+
+**⌘/Ctrl+Z and ⌘/Ctrl+Y never reach the webview's own text.** The webview preload
+`preventDefault()`s those two chords (`pre/index.html`'s `isUndoRedo`, keyCode 90/89) and
+forwards a `did-keydown` to the workbench's `undo`/`redo` command instead — which, measured
+against the real host on 2026-09-17, does nothing to a focused `<textarea>` inside the
+webview, while ⌘X/⌘C/⌘V do work (those ride Electron's native clipboard roles). So the Raw
+pane's write mode handles these chords itself (`onRawEditKey` → `rawBufferHistory`, then
+`stopPropagation`), driving the textarea's own undo stack. This is a host-neutral code path —
+the browser and Tauri hosts take the same one — and it is the only undo route in write mode
+here, since `host-vscode` hides both `header.toolbar` and `#histGroup`: there are no in-webview
+Undo/Redo buttons in this host to press. Core's `Undo`/`Redo` are untouched (and still
+refused while the buffer is open, R24), so the `TextDocument` is never rewound behind the
+user's back.
 
 **No native modal dialogs in this host.** VS Code creates the webview iframe with
 `sandbox="allow-scripts allow-same-origin allow-forms allow-pointer-lock allow-downloads"` —

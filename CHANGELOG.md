@@ -14,6 +14,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Changed**
 
+- **Undo/redo inside a document buffer now undo the *text*, not the document.** While the Raw
+  pane's write mode (or touch's external-edit sheet) holds a buffer, `⌘Z`/`⇧⌘Z`/`⌘Y`, the
+  toolbar's ↶/↷, the `⋯` overflow rows and Tauri's native Edit menu all drive the
+  `<textarea>`'s own history (`rawBufferHistory` in `web/ui.ts`, `touchHistory` in
+  `web/touch/app.ts`); outside a buffer they keep dispatching core `Undo`/`Redo` unchanged.
+  The pointer affordances previously answered with the `core.document.edit-locked` notice
+  (core refuses undo/redo then — R24 of the Raw-write spec), i.e. the gesture reported a lock
+  instead of undoing what the user just typed. **This also fixes VS Code**, where ⌘Z/⌘Y did
+  nothing at all in write mode: its webview preload `preventDefault()`s both chords and
+  forwards them to the workbench's `undo` command, which never reaches a textarea inside the
+  webview (⌘X/C/V worked, since those ride Electron's native clipboard roles) — confy now
+  handles the chords before that forwarding and calls `stopPropagation`. R24's guarantee is
+  intact: every programmatic `.value` write (entry, Apply, revert) clears the native undo
+  stack, so buffer undo can never cross an Apply and therefore never swaps committed document
+  text under the buffer. Bare `z`/`y` still type characters in write mode.
+  `docs/reference/KEYMAP.md`, `WEBUI.md` and `VSCODE.md` updated (the last also corrects its
+  claim that ⌘Z forwards to the workbench — only the bare keys do).
+
 - The desktop web Raw control band's Edit/Apply/Cancel roles are swapped for a safer,
   more intuitive exit: the **left** control now toggles `Edit` ↔ `Cancel` in place
   (`#btnRawToggle`, was `#btnRawEdit`) — clicking Edit to enter write mode and clicking the

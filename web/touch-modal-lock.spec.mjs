@@ -56,10 +56,27 @@ check(
 const shellHandlersBlock = appTs.match(/^function installShellHandlers\(\) \{[\s\S]*?\n\}/m)?.[0] ?? "";
 check("installShellHandlers found in source", shellHandlersBlock.length > 0);
 check(
-  "installShellHandlers undo/redo/open/save/filter/info/expand/collapse guards armed clipboard",
-  /case "undo":[\s\S]*?clipboard_count/.test(shellHandlersBlock) &&
-    /case "save":[\s\S]*?clipboard_count/.test(shellHandlersBlock) &&
+  "installShellHandlers open/save/filter/info/expand/collapse guards armed clipboard",
+  /case "save":[\s\S]*?clipboard_count/.test(shellHandlersBlock) &&
     /case "filter":[\s\S]*?clipboard_count/.test(shellHandlersBlock),
+);
+check(
+  "installShellHandlers routes undo/redo through touchHistory",
+  /case "undo":\s*\n\s*touchHistory\("undo"\)/.test(shellHandlersBlock) &&
+    /case "redo":\s*\n\s*touchHistory\("redo"\)/.test(shellHandlersBlock),
+);
+
+// The armed-clipboard guard for undo/redo moved into `touchHistory`, which
+// also owns the "a document buffer is open → undo the buffer" branch.
+const touchHistoryBlock = appTs.match(/^function touchHistory\([\s\S]*?\n\}/m)?.[0] ?? "";
+check("touchHistory found in source", touchHistoryBlock.length > 0);
+check(
+  "touchHistory guards armed clipboard before dispatching Undo/Redo",
+  /clipboard_count/.test(touchHistoryBlock) && /SetHostNotice/.test(touchHistoryBlock),
+);
+check(
+  "touchHistory prefers the open external-edit buffer's own history",
+  /sheets\.ext[\s\S]*?execCommand/.test(touchHistoryBlock),
 );
 
 const openMenuSheetBlock = appTs.match(/^function openMenuSheet\(\) \{[\s\S]*?\n\}/m)?.[0] ?? "";
@@ -73,12 +90,11 @@ check(
 console.log("\n-- behavioral: touch modal lock execution --");
 
 // Extract functions for execution
-const fns = ["pathOf", "startReorder", "openPanel", "installTreeGestures", "installShellHandlers"]
-  .map((n) => appTs.match(new RegExp(`^function ${n}\\([\\s\\S]*?\\n\\}`, "m"))?.[0])
-  .map((s, i) => {
-    check(`${["pathOf", "startReorder", "openPanel", "installTreeGestures", "installShellHandlers"][i]} extracted verbatim`, !!s);
-    return s ?? `function ${["pathOf", "startReorder", "openPanel", "installTreeGestures", "installShellHandlers"][i]}() {}`;
-  });
+const FN_NAMES = ["pathOf", "startReorder", "openPanel", "installTreeGestures", "installShellHandlers", "touchHistory"];
+const fns = FN_NAMES.map((n) => appTs.match(new RegExp(`^function ${n}\\([\\s\\S]*?\\n\\}`, "m"))?.[0]).map((s, i) => {
+  check(`${FN_NAMES[i]} extracted verbatim`, !!s);
+  return s ?? `function ${FN_NAMES[i]}() {}`;
+});
 
 const H = (globalThis.__touchModalHooks = { sent: [], ops: [], toasts: [] });
 let mod = null;
@@ -197,11 +213,7 @@ export function triggerAppClick(target) {
   const ev = { target };
   appListeners["click"](ev);
 }
-export ${fns[0]}
-export ${fns[1]}
-export ${fns[2]}
-export ${fns[3]}
-export ${fns[4]}
+${fns.map((f) => "export " + f).join("\n")}
 `;
   const built = await esbuild.build({
     stdin: { contents: src, resolveDir: here, loader: "ts" },

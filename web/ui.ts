@@ -256,6 +256,8 @@ async function main() {
     doSave,
     openSaveConvert: () => openSaveConvert(io),
     send,
+    undo: () => uiUndo(),
+    redo: () => uiRedo(),
     toggleTheme,
     chooseLang,
     openRecentPath,
@@ -603,12 +605,29 @@ function cancelRawEdit(): void {
   void exitRawWrite();
 }
 
-// ⌘/Ctrl+Enter Apply, ⌘/Ctrl+S apply-if-dirty-then-save, Esc exit — the only
-// keys write mode itself handles; every other key is native `<textarea>`
-// typing. In Raw *view* the same element is `readonly` and handles nothing:
-// the press falls through to `document.body`'s global delegation (which
-// skips only a *writable* textarea), so Raw view keeps every shortcut it
-// had when it was a `<pre>`.
+// Undo/redo *inside the document buffer* (Raw write mode). The gesture there
+// means "undo my typing", not core's document history — which is locked
+// while the empty-path edit is open anyway (R24 /
+// `core.document.edit-locked`). `execCommand` is deprecated but is the only
+// API that reaches a `<textarea>`'s own undo stack, and every programmatic
+// `.value` write (entry, Apply, revert) clears that stack — so buffer undo
+// can never cross an Apply, which is exactly the stale-buffer overwrite
+// R24's lock exists to prevent. Returns false when not in write mode, so
+// callers can fall through to the core route.
+function rawBufferHistory(dir: "undo" | "redo"): boolean {
+  if (rawState !== "write") return false;
+  const editEl = $<HTMLTextAreaElement>("rawEdit");
+  editEl.focus();
+  document.execCommand(dir);
+  return true;
+}
+
+// ⌘/Ctrl+Enter Apply, ⌘/Ctrl+S apply-if-dirty-then-save, ⌘/Ctrl+Z / ⇧⌘Z / ⌘Y
+// buffer undo-redo, Esc exit — the only keys write mode itself handles; every
+// other key is native `<textarea>` typing. In Raw *view* the same element is
+// `readonly` and handles nothing: the press falls through to
+// `document.body`'s global delegation (which skips only a *writable*
+// textarea), so Raw view keeps every shortcut it had when it was a `<pre>`.
 function onRawEditKey(ev: KeyboardEvent) {
   if ((ev.target as HTMLTextAreaElement).readOnly) return;
   const mod = ev.ctrlKey || ev.metaKey;
@@ -618,6 +637,17 @@ function onRawEditKey(ev: KeyboardEvent) {
   } else if (mod && (ev.key === "s" || ev.key === "S")) {
     ev.preventDefault();
     void rawEditSave();
+  } else if (mod && (ev.key === "z" || ev.key === "Z" || ev.key === "y" || ev.key === "Y")) {
+    // Handled here rather than left to the browser because VS Code's webview
+    // preload `preventDefault()`s ⌘/Ctrl+Z and ⌘/Ctrl+Y and forwards them to
+    // the workbench's `undo`/`redo` command, which never reaches this
+    // textarea (measured 2026-09-17: ⌘X/C/V work in that host, ⌘Z/Y do
+    // nothing). Acting first and stopping propagation gives all three hosts
+    // ONE route for the buffer: the element's own undo stack. ⇧⌘Z is redo,
+    // macOS's own redo gesture and VS Code's default `redo` binding.
+    ev.preventDefault();
+    ev.stopPropagation();
+    rawBufferHistory(ev.key === "y" || ev.key === "Y" || ev.shiftKey ? "redo" : "undo");
   } else if (ev.key === "Escape") {
     ev.preventDefault();
     void exitRawWrite();
@@ -1637,7 +1667,14 @@ function doSave(): Promise<void> {
 // Undo/redo single-owner rule (spec §Undo): in the VS Code host these forward
 // to the workbench so its edit stack stays the sole entry point; the Session
 // executes them only via the host's undo/redo callback messages.
+//
+// While a document buffer is open they mean the *buffer's* history instead
+// (`rawBufferHistory`): core refuses `Undo`/`Redo` then (R24), so the
+// affordance used to answer with a lock notice rather than the undo the user
+// asked for. Every entry point — these two buttons, the ⋯ overflow rows and
+// Tauri's native Edit menu — comes through here.
 function uiUndo() {
+  if (rawBufferHistory("undo")) return;
   if (snap && (snap.clipboard_count ?? 0) > 0) {
     send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
     return;
@@ -1646,6 +1683,7 @@ function uiUndo() {
   else send("Undo");
 }
 function uiRedo() {
+  if (rawBufferHistory("redo")) return;
   if (snap && (snap.clipboard_count ?? 0) > 0) {
     send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
     return;

@@ -173,6 +173,10 @@ export interface MenuDeps {
   doSave: () => void | Promise<void>;
   openSaveConvert: () => void;
   send: (intent: Intent) => void;
+  // Not `send("Undo")`: while a document buffer is open the gesture means the
+  // buffer's own history, and only the host knows that (ui.ts's `uiUndo`).
+  undo: () => void;
+  redo: () => void;
   toggleTheme: () => void;
   chooseLang: (lang: Lang) => void;
   openRecentPath: (path: string) => void | Promise<void>;
@@ -349,8 +353,8 @@ async function buildAndSet(): Promise<void> {
       await Submenu.new({
         text: t("web.menu.edit"),
         items: [
-          await MenuItem.new({ text: `${t("web.menu.undo")} (z)`, action: menuAction(() => deps.send("Undo")) }),
-          await MenuItem.new({ text: `${t("web.menu.redo")} (y)`, action: menuAction(() => deps.send("Redo")) }),
+          await MenuItem.new({ text: `${t("web.menu.undo")} (z)`, action: menuAction(() => deps.undo()) }),
+          await MenuItem.new({ text: `${t("web.menu.redo")} (y)`, action: menuAction(() => deps.redo()) }),
           await MenuItem.new({
             text: `${t("web.menu.copyNode")} (c)`,
             action: menuAction(() => deps.send("CopySelected")),

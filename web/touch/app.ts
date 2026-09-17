@@ -872,8 +872,8 @@ function mi(ic: string, label: string, sc: string, id: string): string {
 // `.nav-grp`/`.viewtabs` (marked `data-foldable`) without a matching entry here
 // is caught by `web/toolbar-fold.spec.mjs`.
 const MENU_CANDIDATES: ToolbarEntry[] = [
-  { key: '[data-act="undo"]', icon: IC.undo, labelKey: "web.menu.undo", run: () => send("Undo") },
-  { key: '[data-act="redo"]', icon: IC.redo, labelKey: "web.menu.redo", run: () => send("Redo") },
+  { key: '[data-act="undo"]', icon: IC.undo, labelKey: "web.menu.undo", run: () => touchHistory("undo") },
+  { key: '[data-act="redo"]', icon: IC.redo, labelKey: "web.menu.redo", run: () => touchHistory("redo") },
   { key: '[data-act="theme"]', icon: IC.sun, labelKey: "web.menu.toggleTheme", run: toggleTheme },
   {
     key: '[data-act="lang"]',
@@ -1115,6 +1115,30 @@ function openExternalEdit(ext: { initial: string; kind: unknown }) {
   // autofocus-triggered scrollIntoView shifts the whole app shell out from
   // under its bottom-anchored sheets, uncovering the next sheet underneath.
   txt.focus({ preventScroll: true });
+}
+
+// Undo/redo entry point for every touch affordance (toolbar buttons, menu
+// sheet rows, external keyboard `z`/`y`). While the external-edit sheet holds
+// a buffer the gesture means the *textarea's* own history — core refuses
+// `Undo`/`Redo` then (R24: the buffer stands for text core must not swap) and
+// used to answer with a lock notice instead of the undo the user asked for.
+// Mirrors the desktop pane's `rawBufferHistory` (web/ui.ts), `execCommand`
+// and all: a programmatic `.value` write clears the native stack, so buffer
+// undo can never cross an Apply.
+function touchHistory(dir: "undo" | "redo") {
+  const txt = sheets.ext.classList.contains("open")
+    ? sheets.ext.querySelector<HTMLTextAreaElement>(".ext-text")
+    : null;
+  if (txt) {
+    txt.focus({ preventScroll: true });
+    document.execCommand(dir);
+    return;
+  }
+  if ((snap?.clipboard_count ?? 0) > 0) {
+    send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
+    return;
+  }
+  send(dir === "undo" ? "Undo" : "Redo");
 }
 
 // Help/About bottom sheet (header info button). Mirrors `renderFilterSheet`'s
@@ -2002,17 +2026,9 @@ function handleKeyResult(result: NonNullable<KeyResolution>, ev: KeyboardEvent) 
         case "focus-search":
           return void searchInput.focus();
         case "undo":
-          if ((snap?.clipboard_count ?? 0) > 0) {
-            send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
-            return;
-          }
-          return send("Undo");
+          return touchHistory("undo");
         case "redo":
-          if ((snap?.clipboard_count ?? 0) > 0) {
-            send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
-            return;
-          }
-          return send("Redo");
+          return touchHistory("redo");
         case "save":
           if ((snap?.clipboard_count ?? 0) > 0) {
             send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
@@ -2079,18 +2095,10 @@ function installShellHandlers() {
         openSaveSheet();
         break;
       case "undo":
-        if ((snap?.clipboard_count ?? 0) > 0) {
-          send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
-          return;
-        }
-        send("Undo");
+        touchHistory("undo");
         break;
       case "redo":
-        if ((snap?.clipboard_count ?? 0) > 0) {
-          send({ SetHostNotice: { key: "core.clipboard.action-locked", args: [], source: "host-web" } });
-          return;
-        }
-        send("Redo");
+        touchHistory("redo");
         break;
       case "theme":
         toggleTheme();
