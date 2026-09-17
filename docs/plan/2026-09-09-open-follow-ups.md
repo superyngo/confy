@@ -27,12 +27,13 @@ Effort is XS (< 1 h) / S (a session) / M (multi-session).
 
 ## Open
 
-**None open as of 2026-09-15.** The last four rows were evaluated on 2026-09-15 (four
-read-only scouts plus first-hand measurement): two shipped, one closed as stale, one moved to
-Watching. New rows keep the table shape below.
+Three rows opened since the 2026-09-15 sweep (below).
 
 | Opened | Item | Evidence | Effort | Acceptance |
 |---|---|---|---|---|
+| 2026-09-16 | `web/package-lock.json`'s root `.version` (`0.18.1`) has not tracked the release version for several releases; `verify-versions` doesn't check it and `npm ci` doesn't warn on a stale root version | `web/package.json` tracks `1.3.1` as of v1.3.1; `.github/workflows/release.yml`'s `verify-versions` job checks only `Cargo.toml`, `web/package.json`, `editors/vscode/package.json`, and the CHANGELOG heading | XS | Either `cd web && npm install --package-lock-only` in the next release commit plus a CLAUDE.md release-checklist row alongside the vscode lock, or a CLAUDE.md note that the web lock's root version is deliberately unmanaged |
+| 2026-09-17 | VS Code's Raw write mode diverges from web/app: hardcoded, unlocalized "…" menu wording; `confirm()` silently no-ops inside the webview's sandboxed iframe (Esc/Tree-toggle do nothing on a dirty buffer, no feedback); unserialized `edit`/`request-save` ordering; an Apply that goes nowhere while `staleTree`; a stale `rawWriteBaseline` surviving `reloadFromHost` | [`docs/debug/2026-09-16-vscode-pane-edit-parity.md`](../debug/2026-09-16-vscode-pane-edit-parity.md) (P1-P5 fix plan, pending approval) | M | P1-P5 land per the doc's fix plan; `web` typecheck + `npm test` and `editors/vscode`'s `check`/`build`/`integration-test` pass; manual real-extension check that Esc/Tree exit write mode |
+| 2026-09-17 | The MSIX Store package's CLI Start-menu entry is broken (launches a console that errors and exits, since `confy-tui` requires a file argument) and needs an `AppListEntry="none"` hide, which requires a Microsoft **HeadlessAppBypass** waiver not yet requested; a no-waiver alternative (point the `uap3:Extension`'s alias directly at `confy.exe`) is also unverified | [`docs/debug/2026-09-17-msix-headless-cli-handoff.md`](../debug/2026-09-17-msix-headless-cli-handoff.md) (P1-P4 plan; P1 is a human-only waiver email) | M | Either the waiver is granted and P2-P4 land (single Start-menu entry, `confy` on PATH launches the TUI, sideload-verified on Windows), or the no-waiver `uap3:Extension` route is sideload-verified instead |
 
 ---
 
@@ -90,7 +91,7 @@ Watching. New rows keep the table shape below.
 
 | Closed | Item | Commit |
 |---|---|---|
-| 2026-09-16 | Desktop web tree lost its scroll on the Raw round trip (`#treeWrap` clamped to 0) and re-derived the viewport from the cursor on every render — saved/restored + anchor-gated `scrollIntoView`; evidence in `docs/tmp/claude-scratch/2026-09-16-scroll-preservation-audit.md` | (this commit) |
+| 2026-09-16 | Desktop web tree lost its scroll on the Raw round trip (`#treeWrap` clamped to 0) and re-derived the viewport from the cursor on every render — saved/restored + anchor-gated `scrollIntoView`; evidence in [`../audit/2026-09-16-scroll-preservation-audit.md`](../audit/2026-09-16-scroll-preservation-audit.md) | (this commit) |
 | 2026-09-09 | Double serialize per mutation — `sync_schema_hint` now takes the text | `57630e4` |
 | 2026-09-09 | TOML `Move` quadratic — live-index release in `move_nodes`/`delete`, −48% | `57630e4` |
 | 2026-09-09 | JSON/JSONC parser-simplification plan — premise refuted, both halves already done | (record closed) |

@@ -25,5 +25,9 @@ Nothing open.
 | 2026-09-09 | [Documentation audit — accuracy, cleanliness, organization](2026-09-09-documentation-audit.md) | Resolved (2026-09-09) |
 | 2026-09-15 | [Documentation audit — drift since 2026-09-09, and CLAUDE.md's split](2026-09-15-documentation-audit.md) | Resolved (2026-09-15) |
 | 2026-09-15 | [Block-edit implementation audit — the landed code against its design record](2026-09-15-block-edit-implementation-audit.md) | Resolved (2026-09-15) |
+| 2026-09-15 | [Block-edit save-parse redesign — evaluation](2026-09-15-block-edit-design-evaluation.md) | Resolved (2026-09-15) |
+| 2026-09-15 | [Block-edit save-parse redesign — settled decisions](2026-09-15-block-edit-design-decisions.md) | Resolved (2026-09-15) |
+| 2026-09-15 | [Evaluation of the four remaining Open follow-ups](2026-09-15-open-follow-ups-evaluation.md) | Resolved (2026-09-15) |
+| 2026-09-16 | [Scroll-position preservation across mode switches](2026-09-16-scroll-preservation-audit.md) | Resolved (2026-09-16) |
 
 See also [`../adr/`](../adr/README.md) for the decisions this material produced.

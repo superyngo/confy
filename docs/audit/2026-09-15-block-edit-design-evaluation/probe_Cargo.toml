@@ -1,0 +1,9 @@
+[package]
+name = "confy_probe"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+confy-core = { path = "/Volumes/Home/Users/wen/repos/confy/crates/confy-core" }
+
+[workspace]

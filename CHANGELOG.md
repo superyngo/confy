@@ -23,6 +23,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   button occupies which slot. `docs/reference/CHROME.md` and `docs/reference/WEBUI.md` own the
   updated inventory; `docs/spec/2026-09-11-raw-write-mode-design.md` R13 records the amendment.
 
+**Docs**
+
+- Assessment-type records that had been sitting in the gitignored `docs/tmp/claude-scratch/`
+  scratch area are now real, indexed records (`wens-dev-principles docs 20`'s homing test —
+  each was already cited or worth citing later). `docs/audit/`: the scroll-preservation
+  measurement (with its cross-browser Playwright check moved to a same-basename sibling
+  directory), the block-edit save-parse design's evaluation, decisions, and probe scripts, and
+  the 2026-09-15 open-follow-ups evaluation. `docs/debug/`: the VS Code Raw-write parity
+  findings and the MSIX headless-CLI-node handoff, both still `In progress`. Citations in
+  `docs/plan/2026-09-09-open-follow-ups.md` and the Shipped
+  `docs/spec/2026-09-15-block-edit-whole-file-reparse-design.md` now point at the new paths.
+  Three open items surfaced by this sweep (the VS Code parity fix plan, the MSIX waiver
+  request, and a stale `web/package-lock.json` root version) are new rows in the living
+  backlog. The block-edit eval folder's now-redundant draft audit (superseded by the landed
+  `2026-09-15-block-edit-implementation-audit.md`) and the absorbed version-drift note are
+  archived to `docs/tmp/archive/2026-09-refile-superseded.tar.gz`.
+
 ## [v1.3.2] - 2026-09-16
 
 ### 2026-09-16

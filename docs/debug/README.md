@@ -11,7 +11,10 @@ carried the change is in `CHANGELOG.md`.
 
 ## In progress
 
-Nothing open.
+| Date | Document | Status |
+|---|---|---|
+| 2026-09-16 | [VS Code pane-edit (Raw write mode) parity — investigation findings](2026-09-16-vscode-pane-edit-parity.md) | In progress |
+| 2026-09-17 | [MSIX: making the bundled CLI node headless](2026-09-17-msix-headless-cli-handoff.md) | In progress |
 
 ## Landed
 

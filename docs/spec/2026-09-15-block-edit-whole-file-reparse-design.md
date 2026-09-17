@@ -26,8 +26,10 @@ Vocabulary: this document uses **Node / Root / Branch / Leaf / Scalar / Comment*
 same commit as the implementation.
 
 Evidence, probes and the full decision log are in
-`docs/tmp/claude-scratch/block-edit-eval/` (`EVALUATION.md`, `DECISIONS.md`, three probe
-binaries). That folder is scratch and gitignored; everything load-bearing is restated here.
+[`../audit/2026-09-15-block-edit-design-evaluation.md`](../audit/2026-09-15-block-edit-design-evaluation.md)
+and [`../audit/2026-09-15-block-edit-design-decisions.md`](../audit/2026-09-15-block-edit-design-decisions.md)
+(rehomed 2026-09-17 from `docs/tmp/claude-scratch/block-edit-eval/`, gitignored scratch);
+everything load-bearing is restated here.
 
 ## 1. Problem — measured, not assumed
 
@@ -67,7 +69,7 @@ Only (1) is a bug in the usual sense; (2) and (3) are consequences of the 1:1 fr
 ## 2. Measurements
 
 5000 sections, ~525 KB TOML, mid-document leaf, median of 5, `--release`
-(`docs/tmp/claude-scratch/block-edit-eval/probe_trailing_comment.rs`):
+(`docs/audit/2026-09-15-block-edit-design-evaluation/probe_trailing_comment.rs`):
 
 | | fragment `k1 = 1` | fragment `k1 = 1  # note` |
 |---|---|---|
