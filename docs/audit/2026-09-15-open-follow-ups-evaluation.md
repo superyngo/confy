@@ -7,7 +7,8 @@ claim that would change a decision. Transcripts: `history://ConvertWarningsI18n`
 `history://RawCaretToCursor`, `history://RejectedBlockOffset`,
 `history://TrailingCommentDoublePass`.
 
-Rows evaluated: `docs/plan/BACKLOG.md` lines 32-35 (as of that date).
+Rows evaluated: the four `## Open` rows of [`../plan/BACKLOG.md`](../plan/BACKLOG.md) as of
+`adfc3b1` — the four `history://` measurements named above, one per row.
 Outcome recorded in the backlog's `Done` and `Watching` sections and in the
 [block-edit implementation audit](2026-09-15-block-edit-implementation-audit.md)'s
 "Follow-on sweep" section; this record keeps the full measurement detail behind those.

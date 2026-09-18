@@ -95,7 +95,8 @@ already has.
 
 ### Open item that must be re-measured before D5 lands
 
-The living backlog's *Watching* entry (`../plan/BACKLOG.md:60-66`) —
+The living backlog's *Watching* entry for `Into([])` root-index ordering
+([`../plan/BACKLOG.md`](../plan/BACKLOG.md)) —
 `Into([])` observed resolving to root index 0 on the branch, but reading as
 `children.len()` on main. D5 rewrites exactly this ordering, so slice 0 re-measures it once
 on this tree through the real wasm channel and records the answer. Retrospective lesson: do

@@ -97,6 +97,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `docs/`-level placements that were rejected; the skill itself was amended in the same
   session so the next repo starts this way.
 
+- The two line-range citations into the backlog are gone: a `:60-66` range in
+  `docs/spec/2026-09-11-root-hidden-alignment-design.md` and `lines 32-35` in
+  `docs/audit/2026-09-15-open-follow-ups-evaluation.md` both pointed into a file that changes
+  every week, so they had already rotted. Each now names what it meant — the `Into([])`
+  root-index *Watching* entry, and the four `## Open` rows measured at `adfc3b1`, one per named
+  `history://` transcript — which is the same rule as citing code by symbol rather than by line.
+
 ### 2026-09-17
 
 **Changed**
