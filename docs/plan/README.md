@@ -12,7 +12,10 @@ carried the change is in `CHANGELOG.md`.
 ## In progress
 
 - [2026-09-09-open-follow-ups.md](2026-09-09-open-follow-ups.md) — the single live backlog:
-  every recorded-but-unfixed item, with evidence and acceptance criteria · `In progress`
+  **Open** (actionable), **Pending verification** (landed, proof needs a platform or CI job
+  we lack), **Awaiting external** (blocked on a person or third party), **Watching** (each
+  with its trigger — also the single home for deferred dependency decisions), **Done**
+  · `In progress`
 
 The follow-ups backlog is the one record here that is *not* frozen on landing — see its own
 scope note.

@@ -522,5 +522,7 @@ recount before acting on it.
 usable dependency (its crates.io entry is a reserved placeholder; sub-crates unpublished).
 The **decision** built on this measurement — do not migrate now, with `rust-ci.yml`'s
 `cargo audit` step as the trigger and vendoring the above surface as the pre-planned
-contingency — is stated in [`../../CLAUDE.md`](../../CLAUDE.md) §Known Risks, since acting on
-it is a conduct call, not a description of the code.
+contingency — is one *Watching* entry in
+[`../plan/2026-09-09-open-follow-ups.md`](../plan/2026-09-09-open-follow-ups.md), the single
+home for deferred dependency decisions. This section describes the code; the backlog carries
+what to do and when.

@@ -63,6 +63,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **crumbs-band** controls — no host puts them in a "…"/⋯ overflow menu, so VS Code was never
   missing them. P5's scope is the five host-owned menu titles and nothing else.
 
+- **The living backlog gained the two columns its own principle requires and three homes for
+  work that had none.** Rows now carry `Verified` (the date last checked against the tree) and
+  `Pri` alongside `Opened` — the missing `Verified` column is the whole mechanism behind the
+  2026-09-17 mis-filing, since nothing in the table said when a row was last looked at. Three
+  new sections, all in the same file rather than new documents: **Pending verification**
+  (landed, but the proof needs a platform or CI job this workstation lacks — the MSIX
+  manifest's Store-side package validation is its first row), **Awaiting external** (blocked
+  on a person or third party, excluded from the open count — the Google Play account, which
+  until now existed only inside a `RELEASES.md` table cell, and which is where the dropped
+  `HeadlessAppBypass` waiver would have belonged), and an explicit **Trigger** plus re-read
+  date on all eight *Watching* entries. That section is now the **single source of truth for
+  deliberately deferred dependency decisions**: `CLAUDE.md` §Known Risks and
+  `docs/reference/ARCHITECTURE.md` §Dependency surface state the risk and its measured scope
+  and link there instead of restating the decision (it had three copies), and `ureq`'s
+  deliberate pin at 2.x is recorded as an entry — it had survived only inside a *Done* row's
+  prose. `CONTEXT.md` and `docs/plan/README.md` describe the new shape.
+
 ### 2026-09-17
 
 **Changed**

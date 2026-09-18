@@ -24,9 +24,14 @@ rg -n '^Status: (Draft|Approved|In progress)' docs/{spec,plan,debug,audit}/*.md
 **Known-but-unfixed work has one home:**
 [`docs/plan/2026-09-09-open-follow-ups.md`](docs/plan/2026-09-09-open-follow-ups.md). It is the
 only living record in `docs/plan/` — every verified open defect and improvement is a row there,
-with its evidence, effort and acceptance criterion, and rows move to *Done* with the commit that
-closes them. A finding recorded in a frozen audit or a reference footnote **also** gets a row;
-otherwise it survives only where nobody looks.
+with its evidence, the date it was last verified against the tree, priority, effort and an
+acceptance criterion, and rows move to *Done* with the commit that closes them. A finding
+recorded in a frozen audit or a reference footnote **also** gets a row; otherwise it survives
+only where nobody looks. The same file holds four more classes that would otherwise have no
+home: work that landed but whose **proof needs a platform or CI job this workstation lacks**,
+items **blocked on a person or third party**, **watched** conditions each with the trigger
+that would reopen them, and every **deliberately deferred dependency decision** (`CLAUDE.md`
+§Known Risks and `ARCHITECTURE.md` §Dependency surface link there rather than restate it).
 
 ## Reading order
 

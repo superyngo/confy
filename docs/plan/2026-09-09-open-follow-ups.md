@@ -21,7 +21,19 @@ Scope and lifecycle:
 - When the last row reaches Done, this record's `Status:` becomes `Resolved (date)` and it
   joins the frozen set.
 
-Effort is XS (< 1 h) / S (a session) / M (multi-session).
+Effort is XS (< 1 h) / S (a session) / M (multi-session). **Pri** is P1 (breaks or loses user
+work) / P2 (visible defect with a workaround) / P3 (correctness of docs, tooling, or a
+deliberate-decision record). **Verified** is the date the row was last checked against the
+tree — *not* the date it was opened. A row with a stale `Verified` date is not evidence of
+anything: on 2026-09-17 a refile sweep filed two rows straight out of frozen debug docs whose
+fix plans had already shipped, and nothing in the table said "last looked at when". Re-verify
+before acting on a row, and move the date.
+
+Sections: **Open** (actionable here), **Pending verification** (landed, but its proof needs a
+machine, platform, or CI job this workstation does not have), **Awaiting external** (blocked
+on a human or a third party — excluded from the open count, since no amount of work here
+moves them), **Watching** (no action planned, each with the trigger that would change that),
+**Done**.
 
 ---
 
@@ -33,59 +45,111 @@ refile sweep opened, the VS Code one was already four-fifths shipped when it was
 the debug docs' fix plans verbatim without checking them against `git log`. Only the residue
 below is real.
 
-| Opened | Item | Evidence | Effort | Acceptance |
-|---|---|---|---|---|
-| 2026-09-17 (narrowed 2026-09-18) | **VS Code's "…" More Actions menu is hardcoded English** — `editors/vscode/package.json` carries the titles inline and there is no `package.nls.json` / `package.nls.zh-tw.json`, so `confy: Save As / Convert…`, `Help`, `About`, `Theme` and `Language` ignore the shared catalog that web and the Tauri menu both read. P5 of the fix plan, and the last of its five. **P1-P4 shipped in `3573085`** (in-page `#confirm-modal`, `createWriteQueue`, write-mode refusal while `staleTree`, `rearmRawWriteAfterReload`) and the buffer undo/redo gap found later shipped in `41eb0fb`; `web` typecheck + `npm test` and `editors/vscode`'s `check` re-run clean 2026-09-18 | [`docs/debug/2026-09-16-vscode-pane-edit-parity.md`](../debug/2026-09-16-vscode-pane-edit-parity.md) §2 (the divergence) and §7 P5 | S | `package.nls*.json` per VS Code's own localization mechanism, wording taken from the catalog keys §2 tabulates; `editors/vscode` `check`/`build` pass. **Scope is the five host-owned titles only** — settled 2026-09-18: whole-file editing is reached through the Action menu (`core.action.edit-document`) and Apply/Cancel through the crumbs band, neither has ever been a "…"-menu entry on any host, so §2's last table row is not a gap |
+| Opened | Verified | Pri | Item | Evidence | Effort | Acceptance |
+|---|---|---|---|---|---|---|
+| 2026-09-17 | 2026-09-18 | P3 | **VS Code's "…" More Actions menu is hardcoded English** — `editors/vscode/package.json` carries the titles inline and there is no `package.nls.json` / `package.nls.zh-tw.json`, so `confy: Save As / Convert…`, `Help`, `About`, `Theme` and `Language` ignore the shared catalog that web and the Tauri menu both read. P5 of the fix plan, and the last of its five (narrowed 2026-09-18: **P1-P4 shipped in `3573085`**, and the buffer undo/redo gap found later shipped in `41eb0fb`) | [`docs/debug/2026-09-16-vscode-pane-edit-parity.md`](../debug/2026-09-16-vscode-pane-edit-parity.md) §2 (the divergence) and §7 P5 | S | `package.nls*.json` per VS Code's own localization mechanism, wording taken from the catalog keys §2 tabulates; `editors/vscode` `check`/`build` pass. **Scope is the five host-owned titles only** — settled 2026-09-18: whole-file editing is reached through the Action menu (`core.action.edit-document`) and Apply/Cancel through the crumbs band, neither has ever been a "…"-menu entry on any host, so §2's last table row is not a gap |
+
+---
+
+## Pending verification
+
+Landed and reviewed, but the proof needs something this workstation does not have. A row
+leaves here when the named job or machine has actually exercised it — not when someone is
+confident it will.
+
+| Landed | Item | What is missing | Triggers naturally when |
+|---|---|---|---|
+| 2026-09-18 (`5b4bf5f`) | The MSIX manifest's one-`<Application>` shape with the alias declared on the `uap3:Extension` itself | The **Store's own package-acceptance validation**. `makeappx pack` and the installed alias were verified on Windows; the headless-app rejection that killed the previous shape came from Partner Center, not from `makeappx`, so only a real submission clears it | The next `publish-msstore` run, i.e. the next release tag. Watch that job; a revert of `5b4bf5f` is the fallback |
+
+---
+
+## Awaiting external
+
+Blocked on a person or a third party, so not counted as open. Kept here because the
+alternative is what happened to the `HeadlessAppBypass` waiver: it lived only inside a debug
+record, which then froze, and the action would have disappeared with it.
+
+| Opened | Item | Blocked on | Unblocks |
+|---|---|---|---|
+| 2026-09-18 | **Google Play distribution.** Release signing (`keystore.properties`) and the tag-derived `versionCode` are verified end-to-end on real hardware (2026-08-06), and Save As / share-chooser visibility with them; what is absent is the account, testers, and `publish-play.yml` | A Google Play Console account (owner action, paid registration) | `publish-play.yml` + a `publish-gate-play` job, per [`../reference/RELEASES.md`](../reference/RELEASES.md)'s Play row, which stays the description of the channel |
 
 ---
 
 ## Watching (no action planned)
 
-- **A rejected Block reports a document-space offset, not a buffer one.** Moved here from Open
-  on 2026-09-15: the row assumed a document offset was already in hand and only needed
-  `offset - start` arithmetic. It is not. Per backend — TOML has one upstream
-  (`taplo::parser::Error { range: TextRange, .. }`) but `reparse_document`
-  (`cst_edit/replace_delete.rs:51-55`) discards it via `e.to_string()`; **JSON and the YAML
-  subset track no offsets at all** (`parse(&str) -> Result<GreenNode, String>`, lexers emit
+Each entry ends with an explicit **Trigger** — the observation that would move it to Open —
+and the date it was last re-read. Without a trigger a "watching" item is indistinguishable
+from a forgotten one. This section is also the **single source of truth for deliberately
+deferred dependency decisions**: `CLAUDE.md` §Known Risks and
+`docs/reference/ARCHITECTURE.md` §Dependency surface describe the *risk and its measured
+scope* and link here for the decision; they do not restate it.
+
+- **A rejected Block reports a document-space offset, not a buffer one** (re-read 2026-09-18).
+  Moved here from Open on 2026-09-15: the row assumed a document offset was already in hand
+  and only needed `offset - start` arithmetic. It is not. Per backend — TOML has one upstream
+  (`taplo::parser::Error { range: TextRange, .. }`) but `reparse_document` discards it via
+  `e.to_string()`; **JSON and the YAML subset track no offsets at all**
+  (`parse(&str) -> Result<GreenNode, String>`, lexers emit
   `(SyntaxKind, String)`). The real prerequisite is span tracking in two hand-rolled lossless
   parsers, plus a new `SessionSnapshot` field (cross-host) and a `None` rule for an error that
   legally lands *outside* the spliced region (unclosed delimiter, or a duplicate key far away).
   A TOML-only fix would book format-parity debt. Against that: a Block is typically 1-10 lines
   and every host already keeps the user's text on rejection (TUI re-spawn loop; web/touch modal
-  stays open). Revisit if the JSON/YAML parsers gain spans for another reason.
-- **`taplo` is unmaintained upstream.** The decision and its `cargo audit` trigger are in
-  `CLAUDE.md` §Known Risks; the measured surface and the ~1,240-LOC vendoring scope are in
-  `docs/reference/ARCHITECTURE.md` §Dependency surface. `rust-ci.yml`'s `cargo audit` step is
-  the agreed trigger; do not migrate pre-emptively — `tombi` is still not a usable dependency.
+  stays open). **Trigger:** the JSON or YAML parser gaining spans for some other reason — the
+  arithmetic is then cheap; today it is two parser rewrites.
+- **`taplo` is unmaintained upstream** (re-read 2026-09-18). The maintainer stepped down in
+  Dec 2024 ([tamasfe/taplo#715](https://github.com/tamasfe/taplo/issues/715)) and
+  `rowan =0.15.18` is exact-pinned to match taplo's internal version. **Decision: do not
+  migrate** — `tombi`, the community's suggested target, is still not a usable dependency.
+  The measured used surface and the ~1,240-LOC vendoring scope are in
+  `docs/reference/ARCHITECTURE.md` §Dependency surface. **Trigger:** `rust-ci.yml`'s
+  `cargo audit` step flagging a `rowan` / `taplo` / `ahash` advisory — then vendor that
+  surface, do not migrate pre-emptively.
+- **`ureq` stays on 2.x** (re-read 2026-09-18). `Cargo.toml` pins `ureq = "2"`, used only by
+  `confy-tui`'s schema fetch; the 3.x rewrite changes the request/response API for no gain
+  confy can use. Deliberately deferred when `jsonschema` and `fuzzy-matcher` were upgraded
+  (`1959801`, F11) — recorded here because until 2026-09-18 that decision existed only inside
+  a *Done* row's prose, i.e. it was on its way to being redone by accident.
+  **Trigger:** a `cargo audit` advisory on `ureq` 2.x, or a schema-fetch feature that needs a
+  3.x-only capability.
 - **`JsonDocument` does not override `rename_key_segs`.** TOML and YAML both do, to decode a
   rename's literal with their own key lexer. Not a live defect — JSON keys are always quoted, so
   the trait default coincides — but it is the last asymmetry in that area, and it would become a
-  defect if JSON ever grew unquoted keys.
+  defect if JSON ever grew unquoted keys. Re-read 2026-09-18. **Trigger:** JSON accepting an
+  unquoted key, or any second backend-specific behavior appearing on that trait default.
 - **The YAML subset lexer accepts unterminated scalars.** `x: "unclosed`, `x: [1, ` and
   `x: {a: ` all lex as plain scalars. This was filed as half of F14 and is **not** a defect:
   `AnyDocument::from_str_as` accepts the same text from disk, so `Replace` and load agree.
   Tightening one without the other would mean a value you can open but cannot retype. Only
   fix these together, and only if the subset parser is made strict on purpose. Asserted as
-  the documented exception in `tests/format_parity.rs` (F8), so the day it changes, a test says so.
+  the documented exception in `tests/format_parity.rs` (F8), so the day it changes, a test
+  says so. Re-read 2026-09-18. **Trigger:** a decision to make the YAML subset parser strict
+  — which must move load and `Replace` together, never one alone.
 - **The two web palettes are not the same set.** `web/style.css` defines `--drop` (the
   drop-indicator green, also the desktop status line's Success hue); `web/touch/style.css`
   does **not** define it at all, so `var(--drop)` silently falls back to `currentColor` on
   touch — caught 2026-09-09 only because a computed-style check contradicted the screenshot.
   The touch severity toasts use `--t-string` for Success instead, with the reason in the CSS
   comment. A shared token file would remove the class of bug; not worth it for one token.
+  Re-read 2026-09-18. **Trigger:** a second token needing to be shared across the two
+  palettes — one is a comment, two is a file.
 - **`Into([])` resolution — settled 2026-09-14 on main at `21cbea9`: it appends.**
   Measured as S0 evidence E3 of the root-hidden record: `Into([])` is paste-slot **index 0**
   yet `slot_target` resolves it to `Target { parent: [], index: children.len() }` — the
   document's *end* — while `After([])` resolves to index 0, the top. The branch's "prepend"
   observation does not reproduce and is treated as a branch-mode artifact. This contradiction
   between screen order and resolution is P4, and D5 of
-  `docs/spec/2026-09-11-root-hidden-alignment-design.md` re-orders it away.
+  `docs/spec/2026-09-11-root-hidden-alignment-design.md` re-orders it away. Re-read
+  2026-09-18. **Trigger:** D5 landing (it removes the contradiction), or a user report of a
+  paste landing at the wrong end.
 - **Structured row-diff transport (the old G2 idea).** The full-snapshot transport is the
   shipped baseline; if re-render latency ever becomes measurable on large files, the additive
   upgrade is a `delta` field on `SessionSnapshot` (or a sibling `dispatchDelta`) plus
   `Path`-keyed row patching, with `snapshot()` kept as the resync fallback. Nothing is built,
   and the `Path`-keyed `ViewRow` already is the identity such a diff would key on. Moved here
   from `WEBUI.md` on 2026-09-15 — `docs/reference/` carries current behavior, not roadmap.
+  Re-read 2026-09-18. **Trigger:** re-render latency becoming *measurable* on a real
+  document, per the perf domain's rule that the axis is chosen from a measurement.
 
 ---
 
@@ -94,7 +158,7 @@ below is real.
 | Closed | Item | Commit |
 |---|---|---|
 | 2026-09-18 | **`web/package-lock.json`'s root `.version` had drifted to `0.18.1`** — resynced once to `1.3.2` (`npm install --package-lock-only`) and then **declared unmanaged**: CLAUDE.md §Release process now says so and says why (nothing consumes it — `verify-versions` doesn't check it, `build.mjs` reads `package.json`, `npm ci` warns only on dependency-tree drift), so it deliberately does *not* join the release checklist | closed by the commit that added this row (no hash: citing one from inside its own commit is the dangling-citation trap CLAUDE.md §Commit citations describes) |
-| 2026-09-18 | **The MSIX Store package's second, unusable Start-menu tile and its GUI-launching `confy` alias** — closed by the *no-waiver* route, so the `HeadlessAppBypass` waiver email (P1 of the handoff) was never needed and is dropped: one `<Application>` node, the alias declared on the `uap3:Extension` itself (`Executable="confy.exe" EntryPoint="Windows.FullTrustApplication"`). Verified on Windows 2026-09-18 — `makeappx pack` succeeds, `%LOCALAPPDATA%\Microsoft\WindowsApps\confy.exe --help` prints the TUI usage (the winget `confy.exe` that shadowed the alias stub is why the regression hid for two weeks). Residue, not a row: the Store's own package validation only re-runs on the next `publish-msstore` job | `5b4bf5f` |
+| 2026-09-18 | **The MSIX Store package's second, unusable Start-menu tile and its GUI-launching `confy` alias** — closed by the *no-waiver* route, so the `HeadlessAppBypass` waiver email (P1 of the handoff) was never needed and is dropped: one `<Application>` node, the alias declared on the `uap3:Extension` itself (`Executable="confy.exe" EntryPoint="Windows.FullTrustApplication"`). Verified on Windows 2026-09-18 — `makeappx pack` succeeds, `%LOCALAPPDATA%\Microsoft\WindowsApps\confy.exe --help` prints the TUI usage (the winget `confy.exe` that shadowed the alias stub is why the regression hid for two weeks). The Store's own package validation is a *Pending verification* row above | `5b4bf5f` |
 | 2026-09-18 | **VS Code Raw-write parity P1-P4** — `window.confirm` → the shared in-page `#confirm-modal` (+ `web/no-native-modal.spec.mjs`), `edit`/`request-save`/`convert-save` serialized through `editors/vscode/src/writeQueue.ts`, write-mode entry refused while `staleTree`, and `rearmRawWriteAfterReload` on a `text-changed` reload; buffer-scoped undo/redo followed in `41eb0fb`. Only P5 (the host-owned "…" menu wording) is still open, as its narrowed row above | `3573085`, `41eb0fb` |
 | 2026-09-16 | Desktop web tree lost its scroll on the Raw round trip (`#treeWrap` clamped to 0) and re-derived the viewport from the cursor on every render — saved/restored + anchor-gated `scrollIntoView`; evidence in [`../audit/2026-09-16-scroll-preservation-audit.md`](../audit/2026-09-16-scroll-preservation-audit.md). The Firefox caret-scroll sibling landed with it | `b31d353`, `c29afec` |
 | 2026-09-09 | Double serialize per mutation — `sync_schema_hint` now takes the text | `57630e4` |

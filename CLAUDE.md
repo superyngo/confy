@@ -130,14 +130,16 @@ untouched.
 
 ## Known Risks
 
-**`taplo` is unmaintained upstream** — the maintainer stepped down in Dec 2024
-([tamasfe/taplo#715](https://github.com/tamasfe/taplo/issues/715)) and `rowan =0.15.18` is
-exact-pinned to match taplo's internal version. **Decision: do not migrate now**; `tombi`, the
-community's suggested target, is not a usable dependency yet. The `cargo audit` CI step
-(`.github/workflows/rust-ci.yml`) is the trigger — if it flags a `rowan`/`taplo`/`ahash`
-advisory, vendor the used surface per the measured scope estimate in
+**`taplo` is unmaintained upstream**, and `rowan =0.15.18` is exact-pinned to match taplo's
+internal version. The **decision and its trigger** (do not migrate; `.github/workflows/rust-ci.yml`'s
+`cargo audit` step flags a `rowan`/`taplo`/`ahash` advisory → vendor the used surface) is one
+entry in the *Watching* section of
+[`docs/plan/2026-09-09-open-follow-ups.md`](docs/plan/2026-09-09-open-follow-ups.md), which is
+the single place every deliberately deferred dependency decision lives (so is `ureq`'s pin at
+2.x). The **measured surface** and the ~1,240-LOC vendoring estimate are in
 [`docs/reference/ARCHITECTURE.md`](docs/reference/ARCHITECTURE.md) §Dependency surface, which
-also records what that measurement covers and when it was last taken.
+also records what that measurement covers and when it was last taken. Do not restate the
+decision here — three copies of it drifted once already.
 
 ## Terminology
 
