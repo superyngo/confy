@@ -302,10 +302,14 @@ fn help_legend_text(
     use crate::model::document::DocFormat;
     use confy_core::session::tr;
     use unicode_width::UnicodeWidthStr;
+    // Counts must match the catalog exactly: a row past the last defined
+    // `tui.help.legend.<fmt>.<group>.<n>` key renders as the raw key, because
+    // `tr` leaks a missing key as its bug signal. `legend_requests_no_missing_catalog_key`
+    // is the guard.
     let (fmt_str, counts): (&str, [usize; 3]) = match format {
         DocFormat::Toml => ("toml", [4, 8, 16]),
-        DocFormat::Json => ("json", [2, 6, 6]),
-        DocFormat::Yaml => ("yaml", [3, 7, 14]),
+        DocFormat::Json => ("json", [2, 5, 6]),
+        DocFormat::Yaml => ("yaml", [3, 6, 14]),
     };
     let groups = ["keysign", "containers", "scalars"];
     let group_title_keys = [
@@ -376,6 +380,26 @@ mod tests {
         assert!(!y.contains("dotted"));
         assert!(!y.contains("[A/T]"));
         assert_ne!(y, help_text(DocFormat::Toml, Lang::En));
+    }
+
+    /// `help_legend_text`'s per-format row counts are hand-written literals, and
+    /// `tr` renders a key it cannot find as the key itself, so a count one past
+    /// the catalog puts `tui.help.legend.json.containers.6` on screen as a
+    /// legend row (it did, for JSON and YAML, in both languages). Assert
+    /// exhaustively instead of re-copying the numbers: no rendered help text may
+    /// contain a raw catalog key.
+    #[test]
+    fn legend_requests_no_missing_catalog_key() {
+        use crate::model::document::DocFormat;
+        for format in [DocFormat::Toml, DocFormat::Json, DocFormat::Yaml] {
+            for lang in [Lang::En, Lang::ZhTw] {
+                let text = help_text(format, lang);
+                assert!(
+                    !text.contains("tui.help.legend."),
+                    "{format:?}/{lang:?} help text leaked a raw catalog key:\n{text}"
+                );
+            }
+        }
     }
 
     #[test]

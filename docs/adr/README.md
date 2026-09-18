@@ -8,6 +8,11 @@ not a live specification. Current behavior always lives in
 An ADR is never edited to match new behavior. If a decision is revisited, add a new ADR and mark
 the old one superseded.
 
+Two file shapes exist and both are authoritative: 0001–0008 carry the status in YAML front matter
+above the H1, 0009 onward put it in the H1 alone and let this table hold the status. An ADR is a
+historical record, so the older eight keep the shape they landed with; **new ADRs use the later
+shape** — `# ADR NNNN — <decision>` as the first line, no front matter, status recorded only here.
+
 | # | Decision | Status |
 |---|---|---|
 | [0001](0001-android-save-as-persistable-grant.md) | Android Save As uses a custom SAF plugin command, not stock `tauri-plugin-dialog` | Implemented (2026-08-06) |

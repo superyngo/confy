@@ -207,7 +207,7 @@ mod tests {
             "49 `core.*` notice keys: 13 Error + 20 Warn + 7 Success + 9 Info. \
              This list mirrors every `core.` arm of `severity_of` above; the 19 \
              host-authored `tui.*`/`web.*` keys it also classifies are out of scope \
-             here. Keep it in step with MESSAGES.md §2.2 — the two are checked \
+             here. Keep it in step with MESSAGES.md §2 — the two are checked \
              against each other by hand, and this count is the tripwire."
         );
         for (key, expected) in cases {

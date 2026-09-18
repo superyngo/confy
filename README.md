@@ -158,7 +158,7 @@ Maintainer quick check: `cd editors/vscode && npm run integration-test`.
 | `c` | Copy selected node(s) |
 | `x` | Cut selected node(s) |
 | `v` | Paste clipboard |
-| `m` | Action menu — edit / add child / add sibling / copy / cut / toggle comment / detail / delete for the cursor row or selection |
+| `m` | Action menu — edit / add child / add sibling / copy / cut / toggle comment / detail / edit whole file / delete for the cursor row or selection |
 | `r` | Remark (toggle comment-out) |
 | `K` | Kind switch (scalar notation / container style) |
 | `C` | Convert document to another format |

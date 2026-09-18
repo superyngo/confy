@@ -81,10 +81,12 @@ rg -o '`[0-9a-f]{7,10}`' --no-filename CHANGELOG.md docs/**/*.md | tr -d '`' | s
       { git merge-base --is-ancestor {} HEAD || echo "unreachable: {}"; }'
 ```
 
-On 2026-09-15 that leaves exactly five hits — the `root-row-alignment` ones below.
+On 2026-09-18 that leaves exactly five hits — the `root-row-alignment` ones in
+`docs/debug/2026-09-11-root-row-alignment-retrospective.md`.
 
 Hashes on a *deliberately abandoned* branch are fine when the doc says so (the
-`root-row-alignment` record cites six such commits on purpose) — keep that branch alive.
+`root-row-alignment` record cites five such commits from that six-commit branch on
+purpose) — keep that branch alive.
 
 ## Architecture — where each contract is documented
 

@@ -62,6 +62,14 @@ _Avoid_: Value node (a comment is a leaf but not a value), terminal.
 **Parent / Child / Sibling**:
 Standard tree relationships between **Nodes**. Siblings share a Parent and a key namespace
 (the same table), which is why key collisions are resolved per-Parent.
+_Avoid_: —
+
+**Path**:
+The canonical address of a **Node** from the **Root**, represented as a sequence of segments
+(`Path = Vec<Seg>`). A segment (`Seg`) is either a decoded key (`Seg::Key`) within a table/object or a
+0-based integer index (`Seg::Index`) within an array/sequence. The **empty path** (`[]`) addresses the
+**Root**.
+_Avoid_: —
 
 ### Node kinds
 
@@ -69,12 +77,14 @@ Standard tree relationships between **Nodes**. Siblings share a Parent and a key
 A **Leaf node** holding a typed value. TOML: string, integer, float, bool, or one of the four
 datetime types (offset-datetime, local-datetime, local-date, local-time). JSON and YAML add
 `null` and have no datetime type — a date-looking YAML scalar is a string.
+_Avoid_: primitive, value node.
 
 **Format**:
 The *writing style* of a Scalar, orthogonal to its type — e.g. an integer written as `0xFF` (hex)
 vs `255` (decimal), or a string written `"…"` (basic) vs `'…'` (literal) vs `"""…"""` (multiline).
 Derived (read-only) during projection from the rendered repr; round-trips byte-identically. The
 **Kind switch** (`K`, `Mutation::ConvertKind`) is the write-side counterpart.
+_Avoid_: —
 
 **Key sign**:
 How a Node's *own key* is written, orthogonal to its type/format — **bare** (`port`), **quoted**
@@ -87,6 +97,7 @@ the **dotted** sign, so `(D)` marks any dotted-key origin (per-segment `bare`/`q
 surfaced for a decomposed chain). A dotted key *inside an inline table* decomposes the same way:
 `t = { x.y = 1, x.z = 2 }` projects a synthetic **Dotted table** `x` under the inline table, and
 operations on it route through the inline-table machinery (members stay `{ … }` entries).
+_Avoid_: —
 
 **Key literal / decoded key**:
 The two forms a key is projected in. The **decoded key** (`Node.key`, `Seg::Key`) is the key's
@@ -110,6 +121,7 @@ The human-readable dotted/bracketed rendering of a Node's path (`a.b[2].c`), pro
 key segment in its authored `"…"`/`'…'` flanks, so the displayed path matches what the file
 actually says. Read-only: it is a display string, never parsed back into a path. Shown on the TUI
 Detail popup's `Path:` line and the web/touch panel's Path field.
+_Avoid_: —
 
 **Member spans**:
 The discrete pieces of source that *constitute* a table: its own `[a]` section (if written),
@@ -118,6 +130,7 @@ dotted member lines. A table's definition is an **open set**: TOML lets these sp
 interleave with foreign sections. `[T/D]`, `[T/S]`, **implicit** (only `[a.sub]` written) and
 **mixed** (dotted members *plus* header sub-sections) tables are the four compositions of one
 span list, and serialize/edit/delete/move all fan out over it.
+_Avoid_: —
 
 **Dotted table** (`Format::Dotted`, KIND tag `[T/D]`):
 A Table that exists only because dotted keys defined it (`a.b.c = 1` → tables `a`, `b`), with no
@@ -139,9 +152,10 @@ ops on the synthetic `[T/D]` route through the **inline machinery**, never the f
 (`inline_ancestor_len` guards the path): insert/add re-prefixes the key scope-relative (`q = 9` into
 `t.x` → member `x.q = 9`) and lands via `inline_table_insert` with the projected index translated to
 a raw member slot (`inline_raw_member_index`); collision is exact full path (a shared prefix merges);
-`Delete` and move/copy fan out over the member entries (`inline_member_entries`); the block edit
-consolidates at the first member (`replace_inline_dotted_table`, single-line entries only); comments
-are rejected (`{ … }` holds none). **Comments are never inside a `[T/D]` table**: a comment adjacent
+`Delete` and move/copy fan out over the member entries (`inline_member_entries`); keyed-path replace
+consolidates at the first member (`replace_inline_dotted_table`, single-line entries only), while a
+block edit goes through `Session::apply_block_text` + `model::block_splice::splice_spans` (committing
+as `Mutation::Replace` at the empty path); comments are rejected (`{ … }` holds none). **Comments are never inside a `[T/D]` table**: a comment adjacent
 to a dotted member is an independent scope-level node (stays put on table move/copy/delete and the
 consolidating edit), and `InsertComment` targeting a `[T/D]` re-routes to the scope level — landing
 directly above the table's first member, never rejected, never bound. `dotted_member_entries` counts
@@ -153,9 +167,10 @@ value, not the table, so its interior is never pulled out as a stray top-level l
 A table defined by dotted members *and* header sub-sections (the TOML-spec `fruit.apple`
 pattern: `apple.color = …` under `[fruit]`, plus `[fruit.apple.texture]`). The spec forbids
 giving such a table its own header while any dotted definition remains, so: inserting an entry
-writes a dotted member; inserting a sub-table writes a header section (legal); `e` consolidates
-the whole table to **scope form** — a synthesized `[fruit.apple]` header with the dotted members
-folded under it, then the member sections — the only header form that leaves nothing behind.
+writes a dotted member; inserting a sub-table writes a header section (legal); `e` captures
+verbatim member spans in document order via `ConfigDocument::node_text_spans`, spliced at the
+first member span by `Session::apply_block_text` (whole-file reparse) with no synthesized header.
+_Avoid_: —
 
 **Comment**:
 A **standalone** comment line (occupies its own line) surfaced as a first-class **Leaf node**.
@@ -194,6 +209,7 @@ scratch, so nothing about it needs to be preserved by the edit. A read-only *Com
 `/* */`) is still refused there — it owns no Block of its own. Because one flag has two sources, the
 message does too: `core.readonly.comment` names the JSONC block comment, `core.readonly.opaque` the
 YAML out-of-subset span (`Session::readonly_notice_key` picks by node kind).
+_Avoid_: —
 
 **Opaque node**:
 A YAML node holding an out-of-subset construct — `&anchor`, `*alias`, `<<:` merge key, `!tag`, or
@@ -212,28 +228,33 @@ sub-span of it. In particular an anchor/alias/tag **inside a single-line flow co
 the flow body parser has no case for those tokens: they would otherwise float as bare tokens no
 projected node covers — an anchored element rendered as a plain value with the `&a` invisible, and an
 *alias* element vanished from the tree entirely, shifting every later element's ordinal.
+_Avoid_: unsupported node.
 
 **YAML subset**:
 The slice of YAML 1.2 that confy edits as first-class nodes: a single document (optional leading
 `---`), block + single-line flow maps/sequences, 5 scalar styles (plain, single-quoted,
 double-quoted, literal `|`, folded `>` with chomping), and `#` comments. Anything outside it becomes
 an **opaque node**; multi-document files are rejected at load.
+_Avoid_: —
 
 **Core schema typing**:
 YAML 1.2 core-schema scalar typing as confy applies it — `null`, `bool`, `int` (dec/hex/oct),
 `float` (incl. `.inf`/`.nan`/exponent), else `string`. confy deliberately has **no datetime** type
 in YAML: a date- or time-looking plain scalar is a string.
+_Avoid_: —
 
 **Indent engine** (`reindent`):
 The YAML splice core — the analogue of JSON's comma/brace normalization. It re-flows a fragment from
 its captured source indentation to the destination's indent level when inserting/moving, so block
 structure stays well-formed without per-call token surgery.
+_Avoid_: Reindenter, formatter (it re-flows a splice, it does not format the document).
 
 **DocFormat**:
 The backend's self-reported syntax, one of `Toml` / `Json` / `Yaml`. Returned by
 `ConfigDocument::format()` and used by the TUI to select format-appropriate help text, `K`
 kind-switch options, `f` type-filter facets, and the comment prefix (`#` for TOML and YAML, `//`
 for JSON/JSONC). Mapped from the file extension by `detect_format`; overridable via `--format`.
+_Avoid_: File type, syntax mode.
 
 **Conversion** (document-level):
 Producing a new file in a *different* `DocFormat` from a loaded document (key `C` in the TUI, or
@@ -248,18 +269,27 @@ node** into any target. The **source file is never modified**.
 _Avoid_: confusing this with **Kind switch** (`K`), which converts one node's *notation in place*
 within the same format.
 
+**ConvertWarning**:
+A structured, non-fatal advisory emitted during document **Conversion** to report a
+lossy style normalization (such as multiline strings flattened, non-decimal integers normalized to
+decimal, or dropped schema hints). Carried through the conversion pipeline as an enum and translated
+at the UI edge via catalog keys (`core.convert.warn.*`).
+_Avoid_: —
+
 **Value** (neutral tree):
 The format-independent intermediate the conversion pipeline lowers to (`model/value.rs`):
 `Null/Bool/Int/Float/Str/Datetime` scalars plus ordered `Seq`/`Map` of `Item`s, where an `Item`
 is either a standalone `Comment` or a `Node { key, value, trailing }`. It carries decoded data and
 confy's first-class comments (standalone + trailing) in document order, but **no source notation**
 — that is the point: rendering it re-imposes the target format's default style.
+_Avoid_: AST, IR, DOM (`Value` carries decoded data and comments, not syntax).
 
 ### Operations & projection
 
 **Projection**:
 The act of (re)building the Node tree from the backing document after every change. The backing
 document — not the Node tree — is the single source of truth.
+_Avoid_: —
 
 **Parser backend**:
 The per-`DocFormat` implementation that turns text into the lossless rowan
@@ -292,6 +322,7 @@ The unapplied whole-file text a user holds while the Raw pane is in **Raw write*
 a host's whole-file external edit is in flight). Contrast **fragment** — core's per-node
 text unit. A document buffer differing from the document is *not* the same thing as the
 document differing from disk, which is what the dirty dot means.
+_Avoid_: —
 
 **Apply**:
 Sending a **document buffer** into the `Session` (`Mutation::Replace` at the empty path).
@@ -333,6 +364,28 @@ paste/move lands" — not TUI-only, even though the TUI was the first surface to
 render it (arrow keys step through the flattened `Into`-then-`After` sequence; ADR 0004).
 _Avoid_: drop target, insertion point (these describe the visual affordance, not the domain
 concept).
+
+**Target**:
+The structural insertion slot for an insert or move **Mutation**: a destination `parent` **Path**
+plus a 0-based child `index` (`Target { parent, index }`). Resolved from a user-facing **PasteSlot**
+(`Into` / `After`) against current tree expansion.
+_Avoid_: —
+
+**Mutation**:
+An atomic structural edit dispatched to a `ConfigDocument`. Variants cover `Delete`, `Insert`,
+`Replace`, `Rename`, `Remark`, `EditComment`, `Move`, `InsertComment`, `ConvertKind`,
+`SetTrailingComment`, and `SetTrailingBlankLines`. Every mutation is validated before commit on a
+speculative copy and leaves the document untouched on failure. Per-variant mechanics and legality
+rules live in [MUTATIONS.md](MUTATIONS.md) and [BEHAVIOR_MATRIX.md](BEHAVIOR_MATRIX.md) §8.
+_Avoid_: —
+
+**MutateError**:
+The error returned when a **Mutation** cannot be applied to a `ConfigDocument`. Variants
+distinguish missing nodes (`NotFound`), naming clashes (`Collision`), syntax errors in input text
+(`Fragment`), semantic or container invalidity (`Illegal`), and unsupported operations or opaque
+nodes (`Unsupported`). Per-variant semantics and host handling live in [MUTATIONS.md](MUTATIONS.md)
+and [BEHAVIOR_MATRIX.md](BEHAVIOR_MATRIX.md) §8.
+_Avoid_: —
 
 **Cursor**:
 The single row-focus point (`Session.cursor: Path`) every host keeps. Always exists.
@@ -388,6 +441,7 @@ _Avoid_: FAB, `+` button.
 Chrome, like the **Overflow menu**. Its Edit menu's Copy/Cut/Paste Node items are
 OS-convention accelerators, deliberately outside the **Action menu**'s item model and
 outside its eligibility computation. Not a surface to "unify" later.
+_Avoid_: Menu bar, app menu.
 
 **Type filter** (`f`) vs **Text filter** (`/`):
 Two independent ways to narrow the visible tree. The **Text filter** (`/`) fuzzy-matches a Node's
@@ -395,24 +449,24 @@ key/path (and a Comment's text, and a scalar's own value). The **Type filter** (
 menu selecting **type facets** — **Key sign**, **Format/kind** (the KIND-column vocabulary), and
 **Flags** (`(!) has warning`, `has comment`) — plus a **Reverse** toggle that inverts the combined
 facet match. Both narrow the same filtered list and **intersect** (a Node must pass the Text filter
-and every Type-filter facet); selections *within* each facet group union. _Avoid_: calling either
-one "search" exclusively — both are filters.
+and every Type-filter facet); selections *within* each facet group union.
+_Avoid_: calling either one "search" exclusively — both are filters.
 
 **Whole-document editing**:
 Editing the document's entire text as one buffer and committing it as a single `Replace` at the
 **empty path** — the one `Target` whose parent is the **Root**. Core exposes it as one operation
 (`Session::apply_document_text`, reached through `Intent::BeginEditDocument` or the Action menu's
 *Edit whole file*) and each host spends it on the text surface it already has: the TUI's
-`$EDITOR`, the desktop Web UI's **Raw write mode**, touch's external-edit sheet. Suppressed under
-VS Code, whose own editor already owns that surface. Commit is atomic and validated like any
+`$EDITOR`, the desktop Web UI and VS Code extension's (ADR 0015) **Raw write mode**, touch's external-edit
+sheet. Commit is atomic and validated like any
 other **Mutation**: a buffer that fails to parse leaves the document untouched.
 _Avoid_: root edit, whole-file replace, raw edit (that names one host's surface, not the operation).
 
 **Raw write mode** (Web):
-The desktop Web UI's surface for **whole-document editing**: the Raw pane's single `<textarea>`
-with `readonly` dropped (`rawState: "write"`). Its crumbs-row band has exactly two controls — a
-primary action labelled *Edit* in Raw view and *Apply* in Raw write, plus *Cancel* — and both
-leave write mode, one committing and one discarding.
+The desktop Web UI and VS Code extension (ADR 0015) surface for **whole-document editing**: the Raw
+pane's single `<textarea>` with `readonly` dropped (`rawState: "write"`). Its crumbs-row band features
+a left toggle `#btnRawToggle` (labelled *Edit* in Raw view and *Cancel* in Raw write) and a static right
+`#btnRawApply` labelled *Apply* (`web.raw.controls.{edit,cancel,apply}`).
 _Avoid_: Raw edit mode, source mode, text mode.
 
 **`doc_revision`**:
@@ -533,7 +587,7 @@ Scalars: `[S:str ]`/`[S:mstr]`/`[S:lit ]`/`[S:mlit]` strings, `[I:dec ]`/`[I:hex
 (offset-datetime, local-datetime, local-date, local-time). `[C]` comment. The Root has **no**
 tag: it is never a view row (ADR 0013), so `classify` returns `None` for it.
 YAML: `[A/B]`/`[A/F]` block/flow sequence, `[T/B]`/`[T/F]` block/flow mapping (`[T/F]` also the YAML
-inline table), `[S:sq  ]`/`[S:dq  ]`/`[S:lit ]`/`[S:fold]` string styles, `[opaq ]` out-of-subset
+inline table), five string styles (`[S:str ]`/`[S:sq  ]`/`[S:dq  ]`/`[S:lit ]`/`[S:fold]`), `[opaq ]` out-of-subset
 read-only (no datetime, no `[A/T]`/`[T/D]`, no `[I:bin ]`).
 Every tag occupies 8 display cells. The six-character scalar/opaque tags carry their padding
 **inside** the brackets (`[I:dec ]`, `[S:sq  ]`, `[opaq ]`) so the notation column lines up; the

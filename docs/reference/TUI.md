@@ -48,9 +48,9 @@ for a key written with quotes, so the displayed path matches the file (glossary.
 
 ## Editing
 
-The inline editor edits one field at a time: **`Tab` toggles
+The inline editor edits one field at a time: **`Tab` and `BackTab` (Shift+Tab) toggle
 between Value (default) and Name**; committing a changed Name applies `Mutation::Rename` first,
-then the value `Replace` (Tab is disabled for array elements and comments, which have no key).
+then the value `Replace` (Tab and BackTab are disabled for array elements and comments, which have no key).
 Commit detects a **type change** via the backend's `value_kind(value)` (which parses+projects the
 value in the doc's own syntax) fed to `node_type_label`, prompting y/n when the label differs; the
 fragment it applies comes from `scalar_fragment` (so TOML and JSON each get their own notation). The
@@ -148,7 +148,8 @@ trailing comment; TOML/JSON preserve it natively). `e` on a
 **single-line** comment edits inline (`Mode::Edit` with `is_comment`: the raw `#`-prefixed text
 is the sole field — no name, `Tab` is a no-op — and `edit_commit` routes to
 `Mutation::EditComment`, staying in the editor on a non-`#` validation error); `E`, a merged
-multi-line comment, or one with an `Array` ancestor open `$EDITOR` with the raw text. Deleting a
+multi-line comment, or one with an `Array` ancestor edit the Comment's **Block** (`block_text`)
+in `$EDITOR` and commit via `Intent::ApplyBlockText`. Deleting a
 comment (`d`) is a plain token removal at its `Seg::Index` slot.
 
 A comment the open format doesn't officially allow (a `.json` document's comment, which confy
@@ -260,15 +261,17 @@ overlapping) rather than re-extending the first anchor.
 ## Action menu
 
 `m` opens `Mode::ActionMenu { cursor }`, a modal popup (`overlay_action_menu.rs`, same
-shape as the `K` kind-switch popup) listing the eight core-owned Action menu items
+shape as the `K` kind-switch popup) listing the nine core-owned Action menu items
 (design doc `docs/spec/2026-08-30-action-menu-design.md` §2, ADR 0009):
-Edit, Add child, Append sibling, Copy, Cut, Toggle comment, Detail, Delete
-(separated by a rule and shown in red). `Session::action_menu_items()` derives each
+Edit, Add child, Append sibling, Copy, Cut, Toggle comment, Detail, Edit whole file
+(separated by a rule), and Delete (shown in red). `Session::action_menu_items()` derives each
 item's `enabled` flag fresh from `selected_paths()` every frame — a single-path item
 (Edit / Add child / Append sibling / Detail) dims on a multi-node selection;
 the four set-applying items (Copy / Cut / Toggle comment / Delete) dim only if any
-targeted node is read-only. Disabled items stay visible (dimmed), never hidden, so
-cursor position is stable. Up/Down (or j/k) move the cursor, skipping disabled items;
+targeted node is read-only; Edit whole file (`ActionId::EditDocument`) is document-scoped
+and never dims — not on a multi-node selection, not on a read-only target. Disabled
+items stay visible (dimmed), never hidden, so cursor position is stable. Up/Down (or j/k)
+move the cursor, skipping disabled items;
 Home/End jump to the first/last enabled item (`App::action_menu_jump_edge` — core's
 stride-by-delta move means the host sends the exact `target − cursor` offset), and
 PageUp/PageDown page by `ACTION_MENU_PAGE_STEP` (5); all wrap like the arrows. Web's
@@ -339,9 +342,10 @@ CLI configs. (The web hosts have no config file at all; they persist language an
 `localStorage`.)
 
 `l` opens a small host-side popup (`overlay_lang_picker.rs`, `App::open_lang_picker`, same
-pattern as the kind-switch popup) listing the available languages; selecting one dispatches
-`Intent::SetLang`, calls `save_config` (best-effort — a write failure surfaces as a status
-message via `tui.lang.save-failed`, never a crash), and confirms via `tui.lang.saved`. The About
+pattern as the kind-switch popup) listing the available languages; selecting one calls
+`Session::set_lang` directly (one of the ADR 0003 non-mutation carve-outs), calls `save_config`
+(best-effort — a write failure surfaces as a status message via `tui.lang.save-failed`, never a
+crash), and confirms via `tui.lang.saved`. The About
 screen (`?` → About tab, `overlay_help.rs`) appends two host-only lines after the core's
 translated `about_text(lang)` body: `Config: <path>` (the resolved path, shown even before the
 file exists) and `Language: <code>` — these can't live in the core catalog since the config path

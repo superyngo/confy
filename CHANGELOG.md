@@ -14,6 +14,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Fixed**
 
+- **The `?` help overlay printed a raw catalog key as a legend row, on every JSON and YAML
+  file, in both languages.** `help_legend_text` hardcodes each format's legend row counts and
+  two of them overshot the catalog by one — `[2, 6, 6]` for JSON against five
+  `tui.help.legend.json.containers.*` entries, `[3, 7, 14]` for YAML against six — so it asked
+  `tr` for `…json.containers.6` / `…yaml.containers.7`, and `tr`'s last branch, commented in
+  `i18n.rs` as *"a bug signal, never hit in normal use"*, leaks the key itself. The literal
+  string `tui.help.legend.json.containers.6` was therefore the last line of the Containers
+  group for as long as the per-format legend has existed; TOML was unaffected (`[4, 8, 16]` all
+  match). Counts corrected, and because they stay hand-written the guard is **exhaustive rather
+  than a second copy of them**: `legend_requests_no_missing_catalog_key` renders three formats ×
+  two languages and asserts no output contains `tui.help.legend.` — which is the lesson the
+  2026-09-15 sweep filed as a follow-up, applied to the counting site itself. Reproduced and
+  confirmed on the real binary both ways (`confy legend.json --lang en`,
+  `confy legend.yaml --lang zh-TW`), not just in the unit test.
+
+- **`C`'s help row still said "(Root node)"** — 「將文件轉換為其他格式（Root 節點）」 — two weeks
+  after ADR 0013 made the Root a model node that no host draws. `help.row.convert` is a *shared*
+  key, so the retired wording was on screen in the TUI `?` overlay **and** the web/touch help
+  panel; the 2026-09-15 sweep struck the same phrasing from `README.md` and missed the catalog.
+  Three orphaned keys that `adfc3b1` missed went with it — `tui.status.filter-results-status`
+  (superseded by `tui.status.filter-results-notice`), `web.common.confirm`, `web.help.title` —
+  leaving both catalogs at **430** keys, still at exact parity. The orphan sweep was re-derived
+  over all 243 source files plus `web/*.html` and turned up exactly two dynamic key builders
+  (`help_legend_text`'s `format!` and `help-content.ts`'s `` `web.help.legend.${…}` ``), which
+  is why the `tui.help.legend.*` and `web.help.legend.*` families look orphaned to a literal
+  grep and are not.
+
 - **The Microsoft Store package no longer installs a second, unusable Start-menu tile, and
   its `confy` command-line alias launches the TUI.** Both followed from one wrong premise —
   that an App Execution Alias must live on an `<Application>` node whose `Executable` is the
@@ -34,6 +61,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `crates/confy-tauri/msix/STORE.md` records the whole trap.
 
 **Docs**
+
+- **Third full documentation audit — 41 accuracy defects across eight reference files plus
+  `CLAUDE.md` and `README.md`, and the sweep found a shipped bug that no document was wrong
+  about.**
+  [`docs/audit/2026-09-18-documentation-audit.md`](docs/audit/2026-09-18-documentation-audit.md)
+  covers the 48 commits since the 2026-09-15 sweep. Structure held for the third time — zero
+  unindexed documents, zero ghost index rows, zero filename violations, zero illegal status
+  lines, zero broken links in living docs — and the drift was again concentrated in the period's
+  features. **Block edit** was still documented as the per-node fragment route `25d3f21` deleted:
+  `glossary.md` §Mixed/§Dotted table and `MUTATIONS.md`'s mixed row described a synthesized
+  `[a]` header and "canonical scope form", where `node_text_spans` captures verbatim member
+  spans in document order and `splice_spans` lands at the first; `BEHAVIOR_MATRIX.md` §7's facet
+  table omitted `node_text_spans` entirely and §6.3 credited `flow_item_text`, now
+  clipboard-only. The **Raw control band** was documented pre-`598ace4` in two files (the left
+  toggle reads *Cancel* in write mode, not *Apply*, and `#btnRawApply` is a static sibling), and
+  `HOST_PARITY.md` §3 gave write mode to desktop web alone while §5 and ADR 0015 give it to VS
+  Code too. The **Action menu's ninth item** was invisible in `TUI.md` and `README.md`, which
+  also misattributed the separator rule to Delete (`separator_before` is on *Edit whole file*)
+  and sorted every item into single-path or set-applying, mis-describing the one
+  document-scoped item that never dims. `KEYMAP.md` claimed all three surfaces drive
+  `snap.external_edit`; the TUI runs `$EDITOR` **synchronously** and dispatches
+  `ApplyBlockText`. `WEBUI.md` had the wasm wire in the wrong case (`externalEdit` for
+  `external_edit`, in prose and as two camelCase table rows for methods the wrapper does not
+  expose) and contradicted `CHROME.md` on both the Save `.split-btn`'s position and the touch
+  language selector. Two living-doc contradictions were resolved in favour of the code:
+  §8's "never silently drops" against `MUTATIONS.md` (`replace_value` does drop the surplus),
+  and §8 gained `0206923`'s key-matching invariant. Counts re-derived: web spec suites 39 → 40,
+  `taplo::syntax`/`rowan` 28 → 29, the `confy.ts` wrapper 18 → 20, `CLAUDE.md`'s "six such
+  commits" → five. `glossary.md` gained entries for `Path`, `Target`, `Mutation`, `MutateError`
+  and `ConvertWarning`, a fifth YAML string style (`[S:str ]`), and the `_Avoid_:` line that
+  `wens-dev-principles docs 5` makes mandatory on the **17** entries that lacked one — all 56
+  now carry it. `ROW_STATE_MODEL.md`, `CHROME.md`, `VSCODE.md`, `RELEASES.md`, `MESSAGES.md`,
+  `CONTEXT.md` and `reference/README.md` produced zero defects between them, and no `reference/`
+  file holds a History, Roadmap, TODO or backlog section.
+
+- **Three structure fixes, one of them a class pass 1 cannot grep for.** `debug/README.md`
+  listed `2026-09-17-msix-headless-cli-handoff.md` under *In progress* while the file itself
+  reads `Resolved (2026-09-18)` — the document *is* indexed, so coverage looked clean; only the
+  row's status text lied. The living backlog still held one `file.rs:NNN` citation
+  (`cst_edit/mod.rs:81-84`, now `cst_edit::apply`'s `Mutation::Replace` arm): `4248c11` cleaned
+  up two line-range citations the commit before and missed this third by one row. And
+  `adr/README.md` now states the file-shape convention it never had — 0001–0008 carry
+  `status:` front matter, 0009 onward put the status in the H1 and the index table, and a **new**
+  ADR uses the later shape. The eight keep the shape they landed with, because an ADR is never
+  edited (`wens-dev-principles docs 13`).
 
 - **The living backlog was re-verified against the code and two of its three open rows were
   stale.** The 2026-09-17 refile sweep had filed both rehomed debug docs' fix plans as open

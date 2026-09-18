@@ -14,7 +14,6 @@ carried the change is in `CHANGELOG.md`.
 | Date | Document | Status |
 |---|---|---|
 | 2026-09-16 | [VS Code pane-edit (Raw write mode) parity — investigation findings](2026-09-16-vscode-pane-edit-parity.md) | In progress |
-| 2026-09-17 | [MSIX: making the bundled CLI node headless](2026-09-17-msix-headless-cli-handoff.md) | In progress |
 
 ## Landed
 
@@ -25,5 +24,6 @@ carried the change is in `CHANGELOG.md`.
 | 2026-09-01 | [Pointer-drop `PasteSlot` alignment — probe](2026-09-01-pointer-drop-pasteslot-probe.md) | Resolved (2026-09-01) |
 | 2026-09-11 | [Root-row alignment: retrospective and handoff](2026-09-11-root-row-alignment-retrospective.md) | Resolved (2026-09-14) |
 | 2026-09-17 | [Raw write mode: undo/redo routing](2026-09-17-raw-write-undo.md) | Resolved (2026-09-17) |
+| 2026-09-17 | [MSIX: making the bundled CLI node headless](2026-09-17-msix-headless-cli-handoff.md) | Resolved (2026-09-18) |
 
 See also [`../adr/`](../adr/README.md) for the decisions this material produced.

@@ -182,9 +182,10 @@ crates/confy-core/tests/  21 integration suites + fixtures/. The gates named in 
                           schema_headless.rs, session_schema_fetch_request.rs, session_notice.rs,
                           session_snapshot_notice.rs, prompt_question.rs, modal_lock.rs (every
                           guarded method no-ops + sets status while the clipboard is armed,
-                          ADR 0005 §5), block_edit_parity.rs (the Block editor's cross-format
-                          matrix — 34 cases over 9 node shapes x 3 formats, plus the
-                          re-anchor's linear-cost regression test).
+                          ADR 0005 §5), block_edit_identity.rs (unmodified Block buffer
+                          byte-identity sweep over every fixture × node), block_edit_parity.rs
+                          (the Block editor's cross-format matrix — 34 cases over 9 node shapes
+                          x 3 formats, plus the re-anchor's linear-cost regression test).
                           Unit tests also live in-tree next to the code they cover:
                           model/cst_edit/tests.rs, model/json/edit/tests.rs,
                           model/yaml/edit/tests.rs (and
@@ -300,7 +301,7 @@ web/                       TypeScript integration + **web-native** UI (see WEBUI
                  `Mode::AddPicker`, so the desktop popup and the touch sheet stay identical
   privacy.html   the PWA/store privacy page (also root `PRIVACY.md`); manifest.webmanifest +
                  icons/ are the installable-app manifest and its icon set
-  run-tests.mjs / *.spec.mjs  the plain-Node spec harness (`npm test`) and its 39 suites
+  run-tests.mjs / *.spec.mjs  the plain-Node spec harness (`npm test`) and its 40 suites
   entry-desktop.js / entry-touch.js / register-sw.js / sw.js  the per-entry boot scripts
                  (pointer-based desktop↔touch router; https-only service-worker registration)
                  plus the service worker itself (offline app-shell cache). **External
@@ -459,6 +460,13 @@ editors/vscode/          third host shell, published to the VS Marketplace and O
                           of its own. Like the web bundle, **the extension's esbuild must run from
                           a scratchpad copy**; see `editors/vscode/README.md` for the exact
                           commands.
+  src/                   extension-host TypeScript + its co-located `*.test.ts`
+  test-integration/      the real-VS-Code integration harness
+
+scripts/
+  sync-releases-md.sh    rewrites `docs/reference/RELEASES.md`'s four versioned rows and is
+                         invoked from `release.yml`, `publish-msstore.yml`, and
+                         `publish-vscode.yml`
 ```
 
 ## Host file I/O
@@ -506,7 +514,7 @@ The maintainer stepped down in Dec 2024
 ([tamasfe/taplo#715](https://github.com/tamasfe/taplo/issues/715)); the repo is stalled but
 not archived, no ownership transfer has happened, and `rowan =0.15.18` is exact-pinned to
 match taplo's internal version. `confy`'s taplo surface is small and measurable —
-`taplo::parser::parse` (49 call sites), `taplo::syntax::*`/`taplo::rowan::*` (28 sites), and
+`taplo::parser::parse` (49 call sites), `taplo::syntax::*`/`taplo::rowan::*` (29 sites, last measured 2026-09-18), and
 `taplo::dom` (2 sites: `into_dom()` + matching `taplo::dom::Error::ConflictingKeys` in
 `cst_edit/mod.rs`'s `validate_dom`, the TOML backend's post-splice duplicate-key backstop —
 JSON and YAML hand-roll the equivalent in their own `validate_semantics`). None of taplo's

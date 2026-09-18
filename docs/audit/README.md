@@ -29,5 +29,6 @@ Nothing open.
 | 2026-09-15 | [Block-edit save-parse redesign — settled decisions](2026-09-15-block-edit-design-decisions.md) | Resolved (2026-09-15) |
 | 2026-09-15 | [Evaluation of the four remaining Open follow-ups](2026-09-15-open-follow-ups-evaluation.md) | Resolved (2026-09-15) |
 | 2026-09-16 | [Scroll-position preservation across mode switches](2026-09-16-scroll-preservation-audit.md) | Resolved (2026-09-16) |
+| 2026-09-18 | [Documentation audit — drift since 2026-09-15, and a raw catalog key on screen](2026-09-18-documentation-audit.md) | Resolved (2026-09-18) |
 
 See also [`../adr/`](../adr/README.md) for the decisions this material produced.

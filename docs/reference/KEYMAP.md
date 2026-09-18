@@ -136,15 +136,15 @@ These are **decided, not accidental**. Do not "fix" them without changing this s
   `resolveKeyIntent`'s `Edit` branch is effectively dead on desktop and the `EditCursor*` /
   `EditDelete` members of `web/types.ts`'s `Intent` union are declared but unused — they
   document the core protocol, they are not web dead code to delete.
-- **Popup / external editor.** One intent, three presentations: the TUI suspends the alternate
-  screen and spawns `$EDITOR`; desktop web opens `#ext-modal`; touch opens a `.ext-sheet`
-  bottom sheet. All three are driven by the same `snap.external_edit` async handshake, and
-  `E` forces it on any node while `e` only reaches it when core's `edit_target_kind()` returns
-  `External` (multiline string / comment).
+- **Popup / external editor.** The TUI suspends the alternate screen, runs `$EDITOR`
+  synchronously, and dispatches `Intent::ApplyBlockText`; desktop web opens `#ext-modal`;
+  touch opens a `.ext-sheet` bottom sheet. Web and touch drive the `snap.external_edit`
+  async request/response, and `E` forces it on any node while `e` only reaches it when
+  core's `edit_target_kind()` returns `External` (multiline string / comment).
 - **Clipboard-armed guard.** Core's `begin_external_edit` already refuses while the clipboard
   is armed, so hosts need no duplicate check. The TUI additionally raises its own
-  `core.clipboard.action-locked` notice before dispatching; touch's `openExternalEdit` does the
-  same. Desktop web relies on core alone.
+  `core.clipboard.action-locked` notice before opening `$EDITOR`; touch's `openExternalEdit`
+  does the same. Desktop web relies on core alone.
 - **Action menu.** Desktop intercepts `OpenActionMenu` to position a real popover
   (`openActionMenuFromKeyboard`); touch and the TUI let the intent through to core's
   `Mode::ActionMenu`.
@@ -217,8 +217,8 @@ because the Help overlay's `e`/`E`/`Enter`/`i` rows describe this behavior:
 | --- | --- | --- | --- |
 | Inline edit (scalar leaf) | Core edit buffer driven keystroke-by-keystroke (`EditChar`/`EditCursor*`/`EditDelete`) | Real `<input class="cell-input">`; browser owns cursor/selection/delete; single `CommitEdit` on Enter/blur | Same as desktop web |
 | Force editor (`E`, any node) / editor for multiline string or comment (`e`) | Suspends the alternate screen, spawns `$EDITOR` on a scratch file | Opens `#ext-modal` | Opens the `.ext-sheet` bottom sheet |
-| Handshake | All three surfaces drive the same `snap.external_edit` async request/response — one core intent, three presentations | | |
-| Clipboard-armed guard | Core's `begin_external_edit` refuses while clipboard is armed; TUI additionally raises `core.clipboard.action-locked` before dispatching | Relies on core alone | Same TUI-style extra notice as the TUI (`openExternalEdit`) |
+| Handshake | Runs `$EDITOR` synchronously and dispatches `Intent::ApplyBlockText` | Drives the `snap.external_edit` async request/response | Same as desktop web |
+| Clipboard-armed guard | Core's `begin_external_edit` refuses while clipboard is armed; TUI additionally raises `core.clipboard.action-locked` before opening `$EDITOR` | Relies on core alone | Same TUI-style extra notice as the TUI (`openExternalEdit`) |
 | Detail panel (`Enter`/`i`) | `Mode::Detail` centered floating popup (70% wide, height clamped to 80%, `detail_popup_rect`) | `#overlay`/aside detail pane | Bottom sheet |
 
 The Help overlay's `help.row.edit` ("Edit (inline or editor)") and `help.row.force_editor`

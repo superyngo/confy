@@ -79,7 +79,7 @@ row you edited is where the result appears.
 | `[T/S]` scattered | **all** member sections, in document order | first definition | foreign sections/comments in between stay put |
 | `[T/S]` implicit (no `[a]`) | all descendant sections | first definition | no header is synthesized (none is needed) |
 | `[T/D]` dotted | member lines, full keys | first member line | dotted style kept |
-| **Mixed** | canonical scope form: synthesized `[a]` header + dotted members folded under it + sections | first member *section* | dotted definitions are consumed — required for the header to be legal |
+| **Mixed** | verbatim member spans in document order | first member span | consolidated at the first member span |
 
 A consolidating rewrite (2+ spans) is what a **Block** commit produces for a scattered table;
 its legality is whatever the whole-file reparse and the DOM validation accept. The two older

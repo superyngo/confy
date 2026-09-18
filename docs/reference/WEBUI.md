@@ -61,7 +61,7 @@ hand-maintained field-by-field marshalling.
 **Rust snake_case** names (`schema_hint`, `schema_violations`, `had_comments_at_open`); the
 generated `pkg/confy_ffi.js` glue is the proof. `web/confy.ts` then wraps that raw class in a
 `Session` class exposing **camelCase** (`schemaHint`, `hadCommentsAtOpen`) for methods the web
-code uses. That wrapper covers 18 methods and omits `schema_violations` and
+code uses. That wrapper covers 19 methods (20 including `free`) and omits `schema_violations` and
 `external_edit`, which are reached on the raw `ConfySession`. The VS Code extension
 deliberately bypasses the wrapper and types the raw class directly
 (`editors/vscode/src/wasmSession.ts`), so it calls the **snake_case** names — renaming an FFI
@@ -78,7 +78,7 @@ method means updating both spellings.
 | `docFormat` | `() => "toml" \| "json" \| "yaml"` | |
 | `kindOptions` | `(path: Seg[]) => KindOption[]` | per-node convertible kinds (drives the `K` popup). |
 | `children` | `(path: Seg[]) => ChildView[]` | immediate children of the node at `path` as `ChildView[]` (`{ key, path, type_label, is_branch }`), independent of expansion state; feeds the breadcrumb mini-tree's lazy expansion. |
-| `externalEdit` | `() => { initial, kind } \| undefined` | the current external-edit request, if any (§8.2). |
+| `external_edit` | `() => { initial, kind } \| undefined` | raw `ConfySession` only (omitted from `Session` wrapper); the current external-edit request, if any (§8.2). |
 | `diagLog` | `() => DiagEvent[]` | full event list from the Session's bounded 256-event ring buffer; feeds `?diag=1` console drain. |
 | `setStrictJson` | `(v: boolean) => void` | host-supplied: true iff the open file's real extension is plain `.json` (not `.jsonc`) — core is extension-blind, so only the host knows. Drives `ViewRow.comment_advisory`. Called once right after `fromText`, before the first `snapshot()`. |
 | `hadCommentsAtOpen` | `() => boolean` | whether the document already contained a comment when loaded — drives the one-shot "file already had comments" toast. `false` for non-JSON. Replaced the deleted `supportsComments()` write-gate binding. |
@@ -86,10 +86,10 @@ method means updating both spellings.
 | `schemaHint` | `(path: Seg[]) => EditHint` | schema-driven editing hint (enum/const options or numeric bounds; `None` when unconstrained). Read-only, does not enter edit mode. |
 | `nudgeRepr` | `(path: Path, text: string, delta: number) => string \| undefined` | stateless preview of nudging `text` by `delta` steps for `path` without mutating the document (`undefined` when not a nudgeable scalar or unparsable); feeds the wheel/swipe inline-edit nudge. |
 | `schemaInfo` | `(path: Seg[]) => string \| undefined` | `description`/`type`/`format`/`pattern` from the resolved subschema. Orthogonal to `schemaHint`: covers the plain-typed field that hint leaves at `None`. |
-| `schemaViolations` | `() => ViolationView[]` | current violations with resolved `text_range`s — the native-editor Diagnostics data source. |
+| `schema_violations` | `() => ViolationView[]` | raw `ConfySession` only (omitted from `Session` wrapper); current violations with resolved `text_range`s — the native-editor Diagnostics data source. |
 | `outline` | `() => OutlineNode[]` | read-only symbol tree for editor Outline/breadcrumb integrations, independent of cursor/expansion state. |
 | `spanOf` / `span_of` | `(path: Seg[]) => [number, number] \| undefined` | the node's whole-member UTF-8 **byte** span, Comment rows included — what the Raw pane's breadcrumb jump feeds `byteToCodeUnit` before `setSelectionRange` (R14–R17, R29). Core answers per path so no host re-walks `outline()`, which omits comments. |
-| `nodeAtOffset` / `node_at_offset` | `(offset: number) => Seg[] \| undefined` | `spanOf`'s inverse: the **innermost** Node whose span contains a UTF-8 byte offset, Comment rows included — the Raw pane's caret → cursor sync (Q4, landed 2026-09-15). `undefined` between Nodes (a blank line) or out of range. Deliberately not the Block editor's private `path_at_offset`, which resolves the first Node at or *after* a splice anchor and so skips the Node a caret sits inside. |
+| `nodeAtOffset` / `node_at_offset` | `(offset: number) => Path \| undefined` | `spanOf`'s inverse: the **innermost** Node whose span contains a UTF-8 byte offset, Comment rows included — the Raw pane's caret → cursor sync (Q4, landed 2026-09-15). `undefined` between Nodes (a blank line) or out of range. Deliberately not the Block editor's private `path_at_offset`, which resolves the first Node at or *after* a splice anchor and so skips the Node a caret sits inside. |
 | `pointerSlot` | `(path: Seg[], relY: number) => PasteSlot \| undefined` | pointer-drop classification (row + relative vertical position → the `PasteSlot` it represents). Every pointer surface calls this instead of hand-rolling it (ADR 0004 §1). |
 
 `external_edit` in the snapshot is the async handshake (§8.2): the UI opens its
@@ -126,6 +126,12 @@ shapes round-trip). Key types:
   resolved by the same `slot_target` a keyboard `Paste` uses, ADR 0010),
   `CommitEdit {value?,name?}`, `CommitKind {path,target}`, `SetFilter(String)`,
   `SetConvertFormat(DocFormat)`, `SetConvertPath(String)`.
+  Seven core `Intent` variants are deliberately absent from `web/types.ts`:
+  `ConvertWriteDone`, `DetailScrollBy`, `DetailSetScroll`, `HelpScrollBy`,
+  `HelpSetScroll`, `EditClampScroll`, and `SetStrictJson`. These are TUI-only scroll
+  and lifecycle intents plus the host-supplied `SetStrictJson` (configured directly
+  on the session via `setStrictJson` rather than dispatched over the command channel);
+  their absence from the web wire type is intentional.
 - **`SessionSnapshot`** — full renderable state (22 fields total): `doc_format`, `is_dirty`,
   `mode: ModeView`, `rows: ViewRow[]`, `cursor: Seg[]`, `notice: Notice | undefined`,
   `detail_text`, `external_edit`, `convert_write`, `clipboard_count`, `clipboard_cut`,
@@ -173,7 +179,7 @@ shapes round-trip). Key types:
   modal state; the UI re-renders wholesale. A structured row diff is a future G2
   optimization, not present now.
 - **Async editor via signal, not callback** (§8.2). The sync `Host` trait is a TUI
-  concern; WASM uses `externalEdit` in the snapshot + a follow-up `ApplyBlockText`
+  concern; WASM uses `external_edit` in the snapshot + a follow-up `ApplyBlockText`
   intent (`ApplyReplace` at the empty path), so the browser modal can be `Promise`-based.
 
 ## Web UI architecture
@@ -373,11 +379,12 @@ shapes round-trip). Key types:
   a VS Code webview's iframe sandbox omits `allow-modals`, so a native confirm resolves to
   `false` without prompting and silently made Escape and the Tree/Raw toggle no-ops there
   (fixed 2026-09-16; `web/no-native-modal.spec.mjs` guards it, and the dialog is host-neutral —
-  no `VSHOST` branch). The header Tree/Raw toggle and a breadcrumb jump elsewhere in the
-  document both route a
-  dirty write-mode exit through the same gate — the toggle then lands on **Tree in one press**
+  no `VSHOST` branch). The header Tree/Raw toggle, `Esc`, and the band controls route a
+  dirty write-mode exit through the same gate — the toggle lands on **Tree in one press**
   (`exitRawWrite("off")`, 2026-09-14: the button says Tree, so a stop in Raw view made it lie),
-  while `Esc` lands on Raw view (as do the band's own Apply/Cancel). Render never clobbers
+  while `Esc` lands on Raw view (as do the band's own Apply/Cancel). A breadcrumb jump elsewhere
+  in the document does not call `exitRawWrite`; with a dirty buffer `jumpSelectRawSpan` stays in
+  write mode and reports `web.raw.jump-needs-apply`. Render never clobbers
   the buffer while write mode is open (R8: the re-seed is reachable only from the `"view"`
   branch). Because Raw view's pane is a focusable textarea, `document.body`'s key delegation
   skips only a **writable** one — a readonly pane never swallows a shortcut. A crumbs-row
@@ -406,7 +413,7 @@ shapes round-trip). Key types:
   short-circuit when the resolved Node is already the cursor. Both directions are gated on a
   clean write buffer (`text_range`s describe the last commit, R17): the jump reports
   `web.raw.jump-needs-apply` — the tree cursor still moves via `RevealPath`, only
-  the text selection is skipped). Touch keeps Raw **view** read-only with no write mode of its
+  the text selection is skipped. Touch keeps Raw **view** read-only with no write mode of its
   own; its whole-file edit path is the existing external-edit bottom sheet (R18/R19, below).
   VS Code suppresses the Action menu item and disables the band's Edit control (R10): its own
   `TextDocument` is already this feature's one owner (ADR 0007), so a second editable copy in
@@ -496,13 +503,14 @@ shapes round-trip). Key types:
 - **Help.** The `?` overlay appends a **per-format KIND legend** (`KIND_LEGEND`, keyed by
   `doc_format`, ported from the TUI's per-backend help) explaining each container/scalar
   label·notation for the open file's format.
-- **External edit modal.** When `snapshot.externalEdit` is set, a `<textarea>` modal opens
+- **External edit modal.** When `snapshot.external_edit` is set, a `<textarea>` modal opens
   with `initial`; on submit the UI dispatches `ApplyBlockText` with the request's path and the
   edited text — one route for every node kind, comments included — and **stays open** if the
   commit was rejected (`doc_revision` did not move) so the user keeps what they typed.
 - **File I/O — File System Access API with download fallback.** All file I/O is
-  host-owned (`web/fs.ts`); core `Intent::Save` only clears the dirty flag. The toolbar's
-  right-side control is a **`.split-btn`**: `#btnSave` saves in place (`doSave`) and the
+  host-owned (`web/fs.ts`); core `Intent::Save` only clears the dirty flag. In the middle of
+  the header row — after Open, before `editGroup` and `#btnMore`, which occupy the right side —
+  sits a **`.split-btn`**: `#btnSave` saves in place (`doSave`) and the
   adjoining `#btnSaveAs` opens the Save / Convert panel (above) — touch instead has one Save
   button that opens a save-choice sheet (`CHROME.md` owns the inventory). **`⌘S`** is the
   instant in-place fast path with this precedence: (1) write in place to the open
@@ -533,7 +541,8 @@ shapes round-trip). Key types:
   Tauri and VS Code branches fetch natively and are unaffected.
 - **Theme.** A dark/light toggle (titlebar `☾`/`☀`) flips `:root[data-theme]`; CSS
   variables carry both palettes and the choice persists in `localStorage`.
-- **Responsive toolbar.** The toolbar's right-side action is the **Save `.split-btn`**
+- **Responsive toolbar.** In the middle of the header row — after Open, before `editGroup` and
+  `#btnMore`, which occupy the right side — sits the **Save `.split-btn`**
   (in-place Save + Save As / Convert — the separate Convert button is gone). The full button
   inventory, row/group layout, per-button fold breakpoint ladder, and VS Code/Tauri desktop
   trimming rules are documented once in **`CHROME.md`** (shared with the touch UI) — not
@@ -880,8 +889,9 @@ en-fallback chain as core's `tr`/`tr_args`, plus `getLang()`/`setLang()` persist
 change, the host sends `{ SetLang: lang }` so core-produced `SessionSnapshot` strings (status,
 errors, detail fields) match; a selector change also re-runs `applyStaticI18n()` to refresh
 `data-i18n`-tagged static DOM strings in `index.html`. The selector lives next to `btnTheme` in
-the desktop toolbar and in the touch ⋯ menu (same shared-module rule as the rest of the
-touch UI — see *Touch UI* above). `web/help-content.ts`'s `HELP_TEXT`/`KIND_LEGEND` cheatsheet
+the desktop toolbar, and on touch sits in the header toolbar's `.edit-grp` next to
+`[data-act="theme"]`, folding into the ⋯ menu only at ≤600px (`CHROME.md` §Row layout).
+`web/help-content.ts`'s `HELP_TEXT`/`KIND_LEGEND` cheatsheet
 and `helpBodyHTML`'s About body both branch on `getLang()`; the About body appends
 `web.about.language` and a `web.about.storage` line noting the preference lives in the
 browser's local storage (or the desktop app's WebView persistent storage) rather than a

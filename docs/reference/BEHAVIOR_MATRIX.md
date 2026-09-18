@@ -181,8 +181,9 @@ Precision is a property of the **span** each Node owns, not of a resolved fragme
   (`"y": 2`) — and its commit splices over the item's own **trailing-whitespace-excluded** span, so
   the collection's authored padding survives an untouched round trip byte-for-byte. A YAML flow-seq
   *element* is the one item with no `Target` of its own (the projection indexes it as the whole
-  collection plus an ordinal), so its fragment is sliced out by that ordinal
-  (`flow::flow_item_text`); without it the capture was the entire `[ … ]`. That holds for a
+  collection plus an ordinal): `yaml::edit::spans::node_text_spans` resolves the element directly
+  from the projected Node's `text_range`, and `flow::flow_item_text` survives only on the
+  clipboard-copy path; without it the capture was the entire `[ … ]`. That holds for a
   **nested collection** element (`g: [ {x: 1}, 2 ]`) too — the projection registers the same
   ordinal-addressed target for it, which is what made it editable at all.
 
@@ -208,6 +209,7 @@ format is purely additive:
 | `fragment_trailing_comment(path, fragment)` | whether a replace fragment manages its own trailing comment | extracted from fragment | extracted from member fragment | `None` (default; `Replace` drops) |
 | `value_kind(value)` | what an inline-editor buffer parses as — the type-change check before a `Replace` | TOML scalar grammar | JSON scalar grammar | YAML-subset scalar grammar |
 | `trailing_blank_anchor(path)` | where a node's contiguous extent ends, so `SetTrailingBlankLines` splices after the right line | `cst_edit::trailing_blank_anchor` (section/AoT-group aware) | `json::edit::extent_end_offset` | `yaml::edit::trailing_blank_anchor` |
+| `node_text_spans(path)` | which byte spans a Node owns, which is what Block edit captures | `cst_edit::spans` | `json::edit::spans` | `yaml::edit::spans` (includes opaque spans) |
 
 **Not abstracted, by design:** the per-backend splice engines (`cst_edit/`, `json/edit/`,
 `yaml/edit/`) share a **contract** (the `Mutation` enum), not a **mechanism** — the three `rowan`
@@ -232,10 +234,16 @@ green trees have different shapes (taplo vs hand-rolled JSON vs YAML reindent). 
   normally. Document **conversion** is the stricter case: an opaque node aborts it outright.
 - **Atomic mutations.** Every mutation edits a scratch tree and commits only on success, with a
   semantic post-check — a failed edit leaves the document byte-for-byte untouched.
-- **A fragment is exactly one node.** `Insert`/`Replace` take one node's text; anything past it
-  is rejected (`Fragment`), never silently dropped. This matters most in YAML, whose subset
+- **A fragment is exactly one node.** `Insert`/`Replace` take one node's text. JSON and YAML reject
+  surplus text as `Fragment`, never silently dropping (which matters most in YAML, whose subset
   grammar is deliberately lenient — nearly any text lexes as a plain scalar, so a two-node
-  fragment parses happily and the surplus would vanish without a message.
+  fragment parses happily and the surplus would vanish without a message). In TOML, `replace_value`
+  swaps only the first entry's VALUE and drops surplus nodes after the first; that surplus gap no
+  longer reaches a user because the multi-line editor commits a Block through the empty path.
+- **Key-matching on value replace.** On a keyed path, `replace_value` checks the fragment's key
+  against `path.last()` and returns `MutateError::Fragment` on a mismatch (synthetic carriers
+  `__k__` and `__elem__` stay exempt), so a value `Replace` can no longer rename the key.
+  `crates/confy-core/tests/format_parity.rs` does not cover this invariant.
 - **Remark needs a line of its own.** `r` applies to any node that occupies its own line(s) — a
   keyed member, an **array element**, a whole table/section — in all three formats, and
   un-remarking restores the source byte-for-byte. It does **not** apply inside a single-line
