@@ -3,8 +3,9 @@
 The release workflow produces an **unsigned** `confy-desktop-windows-x86_64.msix`
 built by `pack-msix.ps1` from `AppxManifest.xml`. The package also contains the
 TUI binary as `confy.exe`, exposed on PATH after install via a
-`windows.appExecutionAlias` on its **own** `<Application>` manifest node
-(resolves through `%LOCALAPPDATA%\Microsoft\WindowsApps`). Unsigned is intentional: the
+`windows.appExecutionAlias` declared on the **GUI's** `<Application>` node with
+its own `Executable="confy.exe"` (resolves through
+`%LOCALAPPDATA%\Microsoft\WindowsApps`). Unsigned is intentional: the
 Store re-signs every submission with its own certificate, and a package signed
 with a non-Store cert is rejected.
 
@@ -121,16 +122,31 @@ Add-AppxPackage confy-desktop-windows-x86_64.msix
   a submission created via the API must only be changed via the API; editing
   it in Partner Center can leave it uncommittable, requiring a discard.
   <https://learn.microsoft.com/windows/uwp/monetize/manage-app-submissions>
-- **AppExecutionAlias must live on its own `<Application>` node.** An alias
-  always launches the `Executable` of the `<Application>` node the
-  `windows.appExecutionAlias` extension is declared under — never a
-  same-named file bundled elsewhere in the package. `AppxManifest.xml` once
-  nested the alias under the GUI's `Application Id="confy"
-  Executable="confy-desktop.exe"` node, so the `confy` alias silently
-  launched the GUI instead of the bundled TUI even though `confy.exe` was
-  physically staged in the package. Fixed by giving the TUI its own
-  `Application Id="confycli" Executable="confy.exe"` node
-  and moving the alias extension there. That node must stay **visible**: `AppListEntry="none"`
-  makes the app *headless*, and Store submission rejects headless apps
-  without Microsoft's "HeadlessAppBypass" waiver, so the CLI shows in the
-  Start menu as "confy (CLI)".
+- **The alias target is the extension's `Executable`, not the parent
+  `<Application>`'s.** `uap3:Extension` takes optional `Executable` /
+  `EntryPoint` attributes, so `windows.appExecutionAlias` can point at
+  `confy.exe` while sitting under the GUI node whose `Executable` is
+  `confy-desktop.exe`. Getting this wrong cost two releases and one rejected
+  submission:
+  - The alias first sat under the GUI node with **no** `Executable`, so it
+    launched `confy-desktop.exe` — the GUI — even though `confy.exe` was
+    physically staged in the package. (This went unnoticed for two weeks
+    because a winget-installed `confy.exe` shadows the alias stub:
+    `%LOCALAPPDATA%\Microsoft\WinGet\Links` precedes `…\WindowsApps` in the
+    user PATH. Test the alias with
+    `& "$env:LOCALAPPDATA\Microsoft\WindowsApps\confy.exe" --help`.)
+  - The next attempt gave the TUI its own `<Application Id="confycli">` node.
+    Hidden (`AppListEntry="none"` — the only way to keep a node out of the
+    Start menu) the Store **rejects the whole package**: *"specifies a headless
+    app. You don't have permission to create a headless app … ensure you have
+    the waiver `HeadlessAppBypass` associated to this app"*
+    ([run 35043429642](https://github.com/superyngo/confy/actions/runs/35043429642/job/104629133832)).
+    A single visible GUI node does not exempt a second hidden one — the check
+    is per-`<Application>`. Left visible, the node installs a tile that cannot
+    work: `confy-tui` requires a file argument and Start-menu activation passes
+    none, so clicking it printed a usage error and exited.
+  - Current shape: **one** `<Application>` node, the alias extension carrying
+    `Executable="confy.exe" EntryPoint="Windows.FullTrustApplication"`. One
+    Start-menu entry, `confy` on PATH runs the TUI, no waiver needed. Verified
+    2026-09-18 on Windows: `makeappx pack` succeeds and `confy --help` prints
+    the TUI usage.

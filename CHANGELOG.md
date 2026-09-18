@@ -10,6 +10,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 2026-09-18
+
+**Fixed**
+
+- **The Microsoft Store package no longer installs a second, unusable Start-menu tile, and
+  its `confy` command-line alias launches the TUI.** Both followed from one wrong premise —
+  that an App Execution Alias must live on an `<Application>` node whose `Executable` is the
+  binary you want. It does not: `uap3:Extension` takes optional `Executable`/`EntryPoint`
+  attributes, so the alias now sits under the **GUI's** node carrying
+  `Executable="confy.exe" EntryPoint="Windows.FullTrustApplication"`, and the separate
+  `Application Id="confycli"` node is gone. That node was a dead end in both states: hidden
+  (`AppListEntry="none"`, the only way to keep it out of the Start menu) the Store rejects
+  the whole package as a headless app absent Microsoft's `HeadlessAppBypass` waiver — the
+  check is per-`<Application>`, so the visible GUI node does not exempt it ([measured, run
+  35043429642](https://github.com/superyngo/confy/actions/runs/35043429642/job/104629133832))
+  — and left visible it installed a tile that cannot work, since `confy-tui` requires a file
+  argument and Start-menu activation passes none. The alias pointing at the GUI had gone
+  unnoticed for two weeks because a winget-installed `confy.exe` shadows the alias stub
+  (`…\WinGet\Links` precedes `…\WindowsApps` in the user PATH), which is why the earlier
+  "the alias used to work" reading was a false positive. Verified on Windows:
+  `makeappx pack` succeeds and `confy --help` prints the TUI usage.
+  `crates/confy-tauri/msix/STORE.md` records the whole trap.
+
 ### 2026-09-17
 
 **Changed**

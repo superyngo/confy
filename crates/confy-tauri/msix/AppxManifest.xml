@@ -68,29 +68,21 @@
             </uap:SupportedFileTypes>
           </uap:FileTypeAssociation>
         </uap:Extension>
-      </Extensions>
-    </Application>
-    <!-- Separate Application entry for the bundled TUI binary: an
-         AppExecutionAlias always launches the Executable of the Application
-         node it is declared under, not just any same-named file in the
-         package, so the alias needs its own node pointing at confy.exe
-         rather than sitting under the GUI's Application above (which used
-         to make `confy`/the alias silently launch confy-desktop.exe
-         Note: AppListEntry="none" would make this a
-         headless app, which Store submission rejects without Microsoft's
-         "HeadlessAppBypass" waiver — so the CLI stays a visible entry. -->
-    <Application Id="confycli" Executable="confy.exe" EntryPoint="Windows.FullTrustApplication">
-      <uap:VisualElements
-        DisplayName="confy (CLI)"
-        Description="Terminal UI for TOML / JSON / JSONC / YAML config files"
-        BackgroundColor="transparent"
-        Square150x150Logo="Assets\Square150x150Logo.png"
-        Square44x44Logo="Assets\Square44x44Logo.png" />
-      <Extensions>
         <!-- Expose the bundled TUI binary on PATH: after install, `confy`
-             resolves via %LOCALAPPDATA%\Microsoft\WindowsApps to this
-             Application's confy.exe. -->
-        <uap3:Extension Category="windows.appExecutionAlias">
+             resolves via %LOCALAPPDATA%\Microsoft\WindowsApps to confy.exe.
+             The alias target is this extension's own Executable, not the
+             parent Application's - uap3:Extension takes optional Executable /
+             EntryPoint attributes. That is why the CLI needs no <Application>
+             node of its own: one existed until 2026-09-18 and cost a Store
+             submission, because hiding it (AppListEntry="none", the only way
+             to keep it out of the Start menu) makes the package a headless app
+             that submission rejects without Microsoft's "HeadlessAppBypass"
+             waiver - measured, see msix/STORE.md. A visible node is worse than
+             useless: confy-tui requires a file argument, and Start-menu
+             activation passes none, so the tile only ever printed a usage
+             error. -->
+        <uap3:Extension Category="windows.appExecutionAlias"
+                        Executable="confy.exe" EntryPoint="Windows.FullTrustApplication">
           <uap3:AppExecutionAlias>
             <desktop:ExecutionAlias Alias="confy.exe" />
           </uap3:AppExecutionAlias>
