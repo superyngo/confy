@@ -1,8 +1,20 @@
 # MSIX: making the bundled CLI node headless
-Status: In progress
+Status: Resolved (2026-09-18)
 
-Evidence settled 2026-09-17; next action is a **HeadlessAppBypass waiver request**
-(human-only). No manifest change made yet — it must land only *after* the waiver is granted.
+**Outcome — the no-waiver route of the addendum below is what shipped** (`5b4bf5f`): one
+`<Application>` node, `windows.appExecutionAlias` carrying its own
+`Executable="confy.exe" EntryPoint="Windows.FullTrustApplication"`, the `Application
+Id="confycli"` node gone. So P1's `HeadlessAppBypass` waiver email was **never sent and is no
+longer needed**, and P2's hidden-node branch is abandoned. `makeappx` accepts the attribute in
+that position (the open question of the addendum's last line), verified on Windows 2026-09-18
+together with `%LOCALAPPDATA%\Microsoft\WindowsApps\confy.exe --help` printing the TUI usage.
+Of the competing hypotheses below, **none** was right: the alias did launch the GUI all along,
+and the owner's "it used to work" memory was H3 in a sharper form — a winget-installed
+`confy.exe` on PATH ahead of the `WindowsApps` stub. `crates/confy-tauri/msix/STORE.md`
+§Known caveats carries the durable version. Everything from here down is the 2026-09-17
+diagnosis as written.
+
+Evidence settled 2026-09-17.
 
 ## Goal
 

@@ -33,6 +33,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `makeappx pack` succeeds and `confy --help` prints the TUI usage.
   `crates/confy-tauri/msix/STORE.md` records the whole trap.
 
+**Docs**
+
+- **The living backlog was re-verified against the code and two of its three open rows were
+  stale.** The 2026-09-17 refile sweep had filed both rehomed debug docs' fix plans as open
+  rows without checking them against `git log`: the VS Code Raw-write row's P1-P4 had shipped
+  in `3573085` the previous day (v1.3.1) plus `41eb0fb` for the undo/redo gap, leaving only
+  P5 — the hardcoded English "…" menu, still without a `package.nls*.json` — so that row is
+  narrowed to it and the closed part moved to *Done*; the MSIX row closed with `5b4bf5f` and
+  its `HeadlessAppBypass` waiver email is dropped unsent, the no-waiver `uap3:Extension`
+  route having shipped instead. `docs/debug/2026-09-17-msix-headless-cli-handoff.md` is
+  `Resolved (2026-09-18)` with that outcome (none of its three "it used to work" hypotheses
+  was right — the winget PATH shadow was); the VS Code parity record keeps `In progress` for
+  P5 and now states what landed. Also replaced the scroll-preservation row's never-substituted
+  `(this commit)` citation with the real `b31d353`, `c29afec`. Only the stale
+  `web/package-lock.json` root version (`0.18.1` vs `1.3.2`) is unchanged and still open.
+  Re-verification evidence: `web` typecheck + `npm test` exit 0, `editors/vscode`
+  `npm run check` exits 0.
+
 ### 2026-09-17
 
 **Changed**

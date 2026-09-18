@@ -91,7 +91,17 @@ side-by-side text with a buffer derived from the older one. VSCODE.md claims a r
 "an in-flight inline edit, modal, selection, or filter" — the Raw write buffer is neither
 discarded nor reconciled.
 
-## 7. Fix plan (pending approval)
+## 7. Fix plan
+
+**Status 2026-09-18: P1-P4 shipped in `3573085`** (v1.3.1, 2026-09-16 — i.e. before the
+2026-09-17 refile sweep filed this plan as an open backlog row; the row is narrowed
+accordingly). Divergences B-E are closed and documented in `docs/reference/VSCODE.md`
+§Webview constraints / §Write serialization / §Stale tree. A gap this plan missed — ⌘Z/⌘Y
+doing nothing in write mode, because the webview preload forwards both chords to the
+workbench — shipped separately in `41eb0fb`. **Only P5 is open** (divergence A, §2):
+`editors/vscode/package.json` still hardcodes English titles and there is still no
+`package.nls*.json`. Re-verified 2026-09-18: `web` typecheck + `npm test` exit 0,
+`editors/vscode` `npm run check` exits 0.
 
 - P1 `web/ui.ts` + `web/index.html` + `web/style.css`: replace the native `confirm()` with one
   in-page confirmation used by every host (single code path, no `VSHOST` branch); update
