@@ -1,4 +1,4 @@
-# Open engineering follow-ups
+# Backlog
 Status: In progress
 
 The **single live backlog** for confy. Every recorded-but-unfixed item lives here with its
@@ -10,6 +10,9 @@ Scope and lifecycle:
 - This is a *working* record, and the one exception to the "frozen once it lands" rule that
   governs the rest of `docs/plan/`. Rows move to **Done** with the commit that closed them;
   the row is never deleted, so the history of what was open stays readable.
+- The filename carries no date on purpose: a date marks when a judgement was *frozen*, and
+  this file's content is always current. It was `2026-09-09-open-follow-ups.md` until
+  2026-09-18, which made it read as a one-day snapshot — see [ADR 0016](../adr/0016-living-records-are-named-by-role.md).
 - A finding enters here only after being **verified against current code** — file and symbol
   named, never a line number. The source records
   ([2026-08-29 audit](../audit/2026-08-29-code-audit.md),

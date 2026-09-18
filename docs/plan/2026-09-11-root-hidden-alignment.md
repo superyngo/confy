@@ -142,7 +142,7 @@ leftmost indent, both document edges cue in paste mode, `C` works from any row) 
   renumbered (the TUI's legend reader walks `N` from 1 until a key is missing, so a gap would
   truncate the list).
 - **Backlog/record statuses flipped**: the three Open rows in
-  `docs/plan/2026-09-09-open-follow-ups.md` moved to Done, the retrospective is
+  `docs/plan/BACKLOG.md` moved to Done, the retrospective is
   `Resolved (2026-09-14)` with each of P1/P2/P4 mapped to the decision that closed it, the
   design record is `Shipped`, and ADR 0013's status records the implementation commits.
 

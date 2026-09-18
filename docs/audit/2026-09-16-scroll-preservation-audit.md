@@ -55,7 +55,7 @@ tree pane is also hidden as a whole in Raw, so the browser preserves it.
 `docs/reference/WEBUI.md` (~:337-343) already promises the single-element Raw
 pane keeps "the scroll position and the reading position ... the same object
 across the switch" — true for the Raw side (cases 2-5), silent about the tree
-side. No row exists in `docs/plan/2026-09-09-open-follow-ups.md`.
+side. No row exists in `docs/plan/BACKLOG.md`.
 
 ## Follow-up 2026-09-16 (user report, post-fix `b31d353`)
 

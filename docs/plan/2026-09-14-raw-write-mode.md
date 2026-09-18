@@ -191,7 +191,7 @@ webview.
 `HOST_PARITY.md` (R9/R10/R12/R18 rows), `MESSAGES.md`
 (`core.document.apply-failed`, `web.raw.jump-needs-apply`), `CLAUDE.md`'s module map if
 `apply_document_text` warrants a line, `CHANGELOG.md`, and
-`docs/plan/2026-09-09-open-follow-ups.md` (the root-hidden record's P3 row → *Done*; the new Q4
+`docs/plan/BACKLOG.md` (the root-hidden record's P3 row → *Done*; the new Q4
 caret→cursor row added).
 
 **Acceptance.** `npm test` + `node functional_smoke.mjs`; `rg` finds no reference doc still

@@ -2,23 +2,23 @@
 
 Task-by-task implementation plans derived from a spec.
 
-Every file here is a historical record: frozen once it lands, dated by when it was
+Every *dated* file here is a historical record: frozen once it lands, dated by when it was
 written, never rewritten. Current behavior lives in
-[`../reference/`](../reference/README.md).
+[`../reference/`](../reference/README.md). The one undated file, `BACKLOG.md`, is the living
+backlog — a filename with no date means the content is always current (ADR 0016).
 
 A `Shipped (date)` / `Resolved (date)` marks **when the record was frozen**; the release that
 carried the change is in `CHANGELOG.md`.
 
 ## In progress
 
-- [2026-09-09-open-follow-ups.md](2026-09-09-open-follow-ups.md) — the single live backlog:
+- [BACKLOG.md](BACKLOG.md) — the single live backlog:
   **Open** (actionable), **Pending verification** (landed, proof needs a platform or CI job
   we lack), **Awaiting external** (blocked on a person or third party), **Watching** (each
   with its trigger — also the single home for deferred dependency decisions), **Done**
   · `In progress`
 
-The follow-ups backlog is the one record here that is *not* frozen on landing — see its own
-scope note.
+`BACKLOG.md` is the one record here that is *not* frozen on landing — see its own scope note.
 
 ## Landed
 

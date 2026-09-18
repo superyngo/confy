@@ -139,7 +139,7 @@ buffer is not the document. That distinction is exactly why cue 3 names `⌘↩`
 - **Q4 — caret → cursor (the inverse of R14).** **Settled 2026-09-11: not now; shipped 2026-09-15.** Ship one-way;
   the inverse needs a core `node_at_offset(offset) -> Path` query (the CST walk is
   straightforward, but it is new API surface) and no usage has asked for it. RS4 logs it as a
-  row in `docs/plan/2026-09-09-open-follow-ups.md` so it is recorded rather than remembered. That row closed 2026-09-15: `Session::node_at_offset` (innermost containing Node) plus `codeUnitToByte` and a guarded `selectionchange`-equivalent listener; WEBUI.md §Tree | Raw view | Raw write owns the behavior.
+  row in `docs/plan/BACKLOG.md` so it is recorded rather than remembered. That row closed 2026-09-15: `Session::node_at_offset` (innermost containing Node) plus `codeUnitToByte` and a guarded `selectionchange`-equivalent listener; WEBUI.md §Tree | Raw view | Raw write owns the behavior.
 - **Q5 — breadcrumb liveness in write mode.** **Settled 2026-09-11 as R17:** display live,
   jump gated on a clean buffer.
 
@@ -191,7 +191,7 @@ and jump), `CHROME.md` (the crumbs-row Raw control band), `KEYMAP.md` (`⌘↩`,
 Raw write), `HOST_PARITY.md` (R9/R10/R12/R18 rows), `MESSAGES.md` for
 `core.document.apply-failed` + `web.raw.jump-needs-apply`, `glossary.md` (R22's five terms),
 `CHANGELOG.md`; root-hidden record's P3 row and the new Q4 row in
-`docs/plan/2026-09-09-open-follow-ups.md`.
+`docs/plan/BACKLOG.md`.
 *Acceptance:* `npm test` + `node functional_smoke.mjs`; no reference doc still calls Raw
 read-only.
 

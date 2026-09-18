@@ -227,7 +227,7 @@ EDITOR='sed -i "" s/k1/renamed/' cargo run -q -- --lang en /tmp/blk.toml
 Navigate to `k1`, press `e`, quit the editor, and confirm a notice now appears and the value is
 unchanged — where before the edit was accepted with no message and no effect. Record the
 observed notice text in the commit message body or in
-`docs/plan/2026-09-09-open-follow-ups.md` if it reads badly.
+`docs/plan/BACKLOG.md` if it reads badly.
 
 ---
 
@@ -1605,7 +1605,7 @@ printf '[s]\nk1 = 1  # note\nk2 = 2\n' > /tmp/blk.toml
 8. Repeat (1) and (3) on a `.json` file.
 
 Record what you observed in the commit message body (amend) or, for anything that reads badly
-but works, add a row to `docs/plan/2026-09-09-open-follow-ups.md`.
+but works, add a row to `docs/plan/BACKLOG.md`.
 
 ---
 
@@ -1782,7 +1782,7 @@ path.
 
 ## Follow-ups this plan deliberately does not do
 
-Add these to `docs/plan/2026-09-09-open-follow-ups.md` (the repo's living backlog) as part of
+Add these to `docs/plan/BACKLOG.md` (the repo's living backlog) as part of
 Task 8's commit, since they are discovered-but-not-fixed by definition:
 
 - Translating a rejected commit's document-space parse offset back into a buffer offset, so a

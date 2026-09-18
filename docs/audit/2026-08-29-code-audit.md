@@ -14,7 +14,7 @@ Detailed reports:
 **Resolution.** Every finding here was re-verified on 2026-09-09
 ([`2026-09-09-open-findings-reverification.md`](2026-09-09-open-findings-reverification.md))
 and then closed or consciously parked: the fixes are the F1–F15 rows in
-[`../plan/2026-09-09-open-follow-ups.md`](../plan/2026-09-09-open-follow-ups.md), and the
+[`../plan/BACKLOG.md`](../plan/BACKLOG.md), and the
 deliberately-not-fixed remainder is that record's *Watching* section.
 
 ---

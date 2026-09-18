@@ -134,7 +134,7 @@ untouched.
 internal version. The **decision and its trigger** (do not migrate; `.github/workflows/rust-ci.yml`'s
 `cargo audit` step flags a `rowan`/`taplo`/`ahash` advisory → vendor the used surface) is one
 entry in the *Watching* section of
-[`docs/plan/2026-09-09-open-follow-ups.md`](docs/plan/2026-09-09-open-follow-ups.md), which is
+[`docs/plan/BACKLOG.md`](docs/plan/BACKLOG.md), which is
 the single place every deliberately deferred dependency decision lives (so is `ureq`'s pin at
 2.x). The **measured surface** and the ~1,240-LOC vendoring estimate are in
 [`docs/reference/ARCHITECTURE.md`](docs/reference/ARCHITECTURE.md) §Dependency surface, which

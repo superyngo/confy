@@ -25,6 +25,7 @@ the old one superseded.
 | [0013](0013-the-root-is-never-a-row.md) | The document Root is a model node, never a view row — every host is root-hidden; whole-document operations become document-scoped commands | Implemented (2026-09-14) |
 | [0014](0014-whole-document-editing-reuses-each-hosts-text-surface.md) | Whole-document editing is carried by each host's existing multi-line text surface (desktop Raw pane in write mode, touch's external-edit sheet, the TUI's `$EDITOR`, VS Code's own editor), not by one uniform new surface | Implemented (2026-09-14); R10 (VS Code) superseded by [0015](0015-vscode-raw-pane-write-mode-enabled.md) |
 | [0015](0015-vscode-raw-pane-write-mode-enabled.md) | VS Code enables the Raw pane's write mode too — the same `edit`/`WorkspaceEdit` path every tree edit already uses, not a second buffer | Implemented (2026-09-16) |
+| [0016](0016-living-records-are-named-by-role.md) | Living records are named by role and carry no date (`plan/BACKLOG.md`); dated filenames are reserved for frozen records — deviates from `wens-dev-principles docs 9` | Implemented (2026-09-18) |
 
 ADR 0004 §1's `format != Format::Inline` clause and its host-computed `MoveSelectionTo`
 `target`/`index` payload are superseded by ADR 0010. ADR 0011 partially reverses commit `534dd4a`

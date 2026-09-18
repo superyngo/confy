@@ -88,7 +88,7 @@ do not rely on it.
   revert commit ready.
 - **P4** Same commit as P3: manifest comment, `STORE.md` caveat (rewrite from "must stay
   visible" to "hidden, waiver granted <date>"), `CHANGELOG.md` `[Unreleased]`, and a row in
-  `docs/plan/2026-09-09-open-follow-ups.md`. Cite the failed-run URL above so the next
+  `docs/plan/BACKLOG.md`. Cite the failed-run URL above so the next
   reader does not re-litigate the evidence.
 
 ## 2026-09-17 addendum — the `confy` alias regression, and a route with no waiver

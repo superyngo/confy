@@ -21,8 +21,14 @@ List live work across all four folders:
 rg -n '^Status: (Draft|Approved|In progress)' docs/{spec,plan,debug,audit}/*.md
 ```
 
+**The filename tells you which kind of file it is:** dated (`YYYY-MM-DD-kebab.md`) means a frozen
+snapshot of a judgement formed that day; undated means the content is always current — this file,
+`CHANGELOG.md`, everything in `docs/reference/`, and the one living backlog below
+([ADR 0016](docs/adr/0016-living-records-are-named-by-role.md)). `docs/adr/NNNN-*.md` is frozen
+but numbered, because ADRs are cited by number.
+
 **Known-but-unfixed work has one home:**
-[`docs/plan/2026-09-09-open-follow-ups.md`](docs/plan/2026-09-09-open-follow-ups.md). It is the
+[`docs/plan/BACKLOG.md`](docs/plan/BACKLOG.md). It is the
 only living record in `docs/plan/` — every verified open defect and improvement is a row there,
 with its evidence, the date it was last verified against the tree, priority, effort and an
 acceptance criterion, and rows move to *Done* with the commit that closes them. A finding

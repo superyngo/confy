@@ -111,7 +111,7 @@ re-verification record set. Same for a stale `web/touch/app.ts:1364` citation.
 
 ## 5. Organization
 
-- **The backlog contradicted both indexes.** `docs/plan/2026-09-09-open-follow-ups.md` had
+- **The backlog contradicted both indexes.** `docs/plan/BACKLOG.md` had
   `Status: Resolved`, while `plan/README.md` listed it under *In progress* and `CONTEXT.md` called
   it "the only living record in `docs/plan/`". Resolved in the direction that keeps `CONTEXT.md`
   true: `MESSAGES.md` §7.2 recorded a real unfixed item (convert warnings bypass i18n —
@@ -140,7 +140,7 @@ the maintainer's call, not an audit's.
 
 ## Follow-up
 
-One row opened in [`../plan/2026-09-09-open-follow-ups.md`](../plan/2026-09-09-open-follow-ups.md):
+One row opened in [`../plan/BACKLOG.md`](../plan/BACKLOG.md):
 convert warnings bypass i18n.
 
 Two rot classes this audit found that no check catches, worth a future gate: a path inside an

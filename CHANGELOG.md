@@ -80,6 +80,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   deliberate pin at 2.x is recorded as an entry — it had survived only inside a *Done* row's
   prose. `CONTEXT.md` and `docs/plan/README.md` describe the new shape.
 
+- **The living backlog is `docs/plan/BACKLOG.md`** — renamed from
+  `2026-09-09-open-follow-ups.md`, because a date in a filename marks when a judgement was
+  *frozen* and this file's content is always current. It had been named like the frozen records
+  it is explicitly exempt from, and that cost twice: the file read as a one-day snapshot, so the
+  2026-09-15 sweep filed its findings in a new dated record *beside* it
+  (`docs/audit/2026-09-15-open-follow-ups-evaluation.md`) rather than as rows *in* it, and the
+  only visible date belonged to the whole document rather than to any row — the same gap behind
+  the 2026-09-17 mis-filing. The repo-wide rule is now readable off any filename without opening
+  it: **dated ⇔ frozen snapshot, undated ⇔ living**, which `CONTEXT.md`, `CHANGELOG.md`, and
+  `docs/reference/` already followed. All 39 citations across 18 files moved with the rename,
+  including the 11 in frozen records — a path string repaired in the same commit as the move is
+  not a revision, and the alternative is a dead link in every record that cited the old path.
+  Naming a living record by role deviates from `wens-dev-principles docs 9`, so
+  [ADR 0016](docs/adr/0016-living-records-are-named-by-role.md) records it, with the root-level
+  and `docs/`-level placements that were rejected; the skill itself was amended in the same
+  session so the next repo starts this way.
+
 ### 2026-09-17
 
 **Changed**
@@ -121,7 +138,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   directory), the block-edit save-parse design's evaluation, decisions, and probe scripts, and
   the 2026-09-15 open-follow-ups evaluation. `docs/debug/`: the VS Code Raw-write parity
   findings and the MSIX headless-CLI-node handoff, both still `In progress`. Citations in
-  `docs/plan/2026-09-09-open-follow-ups.md` and the Shipped
+  `docs/plan/BACKLOG.md` and the Shipped
   `docs/spec/2026-09-15-block-edit-whole-file-reparse-design.md` now point at the new paths.
   Three open items surfaced by this sweep (the VS Code parity fix plan, the MSIX waiver
   request, and a stale `web/package-lock.json` root version) are new rows in the living
@@ -332,7 +349,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and cross-linked from both the design record and the plan): one blocking performance defect,
   nine smaller findings, each with the commit that fixed it, plus the two scout claims that
   were wrong. It also carries the same-day backlog sweep, which emptied the Open section of
-  `docs/plan/2026-09-09-open-follow-ups.md`.
+  `docs/plan/BACKLOG.md`.
 - Nine commit citations across `CHANGELOG.md` and four plan docs pointed at **unreachable**
   objects: each was written as a placeholder, `sed`-ed to the real hash, then `git commit
   --amend`-ed — which rewrote the commit the citation had just named. All nine now name their
@@ -437,7 +454,7 @@ Closes `docs/plan/2026-09-11-root-hidden-alignment.md` (T0–T12) and with it AD
   truncate the list). Verified on the real binary: the legend still ends at `[T/E]`.
 - **`ROW_STATE_MODEL.md` §6a rewritten** around the document-edge slots (including the
   `compute_rows` staleness caveat), and its §-index line updated.
-- **Records flipped**: the three Open rows in `docs/plan/2026-09-09-open-follow-ups.md` move to
+- **Records flipped**: the three Open rows in `docs/plan/BACKLOG.md` move to
   Done, the retrospective is `Resolved (2026-09-14)` with P1/P2/P4 each mapped to the decision
   that closed it, the design record is `Shipped`, and ADR 0013's status names the commits.
 
@@ -718,7 +735,7 @@ operation accepts it, and it can no longer be collapsed.
   controls, disabled-not-hidden); `KEYMAP.md`'s `⌘S` row; `HOST_PARITY.md` §4/§6 rows;
   `CLAUDE.md` module map; `docs/spec/2026-09-11-raw-write-mode-design.md` R13/R14 and the
   *Switching* table amended in place with the measurements and the reason the shipped design
-  failed. `docs/plan/2026-09-09-open-follow-ups.md` files a new **Open** row: ADR 0013 (no host
+  failed. `docs/plan/BACKLOG.md` files a new **Open** row: ADR 0013 (no host
   draws the Root row) is accepted but unimplemented — the TUI still shows the `document file`
   row and the web hosts still carry the stand-ins.
 
@@ -741,7 +758,7 @@ operation accepts it, and it can no longer be collapsed.
   entry point (Raw write vs. touch's sheet), amends the breadcrumb row for R12's both-Raw-states
   visibility, and gains a §6 row for VS Code's R10 suppression. `CLAUDE.md`'s module map updates
   `ui.ts`'s Tree/Raw description (was "read-only"), adds the new `web/text-offset.ts`, and notes
-  `apply_document_text` on `inline_edit.rs`. `docs/plan/2026-09-09-open-follow-ups.md` moves its
+  `apply_document_text` on `inline_edit.rs`. `docs/plan/BACKLOG.md` moves its
   **P3** row ("the web has no entry point for whole-document operations") to *Done*, and files a
   new **Q4** row (caret → cursor, the breadcrumb jump's un-implemented inverse — settled out of
   scope at ship time, `docs/spec/2026-09-11-raw-write-mode-design.md`'s own Q4). `MESSAGES.md`
@@ -1020,7 +1037,7 @@ operation accepts it, and it can no longer be collapsed.
   clipboard dead-end; the two web blank trees; no whole-document entry point on web), the
   `Into([])` observation that did not reproduce on `main`, five process lessons, and the five
   questions the redesign must settle. Listed in `docs/debug/README.md` §In progress.
-- `docs/plan/2026-09-09-open-follow-ups.md` — the three problems filed as Open rows, plus a
+- `docs/plan/BACKLOG.md` — the three problems filed as Open rows, plus a
   *Watching* entry for the `Into([])` two-trees discrepancy. No new documentation folder: the
   retrospective lives in the existing `docs/debug/` taxonomy (handoff notes from
   investigations); trust stays location-based.
@@ -1243,7 +1260,7 @@ happens on the first release of a *new major* series.
 
 Also updated: `CONTEXT.md`'s reading order and `docs/reference/README.md`'s cross-cutting index.
 
-With F12 closed, `docs/plan/2026-09-09-open-follow-ups.md` has an empty `## Open` section and
+With F12 closed, `docs/plan/BACKLOG.md` has an empty `## Open` section and
 its `Status:` is now `Resolved (2026-09-09)` — all 15 findings from the 2026-08-29 audit and
 the 2026-09-09 re-verification are Done, and the record joins the frozen set.
 
@@ -1755,7 +1772,7 @@ marks the spot.
 
 **Docs — every follow-up now has one home**
 
-New living record [`docs/plan/2026-09-09-open-follow-ups.md`](docs/plan/2026-09-09-open-follow-ups.md):
+New living record [`docs/plan/BACKLOG.md`](docs/plan/BACKLOG.md):
 **13 open items (F1-F13)** plus a *Watching* section and a *Done* log. Each row carries its
 evidence (file + symbol, never a line number), the date it was verified against current code,
 priority, effort, and an **acceptance criterion** — so picking one up does not start with

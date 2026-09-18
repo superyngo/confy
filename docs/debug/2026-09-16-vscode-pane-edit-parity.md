@@ -118,7 +118,7 @@ workbench — shipped separately in `41eb0fb`. **Only P5 is open** (divergence A
   retracted last row.
 - Docs: `CHANGELOG.md`, `docs/reference/VSCODE.md` (no-modals constraint + write serialization),
   `HOST_PARITY.md`, `WEBUI.md` (in-page confirm), plan row in
-  `docs/plan/2026-09-09-open-follow-ups.md`.
+  `docs/plan/BACKLOG.md`.
 - Verification: `web` typecheck + `npm test`; `editors/vscode` `npm run check`/`build`/
   `integration-test` (new host-ordering test on the real VS Code 1.135 already in
   `.vscode-test/`); manual real-extension check that Esc/Tree exit write mode.

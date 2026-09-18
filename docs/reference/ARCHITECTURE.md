@@ -523,6 +523,6 @@ usable dependency (its crates.io entry is a reserved placeholder; sub-crates unp
 The **decision** built on this measurement — do not migrate now, with `rust-ci.yml`'s
 `cargo audit` step as the trigger and vendoring the above surface as the pre-planned
 contingency — is one *Watching* entry in
-[`../plan/2026-09-09-open-follow-ups.md`](../plan/2026-09-09-open-follow-ups.md), the single
+[`../plan/BACKLOG.md`](../plan/BACKLOG.md), the single
 home for deferred dependency decisions. This section describes the code; the backlog carries
 what to do and when.

@@ -80,7 +80,7 @@ depth — probed on four shapes). A scout's grep is evidence of a grep, not of b
 ## Follow-on sweep, same day
 
 With the audit closed, the four remaining rows of the living backlog
-([`../plan/2026-09-09-open-follow-ups.md`](../plan/2026-09-09-open-follow-ups.md)) were
+([`../plan/BACKLOG.md`](../plan/BACKLOG.md)) were
 evaluated the same way — four read-only scouts plus first-hand measurement. Two shipped
 (convert-warning i18n `d9b7771`, the Raw caret → cursor inverse `3f2b4d1`), one closed as
 **stale** (the trailing-comment double pass: the claimed 14× does not reproduce; the measured
