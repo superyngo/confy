@@ -46,10 +46,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Resolved (2026-09-18)` with that outcome (none of its three "it used to work" hypotheses
   was right — the winget PATH shadow was); the VS Code parity record keeps `In progress` for
   P5 and now states what landed. Also replaced the scroll-preservation row's never-substituted
-  `(this commit)` citation with the real `b31d353`, `c29afec`. Only the stale
-  `web/package-lock.json` root version (`0.18.1` vs `1.3.2`) is unchanged and still open.
+  `(this commit)` citation with the real `b31d353`, `c29afec`.
   Re-verification evidence: `web` typecheck + `npm test` exit 0, `editors/vscode`
   `npm run check` exits 0.
+
+- **`web/package-lock.json`'s root version is resynced once and then deliberately unmanaged.**
+  It had drifted to `0.18.1` across many releases; it is `1.3.2` now, and `CLAUDE.md`
+  §Release process records why it does *not* join the four-file release checklist — nothing
+  consumes it (`verify-versions` doesn't check it, `web/build.mjs` reads `package.json`, and
+  `npm ci` warns only when the *dependency* tree disagrees, which `npm install` keeps in sync).
+  The `editors/vscode` lock stays on the checklist because `npm ci` runs in its VSIX
+  packaging path. Backlog row closed; the backlog now has **one** open row.
+
+- The VS Code parity record's §2 retracts its "nothing for whole-file edit" row: whole-file
+  edit is an **Action menu** item (`core.action.edit-document`) and Apply/Cancel are
+  **crumbs-band** controls — no host puts them in a "…"/⋯ overflow menu, so VS Code was never
+  missing them. P5's scope is the five host-owned menu titles and nothing else.
 
 ### 2026-09-17
 

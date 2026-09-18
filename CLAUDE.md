@@ -55,6 +55,14 @@ build if any of them disagree with the tag:
 Bump all four in the same release commit, before tagging. Never tag with only
 `Cargo.toml` updated.
 
+**`web/package-lock.json`'s root version is deliberately NOT managed.** It was resynced to
+`1.3.2` once (2026-09-18, after drifting to `0.18.1` for many releases) and is left alone from
+here: nothing consumes it — `verify-versions` doesn't check it, `web/build.mjs` reads
+`package.json`, and `npm ci` only warns when the *dependency* tree disagrees, which
+`npm install` already keeps in sync. Do not add it to the release checklist; the
+`editors/vscode` lock above stays on the list only because `npm ci` runs in that package's
+VSIX packaging path and warns there.
+
 **Also update the MSIX Store listing's ReleaseNotes** at
 `crates/confy-tauri/msix/listings/listingData-9PLCJGQ3C654.csv` — set the `ReleaseNotes`
 column to describe the new version in the same release commit.

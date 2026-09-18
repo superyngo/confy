@@ -35,7 +35,7 @@ between VS Code and web/app:
 | `confy: About` | `web.help.tab.about` (zh: 關於) |
 | submenu `confy: Theme`, `Auto (Follow VS Code)` / `Light` / `Dark` | `web.menu.toggleTheme` etc. |
 | submenu `confy: Language / 語言` | `web.menu.language` |
-| — nothing for whole-file edit — | web/app ⋯ menu rows `btnRawEdit` (Edit→Apply), `btnRawCancel`, `btnViewToggle` |
+| — nothing for whole-file edit — | ~~web/app ⋯ menu rows~~ — **retracted 2026-09-18**: not a missing option. Whole-file edit is reached from the in-webview **Action menu** (`core.action.edit-document`), and Apply/Cancel are **crumbs-band** controls; no host has ever put them in a "…"/⋯ overflow menu, so there is nothing here for VS Code to be missing. The divergence is the wording of the five rows above, and nothing else |
 
 The Tauri app's native menu (`web/menu.ts`) takes every one of these strings from the shared
 catalog, so **web and app agree and only VS Code's wording differs** — matching the report.
@@ -112,8 +112,10 @@ workbench — shipped separately in `41eb0fb`. **Only P5 is open** (divergence A
   existing `web.vscode.staleTree` notice) instead of accepting an Apply that goes nowhere.
 - P4 `web/ui.ts`: on a successful `reloadFromHost` while `rawState === "write"`, re-arm
   `BeginEditDocument` and re-seed the baseline from the new text so Esc/Apply/Cancel stay honest.
-- P5 `editors/vscode/package.json` (+ `package.nls*.json`): localize the "…" menu with the
-  catalog's own wording; decide whether the whole-file-edit entries join it.
+- P5 (**the only open item**) `editors/vscode/package.json` (+ `package.nls*.json`): localize
+  the "…" menu with the catalog's own wording. Scope is those five host-owned titles and
+  nothing more — the "whole-file-edit entries" question is settled as a non-question, see §2's
+  retracted last row.
 - Docs: `CHANGELOG.md`, `docs/reference/VSCODE.md` (no-modals constraint + write serialization),
   `HOST_PARITY.md`, `WEBUI.md` (in-page confirm), plan row in
   `docs/plan/2026-09-09-open-follow-ups.md`.
