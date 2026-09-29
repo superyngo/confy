@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 2026-09-29
+
+- docs(CLAUDE.md): prompt audit — correct a stale fact (`web/build.mjs` stamps the version from
+  `Cargo.toml`, not `package.json`) and restate three dated history passages (the web lock
+  resync, the 2026-09-15 citation incident, the 2026-09-18 hit baseline) as present-tense rules.
+
 ## [v1.3.3] - 2026-09-18
 
 ### 2026-09-18

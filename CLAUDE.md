@@ -55,10 +55,9 @@ build if any of them disagree with the tag:
 Bump all four in the same release commit, before tagging. Never tag with only
 `Cargo.toml` updated.
 
-**`web/package-lock.json`'s root version is deliberately NOT managed.** It was resynced to
-`1.3.2` once (2026-09-18, after drifting to `0.18.1` for many releases) and is left alone from
-here: nothing consumes it — `verify-versions` doesn't check it, `web/build.mjs` reads
-`package.json`, and `npm ci` only warns when the *dependency* tree disagrees, which
+**`web/package-lock.json`'s root version is deliberately NOT managed** — leave it alone:
+nothing consumes it — `verify-versions` doesn't check it, `web/build.mjs` stamps the version
+from `Cargo.toml`, and `npm ci` only warns when the *dependency* tree disagrees, which
 `npm install` already keeps in sync. Do not add it to the release checklist; the
 `editors/vscode` lock above stays on the list only because `npm ci` runs in that package's
 VSIX packaging path and warns there.
@@ -71,9 +70,8 @@ column to describe the new version in the same release commit.
 
 A doc row that names the commit closing it must name a **reachable** hash. The trap: write the
 row with a placeholder, `sed` the real hash in, then `git commit --amend` — the amend rewrites
-the commit, so the citation points at an unreachable object. Nine citations across
-`CHANGELOG.md` and four plan docs were dangling this way on 2026-09-15. Either land the commit
-and cite it from the next one, or verify before pushing:
+the commit, so the citation points at an unreachable object. Either land the commit and cite
+it from the next one, or verify before pushing:
 
 ```sh
 rg -o '`[0-9a-f]{7,10}`' --no-filename CHANGELOG.md docs/**/*.md | tr -d '`' | sort -u \
@@ -81,12 +79,10 @@ rg -o '`[0-9a-f]{7,10}`' --no-filename CHANGELOG.md docs/**/*.md | tr -d '`' | s
       { git merge-base --is-ancestor {} HEAD || echo "unreachable: {}"; }'
 ```
 
-On 2026-09-18 that leaves exactly five hits — the `root-row-alignment` ones in
-`docs/debug/2026-09-11-root-row-alignment-retrospective.md`.
-
-Hashes on a *deliberately abandoned* branch are fine when the doc says so (the
-`root-row-alignment` record cites five such commits from that six-commit branch on
-purpose) — keep that branch alive.
+A hit is fine only when it is a hash on a *deliberately abandoned* branch and the citing doc
+says so. The expected hits are the five `root-row-alignment` commits cited on purpose in
+`docs/debug/2026-09-11-root-row-alignment-retrospective.md` — keep that branch alive. Any
+other hit is a dangling citation.
 
 ## Architecture — where each contract is documented
 
