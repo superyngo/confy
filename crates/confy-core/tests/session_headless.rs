@@ -1680,6 +1680,37 @@ fn dispatch_set_filter_matches_value_not_just_key() {
     assert!(!k.iter().any(|x| x == "port"), "port filtered out: {k:?}");
 }
 
+#[test]
+fn toggle_filter_match_switches_fuzzy_and_exact() {
+    let mut s = toml_session("server_port = 1\nsrv = 2\n");
+    let keys_of = |snap: &confy_core::session::SessionSnapshot| -> Vec<String> {
+        snap.rows.iter().map(|r| r.key.clone()).collect()
+    };
+    // Fuzzy (default): `srvport` matches server_port by gapped chars.
+    let snap = s.dispatch(Intent::SetFilter("srvport".into()));
+    assert!(!snap.filter_exact);
+    assert!(keys_of(&snap).iter().any(|x| x == "server_port"));
+    // Exact: no contiguous `srvport` anywhere — nothing matches.
+    let snap = s.dispatch(Intent::ToggleFilterMatch);
+    assert!(snap.filter_exact);
+    assert!(
+        !keys_of(&snap).iter().any(|x| x == "server_port"),
+        "{:?}",
+        keys_of(&snap)
+    );
+    // Exact with a contiguous term keeps the row; the mode survives a new query.
+    let snap = s.dispatch(Intent::SetFilter("r_po".into()));
+    assert!(snap.filter_exact);
+    let k = keys_of(&snap);
+    assert!(
+        k.iter().any(|x| x == "server_port") && !k.iter().any(|x| x == "srv"),
+        "{k:?}"
+    );
+    // Toggle back to fuzzy.
+    let snap = s.dispatch(Intent::ToggleFilterMatch);
+    assert!(!snap.filter_exact);
+}
+
 // ---- Pointer convert (SetConvertFormat / SetConvertPath) ----
 
 #[test]

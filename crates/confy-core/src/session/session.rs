@@ -7,7 +7,7 @@ use crate::model::document::{ConfigDocument, DocFormat, Mutation, OnCollision, T
 use crate::model::node::{Format, Node, NodeKind, NodeTree, Path, ScalarType, Seg, VisibleRow};
 use crate::session::i18n::{tr, tr_args, Lang};
 use crate::session::notice::Notice;
-use crate::session::search::{fuzzy_match, haystack};
+use crate::session::search::{fuzzy_match, haystack, MatchMode};
 use crate::session::selection::Selection;
 use crate::session::state::{
     Clipboard, EditKind, EditState, FilterLayer, HelpTab, History, KindSwitchState, Mode,
@@ -47,6 +47,8 @@ pub struct Session {
     pub filter: String,
     pub filter_cursor: usize,
     pub last_filter: String,
+    /// Text-filter match mode, toggled by `Intent::ToggleFilterMatch`. Session-only.
+    pub filter_match: MatchMode,
     pub filtered_paths: Option<HashSet<Path>>,
     pub type_filter: TypeFilter,
     pub last_filter_applied: Option<FilterLayer>,
@@ -144,6 +146,7 @@ impl Session {
             filter: String::new(),
             filter_cursor: 0,
             last_filter: String::new(),
+            filter_match: MatchMode::default(),
             filtered_paths: None,
             type_filter: TypeFilter::default(),
             last_filter_applied: None,
@@ -1068,6 +1071,19 @@ impl Session {
         self.filter_cursor = self.filter.chars().count();
     }
 
+    /// Flip fuzzy ↔ exact and re-filter. Refused under the clipboard lock, like
+    /// every other filter change (the visible set is the paste target space).
+    pub fn toggle_filter_match(&mut self) {
+        if self.guard_clipboard_locked() {
+            return;
+        }
+        self.filter_match = match self.filter_match {
+            MatchMode::Fuzzy => MatchMode::Exact,
+            MatchMode::Exact => MatchMode::Fuzzy,
+        };
+        self.recompute_filter();
+    }
+
     /// Set the whole filter text at once (Web UI live-search `<input>`) and
     /// recompute, instead of replaying `FilterChar`. Non-empty text lands in
     /// `FilterResults`; clearing it drops to the resting mode (still
@@ -1107,7 +1123,7 @@ impl Session {
             ancestor_paths: &mut Vec<Path>,
             matching: &mut HashSet<Path>,
             ancestors: &mut HashSet<Path>,
-            needle: &str,
+            needle: (&str, MatchMode),
             type_filter: &TypeFilter,
             doc: DocFormat,
             violating: &HashSet<Path>,
@@ -1131,7 +1147,7 @@ impl Session {
                 _ => None,
             };
             let h = haystack(&path_keys, leaf_value, comment_text);
-            let text_ok = fuzzy_match(&h, needle);
+            let text_ok = fuzzy_match(&h, needle.0, needle.1);
             let has_warning = violating.contains(&n.path);
             let has_comment = comment_text.is_some() || n.trailing_comment.is_some();
             let type_ok = type_filter.matches(
@@ -1188,7 +1204,7 @@ impl Session {
             &mut Vec::new(),
             &mut matching,
             &mut ancestors,
-            &self.filter,
+            (&self.filter, self.filter_match),
             &self.type_filter,
             doc,
             &violating,

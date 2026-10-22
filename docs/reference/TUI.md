@@ -211,9 +211,17 @@ haystack that *is* `path + value + comment` joined by spaces:
   `server.port 8080`; previously the space had to appear literally, in order, so neither did.
 - **Unicode-folding**: `cafe` matches `café`. Previously it did not.
 
-Everything else is a literal fuzzy subsequence — `^`, `$`, `!` and `'` carry no special meaning
+Everything else is a literal subsequence — `^`, `$`, `!` and `'` carry no special meaning
 (`nucleo`'s anchor/negation syntax needs `Pattern::parse`, which confy does not use), so a query
 containing them looks for those characters, exactly as before.
+
+**Match mode.** `Tab` inside the `/` input toggles **fuzzy ↔ exact** (`Intent::ToggleFilterMatch`,
+`Session.filter_match`). Exact maps to `nucleo`'s `AtomKind::Substring` — each term must appear as a
+contiguous run — while smart case, Unicode folding and the order-free space split stay as above. The
+toggle re-runs the filter at once, survives later queries, resets only with the session (never
+persisted), and is refused under the clipboard lock like any other filter change. Exact shows as
+` /=` in the input and `[filter=: …]` in the `FilterResults` status; highlighting follows the same
+mode, so the marks are always one contiguous run per term.
 
 ## Type filter
 

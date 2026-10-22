@@ -269,6 +269,10 @@ impl App {
         self.session.apply(Intent::ExitFilter);
         self.rebuild_rows();
     }
+    pub fn toggle_filter_match(&mut self) {
+        self.session.apply(Intent::ToggleFilterMatch);
+        self.rebuild_rows();
+    }
     pub fn filter_char(&mut self, c: char) {
         self.session.apply(Intent::FilterChar(c));
         self.rebuild_rows();

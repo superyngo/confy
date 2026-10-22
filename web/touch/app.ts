@@ -263,6 +263,7 @@ function appHTML(): string {
     '<div class="filterbar">' +
     `<div class="search">${TIC.search}` +
     `<input type="search" data-i18n-placeholder="web.search.placeholder" placeholder="search keys or values…" autocomplete="off" spellcheck="false" />` +
+    `<button class="exact" data-act="searchexact" aria-pressed="false" data-i18n-title="web.search.exact.title" title="Exact match (contiguous)">ab</button>` +
     `<button class="clear" data-act="searchclear" data-i18n-title="web.search.clear.title" title="clear">${TIC.close}</button></div>` +
     `<button class="tbtn tf-btn" data-act="filter" data-i18n-title="web.toolbar.typefilter.title" title="Type filter">${TIC.filter}<span class="label-hide" data-i18n="web.toolbar.typefilter.label">Type filter</span><span class="dot"></span></button>` +
     '<div class="tgroup nav-grp">' +
@@ -538,6 +539,7 @@ function renderDetailBody(
 function render() {
   if (!snap || !session) return;
   drainDiagIfEnabled(session);
+  searchInput.parentElement!.querySelector(".exact")!.setAttribute("aria-pressed", String(!!snap.filter_exact));
   fmtPill.textContent = snap.doc_format.toUpperCase();
   fmtPill.classList.toggle("toggleable", inSampleMode());
   fmtPill.title = inSampleMode() ? t("web.toolbar.fmtPill.sampleTitle") : t("web.toolbar.fmtPill.title");
@@ -2157,6 +2159,9 @@ function installShellHandlers() {
         searchInput.value = "";
         searchInput.parentElement!.classList.remove("has-val");
         send({ SetFilter: "" });
+        break;
+      case "searchexact":
+        send("ToggleFilterMatch");
         break;
     }
   });

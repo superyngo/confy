@@ -109,6 +109,9 @@ pub enum Intent {
     FilterCursorRight,
     FilterCursorHome,
     FilterCursorEnd,
+    /// Flip the text filter between fuzzy and exact (contiguous) matching and
+    /// re-run it. Session-only; TUI `Tab` in the `/` input, web toggle button.
+    ToggleFilterMatch,
 
     // ---- Type filter (f) ----
     EnterTypeFilter,

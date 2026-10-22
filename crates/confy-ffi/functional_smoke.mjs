@@ -254,13 +254,26 @@ check("snapshot.filter is empty when cleared", s12.snapshot().filter === "", JSO
 // ---- 17b. fuzzy_indices: the matcher the web tree highlights with ----
 // Same function the TUI's `highlight_spans` calls, exported so web/highlight.ts
 // can mark the exact chars the TUI reverse-videos (no reimplemented scoring).
-check("fuzzy_indices returns char positions", String(fuzzy_indices("axbycz", "abc")) === "0,2,4",
-  String(fuzzy_indices("axbycz", "abc")));
-check("fuzzy_indices is undefined on no match", isNull(fuzzy_indices("server", "zzz")));
-check("fuzzy_indices is undefined for an empty needle", isNull(fuzzy_indices("server", "")));
+check("fuzzy_indices returns char positions", String(fuzzy_indices("axbycz", "abc", false)) === "0,2,4",
+  String(fuzzy_indices("axbycz", "abc", false)));
+check("fuzzy_indices is undefined on no match", isNull(fuzzy_indices("server", "zzz", false)));
+check("fuzzy_indices is undefined for an empty needle", isNull(fuzzy_indices("server", "", false)));
 // Char offsets, not UTF-16 code units — web/highlight.ts indexes via Array.from.
 check("fuzzy_indices counts an astral char as ONE position",
-  String(fuzzy_indices("🌍ab", "ab")) === "1,2", String(fuzzy_indices("🌍ab", "ab")));
+  String(fuzzy_indices("🌍ab", "ab", false)) === "1,2", String(fuzzy_indices("🌍ab", "ab", false)));
+// exact=true: contiguous runs only (ToggleFilterMatch's mode).
+check("fuzzy_indices exact rejects a gapped match", isNull(fuzzy_indices("axbycz", "abc", true)));
+check("fuzzy_indices exact marks the contiguous run", String(fuzzy_indices("server.port", "r.po", true)) === "5,6,7,8",
+  String(fuzzy_indices("server.port", "r.po", true)));
+{
+  const sx = new ConfySession("server_port = 1\nsrv = 2\n", "toml");
+  let sn = sx.dispatch(tuple("SetFilter", "srvport"));
+  check("ToggleFilterMatch: fuzzy default keeps the gapped match",
+    !sn.filter_exact && sn.rows.some((r) => r.key === "server_port"));
+  sn = sx.dispatch(unit("ToggleFilterMatch"));
+  check("ToggleFilterMatch: exact drops it and reports filter_exact",
+    sn.filter_exact === true && !sn.rows.some((r) => r.key === "server_port"));
+}
 
 // ---- 18. SetConvertFormat + SetConvertPath → ConvertRun (Web UI, Phase 4) ----
 const s13 = new ConfySession("a = 1\n", "toml");

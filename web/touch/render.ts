@@ -8,7 +8,7 @@
 import type { SessionSnapshot, ViewRow } from "../types.js";
 import { escapeHtml as esc } from "../escape.js";
 import { isCommentRow, isExpanded, isPositional, valueTypeClass } from "../kind-labels.js";
-import { highlightHtml } from "../highlight.js";
+import { highlightHtml, setMatchExact } from "../highlight.js";
 import { t } from "../i18n.js";
 
 // The shared quote-safe escaper, under this module's traditional short name.
@@ -149,6 +149,7 @@ function rowHTML(
 // the grip-drag indicator.
 export function treeHTML(snap: SessionSnapshot): string {
   const rows = snap.rows;
+  setMatchExact(!!snap.filter_exact);
   const pasteIntoPath =
     snap.paste_slot && "Into" in snap.paste_slot ? JSON.stringify(snap.paste_slot.Into) : null;
   const clipKeys = new Set(snap.clipboard_paths.map((p) => JSON.stringify(p)));

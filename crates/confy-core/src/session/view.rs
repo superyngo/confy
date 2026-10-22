@@ -342,6 +342,9 @@ pub struct SessionSnapshot {
     /// fuzzy-highlight the matched chars per cell, the way the TUI reads
     /// `Session::filter` directly (`confy-tui/src/tui/ui.rs`). Empty = no filter.
     pub filter: String,
+    /// The text filter matches each term contiguously (`Intent::ToggleFilterMatch`),
+    /// so web highlighting passes the same mode to `fuzzy_indices`.
+    pub filter_exact: bool,
     /// The user confirmed quit — the host should exit.
     pub quit: bool,
     /// Active UI language code (`"en"` / `"zh-TW"`), so hosts stay in sync.

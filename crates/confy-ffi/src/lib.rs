@@ -232,8 +232,14 @@ impl ConfySession {
 /// so JS must index via `Array.from(text)`, never `text[i]`. `u32` (not `usize`)
 /// because that's what wasm-bindgen marshals to a `Uint32Array`.
 #[wasm_bindgen]
-pub fn fuzzy_indices(haystack: &str, needle: &str) -> Option<Vec<u32>> {
-    confy_core::session::search::fuzzy_indices(haystack, needle)
+pub fn fuzzy_indices(haystack: &str, needle: &str, exact: bool) -> Option<Vec<u32>> {
+    use confy_core::session::search::MatchMode;
+    let mode = if exact {
+        MatchMode::Exact
+    } else {
+        MatchMode::Fuzzy
+    };
+    confy_core::session::search::fuzzy_indices(haystack, needle, mode)
         .map(|idx| idx.into_iter().map(|i| i as u32).collect())
 }
 

@@ -210,6 +210,7 @@ fn run_event_loop(
                     KeyCode::Right => app.filter_cursor_right(),
                     KeyCode::Home => app.filter_cursor_home(),
                     KeyCode::End => app.filter_cursor_end(),
+                    KeyCode::Tab => app.toggle_filter_match(),
                     KeyCode::Enter => app.commit_filter(),
                     KeyCode::Esc => app.escape(),
                     _ => {}

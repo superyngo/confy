@@ -444,13 +444,21 @@ outside its eligibility computation. Not a surface to "unify" later.
 _Avoid_: Menu bar, app menu.
 
 **Type filter** (`f`) vs **Text filter** (`/`):
-Two independent ways to narrow the visible tree. The **Text filter** (`/`) fuzzy-matches a Node's
-key/path (and a Comment's text, and a scalar's own value). The **Type filter** (`f`) is a checkbox
+Two independent ways to narrow the visible tree. The **Text filter** (`/`) matches a Node's
+key/path (and a Comment's text, and a scalar's own value) under the current **Match mode**. The **Type filter** (`f`) is a checkbox
 menu selecting **type facets** — **Key sign**, **Format/kind** (the KIND-column vocabulary), and
 **Flags** (`(!) has warning`, `has comment`) — plus a **Reverse** toggle that inverts the combined
 facet match. Both narrow the same filtered list and **intersect** (a Node must pass the Text filter
 and every Type-filter facet); selections *within* each facet group union.
 _Avoid_: calling either one "search" exclusively — both are filters.
+
+**Match mode** (Text filter):
+How the Text filter matches each query term — **fuzzy** (the default: the term's characters in
+order, gaps allowed, so `srvport` matches `server.port`) or **exact** (the term must appear as one
+contiguous run). Both keep smart case, Unicode folding and space-separated order-free terms; exact
+is a *contiguous substring*, not whole-value equality. Session-only, never persisted
+(`search::MatchMode`, `Intent::ToggleFilterMatch`, `SessionSnapshot.filter_exact`).
+_Avoid_: whole-word / strict match (neither is what exact does).
 
 **Whole-document editing**:
 Editing the document's entire text as one buffer and committing it as a single `Replace` at the

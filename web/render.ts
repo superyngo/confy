@@ -14,7 +14,7 @@ import type { EditView, PasteSlot, SessionSnapshot, ViewRow } from "./types.js";
 import { escapeHtml } from "./escape.js";
 import { isCommentRow, isExpanded, isPositional, valueTypeClass } from "./kind-labels.js";
 import { t } from "./i18n.js";
-import { highlightHtml } from "./highlight.js";
+import { highlightHtml, setMatchExact } from "./highlight.js";
 
 // Re-export so existing importers (ui.ts / typefilter.ts / convert-dialog.ts)
 // keep their entry point; the single quote-safe escaper lives in escape.ts.
@@ -249,6 +249,7 @@ export function renderTree(
   edit: EditView | null,
 ): void {
   const rows = snap.rows;
+  setMatchExact(!!snap.filter_exact);
   const schemaEnum = valuePicker(snap.mode);
   // Clipboard source rows get a distinct class (copy vs cut) so they read
   // differently from the selection box.

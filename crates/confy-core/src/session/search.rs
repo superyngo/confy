@@ -15,16 +15,26 @@ thread_local! {
     static MATCHER: RefCell<Matcher> = RefCell::new(Matcher::new(Config::DEFAULT));
 }
 
+/// How the text filter matches a query term. Session-scoped, never persisted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MatchMode {
+    /// Characters in order, gaps allowed (`srvport` matches `server.port`).
+    #[default]
+    Fuzzy,
+    /// Each term must appear as a contiguous run (`nucleo`'s `Substring`, not its
+    /// whole-haystack `Exact`). Case, normalization and term splitting stay as in `Fuzzy`.
+    Exact,
+}
+
 /// Smart case (a lowercase needle is case-insensitive, an uppercase character
 /// makes that position case-sensitive) and smart Unicode normalization —
 /// the closest equivalent of `SkimMatcherV2::default()`'s behavior.
-fn pattern(needle: &str) -> Pattern {
-    Pattern::new(
-        needle,
-        CaseMatching::Smart,
-        Normalization::Smart,
-        AtomKind::Fuzzy,
-    )
+fn pattern(needle: &str, mode: MatchMode) -> Pattern {
+    let kind = match mode {
+        MatchMode::Fuzzy => AtomKind::Fuzzy,
+        MatchMode::Exact => AtomKind::Substring,
+    };
+    Pattern::new(needle, CaseMatching::Smart, Normalization::Smart, kind)
 }
 
 pub fn haystack(path_keys: &[&str], leaf_value: Option<&str>, comment: Option<&str>) -> String {
@@ -40,13 +50,13 @@ pub fn haystack(path_keys: &[&str], leaf_value: Option<&str>, comment: Option<&s
     s
 }
 
-pub fn fuzzy_match(haystack: &str, needle: &str) -> bool {
+pub fn fuzzy_match(haystack: &str, needle: &str, mode: MatchMode) -> bool {
     if needle.is_empty() {
         return true;
     }
     MATCHER.with_borrow_mut(|m| {
         let mut buf = Vec::new();
-        pattern(needle)
+        pattern(needle, mode)
             .score(Utf32Str::new(haystack, &mut buf), m)
             .is_some()
     })
@@ -57,14 +67,14 @@ pub fn fuzzy_match(haystack: &str, needle: &str) -> bool {
 /// and `nucleo` reports positions into its own UTF-32 view, which is the same
 /// thing. It does not promise them sorted or unique, so both are enforced here
 /// rather than in each of the three call sites.
-pub fn fuzzy_indices(haystack: &str, needle: &str) -> Option<Vec<usize>> {
+pub fn fuzzy_indices(haystack: &str, needle: &str, mode: MatchMode) -> Option<Vec<usize>> {
     if needle.is_empty() {
         return None;
     }
     MATCHER.with_borrow_mut(|m| {
         let mut buf = Vec::new();
         let mut idx = Vec::new();
-        pattern(needle).indices(Utf32Str::new(haystack, &mut buf), m, &mut idx)?;
+        pattern(needle, mode).indices(Utf32Str::new(haystack, &mut buf), m, &mut idx)?;
         idx.sort_unstable();
         idx.dedup();
         Some(idx.into_iter().map(|i| i as usize).collect())
@@ -84,14 +94,31 @@ mod tests {
 
     #[test]
     fn matches_filter() {
-        assert!(fuzzy_match("server.port 8080", "srvport"));
-        assert!(!fuzzy_match("server.host", "zzz"));
+        assert!(fuzzy_match("server.port 8080", "srvport", MatchMode::Fuzzy));
+        assert!(!fuzzy_match("server.host", "zzz", MatchMode::Fuzzy));
     }
 
     #[test]
     fn fuzzy_indices_returns_matched_positions() {
-        assert_eq!(fuzzy_indices("axbycz", "abc"), Some(vec![0, 2, 4]));
-        assert_eq!(fuzzy_indices("server", "zzz"), None);
-        assert_eq!(fuzzy_indices("server", ""), None);
+        let f = MatchMode::Fuzzy;
+        assert_eq!(fuzzy_indices("axbycz", "abc", f), Some(vec![0, 2, 4]));
+        assert_eq!(fuzzy_indices("server", "zzz", f), None);
+        assert_eq!(fuzzy_indices("server", "", f), None);
+    }
+
+    #[test]
+    fn exact_mode_requires_contiguous_terms() {
+        let e = MatchMode::Exact;
+        assert!(!fuzzy_match("server.port 8080", "srvport", e));
+        assert!(fuzzy_match("server.port 8080", "r.po", e));
+        assert_eq!(
+            fuzzy_indices("server.port", "r.po", e),
+            Some(vec![5, 6, 7, 8])
+        );
+        // Terms stay order-free; smart case stays.
+        assert!(fuzzy_match("server.port 8080", "8080 port", e));
+        assert!(fuzzy_match("Server", "server", e));
+        assert!(!fuzzy_match("server", "Server", e));
+        assert!(fuzzy_match("x", "", e));
     }
 }

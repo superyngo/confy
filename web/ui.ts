@@ -953,6 +953,7 @@ function onArmedPasteHover(ev: MouseEvent) {
 function render() {
   if (!snap || !session) return;
   drainDiagIfEnabled(session);
+  $("searchExact").setAttribute("aria-pressed", String(!!snap.filter_exact));
   fmtPill.textContent = snap.doc_format.toUpperCase();
   fmtPill.classList.toggle("toggleable", inSampleMode());
   fmtPill.title = inSampleMode() ? "Sample — click to switch format" : "document format";
@@ -2564,6 +2565,12 @@ function bindSearch() {
   });
   $("searchClear").addEventListener("click", () => {
     clear();
+    box.focus();
+  });
+  // Exact (contiguous) vs fuzzy matching — core owns the mode; `render()`
+  // mirrors `snap.filter_exact` onto aria-pressed.
+  $("searchExact").addEventListener("click", () => {
+    send("ToggleFilterMatch");
     box.focus();
   });
 }

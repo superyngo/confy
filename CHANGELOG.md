@@ -10,6 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 2026-10-22
+
+- feat(filter): exact-match toggle for the text filter. A session-only **Match mode** (fuzzy by
+  default, or exact = each term must appear as a contiguous run) is flipped by
+  `Intent::ToggleFilterMatch` and reported as `SessionSnapshot.filter_exact`. Smart case,
+  Unicode folding and the order-free space split are unchanged. TUI: `Tab` inside the `/` input
+  shows ` /=` and `[filter=: …]`. Web, desktop and touch: an `ab` toggle button in the search box.
+  Highlighting follows the mode on every host. The wasm export
+  `fuzzy_indices(haystack, needle, exact)` gains its third argument.
+
 ### 2026-09-29
 
 - docs(CLAUDE.md): prompt audit — correct a stale fact (`web/build.mjs` stamps the version from

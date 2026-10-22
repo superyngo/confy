@@ -99,15 +99,18 @@ emit several siblings, or un-comment a Comment row. A rejected
 Block keeps the modal open holding the user's text; success is read off `doc_revision`, never
 the notice ([BEHAVIOR_MATRIX.md](BEHAVIOR_MATRIX.md) §6.3).
 
-**One free export: `fuzzy_indices(haystack: string, needle: string) => Uint32Array |
-undefined`.** Not a `ConfySession` method — it is pure and stateless, so hosts call it per
+**One free export: `fuzzy_indices(haystack: string, needle: string, exact: boolean) => Uint32Array |
+undefined`.** `exact` selects the **Match mode** (contiguous runs only; mirror
+`SessionSnapshot.filter_exact`). Not a `ConfySession` method — it is pure and stateless, so hosts call it per
 rendered cell while a filter is active to mark the matched characters. It wraps
 `confy_core::session::search::fuzzy_indices`, the *same* `nucleo-matcher` the TUI's
 `highlight_spans` uses, so the two surfaces cannot drift apart; a reimplemented TS scorer
 would have. Returns `undefined` on no match or an empty needle. The indices are **char**
 offsets (declared `Vec<u32>` because that is what marshals to a `Uint32Array`), so JS must
 walk the text with `Array.from` — indexing by UTF-16 code unit misplaces every mark after
-an astral char. Consumed by `web/highlight.ts` via `setFuzzyMatcher` (§*Web UI architecture*).
+an astral char. Consumed by `web/highlight.ts` via `setFuzzyMatcher`; the renderers hand it the
+snapshot's mode with `setMatchExact(snap.filter_exact)` once per frame (§*Web UI architecture*).
+Both web hosts toggle the mode with an `ab` button in the search box (`ToggleFilterMatch`).
 
 ## TypeScript-facing data model
 

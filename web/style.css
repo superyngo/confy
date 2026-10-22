@@ -154,6 +154,13 @@ button{font-family:inherit;color:inherit;cursor:pointer}
   width:22px;height:22px;border:0;background:transparent;border-radius:6px;color:var(--faint);display:none}
 .search.has-val .clear{display:grid;place-items:center}
 .search .clear:hover{background:var(--border);color:var(--fg)}
+/* Exact-match toggle: always shown, left of the × (Intent ToggleFilterMatch). */
+.search input{padding-right:58px}
+.search .exact{position:absolute;right:30px;top:50%;transform:translateY(-50%);
+  height:22px;padding:0 5px;border:0;background:transparent;border-radius:6px;color:var(--faint);
+  font:600 12px/1 var(--mono, monospace);text-decoration:underline;cursor:pointer}
+.search .exact:hover{background:var(--border);color:var(--fg)}
+.search .exact[aria-pressed=true]{background:var(--accent-soft);color:var(--accent)}
 
 /* ---------- main / tree ---------- */
 /* overflow:hidden clips the off-canvas detail panel (translateX(100%)) so it

@@ -507,6 +507,14 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none
 .filterbar .search.has-val .clear{display:grid}
 .filterbar .search .clear:active{background:var(--border)}
 .filterbar .search .clear .ic{width:16px;height:16px}
+/* Exact-match toggle: always shown, left of the × (Intent ToggleFilterMatch). */
+.filterbar .search input{padding-right:84px}
+.filterbar .search .exact{
+  position:absolute;right:42px;top:50%;transform:translateY(-50%);
+  min-width:36px;height:32px;padding:0 6px;border-radius:9px;color:var(--faint);
+  font:600 14px/1 var(--mono, monospace);text-decoration:underline;
+}
+.filterbar .search .exact[aria-pressed=true]{background:var(--accent-soft);color:var(--accent)}
 .tf-btn{position:relative}
 .tf-btn .dot{position:absolute;top:6px;right:6px;width:8px;height:8px;border-radius:50%;background:var(--accent);display:none}
 .tf-btn.on{border-color:var(--sel-edge);background:var(--accent-soft)}

@@ -9,6 +9,7 @@ use crate::tui::overlay_kind_switch::draw_kind_switch_overlay;
 use crate::tui::overlay_lang_picker::draw_lang_picker_overlay;
 use crate::tui::overlay_schema_enum::draw_schema_enum_overlay;
 use crate::tui::overlay_type_filter::draw_type_filter_overlay;
+use crate::tui::search::MatchMode;
 use crate::tui::state::{EditState, Mode, PasteSlot, PromptKind};
 use ratatui::prelude::*;
 use ratatui::widgets::*;
@@ -114,7 +115,7 @@ fn edit_value_cell(e: &EditState, width: usize) -> Cell<'static> {
 /// `needle` is the active filter query: the value preview fuzzy-highlights the
 /// chars it matched, same as the NAME cell. The trailing comment is never
 /// highlighted — it keeps its dim/advisory styling as the row's annotation.
-fn value_cell(row: &crate::tui::app::RowSnapshot, needle: &str) -> Cell<'static> {
+fn value_cell(row: &crate::tui::app::RowSnapshot, needle: &str, mode: MatchMode) -> Cell<'static> {
     let preview = cell_preview(row.value.as_deref().unwrap_or(""));
     let advisory_style = Style::default()
         .fg(Color::Yellow)
@@ -132,7 +133,7 @@ fn value_cell(row: &crate::tui::app::RowSnapshot, needle: &str) -> Cell<'static>
             if preview.is_empty() {
                 Cell::from(Line::from(comment))
             } else {
-                let mut spans = highlight_spans(&preview, needle);
+                let mut spans = highlight_spans(&preview, needle, mode);
                 spans.push(Span::raw("  "));
                 spans.push(comment);
                 Cell::from(Line::from(spans))
@@ -141,9 +142,10 @@ fn value_cell(row: &crate::tui::app::RowSnapshot, needle: &str) -> Cell<'static>
         None if row.comment_advisory.is_some() => Cell::from(Line::from(highlight_spans_styled(
             &preview,
             needle,
+            mode,
             advisory_style,
         ))),
-        None => Cell::from(Line::from(highlight_spans(&preview, needle))),
+        None => Cell::from(Line::from(highlight_spans(&preview, needle, mode))),
     }
 }
 
@@ -203,12 +205,17 @@ fn edit_overflow_hint(scroll: usize, len: usize, width: usize) -> Option<String>
 /// `needle` matched (per-field: run against the cell's own text so the match
 /// aligns with what's shown). No match → a single span carrying `base`.
 /// Consecutive same-style chars are coalesced into one span.
-fn highlight_spans_styled(text: &str, needle: &str, base: Style) -> Vec<Span<'static>> {
+fn highlight_spans_styled(
+    text: &str,
+    needle: &str,
+    mode: MatchMode,
+    base: Style,
+) -> Vec<Span<'static>> {
     let hl = base
         .fg(Color::Yellow)
         .add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
     let matched: std::collections::HashSet<usize> =
-        match crate::tui::search::fuzzy_indices(text, needle) {
+        match crate::tui::search::fuzzy_indices(text, needle, mode) {
             Some(idx) if !idx.is_empty() => idx.into_iter().collect(),
             _ => return vec![Span::styled(text.to_string(), base)],
         };
@@ -232,8 +239,8 @@ fn highlight_spans_styled(text: &str, needle: &str, base: Style) -> Vec<Span<'st
 
 /// [`highlight_spans_styled`] with no base style — the NAME cell and a plain
 /// VALUE preview.
-fn highlight_spans(text: &str, needle: &str) -> Vec<Span<'static>> {
-    highlight_spans_styled(text, needle, Style::default())
+fn highlight_spans(text: &str, needle: &str, mode: MatchMode) -> Vec<Span<'static>> {
+    highlight_spans_styled(text, needle, mode, Style::default())
 }
 
 pub fn draw(f: &mut Frame, app: &App) {
@@ -438,7 +445,7 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                         spans.extend(edit_field_spans(&e.buffer, e.cursor, e.scroll, avail));
                         (
                             Cell::from(Line::from(spans)),
-                            value_cell(row, app.session.filter.as_str()),
+                            value_cell(row, app.session.filter.as_str(), app.session.filter_match),
                         )
                     }
                 },
@@ -453,12 +460,13 @@ fn draw_tree(f: &mut Frame, area: Rect, app: &App) {
                     // so a row matched via the path shows no marks in VALUE (and
                     // vice versa) — that's honest, not a miss.
                     let needle = app.session.filter.as_str();
-                    let val_cell = value_cell(row, needle);
+                    let mode = app.session.filter_match;
+                    let val_cell = value_cell(row, needle, mode);
                     if needle.is_empty() {
                         (Cell::from(name), val_cell)
                     } else {
                         let mut name_spans = vec![Span::raw(prefix.clone())];
-                        name_spans.extend(highlight_spans(&cell_preview(&disp_key), needle));
+                        name_spans.extend(highlight_spans(&cell_preview(&disp_key), needle, mode));
                         (Cell::from(Line::from(name_spans)), val_cell)
                     }
                 }
@@ -592,7 +600,12 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
     // ` /` prefix then the buffer with the char under the caret reverse-
     // highlighted (same treatment as the inline value editor).
     if matches!(app.session.mode, Mode::Filter) {
-        let prefix = " /";
+        // `/=` marks exact (contiguous) matching; Tab toggles it.
+        let prefix = if app.session.filter_match == MatchMode::Exact {
+            " /="
+        } else {
+            " /"
+        };
         let avail = (area.width as usize).saturating_sub(prefix.chars().count());
         let mut spans = vec![Span::raw(prefix)];
         spans.extend(edit_field_spans(
@@ -669,7 +682,12 @@ fn draw_status(f: &mut Frame, area: Rect, app: &App) {
         // Tag prefix surfacing each active filter layer (text and/or type).
         let mut tags = String::new();
         if !app.session.last_filter.is_empty() {
-            tags.push_str(&format!("[filter: {}] ", app.session.last_filter));
+            let label = if app.session.filter_match == MatchMode::Exact {
+                "filter="
+            } else {
+                "filter"
+            };
+            tags.push_str(&format!("[{label}: {}] ", app.session.last_filter));
         }
         let n_types = app.session.type_filter.key_signs.len() + app.session.type_filter.types.len();
         if n_types > 0 {
@@ -829,7 +847,7 @@ mod tests {
 
     #[test]
     fn highlight_spans_marks_matched_chars() {
-        let spans = highlight_spans("server", "svr");
+        let spans = highlight_spans("server", "svr", MatchMode::Fuzzy);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
         assert_eq!(text, "server", "all chars preserved in order");
         assert!(
@@ -842,7 +860,7 @@ mod tests {
 
     #[test]
     fn highlight_spans_no_match_is_single_plain_span() {
-        let spans = highlight_spans("server", "zzz");
+        let spans = highlight_spans("server", "zzz", MatchMode::Fuzzy);
         assert_eq!(spans.len(), 1);
         assert!(!spans[0].style.add_modifier.contains(Modifier::UNDERLINED));
     }
@@ -852,7 +870,7 @@ mod tests {
     #[test]
     fn highlight_spans_styled_keeps_base_style() {
         let base = Style::default().add_modifier(Modifier::DIM);
-        let spans = highlight_spans_styled("8080", "80", base);
+        let spans = highlight_spans_styled("8080", "80", MatchMode::Fuzzy, base);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
         assert_eq!(text, "8080");
         assert!(
@@ -868,7 +886,7 @@ mod tests {
             "matched chars still get the highlight on top"
         );
         // No match → one span, base only.
-        let plain = highlight_spans_styled("8080", "zz", base);
+        let plain = highlight_spans_styled("8080", "zz", MatchMode::Fuzzy, base);
         assert_eq!(plain.len(), 1);
         assert_eq!(plain[0].style, base);
     }

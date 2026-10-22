@@ -16,12 +16,20 @@ import { escapeHtml } from "./escape.js";
 export type FuzzyMatcher = (
   haystack: string,
   needle: string,
+  exact: boolean,
 ) => number[] | Uint32Array | undefined;
 
 let matcher: FuzzyMatcher = () => undefined;
+// Mirrors `SessionSnapshot.filter_exact`; the renderers set it once per frame
+// before drawing rows, so every cell highlights with the mode that filtered it.
+let exactMode = false;
 
 export function setFuzzyMatcher(m: FuzzyMatcher): void {
   matcher = m;
+}
+
+export function setMatchExact(exact: boolean): void {
+  exactMode = exact;
 }
 
 /**
@@ -42,7 +50,7 @@ export function setFuzzyMatcher(m: FuzzyMatcher): void {
  */
 export function highlightHtml(text: string, needle: string): string {
   if (!needle) return escapeHtml(text);
-  const idx = matcher(text, needle);
+  const idx = matcher(text, needle, exactMode);
   if (!idx || idx.length === 0) return escapeHtml(text);
   const matched = new Set<number>(Array.from(idx as ArrayLike<number>));
   const chars = Array.from(text);

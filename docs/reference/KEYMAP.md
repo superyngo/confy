@@ -116,6 +116,10 @@ These are **decided, not accidental**. Do not "fix" them without changing this s
   collide with typing the path. The web instead offers a `Jsonc` pseudo-tag directly in the
   format `<select>` (`web/convert-dialog.ts`, `uiTagFor`/`extForTag`); JSONC is never a real
   `DocFormat`, it is `Json` with a `.jsonc` extension seeded.
+- **Fuzzy ↔ exact Match mode** (`Intent::ToggleFilterMatch`) — TUI binds `Tab` inside the `/`
+  input (same reason as above: not printable, so it cannot collide with the query). The web has
+  no `Mode::Filter` to bind it in, so the desktop search box and the touch search bar carry an
+  always-visible `ab` toggle button (`#searchExact` / `.exact`) instead.
 - **Quit** — `q` maps to `QuitRequested` on both, but the web passes `vshost: true` in the VS
   Code and touch hosts, which suppresses it: those surfaces have no "quit the app" concept.
 
@@ -180,7 +184,8 @@ same binding reads identically on both surfaces:
   differs (see the main table above): e.g. `first_last_row` is `Home/End` on the TUI and
   `Home/End/g/G` on the Web; `nudge` is `←/→` on the TUI and `←/→/+/-` on the Web; `save` is
   `Ctrl+s/w` on the TUI (vim alias) and `Ctrl+s` on the Web. Only three row families are
-  actually surface-prefixed: `tui.help.row.filter_lock`, `tui.help.row.convert_jsonc_toggle`,
+  actually surface-prefixed: `tui.help.row.filter_lock` / `tui.help.row.filter_exact`,
+  `tui.help.row.convert_jsonc_toggle`,
   and the `web.help.row.pointer_*` Pointer section. The `l` Language picker, `~` Diagnostics
   and `Ctrl+o` Open rows use the **shared** `help.row.*` keys (`help.row.lang_picker`,
   `help.row.diag`, `help.row.open`) even though only one surface renders each — the key is

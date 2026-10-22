@@ -37,7 +37,7 @@ async function bundle(entry) {
   return import(modUrl);
 }
 
-const { highlightHtml, setFuzzyMatcher } = await bundle("highlight.ts");
+const { highlightHtml, setFuzzyMatcher, setMatchExact } = await bundle("highlight.ts");
 
 // ---- unregistered matcher degrades to plain escaped text ----
 console.log("-- highlightHtml(): no matcher registered --");
@@ -120,6 +120,20 @@ console.log("\n-- highlightHtml(): astral chars don't shift the marks --");
   // CJK is BMP but still worth pinning as a non-ASCII path.
   const cjk = highlightHtml("伺服器port", "port");
   check("CJK prefix doesn't shift the marks", cjk === `伺服器<mark class="fz">port</mark>`, cjk);
+}
+
+console.log("\n-- setMatchExact(): the mode reaches the matcher --");
+{
+  const seen = [];
+  setFuzzyMatcher((_h, _n, exact) => {
+    seen.push(exact);
+    return undefined;
+  });
+  highlightHtml("server", "sv");
+  setMatchExact(true);
+  highlightHtml("server", "sv");
+  setMatchExact(false);
+  check("matcher gets exact=false then true", String(seen) === "false,true", String(seen));
 }
 
 console.log(failures === 0 ? "\nhighlight.spec: OK" : `\nhighlight.spec: ${failures} FAILED`);

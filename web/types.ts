@@ -299,6 +299,9 @@ export interface SessionSnapshot {
   // the input is focused, FilterResults drops it). Cells fuzzy-highlight against
   // it — see highlight.ts. "" = no filter.
   filter: string;
+  // Text filter matches each term contiguously (Intent `ToggleFilterMatch`);
+  // render.ts hands it to highlight.ts via `setMatchExact`.
+  filter_exact: boolean;
   quit: boolean;
   lang: string; // active UI language code ("en" / "zh-TW")
   cursor_blank_after: number | null; // cursor node's trailing blank-line count
@@ -334,6 +337,7 @@ export type Intent =
   | { FilterChar: string }
   | "FilterBackspace" | "FilterDelete"
   | "FilterCursorLeft" | "FilterCursorRight" | "FilterCursorHome" | "FilterCursorEnd"
+  | "ToggleFilterMatch"
   // Type filter
   | "EnterTypeFilter" | "CommitTypeFilter" | "ExitTypeFilter"
   | { TypeFilterMove: [number, number] }
