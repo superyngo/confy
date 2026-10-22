@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.3.4] - 2026-10-22
+
 ### 2026-10-22
 
 - feat(filter): exact-match toggle for the text filter. A session-only **Match mode** (fuzzy by

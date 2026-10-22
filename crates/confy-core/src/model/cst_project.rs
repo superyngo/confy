@@ -114,11 +114,9 @@ pub(crate) fn walk(syntax: &SyntaxNode, filename: &str) -> (NodeTree, CstIndex) 
                     }
                     lines.push(t.text().trim().to_string());
                 }
-                SyntaxKind::NEWLINE => {
-                    if t.text().matches('\n').count() >= 2 && !lines.is_empty() {
-                        blocks.push((lines.join("\n"), first_tok.take().expect("token")));
-                        lines.clear();
-                    }
+                SyntaxKind::NEWLINE if t.text().matches('\n').count() >= 2 && !lines.is_empty() => {
+                    blocks.push((lines.join("\n"), first_tok.take().expect("token")));
+                    lines.clear();
                 }
                 _ => {}
             },

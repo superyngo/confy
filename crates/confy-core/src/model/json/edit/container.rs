@@ -153,13 +153,13 @@ pub(super) fn collect_items_with_anchors(container: &SyntaxNode) -> Vec<(String,
                 flush_block!();
                 items.push((t.text().trim_end().to_string(), child.clone()));
             }
-            rowan::NodeOrToken::Token(t) if t.kind() == SyntaxKind::NEWLINE => {
-                if !block.is_empty() {
-                    if seen_newline {
-                        flush_block!();
-                    } else {
-                        seen_newline = true;
-                    }
+            rowan::NodeOrToken::Token(t)
+                if t.kind() == SyntaxKind::NEWLINE && !block.is_empty() =>
+            {
+                if seen_newline {
+                    flush_block!();
+                } else {
+                    seen_newline = true;
                 }
             }
             _ => {}
